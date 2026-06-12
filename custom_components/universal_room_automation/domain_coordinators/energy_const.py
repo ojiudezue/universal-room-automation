@@ -616,6 +616,16 @@ ENVOY_ERR_ENTITY_MISSING: Final = "envoy_entity_missing"
 ENVOY_ERR_DERIVED_MISSING: Final = "derived_entity_missing"
 ENVOY_ERR_BASE_DERIVED_MISSING: Final = "envoy_derived_missing"
 
+# EC Envoy boot-decoupling cycle: degraded-but-OK reasons.
+# Used when the entity is registry-known (i.e., user config is valid) but
+# `hass.states.get` returns None or the state is `unavailable`/`unknown`
+# because the device is mid-boot / mid-recovery. EC proceeds; runtime is
+# already None-safe (energy_battery.py:928/945 holds state when Envoy
+# blips). Repair issue is NOT raised at this layer; D3's deferred
+# re-validation handles the post-EVENT_HOMEASSISTANT_STARTED surface.
+ENVOY_DEGRADED_STATE_MISSING: Final = "state_missing"
+ENVOY_DEGRADED_STATE_UNAVAILABLE: Final = "state_unavailable"
+
 
 # v4.3.0 D3: Threshold ladder validator.
 # The coherent ladder is:
@@ -690,6 +700,35 @@ def validate_threshold_ladder(
     return None
 
 
+def _entity_in_registry(hass, entity_id: str) -> bool:
+    """Return True iff entity_id is known to the entity registry.
+
+    Used by validate_envoy_config to distinguish "user picked a non-existent
+    entity" (registry-absent → hard fail) from "Enphase integration is
+    still booting / device is recovering" (registry-known but state-missing
+    → degraded, EC still starts). The entity registry is the durable
+    source-of-truth (survives restart and is populated before state
+    machine entries for the device come online).
+
+    Safe-guarded: if entity_registry import or lookup raises (test harness
+    without a real ent_reg fixture), fall back to the state-machine check.
+    """
+    try:
+        from homeassistant.helpers import entity_registry as er
+        ent_reg = er.async_get(hass)
+        if ent_reg is None:  # defensive
+            return hass.states.get(entity_id) is not None
+        return ent_reg.async_get(entity_id) is not None
+    except Exception:  # noqa: BLE001
+        # Fallback: if registry isn't available in this context (rare —
+        # only some unit-test harnesses), use the state-machine check so
+        # behavior is at worst equivalent to the pre-cycle V2 contract.
+        try:
+            return hass.states.get(entity_id) is not None
+        except Exception:  # noqa: BLE001
+            return False
+
+
 def validate_envoy_config(
     hass,
     energy_entity_config: dict,
@@ -698,6 +737,16 @@ def validate_envoy_config(
 
     v4.2.29: Replaces silent-fallback-to-wrong-default with explicit validation.
 
+    EC Envoy boot-decoupling cycle: V2 and V4 are three-way now.
+      - REGISTRY-ABSENT  → hard fail (user picked a non-existent entity).
+      - REGISTRY-KNOWN + state missing/unavailable → DEGRADED (ok=True,
+        degraded=True). EC still registers; runtime is None-safe.
+      - REGISTRY-KNOWN + state present + not unavailable → LIVE
+        (ok=True, degraded=False). Today's pass path.
+
+    V0 (field set) and V1 (parseable serial) remain hard-fail unchanged —
+    these are user-actionable config errors that cannot be boot-race-recovered.
+
     Returns a dict:
       - ok (bool): True iff no hard-fail check tripped.
       - errors (dict[str, str]): {field_or_'base': error_code}. Empty if ok.
@@ -705,23 +754,27 @@ def validate_envoy_config(
       - serial (str | None): parsed serial when V1 passes, else None.
       - resolved (dict[str, str]): entities the EC would actually use, after
         applying explicit overrides on top of derived-from-serial defaults.
-
-    Validation tiers:
-      V0: envoy_entity field is set (non-empty)
-      V1: extract_envoy_serial returns a serial
-      V2: hass.states.get(envoy_entity) is not None
-      V3: state is not 'unavailable'/'unknown'  (warning only)
-      V4: critical derived entities (NET_POWER, SOLAR, LIFETIME_NET_IMPORT,
-          LIFETIME_CONSUMPTION) all exist in HA. If user explicitly overrode
-          a CONF_ENERGY_*_ENTITY, the override is checked instead of derived.
+      - degraded (bool): True when the envoy entity is registry-known but
+        its state is missing/unavailable (device mid-boot/recovery). This
+        flag is independent of `ok`: `degraded=True` can co-occur with
+        `ok=False` when the envoy is degraded AND a derived entity is
+        registry-absent. Consumers MUST gate on `ok` first.
+      - degraded_reason (str | None): one of ENVOY_DEGRADED_STATE_MISSING /
+        ENVOY_DEGRADED_STATE_UNAVAILABLE when degraded; None otherwise.
+      - entity_registry_known (bool): True iff the envoy entity is in the
+        HA entity registry. False on V0/V1 hard-fail (no eid to look up).
 
     Used by:
-      - config_flow.async_step_coordinator_energy: reject save on hard-fail
-      - __init__.py: skip EC registration + raise repair issue on hard-fail
+      - config_flow.async_step_coordinator_energy: reject save on hard-fail.
+      - __init__.py: skip EC registration ONLY on V0/V1/registry-absent;
+        proceed otherwise (degraded is fine — runtime degrades gracefully).
+      - repairs.py: re-run after user re-saves config to clear the issue.
     """
     errors: dict[str, str] = {}
     warnings: list[str] = []
     resolved: dict[str, str] = {}
+    degraded: bool = False
+    degraded_reason: str | None = None
 
     envoy_eid = (energy_entity_config or {}).get(CONF_ENERGY_ENVOY_ENTITY)
 
@@ -731,6 +784,8 @@ def validate_envoy_config(
         return {
             "ok": False, "errors": errors, "warnings": warnings,
             "serial": None, "resolved": resolved,
+            "degraded": False, "degraded_reason": None,
+            "entity_registry_known": False,
         }
 
     # V1: parseable
@@ -740,25 +795,47 @@ def validate_envoy_config(
         return {
             "ok": False, "errors": errors, "warnings": warnings,
             "serial": None, "resolved": resolved,
+            "degraded": False, "degraded_reason": None,
+            "entity_registry_known": False,
         }
 
-    # V2: entity exists in HA
-    state = hass.states.get(envoy_eid)
-    if state is None:
+    # V2: entity registry membership (three-way).
+    # Registry-absent is a genuine config error — user picked an entity
+    # that does not exist or has been removed. Registry-known + state-missing
+    # is the boot-race / device-recovery case and must NOT be a hard fail
+    # (this is Failure B from the 2026-06-12 incident).
+    envoy_registry_known = _entity_in_registry(hass, envoy_eid)
+    if not envoy_registry_known:
         errors[CONF_ENERGY_ENVOY_ENTITY] = ENVOY_ERR_ENTITY_MISSING
         return {
             "ok": False, "errors": errors, "warnings": warnings,
             "serial": serial, "resolved": resolved,
+            "degraded": False, "degraded_reason": None,
+            "entity_registry_known": False,
         }
 
-    # V3: state not unavailable (warning only — Envoy can blip)
-    if state.state in ("unavailable", "unknown"):
+    # Registry-known: check live state for degraded reason.
+    state = hass.states.get(envoy_eid)
+    if state is None:
+        degraded = True
+        degraded_reason = ENVOY_DEGRADED_STATE_MISSING
+        warnings.append(
+            f"Envoy entity '{envoy_eid}' is registry-known but has no "
+            "state yet (device still booting/recovering) — EC will start "
+            "and degrade gracefully until state appears"
+        )
+    elif state.state in ("unavailable", "unknown"):
+        degraded = True
+        degraded_reason = ENVOY_DEGRADED_STATE_UNAVAILABLE
         warnings.append(
             f"Envoy entity '{envoy_eid}' is currently '{state.state}' — "
-            "config saved, but verify Enphase integration is online"
+            "EC will start and degrade gracefully; verify Enphase "
+            "integration is online if this persists"
         )
 
-    # V4: critical derived entities exist (after explicit-override layering)
+    # V4: critical derived entities — same three-way treatment.
+    # Registry-absent → hard fail (config error). Registry-known but
+    # state-missing → degraded (already covered above; do not add error).
     derived = derive_envoy_config(serial)
     for key, derived_eid in derived.items():
         # Explicit override wins over derived; mirrors __init__.py:1386 setdefault
@@ -766,8 +843,42 @@ def validate_envoy_config(
 
     for key in ENVOY_REQUIRED_DERIVED_KEYS:
         eid = resolved.get(key)
-        if not eid or hass.states.get(eid) is None:
+        if not eid:
             errors[key] = ENVOY_ERR_DERIVED_MISSING
+            continue
+        # B2 fix: existence = registry-known OR state-present. State-only
+        # entities (e.g. YAML template sensors without unique_id) have no
+        # registry row but a live state; pre-cycle V4 used hass.states.get
+        # so they passed. Restore that behavior.
+        if (
+            not _entity_in_registry(hass, eid)
+            and hass.states.get(eid) is None
+        ):
+            errors[key] = ENVOY_ERR_DERIVED_MISSING
+            continue
+        # Registry-known or state-known but state may be None / unavailable
+        # / unknown (mid-boot). Do NOT hard-fail; mark degraded if not
+        # already. B3 fix: treat unavailable/unknown as degraded, mirroring
+        # V2 (energy_const.py:823) — Bug Class #22 (enum/state mismatch).
+        _derived_state = hass.states.get(eid)
+        if _derived_state is None and not degraded:
+            degraded = True
+            degraded_reason = ENVOY_DEGRADED_STATE_MISSING
+            warnings.append(
+                f"Envoy derived entity '{eid}' is registry-known but has "
+                "no state yet (device mid-boot)"
+            )
+        elif (
+            _derived_state is not None
+            and _derived_state.state in ("unavailable", "unknown")
+            and not degraded
+        ):
+            degraded = True
+            degraded_reason = ENVOY_DEGRADED_STATE_UNAVAILABLE
+            warnings.append(
+                f"Envoy derived entity '{eid}' is currently "
+                f"'{_derived_state.state}' (device mid-boot/recovery)"
+            )
 
     return {
         "ok": not errors,
@@ -775,4 +886,7 @@ def validate_envoy_config(
         "warnings": warnings,
         "serial": serial,
         "resolved": resolved,
+        "degraded": degraded,
+        "degraded_reason": degraded_reason,
+        "entity_registry_known": True,
     }

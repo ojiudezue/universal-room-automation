@@ -417,13 +417,19 @@ class EnergyCoordinator(BaseCoordinator):
         # every honor call, so reads are valid only inside the same callback.
         self._last_veto_reason: str | None = None
 
-        # v4.7.x D2 fix-up H1: track how many of the 5 EC sub-switches
-        # have NOT yet completed their deferred restore.  Each switch calls
-        # notify_sub_switch_restore_complete() when _handle_ec_ready lands
-        # successfully.  ECSubSwitchesSyncedSensor reads sub_switches_synced().
-        # There are exactly 6 factory-generated EC sub-switches (v4.7.2.1:
-        # OccupancyWeightedPredictionSwitch converted to factory, +1).
-        self._pending_sub_switch_restores: int = 6
+        # v4.7.x D2 fix-up H1 + boot-decoupling C7 fix: track sub-switch
+        # deferred-restore convergence DYNAMICALLY.  The counter starts at
+        # 0 and is incremented by each registering switch via
+        # register_sub_switch_for_restore_accounting() at construction time
+        # (called from the factory body and HVACDynamicPresetSwitch.__init__).
+        # This replaces the prior hardcoded 6, which was stale (real
+        # population is 8: 7 factory EC sub-switches + HVACDynamicPresetSwitch)
+        # and would early-converge ECSubSwitchesSyncedSensor and mask a
+        # genuinely stuck switch.
+        self._pending_sub_switch_restores: int = 0
+        # Track which switches have registered so reload-resets don't
+        # double-count.  Key = unique_suffix string supplied by the caller.
+        self._registered_sub_switches: set[str] = set()
 
         # State tracking
         self._last_battery_decision: dict[str, Any] = {}
@@ -492,6 +498,14 @@ class EnergyCoordinator(BaseCoordinator):
         # Envoy availability tracking
         self._envoy_unavailable_count: int = 0
         self._envoy_last_available: str | None = None
+        # EC Envoy boot-decoupling D7: degraded observability.
+        # `_envoy_degraded` is True while the per-cycle envoy read is
+        # unavailable (critical envoy entities missing/unavailable this
+        # cycle); `_envoy_degraded_since` is the ISO timestamp at which
+        # the current degraded streak began (None when not degraded).
+        # Surfaced as attributes on sensor.ura_energy_envoy_status.
+        self._envoy_degraded: bool = False
+        self._envoy_degraded_since: str | None = None
         # v4.3.0 D6: timestamp of most recent cross-check data anomaly. When
         # set within the last hour, EnvoyStatusSensor reports "stale" even
         # though state objects look fresh — covers the v4.2.28 latent defect
@@ -1649,8 +1663,15 @@ class EnergyCoordinator(BaseCoordinator):
                 )
             self._envoy_unavailable_count = 0
             self._envoy_last_available = dt_util.now().isoformat()
+            # D7: clear degraded flag on recovery.
+            self._envoy_degraded = False
+            self._envoy_degraded_since = None
         else:
             self._envoy_unavailable_count += 1
+            # D7: mark degraded; stamp `_since` on first unavailable cycle.
+            if not self._envoy_degraded:
+                self._envoy_degraded = True
+                self._envoy_degraded_since = dt_util.now().isoformat()
             # Alert via NM after 3 consecutive misses (~15 minutes)
             if self._envoy_unavailable_count == 3:
                 self.hass.async_create_task(
@@ -4586,6 +4607,27 @@ class EnergyCoordinator(BaseCoordinator):
             "fan_assist": self._hvac_constraint_mode in ("coast", "shed"),
         }
 
+    # boot-decoupling C7 fix: dynamic registration of sub-switches for
+    # restore accounting. Each switch (factory and HVACDynamicPresetSwitch)
+    # calls this at construction so the pending counter reflects the actual
+    # population — no hardcoded 6.
+    def register_sub_switch_for_restore_accounting(
+        self, unique_suffix: str,
+    ) -> None:
+        """Register a sub-switch for deferred-restore convergence tracking.
+
+        Idempotent — repeat registrations (e.g. on reload) are no-ops.
+        """
+        if unique_suffix in self._registered_sub_switches:
+            return
+        self._registered_sub_switches.add(unique_suffix)
+        self._pending_sub_switch_restores += 1
+        _LOGGER.debug(
+            "EC sub-switch registered for restore accounting: %s "
+            "(pending=%d)",
+            unique_suffix, self._pending_sub_switch_restores,
+        )
+
     # v4.7.x D2 fix-up H1: sub-switch restore completion tracking
     def notify_sub_switch_restore_complete(self) -> None:
         """Called by each EC sub-switch when its deferred restore completes.
@@ -4602,7 +4644,12 @@ class EnergyCoordinator(BaseCoordinator):
             )
 
     def sub_switches_synced(self) -> bool:
-        """Return True when all 6 EC sub-switches have completed deferred restore."""
+        """Return True when all registered EC sub-switches have completed
+        their deferred restore.
+
+        Counter population is dynamic (see
+        register_sub_switch_for_restore_accounting).
+        """
         return self._pending_sub_switch_restores == 0
 
     @property

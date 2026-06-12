@@ -2096,6 +2096,75 @@ summer mid_peak gate fix. First instance: summer mid_peak hold
 
 ---
 
+### Bug Class #52 — RestoreEntity unavailable-coercion ⚠️
+
+**Symptom.** A `RestoreEntity.async_added_to_hass` does
+`target = last_state.state == "on"` (or analogous `== "1"` / `== <enum>`)
+without first guarding against `unavailable` / `unknown`. When the
+previous run wrote `unavailable` to `core.restore_state` (boot races,
+integration outages, or any other reason an entity was unavailable at
+shutdown), the next boot silently coerces that to **False**, then either
+`setattr`s False onto a coordinator field or writes False to its own
+`_is_on` attribute. Result: a switch the user intended ON, and that the
+constructor / `entry.options` correctly seeded ON, silently flips OFF.
+The user has no signal — no error, no log, no repair issue — until they
+notice automation is no longer running.
+
+**Exemplar — EC sub-switches (this cycle's incident).** On 2026-06-12,
+an Envoy LAN outage produced a boot where EC failed to register (Bug
+class #B from the cycle). The 6 EC sub-switches stored `unavailable`
+into RestoreEntity state. The next boot, the factory at
+`switch.py:617-648` ran `target = last_state.state == "on"` →
+`target=False` → `setattr(energy, attr_name, False)` for every switch.
+All 6 intended-ON switches (grid arbitrage, EV TOU management, EVSE
+solar-aware, grid import cap, dynamic preset overrides, solar HVAC
+banking) silently flipped OFF; manually re-enabled at 06:15 Z.
+`HVACDynamicPresetSwitch` at `switch.py:1040-1075` had the identical
+pattern and the identical risk.
+
+**Common shape.**
+- A `RestoreEntity` subclass.
+- An `async_added_to_hass` that reads `last_state = await self.async_get_last_state()`.
+- A guard for `last_state is None` (first install), but NO guard for
+  `last_state.state not in ("on", "off")` (or analogous valid-states).
+- A subsequent `setattr` to a coordinator OR a `self._is_on =`
+  assignment that overrides a correctly-seeded constructor / options value.
+
+**Fix pattern.**
+1. Immediately after the `last_state is None` check, add:
+   ```python
+   if last_state.state not in ("on", "off"):
+       _LOGGER.info(
+           "Skipping RestoreEntity restore for %s — last_state=%s — "
+           "keeping options-seeded value %s",
+           self.unique_id, last_state.state, current_value,
+       )
+       return
+   ```
+   Treat skip identically to the first-install branch: the constructor /
+   `entry.options` / default is the source of truth; no restore is
+   applied, no deferred-restore retry is scheduled.
+2. For multi-state entities (select, sensor with enum states) use the
+   same guard against the entity's valid states set, not just
+   `("on", "off")`.
+3. CRITICAL: do NOT leave `_deferred_restore=True` when skipping — that
+   would mean a later SIGNAL_*_READY fire would still apply the
+   coerced-False value. The skip path is "constructor seed wins, chain
+   ends here", same semantics as `last_state is None`.
+
+**Detection.** Grep for `last_state.state == "on"` (or `== "1"`, etc.)
+in `switch.py` / `binary_sensor.py` / `select.py`. Any hit that lacks a
+preceding `if last_state.state not in (...): return` guard AND that
+ends in `setattr(<coordinator>, ...)` or `self._is_on = ...` /
+`self._attr_is_on = ...` is a candidate. Filed 2026-06-12 with the EC
+Envoy boot-decoupling cycle. First instances fixed: `_ec_switch_factory`
+at `switch.py:617-648` and `HVACDynamicPresetSwitch` at
+`switch.py:1040-1075`. 23 remaining `== "on"` call sites in `switch.py`
+audited and deferred to a follow-up cycle (see review ledger
+`docs/reviews/code-review/ec_envoy_boot_decoupling.md`).
+
+---
+
 ## ✅ MANDATORY VALIDATION CHECKLIST
 
 **Before EVERY deployment, complete this checklist:**
