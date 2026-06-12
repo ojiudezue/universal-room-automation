@@ -18,17 +18,22 @@ from homeassistant.util import dt as dt_util
 
 from ..const import (
     CONF_ENTRY_TYPE,
+    CONF_FAN_SLEEP_POLICY,
     CONF_FANS,
     CONF_HUMIDITY_FANS,
     CONF_HUMIDITY_FAN_MAX_RUNTIME,
     CONF_HUMIDITY_FAN_THRESHOLD,
     CONF_ROOM_NAME,
     CONF_ROOM_TYPE,
+    DEFAULT_FAN_SLEEP_POLICY,
     DEFAULT_HUMIDITY_FAN_HYSTERESIS,
     DEFAULT_HUMIDITY_FAN_MAX_RUNTIME,
     DEFAULT_HUMIDITY_THRESHOLD,
     DOMAIN,
     ENTRY_TYPE_ROOM,
+    FAN_SLEEP_NORMAL,
+    FAN_SLEEP_OFF,
+    FAN_SLEEP_REDUCE,
     ROOM_TYPE_BEDROOM,
     ROOM_TYPE_GENERIC,
 )
@@ -43,6 +48,7 @@ from .hvac_const import (
     FAN_SPEED_LOW_PCT,
     FAN_SPEED_MED_DELTA,
     FAN_SPEED_MED_PCT,
+    FAN_TRUST_STATES,
 )
 from .hvac_zones import ZoneManager
 from .signals import EnergyConstraint
@@ -74,6 +80,14 @@ class RoomFanState:
     # FanController.update skips this room's fan write so the room-tier
     # recheck mechanism can pause + observe mmwave without HVAC re-issuing.
     fan_recheck_suppress_until: str = ""
+    # Per-room CONF_FAN_SLEEP_POLICY (off/reduce/normal). Drives the
+    # night-trust speed cap at FanController.update — `normal` skips the
+    # cap entirely, `reduce` caps at FAN_SPEED_LOW_PCT (legacy behavior),
+    # `off` is honored by the room-level path in automation.py and is
+    # left alone here (coordinator side does NOT force-off — the
+    # room-level path already turns the fan off at sleep with policy=off).
+    # Defaults to "reduce" to preserve prior behavior for unset rooms.
+    fan_sleep_policy: str = DEFAULT_FAN_SLEEP_POLICY
     # v4.6.2.1: Humidity fan config pulled from room options at registration time
     humidity_fan_threshold: float = DEFAULT_HUMIDITY_THRESHOLD
     humidity_fan_max_runtime: int = DEFAULT_HUMIDITY_FAN_MAX_RUNTIME
@@ -159,6 +173,9 @@ class FanController:
                 ),
                 humidity_fan_max_runtime=int(
                     merged.get(CONF_HUMIDITY_FAN_MAX_RUNTIME, DEFAULT_HUMIDITY_FAN_MAX_RUNTIME)
+                ),
+                fan_sleep_policy=str(
+                    merged.get(CONF_FAN_SLEEP_POLICY, DEFAULT_FAN_SLEEP_POLICY)
                 ),
             )
 
@@ -259,14 +276,40 @@ class FanController:
             occupied = room_cond.occupied if room_cond else False
             setpoint_high = zone.target_temp_high
 
+            # Per-room policy refreshed live each cycle (operator review
+            # fix-up 2026-06-11 A-M1/A-M2): RoomFanState.fan_sleep_policy is
+            # populated at discover_fans() but a runtime Options Flow change
+            # would not take effect until reload. Read-through from the
+            # config entry each tick keeps the cached field as fallback for
+            # missing/empty values; production behavior tracks the latest
+            # option without requiring a coordinator reload.
+            live_policy = self._resolve_live_fan_sleep_policy(room_name, room_fan)
+
             # Evaluate temperature fans
             if room_fan.fan_entities and setpoint_high is not None and room_temp is not None:
                 should_on, trigger, speed = self._evaluate_temp_fan(
-                    room_fan, room_temp, setpoint_high, occupied, now
+                    room_fan, room_temp, setpoint_high, occupied, now, live_policy
                 )
-                # v3.18.1: Cap fan speed during sleep
-                if should_on and self._house_state == "sleep":
-                    speed = min(speed, FAN_SPEED_LOW_PCT)
+                # v3.18.1 + fan-trust state extension (2026-06-11):
+                # During the night-trust window the speed cap is HOUSE-
+                # WIDE at `sleep` (everyone is sleeping; LOW everywhere is
+                # the comfort contract); at `home_night`/`waking` the cap
+                # is BEDROOMS-ONLY (don't LOW-cap a living-room fan during
+                # late-evening TV — operator A-M1). Per-room policy:
+                #   normal — no cap (operator opted out)
+                #   reduce — cap at FAN_SPEED_LOW_PCT (legacy v3.18.1)
+                #   off    — cap at LOW conservatively (fan SHOULDN'T be
+                #            running per operator intent; if some path
+                #            activated it anyway, at least cap to LOW). The
+                #            room-level path in automation.py:1515 handles
+                #            the explicit force-off via is_sleep_mode_active
+                #            time-window. NB: automation.py:1509 returns
+                #            BEFORE that branch when HVAC manages the
+                #            room's fans (pre-existing dead path; backlog).
+                if should_on:
+                    speed = self._apply_night_trust_speed_cap(
+                        room_fan, speed, live_policy,
+                    )
                 if should_on != room_fan.is_on or (should_on and speed != room_fan.speed_pct):
                     await self._set_fan_state(
                         room_fan.fan_entities, should_on, speed
@@ -330,6 +373,79 @@ class FanController:
                     else:
                         room_fan.humidity_on_since = None
 
+    def _apply_night_trust_speed_cap(
+        self, room_fan: RoomFanState, speed: int, live_policy: str | None,
+    ) -> int:
+        """Apply the v3.18.1 night-trust speed cap, scoped by state + policy.
+
+        Cap scope (operator decision 2026-06-11):
+          - sleep: house-wide (everyone is sleeping; LOW everywhere).
+          - home_night / waking: BEDROOMS ONLY (no LOW-cap on a living-
+            room fan during late-evening TV).
+        Policy mapping:
+          - normal -> no cap (operator opted out)
+          - reduce -> cap at FAN_SPEED_LOW_PCT (legacy v3.18.1)
+          - off    -> cap at FAN_SPEED_LOW_PCT conservatively (the
+            room-level path in automation.py:1515 handles the explicit
+            force-off via is_sleep_mode_active; but automation.py:1509
+            returns BEFORE that branch when HVAC manages the room — a
+            pre-existing dead path. Backlog: lift the early-return so
+            policy=off reaches the room-level force-off for HVAC-
+            managed rooms.)
+        """
+        if self._house_state not in FAN_TRUST_STATES:
+            return speed
+        cap_in_scope = (
+            self._house_state == "sleep"
+            or room_fan.room_type == ROOM_TYPE_BEDROOM
+        )
+        if not cap_in_scope:
+            return speed
+        policy = (live_policy or room_fan.fan_sleep_policy
+                  or DEFAULT_FAN_SLEEP_POLICY)
+        if policy == FAN_SLEEP_REDUCE:
+            return min(speed, FAN_SPEED_LOW_PCT)
+        if policy == FAN_SLEEP_OFF:
+            return min(speed, FAN_SPEED_LOW_PCT)
+        # FAN_SLEEP_NORMAL -> no cap
+        return speed
+
+    def _resolve_live_fan_sleep_policy(
+        self, room_name: str, room_fan: RoomFanState,
+    ) -> str:
+        """Resolve per-room CONF_FAN_SLEEP_POLICY LIVE each cycle.
+
+        Operator review A-M1/A-M2 fix-up 2026-06-11: discover_fans()
+        caches the policy at registration, but an Options-Flow change
+        wouldn't take effect until reload. Reading through to the live
+        config-entry options each tick keeps RoomFanState's cached field
+        as a fallback while preferring the latest user-set value.
+        Read failures fall back silently to the cached field.
+        """
+        cached = room_fan.fan_sleep_policy or DEFAULT_FAN_SLEEP_POLICY
+        try:
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                    continue
+                if entry.data.get(CONF_ROOM_NAME) != room_name:
+                    continue
+                merged = {**entry.data, **entry.options}
+                live = merged.get(CONF_FAN_SLEEP_POLICY)
+                if live:
+                    policy = str(live)
+                    # Cheap cache refresh so other call-sites that read
+                    # the dataclass field see the latest policy.
+                    if policy != room_fan.fan_sleep_policy:
+                        room_fan.fan_sleep_policy = policy
+                    return policy
+                break
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "HVAC Fans: %s live policy read failed (%s); using cached %s",
+                room_name, exc, cached,
+            )
+        return cached
+
     def _evaluate_temp_fan(
         self,
         room_fan: RoomFanState,
@@ -337,6 +453,7 @@ class FanController:
         setpoint_high: float,
         occupied: bool,
         now: datetime,
+        live_policy: str | None = None,
     ) -> tuple[bool, str, int]:
         """Evaluate whether temperature fan should be on.
 
@@ -357,47 +474,51 @@ class FanController:
             except (ValueError, TypeError):
                 room_fan.manual_off_cooldown_until = ""
 
-        # Sleep-state occupied fan trust — companion to v4.7.13's OFF-side
-        # vacancy-hold trust. Symmetric ON-side: while occupied during
-        # sleep IN A BEDROOM, the temperature off-path is suppressed
-        # (people prefer cool moving air at sleep setpoint, and fans aid
-        # HVAC efficiency at sleep targets). v3.18.1 speed cap at the
-        # dispatch site still caps speed to LOW. Manual-off cooldown above
-        # this block still wins — explicit user override preserved.
-        # Triggered by 2026-06-01 00:11 CDT incident: Bryant Z1 preset
-        # oscillation pushed target_high to 77°F while room was at 76°F
-        # → delta=-1°F → off-threshold at line 387 → fan.turn_off written.
-        # Bedroom-only gate prevents spurious mid-night presence in common
-        # areas (kitchen, living room, hallways) from activating fans.
+        # Night-window occupied fan trust — companion to v4.7.13's OFF-side
+        # vacancy-hold trust. ON-side semantics (B-H2 / B-M1 / C-3 review
+        # fix-up 2026-06-11):
+        #   - HOLD (fan already on): extended to FAN_TRUST_STATES so a
+        #     fan that's running keeps running while at least one bedroom
+        #     occupant is present at home_night/sleep/waking (mmWave drops
+        #     still bodies in bed at all three flank states).
+        #   - ACTIVATE (fan currently off → turn on): kept SLEEP-ONLY.
+        #     The operator's request was to extend STOP control; auto-
+        #     activating fans at home_night/waking was over-extension and
+        #     surprises people who are awake and mobile.
+        # Bedroom-only gate preserved (prevents kitchen/living-room
+        # presence from holding fans on). Policy=off rooms are NEVER
+        # coordinator-activated even at sleep (fixes the pre-existing
+        # dueling-writers exposure with the room-level path).
+        # Bidirectionality: only suppresses while `occupied` is True —
+        # genuinely vacated rooms fall through to the vacancy timer below.
+        # Manual-off cooldown above this block still wins.
         if (
-            self._house_state == "sleep"
+            self._house_state in FAN_TRUST_STATES
             and occupied
             and room_fan.room_type == ROOM_TYPE_BEDROOM
         ):
-            # Reviewer B fix-up B-MED-1: clear any stale vacancy anchor
-            # left over from a prior unoccupied tick. Without this, if the
-            # room subsequently becomes unoccupied mid-night, the vacancy
-            # timer at line ~354 would compute vacancy_seconds from a
-            # very old anchor and bypass DEFAULT_FAN_VACANCY_HOLD instantly
-            # — fan would turn off the moment occupancy drops instead of
-            # honoring the grace window.
+            # Reviewer B fix-up B-MED-1: clear any stale vacancy anchor.
             room_fan.vacancy_detected_time = ""
-            # Reviewer A fix-up B-M2: distinct labels for hold vs activate.
-            # Preserving the prior trigger when running keeps audit fidelity
-            # (a fan turned on by `fan_assist` stays labeled `fan_assist`
-            # even though sleep+occupied is preventing it from turning off).
-            # Use explicit `sleep_occupied_hold` only when prior trigger is
-            # truly absent (post-reload window). Use `sleep_occupied_activate`
-            # when this branch turns the fan on from off, so diagnostics can
-            # distinguish "we kept it running" from "we turned it on".
-            # Reviewer A fix-up B-M3: this branch intentionally bypasses
-            # the `fan_assist` energy boost below — the v3.18.1 sleep cap
-            # already constrains speed to LOW, so a boost would be capped
-            # anyway. Documented here so future readers don't try to
-            # restore the energy branch during sleep.
             if room_fan.is_on:
-                return True, room_fan.trigger or "sleep_occupied_hold", room_fan.speed_pct
-            return True, "sleep_occupied_activate", FAN_SPEED_LOW_PCT
+                # HOLD across all three states.
+                return (
+                    True,
+                    room_fan.trigger or f"night_trust_hold:{self._house_state}",
+                    room_fan.speed_pct,
+                )
+            # ACTIVATE path — SLEEP-ONLY (operator decision 2026-06-11);
+            # exclude policy=off rooms even at sleep.
+            policy = (live_policy or room_fan.fan_sleep_policy
+                      or DEFAULT_FAN_SLEEP_POLICY)
+            if self._house_state == "sleep" and policy != FAN_SLEEP_OFF:
+                return (
+                    True,
+                    f"night_trust_activate:{self._house_state}",
+                    FAN_SPEED_LOW_PCT,
+                )
+            # home_night / waking / policy=off — fall through to the
+            # standard temp-driven evaluation below; ON-side activation
+            # is deferred to those paths.
 
         # Occupancy gate: don't activate fans in unoccupied rooms
         if not occupied and not room_fan.is_on:
@@ -410,12 +531,27 @@ class FanController:
                 room_fan.vacancy_detected_time = now.isoformat()
             vacancy_since = datetime.fromisoformat(room_fan.vacancy_detected_time)
             vacancy_seconds = (now - vacancy_since).total_seconds()
-            # v4.7.13: Sleep-state zone presence trust — indefinite hold during
-            # sleep when any zone_persons member is "home". Covers motionless
-            # sleepers whose mmWave drops them mid-night. Vacancy timer is NOT
-            # cleared, so if the person tracker subsequently goes not-home
-            # during sleep, normal vacancy expiry takes over on the next tick.
-            if self._house_state == "sleep":
+            # v4.7.13 + fan-trust extension: Night-window zone presence
+            # trust — indefinite hold while at least one zone_persons
+            # member is "home". State-scoped evidence tier (B-C1 / A-H2
+            # review fix-up 2026-06-11):
+            #   - sleep: zone-person proxy alone is sound (`home` ⇒ in
+            #     bed somewhere in the zone; zone is typically one bedroom).
+            #   - home_night / waking: people roam during these flank
+            #     states (kitchen, hallways, bathrooms), so the zone-
+            #     person proxy alone would hold fans on in empty rooms
+            #     for hours. Require ROOM_TYPE_BEDROOM as well — only
+            #     bedrooms have the sensor-degeneration problem that
+            #     justifies an indefinite hold here.
+            # Vacancy timer is NOT cleared; if the person tracker goes
+            # not-home during the trust window, vacancy expiry takes over.
+            # Bidirectionality: with all trackers not-home this branch
+            # falls through and the DEFAULT_FAN_VACANCY_HOLD timer fires.
+            person_evidence_ok = (
+                self._house_state == "sleep"
+                or room_fan.room_type == ROOM_TYPE_BEDROOM
+            )
+            if self._house_state in FAN_TRUST_STATES and person_evidence_ok:
                 try:
                     zone = self._zone_manager.zones.get(room_fan.zone_id)
                     if zone is not None:
@@ -424,13 +560,15 @@ class FanController:
                             if st is not None and st.state == "home":
                                 _LOGGER.debug(
                                     "HVAC Fans: %s vacancy hold extended during "
-                                    "sleep (person %s home)",
-                                    room_fan.room_name, person_entity,
+                                    "%s (person %s home)",
+                                    room_fan.room_name,
+                                    self._house_state,
+                                    person_entity,
                                 )
                                 return True, room_fan.trigger, room_fan.speed_pct
                 except Exception as exc:  # noqa: BLE001
                     _LOGGER.debug(
-                        "HVAC Fans: %s sleep-state person check errored: %s",
+                        "HVAC Fans: %s night-trust person check errored: %s",
                         room_fan.room_name, exc,
                     )
             if vacancy_seconds >= DEFAULT_FAN_VACANCY_HOLD:

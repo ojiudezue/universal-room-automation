@@ -303,6 +303,20 @@ DEFAULT_FAN_VACANCY_HOLD: Final = 300  # 5 min hold after vacancy
 # v4.6.2.1: Humidity-fan on/off thresholds moved to ..const as
 # DEFAULT_HUMIDITY_THRESHOLD and DEFAULT_HUMIDITY_FAN_HYSTERESIS.
 
+# Night-window occupant fan-trust states.
+# Extends the v4.7.13 sleep-only trust to the two states that flank
+# sleep — HOME_NIGHT (winding down, often in bed before official sleep)
+# and WAKING (groggy, still in bed). In all three states mmWave equally
+# degrades on still bodies; bedroom occupants don't want fans cycled by
+# presence blips. Bare-string tuple intentional — values match the
+# HouseState StrEnum tokens at house_state.py:29-31 ("home_night",
+# "sleep", "waking"); using bare strings here avoids an import cycle
+# (hvac_const.py is leaf-level).
+# Consumed at hvac_fans.py (speed cap, sleep_occupied_hold, vacancy-hold
+# person-trust) and hvac.py (zone-preset person-trust). Mode-2 BLE
+# recheck (presence_fan_recheck.py) deliberately stays sleep-only.
+FAN_TRUST_STATES: Final = ("home_night", "sleep", "waking")
+
 # Cover Controller
 COVER_SOLAR_MONTHS: Final = frozenset({4, 5, 6, 7, 8, 9, 10})
 COVER_SOLAR_HOUR_START: Final = 13
