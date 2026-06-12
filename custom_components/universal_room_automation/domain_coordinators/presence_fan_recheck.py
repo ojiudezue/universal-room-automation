@@ -245,8 +245,16 @@ class FanRecheckManager:
         # Sleep gate: never pause a fan while the house is asleep.
         # hvac_fans (v4.7.13) deliberately holds bedroom fans ON through sleep
         # despite occupancy bounce; arming a recheck here would pause that fan
-        # and fight the keep-on logic. WAKING is NOT covered by the v4.7.13
-        # contract (SLEEP-only) — allow recheck during the groggy transition.
+        # and fight the keep-on logic.
+        #
+        # SLEEP-only is intentional and PRESERVED across the 2026-06-11
+        # fan-trust state extension: this Mode-2 layer PAUSES the fan to
+        # verify presence — exactly the wrong operation during home_night /
+        # waking when people are awake, mobile, and would notice a fan
+        # pause. The v4.7.13-family trust (hvac_fans + hvac) DOES extend
+        # to {home_night, sleep, waking}; this pause-based mechanism
+        # explicitly does NOT. See PLANNING_fan_trust_state_extension.md
+        # §D-MODE2 and project_v4_7_22_fan_recheck_mode2_live.md.
         house_state = getattr(self._presence, "house_state", "")
         if house_state == HouseState.SLEEP:
             return False

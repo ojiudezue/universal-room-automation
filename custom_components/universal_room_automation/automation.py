@@ -1551,6 +1551,16 @@ class RoomAutomation:
         # in common areas (kitchen, living room, hallways) from holding
         # fans on. Rooms without an explicit room_type default to
         # ROOM_TYPE_GENERIC and safely fall through to existing behavior.
+        #
+        # D-AUT (2026-06-11 fan-trust state extension): this site uses the
+        # per-room is_sleep_mode_active() TIME-WINDOW
+        # (sleep_start_hour..sleep_end_hour), NOT the house_state machine.
+        # Deliberately distinct from hvac_fans FAN_TRUST_STATES — mixing
+        # the two semantics (per-room schedule vs. house aggregate) would
+        # over-extend non-bedroom common-area rooms whose schedule
+        # disagrees with the house state. The time-window already covers
+        # the realistic bed-time hours; the hvac_fans + hvac sibling
+        # cycle picks up home_night/waking for the bedroom-fan path.
         room_type = self.config.get(CONF_ROOM_TYPE, ROOM_TYPE_GENERIC)
         sleep_occupied_hold = (
             self.is_sleep_mode_active()

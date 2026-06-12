@@ -36,6 +36,7 @@ from .hvac_const import (
     DUTY_CYCLE_COAST,
     DUTY_CYCLE_SHED,
     DUTY_CYCLE_WINDOW_SECONDS,
+    FAN_TRUST_STATES,
     HVAC_ANOMALY_MIN_SAMPLES,
     HVAC_COORDINATOR_ID,
     HVAC_COORDINATOR_NAME,
@@ -1139,16 +1140,29 @@ class HVACCoordinator(BaseCoordinator):
                 ):
                     continue  # Skip — dwell not met, keep current preset
 
-            # v4.7.13: Sleep-state zone presence trust — suppress preset flip
-            # to "away" during sleep when any zone_persons member is "home".
-            # Mirrors the D5 duty-cycle / D6 stale-failsafe sleep-skip pattern
-            # (precedents: D6 stale-failsafe `and self._house_state != "sleep"`
-            # at hvac.py:865; D5 duty-cycle `and self._house_state != "sleep"`
-            # at hvac.py:897).
-            # Rationale: room sensors degenerate during sleep (mmWave drops
-            # motionless bodies, PIR can't fire on stationary, camera blind in
-            # dark room). The phone-based person tracker is the stable signal.
-            if effective_preset == "away" and self._house_state == "sleep":
+            # v4.7.13 + fan-trust extension: Night-window zone presence
+            # trust — suppress preset flip to "away" during the night-trust
+            # window (home_night/sleep/waking) when any zone_persons member
+            # is "home". Mirrors the D5 duty-cycle / D6 stale-failsafe
+            # sleep-skip pattern but for OCCUPANCY (not runaway timers).
+            # NB: D5 and D6 above remain sleep-only by design — they guard
+            # against runaway timers / stuck sensors and the sleep-only
+            # gate prevents lockout in daytime. THIS branch is the trust
+            # branch and extends to flank states.
+            # Rationale: room sensors degenerate during the night-trust
+            # window (mmWave drops motionless bodies, PIR can't fire on
+            # stationary, camera blind in dark room). The phone-based
+            # person tracker is the stable signal.
+            # Bidirectionality: this branch only suppresses while at least
+            # one zone_persons member is "home". The v4.7.14 all-trackers-
+            # away veto path (StateInferenceEngine → HouseState.AWAY) is
+            # NOT affected — when all trackers are away `home_persons` is
+            # empty and this branch falls through, allowing the normal
+            # `away` preset path to run. Live finding 2026-06-05
+            # (project_zone_away_when_occupied_home_night_gap.md): Zone 1
+            # flipped to `away` 7+ times during home_night because this
+            # gate was sleep-only.
+            if effective_preset == "away" and self._house_state in FAN_TRUST_STATES:
                 home_persons = []
                 try:
                     for person_entity in (zone.zone_persons or []):
@@ -1157,15 +1171,15 @@ class HVACCoordinator(BaseCoordinator):
                             home_persons.append(person_entity)
                 except Exception as exc:  # noqa: BLE001
                     _LOGGER.debug(
-                        "HVAC: sleep-state person check errored for zone %s: %s",
+                        "HVAC: night-trust person check errored for zone %s: %s",
                         zone.zone_name, exc,
                     )
                     home_persons = []
                 if home_persons:
                     _LOGGER.info(
-                        "HVAC: Suppressing %s preset flip -> away during sleep "
+                        "HVAC: Suppressing %s preset flip -> away during %s "
                         "(zone_persons home: %s)",
-                        zone.zone_name, home_persons,
+                        zone.zone_name, self._house_state, home_persons,
                     )
                     continue
 
