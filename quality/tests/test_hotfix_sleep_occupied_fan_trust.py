@@ -48,17 +48,22 @@ class TestPathA_HvacFans:
     # The new block is the only place with this comment; use it as a
     # unique anchor since the predicate string is also matched by the
     # v3.18.1 sleep-cap line at ~line 240.
-    _SLEEP_BLOCK_ANCHOR = "Sleep-state occupied fan trust"
+    # 2026-06-11 fan-trust state extension: anchor renamed from
+    # "Sleep-state occupied fan trust" to "Night-window occupied fan trust".
+    _SLEEP_BLOCK_ANCHOR = "Night-window occupied fan trust"
 
     def test_sleep_occupied_short_circuit_block_exists(self, hvac_fans_src):
-        """The block must reference house_state == 'sleep' AND occupied
-        AND the bedroom-only room_type gate."""
+        """The block must reference FAN_TRUST_STATES (extended set) AND
+        occupied AND the bedroom-only room_type gate."""
         idx = hvac_fans_src.find(self._SLEEP_BLOCK_ANCHOR)
         assert idx > 0
-        body = hvac_fans_src[idx: idx + 3000]
+        body = hvac_fans_src[idx: idx + 5000]
         assert "and occupied" in body
+        # 2026-06-11 extension: gate is FAN_TRUST_STATES membership, not
+        # bare `== "sleep"`. Bedroom gate preserved.
+        assert "self._house_state in FAN_TRUST_STATES" in body
         assert "room_fan.room_type == ROOM_TYPE_BEDROOM" in body, (
-            "v4.7.16.2: sleep+occupied trust must gate on ROOM_TYPE_BEDROOM "
+            "v4.7.16.2: night-trust must gate on ROOM_TYPE_BEDROOM "
             "to prevent spurious presence in common areas from holding fans on"
         )
 
@@ -66,25 +71,32 @@ class TestPathA_HvacFans:
         """When the fan was already on, preserve the prior trigger + speed."""
         idx = hvac_fans_src.find(self._SLEEP_BLOCK_ANCHOR)
         assert idx > 0
-        body = hvac_fans_src[idx: idx + 3000]
+        body = hvac_fans_src[idx: idx + 5000]
         assert "if room_fan.is_on:" in body
         assert "room_fan.speed_pct" in body
         # Reviewer A fix-up B-M2: distinct labels for hold vs activate.
         # Preserve prior trigger when present; fall back to the hold label
         # only when trigger is truly empty (post-reload window).
-        assert "room_fan.trigger or \"sleep_occupied_hold\"" in body
+        # 2026-06-11 extension: label is parameterized by house_state so
+        # diagnostics can distinguish home_night vs sleep vs waking.
+        assert 'room_fan.trigger or f"night_trust_hold:{self._house_state}"' in body
 
-    def test_sleep_occupied_block_activates_off_fan_at_low(self, hvac_fans_src):
-        """When fan was off, activate at LOW with `sleep_occupied_activate`
-        label (v3.18.1 sleep cap will enforce LOW anyway; being explicit
-        makes the intent clear). Distinct from `sleep_occupied_hold`
-        which is used only when preserving a running fan with no prior
-        trigger — distinct labels for audit fidelity (Reviewer A B-M2)."""
+    def test_sleep_occupied_block_holds_but_never_activates(self, hvac_fans_src):
+        """Re-contracted 2026-06-11 (operator second revision): the trust
+        block HOLDS a running fan (`night_trust_hold`) but contains NO
+        activation path — fan actuation is temperature-driven only, at
+        every house state including sleep. The former
+        `sleep_occupied_activate` / `night_trust_activate` is gone
+        (manual-on is one tap; the HOLD then blip-protects it)."""
         idx = hvac_fans_src.find(self._SLEEP_BLOCK_ANCHOR)
-        body = hvac_fans_src[idx: idx + 3000]
-        assert "FAN_SPEED_LOW_PCT" in body
-        assert '"sleep_occupied_activate"' in body
-        assert '"sleep_occupied_hold"' in body
+        body = hvac_fans_src[idx: idx + 5000]
+        assert 'f"night_trust_hold:{self._house_state}"' in body
+        # Match the EMITTED label forms (colon-suffixed f-string / quoted
+        # literal), not prose mentions in explanatory comments.
+        assert "night_trust_activate:" not in body, (
+            "house-state fan activation must not exist (operator decision)"
+        )
+        assert '"sleep_occupied_activate"' not in body
 
     def test_sleep_occupied_runs_before_occupancy_gate(self, hvac_fans_src):
         """Placement: AFTER manual-off cooldown (preserves user override)
@@ -114,7 +126,7 @@ class TestPathA_HvacFans:
         the grace window.
         """
         idx = hvac_fans_src.find(self._SLEEP_BLOCK_ANCHOR)
-        body = hvac_fans_src[idx: idx + 3000]
+        body = hvac_fans_src[idx: idx + 5000]
         assert 'room_fan.vacancy_detected_time = ""' in body, (
             "sleep+occupied short-circuit must clear vacancy_detected_time "
             "to prevent stale anchor (Reviewer B B-MED-1)"
@@ -205,9 +217,11 @@ class TestOrthogonalPathsNotTouched:
         assert "sleep_occupied_hold" not in body
 
     def test_hvac_fans_humidity_fan_path_unchanged(self, hvac_fans_src):
-        """_evaluate_humidity_fan must NOT reference sleep-occupied trust."""
+        """_evaluate_humidity_fan must NOT reference night-trust."""
         idx = hvac_fans_src.find("def _evaluate_humidity_fan")
         assert idx > 0
         next_def = hvac_fans_src.find("    def _", idx + 50)
         body = hvac_fans_src[idx: next_def]
         assert "sleep_occupied" not in body
+        assert "night_trust" not in body
+        assert "FAN_TRUST_STATES" not in body

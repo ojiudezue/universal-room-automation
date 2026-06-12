@@ -72,6 +72,15 @@ DEFAULT_HVAC_COVER_SOLAR_END_HOUR: Final = 18
 CONF_HVAC_SOLAR_BANK_SOC_MIN: Final = "hvac_solar_bank_soc_min"
 DEFAULT_HVAC_SOLAR_BANK_SOC_MIN: Final = 95  # %
 
+# Solar HVAC Banking master enable — operator-facing master switch (EC device).
+# When OFF, the solar-banking branch in HVACPredictor._check_pre_conditioning
+# short-circuits. Default ON preserves status-quo banking behavior. Surfaced
+# as an EC sub-switch (switch.py) so the operator can disable from the
+# "URA: Energy Coordinator" device card on a good-solar-day if banking is
+# over-cooling. See PLANNING_solar_banking_toggle.md.
+CONF_HVAC_SOLAR_BANK_ENABLED: Final = "hvac_solar_bank_enabled"
+DEFAULT_HVAC_SOLAR_BANK_ENABLED: Final = True
+
 # Pre-cool / pre-heat forecast triggers
 # (was hardcoded in hvac_predict.py as PRECOOL_FORECAST_HIGH = 90.0,
 #  PREHEAT_FORECAST_LOW = 35.0).
@@ -293,6 +302,20 @@ FAN_SPEED_HIGH_DELTA: Final = 5.0  # >+5F -> high
 DEFAULT_FAN_VACANCY_HOLD: Final = 300  # 5 min hold after vacancy
 # v4.6.2.1: Humidity-fan on/off thresholds moved to ..const as
 # DEFAULT_HUMIDITY_THRESHOLD and DEFAULT_HUMIDITY_FAN_HYSTERESIS.
+
+# Night-window occupant fan-trust states.
+# Extends the v4.7.13 sleep-only trust to the two states that flank
+# sleep — HOME_NIGHT (winding down, often in bed before official sleep)
+# and WAKING (groggy, still in bed). In all three states mmWave equally
+# degrades on still bodies; bedroom occupants don't want fans cycled by
+# presence blips. Bare-string tuple intentional — values match the
+# HouseState StrEnum tokens at house_state.py:29-31 ("home_night",
+# "sleep", "waking"); using bare strings here avoids an import cycle
+# (hvac_const.py is leaf-level).
+# Consumed at hvac_fans.py (speed cap, sleep_occupied_hold, vacancy-hold
+# person-trust) and hvac.py (zone-preset person-trust). Mode-2 BLE
+# recheck (presence_fan_recheck.py) deliberately stays sleep-only.
+FAN_TRUST_STATES: Final = ("home_night", "sleep", "waking")
 
 # Cover Controller
 COVER_SOLAR_MONTHS: Final = frozenset({4, 5, 6, 7, 8, 9, 10})

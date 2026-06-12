@@ -457,6 +457,18 @@ class EnergyCoordinator(BaseCoordinator):
         self._dynamic_preset_enabled: bool = ec.get(
             CONF_DYNAMIC_PRESET_ENABLED, DEFAULT_DYNAMIC_PRESET_ENABLED
         )
+        # Solar HVAC Banking master enable (EC sub-switch). Seeded from CM
+        # options; runtime-tunable via the "Solar HVAC Banking" switch on
+        # the EC device. HVACPredictor reads this via _is_solar_banking_enabled()
+        # to short-circuit the banking branch in _check_pre_conditioning.
+        # See PLANNING_solar_banking_toggle.md (D3).
+        from .hvac_const import (
+            CONF_HVAC_SOLAR_BANK_ENABLED,
+            DEFAULT_HVAC_SOLAR_BANK_ENABLED,
+        )
+        self._solar_banking_enabled: bool = bool(ec.get(
+            CONF_HVAC_SOLAR_BANK_ENABLED, DEFAULT_HVAC_SOLAR_BANK_ENABLED
+        ))
         # Lazily instantiated on first evaluate call (avoids circular import at __init__).
         self._dynamic_preset_source: Any = None
         # Accumulated overrides per zone from the most recent evaluate call.
@@ -4884,6 +4896,22 @@ class EnergyCoordinator(BaseCoordinator):
         """Set occupancy-weighted prediction mode."""
         self._occupancy_weighted = value
         _LOGGER.info("Energy occupancy-weighted prediction: %s", value)
+
+    @property
+    def solar_banking_enabled(self) -> bool:
+        """Whether HVAC solar banking is enabled (operator master toggle).
+
+        Read by HVACPredictor._is_solar_banking_enabled() to short-circuit the
+        solar-banking branch in _check_pre_conditioning when the operator
+        flips this OFF from the EC device card.
+        """
+        return self._solar_banking_enabled
+
+    @solar_banking_enabled.setter
+    def solar_banking_enabled(self, value: bool) -> None:
+        """Set HVAC solar-banking master enable."""
+        self._solar_banking_enabled = bool(value)
+        _LOGGER.info("Energy HVAC solar-banking master: %s", value)
 
     @property
     def delivery_rate(self) -> float:

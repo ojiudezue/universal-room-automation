@@ -111,6 +111,13 @@ _ura_const.DEFAULT_HUMIDITY_THRESHOLD = 60
 _ura_const.DEFAULT_HUMIDITY_FAN_MAX_RUNTIME = 3600
 _ura_const.DEFAULT_HUMIDITY_FAN_HYSTERESIS = 10
 _ura_const.ENTRY_TYPE_ROOM = "room"
+# 2026-06-11 fan-trust state extension: per-room fan_sleep_policy
+# now consumed by hvac_fans.FanController.update at the speed-cap site.
+_ura_const.CONF_FAN_SLEEP_POLICY = "fan_sleep_policy"
+_ura_const.DEFAULT_FAN_SLEEP_POLICY = "reduce"
+_ura_const.FAN_SLEEP_OFF = "off"
+_ura_const.FAN_SLEEP_REDUCE = "reduce"
+_ura_const.FAN_SLEEP_NORMAL = "normal"
 sys.modules["custom_components.universal_room_automation.const"] = _ura_const
 
 _dc = types.ModuleType("custom_components.universal_room_automation.domain_coordinators")

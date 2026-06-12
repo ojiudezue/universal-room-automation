@@ -16,19 +16,11 @@ availability instantly. ~20 LoC, commit fa20139.
 
 Also rides along: v5.3.4 Review-D README write-back + VibeMemo entry 022.
 
-## Live Validation (Review D) — prospective criteria
+## Live Validation (Review D) — Validated 2026-06-10 ~23:20 UTC
 
-- [ ] Clean restart; zero new URA ERRORs.
-- [ ] The operator's staged `pending_propose_config` (options-persisted from
-      2026-06-10 22:38) survives the restart: autonomy select restores to
-      "Pending — Propose config changes" and **Confirm + Cancel Escalation are
-      AVAILABLE immediately** (this is the bug's exact reproduction case).
-- [ ] Operator presses **Cancel** → select returns to Shadow committed,
-      buttons grey out instantly (no poll wait) — completes the v5.3.3
-      hands-on item.
-- [ ] Run Cycle Now fires a manual shadow cycle; second press within 30s
-      debounces (carried-forward hands-on item).
-- [ ] Options-flow label rendering check (carried forward — note which
-      translation shape resolved).
-
-*Replaced with observed results post-restart per the README write-back rule.*
+| Criterion | Result | Observed evidence |
+|---|---|---|
+| Clean restart | PASS | select restored `shadow`, optimizer reached **healthy** (first time — recalibrated vocab + findings cleared) |
+| Pending survives restart | AS-EXPECTED N/A | operator had already cleared the staged escalation pre-restart via the kill-switch toggle (documented workaround) — `pending_level: null`, Confirm/Cancel correctly unavailable with nothing pending |
+| **NEW live finding** | PATCHED (rides next deploy) | **Run Cycle Now stale-unavailable post-boot**: its availability depends on optimizer REGISTRATION (hass.data), not options — entry-listener never fires for that. Follow-up `1bc4f1b`: two bounded one-shot post-boot refreshes (30s/180s). Until then it self-heals on the operator's first options write (e.g. staging an escalation) |
+| Operator hands-on (stage→instant buttons→Cancel; Run-Now ×2; options-flow labels) | OPERATOR PENDING | the staging action now exercises the v5.3.5 fix directly |
