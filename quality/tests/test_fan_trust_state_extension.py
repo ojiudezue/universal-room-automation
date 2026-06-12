@@ -298,23 +298,51 @@ class TestD2_SleepOccupiedHoldExtends:
         assert trigger == "temperature"
         assert speed == 66
 
-    def test_bedroom_occupied_activates_only_at_sleep(self):
-        """Operator decision 2026-06-11: ON-side ACTIVATE (off->on) stays
-        sleep-only. home_night/waking do NOT auto-activate a stopped fan
-        (people are awake and would notice). Only `sleep` activates, and
-        only when policy != off."""
+    def test_no_house_state_activation_even_at_sleep(self):
+        """Operator decision 2026-06-11 (second revision): fan ACTUATION is
+        temperature-driven ONLY — no house state, sleep included, ever
+        turns an off fan on. A cool occupied bedroom at sleep stays off
+        (manual-on is one tap; the HOLD then blip-protects it)."""
+        zone = _FakeZone()
+        ctrl = _make_controller(zone)
+        ctrl._house_state = "sleep"
+        rf = _make_room_fan(is_on=False, speed_pct=0, trigger="")
+
+        should_on, trigger, _speed = ctrl._evaluate_temp_fan(
+            rf, room_temp=70.0, setpoint_high=74.0, occupied=True,
+            now=datetime.now(),
+        )
+        assert should_on is False, (
+            "house-state activation removed — cool room must stay off"
+        )
+        assert not (
+            isinstance(trigger, str)
+            and trigger.startswith("night_trust_activate")
+        )
+
+    def test_temp_still_activates_warm_bedroom_at_sleep(self):
+        """Temperature remains the sole start trigger: a genuinely WARM
+        occupied bedroom at sleep is turned on by the standard temp path
+        (and the sleep cap clamps it to LOW)."""
         zone = _FakeZone()
         ctrl = _make_controller(zone)
         ctrl._house_state = "sleep"
         rf = _make_room_fan(is_on=False, speed_pct=0, trigger="")
 
         should_on, trigger, speed = ctrl._evaluate_temp_fan(
-            rf, room_temp=70.0, setpoint_high=74.0, occupied=True,
+            rf, room_temp=79.0, setpoint_high=74.0, occupied=True,
             now=datetime.now(),
         )
         assert should_on is True
-        assert trigger == "night_trust_activate:sleep"
-        assert speed == FAN_SPEED_LOW_PCT
+        assert not (
+            isinstance(trigger, str)
+            and trigger.startswith("night_trust_activate")
+        ), "start must come from the temp path, not house state"
+        # NOTE: the sleep speed cap is applied at the DISPATCH site
+        # (_apply_night_trust_speed_cap), not inside _evaluate_temp_fan —
+        # cap behavior has its own tests; here we only assert the start
+        # decision comes from temperature.
+        assert speed > 0
 
     @pytest.mark.parametrize("state", ["home_night", "waking"])
     def test_flank_states_do_not_auto_activate_stopped_fan(self, state):

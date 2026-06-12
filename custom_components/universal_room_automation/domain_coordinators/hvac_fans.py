@@ -506,19 +506,16 @@ class FanController:
                     room_fan.trigger or f"night_trust_hold:{self._house_state}",
                     room_fan.speed_pct,
                 )
-            # ACTIVATE path — SLEEP-ONLY (operator decision 2026-06-11);
-            # exclude policy=off rooms even at sleep.
-            policy = (live_policy or room_fan.fan_sleep_policy
-                      or DEFAULT_FAN_SLEEP_POLICY)
-            if self._house_state == "sleep" and policy != FAN_SLEEP_OFF:
-                return (
-                    True,
-                    f"night_trust_activate:{self._house_state}",
-                    FAN_SPEED_LOW_PCT,
-                )
-            # home_night / waking / policy=off — fall through to the
-            # standard temp-driven evaluation below; ON-side activation
-            # is deferred to those paths.
+            # NO ACTIVATE path (operator decision 2026-06-11, second
+            # revision): fan ACTUATION is temperature-driven only, never
+            # house-state-driven — at sleep included. The former
+            # `sleep_occupied_activate` (early-June hotfix-B add-on; the
+            # June-1 incident itself was an OFF-side bug, fixed by the
+            # HOLD above) started bedroom fans at LOW unconditionally,
+            # which is seasonally wrong (winter) and fights manual-off
+            # after the cooldown. Manual-on is one tap and the HOLD then
+            # blip-protects it all night. Off-before-sleep stays off;
+            # the standard temp-driven evaluation below decides starts.
 
         # Occupancy gate: don't activate fans in unoccupied rooms
         if not occupied and not room_fan.is_on:

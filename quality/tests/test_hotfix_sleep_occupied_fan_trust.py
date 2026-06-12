@@ -81,18 +81,22 @@ class TestPathA_HvacFans:
         # diagnostics can distinguish home_night vs sleep vs waking.
         assert 'room_fan.trigger or f"night_trust_hold:{self._house_state}"' in body
 
-    def test_sleep_occupied_block_activates_off_fan_at_low(self, hvac_fans_src):
-        """When fan was off, activate at LOW with `sleep_occupied_activate`
-        label (v3.18.1 sleep cap will enforce LOW anyway; being explicit
-        makes the intent clear). Distinct from `sleep_occupied_hold`
-        which is used only when preserving a running fan with no prior
-        trigger — distinct labels for audit fidelity (Reviewer A B-M2)."""
+    def test_sleep_occupied_block_holds_but_never_activates(self, hvac_fans_src):
+        """Re-contracted 2026-06-11 (operator second revision): the trust
+        block HOLDS a running fan (`night_trust_hold`) but contains NO
+        activation path — fan actuation is temperature-driven only, at
+        every house state including sleep. The former
+        `sleep_occupied_activate` / `night_trust_activate` is gone
+        (manual-on is one tap; the HOLD then blip-protects it)."""
         idx = hvac_fans_src.find(self._SLEEP_BLOCK_ANCHOR)
         body = hvac_fans_src[idx: idx + 5000]
-        assert "FAN_SPEED_LOW_PCT" in body
-        # 2026-06-11: labels renamed to night_trust_* with state suffix.
-        assert 'f"night_trust_activate:{self._house_state}"' in body
         assert 'f"night_trust_hold:{self._house_state}"' in body
+        # Match the EMITTED label forms (colon-suffixed f-string / quoted
+        # literal), not prose mentions in explanatory comments.
+        assert "night_trust_activate:" not in body, (
+            "house-state fan activation must not exist (operator decision)"
+        )
+        assert '"sleep_occupied_activate"' not in body
 
     def test_sleep_occupied_runs_before_occupancy_gate(self, hvac_fans_src):
         """Placement: AFTER manual-off cooldown (preserves user override)
