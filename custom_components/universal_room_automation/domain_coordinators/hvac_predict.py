@@ -130,6 +130,9 @@ class HVACPredictor:
         self._solar_bank_soc_min: int = int(solar_bank_soc_min)
         self._precool_forecast_high: float = float(precool_forecast_high)
         self._preheat_forecast_low: float = float(preheat_forecast_low)
+        # Mid-bank gate-flip-OFF release tracking (plan D3).
+        self._last_banking_gate_enabled: bool = True
+        self._last_banked_zones: set[str] = set()
 
     def set_outdoor_temp_entity(self, entity_id: str) -> None:
         """Set outdoor temperature sensor entity."""
@@ -373,11 +376,35 @@ class HVACPredictor:
         # go (battery already ≥95% full, grid export is the only alternative).
         # Storing thermal mass into the building is most valuable when nobody's
         # home, since there's no comfort cost to over-cooling.
-        if self._should_solar_bank(constraint, now):
+        #
+        # Operator master gate (EC sub-switch "Solar HVAC Banking", default ON).
+        # When OFF, the banking branch short-circuits entirely. If the gate
+        # was just flipped OFF while zones were mid-bank in the prior cycle
+        # (_last_banked_zones non-empty), explicitly release them by writing
+        # the baseline (target_temp_low, target_temp_high) range back to the
+        # thermostat — preset-mode is unchanged so
+        # _apply_house_state_presets' set_preset_mode path will not re-issue
+        # setpoints, and the DPM apply path is throttled by
+        # _last_emitted_range. See PLANNING_solar_banking_toggle.md.
+        banking_gate_on = self._is_solar_banking_enabled()
+        if (
+            not banking_gate_on
+            and self._last_banking_gate_enabled
+            and self._last_banked_zones
+        ):
+            # Gate just flipped OFF mid-bank → release once.
+            await self._release_banked_zones(set(self._last_banked_zones))
+            self._last_banked_zones = set()
+        self._last_banking_gate_enabled = banking_gate_on
+
+        if banking_gate_on and self._should_solar_bank(constraint, now):
             for zone_id, zone in self._zone_manager.zones.items():
                 await self._execute_zone_pre_cool(zone, offset=SOLAR_BANK_OFFSET, reason="solar_banking")
                 self._pre_conditioning_zones.add(zone_id)
                 self._solar_banking_zones.add(zone_id)
+        # Persist this cycle's banked set so the next cycle can detect a
+        # gate-flip-OFF mid-bank and release explicitly.
+        self._last_banked_zones = set(self._solar_banking_zones)
 
         # --- Pre-arrival (person-routed; skip when away/vacation as a defensive
         # belt — pre_arrival_zones should be empty during away anyway, but the
@@ -473,6 +500,70 @@ class HVACPredictor:
             and now.hour >= 10
             and now.hour < 14  # Before peak starts
         )
+
+    def _is_solar_banking_enabled(self) -> bool:
+        """Master operator gate for solar HVAC banking.
+
+        Reads `solar_banking_enabled` from the EnergyCoordinator via the
+        coordinator_manager registry (same accessor pattern used by the EC
+        sub-switches in switch.py).  Defaults to True when EC is not yet
+        registered — fail-safe = preserve current behavior, never silently
+        disable a feature because EC was slow to register at startup.
+        """
+        try:
+            from ..const import DOMAIN
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            energy = manager.coordinators.get("energy") if (
+                manager is not None and hasattr(manager, "coordinators")
+            ) else None
+            if energy is None:
+                return True
+            return bool(getattr(energy, "solar_banking_enabled", True))
+        except Exception:
+            # Any unexpected lookup failure → preserve current behavior.
+            return True
+
+    async def _release_banked_zones(self, zone_ids: set[str]) -> None:
+        """Release previously-banked zones by writing baseline setpoints back.
+
+        Called once on the cycle where the master banking gate flips OFF
+        while zones are still mid-bank.  Issues `climate.set_temperature`
+        with the zone's current (target_temp_low, target_temp_high) — the
+        baseline range, undoing the -3°F banking offset.
+
+        Mirrors the suppress/unsuppress pattern in _execute_zone_pre_cool so
+        the release write is not flagged as a manual override by the
+        OverrideArrester.  Failures are logged but do not raise — releasing
+        N-1 zones is better than failing all N.
+        """
+        for zone_id in zone_ids:
+            zone = self._zone_manager.zones.get(zone_id)
+            if zone is None:
+                continue
+            if zone.target_temp_high is None or zone.target_temp_low is None:
+                continue
+            if self._override_arrester:
+                self._override_arrester.suppress(zone.climate_entity)
+            try:
+                await self.hass.services.async_call(
+                    "climate", "set_temperature",
+                    {
+                        "entity_id": zone.climate_entity,
+                        "target_temp_high": zone.target_temp_high,
+                        "target_temp_low": zone.target_temp_low,
+                    },
+                    blocking=False,
+                )
+                _LOGGER.info(
+                    "HVAC: Solar banking master OFF — released %s to baseline "
+                    "(low=%.1f high=%.1f)",
+                    zone.zone_name, zone.target_temp_low, zone.target_temp_high,
+                )
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.error(
+                    "HVAC: Failed to release banked zone %s: %s",
+                    zone.climate_entity, e,
+                )
 
     def _get_net_power(self) -> float:
         """Read real-time net power. Negative = exporting to grid.

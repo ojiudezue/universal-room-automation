@@ -190,6 +190,9 @@ async def async_setup_entry(
             ECExcessSolarSwitch(hass, entry),
             ECArbitrageSwitch(hass, entry),
             ECEvTouSwitch(hass, entry),
+            # Solar HVAC Banking master toggle (EC device). Default ON; gates
+            # the HVACPredictor banking branch (PLANNING_solar_banking_toggle.md).
+            ECSolarBankingSwitch(hass, entry),
             # v4.7.2 D2: Dynamic Preset master kill switch (migrated to HVAC device)
             HVACDynamicPresetSwitch(hass, entry),
             # v4.7.1 fix-up D3 / v4.7.2 D3: Custom Preset Ranges master toggle (HVAC device)
@@ -768,6 +771,18 @@ OccupancyWeightedPredictionSwitch = _ec_switch_factory(
     "Occupancy Weighted Prediction",  # display name (unchanged)
     "mdi:account-clock",              # icon (unchanged)
     default=False,                    # default (unchanged)
+)
+
+# Solar HVAC Banking master toggle (EC device, gates HVACPredictor banking
+# branch). Default ON to preserve historical behavior; operator flips OFF
+# when banking over-cools on good-solar days (2026-06-11 operator complaint).
+# See PLANNING_solar_banking_toggle.md (D4).
+ECSolarBankingSwitch = _ec_switch_factory(
+    "solar_banking_enabled",          # attr_name on EnergyCoordinator
+    "solar_banking",                  # unique_id suffix → {DOMAIN}_energy_solar_banking
+    "Solar HVAC Banking",             # display name
+    "mdi:home-thermometer",           # icon
+    default=True,                     # PRESERVES current behavior
 )
 
 # v4.7.6 D6.2: Renamed friendly name "EV TOU Management" → "EVSE TOU Management"

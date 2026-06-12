@@ -3952,6 +3952,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_HVAC_COVER_SOLAR_END_HOUR,
             CONF_HVAC_SOLAR_BANK_SOC_MIN,
             DEFAULT_HVAC_SOLAR_BANK_SOC_MIN,
+            CONF_HVAC_SOLAR_BANK_ENABLED,
+            DEFAULT_HVAC_SOLAR_BANK_ENABLED,
             CONF_HVAC_PRECOOL_FORECAST_HIGH,
             DEFAULT_HVAC_PRECOOL_FORECAST_HIGH,
             CONF_HVAC_PREHEAT_FORECAST_LOW,
@@ -4209,6 +4211,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.NumberSelectorMode.SLIDER,
                 )
             ),
+            # Solar HVAC Banking master enable (also exposed as EC sub-switch).
+            # Default ON preserves status-quo behavior; operator can override
+            # here at install/options time. Runtime toggle is the
+            # ECSolarBankingSwitch on the EC device card.
+            vol.Optional(
+                CONF_HVAC_SOLAR_BANK_ENABLED,
+                default=self._get_current(
+                    CONF_HVAC_SOLAR_BANK_ENABLED, DEFAULT_HVAC_SOLAR_BANK_ENABLED,
+                ),
+            ): selector.BooleanSelector(),
             # v4.5.10: Pre-cool / pre-heat forecast triggers.
             vol.Optional(
                 CONF_HVAC_PRECOOL_FORECAST_HIGH,

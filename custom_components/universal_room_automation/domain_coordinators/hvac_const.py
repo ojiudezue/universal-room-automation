@@ -72,6 +72,15 @@ DEFAULT_HVAC_COVER_SOLAR_END_HOUR: Final = 18
 CONF_HVAC_SOLAR_BANK_SOC_MIN: Final = "hvac_solar_bank_soc_min"
 DEFAULT_HVAC_SOLAR_BANK_SOC_MIN: Final = 95  # %
 
+# Solar HVAC Banking master enable — operator-facing master switch (EC device).
+# When OFF, the solar-banking branch in HVACPredictor._check_pre_conditioning
+# short-circuits. Default ON preserves status-quo banking behavior. Surfaced
+# as an EC sub-switch (switch.py) so the operator can disable from the
+# "URA: Energy Coordinator" device card on a good-solar-day if banking is
+# over-cooling. See PLANNING_solar_banking_toggle.md.
+CONF_HVAC_SOLAR_BANK_ENABLED: Final = "hvac_solar_bank_enabled"
+DEFAULT_HVAC_SOLAR_BANK_ENABLED: Final = True
+
 # Pre-cool / pre-heat forecast triggers
 # (was hardcoded in hvac_predict.py as PRECOOL_FORECAST_HIGH = 90.0,
 #  PREHEAT_FORECAST_LOW = 35.0).

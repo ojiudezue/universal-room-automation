@@ -2122,6 +2122,15 @@ class HVACCoordinator(BaseCoordinator):
             self._predictor, "_solar_banking_zones", set()
         )
         attrs["solar_banking_zones"] = list(solar_banking_zones)
+        # Surface the operator master gate so dashboards can distinguish
+        # "operator OFF" (banking_enabled=false) from "gate open but
+        # conditions unmet" (banking_enabled=true, solar_banking_zones=[]).
+        # See PLANNING_solar_banking_toggle.md (D5).
+        try:
+            gate_fn = getattr(self._predictor, "_is_solar_banking_enabled", None)
+            attrs["banking_enabled"] = bool(gate_fn()) if callable(gate_fn) else True
+        except Exception:
+            attrs["banking_enabled"] = True
         vacancy_overrides = [
             z.zone_id for z in self._zone_manager.zones.values()
             if z.zone_presence_state == "away"
