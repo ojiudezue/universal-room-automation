@@ -395,3 +395,63 @@ Baseline tag for diff: pre-fix-up tip `517eb24`.
 None substantive. One scope clarification:
 
 - **Review C "21 tests" tally** — confirmed 21 (6 + 7 + 3 + 5). Ledger Build-notes line says "15-test suite per plan"; that count came from the plan's `D5` numbered inventory (tests 1-15). The actual file also carries the `TestValidateEnvoyThreeWay` (6 D1 tests) which the plan's inventory rolls under D1's verify-tests rather than counting separately. The 15-vs-21 difference is a counting style, not missing tests. C5 disposition above records the correction.
+
+## Review D (fourth pass — fix-up spot-check)
+
+**Scope:** fix-up diff `517eb24..9512b96` only. Reviewer: ura-reviewer, 2026-06-12.
+
+### Verified clean
+
+- **A1** — `@callback` sits on `_on_ha_started` / `_on_failsafe_timeout` themselves (`__init__.py:780,784`), the exact functions handed to `async_listen_once` / `async_call_later`; `callback` imported at `__init__.py:24`.
+- **B2/B3** — registry-absent AND state-absent still hard-fails (`energy_const.py:853-859` sets `ENVOY_ERR_DERIVED_MISSING`); unavailable/unknown now degraded, mirroring V2. Hard-fail not weakened.
+- **C4** — four Bug Class #52 guards (`switch.py:2434,2610,2830,2908`) compile; those sites never had deferred/retry semantics, and none was introduced — constructor default preserved on skip.
+- **A2 translation surface** — no new key needed: branch reuses `energy_envoy_invalid` with the explanation injected via the `{errors}` placeholder; key present in both `strings.json` and `translations/en.json`. No raw-render risk.
+- **C7 reload symmetry** — counter + `_registered_sub_switches` set live on the EC instance, so entry reload (which pops CM at `__init__.py:3402` and re-creates entities) resets both sides together. `notify` floor-0 guard prevents negative counts. Poisoned-skip path registers then notifies (symmetric).
+- **Hygiene** — `py_compile` clean ×4 files; no conflict markers; targeted 3-file test run 56/56; **full-suite baseline-diff clean**: 37 failed / 14 errors at HEAD are byte-identical to the set at `517eb24` (pre-existing collection-order noise, incl. the 3 `TestHVACPredictorNetPower` full-order failures — C3's fixture didn't regress anything, though it also doesn't cure all pre-existing cross-file pollution).
+
+### NEW findings
+
+| ID | Sev | Finding |
+|---|---|---|
+| D1 | **HIGH** | **A2 warm-reload race → spurious persistent repair issue.** Warm path schedules `_do_revalidate` via `async_call_later(hass, 0, ...)` (`__init__.py:797`) from the call site at `__init__.py:2116`, but `coordinator_manager` only lands in `hass.data` at `__init__.py:2489` — and there is an `await TOURateEngine.async_from_json_file(...)` between them that yields the loop. On an options-flow reload (old CM already popped at unload, `__init__.py:3402`), the 0-delay callback fires during that await, `_ec_registered()` returns False, and the ok-path raises the `envoy_now_ok_but_ec_not_registered` ERROR repair issue — near-deterministically, on every healthy reload. The once-latch is then consumed, so nothing clears the issue until the next restart. Fix: move the `_schedule_envoy_revalidation` call after EC/CM registration (post-2489), or have the not-registered branch schedule one delayed re-check instead of raising immediately. |
+| D2 | **MEDIUM** | **C7 registration/notify asymmetry on first-install.** Factory `async_added_to_hass` registers (`switch.py` C7 call) BEFORE the `last_state is None` check, which returns without notifying; same for `HVACDynamicPresetSwitch`'s EC-present first-install branch (`switch.py:~1109-1131`). Result: on a fresh install — or the first boot after any future release that adds a new EC sub-switch — the counter is left >0 for the whole runtime and `ECSubSwitchesSyncedSensor` (PROBLEM device_class) is stuck True until the next restart. This is the same stranded-PROBLEM symptom C1 fixed, reintroduced on a sibling path. Test 15 codifies "no notify on first-install" without accounting for the registration that already happened. Fix: notify on the first-install return paths, or move registration below the None check (the `_handle_ec_ready`/`_retry_restore` late-registration already covers the deferred case). |
+| D3 | **HIGH** | **C2 tests do NOT drive production code as claimed.** Tests 11-15 in `test_envoy_boot_decoupling.py` execute local `_drive()` closures that re-implement the production decision tree inline; the exec-extraction machinery (`_extract_factory_async_added`, `_extract_hvac_async_added`, `_make_bare_ec_switch`, lines ~750-865) is dead code — never invoked by any test. The class docstring's claim ("drive the REAL async_added_to_hass extracted from switch.py") is false. Source-literal sanity asserts partially anchor the mirror to production, but behavioral assertions (attr-untouched, notify-called) run against the copy — the exact test-fixture-authority defect class Review C exists to catch. No runtime risk; test-authority risk only. Fix: wire the extraction helpers into the tests (the `super()` problem they hit is solvable by injecting a no-op base) or delete the dead helpers and re-label the tests honestly as contract-mirrors with source anchors. |
+| D4 | LOW | A5 cross-cancel also calls the winner's own unsub (e.g. already-fired `async_listen_once` handle) — HA may log "Unable to remove unknown listener"; swallowed by try/except. Cosmetic. |
+| D5 | LOW | Comment at `__init__.py:775-777` says `HassJobType.Coroutinefunction/Callback`; these are plain callbacks. Doc-only. |
+
+### Verdict
+
+**FIX-FIRST.** D1 (spurious ERROR repair issue on every healthy warm reload) must be fixed before deploy; D2 should ride along (small, same surfaces); D3 is test-only but misrepresents coverage and should be resolved or honestly re-labeled before the cycle's README claims behavioral coverage. D4/D5 optional.
+
+## Fix-up pass 2 (Review D — 2026-06-12)
+
+All 5 Review-D findings dispositioned in a single fix-up pass on `feature/ec-envoy-boot-decoupling`.
+
+| ID | Sev | Disposition | Surface | Verification |
+|---|---|---|---|---|
+| D1 | HIGH | **FIXED** — moved `_schedule_envoy_revalidation(hass, entry, energy_entity_config)` from pre-CM-registration (~`__init__.py:2116`) to AFTER `hass.data[DOMAIN]["coordinator_manager"] = coordinator_manager` (~`__init__.py:2491`). The warm-reload `async_call_later(0, ...)` branch now lands with CM already in `hass.data`, so `_ec_registered()` can no longer race a half-built CM. Cold-boot path unaffected (EVENT_HOMEASSISTANT_STARTED + failsafe both fire well after setup completes). | `__init__.py` | py_compile clean; existing D3 revalidation tests (3 tests in TestDeferredRevalidation) still pass — call-site move is gated by the same `envoy_eid and _energy_enabled` predicate, no signature change. |
+| D2 | MED | **FIXED** — added `notify_sub_switch_restore_complete()` to BOTH first-install return paths so registration/notify are SYMMETRIC: (a) `_ec_switch_factory` `last_state is None` branch (`switch.py:639-658`); (b) `HVACDynamicPresetSwitch` `last_state is None` EC-ready branch (`switch.py:1107-1140`). Same semantics as the Bug Class #52 skip path. | `switch.py` | New test `test_hvac_dynamic_preset_first_install_register_notify_symmetric` plus rewritten `test_ec_sub_switch_first_install_no_last_state_unchanged` assert `_registered_count == _notified_count == 1`. Mutation check confirms (see below). |
+| D3 | HIGH | **FIXED** — DELETED the inline `_drive()` mirror closures from tests 11-15. Tests now drive the REAL extracted production body via the `_extract_factory_async_added` / `_extract_hvac_async_added` machinery + a `_make_bare` helper that supplies every attribute / method the extracted code touches (`async_get_last_state`, `_get_energy`, `_register_for_restore_accounting`, `_handle_ec_ready`, `_retry_restore`, `_super_async_added_to_hass`, `_fire_default_on_nm_notification`, `async_on_remove`, `async_write_ha_state`, `hass`). The extraction stops at the first sibling method header (column 8 `@callback` / `def ` / `async def `) to avoid pulling in `_handle_ec_ready` etc. (which would unindent below the wrapper body). Closure refs (`unique_suffix` / `attr_name`) and `super().async_added_to_hass()` are string-rewritten to self-bound attrs / a `self._super_async_added_to_hass` no-op. The dispatcher signal import is replaced with an inline constant assignment so the tests are robust against cross-file sys.modules pollution from `test_envoy_auto_derive.py`. Tests added: `test_ec_sub_switch_restore_applies_off_state`, `test_ec_sub_switch_restore_applies_on_state`, `test_hvac_dynamic_preset_first_install_register_notify_symmetric` (net +2 tests; one combined test split into two). | `quality/tests/test_envoy_boot_decoupling.py` | **Mutation check performed (see below) — 4 tests fail with EC Bug Class #52 guard inverted, 1 test fails with HVAC guard inverted, 1 test fails with D2 first-install notify removed. Tests authoritatively drive production code.** |
+| D4 | LOW | **FIXED** — guarded the A5 cross-cancel against the winner cancelling its own already-fired handle. `state["unsubs"]` now carries `(tag, unsub)` tuples; `_do_revalidate` skips the entry whose tag matches the firing `_reason`. Eliminates the cosmetic "Unable to remove unknown listener" log line. | `__init__.py` | py_compile clean; existing D3 tests still pass (latch behavior unchanged). |
+| D5 | LOW | **FIXED** — rewrote the doc comment to say `HassJobType.Callback` only (plain callbacks, no coroutine). | `__init__.py` | py_compile clean. |
+
+### Mutation check (D3 test authority proof)
+
+Per Review-D D3 requirements: temporarily invert the production guards and confirm the tests FAIL, then revert.
+
+| Mutation | Site | Tests that FAILED | Tests that incorrectly PASSED |
+|---|---|---|---|
+| `if last_state.state in ("on", "off"):` (factory guard inverted) | `switch.py:653` (factory body) | `test_ec_sub_switch_restore_skips_unavailable_last_state`, `test_ec_sub_switch_restore_skips_unknown_last_state`, `test_ec_sub_switch_restore_applies_off_state`, `test_ec_sub_switch_restore_applies_on_state` (4 tests) | None among factory tests — HVAC tests pass because they target a different guard. |
+| `if last_state.state in ("on", "off"):` (HVAC guard inverted) | `switch.py:1141` (HVACDynamicPresetSwitch) | `test_hvac_dynamic_preset_switch_restore_skips_unavailable_last_state` (1 test) | N/A — only the HVAC unavailable-skip test exercises this guard. |
+| First-install notify removed from factory | `switch.py:639-658` | `test_ec_sub_switch_first_install_no_last_state_unchanged` (1 test) | N/A — D2-specific. |
+
+All mutations reverted; final test run shows 23/23 passing on the file solo, 45/45 with sibling file in either order.
+
+### Verification tallies
+
+- `py_compile` clean: `__init__.py`, `switch.py`, `energy_const.py`, `test_envoy_boot_decoupling.py`.
+- Cycle file solo: **23/23 passed** (`test_envoy_boot_decoupling.py`).
+- Both file orders: **45/45 passed** (`test_envoy_boot_decoupling.py` + `test_envoy_auto_derive.py`, both orders).
+- Full suite at HEAD: **37 failed / 14 errors / 5681 passed / 29 skipped** (29.43s).
+- Full suite at baseline `9512b96`: **37 failed / 14 errors** (same shape).
+- Failure-ID `diff` (HEAD vs baseline): **EMPTY** (51 lines on both sides; bytewise identical sort).

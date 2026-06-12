@@ -640,7 +640,21 @@ def _ec_switch_factory(
             if last_state is None:
                 # First-time install (no prior RestoreEntity state):
                 # the constructor's `ec.get(...)` seed is the source of
-                # truth. Do nothing here.
+                # truth.  Review D D2 fix (2026-06-12):
+                # `_register_for_restore_accounting()` above incremented
+                # the EC pending-restore counter for this switch; without
+                # a corresponding notify the counter is stuck >0 for the
+                # whole runtime and `ECSubSwitchesSyncedSensor` (PROBLEM
+                # device_class) stays True until the next restart on
+                # fresh installs / first boot after a new sub-switch is
+                # added.  Same semantics as the Bug Class #52 skip path
+                # below: seed is authoritative → restore is COMPLETE.
+                _energy_for_notify = self._get_energy()
+                if _energy_for_notify is not None:
+                    try:
+                        _energy_for_notify.notify_sub_switch_restore_complete()
+                    except Exception:  # noqa: BLE001
+                        pass
                 return
             # Bug Class #52 — RestoreEntity unavailable-coercion.
             # Skip restore when last_state is `unavailable`/`unknown` (or
@@ -1117,6 +1131,15 @@ class HVACDynamicPresetSwitch(SwitchEntity, RestoreEntity):
                     "HVACDynamicPresetSwitch: first install — defaulting ON "
                     "(feature is no-op for zones without per-zone opt-in)"
                 )
+                # Review D D2 fix (2026-06-12): first-install seeds the
+                # authoritative value, mirroring the Bug Class #52 skip
+                # branch below. Without this notify the EC pending-restore
+                # counter is left >0 (we registered above) and
+                # ECSubSwitchesSyncedSensor stays True until restart.
+                try:
+                    energy.notify_sub_switch_restore_complete()
+                except Exception:  # noqa: BLE001
+                    pass
                 self._fire_default_on_nm_notification()
             else:
                 # EC not yet ready — defer and fire NM notification when it arrives.

@@ -632,8 +632,10 @@ def _schedule_envoy_revalidation(
 
     # Idempotency latch — captured by the inner callbacks so whichever
     # path fires first prevents the other from double-running. `unsubs`
-    # carries the OTHER path's cancel handle so the winner can cross-cancel
-    # the loser (A5 fix — keeps the timer ledger clean).
+    # carries (tag, handle) pairs so the winner can cross-cancel the
+    # loser AND skip its own already-fired handle (A5 fix + Review D D4
+    # cosmetic guard — async_listen_once self-cancel after fire would
+    # log "Unable to remove unknown listener"; we filter by tag instead).
     state: dict = {"fired": False, "unsubs": []}
 
     entry_id = entry.entry_id
@@ -661,8 +663,19 @@ def _schedule_envoy_revalidation(
         if state["fired"]:
             return
         state["fired"] = True
-        # Cross-cancel the loser path (A5).
-        for _unsub in state["unsubs"]:
+        # Cross-cancel the loser path (A5). Review D D4: skip cancelling
+        # the winner's own already-fired handle to avoid HA's "Unable to
+        # remove unknown listener" warning (cosmetic).
+        for _entry in state["unsubs"]:
+            try:
+                _tag, _unsub = _entry
+            except Exception:  # noqa: BLE001
+                _tag, _unsub = None, _entry
+            if _tag is not None and _tag == _reason:
+                # This is the firing path's own unsub — HA already
+                # removed it as part of dispatching the once-listener /
+                # timer fire. Skip to keep logs clean.
+                continue
             try:
                 _unsub()
             except Exception:  # noqa: BLE001
@@ -773,10 +786,13 @@ def _schedule_envoy_revalidation(
 
     # Bound callbacks (Bug Class #42 — no lambdas capturing loop vars).
     # A1/B1 fix: @callback so HassJob classifies these as
-    # HassJobType.Coroutinefunction/Callback and runs them on the event
-    # loop (not the executor thread pool). Without @callback,
-    # ir.async_create_issue / ir.async_delete_issue / er.async_get
-    # would be called off-loop and either raise or silently no-op.
+    # HassJobType.Callback (plain synchronous callbacks, not coroutines)
+    # and runs them on the event loop (not the executor thread pool).
+    # Without @callback, ir.async_create_issue / ir.async_delete_issue /
+    # er.async_get would be called off-loop and either raise or silently
+    # no-op. Review D D5 (2026-06-12): prior comment incorrectly
+    # mentioned `HassJobType.Coroutinefunction` — these are plain
+    # callbacks, classified as HassJobType.Callback only.
     @callback
     def _on_ha_started(_event) -> None:
         _do_revalidate("event_homeassistant_started")
@@ -811,7 +827,7 @@ def _schedule_envoy_revalidation(
             EVENT_HOMEASSISTANT_STARTED, _on_ha_started,
         )
         entry.async_on_unload(unsub_started)
-        state["unsubs"].append(unsub_started)
+        state["unsubs"].append(("event_homeassistant_started", unsub_started))
     except Exception:  # noqa: BLE001
         _LOGGER.debug(
             "Envoy deferred re-validation: failed to register "
@@ -823,7 +839,7 @@ def _schedule_envoy_revalidation(
             hass, BOOT_SETTLE_TIMEOUT_SECONDS, _on_failsafe_timeout,
         )
         entry.async_on_unload(unsub_timeout)
-        state["unsubs"].append(unsub_timeout)
+        state["unsubs"].append(("failsafe_timeout", unsub_timeout))
     except Exception:  # noqa: BLE001
         _LOGGER.debug(
             "Envoy deferred re-validation: failed to register failsafe "
@@ -2109,13 +2125,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             _LOGGER.warning("Envoy config warning: %s", w)
 
                 # EC Envoy boot-decoupling: schedule deferred re-validation
-                # (D3) iff envoy_eid is configured and EC is enabled. Runs
-                # once at EVENT_HOMEASSISTANT_STARTED with an
-                # async_call_later failsafe — mirrors hvac.py:385-419.
-                if envoy_eid and _energy_enabled:
-                    _schedule_envoy_revalidation(
-                        hass, entry, energy_entity_config,
-                    )
+                # (D3) iff envoy_eid is configured and EC is enabled.
+                # Review D D1 fix (2026-06-12): the scheduling call was
+                # previously here (pre-CM-registration), but on warm
+                # options-flow reloads the HA-already-running branch fires
+                # an immediate `async_call_later(0, ...)` which lands during
+                # the awaited TOURateEngine.async_from_json_file() below.
+                # At that moment CM has not yet been placed in
+                # hass.data[DOMAIN]["coordinator_manager"] (assignment at
+                # ~2489 inside the same block), so the EC-registration check
+                # would fail and a spurious `envoy_now_ok_but_ec_not_registered`
+                # persistent ERROR repair issue would be raised on every
+                # healthy reload. Moved AFTER CM registration below so the
+                # check sees a fully-installed CM. Cold-boot path is
+                # unaffected — EVENT_HOMEASSISTANT_STARTED + failsafe both
+                # fire well after setup completes.
 
                 # v3.7.0-E1: Register Energy Coordinator
                 # EC Envoy boot-decoupling: gate is now `not _envoy_hard_fail`
@@ -2489,6 +2513,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 hass.data[DOMAIN]["coordinator_manager"] = coordinator_manager
                 await coordinator_manager.async_start()
                 _LOGGER.info("Domain Coordinator Manager initialized and started")
+
+                # EC Envoy boot-decoupling: schedule deferred re-validation
+                # AFTER CM registration (Review D D1 fix). On warm reloads
+                # the scheduler short-circuits to async_call_later(0, ...),
+                # which now lands with CM already in hass.data so
+                # `_ec_registered()` does not race a half-built CM. Cold
+                # boot fires at EVENT_HOMEASSISTANT_STARTED or the failsafe
+                # timeout — both well after this point.
+                if envoy_eid and _energy_enabled:
+                    _schedule_envoy_revalidation(
+                        hass, entry, energy_entity_config,
+                    )
 
                 # v4.6.10 D1: Stash setup telemetry — LAST thing in CM init block.
                 # Failure here is non-fatal; integration is fully functional without it.

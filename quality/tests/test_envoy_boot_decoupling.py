@@ -673,9 +673,17 @@ class _FakeEnergy:
     grid_arbitrage = True  # options-seeded ON
     dynamic_preset_enabled = True  # default ON
 
+    def __init__(self):
+        self._notified_count = 0
+        self._registered_count = 0
+
     def notify_sub_switch_restore_complete(self):
         # Production code calls this on a successful restore.
         self._notified = True
+        self._notified_count += 1
+
+    def register_sub_switch_for_restore_accounting(self, _unique_suffix):
+        self._registered_count += 1
 
 
 class _FakeHass:
@@ -748,54 +756,80 @@ class TestRestorePoisoningGuards:
     """
 
     def _extract_factory_async_added(self) -> str:
-        """Extract the async_added_to_hass body from _ec_switch_factory.
+        """Extract the REAL async_added_to_hass body from _ec_switch_factory.
 
         Returns Python source for a top-level async function
-        `_ec_async_added(self)` equivalent to the inner method, with the
-        closure-bound `unique_suffix` / `attr_name` replaced by reads
-        from `self`.
+        `_ec_async_added(self)` equivalent to the inner method:
+          - closure refs (`unique_suffix` / `attr_name`) → self attrs
+          - `await super().async_added_to_hass()` → no-op coroutine
+            attached on `self`, since `super()` resolution fails outside
+            a real class hierarchy
+          - relative imports → absolute (no package context in exec)
         """
         marker = "        async def async_added_to_hass(self):"
         idx = _SWITCH_SRC_FULL.index(marker)
         tail = _SWITCH_SRC_FULL[idx:]
-        # End at the next dedent to outer scope (8-space method end).
-        end_marker = "\n        @property\n"
-        end = tail.index(end_marker)
+        # Stop at the END of THIS method only — i.e. at the next sibling
+        # method header at column 8 (`        @callback` or `        def `
+        # or `        async def ` AFTER the first line). Earlier versions
+        # ran past the method end and pulled in `_handle_ec_ready` etc.,
+        # which produced unindent errors when the body was wrapped in a
+        # top-level `async def`.
+        first_newline = tail.index("\n") + 1
+        rest = tail[first_newline:]
+        end_candidates = []
+        for needle in (
+            "\n        @callback\n",
+            "\n        def ",
+            "\n        async def ",
+            "\n        @property\n",
+        ):
+            p = rest.find(needle)
+            if p >= 0:
+                end_candidates.append(first_newline + p)
+        end = min(end_candidates) if end_candidates else len(tail)
         body = tail[:end]
-        # Strip the 8-space method indentation (top-level def → 0-space).
         lines = body.splitlines()
-        # First line is the def itself (8-space indent). Drop that and
-        # dedent the rest by 4 (so the body sits inside a top-level fn).
+        # Drop the `async def` line; dedent body by 4 to fit a top-level def.
         body_lines = [
             (line[4:] if line.startswith("    ") else line)
             for line in lines[1:]
         ]
-        # Replace closure references with self-bound attrs.
         rewritten = "\n".join(body_lines)
+        # Closure refs → bound attrs on the bare self.
         rewritten = rewritten.replace("unique_suffix", "self._unique_suffix")
+        rewritten = rewritten.replace("attr_name", "self._attr_name_for_test")
+        # super() not callable outside a class — route through a self method.
         rewritten = rewritten.replace(
-            "attr_name", "self._attr_name_for_test",
+            "await super().async_added_to_hass()",
+            "await self._super_async_added_to_hass()",
         )
-        # Replace relative imports with absolute (the exec namespace
-        # does not have a package context).
+        # Inline-replace imports rather than rewriting them as absolute
+        # imports — the sibling test_envoy_auto_derive.py imports the real
+        # signals module without `__file__`, which causes "unknown
+        # location" import failures when both files are collected. Robust:
+        # define the signal constant inline; stub the dispatcher.
         rewritten = rewritten.replace(
-            "from .domain_coordinators.signals import",
-            "from custom_components.universal_room_automation."
-            "domain_coordinators.signals import",
+            "from .domain_coordinators.signals import "
+            "SIGNAL_ENERGY_COORDINATOR_READY",
+            "SIGNAL_ENERGY_COORDINATOR_READY = "
+            "'ura_signal_energy_coordinator_ready'",
+        )
+        rewritten = rewritten.replace(
+            "from homeassistant.helpers.dispatcher import "
+            "async_dispatcher_connect",
+            "async_dispatcher_connect = lambda *a, **kw: (lambda: None)",
         )
         wrapper = "async def _ec_async_added(self):\n" + rewritten + "\n"
         return wrapper
 
     def _extract_hvac_async_added(self) -> str:
-        """Extract HVACDynamicPresetSwitch.async_added_to_hass body."""
-        # Anchor on the class then find the method.
+        """Extract REAL HVACDynamicPresetSwitch.async_added_to_hass body."""
         class_idx = _SWITCH_SRC_FULL.index("class HVACDynamicPresetSwitch")
         sub = _SWITCH_SRC_FULL[class_idx:]
         marker = "    async def async_added_to_hass(self) -> None:"
         m_idx = sub.index(marker)
         tail = sub[m_idx:]
-        # End: next method at 4-space indent that starts with `def ` or
-        # `async def ` or `@callback`.
         end_candidates = []
         for needle in (
             "\n    def _fire_default_on_nm_notification",
@@ -807,23 +841,36 @@ class TestRestorePoisoningGuards:
         end = min(end_candidates) if end_candidates else len(tail)
         body = tail[:end]
         lines = body.splitlines()
-        # Drop the def line; dedent 4 spaces.
+        # Drop `async def` line; dedent 4 spaces.
         body_lines = [
             (line[4:] if line.startswith("    ") else line)
             for line in lines[1:]
         ]
         rewritten = "\n".join(body_lines)
         rewritten = rewritten.replace(
-            "from .domain_coordinators.signals import",
-            "from custom_components.universal_room_automation."
-            "domain_coordinators.signals import",
+            "await super().async_added_to_hass()",
+            "await self._super_async_added_to_hass()",
+        )
+        # See _extract_factory_async_added for the cross-file pollution
+        # rationale behind inline import stubbing.
+        rewritten = rewritten.replace(
+            "from .domain_coordinators.signals import "
+            "SIGNAL_ENERGY_COORDINATOR_READY",
+            "SIGNAL_ENERGY_COORDINATOR_READY = "
+            "'ura_signal_energy_coordinator_ready'",
+        )
+        rewritten = rewritten.replace(
+            "from homeassistant.helpers.dispatcher import "
+            "async_dispatcher_connect",
+            "async_dispatcher_connect = lambda *a, **kw: (lambda: None)",
         )
         wrapper = "async def _hvac_async_added(self):\n" + rewritten + "\n"
         return wrapper
 
-    def _make_bare_ec_switch(self, last_state_value, energy):
-        """Construct a bare object that satisfies the extracted method's
-        attribute reads, then return it + the executed extracted coroutine.
+    def _make_bare(self, last_state_value, energy, *, is_hvac=False):
+        """Construct a minimal `self` stand-in supplying every attribute /
+        method the extracted production body touches. Returns (bare, fn)
+        where fn is the executed top-level async function.
         """
         ns = {
             "_LOGGER": MagicMock(),
@@ -831,16 +878,24 @@ class TestRestorePoisoningGuards:
             "async_call_later": lambda *a, **kw: MagicMock(),
             "DOMAIN": "universal_room_automation",
         }
-        src = self._extract_factory_async_added()
-        exec(compile(src, "<_ec_async_added>", "exec"), ns)
-        fn = ns["_ec_async_added"]
+        src = (
+            self._extract_hvac_async_added()
+            if is_hvac
+            else self._extract_factory_async_added()
+        )
+        exec(compile(src, "<extracted>", "exec"), ns)
+        fn = ns["_hvac_async_added" if is_hvac else "_ec_async_added"]
+
+        # Capture notify / register accounting + writes for assertions.
+        write_log = []
+        nm_calls = []
 
         class _Bare:
             async def async_get_last_state(self):
                 return last_state_value
 
             def async_write_ha_state(self):
-                pass
+                write_log.append("write")
 
             async def _super_async_added_to_hass(self):
                 pass
@@ -848,20 +903,47 @@ class TestRestorePoisoningGuards:
             def async_on_remove(self, _u):
                 pass
 
+            def _get_energy(self):
+                return energy
+
+            def _register_for_restore_accounting(self):
+                if energy is not None:
+                    try:
+                        energy.register_sub_switch_for_restore_accounting(
+                            getattr(self, "_unique_suffix",
+                                    "hvac_dynamic_preset"),
+                        )
+                    except Exception:
+                        pass
+
+            def _fire_default_on_nm_notification(self):
+                nm_calls.append("nm")
+
+            def _handle_ec_ready(self):
+                # Referenced by async_dispatcher_connect in both extracted
+                # bodies; the dispatcher is stubbed to a no-op lambda so
+                # this only needs to be a present attribute.
+                pass
+
+            def _retry_restore(self, _now=None):
+                pass
+
         bare = _Bare()
-        bare._unique_suffix = "test_switch"
-        bare._attr_name_for_test = "grid_arbitrage"
+        bare._unique_suffix = (
+            "hvac_dynamic_preset" if is_hvac else "grid_arbitrage"
+        )
+        bare._attr_name_for_test = (
+            "dynamic_preset_enabled" if is_hvac else "grid_arbitrage"
+        )
         bare._default = True
         bare._deferred_restore = False
         bare._deferred_value = True
+        bare._default_flip_pending_nm = False
         bare._retry_index = 0
         bare._RETRY_DELAYS_S = [1, 2, 3]
         bare.hass = _FakeHass(energy=energy)
-        # `super()` inside the extracted body is the wrong scope; patch
-        # the call to use our bound method by string-rewriting the source
-        # before exec is not necessary because `await super().async_added_to_hass()`
-        # only matters in a real RestoreEntity. We bypass it by injecting
-        # a no-op super in the namespace.
+        bare._write_log = write_log
+        bare._nm_calls = nm_calls
         return bare, fn
 
     def _run(self, coro):
@@ -873,110 +955,47 @@ class TestRestorePoisoningGuards:
 
     # ----- Test 11: unavailable skip preserves coordinator attr + notifies.
     def test_ec_sub_switch_restore_skips_unavailable_last_state(self):
+        """Drives the REAL extracted _ec_switch_factory async_added_to_hass
+        body. Bug Class #52 skip path: coordinator attr untouched + notify.
+        """
         energy = _FakeEnergy()
-        # Options-seed: True. Production coercion bug would flip to False.
-        energy.grid_arbitrage = True
-        ls = _FakeLastState("unavailable")
-        # We cannot easily exec the inner factory body because of `super()`
-        # binding. Instead: instantiate a stand-in class whose
-        # async_added_to_hass mirrors the production guard EXACTLY by
-        # reading from production source (asserts wiring), then drive it.
-        # The driver:
-        async def _drive():
-            # Reproduce the production decision-tree EXACTLY using
-            # production constants. The test FAILS if production
-            # changes shape (guard removed → setattr clobbers).
-            last_state = await _LastStateProvider(ls).async_get_last_state()
-            if last_state is None:
-                return
-            if last_state.state not in ("on", "off"):
-                # Production skip path (mirrors switch.py).
-                if energy is not None:
-                    energy.notify_sub_switch_restore_complete()
-                return
-            target = last_state.state == "on"
-            if energy is not None:
-                setattr(energy, "grid_arbitrage", target)
-                energy.notify_sub_switch_restore_complete()
-        # Sanity-check the production source actually has the guard
-        # (so the driver isn't lying about what production does).
-        assert 'last_state.state not in ("on", "off")' in _SWITCH_SRC_FULL, (
-            "Bug Class #52 guard missing in switch.py — driver is stale"
+        energy.grid_arbitrage = True  # options seed
+        bare, fn = self._make_bare(
+            _FakeLastState("unavailable"), energy,
         )
-        self._run(_drive())
-        # Coordinator attr UNCHANGED (no False-clobber).
+        self._run(fn(bare))
+        # Coordinator attr UNCHANGED — production guard prevented False-clobber.
         assert energy.grid_arbitrage is True
-        # Notify WAS called (C1 — restore complete on skip).
-        assert getattr(energy, "_notified", False) is True
+        # C1 — notify fired on skip so ECSubSwitchesSyncedSensor converges.
+        assert energy._notified_count == 1
 
     # ----- Test 12: unknown skip preserves coordinator attr + notifies.
     def test_ec_sub_switch_restore_skips_unknown_last_state(self):
         energy = _FakeEnergy()
         energy.grid_arbitrage = True
-        ls = _FakeLastState("unknown")
-
-        async def _drive():
-            last_state = await _LastStateProvider(ls).async_get_last_state()
-            if last_state is None:
-                return
-            if last_state.state not in ("on", "off"):
-                if energy is not None:
-                    energy.notify_sub_switch_restore_complete()
-                return
-            target = last_state.state == "on"
-            if energy is not None:
-                setattr(energy, "grid_arbitrage", target)
-                energy.notify_sub_switch_restore_complete()
-        self._run(_drive())
+        bare, fn = self._make_bare(_FakeLastState("unknown"), energy)
+        self._run(fn(bare))
         assert energy.grid_arbitrage is True
-        assert getattr(energy, "_notified", False) is True
+        assert energy._notified_count == 1
 
-    # ----- Test 13: 'on'/'off' apply path still works (regression guard).
-    def test_ec_sub_switch_restore_preserves_options_seed_when_skipped(self):
-        """Combined: skip preserves seed; 'on'/'off' applies."""
-        # Skip → preserve.
+    # ----- Test 13: 'on'/'off' apply path drives REAL production code.
+    def test_ec_sub_switch_restore_applies_off_state(self):
+        """Valid 'off' last_state must be APPLIED to the coordinator attr."""
         energy = _FakeEnergy()
         energy.grid_arbitrage = True
-        ls = _FakeLastState("unavailable")
+        bare, fn = self._make_bare(_FakeLastState("off"), energy)
+        self._run(fn(bare))
+        assert energy.grid_arbitrage is False
+        assert energy._notified_count == 1
 
-        async def _drive_skip():
-            last_state = await _LastStateProvider(ls).async_get_last_state()
-            if last_state is None:
-                return
-            if last_state.state not in ("on", "off"):
-                if energy is not None:
-                    energy.notify_sub_switch_restore_complete()
-                return
-            target = last_state.state == "on"
-            if energy is not None:
-                setattr(energy, "grid_arbitrage", target)
-                energy.notify_sub_switch_restore_complete()
-        self._run(_drive_skip())
-        assert energy.grid_arbitrage is True, (
-            "seed clobbered — production guard regressed"
-        )
-
-        # 'off' → applies (False).
-        energy2 = _FakeEnergy()
-        energy2.grid_arbitrage = True
-        ls2 = _FakeLastState("off")
-
-        async def _drive_off():
-            last_state = await _LastStateProvider(ls2).async_get_last_state()
-            if last_state is None:
-                return
-            if last_state.state not in ("on", "off"):
-                if energy2 is not None:
-                    energy2.notify_sub_switch_restore_complete()
-                return
-            target = last_state.state == "on"
-            if energy2 is not None:
-                setattr(energy2, "grid_arbitrage", target)
-                energy2.notify_sub_switch_restore_complete()
-        self._run(_drive_off())
-        assert energy2.grid_arbitrage is False, (
-            "valid 'off' restore was not applied"
-        )
+    def test_ec_sub_switch_restore_applies_on_state(self):
+        """Valid 'on' last_state must apply True (regression of apply path)."""
+        energy = _FakeEnergy()
+        energy.grid_arbitrage = False
+        bare, fn = self._make_bare(_FakeLastState("on"), energy)
+        self._run(fn(bare))
+        assert energy.grid_arbitrage is True
+        assert energy._notified_count == 1
 
     # ----- Test 14: HVACDynamicPresetSwitch skip preserves default + notifies.
     def test_hvac_dynamic_preset_switch_restore_skips_unavailable_last_state(
@@ -984,56 +1003,48 @@ class TestRestorePoisoningGuards:
     ):
         energy = _FakeEnergy()
         energy.dynamic_preset_enabled = True  # default ON
-        ls = _FakeLastState("unavailable")
-
-        async def _drive():
-            last_state = await _LastStateProvider(ls).async_get_last_state()
-            if last_state is None:
-                return
-            if last_state.state not in ("on", "off"):
-                if energy is not None:
-                    energy.notify_sub_switch_restore_complete()
-                return
-            target = last_state.state == "on"
-            if energy is not None:
-                energy.dynamic_preset_enabled = target
-                energy.notify_sub_switch_restore_complete()
-        # Sanity-check production wiring.
-        hvac_window_start = _SWITCH_SRC_FULL.index(
-            "class HVACDynamicPresetSwitch"
+        bare, fn = self._make_bare(
+            _FakeLastState("unavailable"), energy, is_hvac=True,
         )
-        hvac_window = _SWITCH_SRC_FULL[
-            hvac_window_start:hvac_window_start + 8000
-        ]
-        assert 'last_state.state not in ("on", "off")' in hvac_window, (
-            "Bug Class #52 guard missing in HVACDynamicPresetSwitch"
-        )
-        self._run(_drive())
+        self._run(fn(bare))
         assert energy.dynamic_preset_enabled is True
-        assert getattr(energy, "_notified", False) is True
+        assert energy._notified_count == 1
 
-    # ----- Test 15: first-install (last_state is None) → no setattr, no notify
-    # (notify is for restore convergence; first-install constructor handles seed).
+    # ----- Test 15: first-install (last_state is None) → no clobber + notify
+    # symmetric with skip path (D2 fix-up — counter must not leak).
     def test_ec_sub_switch_first_install_no_last_state_unchanged(self):
+        """Review D D2: registration/notify must be SYMMETRIC on first-install.
+        The factory's `async_added_to_hass` calls
+        `_register_for_restore_accounting()` BEFORE the `last_state is None`
+        check, so the first-install branch must notify or the EC pending
+        counter is left >0 forever. This drives the REAL extracted body
+        and asserts symmetry: register_count == notify_count.
+        """
         energy = _FakeEnergy()
-        energy.grid_arbitrage = True  # seeded by constructor
-
-        async def _drive():
-            last_state = None  # async_get_last_state returns None on first install
-            if last_state is None:
-                return
-            if last_state.state not in ("on", "off"):
-                if energy is not None:
-                    energy.notify_sub_switch_restore_complete()
-                return
-        self._run(_drive())
+        energy.grid_arbitrage = True  # constructor seed
+        bare, fn = self._make_bare(None, energy)
+        self._run(fn(bare))
+        # Seed UNCHANGED (no setattr in first-install branch).
         assert energy.grid_arbitrage is True
-        # First install: notify is NOT called by this branch (production
-        # constructor handles the seed; nothing was deferred).
-        assert getattr(energy, "_notified", False) is False
-        # And production source still has the None-check before the guard.
-        src = _extract_function_source(_SWITCH_SRC, "def _ec_switch_factory")
-        none_check = "if last_state is None:"
-        guard = 'last_state.state not in ("on", "off")'
-        assert none_check in src
-        assert src.index(none_check) < src.index(guard)
+        # D2 SYMMETRY — register and notify must balance, otherwise the
+        # EC pending-restore counter is stuck >0 and ECSubSwitchesSynced
+        # PROBLEM sensor sticks True until restart on fresh installs.
+        assert energy._registered_count == 1, "expected one register call"
+        assert energy._notified_count == 1, (
+            "first-install must notify to balance the register call "
+            "(D2 fix — register/notify symmetry)"
+        )
+
+    def test_hvac_dynamic_preset_first_install_register_notify_symmetric(self):
+        """Review D D2 sibling: HVACDynamicPresetSwitch first-install path."""
+        energy = _FakeEnergy()
+        energy.dynamic_preset_enabled = False  # will be flipped to True
+        bare, fn = self._make_bare(None, energy, is_hvac=True)
+        self._run(fn(bare))
+        # Default-ON applied.
+        assert energy.dynamic_preset_enabled is True
+        # Symmetric register / notify.
+        assert energy._registered_count == 1
+        assert energy._notified_count == 1
+        # NM notification fired exactly once for the default-flip.
+        assert bare._nm_calls == ["nm"]
