@@ -35,3 +35,16 @@ CRITICAL 1/1 · HIGH 4/4 · MEDIUM 5/5 fixed (1 new backlog) · LOW 4 (1 fixed, 
 ## QUALITY_CONTEXT recommendations
 1. **Trust-scope mismatch** (new class candidate): evidence valid at one scope (house/zone "person home") applied to a finer-scope decision (room-level actuation) — sound only when the coarse scope implies the fine one (sleep⇒in-bed). State extensions must re-derive the implication.
 2. **Skip-gated tests are decorative until proven executing**: any `skipif` behavioral suite must carry an execution-count proof in the cycle's gate evidence.
+
+## Operator revision 2 (2026-06-11, post-review — commit 2077832 on develop)
+
+Operator clarified the product model: **fan actuation is temperature-driven
+only, never house-state-driven — at sleep included.** The pre-existing
+hotfix-B `sleep_occupied_activate` (occupied bedroom + off fan → ON at LOW,
+temp-unconditional; an add-on to the June-1 OFF-side incident fix) was
+REMOVED entirely. Rationale: seasonally wrong in winter; fights manual-off
+after the 1h cooldown; manual-on is one tap and the HOLD then blip-protects
+it. Final contract: ON = on (hold-protected through home_night/sleep/waking);
+OFF = stays off unless temperature demands; manual actions always win.
+Tests re-contracted (cool occupied bedroom at sleep stays OFF; warm one
+starts via the temp path; emitted-label-form source guards).
