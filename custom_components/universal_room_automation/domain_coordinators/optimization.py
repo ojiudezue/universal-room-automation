@@ -1248,19 +1248,56 @@ class OptimizationCoordinator(BaseCoordinator):
         finding: OptimizationFinding,
         target_id: str,
     ) -> tuple[bool | None, str]:
-        """v1 COMFORT oracle: does the room now read within comfort band?
+        """v1 COMFORT oracle: did the flagged out-of-band condition resolve?
+
+        Coherent shadow semantics (P2-HIGH-1 fix-up pass 2):
+
+        - The COMFORT producer fires the finding ONLY when the room temp
+          left its PER-ROOM band ``_read_per_room_comfort(entry)`` (default
+          [68,76] from const.py:888-889) and carries that band on the
+          finding as ``payload["bounds"] = [min, max]``
+          (see ``_evaluate_comfort_dimension`` ~:1602).
+        - The oracle re-reads the room temperature later and reports:
+            * ``True``  — temperature is back INSIDE the finding's own band
+              (the flagged condition RESOLVED).
+            * ``False`` — temperature is still OUTSIDE the finding's own
+              band (the flagged condition PERSISTED).
+            * ``None``  — inconclusive: missing/malformed bounds payload,
+              missing/unreadable temp sensor, or no room entry. We do
+              NOT fall back to a wider default band, because the previous
+              hardcoded ``[65, 80]`` band strictly contained the producer
+              band and turned every out-of-band finding into a "match"
+              (degenerate near-always-True oracle).
 
         Drives the SAME reader the Comfort evaluator uses to emit the
         finding in the first place — ``_iter_room_entries`` → curated
-        ``CONF_TEMPERATURE_SENSOR`` → ``_state_value`` (optimization.py
-        :1481-1492). This guarantees the oracle reads the production
-        substrate, not a phantom ``room_coordinators`` dict that does
-        not exist on the CoordinatorManager.
+        ``CONF_TEMPERATURE_SENSOR`` → ``_state_value``.
         """
         try:
             entry = self._find_room_entry_by_target(target_id)
             if entry is None:
                 return None, "room_entry_missing"
+            # Pull the producer's own band off the finding payload —
+            # NOT a hardcoded fallback (would degenerate again).
+            bounds = None
+            try:
+                payload = finding.payload or {}
+                if isinstance(payload, dict):
+                    bounds = payload.get("bounds")
+            except Exception:  # noqa: BLE001
+                bounds = None
+            if (
+                not isinstance(bounds, (list, tuple))
+                or len(bounds) != 2
+            ):
+                return None, "no_bounds_in_payload"
+            try:
+                band_min = float(bounds[0])
+                band_max = float(bounds[1])
+            except (TypeError, ValueError):
+                return None, "malformed_bounds_in_payload"
+            if band_max <= band_min:
+                return None, "malformed_bounds_in_payload"
             merged = {**(entry.data or {}), **(entry.options or {})}
             temp_eid = merged.get(CONF_TEMPERATURE_SENSOR)
             if not temp_eid:
@@ -1272,8 +1309,15 @@ class OptimizationCoordinator(BaseCoordinator):
                 temp = float(st.state)
             except (TypeError, ValueError):
                 return None, "no_temperature_reading"
-            return (True, f"temp={temp}") if 65.0 <= temp <= 80.0 else (
-                False, f"temp={temp}_out_of_band",
+            in_band = band_min <= temp <= band_max
+            if in_band:
+                return True, (
+                    f"temp={temp}_resolved_within_"
+                    f"[{band_min},{band_max}]"
+                )
+            return False, (
+                f"temp={temp}_persisted_outside_"
+                f"[{band_min},{band_max}]"
             )
         except Exception:  # noqa: BLE001
             return None, "exception"
@@ -1283,30 +1327,80 @@ class OptimizationCoordinator(BaseCoordinator):
         finding: OptimizationFinding,
         target_id: str,
     ) -> tuple[bool | None, str]:
-        """v1 OCCUPANCY_ACCURACY oracle: is the flagged room's curated
-        occupancy sensor reporting (i.e. not stale)?
+        """v1 OCCUPANCY_ACCURACY oracle: did the flagged provenance
+        disagreement resolve?
+
+        Coherent shadow semantics (P2-MED-1 fix-up pass 2):
+
+        - The OCCUPANCY_ACCURACY producer fires when motion/mmwave is ON
+          but ALL curated occupancy sensors report OFF (a provenance
+          disagreement claiming "someone is there but occupancy sensors
+          don't see them"). It carries
+          ``payload = {"occupancy_ids": [...], "signal_ids": [...]}``
+          (see ``_evaluate_occupancy_accuracy_dimension`` ~:1796).
+        - The oracle re-reads the SAME ids later and reports:
+            * ``True``  — at least one occupancy sensor now reports ON
+              (the claim matches reality / disagreement RESOLVED), OR
+              the motion/mmwave signal has cleared (the trigger that
+              raised the disagreement no longer holds).
+            * ``False`` — motion/mmwave still ON AND every occupancy
+              sensor still OFF (the same disagreement PERSISTED).
+            * ``None``  — inconclusive: no payload ids, no room entry,
+              or all sensors unavailable. The previous implementation
+              returned True on ANY live read, which measured "sensors
+              alive," not "claim resolved" — making False unreachable.
 
         Drives the SAME reader the occupancy-accuracy evaluator uses
-        (``CONF_OCCUPANCY_SENSORS`` via ``_iter_room_entries`` +
-        ``_state_value`` at optimization.py:1649-1685). Conservative:
-        a None / unavailable read = inconclusive; a present read counts
-        as "the prediction's signal recovered."
+        (``CONF_OCCUPANCY_SENSORS`` / ``CONF_MOTION_SENSORS`` /
+        ``CONF_MMWAVE_SENSORS`` via ``_iter_room_entries`` +
+        ``_state_value``).
         """
         try:
-            entry = self._find_room_entry_by_target(target_id)
-            if entry is None:
-                return None, "room_entry_missing"
-            merged = {**(entry.data or {}), **(entry.options or {})}
+            # Prefer the ids the producer captured on the finding —
+            # this scores the SAME claim that was raised, not whatever
+            # the room is configured with now.
+            payload = finding.payload if isinstance(
+                finding.payload, dict
+            ) else {}
             occ_ids: list[str] = []
-            val_occ = merged.get(CONF_OCCUPANCY_SENSORS)
-            if isinstance(val_occ, list):
-                occ_ids.extend([v for v in val_occ if isinstance(v, str)])
-            elif isinstance(val_occ, str) and val_occ:
-                occ_ids.append(val_occ)
+            sig_ids: list[str] = []
+            p_occ = payload.get("occupancy_ids")
+            p_sig = payload.get("signal_ids")
+            if isinstance(p_occ, list):
+                occ_ids = [v for v in p_occ if isinstance(v, str)]
+            if isinstance(p_sig, list):
+                sig_ids = [v for v in p_sig if isinstance(v, str)]
+            # Fall back to current room config when payload was thin
+            # (older findings without the producer ids). Still drives
+            # the production reader path.
+            if not occ_ids or not sig_ids:
+                entry = self._find_room_entry_by_target(target_id)
+                if entry is None:
+                    return None, "room_entry_missing"
+                merged = {**(entry.data or {}), **(entry.options or {})}
+                if not occ_ids:
+                    val_occ = merged.get(CONF_OCCUPANCY_SENSORS)
+                    if isinstance(val_occ, list):
+                        occ_ids = [
+                            v for v in val_occ if isinstance(v, str)
+                        ]
+                    elif isinstance(val_occ, str) and val_occ:
+                        occ_ids = [val_occ]
+                if not sig_ids:
+                    for key in (CONF_MOTION_SENSORS, CONF_MMWAVE_SENSORS):
+                        val = merged.get(key)
+                        if isinstance(val, list):
+                            sig_ids.extend(
+                                [v for v in val if isinstance(v, str)]
+                            )
+                        elif isinstance(val, str) and val:
+                            sig_ids.append(val)
             if not occ_ids:
                 return None, "no_occupancy_sensors_configured"
-            any_on = False
-            any_reading = False
+
+            # Did occupancy now agree (any ON) → disagreement resolved.
+            occ_any_on = False
+            occ_any_reading = False
             for eid in occ_ids:
                 st = self._state_value(eid)
                 if st is None:
@@ -1314,13 +1408,38 @@ class OptimizationCoordinator(BaseCoordinator):
                 state_str = str(st.state).lower()
                 if state_str in ("unavailable", "unknown", ""):
                     continue
-                any_reading = True
+                occ_any_reading = True
                 if state_str in ("on", "true", "occupied"):
-                    any_on = True
+                    occ_any_on = True
                     break
-            if not any_reading:
+            if not occ_any_reading:
                 return None, "occupancy_unavailable"
-            return True, f"occupied={any_on}"
+            if occ_any_on:
+                return True, "occupancy_now_on_disagreement_resolved"
+
+            # Occupancy still all off — check whether the motion/mmwave
+            # trigger that raised the finding is still firing.
+            sig_any_on = False
+            sig_any_reading = False
+            for eid in sig_ids:
+                st = self._state_value(eid)
+                if st is None:
+                    continue
+                state_str = str(st.state).lower()
+                if state_str in ("unavailable", "unknown", ""):
+                    continue
+                sig_any_reading = True
+                if state_str in ("on", "true", "occupied"):
+                    sig_any_on = True
+                    break
+            if not sig_any_reading:
+                # Motion/mmwave gone → the trigger condition no longer
+                # holds; treat as resolved (the disagreement is moot).
+                return True, "signal_cleared_disagreement_moot"
+            if not sig_any_on:
+                return True, "signal_now_off_disagreement_moot"
+            # Motion still on, occ still all off — disagreement persisted.
+            return False, "motion_on_occupancy_off_persisted"
         except Exception:  # noqa: BLE001
             return None, "exception"
 

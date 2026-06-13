@@ -970,6 +970,11 @@ class TestD2dShadowAccuracy:
                 description=f"finding {i}",
                 applied_outcome=OPTIMIZER_OUTCOME_SHADOW,
                 predicted_effect={"note": "shadow"},
+                # Pass-2 fix-up: producer carries its own per-room band on
+                # the finding (optimization.py:1602). 72°F is inside the
+                # default [68, 76] band → the flagged out-of-band condition
+                # has RESOLVED → oracle scores True.
+                payload={"bounds": [68.0, 76.0]},
             )
             findings.append(f)
         coord._last_findings = findings
@@ -1010,6 +1015,10 @@ class TestD2dShadowAccuracy:
                 description=f"f{i}",
                 applied_outcome=OPTIMIZER_OUTCOME_SHADOW,
                 predicted_effect={"note": "shadow"},
+                # Bounds present so the inconclusive result is driven by
+                # the missing temp sensor (phantom entity), not by the
+                # missing-bounds early return.
+                payload={"bounds": [68.0, 76.0]},
             ))
         coord._last_findings = findings
         coord._run_shadow_accuracy_validator()
@@ -1039,10 +1048,163 @@ class TestD2dShadowAccuracy:
             description="x",
             applied_outcome=OPTIMIZER_OUTCOME_SHADOW,
             predicted_effect={"note": "shadow"},
+            payload={"bounds": [68.0, 76.0]},
         )
         coord._last_findings = [f]
         coord._run_shadow_accuracy_validator()
         assert f.observed_effect["match"] is False
+
+    def test_comfort_oracle_scores_gap_value_as_persisted_false(self):
+        """P2-HIGH-1 fix-up pass 2 — MANDATORY gap mutation.
+
+        The Pass-2 review found the prior oracle scored against a
+        HARDCODED [65, 80] band while producers carry a tighter per-room
+        band on the finding (default [68, 76]). At 77°F the producer
+        fires (out of [68, 76]) and the oracle re-read 77°F as still
+        IN [65, 80] → reported "accurate" for exactly the findings it
+        was meant to validate.
+
+        Coherent semantics now: score against ``payload["bounds"]`` —
+        77°F is OUTSIDE [68, 76] → match=False (PERSISTED).
+
+        MUTATION evidence: reverting the oracle to the hardcoded
+        ``65.0 <= temp <= 80.0`` band makes this test fail (77°F would
+        score True/resolved).
+        """
+        coord, opt_mod = self._make_coord()
+        from custom_components.universal_room_automation.const import (
+            OPTIMIZER_OUTCOME_SHADOW,
+        )
+        # temp_val=77.0 is the GAP value: inside the old hardcoded
+        # [65, 80] band but OUTSIDE the producer's [68, 76] band.
+        self._install_room_entry(
+            coord, opt_mod, room_name="gap_room",
+            temp_eid="sensor.gap_room_temp", temp_val="77.0",
+        )
+        past_iso = (_utcnow() - timedelta(minutes=30)).isoformat()
+        f = opt_mod.OptimizationFinding(
+            timestamp=past_iso,
+            level="room", target_id="gap_room",
+            dimension=opt_mod.OptimizationDimension.COMFORT,
+            severity="medium", confidence=0.8, score=90.0,
+            description="gap-value persisted",
+            applied_outcome=OPTIMIZER_OUTCOME_SHADOW,
+            predicted_effect={"note": "shadow"},
+            # The same band the producer would have stamped (const default).
+            payload={"bounds": [68.0, 76.0]},
+        )
+        coord._last_findings = [f]
+        coord._run_shadow_accuracy_validator()
+        assert f.observed_effect is not None
+        assert f.observed_effect["match"] is False, (
+            "P2-HIGH-1: 77°F inside [65,80] but OUTSIDE the finding's "
+            "[68,76] band MUST score persisted=False, not accurate=True"
+        )
+        # Evidence string carries the resolved-vs-persisted semantics so
+        # readers of the ledger can tell which path fired.
+        assert "persisted_outside" in f.observed_effect["evidence"]
+
+    def test_comfort_oracle_inconclusive_when_bounds_missing(self):
+        """P2-HIGH-1: a finding without ``payload["bounds"]`` MUST score
+        inconclusive (None), not fall back to a wide default band that
+        would degenerate the oracle again."""
+        coord, opt_mod = self._make_coord()
+        from custom_components.universal_room_automation.const import (
+            OPTIMIZER_OUTCOME_SHADOW,
+        )
+        self._install_room_entry(
+            coord, opt_mod, room_name="no_bounds_room",
+            temp_eid="sensor.no_bounds_temp", temp_val="72.0",
+        )
+        past_iso = (_utcnow() - timedelta(minutes=30)).isoformat()
+        f = opt_mod.OptimizationFinding(
+            timestamp=past_iso,
+            level="room", target_id="no_bounds_room",
+            dimension=opt_mod.OptimizationDimension.COMFORT,
+            severity="low", confidence=0.5, score=90.0,
+            description="x",
+            applied_outcome=OPTIMIZER_OUTCOME_SHADOW,
+            predicted_effect={"note": "shadow"},
+            # No payload bounds — older finding shape.
+        )
+        coord._last_findings = [f]
+        coord._run_shadow_accuracy_validator()
+        assert f.observed_effect is not None
+        assert f.observed_effect["match"] is None
+        assert "bounds" in f.observed_effect["evidence"]
+
+    def test_occupancy_oracle_scores_persisted_disagreement_as_false(self):
+        """P2-MED-1 fix-up pass 2 — MANDATORY False-reachable mutation.
+
+        The Pass-2 review found the prior occupancy oracle could only
+        return True or None, never False — it measured "sensors alive,"
+        not "did the provenance disagreement resolve."
+
+        Coherent semantics now: the producer fires when motion=on AND
+        all occupancy=off. The oracle reads the SAME ids (carried on
+        the finding payload) later and returns False iff motion is
+        still on AND every occupancy sensor is still off.
+
+        MUTATION evidence: making the oracle return True unconditionally
+        (the prior behavior) makes this test fail (it expects False).
+        """
+        coord, opt_mod = self._make_coord()
+        from custom_components.universal_room_automation.const import (
+            OPTIMIZER_OUTCOME_SHADOW,
+        )
+        # Build hass.states with motion=on AND occ=off — the exact
+        # persisted-disagreement condition the producer fires on.
+        from custom_components.universal_room_automation.const import (
+            CONF_ENTRY_TYPE, ENTRY_TYPE_ROOM, DOMAIN,
+            CONF_OCCUPANCY_SENSORS, CONF_MOTION_SENSORS,
+        )
+        entry = MagicMock()
+        entry.data = {
+            CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM,
+            "room_name": "kitchen",
+        }
+        entry.options = {
+            CONF_OCCUPANCY_SENSORS: ["binary_sensor.kitchen_occ"],
+            CONF_MOTION_SENSORS: ["binary_sensor.kitchen_motion"],
+        }
+        entry.entry_id = "entry_kitchen"
+        coord.hass.config_entries = MagicMock()
+        coord.hass.config_entries.async_entries = MagicMock(
+            return_value=[entry],
+        )
+        st_occ = MagicMock(); st_occ.state = "off"
+        st_motion = MagicMock(); st_motion.state = "on"
+        state_map = {
+            "binary_sensor.kitchen_occ": st_occ,
+            "binary_sensor.kitchen_motion": st_motion,
+        }
+        coord.hass.states = MagicMock()
+        coord.hass.states.get = lambda eid, _m=state_map: _m.get(eid)
+        coord.hass.data[DOMAIN] = {"coordinator_manager": MagicMock()}
+
+        past_iso = (_utcnow() - timedelta(minutes=30)).isoformat()
+        # Producer payload: occupancy_ids + signal_ids captured at emit.
+        f = opt_mod.OptimizationFinding(
+            timestamp=past_iso,
+            level="room", target_id="kitchen",
+            dimension=opt_mod.OptimizationDimension.OCCUPANCY_ACCURACY,
+            severity="low", confidence=0.55, score=90.0,
+            description="x",
+            applied_outcome=OPTIMIZER_OUTCOME_SHADOW,
+            predicted_effect={"note": "shadow"},
+            payload={
+                "occupancy_ids": ["binary_sensor.kitchen_occ"],
+                "signal_ids": ["binary_sensor.kitchen_motion"],
+            },
+        )
+        coord._last_findings = [f]
+        coord._run_shadow_accuracy_validator()
+        assert f.observed_effect is not None
+        assert f.observed_effect["match"] is False, (
+            "P2-MED-1: motion on + occupancy off (persisted) MUST score "
+            "False, not True (sensors-alive degenerate)"
+        )
+        assert "persisted" in f.observed_effect["evidence"]
 
     def test_occupancy_oracle_drives_real_reader(self):
         """B-HIGH-1 fix: occupancy oracle reads CONF_OCCUPANCY_SENSORS
@@ -1103,6 +1265,7 @@ class TestD2dShadowAccuracy:
                 description=f"f{i}",
                 applied_outcome=OPTIMIZER_OUTCOME_SHADOW,
                 predicted_effect={"note": "shadow"},
+                payload={"bounds": [68.0, 76.0]},
             ))
         coord._last_findings = findings
         # Must NOT raise "can't compare offset-naive and offset-aware".

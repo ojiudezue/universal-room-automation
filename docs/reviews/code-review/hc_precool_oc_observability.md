@@ -333,3 +333,180 @@ naive-safe regardless of which utcnow mock won the setdefault race.
 
 - None. All Review A + B findings (HIGH, MED, LOW) addressed in this pass per "Fix LOWs In-Cycle".
 - D2c LLM JSON Schema bump remains deferred to the next LLM-tier cycle (already documented in build notes; out of scope here).
+
+## Pass-2 Review (focused — D2d oracle re-point)
+
+Focused re-review of `git diff d3ea90e..c6c683a` now that D2d is load-bearing.
+Verified against real code on branch tip `c6c683a`.
+
+### VERIFIED CORRECT
+- **Producer/consumer identity match (hunt #2) — SOUND.** Every COMFORT
+  + OCCUPANCY_ACCURACY producer sets `target_id=room` where
+  `room=self._room_name(entry)` (optimization.py:1524, 1588, 1624, 1786).
+  `_find_room_entry_by_target` (:1226-1242) matches `_room_name(entry)==target_id`
+  using the SAME `_iter_room_entries`/`_room_name` pair. `_room_name`
+  (:1390-1398) is deterministic (`room_name`→`name`→`entry_id`). No
+  phantom-surface 2.0 — the re-point is genuinely wired to the producer surface.
+- **`_state_value` (:1400-1409)** returns the HA state object; oracle reads
+  `st.state` and `float(st.state)` — correct shape, not a phantom attr.
+- **Phantom-surface mutation re-run (hunt #5).** Forcing the room match to miss
+  fails 4 D2d tests (`test_comfort_oracle_scores_findings`,
+  `test_oracle_records_out_of_band_as_false`, `test_occupancy_oracle_drives_real_reader`,
+  `test_aware_timestamp_compares_with_aware_cutoff`). Tests drive the REAL
+  `_iter_room_entries`/`_state_value` via installed `ConfigEntry` + `hass.states`
+  map — behavioral, not re-mocked. `test_comfort_oracle_phantom_entity_yields_no_observable_data`
+  anti-asserts the regression directly.
+- **aware-datetime (hunt #4) — clean.** On the D2d path exactly TWO
+  `fromisoformat` comparisons exist: validate loop (:1124 `ts > cutoff`) and
+  prune loop (:1174 `ts >= window_cutoff`). Both normalize naive→aware UTC
+  against an aware `now` (:1102) / `cutoff`. No other comparison on the path
+  mixes tz. Other sites (:279 veto TTL, :612 dry-run prune) have their own
+  bidirectional `_cmp_ts` normalization, off-path, not regressed.
+- **no_observable_data ↔ warming_up ↔ ready (hunt #3).** `no_observable_data`
+  reachable only under MIN_SAMPLES AND all-scorable-inconclusive; with a live
+  temp sensor real samples now accrue and the gauge leaves `warming_up`→`ready`.
+  Room-entry-not-found / sensor None / unparseable → `(None, token)` →
+  inconclusive, no crash, no false match. Edge handling correct.
+- **Suite (hunt #6).** Cycle file 27/27 solo. Full suite 34F/5812P/14E.
+  Failure-ID diff vs develop baseline (excl. new file) = **EMPTY** (48==48,
+  `comm -23` empty). Order-dep 67/67 BOTH orders vs `test_oc_pillar_a_handshake.py`.
+
+### NEW FINDINGS
+
+- **P2-HIGH-1 — Comfort oracle scores against a HARDCODED `[65,80]` band, not
+  the finding's band → degenerate near-always-True oracle (bug class: meaningless-oracle / wrong-reference-band).**
+  `_score_comfort_shadow` (optimization.py:1271) scores `65.0 <= temp <= 80.0`.
+  But the COMFORT producer fires a finding ONLY when temp leaves the *per-room*
+  band `_read_per_room_comfort(entry)` (:1556, 1571 `temp_val < comfort['min'] or > comfort['max']`),
+  whose default is `[68,76]` (const.py:888-889) and is carried in
+  `payload["bounds"]`. The room band is STRICTLY INSIDE `[65,80]`, so a finding
+  that fired at e.g. 77 °F (out of `[68,76]`) re-reads 77 °F and the oracle
+  scores it `True`/"accurate". The oracle reports a MATCH for exactly the
+  out-of-band findings it is meant to validate — it ignores `payload["bounds"]`
+  sitting on the finding. Result: shadow_accuracy_pct trends artificially toward
+  100% and is not a meaningful predictor-accuracy signal. The two D2d tests use
+  72 °F (in) / 92 °F (out of even `[65,80]`), so neither exercises the
+  `[68,76]`↔`[65,80]` gap that exposes this. Build note (line 92-101)
+  acknowledged a "v1 conservative read" pre-fix-up, but the fix-up promoted D2d
+  to load-bearing without correcting the reference band. **Fix:** score against
+  `finding.payload["bounds"]` (compare the post-observe-delay temp re-entering
+  `[min,max]` = recovered=True; still outside = False), not a hardcoded band.
+
+- **P2-MED-1 — Occupancy oracle can only return True or None, never False
+  (bug class: one-sided/degenerate oracle).** `_score_occupancy_shadow`
+  (optimization.py:1303-1323) returns `True` whenever ANY occupancy sensor has a
+  non-stale read (`return True, f"occupied={any_on}"`) regardless of on/off, and
+  `None` only when all reads are unavailable. It measures "the occupancy sensor
+  is alive," not "the provenance disagreement that raised the finding resolved."
+  Like P2-HIGH-1 this skews accuracy toward 100% and does not validate the
+  prediction. `test_occupancy_oracle_drives_real_reader` confirms wiring but not
+  semantics. **Fix:** define the success condition against the finding's claim
+  (e.g. occupancy now agrees with the motion/mmwave provenance that triggered it).
+
+### VERDICT: FIX-FIRST
+
+The fix-up's three mechanical goals (A-1 same-day re-engage, B-1 oracle
+re-point off the phantom surface, naive↔aware normalization) are all
+correctly implemented and behaviorally tested — D2d is now genuinely WIRED to
+the production room surface and the producer/consumer identity is the same
+string. But D2d is not yet CORRECT: both oracles are degenerate (P2-HIGH-1
+hardcoded band ignoring `payload["bounds"]`; P2-MED-1 one-sided True/None),
+so `shadow_accuracy_pct` will read near-100% as an artifact rather than a real
+predictor-accuracy signal. Ship only if D2d is explicitly labeled
+observability-PRELIMINARY in the README (the gauge is non-degenerate-wired but
+its scoring is not yet a trustworthy accuracy metric); otherwise fix P2-HIGH-1
+(and ideally P2-MED-1) to score against the finding's own band/claim before
+the gauge is treated as authoritative.
+
+## Fix-up pass 2 — D2d shadow oracle coherent scoring semantics
+
+Applied 2026-06-13 on `feature/hc-precool-oc-observability` (post-Pass-2
+review tip c6c683a). Addresses P2-HIGH-1 + P2-MED-1 directly.
+
+### Producer keys read (verified at file:line)
+
+- **Comfort band** — `optimization.py:1602`. Producer attaches the
+  per-room band as `payload["bounds"] = [comfort["min"], comfort["max"]]`
+  inside `_evaluate_comfort_dimension`. Default band `[68, 76]` lives at
+  `const.py:888-889` (`DEFAULT_COMFORT_TEMP_MIN` / `..._MAX`).
+- **Occupancy claim** — `optimization.py:1796`. Producer attaches
+  `payload = {"occupancy_ids": [...], "signal_ids": [...]}` inside
+  `_evaluate_occupancy_accuracy_dimension`. The finding fires when
+  motion/mmwave (signal_ids) is ON and ALL occupancy_ids report OFF
+  (provenance disagreement).
+
+### Coherent shadow-scoring semantics (now implemented)
+
+Both oracles share the same axis: the finding fired because a flagged
+condition was true at emit-time; the oracle re-reads the SAME surface
+after `OPTIMIZER_SHADOW_OBSERVE_DELAY_S` and reports:
+
+| match | Comfort meaning | Occupancy meaning |
+|-------|------------------|--------------------|
+| True | Temp back INSIDE `payload["bounds"]` (flagged out-of-band condition **resolved**) | Occupancy now reports ON, OR motion/mmwave trigger cleared (disagreement **resolved** / moot) |
+| False | Temp still OUTSIDE `payload["bounds"]` (flagged condition **persisted**) | Motion/mmwave still ON AND every occupancy id still OFF (same disagreement **persisted**) |
+| None | Missing/malformed `bounds` payload, missing temp sensor, no room entry, unparseable read | No occupancy ids, no room entry, every occupancy sensor unavailable |
+
+Critically, when `payload["bounds"]` is absent or malformed the comfort
+oracle returns inconclusive — NOT a wide default band. The prior
+hardcoded `[65, 80]` strictly contained the producer's `[68, 76]` band
+and turned every out-of-band finding into a "match" (degenerate
+near-always-True). Same principle for occupancy: the prior implementation
+returned True on ANY live read regardless of state, so False was
+unreachable. False is now reachable via the motion-on + occupancy-off
+persisted-disagreement branch.
+
+### Code surface
+
+- `_score_comfort_shadow` (optimization.py ~:1246) — reads
+  `finding.payload["bounds"]`, normalizes to floats, validates
+  `band_max > band_min`, then `True` when `band_min <= temp <= band_max`
+  else `False`. Evidence strings carry the explicit semantic
+  (`temp=X_resolved_within_[a,b]` / `temp=X_persisted_outside_[a,b]`).
+- `_score_occupancy_shadow` (optimization.py ~:1331) — prefers the
+  finding's own `payload["occupancy_ids"]` / `payload["signal_ids"]`
+  (so we score the SAME claim that was raised, not the room's current
+  config). Falls back to live config when payload is thin. Reads occ
+  state via `_state_value` and short-circuits True on `any_on`. When
+  all occ off, re-reads motion/mmwave: cleared/off → True (trigger
+  gone, disagreement moot); still on → False (disagreement persisted).
+
+### Mutation evidence
+
+- **Comfort hardcoded-band mutation** — reverting
+  `in_band = band_min <= temp <= band_max` to
+  `in_band = 65.0 <= temp <= 80.0` made
+  `test_comfort_oracle_scores_gap_value_as_persisted_false` fail
+  (`assert True is False`). The new test installs a finding with
+  `payload["bounds"] = [68, 76]` and `temp = 77°F` — inside the old
+  hardcoded `[65, 80]` band, outside the producer's band — so under
+  the mutation the oracle reports accurate=True for a finding that
+  should be persisted=False. Test went red, oracle exposed.
+- **Occupancy always-True mutation** — replacing
+  `return False, "motion_on_occupancy_off_persisted"` with
+  `return True, "MUTATION_always_true"` made
+  `test_occupancy_oracle_scores_persisted_disagreement_as_false` fail
+  (`assert True is False`). The new test installs the SAME
+  motion-on + occupancy-off condition the producer fires on; under the
+  mutation False is unreachable. Test went red, oracle exposed.
+
+### Suite
+
+- Cycle file solo: **30/30** pass (was 27; +3 new tests:
+  `test_comfort_oracle_scores_gap_value_as_persisted_false`,
+  `test_comfort_oracle_inconclusive_when_bounds_missing`,
+  `test_occupancy_oracle_scores_persisted_disagreement_as_false`).
+- Order-dep BOTH orders vs `test_oc_pillar_a_handshake.py`:
+  **70/70** each direction (40 + 30).
+- Full suite: **34 failed, 5815 passed, 29 skipped, 14 errors**.
+- Failure-ID diff vs pre-fix-up baseline (cycle file excluded):
+  `comm -23 post pre` and `comm -13 post pre` both **EMPTY** (48 == 48
+  failure IDs unchanged). No new failures, no removed.
+
+### Disposition
+
+P2-HIGH-1 + P2-MED-1 fixed in code + behaviorally tested with mandatory
+mutation pairs. D2d is now a coherent resolved-vs-persisted oracle for
+both scorable dimensions; `shadow_accuracy_pct` reflects predictor
+accuracy, not "sensors alive" or "any finding inside a wide default
+band." Ready for re-review.
