@@ -212,6 +212,13 @@ class EVChargerController:
         # blast-on into mid_peak. Mirrors the v5.3.9 arbitrage pattern of
         # giving each owner its own set. No side-map (only one shed intent).
         self._paused_by_load_shed: set[str] = set()
+        # load-shedding-correctness fix-up C-HIGH-1: per-EVSE "was on at
+        # shed-claim time" map. Release only turns the EVSE back on when
+        # `was_on_at_shed=True` AND no other owner claims. A device that
+        # was already off when load-shed proactively claimed it (operator
+        # had it off, or manual-off during shed) must NOT be turned on
+        # at release. Persisted in the bundle so it survives restart.
+        self._load_shed_was_on_at_shed: dict[str, bool] = {}
         # arbitrage_solar_attainability_ladder D2: rung-label side-map.
         # Keyed by evse_id, values ∈ {"redirect", "breaker"}. Single source
         # of truth for pause membership remains `_paused_by_arbitrage`; this
@@ -749,6 +756,7 @@ class EVChargerController:
                     or evse_id in self._paused_by_fill_priority
                     or evse_id in self._paused_by_grid_cap
                     or evse_id in self._paused_by_arbitrage
+                    or evse_id in self._paused_by_load_shed
                 ):
                     _LOGGER.debug(
                         "Excess solar: %s held by stronger pause reason — skipping",
@@ -833,9 +841,22 @@ class EVChargerController:
                 # Below cap minus hysteresis — resume
                 if net_power_kw < (grid_cap_kw - hysteresis_kw):
                     # v4.2.17: Battery drain takes priority
-                    if evse_id in self._paused_by_battery_drain:
+                    # load-shedding-correctness fix-up A-HIGH-2:
+                    # also defer to load_shed / fill_priority / arbitrage /
+                    # us so grid-cap resume can't blast an EVSE on that
+                    # any other owner still claims.
+                    if (
+                        evse_id in self._paused_by_battery_drain
+                        or evse_id in self._paused_by_load_shed
+                        or evse_id in self._paused_by_fill_priority
+                        or evse_id in self._paused_by_arbitrage
+                        or evse_id in self._paused_by_us
+                    ):
                         self._paused_by_grid_cap.discard(evse_id)
-                        _LOGGER.info("EV grid cap: clearing for %s (battery drain active)", evse_id)
+                        _LOGGER.info(
+                            "EV grid cap: clearing for %s (other pause owner active)",
+                            evse_id,
+                        )
                         continue
                     if not state["is_on"]:
                         actions.append({
@@ -1218,6 +1239,7 @@ class EVChargerController:
                         or evse_id in self._paused_by_battery_drain
                         or evse_id in self._paused_by_us
                         or evse_id in self._paused_by_arbitrage
+                        or evse_id in self._paused_by_load_shed
                     ):
                         self._paused_by_fill_priority.discard(evse_id)
                         self._release_pause_dispatch_owner(
@@ -1697,6 +1719,10 @@ class SmartPlugController:
         # the load-shed cascade previously mutated `_paused_by_us` (shared
         # with TOU). Mirrors v5.3.9 arbitrage pattern.
         self._paused_by_load_shed: set[str] = set()
+        # load-shedding-correctness fix-up C-HIGH-1: per-plug "was on at
+        # shed-claim time" map. Mirrors EV side; controls whether release
+        # restores the plug.
+        self._load_shed_was_on_at_shed: dict[str, bool] = {}
         # v4.7.6 D1 mirror: cooldown after detected manual override
         self._battery_drain_cooldown: dict[str, float] = {}
         # v4.7.6 D4 cache
@@ -1754,7 +1780,13 @@ class SmartPlugController:
                 continue
 
             if tou_period in ("peak", "mid_peak"):
-                if state.state == "on" and entity_id not in self._paused_by_us:
+                # B-LOW-1 fix-up: don't issue a cosmetic re-pause when
+                # load-shed already claims the plug (device is already off).
+                if (
+                    state.state == "on"
+                    and entity_id not in self._paused_by_us
+                    and entity_id not in self._paused_by_load_shed
+                ):
                     actions.append({
                         "service": "switch.turn_off",
                         "target": entity_id,

@@ -222,6 +222,8 @@ _extracted = _extract_named(
         "_save_load_shedding_level",
         "_restore_load_shedding_level",
         "load_shedding_status",
+        "_release_all_active_tiers",
+        "_update_load_shedding",
     },
 )
 
@@ -289,6 +291,8 @@ _FakeCoord._execute_shed_action = _extracted_ns["_execute_shed_action"]
 _FakeCoord._save_load_shedding_level = _extracted_ns["_save_load_shedding_level"]
 _FakeCoord._restore_load_shedding_level = _extracted_ns["_restore_load_shedding_level"]
 _FakeCoord.load_shedding_status = property(_extracted_ns["load_shedding_status"])
+_FakeCoord._release_all_active_tiers = _extracted_ns["_release_all_active_tiers"]
+_FakeCoord._update_load_shedding = _extracted_ns["_update_load_shedding"]
 
 
 # ---------------------------------------------------------------------------
@@ -641,3 +645,449 @@ def test_load_shedding_status_exposes_new_attributes():
     assert status["paused_by_load_shed_plugs"] == [plug_id]
     assert status["pool_pre_shed_speed"] == 95.0
     assert status["last_release_reason"] == "auto"
+
+
+# ---------------------------------------------------------------------------
+# Fix-up correctness tests (B-CRIT-1 / B-CRIT-2 / A-HIGH-1/2 / A-MED-1 /
+# A/B-HIGH-3 / B-HIGH-2 / C-HIGH-1 / C-MED-1)
+# ---------------------------------------------------------------------------
+
+
+class _StubBattery:
+    """Minimal stub so `_update_load_shedding` can read import — not used
+    in the off-peak short-circuit (returns early before reading)."""
+
+    def _effective_import_kw(self):
+        # (effective_kw, net_kw, battery_charge_kw)
+        return (0.0, 0.0, 0.0)
+
+
+def _arm_coord_for_period_flip(coord, *, ev_was_on=True, plug_was_on=True,
+                                pool_at_reduced=True):
+    """Helper: arm a coord with shed active across all 3 tiers, in the
+    state it would have post-escalation during peak.
+    """
+    coord._battery = _StubBattery()
+    coord._load_shedding_active_level = 3  # pool + ev + smart_plugs
+    coord._load_shedding_enabled = True
+    # Pool: original_speed set, current at reduced.
+    coord._pool._original_speed = 80.0
+    if pool_at_reduced:
+        from custom_components.universal_room_automation.domain_coordinators.energy_pool import POOL_REDUCED_SPEED, POOL_STATE_REDUCED
+        coord._pool._state = POOL_STATE_REDUCED
+        coord.hass.set_state("number.pool_pump_speed", str(POOL_REDUCED_SPEED))
+    # EV: in load_shed set; was_on tracks whether release should restore.
+    coord._ev._paused_by_load_shed.add("garage_a")
+    coord._ev._load_shed_was_on_at_shed["garage_a"] = ev_was_on
+    coord.hass.set_state("switch.garage_a", "off")
+    # Plug: in load_shed set; was_on tracks restore eligibility.
+    coord._smart_plugs._paused_by_load_shed.add("switch.kettle")
+    coord._smart_plugs._load_shed_was_on_at_shed["switch.kettle"] = plug_was_on
+    coord.hass.set_state("switch.kettle", "off")
+
+
+def test_period_flip_offpeak_releases_all_active_tiers_BCRIT1():
+    """B-CRIT-1 — When peak/mid_peak flips to off_peak while shed is
+    active, EVERY tier must release: pool restored, EV turned on, plug
+    turned on. Pre-fix, the off-peak short-circuit zeroed the level and
+    returned without releasing → orphans.
+
+    Mutation: remove the `_release_all_active_tiers` call in the off-peak
+    short-circuit → this test fails (pool stays reduced, ev/plug stay
+    in load_shed sets, no service calls).
+    """
+    coord, _ = _make_coord(evse_on=False, plug_on=False, pool_speed=80.0)
+    _arm_coord_for_period_flip(coord)
+
+    coord._update_load_shedding("off_peak")
+
+    # Level zeroed.
+    assert coord._load_shedding_active_level == 0
+    # All pause-owner sets cleared.
+    assert "garage_a" not in coord._ev._paused_by_load_shed
+    assert "switch.kettle" not in coord._smart_plugs._paused_by_load_shed
+    # Pool restored (number.set_value back to original 80).
+    assert any(
+        c["service"] == "number.set_value" and c["data"]["value"] == 80.0
+        for c in coord._service_calls
+    ), "Pool must be restored to its pre-shed speed on off-peak flip"
+    # EV restored (was_on=True → release turns it on).
+    assert any(
+        c["service"] == "switch.turn_on" and c["target"] == "switch.garage_a"
+        for c in coord._service_calls
+    ), "EV must be resumed at off-peak flip"
+    # Plug restored.
+    assert any(
+        c["service"] == "switch.turn_on" and c["target"] == "switch.kettle"
+        for c in coord._service_calls
+    ), "Plug must be resumed at off-peak flip"
+
+
+def test_period_flip_offpeak_release_honors_was_on_at_shed_CHIGH1_persist():
+    """B-CRIT-1 × C-HIGH-1 — when an EV/plug was already OFF at shed
+    time (proactive claim), the off-peak release must NOT turn it on.
+
+    Mutation: drop the was_on_at_shed gate → this test fails (EV/plug
+    get a spurious turn_on).
+    """
+    coord, _ = _make_coord(evse_on=False, plug_on=False, pool_speed=80.0)
+    _arm_coord_for_period_flip(
+        coord, ev_was_on=False, plug_was_on=False,
+    )
+
+    coord._update_load_shedding("off_peak")
+
+    # Sets cleared but no turn_on for the off-at-shed devices.
+    assert "garage_a" not in coord._ev._paused_by_load_shed
+    assert "switch.kettle" not in coord._smart_plugs._paused_by_load_shed
+    assert not any(
+        c["service"] == "switch.turn_on" and c["target"] == "switch.garage_a"
+        for c in coord._service_calls
+    ), "EV was off at shed-time — must NOT be turned on at release"
+    assert not any(
+        c["service"] == "switch.turn_on" and c["target"] == "switch.kettle"
+        for c in coord._service_calls
+    ), "Plug was off at shed-time — must NOT be turned on at release"
+
+
+def test_disabled_short_circuit_also_releases_all_active_tiers_BCRIT1():
+    """B-CRIT-1 — disabling load-shed mid-shed (operator flips off the
+    feature switch) must release every active tier before zeroing.
+    """
+    coord, _ = _make_coord(evse_on=False, plug_on=False, pool_speed=80.0)
+    _arm_coord_for_period_flip(coord)
+    coord._load_shedding_enabled = False
+
+    coord._update_load_shedding("peak")  # period irrelevant once disabled
+
+    assert coord._load_shedding_active_level == 0
+    assert "garage_a" not in coord._ev._paused_by_load_shed
+    assert "switch.kettle" not in coord._smart_plugs._paused_by_load_shed
+    assert any(
+        c["service"] == "number.set_value"
+        for c in coord._service_calls
+    )
+
+
+def test_restore_sets_pool_state_reduced_BCRIT2():
+    """B-CRIT-2 — Bundle restore for a non-None pool_original_speed must
+    set ``_pool._state = POOL_STATE_REDUCED`` so the OTHER pool owner
+    (TOU PoolOptimizer) can fire its off-peak restore.
+
+    Mutation: skip the `_pool._state = POOL_STATE_REDUCED` set in restore
+    → this test fails (state stays NORMAL → TOU restore gate blocks).
+    """
+    coord, _ = _make_coord(pool_speed=80.0)
+    bundle = {
+        "level": 1,
+        "pool_original_speed": 80.0,
+        "ev_set": [],
+        "plug_set": [],
+        "ev_was_on_at_shed": {},
+        "plug_was_on_at_shed": {},
+    }
+    db = _StubDB({"load_shedding_bundle": json.dumps(bundle)})
+    _attach_db(coord, db)
+    asyncio.get_event_loop().run_until_complete(
+        coord._restore_load_shedding_level()
+    )
+
+    assert coord._pool._original_speed == 80.0
+    assert coord._pool._state == POOL_STATE_REDUCED, (
+        "Pool state must be REDUCED after restore so TOU restore can fire"
+    )
+
+
+def test_was_on_at_shed_survives_restart_in_bundle_CHIGH1():
+    """C-HIGH-1 — `_load_shed_was_on_at_shed` for both EV and plug
+    must round-trip through the bundle so the post-restart release path
+    knows which devices to restore.
+    """
+    coord, plug_id = _make_coord()
+    coord._load_shedding_active_level = 2
+    coord._ev._paused_by_load_shed.add("garage_a")
+    coord._ev._load_shed_was_on_at_shed["garage_a"] = True
+    coord._smart_plugs._paused_by_load_shed.add(plug_id)
+    coord._smart_plugs._load_shed_was_on_at_shed[plug_id] = False
+
+    db = _StubDB()
+    _attach_db(coord, db)
+    asyncio.get_event_loop().run_until_complete(coord._save_load_shedding_level())
+
+    coord2, _ = _make_coord()
+    _attach_db(coord2, db)
+    asyncio.get_event_loop().run_until_complete(
+        coord2._restore_load_shedding_level()
+    )
+
+    assert coord2._ev._load_shed_was_on_at_shed.get("garage_a") is True
+    assert coord2._smart_plugs._load_shed_was_on_at_shed.get(plug_id) is False
+
+
+def test_plug_shed_release_when_off_and_was_off_at_shed_does_not_turn_on_CHIGH1():
+    """C-HIGH-1 — plug was off at shed (proactive claim), live state still
+    off at release → release does NOT issue turn_on. This is the case
+    Reviewer C identified as the silent failure (M4 only tested manual-ON).
+
+    Mutation: drop the was_on_at_shed gate in the plug release branch →
+    this test fails (a turn_on is spuriously issued).
+    """
+    coord, plug_id = _make_coord(plug_on=False)  # plug starts off
+    # First: shed activates → proactive claim (was_on_at_shed=False).
+    coord._execute_shed_action("smart_plugs", activate=True)
+    assert plug_id in coord._smart_plugs._paused_by_load_shed
+    assert coord._smart_plugs._load_shed_was_on_at_shed[plug_id] is False
+    # Operator never touches it; live state remains off.
+    pre_calls = len(coord._service_calls)
+    coord._execute_shed_action("smart_plugs", activate=False)
+    post_calls = coord._service_calls[pre_calls:]
+    assert not any(
+        c["service"] == "switch.turn_on" for c in post_calls
+    ), "was-off-at-shed plug must NOT be turned on at release"
+    assert plug_id not in coord._smart_plugs._paused_by_load_shed
+    assert coord._last_release_reason == "respect_manual_off"
+
+
+def test_ev_shed_release_when_off_and_was_off_at_shed_does_not_turn_on_CHIGH1():
+    """C-HIGH-1 mirror for EV: was-off-at-shed (proactive claim) →
+    release must NOT turn on.
+    """
+    coord, _ = _make_coord(evse_on=False)
+    coord._execute_shed_action("ev", activate=True)
+    assert "garage_a" in coord._ev._paused_by_load_shed
+    assert coord._ev._load_shed_was_on_at_shed["garage_a"] is False
+
+    pre_calls = len(coord._service_calls)
+    coord._execute_shed_action("ev", activate=False)
+    post_calls = coord._service_calls[pre_calls:]
+    assert not any(
+        c["service"] == "switch.turn_on" for c in post_calls
+    ), "was-off-at-shed EV must NOT be turned on at release"
+    assert "garage_a" not in coord._ev._paused_by_load_shed
+    assert coord._last_release_reason == "respect_manual_off"
+
+
+def test_reescalate_reshed_manually_resumed_ev_BHIGH2():
+    """B-HIGH-2 — On re-escalation, if an EV is in `_paused_by_load_shed`
+    but live state is ON (operator manually resumed mid-shed), re-issue
+    turn_off rather than blind-skip.
+
+    Mutation: revert to the unconditional `continue` on set membership
+    → this test fails (no turn_off issued; EV keeps charging through
+    peak shed).
+    """
+    coord, _ = _make_coord(evse_on=True)
+    coord._execute_shed_action("ev", activate=True)
+    assert "garage_a" in coord._ev._paused_by_load_shed
+    # Operator manually resumes the EV.
+    coord.hass.set_state("switch.garage_a", "on")
+
+    pre = len(coord._service_calls)
+    coord._execute_shed_action("ev", activate=True)
+    post = coord._service_calls[pre:]
+    assert any(
+        c["service"] == "switch.turn_off" and c["target"] == "switch.garage_a"
+        for c in post
+    ), "Re-escalate must re-shed an operator-resumed EV"
+
+
+def test_reescalate_reshed_manually_resumed_plug_BHIGH2():
+    """B-HIGH-2 mirror for plug."""
+    coord, plug_id = _make_coord(plug_on=True)
+    coord._execute_shed_action("smart_plugs", activate=True)
+    assert plug_id in coord._smart_plugs._paused_by_load_shed
+    coord.hass.set_state(plug_id, "on")
+
+    pre = len(coord._service_calls)
+    coord._execute_shed_action("smart_plugs", activate=True)
+    post = coord._service_calls[pre:]
+    assert any(
+        c["service"] == "switch.turn_off" and c["target"] == plug_id
+        for c in post
+    ), "Re-escalate must re-shed an operator-resumed plug"
+
+
+def test_periodic_db_writes_persists_bundle_for_watchdog_AHIGH3():
+    """A/B-HIGH-3 — `_save_load_shedding_level` is called from
+    `_periodic_db_writes` so the bundle survives a watchdog kill (no
+    teardown). Throttled to write-on-change.
+
+    Mutation: drop the `await self._save_load_shedding_level()` from
+    `_periodic_db_writes` → this test fails (bundle absent post-write).
+    """
+    coord, plug_id = _make_coord()
+    coord._load_shedding_active_level = 1
+    coord._ev._paused_by_load_shed.add("garage_a")
+    coord._ev._load_shed_was_on_at_shed["garage_a"] = True
+
+    db = _StubDB()
+    _attach_db(coord, db)
+
+    # Verify periodic_db_writes WOULD call save (source-level guard
+    # against accidental revert) plus exercise the save path itself.
+    pdw_src = _extract_named(_energy_src, {"_periodic_db_writes"})
+    assert "_save_load_shedding_level" in pdw_src, (
+        "_periodic_db_writes must call _save_load_shedding_level so the "
+        "bundle survives a watchdog kill (no teardown)"
+    )
+
+    asyncio.get_event_loop().run_until_complete(coord._save_load_shedding_level())
+    assert "load_shedding_bundle" in db.store
+    payload = json.loads(db.store["load_shedding_bundle"])
+    assert payload["level"] == 1
+    assert payload["ev_set"] == ["garage_a"]
+    assert payload["ev_was_on_at_shed"] == {"garage_a": True}
+
+
+def test_save_load_shedding_level_throttles_on_unchanged_bundle():
+    """A/B-HIGH-3 throttle — back-to-back saves with no state change
+    must NOT issue a second DB write (mirrors v5.2.2 write-flood lesson).
+    """
+    coord, _ = _make_coord()
+    coord._load_shedding_active_level = 1
+    coord._ev._paused_by_load_shed.add("garage_a")
+    coord._ev._load_shed_was_on_at_shed["garage_a"] = True
+
+    db = _StubDB()
+    _attach_db(coord, db)
+
+    # Wrap save_energy_state to count.
+    calls = {"n": 0}
+    real_save = db.save_energy_state
+
+    async def counting_save(k, v):
+        calls["n"] += 1
+        await real_save(k, v)
+
+    db.save_energy_state = counting_save
+
+    asyncio.get_event_loop().run_until_complete(coord._save_load_shedding_level())
+    first = calls["n"]
+    asyncio.get_event_loop().run_until_complete(coord._save_load_shedding_level())
+    second = calls["n"]
+    assert second == first, (
+        "Second save with unchanged bundle must short-circuit (throttle)"
+    )
+
+    # State changes → save fires again.
+    coord._ev._paused_by_load_shed.add("garage_b")
+    asyncio.get_event_loop().run_until_complete(coord._save_load_shedding_level())
+    third = calls["n"]
+    assert third > second, "State change must un-throttle the save"
+
+
+def test_excess_solar_skips_load_shed_evse_AHIGH1():
+    """A-HIGH-1 — `determine_excess_solar_actions` must NOT turn on an
+    EVSE held by `_paused_by_load_shed`. Drives the REAL
+    `EVChargerController.determine_excess_solar_actions` method.
+
+    Mutation: drop load_shed from the skip-list → EVSE is turned on
+    despite shed claim → this test fails.
+    """
+    hass = _build_hass()
+    ev, _, _, _ = _build_controllers(hass, evse_on=False)
+    ev._paused_by_load_shed.add("garage_a")
+
+    # Conditions that would otherwise trigger excess-solar turn-on:
+    # high SOC, surplus solar, no charging EVSE.
+    actions = ev.determine_excess_solar_actions(
+        soc=98.0,
+        remaining_forecast_kwh=8.0,
+        tou_period="off_peak",
+        soc_threshold=95,
+        kwh_threshold=5.0,
+    )
+    assert not any(
+        a.get("service") == "switch.turn_on"
+        and a.get("target") == "switch.garage_a"
+        for a in actions
+    ), "Excess solar must NOT turn on a load-shed-held EVSE"
+
+
+def test_grid_cap_resume_defers_to_load_shed_AHIGH2():
+    """A-HIGH-2 — `determine_grid_cap_actions` resume branch must NOT
+    turn on an EVSE held by `_paused_by_load_shed`.
+
+    Mutation: drop load_shed from the grid-cap resume guard → EVSE is
+    turned on → this test fails.
+    """
+    hass = _build_hass()
+    ev, _, _, _ = _build_controllers(hass, evse_on=False)
+    ev._paused_by_grid_cap.add("garage_a")
+    ev._paused_by_load_shed.add("garage_a")
+
+    actions = ev.determine_grid_cap_actions(
+        net_power_kw=2.0,  # well below cap minus hysteresis
+        grid_cap_kw=10.0,
+        hysteresis_kw=1.0,
+    )
+    assert not any(
+        a.get("service") == "switch.turn_on" for a in actions
+    ), "Grid-cap resume must defer to load_shed"
+    # Grid-cap claim is cleared (resume completed bookkeeping-wise).
+    assert "garage_a" not in ev._paused_by_grid_cap
+    # Load-shed claim remains intact.
+    assert "garage_a" in ev._paused_by_load_shed
+
+
+def test_fill_priority_release_defers_to_load_shed_AMED1():
+    """A-MED-1 — EV fill-priority release defers to load_shed."""
+    hass = _build_hass()
+    ev, _, _, _ = _build_controllers(hass, evse_on=False)
+    ev._paused_by_fill_priority.add("garage_a")
+    ev._paused_by_load_shed.add("garage_a")
+
+    actions = ev.determine_fill_priority_actions(
+        soc=95.0,
+        remaining_forecast_kwh=0.5,
+        tou_period="off_peak",
+        soc_threshold=80,
+        excess_solar_kwh_threshold=1.0,
+    )
+    assert not any(
+        a.get("service") == "switch.turn_on" for a in actions
+    ), "Fill-priority release must defer to load_shed"
+    assert "garage_a" not in ev._paused_by_fill_priority
+    assert "garage_a" in ev._paused_by_load_shed
+
+
+def test_plug_tou_offpeak_carryover_respects_load_shed_CMED1():
+    """C-MED-1 — drives REAL `SmartPlugController.determine_actions` in
+    off-peak with a load_shed claim → plug stays off (load-shed owns
+    the resume), `_paused_by_us` bookkeeping is cleared.
+
+    This is the production carry-over path Reviewer C flagged as
+    untested. Mutation: drop the load_shed branch in the off-peak
+    resume → this test fails (a turn_on is issued).
+    """
+    hass = _build_hass()
+    plug_id = "switch.kettle"
+    hass.set_state(plug_id, "off")
+    plugs = SmartPlugController(hass, plug_entities=[plug_id])
+    plugs._paused_by_us.add(plug_id)
+    plugs._paused_by_load_shed.add(plug_id)
+
+    actions = plugs.determine_actions("off_peak")
+    assert not any(
+        a.get("service") == "switch.turn_on" for a in actions
+    ), "Off-peak resume must defer to load_shed"
+    # TOU bookkeeping cleared.
+    assert plug_id not in plugs._paused_by_us
+    # Load-shed remains.
+    assert plug_id in plugs._paused_by_load_shed
+
+
+def test_plug_tou_peak_skip_when_load_shed_claims_BLOW1():
+    """B-LOW-1 — TOU peak guard must NOT issue a cosmetic re-pause for
+    a plug already claimed by load_shed (device is already off).
+    """
+    hass = _build_hass()
+    plug_id = "switch.kettle"
+    hass.set_state(plug_id, "on")  # pretend live still on (race)
+    plugs = SmartPlugController(hass, plug_entities=[plug_id])
+    plugs._paused_by_load_shed.add(plug_id)
+
+    actions = plugs.determine_actions("peak")
+    assert not any(
+        a.get("service") == "switch.turn_off" for a in actions
+    ), "TOU peak must not re-pause a load-shed-held plug"
