@@ -2041,9 +2041,23 @@ class EnergyCoordinator(BaseCoordinator):
 
         Summer: peak rate (4-hour window 16:00–20:00).
         Shoulder/winter: mid_peak rate (no peak period exists).
+
+        M7 / C2-MED-2: reads from the LIVE TOU engine (same source as the
+        D1b rate-spread gate + buy-side `get_effective_import_rate`), so a
+        custom `tou_rates.json` is respected end-to-end. Falls back to the
+        static `PEC_TOU_RATES` const only if the live engine cannot
+        resolve the schedule (conservative — keeps the prior shape).
         """
-        from .energy_const import PEC_TOU_RATES
-        season_data = PEC_TOU_RATES.get(season, {}).get("periods", {})
+        rates = None
+        if self._tou is not None:
+            try:
+                rates = self._tou._rates
+            except Exception:  # noqa: BLE001
+                rates = None
+        if rates is None:
+            from .energy_const import PEC_TOU_RATES
+            rates = PEC_TOU_RATES
+        season_data = rates.get(season, {}).get("periods", {})
         if season == "summer" and "peak" in season_data:
             return float(season_data["peak"]["import_rate"])
         if "mid_peak" in season_data:
@@ -2065,8 +2079,15 @@ class EnergyCoordinator(BaseCoordinator):
         it as arbitrage-displaced kWh would inflate savings. The savings
         formula assumes off-peak grid kWh × (displaced − off-peak rate).
         """
-        from .energy_battery import ARBITRAGE_PHASE_CHARGE
-        if decision.get("arbitrage_phase") != ARBITRAGE_PHASE_CHARGE:
+        # Cycle EC/HC reboot pickup: ATTAIN is also a grid-charging phase
+        # (peak-buffer catch-up). Bug Class #22 — count SOC delta during
+        # ATTAIN toward arbitrage savings; the kWh delivered by grid during
+        # off-peak displaces high-rate import the same way arbitrage CHARGE
+        # does. Skipping ATTAIN here would silently under-report savings.
+        from .energy_battery import ARBITRAGE_PHASE_ATTAIN, ARBITRAGE_PHASE_CHARGE
+        if decision.get("arbitrage_phase") not in (
+            ARBITRAGE_PHASE_CHARGE, ARBITRAGE_PHASE_ATTAIN,
+        ):
             self._arbitrage_prev_soc = None
             return
 
@@ -2089,6 +2110,25 @@ class EnergyCoordinator(BaseCoordinator):
             # No charge this cycle (e.g., Enphase still ramping). Don't log a row.
             self._arbitrage_prev_soc = soc_now
             return
+
+        # Fix-up pass (A-MED-1): during ATTAIN, exclude SOC-rise ticks where
+        # the battery's grid-charge component is <= solar surplus — those
+        # ticks are solar-driven, not arbitrage-displaced. Simplest defensible
+        # method: skip the savings row when battery_power_w shows the battery
+        # charging at or below current solar production (i.e. all charge
+        # power could have come from solar). Documented in review ledger.
+        if decision.get("arbitrage_phase") == ARBITRAGE_PHASE_ATTAIN:
+            battery_w = self._battery.battery_power_w
+            solar_w = self._battery.solar_production_w
+            if (
+                battery_w is not None
+                and solar_w is not None
+                and battery_w > 0  # actually charging
+                and battery_w <= solar_w  # could be entirely solar
+            ):
+                # Solar-driven rise during ATTAIN — don't book as arbitrage.
+                self._arbitrage_prev_soc = soc_now
+                return
 
         capacity_kwh = self._get_battery_capacity_kwh()
         kwh_charged = (delta_soc / 100.0) * capacity_kwh
@@ -2429,6 +2469,14 @@ class EnergyCoordinator(BaseCoordinator):
                 # grid-charging via arbitrage CHARGE phase. Resumes when
                 # phase exits CHARGE (HOLD or DISCHARGE) subject to TOU
                 # period and other pause-reason precedence.
+                # Cycle EC/HC reboot pickup: ATTAIN phase intentionally
+                # EXCLUDED from this gate. Per operator decision 2026-06-12,
+                # v1 attainability is observe-only on EVs — it reads the
+                # consequence of EV ensure-on (net rate < projection slope)
+                # but does NOT signal EVSE back off. Adding ATTAIN here
+                # would convert a v1 observe-only feature into an EVSE
+                # coordination lever. Tracked as a future cycle (see ledger
+                # backlog stub).
                 from .energy_battery import ARBITRAGE_PHASE_CHARGE
                 arbitrage_charging = (
                     decision.get("arbitrage_phase") == ARBITRAGE_PHASE_CHARGE
@@ -3275,11 +3323,21 @@ class EnergyCoordinator(BaseCoordinator):
         # firmware kW/W variants. Pre-v4.5.0, the raw `net_power` divided
         # by 1000 silently broke load-shedding thresholding when Envoy
         # firmware reported in kW.
-        net_power_w = self._battery.net_power_w
-        if net_power_w is None:
+        #
+        # M6 (Pass-2 P2B-HIGH-1): exclude the battery's own grid-charge
+        # power from the load-shedding import reading. D1b attain may
+        # charge during mid_peak (state-matrix invariant change); the
+        # ~16 kW battery draw would otherwise trip load shedding to
+        # shed pool/EV/plugs/HVAC even though the actual house+EV draw is
+        # under threshold. Reuse the same battery-exclusion math the
+        # attainability grid-import guard uses (max(0, battery_power)).
+        snap = self._battery._effective_import_kw()
+        if snap is None:
             return
-
-        import_kw = max(net_power_w / 1000.0, 0.0)
+        # snap = (effective_kw, net_kw, battery_charge_kw). Use effective
+        # — net minus battery charge — clamped at 0.
+        effective_kw, _net_kw, _batt_charge_kw = snap
+        import_kw = max(effective_kw, 0.0)
 
         # Record for history (auto-learning)
         if tou_period == "peak" and import_kw > 0:
@@ -4073,6 +4131,14 @@ class EnergyCoordinator(BaseCoordinator):
     @arbitrage_enabled.setter
     def arbitrage_enabled(self, value: bool) -> None:
         self._battery._arbitrage_enabled = value
+        # Pass-2 P2A-MED-1: reset attain latch when the toggle flips.
+        # Stale `_attain_state` after a mid-attain disable+re-enable would
+        # resume CHARGE with no entry re-evaluation (stale economics).
+        self._battery._attain_state = "inactive"
+        self._battery._attain_drift_logged = False
+        self._battery._attain_charging_ticks = 0
+        # Clear the rate-window so the next ENTRY re-seeds cleanly.
+        self._battery._attain_soc_history.clear()
         _LOGGER.info("Energy arbitrage: %s", "enabled" if value else "disabled")
 
     @property

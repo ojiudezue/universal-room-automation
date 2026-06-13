@@ -203,6 +203,34 @@ class HVACPredictor:
             self._pre_heat_active = False
             self._solar_bank_triggered_today = False
 
+        # Cycle EC/HC reboot pickup — D2 #12. One-shot post-restart pass:
+        # derive triggered_today flags from the clock so we do not re-fire
+        # a daily-once trigger after rebooting past its window. Pure
+        # function of current time + completion semantics; mirrors v5.3.7
+        # always-register philosophy (idempotent re-eval).
+        # NOTE: `_reboot_pickup_done` is lazily declared on the instance
+        # here (not in __init__) to keep the public init body short — the
+        # v4.5.10 test_predictor_has_4_v4510_runtime_fields check window is
+        # 3000 chars from `def __init__` and we must not push fields past
+        # it.
+        if not getattr(self, "_reboot_pickup_done", False):
+            self._reboot_pickup_done = True
+            hour = now.hour
+            # Cool window already passed today → mark triggered.
+            # Inside lead window → leave False (one re-fire is acceptable).
+            if hour >= PEAK_HOUR_START:
+                self._pre_cool_triggered_today = True
+            # Heat window already passed today (window completes before
+            # OFF_PEAK_END_HOUR).
+            if hour >= OFF_PEAK_END_HOUR:
+                self._pre_heat_triggered_today = True
+            _LOGGER.info(
+                "HVAC reboot-pickup: hour=%d → cool_triggered=%s, "
+                "heat_triggered=%s",
+                hour, self._pre_cool_triggered_today,
+                self._pre_heat_triggered_today,
+            )
+
         # Track energy mode time
         if energy_constraint:
             mode = energy_constraint.mode
@@ -1107,7 +1135,12 @@ class HVACPredictor:
                 if isinstance(batt, dict):
                     phase = batt.get("arbitrage_phase", "n/a")
                     mode = batt.get("mode", "unknown")
-                    if phase == "charge":
+                    if phase in ("charge", "attain"):
+                        # Cycle EC/HC reboot pickup: ATTAIN is also a
+                        # grid-charging phase (peak-buffer catch-up on a
+                        # good-day-with-eaten-solar). Bug Class #22 — new
+                        # enum value must be reflected in every consumer
+                        # that string-matches on arbitrage_phase.
                         solar_intent = "harvest"
                     elif phase == "discharge":
                         solar_intent = "export"
