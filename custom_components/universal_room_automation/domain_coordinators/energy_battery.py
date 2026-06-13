@@ -95,6 +95,25 @@ ATTAIN_MIN_REMAINING_MIN = 30
 # Operator-ratified ("as long as turn off can cycle in 15m before peak").
 ATTAIN_PEAK_HANDOFF_LEAD_MIN = 15
 
+# arbitrage_solar_attainability_ladder constants.
+#
+# Symmetric 3% / 3% hysteresis on BOTH boundaries (rung-0 gate, rung-0↔rung-1
+# transition). Entry requires projection ≥ target + ENTRY_HYSTERESIS_PCT;
+# exit requires projection < target - EXIT_HYSTERESIS_PCT. Together this
+# yields a 6-pt dead-band that absorbs typical Solcast tick-to-tick wobble
+# without making the suppression sticky on real shortfalls.
+ARB_LADDER_ENTRY_HYSTERESIS_PCT = 3.0
+ARB_LADDER_EXIT_HYSTERESIS_PCT = 3.0
+# Below this expected-solar-surplus floor (%/h), rung-1 is meaningless —
+# pausing the EVs doesn't redirect any solar to the battery (night, deep
+# overcast, just after sunset). Caller short-circuits straight to rung-2.
+ARB_LADDER_SOLAR_NEGLIGIBLE_PCT_PER_H = 0.5
+# Default assumed battery usable capacity (kWh) for the rung-1 EV-load → %/h
+# conversion when the live battery_capacity entity is unavailable. Mirrors
+# the v5.3.8 attain projection's "fail toward charging" bias by NOT
+# inflating the rung-1 conversion. 13.5 kWh ≈ one Encharge unit.
+ARB_LADDER_DEFAULT_BATTERY_KWH = 13.5
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -249,6 +268,29 @@ class BatteryStrategy:
         # cfg=True while charging; subsequently a cfg=False reading is a
         # genuine drift event. Reset on any non-charging transition.
         self._attain_cfg_observed_on: bool = False
+
+        # arbitrage_solar_attainability_ladder D1: rung classifier state.
+        #   _arbitrage_intent — emitted by _classify_attain_rung each tick.
+        #     None    → no pause requested (rung-0; gate stays closed by
+        #               forecast OR by rung-0 attainability).
+        #     "redirect" → rung-1: EVs paused to redirect their solar to
+        #               battery, no grid charge commanded.
+        #     "breaker"  → rung-2: gate opens; grid charge commanded;
+        #               EVs MUST be paused for compound-load protection.
+        #     Read by EnergyCoordinator (energy.py) to thread into
+        #     EVChargerController.determine_arbitrage_actions(pause_reason=).
+        self._arbitrage_intent: str | None = None
+        # Rung-0 / rung-1 latches with 3%/3% hysteresis. Cold boot: both
+        # False (conservative; rung-2 fall-through fires only if forecast
+        # gate was open AND classifier reached the rung-2 branch).
+        self._arb_rung0_latch: bool = False
+        self._arb_rung1_latch: bool = False
+        # Diagnostic snapshot of last classification — surfaces "why did/
+        # didn't the gate open" symmetrically with the v5.3.8 attain
+        # projection internals at __init__ above.
+        self._arb_last_rung: str | None = None
+        self._arb_last_projection_rung0: float | None = None
+        self._arb_last_projection_rung1: float | None = None
 
         # v4.5.0 D3: multi-day Solcast lookback toggle + entity ID.
         # (Property `_attain_active` defined later as a tri-state
@@ -729,23 +771,241 @@ class BatteryStrategy:
             return False
         return snap[0] > self._arbitrage_grid_import_guard_kw
 
-    def _gate_is_open(self, now: datetime, target_day_class: str) -> bool:
+    def _classify_attain_rung(
+        self,
+        now: datetime,
+        soc: float | None,
+        ev_load_w: float,
+    ) -> str:
+        """arbitrage_solar_attainability_ladder D1.
+
+        Returns one of "rung_0" | "rung_1" | "rung_2" — the LEAST-COST
+        intervention this tick. Pure (read-only against external state)
+        except for (a) updating the rung-0/rung-1 latches (with 3/3%
+        hysteresis), (b) recording a sample into the trailing K-tick window
+        so the rung machinery has data when needed, and (c) snapshotting
+        diagnostic projection values onto ``self._arb_last_projection_*``.
+
+        Semantics:
+          rung_0 — Do nothing. Today's solar (+ current loads, EVs included)
+                   projects SOC ≥ target+ENTRY_HYSTERESIS at the high-rate
+                   boundary. Gate STAYS CLOSED; _arbitrage_intent=None.
+          rung_1 — Pause the EVs and let solar redirect to the battery. The
+                   projection with EVs paused (rate uplifted by ev_load_w
+                   in %/h) reaches target+ENTRY_HYSTERESIS. Gate STAYS
+                   CLOSED; _arbitrage_intent="redirect".
+          rung_2 — Neither passes. Existing arbitrage CHARGE path fires;
+                   _arbitrage_intent="breaker"; EVs are paused for
+                   compound-load (panel breaker) protection.
+
+        CRITICAL re-entrancy fix (the v5.3.8 self-referential-rate trap
+        sibling): when ``_arb_rung1_latch`` is True the EVs are PAUSED, so
+        the observed K-tick net-charge rate is INFLATED (their load is
+        gone). A naive rung-0 re-check on the next tick would then read
+        "SOC will attain with current loads" (EVs off), flip rung-0 closed,
+        resume the EVs, load returns, rung-0 fails again → pause again.
+        Bang-bang. The EXIT condition for rung-1 must therefore be
+        COUNTERFACTUAL — "if we ADDED THE EV LOAD BACK INTO THE PROJECTION,
+        would solar still attain?" — NOT the observed-current-rate which
+        reflects the paused state.
+
+        Concretely: while latched at rung-1, we subtract ev_load_pct_per_h
+        from the rate when evaluating "should we drop to rung-0 / resume
+        the EVs". Only when THAT counterfactual passes target+ENTRY does
+        the latch release. Mirrors v5.3.8's entry-vs-exit asymmetry on
+        the attain HOLD.
+
+        Cold boot: <2 samples → return "rung_2" (conservative; same shape
+        as v5.3.8 attain cold-boot defer).
+        """
+        # Always feed the trailing-window sampler so the rung machinery
+        # has data ready when the forecast gate next opens. The attain
+        # branch ALSO samples on its own path; double-sample-per-tick is
+        # idempotent thanks to (timestamp, soc) tuple equality being
+        # benign for the rate window.
+        self._record_attain_sample(now, soc)
+
+        if soc is None or self._peak_buffer_target is None:
+            self._arb_last_rung = "rung_2"
+            return "rung_2"
+        # When SOC already ≥ target, the rung machinery has nothing to add
+        # — the existing HOLD phase (in _get_arbitrage_phase) is the right
+        # behavior (lock reserve at peak_buffer_target without commanding
+        # grid charge). Returning "rung_2" here lets _gate_is_open open
+        # the forecast gate, the HOLD short-circuit fires, and grid is
+        # NOT pulled (HOLD's charge_from_grid=False).
+        if soc >= self._peak_buffer_target:
+            self._arb_last_rung = "rung_2"
+            return "rung_2"
+
+        # Boundary math reused from the v5.3.8 attain machinery (off_peak
+        # path). When the boundary cannot be resolved, fail to rung_2.
+        _bnd_dt, _bnd_period, mins = self._attain_target_boundary(now, "off_peak")
+        if mins is None or mins <= 0:
+            self._arb_last_rung = "rung_2"
+            return "rung_2"
+
+        rate = self._observed_net_charge_rate_per_hour()
+        if rate is None:
+            # Cold-boot defer: window <2 samples. Same shape as v5.3.8
+            # _should_attain_peak_buffer — conservative, fall to rung_2.
+            self._arb_last_rung = "rung_2"
+            return "rung_2"
+
+        solar_surplus = self._expected_solar_surplus_pct(now, mins)
+
+        # Convert observed ev_load (W) into a %/h SOC delta using the
+        # same divisor the v5.3.8 attain math implicitly uses (battery
+        # usable kWh). Capacity unknown → fall back to a conservative
+        # constant. The conversion: kW / kWh * 100 = %/h.
+        capacity_kwh = self._battery_capacity_kwh()
+        if capacity_kwh is None or capacity_kwh <= 0:
+            capacity_kwh = ARB_LADDER_DEFAULT_BATTERY_KWH
+        ev_load_kw = max(0.0, float(ev_load_w or 0.0)) / 1000.0
+        ev_load_pct_per_h = (ev_load_kw / capacity_kwh) * 100.0
+
+        target = float(self._peak_buffer_target)
+        entry_band = target + ARB_LADDER_ENTRY_HYSTERESIS_PCT
+        exit_band = target - ARB_LADDER_EXIT_HYSTERESIS_PCT
+        hours = mins / 60.0
+
+        projected_rung0 = soc + (rate + solar_surplus) * hours
+        self._arb_last_projection_rung0 = round(projected_rung0, 1)
+
+        # CRITICAL ordering: when rung-1 is latched, the COUNTERFACTUAL
+        # rung-1 exit logic is the AUTHORITATIVE next-state decision —
+        # observed `rate` reflects the EVs being paused and would otherwise
+        # spuriously satisfy a naive rung-0 entry. Evaluate rung-1's
+        # counterfactual FIRST so the re-entrancy trap is closed.
+        if self._arb_rung1_latch:
+            # No-solar guard still applies — if surplus collapsed there's
+            # nothing to redirect; escalate to rung-2.
+            if solar_surplus < ARB_LADDER_SOLAR_NEGLIGIBLE_PCT_PER_H:
+                self._arb_rung1_latch = False
+                self._arb_last_projection_rung1 = None
+                self._arb_last_rung = "rung_2"
+                return "rung_2"
+            assumed_ev_pct = getattr(
+                self, "_arb_last_ev_load_pct_per_h", 0.0,
+            ) or 0.0
+            counterfactual_projected = soc + (rate - assumed_ev_pct + solar_surplus) * hours
+            self._arb_last_projection_rung1 = round(counterfactual_projected, 1)
+            if counterfactual_projected >= entry_band:
+                # Counterfactual passes (i.e. even with EVs back on, rung-0
+                # attains). Release rung-1 latch, latch at rung-0.
+                self._arb_rung1_latch = False
+                self._arb_rung0_latch = True
+                self._arb_last_rung = "rung_0"
+                return "rung_0"
+            # Counterfactual still missing entry. Check escalation: the
+            # projection with EVs paused (this is what `rate` already
+            # reflects, == projected_rung0) must STILL clear exit-band
+            # to keep the latch. If it falls below, escalate to rung-2
+            # (solar collapse). Otherwise hold rung-1.
+            if projected_rung0 < exit_band:
+                self._arb_rung1_latch = False
+                self._arb_last_rung = "rung_2"
+                return "rung_2"
+            self._arb_last_rung = "rung_1"
+            return "rung_1"
+
+        # ── Rung-0 evaluation (no rung-1 latch active) ──────────────────
+        if self._arb_rung0_latch:
+            if projected_rung0 < exit_band:
+                self._arb_rung0_latch = False
+            else:
+                self._arb_last_rung = "rung_0"
+                return "rung_0"
+        else:
+            if projected_rung0 >= entry_band:
+                self._arb_rung0_latch = True
+                self._arb_last_rung = "rung_0"
+                return "rung_0"
+
+        # ── Rung-1 entry evaluation ─────────────────────────────────────
+        # No-solar guard: pausing the EVs frees no usable solar at night /
+        # deep overcast. Caller short-circuits to rung-2.
+        if solar_surplus < ARB_LADDER_SOLAR_NEGLIGIBLE_PCT_PER_H:
+            self._arb_last_projection_rung1 = None
+            self._arb_last_rung = "rung_2"
+            return "rung_2"
+
+        # Not yet latched. ENTRY form: ask "if we paused the EVs (added
+        # ev_load_pct_per_h to the rate), would solar attain?"
+        if ev_load_pct_per_h <= 0.0:
+            # No EV load to redirect — rung-1 collapses into rung-0.
+            # Since rung-0 already failed above, fall to rung-2.
+            self._arb_last_projection_rung1 = None
+            self._arb_last_rung = "rung_2"
+            return "rung_2"
+
+        projected_rung1_entry = soc + (rate + ev_load_pct_per_h + solar_surplus) * hours
+        self._arb_last_projection_rung1 = round(projected_rung1_entry, 1)
+        if projected_rung1_entry >= entry_band:
+            self._arb_rung1_latch = True
+            # Capture the EV-load %/h at the moment of entry so the
+            # counterfactual exit math has a stable assumed load to add
+            # back, even after the EVs go to 0 W (paused).
+            self._arb_last_ev_load_pct_per_h = ev_load_pct_per_h
+            self._arb_last_rung = "rung_1"
+            return "rung_1"
+
+        self._arb_last_rung = "rung_2"
+        return "rung_2"
+
+    def _gate_is_open(
+        self,
+        now: datetime,
+        target_day_class: str,
+        ev_load_w: float | None = None,
+    ) -> bool:
         """Pre-conditions for *any* arbitrage phase consideration.
 
         Mirrors the cheat-sheet in the plan: arbitrage_enabled AND
         target_day_class poor/very_poor (or D+2 equivalent) AND grid
         connected. TOU period and storm short-circuit are checked
         upstream in determine_mode() (state matrix invariants 1, 6).
+
+        arbitrage_solar_attainability_ladder D1: when the forecast gate
+        would open, consult ``_classify_attain_rung`` to narrow on rung-0
+        (do nothing) and rung-1 (suppress arbitrage but pause EVs to
+        redirect their solar). Sets ``_arbitrage_intent`` for the caller
+        (EnergyCoordinator) to thread into determine_arbitrage_actions.
         """
         if not self._arbitrage_enabled:
+            self._arbitrage_intent = None
             return False
+        forecast_gate_open = False
         if target_day_class in ("poor", "very_poor"):
-            return True
-        if self._multi_day_horizon_enabled:
+            forecast_gate_open = True
+        elif self._multi_day_horizon_enabled:
             d2_class = self.classify_solar_day_n(2)
             if d2_class in ("poor", "very_poor"):
-                return True
-        return False
+                forecast_gate_open = True
+        if not forecast_gate_open:
+            # Forecast gate closed entirely → reset latches + clear intent.
+            # The v5.3.8 attain branch on the post-gate fallback path is
+            # the realized-divergence safety net.
+            self._arb_rung0_latch = False
+            self._arb_rung1_latch = False
+            self._arbitrage_intent = None
+            return False
+
+        # Forecast gate open. Narrow via rung classifier.
+        soc = self.battery_soc
+        if ev_load_w is None:
+            ev_load_w = getattr(self, "_tick_ev_load_w", None)
+        load_w = 0.0 if ev_load_w is None else float(ev_load_w)
+        rung = self._classify_attain_rung(now, soc, load_w)
+        if rung == "rung_0":
+            self._arbitrage_intent = None
+            return False
+        if rung == "rung_1":
+            self._arbitrage_intent = "redirect"
+            return False
+        # rung_2 — gate opens; existing arbitrage CHARGE path fires.
+        self._arbitrage_intent = "breaker"
+        return True
 
     def _get_arbitrage_phase(
         self,
@@ -2003,6 +2263,7 @@ class BatteryStrategy:
         season: str = "summer",
         now: datetime | None = None,
         tou_transition_into: str | None = None,
+        ev_load_w: float | None = None,
     ) -> dict[str, Any]:
         """Determine optimal battery mode based on TOU period and conditions.
 
@@ -2031,6 +2292,13 @@ class BatteryStrategy:
         from homeassistant.util import dt as dt_util
         if now is None:
             now = dt_util.now()
+
+        # arbitrage_solar_attainability_ladder D1: stash ev_load_w for
+        # _gate_is_open / _classify_attain_rung to consult. EnergyCoordinator
+        # passes the live EVChargerController.current_charging_load_w() per
+        # tick; None means caller didn't compute it (older test paths) and
+        # the classifier treats it as 0 (skip rung-1, conservative).
+        self._tick_ev_load_w: float | None = ev_load_w
 
         # v4.5.0 D1: chunk lock reset on transition INTO off_peak.
         # `tou_transition_into` is the *new* period name — populated only

@@ -2372,11 +2372,20 @@ class EnergyCoordinator(BaseCoordinator):
 
             # Battery decision — v4.5.0 D1: pass `now` for charge-window math
             # and `tou_transition_into` so chunk-lock resets on entry to off_peak.
+            # arbitrage_solar_attainability_ladder D1: also snapshot the
+            # current EV charging load so BatteryStrategy._classify_attain_rung
+            # can run rung-1 (solar redirect) projection. Wrapped in try/except
+            # so a stale EVSE power sensor cannot break the battery decision.
             from homeassistant.util import dt as dt_util
+            try:
+                ev_load_w = self._ev.current_charging_load_w()
+            except Exception:  # noqa: BLE001
+                ev_load_w = None
             decision = self._battery.determine_mode(
                 period, season,
                 now=dt_util.now(),
                 tou_transition_into=new_period,
+                ev_load_w=ev_load_w,
             )
 
             # v4.3.0 D4: Arbitrage cycle accounting — fire-and-forget DB write.
@@ -2478,12 +2487,33 @@ class EnergyCoordinator(BaseCoordinator):
                 # coordination lever. Tracked as a future cycle (see ledger
                 # backlog stub).
                 from .energy_battery import ARBITRAGE_PHASE_CHARGE
-                arbitrage_charging = (
+                # arbitrage_solar_attainability_ladder D2: the EV pause
+                # request now comes from EITHER rung-2 (existing CHARGE
+                # path; intent="breaker") OR rung-1 (gate stayed closed
+                # but EVs paused to redirect solar; intent="redirect").
+                # Read the rung intent BatteryStrategy stamped during this
+                # tick's _gate_is_open evaluation.
+                arb_intent = getattr(self._battery, "_arbitrage_intent", None)
+                arbitrage_charging_phase = (
                     decision.get("arbitrage_phase") == ARBITRAGE_PHASE_CHARGE
                 )
+                # Breaker-safety invariant: when the existing CHARGE phase
+                # fired, the rung MUST be "breaker". Defensive — if the
+                # battery's intent disagrees (shouldn't happen; _gate_is_open
+                # sets "breaker" before returning True), force "breaker" so
+                # the assertion in determine_arbitrage_actions doesn't trip
+                # AND the EVs end up paused for compound-load protection.
+                if arbitrage_charging_phase:
+                    pause_reason: str | None = "breaker"
+                elif arb_intent == "redirect":
+                    pause_reason = "redirect"
+                else:
+                    pause_reason = None
+                pause_requested = pause_reason is not None
                 arb_actions = self._ev.determine_arbitrage_actions(
-                    arbitrage_charging=arbitrage_charging,
+                    arbitrage_charging=pause_requested,
                     tou_period=period,
+                    pause_reason=pause_reason,
                 )
                 for action_spec in arb_actions:
                     await self._execute_service_action(action_spec)
