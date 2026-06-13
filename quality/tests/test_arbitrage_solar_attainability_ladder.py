@@ -1206,6 +1206,371 @@ class TestPerTickRungCache:
         assert r3 == "rung_1"
 
 
+class TestCoordinatorTickDispatch:
+    """Pass-2 P2-CRITICAL-1 — coordinator-tick integration backstop.
+
+    Every prior ordering/resume test drives the chokepoint helper or the
+    EV controller method in ISOLATION, so the prior fix-up's deletion of
+    `self._pool.determine_actions(period)` and
+    `self._ev.determine_actions(period)` from `_update_energy` PASSED
+    every test. These tests drive the real `if not self._observation_mode:`
+    dispatch path — the chokepoint plus the post-decision TOU + arbitrage
+    helper — and assert the calls fire AND `grid_charge_on` threads live.
+
+    Test mechanism: instantiate `EnergyCoordinator` via `object.__new__`
+    to avoid the heavy __init__, attach minimal stand-ins for the
+    collaborators the dispatch block reads, then invoke both
+    `_execute_breaker_safe_dispatch` AND
+    `_dispatch_post_decision_tou_and_arbitrage` in the same order as
+    the tick.
+    """
+
+    def _build_bare_coord(
+        self,
+        *,
+        ev_pool,
+        battery_strategy,
+        hass,
+        ev_tou_enabled: bool = True,
+        last_known_grid: bool = False,
+    ):
+        # object.__new__ bypasses EnergyCoordinator.__init__ entirely —
+        # we only need the attribute surface the dispatch block reads.
+        coord = object.__new__(EnergyCoordinator)
+        coord._ev = ev_pool
+        coord._battery = battery_strategy
+        coord._pool = MagicMock()
+        coord._pool.determine_actions = MagicMock(return_value=[])
+        coord._smart_plugs = MagicMock()
+        coord.hass = hass
+        coord._observation_mode = False
+        coord._ev_tou_enabled = ev_tou_enabled
+        coord._last_known_grid_charge_on = last_known_grid
+
+        dispatched: list[dict] = []
+
+        async def _exec(action_spec):
+            dispatched.append(dict(action_spec))
+
+        coord._execute_service_action = _exec
+        return coord, dispatched
+
+    @pytest.mark.asyncio
+    async def test_tick_invokes_ev_tou_determine_actions(self):
+        """(a) Mutation: deleting `self._ev.determine_actions(period, ...)`
+        from `_dispatch_post_decision_tou_and_arbitrage` makes this fail.
+        """
+        strat, hass = _build_strategy(soc=80, solcast_today="40")
+        # SOC at target → HOLD; no grid charge intent.
+        decision = strat.determine_mode(
+            "off_peak", "summer", now=_ANCHOR, ev_load_w=0.0,
+        )
+        assert decision.get("charge_from_grid", False) is False
+        ev_pool, _ = _build_evpool(garage_a_on=True, garage_a_w="7400")
+        # Spy on determine_actions while keeping real behavior.
+        real_det = ev_pool.determine_actions
+        calls: list[dict] = []
+
+        def _spy(period, grid_charge_on=False):
+            calls.append({"period": period, "grid_charge_on": grid_charge_on})
+            return real_det(period, grid_charge_on=grid_charge_on)
+
+        ev_pool.determine_actions = _spy
+
+        coord, _ = self._build_bare_coord(
+            ev_pool=ev_pool, battery_strategy=strat, hass=hass,
+        )
+        pause_reason, pause_requested, grid_charge_intent = await (
+            coord._execute_breaker_safe_dispatch(decision, "off_peak")
+        )
+        await coord._dispatch_post_decision_tou_and_arbitrage(
+            period="off_peak",
+            pause_reason=pause_reason,
+            pause_requested=pause_requested,
+            grid_charge_intent=grid_charge_intent,
+        )
+        assert len(calls) == 1, (
+            "EV TOU determine_actions MUST be invoked once per tick. "
+            f"Calls: {calls}"
+        )
+        assert calls[0]["period"] == "off_peak"
+
+    @pytest.mark.asyncio
+    async def test_tick_invokes_pool_determine_actions(self):
+        """(b) Mutation: deleting `self._pool.determine_actions(period)`
+        from `_dispatch_post_decision_tou_and_arbitrage` makes this fail.
+        """
+        strat, hass = _build_strategy(soc=80, solcast_today="40")
+        decision = strat.determine_mode(
+            "off_peak", "summer", now=_ANCHOR, ev_load_w=0.0,
+        )
+        ev_pool, _ = _build_evpool(garage_a_on=False, garage_a_w="0")
+        coord, _ = self._build_bare_coord(
+            ev_pool=ev_pool, battery_strategy=strat, hass=hass,
+        )
+        pause_reason, pause_requested, grid_charge_intent = await (
+            coord._execute_breaker_safe_dispatch(decision, "off_peak")
+        )
+        await coord._dispatch_post_decision_tou_and_arbitrage(
+            period="off_peak",
+            pause_reason=pause_reason,
+            pause_requested=pause_requested,
+            grid_charge_intent=grid_charge_intent,
+        )
+        coord._pool.determine_actions.assert_called_once_with("off_peak")
+
+    @pytest.mark.asyncio
+    async def test_tick_grid_charge_tick_ordering_and_no_ev_turn_on(self):
+        """(c) On a grid-charge tick the dispatch ORDER is:
+              breaker-pause(turn_off) → charge_from_grid(turn_on)
+              → no EV turn_on after (ensure-on suppressed).
+        Mutation: revert the ensure-on suppression and an EV turn_on
+        slips in after the grid command.
+        """
+        strat, hass = _build_strategy(soc=20, solcast_today="5")
+        # Real CHARGE-phase decision (rung-2, gate opens).
+        next_soc = _seed_rate(strat, _ANCHOR, 20.0, -1.0)
+        hass.set_state(_BSOC, f"{next_soc:.4f}")
+        decision = strat.determine_mode(
+            "off_peak", "summer", now=_ANCHOR, ev_load_w=0.0,
+        )
+        assert decision["arbitrage_phase"] == ARBITRAGE_PHASE_CHARGE
+        assert decision["charge_from_grid"] is True
+
+        # EV starts OFF — the ensure-on path would normally try to
+        # turn it ON during off_peak. The resume-side guard must
+        # suppress that.
+        ev_pool, _ = _build_evpool(garage_a_on=False, garage_a_w="0")
+        coord, dispatched = self._build_bare_coord(
+            ev_pool=ev_pool, battery_strategy=strat, hass=hass,
+        )
+        pause_reason, pause_requested, grid_charge_intent = await (
+            coord._execute_breaker_safe_dispatch(decision, "off_peak")
+        )
+        assert pause_reason == "breaker"
+        assert grid_charge_intent is True
+        await coord._dispatch_post_decision_tou_and_arbitrage(
+            period="off_peak",
+            pause_reason=pause_reason,
+            pause_requested=pause_requested,
+            grid_charge_intent=grid_charge_intent,
+        )
+
+        # Indices: breaker pause (turn_off on garage_a) and
+        # charge_from_grid turn_on.
+        # EV is OFF at fixture start; proactive-claim adds it to
+        # _paused_by_arbitrage but doesn't emit turn_off. Skip the
+        # turn_off index assertion if no EV was ON to start with;
+        # what matters is no EV turn_on appears AFTER the grid command.
+        cfg_on_idx = next(
+            (
+                i for i, a in enumerate(dispatched)
+                if a.get("service") == "switch.turn_on"
+                and "charge_from_grid" in str(a.get("target", ""))
+            ),
+            None,
+        )
+        assert cfg_on_idx is not None, (
+            f"grid command MUST be dispatched. Dispatched: {dispatched}"
+        )
+        # No EV turn_on AFTER the grid command (the leg-2 invariant).
+        post_grid_ev_turn_ons = [
+            a for a in dispatched[cfg_on_idx + 1:]
+            if a.get("service") == "switch.turn_on"
+            and "garage_a" in str(a.get("target", ""))
+        ]
+        assert post_grid_ev_turn_ons == [], (
+            "LEG-2 BREAKER INVARIANT VIOLATED: EV switch.turn_on "
+            "dispatched AFTER charge_from_grid turn_on. "
+            f"Post-grid EV turn_ons: {post_grid_ev_turn_ons}. "
+            f"Full dispatch: {dispatched}"
+        )
+        # And the EV ends up claimed under arbitrage (breaker), so
+        # subsequent ticks find correct ownership.
+        assert "garage_a" in ev_pool._paused_by_arbitrage
+        assert ev_pool._arbitrage_pause_reason["garage_a"] == "breaker"
+
+    @pytest.mark.asyncio
+    async def test_tick_threads_grid_charge_on_into_ev_determine_actions(self):
+        """(d) `grid_charge_on=grid_charge_intent` is ACTUALLY PASSED to
+        ev.determine_actions — not hardcoded False. Mutation: hardcode
+        `grid_charge_on=False` in the EV TOU call and this fails.
+        """
+        strat, hass = _build_strategy(soc=20, solcast_today="5")
+        next_soc = _seed_rate(strat, _ANCHOR, 20.0, -1.0)
+        hass.set_state(_BSOC, f"{next_soc:.4f}")
+        decision = strat.determine_mode(
+            "off_peak", "summer", now=_ANCHOR, ev_load_w=0.0,
+        )
+        assert decision["charge_from_grid"] is True
+
+        ev_pool, _ = _build_evpool(garage_a_on=False, garage_a_w="0")
+        real_det = ev_pool.determine_actions
+        observed: list[dict] = []
+
+        def _spy(period, grid_charge_on=False):
+            observed.append({"period": period, "grid_charge_on": grid_charge_on})
+            return real_det(period, grid_charge_on=grid_charge_on)
+
+        ev_pool.determine_actions = _spy
+        coord, _ = self._build_bare_coord(
+            ev_pool=ev_pool, battery_strategy=strat, hass=hass,
+        )
+        pause_reason, pause_requested, grid_charge_intent = await (
+            coord._execute_breaker_safe_dispatch(decision, "off_peak")
+        )
+        await coord._dispatch_post_decision_tou_and_arbitrage(
+            period="off_peak",
+            pause_reason=pause_reason,
+            pause_requested=pause_requested,
+            grid_charge_intent=grid_charge_intent,
+        )
+        assert observed, "ev.determine_actions never invoked"
+        assert observed[0]["grid_charge_on"] is True, (
+            "FAIL-OPEN: grid_charge_on hardcoded False or not threaded. "
+            f"Observed: {observed[0]}"
+        )
+
+
+class TestEnvoyBlipFailClosed:
+    """Pass-2 P2-HIGH-1 — Envoy-blip fail-CLOSED via last-known-good latch.
+
+    When the live `charge_from_grid` switch reads `unavailable`/
+    `unknown` AND the decision dict omits `charge_from_grid`, the
+    chokepoint MUST treat the tick as grid-charge ON if the last clean
+    read was ON. Otherwise the resume guards drop and an EV could be
+    ensure-on'd under a still-live 20 kW grid pull.
+    """
+
+    def _build_bare_coord_for_chokepoint(self, *, strat, ev_pool, hass,
+                                         last_known: bool):
+        coord = object.__new__(EnergyCoordinator)
+        coord._ev = ev_pool
+        coord._battery = strat
+        coord.hass = hass
+        coord._observation_mode = False
+        coord._ev_tou_enabled = True
+        coord._pool = MagicMock()
+        coord._pool.determine_actions = MagicMock(return_value=[])
+        coord._smart_plugs = MagicMock()
+        coord._last_known_grid_charge_on = last_known
+        coord._dispatched: list[dict] = []
+
+        async def _exec(action_spec):
+            coord._dispatched.append(dict(action_spec))
+
+        coord._execute_service_action = _exec
+        return coord
+
+    @pytest.mark.asyncio
+    async def test_unavailable_with_lkg_on_fails_closed(self):
+        """Switch reads `unavailable`, decision omits charge_from_grid,
+        last-known-good was ON → tick treated as breaker.
+        """
+        strat, hass = _build_strategy(soc=50)
+        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "unavailable")
+        decision = {
+            "actions": [],
+            "arbitrage_phase": ARBITRAGE_PHASE_NA,
+            # Mirrors the Envoy-unavailable decision shape that omits
+            # charge_from_grid (default False).
+        }
+        ev_pool, _ = _build_evpool(garage_a_on=True, garage_a_w="7400")
+        coord = self._build_bare_coord_for_chokepoint(
+            strat=strat, ev_pool=ev_pool, hass=hass, last_known=True,
+        )
+        pause_reason, _, grid_charge_intent = await (
+            coord._execute_breaker_safe_dispatch(decision, "off_peak")
+        )
+        assert grid_charge_intent is True, (
+            "FAIL-OPEN REGRESSION: unavailable+LKG-ON must fail CLOSED "
+            "(grid_charge_intent=True)"
+        )
+        assert pause_reason == "breaker"
+        # And the EV got paused.
+        ev_off = [
+            a for a in coord._dispatched
+            if a.get("service") == "switch.turn_off"
+            and "garage_a" in str(a.get("target", ""))
+        ]
+        assert ev_off, "EV must be paused under unavailable+LKG-ON blip"
+
+    @pytest.mark.asyncio
+    async def test_unavailable_with_lkg_off_fails_open_safely(self):
+        """Control: unavailable + last-known-good OFF → no breaker
+        (no false positive when we never had grid charge on).
+        """
+        strat, hass = _build_strategy(soc=50)
+        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "unavailable")
+        decision = {
+            "actions": [],
+            "arbitrage_phase": ARBITRAGE_PHASE_NA,
+        }
+        ev_pool, _ = _build_evpool(garage_a_on=False, garage_a_w="0")
+        coord = self._build_bare_coord_for_chokepoint(
+            strat=strat, ev_pool=ev_pool, hass=hass, last_known=False,
+        )
+        _, _, grid_charge_intent = await (
+            coord._execute_breaker_safe_dispatch(decision, "off_peak")
+        )
+        assert grid_charge_intent is False
+
+    @pytest.mark.asyncio
+    async def test_clean_on_read_updates_lkg(self):
+        """A clean ON read updates the LKG latch so the next blip
+        fails CLOSED.
+        """
+        strat, hass = _build_strategy(soc=50)
+        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
+        decision = {
+            "actions": [],
+            "arbitrage_phase": ARBITRAGE_PHASE_NA,
+            "charge_from_grid": False,
+        }
+        ev_pool, _ = _build_evpool(garage_a_on=False, garage_a_w="0")
+        coord = self._build_bare_coord_for_chokepoint(
+            strat=strat, ev_pool=ev_pool, hass=hass, last_known=False,
+        )
+        await coord._execute_breaker_safe_dispatch(decision, "off_peak")
+        assert coord._last_known_grid_charge_on is True
+        # Now flip to unavailable — fails CLOSED.
+        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "unavailable")
+        _, _, grid_charge_intent2 = await (
+            coord._execute_breaker_safe_dispatch(decision, "off_peak")
+        )
+        assert grid_charge_intent2 is True
+
+    @pytest.mark.asyncio
+    async def test_clean_off_read_clears_lkg(self):
+        """A clean OFF read clears the LKG latch so a later blip after
+        legitimate off doesn't spuriously assert.
+        """
+        strat, hass = _build_strategy(soc=50)
+        # Seed LKG ON via a prior clean ON read.
+        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
+        decision = {
+            "actions": [],
+            "arbitrage_phase": ARBITRAGE_PHASE_NA,
+            "charge_from_grid": False,
+        }
+        ev_pool, _ = _build_evpool(garage_a_on=False, garage_a_w="0")
+        coord = self._build_bare_coord_for_chokepoint(
+            strat=strat, ev_pool=ev_pool, hass=hass, last_known=False,
+        )
+        await coord._execute_breaker_safe_dispatch(decision, "off_peak")
+        assert coord._last_known_grid_charge_on is True
+        # Then a clean OFF read clears LKG.
+        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
+        await coord._execute_breaker_safe_dispatch(decision, "off_peak")
+        assert coord._last_known_grid_charge_on is False
+        # Now a blip should NOT assert grid-charge intent.
+        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "unavailable")
+        _, _, grid_charge_intent = await (
+            coord._execute_breaker_safe_dispatch(decision, "off_peak")
+        )
+        assert grid_charge_intent is False
+
+
 class TestRung1ReleaseClearsAssumedLoad:
     """C-MED-2 — `_arb_last_ev_load_pct_per_h` cleared on rung-1 release."""
 

@@ -505,4 +505,218 @@ release` pins this on the rung-1 → rung-0 release branch.
 - Six mandatory mutations all applied and reproduce named failures
   (sections above). All five mutations restored; full suite green.
 
+## Pass-2 Review (focused — breaker chokepoint)
+
+**Reviewer:** ura-reviewer (pass-2, focused). **Diff:** `85309a3..a3721da`. **Verdict: FIX-FIRST.**
+The breaker chokepoint itself is REAL and complete; but the fix-up's restructuring of the
+dispatch block silently DELETED two unrelated production call sites. One of them is the very
+method the fix-up added the resume-side guard to — so the resume guard is dead code in prod.
+
+### P2-CRITICAL-1 — EV-TOU + Pool-TOU dispatch DELETED from the live tick; resume-side breaker guard is unreachable in production. `energy.py:2459-2470` (deleted hunk). Bug class: functional regression via refactor / dead guard.
+The fix-up rewrote the `if not self._observation_mode:` dispatch block into
+`_execute_breaker_safe_dispatch`. In doing so it removed THREE statements and only re-added one:
+- DELETED `pool_actions = self._pool.determine_actions(period)` + dispatch loop.
+- DELETED `if self._ev_tou_enabled: ev_actions = self._ev.determine_actions(period)` + dispatch loop.
+- The chokepoint now dispatches ONLY `decision["actions"]` (battery) + the arbitrage pause/release.
+Grep confirms (post-fix-up): `_pool.determine_actions` and `self._ev.determine_actions(period)`
+have ZERO live callers anywhere in `custom_components/`. At base `24951a8` and pre-fix-up
+`85309a3` the tick called `ev_actions = self._ev.determine_actions(period)` at energy.py:~2472
+(verified via `git show 85309a3:…` and `git show 24951a8:…`). The fix-up diff lines 18-20 show
+the deletion; no addition re-introduces it.
+Consequences:
+1. **EV TOU enforcement is gone.** Peak/mid_peak re-pause and off-peak ensure-on (the
+   `EVChargerController.determine_actions` body, energy_pool.py:432) no longer run. Cars will not
+   be paused on peak, and the off-peak ensure-on (v4.7.28 carry-over) will not fire — a direct
+   regression of shipped, live-validated behavior.
+2. **The new resume-side breaker guard is DEAD CODE.** The `grid_charge_on` kwarg the fix-up added
+   to `determine_actions` (energy_pool.py:435,562-571) — leg (2) of the bidirectional invariant,
+   "no EV commanded ON while grid charging" — is never exercised in prod because the method is
+   never called. So invariant direction (2) is effectively UNENFORCED for the ensure-on path. The
+   only surviving resume guard is the release path inside `determine_arbitrage_actions`
+   (`grid_charge_on`, energy_pool.py:1366), which IS still wired (energy.py:2486) but only runs in
+   the `pause_reason != "breaker"` branch.
+3. **Pool TOU optimization is gone** (same deletion) — out of this cycle's breaker scope but a
+   real collateral regression.
+Why the suite missed it: every ordering/resume test drives the helper or controller method in
+ISOLATION (`_execute_breaker_safe_dispatch(fake,…)` at test line 791; `h.ev.determine_actions(
+"off_peak", grid_charge_on=True)`), never the real `_update_energy` tick. No test asserts the tick
+calls `self._ev.determine_actions(period)`. **Fix:** re-add the `_pool.determine_actions` and
+`if self._ev_tou_enabled: self._ev.determine_actions(period, grid_charge_on=grid_charge_intent)`
+dispatch loops inside the chokepoint flow (AFTER the breaker pause, threading `grid_charge_intent`
+into the EV call so leg-2 is live), and add a coordinator-tick test that asserts both calls fire.
+
+### P2-HIGH-1 — Envoy-blip co-occurrence can leave grid-charge breaker-unguarded (fail-OPEN window). `energy.py:2818-2835`. Bug class: stale/incorrect data source #7 / fail-open.
+`grid_charge_intent = decision_grid_charge OR live_grid_charge_on`. Both legs can read False while
+grid is physically ON: (a) the two non-`_result` decision dicts (energy_battery.py:1809 reboot
+HOLD-CURRENT, and :2405 Envoy-unavailable) omit `charge_from_grid` → `.get(…,False)`; (b) the
+live-switch read sets `live_grid_charge_on=True` ONLY when `st.state=="on"` — an `unavailable`/
+`unknown`/`None` switch read yields False. The Envoy-unavailable decision (:2405) co-occurs with an
+`unavailable` charge_from_grid switch BY DEFINITION (same Envoy outage). If grid charge was engaged
+pre-blip, this tick computes `grid_charge_intent=False` → resume guards don't hold → an EV could be
+ensure-on'd under a live ~20 kW grid pull. The live-switch read direction is otherwise correct
+(fails CLOSED on a clean read), but the all-False-on-unavailable path fails OPEN precisely on the
+blip surface the cycle elsewhere acknowledges. NOTE: this is currently masked by P2-CRITICAL-1
+(ensure-on path dead), but becomes live the moment CRITICAL-1 is fixed. **Fix:** treat an
+`unavailable`/`unknown` charge_from_grid read as breaker-ON (fail CLOSED) when a prior tick had grid
+charge, or latch grid-charge posture across an Envoy blip (last-known-good, mirroring the capacity
+cache the fix-up already added).
+
+### Verified SOUND (went deep, no defect)
+- **Chokepoint ordering (item 1).** `_execute_breaker_safe_dispatch` awaits ALL `breaker_actions`
+  (EV `switch.turn_off`) to completion in the loop at energy.py:2867-2868 BEFORE the
+  `decision["actions"]` loop at :2873 (which carries the grid `switch.turn_on`). `blocking=True`
+  service calls each await. turn_off strictly precedes grid-on. Ordering tests assert real
+  `fake.dispatched` index order (`ev_off_idx < cfg_on_idx`, test :825/:904) — not a label.
+- **Off-but-unclaimed EV (item 1).** `determine_arbitrage_actions` proactive-claim branch
+  (energy_pool.py:1344-1351) adds an already-off EVSE to `_paused_by_arbitrage` + labels it without
+  dispatching turn_off — so a later ensure-on can't flip it on. An ON-but-unclaimed EV hits :1333
+  → turn_off + claim. Both correct.
+- **All grid-charge producers stamp the key (item 2).** Single `return` in `_result`
+  (energy_battery.py:2757-2780) always stamps `"charge_from_grid": bool(charge_from_grid)`; all 16
+  `return self._result(...)` paths flow through it (arbitrage CHARGE, ATTAIN, HOLD, rung-2,
+  self_consumption/discharge/drain all stamp False not omit). The two bypass dicts (:1809, :2405)
+  carry `actions: []` (no grid command) → chokepoint default False is correct for them, and the
+  live-switch OR is the intended safety net (see P2-HIGH-1 for its gap).
+- **B-CRIT-2 (ATTAIN) genuinely closed.** ATTAIN's `_result(charge_from_grid=True)` lands the key →
+  chokepoint pauses EVs phase-label-independently. `test_breaker_pause_ordering_on_attain_tick`
+  asserts `decision["charge_from_grid"] is True` AND the ordering. Real coverage.
+- **Reboot mid-charge re-claim (item 4).** `live_grid_charge_on` true → `pause_reason="breaker"` →
+  `determine_arbitrage_actions(True,"breaker")` re-claims+re-labels every EVSE (incl. off ones via
+  proactive claim) and turns ON ones off. Set re-established. (Caveat: depends on a CLEAN switch
+  read — see P2-HIGH-1.)
+- **Double-dispatch guard (item 5).** `if pause_reason=="breaker": pass` at energy.py:2477-2480
+  correctly skips the post-decision re-dispatch (breaker already handled pre-decision). The release
+  branch (:2481 else) still runs for `pause_requested=False`/redirect cleanup; with grid still on it
+  refuses resume via `determine_arbitrage_actions(grid_charge_on=True)` re-claim (energy_pool.py:1366).
+- **Mutation kills (item 6).** Inverting chokepoint order (move breaker pause after decision
+  dispatch) → `test_breaker_pause_ordering_*` fail on `ev_off_idx < cfg_on_idx` (real index assert).
+  Dropping the `grid_charge_on` branch in `determine_actions` → `test_ensure_on_suppressed_…` fails
+  — BUT note this test exercises the now-dead method in isolation (P2-CRITICAL-1), so the green test
+  does NOT prove prod safety.
+
+### Pass-2 tally: 1 CRITICAL, 1 HIGH, 0 MEDIUM, 0 LOW
+**FIX-FIRST.** P2-CRITICAL-1 is a shipped-behavior regression (EV/pool TOU dispatch deleted) that
+also nullifies invariant direction (2). P2-HIGH-1 is a fail-open blip window that goes live once
+CRITICAL-1 is fixed. The chokepoint design is correct; the regression is collateral damage from the
+dispatch-block rewrite. Both fixable in the chokepoint flow + one coordinator-tick test.
+
+## Fix-up pass 2
+
+**Scope.** P2-CRITICAL-1 (restored deleted TOU dispatch + live resume guard) +
+P2-HIGH-1 (Envoy-blip fail-CLOSED via last-known-good latch) + the mandatory
+test-gap closure (coordinator-tick integration test).
+
+### P2-CRITICAL-1 — RESTORE deleted `_pool` + `_ev` TOU dispatch, thread `grid_charge_intent` into `_ev.determine_actions`
+
+The prior chokepoint refactor (commit `a3721da`) collateral-deleted two
+production statements from the live tick at `energy.py:~2472`:
+- `pool_actions = self._pool.determine_actions(period)` + dispatch loop
+- `if self._ev_tou_enabled: ev_actions = self._ev.determine_actions(period)` + dispatch loop
+
+This nullified EV TOU enforcement (peak re-pause + v4.7.28 off-peak ensure-on)
+in production AND made the new `grid_charge_on` resume-side guard at
+`energy_pool.py:435,562-571` DEAD CODE — its only caller was gone.
+
+**Restoration.** Extracted the post-chokepoint dispatch into a new helper
+`EnergyCoordinator._dispatch_post_decision_tou_and_arbitrage` (energy.py).
+This helper is the seam where the coordinator-tick integration test (below)
+asserts both calls fire. Ordering preserved:
+1. breaker EV-pause  (inside `_execute_breaker_safe_dispatch`, pre-decision)
+2. `decision["actions"]`  (battery — may include `charge_from_grid` switch.turn_on)
+3. `self._pool.determine_actions(period)`  (pool TOU restored)
+4. `if self._ev_tou_enabled: self._ev.determine_actions(period, grid_charge_on=grid_charge_intent)`  (EV TOU restored, leg-2 guard threaded LIVE)
+5. arbitrage release / non-breaker pause  (existing logic; breaker case skipped to avoid double-dispatch)
+
+The grid command precedes the EV TOU call so the ensure-on branch observes the
+live grid-charge posture — when `grid_charge_intent=True`, the new resume-side
+guard at `energy_pool.py:562` suppresses ensure-on AND re-claims the EVSE
+under `_paused_by_arbitrage` with the "breaker" label. Verified by the new
+tick test (c).
+
+### P2-HIGH-1 — Envoy-blip fail-CLOSED via last-known-good latch
+
+`grid_charge_intent = decision_grid_charge OR live_grid_charge_on`. The
+Envoy-unavailable decision shape (energy_battery.py:~2405) omits
+`charge_from_grid` (defaults False) and the live switch reads
+`unavailable`/`unknown`/None in the SAME outage — both legs went False while
+the panel may physically still be pulling 20 kW.
+
+**Fix chosen: BOTH fail-CLOSED AND last-known-good latch** (operator brief:
+"minimum bar is fail-CLOSED; prefer ALSO latching"). New
+`EnergyCoordinator._last_known_grid_charge_on: bool` (RAM-only, init in
+`__init__` at energy.py:~270). Chokepoint logic at
+`_execute_breaker_safe_dispatch`:
+- Clean `"on"` read → `live_grid_charge_on=True`, LKG updated to True.
+- Clean `"off"` read → `live_grid_charge_on=False`, LKG updated to False.
+- `"unavailable"`/`"unknown"`/None/registry-exception → if LKG was True,
+  `live_grid_charge_on=True` (fail CLOSED), `_LOGGER.info` warns of the
+  blip-treat-as-ON. If LKG was False, fail-open is safe (we never had grid
+  charge on).
+
+Mirrors the capacity LKG cache the prior fix-up added (`A-HIGH-2` /
+`_cached_battery_capacity_kwh`). Documented in-code with a P2-HIGH-1 marker.
+
+### Test-gap closure (mandatory) — coordinator-tick integration test
+
+Every prior ordering/resume test drove the chokepoint helper or the EV
+controller method in ISOLATION — that's exactly why deleting the tick's wiring
+silently passed. Added two new test classes:
+
+**`TestCoordinatorTickDispatch`** (4 tests) — builds a bare
+`EnergyCoordinator` via `object.__new__`, attaches minimal stand-ins for
+`_pool`/`_ev`/`_battery`/`hass`/`_observation_mode`/`_ev_tou_enabled`/
+`_last_known_grid_charge_on`, and drives BOTH `_execute_breaker_safe_dispatch`
+AND `_dispatch_post_decision_tou_and_arbitrage` in the same order as
+`_update_energy`. Assertions:
+- (a) `test_tick_invokes_ev_tou_determine_actions` — `self._ev.determine_actions(period, ...)` IS invoked. **Mutation (delete the restored call) → FAILS** with `"ev.determine_actions never invoked"`.
+- (b) `test_tick_invokes_pool_determine_actions` — `self._pool.determine_actions(period)` IS invoked.
+- (c) `test_tick_grid_charge_tick_ordering_and_no_ev_turn_on` — on a real CHARGE-phase decision, the dispatch order is breaker-pause(turn_off) → charge_from_grid(turn_on) → NO EV turn_on after. Pins leg-2 of the breaker invariant at the tick level.
+- (d) `test_tick_threads_grid_charge_on_into_ev_determine_actions` — `grid_charge_on=grid_charge_intent` ACTUALLY PASSED to `ev.determine_actions` (not hardcoded False). **Mutation (hardcode False) → FAILS** with `"FAIL-OPEN: grid_charge_on hardcoded False or not threaded"`.
+
+**`TestEnvoyBlipFailClosed`** (4 tests) — pins the fail-CLOSED + LKG-latch
+contract:
+- `test_unavailable_with_lkg_on_fails_closed` — `unavailable` read with LKG=True → `grid_charge_intent=True`, EV paused. **Mutation (switch read fail-OPEN on unavailable) → FAILS** with `"assert False is True"`.
+- `test_unavailable_with_lkg_off_fails_open_safely` — control: unavailable + LKG=False → no false-positive breaker.
+- `test_clean_on_read_updates_lkg` — clean ON read updates the latch; subsequent blip fails CLOSED. **Mutation 3 also fails this.**
+- `test_clean_off_read_clears_lkg` — clean OFF clears the latch; blip after clean off doesn't spuriously assert.
+
+### Accepted-as-designed (Pass-2)
+
+- **Pool TOU restoration is a tick-level integration concern, not a
+  separate review item** — listed in P2-CRITICAL-1's collateral deletions
+  in the brief; restored alongside EV TOU in the same helper.
+
+### Mutation evidence (Pass-2)
+
+| Mutation | Test(s) that fail |
+|---|---|
+| Delete restored `_ev.determine_actions` call | `test_tick_invokes_ev_tou_determine_actions`, `test_tick_threads_grid_charge_on_into_ev_determine_actions` |
+| Hardcode `grid_charge_on=False` in EV TOU call | `test_tick_threads_grid_charge_on_into_ev_determine_actions` |
+| Make Envoy-blip switch read fail-OPEN (unavailable → False) | `test_unavailable_with_lkg_on_fails_closed`, `test_clean_on_read_updates_lkg` |
+| Invert chokepoint ordering (move breaker pause AFTER decision dispatch) | `test_breaker_pause_ordering_on_arbitrage_charge_tick`, `test_breaker_pause_ordering_on_attain_tick` (PRIOR mutations — re-verified green here) |
+
+All six original ladder mutations (M1-M6) and the prior fix-up's chokepoint
+mutations re-verified green; the new tick-level + Envoy-blip mutations close
+the test gap that let P2-CRITICAL-1 ship.
+
+### DoD verification (Pass-2)
+
+- `py_compile` clean on `energy.py` (`ast.parse` PASS).
+- Conflict markers: none.
+- Cycle tests solo: **40/40 passed** (21 original + 11 prior fix-up + 8 new
+  Pass-2 — 4 in `TestCoordinatorTickDispatch`, 4 in `TestEnvoyBlipFailClosed`).
+- Full suite: **34 failed, 14 errors, 5785 passed, 29 skipped** — identical
+  failure/error tallies to `develop` baseline (34F/14E). Net +40 passes vs
+  baseline 5745. **ZERO new failures, ZERO new errors.** Failure-ID diff:
+  EMPTY SET.
+- Reverse-order sanity: `test_arbitrage_solar_attainability_ladder.py
+  test_oc_pillar_a_handshake.py test_solar_banking_toggle.py` 98/98 pass in
+  both forward and reverse order.
+- Restored-call evidence — `git grep` showing live callers post-fix:
+  `_dispatch_post_decision_tou_and_arbitrage` invokes both
+  `self._pool.determine_actions(period)` and
+  `self._ev.determine_actions(period, grid_charge_on=grid_charge_intent)`
+  inside the `if not self._observation_mode:` tick block. Helper itself is
+  invoked from the tick at `energy.py:~2472`.
+
 ## README write-back (post-deploy, post-live-validation) — TODO
