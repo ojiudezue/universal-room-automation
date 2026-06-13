@@ -2459,64 +2459,34 @@ class EnergyCoordinator(BaseCoordinator):
 
             # Execute actions (skipped in observation mode)
             if not self._observation_mode:
-                for action_spec in decision.get("actions", []):
-                    await self._execute_service_action(action_spec)
+                # Fix-up B-CRIT-1 / B-CRIT-2 — BREAKER-SAFETY CHOKEPOINT.
+                # Extracted into _execute_breaker_safe_dispatch so the
+                # ordering invariant is directly unit-testable. See the
+                # helper's docstring for the full invariant statement.
+                (
+                    pause_reason,
+                    pause_requested,
+                    grid_charge_intent,
+                ) = await self._execute_breaker_safe_dispatch(decision, period)
 
-                # E2: Pool optimization
-                pool_actions = self._pool.determine_actions(period)
-                for action_spec in pool_actions:
-                    await self._execute_service_action(action_spec)
-
-                # E2: EV charger control (v4.2.10: gated by toggle)
-                if self._ev_tou_enabled:
-                    ev_actions = self._ev.determine_actions(period)
-                    for action_spec in ev_actions:
-                        await self._execute_service_action(action_spec)
-
-                # v4.5.0 D4: arbitrage / EV mutual-exclusion (compound-load
-                # protection). Pauses any active EVSE while battery is
-                # grid-charging via arbitrage CHARGE phase. Resumes when
-                # phase exits CHARGE (HOLD or DISCHARGE) subject to TOU
-                # period and other pause-reason precedence.
-                # Cycle EC/HC reboot pickup: ATTAIN phase intentionally
-                # EXCLUDED from this gate. Per operator decision 2026-06-12,
-                # v1 attainability is observe-only on EVs — it reads the
-                # consequence of EV ensure-on (net rate < projection slope)
-                # but does NOT signal EVSE back off. Adding ATTAIN here
-                # would convert a v1 observe-only feature into an EVSE
-                # coordination lever. Tracked as a future cycle (see ledger
-                # backlog stub).
-                from .energy_battery import ARBITRAGE_PHASE_CHARGE
-                # arbitrage_solar_attainability_ladder D2: the EV pause
-                # request now comes from EITHER rung-2 (existing CHARGE
-                # path; intent="breaker") OR rung-1 (gate stayed closed
-                # but EVs paused to redirect solar; intent="redirect").
-                # Read the rung intent BatteryStrategy stamped during this
-                # tick's _gate_is_open evaluation.
-                arb_intent = getattr(self._battery, "_arbitrage_intent", None)
-                arbitrage_charging_phase = (
-                    decision.get("arbitrage_phase") == ARBITRAGE_PHASE_CHARGE
-                )
-                # Breaker-safety invariant: when the existing CHARGE phase
-                # fired, the rung MUST be "breaker". Defensive — if the
-                # battery's intent disagrees (shouldn't happen; _gate_is_open
-                # sets "breaker" before returning True), force "breaker" so
-                # the assertion in determine_arbitrage_actions doesn't trip
-                # AND the EVs end up paused for compound-load protection.
-                if arbitrage_charging_phase:
-                    pause_reason: str | None = "breaker"
-                elif arb_intent == "redirect":
-                    pause_reason = "redirect"
+                # Non-breaker arbitrage pause (rung-1 redirect) or
+                # release: dispatch here. Breaker case was handled
+                # PRE-decision above; we still call the API on the
+                # release path so `arbitrage_charging=False` can run its
+                # cleanup (label drop + resume-policy eval).
+                if pause_reason == "breaker":
+                    # Already dispatched pre-decision; skip to avoid
+                    # double-dispatch.
+                    pass
                 else:
-                    pause_reason = None
-                pause_requested = pause_reason is not None
-                arb_actions = self._ev.determine_arbitrage_actions(
-                    arbitrage_charging=pause_requested,
-                    tou_period=period,
-                    pause_reason=pause_reason,
-                )
-                for action_spec in arb_actions:
-                    await self._execute_service_action(action_spec)
+                    arb_actions = self._ev.determine_arbitrage_actions(
+                        arbitrage_charging=pause_requested,
+                        tou_period=period,
+                        pause_reason=pause_reason,
+                        grid_charge_on=grid_charge_intent,
+                    )
+                    for action_spec in arb_actions:
+                        await self._execute_service_action(action_spec)
 
                 # C2: Excess solar EVSE charging
                 if self._excess_solar_enabled:
@@ -2807,6 +2777,103 @@ class EnergyCoordinator(BaseCoordinator):
             )
 
         return actions
+
+    async def _execute_breaker_safe_dispatch(
+        self,
+        decision: dict[str, Any],
+        period: str,
+    ) -> tuple[str | None, bool, bool]:
+        """Dispatch battery decision actions under the breaker-safety invariant.
+
+        Fix-up B-CRIT-1 / B-CRIT-2 / B-HIGH-1 — BREAKER-SAFETY CHOKEPOINT.
+
+        Physical invariant: a full ~20 kW Enphase grid charge + a
+        charging EV (7.4 kW) + base (~5 kW) ≈ 134 A on the main breaker
+        → trip risk. Therefore the bidirectional invariant:
+          (1) NO ``charge_from_grid=True`` may be DISPATCHED on this
+              tick until every EV is commanded paused (label="breaker")
+              EARLIER in the same tick's dispatch sequence.
+          (2) NO EV may be commanded ON while ``charge_from_grid`` is
+              commanded OR ON in hardware (resume-side guard: lives in
+              ``EVChargerController.determine_actions`` and
+              ``.determine_arbitrage_actions`` via ``grid_charge_on``).
+
+        Grid-charge intent is detected via ``decision["charge_from_grid"]``
+        — set by ``BatteryStrategy._result()`` — which is phase-label-
+        INDEPENDENT. This covers ALL grid-charge producers in one place:
+        arbitrage CHARGE (rung-2), v5.3.8 ATTAIN (B-CRIT-2 was that the
+        phase-label-based pause trigger excluded ATTAIN — fixed here),
+        and any future rungs. Additionally we OR in a live-switch read
+        of ``charge_from_grid`` so reboot-mid-charge cannot resume EVs
+        before the decision catches up (B-HIGH-1).
+
+        Returns:
+            (pause_reason, pause_requested, grid_charge_intent) — passed
+            to downstream call sites (TOU ensure-on, release path) so
+            they observe the same grid-charge posture this tick.
+        """
+        from .energy_battery import ARBITRAGE_PHASE_CHARGE
+        from .energy_const import DEFAULT_CHARGE_FROM_GRID_ENTITY
+
+        decision_grid_charge = bool(decision.get("charge_from_grid", False))
+        # Hardware-derived posture (B-HIGH-1): read the LIVE
+        # charge_from_grid switch. If it is ON regardless of what the
+        # decision intends, the resume-side guards must still hold EVs
+        # off (mirrors v5.3.8 attain's reboot-recovery posture). A
+        # stale RAM flag is not authoritative.
+        live_grid_charge_on = False
+        try:
+            eid = self._battery._get_entity(
+                "charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY,
+            )
+            if eid:
+                st = self.hass.states.get(eid)
+                if st is not None and st.state == "on":
+                    live_grid_charge_on = True
+        except Exception:  # noqa: BLE001 — defensive: registry blip
+            live_grid_charge_on = False
+        grid_charge_intent = decision_grid_charge or live_grid_charge_on
+
+        arb_intent = getattr(self._battery, "_arbitrage_intent", None)
+        arbitrage_charging_phase = (
+            decision.get("arbitrage_phase") == ARBITRAGE_PHASE_CHARGE
+        )
+        # Grid-charge intent ALWAYS implies "breaker" regardless of
+        # phase label — what threatens the panel is the 20 kW pull,
+        # not the strategy's name for the operation.
+        if grid_charge_intent:
+            pause_reason: str | None = "breaker"
+        elif arbitrage_charging_phase:
+            # Defensive: future code path emits CHARGE phase without
+            # setting charge_from_grid=True. Still pause for breaker.
+            pause_reason = "breaker"
+        elif arb_intent == "redirect":
+            pause_reason = "redirect"
+        else:
+            pause_reason = None
+        pause_requested = pause_reason is not None
+
+        # ORDERING — the invariant. If a breaker-class pause is
+        # requested, DISPATCH the EV-pause actions BEFORE dispatching
+        # the battery decision actions (which may include
+        # `switch.turn_on` for the charge_from_grid switch). Tests
+        # `test_breaker_pause_ordering_*` pin this.
+        if pause_reason == "breaker":
+            breaker_actions = self._ev.determine_arbitrage_actions(
+                arbitrage_charging=True,
+                tou_period=period,
+                pause_reason="breaker",
+            )
+            for action_spec in breaker_actions:
+                await self._execute_service_action(action_spec)
+
+        # Now dispatch the battery decision actions (may turn ON the
+        # charge_from_grid switch — safe because EVs are already
+        # commanded paused above).
+        for action_spec in decision.get("actions", []):
+            await self._execute_service_action(action_spec)
+
+        return pause_reason, pause_requested, grid_charge_intent
 
     async def _execute_service_action(self, action_spec: dict[str, Any]) -> None:
         """Execute a single battery service call."""

@@ -109,10 +109,22 @@ ARB_LADDER_EXIT_HYSTERESIS_PCT = 3.0
 # overcast, just after sunset). Caller short-circuits straight to rung-2.
 ARB_LADDER_SOLAR_NEGLIGIBLE_PCT_PER_H = 0.5
 # Default assumed battery usable capacity (kWh) for the rung-1 EV-load → %/h
-# conversion when the live battery_capacity entity is unavailable. Mirrors
-# the v5.3.8 attain projection's "fail toward charging" bias by NOT
-# inflating the rung-1 conversion. 13.5 kWh ≈ one Encharge unit.
-ARB_LADDER_DEFAULT_BATTERY_KWH = 13.5
+# conversion when the live battery_capacity entity is unavailable.
+#
+# Fix-up A-HIGH-1 / C-MED-1: reuse the canonical site fallback
+# (BATTERY_TOTAL_CAPACITY_KWH_FALLBACK = 40.0 in energy_forecast.py:27)
+# — the install is an 8-Encharge pack ≈ 40 kWh. The previous 13.5 kWh
+# value (one Encharge unit) over-counted EV-load %/h by ~3x for a 14 kW
+# EV (~104 %/h vs the real ~35 %/h), making rung-1 fire too eagerly AND
+# inflating the snapshotted `assumed_ev_pct` so the counterfactual exit
+# stuck longer than physics says. The "fail toward charging" rationale
+# was backwards: rung-1 SUPPRESSES grid charge and PAUSES EVs, so
+# over-firing it harms (not helps) the EVs. Imported lazily to avoid a
+# cross-module import at module load.
+from .energy_forecast import (  # noqa: E402
+    BATTERY_TOTAL_CAPACITY_KWH_FALLBACK as _BATTERY_TOTAL_CAPACITY_KWH_FALLBACK,
+)
+ARB_LADDER_DEFAULT_BATTERY_KWH = _BATTERY_TOTAL_CAPACITY_KWH_FALLBACK
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -818,6 +830,20 @@ class BatteryStrategy:
         Cold boot: <2 samples → return "rung_2" (conservative; same shape
         as v5.3.8 attain cold-boot defer).
         """
+        # Fix-up A-MEDIUM-1: per-tick result cache. `_classify_attain_rung`
+        # carries side-effects (latch flips, sample recording, snapshot of
+        # `_arb_last_ev_load_pct_per_h`); `_gate_is_open` is called twice
+        # per rung-2 tick (once from `determine_mode` directly, once from
+        # `_get_arbitrage_phase`). Cache the rung for the current `now` so
+        # the second call is a pure read — the latch + snapshot side-effects
+        # land EXACTLY ONCE per tick. Cache key is the `now` timestamp so a
+        # fresh tick invalidates automatically. `_arbitrage_intent` is also
+        # stamped here so `_gate_is_open`'s second call sees a stable value.
+        cache_tick = getattr(self, "_arb_rung_cache_tick", None)
+        cache_rung = getattr(self, "_arb_rung_cache_rung", None)
+        if cache_tick is not None and cache_tick == now and cache_rung is not None:
+            return cache_rung
+
         # Always feed the trailing-window sampler so the rung machinery
         # has data ready when the forecast gate next opens. The attain
         # branch ALSO samples on its own path; double-sample-per-tick is
@@ -827,6 +853,8 @@ class BatteryStrategy:
 
         if soc is None or self._peak_buffer_target is None:
             self._arb_last_rung = "rung_2"
+            self._arb_rung_cache_tick = now
+            self._arb_rung_cache_rung = "rung_2"
             return "rung_2"
         # When SOC already ≥ target, the rung machinery has nothing to add
         # — the existing HOLD phase (in _get_arbitrage_phase) is the right
@@ -836,6 +864,8 @@ class BatteryStrategy:
         # NOT pulled (HOLD's charge_from_grid=False).
         if soc >= self._peak_buffer_target:
             self._arb_last_rung = "rung_2"
+            self._arb_rung_cache_tick = now
+            self._arb_rung_cache_rung = "rung_2"
             return "rung_2"
 
         # Boundary math reused from the v5.3.8 attain machinery (off_peak
@@ -843,6 +873,8 @@ class BatteryStrategy:
         _bnd_dt, _bnd_period, mins = self._attain_target_boundary(now, "off_peak")
         if mins is None or mins <= 0:
             self._arb_last_rung = "rung_2"
+            self._arb_rung_cache_tick = now
+            self._arb_rung_cache_rung = "rung_2"
             return "rung_2"
 
         rate = self._observed_net_charge_rate_per_hour()
@@ -850,6 +882,8 @@ class BatteryStrategy:
             # Cold-boot defer: window <2 samples. Same shape as v5.3.8
             # _should_attain_peak_buffer — conservative, fall to rung_2.
             self._arb_last_rung = "rung_2"
+            self._arb_rung_cache_tick = now
+            self._arb_rung_cache_rung = "rung_2"
             return "rung_2"
 
         solar_surplus = self._expected_solar_surplus_pct(now, mins)
@@ -883,7 +917,13 @@ class BatteryStrategy:
             if solar_surplus < ARB_LADDER_SOLAR_NEGLIGIBLE_PCT_PER_H:
                 self._arb_rung1_latch = False
                 self._arb_last_projection_rung1 = None
+                # Fix-up C-MED-2: clear assumed EV-load %/h on rung-1
+                # latch release (stale-source #7 hygiene). Subsequent
+                # rung-1 entry will re-snapshot from the live load.
+                self._arb_last_ev_load_pct_per_h = 0.0
                 self._arb_last_rung = "rung_2"
+                self._arb_rung_cache_tick = now
+                self._arb_rung_cache_rung = "rung_2"
                 return "rung_2"
             assumed_ev_pct = getattr(
                 self, "_arb_last_ev_load_pct_per_h", 0.0,
@@ -895,7 +935,11 @@ class BatteryStrategy:
                 # attains). Release rung-1 latch, latch at rung-0.
                 self._arb_rung1_latch = False
                 self._arb_rung0_latch = True
+                # Fix-up C-MED-2: clear stale assumed EV-load %/h.
+                self._arb_last_ev_load_pct_per_h = 0.0
                 self._arb_last_rung = "rung_0"
+                self._arb_rung_cache_tick = now
+                self._arb_rung_cache_rung = "rung_0"
                 return "rung_0"
             # Counterfactual still missing entry. Check escalation: the
             # projection with EVs paused (this is what `rate` already
@@ -904,9 +948,15 @@ class BatteryStrategy:
             # (solar collapse). Otherwise hold rung-1.
             if projected_rung0 < exit_band:
                 self._arb_rung1_latch = False
+                # Fix-up C-MED-2: clear stale assumed EV-load %/h.
+                self._arb_last_ev_load_pct_per_h = 0.0
                 self._arb_last_rung = "rung_2"
+                self._arb_rung_cache_tick = now
+                self._arb_rung_cache_rung = "rung_2"
                 return "rung_2"
             self._arb_last_rung = "rung_1"
+            self._arb_rung_cache_tick = now
+            self._arb_rung_cache_rung = "rung_1"
             return "rung_1"
 
         # ── Rung-0 evaluation (no rung-1 latch active) ──────────────────
@@ -915,11 +965,15 @@ class BatteryStrategy:
                 self._arb_rung0_latch = False
             else:
                 self._arb_last_rung = "rung_0"
+                self._arb_rung_cache_tick = now
+                self._arb_rung_cache_rung = "rung_0"
                 return "rung_0"
         else:
             if projected_rung0 >= entry_band:
                 self._arb_rung0_latch = True
                 self._arb_last_rung = "rung_0"
+                self._arb_rung_cache_tick = now
+                self._arb_rung_cache_rung = "rung_0"
                 return "rung_0"
 
         # ── Rung-1 entry evaluation ─────────────────────────────────────
@@ -928,6 +982,8 @@ class BatteryStrategy:
         if solar_surplus < ARB_LADDER_SOLAR_NEGLIGIBLE_PCT_PER_H:
             self._arb_last_projection_rung1 = None
             self._arb_last_rung = "rung_2"
+            self._arb_rung_cache_tick = now
+            self._arb_rung_cache_rung = "rung_2"
             return "rung_2"
 
         # Not yet latched. ENTRY form: ask "if we paused the EVs (added
@@ -937,6 +993,8 @@ class BatteryStrategy:
             # Since rung-0 already failed above, fall to rung-2.
             self._arb_last_projection_rung1 = None
             self._arb_last_rung = "rung_2"
+            self._arb_rung_cache_tick = now
+            self._arb_rung_cache_rung = "rung_2"
             return "rung_2"
 
         projected_rung1_entry = soc + (rate + ev_load_pct_per_h + solar_surplus) * hours
@@ -948,9 +1006,13 @@ class BatteryStrategy:
             # back, even after the EVs go to 0 W (paused).
             self._arb_last_ev_load_pct_per_h = ev_load_pct_per_h
             self._arb_last_rung = "rung_1"
+            self._arb_rung_cache_tick = now
+            self._arb_rung_cache_rung = "rung_1"
             return "rung_1"
 
         self._arb_last_rung = "rung_2"
+        self._arb_rung_cache_tick = now
+        self._arb_rung_cache_rung = "rung_2"
         return "rung_2"
 
     def _gate_is_open(
@@ -1274,21 +1336,28 @@ class BatteryStrategy:
     # when capacity is unknown — caller treats expected solar surplus as 0
     # in that case (fail toward charging).
     def _battery_capacity_kwh(self) -> float | None:
-        """Best-effort battery capacity in kWh; None if unknown."""
+        """Best-effort battery capacity in kWh; None if unknown.
+
+        Fix-up A-HIGH-2 / C-MED-1: cache last-known-good so an Envoy
+        blip (unknown/unavailable/unparseable mid-cycle) doesn't flip
+        the rung-1 EV-load conversion to the static fallback. Mirrors
+        EnergyCoordinator._get_battery_capacity_kwh (energy.py:1991) —
+        which exists precisely to prevent this flip during arbitrage.
+        """
         eid = self._get_entity("battery_capacity")
-        if eid is None:
-            return None
-        state = self.hass.states.get(eid)
-        if state is None or state.state in ("unknown", "unavailable"):
-            return None
-        try:
-            raw = float(state.state)
-        except (ValueError, TypeError):
-            return None
-        uom = state.attributes.get("unit_of_measurement", "")
-        if uom in ("kWh", "kwh"):
-            return raw
-        return raw / 1000.0  # Wh → kWh
+        state = self.hass.states.get(eid) if eid is not None else None
+        if state is not None and state.state not in ("unknown", "unavailable"):
+            try:
+                raw = float(state.state)
+                uom = state.attributes.get("unit_of_measurement", "")
+                cap = raw if uom in ("kWh", "kwh") else raw / 1000.0
+                # Cache LKG so a subsequent blip reuses this value.
+                self._cached_battery_capacity_kwh = cap
+                return cap
+            except (ValueError, TypeError):
+                pass
+        # Fall back to LKG if we've ever read a real value this session.
+        return getattr(self, "_cached_battery_capacity_kwh", None)
 
     def _expected_solar_surplus_pct(
         self, now: datetime, mins_to_boundary: int | None,
@@ -2700,6 +2769,14 @@ class BatteryStrategy:
             "arbitrage_enabled": self._arbitrage_enabled,
             "arbitrage_phase": phase,
             "target_day_class": target_day_class,
+            # Fix-up B-CRIT-1/B-CRIT-2: explicit breaker-safety key. Any
+            # decision that commands `charge_from_grid=True` (arbitrage
+            # CHARGE, ATTAIN, future rungs) carries this flag so the
+            # coordinator chokepoint can pause EVs BEFORE dispatching
+            # the grid-charge command — regardless of phase label. This
+            # is the single source of truth for "this tick will pull
+            # ~20 kW from the grid into the battery".
+            "charge_from_grid": bool(charge_from_grid),
         }
 
     def _threshold_position(self, soc: float | None, tomorrow_class: str) -> str:

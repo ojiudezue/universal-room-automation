@@ -429,7 +429,11 @@ class EVChargerController:
     # avoid a footgun for future contributors. `_prune_removed_evses()` runs
     # in `__init__` and handles the equivalent state cleanup.
 
-    def determine_actions(self, tou_period: str) -> list[dict[str, Any]]:
+    def determine_actions(
+        self,
+        tou_period: str,
+        grid_charge_on: bool = False,
+    ) -> list[dict[str, Any]]:
         """Determine EV charger actions based on TOU period.
 
         v4.7.x D1: Strict TOU enforcement — the `_paused_by_us` short-circuit
@@ -443,6 +447,17 @@ class EVChargerController:
         unexpired, TOU pause is skipped for all EVSEs.  Auto-expires: once the
         current UTC time passes the stored timestamp, normal pausing resumes on
         the next tick.
+
+        Fix-up B-CRIT-1 / B-HIGH-1 (breaker-safety resume-side guard):
+        ``grid_charge_on`` — True when EITHER this tick's battery decision
+        commands ``charge_from_grid=True`` OR the live grid switch is ON
+        (hardware-derived, e.g. mid-charge reboot). When True, the off-peak
+        ensure-on branch SKIPS the `switch.turn_on` AND claims the EVSE
+        for ``_paused_by_arbitrage`` with the "breaker" label so the next
+        breaker-pause chokepoint tick already finds the EV correctly
+        owned. This is the second leg of the bidirectional breaker
+        invariant: NO EV may be commanded ON while ``charge_from_grid``
+        is commanded or ON.
         """
         from homeassistant.util import dt as dt_util
 
@@ -532,6 +547,37 @@ class EVChargerController:
                 ):
                     self._paused_by_us.discard(evse_id)
                     self._proactive_offpeak_holds.discard(evse_id)
+                    continue
+
+                # Fix-up B-CRIT-1 / B-HIGH-1 (breaker-safety resume-side
+                # guard). When the battery is currently commanding (or
+                # the live switch shows) ``charge_from_grid=True``, do
+                # NOT ensure-on. Force-claim the EVSE for arbitrage
+                # under the "breaker" label so the resume-policy
+                # (carry-over guard above on subsequent ticks) keeps it
+                # off until grid charge ends. This is the post-restart
+                # mid-charge recovery path: even with an empty
+                # ``_paused_by_arbitrage`` set, ensure-on cannot turn
+                # the EV on while hardware shows grid charging.
+                if grid_charge_on:
+                    self._paused_by_arbitrage.add(evse_id)
+                    self._arbitrage_pause_reason[evse_id] = "breaker"
+                    self._paused_by_us.discard(evse_id)
+                    self._proactive_offpeak_holds.discard(evse_id)
+                    # If the switch is currently ON (e.g. user manually
+                    # enabled OR pre-restart state), command it OFF —
+                    # the grid is already pulling 20 kW; an EV ON now
+                    # is the compound-load breaker condition.
+                    if state["is_on"]:
+                        actions.append({
+                            "service": "switch.turn_off",
+                            "target": switch_entity,
+                            "data": {},
+                        })
+                        _LOGGER.info(
+                            "EV %s paused (breaker-safety: grid charge active)",
+                            evse_id,
+                        )
                     continue
 
                 # 2b: force-charge already authorizes turn-on via its own
@@ -1222,6 +1268,7 @@ class EVChargerController:
         arbitrage_charging: bool,
         tou_period: str,
         pause_reason: str | None = None,
+        grid_charge_on: bool = False,
     ) -> list[dict[str, Any]]:
         """v4.5.0 D4: pause/resume EVSEs based on arbitrage CHARGE phase.
 
@@ -1310,6 +1357,20 @@ class EVChargerController:
         # OR rung-2 phase exited CHARGE). The label is dropped together with
         # set membership.
         for evse_id in list(self._paused_by_arbitrage):
+            # Fix-up B-CRIT-1 (resume-side guard). If hardware still
+            # shows charge_from_grid ON, REFUSE to release / resume —
+            # re-claim the EVSE under "breaker" and keep it paused.
+            # Without this, a stale decision (e.g. mid-tick latch
+            # release while the grid switch hasn't responded yet) could
+            # turn the EV on under an active grid pull.
+            if grid_charge_on:
+                self._arbitrage_pause_reason[evse_id] = "breaker"
+                _LOGGER.info(
+                    "EV %s arbitrage release refused: grid charge still ON "
+                    "(re-claimed as 'breaker')",
+                    evse_id,
+                )
+                continue
             prior_label = self._arbitrage_pause_reason.pop(evse_id, None)
             self._paused_by_arbitrage.discard(evse_id)
             config = self._evse.get(evse_id, {})
