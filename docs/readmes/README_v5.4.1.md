@@ -19,12 +19,15 @@ Release turns ON only devices that were ON at shed-time (`was_on_at_shed`, round
 ## Out of scope (parked — foundations/IP track)
 Progressive pool sub-tiers, forecast-coupled proactive shedding, new sheddable domains, release deadband. Hard scope boundary held (review-confirmed clean).
 
-## Live Validation (Review D) — prospective criteria — SAFE-TEST ONLY
-Per the audit, the EV shed tier is unsafe to live-toggle; its collision is proven in-suite only. Safe live path = observation mode + a LOW threshold + ONE smart plug:
-- [ ] Clean restart; zero URA ERRORs; 40/40 entries; load-shedding switch state intact.
-- [ ] **Obs-mode + low threshold + one plug:** drive a sustained import above the threshold → the plug sheds (level 1); condition clears → plug restores. Flip TOU period mid-shed → plug still restores (no orphan).
-- [ ] Manually turn the test plug OFF before a shed elsewhere → it stays OFF through release.
-- [ ] `load_shedding_active` + the new status/activity-log surfaces reflect the cascade correctly.
-- [ ] EV-tier collision, watchdog-restart bundle survival, pool restore — IN-SUITE (mutation-anchored); not live-exercised (EV tier unsafe; no real grid-stress shed).
+## Live Validation — Validated 2026-06-13 (restart 14:44 CDT)
 
-*Replaced with observed results post-restart per the README write-back rule.*
+The EV shed tier is unsafe to live-toggle and load-shedding is `off` in this install's config, so the cascade's runtime behavior is in-suite validated; the deploy itself is health-validated live.
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Clean restart, zero URA ERRORs, 40/40 entries | PASS | 40/40 loaded; zero URA ERROR lines (only benign WARNINGs: person-sensor polling fallback, operator-intentional messaging suppression, the unregistered "Outside" zone). Envoy decoupling held again ("deferred re-validation… still degraded… runtime continues, no repair issue") |
+| Load-shedding switch state intact | PASS | `switch.ura_energy_coordinator_load_shedding` = `off` (its configured state; `energy_load_shedding_enabled: false` in CM options) — restore didn't corrupt it |
+| F1 EVSE shed↔TOU collision; F2 orphan-restore (period-flip + watchdog); F3 manual-off-wins | IN-SUITE | Mutation-anchored (6 fix-up mutations + 5 build mutations, all kill named tests); cross-owner precedence proven via real `determine_actions` calls. Not live-exercised — EV tier unsafe to toggle and shedding disabled in config |
+| Safe live path (obs-mode + low threshold + 1 plug) | DEFERRED | Available when the operator wants a live shed/restore demo on a single plug (NOT the EV tier); no grid-stress shed performed |
+
+*Cascade runtime behavior is in-suite-authoritative; deploy is live-healthy. Re-validate the obs-mode single-plug shed/restore if/when a live demo is wanted.*
