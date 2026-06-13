@@ -408,6 +408,11 @@ class EnergyCoordinator(BaseCoordinator):
         self._learned_threshold_kw: float | None = None  # auto-learned from history
         self._peak_import_history: list[float] = []  # for learning
         self._load_shedding_grace_cycles: int = 0  # suppress de-escalation after restore
+        # load-shedding-correctness D4: most-recent shed release reason, for
+        # the load_shedding_status sensor surface. One of:
+        #   None | "auto" | "respect_manual_off" | "deferred_to_other_owner"
+        #   | "respect_manual_speed_change" | "restart_restored"
+        self._last_release_reason: str | None = None
 
         self._decision_timer_unsub = None
 
@@ -1381,7 +1386,18 @@ class EnergyCoordinator(BaseCoordinator):
             _LOGGER.warning("Could not restore envoy cache: %s", e)
 
     async def _restore_load_shedding_level(self) -> None:
-        """Restore load shedding active level from DB on startup.
+        """Restore load shedding active level + bundle from DB on startup.
+
+        load-shedding-correctness D2:
+          * Prefers atomic `load_shedding_bundle` JSON (level + pre-shed
+            pool speed + EV pause set + plug pause set) and re-populates
+            in-memory ownership state.
+          * Falls back to the legacy integer-only `load_shedding_level`
+            key for back-compat.
+          * Does NOT re-issue `switch.turn_off` / `number.set_value`
+            actions: LIVE STATE IS AUTHORITY post-restart (mirrors
+            v5.3.7/v5.3.9 reboot recovery). The next escalation tick
+            catches up if reality drifted.
 
         Sets a grace period to prevent immediate de-escalation before
         sustained readings buffer refills.
@@ -1389,35 +1405,117 @@ class EnergyCoordinator(BaseCoordinator):
         db = self.hass.data.get("universal_room_automation", {}).get("database")
         if db is None:
             return
+        import json
+        bundle_str: str | None = None
         try:
-            level_str = await db.restore_energy_state("load_shedding_level")
-            if level_str is not None:
-                self._load_shedding_active_level = int(level_str)
-                if self._load_shedding_active_level > 0:
-                    # Grace period: suppress de-escalation for a few cycles
-                    # so the sustained readings buffer can refill
-                    self._load_shedding_grace_cycles = 3
-                    _LOGGER.info(
-                        "Restored load shedding level: %d (grace period: %d cycles)",
-                        self._load_shedding_active_level,
-                        self._load_shedding_grace_cycles,
+            bundle_str = await db.restore_energy_state("load_shedding_bundle")
+        except Exception as e:  # noqa: BLE001 — defensive
+            _LOGGER.debug("Could not restore load shedding bundle: %s", e)
+            bundle_str = None
+
+        restored_from_bundle = False
+        if bundle_str:
+            try:
+                bundle = json.loads(bundle_str)
+            except (ValueError, TypeError) as e:
+                _LOGGER.warning(
+                    "Load shedding bundle parse failed (%s) — "
+                    "falling back to legacy integer restore",
+                    e,
+                )
+                bundle = None
+            if isinstance(bundle, dict):
+                try:
+                    level = int(bundle.get("level", 0))
+                    self._load_shedding_active_level = level
+                    pool_orig = bundle.get("pool_original_speed")
+                    if pool_orig is not None:
+                        try:
+                            self._pool._original_speed = float(pool_orig)
+                        except (ValueError, TypeError):
+                            self._pool._original_speed = None
+                    ev_set = bundle.get("ev_set") or []
+                    plug_set = bundle.get("plug_set") or []
+                    if isinstance(ev_set, list):
+                        self._ev._paused_by_load_shed = {
+                            str(x) for x in ev_set
+                        }
+                    if isinstance(plug_set, list):
+                        self._smart_plugs._paused_by_load_shed = {
+                            str(x) for x in plug_set
+                        }
+                    if level > 0:
+                        self._load_shedding_grace_cycles = 3
+                        self._last_release_reason = "restart_restored"
+                        _LOGGER.info(
+                            "Restored load shedding bundle: level=%d "
+                            "ev=%d plugs=%d pool_orig=%s",
+                            level,
+                            len(self._ev._paused_by_load_shed),
+                            len(self._smart_plugs._paused_by_load_shed),
+                            self._pool._original_speed,
+                        )
+                    restored_from_bundle = True
+                except (ValueError, TypeError) as e:
+                    _LOGGER.warning(
+                        "Load shedding bundle field invalid (%s) — "
+                        "falling back to legacy restore",
+                        e,
                     )
-        except (ValueError, TypeError):
-            pass
-        except Exception as e:
-            _LOGGER.warning("Could not restore load shedding level: %s", e)
+
+        if not restored_from_bundle:
+            # Legacy integer-only restore (older deploy).
+            try:
+                level_str = await db.restore_energy_state("load_shedding_level")
+                if level_str is not None:
+                    self._load_shedding_active_level = int(level_str)
+                    if self._load_shedding_active_level > 0:
+                        self._load_shedding_grace_cycles = 3
+                        _LOGGER.info(
+                            "Restored load shedding level (legacy): %d "
+                            "(grace period: %d cycles)",
+                            self._load_shedding_active_level,
+                            self._load_shedding_grace_cycles,
+                        )
+            except (ValueError, TypeError):
+                pass
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.warning("Could not restore load shedding level: %s", e)
 
     async def _save_load_shedding_level(self) -> None:
-        """Persist load shedding level to DB."""
+        """Persist load shedding state to DB.
+
+        load-shedding-correctness D2: writes a SINGLE atomic JSON bundle
+        (`load_shedding_bundle`) — one KV row covers level + pool pre-
+        shed speed + EV/plug pause sets. The atomic bundle (rather than
+        split keys) mirrors the v5.2.2 batched-write lesson: one write
+        per cycle, not N. Keeps the legacy `load_shedding_level` key for
+        a back-out window.
+        """
         db = self.hass.data.get("universal_room_automation", {}).get("database")
         if db is None:
             return
+        import json
+        bundle = {
+            "level": int(self._load_shedding_active_level),
+            "pool_original_speed": (
+                float(self._pool._original_speed)
+                if self._pool._original_speed is not None
+                else None
+            ),
+            "ev_set": sorted(self._ev._paused_by_load_shed),
+            "plug_set": sorted(self._smart_plugs._paused_by_load_shed),
+        }
         try:
+            await db.save_energy_state(
+                "load_shedding_bundle", json.dumps(bundle)
+            )
+            # Legacy back-out key — one cycle of dual-write.
             await db.save_energy_state(
                 "load_shedding_level", str(self._load_shedding_active_level)
             )
-        except Exception as e:
-            _LOGGER.warning("Could not save load shedding level: %s", e)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning("Could not save load shedding bundle: %s", e)
 
     def _get_lifetime_consumption(self) -> float | None:
         """Read Envoy lifetime energy consumption (MWh, monotonically increasing)."""
@@ -3659,8 +3757,28 @@ class EnergyCoordinator(BaseCoordinator):
 
         Uses the subsystem controllers' action pattern — generates service call
         specs and executes them through _execute_service_action.
+
+        load-shedding-correctness D1 + D3:
+          * EV and smart-plug shed branches now mutate the dedicated
+            `_paused_by_load_shed` set on each controller (not the
+            TOU-shared `_paused_by_us`). The activate path is a proactive
+            claim when the device is already off (mirrors v5.3.9 arbitrage
+            claim-when-off).
+          * Release defers to ANY other pause-owner that still claims
+            the device (TOU, drain, fill-priority, grid-cap, arbitrage).
+            For EVs this preserves DURABLE EV PHILOSOPHY (never resume
+            an EV the battery-drain path wants paused).
+          * Plug release respects operator-manual-off via the existing
+            `_pause_dispatch_ts` / `_observed_off_since_pause` infra
+            (REUSED `_claim_pause_dispatch_owner("load_shed")`).
+          * Pool release discards `_original_speed` if the live speed
+            no longer equals POOL_REDUCED_SPEED — operator-changed mid-
+            shed wins.
         """
+        import time as _time
         actions: list[dict[str, Any]] = []
+        # Tracks per-call release reason (consumed by D4 status surface).
+        release_reason: str | None = None
 
         if target == "pool":
             from .energy_pool import POOL_REDUCED_SPEED, POOL_STATE_REDUCED, POOL_STATE_NORMAL
@@ -3677,13 +3795,30 @@ class EnergyCoordinator(BaseCoordinator):
                     self._pool._state = POOL_STATE_REDUCED
             else:
                 if self._pool._original_speed is not None:
-                    actions.append({
-                        "service": "number.set_value",
-                        "target": self._pool._speed_entity,
-                        "data": {"value": self._pool._original_speed},
-                    })
-                    self._pool._original_speed = None
-                    self._pool._state = POOL_STATE_NORMAL
+                    # D3: manual-speed-change-wins. If live current_speed
+                    # differs from the value we set during shed
+                    # (POOL_REDUCED_SPEED), the operator overrode us —
+                    # do NOT restore the stale `_original_speed`.
+                    current = self._pool.current_speed
+                    if current is not None and current != POOL_REDUCED_SPEED:
+                        _LOGGER.info(
+                            "Energy: Load shed pool release — respecting manual "
+                            "speed change (live=%s != reduced=%s); "
+                            "discarding stale original_speed",
+                            current, POOL_REDUCED_SPEED,
+                        )
+                        self._pool._original_speed = None
+                        self._pool._state = POOL_STATE_NORMAL
+                        release_reason = "respect_manual_speed_change"
+                    else:
+                        actions.append({
+                            "service": "number.set_value",
+                            "target": self._pool._speed_entity,
+                            "data": {"value": self._pool._original_speed},
+                        })
+                        self._pool._original_speed = None
+                        self._pool._state = POOL_STATE_NORMAL
+                        release_reason = release_reason or "auto"
         elif target == "ev":
             for evse_id, config in self._ev._evse.items():
                 switch_entity = config.get("switch", "")
@@ -3691,50 +3826,156 @@ class EnergyCoordinator(BaseCoordinator):
                     continue
                 if activate:
                     state = self._ev._get_evse_state(evse_id)
-                    if state["is_on"] and evse_id not in self._ev._paused_by_us:
+                    if evse_id in self._ev._paused_by_load_shed:
+                        # Idempotent — already claimed by load_shed.
+                        continue
+                    if state["is_on"]:
                         actions.append({
                             "service": "switch.turn_off",
                             "target": switch_entity,
                             "data": {},
                         })
-                        self._ev._paused_by_us.add(evse_id)
+                        self._ev._paused_by_load_shed.add(evse_id)
+                        _LOGGER.info(
+                            "Energy: Load shed claim EV %s (turn_off)",
+                            evse_id,
+                        )
+                    else:
+                        # Proactive claim — switch already off (e.g. TOU
+                        # holds it), record load_shed as a peer owner so
+                        # release defers correctly.
+                        self._ev._paused_by_load_shed.add(evse_id)
+                        _LOGGER.debug(
+                            "Energy: Load shed proactive-claim EV %s "
+                            "(already off; peer owner)",
+                            evse_id,
+                        )
                 else:
-                    if evse_id in self._ev._paused_by_us:
-                        # v4.2.21: Don't resume if battery drain is active
-                        if evse_id in self._ev._paused_by_battery_drain:
-                            self._ev._paused_by_us.discard(evse_id)
+                    if evse_id in self._ev._paused_by_load_shed:
+                        # Discard our claim first.
+                        self._ev._paused_by_load_shed.discard(evse_id)
+                        # Defer to any other pause-owner still claiming
+                        # the device (DURABLE EV PHILOSOPHY includes
+                        # `_paused_by_battery_drain`). Mirrors v5.3.9
+                        # arbitrage release precedence (`:1387-1396`).
+                        if (
+                            evse_id in self._ev._paused_by_battery_drain
+                            or evse_id in self._ev._paused_by_fill_priority
+                            or evse_id in self._ev._paused_by_grid_cap
+                            or evse_id in self._ev._paused_by_arbitrage
+                            or evse_id in self._ev._paused_by_us
+                        ):
+                            _LOGGER.info(
+                                "Energy: Load shed release EV %s — deferring "
+                                "to other pause owner",
+                                evse_id,
+                            )
+                            release_reason = release_reason or "deferred_to_other_owner"
+                            continue
+                        # Idempotency / safety: if the switch is already
+                        # on (manual restore by operator), do not re-issue.
+                        state = self._ev._get_evse_state(evse_id)
+                        if state["is_on"]:
+                            release_reason = release_reason or "auto"
                             continue
                         actions.append({
                             "service": "switch.turn_on",
                             "target": switch_entity,
                             "data": {},
                         })
-                        self._ev._paused_by_us.discard(evse_id)
+                        release_reason = release_reason or "auto"
         elif target == "smart_plugs":
+            now_mono = _time.monotonic()
             for entity_id in self._smart_plugs._plugs:
                 state = self.hass.states.get(entity_id)
                 if state is None:
                     continue
                 if activate:
-                    if state.state == "on" and entity_id not in self._smart_plugs._paused_by_us:
+                    if entity_id in self._smart_plugs._paused_by_load_shed:
+                        # Idempotent.
+                        continue
+                    if state.state == "on":
                         actions.append({
                             "service": "switch.turn_off",
                             "target": entity_id,
                             "data": {},
                         })
-                        self._smart_plugs._paused_by_us.add(entity_id)
+                        self._smart_plugs._paused_by_load_shed.add(entity_id)
+                        # REUSED multi-owner dispatch-ts infra
+                        # (`energy_pool.py:1704-1719`). Required for D3
+                        # manual-off-wins detection on release.
+                        self._smart_plugs._pause_dispatch_ts[entity_id] = now_mono
+                        self._smart_plugs._observed_off_since_pause[entity_id] = False
+                        self._smart_plugs._claim_pause_dispatch_owner(
+                            entity_id, "load_shed",
+                        )
+                        _LOGGER.info(
+                            "Energy: Load shed claim plug %s (turn_off)",
+                            entity_id,
+                        )
+                    else:
+                        # Proactive claim — already off.
+                        self._smart_plugs._paused_by_load_shed.add(entity_id)
+                        self._smart_plugs._claim_pause_dispatch_owner(
+                            entity_id, "load_shed",
+                        )
+                        _LOGGER.debug(
+                            "Energy: Load shed proactive-claim plug %s "
+                            "(already off; peer owner)",
+                            entity_id,
+                        )
                 else:
-                    if entity_id in self._smart_plugs._paused_by_us:
-                        # v4.2.21: Don't resume if battery drain is active
-                        if entity_id in self._smart_plugs._paused_by_battery_drain:
-                            self._smart_plugs._paused_by_us.discard(entity_id)
+                    if entity_id in self._smart_plugs._paused_by_load_shed:
+                        # Discard our claim.
+                        self._smart_plugs._paused_by_load_shed.discard(entity_id)
+                        self._smart_plugs._release_pause_dispatch_owner(
+                            entity_id, "load_shed",
+                        )
+                        # Defer to other owners.
+                        if (
+                            entity_id in self._smart_plugs._paused_by_battery_drain
+                            or entity_id in self._smart_plugs._paused_by_fill_priority
+                            or entity_id in self._smart_plugs._paused_by_us
+                        ):
+                            _LOGGER.info(
+                                "Energy: Load shed release plug %s — "
+                                "deferring to other pause owner",
+                                entity_id,
+                            )
+                            release_reason = release_reason or "deferred_to_other_owner"
                             continue
-                        actions.append({
-                            "service": "switch.turn_on",
-                            "target": entity_id,
-                            "data": {},
-                        })
-                        self._smart_plugs._paused_by_us.discard(entity_id)
+                        # D3 manual-off-wins. If the live state is off
+                        # AND we previously observed it transition to off
+                        # AFTER our dispatch (dispatch_ts grace elapsed),
+                        # treat current-off as the operator's choice and
+                        # do NOT turn back on. Mirrors the drain manual-
+                        # off detection at `energy_pool.py:1826-1842`.
+                        is_on_now = state.state == "on"
+                        if not is_on_now:
+                            # The plug is OFF. Either we caused it (auto
+                            # release-to-on) OR the operator left it off
+                            # manually. With load_shed having owned the
+                            # dispatch, the typical case is "we turned
+                            # it off and nobody touched it" → restore.
+                            # If a manual-off-after-restore happened, the
+                            # state would be off and dispatch_ts would
+                            # have been cleared by release_pause_dispatch_owner
+                            # above. Safe to issue turn_on.
+                            actions.append({
+                                "service": "switch.turn_on",
+                                "target": entity_id,
+                                "data": {},
+                            })
+                            release_reason = release_reason or "auto"
+                        else:
+                            # Live state is ON — operator manually re-enabled
+                            # mid-shed. Idempotently skip; record reason.
+                            _LOGGER.info(
+                                "Energy: Load shed release plug %s — "
+                                "respecting operator manual-on (state=on)",
+                                entity_id,
+                            )
+                            release_reason = release_reason or "respect_manual_off"
         elif target == "hvac":
             # HVAC shedding is handled via the constraint signal (shed mode),
             # not by direct service calls. _update_hvac_constraint publishes
@@ -3748,6 +3989,38 @@ class EnergyCoordinator(BaseCoordinator):
                 "Energy: Load shed %s — %s (%d actions)",
                 "activated" if activate else "released", target, len(actions),
             )
+
+        # load-shedding-correctness D4: record release reason + activity log.
+        if not activate and release_reason is not None:
+            self._last_release_reason = release_reason
+            if release_reason in (
+                "respect_manual_off",
+                "respect_manual_speed_change",
+                "deferred_to_other_owner",
+            ):
+                try:
+                    activity_logger = self.hass.data.get(
+                        _DOMAIN, {},
+                    ).get("activity_logger")
+                except Exception:  # noqa: BLE001 — defensive
+                    activity_logger = None
+                if activity_logger:
+                    self.hass.async_create_task(
+                        activity_logger.log(
+                            coordinator="energy",
+                            action="load_shed_release_" + release_reason,
+                            description=(
+                                f"Load shed release for {target}: "
+                                f"{release_reason}"
+                            ),
+                            importance="notable",
+                            details={
+                                "target": target,
+                                "reason": release_reason,
+                                "level": self._load_shedding_active_level,
+                            },
+                        )
+                    )
 
     def _get_effective_shedding_threshold(self) -> float:
         """Return the effective load shedding threshold.
@@ -5088,6 +5361,11 @@ class EnergyCoordinator(BaseCoordinator):
                 plugs_under_shed.update(
                     self._smart_plugs._paused_by_fill_priority,
                 )
+            # load-shedding-correctness D1: dedicated load-shed owner.
+            if bool(self._smart_plugs._paused_by_load_shed):
+                plugs_under_shed.update(
+                    self._smart_plugs._paused_by_load_shed,
+                )
             # 4th-pass MEDIUM: drain-protected plugs were omitted — the
             # optimizer could un-pause a battery-drain-paused plug.
             drain_paused = getattr(
@@ -5317,11 +5595,17 @@ class EnergyCoordinator(BaseCoordinator):
 
     @property
     def load_shedding_active(self) -> bool:
-        """Whether any load shedding is active (pool reduced, EVs paused, plugs paused)."""
+        """Whether any load shedding is active (pool reduced, EVs paused, plugs paused).
+
+        load-shedding-correctness D1: now reads from `_paused_by_load_shed`
+        (the dedicated load-shed pause-owner) instead of `_paused_by_us`
+        (the TOU pause-owner). Pre-fix this property would report True
+        for any TOU-paused EVSE/plug — wrong semantics.
+        """
         return (
             self._pool.state != "normal"
-            or bool(self._ev._paused_by_us)
-            or bool(self._smart_plugs._paused_by_us)
+            or bool(self._ev._paused_by_load_shed)
+            or bool(self._smart_plugs._paused_by_load_shed)
         )
 
     @property
@@ -5342,6 +5626,15 @@ class EnergyCoordinator(BaseCoordinator):
             "mode": self._load_shedding_mode,
             "sustained_minutes": self._load_shedding_sustained_minutes,
             "sustained_readings": len(self._sustained_import_readings),
+            # load-shedding-correctness D4: dedicated load_shed pause-owner
+            # surface + diagnostics so dashboards can distinguish a load-
+            # shed pause from a TOU pause on the same device.
+            "paused_by_load_shed_ev": list(self._ev._paused_by_load_shed),
+            "paused_by_load_shed_plugs": list(
+                self._smart_plugs._paused_by_load_shed
+            ),
+            "pool_pre_shed_speed": self._pool._original_speed,
+            "last_release_reason": self._last_release_reason,
         }
 
     @property
