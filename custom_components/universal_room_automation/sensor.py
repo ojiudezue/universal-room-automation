@@ -391,6 +391,9 @@ async def async_setup_entry(
         coordinator_sensors.extend([
             OptimizerStatusSensor(hass, entry),
             OptimizerFindingsSensor(hass, entry),
+            # v5.4 D2a — plain-English reasoning sensor (ONE new entity
+            # in the cycle; D2b/D2c/D2d are attrs on existing sensors).
+            OptimizerReasoningSensor(hass, entry),
             OptimizerRoomHealthSensor(hass, entry),
         ])
 
@@ -13786,6 +13789,26 @@ class OptimizerStatusSensor(_OptimizerCMSensorBase):
         except Exception:
             dimension_autonomy_caps = {}
             effective_level_per_dim = {}
+        # v5.4 D2b/D2d — additive attrs (dimension_verdicts +
+        # shadow_accuracy_pct / status). All defensive reads so a stale
+        # coordinator returns safe sentinels rather than raising.
+        dimension_verdicts: dict[str, str] = {}
+        try:
+            verdicts = getattr(coord, "_last_dimension_verdicts", None)
+            if isinstance(verdicts, dict):
+                dimension_verdicts = dict(verdicts)
+        except Exception:
+            dimension_verdicts = {}
+        try:
+            shadow_pct = getattr(coord, "_last_shadow_accuracy_pct", None)
+        except Exception:
+            shadow_pct = None
+        try:
+            shadow_status = getattr(
+                coord, "_last_shadow_accuracy_status", "warming_up",
+            )
+        except Exception:
+            shadow_status = "warming_up"
         return {
             "autonomy_level": cfg.get(
                 CONF_OPTIMIZER_AUTONOMY_LEVEL, DEFAULT_OPTIMIZER_AUTONOMY_LEVEL,
@@ -13816,6 +13839,11 @@ class OptimizerStatusSensor(_OptimizerCMSensorBase):
             "rate_cap_window_count": coord._rate_cap_window_count(),
             "quiet_hours_active": coord._is_quiet_hours_active(),
             "llm_invocations_today": llm_invocations_today,
+            # v5.4 D2b — per-dimension verdicts for this cycle.
+            "dimension_verdicts": dimension_verdicts,
+            # v5.4 D2d — rolling shadow-accuracy gauge.
+            "shadow_accuracy_pct": shadow_pct,
+            "shadow_accuracy_status": shadow_status,
         }
 
 
@@ -13873,11 +13901,100 @@ class OptimizerFindingsSensor(_OptimizerCMSensorBase):
                     break
         except Exception:
             last_action_outcome_score = None
+        # v5.4 D2c — surface the LLM-emitted findings' reasoning prose
+        # for the most recent cycle. Hard-capped (20 entries, 512 chars
+        # per `reasoning`) and bounded to LLM-sourced rows only so a
+        # Tier-1 cycle with zero LLM emits doesn't add noise.
+        llm_reasoning_summary: list[dict] = []
+        try:
+            for f in recent:
+                if getattr(f, "created_by", "") != "tier2_llm":
+                    continue
+                llm_reasoning_summary.append({
+                    "target_id": f.target_id,
+                    "dimension": str(f.dimension),
+                    "severity": f.severity,
+                    "description": (f.description or "")[:255],
+                    "reasoning": (getattr(f, "reasoning", "") or "")[:512],
+                })
+                if len(llm_reasoning_summary) >= 20:
+                    break
+        except Exception:
+            llm_reasoning_summary = []
         return {
             "findings": findings_list,
             "by_severity": summary["by_severity"],
             "by_level": summary["by_level"],
             "last_action_outcome_score": last_action_outcome_score,
+            "llm_reasoning_summary": llm_reasoning_summary,
+        }
+
+
+class OptimizerReasoningSensor(_OptimizerCMSensorBase):
+    """sensor.ura_optimizer_reasoning — plain-English per-cycle commentary.
+
+    v5.4 D2a. State = short headline ("cycle ok — N findings, M high");
+    attrs carry the per-cycle reasoning structure that dashboards can
+    surface standalone:
+
+      cycle_summary: multi-line per-dimension verdict text (≤1024 chars).
+      cycle_actions_proposed: capped list of {dimension, severity,
+        target, action, outcome, predicted_effect}.
+      dry_run_veto_count: rolling count of pending vetoes against this
+        cycle's intents (from OptimizerIntentBroker._pending_vetoes).
+      last_cycle_at: ISO of last evaluation.
+
+    Recorder-bounded: state changes at most once per OC cycle (5 min).
+    """
+
+    _attr_icon = "mdi:robot-confused"
+
+    def __init__(self, hass, entry):
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_optimizer_reasoning"
+        self._attr_name = "Optimizer Reasoning"
+        self._attr_native_value = "initializing"
+
+    @property
+    def native_value(self) -> str:
+        coord = self._get_coord()
+        if coord is None:
+            return "initializing"
+        summary = getattr(coord, "_last_cycle_summary", "") or ""
+        if not summary:
+            return "initializing"
+        # First line of the summary serves as the headline state.
+        return summary.split("\n", 1)[0][:255]
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        coord = self._get_coord()
+        if coord is None:
+            return {
+                "cycle_summary": "",
+                "cycle_actions_proposed": [],
+                "dry_run_veto_count": 0,
+                "last_cycle_at": None,
+            }
+        try:
+            cycle_summary = getattr(coord, "_last_cycle_summary", "") or ""
+        except Exception:
+            cycle_summary = ""
+        try:
+            actions = list(
+                getattr(coord, "_last_cycle_actions_proposed", []) or []
+            )[:20]
+        except Exception:
+            actions = []
+        try:
+            veto_count = int(getattr(coord, "dry_run_veto_count", 0))
+        except Exception:
+            veto_count = 0
+        return {
+            "cycle_summary": cycle_summary[:1024],
+            "cycle_actions_proposed": actions,
+            "dry_run_veto_count": veto_count,
+            "last_cycle_at": getattr(coord, "_last_evaluation_iso", None),
         }
 
 

@@ -81,6 +81,17 @@ DEFAULT_HVAC_SOLAR_BANK_SOC_MIN: Final = 95  # %
 CONF_HVAC_SOLAR_BANK_ENABLED: Final = "hvac_solar_bank_enabled"
 DEFAULT_HVAC_SOLAR_BANK_ENABLED: Final = True
 
+# HC Pre-Conditioning master enable (HVAC sub-switch on HC device).
+# When OFF, ALL pre-conditioning branches in
+# HVACPredictor._check_pre_conditioning (weather pre-cool, solar banking,
+# pre-arrival, pre-heat) short-circuit. Default ON preserves status-quo
+# behavior. Mirrors the Solar HVAC Banking sibling toggle (CONF_HVAC_SOLAR_
+# BANK_ENABLED) — but lives on the HC device (HVACPreConditioningSwitch),
+# not the EC device, because pre-conditioning is owned end-to-end by HC.
+# See PLANNING_hc_precool_toggle_oc_observability.md (D1).
+CONF_HVAC_PRE_CONDITIONING_ENABLED: Final = "hvac_pre_conditioning_enabled"
+DEFAULT_HVAC_PRE_CONDITIONING_ENABLED: Final = True
+
 # Pre-cool / pre-heat forecast triggers
 # (was hardcoded in hvac_predict.py as PRECOOL_FORECAST_HIGH = 90.0,
 #  PREHEAT_FORECAST_LOW = 35.0).
