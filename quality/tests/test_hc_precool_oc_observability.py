@@ -545,6 +545,97 @@ class TestD1GatePreConditioning:
         assert pred._last_banked_zones == set()
         assert pred._last_pre_conditioning_zones == set()
 
+    def test_same_day_flip_off_then_on_re_engages_pre_cool(
+        self, fake_predictor,
+    ):
+        """A-HIGH-1: flip OFF mid-pre-cool then flip ON later the SAME day
+        → weather pre-cool re-engages on the next cycle.
+
+        Mutation: leave `_pre_cool_triggered_today=True` across the flip-OFF
+        release → this test fails because `_should_weather_pre_cool` keeps
+        bailing on the `not _pre_cool_triggered_today` guard until midnight.
+        """
+        pred, hass = fake_predictor
+        pred._first_eval_done = True
+        # Cycle 1: gate ON, weather pre-cool fires → triggered_today set.
+        _install_hvac_in_hass(
+            hass, pre_conditioning_enabled=True, banking_enabled=False,
+        )
+        _install_fake_hvac_coord(
+            pred, last_emitted={"z1": (68.0, 75.0)},
+        )
+        pred._get_net_power = MagicMock(return_value=0.0)
+        # Force weather pre-cool to fire on cycle 1.
+        pred._should_weather_pre_cool = MagicMock(return_value=True)
+        pred._should_solar_bank = MagicMock(return_value=False)
+        precool_calls: list = []
+
+        async def _spy_precool(zone, offset, reason):
+            precool_calls.append((zone.zone_id, offset, reason))
+
+        pred._execute_zone_pre_cool = _spy_precool
+        constraint = _make_constraint(soc=98, forecast_high=92)
+        # 13:00 — inside pre-cool window (PEAK_HOUR_START=14 minus
+        # PRECOOL_LEAD_HOURS=2 → [12,14)).
+        now1 = datetime(2026, 6, 11, 13, 0, 0)
+        _run_coro(pred._check_pre_conditioning(
+            constraint, house_state="home_day", now=now1,
+            pre_arrival_zones=set(),
+            zone_intelligence_enabled=True,
+        ))
+        # Pretend that real call set the triggered_today + active flags
+        # (the spy replaces _should_weather_pre_cool, which is where the
+        # real method sets them). Mirror the real-side behavior so the
+        # flip-OFF release block has something to clear.
+        pred._pre_cool_active = True
+        pred._pre_cool_triggered_today = True
+
+        # Cycle 2: same day, operator flips master OFF mid-window.
+        _install_hvac_in_hass(
+            hass, pre_conditioning_enabled=False, banking_enabled=False,
+        )
+        now2 = datetime(2026, 6, 11, 13, 5, 0)
+        _run_coro(pred._check_pre_conditioning(
+            constraint, house_state="home_day", now=now2,
+            pre_arrival_zones=set(),
+            zone_intelligence_enabled=True,
+        ))
+        # Flip-OFF release must clear both in-flight AND triggered_today
+        # (A-HIGH-1 fix).
+        assert pred._pre_cool_active is False
+        assert pred._pre_cool_triggered_today is False, (
+            "A-HIGH-1: flip-OFF release MUST clear _pre_cool_triggered_today "
+            "so a same-day flip-back-ON can re-arm weather pre-cool"
+        )
+        assert pred._pre_heat_triggered_today is False
+
+        # Cycle 3: operator flips master back ON, still same day,
+        # still inside the pre-cool window — the REAL _should_weather_pre_cool
+        # should re-fire (no spy this time).
+        # Restore the real method by deleting the spy attribute so attribute
+        # lookup hits the class definition again.
+        del pred._should_weather_pre_cool
+        _install_hvac_in_hass(
+            hass, pre_conditioning_enabled=True, banking_enabled=False,
+        )
+        precool_calls.clear()
+        now3 = datetime(2026, 6, 11, 13, 10, 0)
+        _run_coro(pred._check_pre_conditioning(
+            constraint, house_state="home_day", now=now3,
+            pre_arrival_zones=set(),
+            zone_intelligence_enabled=True,
+        ))
+        # Re-engagement evidence: the daily-once gate re-armed and fired.
+        assert pred._pre_cool_active is True, (
+            "A-HIGH-1: same-day flip-back-ON inside pre-cool window MUST "
+            "re-engage weather pre-cool (gate currently stuck off until "
+            "date rollover)"
+        )
+        assert pred._pre_cool_triggered_today is True
+        assert any(
+            reason == "weather" for _zid, _off, reason in precool_calls
+        ), "weather pre-cool should fire on re-engage cycle"
+
     def test_steady_state_off_does_not_repeat_release(self, fake_predictor):
         """Idempotency: gate OFF for the second cycle → no re-issued release."""
         pred, hass = fake_predictor
@@ -796,30 +887,78 @@ class TestD2dShadowAccuracy:
         assert coord._last_shadow_accuracy_pct is None
         assert coord._last_shadow_accuracy_status == "warming_up"
 
-    def test_comfort_oracle_scores_findings(self):
-        """Mutation check #4: break the comfort/occupancy oracle → fails.
+    def _install_room_entry(self, coord, opt_mod, *, room_name,
+                            temp_eid="sensor.living_room_temp",
+                            temp_val="72.0",
+                            occ_eid="binary_sensor.living_room_occ",
+                            occ_state="on"):
+        """Wire a real ConfigEntry + hass.states surface for the oracle.
 
-        We seed enough OPTIMIZER_OUTCOME_SHADOW findings (timestamps
-        older than the observe-delay) and inject a fake room coord whose
-        temperature is inside the comfort band. After running the
-        validator the rolling pct should be 100.0 + status ready.
+        Matches the production reader path: optimizer's
+        `_iter_room_entries` yields entries with `entry.data.get(CONF_ENTRY_TYPE)
+        == ENTRY_TYPE_ROOM`, and `_state_value(eid)` reads
+        `coord.hass.states.get(eid)`. We build BOTH so the oracle exercises
+        its real reader, not a mocked surface.
+        """
+        from custom_components.universal_room_automation.const import (
+            CONF_ENTRY_TYPE, ENTRY_TYPE_ROOM, DOMAIN,
+            CONF_TEMPERATURE_SENSOR, CONF_OCCUPANCY_SENSORS,
+        )
+
+        entry = MagicMock()
+        entry.data = {
+            CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM,
+            "room_name": room_name,
+        }
+        opts = {}
+        if temp_eid is not None:
+            opts[CONF_TEMPERATURE_SENSOR] = temp_eid
+        if occ_eid is not None:
+            opts[CONF_OCCUPANCY_SENSORS] = [occ_eid]
+        entry.options = opts
+        entry.entry_id = f"entry_{room_name}"
+
+        # Drive the real _iter_room_entries: hass.config_entries.async_entries.
+        coord.hass.config_entries = MagicMock()
+        coord.hass.config_entries.async_entries = MagicMock(
+            return_value=[entry],
+        )
+
+        # Drive the real _state_value: hass.states.get(eid).
+        state_map: dict[str, MagicMock] = {}
+        if temp_eid is not None and temp_val is not None:
+            st = MagicMock()
+            st.state = temp_val
+            state_map[temp_eid] = st
+        if occ_eid is not None and occ_state is not None:
+            st = MagicMock()
+            st.state = occ_state
+            state_map[occ_eid] = st
+        coord.hass.states = MagicMock()
+        coord.hass.states.get = lambda eid, _m=state_map: _m.get(eid)
+        coord.hass.data[DOMAIN] = {"coordinator_manager": MagicMock()}
+        return entry
+
+    def test_comfort_oracle_scores_findings(self):
+        """Mutation check #4 + B-HIGH-1 fix: oracle drives the REAL
+        production reader (`_iter_room_entries` → `CONF_TEMPERATURE_SENSOR`
+        → `_state_value`). No room_coordinators dict is consulted.
+
+        Mandatory phantom-surface mutation: point the oracle at a
+        nonexistent entity → all findings record `match=None` and the
+        rolling pct stays None / status flips to `no_observable_data`.
         """
         coord, opt_mod = self._make_coord()
         from custom_components.universal_room_automation.const import (
             OPTIMIZER_OUTCOME_SHADOW,
             OPTIMIZER_SHADOW_ACCURACY_MIN_SAMPLES,
-            DOMAIN,
         )
 
-        # Fake room coordinator with an in-band temperature.
-        room = MagicMock()
-        room.current_temperature = 72.0
-        manager = MagicMock()
-        manager.coordinators = {}
-        manager.room_coordinators = {"living_room": room}
-        coord.hass.data[DOMAIN] = {"coordinator_manager": manager}
+        self._install_room_entry(
+            coord, opt_mod, room_name="living_room",
+            temp_eid="sensor.living_room_temp", temp_val="72.0",
+        )
 
-        # Seed N comfort shadow findings, all timestamped 30 min ago.
         past_iso = (_utcnow() - timedelta(minutes=30)).isoformat()
         findings = []
         for i in range(OPTIMIZER_SHADOW_ACCURACY_MIN_SAMPLES + 2):
@@ -838,22 +977,59 @@ class TestD2dShadowAccuracy:
         coord._run_shadow_accuracy_validator()
         assert coord._last_shadow_accuracy_status == "ready"
         assert coord._last_shadow_accuracy_pct == 100.0
-        # observed_effect populated on every finding.
         for f in findings:
             assert f.observed_effect is not None
             assert f.observed_effect["match"] is True
 
+    def test_comfort_oracle_phantom_entity_yields_no_observable_data(self):
+        """B-HIGH-1 / B-MED-1 anti-regression: point the oracle at a
+        nonexistent temperature entity and a passing test must turn red.
+
+        This is the MANDATORY phantom-surface mutation — if the oracle
+        ever silently fabricates a result from a missing surface again,
+        this test fails. Also exercises the `no_observable_data` token
+        introduced for B-MED-1.
+        """
+        coord, opt_mod = self._make_coord()
+        from custom_components.universal_room_automation.const import (
+            OPTIMIZER_OUTCOME_SHADOW,
+        )
+        # temp_eid intentionally points at an entity NOT in state_map.
+        self._install_room_entry(
+            coord, opt_mod, room_name="living_room",
+            temp_eid="sensor.does_not_exist", temp_val=None,
+        )
+        past_iso = (_utcnow() - timedelta(minutes=30)).isoformat()
+        findings = []
+        for i in range(3):
+            findings.append(opt_mod.OptimizationFinding(
+                timestamp=past_iso,
+                level="room", target_id="living_room",
+                dimension=opt_mod.OptimizationDimension.COMFORT,
+                severity="low", confidence=0.5, score=90.0,
+                description=f"f{i}",
+                applied_outcome=OPTIMIZER_OUTCOME_SHADOW,
+                predicted_effect={"note": "shadow"},
+            ))
+        coord._last_findings = findings
+        coord._run_shadow_accuracy_validator()
+        # Every observed_effect must be inconclusive — phantom surface.
+        for f in findings:
+            assert f.observed_effect is not None
+            assert f.observed_effect["match"] is None
+        # Rolling pct stays None; status surfaces the inert oracle.
+        assert coord._last_shadow_accuracy_pct is None
+        assert coord._last_shadow_accuracy_status == "no_observable_data"
+
     def test_oracle_records_out_of_band_as_false(self):
         coord, opt_mod = self._make_coord()
         from custom_components.universal_room_automation.const import (
-            OPTIMIZER_OUTCOME_SHADOW, DOMAIN,
+            OPTIMIZER_OUTCOME_SHADOW,
         )
-        room = MagicMock()
-        room.current_temperature = 92.0  # out of band
-        manager = MagicMock()
-        manager.coordinators = {}
-        manager.room_coordinators = {"hot_room": room}
-        coord.hass.data[DOMAIN] = {"coordinator_manager": manager}
+        self._install_room_entry(
+            coord, opt_mod, room_name="hot_room",
+            temp_eid="sensor.hot_room_temp", temp_val="92.0",  # out of band
+        )
         past_iso = (_utcnow() - timedelta(minutes=30)).isoformat()
         f = opt_mod.OptimizationFinding(
             timestamp=past_iso,
@@ -867,6 +1043,71 @@ class TestD2dShadowAccuracy:
         coord._last_findings = [f]
         coord._run_shadow_accuracy_validator()
         assert f.observed_effect["match"] is False
+
+    def test_occupancy_oracle_drives_real_reader(self):
+        """B-HIGH-1 fix: occupancy oracle reads CONF_OCCUPANCY_SENSORS
+        via _state_value (production-proven path), NOT a phantom
+        room.is_occupied attribute."""
+        coord, opt_mod = self._make_coord()
+        from custom_components.universal_room_automation.const import (
+            OPTIMIZER_OUTCOME_SHADOW,
+            OPTIMIZER_SHADOW_ACCURACY_MIN_SAMPLES,
+        )
+        self._install_room_entry(
+            coord, opt_mod, room_name="kitchen",
+            temp_eid=None, temp_val=None,
+            occ_eid="binary_sensor.kitchen_occ", occ_state="on",
+        )
+        past_iso = (_utcnow() - timedelta(minutes=30)).isoformat()
+        findings = []
+        for i in range(OPTIMIZER_SHADOW_ACCURACY_MIN_SAMPLES + 2):
+            findings.append(opt_mod.OptimizationFinding(
+                timestamp=past_iso,
+                level="room", target_id="kitchen",
+                dimension=opt_mod.OptimizationDimension.OCCUPANCY_ACCURACY,
+                severity="low", confidence=0.5, score=90.0,
+                description=f"f{i}",
+                applied_outcome=OPTIMIZER_OUTCOME_SHADOW,
+                predicted_effect={"note": "shadow"},
+            ))
+        coord._last_findings = findings
+        coord._run_shadow_accuracy_validator()
+        assert coord._last_shadow_accuracy_status == "ready"
+        assert coord._last_shadow_accuracy_pct == 100.0
+
+    def test_aware_timestamp_compares_with_aware_cutoff(self):
+        """Validator finding: naive timestamps on the :1111 path used to
+        TypeError under offset-aware now. Both naive and aware ISO
+        timestamps must be handled without raising and produce the SAME
+        rolling result."""
+        coord, opt_mod = self._make_coord()
+        from custom_components.universal_room_automation.const import (
+            OPTIMIZER_OUTCOME_SHADOW,
+            OPTIMIZER_SHADOW_ACCURACY_MIN_SAMPLES,
+        )
+        self._install_room_entry(
+            coord, opt_mod, room_name="living_room",
+            temp_eid="sensor.living_room_temp", temp_val="72.0",
+        )
+        # Naive timestamp (no tzinfo).
+        past_naive = (
+            datetime.utcnow() - timedelta(minutes=30)
+        ).replace(tzinfo=None).isoformat()
+        findings = []
+        for i in range(OPTIMIZER_SHADOW_ACCURACY_MIN_SAMPLES + 2):
+            findings.append(opt_mod.OptimizationFinding(
+                timestamp=past_naive,
+                level="room", target_id="living_room",
+                dimension=opt_mod.OptimizationDimension.COMFORT,
+                severity="low", confidence=0.5, score=90.0,
+                description=f"f{i}",
+                applied_outcome=OPTIMIZER_OUTCOME_SHADOW,
+                predicted_effect={"note": "shadow"},
+            ))
+        coord._last_findings = findings
+        # Must NOT raise "can't compare offset-naive and offset-aware".
+        coord._run_shadow_accuracy_validator()
+        assert coord._last_shadow_accuracy_status == "ready"
 
     def test_non_shadow_outcome_skipped(self):
         """The validator MUST NOT score non-shadow findings (no collision

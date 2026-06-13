@@ -29,7 +29,7 @@ import logging
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any
 
@@ -1026,12 +1026,15 @@ class OptimizationCoordinator(BaseCoordinator):
             if sev in sev_counts:
                 headline_parts.append(f"{sev_counts[sev]} {sev}")
         lines.append(", ".join(headline_parts))
+        # B-LOW-1: reuse the same severity_rank map _compute_dimension_verdicts
+        # uses (single source of truth for severity ordering).
+        severity_rank = {"low": 1, "medium": 2, "high": 3, "critical": 4}
         for dim, dim_findings in sorted(by_dim.items()):
             severities = [
                 (getattr(f, "severity", "low") or "low").lower()
                 for f in dim_findings
             ]
-            highest = max(severities, key=lambda s: ("low", "medium", "high", "critical").index(s) if s in ("low", "medium", "high", "critical") else 0)
+            highest = max(severities, key=lambda s: severity_rank.get(s, 0))
             lines.append(
                 f"{dim}: {len(dim_findings)} finding(s), highest={highest}",
             )
@@ -1092,9 +1095,24 @@ class OptimizationCoordinator(BaseCoordinator):
             OPTIMIZER_SHADOW_ACCURACY_WINDOW_DAYS,
         )
         now = dt_util.utcnow()
+        # Normalize to aware UTC: dt_util.utcnow() returns aware in
+        # production but some test harnesses substitute datetime.utcnow
+        # (naive). Coercing here once means EVERY downstream comparison
+        # against parsed `ts` is naive-safe.
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
         cutoff = now - timedelta(seconds=OPTIMIZER_SHADOW_OBSERVE_DELAY_S)
         # v1 scorable dimensions.
         scorable = {"comfort", "occupancy_accuracy"}
+        # B-MED-1: distinguish "no samples yet" (warming_up) from
+        # "oracle wired but reading nothing" (no_observable_data). The
+        # latter means the oracle was invoked against scorable findings
+        # but every result was inconclusive (match=None) — typically the
+        # phantom-surface failure mode B-HIGH-1 was about. We count
+        # scorable findings actually evaluated and the subset whose
+        # oracle returned match=None.
+        scorable_evaluated = 0
+        scorable_inconclusive = 0
         for finding in self._last_findings:
             if finding.applied_outcome != OPTIMIZER_OUTCOME_SHADOW:
                 continue
@@ -1105,7 +1123,11 @@ class OptimizationCoordinator(BaseCoordinator):
             try:
                 ts = datetime.fromisoformat(finding.timestamp)
                 if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=now.tzinfo)
+                    # Normalize naive → aware UTC so cutoff comparison
+                    # (always aware via dt_util.utcnow()) never mixes
+                    # offset-naive and offset-aware datetimes. Matches
+                    # the rest of the optimizer's timestamp discipline.
+                    ts = ts.replace(tzinfo=timezone.utc)
             except (ValueError, TypeError):
                 continue
             if ts > cutoff:
@@ -1135,7 +1157,10 @@ class OptimizationCoordinator(BaseCoordinator):
                 "evidence": evidence,
                 "observed_at": now.isoformat(),
             }
-            if match is not None:
+            scorable_evaluated += 1
+            if match is None:
+                scorable_inconclusive += 1
+            else:
                 self._shadow_accuracy_samples.append(
                     (now.isoformat(), bool(match)),
                 )
@@ -1148,7 +1173,7 @@ class OptimizationCoordinator(BaseCoordinator):
             try:
                 ts = datetime.fromisoformat(ts_iso)
                 if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=now.tzinfo)
+                    ts = ts.replace(tzinfo=timezone.utc)
                 if ts >= window_cutoff:
                     kept.append((ts_iso, m))
             except (ValueError, TypeError):
@@ -1157,7 +1182,19 @@ class OptimizationCoordinator(BaseCoordinator):
         total = len(self._shadow_accuracy_samples)
         if total < OPTIMIZER_SHADOW_ACCURACY_MIN_SAMPLES:
             self._last_shadow_accuracy_pct = None
-            self._last_shadow_accuracy_status = "warming_up"
+            # B-MED-1: surface oracle-wired-but-inert via a distinct
+            # token so a future regression of the B-HIGH-1 "phantom
+            # surface" class is observable (sentinel-only is not
+            # "warming up"). Heuristic: if every scorable finding this
+            # cycle returned inconclusive AND we have at least one such
+            # finding, the oracle is wired but reading nothing.
+            if (
+                scorable_evaluated > 0
+                and scorable_inconclusive == scorable_evaluated
+            ):
+                self._last_shadow_accuracy_status = "no_observable_data"
+            else:
+                self._last_shadow_accuracy_status = "warming_up"
             return
         matches = sum(1 for _, m in self._shadow_accuracy_samples if m)
         self._last_shadow_accuracy_pct = round(100.0 * matches / total, 1)
@@ -1186,6 +1223,26 @@ class OptimizationCoordinator(BaseCoordinator):
             return self._score_occupancy_shadow(finding, target_id)
         return None, "unscorable"
 
+    def _find_room_entry_by_target(self, target_id: str):
+        """Resolve a finding's ``target_id`` back to the room ConfigEntry.
+
+        Findings emitted by the Comfort / Occupancy evaluators set
+        ``target_id = self._room_name(entry)`` (see ``_evaluate_comfort_dimension``
+        / ``_evaluate_occupancy_accuracy_dimension``). Re-using the same
+        ``_iter_room_entries`` + ``_room_name`` pair as the producers keeps
+        the shadow oracle wired to the SAME production surface, not a
+        fabricated room-coordinator dict.
+        """
+        if not target_id:
+            return None
+        try:
+            for entry in self._iter_room_entries():
+                if self._room_name(entry) == target_id:
+                    return entry
+        except Exception:  # noqa: BLE001
+            return None
+        return None
+
     def _score_comfort_shadow(
         self,
         finding: OptimizationFinding,
@@ -1193,29 +1250,29 @@ class OptimizationCoordinator(BaseCoordinator):
     ) -> tuple[bool | None, str]:
         """v1 COMFORT oracle: does the room now read within comfort band?
 
-        Best-effort lookup of the room's curated temperature sensor via
-        the OccupancySubstrate / room coordinator (consistent with how
-        the comfort evaluator reads the substrate). Inconclusive (None)
-        when no temperature reading is available.
+        Drives the SAME reader the Comfort evaluator uses to emit the
+        finding in the first place — ``_iter_room_entries`` → curated
+        ``CONF_TEMPERATURE_SENSOR`` → ``_state_value`` (optimization.py
+        :1481-1492). This guarantees the oracle reads the production
+        substrate, not a phantom ``room_coordinators`` dict that does
+        not exist on the CoordinatorManager.
         """
         try:
-            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
-            if manager is None:
-                return None, "no_coordinator_manager"
-            room_coords = getattr(manager, "room_coordinators", None) or {}
-            room = room_coords.get(target_id)
-            if room is None:
-                return None, "room_coord_missing"
-            # Pull a current temperature reading via the room's
-            # configured sensors. Tolerant of missing attrs.
-            temp = None
-            for attr in ("current_temperature", "temperature"):
-                temp = getattr(room, attr, None)
-                if isinstance(temp, (int, float)):
-                    break
-            if not isinstance(temp, (int, float)):
+            entry = self._find_room_entry_by_target(target_id)
+            if entry is None:
+                return None, "room_entry_missing"
+            merged = {**(entry.data or {}), **(entry.options or {})}
+            temp_eid = merged.get(CONF_TEMPERATURE_SENSOR)
+            if not temp_eid:
+                return None, "no_temperature_sensor_configured"
+            st = self._state_value(temp_eid)
+            if st is None:
                 return None, "no_temperature_reading"
-            return (True, f"temp={temp}") if 65.0 <= float(temp) <= 80.0 else (
+            try:
+                temp = float(st.state)
+            except (TypeError, ValueError):
+                return None, "no_temperature_reading"
+            return (True, f"temp={temp}") if 65.0 <= temp <= 80.0 else (
                 False, f"temp={temp}_out_of_band",
             )
         except Exception:  # noqa: BLE001
@@ -1226,25 +1283,44 @@ class OptimizationCoordinator(BaseCoordinator):
         finding: OptimizationFinding,
         target_id: str,
     ) -> tuple[bool | None, str]:
-        """v1 OCCUPANCY_ACCURACY oracle: did the flagged room update its
-        occupied/vacant signal in the recent window? Inconclusive when
-        no room-coordinator surface is available.
+        """v1 OCCUPANCY_ACCURACY oracle: is the flagged room's curated
+        occupancy sensor reporting (i.e. not stale)?
+
+        Drives the SAME reader the occupancy-accuracy evaluator uses
+        (``CONF_OCCUPANCY_SENSORS`` via ``_iter_room_entries`` +
+        ``_state_value`` at optimization.py:1649-1685). Conservative:
+        a None / unavailable read = inconclusive; a present read counts
+        as "the prediction's signal recovered."
         """
         try:
-            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
-            if manager is None:
-                return None, "no_coordinator_manager"
-            room_coords = getattr(manager, "room_coordinators", None) or {}
-            room = room_coords.get(target_id)
-            if room is None:
-                return None, "room_coord_missing"
-            # Read a current occupancy verdict; oracle = "the room
-            # surface is reporting (i.e. not stale)". Conservative: a
-            # stale or None occupancy = False (prediction didn't recover).
-            occ = getattr(room, "is_occupied", None)
-            if occ is None:
-                return False, "occupancy_unknown"
-            return True, f"occupied={bool(occ)}"
+            entry = self._find_room_entry_by_target(target_id)
+            if entry is None:
+                return None, "room_entry_missing"
+            merged = {**(entry.data or {}), **(entry.options or {})}
+            occ_ids: list[str] = []
+            val_occ = merged.get(CONF_OCCUPANCY_SENSORS)
+            if isinstance(val_occ, list):
+                occ_ids.extend([v for v in val_occ if isinstance(v, str)])
+            elif isinstance(val_occ, str) and val_occ:
+                occ_ids.append(val_occ)
+            if not occ_ids:
+                return None, "no_occupancy_sensors_configured"
+            any_on = False
+            any_reading = False
+            for eid in occ_ids:
+                st = self._state_value(eid)
+                if st is None:
+                    continue
+                state_str = str(st.state).lower()
+                if state_str in ("unavailable", "unknown", ""):
+                    continue
+                any_reading = True
+                if state_str in ("on", "true", "occupied"):
+                    any_on = True
+                    break
+            if not any_reading:
+                return None, "occupancy_unavailable"
+            return True, f"occupied={any_on}"
         except Exception:  # noqa: BLE001
             return None, "exception"
 

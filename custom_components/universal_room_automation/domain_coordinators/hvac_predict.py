@@ -455,6 +455,16 @@ class HVACPredictor:
                 _LOGGER.info(
                     "HVAC Pre-heat released: pre-conditioning master OFF",
                 )
+            # A-HIGH-1: also clear the daily-once "triggered_today" flags
+            # so a same-day flip-back-ON can re-arm weather pre-cool /
+            # pre-heat. Without this, the re-arm guards in
+            # _should_weather_pre_cool / _should_pre_heat fail the
+            # `not _*_triggered_today` check until the date rollover at
+            # _update_outcomes, contradicting the D1 Live criterion
+            # ("Flip back ON inside the pre-cool window → on the next
+            # cycle, conditions-met branches re-engage").
+            self._pre_cool_triggered_today = False
+            self._pre_heat_triggered_today = False
         self._last_pre_conditioning_gate_enabled = pre_cond_gate_on
         if not pre_cond_gate_on:
             # Master gate OFF — all pre-conditioning branches skipped
@@ -761,6 +771,15 @@ class HVACPredictor:
         """
         coord = self._hvac_coord
         last_emitted = getattr(coord, "_last_emitted_range", None) if coord else None
+        # A-MED-1 (benign edge): if a DPM preset emit fires for this zone
+        # between the pre-cool write and the flip-OFF release,
+        # `_last_emitted_range[zone]` advances to the new preset range, so
+        # release writes the CURRENT preset target rather than the
+        # pre-cool-time baseline. The value is still a valid current-preset
+        # range (NOT a banked echo), so the behavior is correct — just
+        # different from the "restore the pre-cool baseline" intuition.
+        # Consistent with the preset-resolved fallback below, which is also
+        # current-house-state based.
         if last_emitted is not None:
             entry = last_emitted.get(zone_id)
             if entry is not None:
