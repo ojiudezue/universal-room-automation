@@ -1302,10 +1302,17 @@ async def test_energy_honor_vetoes_evse_breaker_offpeak():
 
 @pytest.mark.asyncio
 async def test_energy_honor_vetoes_evse_during_load_shed_any_period():
-    """EVSE veto fires while load-shedding is active regardless of TOU period."""
+    """EVSE veto fires while load-shedding is active regardless of TOU period.
+
+    load-shedding-correctness D1: the active-load-shed signal is now
+    `_paused_by_load_shed` (dedicated owner) rather than the TOU-shared
+    `_paused_by_us`. Pre-fix this test simulated load-shed by mutating
+    `_paused_by_us`; that worked only because the collision conflated
+    TOU and load-shed.
+    """
     coord = _make_energy_coord(tou_period="mid_peak")
-    # Simulate active load-shed bookkeeping.
-    coord._smart_plugs._paused_by_us.add("switch.dummy_plug")
+    # Simulate active load-shed bookkeeping (dedicated D1 owner set).
+    coord._smart_plugs._paused_by_load_shed.add("switch.dummy_plug")
     intent = {
         "action_id": "ls1",
         "target_entity": "switch.garage_a",
