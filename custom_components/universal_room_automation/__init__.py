@@ -2450,6 +2450,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         egress_resume_delay_min=int(cm_config.get(
                             "hvac_egress_resume_delay_min", 1,
                         )),
+                        # HC Pre-Conditioning master enable (D1). Install-
+                        # time seed; the HVACPreConditioningSwitch is the
+                        # runtime source of truth via options-write-back.
+                        pre_conditioning_enabled=bool(cm_config.get(
+                            "hvac_pre_conditioning_enabled", True,
+                        )),
                     )
                     coordinator_manager.register_coordinator(hvac)
                 else:

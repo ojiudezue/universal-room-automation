@@ -29,7 +29,7 @@ import logging
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any
 
@@ -207,6 +207,11 @@ class OptimizationFinding:
     created_by: str = "tier1"
     # Dedup key: (level, target_id, dimension, sub_entity_id_or_none)
     dedup_key: tuple | None = None
+    # v5.4 D2c — optional LLM reasoning prose (additive). Populated by
+    # OptimizationLLMTier when the LLM response includes a `reasoning`
+    # field; empty for Tier-1 findings or LLM responses without it.
+    # Hard-capped to 512 chars at parse time.
+    reasoning: str = ""
 
 
 # ============================================================================
@@ -543,6 +548,22 @@ class OptimizationCoordinator(BaseCoordinator):
         # Phase 3 — per-zone scoreboard (populated post-cycle).
         self._zone_scores: dict[str, float] = {}
 
+        # v5.4 D2b — per-dimension verdicts derived from the last cycle's
+        # findings. Key = dimension token, value ∈ {ok, advisory, degraded,
+        # critical, not_run}. Populated at the end of every cycle.
+        self._last_dimension_verdicts: dict[str, str] = {}
+        # v5.4 D2a — last-cycle reasoning text + summary so the new
+        # OptimizerReasoningSensor can render plain-English commentary.
+        self._last_cycle_summary: str = ""
+        self._last_cycle_actions_proposed: list[dict] = []
+        # v5.4 D2d — rolling shadow-accuracy validator state. The
+        # `OPTIMIZER_SHADOW_ACCURACY_*` constants gate warm-up.
+        # Stored as a list of (observed_at_utc_iso, match_bool) tuples;
+        # consumers compute the % over the trailing window.
+        self._shadow_accuracy_samples: list[tuple[str, bool]] = []
+        self._last_shadow_accuracy_pct: float | None = None
+        self._last_shadow_accuracy_status: str = "warming_up"
+
         # Cycle handle.
         self._cycle_unsub = None
 
@@ -748,7 +769,17 @@ class OptimizationCoordinator(BaseCoordinator):
             ("prediction_accuracy",
              self._evaluate_prediction_accuracy_dimension),
         )
+        # v5.4 D2b — per-evaluator finding tally so we can derive
+        # `dimension_verdicts` without re-walking findings. Maps
+        # dimension token → list[finding] emitted by THIS evaluator.
+        # Failed evaluators go into `_raised_dims` so the verdict is
+        # `not_run` (distinguishable from `ok`).
+        per_dim_findings: dict[str, list[OptimizationFinding]] = {}
+        raised_dims: set[str] = set()
         for name, fn in evaluators:
+            # Pre-seed the bucket so dimensions that emit nothing get an
+            # explicit `ok` verdict rather than missing from the dict.
+            per_dim_findings.setdefault(name, [])
             try:
                 # v5.3.0 Phase 4 — evaluators may be sync or async (the
                 # Prediction-Accuracy reader awaits a DB-backed predictor
@@ -757,12 +788,15 @@ class OptimizationCoordinator(BaseCoordinator):
                 result = fn()
                 if asyncio.iscoroutine(result):
                     result = await result
-                findings.extend(result or [])
+                emitted = list(result or [])
+                findings.extend(emitted)
+                per_dim_findings[name].extend(emitted)
             except Exception as exc:  # noqa: BLE001 — never let one dim kill the cycle
                 _LOGGER.warning(
                     "Optimizer evaluator '%s' raised; skipping this dim "
                     "(cycle continues): %s", name, exc, exc_info=True,
                 )
+                raised_dims.add(name)
 
         # D5 sentinel — emit one `meta` finding per cycle so silent-failure
         # (no rule ever fires) is distinguishable from "rule ran, no
@@ -864,7 +898,550 @@ class OptimizationCoordinator(BaseCoordinator):
         all_findings = list(findings) + list(llm_findings)
         self._last_findings = all_findings
         self._last_evaluation_iso = dt_util.utcnow().isoformat()
+        # v5.4 D2b — compute per-dimension verdicts from this cycle's
+        # findings. Result keyed by dimension token; value derived from
+        # highest-severity finding produced (no findings → ok; raised
+        # evaluator → not_run).
+        self._last_dimension_verdicts = self._compute_dimension_verdicts(
+            per_dim_findings, raised_dims,
+        )
+        # v5.4 D2a — render the cycle reasoning text + proposed-actions
+        # snapshot for the OptimizerReasoningSensor. Cycle-bounded:
+        # truncated/capped so the recorder doesn't bloat.
+        (
+            self._last_cycle_summary,
+            self._last_cycle_actions_proposed,
+        ) = self._render_cycle_reasoning(all_findings)
+        # v5.4 D2d — run the shadow-accuracy validator: walk findings
+        # whose predicted_effect was set ≥ OBSERVE_DELAY ago and populate
+        # observed_effect. Best-effort: a single match-check raising must
+        # not blackhole the cycle (mirrors A1 evaluator pattern).
+        try:
+            self._run_shadow_accuracy_validator()
+        except Exception:  # noqa: BLE001 — defensive
+            _LOGGER.debug(
+                "Optimizer shadow-accuracy validator raised; ignoring",
+                exc_info=True,
+            )
         return all_findings
+
+    # ------------------------------------------------------------------
+    # v5.4 D2 — observability helpers (verdicts, reasoning, shadow accuracy)
+    # ------------------------------------------------------------------
+
+    # Severity → verdict token mapping (D2b).
+    _SEVERITY_VERDICT_MAP = {
+        "low": "advisory",
+        "medium": "degraded",
+        "high": "critical",
+        "critical": "critical",
+    }
+
+    @property
+    def dry_run_veto_count(self) -> int:
+        """Public read-only view for the OC reasoning sensor (D2a).
+
+        Returns the current count of pending vetoes recorded on the
+        intent broker. The broker ages out stale entries on each
+        await/evict pass, so this is a near-realtime gauge.
+        """
+        try:
+            return len(self.broker._pending_vetoes)
+        except Exception:  # noqa: BLE001
+            return 0
+
+    def _compute_dimension_verdicts(
+        self,
+        per_dim_findings: dict[str, list[OptimizationFinding]],
+        raised_dims: set[str],
+    ) -> dict[str, str]:
+        """Derive `dimension_verdicts` for D2b.
+
+        For each dimension that ran this cycle:
+          - evaluator raised → `not_run`
+          - no findings emitted → `ok`
+          - highest severity ∈ severity-verdict map → `advisory` /
+            `degraded` / `critical`
+
+        Unknown severity is mapped to `advisory` (conservative).
+        """
+        verdicts: dict[str, str] = {}
+        severity_rank = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+        for dim, dim_findings in per_dim_findings.items():
+            if dim in raised_dims:
+                verdicts[dim] = "not_run"
+                continue
+            if not dim_findings:
+                verdicts[dim] = "ok"
+                continue
+            top_sev = None
+            top_rank = -1
+            for f in dim_findings:
+                sev = getattr(f, "severity", None)
+                if not isinstance(sev, str):
+                    continue
+                rank = severity_rank.get(sev.lower(), 0)
+                if rank > top_rank:
+                    top_rank = rank
+                    top_sev = sev.lower()
+            if top_sev is None:
+                verdicts[dim] = "ok"
+                continue
+            verdicts[dim] = self._SEVERITY_VERDICT_MAP.get(
+                top_sev, "advisory",
+            )
+        return verdicts
+
+    def _render_cycle_reasoning(
+        self,
+        all_findings: list[OptimizationFinding],
+    ) -> tuple[str, list[dict]]:
+        """Build the plain-English `cycle_summary` + `cycle_actions_proposed`.
+
+        Returns (summary_text, actions_list). Summary is truncated to
+        1024 chars; actions list capped at 20 entries (matches the
+        existing findings-cap on OptimizerFindingsSensor).
+        """
+        # Skip the META sentinel — it's bookkeeping noise.
+        non_meta = [
+            f for f in all_findings
+            if str(f.dimension) != "meta"
+        ]
+        if not non_meta:
+            return "cycle_ok — no findings", []
+        # Count by severity for the headline.
+        sev_counts: dict[str, int] = {}
+        for f in non_meta:
+            sev = (getattr(f, "severity", "low") or "low").lower()
+            sev_counts[sev] = sev_counts.get(sev, 0) + 1
+        # Per-dimension one-liner: "<dim>: <count> finding(s), highest=<sev>".
+        by_dim: dict[str, list[OptimizationFinding]] = {}
+        for f in non_meta:
+            by_dim.setdefault(str(f.dimension), []).append(f)
+        lines: list[str] = []
+        # Headline.
+        total = len(non_meta)
+        headline_parts = [f"cycle ok — {total} finding(s)"]
+        for sev in ("critical", "high", "medium", "low"):
+            if sev in sev_counts:
+                headline_parts.append(f"{sev_counts[sev]} {sev}")
+        lines.append(", ".join(headline_parts))
+        # B-LOW-1: reuse the same severity_rank map _compute_dimension_verdicts
+        # uses (single source of truth for severity ordering).
+        severity_rank = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+        for dim, dim_findings in sorted(by_dim.items()):
+            severities = [
+                (getattr(f, "severity", "low") or "low").lower()
+                for f in dim_findings
+            ]
+            highest = max(severities, key=lambda s: severity_rank.get(s, 0))
+            lines.append(
+                f"{dim}: {len(dim_findings)} finding(s), highest={highest}",
+            )
+        summary = "\n".join(lines)[:1024]
+        # Cycle-actions snapshot — only entries with a proposed_action.
+        actions: list[dict] = []
+        for f in non_meta:
+            if not f.proposed_action:
+                continue
+            entry = {
+                "dimension": str(f.dimension),
+                "severity": f.severity,
+                "target_id": f.target_id,
+                "target_entity": (
+                    f.proposed_action.get("target_entity")
+                    or f.proposed_action.get("entity_id")
+                ),
+                "action": (
+                    f.proposed_action.get("service")
+                    or f.proposed_action.get("action")
+                ),
+                "outcome": f.applied_outcome,
+                "predicted_effect": f.predicted_effect,
+            }
+            actions.append(entry)
+            if len(actions) >= 20:
+                break
+        return summary, actions
+
+    def _run_shadow_accuracy_validator(self) -> None:
+        """v5.4 D2d — walk `_last_findings` and populate observed_effect.
+
+        Scope: SHADOW-outcome findings only (filter on applied_outcome ==
+        OPTIMIZER_OUTCOME_SHADOW). Targets COMFORT + OCCUPANCY_ACCURACY
+        dimensions for v1 (clean oracles); other dimensions emit
+        observed_effect={"match": None, "evidence": "unscorable"} so
+        the Pillar-4 prediction_accuracy reader does NOT collide with
+        this one (filtered out from the % calc).
+
+        Match policy (v1):
+          - COMFORT: predicted_effect.predicted_direction == "toward_target";
+            observed iff room temperature has moved toward target since the
+            predicted_effect was recorded. Read-only check; tolerant of
+            missing surfaces (→ match=None).
+          - OCCUPANCY_ACCURACY: predicted_effect.predicted_recovery is
+            scored "did the flagged occupancy sensor change state at least
+            once since the prediction was recorded" — also tolerant.
+
+        Population rule: only operate on findings whose timestamp is at
+        least `OPTIMIZER_SHADOW_OBSERVE_DELAY_S` in the past, so the
+        observation window is meaningful. Updates `_shadow_accuracy_samples`
+        and recomputes the rolling pct + status.
+        """
+        from ..const import (
+            OPTIMIZER_OUTCOME_SHADOW,
+            OPTIMIZER_SHADOW_OBSERVE_DELAY_S,
+            OPTIMIZER_SHADOW_ACCURACY_MIN_SAMPLES,
+            OPTIMIZER_SHADOW_ACCURACY_WINDOW_DAYS,
+        )
+        now = dt_util.utcnow()
+        # Normalize to aware UTC: dt_util.utcnow() returns aware in
+        # production but some test harnesses substitute datetime.utcnow
+        # (naive). Coercing here once means EVERY downstream comparison
+        # against parsed `ts` is naive-safe.
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        cutoff = now - timedelta(seconds=OPTIMIZER_SHADOW_OBSERVE_DELAY_S)
+        # v1 scorable dimensions.
+        scorable = {"comfort", "occupancy_accuracy"}
+        # B-MED-1: distinguish "no samples yet" (warming_up) from
+        # "oracle wired but reading nothing" (no_observable_data). The
+        # latter means the oracle was invoked against scorable findings
+        # but every result was inconclusive (match=None) — typically the
+        # phantom-surface failure mode B-HIGH-1 was about. We count
+        # scorable findings actually evaluated and the subset whose
+        # oracle returned match=None.
+        scorable_evaluated = 0
+        scorable_inconclusive = 0
+        for finding in self._last_findings:
+            if finding.applied_outcome != OPTIMIZER_OUTCOME_SHADOW:
+                continue
+            if finding.predicted_effect is None:
+                continue
+            if finding.observed_effect is not None:
+                continue
+            try:
+                ts = datetime.fromisoformat(finding.timestamp)
+                if ts.tzinfo is None:
+                    # Normalize naive → aware UTC so cutoff comparison
+                    # (always aware via dt_util.utcnow()) never mixes
+                    # offset-naive and offset-aware datetimes. Matches
+                    # the rest of the optimizer's timestamp discipline.
+                    ts = ts.replace(tzinfo=timezone.utc)
+            except (ValueError, TypeError):
+                continue
+            if ts > cutoff:
+                # Too recent to score; wait another cycle.
+                continue
+            dim_str = str(finding.dimension)
+            if dim_str not in scorable:
+                # Unscorable in v1 — record explicitly so the rolling %
+                # calc can skip; this also avoids colliding with the
+                # Pillar-4 reader on the same observed_effect slot.
+                finding.observed_effect = {
+                    "match": None,
+                    "evidence": "unscorable",
+                    "observed_at": now.isoformat(),
+                }
+                continue
+            try:
+                match, evidence = self._score_shadow_finding(finding)
+            except Exception:  # noqa: BLE001 — best-effort
+                _LOGGER.debug(
+                    "Shadow-accuracy match check raised on %s",
+                    finding.dedup_key, exc_info=True,
+                )
+                continue
+            finding.observed_effect = {
+                "match": match,
+                "evidence": evidence,
+                "observed_at": now.isoformat(),
+            }
+            scorable_evaluated += 1
+            if match is None:
+                scorable_inconclusive += 1
+            else:
+                self._shadow_accuracy_samples.append(
+                    (now.isoformat(), bool(match)),
+                )
+        # Prune samples older than the window.
+        window_cutoff = now - timedelta(
+            days=OPTIMIZER_SHADOW_ACCURACY_WINDOW_DAYS,
+        )
+        kept: list[tuple[str, bool]] = []
+        for ts_iso, m in self._shadow_accuracy_samples:
+            try:
+                ts = datetime.fromisoformat(ts_iso)
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                if ts >= window_cutoff:
+                    kept.append((ts_iso, m))
+            except (ValueError, TypeError):
+                continue
+        self._shadow_accuracy_samples = kept
+        total = len(self._shadow_accuracy_samples)
+        if total < OPTIMIZER_SHADOW_ACCURACY_MIN_SAMPLES:
+            self._last_shadow_accuracy_pct = None
+            # B-MED-1: surface oracle-wired-but-inert via a distinct
+            # token so a future regression of the B-HIGH-1 "phantom
+            # surface" class is observable (sentinel-only is not
+            # "warming up"). Heuristic: if every scorable finding this
+            # cycle returned inconclusive AND we have at least one such
+            # finding, the oracle is wired but reading nothing.
+            if (
+                scorable_evaluated > 0
+                and scorable_inconclusive == scorable_evaluated
+            ):
+                self._last_shadow_accuracy_status = "no_observable_data"
+            else:
+                self._last_shadow_accuracy_status = "warming_up"
+            return
+        matches = sum(1 for _, m in self._shadow_accuracy_samples if m)
+        self._last_shadow_accuracy_pct = round(100.0 * matches / total, 1)
+        self._last_shadow_accuracy_status = "ready"
+
+    def _score_shadow_finding(
+        self,
+        finding: OptimizationFinding,
+    ) -> tuple[bool | None, str]:
+        """Per-dimension oracle for the shadow validator (D2d v1).
+
+        Returns (match, evidence). `match=None` indicates an inconclusive
+        observation (missing data); the caller still records
+        observed_effect but does NOT count it toward the rolling %.
+        """
+        dim_str = str(finding.dimension)
+        target_id = finding.target_id or ""
+        # COMFORT: scored against room temperature movement toward target.
+        # We have no historical-temp series here without a DB call, so
+        # the v1 oracle is conservative: scored True iff a current
+        # in-room temp sensor reads inside the comfort band, else False.
+        # `match=None` when no sensor surface is readable.
+        if dim_str == "comfort":
+            return self._score_comfort_shadow(finding, target_id)
+        if dim_str == "occupancy_accuracy":
+            return self._score_occupancy_shadow(finding, target_id)
+        return None, "unscorable"
+
+    def _find_room_entry_by_target(self, target_id: str):
+        """Resolve a finding's ``target_id`` back to the room ConfigEntry.
+
+        Findings emitted by the Comfort / Occupancy evaluators set
+        ``target_id = self._room_name(entry)`` (see ``_evaluate_comfort_dimension``
+        / ``_evaluate_occupancy_accuracy_dimension``). Re-using the same
+        ``_iter_room_entries`` + ``_room_name`` pair as the producers keeps
+        the shadow oracle wired to the SAME production surface, not a
+        fabricated room-coordinator dict.
+        """
+        if not target_id:
+            return None
+        try:
+            for entry in self._iter_room_entries():
+                if self._room_name(entry) == target_id:
+                    return entry
+        except Exception:  # noqa: BLE001
+            return None
+        return None
+
+    def _score_comfort_shadow(
+        self,
+        finding: OptimizationFinding,
+        target_id: str,
+    ) -> tuple[bool | None, str]:
+        """v1 COMFORT oracle: did the flagged out-of-band condition resolve?
+
+        Coherent shadow semantics (P2-HIGH-1 fix-up pass 2):
+
+        - The COMFORT producer fires the finding ONLY when the room temp
+          left its PER-ROOM band ``_read_per_room_comfort(entry)`` (default
+          [68,76] from const.py:888-889) and carries that band on the
+          finding as ``payload["bounds"] = [min, max]``
+          (see ``_evaluate_comfort_dimension`` ~:1602).
+        - The oracle re-reads the room temperature later and reports:
+            * ``True``  — temperature is back INSIDE the finding's own band
+              (the flagged condition RESOLVED).
+            * ``False`` — temperature is still OUTSIDE the finding's own
+              band (the flagged condition PERSISTED).
+            * ``None``  — inconclusive: missing/malformed bounds payload,
+              missing/unreadable temp sensor, or no room entry. We do
+              NOT fall back to a wider default band, because the previous
+              hardcoded ``[65, 80]`` band strictly contained the producer
+              band and turned every out-of-band finding into a "match"
+              (degenerate near-always-True oracle).
+
+        Drives the SAME reader the Comfort evaluator uses to emit the
+        finding in the first place — ``_iter_room_entries`` → curated
+        ``CONF_TEMPERATURE_SENSOR`` → ``_state_value``.
+        """
+        try:
+            entry = self._find_room_entry_by_target(target_id)
+            if entry is None:
+                return None, "room_entry_missing"
+            # Pull the producer's own band off the finding payload —
+            # NOT a hardcoded fallback (would degenerate again).
+            bounds = None
+            try:
+                payload = finding.payload or {}
+                if isinstance(payload, dict):
+                    bounds = payload.get("bounds")
+            except Exception:  # noqa: BLE001
+                bounds = None
+            if (
+                not isinstance(bounds, (list, tuple))
+                or len(bounds) != 2
+            ):
+                return None, "no_bounds_in_payload"
+            try:
+                band_min = float(bounds[0])
+                band_max = float(bounds[1])
+            except (TypeError, ValueError):
+                return None, "malformed_bounds_in_payload"
+            if band_max <= band_min:
+                return None, "malformed_bounds_in_payload"
+            merged = {**(entry.data or {}), **(entry.options or {})}
+            temp_eid = merged.get(CONF_TEMPERATURE_SENSOR)
+            if not temp_eid:
+                return None, "no_temperature_sensor_configured"
+            st = self._state_value(temp_eid)
+            if st is None:
+                return None, "no_temperature_reading"
+            try:
+                temp = float(st.state)
+            except (TypeError, ValueError):
+                return None, "no_temperature_reading"
+            in_band = band_min <= temp <= band_max
+            if in_band:
+                return True, (
+                    f"temp={temp}_resolved_within_"
+                    f"[{band_min},{band_max}]"
+                )
+            return False, (
+                f"temp={temp}_persisted_outside_"
+                f"[{band_min},{band_max}]"
+            )
+        except Exception:  # noqa: BLE001
+            return None, "exception"
+
+    def _score_occupancy_shadow(
+        self,
+        finding: OptimizationFinding,
+        target_id: str,
+    ) -> tuple[bool | None, str]:
+        """v1 OCCUPANCY_ACCURACY oracle: did the flagged provenance
+        disagreement resolve?
+
+        Coherent shadow semantics (P2-MED-1 fix-up pass 2):
+
+        - The OCCUPANCY_ACCURACY producer fires when motion/mmwave is ON
+          but ALL curated occupancy sensors report OFF (a provenance
+          disagreement claiming "someone is there but occupancy sensors
+          don't see them"). It carries
+          ``payload = {"occupancy_ids": [...], "signal_ids": [...]}``
+          (see ``_evaluate_occupancy_accuracy_dimension`` ~:1796).
+        - The oracle re-reads the SAME ids later and reports:
+            * ``True``  — at least one occupancy sensor now reports ON
+              (the claim matches reality / disagreement RESOLVED), OR
+              the motion/mmwave signal has cleared (the trigger that
+              raised the disagreement no longer holds).
+            * ``False`` — motion/mmwave still ON AND every occupancy
+              sensor still OFF (the same disagreement PERSISTED).
+            * ``None``  — inconclusive: no payload ids, no room entry,
+              or all sensors unavailable. The previous implementation
+              returned True on ANY live read, which measured "sensors
+              alive," not "claim resolved" — making False unreachable.
+
+        Drives the SAME reader the occupancy-accuracy evaluator uses
+        (``CONF_OCCUPANCY_SENSORS`` / ``CONF_MOTION_SENSORS`` /
+        ``CONF_MMWAVE_SENSORS`` via ``_iter_room_entries`` +
+        ``_state_value``).
+        """
+        try:
+            # Prefer the ids the producer captured on the finding —
+            # this scores the SAME claim that was raised, not whatever
+            # the room is configured with now.
+            payload = finding.payload if isinstance(
+                finding.payload, dict
+            ) else {}
+            occ_ids: list[str] = []
+            sig_ids: list[str] = []
+            p_occ = payload.get("occupancy_ids")
+            p_sig = payload.get("signal_ids")
+            if isinstance(p_occ, list):
+                occ_ids = [v for v in p_occ if isinstance(v, str)]
+            if isinstance(p_sig, list):
+                sig_ids = [v for v in p_sig if isinstance(v, str)]
+            # Fall back to current room config when payload was thin
+            # (older findings without the producer ids). Still drives
+            # the production reader path.
+            if not occ_ids or not sig_ids:
+                entry = self._find_room_entry_by_target(target_id)
+                if entry is None:
+                    return None, "room_entry_missing"
+                merged = {**(entry.data or {}), **(entry.options or {})}
+                if not occ_ids:
+                    val_occ = merged.get(CONF_OCCUPANCY_SENSORS)
+                    if isinstance(val_occ, list):
+                        occ_ids = [
+                            v for v in val_occ if isinstance(v, str)
+                        ]
+                    elif isinstance(val_occ, str) and val_occ:
+                        occ_ids = [val_occ]
+                if not sig_ids:
+                    for key in (CONF_MOTION_SENSORS, CONF_MMWAVE_SENSORS):
+                        val = merged.get(key)
+                        if isinstance(val, list):
+                            sig_ids.extend(
+                                [v for v in val if isinstance(v, str)]
+                            )
+                        elif isinstance(val, str) and val:
+                            sig_ids.append(val)
+            if not occ_ids:
+                return None, "no_occupancy_sensors_configured"
+
+            # Did occupancy now agree (any ON) → disagreement resolved.
+            occ_any_on = False
+            occ_any_reading = False
+            for eid in occ_ids:
+                st = self._state_value(eid)
+                if st is None:
+                    continue
+                state_str = str(st.state).lower()
+                if state_str in ("unavailable", "unknown", ""):
+                    continue
+                occ_any_reading = True
+                if state_str in ("on", "true", "occupied"):
+                    occ_any_on = True
+                    break
+            if not occ_any_reading:
+                return None, "occupancy_unavailable"
+            if occ_any_on:
+                return True, "occupancy_now_on_disagreement_resolved"
+
+            # Occupancy still all off — check whether the motion/mmwave
+            # trigger that raised the finding is still firing.
+            sig_any_on = False
+            sig_any_reading = False
+            for eid in sig_ids:
+                st = self._state_value(eid)
+                if st is None:
+                    continue
+                state_str = str(st.state).lower()
+                if state_str in ("unavailable", "unknown", ""):
+                    continue
+                sig_any_reading = True
+                if state_str in ("on", "true", "occupied"):
+                    sig_any_on = True
+                    break
+            if not sig_any_reading:
+                # Motion/mmwave gone → the trigger condition no longer
+                # holds; treat as resolved (the disagreement is moot).
+                return True, "signal_cleared_disagreement_moot"
+            if not sig_any_on:
+                return True, "signal_now_off_disagreement_moot"
+            # Motion still on, occ still all off — disagreement persisted.
+            return False, "motion_on_occupancy_off_persisted"
+        except Exception:  # noqa: BLE001
+            return None, "exception"
 
     async def _maybe_run_llm_tier(
         self, tier1_findings: list[OptimizationFinding],

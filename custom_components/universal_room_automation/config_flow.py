@@ -3954,6 +3954,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_HVAC_SOLAR_BANK_SOC_MIN,
             CONF_HVAC_SOLAR_BANK_ENABLED,
             DEFAULT_HVAC_SOLAR_BANK_ENABLED,
+            CONF_HVAC_PRE_CONDITIONING_ENABLED,
+            DEFAULT_HVAC_PRE_CONDITIONING_ENABLED,
             CONF_HVAC_PRECOOL_FORECAST_HIGH,
             DEFAULT_HVAC_PRECOOL_FORECAST_HIGH,
             CONF_HVAC_PREHEAT_FORECAST_LOW,
@@ -4219,6 +4221,17 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_HVAC_SOLAR_BANK_ENABLED,
                 default=self._get_current(
                     CONF_HVAC_SOLAR_BANK_ENABLED, DEFAULT_HVAC_SOLAR_BANK_ENABLED,
+                ),
+            ): selector.BooleanSelector(),
+            # HC Pre-Conditioning master enable (D1, parent gate for all
+            # pre-conditioning branches). Default ON. Runtime toggle is
+            # the HVACPreConditioningSwitch on the HC device card; this
+            # field only seeds the initial state at install.
+            vol.Optional(
+                CONF_HVAC_PRE_CONDITIONING_ENABLED,
+                default=self._get_current(
+                    CONF_HVAC_PRE_CONDITIONING_ENABLED,
+                    DEFAULT_HVAC_PRE_CONDITIONING_ENABLED,
                 ),
             ): selector.BooleanSelector(),
             # v4.5.10: Pre-cool / pre-heat forecast triggers.

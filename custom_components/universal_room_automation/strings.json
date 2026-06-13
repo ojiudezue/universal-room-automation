@@ -986,6 +986,7 @@
           "hvac_cover_solar_end_hour": "Solar Cover End Hour",
           "hvac_solar_bank_soc_min": "Solar Banking Battery Threshold",
           "hvac_solar_bank_enabled": "Solar HVAC Banking",
+          "hvac_pre_conditioning_enabled": "HVAC Pre-Conditioning",
           "hvac_precool_forecast_high": "Pre-Cool Trigger Temp",
           "hvac_preheat_forecast_low": "Pre-Heat Trigger Temp"
         },
@@ -1016,6 +1017,7 @@
           "hvac_cover_solar_end_hour": "Hour HVAC stops solar-gain cover management and reopens any HVAC-closed covers. Pair with sunset in your area. Default: 18 (6 PM).",
           "hvac_solar_bank_soc_min": "Battery state-of-charge above which surplus solar is dumped into thermal banking instead of grid export. Lower = more aggressive banking; higher = more battery headroom for evening. Default: 95%.",
           "hvac_solar_bank_enabled": "Initial state for Solar HVAC Banking. When ON (default), HVAC pre-cools all zones during 10am–2pm whenever the battery is full and surplus solar would otherwise export to grid. Turn OFF if banking is over-cooling the house on good-solar days. NOTE: this field only seeds the initial state after install. At runtime the 'Solar HVAC Banking' switch on the Energy Coordinator device card is authoritative (its last-toggled value persists across restarts via RestoreEntity and OVERRIDES this field).",
+          "hvac_pre_conditioning_enabled": "Initial state for the HVAC Pre-Conditioning master gate. When ON (default), HVAC may run weather pre-cool, solar banking, pre-arrival, and pre-heat. When OFF, ALL pre-conditioning branches short-circuit and any in-flight pre-conditioned zones release to their baseline range within one cycle. NOTE 1: this field only seeds the initial state after install. At runtime the 'HVAC Pre-Conditioning' switch on the HVAC Coordinator device card is authoritative (its last-toggled value persists across restarts and OVERRIDES this field). NOTE 2: this switch suppresses PREDICTIVE pre-conditioning only. The Energy Coordinator's REACTIVE TOU pre_cool / pre_heat constraint (driven by the live rate schedule) is a separate mechanism and is NOT suppressed by this switch.",
           "hvac_precool_forecast_high": "When tomorrow's forecast high exceeds this, HVAC pre-cools occupied zones before peak hours. Lower = more pre-cooling; higher = pre-cool only on extreme days. Default: 90°F.",
           "hvac_preheat_forecast_low": "When outdoor temp drops below this in winter, HVAC pre-heats occupied zones before off-peak ends. Higher = more pre-heating; lower = pre-heat only on coldest days. Default: 35°F."
         },
