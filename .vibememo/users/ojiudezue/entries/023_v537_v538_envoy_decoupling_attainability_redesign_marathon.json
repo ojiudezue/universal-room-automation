@@ -1,0 +1,55 @@
+{
+  "format_version": "2.1",
+  "entry_id": "023",
+  "author": "ojiudezue",
+  "session_id": "claude_20260612_envoy_incident_boot_decoupling_attainability_marathon",
+  "timestamp": "2026-06-13T15:30:00Z",
+  "type": "milestone",
+  "weight": "load-bearing",
+  "title": "A flaky Envoy triggered v5.3.7 (boot-decoupling) then a live manual-arbitrage exercise exposed a strategy gap that became v5.3.8 — the heaviest review cycle the repo has run (1 build + 4 fix-ups + 7 reviews) after builders twice implemented HOLD as an emission instead of a state",
+  "summary": "Started as v5.3.6 post-deploy validation; a dead Enphase Envoy (LAN gateway) broke the boot — all 40 URA entries stranded not_loaded. Root cause was NOT the release (v5.3.6 exonerated by diff): manifest after_dependencies:[enphase_envoy] let HA's stage-2 timeout cancel URA's queued setups when enphase_envoy hung, and on a clean reboot a one-shot Envoy validation (v4.2.29) lost a ~17s race (Envoy first-refresh 15.7s vs normal 0.7s) so the EnergyCoordinator silently never registered for the whole boot. The broken boots also exposed RestoreEntity unavailable-coercion (last_state 'unavailable' restored as OFF, silently disabling all 6 intended-ON EC switches). All three fixed in v5.3.7 (Bug Class #52 added): registry-based three-way validation (config-error vs boot-race vs live), EC always registers when enabled (runtime already None-safe), deferred re-validation at EVENT_HOMEASSISTANT_STARTED, after_dependencies removed, restore-poisoning guards. v5.3.7 was exercised in anger on its very first boot (Envoy raced a 3rd time; EC registered degraded and recovered). Then: a good-solar day where EVs (v4.7.28 off-peak ensure-on) consumed ALL production drove the battery to 10% entering peak while the forecast-class-only arbitrage gate never consulted the buffer. A live manual-arbitrage exercise (operator + assistant) covered today's peak (10%->45%) and measured Enphase actuation constants, then became v5.3.8: a new 'attain' arbitrage phase that fires on realized solar-divergence regardless of forecast class. v5.3.8 took 1 build + 4 fix-ups + 2 full framing-disjoint Tier-2-DB review passes + a focused pass-3 (7 reviewers total) because builders twice shipped HOLD as a one-tick emission that the drain fallback immediately unwound, and twice shipped reboot-recovery gated on a RAM latch that boots False. Both LIVE; v5.3.8 attain's specific entry scenario remains live-unexercised (the 6-13 morning fired regular arbitrage via the d2=poor multi-day branch instead).",
+  "decisions": [
+    "EC decoupled from the Envoy at boot: validation is registry-based and three-way; EC ALWAYS registers when energy is enabled (only V0/V1 config errors skip it) because the runtime is already None-safe (energy_battery.py holds on Envoy blips). The boot gate was the only hard coupling; it is gone.",
+    "after_dependencies:[enphase_envoy] removed from manifest — it was a pure timing hint (no code imports enphase_envoy) and was the vector that stranded all 40 entries when the integration hung.",
+    "Attainability is a SEPARATE branch from arbitrage, not a widening of the forecast gate. Operator-ratified principle: 'no solar REACHING the battery -> need for arbitrage' (generalizes the original 'no solar production'). Arbitrage CHARGE (planned, forecast-gated) keeps precedence; attain is the catch-up path when the gate is closed but realized solar underperforms. Entry projection is solar-informed (time-sliced Solcast) so good-delivering mornings don't fire.",
+    "D1b: state-matrix invariant 'battery never grid-charges outside off_peak' was NARROWED (not deleted) — charging permitted in summer mid_peak iff below target AND live tou-engine mid_peak rate < peak rate AND peak ahead. Operator: 'arbitrage IS arbitrage... if we can't cover mid_peak we absolutely need to cover peak.' Charging during peak remains structurally impossible.",
+    "Load shedding PULLED from the build queue: correctness-only fixes (the _paused_by_us EVSE collision + orphan restore + manual-off clobber) stay at existing scope as a normal cycle; capability expansion (progressive pool sub-tiers, forecast-coupled proactive shed) is a separate foundations-first/IP track requiring a vision doc, not an incremental cycle.",
+    "Attain observability added pre-deploy at operator request as 3 attrs on the existing battery-strategy sensor (attain_state, attain_projected_soc_at_boundary, attain_solar_term_pct) — NOT a new entity (parsimony); no new control (the existing Grid Arbitrage switch already gates attain via _arbitrage_enabled)."
+  ],
+  "alternatives_considered": [
+    "Widening arbitrage's _gate_is_open to fire on good days — rejected; it would buy grid on days solar fills the battery free and conflate two different intents. Separate attain branch instead.",
+    "Sunrise time-gate for the solar term — rejected in favor of a time-sliced Solcast surplus projection (more faithful to 'will solar actually deliver to the battery before the boundary').",
+    "A dedicated attain on/off toggle and a peak_buffer_target slider promotion — rejected as knob sprawl; the Grid Arbitrage switch + existing CONF cover it.",
+    "Keeping the manual charge-from-grid override running with EC enabled — impossible: EC reverts the flip within one decision tick; and toggling switch.ura_energy_coordinator_enabled to suppress EC caused a watchdog restart. The fix HAD to live inside EC's decision loop.",
+    "Accepting the builder's 'HOLD as one-tick emission' twice — rejected by independent convergent review; the third brief prescribed the MECHANISM (tri-state routed before predicate AND drain fallback) rather than the behavior."
+  ],
+  "implications": [
+    "Measured Enphase actuation constants are now design inputs: reserve-bump solar-charge onset ~22min, charge_from_grid cloud enable ~35min (app shows 'enabling...'), full rate ~16kW (8 Encharges). Any battery actuation feature must assume 20-40min command-to-flow lag — which is WHY attain fires on the first qualifying tick and hands off at peak-15min, and why the M5 drift policy treats 'not yet ON' as lag (wait) vs observed ON->OFF as revert (yield).",
+    "New durable hazards in memory: (a) toggling the EC-enabled switch = watchdog restart (extends the parent-entry-reload hazard — never use as an override escape hatch); (b) manual Enphase flips get reverted by EC every cycle (decisions must be in-loop). ",
+    "Reviewer mechanism-specificity lesson: when two builders fail the same requirement, the next brief must prescribe the data structure and routing order, not restate desired behavior. 'HOLD is a STATE routed before the fallback' + 'reboot recovery derives from HARDWARE state not a RAM latch' finally landed it.",
+    "Test-authority erosion recurred hard: fix-up reviews proved deleting the entire solar term passed 26/26 tests and setting HOLD reserve=0 passed all tests — the suite had zero authority over the headline mechanisms until mutation-anchored tests were demanded. A mutation that passes is a mirror/vacuous test. This is now a standing review gate (7 mandatory mutations on the final fix-up).",
+    "Live-morning insight worth keeping: arbitrage's multi-day-horizon branch (d2 in poor/very_poor) opens the gate on an otherwise-excellent today, so attain correctly stays dormant. Attain's clean entry scenario (gate closed + solar fails) needs a day where neither today nor d2 is poor — so Review D for attain entry is still pending real conditions; the deploy is otherwise healthy and validated.",
+    "v5.3.7's boot-decoupling proved itself the same night under the exact fault it was built for — the strongest possible acceptance signal."
+  ],
+  "follow_up": [
+    "Review D for v5.3.8 attain ENTRY still owed: watch for a gate-closed + solar-underperforms day; or operator accepts in-suite mutation-anchored proof as sufficient. README_v5.3.8 write-back mandatory before closing task #13.",
+    "Queue (operator-set): #10 HC pre-cool/pre-heat toggle + OC observability (planned) -> #15 load-shedding correctness at existing scope.",
+    "Load-shedding foundations/IP cycle when operator raises it (separate vision doc; pool sub-tiers + forecast coupling captured).",
+    "Carried operator hands-on: banking OFF-mid-bank flip (good-solar day), escalation buttons + Cancel, options-flow label rendering, SPAN worksheet, Garage B Protect battery + Jaya devices. Grid Import Cap left OFF per operator ('curtails battery fill') — revisit.",
+    "Catch up the Gitea mirror push (origin pushed; gitea is mirror-only, failed on pre-existing tags)."
+  ],
+  "refs": {
+    "entries": ["022", "021", "017"],
+    "files": [
+      "docs/reviews/code-review/ec_envoy_boot_decoupling.md",
+      "docs/reviews/code-review/ec_hc_reboot_decision_pickup.md",
+      "docs/planning/PLANNING_ec_envoy_boot_decoupling.md",
+      "docs/planning/PLANNING_ec_hc_reboot_decision_pickup.md",
+      "docs/readmes/README_v5.3.7.md",
+      "docs/readmes/README_v5.3.8.md",
+      "custom_components/universal_room_automation/domain_coordinators/energy_battery.py",
+      "custom_components/universal_room_automation/domain_coordinators/energy_const.py"
+    ]
+  },
+  "ship_target": "v5.3.7 + v5.3.8 (both LIVE; v5.3.7 Review-D validated incl. in-anger boot test; v5.3.8 deploy validated, attain-entry scenario live-unexercised)"
+}

@@ -26,13 +26,19 @@ Tier 2-DB at maximum ceremony: build + 2 full framing-disjoint review passes (6 
 ## Measured constants (2026-06-12 manual arbitrage, baked into design)
 Reserve-bump solar-charge onset ~22 min; charge_from_grid cloud enable ~35 min; full rate ~16 kW (8 Encharges). Manual SOC result that day: 10%→45%.
 
-## Live Validation (Review D) — prospective criteria
-- [ ] Clean restart; zero new URA ERRORs; 40/40 entries; EC producing within 5 min.
-- [ ] `arbitrage_phase` exposes `attain`/HOLD reasons in plain English on the battery-strategy sensor.
-- [ ] **Tomorrow's charge window (~08:00)**: if SOC < 80% and solar-informed projection misses → attain enters (phase=`attain`, reason names the cause); charge_from_grid commanded ONCE; no oscillation (no repeated cloud writes within the chunk).
-- [ ] SOC reaches target → HOLD: reserve stays pinned through 13:45–14:00 (no drain release inside the lead window).
-- [ ] If buffer still short at 14:00 with positive rate spread → mid_peak continuation engages targeting peak; turn-off lands by peak−15 min.
-- [ ] No load-shedding escalation attributable to battery charge draw.
-- [ ] Good-solar-and-actually-delivering morning: attain does NOT enter (solar term nonzero — verifies the as_local fix live).
+## Live Validation — Validated 2026-06-12/13
 
-*Replaced with observed results post-restart per the README write-back rule.*
+Deployed 2026-06-12 19:46 CDT (restart landed post-peak). Validated against the restarted instance:
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Clean restart, zero URA ERRORs, 40/40 entries, EC producing | PASS | 40/40 loaded post-restart; battery-strategy sensor producing within one cycle; zero URA ERROR lines (only non-URA proxy/frontend noise) across the boot + overnight window |
+| `attain` attrs render on battery-strategy sensor | PASS | `attain_state`, `attain_projected_soc_at_boundary`, `attain_solar_term_pct` present; 19:56 CDT showed `attain_state: inactive` (peak discharge from the 43% manual buffer — correct) |
+| Hardware-derived reboot recovery (cfg OFF → clean defer) | PASS | charge_from_grid was OFF at boot → no spurious commands; no restore-poisoning recurrence |
+| Attain ENTRY (the defining scenario) | **NOT YET EXERCISED** | 2026-06-13 ~08:00 window: today `target_day=excellent` but `d2_class=poor` → the *regular* arbitrage gate opened via the multi-day-horizon branch, so arbitrage CHARGE pre-filled to 80% and attain correctly stayed `inactive` (arbitrage takes precedence when gate open). Attain's scenario (gate CLOSED + solar underperforms) needs a day where neither today nor d2 is poor/very_poor — pending real conditions. The mechanism is mutation-anchored in-suite (7 mutations; deleting the solar term or zeroing HOLD reserve fails named tests). |
+| HOLD reserve pin / mid_peak continuation / load-shed exclusion | IN-SUITE | Could not be live-exercised this window (attain never entered); covered by mutation-anchored tests. |
+| Good-delivering morning: attain does NOT enter (as_local fix) | PARTIAL | Attain stayed inactive on an excellent-solar morning as expected — but via the arbitrage-gate-precedence path, not the solar-term path, so the as_local fix specifically remains in-suite-only. |
+
+**Note for next session:** the 2026-06-13 morning surfaced a related finding (task #16) — on an excellent-solar day arbitrage intervened (and paused EVs) even though solar would fill the battery free; the inverse of attain. Tracked separately.
+
+*This README is the durable validation ledger per the write-back rule; attain-entry remains pending real conditions — re-validate when a gate-closed-and-solar-underperforms day occurs.*
