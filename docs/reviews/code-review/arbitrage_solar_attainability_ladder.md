@@ -719,4 +719,66 @@ the test gap that let P2-CRITICAL-1 ship.
   inside the `if not self._observation_mode:` tick block. Helper itself is
   invoked from the tick at `energy.py:~2472`.
 
+## Pass-3 Review (final confirm)
+
+**Reviewer:** ura-reviewer (pass-3, focused confirm). **Diff:** `a3721da..c5606de`. **Verdict: SHIP.**
+Fix-up-2 restores the deleted TOU dispatch and adds the Envoy-blip LKG latch + a real
+coordinator-tick integration test. Both Pass-2 findings (P2-CRITICAL-1, P2-HIGH-1) are
+genuinely fixed; no new ordering/safety regression introduced. Verified against live code,
+not the ledger narrative.
+
+### 1. Dispatch ORDER end-to-end — CONFIRMED SAFE
+Tick path (`energy.py:2469-2491`): `_execute_breaker_safe_dispatch` runs FIRST → inside it
+(`:2898-2911`) breaker EV-pause `turn_off` actions are awaited to completion in the loop
+BEFORE the `decision["actions"]` loop (grid `switch.turn_on`). It then returns
+`grid_charge_intent`, which is passed into `_dispatch_post_decision_tou_and_arbitrage`
+(`:2487`). The post-decision helper (`:2967-2974`) threads `grid_charge_on=grid_charge_intent`
+into `self._ev.determine_actions`. The restored TOU dispatch runs AFTER the grid command,
+never between (a) and (b). The ensure-on suppression at `energy_pool.py:562` `continue`s
+BEFORE the `switch.turn_on` at `:593`, so on a grid-charge tick the EV TOU path physically
+cannot emit a turn_on — and turns OFF an already-ON EV. No path resumes a breaker EV while
+grid charges. **Pass.**
+
+### 2. grid_charge_intent at the (c) call — CONFIRMED (decision-flag OR live-switch)
+Same `grid_charge_intent` computed once in the chokepoint (`energy.py:2876`:
+`decision_grid_charge or live_grid_charge_on`) is returned and threaded verbatim into
+(c) — not recomputed/stale. The 35-min actuation-lag case is covered: `decision_grid_charge`
+reads `decision["charge_from_grid"]` (the DECISION flag, set by `_result()`), so a CHARGE
+commanded THIS tick yields `grid_charge_intent=True` even before the switch flips. Both legs
+feed it (decision flag OR live-switch incl. LKG-latched value). **Pass.**
+
+### 3. LKG latch — CONFIRMED FAIL-SAFE-DIRECTION
+`_last_known_grid_charge_on` (`energy.py:271`) updates True only on clean `"on"`, False only
+on clean `"off"`; `unavailable`/`unknown`/None/registry-exception with LKG=True → forces
+`live_grid_charge_on=True` (fail closed). The stuck-True case the prompt names IS real: if
+grid genuinely turns off during a PERMANENT switch-unavailable window, LKG never sees the
+clean `"off"` and stays True forever → EVs held off indefinitely. Confirmed this is the
+fail-SAFE direction (lost EV charging, zero breaker risk) and recovers automatically on the
+first clean `"off"`/`"on"` read once the entity returns. Acceptable as designed (matches the
+operator brief "fail-CLOSED is the minimum bar"). **Pass — noted non-recovery only under
+permanent unavailability.**
+
+### 4. Tick integration test authority — CONFIRMED REAL
+`TestCoordinatorTickDispatch` builds a bare `EnergyCoordinator` via `object.__new__` and
+drives the REAL bound `_execute_breaker_safe_dispatch` + `_dispatch_post_decision_tou_and_arbitrage`
+in `_update_energy` order — not a reimplementation. The spy wraps but CALLS the real
+`EVChargerController.determine_actions`. Test (c) asserts captured `dispatched` index order
+(grid turn_on present, no EV `garage_a` turn_on after it) + real arbitrage-set ownership —
+ordering, not labels. **Re-ran the mutation** (deleted the restored `_ev.determine_actions`
+call): tests (a) `test_tick_invokes_ev_tou_determine_actions` AND (d)
+`test_tick_threads_grid_charge_on_into_ev_determine_actions` both FAIL
+(`ev.determine_actions never invoked`). Restored, clean. **Pass.**
+
+### 5. Suite + conflict markers — CLEAN
+Cycle suite 40/40 pass. Full suite **34 failed / 14 errors / 5785 passed** — failure-ID set
+identical to `develop` baseline (34F/14E); zero new failures. No conflict markers in
+energy.py / energy_pool.py / the test file. energy.py git-clean after mutation restore.
+
+### New findings: NONE.
+P3-NOTE (informational, not a finding): LKG cannot self-recover under a *permanent*
+switch-unavailable; safe direction (EVs stay off). Worth a one-line README live-validation
+note, no code change.
+
+### Pass-3 tally: 0 CRITICAL, 0 HIGH, 0 MEDIUM, 0 LOW. **SHIP.**
+
 ## README write-back (post-deploy, post-live-validation) — TODO
