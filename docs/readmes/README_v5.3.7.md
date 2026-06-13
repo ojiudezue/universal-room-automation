@@ -16,14 +16,17 @@ Incident-driven resilience cycle (2026-06-12 night: flaky Envoy broke URA boot t
 - Fourth pass: FIX-FIRST (warm-reload race, counter leak, mirror tests) → fix-up 2 with mutation-check-proven test authority (6 tests fail under inverted guards).
 - Suite: failure-ID set byte-identical to pre-cycle develop baseline across all three commits; +23 cycle tests.
 
-## Live Validation (Review D) — prospective criteria
-- [ ] Clean restart; zero new URA ERRORs; all 40 entries loaded.
-- [ ] EC registered and producing: `sensor.ura_energy_coordinator_tou_period` non-unknown within ~5 min of boot.
-- [ ] All EC sub-switches AVAILABLE and matching CM options after restart (the 2026-06-12 poisoned states must NOT recur — esp. all 7 intended-ON switches ON).
-- [ ] `sensor.ura_energy_coordinator_sub_switches_synced` healthy (not PROBLEM) post-restart — proves C1/C7/D2 accounting symmetry.
-- [ ] No `energy_envoy_invalid` repair issue with the Envoy healthy.
-- [ ] `envoy_degraded: false` attr visible on `sensor.ura_energy_envoy_status`.
-- [ ] Manifest decouple: boot order shows no after_dependencies wait on enphase_envoy (loader behavior; proven structurally by manifest diff).
-- [ ] Hard-to-prove-live (covered in-suite): registry-absent hard-fail path, deferred re-validation issue lifecycle, restore-skip behavioral guards (mutation-checked).
+## Live Validation — Validated 2026-06-12 (boot 15:58Z)
 
-*Replaced with observed results post-restart per the README write-back rule.*
+**The cycle proved itself on its very first boot.** The Envoy entity was AGAIN unavailable at validation time (third boot in a row — enphase_envoy's slow first refresh), and the new path handled it exactly as designed: EC registered anyway, ran degraded, recovered on the next cycle.
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Clean restart, all entries, zero URA ERRORs | PASS | 40/40 entries `loaded`; no URA ERROR lines in boot window |
+| EC registered + producing despite Envoy race | **PASS — exercised in anger** | Log 10:58:37 CDT: "Envoy deferred re-validation (event_homeassistant_started): still degraded (reason=state_unavailable) — runtime continues, no repair issue." Pre-v5.3.7 this exact condition dropped EC for the whole boot. `tou_period` = `off_peak` at 15:58:46Z, <1 min after boot |
+| EC sub-switches match CM options post-restart | PASS | All 10 correct on first boot: 7 intended-ON all ON (incl. solar_hvac_banking, ev_tou_management, grid_arbitrage), 3 intended-OFF all OFF. No restore poisoning recurrence |
+| No spurious `energy_envoy_invalid` repair issue | PASS | Deferred re-validation logged "no repair issue" with the Envoy in boot-race degrade; none raised after recovery |
+| `envoy_degraded` attrs (D7) | PASS — full lifecycle observed | `true` + `since=10:58:15` during the boot race; cleared to `false`/`null` with `offline_count_today: 0` on the next decision cycle after the Envoy entity recovered (16:01Z, 3.176 kW) |
+| Manifest decouple (D4) | PASS (structural) | `after_dependencies` absent from installed manifest; URA booted without waiting on enphase_envoy |
+| sub_switches_synced healthy | NOT INDIVIDUALLY READ | Implied healthy by all 10 switches available+correct; accounting symmetry mutation-tested in-suite |
+| Registry-absent hard-fail, issue lifecycle, restore-skip guards | IN-SUITE | 23 cycle tests incl. mutation-check-proven guards (production logic inverted → 6 tests fail) |
