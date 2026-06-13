@@ -472,6 +472,24 @@ Original 5 build mutations (M1-M5) re-run green against the post-fix-up tree —
 
 None material. Reviewer B's CRITs were both validated by code-grep (`_execute_shed_action` not called in off-peak short-circuit; `_pool._state` not set in restore) and the fixes reflect the proposed semantics directly. Reviewer C's C-HIGH-1 ("manual-OFF is a no-op; live-state authority dead infra") was confirmed — the chosen remediation is option (a) the reviewer offered (wire-or-honestly-downgrade), via the operator-directed `was_on_at_shed` semantic ("release ON only devices we shed from ON"). Reviewer A's owner × resume-path matrix used as the verification map; all six EV resume paths now contain the `_paused_by_load_shed` defer-check.
 
+## Pass-2 Review (focused confirm)
+
+**Scope: ONLY the fix-up diff `dd49fbb..9ec0ad1`. Verdict: SHIP.** All 2 CRIT + 5 HIGH + MEDs are correctly fixed; the fix-up did NOT introduce a new B-CRIT-1-style hole. One new LOW (fail-safe edge), one cosmetic NIT.
+
+**Hunt 1 — `_release_all_active_tiers` (energy.py:3809).** Correct. Reads `level` once, iterates `range(level-1,-1,-1)` → tiers level-1..0; escalate uses `PRIORITY[level-1]` so level N ≡ tiers 0..N-1 — index symmetry verified. Delegates to `_execute_shed_action(activate=False)`, which honors `was_on_at_shed`, other-owner defer, and pool live-speed by construction (no bypass). `_execute_shed_action` reads but never mutates `_load_shedding_active_level` (3820); caller zeroes after — no double-release, no skipped tier. Grace-cycle guard lives only in the per-tick de-escalate path, NOT bulk-release — correct (hard period flip shouldn't wait grace). No new orphan: every tier's release pops its `was_on_at_shed` entries and clears the owner set. Per-tier `except` continues remaining tiers.
+
+**Hunt 2 — `was_on_at_shed` lifecycle.** Set True on shed-from-ON (3944), False on proactive/off claim (3953), refreshed True on B-HIGH-2 re-claim (3925), `.pop(...,False)` on release (3967) — no leak (popped every release), no stale-read (read once post-pop). Bundle round-trip (1460-1469 restore / 1531-1536 save) symmetric. **Partial/legacy bundle (set present, was_on map absent): `.pop(id,False)`→False→device left OFF on release.** Fail-safe (never clobbers operator) but a legacy-window watchdog restart of a device shed-from-ON strands it off until manual re-enable → **NEW P2-LOW-1** (energy.py:1460/3967). Bites only the one-cycle dual-write back-out window the build created; defer.
+
+**Hunt 3 — B-CRIT-2 pool.** `_state=POOL_STATE_REDUCED` set with `_original_speed` on restore (1444-1445), inside the same try that nulls speed on bad cast — consistent. TOU `PoolOptimizer` gate (`_state!=NORMAL`) now unblocks; release path resets `_state→NORMAL`. No double-restore, no stuck-REDUCED.
+
+**Hunt 4 — B-HIGH-2 re-shed.** EV (3916) + plug (4022) re-issue `turn_off` only when in-set AND live ON, refreshing `was_on_at_shed=True`. Manual-OFF case is untouched (live OFF → blind-skip retained), so operator-OFF is NOT corrupted to True. Walked toggle sequences: claim-from-ON→manual-ON→re-shed restores True (correct); proactive-OFF→stays False unless operator turns ON and cascade re-sheds (then True, correct).
+
+**Hunt 5 — periodic persist + throttle.** `_save_load_shedding_level` added to `_periodic_db_writes` (4471). Throttle via `_last_load_shed_bundle_str` with `json.dumps(..., sort_keys=True)` → dict-ordering stable, no false-skip on key reorder. `_last_...` updated only after successful write (1543); serialize-failure returns before write (no stale cache). No write-flood, no missed real change. **NIT:** unchanged-bundle path skips the legacy dual-write key too — harmless (legacy key only read as fallback, and bundle already persisted).
+
+**Hunt 6 — tests.** New file 27/27. Mutations re-run: off-peak-skip-release, throttle-always-skip, EV was_on gate, B-HIGH-2 blind-skip — each kills the named test(s); originals stay green. Both orderings (sibling±new) 67/67. Full suite 5842P/34F/14E/29S; **failure-ID set diff vs develop = IDENTICAL** (verified via worktree, not just counts).
+
+**New findings:** P2-LOW-1 (legacy-bundle fail-safe strand, defer) + 1 NIT. No CRIT/HIGH introduced. **SHIP.**
+
 ## Live Validation (Review D)
 
 _To be filled post-restart._
