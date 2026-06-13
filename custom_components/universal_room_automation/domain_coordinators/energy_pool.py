@@ -203,6 +203,14 @@ class EVChargerController:
         # stress scenario. This pattern (`_paused_by_<reason>` set with
         # precedence rules) is what v4.7.x B5 will extend to appliances.
         self._paused_by_arbitrage: set[str] = set()
+        # arbitrage_solar_attainability_ladder D2: rung-label side-map.
+        # Keyed by evse_id, values ∈ {"redirect", "breaker"}. Single source
+        # of truth for pause membership remains `_paused_by_arbitrage`; this
+        # map is *resume-policy metadata*. "redirect" = rung-1 (solar-redirect
+        # pause, no grid charge commanded, fast resume when rung-0 recovers).
+        # "breaker" = rung-2 (grid charge commanded, mandatory pause for
+        # compound-load protection, sticky until phase exits CHARGE).
+        self._arbitrage_pause_reason: dict[str, str] = {}
         self._battery_drain_cooldown: dict[str, float] = {}  # evse_id → monotonic expiry
         # v4.2.19: Track power sensor unavailability for alerting
         self._power_sensor_unavail_count: dict[str, int] = {}  # evse_id → consecutive misses
@@ -405,6 +413,7 @@ class EVChargerController:
             self._dispatch_owners,
             self._power_sensor_unavail_count,
             self._power_sensor_unavail_since,
+            self._arbitrage_pause_reason,
         ):
             for evse_id in list(tracking_dict.keys()):
                 if evse_id not in known:
@@ -420,7 +429,11 @@ class EVChargerController:
     # avoid a footgun for future contributors. `_prune_removed_evses()` runs
     # in `__init__` and handles the equivalent state cleanup.
 
-    def determine_actions(self, tou_period: str) -> list[dict[str, Any]]:
+    def determine_actions(
+        self,
+        tou_period: str,
+        grid_charge_on: bool = False,
+    ) -> list[dict[str, Any]]:
         """Determine EV charger actions based on TOU period.
 
         v4.7.x D1: Strict TOU enforcement — the `_paused_by_us` short-circuit
@@ -434,6 +447,17 @@ class EVChargerController:
         unexpired, TOU pause is skipped for all EVSEs.  Auto-expires: once the
         current UTC time passes the stored timestamp, normal pausing resumes on
         the next tick.
+
+        Fix-up B-CRIT-1 / B-HIGH-1 (breaker-safety resume-side guard):
+        ``grid_charge_on`` — True when EITHER this tick's battery decision
+        commands ``charge_from_grid=True`` OR the live grid switch is ON
+        (hardware-derived, e.g. mid-charge reboot). When True, the off-peak
+        ensure-on branch SKIPS the `switch.turn_on` AND claims the EVSE
+        for ``_paused_by_arbitrage`` with the "breaker" label so the next
+        breaker-pause chokepoint tick already finds the EV correctly
+        owned. This is the second leg of the bidirectional breaker
+        invariant: NO EV may be commanded ON while ``charge_from_grid``
+        is commanded or ON.
         """
         from homeassistant.util import dt as dt_util
 
@@ -523,6 +547,37 @@ class EVChargerController:
                 ):
                     self._paused_by_us.discard(evse_id)
                     self._proactive_offpeak_holds.discard(evse_id)
+                    continue
+
+                # Fix-up B-CRIT-1 / B-HIGH-1 (breaker-safety resume-side
+                # guard). When the battery is currently commanding (or
+                # the live switch shows) ``charge_from_grid=True``, do
+                # NOT ensure-on. Force-claim the EVSE for arbitrage
+                # under the "breaker" label so the resume-policy
+                # (carry-over guard above on subsequent ticks) keeps it
+                # off until grid charge ends. This is the post-restart
+                # mid-charge recovery path: even with an empty
+                # ``_paused_by_arbitrage`` set, ensure-on cannot turn
+                # the EV on while hardware shows grid charging.
+                if grid_charge_on:
+                    self._paused_by_arbitrage.add(evse_id)
+                    self._arbitrage_pause_reason[evse_id] = "breaker"
+                    self._paused_by_us.discard(evse_id)
+                    self._proactive_offpeak_holds.discard(evse_id)
+                    # If the switch is currently ON (e.g. user manually
+                    # enabled OR pre-restart state), command it OFF —
+                    # the grid is already pulling 20 kW; an EV ON now
+                    # is the compound-load breaker condition.
+                    if state["is_on"]:
+                        actions.append({
+                            "service": "switch.turn_off",
+                            "target": switch_entity,
+                            "data": {},
+                        })
+                        _LOGGER.info(
+                            "EV %s paused (breaker-safety: grid charge active)",
+                            evse_id,
+                        )
                     continue
 
                 # 2b: force-charge already authorizes turn-on via its own
@@ -1180,10 +1235,40 @@ class EVChargerController:
 
         return actions
 
+    def current_charging_load_w(self) -> float:
+        """Sum the live `power` reads across all EVSEs currently `charging=True`.
+
+        arbitrage_solar_attainability_ladder D1: used by BatteryStrategy's
+        rung classifier to (a) decide whether rung-1 (solar redirect) is
+        meaningful (no EV load → skip to rung-2), and (b) compute the
+        counterfactual rate when an EV pause is contemplated/active.
+
+        Returns watts. None per-EVSE reads degrade gracefully through the
+        existing `_get_evse_state` fallback (sensor unavailable → estimated
+        power if switch reports charging, else 0). A purely unavailable
+        rail therefore reads 0, which causes rung-1 to be skipped — the
+        SAFE behavior (we can't subtract a load we can't measure).
+        """
+        total_w = 0.0
+        for evse_id in self._evse:
+            try:
+                state = self._get_evse_state(evse_id)
+            except Exception:  # noqa: BLE001 — defensive: per-EVSE blip
+                continue
+            if state.get("charging"):
+                p = state.get("power") or 0.0
+                try:
+                    total_w += float(p)
+                except (TypeError, ValueError):
+                    continue
+        return total_w
+
     def determine_arbitrage_actions(
         self,
         arbitrage_charging: bool,
         tou_period: str,
+        pause_reason: str | None = None,
+        grid_charge_on: bool = False,
     ) -> list[dict[str, Any]]:
         """v4.5.0 D4: pause/resume EVSEs based on arbitrage CHARGE phase.
 
@@ -1211,10 +1296,37 @@ class EVChargerController:
         actions: list[dict[str, Any]] = []
 
         if arbitrage_charging:
+            # arbitrage_solar_attainability_ladder D2 breaker-safety invariant:
+            # whenever ANY arbitrage pause is requested (rung-1 redirect OR
+            # rung-2 breaker), an explicit rung label MUST end up on the
+            # side-map so the resume policy reads the correct semantics each
+            # tick. Back-compat: legacy callers that pass arbitrage_charging
+            # without a pause_reason are presumed to be on the rung-2 (CHARGE
+            # phase) path — fail CLOSED to "breaker" so the EVs are paused
+            # for compound-load protection, and so the breaker-safety
+            # invariant is upheld even when the caller hasn't migrated to
+            # the rung-aware API.
+            if pause_reason is None:
+                pause_reason = "breaker"
+                _LOGGER.warning(
+                    "determine_arbitrage_actions: pause_reason omitted; "
+                    "defaulting to 'breaker' (fail-closed). Caller should "
+                    "thread BatteryStrategy._arbitrage_intent.",
+                )
+            elif pause_reason not in ("redirect", "breaker"):
+                raise AssertionError(
+                    "determine_arbitrage_actions: pause_reason must be one "
+                    f"of ('redirect', 'breaker'); got {pause_reason!r}"
+                )
             for evse_id, config in self._evse.items():
                 switch_entity = config.get("switch", "")
                 if not switch_entity:
                     continue
+                # Label is recorded each tick from the CURRENT rung intent.
+                # Mid-CHARGE redirect→breaker flips are a silent label
+                # update — no churn dispatch (already in the set short-
+                # circuits below).
+                self._arbitrage_pause_reason[evse_id] = pause_reason
                 if evse_id in self._paused_by_arbitrage:
                     continue  # already paused
                 state = self._get_evse_state(evse_id)
@@ -1226,21 +1338,40 @@ class EVChargerController:
                     })
                     self._paused_by_arbitrage.add(evse_id)
                     _LOGGER.info(
-                        "EV %s paused for arbitrage compound-load protection",
-                        evse_id,
+                        "EV %s paused for arbitrage (%s)",
+                        evse_id, pause_reason,
                     )
                 else:
                     # Proactive claim: EVSE is currently off but gets
                     # added to the set so it can't auto-resume mid-cycle.
                     self._paused_by_arbitrage.add(evse_id)
                     _LOGGER.debug(
-                        "EV %s claimed by arbitrage pause (was already off)",
-                        evse_id,
+                        "EV %s claimed by arbitrage pause (%s, was already off)",
+                        evse_id, pause_reason,
                     )
             return actions
 
-        # arbitrage_charging=False — release any we held
+        # arbitrage_charging=False — release any we held. The release fires
+        # uniformly for both rung labels: at this point the caller has
+        # decided NO arbitrage pause is wanted on this tick (rung-0 fired,
+        # OR rung-2 phase exited CHARGE). The label is dropped together with
+        # set membership.
         for evse_id in list(self._paused_by_arbitrage):
+            # Fix-up B-CRIT-1 (resume-side guard). If hardware still
+            # shows charge_from_grid ON, REFUSE to release / resume —
+            # re-claim the EVSE under "breaker" and keep it paused.
+            # Without this, a stale decision (e.g. mid-tick latch
+            # release while the grid switch hasn't responded yet) could
+            # turn the EV on under an active grid pull.
+            if grid_charge_on:
+                self._arbitrage_pause_reason[evse_id] = "breaker"
+                _LOGGER.info(
+                    "EV %s arbitrage release refused: grid charge still ON "
+                    "(re-claimed as 'breaker')",
+                    evse_id,
+                )
+                continue
+            prior_label = self._arbitrage_pause_reason.pop(evse_id, None)
             self._paused_by_arbitrage.discard(evse_id)
             config = self._evse.get(evse_id, {})
             switch_entity = config.get("switch", "")
@@ -1249,8 +1380,8 @@ class EVChargerController:
             # Resume only if TOU + other pause-reasons permit
             if tou_period != "off_peak":
                 _LOGGER.info(
-                    "EV %s arbitrage release: TOU=%s — leaving paused",
-                    evse_id, tou_period,
+                    "EV %s arbitrage release (%s): TOU=%s — leaving paused",
+                    evse_id, prior_label or "unknown", tou_period,
                 )
                 continue
             if (
@@ -1259,8 +1390,8 @@ class EVChargerController:
                 or evse_id in self._paused_by_us
             ):
                 _LOGGER.info(
-                    "EV %s arbitrage release: another pause reason holds — leaving paused",
-                    evse_id,
+                    "EV %s arbitrage release (%s): another pause reason holds — leaving paused",
+                    evse_id, prior_label or "unknown",
                 )
                 continue
             state = self._get_evse_state(evse_id)
@@ -1270,7 +1401,10 @@ class EVChargerController:
                     "target": switch_entity,
                     "data": {},
                 })
-                _LOGGER.info("EV %s resumed (arbitrage released)", evse_id)
+                _LOGGER.info(
+                    "EV %s resumed (arbitrage released, prior=%s)",
+                    evse_id, prior_label or "unknown",
+                )
         return actions
 
     def check_power_sensor_health(self) -> list[dict[str, str]]:
@@ -1352,6 +1486,14 @@ class EVChargerController:
             "paused_by_battery_drain": list(self._paused_by_battery_drain) + plug_paused_drain,
             # v4.5.0 D4: arbitrage compound-load mutual-exclusion set
             "paused_by_arbitrage": list(self._paused_by_arbitrage),
+            # arbitrage_solar_attainability_ladder D2: per-EVSE rung-label
+            # discriminator. {"<evse_id>": "redirect"|"breaker"}. Diagnostic
+            # only — set membership above remains the canonical "is this
+            # EVSE arbitrage-paused?" check.
+            "paused_by_arbitrage_reasons": {
+                evse_id: self._arbitrage_pause_reason.get(evse_id)
+                for evse_id in self._paused_by_arbitrage
+            },
             # v4.7.6 D4.1
             "paused_by_fill_priority": list(self._paused_by_fill_priority) + plug_paused_fp,
             "excess_solar_active": bool(self._excess_solar_active),
