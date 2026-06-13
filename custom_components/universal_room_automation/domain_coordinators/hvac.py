@@ -110,6 +110,10 @@ class HVACCoordinator(BaseCoordinator):
         egress_pause_enabled: bool = True,
         egress_threshold_min: int = 3,
         egress_resume_delay_min: int = 1,
+        # HC Pre-Conditioning master enable (D1). Install-time seed; the
+        # HVACPreConditioningSwitch is the runtime source of truth via
+        # options-write-back.
+        pre_conditioning_enabled: bool = True,
     ) -> None:
         """Initialize HVAC Coordinator."""
         super().__init__(
@@ -256,6 +260,14 @@ class HVACCoordinator(BaseCoordinator):
         self._boot_settle_release_reason: str = "pending"
         self._boot_settle_hvac_suppressed: int = 0
 
+        # HC Pre-Conditioning master enable (operator-facing toggle on
+        # HC device). Seeded from CM options on init; the
+        # HVACPreConditioningSwitch is the runtime source of truth via
+        # options-write-back. Mirrors the EC Solar HVAC Banking sibling
+        # pattern but lives on HC since pre-conditioning is HC-owned.
+        # See PLANNING_hc_precool_toggle_oc_observability.md (D1).
+        self._pre_conditioning_enabled: bool = bool(pre_conditioning_enabled)
+
         # v3.18.6: Pre-arrival source filter and tracking
         self._pre_arrival_enabled: bool = True
         self._pre_arrival_sources: list[str] = ["geofence", "ble"]
@@ -343,6 +355,25 @@ class HVACCoordinator(BaseCoordinator):
         """Set Zone Intelligence enabled state."""
         self._zone_intelligence_enabled = value
         _LOGGER.info("HVAC Zone Intelligence: %s", "enabled" if value else "disabled")
+
+    @property
+    def pre_conditioning_enabled(self) -> bool:
+        """Whether HVAC pre-conditioning master gate is ON.
+
+        Read by HVACPredictor._is_pre_conditioning_enabled() to short-circuit
+        the entire _check_pre_conditioning branch chain (weather pre-cool,
+        solar banking, pre-arrival, pre-heat).
+        """
+        return self._pre_conditioning_enabled
+
+    @pre_conditioning_enabled.setter
+    def pre_conditioning_enabled(self, value: bool) -> None:
+        """Set HC pre-conditioning master enable."""
+        self._pre_conditioning_enabled = bool(value)
+        _LOGGER.info(
+            "HVAC Pre-Conditioning master: %s",
+            "enabled" if value else "disabled",
+        )
 
     @property
     def pre_arrival_enabled(self) -> bool:
@@ -2167,6 +2198,22 @@ class HVACCoordinator(BaseCoordinator):
             attrs["banking_enabled"] = bool(gate_fn()) if callable(gate_fn) else True
         except Exception:
             attrs["banking_enabled"] = True
+        # HC pre-conditioning master gate (parent of weather pre-cool +
+        # solar banking + pre-arrival + pre-heat). Mirrors the
+        # banking_enabled attr so dashboards can distinguish "operator
+        # OFF" (pre_conditioning_enabled=false) from "gate open but
+        # conditions unmet" (pre_conditioning_enabled=true,
+        # pre_conditioning_zones=[]). See
+        # PLANNING_hc_precool_toggle_oc_observability.md (D1).
+        try:
+            pc_gate_fn = getattr(
+                self._predictor, "_is_pre_conditioning_enabled", None,
+            )
+            attrs["pre_conditioning_enabled"] = (
+                bool(pc_gate_fn()) if callable(pc_gate_fn) else True
+            )
+        except Exception:
+            attrs["pre_conditioning_enabled"] = True
         vacancy_overrides = [
             z.zone_id for z in self._zone_manager.zones.values()
             if z.zone_presence_state == "away"

@@ -140,6 +140,14 @@ class HVACPredictor:
         # are below baseline by > 0.5°F (in the banking direction), treat
         # them as banked-and-orphaned and release them once.
         self._first_eval_done: bool = False
+        # HC pre-conditioning master gate (parent of weather/banking/
+        # pre-arrival/pre-heat). Tracks last-cycle gate state + last-cycle
+        # in-flight pre-conditioning zones so a mid-window flip-OFF can
+        # release zones to baseline within ONE cycle (operator-required
+        # parity with the solar banking sibling toggle). See
+        # PLANNING_hc_precool_toggle_oc_observability.md (D1 disposition).
+        self._last_pre_conditioning_gate_enabled: bool = True
+        self._last_pre_conditioning_zones: set[str] = set()
         # Tier 1 review CRITICAL-1: HVAC coordinator backref so the
         # release path can source the TRUE baseline (`_last_emitted_range`)
         # rather than the LIVE thermostat setpoints (which already
@@ -402,6 +410,67 @@ class HVACPredictor:
         self._last_fan_activation_rooms = []
         self._last_fan_skipped_rooms = []
 
+        # HC Pre-Conditioning master gate (D1). When the operator-facing
+        # switch is OFF this short-circuits the ENTIRE pre-conditioning
+        # decision chain — weather pre-cool, solar banking, pre-arrival,
+        # pre-heat. Mirrors the EC Solar HVAC Banking sibling gate but at
+        # a coarser (parent) level. Operator-required parity: a mid-window
+        # flip-OFF must RELEASE any in-flight pre-conditioned zones to
+        # their baseline range within ONE cycle (don't wait for the
+        # natural peak / off-peak boundary). This mirrors
+        # `_release_banked_zones` semantics for solar-banking; weather +
+        # pre-arrival + pre-heat use the same baseline-write release.
+        pre_cond_gate_on = self._is_pre_conditioning_enabled()
+        if (
+            not pre_cond_gate_on
+            and self._last_pre_conditioning_gate_enabled
+            and (
+                self._last_pre_conditioning_zones
+                or self._last_banked_zones
+                or self._pre_cool_active
+                or self._pre_heat_active
+            )
+        ):
+            # Operator just flipped OFF mid-pre-cool/pre-heat → release
+            # everything once. Includes the banking-tracked set so the
+            # parent gate is authoritative even over the EC-owned
+            # banking-zone tracker.
+            release_set = (
+                set(self._last_pre_conditioning_zones)
+                | set(self._last_banked_zones)
+            )
+            if release_set:
+                await self._release_banked_zones(release_set)
+            self._last_pre_conditioning_zones = set()
+            self._last_banked_zones = set()
+            # Clear in-flight flags so the natural peak/off-peak boundary
+            # check doesn't double-release on a later cycle.
+            if self._pre_cool_active:
+                self._pre_cool_active = False
+                _LOGGER.info(
+                    "HVAC Pre-cool released: pre-conditioning master OFF",
+                )
+            if self._pre_heat_active:
+                self._pre_heat_active = False
+                _LOGGER.info(
+                    "HVAC Pre-heat released: pre-conditioning master OFF",
+                )
+            # A-HIGH-1: also clear the daily-once "triggered_today" flags
+            # so a same-day flip-back-ON can re-arm weather pre-cool /
+            # pre-heat. Without this, the re-arm guards in
+            # _should_weather_pre_cool / _should_pre_heat fail the
+            # `not _*_triggered_today` check until the date rollover at
+            # _update_outcomes, contradicting the D1 Live criterion
+            # ("Flip back ON inside the pre-cool window → on the next
+            # cycle, conditions-met branches re-engage").
+            self._pre_cool_triggered_today = False
+            self._pre_heat_triggered_today = False
+        self._last_pre_conditioning_gate_enabled = pre_cond_gate_on
+        if not pre_cond_gate_on:
+            # Master gate OFF — all pre-conditioning branches skipped
+            # this cycle. Tracking sets stay empty (already reset above).
+            return
+
         forecast_high = constraint.forecast_high_temp if constraint else None
         soc = constraint.soc if constraint else None
 
@@ -566,6 +635,13 @@ class HVACPredictor:
             self._pre_heat_active = False
             _LOGGER.info("HVAC Pre-heat ended: off-peak period ended")
 
+        # Snapshot this cycle's in-flight pre-conditioning set so a
+        # subsequent flip-OFF cycle (D1) can release all in-flight zones
+        # via _release_banked_zones (baseline-write path). Includes the
+        # banking-zone subset implicitly since _pre_conditioning_zones is
+        # the superset in `_check_pre_conditioning`.
+        self._last_pre_conditioning_zones = set(self._pre_conditioning_zones)
+
     def _should_weather_pre_cool(
         self, constraint: EnergyConstraint | None, now,
     ) -> bool:
@@ -624,6 +700,29 @@ class HVACPredictor:
             and now.hour < 14  # Before peak starts
         )
 
+    def _is_pre_conditioning_enabled(self) -> bool:
+        """Master operator gate for ALL HC pre-conditioning branches.
+
+        Reads `pre_conditioning_enabled` from the HVACCoordinator via the
+        coordinator_manager registry (same accessor pattern as
+        `_is_solar_banking_enabled`). Defaults to True when HC is not yet
+        registered — fail-safe = preserve current behavior, never silently
+        disable a feature because HC was slow to register at startup.
+        See PLANNING_hc_precool_toggle_oc_observability.md (D1).
+        """
+        try:
+            from ..const import DOMAIN
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            hvac = manager.coordinators.get("hvac") if (
+                manager is not None and hasattr(manager, "coordinators")
+            ) else None
+            if hvac is None:
+                return True
+            return bool(getattr(hvac, "pre_conditioning_enabled", True))
+        except Exception:
+            # Any unexpected lookup failure → preserve current behavior.
+            return True
+
     def _is_solar_banking_enabled(self) -> bool:
         """Master operator gate for solar HVAC banking.
 
@@ -672,6 +771,15 @@ class HVACPredictor:
         """
         coord = self._hvac_coord
         last_emitted = getattr(coord, "_last_emitted_range", None) if coord else None
+        # A-MED-1 (benign edge): if a DPM preset emit fires for this zone
+        # between the pre-cool write and the flip-OFF release,
+        # `_last_emitted_range[zone]` advances to the new preset range, so
+        # release writes the CURRENT preset target rather than the
+        # pre-cool-time baseline. The value is still a valid current-preset
+        # range (NOT a banked echo), so the behavior is correct — just
+        # different from the "restore the pre-cool baseline" intuition.
+        # Consistent with the preset-resolved fallback below, which is also
+        # current-house-state based.
         if last_emitted is not None:
             entry = last_emitted.get(zone_id)
             if entry is not None:

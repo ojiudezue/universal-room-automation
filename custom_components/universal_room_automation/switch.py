@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.3.9
+# Universal Room Automation vv5.4.0
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -197,6 +197,10 @@ async def async_setup_entry(
             HVACDynamicPresetSwitch(hass, entry),
             # v4.7.1 fix-up D3 / v4.7.2 D3: Custom Preset Ranges master toggle (HVAC device)
             HVACGuestModeActuationSwitch(hass, entry),
+            # HC Pre-Conditioning master kill switch. Parent gate for
+            # weather pre-cool + solar banking + pre-arrival + pre-heat.
+            # Default ON. See PLANNING_hc_precool_toggle_oc_observability.md.
+            HVACPreConditioningSwitch(hass, entry),
             # v3.9.0: HVAC transparency switches
             HVACOverrideArresterSwitch(hass, entry),
             HVACACResetSwitch(hass, entry),
@@ -1416,6 +1420,197 @@ class HVACGuestModeActuationSwitch(SwitchEntity, RestoreEntity):
         hvac._guest_mode_actuation_enabled = self._deferred_value
         _LOGGER.info(
             "HVACGuestModeActuationSwitch: deferred restore landed via "
+            "SIGNAL_HVAC_COORDINATOR_READY (value=%s)",
+            self._deferred_value,
+        )
+        self._deferred_value = None
+        self.async_write_ha_state()
+
+
+class HVACPreConditioningSwitch(SwitchEntity, RestoreEntity):
+    """HC Pre-Conditioning master kill switch.
+
+    When ON (default): HVACPredictor runs the full pre-conditioning chain
+    (weather pre-cool + solar banking + pre-arrival + pre-heat).
+    When OFF: `_check_pre_conditioning` short-circuits and any in-flight
+    pre-conditioned zones are released to their baseline range within ONE
+    cycle (operator-required mid-window release parity with the EC Solar
+    HVAC Banking sibling toggle).
+
+    Backing field: HVACCoordinator.pre_conditioning_enabled.
+    Device:        URA: HVAC Coordinator.
+    unique_id:     {DOMAIN}_hvac_pre_conditioning_enabled.
+
+    Restore semantics:
+    - Bug Class #52 (v5.3.7 canonical pattern): if last_state is not in
+      (``on``, ``off``) — e.g. ``unavailable`` / ``unknown`` post-restart
+      — DO NOT coerce to OFF; keep the constructor / options seed.
+    - Options write-back is the sole source of truth at runtime (mirrors
+      the EC banking sibling); RestoreEntity only carries last on/off
+      across HA restarts before HC has re-registered.
+
+    NOTE: The v5.3.7 EC dynamic restore-accounting registration is
+    deliberately NOT wired here — that infra is EC-specific
+    (`ECSubSwitchesSyncedSensor`) and HC has no analog.
+
+    See PLANNING_hc_precool_toggle_oc_observability.md (D1).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:thermometer-auto"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_pre_conditioning_enabled"
+        self._attr_name = "HVAC Pre-Conditioning"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        # Default ON (preserves status-quo pre-conditioning behavior).
+        self._default: bool = True
+        # Deferred-restore state (Bug Class #5) — used when HC coord not
+        # yet registered when async_added_to_hass fires.
+        self._deferred_value: bool | None = None
+
+    def _get_hvac(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("hvac")
+
+    @property
+    def available(self) -> bool:
+        return self._get_hvac() is not None
+
+    @property
+    def is_on(self) -> bool:
+        hvac = self._get_hvac()
+        if hvac is None:
+            return self._default
+        return bool(getattr(hvac, "pre_conditioning_enabled", self._default))
+
+    async def _write_back_options(self, value: bool) -> None:
+        """Persist the toggle's last state into entry.options.
+
+        Mirrors the EC sibling switches: options are the install-time
+        seed AND the cross-restart persistence channel. The next reload
+        path (init.py options listener) reads `hvac_pre_conditioning_enabled`
+        from entry.options and re-applies it to HC.
+        """
+        try:
+            from .domain_coordinators.hvac_const import (
+                CONF_HVAC_PRE_CONDITIONING_ENABLED,
+            )
+            new_options = {
+                **self._entry.options,
+                CONF_HVAC_PRE_CONDITIONING_ENABLED: bool(value),
+            }
+            self.hass.config_entries.async_update_entry(
+                self._entry, options=new_options,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "HVACPreConditioningSwitch: options write-back failed",
+                exc_info=True,
+            )
+
+    async def async_turn_on(self, **kwargs) -> None:
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.pre_conditioning_enabled = True
+        self._deferred_value = None
+        await self._write_back_options(True)
+        self.async_write_ha_state()
+        _LOGGER.info("HVAC Pre-Conditioning enabled")
+
+    async def async_turn_off(self, **kwargs) -> None:
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.pre_conditioning_enabled = False
+        self._deferred_value = None
+        await self._write_back_options(False)
+        self.async_write_ha_state()
+        _LOGGER.info("HVAC Pre-Conditioning disabled")
+
+    async def async_added_to_hass(self) -> None:
+        """Restore state — deferred via SIGNAL_HVAC_COORDINATOR_READY if needed.
+
+        Bug Class #52 guard: skip restore when last_state is not in
+        (``on``, ``off``) — keep the constructor / options-seeded default.
+        """
+        await super().async_added_to_hass()
+
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_HVAC_COORDINATOR_READY
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_HVAC_COORDINATOR_READY,
+                self._handle_hvac_ready,
+            )
+        )
+
+        last_state = await self.async_get_last_state()
+        if last_state is None:
+            # First install — apply default ON.
+            hvac = self._get_hvac()
+            if hvac is not None:
+                hvac.pre_conditioning_enabled = self._default
+                self.async_write_ha_state()
+            return
+        # Bug Class #52 — skip transient last_state (unavailable/unknown).
+        if last_state.state not in ("on", "off"):
+            _LOGGER.info(
+                "Skipping RestoreEntity restore for HVACPreConditioningSwitch "
+                "— last_state=%s — keeping seed value %s",
+                last_state.state,
+                getattr(
+                    self._get_hvac(), "pre_conditioning_enabled",
+                    self._default,
+                ),
+            )
+            return
+        target = last_state.state == "on"
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.pre_conditioning_enabled = target
+            self._deferred_value = None
+            self.async_write_ha_state()
+            return
+        # HC not yet registered → defer.
+        self._deferred_value = target
+        _LOGGER.debug(
+            "HVACPreConditioningSwitch: HC coord not ready — deferring "
+            "restore (value=%s)", target,
+        )
+
+    @callback
+    def _handle_hvac_ready(self) -> None:
+        """Handle SIGNAL_HVAC_COORDINATOR_READY — complete deferred restore.
+
+        Bug Class #42: bound method, not lambda.
+        Bug Class #19: @callback fires synchronously on the event loop.
+        """
+        if self._deferred_value is None:
+            return
+        hvac = self._get_hvac()
+        if hvac is None:
+            _LOGGER.warning(
+                "HVACPreConditioningSwitch: SIGNAL_HVAC_COORDINATOR_READY "
+                "fired but HC coord still not in hass.data — restore "
+                "deferred",
+            )
+            return
+        hvac.pre_conditioning_enabled = self._deferred_value
+        _LOGGER.info(
+            "HVACPreConditioningSwitch: deferred restore landed via "
             "SIGNAL_HVAC_COORDINATOR_READY (value=%s)",
             self._deferred_value,
         )

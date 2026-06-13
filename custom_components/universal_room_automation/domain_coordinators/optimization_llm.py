@@ -963,6 +963,15 @@ class OptimizationLLMTier:
                 description = str(row.get("description") or "").strip()
                 if not description:
                     raise ValueError("description must be non-empty")
+                # v5.4 D2c — optional `reasoning` row field. Additive +
+                # malformed-tolerant: non-string / oversize values are
+                # normalized rather than rejected so existing-shape LLM
+                # responses keep working.
+                _raw_reasoning = row.get("reasoning")
+                if isinstance(_raw_reasoning, str):
+                    reasoning = _raw_reasoning.strip()[:512]
+                else:
+                    reasoning = ""
                 proposed = row.get("proposed_action_or_null")
                 if proposed is not None and not isinstance(proposed, dict):
                     raise ValueError(
@@ -1040,6 +1049,7 @@ class OptimizationLLMTier:
                 dedup_key=(
                     "tier2_llm", target_level, target_id, dimension,
                 ),
+                reasoning=reasoning,
             )
             out.append(finding)
 

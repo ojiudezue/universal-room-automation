@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.3.9
+# Universal Room Automation vv5.4.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.3.9"
+VERSION: Final = "v5.4.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1561,6 +1561,20 @@ OPTIMIZER_BOOT_SETTLE_CYCLES: Final = 3
 # as a boot-storm and SKIP persistence/dispatch entirely (only the META
 # sentinel persists). 0.5 = "half the house is unavailable".
 OPTIMIZER_BOOT_STORM_ROOM_FRACTION: Final = 0.5
+
+# v5.4 D2d — Shadow Accuracy validator (predicted_effect → observed_effect)
+# for the OC's OWN shadow decisions (NOT the v5.3.0 Pillar-4 Bayesian
+# prediction-vs-actual reader). A shadow-mode finding whose predicted_effect
+# was emitted gets its observed_effect populated `OPTIMIZER_SHADOW_OBSERVE_
+# DELAY_S` seconds later by a lightweight per-cycle validator running INSIDE
+# the existing 5-min tick (no new timer). The rolling % is computed over
+# `OPTIMIZER_SHADOW_ACCURACY_WINDOW_DAYS` and reports `warming_up` until at
+# least `OPTIMIZER_SHADOW_ACCURACY_MIN_SAMPLES` have landed.
+# v1 scoring scope: COMFORT + OCCUPANCY_ACCURACY only (clean oracles).
+# Other dimensions emit observed_effect with match=None ("unscorable").
+OPTIMIZER_SHADOW_OBSERVE_DELAY_S: Final = 900  # 15 min
+OPTIMIZER_SHADOW_ACCURACY_WINDOW_DAYS: Final = 7
+OPTIMIZER_SHADOW_ACCURACY_MIN_SAMPLES: Final = 20
 
 OPTIMIZER_QUIET_HOURS_SOURCE_REUSE_NM: Final = "reuse_nm"
 OPTIMIZER_QUIET_HOURS_SOURCE_NONE: Final = "none"

@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.3.9
+# Universal Room Automation vv5.4.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -2449,6 +2449,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         )),
                         egress_resume_delay_min=int(cm_config.get(
                             "hvac_egress_resume_delay_min", 1,
+                        )),
+                        # HC Pre-Conditioning master enable (D1). Install-
+                        # time seed; the HVACPreConditioningSwitch is the
+                        # runtime source of truth via options-write-back.
+                        pre_conditioning_enabled=bool(cm_config.get(
+                            "hvac_pre_conditioning_enabled", True,
                         )),
                     )
                     coordinator_manager.register_coordinator(hvac)

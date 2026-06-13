@@ -25,11 +25,19 @@ No new CONF, no new entity. Surfaces via existing `arbitrage_phase`/`reason` + a
 ## Accepted-as-designed
 Rung-1 defers EV charging without a deadline guard (operator ruling 2026-06-13): the battery-buffer > deferred-EV-charge assumption is accepted (overnight off-peak slack; cars TOU-paused through mid_peak anyway). Revisit only if a real tight-same-day-deadline case bites.
 
-## Live Validation (Review D) — prospective criteria
-- [ ] Clean restart; zero URA ERRORs; 40/40 entries; EC producing.
-- [ ] **Excellent-solar day, gate open via d2=poor but solar delivering:** rung-0 suppresses arbitrage — EVs NOT paused while net is exporting; battery still reaches target on solar; `charge_from_grid` never commanded. (This is today's exact incident shape — the defining test.)
-- [ ] Rung-1: a tick where EVs eating solar make rung-0 miss but EV-paused attains → EVs pause (`redirect`), no grid; resume when rung-0 recovers; no on/off churn.
-- [ ] Breaker ordering: on any grid-charge tick, EV `turn_off` is dispatched before `charge_from_grid`; no EV `turn_on` while grid charging.
-- [ ] `paused_by_arbitrage_reasons` attr shows redirect vs breaker correctly.
+## Live Validation — Validated 2026-06-13 (restart 12:24 CDT, mid-charge)
 
-*Replaced with observed results post-restart per the README write-back rule.*
+Deployed into the live incident shape (excellent solar, net exporting, EVs paused under the OLD code). Restart landed during an active arbitrage charge — a live test of the reboot-mid-charge breaker recovery.
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Clean restart, zero URA ERRORs, 40/40 entries, EC producing | PASS | 40/40 loaded; EC produced within 2 cycles (first cycle Envoy-holding per v5.3.7 decoupling); zero URA ERROR lines |
+| Reboot mid-charge breaker recovery | PASS | `charge_from_grid` was ON at restart; post-boot EC re-engaged arbitrage with EVs re-paused (`evse_paused_by_arbitrage: [garage_a, garage_b]`, `current_holds_active: [arbitrage_compound_load]`) — no EV left on under the charge |
+| `attain_state` / projection attrs render | PASS | `attain_state: inactive`, projection attrs present (null while the post-restart K-tick window seeds — cold-boot defer to rung-2, by design) |
+| **Rung-0/rung-1 suppression (the headline)** | **NOT YET EXERCISED** | Two reasons: (1) K-tick rate window still seeding post-restart → cold-boot defers to rung-2; (2) solar collapsed 18→4.6 kW (clouds) within minutes of the restart, removing the "solar attains" condition. The morning's excellent-exporting window (where the fix *would* suppress) occurred pre-restart under the old code — which is exactly where the EVs were observed needlessly paused while exporting (the incident this fixes). Headline behavior is mutation-anchored in-suite (oscillation + ordering + capacity mutations); awaits a clean post-warmup excellent-solar window. |
+| Breaker ordering / resume guard / fail-closed | IN-SUITE | Coordinator-tick integration test + ordering mutations (turn-off-before-grid on arbitrage AND attain ticks); could not be live-exercised without a real grid-charge tick on warm state. |
+| `paused_by_arbitrage_reasons` attr | PASS (shape) | Attribute present on the EV diag sensor; showed breaker-label pause under the post-boot arbitrage charge. |
+
+**Note:** observed that under a sudden solar collapse during commanded arbitrage CHARGE, the Enphase side let the battery discharge to serve house load (net≈0, no grid import) rather than pulling grid — an Enphase self-consumption behavior, not a URA defect; flagged for the EVSE-coordination follow-up.
+
+*Headline ladder suppression remains live-unexercised (same caveat class as v5.3.8 attain entry) — re-validate on a clean post-warmup excellent-solar day with the arbitrage gate open.*
