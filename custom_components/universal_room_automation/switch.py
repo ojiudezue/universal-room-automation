@@ -1464,7 +1464,7 @@ class HVACPreConditioningSwitch(SwitchEntity, RestoreEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_hvac_pre_conditioning_enabled"
-        self._attr_name = "HVAC Pre-Conditioning"
+        self._attr_name = "28 · HVAC Predictive Conditioning"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",
