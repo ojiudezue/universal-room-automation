@@ -224,6 +224,12 @@ class BatteryStrategy:
         # (see _adopt_attain_state_from_hardware) — RAM-only latch
         # behavior caused B-HIGH-3 / P2A-CRIT-2 / P2B-CRIT-2 / C2-CRIT-2.
         self._attain_state: str = "inactive"
+        # Observability (operator-requested pre-deploy): last computed entry
+        # projection internals, surfaced via get_status() so "why did/didn't
+        # attain fire" is answerable from the dashboard. Entry-only predicate
+        # means these freeze at entry-time values while latched.
+        self._attain_projected_soc: float | None = None
+        self._attain_solar_term_pct: float | None = None
         # First-decision-tick reboot adoption guard — clears once we have
         # run reboot recovery exactly once.
         self._attain_reboot_recovered: bool = False
@@ -1324,6 +1330,8 @@ class BatteryStrategy:
         # collapses to 0 (fail toward charging).
         solar_surplus = self._expected_solar_surplus_pct(now, mins)
         projected = soc + (mins / 60.0) * rate + solar_surplus
+        self._attain_projected_soc = round(projected, 1)
+        self._attain_solar_term_pct = round(solar_surplus, 1)
         if projected < self._peak_buffer_target:
             return (True, projected, rate, mins)
         return (False, projected, rate, mins)
@@ -2561,6 +2569,11 @@ class BatteryStrategy:
             "arbitrage_target": self._peak_buffer_target,
             "peak_buffer_target": self._peak_buffer_target,
             "arbitrage_phase": self._arbitrage_phase,
+            # Attainability observability (operator-requested): tri-state +
+            # entry-projection internals (frozen at entry while latched).
+            "attain_state": self._attain_state,
+            "attain_projected_soc_at_boundary": self._attain_projected_soc,
+            "attain_solar_term_pct": self._attain_solar_term_pct,
             "arbitrage_chunk_completed": self._arbitrage_chunk_completed,
             "arbitrage_charge_lead_time_min": self._arbitrage_charge_lead_time_min,
             # v4.5.0.2 grid-import guard surfaces
