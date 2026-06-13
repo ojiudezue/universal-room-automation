@@ -542,6 +542,116 @@ clean post-mutation (py_compile + conflict grep + cycle tests 54/54).
 
 ---
 
+## Pass-3 Review (focused)
+
+**Reviewer (pass 3), 2026-06-12. Diff reviewed: `e0e8226..696824a`. Framing: adversarial verification that M1–M7 are REAL (not fixture-shaped), plus regression scan. All mutations + suite tallies independently re-run this session, including a fresh full-suite run at baseline `e0e8226` in a worktree for a true failure-ID diff.**
+
+### Findings
+
+**P3-HIGH-1 — M1/M3 seam: HOLDING handoff exits to `inactive`, so the final ~2 pre-boundary ticks fall to the drain-target fallback and command `reserve_level=drain_target` — re-opening the C2-CRIT-1 shape inside the 15-min lead window.**
+`energy_battery.py:1684-1716`: the holding route checks the M3 handoff BEFORE the persistent re-emit; at `mins ≤ 15` it sets `_attain_state="inactive"` and emits HOLD exactly once. The next off_peak ticks (mins ~10, ~5) route INACTIVE → entry predicate blocked by chunk lock → `_run_attain_branch` returns None → drain fallback (`:2240-2250`) fires "Off-peak drain — SOC > target" with `reserve_level=drain_target` (low on good-tomorrow days, which is precisely the attain context). The buffer the cycle bought is released by command in the last 10-15 min before the boundary — the exact window the lead exists to protect, against a ~35-min actuation lag that makes command ordering at the Envoy unpredictable. Asymmetry: the CHARGING handoff transitions to `holding` (persists), the HOLDING handoff drops to `inactive` (gap). `test_holding_state_re_emits_target_reserve_for_multiple_ticks` stays outside the lead window, so the gap has no test authority. **Fix:** holding handoff should remain `holding` (or a terminal "handed-off" state that keeps re-emitting HOLD) until `mins ≤ 0`; the boundary branch then takes over.
+
+**P3-HIGH-2 — M4 `_daylight_bounds` UTC-vs-local bug: live solar term ≈ always 0; the A-HIGH-2 good-day fix works only in the test sandbox.**
+`energy_battery.py:1125-1148`: `sun.sun` `next_rising`/`next_setting` are UTC ISO timestamps; the code takes `sr.hour`/`ss.hour` WITHOUT `dt_util.as_local()` and projects them onto the local-aware anchor. America/Chicago (CDT, UTC-5): sunset 20:15 local = 01:15Z → projected sunset = **01:15 local** → `now < sunset_today` is False for the entire day → today-branch never taken → tomorrow-branch: `boundary_dt ≤ sunrise_tom` (projected ~10:30 local tomorrow) → return 0. Net live behavior: `_expected_solar_surplus_pct` ≈ 0 on every real day → ATTAIN fires every good morning below target (the A-HIGH-2 cost regression, silently back). All M4 tests pass via the 07:00/19:00 fallback (no `sun.sun` in the sandbox) — the fixture validates the fallback, not production. Direction is fail-toward-charging (no safety risk), but the headline M4 disposition is false live. **Fix:** convert parsed timestamps with `dt_util.as_local()` before projecting (and prefer `dt_util.parse_datetime`).
+
+**P3-HIGH-3 — M5 drift guard threshold (>3 ticks ≈ 15-20 min) sits INSIDE the measured ~35-min `charge_from_grid` enable lag; conflates "not yet ON" with "reverted OFF".**
+`energy_battery.py` charging route: after `_attain_charging_ticks > 3`, `cfg is False` → WARNING + inactive + **chunk-lock**. If the HA Enphase switch reflects cloud-applied state (the same addendum that measured the ~35-min enable lag), cfg legitimately still reads OFF at ticks 4-7 after a real entry → every real ATTAIN self-aborts ~20 min in and locks the chunk — the feature never charges. The deviation note's claim ("comfortably under the actuation envelope but past the action-in-flight window") asserts the in-flight window < 15 min without evidence — the addendum says the opposite. `test_cfg_off_during_sustained_charging_releases_to_inactive` hand-flips cfg ON at tick 2, so the false-positive path is untested. Whether the switch is optimistic is not verifiable in-repo (No-Fabrication): **fix shape that is robust either way — detect ON→OFF *transition* (require cfg observed ON at least once while charging) instead of absence-of-ON**, or raise the threshold beyond the actuation envelope. Must be resolved (code or live-verified switch semantics) before deploy.
+
+**P3-HIGH-4 — M2 conflates cfg unknown/unavailable with OFF and consumes the once-latch; B-HIGH-3 unwind survives in the Enphase-cloud boot-lag window.**
+`_adopt_attain_state_from_hardware` (`:1506+`): `if cfg is not True: return "inactive"` — `_get_state_bool` returns None for missing/`unavailable` entities (`:298-305`). The `envoy_available` short-circuit guards `battery_soc` + storage mode (local Envoy polling), but `charge_from_grid` is the cloud-backed entity and can lag minutes behind at boot. Sequence: boot mid-charge → first attain tick while the switch is still `unavailable` → adoption returns "inactive", `_attain_reboot_recovered=True` consumed → drain fallback runs; once the switch loads ON, state is inactive, the K-window seeds within 2 ticks, the projection (inflated by the in-flight charge) reads attained → predicate False → drain fallback emits `turn_off` + reserve drop — the documented B-HIGH-3 unwind, with recovery permanently spent. **Fix:** when cfg reads None, return WITHOUT setting `_attain_reboot_recovered` (defer adoption until the switch is readable, optionally with a bounded deferral).
+
+**P3-MED-1 — M6 load-shed exclusion has zero behavioral authority; a semantically equivalent regression passes 54/54.**
+Re-ran the builder's mutation 7 family: the textual revert fails the structural test as claimed (it greps for `_effective_import_kw` in `_update_load_shedding`), but my semantic variant — keep the call, feed `max(_net_kw, 0.0)` to `import_kw` from the same snapshot — **passes 54/54**. The guard is grep-shaped. The M6 *code* is verified correct by reading (`_effective_import_kw` returns None only when `net_power_w` is None — exact None-parity with the old path; battery None/idle/discharging → no subtraction → unchanged behavior; peak p90 history feed unpoisoned since charging is structurally impossible during peak). Add one behavioral anchor or accept-and-document alongside the still-deferred C2-MED-3.
+
+**P3-MED-2 — M2 "release" sentinel has zero test authority; its named test is vacuous.**
+`test_reboot_cfg_on_during_peak_orderly_release` (test_attainability_branch.py:977) asserts `_attain_state == "inactive"` after a PEAK tick — trivially true since the peak branch never calls `_run_attain_branch` (the test's own comment admits this). The actual `adopted=="release"` path (cfg ON + off_peak outside the lead window, e.g. 22:00 boot) is never driven. Behavior verified by code-read as correct (boot-during-peak unwinds via the peak branch's `_result` cfg-off default — orderly enough), but the new release branch ships untested.
+
+**P3-LOW-1 — Ledger accuracy: the fix-up table claims the hand-primed reboot test "was REPLACED"; `test_reboot_first_cycle_issues_zero_commands` (:695) still injects `strat._attain_active = True`** (via the compat shim → "charging"). Defensible now — M2 adoption makes that state reachable on a real boot — but the disposition wording overclaims.
+
+**P3-LOW-2 — Shared `_arbitrage_chunk_completed` set by charging→holding can lock arbitrage CHARGE out after an intra-day good→poor reclassification** (arbitrage Phase 2 `:723` honors the lock; Phase 1 HOLD only covers `soc ≥ arbitrage_target`, which may exceed `peak_buffer_target`). Carried from Pass-1 C-HIGH-1's cross-ripple note; narrow, document only.
+
+**P3-LOW-3 — Mid_peak HOLDING is mostly unreachable: the determine_mode D1b gate (`:2092-2100`) requires `soc < peak_buffer_target` before calling `_run_attain_branch`, so a holding state at soc ≥ target in mid_peak routes to the summer hold branch instead.** Benign — `reserve_level=int(soc)` + cfg-off is functionally equivalent to HOLD, and a sag below target re-enters the holding route (covered by `test_holding_below_target_stays_holding_no_recharge`) — but the M1 disposition's "holding routed before predicate in both branches" holds only inside `_run_attain_branch`, not at the mid_peak call site.
+
+### Verified REAL (focused checklist)
+
+- **M1 day trace (off_peak→mid_peak→peak→post-peak→off_peak):** charging→holding sets chunk-lock + persistent HOLD re-emits reserve=target every tick (mutation 3 confirms the pin is load-bearing: HOLD reserve→0 → 1 named failure); no path re-enters charging from holding (entry blocked by chunk lock; holding routes never set "charging"); post-peak mid_peak blocked by `peak_ahead_before_offpeak`; stale state cleared at off_peak entry via `reset_arbitrage_chunk`. Charging during PEAK remains structurally impossible. The one real M1 defect is the handoff seam (P3-HIGH-1).
+- **chunk_completed consumers:** guard-abort diagnostics (`_arbitrage_guard_aborted_at/_kw`) are NOT written on charging→holding; sensors key off `arbitrage_phase`/mode, not the flag. No misread as guard abort.
+- **M2 geometry:** recovery first-tick inside `_run_attain_branch`; cfg-OFF boots return "inactive" and defer harmlessly (test confirms no adoption); adoption tests (:929-963) set ONLY hardware-observable state — genuinely un-injected. Adopted-charging warm-up is NOT stuck: `_record_attain_sample` runs before routing every tick, so rate seeds after 2 ticks and HOLD-CURRENT (zero actions, status synced per P2A-MED-3) lasts exactly one tick. SOC-None adoption is unreachable (`envoy_available` short-circuit precedes the branch).
+- **M3:** `_attain_target_period_at_or_above_current` reads live `self._tou._rates` base import_rate (ordering-safe since adders are uniform); None/exception → False with the `mins ≤ 0` fallback intact; winter off_peak→mid_peak boundary now gets the 15-min lead (P2A-HIGH-1 genuinely fixed — modulo P3-HIGH-1's exit-state defect).
+- **M4 math:** div-by-zero guarded (0.001 floors, `mins ≤ 0` → 0); midnight-crossing winter pre-dawn boundary (05:00 < sunrise) correctly returns 0 from the tomorrow-slice (physically right; C2-MED-4 PARTIAL disposition accurate); Solcast unavailable → 0 fail-toward-charging.
+- **M5 mechanics:** one-shot WARN gate + counter reset + chunk-lock verified; operator-wins release is orderly (no turn_on re-issue). Defect is the threshold/semantics (P3-HIGH-3), not the mechanism.
+- **B-HIGH-3 HOLD-CURRENT retained branch composed with M2:** no stuck do-nothing state (see M2 geometry above).
+- **Regression scan:** `energy.py` `_get_displaced_rate` live-engine read falls back to `PEC_TOU_RATES` on any failure — shape-preserving; `arbitrage_enabled` setter reset is additive; `hvac_covers.py` M7 seeded-set correctly distinguishes seed stamps (cleared + reopened at window end) from operator stamps (dropped) — P2B-MED-4 closed; stale-set cleared with `_hvac_closed`.
+
+### Independent verification (re-runs this session)
+
+| Check | Builder claim | My result |
+|---|---|---|
+| Mutation 2 (break charging→holding) | 4 failed | **4 failed** (same IDs) |
+| Mutation 3 (HOLD reserve→0) | 1 failed | **1 failed** (anchor) |
+| Mutation 4 (delete `+ solar_surplus`, entry site) | 1 failed | **1 failed** (`test_good_day_high_solar_suppresses_entry`) |
+| Mutation 7 (load-shed exclusion) | 1 failed | **textual revert: caught; semantic variant (`_net_kw` from same snapshot): 54/54 PASS** → P3-MED-1 |
+
+- Cycle tests: 54/54 pass; tree verified clean after every mutation restore.
+- **Full suite at tip `696824a`: 34 failed / 5738 passed / 29 skipped / 14 errors** — matches the ledger.
+- **Failure-ID diff vs a FRESH baseline run at `e0e8226`** (worktree, 34F/5715P/29S/14E): **diff of sorted FAILED+ERROR IDs = empty. ZERO new failures**; +23 passes = the 23 new tests.
+- Vacuous/mirror scan of the 23 new tests: M2 adoption, holding-persistence, drift, rate-gate-recheck, and mutation-anchor tests all drive the real `determine_mode`; the two exceptions are P3-MED-2 (release-path test vacuous) and the structural-only M6/EVSE greps (known shape, P3-MED-1).
+
+### Pass-3 verdict
+
+| Severity | Count | IDs |
+|---|---|---|
+| CRITICAL | 0 | — |
+| HIGH | 4 | P3-HIGH-1 (handoff→drain gap), P3-HIGH-2 (M4 UTC/local — solar term dead live), P3-HIGH-3 (M5 threshold inside actuation lag), P3-HIGH-4 (M2 unknown-as-OFF consumes once-latch) |
+| MEDIUM | 2 | P3-MED-1 (M6 structural-only authority), P3-MED-2 (release path untested) |
+| LOW | 3 | P3-LOW-1, P3-LOW-2, P3-LOW-3 |
+
+**FIX-FIRST.** The Pass-2 CRITICAL state-machine architecture is genuinely fixed — holding persists, reboot adoption is hardware-derived and un-injected, mutation authority is real and reproduces exactly. But four HIGHs sit at the seams the mechanisms didn't cover: the holding→inactive handoff exit re-creates a bounded pre-boundary buffer release (P3-HIGH-1); two of the mechanisms (M4, M5) behave correctly only under test-sandbox conditions and degrade or self-defeat against the real `sun.sun` timestamps and the real Enphase actuation lag (P3-HIGH-2/3); and M2's unknown-vs-OFF conflation leaves a boot-lag window where the original B-HIGH-3 unwind still fires with recovery spent (P3-HIGH-4). All four have small, local fix shapes (state choice at handoff; `dt_util.as_local`; transition-based drift detection; defer-on-None). Fix + focused re-verify of the four seams before deploy.
+
+---
+
+## Fix-up pass 4 (2026-06-12)
+
+Surgical fixes for the four Pass-3 HIGHs + two MEDs. Small, local —
+no redesign. P3-LOWs (1/2/3) are documentation/narrow-document items per
+the Pass-3 review's own framing; deferred.
+
+### Dispositions
+
+| Finding | Disposition | Evidence |
+|---|---|---|
+| P3-HIGH-1 (HOLDING handoff drops to inactive → drain fallback releases buffer in lead window) | **FIXED** | `energy_battery.py` HOLDING handoff no longer sets `_attain_state="inactive"`; HOLD decision continues every tick through the lead window; the boundary TOU branch takes over naturally and existing `reset_arbitrage_chunk` clears state on the next off_peak entry. Existing `test_handoff_lead_fires_when_target_period_rate_ge_current` updated to assert state stays `holding`. New `test_holding_inside_lead_window_pins_reserve_every_tick` walks -10m/-5m/-1m to a 14:00 mid_peak boundary and asserts state stays `holding` with every emitted reserve action carrying `peak_buffer_target` (not `drain_target`). |
+| P3-HIGH-2 (M4 `_daylight_bounds` UTC vs local → live solar term always 0) | **FIXED** | `_daylight_bounds` now imports `homeassistant.util.dt as dt_util` and converts both `next_rising` and `next_setting` via `dt_util.as_local()` before projecting onto the local-date anchor. New `test_daylight_bounds_converts_utc_to_local_for_solar_term` feeds CDT-shaped UTC timestamps (`+00:00`), monkey-patches `dt_util.as_local` to model CDT (UTC-5), and asserts (a) sunrise/sunset land at 07:15 / 20:15 local AND (b) `_expected_solar_surplus_pct` is nonzero for a midday boundary — killing the silent always-0 regression. |
+| P3-HIGH-3 (M5 drift threshold inside actuation lag → every real ATTAIN self-aborts before cfg lands) | **FIXED** | Replaced ">3 ticks AND cfg not ON" with ON→OFF TRANSITION detection: new `_attain_cfg_observed_on` latch flips only when we OBSERVE cfg=True while charging; only a subsequent cfg=False reading is treated as drift. The chunk's natural end (boundary / SOC≥target / window close / guard) bounds the wait — no self-abort regardless of tick count. New `test_cfg_off_pending_actuation_does_not_self_abort` runs 10 ticks with cfg=off-because-pending and asserts state stays `charging` + `chunk_completed` stays False. New `test_cfg_observed_on_then_off_triggers_orderly_release` walks cfg off→on→off and asserts orderly release + chunk-lock. Existing drift test still passes. |
+| P3-HIGH-4 (M2 conflates cfg None/unavailable with OFF and consumes the once-latch → B-HIGH-3 unwind survives at boot) | **FIXED** | `_adopt_attain_state_from_hardware` now returns sentinel `"defer"` on cfg None instead of coercing to `"inactive"`. `_maybe_run_reboot_recovery` handles `"defer"` BEFORE setting `_attain_reboot_recovered=True` (latch stays unconsumed) and emits the existing `_get_attainability_hold_current_decision` (zero actions) so the caller does not fall through to the drain fallback. Only definitive on/off reads consume the latch. New `test_reboot_cfg_unavailable_defers_without_consuming_latch` proves: cfg=unavailable for 2 ticks → latch unconsumed, zero actions emitted; tick 3 cfg resolves ON → adoption fires, state=charging. |
+| P3-MED-1 (M6 load-shed exclusion has only structural authority) | **FIXED** | New `test_load_shedding_battery_charge_excluded_behavioral` drives the REAL `EnergyCoordinator._update_load_shedding` unbound method against a minimal `SimpleNamespace` coord backed by a real `BatteryStrategy`. Scenario A: net 20 kW / battery charging 16 kW (effective 4 kW) → no shed under a 12 kW threshold. Scenario B: net 6 kW / battery 0 → no shed. Mutation (feed raw `_net_kw` instead of `effective_kw`) breaks scenario A — verified empirically (level=1). Adds in-test module-stub fixes for `helpers.dispatcher` + `helpers.event` so `energy.py` is importable in the strategy sandbox. |
+| P3-MED-2 (release path test is vacuous) | **FIXED** | New `test_reboot_cfg_on_off_peak_outside_window_orderly_release` drives the real `adopted=="release"` branch: cfg=ON at 22:00 off_peak (after evening peak, well before next morning charge window opens) → recovery emits `_result(..., charge_from_grid=False)` with reason containing "reboot recovery" and "orderly release". The original peak-time test kept as a no-attain-during-peak sanity check. |
+| P3-LOW-1 (ledger overclaim about hand-primed reboot test) | **DEFERRED** | Documentation-only. The B-HIGH-3 test surface is now defensibly reachable on a real boot via M2 adoption — disposition wording is the only issue. |
+| P3-LOW-2 (shared `_arbitrage_chunk_completed` ripple onto arbitrage CHARGE) | **DEFERRED** | Cross-ripple already documented in Pass-1 C-HIGH-1 + the Pass-3 review itself classified as "narrow, document only". No code change. |
+| P3-LOW-3 (mid_peak HOLDING mostly unreachable via D1b gate) | **DEFERRED** | Pass-3 review classified as benign: `reserve_level=int(soc)` + cfg-off is functionally equivalent to HOLD; sag below target re-enters the holding route covered by `test_holding_below_target_stays_holding_no_recharge`. |
+
+### Mutation-authority evidence (Fix-up pass 4)
+
+| # | Mutation | Named tests breaking |
+|---|---|---|
+| handoff hold-through | Add `self._attain_state = "inactive"` before HOLDING handoff's `return _get_attainability_hold_decision(...)` | 2 failed (`test_handoff_lead_fires_when_target_period_rate_ge_current`, `test_holding_inside_lead_window_pins_reserve_every_tick`) |
+| as_local conversion | Replace `dt_util.as_local(sr)` with `sr` (and same for ss) in `_daylight_bounds` | 1 failed (`test_daylight_bounds_converts_utc_to_local_for_solar_term`) |
+| drift-transition | Replace `cfg is False and self._attain_cfg_observed_on` with `cfg is False` (bypass observed-on gate) | 2 failed (`test_cfg_off_pending_actuation_does_not_self_abort`, `test_persistence_then_completion`) |
+| shed semantic | Replace `max(effective_kw, 0.0)` with `max(_net_kw, 0.0)` in `_update_load_shedding` | 1 failed (`test_load_shedding_battery_charge_excluded_behavioral`) |
+
+All mutations reverted from `/tmp` backup; tree verified clean post-mutation.
+
+### Suite tally (Fix-up pass 4 tip)
+
+- **Cycle tests:** 61/61 pass (54 prior + 7 new — hold-every-tick, utc-as-local, cfg-pending-no-abort, cfg-observed-on→off, cfg-unavailable-defer, off-peak-outside-window-release, load-shed-behavioral).
+- **Reverse-order vs `test_hvac_fan_control.py`:** 70/70 pass in both orders.
+- **Full suite:** 34 failed / 5745 passed / 29 skipped / 14 errors in 28.55s.
+- **Failure-ID diff vs cycle tip 696824a baseline (34F / 5738P / 29S / 14E):** sorted FAILED+ERROR IDs identical (48 entries each, diff empty). +7 passes = the 7 new tests.
+- **py_compile:** clean across `energy_battery.py`, `energy.py`, `test_attainability_branch.py`.
+- **Conflict-marker grep:** clean (only `=======` comment separators).
+
+---
+
 ## Live validation table (post-deploy)
 
 *(to be filled after deploy + restart; per CLAUDE.md "Record Live Validation Back Into the README" — this ledger holds the cycle-internal record; the README write-back is the durable artefact)*

@@ -235,6 +235,14 @@ class BatteryStrategy:
         # has measured ~35-min cloud lag). Counts charging ticks; reset
         # on any non-charging transition.
         self._attain_charging_ticks: int = 0
+        # P3-HIGH-3 (pass-4): drift detection requires a real ON→OFF
+        # TRANSITION. "Never became ON yet" is actuation lag (the measured
+        # ~35-min Enphase cloud envelope), not operator/Enphase drift, so
+        # the chunk must NOT self-abort while we are still waiting for the
+        # commanded ON to land. We flip this latch only once we OBSERVE
+        # cfg=True while charging; subsequently a cfg=False reading is a
+        # genuine drift event. Reset on any non-charging transition.
+        self._attain_cfg_observed_on: bool = False
 
         # v4.5.0 D3: multi-day Solcast lookback toggle + entity ID.
         # (Property `_attain_active` defined later as a tri-state
@@ -1123,12 +1131,20 @@ class BatteryStrategy:
             attrs = getattr(sun_state, "attributes", None) or {}
             sunrise_iso = attrs.get("next_rising") or attrs.get("next_dawn")
             sunset_iso = attrs.get("next_setting") or attrs.get("next_dusk")
+        # P3-HIGH-2 (pass-4): sun.sun timestamps are UTC ISO; convert to
+        # local before projecting onto anchor's local date, otherwise CDT
+        # (UTC-5) sunset 20:15 local = 01:15Z gets projected as 01:15
+        # local → the today-overlap branch never fires and the live solar
+        # term collapses to 0, silently re-creating A-HIGH-2 (good-day
+        # ATTAIN on every morning) in production.
+        from homeassistant.util import dt as dt_util
         if sunrise_iso:
             try:
                 sr = datetime.fromisoformat(str(sunrise_iso).replace("Z", "+00:00"))
-                # Project onto anchor's date so we have same-day bounds.
+                sr_local = dt_util.as_local(sr)
                 sunrise = anchor.replace(
-                    hour=sr.hour, minute=sr.minute, second=0, microsecond=0,
+                    hour=sr_local.hour, minute=sr_local.minute,
+                    second=0, microsecond=0,
                 )
             except Exception:  # noqa: BLE001
                 sunrise = anchor.replace(hour=7, minute=0, second=0, microsecond=0)
@@ -1137,8 +1153,10 @@ class BatteryStrategy:
         if sunset_iso:
             try:
                 ss = datetime.fromisoformat(str(sunset_iso).replace("Z", "+00:00"))
+                ss_local = dt_util.as_local(ss)
                 sunset = anchor.replace(
-                    hour=ss.hour, minute=ss.minute, second=0, microsecond=0,
+                    hour=ss_local.hour, minute=ss_local.minute,
+                    second=0, microsecond=0,
                 )
             except Exception:  # noqa: BLE001
                 sunset = anchor.replace(hour=19, minute=0, second=0, microsecond=0)
@@ -1497,10 +1515,12 @@ class BatteryStrategy:
         # the new chunk's projection.
         self._attain_soc_history.clear()
         # Fix-up pass: latch is per-chunk. New off-peak chunk → fresh
-        # entry decision. M5: also reset drift-log gate + tick counter.
+        # entry decision. M5: also reset drift-log gate + tick counter +
+        # cfg-observed-on latch (P3-HIGH-3).
         self._attain_state = "inactive"
         self._attain_drift_logged = False
         self._attain_charging_ticks = 0
+        self._attain_cfg_observed_on = False
 
     # ── Fix-up pass 3 — tri-state attain branch (shared off_peak + mid_peak D1b)
     def _adopt_attain_state_from_hardware(
@@ -1526,8 +1546,18 @@ class BatteryStrategy:
         cfg = self._get_state_bool(
             self._get_entity("charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY)
         )
-        if cfg is not True:
-            # cfg OFF or unknown — fall through to normal cold-boot path.
+        # P3-HIGH-4 (pass-4): cfg unknown/unavailable at boot → DEFER
+        # adoption WITHOUT consuming the once-latch. The Enphase cloud
+        # switch can lag minutes behind the local Envoy poll at boot;
+        # previously, None was coerced to "inactive", the once-latch was
+        # consumed, and once the switch loaded ON the drain fallback
+        # commanded turn_off + reserve drop — the B-HIGH-3 unwind with
+        # recovery permanently spent. Sentinel "defer" tells the caller
+        # to leave the latch unconsumed and retry next tick.
+        if cfg is None:
+            return "defer"
+        if cfg is False:
+            # Definitive cfg OFF — fall through to normal cold-boot path.
             return "inactive"
 
         # cfg ON post-reboot — classify by window/period/SOC.
@@ -1585,8 +1615,23 @@ class BatteryStrategy:
         """
         if self._attain_reboot_recovered:
             return None
-        self._attain_reboot_recovered = True
         adopted = self._adopt_attain_state_from_hardware(soc, now, tou_period)
+        # P3-HIGH-4: cfg None/unavailable at boot → defer adoption WITHOUT
+        # consuming the once-latch; retry next tick. Only consume the
+        # latch on a definitive on/off read. Emit HOLD-CURRENT (zero
+        # actions) so the caller does not fall through to the drain
+        # fallback and unwind an in-flight charge.
+        if adopted == "defer":
+            _LOGGER.debug(
+                "Attainability reboot recovery: cfg switch unavailable; "
+                "deferring adoption (latch unconsumed, no commands)"
+            )
+            return self._get_attainability_hold_current_decision(
+                soc=soc, current_mode=current_mode, season=season,
+                tomorrow_class=tomorrow_class,
+                target_day_class=target_day_class,
+            )
+        self._attain_reboot_recovered = True
         if adopted == "inactive":
             self._attain_state = "inactive"
             return None
@@ -1685,6 +1730,15 @@ class BatteryStrategy:
                 return None
             # M3 generalized handoff lead — applies whenever target
             # boundary's period rate >= current period rate.
+            # P3-HIGH-1 (pass-4 fix): keep state="holding" through the lead
+            # window. Previously this dropped to "inactive" on first
+            # crossing, leaving the next 2-3 pre-boundary ticks to route
+            # INACTIVE → chunk-lock blocks entry → drain-target fallback
+            # commanded reserve_level=drain_target, releasing the buffer
+            # in the last 10-15 min — re-creating C2-CRIT-1 inside the lead.
+            # The HOLD decision continues every tick; the boundary itself
+            # flips the TOU branch which takes over, and the next off_peak
+            # entry resets state via reset_arbitrage_chunk.
             if (
                 mins <= ATTAIN_PEAK_HANDOFF_LEAD_MIN
                 and self._attain_target_period_at_or_above_current(
@@ -1693,12 +1747,9 @@ class BatteryStrategy:
             ):
                 _LOGGER.info(
                     "Attainability HOLDING handoff (%dm to %s ≤ %dm lead): "
-                    "release for boundary takeover, reserve stays at target",
+                    "reserve stays at target until boundary takes over",
                     mins, target_period or "?", ATTAIN_PEAK_HANDOFF_LEAD_MIN,
                 )
-                self._attain_state = "inactive"
-                # Emit HOLD-shape one more tick so reserve stays at target
-                # while the boundary takeover commands its own setpoint.
                 return self._get_attainability_hold_decision(
                     soc=soc, now=now,
                     target_day_class=target_day_class,
@@ -1803,33 +1854,43 @@ class BatteryStrategy:
                 self._arbitrage_guard_consecutive_trips = 0
 
             # M5: operator/Enphase drift policy. While we are charging,
-            # if the cfg switch reads OFF (operator manual flip or
-            # Enphase revert), DO NOT fight it — log once, transition to
-            # inactive + chunk-lock; retry next chunk. Guarded by tick
-            # counter: cfg actuation has measured ~35-min cloud lag, so
-            # don't enforce until our own command has had a chance to
-            # land (>=3 charging ticks ≈ 15 min — comfortably under the
-            # actuation envelope but past the test-fixture single-tick
-            # window where cfg is intentionally still "off").
+            # if the cfg switch transitions ON→OFF (operator manual flip
+            # or Enphase revert), DO NOT fight it — log once, transition
+            # to inactive + chunk-lock; retry next chunk.
+            #
+            # P3-HIGH-3 (pass-4): use TRANSITION detection, not
+            # absence-of-ON. The previous ">3 ticks and cfg not ON" check
+            # conflated actuation lag with drift — when the measured
+            # ~35-min Enphase cloud envelope exceeded our 15-min
+            # threshold, every real ATTAIN self-aborted ~20 min in and
+            # chunk-locked before the cfg ever read ON. The chunk's
+            # natural end (boundary / SOC≥target / window close / guard)
+            # bounds the wait, so no tick-counter self-abort is needed:
+            # we only treat cfg=False as drift after we have OBSERVED
+            # cfg=True at least once while charging.
             self._attain_charging_ticks += 1
-            if self._attain_charging_ticks > 3:
-                cfg = self._get_state_bool(
-                    self._get_entity("charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY)
-                )
-                if cfg is False:
-                    if not self._attain_drift_logged:
-                        _LOGGER.warning(
-                            "Attainability CHARGING — observed charge_from_grid OFF "
-                            "after %d ticks of commanded ON (operator manual flip "
-                            "or Enphase revert). Operator wins; transitioning to "
-                            "inactive + chunk-lock. Will retry next off-peak chunk.",
-                            self._attain_charging_ticks,
-                        )
-                        self._attain_drift_logged = True
-                    self._attain_state = "inactive"
-                    self._attain_charging_ticks = 0
-                    self._arbitrage_chunk_completed = True
-                    return None
+            cfg = self._get_state_bool(
+                self._get_entity("charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY)
+            )
+            if cfg is True:
+                self._attain_cfg_observed_on = True
+            elif cfg is False and self._attain_cfg_observed_on:
+                # Real ON→OFF transition: operator wins.
+                if not self._attain_drift_logged:
+                    _LOGGER.warning(
+                        "Attainability CHARGING — observed charge_from_grid "
+                        "ON→OFF transition after %d ticks (operator manual "
+                        "flip or Enphase revert). Operator wins; "
+                        "transitioning to inactive + chunk-lock. Will retry "
+                        "next off-peak chunk.",
+                        self._attain_charging_ticks,
+                    )
+                    self._attain_drift_logged = True
+                self._attain_state = "inactive"
+                self._attain_charging_ticks = 0
+                self._attain_cfg_observed_on = False
+                self._arbitrage_chunk_completed = True
+                return None
 
             # Verify-only re-emit (idempotent via _result()'s diff).
             rate = self._observed_net_charge_rate_per_hour()
@@ -1906,6 +1967,7 @@ class BatteryStrategy:
         self._attain_state = "charging"
         self._attain_drift_logged = False
         self._attain_charging_ticks = 1
+        self._attain_cfg_observed_on = False
         stage_note = (
             "mid_peak→peak coverage" if tou_period == "mid_peak" else None
         )

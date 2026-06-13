@@ -974,10 +974,69 @@ class TestRebootRecoveryFromHardware:
         # boot; the important assertion is no charging adoption.
         assert r["arbitrage_phase"] != ARBITRAGE_PHASE_ATTAIN
 
+    def test_reboot_cfg_unavailable_defers_without_consuming_latch(self):
+        """P3-HIGH-4 (pass-4): cfg unavailable/unknown at boot must DEFER
+        adoption WITHOUT consuming the once-latch (Enphase cloud switch
+        can lag minutes behind local Envoy poll). First ticks issue no
+        commands; latch unconsumed; cfg resolves on → adopt charging."""
+        strat, hass = _build_strategy(soc=40)
+        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "unavailable")
+        # Tick 1 — cfg unavailable.
+        r1 = strat.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        assert strat._attain_reboot_recovered is False, (
+            "once-latch consumed despite cfg unavailable"
+        )
+        assert r1["actions"] == [], (
+            f"defer must issue zero commands; got {r1['actions']}"
+        )
+        # Tick 2 — still unavailable.
+        r2 = strat.determine_mode(
+            "off_peak", "summer",
+            now=_SUMMER_INSIDE_WINDOW + timedelta(minutes=5),
+        )
+        assert strat._attain_reboot_recovered is False
+        assert r2["actions"] == []
+        # Tick 3 — cfg resolves ON → adopt charging.
+        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
+        r3 = strat.determine_mode(
+            "off_peak", "summer",
+            now=_SUMMER_INSIDE_WINDOW + timedelta(minutes=10),
+        )
+        assert strat._attain_reboot_recovered is True
+        assert strat._attain_state == "charging"
+        assert r3["arbitrage_phase"] == ARBITRAGE_PHASE_ATTAIN
+
+    def test_reboot_cfg_on_off_peak_outside_window_orderly_release(self):
+        """P3-MED-2 (pass-4): drive the adopted=='release' path for real
+        — cfg ON + off_peak time OUTSIDE the lead window (e.g. 22:00 boot
+        after the evening peak, well before the morning charge window
+        opens). Adoption returns 'release' → orderly turn_off + reserve
+        restore, distinct from the drain fallback's incidental unwind."""
+        strat, hass = _build_strategy(soc=70, lead_time_min=360)
+        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
+        # 22:00 local — off_peak (evening peak 16-20 has ended), and
+        # well before the morning charge window opens (mid_peak at 14:00
+        # tomorrow, window opens 6h prior = 08:00) → _is_charge_window_open
+        # is False here, so the M2 path returns "release".
+        boot_time = datetime(2026, 7, 15, 22, 0)
+        r = strat.determine_mode(
+            "off_peak", "summer", now=boot_time,
+        )
+        # Recovery consumed once-latch + emitted release decision.
+        assert strat._attain_reboot_recovered is True
+        assert strat._attain_state == "inactive"
+        # The release path emits charge_from_grid=False (orderly turn_off).
+        reason = r.get("reason", "")
+        assert "reboot recovery" in reason and "orderly release" in reason, (
+            f"release path did not fire — reason: {reason!r}"
+        )
+
     def test_reboot_cfg_on_during_peak_orderly_release(self):
         """cfg ON but boot landed during PEAK (no valid attain window) →
-        orderly release (turn_off + reserve restore), NOT drain fallback's
-        incidental unwind."""
+        peak-branch handles it (recovery isn't invoked during peak —
+        attain branch is never entered)."""
         strat, hass = _build_strategy(soc=70)
         hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
         peak_time = datetime(2026, 7, 15, 17, 30)  # inside peak 16-20
@@ -985,10 +1044,7 @@ class TestRebootRecoveryFromHardware:
             "peak", "summer", now=peak_time,
         )
         # Recovery is only invoked via _run_attain_branch — peak branch
-        # doesn't call it; instead the standard peak handling runs. But
-        # for off_peak/mid_peak entries we proved the recovery path is
-        # exercised. Sanity assertion: state stays inactive (no attain
-        # adoption during peak — invariant).
+        # doesn't call it; instead the standard peak handling runs.
         assert strat._attain_state == "inactive"
 
 
@@ -1001,21 +1057,51 @@ class TestGeneralizedBoundaryHandoffLead:
 
     def test_handoff_lead_fires_when_target_period_rate_ge_current(self):
         """While holding with ≤15 min to a non-peak boundary whose rate is
-        >= current period's rate, exit-4 fires (releases reserve from latch
-        + emits HOLD)."""
+        >= current period's rate, HOLD continues — reserve stays pinned at
+        target every tick through the lead window. P3-HIGH-1 (pass-4):
+        state must remain 'holding' so we don't fall through to drain
+        fallback for the final 2-3 pre-boundary ticks."""
         # Enter holding at 13:50 (10 min before 14:00 mid_peak boundary).
-        # off_peak rate is the lowest; mid_peak rate > off_peak rate; so
-        # target_period_at_or_above_current returns True.
         anchor = datetime(2026, 7, 15, 13, 50)
         strat, hass = _build_strategy(soc=80)
-        # Force into holding state directly.
         strat._attain_state = "holding"
         strat._attain_reboot_recovered = True  # skip M2
         r = strat.determine_mode("off_peak", "summer", now=anchor)
-        # Holding path emits HOLD-shape; latch released for boundary takeover.
         assert r["arbitrage_phase"] == ARBITRAGE_PHASE_ATTAIN
-        # State released (boundary takeover next tick).
-        assert strat._attain_state == "inactive"
+        # P3-HIGH-1 fix: state stays "holding" through the lead window.
+        assert strat._attain_state == "holding"
+
+    def test_holding_inside_lead_window_pins_reserve_every_tick(self):
+        """P3-HIGH-1 pass-4: holding through the 15-min lead window must
+        re-emit reserve=target on EVERY tick (no drain fallback) — proves
+        the gap that previously dropped state to inactive (re-creating the
+        C2-CRIT-1 buffer-release inside the lead) is closed."""
+        # Tick a path through 10m, 5m, 0m to a 14:00 mid_peak boundary.
+        boundary = datetime(2026, 7, 15, 14, 0)
+        strat, hass = _build_strategy(soc=80)
+        strat._attain_state = "holding"
+        strat._attain_reboot_recovered = True  # skip M2
+        target = strat._peak_buffer_target
+        for offset in (10, 5, 1):
+            now = boundary - timedelta(minutes=offset)
+            r = strat.determine_mode("off_peak", "summer", now=now)
+            assert strat._attain_state == "holding", (
+                f"tick @ -{offset}m: state dropped to {strat._attain_state}"
+            )
+            assert r["arbitrage_phase"] == ARBITRAGE_PHASE_ATTAIN, (
+                f"tick @ -{offset}m: phase {r['arbitrage_phase']}"
+            )
+            # Reserve actions either absent (already at target) or pinned
+            # to peak_buffer_target — never the drain_target.
+            reserve_actions = [
+                a for a in r["actions"]
+                if "reserve" in a.get("target", "")
+            ]
+            for a in reserve_actions:
+                assert a["data"]["value"] == target, (
+                    f"tick @ -{offset}m: reserve emitted "
+                    f"{a['data']['value']} != target {target}"
+                )
 
     def test_handoff_lead_predicate_true_for_offpeak_to_midpeak(self):
         """Helper directly: _attain_target_period_at_or_above_current returns
@@ -1122,6 +1208,57 @@ class TestSolarTermAuthority:
         # SOC 60 + 0 = 60 < 80 → ATTAIN fires.
         assert r["arbitrage_phase"] == ARBITRAGE_PHASE_ATTAIN
 
+    def test_daylight_bounds_converts_utc_to_local_for_solar_term(self):
+        """P3-HIGH-2 (pass-4): sun.sun timestamps are UTC ISO; without
+        as_local() projection America/Chicago (CDT, UTC-5) sunset 20:15
+        local = 01:15Z is projected as 01:15 LOCAL, the today-overlap
+        branch never fires and the live solar term collapses to 0 —
+        re-creating the A-HIGH-2 cost regression in production.
+
+        Feed UTC-ish sun attrs + a CDT-shaped as_local stub, midday window
+        → daylight bounds land in afternoon AND surplus is nonzero.
+        """
+        from homeassistant.util import dt as dt_util  # mocked module
+        strat, hass = _build_strategy_with_solar(soc=60, solcast_remaining="20")
+        # Patch as_local to subtract 5h (CDT). Real sun.sun delivers UTC
+        # ISO timestamps like "2026-07-15T12:15:00+00:00" (sunrise 07:15
+        # CDT) and "2026-07-16T01:15:00+00:00" (sunset 20:15 CDT).
+        hass.set_state(
+            "sun.sun", "above_horizon",
+            attributes={
+                "next_rising": "2026-07-15T12:15:00+00:00",
+                "next_setting": "2026-07-16T01:15:00+00:00",
+            },
+        )
+        original_as_local = dt_util.as_local
+
+        def _cdt_as_local(d):
+            # Strip tzinfo and shift -5h to model CDT projection.
+            try:
+                return (d - timedelta(hours=5)).replace(tzinfo=None)
+            except Exception:
+                return d
+        dt_util.as_local = _cdt_as_local
+        try:
+            anchor = datetime(2026, 7, 15, 12, 0)  # midday local
+            sunrise, sunset = strat._daylight_bounds(anchor)
+            # Correctly converted: sunrise 07:15 local, sunset 20:15 local.
+            assert sunrise.hour == 7 and sunrise.minute == 15, (
+                f"sunrise wrong: {sunrise}"
+            )
+            assert sunset.hour == 20 and sunset.minute == 15, (
+                f"sunset wrong: {sunset}"
+            )
+            # Live solar term must be nonzero for the midday window
+            # (boundary 14:00 → some overlap with [12:00, 20:15]).
+            surplus = strat._expected_solar_surplus_pct(anchor, 120)
+            assert surplus > 0, (
+                f"live solar term collapsed to {surplus} — UTC/local bug "
+                f"re-introduced"
+            )
+        finally:
+            dt_util.as_local = original_as_local
+
     def test_solar_term_excludes_post_boundary_production(self):
         """C2-MED-1: solar landing AFTER the boundary cannot inflate the
         term. Even with huge remaining forecast, predicate inputs depend on
@@ -1209,6 +1346,53 @@ class TestOperatorDriftPolicy:
     """M5: while charging, if cfg switch reads OFF (operator flip or Enphase
     revert), do NOT fight — log once + transition to inactive + chunk-lock."""
 
+    def test_cfg_off_pending_actuation_does_not_self_abort(self):
+        """P3-HIGH-3 (pass-4): 10 ticks of cfg=off-because-pending must
+        NOT chunk-lock. "Never became ON yet" is actuation lag (measured
+        ~35-min Enphase envelope), not drift. The chunk's natural end
+        bounds the wait, so no tick-counter self-abort."""
+        strat, hass = _build_strategy(soc=12)
+        _seed_zero_rate_history(strat, _SUMMER_INSIDE_WINDOW, soc=12)
+        # cfg stays OFF (default fixture) — actuation pending the whole time.
+        strat.determine_mode("off_peak", "summer", now=_SUMMER_INSIDE_WINDOW)
+        assert strat._attain_state == "charging"
+        for i in range(2, 12):
+            strat.determine_mode(
+                "off_peak", "summer",
+                now=_SUMMER_INSIDE_WINDOW + timedelta(minutes=5 * i),
+            )
+        # cfg never observed ON → no drift fired → still charging.
+        assert strat._attain_state == "charging", (
+            f"self-aborted from pending actuation lag: {strat._attain_state}"
+        )
+        assert strat._arbitrage_chunk_completed is False
+        assert strat._attain_cfg_observed_on is False
+
+    def test_cfg_observed_on_then_off_triggers_orderly_release(self):
+        """P3-HIGH-3 (pass-4): genuine ON→OFF transition (operator flip)
+        triggers chunk-lock release. Distinguishes from above."""
+        strat, hass = _build_strategy(soc=12)
+        _seed_zero_rate_history(strat, _SUMMER_INSIDE_WINDOW, soc=12)
+        strat.determine_mode("off_peak", "summer", now=_SUMMER_INSIDE_WINDOW)
+        # Tick 2-4: cfg observed ON (commanded ON landed).
+        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
+        for i in range(2, 5):
+            strat.determine_mode(
+                "off_peak", "summer",
+                now=_SUMMER_INSIDE_WINDOW + timedelta(minutes=5 * i),
+            )
+        assert strat._attain_cfg_observed_on is True
+        assert strat._attain_state == "charging"
+        # Tick 5: operator flips OFF.
+        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
+        r = strat.determine_mode(
+            "off_peak", "summer",
+            now=_SUMMER_INSIDE_WINDOW + timedelta(minutes=25),
+        )
+        assert strat._attain_state == "inactive"
+        assert strat._arbitrage_chunk_completed is True
+        assert r["arbitrage_phase"] != ARBITRAGE_PHASE_ATTAIN
+
     def test_cfg_off_during_sustained_charging_releases_to_inactive(self):
         """After 4 ticks of charging, the cfg switch externally flips OFF →
         we transition to inactive + chunk-lock; do NOT re-issue turn_on."""
@@ -1245,6 +1429,90 @@ class TestLoadSheddingBatteryExclusion:
     """P2B-HIGH-1: load shedding must NOT shed loads because the battery is
     grid-charging. Subtract battery charge from import before comparing to
     the shed threshold."""
+
+    def test_load_shedding_battery_charge_excluded_behavioral(self):
+        """P3-MED-1 (pass-4): behavioral mutation authority — drive the
+        REAL _update_load_shedding via its unbound method on a minimal
+        SimpleNamespace coord backed by a real BatteryStrategy. Two
+        scenarios:
+          (A) battery charging 16 kW, house 4 kW (raw net 20 kW,
+              effective 4 kW) — must NOT shed under a 12 kW threshold.
+          (B) battery idle, house 6 kW (net = effective = 6 kW) — also
+              no shed.
+        Mutation: replacing `effective_kw` with `_net_kw` in
+        _update_load_shedding's import_kw line escalates scenario A —
+        this test fails.
+        """
+        # Patch helper modules to provide energy.py's imports.
+        import sys as _sys
+        _disp = _sys.modules.get("homeassistant.helpers.dispatcher")
+        if _disp is not None:
+            for _name in (
+                "async_dispatcher_connect", "async_dispatcher_send",
+                "dispatcher_send",
+            ):
+                if not hasattr(_disp, _name):
+                    setattr(_disp, _name, lambda *a, **k: None)
+        _evt = _sys.modules.get("homeassistant.helpers.event")
+        if _evt is not None:
+            for _name in (
+                "async_track_time_interval", "async_track_state_change_event",
+                "async_call_later",
+            ):
+                if not hasattr(_evt, _name):
+                    setattr(_evt, _name, lambda *a, **k: (lambda: None))
+        try:
+            from custom_components.universal_room_automation.domain_coordinators import (  # noqa: E501
+                energy as energy_mod,
+            )
+            update_ls = energy_mod.EnergyCoordinator._update_load_shedding
+        except Exception as e:
+            pytest.skip(f"energy module not importable in sandbox: {e}")
+
+        def _make_coord(net_w: str, batt_w: str):
+            strat, hass = _build_strategy(soc=12)
+            hass.set_state(_NETP, net_w, attributes={"unit_of_measurement": "W"})
+            hass.set_state(_BPOW, batt_w, attributes={"unit_of_measurement": "W"})
+            coord = types.SimpleNamespace()
+            coord._battery = strat
+            coord._load_shedding_enabled = True
+            coord._load_shedding_active_level = 0
+            coord._sustained_import_readings = []
+            coord._peak_import_history = []
+            coord._peak_import_dirty = False
+            coord._peak_import_baseline = types.SimpleNamespace(
+                update=lambda v: None,
+            )
+            coord._load_shedding_sustained_minutes = 5
+            coord._decision_interval = 5
+            coord._load_shedding_threshold_kw = 12.0
+            coord._get_effective_shedding_threshold = lambda: 12.0
+            return coord
+
+        # (A) net 20 kW, battery charging 16 kW (raw entity -16000 since
+        # battery_power_w negates). Effective = 4 kW < 12 → no shed.
+        coord_a = _make_coord("20000", "-16000")
+        for _ in range(5):
+            try:
+                update_ls(coord_a, "mid_peak")
+            except Exception:
+                # Escalation path may reach into coord internals we don't
+                # stub; we care only about whether the shed gate tripped.
+                break
+        assert coord_a._load_shedding_active_level == 0, (
+            f"battery-charge falsely tripped load shedding: "
+            f"level={coord_a._load_shedding_active_level} — "
+            f"mutation 'feed raw net' active"
+        )
+
+        # (B) net 6 kW, battery idle → effective 6 kW. Also no shed.
+        coord_b = _make_coord("6000", "0")
+        for _ in range(5):
+            try:
+                update_ls(coord_b, "mid_peak")
+            except Exception:
+                break
+        assert coord_b._load_shedding_active_level == 0
 
     def test_load_shedding_excludes_battery_charge_structural(self):
         """The _update_load_shedding code must read _effective_import_kw
