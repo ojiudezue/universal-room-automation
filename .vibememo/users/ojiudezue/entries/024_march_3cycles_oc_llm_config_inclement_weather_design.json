@@ -1,0 +1,56 @@
+{
+  "format_version": "2.1",
+  "entry_id": "024",
+  "author": "ojiudezue",
+  "session_id": "claude_20260613_15_march_3cycles_oc_llm_rootcause_inclement_weather_design",
+  "timestamp": "2026-06-15T06:00:00Z",
+  "type": "milestone",
+  "weight": "load-bearing",
+  "title": "Three-cycle march shipped (v5.3.9/5.4.0/5.4.1 + v5.4.2 rename) on the new Opus-4.8 reviewer; OC LLM failures root-caused to config-not-model; and a fully-designed inclement-weather reserve cycle to replace Enphase Storm Guard with operator's own NWS-alert + local-weather fusion",
+  "summary": "A long continuation session did three things. (1) Marched #16 arbitrage solar-attainability ladder (v5.3.9: rung-0 suppress / rung-1 redirect-EV / rung-2 grid, reusing the v5.3.8 attain projection, + a bidirectional breaker-safety chokepoint that closed a LATENT v5.3.8 attain breaker hole), #10 HC pre-conditioning toggle + OC observability (v5.4.0), #15 load-shed correctness (v5.4.1), and a cosmetic rename (v5.4.2: '28 · HVAC Predictive Conditioning' reordered above its sub-features). Each Review-D validated. (2) The operator asked 'is Haiku good enough?' for the OC LLM tier after it kept failing — root-caused NOT to Haiku's competence but to the HA Anthropic AI-Task entity being on the 'recommended' preset, whose token/thinking budget starved the structured output (empty responses + 45s timeouts). Fix was a CONFIG change (explicit claude-haiku-4-5 + max_tokens 4096 + bounded thinking 1024), proven by a direct ai_task.generate_data test returning clean schema-valid JSON. (3) Discovered URA is blind to Enphase Storm Guard and its own storm_forecast is a single-weather-entity hardcoded-condition check that ignores the operator's configured 3-way cross-check — then fully designed (plan FINAL/build-ready, not yet built) a replacement inclement-weather reserve cycle.",
+  "decisions": [
+    "INCLEMENT DESIGN — outage-RELEVANCE is the PRIMARY classifier gate, NOT Severity. A Severe Flood Watch is high-severity but a weak OUTAGE predictor for an elevated house (flooding doesn't cut power); gating on Severity would re-create the Enphase over-hold. So: event-type keyword gate first (CONF_INCLEMENT_POWER_THREAT_EVENTS, single editable list = both the gate AND the fire-escalation hook; flood/fire notice-only by absence) -> certainty tier -> Severity as a secondary noise filter only. CAP axes (Severity/Certainty/Urgency) are independent; Watch/Warning is a product type, not a severity level.",
+    "INCLEMENT DESIGN — HOLD is a DEPTH ladder (full/partial/allow_discharge), not binary, modulated by tier x TOU x SOLAR-HORIZON. Operator insight: a warning means something entirely different in the morning (solar ahead, discharge recoverable) vs at night (6-12h dark, battery is the only backup), and relative to off/mid/peak. Policy: off_peak holds readily (no arbitrage revenue forgone); mid/peak only override the profitable discharge when confidence is HIGH (warn-tier, or watch+local-corroboration). partial_hold = elevated reserve floor (50%, operator-raised from 40, Advanced config) threaded into existing TOU branches.",
+    "INCLEMENT DESIGN — 'recoverable' must be SOLAR-SURPLUS-based, not raw forecast-solar kWh (operator: 'solar must feed the house before battery'). Reuse the v5.3.8 attainability _expected_solar_surplus_pct (nets house load) — same 'solar reaching the battery' definition as #16. Overnight-recoverable is RUNG-GATED: only consulted for mid/peak rungs (off_peak holds for free).",
+    "INCLEMENT DESIGN — alert + local weather FUSION is the thesis ('to beat enphase we use the alert (same NWS feed they get) WITH local weather'). A high-certainty WARNING holds regardless; a low-certainty WATCH holds ONLY if local conditions corroborate across the 3-entity cross-check — this is what stops the Enphase bogus 2-day hold (storm forecast but locally cleared). Hold DURATION = the alert's own min(Ends,Expires), never a fixed timer (the Enphase stale-lock failure).",
+    "OC LLM — the failures were CONFIG not MODEL. The HA Anthropic AI-Task 'recommended' preset gave too small a token/thinking budget for forced structured output -> empty 'zero-length document' parses + 45s timeouts. Keep Haiku (right for shadow-mode structured extraction); fix is explicit model + max_tokens 4096 + bounded thinking. Don't judge a model's reasoning when the calls fail at the transport/budget layer. Also: disable web_search/web_fetch/code_execution on the OC AI-Task (latent timeout risk; never needed for local extraction).",
+    "Model tiering updated: claude-fable-5 RETIRED -> ura-reviewer + ura-planner now claude-opus-4-8 (builder stays opus-4-7, validator haiku). With 4.8 reviewer vs 4.7 builder the reviewer now genuinely EXCEEDS the builder (the policy ideal). See [[feedback-model-tiering-fable5]].",
+    "EV-drain protection NOT storm-tightened (operator: 'simpler is good') — evse_battery_hold already prevents battery->EV drain when an EV charges, so a storm hold doesn't need to also tighten the EV drain threshold. Recorded as an explicit NON-GOAL."
+  ],
+  "alternatives_considered": [
+    "Gating inclement on Severity (or the Watch/Warning name) — rejected; a Severe Flood Watch would over-hold (the Enphase failure). Outage-relevance event-type gate instead.",
+    "Binary storm->hold (the existing has_storm_forecast behavior) — rejected; ignores solar-recoverability and forgoes peak arbitrage indiscriminately. Hold-depth ladder instead.",
+    "Raw forecast-solar kWh as the recoverability metric (initial draft, 8 kWh) — rejected by the operator; raw solar double-counts house load. Surplus-based projection (attainability reuse) instead.",
+    "Upgrading the OC LLM from Haiku to Sonnet to fix the failures — rejected; the failures were a token-budget config issue, not Haiku competence, so a model swap would waste money and keep failing. Fixed the AI-Task config instead.",
+    "Two separate config fields (power-threat list + promoted-events) — collapsed to ONE editable keyword list (add a keyword = hold-eligible; absent = notice-only). One fewer knob, matches the operator's mental model.",
+    "Pausing EVs during a storm hold — rejected as unnecessary (evse_battery_hold + grid-serves-EV already protect the reserve). Guardrail noted: any future EV-pause-on-storm MUST use a dedicated _paused_by_storm set, never reuse one (the #15/#16 collision-class lesson)."
+  ],
+  "implications": [
+    "The 3-framing-disjoint review protocol had its strongest demonstration in #15: Reviews A/B/C each found a DIFFERENT defect class in the same diff (precedence-matrix holes / orphan-restore CRITs incl. one the build's OWN first-pass fix introduced / a written-but-never-read manual-off no-op) — none of which the passing test suite caught. This is the empirical case for keeping three disjoint framings, not converging reviewers.",
+    "The Opus-4.8 reviewer's focused passes caught CRITICAL regressions that the validator + 3 full reviews + the orchestrator's own spot-check ALL missed — a deleted live-dispatch in #16 (TOU enforcement silently gone) and a degenerate-oracle in #10 (shadow-accuracy would trend falsely to 100%). Validates the model-tiering decision to keep the reviewer the super-powered tier. The lesson recurs: the pipeline catches builder mistakes; only a strong reviewer catches the reviewer-adjacent misses.",
+    "Recurring bug-class bank grew: 'mock-shaped-to-code' / claimed-infra-never-read hit twice this session (#10 phantom room_coordinators oracle; #10 manual-off _observed_off_since_pause written-never-read). Reviews must demand tests that drive the REAL surface + a mutation that reverts the fix. Mutation-anchored tests are now a standing gate.",
+    "URA's energy strategy now has a coherent 'solar reaching the battery' primitive (_expected_solar_surplus_pct from #16) reused across attainability AND the inclement recoverability check — a sign the surplus abstraction is load-bearing and worth protecting.",
+    "Operator runs Enphase Storm Guard as the ONLY allowed Enphase cloud automation; a 100% SOC is often Storm Guard NOT URA (URA target is 80%). The inclement cycle is explicitly meant to let the operator STOP depending on SG (coarse, no local-condition veto, over-held the battery 2 days for a storm that cleared). See [[enphase-storm-guard-operator-fact]]."
+  ],
+  "follow_up": [
+    "BUILD task #17 (inclement-weather reserve) — plan FINAL/build-ready at docs/planning/PLANNING_inclement_weather_reserve.md; Tier 2-DB; awaiting operator 'go'. Pre-req D0 (operator): add the new Dynamic Weather entity to CONF_ENERGY_WEATHER_FALLBACK_* so the cross-check uses it.",
+    "#16 attain-suppression LIVE-unexercised — recurring daily 10:07 CDT check armed; blocked 6-13 (restart/solar-collapse) and 6-14 (Envoy setup_retry). Needs a not-poor-forecast good-solar day with Envoy up. The new attain attrs DID compute on live data once Envoy recovered (projected_soc 36.5, solar_term 5).",
+    "Operator action: disable web_search/web_fetch/code_execution on the Claude AI-Task entity (latent OC LLM timeout risk).",
+    "Watch the OC shadow_accuracy gauge leave 'warming_up' over coming days — that's the empirical 'is Haiku good enough' instrument and gates any L1->L2 autonomy promotion.",
+    "Envoy hardware was flaky/setup_retry for days (operator fixed ~6-14 evening); v5.3.7 decoupling kept URA up throughout — but watch for recurrence."
+  ],
+  "refs": {
+    "entries": ["023", "022", "021"],
+    "files": [
+      "docs/planning/PLANNING_inclement_weather_reserve.md",
+      "docs/reviews/code-review/arbitrage_solar_attainability_ladder.md",
+      "docs/reviews/code-review/hc_precool_oc_observability.md",
+      "docs/reviews/code-review/load_shedding_correctness.md",
+      "docs/readmes/README_v5.3.9.md",
+      "docs/readmes/README_v5.4.0.md",
+      "docs/readmes/README_v5.4.1.md",
+      "docs/readmes/README_v5.4.2.md"
+    ]
+  },
+  "ship_target": "v5.3.9 + v5.4.0 + v5.4.1 + v5.4.2 ALL LIVE; inclement-weather reserve (task #17) designed + plan-final, NOT yet built"
+}
