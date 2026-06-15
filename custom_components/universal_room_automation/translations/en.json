@@ -817,6 +817,10 @@
           "energy_weather_fallback_2": "Weather Entity (Tertiary / Fallback 2)",
           "weather_staleness_max_hours": "Weather Staleness Limit (hours)",
           "weather_divergence_threshold_f": "Weather Divergence Threshold (°F)",
+          "inclement_nws_alerts_entity": "NWS Alerts sensor",
+          "inclement_power_threat_events": "Event types that can hold the battery",
+          "inclement_warn_min_severity": "Minimum severity that can hold the battery",
+          "inclement_grid_precharge_on_hold": "Charge from grid to fill the battery during holds",
           "energy_solcast_today_entity": "Solar Forecast Today",
           "energy_solcast_tomorrow_entity": "Solar Forecast Tomorrow",
           "energy_solcast_remaining_entity": "Solar Forecast Remaining Today",
@@ -872,6 +876,10 @@
           "energy_weather_fallback_2": "Tertiary weather provider (third in the ranked list). Used only when secondary is also unavailable. Helps compute divergence across 3 sources for higher-confidence apparent-temp readings. Leave empty to disable.",
           "weather_staleness_max_hours": "Maximum age (in hours) of a weather provider's last update before it is considered stale and skipped. Default: 3 hours.",
           "weather_divergence_threshold_f": "If two healthy providers disagree on today's high by more than this many °F, the binary_sensor.ura_weather_divergence turns ON and a WARNING is logged. The median value is used as the authoritative reading. Default: 5°F.",
+          "inclement_nws_alerts_entity": "The Home Assistant sensor that exposes National Weather Service alerts (e.g. sensor.nws_alerts_…). Leave blank to fall back to weather-condition cross-checks only.",
+          "inclement_power_threat_events": "One per line. Case-insensitive substring match against the NWS Event name (so 'Severe Thunderstorm' matches both 'Severe Thunderstorm Warning' AND 'Severe Thunderstorm Watch'). This is the FIRST gate — any alert whose Event name does NOT match an entry here is informational only and will not hold the battery, regardless of how severe it sounds. Fire-weather alerts (Red Flag Warning, Fire Weather Watch) are notice-only by default; ADD 'Red Flag' or 'Fire Weather' here to make them hold-eligible. Flood alerts are absent by default for this elevated property; ADD 'Flood' if your location is power-vulnerable to flooding.",
+          "inclement_warn_min_severity": "Secondary noise filter applied AFTER the Event-type gate. Choose the lowest NWS Severity value that should still produce a hold. 'Extreme' — only catastrophic events; 'Severe' (recommended) — Severe + Extreme; 'Moderate' — Moderate + Severe + Extreme; 'Minor' — any non-Unknown severity. NOTE: this filter never overrides the Event-type gate — a non-power-threat event is always informational regardless of severity.",
+          "inclement_grid_precharge_on_hold": "When ON, a warning-tier hold will pull from grid during off_peak hours to top up the battery to ~90% before the storm. When OFF, the battery is held at whatever level the sun/arbitrage put it at — no expensive grid energy is used. URA defaults OFF (solar-first philosophy).",
           "energy_solcast_today_entity": "Sensor providing today's total solar forecast in kWh. Used for solar day classification. Default: Solcast forecast_today sensor.",
           "energy_solcast_tomorrow_entity": "Sensor providing tomorrow's total solar forecast in kWh. Used for off-peak drain targets and arbitrage decisions. Default: Solcast forecast_tomorrow sensor.",
           "energy_solcast_remaining_entity": "Sensor providing remaining solar forecast for today in kWh. Used for excess solar EV charging decisions. Default: Solcast forecast_remaining_today sensor.",
@@ -917,6 +925,22 @@
           "energy_generator_entity": "Generator status sensor entity. Replaces default Generac entity.",
           "energy_grid_import_entity": "Direct grid import power sensor (e.g., Emporia mains_from_grid). When set, used as primary source for cost tracking instead of Envoy net power.",
           "energy_grid_export_entity": "Direct grid export power sensor (e.g., Emporia mains_to_grid). When set, used as primary source for export tracking."
+        },
+        "sections": {
+          "inclement_advanced": {
+            "name": "Inclement Weather — Advanced",
+            "description": "Tuning knobs for the inclement-weather battery hold. Defaults are recommended.",
+            "data": {
+              "inclement_partial_hold_reserve_floor": "Reserve floor during partial holds (%)",
+              "inclement_recoverable_surplus_margin_pct": "Solar-surplus margin for 'recoverable' (% SOC)",
+              "inclement_condition_corroboration_mode": "Local condition cross-check"
+            },
+            "data_description": {
+              "inclement_partial_hold_reserve_floor": "When URA decides to partially hold (e.g. low-certainty watch during peak with sun ahead), how much battery to keep in reserve. 50% (default) — preserves a robust overnight backup while still allowing some peak savings. Set lower for more peak savings, higher for more backup.",
+              "inclement_recoverable_surplus_margin_pct": "How much projected solar SURPLUS (net of house load) must EXCEED what a partial hold would let URA discharge, before that discharge counts as 'recoverable' by sun before nightfall. Default 5% SOC. URA reuses the attainability surplus projection (which already nets house load via a 0.5 capture factor), then requires this extra margin so a cloudy / high-load day doesn't falsely read as recoverable. This is a margin over a load-net surplus, NOT a raw kWh threshold. Only consulted during mid_peak / peak rungs — off_peak holds without consulting recoverability.",
+              "inclement_condition_corroboration_mode": "'any' — over-eager (one provider stormy holds); 'majority' — balanced (recommended); 'unanimous' — under-eager (one stale provider blocks)."
+            }
+          }
         }
       },
       "coordinator_hvac": {

@@ -87,6 +87,13 @@ SIGNAL_HVAC_COORDINATOR_READY: Final = "ura_hvac_coordinator_ready"
 SIGNAL_WEATHER_PROVIDER_CHANGED: Final = "ura_weather_provider_changed"
 SIGNAL_WEATHER_DIVERGENCE_DETECTED: Final = "ura_weather_divergence_detected"
 
+# Inclement-weather reserve cycle: dispatched by EnergyBatteryCoordinator on a
+# transition of (inclement tier, hold_depth). Future HVAC / EV / NM consumers
+# subscribe here rather than coupling to battery internals.
+#   Payload: {"tier": str, "hold_depth": str, "source": str,
+#             "expires_at": str | None, "reserve_floor": int, "reason": str}
+SIGNAL_INCLEMENT_STATE_CHANGED: Final = "ura_inclement_state_changed"
+
 # v4.7.1 Cycle B: Dynamic Preset Override Source signals
 # Dispatched by DynamicPresetOverrideSource when a zone transitions to a new bucket.
 # Payload: dict with keys zone_id, previous_bucket, new_bucket, delta_f, now_iso

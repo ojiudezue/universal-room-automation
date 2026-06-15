@@ -68,6 +68,27 @@ class WeatherProviderHealth(StrEnum):
     APPARENT_UNAVAILABLE = "apparent_unavailable"
 
 
+# Broadened storm condition set (D4). The legacy set used by the superseded
+# has_storm_forecast() is preserved as a subset, so installs without an NWS
+# alerts sensor see no regression.
+_STORM_CONDITIONS = frozenset({
+    "lightning", "lightning-rainy", "hail",
+    "tornado", "hurricane", "exceptional",
+    "pouring", "snowy-rainy",
+})
+
+
+@dataclass(frozen=True)
+class StormConditionResult:
+    """ConditionElector result — broadened local condition cross-check (D4)."""
+
+    is_stormy: bool
+    healthy_provider_count: int
+    stormy_provider_count: int
+    contributing_conditions: tuple[str, ...]
+    mode_used: str  # any|majority|unanimous
+
+
 @dataclass
 class WeatherForecast:
     """Parsed forecast from a single provider."""
@@ -760,6 +781,66 @@ class WeatherProviderManager:
     # -------------------------------------------------------------------------
     # Read-only properties used by sensors
     # -------------------------------------------------------------------------
+
+    def current_storm_condition(self, mode: str = "majority") -> StormConditionResult:
+        """ConditionElector (D4) — cross-check current conditions across providers.
+
+        Reads each configured provider's current ``state`` (the weather
+        condition string, e.g. "lightning"). A provider is "stormy" when its
+        condition is in the broadened ``_STORM_CONDITIONS`` set. Only HEALTHY /
+        APPARENT_UNAVAILABLE providers are counted; unhealthy providers are
+        excluded (a stale provider cannot block, per D-J).
+
+        ``mode`` ∈ {"any", "majority", "unanimous"} selects the corroboration
+        rule across the healthy stormy providers.
+        """
+        providers = self._build_provider_list()
+        if not providers:
+            legacy = self._options.get(CONF_ENERGY_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY)
+            if legacy:
+                providers = [legacy]
+
+        healthy = 0
+        stormy = 0
+        contributing: list[str] = []
+        for eid in providers:
+            if not eid:
+                continue
+            health = self._check_provider_health(eid)
+            if health not in (
+                WeatherProviderHealth.HEALTHY,
+                WeatherProviderHealth.APPARENT_UNAVAILABLE,
+            ):
+                continue
+            healthy += 1
+            try:
+                state = self.hass.states.get(eid)
+            except Exception:  # noqa: BLE001
+                state = None
+            if state is None:
+                continue
+            condition = str(state.state or "").strip().lower()
+            if condition in _STORM_CONDITIONS:
+                stormy += 1
+                contributing.append(condition)
+
+        mode = mode if mode in ("any", "majority", "unanimous") else "majority"
+        if healthy == 0:
+            is_stormy = False
+        elif mode == "any":
+            is_stormy = stormy >= 1
+        elif mode == "unanimous":
+            is_stormy = stormy == healthy and healthy >= 1
+        else:  # majority
+            is_stormy = stormy * 2 > healthy
+
+        return StormConditionResult(
+            is_stormy=is_stormy,
+            healthy_provider_count=healthy,
+            stormy_provider_count=stormy,
+            contributing_conditions=tuple(contributing),
+            mode_used=mode,
+        )
 
     @property
     def active_provider(self) -> str | None:
