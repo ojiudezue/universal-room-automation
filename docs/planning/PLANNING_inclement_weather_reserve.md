@@ -53,6 +53,25 @@ Operator thesis (verbatim): *"These warnings mean sth entirely different during 
 
 ---
 
+## BUILD-PREP CORRECTION (2026-06-15, post-FINAL — code re-verification, not scope change)
+
+A pre-build code re-verification confirmed all `energy_battery.py` citations are accurate (storm branch `:2448`, the four TOU `reserve_level=self.reserve_soc` sites `:2474/2481/2562/2577`, `_expected_solar_surplus_pct` `:1362` returning **%SOC** at `:1422/:1449`, `has_storm_forecast` `:648`, `storm_forecast` attr `:2906`). It also found the `energy.py` citations had **drifted and undercounted call sites** — corrected here. This is an anchor correction only; no design change, no new revision header warranted.
+
+**Accurate `energy.py` anchors (each EV seam is DOUBLED — two `determine_mode` paths exist):**
+
+| Plan body cites | Accurate site(s) | Note |
+|---|---|---|
+| `_apply_evse_battery_hold` "called at `:2530`" | invoked at **`:2566` AND `:2890`** | `:2530` is the *`determine_mode`* call (main tick); second path is `determine_mode` at `:2883` → hold at `:2890`. Implementation still at `:2453`. |
+| `determine_arbitrage_actions` `:3106` | **`:3038` AND `:3106`** | two dispatch sites |
+| `_ev_battery_drain_soc` `:2671` | **`:2671` AND `:2729`** | two read sites |
+| breaker invariant `:2615–2616, :2959` | `_execute_breaker_safe_dispatch` at **`:2922`**, invoked `:2616` | name/loc confirmed |
+
+**Reviewer impact (binding):** the inclement change lives INSIDE `determine_mode`, so it propagates to BOTH paths automatically — but the EV-audit §2 (`max()`-safe, can never lower a hold floor) and §5 (release-on-hold, no orphan) acceptance criteria in D5 MUST be verified at **both** `_apply_evse_battery_hold` sites (`:2566` AND `:2890`) and **both** `determine_arbitrage_actions` sites (`:3038` AND `:3106`). Reviewer B owns confirming neither path lowers a `full_hold`/`partial_hold` reserve floor.
+
+**FIN-1 `section()` verified present:** HA's `from homeassistant.data_entry_flow import section` is already used in `config_flow.py` (5 sites), including a collapsed **"Advanced (rarely change)"** pattern — `fan_recheck_advanced` at `:2981–2993`, flattened on submit at `:2893`. The Advanced subsection is an in-repo proven pattern; the builder copies that pattern (no hedge needed).
+
+---
+
 ## EV / EVSE interaction audit (clean bill of health)
 
 Cross-coordinator audit run 2026-06-15 over `energy.py`, `energy_pool.py`, and `energy_battery.py` to verify the inclement cycle cannot collide with EV charging logic or the #15/#16 pause-ownership class. **Verdict: CLEAN.** This cycle touches only battery mode/reserve and writes NO `_paused_by_*` set. The 5 audit findings below are threaded into deliverables and reviewer framings.
