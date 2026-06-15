@@ -2165,6 +2165,38 @@ audited and deferred to a follow-up cycle (see review ledger
 
 ---
 
+### Bug Class #53 — Computed-but-not-consumed control value ⚠️
+
+**Symptom.** A decision function computes a control value (a reserve
+floor, a clamp, a gate) and threads it into SOME of its sibling output
+branches, but silently DROPS it in one or more other branches — while
+still surfacing it in an attribute / observability field. The attribute
+then *claims* a protection the running code does not actually enforce on
+the dropped path. Passing tests + reviews can miss it because a
+no-regression framing only checks the unchanged paths and an attribute
+read looks correct.
+
+**Exemplar — v5.5.0 inclement partial_hold floor.** `effective_reserve`
+(`max(reserve_soc, decision.reserve_floor)`) was threaded into the peak
+and mid_peak branches of `determine_mode` but NOT the off_peak drain
+branch, so an off_peak `partial_hold` drained the battery to the
+drain-target (20-30%) while `inclement_reserve_floor` attr reported 50%.
+Reviewer A (does-it-actually-work framing) caught it; Reviewer B
+(no-regression framing) structurally could not. A SECOND instance in the
+SAME cycle: the arbitrage WAIT phase (`energy_battery.py:1521`) returns
+`reserve_level=self.reserve_soc`, also ignoring the floor — found only by
+a focused fourth review pass, shipped as a tracked follow-up.
+
+**Detection.** When you thread a newly-computed control value into a
+decision function, grep EVERY return/dispatch site of that function (and
+its delegated sub-paths — arbitrage/attain/fallback state machines count)
+and confirm each either consumes the value or is provably unreachable for
+the cases the value protects. Do not trust that "the obvious branch" is
+the only one. If an attribute surfaces the value, the attribute is a
+promise — every code path must honor it or the attribute is lying.
+
+---
+
 ## ✅ MANDATORY VALIDATION CHECKLIST
 
 **Before EVERY deployment, complete this checklist:**
