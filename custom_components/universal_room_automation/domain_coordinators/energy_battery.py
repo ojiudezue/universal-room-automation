@@ -129,6 +129,21 @@ ARB_LADDER_DEFAULT_BATTERY_KWH = _BATTERY_TOTAL_CAPACITY_KWH_FALLBACK
 _LOGGER = logging.getLogger(__name__)
 
 
+def _coerce_int_or_default(value: Any, default: int) -> int:
+    """int(value) with a default fallback on malformed (non-numeric) input.
+
+    C-4 — stored options can be hand-edited / migrated to a non-numeric type;
+    a raise here would degrade the whole inclement decision to allow_discharge
+    and silently disable holds. Fall back to the default instead.
+    """
+    if value is None:
+        return int(default)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return int(default)
+
+
 class BatteryStrategy:
     """Determines battery mode and actions based on TOU period and system state."""
 
@@ -724,14 +739,18 @@ class BatteryStrategy:
                 CONF_INCLEMENT_GRID_PRECHARGE_ON_HOLD,
                 DEFAULT_INCLEMENT_GRID_PRECHARGE_ON_HOLD,
             )),
-            "partial_hold_reserve_floor": int(opts.get(
-                CONF_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR,
+            # C-4 — guard int() against a hand-edited / migrated non-numeric
+            # stored option so a malformed value falls back to the default
+            # instead of raising (which would degrade the whole decision to
+            # allow_discharge and silently disable holds).
+            "partial_hold_reserve_floor": _coerce_int_or_default(
+                opts.get(CONF_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR),
                 DEFAULT_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR,
-            )),
-            "surplus_margin_pct": int(opts.get(
-                CONF_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT,
+            ),
+            "surplus_margin_pct": _coerce_int_or_default(
+                opts.get(CONF_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT),
                 DEFAULT_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT,
-            )),
+            ),
             "corroboration_mode": opts.get(
                 CONF_INCLEMENT_CONDITION_CORROBORATION_MODE,
                 DEFAULT_INCLEMENT_CONDITION_CORROBORATION_MODE,
@@ -892,6 +911,12 @@ class BatteryStrategy:
         try:
             sh = decision.solar_horizon.as_dict()
         except Exception:  # noqa: BLE001
+            # B-LOW-1 — log so a malformed horizon dropping from the attr pack
+            # is visible during L5 live validation rather than silent.
+            _LOGGER.debug(
+                "inclement: solar_horizon.as_dict() failed; "
+                "dropping sub-dict from attr pack", exc_info=True,
+            )
             sh = {}
         return {
             "storm_forecast": decision.hold_depth != "allow_discharge",
@@ -2920,6 +2945,15 @@ class BatteryStrategy:
                 drain_class_for_target = d2_class
 
         drain_target = self._get_offpeak_drain_target(drain_class_for_target)
+        # A-CRIT-1 — off_peak partial_hold floor enforcement. The off_peak
+        # branch otherwise never reads effective_reserve (full_hold short-
+        # circuits earlier; allow_discharge keeps effective_reserve ==
+        # self.reserve_soc, so allow_discharge stays byte-identical). ONLY a
+        # partial_hold clamps the drain target up to the elevated floor so a
+        # watch-uncorroborated / condition-only overnight watch retains the
+        # 50% reserve instead of draining to drain_target (commonly 20-30%).
+        if decision.hold_depth == "partial_hold":
+            drain_target = max(drain_target, effective_reserve)
 
         if soc is not None and soc > drain_target:
             # Above target — drain stored solar (free energy)
@@ -2935,6 +2969,11 @@ class BatteryStrategy:
 
         # At/below target — hold and import cheap grid
         hold_reserve = int(soc) if soc is not None else drain_target
+        # A-CRIT-1 — when a partial_hold is active and SOC is already below the
+        # elevated floor, recover toward the floor via cheap off_peak grid
+        # rather than reporting a sub-floor reserve.
+        if decision.hold_depth == "partial_hold":
+            hold_reserve = max(hold_reserve, effective_reserve)
         return self._result(
             BATTERY_MODE_SELF_CONSUMPTION,
             f"Off-peak hold — SOC {soc}% <= target {drain_target}% (tomorrow {tomorrow_class})",

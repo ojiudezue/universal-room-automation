@@ -207,6 +207,27 @@ def test_warning_product_type_folds_into_higher_certainty():
     assert r.tier == "warn"
 
 
+def test_resolved_precedence_gate_then_productfold_then_severity_demote_AMED1():
+    # A-MED-1 (resolved precedence — WORKING AS INTENDED). Pins the order:
+    #   (1) gate  →  (2) certainty/product-fold  →  (3) severity demote.
+    # A "...Warning" product folds to warn, but a Severity BELOW warn_min_severity
+    # then demotes it to watch — severity is a SECONDARY filter that may demote
+    # tier but never overrides the Event-type gate. A gated-out event can never
+    # be promoted back regardless of severity.
+    # (a) product-folded warn @ Severe (>= min) stays warn.
+    r_warn = classify([make_alert(event="Tornado Warning",
+                                  severity="Severe", certainty="Possible")])
+    assert r_warn.tier == "warn"
+    # (b) SAME product @ Moderate (< Severe min) demotes warn → watch.
+    r_demoted = classify([make_alert(event="Tornado Warning",
+                                     severity="Moderate", certainty="Possible")])
+    assert r_demoted.tier == "watch"
+    # (c) severity can NEVER override the gate: Extreme Flood Watch is still none.
+    r_gated = classify([make_alert(event="Flood Watch",
+                                   severity="Extreme", certainty="Observed")])
+    assert r_gated.tier == "none"
+
+
 def test_expires_at_is_min_across_contributors():
     a1 = make_alert(event="Tornado Warning", severity="Extreme",
                     certainty="Observed", ends="2026-06-11T20:00:00-05:00")

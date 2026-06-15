@@ -163,6 +163,51 @@ def test_overnight_fallback_not_taken_when_tomorrow_poor():
     assert h.recoverable is False
 
 
+@pytest.mark.parametrize("tomorrow", ["moderate", "poor", "unknown", "fair"])
+def test_overnight_fallback_NOT_taken_for_non_good_excellent_classes(tomorrow):
+    # A-HIGH-1 — only {good, excellent} enable the overnight fallback. The real
+    # classify_tomorrow_solar() domain is {excellent, good, moderate, poor,
+    # unknown}; "fair" does not exist and "moderate" must NOT over-permit.
+    bat = FakeBattery(surplus_pct=0.0, tomorrow=tomorrow)
+    expires = (_NOW + timedelta(days=1)).replace(hour=3, minute=0, second=0, microsecond=0)
+    h = compute_solar_horizon(
+        bat, "peak", _NOW, current_soc=80, alert_expires_at=expires,
+        partial_hold_reserve_floor=50, surplus_margin_pct=5,
+    )
+    assert h.recoverable is False
+
+
+@pytest.mark.parametrize("tomorrow", ["good", "excellent"])
+def test_overnight_fallback_taken_for_good_and_excellent(tomorrow):
+    # A-HIGH-1 — both good and excellent enable the overnight fallback.
+    bat = FakeBattery(surplus_pct=0.0, tomorrow=tomorrow)
+    expires = (_NOW + timedelta(days=1)).replace(hour=3, minute=0, second=0, microsecond=0)
+    h = compute_solar_horizon(
+        bat, "peak", _NOW, current_soc=80, alert_expires_at=expires,
+        partial_hold_reserve_floor=50, surplus_margin_pct=5,
+    )
+    assert h.recoverable is True
+    assert h.reason == "overnight_fallback_tomorrow_good"
+
+
+def test_post_sunset_peak_watch_today_not_recoverable():
+    # A-MED-3 — when `now` is already past today's sunset (no sun left today),
+    # the today-path must NOT inflate the risk window to tomorrow's ~24h-out
+    # sunset. today_recoverable is forced False; only the overnight fallback can
+    # rescue. With tomorrow=poor it stays not-recoverable, and the surplus helper
+    # is never called for the (now-impossible) today projection.
+    now_post_sunset = _NOW.replace(hour=21, minute=0)  # sunset_h=20 → past dusk
+    bat = FakeBattery(surplus_pct=99.0, tomorrow="poor", sunset_h=20)
+    h = compute_solar_horizon(
+        bat, "peak", now_post_sunset, current_soc=80,
+        alert_expires_at=now_post_sunset + timedelta(hours=2),
+        partial_hold_reserve_floor=50, surplus_margin_pct=5,
+    )
+    assert h.recoverable is False
+    assert h.reason == "post_sunset_no_recovery_today"
+    bat._expected_solar_surplus_pct.assert_not_called()
+
+
 def test_uses_expected_solar_surplus_pct_helper_not_raw_solcast_remaining():
     # Reviewer A's correctness guard — the surplus must come from the helper.
     bat = FakeBattery(surplus_pct=40.0)

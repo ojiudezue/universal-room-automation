@@ -233,6 +233,13 @@ class AlertClassifier:
                 tier = "warn"
 
             # (3) SEVERITY NOISE FILTER (secondary — never the gate).
+            # A-MED-1 (resolved precedence — WORKING AS INTENDED): the severity
+            # filter runs AFTER certainty/product-folding, so a product-folded
+            # warn (e.g. a "...Warning" event) IS demotable when its Severity is
+            # below warn_min_severity (Tornado Warning @ Moderate → watch). This
+            # is the plan's intent: severity is a secondary filter that may
+            # demote tier but never OVERRIDES the Event-type gate (a gated-out
+            # event already exited above and can never be promoted back).
             severity = str(alert.get("Severity", "Unknown") or "Unknown").strip()
             if _severity_rank(severity) < _severity_rank(self._warn_min_severity):
                 tier = _demote(tier)
@@ -309,7 +316,11 @@ class SolarHorizon:
 
 
 # Tomorrow-solar classes that count as "expect sun to refill in the morning".
-_GOOD_TOMORROW_CLASSES = {"fair", "good", "excellent", "moderate"}
+# A-HIGH-1 — the real domain of classify_tomorrow_solar() is
+# {excellent, good, moderate, poor, unknown} (energy_battery.py:541-571) —
+# there is NO "fair" class, and "moderate" over-permits discharge into a real
+# watch. Restrict to the unambiguous "expect sun to refill" classes.
+_GOOD_TOMORROW_CLASSES = {"good", "excellent"}
 
 
 def compute_solar_horizon(
@@ -334,6 +345,12 @@ def compute_solar_horizon(
     """
     minutes_to_sunset = _minutes_to_sunset(battery, now)
 
+    # A-MED-3 — TODAY's sunset (projected onto now's local date), which may be
+    # in the past. The today-path risk window MUST cap at this, NOT at
+    # `minutes_to_sunset` (which rolls to tomorrow's ~24h-out sunset post-dusk
+    # and would inflate the surplus projection).
+    today_sunset = _today_sunset(battery, now)
+
     # FIN-3 — off_peak short-circuit. MUST NOT call the surplus helper.
     if tou_period == "off_peak":
         return SolarHorizon(
@@ -347,42 +364,49 @@ def compute_solar_horizon(
             reason="off_peak_skip",
         )
 
-    # Risk window end = min(alert.Expires, next_sunset) from now.
-    sunset_dt = (
-        now + timedelta(minutes=minutes_to_sunset)
-        if minutes_to_sunset is not None
-        else None
-    )
-    # Normalize candidates to `now`'s awareness before min()/subtraction.
-    window_end_candidates = []
-    for d in (alert_expires_at, sunset_dt):
-        if d is None:
-            continue
-        _, d_norm = _coerce_compatible(now, d)
-        window_end_candidates.append(d_norm)
-    window_end = min(window_end_candidates) if window_end_candidates else None
-    if window_end is not None:
-        now_norm, end_norm = _coerce_compatible(now, window_end)
-        mins_to_window = max(0, int((end_norm - now_norm).total_seconds() // 60))
-    else:
-        mins_to_window = None
-
-    # Project surplus into battery over the risk window (FIN-2). Nets house
-    # load by construction (SOLAR_CAPTURE_FACTOR=0.5) — REUSES energy_battery.
-    try:
-        surplus_pct = float(
-            battery._expected_solar_surplus_pct(now, mins_to_window)
-        )
-    except Exception:  # noqa: BLE001 — guard external read (#7 stale data)
-        _LOGGER.debug("compute_solar_horizon: surplus read failed", exc_info=True)
-        surplus_pct = 0.0
-
     soc = float(current_soc) if current_soc is not None else 0.0
     permitted_discharge_pct = max(0.0, soc - float(partial_hold_reserve_floor))
     margin = float(surplus_margin_pct)
-    today_recoverable = surplus_pct >= permitted_discharge_pct + margin
 
-    reason = "today_surplus_ok" if today_recoverable else "today_surplus_short"
+    # A-MED-3 — if there is no sun left TODAY (now past today's sunset), the
+    # today-path cannot recover anything; force today_recoverable False and
+    # let the overnight fallback decide. Skipping the surplus projection here
+    # also avoids the ~24h-inflated risk window from next-day sunset.
+    if today_sunset is not None and not _dt_lt(now, today_sunset):
+        surplus_pct = 0.0
+        mins_to_window = 0
+        today_recoverable = False
+        reason = "post_sunset_no_recovery_today"
+    else:
+        # Risk window end = min(alert.Expires, TODAY's sunset) from now.
+        # Normalize candidates to `now`'s awareness before min()/subtraction.
+        window_end_candidates = []
+        for d in (alert_expires_at, today_sunset):
+            if d is None:
+                continue
+            _, d_norm = _coerce_compatible(now, d)
+            window_end_candidates.append(d_norm)
+        window_end = min(window_end_candidates) if window_end_candidates else None
+        if window_end is not None:
+            now_norm, end_norm = _coerce_compatible(now, window_end)
+            mins_to_window = max(0, int((end_norm - now_norm).total_seconds() // 60))
+        else:
+            mins_to_window = None
+
+        # Project surplus into battery over the risk window (FIN-2). Nets house
+        # load by construction (SOLAR_CAPTURE_FACTOR=0.5) — REUSES energy_battery.
+        try:
+            surplus_pct = float(
+                battery._expected_solar_surplus_pct(now, mins_to_window)
+            )
+        except Exception:  # noqa: BLE001 — guard external read (#7 stale data)
+            _LOGGER.debug(
+                "compute_solar_horizon: surplus read failed", exc_info=True
+            )
+            surplus_pct = 0.0
+
+        today_recoverable = surplus_pct >= permitted_discharge_pct + margin
+        reason = "today_surplus_ok" if today_recoverable else "today_surplus_short"
 
     recoverable = today_recoverable
     if not today_recoverable:
@@ -427,6 +451,20 @@ def _overnight_fallback(
     if sunrise_tom is None:
         return False
     return _dt_lt(alert_expires_at, sunrise_tom + timedelta(hours=2))
+
+
+def _today_sunset(battery: Any, now: datetime) -> datetime | None:
+    """TODAY's sunset projected onto ``now``'s local date (may be in the past).
+
+    Distinct from ``_minutes_to_sunset`` (which rolls forward to tomorrow's
+    sunset once today's has passed). A-MED-3 needs today's sunset specifically
+    so the today-path risk window does not inflate to ~24h after dusk.
+    """
+    try:
+        _, sunset_today = battery._daylight_bounds(now)
+    except Exception:  # noqa: BLE001
+        return None
+    return sunset_today
 
 
 def _minutes_to_sunset(battery: Any, now: datetime) -> int | None:

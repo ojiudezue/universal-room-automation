@@ -245,6 +245,86 @@ def test_off_peak_watch_skips_surplus_projection_FIN3():
     assert sh.get("reason") in ("off_peak_skip", "not_consulted")
 
 
+def test_off_peak_partial_hold_floors_reserve_at_effective_reserve():
+    # A-CRIT-1 — an uncorroborated watch at off_peak resolves to partial_hold
+    # (matrix row "watch (uncorroborated) off_peak → partial_hold"). The off_peak
+    # drain/hold path MUST floor the emitted reserve at the elevated floor (50%)
+    # rather than draining to drain_target (commonly 20-30%). SOC=80 is above the
+    # floor, so the drain path runs but must not drain below 50.
+    strat, hass = _make_battery(soc=80)
+    _arm_alert(strat, hass, event="Severe Thunderstorm Watch",
+               severity="Severe", certainty="Possible")  # watch, uncorroborated
+    r = strat.determine_mode("off_peak", "summer", now=_NOW)
+    attrs = strat._inclement_attrs()
+    assert attrs["inclement_hold_depth"] == "partial_hold"
+    assert attrs["inclement_reserve_floor"] == 50
+    reserve_actions = [a for a in r["actions"] if "reserve" in a.get("target", "")]
+    assert reserve_actions, "off_peak partial_hold emitted no reserve action"
+    # The battery must NOT drain below the 50% floor.
+    assert reserve_actions[0]["data"]["value"] >= 50
+
+
+def test_off_peak_partial_hold_below_floor_recovers_toward_floor():
+    # A-CRIT-1 (below-target path) — SOC already below the 50% floor: the hold
+    # path must report the floor (recover via cheap off_peak grid), not a
+    # sub-floor reserve equal to current SOC.
+    strat, hass = _make_battery(soc=40)
+    _arm_alert(strat, hass, event="Severe Thunderstorm Watch",
+               severity="Severe", certainty="Possible")  # watch, uncorroborated
+    r = strat.determine_mode("off_peak", "summer", now=_NOW)
+    attrs = strat._inclement_attrs()
+    assert attrs["inclement_hold_depth"] == "partial_hold"
+    reserve_actions = [a for a in r["actions"] if "reserve" in a.get("target", "")]
+    assert reserve_actions
+    assert reserve_actions[0]["data"]["value"] >= 50
+
+
+class _StormCond:
+    def __init__(self, stormy, count):
+        self.is_stormy = stormy
+        self.healthy_provider_count = count
+
+
+class _StormMgr:
+    def __init__(self, stormy=True, count=2):
+        self._cond = _StormCond(stormy, count)
+
+    def current_storm_condition(self, mode):
+        return self._cond
+
+
+def test_condition_only_off_peak_partial_hold_floors_reserve_AMED2():
+    # A-MED-2 — condition-only (NWS absent, >=2 stormy providers) at off_peak
+    # resolves to partial_hold, which must hit the SAME A-CRIT-1 clamp so the
+    # off_peak floor is enforced (50%), not drained to drain_target.
+    strat, hass = _make_battery(soc=80)
+    strat._inclement_config_override = {}  # no NWS alert → condition-only path
+    strat._weather_manager = lambda: _StormMgr(stormy=True, count=2)
+    r = strat.determine_mode("off_peak", "summer", now=_NOW)
+    attrs = strat._inclement_attrs()
+    assert attrs["inclement_hold_depth"] == "partial_hold"
+    assert attrs["inclement_source"] == "condition"
+    reserve_actions = [a for a in r["actions"] if "reserve" in a.get("target", "")]
+    assert reserve_actions
+    assert reserve_actions[0]["data"]["value"] >= 50
+
+
+def test_off_peak_allow_discharge_reserve_unchanged_byte_identical():
+    # A-CRIT-1 guard — the clamp is gated strictly on partial_hold, so a clean
+    # off_peak tick (allow_discharge) is byte-identical with vs without the fix.
+    strat_storm, hass = _make_battery(soc=80)
+    strat_storm._inclement_config_override = {}  # no alert → allow_discharge
+    r_storm = strat_storm.determine_mode("off_peak", "summer", now=_NOW)
+
+    strat_base, _ = _make_battery(soc=80)
+    strat_base._inclement_config_override = {}
+    r_base = strat_base.determine_mode("off_peak", "summer", now=_NOW)
+
+    assert r_storm["reason"] == r_base["reason"]
+    assert _reserve_value(r_storm) == _reserve_value(r_base)
+    assert strat_storm._inclement_attrs()["inclement_hold_depth"] == "allow_discharge"
+
+
 def test_hold_drops_within_one_tick_after_expiry():
     strat, hass = _make_battery(soc=80)
     _arm_alert(strat, hass)

@@ -3308,8 +3308,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT,
             DEFAULT_INCLEMENT_CONDITION_CORROBORATION_MODE,
             INCLEMENT_ADVANCED_SECTION,
-            INCLEMENT_WARN_MIN_SEVERITY_OPTIONS,
-            INCLEMENT_CONDITION_CORROBORATION_OPTIONS,
         )
         from .const import CONF_OCCUPANCY_WEIGHTED_ENERGY
         from .domain_coordinators.energy_const import (
@@ -3394,6 +3392,25 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         solar_mode = self._get_current(
             CONF_ENERGY_SOLAR_CLASSIFICATION_MODE, SOLAR_CLASS_MODE_AUTOMATIC
         )
+
+        # C-1 fix: inclement select dropdowns must render plain-English labels,
+        # not raw internal keys. Same {label, value} SelectOptionDict pattern as
+        # the DPM relax-ceiling dropdown (config_flow.py:4675) — values stay the
+        # existing enum keys so what's stored is unchanged (enum consistency).
+        _inclement_severity_options = [
+            {"label": "Extreme — only catastrophic events", "value": "Extreme"},
+            {"label": "Severe (recommended) — Severe + Extreme", "value": "Severe"},
+            {"label": "Moderate — Moderate + Severe + Extreme", "value": "Moderate"},
+            {"label": "Minor — any non-Unknown severity", "value": "Minor"},
+        ]
+        _inclement_corroboration_options = [
+            {"label": "Any provider stormy", "value": "any"},
+            {
+                "label": "Majority of healthy providers (recommended)",
+                "value": "majority",
+            },
+            {"label": "All providers stormy", "value": "unanimous"},
+        ]
 
         # v4.7.6 fix-up C-H2: build the schema dict first (so we can append
         # per-plug self_modulates fields), then wrap in vol.Schema.
@@ -3513,7 +3530,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 ),
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
-                    options=list(INCLEMENT_WARN_MIN_SEVERITY_OPTIONS),
+                    options=_inclement_severity_options,
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
@@ -3565,7 +3582,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         ),
                     ): selector.SelectSelector(
                         selector.SelectSelectorConfig(
-                            options=list(INCLEMENT_CONDITION_CORROBORATION_OPTIONS),
+                            options=_inclement_corroboration_options,
                             mode=selector.SelectSelectorMode.DROPDOWN,
                         )
                     ),
