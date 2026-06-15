@@ -192,6 +192,68 @@ CONF_ENERGY_WEATHER_FALLBACK_2: Final = "energy_weather_fallback_2"
 CONF_WEATHER_STALENESS_MAX_HOURS: Final = "weather_staleness_max_hours"
 CONF_WEATHER_DIVERGENCE_THRESHOLD_F: Final = "weather_divergence_threshold_f"
 
+# ============================================================================
+# Inclement-weather detection + TOU/solar-horizon-aware battery hold
+# (Robust Inclement-Weather Reserve cycle — supersedes has_storm_forecast()).
+# Replaces Enphase Storm Guard reliance with a local alert + condition
+# fusion producing a graduated hold-depth decision parameterized by
+# (confidence tier, current TOU period, solar recovery horizon).
+# ============================================================================
+
+# Primary surface (4 knobs)
+CONF_INCLEMENT_NWS_ALERTS_ENTITY: Final = "inclement_nws_alerts_entity"
+CONF_INCLEMENT_POWER_THREAT_EVENTS: Final = "inclement_power_threat_events"
+CONF_INCLEMENT_WARN_MIN_SEVERITY: Final = "inclement_warn_min_severity"
+CONF_INCLEMENT_GRID_PRECHARGE_ON_HOLD: Final = "inclement_grid_precharge_on_hold"
+
+# Advanced subsection (3 knobs)
+CONF_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR: Final = "inclement_partial_hold_reserve_floor"
+CONF_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT: Final = "inclement_recoverable_surplus_margin_pct"
+CONF_INCLEMENT_CONDITION_CORROBORATION_MODE: Final = "inclement_condition_corroboration_mode"
+
+# Hidden / hardcoded (not exposed in v1 surface — see D-H / plan §Config)
+CONF_INCLEMENT_WATCH_REQUIRES_CORROBORATION: Final = "inclement_watch_requires_corroboration"
+
+# Section key for the collapsed "Advanced" config-flow subsection (FIN-1).
+INCLEMENT_ADVANCED_SECTION: Final = "inclement_advanced"
+
+# Defaults
+# D-B: power-threat events default list (case-insensitive substring match
+# against the NWS Event name). Fire alerts notice-only by default; flood
+# alerts absent by default for this elevated property.
+DEFAULT_INCLEMENT_POWER_THREAT_EVENTS: Final = [
+    "Tornado",
+    "Severe Thunderstorm",
+    "Ice Storm",
+    "Winter Storm",
+    "High Wind",
+    "Extreme Wind",
+    "Hurricane",
+    "Blizzard",
+]
+# D-C: secondary noise filter, applied AFTER the Event-type gate.
+DEFAULT_INCLEMENT_WARN_MIN_SEVERITY: Final = "Severe"
+# D-I: never burn grid energy to backup-fill on a watch (solar-first).
+DEFAULT_INCLEMENT_GRID_PRECHARGE_ON_HOLD: Final = False
+# D-E (FIN-1): reserve floor URA preserves during a partial_hold.
+DEFAULT_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR: Final = 50
+# D-F (FIN-2): %SOC margin projected solar surplus must EXCEED the
+# permitted discharge before that discharge counts as "recoverable".
+DEFAULT_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT: Final = 5
+# D-J: local condition cross-check mode.
+DEFAULT_INCLEMENT_CONDITION_CORROBORATION_MODE: Final = "majority"
+# D-H: low-certainty (watch) alerts require ≥1 corroborating provider.
+DEFAULT_INCLEMENT_WATCH_REQUIRES_CORROBORATION: Final = True
+# D-K: condition-only path decay after providers clear (minutes).
+DEFAULT_INCLEMENT_CONDITION_DECAY_MINUTES: Final = 30
+
+# NWS severity ordering (CAP standard, low → high) for the noise filter.
+INCLEMENT_SEVERITY_ORDER: Final = ["Unknown", "Minor", "Moderate", "Severe", "Extreme"]
+# Operator-facing select option keys for WARN_MIN_SEVERITY.
+INCLEMENT_WARN_MIN_SEVERITY_OPTIONS: Final = ["Extreme", "Severe", "Moderate", "Minor"]
+# Operator-facing select option keys for CONDITION_CORROBORATION_MODE.
+INCLEMENT_CONDITION_CORROBORATION_OPTIONS: Final = ["any", "majority", "unanimous"]
+
 # v4.7.1 Cycle B: Dynamic Preset Override Source
 # Bucket boundary deltas (apparent_high - zone_home_cool_high)
 CONF_DYNAMIC_PRESET_DELTA_COOL_MAX: Final = "dynamic_preset_delta_cool_max"

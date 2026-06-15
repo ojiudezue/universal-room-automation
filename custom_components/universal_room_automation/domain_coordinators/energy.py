@@ -2474,10 +2474,20 @@ class EnergyCoordinator(BaseCoordinator):
             "reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY
         )
 
-        # Update existing reserve action or add new one
+        # Update existing reserve action or add new one. The EVSE hold may
+        # only RAISE the reserve floor, never lower it: an existing reserve
+        # action already carries the floor that the battery strategy decided
+        # (e.g. an inclement partial_hold/full_hold floor, or the normal
+        # reserve_soc). Capturing an EVSE-hold SOC below that floor must not
+        # undercut it — max() preserves whichever protection is stronger.
         for i, action in enumerate(decision["actions"]):
             if action.get("target", "") == reserve_entity:
-                decision["actions"][i] = {**action, "data": {"value": hold_reserve}}
+                existing_val = action.get("data", {}).get("value", hold_reserve)
+                try:
+                    effective = max(int(existing_val), int(hold_reserve))
+                except (TypeError, ValueError):
+                    effective = hold_reserve
+                decision["actions"][i] = {**action, "data": {"value": effective}}
                 return decision
 
         # No reserve action yet — add one using configured entity

@@ -40,4 +40,7 @@ Deployed into the live incident shape (excellent solar, net exporting, EVs pause
 
 **Note:** observed that under a sudden solar collapse during commanded arbitrage CHARGE, the Enphase side let the battery discharge to serve house load (net≈0, no grid import) rather than pulling grid — an Enphase self-consumption behavior, not a URA defect; flagged for the EVSE-coordination follow-up.
 
-*Headline ladder suppression remains live-unexercised (same caveat class as v5.3.8 attain entry) — re-validate on a clean post-warmup excellent-solar day with the arbitrage gate open.*
+**Re-validation attempts (recurring daily check armed):**
+- **2026-06-14 10:00 CDT — blocked:** Envoy integration in `setup_retry` (~9h, no telemetry) → EC holding, no attainability decision possible; also moderate solar + gate closed (today + d2 moderate). `attain_state: inactive` / `evse_paused: []` reflect the Envoy-down hold, NOT a deliberate suppression. Two clean side-PASSes that day: v5.3.7 Envoy decoupling held (URA fully up despite Envoy `setup_retry`, zero URA errors), and NO breaker-invariant assertion in logs.
+
+*Headline ladder suppression remains live-unexercised (same caveat class as v5.3.8 attain entry) — re-validate on a clean post-warmup good/excellent-solar day with the arbitrage gate open AND the Envoy reporting. Recurring 10:07 CDT check self-records the PASS when conditions align.*
