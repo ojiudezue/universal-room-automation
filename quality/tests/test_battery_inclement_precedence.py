@@ -291,20 +291,18 @@ def _reserve_value(decision):
     return None
 
 
-# NOTE (EV audit §2 — BUILD FINDING): the PLANNING doc's audit §2 asserts that
-# `_apply_evse_battery_hold` (energy.py:2453) is already "max()-safe" and "can
-# NEVER LOWER a full_hold / partial_hold reserve_floor". The actual code
-# UNCONDITIONALLY overwrites the reserve action's value with the captured EV
-# hold SOC, so when `evse_hold_soc < reserve_floor` it DOES lower the floor.
-# This cycle is forbidden from editing energy.py, so the genuine max()-safe fix
-# is deferred to a Reviewer-B-owned follow-up (the test below documents the
-# CURRENT behavior + xfails the desired invariant so the gap is not silently
-# lost). See build report "Deviations".
+# EV audit §2 (BUILD FINDING, FIXED in-cycle): the PLANNING doc's audit §2
+# asserted `_apply_evse_battery_hold` (energy.py:2453) was already "max()-safe".
+# The build found it UNCONDITIONALLY overwrote the reserve action's value with
+# the captured EV hold SOC, so `evse_hold_soc < reserve_floor` lowered the floor
+# — undercutting an inclement partial_hold/full_hold guarantee. Fixed at
+# energy.py:2480 to max(existing_floor, hold_reserve): the EVSE hold may only
+# RAISE the reserve, never lower it. Both tests below assert the fixed behavior.
 
 
-def test_evse_battery_hold_overwrites_reserve_documents_current_behavior():
-    # Documents the ACTUAL (non-max-safe) behavior: evse_hold_soc replaces the
-    # floor verbatim. This is the seam Reviewer B must harden.
+def test_evse_battery_hold_raises_but_never_lowers_reserve_floor():
+    # The EVSE hold can only RAISE the reserve. A captured EV-hold SOC (40)
+    # below the decided floor (50) must NOT lower it — the floor wins.
     strat, hass = _make_battery(soc=80)
     decision = {
         "mode": BATTERY_MODE_SELF_CONSUMPTION,
@@ -317,16 +315,10 @@ def test_evse_battery_hold_overwrites_reserve_documents_current_behavior():
         }],
     }
     out = _apply_evse_hold(strat, decision, evse_hold_soc=40)
-    # CURRENT behavior — overwrites to 40 (the captured EV hold SOC).
-    assert _reserve_value(out) == 40
+    # Fixed behavior — floor (50) wins over the lower EV-hold SOC (40).
+    assert _reserve_value(out) == 50
 
 
-@pytest.mark.xfail(
-    reason="EV audit §2: _apply_evse_battery_hold is NOT max()-safe in current "
-           "energy.py; plan assumed it was. Fix deferred (energy.py off-limits "
-           "this cycle).",
-    strict=True,
-)
 def test_evse_battery_hold_cannot_lower_partial_hold_reserve_floor():
     strat, hass = _make_battery(soc=80)
     decision = {
@@ -341,6 +333,25 @@ def test_evse_battery_hold_cannot_lower_partial_hold_reserve_floor():
     }
     out = _apply_evse_hold(strat, decision, evse_hold_soc=40)
     assert _reserve_value(out) >= 50
+
+
+def test_evse_battery_hold_still_raises_reserve_when_capture_exceeds_floor():
+    # When the captured EV-hold SOC (70) EXCEEDS the decided floor (50), the
+    # EV hold still wins — protecting the charging EV's source. Regression
+    # guard so the max() fix didn't break the original raise-the-reserve intent.
+    strat, hass = _make_battery(soc=80)
+    decision = {
+        "mode": BATTERY_MODE_SELF_CONSUMPTION,
+        "reason": "partial_hold",
+        "soc": 80,
+        "actions": [{
+            "service": "number.set_value",
+            "target": DEFAULT_RESERVE_SOC_ENTITY,
+            "data": {"value": 50},
+        }],
+    }
+    out = _apply_evse_hold(strat, decision, evse_hold_soc=70)
+    assert _reserve_value(out) == 70
 
 
 def test_evse_battery_hold_cannot_downgrade_full_hold_backup_mode():
