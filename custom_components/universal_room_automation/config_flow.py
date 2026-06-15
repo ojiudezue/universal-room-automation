@@ -3293,6 +3293,21 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_WEATHER_DIVERGENCE_THRESHOLD_F,
             DEFAULT_WEATHER_STALENESS_MAX_HOURS,
             DEFAULT_WEATHER_DIVERGENCE_THRESHOLD_F,
+            # Inclement-weather reserve cycle: 4 Primary + 3 Advanced knobs
+            CONF_INCLEMENT_NWS_ALERTS_ENTITY,
+            CONF_INCLEMENT_POWER_THREAT_EVENTS,
+            CONF_INCLEMENT_WARN_MIN_SEVERITY,
+            CONF_INCLEMENT_GRID_PRECHARGE_ON_HOLD,
+            CONF_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR,
+            CONF_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT,
+            CONF_INCLEMENT_CONDITION_CORROBORATION_MODE,
+            DEFAULT_INCLEMENT_POWER_THREAT_EVENTS,
+            DEFAULT_INCLEMENT_WARN_MIN_SEVERITY,
+            DEFAULT_INCLEMENT_GRID_PRECHARGE_ON_HOLD,
+            DEFAULT_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR,
+            DEFAULT_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT,
+            DEFAULT_INCLEMENT_CONDITION_CORROBORATION_MODE,
+            INCLEMENT_ADVANCED_SECTION,
         )
         from .const import CONF_OCCUPANCY_WEIGHTED_ENERGY
         from .domain_coordinators.energy_const import (
@@ -3308,6 +3323,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         # v4.2.29: Validate envoy entity on submit (B3). Skipped when user
         # leaves the field empty — empty is allowed for installs not (yet)
         # using EC. When set, must pass V0–V2 + V4 (V3 logs warning only).
+        from homeassistant.data_entry_flow import section  # noqa: F401 (used in schema)
+
         errors: dict[str, str] = {}
         if user_input is not None:
             from .domain_coordinators.energy_const import (
@@ -3315,6 +3332,20 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 ENVOY_REQUIRED_DERIVED_KEYS,
                 ENVOY_ERR_BASE_DERIVED_MISSING,
             )
+
+            # Flatten the collapsed inclement "Advanced" section back to
+            # top-level keys (mirrors the fan_recheck_advanced pattern). When
+            # the operator never expanded it, the existing options are
+            # preserved by the {**options, **user_input} merge below.
+            _adv = user_input.pop(INCLEMENT_ADVANCED_SECTION, None)
+            if isinstance(_adv, dict):
+                user_input = {**user_input, **_adv}
+            # Parse the multiline power-threat-events text into a list.
+            _threat = user_input.get(CONF_INCLEMENT_POWER_THREAT_EVENTS)
+            if isinstance(_threat, str):
+                user_input[CONF_INCLEMENT_POWER_THREAT_EVENTS] = [
+                    ln.strip() for ln in _threat.splitlines() if ln.strip()
+                ]
 
             submitted_envoy = user_input.get(CONF_ENERGY_ENVOY_ENTITY) or ""
             if submitted_envoy:
@@ -3361,6 +3392,25 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         solar_mode = self._get_current(
             CONF_ENERGY_SOLAR_CLASSIFICATION_MODE, SOLAR_CLASS_MODE_AUTOMATIC
         )
+
+        # C-1 fix: inclement select dropdowns must render plain-English labels,
+        # not raw internal keys. Same {label, value} SelectOptionDict pattern as
+        # the DPM relax-ceiling dropdown (config_flow.py:4675) — values stay the
+        # existing enum keys so what's stored is unchanged (enum consistency).
+        _inclement_severity_options = [
+            {"label": "Extreme — only catastrophic events", "value": "Extreme"},
+            {"label": "Severe (recommended) — Severe + Extreme", "value": "Severe"},
+            {"label": "Moderate — Moderate + Severe + Extreme", "value": "Moderate"},
+            {"label": "Minor — any non-Unknown severity", "value": "Minor"},
+        ]
+        _inclement_corroboration_options = [
+            {"label": "Any provider stormy", "value": "any"},
+            {
+                "label": "Majority of healthy providers (recommended)",
+                "value": "majority",
+            },
+            {"label": "All providers stormy", "value": "unanimous"},
+        ]
 
         # v4.7.6 fix-up C-H2: build the schema dict first (so we can append
         # per-plug self_modulates fields), then wrap in vol.Schema.
@@ -3450,6 +3500,94 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     unit_of_measurement="°F",
                     mode=selector.NumberSelectorMode.SLIDER,
                 )
+            ),
+            # ── Inclement-weather reserve — Primary surface (4 knobs) ──────
+            vol.Optional(
+                CONF_INCLEMENT_NWS_ALERTS_ENTITY,
+                description={
+                    "suggested_value": self._get_current(CONF_INCLEMENT_NWS_ALERTS_ENTITY),
+                },
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional(
+                CONF_INCLEMENT_POWER_THREAT_EVENTS,
+                default="\n".join(self._get_current(
+                    CONF_INCLEMENT_POWER_THREAT_EVENTS,
+                    DEFAULT_INCLEMENT_POWER_THREAT_EVENTS,
+                ) if isinstance(self._get_current(
+                    CONF_INCLEMENT_POWER_THREAT_EVENTS,
+                    DEFAULT_INCLEMENT_POWER_THREAT_EVENTS,
+                ), list) else DEFAULT_INCLEMENT_POWER_THREAT_EVENTS),
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(multiline=True)
+            ),
+            vol.Optional(
+                CONF_INCLEMENT_WARN_MIN_SEVERITY,
+                default=self._get_current(
+                    CONF_INCLEMENT_WARN_MIN_SEVERITY,
+                    DEFAULT_INCLEMENT_WARN_MIN_SEVERITY,
+                ),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=_inclement_severity_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Optional(
+                CONF_INCLEMENT_GRID_PRECHARGE_ON_HOLD,
+                default=self._get_current(
+                    CONF_INCLEMENT_GRID_PRECHARGE_ON_HOLD,
+                    DEFAULT_INCLEMENT_GRID_PRECHARGE_ON_HOLD,
+                ),
+            ): selector.BooleanSelector(),
+            # ── Inclement-weather reserve — Advanced subsection (3 knobs) ──
+            # Grouped under a collapsed "Advanced" section (FIN-1). Flattened
+            # back to top-level entry.options on submit (mirrors the
+            # fan_recheck_advanced pattern) so the coordinator reads the same
+            # top-level CONF_INCLEMENT_* keys.
+            vol.Optional(INCLEMENT_ADVANCED_SECTION): section(
+                vol.Schema({
+                    vol.Optional(
+                        CONF_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR,
+                        default=self._get_current(
+                            CONF_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR,
+                            DEFAULT_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR,
+                        ),
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=0, max=100, step=5,
+                            unit_of_measurement="%",
+                            mode=selector.NumberSelectorMode.SLIDER,
+                        )
+                    ),
+                    vol.Optional(
+                        CONF_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT,
+                        default=self._get_current(
+                            CONF_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT,
+                            DEFAULT_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT,
+                        ),
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=0, max=30, step=1,
+                            unit_of_measurement="%",
+                            mode=selector.NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Optional(
+                        CONF_INCLEMENT_CONDITION_CORROBORATION_MODE,
+                        default=self._get_current(
+                            CONF_INCLEMENT_CONDITION_CORROBORATION_MODE,
+                            DEFAULT_INCLEMENT_CONDITION_CORROBORATION_MODE,
+                        ),
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=_inclement_corroboration_options,
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                        )
+                    ),
+                }),
+                {"collapsed": True},
             ),
             # v3.11.0: Solar forecast entity selectors
             vol.Optional(

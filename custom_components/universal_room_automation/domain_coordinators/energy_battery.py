@@ -129,6 +129,21 @@ ARB_LADDER_DEFAULT_BATTERY_KWH = _BATTERY_TOTAL_CAPACITY_KWH_FALLBACK
 _LOGGER = logging.getLogger(__name__)
 
 
+def _coerce_int_or_default(value: Any, default: int) -> int:
+    """int(value) with a default fallback on malformed (non-numeric) input.
+
+    C-4 — stored options can be hand-edited / migrated to a non-numeric type;
+    a raise here would degrade the whole inclement decision to allow_discharge
+    and silently disable holds. Fall back to the default instead.
+    """
+    if value is None:
+        return int(default)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return int(default)
+
+
 class BatteryStrategy:
     """Determines battery mode and actions based on TOU period and system state."""
 
@@ -303,6 +318,16 @@ class BatteryStrategy:
         self._arb_last_rung: str | None = None
         self._arb_last_projection_rung0: float | None = None
         self._arb_last_projection_rung1: float | None = None
+
+        # Inclement-weather reserve cycle: per-tick cached fused decision.
+        # Re-derived once per determine_mode tick (keyed by the tick's `now`);
+        # attribute reads consult the cache rather than re-evaluating.
+        self._last_inclement_decision: Any = None
+        self._last_inclement_decision_at: datetime | None = None
+        self._last_inclement_gated_out: tuple[str, ...] = ()
+        # Last (tier, hold_depth) emitted via SIGNAL_INCLEMENT_STATE_CHANGED —
+        # used to fire the signal only on transitions.
+        self._last_inclement_signal_state: tuple[str, str] | None = None
 
         # v4.5.0 D3: multi-day Solcast lookback toggle + entity ID.
         # (Property `_attain_active` defined later as a tri-state
@@ -645,18 +670,267 @@ class BatteryStrategy:
             return "moderate"
         return "poor"
 
-    def has_storm_forecast(self) -> bool:
-        """Check weather entity for storm/severe weather conditions."""
-        weather_entity = self._get_entity("weather", DEFAULT_WEATHER_ENTITY)
-        state = self.hass.states.get(weather_entity)
-        if state is None:
-            return False
-        condition = state.state.lower()
-        storm_conditions = {
-            "lightning", "lightning-rainy", "hail",
-            "tornado", "hurricane", "exceptional",
+    # ------------------------------------------------------------------
+    # Inclement-weather reserve cycle — supersedes has_storm_forecast().
+    # AlertClassifier (outage gate → certainty → severity) + ConditionElector
+    # + SolarHorizon, fused by InclementFusion into a graduated hold-depth
+    # decision (full_hold / partial_hold / allow_discharge). Cached per tick.
+    # ------------------------------------------------------------------
+
+    def _inclement_config(self) -> dict[str, Any]:
+        """Resolve inclement config from the CM entry options (with defaults).
+
+        Read at runtime (not via constructor) so energy.py needs no edit —
+        the battery resolves the same CM options energy.py reads at :3264.
+        """
+        from .energy_const import (
+            CONF_INCLEMENT_NWS_ALERTS_ENTITY,
+            CONF_INCLEMENT_POWER_THREAT_EVENTS,
+            CONF_INCLEMENT_WARN_MIN_SEVERITY,
+            CONF_INCLEMENT_GRID_PRECHARGE_ON_HOLD,
+            CONF_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR,
+            CONF_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT,
+            CONF_INCLEMENT_CONDITION_CORROBORATION_MODE,
+            CONF_INCLEMENT_WATCH_REQUIRES_CORROBORATION,
+            DEFAULT_INCLEMENT_POWER_THREAT_EVENTS,
+            DEFAULT_INCLEMENT_WARN_MIN_SEVERITY,
+            DEFAULT_INCLEMENT_GRID_PRECHARGE_ON_HOLD,
+            DEFAULT_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR,
+            DEFAULT_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT,
+            DEFAULT_INCLEMENT_CONDITION_CORROBORATION_MODE,
+            DEFAULT_INCLEMENT_WATCH_REQUIRES_CORROBORATION,
+        )
+        opts: dict[str, Any] = {}
+        # Test / programmatic override seam — when set, used verbatim (skips
+        # the CM-entry lookup). Production never sets this.
+        override = getattr(self, "_inclement_config_override", None)
+        if isinstance(override, dict):
+            opts = override
+        else:
+            try:
+                from ..const import (
+                    DOMAIN as _DOMAIN_KEY,
+                    CONF_ENTRY_TYPE,
+                    ENTRY_TYPE_COORDINATOR_MANAGER,
+                )
+                for entry in self.hass.config_entries.async_entries(_DOMAIN_KEY):
+                    merged = {**entry.data, **entry.options}
+                    if merged.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                        opts = merged
+                        break
+            except Exception:  # noqa: BLE001 — test harness / pre-wire safety
+                opts = {}
+
+        threat = opts.get(
+            CONF_INCLEMENT_POWER_THREAT_EVENTS, DEFAULT_INCLEMENT_POWER_THREAT_EVENTS
+        )
+        if isinstance(threat, str):
+            threat = [ln.strip() for ln in threat.splitlines() if ln.strip()]
+        elif not isinstance(threat, list):
+            threat = list(DEFAULT_INCLEMENT_POWER_THREAT_EVENTS)
+
+        return {
+            "nws_alerts_entity": opts.get(CONF_INCLEMENT_NWS_ALERTS_ENTITY) or "",
+            "power_threat_events": threat,
+            "warn_min_severity": opts.get(
+                CONF_INCLEMENT_WARN_MIN_SEVERITY, DEFAULT_INCLEMENT_WARN_MIN_SEVERITY
+            ),
+            "grid_precharge_on_hold": bool(opts.get(
+                CONF_INCLEMENT_GRID_PRECHARGE_ON_HOLD,
+                DEFAULT_INCLEMENT_GRID_PRECHARGE_ON_HOLD,
+            )),
+            # C-4 — guard int() against a hand-edited / migrated non-numeric
+            # stored option so a malformed value falls back to the default
+            # instead of raising (which would degrade the whole decision to
+            # allow_discharge and silently disable holds).
+            "partial_hold_reserve_floor": _coerce_int_or_default(
+                opts.get(CONF_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR),
+                DEFAULT_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR,
+            ),
+            "surplus_margin_pct": _coerce_int_or_default(
+                opts.get(CONF_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT),
+                DEFAULT_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT,
+            ),
+            "corroboration_mode": opts.get(
+                CONF_INCLEMENT_CONDITION_CORROBORATION_MODE,
+                DEFAULT_INCLEMENT_CONDITION_CORROBORATION_MODE,
+            ),
+            "watch_requires_corroboration": bool(opts.get(
+                CONF_INCLEMENT_WATCH_REQUIRES_CORROBORATION,
+                DEFAULT_INCLEMENT_WATCH_REQUIRES_CORROBORATION,
+            )),
         }
-        return condition in storm_conditions
+
+    def _read_nws_alerts(self, entity_id: str) -> Any:
+        """Read the NWS alerts sensor's ``attributes.Alerts`` list; None-safe."""
+        if not entity_id:
+            return None
+        try:
+            state = self.hass.states.get(entity_id)
+        except Exception:  # noqa: BLE001
+            return None
+        if state is None:
+            return None
+        try:
+            return getattr(state, "attributes", {}).get("Alerts")
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _weather_manager(self) -> Any:
+        """Resolve the WeatherProviderManager from hass.data; None when absent."""
+        try:
+            from ..const import DOMAIN as _DOMAIN_KEY
+            return self.hass.data.get(_DOMAIN_KEY, {}).get("weather_manager")
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _inclement_decision(
+        self, tou_period: str, now: datetime,
+    ) -> Any:
+        """Build (and per-tick cache) the fused InclementDecision."""
+        # Per-tick cache: same `now` → reuse (attribute reads don't re-derive).
+        if (
+            self._last_inclement_decision is not None
+            and self._last_inclement_decision_at == now
+        ):
+            return self._last_inclement_decision
+
+        from .inclement import (
+            AlertClassifier,
+            InclementFusion,
+            _allow_discharge_decision,
+        )
+
+        cfg = self._inclement_config()
+        soc = self.battery_soc
+
+        # AlertClassifier on the NWS sensor (if configured).
+        alerts = self._read_nws_alerts(cfg["nws_alerts_entity"])
+        classifier = AlertClassifier(
+            power_threat_events=cfg["power_threat_events"],
+            warn_min_severity=cfg["warn_min_severity"],
+        )
+        try:
+            classification = classifier.classify(alerts, now=now)
+        except Exception:  # noqa: BLE001 — never let detection crash the tick
+            _LOGGER.debug("inclement: alert classify failed", exc_info=True)
+            self._last_inclement_gated_out = ()
+            decision = _allow_discharge_decision(self.reserve_soc, reason="classify_error")
+            self._cache_inclement(decision, now)
+            return decision
+        self._last_inclement_gated_out = classification.gated_out_events
+
+        # ConditionElector cross-check via the weather manager (D-L fail-mode:
+        # NWS absent → condition-only path).
+        condition_stormy = False
+        condition_count = 0
+        mgr = self._weather_manager()
+        if mgr is not None and hasattr(mgr, "current_storm_condition"):
+            try:
+                cond = mgr.current_storm_condition(cfg["corroboration_mode"])
+                condition_stormy = bool(cond.is_stormy)
+                condition_count = int(cond.healthy_provider_count)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("inclement: condition election failed", exc_info=True)
+
+        fusion = InclementFusion(
+            reserve_soc=self.reserve_soc,
+            partial_hold_reserve_floor=cfg["partial_hold_reserve_floor"],
+            grid_precharge_on_hold=cfg["grid_precharge_on_hold"],
+            watch_requires_corroboration=cfg["watch_requires_corroboration"],
+            surplus_margin_pct=cfg["surplus_margin_pct"],
+            storm_charge_threshold=DEFAULT_STORM_CHARGE_THRESHOLD,
+        )
+        decision = fusion.decide(
+            battery=self,
+            classification=classification,
+            condition_stormy=condition_stormy,
+            condition_provider_count=condition_count,
+            tou_period=tou_period,
+            now=now,
+            current_soc=soc,
+        )
+        self._cache_inclement(decision, now)
+        return decision
+
+    def _cache_inclement(self, decision: Any, now: datetime) -> None:
+        """Cache the decision and fire the transition signal if (tier, depth) changed."""
+        self._last_inclement_decision = decision
+        self._last_inclement_decision_at = now
+        state = (decision.tier, decision.hold_depth)
+        if state != self._last_inclement_signal_state:
+            prev = self._last_inclement_signal_state
+            self._last_inclement_signal_state = state
+            if decision.hold_depth != "allow_discharge" or prev is not None:
+                _LOGGER.info(
+                    "Inclement state change: tier=%s hold_depth=%s source=%s reason=%s",
+                    decision.tier, decision.hold_depth, decision.source, decision.reason,
+                )
+            try:
+                from homeassistant.helpers.dispatcher import async_dispatcher_send
+                from ..const import DOMAIN as _DOMAIN_KEY  # noqa: F401
+                from .signals import SIGNAL_INCLEMENT_STATE_CHANGED
+                async_dispatcher_send(
+                    self.hass,
+                    SIGNAL_INCLEMENT_STATE_CHANGED,
+                    {
+                        "tier": decision.tier,
+                        "hold_depth": decision.hold_depth,
+                        "source": decision.source,
+                        "expires_at": decision.expires_at_iso(),
+                        "reserve_floor": decision.reserve_floor,
+                        "reason": decision.reason,
+                    },
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("inclement: signal dispatch failed", exc_info=True)
+
+    def _inclement_attrs(self) -> dict[str, Any]:
+        """Observability attributes derived from the cached inclement decision.
+
+        Reads the per-tick cache populated by determine_mode — does NOT
+        re-evaluate detection on attribute reads. Returns a back-compat-safe
+        attribute pack (storm_forecast preserved) even before the first tick.
+        """
+        decision = self._last_inclement_decision
+        if decision is None:
+            return {
+                "storm_forecast": False,
+                "inclement_hold_depth": "allow_discharge",
+                "inclement_tier": "none",
+                "inclement_source": "none",
+                "active_alert_event": None,
+                "inclement_gated_out_events": [],
+                "inclement_expires_at": None,
+                "inclement_grid_precharge": False,
+                "inclement_reserve_floor": self.reserve_soc,
+                "inclement_reason": "initializing",
+                "inclement_solar_horizon": {},
+            }
+        gated_out: list[str] = list(self._last_inclement_gated_out)
+        try:
+            sh = decision.solar_horizon.as_dict()
+        except Exception:  # noqa: BLE001
+            # B-LOW-1 — log so a malformed horizon dropping from the attr pack
+            # is visible during L5 live validation rather than silent.
+            _LOGGER.debug(
+                "inclement: solar_horizon.as_dict() failed; "
+                "dropping sub-dict from attr pack", exc_info=True,
+            )
+            sh = {}
+        return {
+            "storm_forecast": decision.hold_depth != "allow_discharge",
+            "inclement_hold_depth": decision.hold_depth,
+            "inclement_tier": decision.tier,
+            "inclement_source": decision.source,
+            "active_alert_event": decision.contributing_event,
+            "inclement_gated_out_events": gated_out,
+            "inclement_expires_at": decision.expires_at_iso(),
+            "inclement_grid_precharge": decision.grid_precharge,
+            "inclement_reserve_floor": decision.reserve_floor,
+            "inclement_reason": decision.reason,
+            "inclement_solar_horizon": sh,
+        }
 
     @property
     def envoy_available(self) -> bool:
@@ -2421,18 +2695,33 @@ class BatteryStrategy:
                 "reserve_soc": self.reserve_soc,
             }
 
-        # ── v4.5.0 D5: precedence chain — DO NOT REORDER ──────────────
+        # ── v4.5.0 D5 precedence chain — DO NOT REORDER ───────────────
         # The arbitrage phase machine (in the off_peak branch below) is
-        # gated on grid_connected + no-storm + envoy_available. These
-        # short-circuits MUST run before the off_peak branch:
+        # gated on grid_connected + envoy_available. These short-circuits
+        # MUST run before the off_peak branch:
         #   1. envoy_unavailable → hold state, no commands
-        #   2. grid_disconnected → BACKUP mode
-        #   3. storm forecast    → BACKUP / pre-charging
-        #   4. peak / mid_peak   → existing discharge logic
+        #   2. grid_disconnected → BACKUP mode (wins over ANY inclement hold)
+        #   3. inclement hold-depth ladder (supersedes the old binary
+        #      storm branch):
+        #        - full_hold  → BACKUP / pre-charging immediately, short-
+        #          circuiting the TOU branches (the slot the old binary
+        #          storm hold used). Grid-disconnect still wins above it.
+        #        - partial_hold → falls THROUGH to the TOU branches, but
+        #          with an elevated effective_reserve floor =
+        #          max(self.reserve_soc, decision.reserve_floor). Discharge
+        #          proceeds but stops earlier (more backup retained).
+        #        - allow_discharge → effective_reserve == self.reserve_soc,
+        #          so the TOU branches behave byte-identically to a clear
+        #          tick (regression guard).
+        #   4. peak / mid_peak   → existing discharge logic (now reading
+        #      effective_reserve instead of self.reserve_soc)
         #   5. off_peak          → arbitrage phase OR drain-target fallback
-        # Reordering will silently break v4.5.0 D5 acceptance: "storm
-        # path wins over arbitrage HOLD" / "grid-disconnect skips
-        # arbitrage entirely" / etc.
+        # Reordering silently breaks: "grid-disconnect wins over a full_hold"
+        # / "full_hold short-circuits TOU exactly as the old storm path" /
+        # "allow_discharge byte-identical to no-storm path".
+        # NOTE: _apply_evse_battery_hold (energy.py:2453) runs AFTER this
+        # returns and is max()-safe — it can only RAISE the reserve floor,
+        # never lower a full_hold/partial_hold floor (EV audit §2).
         # ──────────────────────────────────────────────────────────────
 
         # Grid disconnected — emergency backup
@@ -2444,41 +2733,54 @@ class BatteryStrategy:
                 season=season,
             )
 
-        # Storm forecast — pre-charge and prepare for outage
-        if self.has_storm_forecast():
-            if soc is not None and soc < DEFAULT_STORM_CHARGE_THRESHOLD:
+        # Inclement-weather hold-depth ladder (supersedes the binary storm
+        # branch). full_hold short-circuits here exactly as the old storm
+        # path did; partial_hold/allow_discharge fall through with an
+        # elevated/unchanged effective_reserve.
+        decision = self._inclement_decision(tou_period, now)
+        if decision.hold_depth == "full_hold":
+            if (
+                decision.grid_precharge
+                and soc is not None
+                and soc < DEFAULT_STORM_CHARGE_THRESHOLD
+            ):
                 return self._result(
                     BATTERY_MODE_SELF_CONSUMPTION,
-                    f"Storm forecast — pre-charging (SOC {soc}%)",
+                    f"Inclement ({decision.reason}) — pre-charging (SOC {soc}%)",
                     current_mode,
                     charge_from_grid=True,
-                    reserve_level=self.reserve_soc,
+                    reserve_level=decision.reserve_floor,
                     season=season,
                 )
-            # Already charged enough — switch to backup to hold charge
+            # Already charged enough (or precharge off) — hold via backup.
             return self._result(
                 BATTERY_MODE_BACKUP,
-                f"Storm forecast — holding charge (SOC {soc}%)",
+                f"Inclement ({decision.reason}) — holding charge (SOC {soc}%)",
                 current_mode,
+                reserve_level=decision.reserve_floor,
                 season=season,
             )
+        # partial_hold/allow_discharge: TOU branches read effective_reserve.
+        # For allow_discharge, decision.reserve_floor == self.reserve_soc so
+        # this is byte-identical to a clear tick.
+        effective_reserve = max(self.reserve_soc, decision.reserve_floor)
 
         # Peak period — battery covers home load, solar exports
         # Strategy 3 from codicil: self_consumption + low reserve
         if tou_period == "peak":
-            if soc is not None and soc > self.reserve_soc:
+            if soc is not None and soc > effective_reserve:
                 return self._result(
                     BATTERY_MODE_SELF_CONSUMPTION,
                     "Peak — battery covers load, solar exports",
                     current_mode,
-                    reserve_level=self.reserve_soc,
+                    reserve_level=effective_reserve,
                     season=season,
                 )
             return self._result(
                 BATTERY_MODE_SELF_CONSUMPTION,
                 f"Peak but SOC low ({soc}%) — minimal discharge",
                 current_mode,
-                reserve_level=max(int(soc or 0) - 5, self.reserve_soc),
+                reserve_level=max(int(soc or 0) - 5, effective_reserve),
                 season=season,
             )
 
@@ -2546,7 +2848,7 @@ class BatteryStrategy:
             # Summer post-peak mid_peak ALSO reaches here (no peak ahead before
             # off_peak) and shares the same discharge logic with a distinct reason.
             summer_post_peak = season == "summer" and not summer_peak_ahead
-            if soc is not None and soc > self.reserve_soc:
+            if soc is not None and soc > effective_reserve:
                 if summer_post_peak:
                     reason = (
                         "Mid-peak (summer, post-peak) — discharging, off_peak imminent"
@@ -2559,7 +2861,7 @@ class BatteryStrategy:
                     BATTERY_MODE_SELF_CONSUMPTION,
                     reason,
                     current_mode,
-                    reserve_level=self.reserve_soc,
+                    reserve_level=effective_reserve,
                     season=season,
                 )
             if summer_post_peak:
@@ -2574,7 +2876,7 @@ class BatteryStrategy:
                 BATTERY_MODE_SELF_CONSUMPTION,
                 reason,
                 current_mode,
-                reserve_level=max(int(soc or 0) - 5, self.reserve_soc),
+                reserve_level=max(int(soc or 0) - 5, effective_reserve),
                 season=season,
             )
 
@@ -2643,6 +2945,15 @@ class BatteryStrategy:
                 drain_class_for_target = d2_class
 
         drain_target = self._get_offpeak_drain_target(drain_class_for_target)
+        # A-CRIT-1 — off_peak partial_hold floor enforcement. The off_peak
+        # branch otherwise never reads effective_reserve (full_hold short-
+        # circuits earlier; allow_discharge keeps effective_reserve ==
+        # self.reserve_soc, so allow_discharge stays byte-identical). ONLY a
+        # partial_hold clamps the drain target up to the elevated floor so a
+        # watch-uncorroborated / condition-only overnight watch retains the
+        # 50% reserve instead of draining to drain_target (commonly 20-30%).
+        if decision.hold_depth == "partial_hold":
+            drain_target = max(drain_target, effective_reserve)
 
         if soc is not None and soc > drain_target:
             # Above target — drain stored solar (free energy)
@@ -2658,6 +2969,11 @@ class BatteryStrategy:
 
         # At/below target — hold and import cheap grid
         hold_reserve = int(soc) if soc is not None else drain_target
+        # A-CRIT-1 — when a partial_hold is active and SOC is already below the
+        # elevated floor, recover toward the floor via cheap off_peak grid
+        # rather than reporting a sub-floor reserve.
+        if decision.hold_depth == "partial_hold":
+            hold_reserve = max(hold_reserve, effective_reserve)
         return self._result(
             BATTERY_MODE_SELF_CONSUMPTION,
             f"Off-peak hold — SOC {soc}% <= target {drain_target}% (tomorrow {tomorrow_class})",
@@ -2903,8 +3219,12 @@ class BatteryStrategy:
             "solar_day_class": self.classify_solar_day(),
             "tomorrow_solar_class": tomorrow_class,
             "target_day_class": target_day_class,
-            "storm_forecast": self.has_storm_forecast(),
+            # Inclement-weather observability. storm_forecast kept for
+            # back-compat (any external NM/automation consumers) but now
+            # derived from the cached fused decision rather than re-running
+            # a per-attribute-read detection. **kw merge below.
             "reserve_soc": self.reserve_soc,
+            **self._inclement_attrs(),
             "arbitrage_active": self._arbitrage_active,
             "arbitrage_enabled": self._arbitrage_enabled,
             # v4.5.0 D2: rename arbitrage_target → peak_buffer_target.

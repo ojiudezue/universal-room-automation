@@ -568,3 +568,43 @@ All of Flag Mode, plus:
 | HVACOutcome | Reads daily zone satisfaction | Feeds zone health score |
 
 The Optimization Coordinator is a **consumer** of all existing infrastructure, not a replacement. It adds the reasoning layer that connects data across levels and domains.
+
+---
+
+## Appendix A: Orphaned per-room comfort sliders — this coordinator's missing consumer (investigation 2026-06-07)
+
+While auditing whether the per-room `ComfortTempMin` / `ComfortTempMax` / `ComfortHumidityMax` Number entities needed restart-persistence (then-task #38), the investigation found they are **vestigial input surfaces whose intended consumer is THIS coordinator** — which was never built. Decision: **do NOT delete them; fold the requirement here so the input surface returns *with* its consumer.**
+
+### What was found
+
+- The three Numbers (`number.py:178`, `:214`, `:250`) store `self._value` in RAM, seeded from module constants (`COMFORT_TEMP_MIN=68`, `COMFORT_TEMP_MAX=76`, `COMFORT_HUMIDITY_MAX=60`). No persistence, no `entry.options` write-back. On restart they reset to the constant.
+- **Nothing in the running system reads the slider value.** Package-wide grep (Python only) of the comfort keys returns exactly: `binary_sensor.py:814,822,852,859` (per-room alert sensor — reads the *constants* `COMFORT_TEMP_MIN` + `COMFORT_HUMIDITY_MIN`, never the slider; the "too high" side uses `DEFAULT_FAN_TEMP_THRESHOLD`), `aggregation.py:1479-1501` (house-wide `HVACDirectionSensor` display — reads the *constants*), plus the const + Number definitions. No actuation path consumes them.
+- Per-slider reality: `ComfortTempMin` has one informational home (the alert floor, via constant). `ComfortTempMax` feeds only the house-wide display. `ComfortHumidityMax` feeds **nothing** (only humidity *Min* is consumed).
+
+### Original intent (consistent across three design docs)
+
+- `docs/user-manual/HVAC_COORDINATOR.md:529` — documents `comfort_temp_min/max` as **per-room HVAC settings** ("Zone Manager → room → 🌡️ HVAC").
+- `PLANNING_OPTIMIZATION_COORDINATOR.md:112,125,216` (this doc) — the **Comfort room-health dimension** is exactly their intended consumer: *"Is temperature/humidity within configured comfort range when occupied?"* with the worked example *"Master Bedroom at 82°F when occupied, comfort_max is 76°F → Comfort MEDIUM."*
+- `COORDINATOR_DIAGNOSTICS_FRAMEWORK_v2.md:3124` — `comfort_temp_min/max` modeled as **Bayesian-learnable** `ParameterBelief`s (`COMFORT_DEFAULT_BELIEFS`). Confirmed design-only — not present in shipped code.
+
+The intent was **never HVAC actuation** (that's DPM presets / Home-Sleep-Away ranges). It was always a **per-room comfort-evaluation / anomaly-scoring input** — i.e. the input to this coordinator's Comfort dimension.
+
+### Why the full comfort coordinator was killed (operator, 2026-06-07)
+
+A standalone *comfort coordinator* was deliberately killed earlier because **fans were the only actuation lever it had, and HVAC subsumed that lever**. That kill does NOT invalidate comfort-as-an-evaluation-signal — comfort scoring lives on as a **read-only health dimension** here, not as an actuator. The sliders are the per-room override input for that scoring; they have no actuation ambition.
+
+### Requirement folded into this coordinator's Phase 1 (Comfort dimension)
+
+When Phase 1 (Room Health Score) is built, the Comfort dimension MUST read the **per-room slider value** with fallback to the module constant — not the constant alone:
+
+- Source the per-room comfort bounds from the Number entity / `entry.options` (sole-source pattern, mirroring the v4.7.25–27 CM options-writeback work), falling back to `COMFORT_TEMP_MIN/MAX` / `COMFORT_HUMIDITY_MAX` when unset.
+- At that point the three sliders gain a real consumer and their persistence becomes load-bearing — wire write-back + restore **then**, in the same cycle, so they are never again a knob that silently does nothing.
+- Until then they remain harmless orphans (no actuation, no false signal). Acceptable per parsimony review because deleting + re-adding three Numbers across a coordinator build is pure churn (single-user, no back-compat).
+
+**Acceptance hook for Phase 1:** a room whose `ComfortTempMax` slider is set to e.g. 74 must produce a Comfort-dimension finding at 75°F occupied, while a room left at the 76 default does not — proving the per-room override is read, not the global constant.
+
+## Appendix B: Known energy-strategy gap the OC could surface — inclement arbitrage-WAIT floor (noted 2026-06-15, v5.5.0)
+
+v5.5.0 (inclement-weather hold) shipped with one tracked MEDIUM gap: when the arbitrage gate is open (tomorrow's solar poor/very_poor) **and** an uncorroborated storm watch is active overnight, the arbitrage **WAIT** phase (`energy_battery.py:1521`) returns `reserve_level=self.reserve_soc`, bypassing the inclement `partial_hold` 50% floor. The v5.5.0 A-CRIT-1 fix clamps only the off_peak *drain-target fallback*; arbitrage short-circuits past it. Not a regression; practical exposure small (arbitrage charges the battery up when tomorrow is poor, serving backup anyway). The proper fix threads `effective_reserve` through `_get_arbitrage_decision` / `_run_attain_branch` and is a scoped Tier-2-DB follow-up.
+
+**Relevance to the OC:** this is exactly the cross-coordinator energy-strategy seam (battery ↔ arbitrage ↔ storm-resilience) the Optimization Coordinator is meant to reason about. When the OC's Energy dimension is built, it could surface a finding when a storm `partial_hold` is active but the reported `inclement_reserve_floor` is not actually honored by the live reserve during an arbitrage WAIT tick — i.e. a "declared-floor vs effective-floor divergence" health check. Tracked durable memory: `project_inclement_arbitrage_wait_floor_gap`.

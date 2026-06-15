@@ -264,6 +264,35 @@ def _get_reserve_actions(result):
     return [a for a in result["actions"] if "reserve" in a.get("target", "")]
 
 
+# Inclement-weather reserve cycle: the legacy single-entity has_storm_forecast()
+# is superseded by the NWS-alert + condition fusion. The old storm tests below
+# now drive a warn-tier hold via an injected NWS alerts sensor (the canonical
+# trigger) rather than a bare weather-condition string.
+_NWS_ALERTS_ENTITY = "sensor.test_nws_alerts"
+
+
+def _arm_warn_alert(harness, event="Tornado Warning", certainty="Observed",
+                    severity="Extreme"):
+    """Wire a warn-tier NWS alert into the harness so a full_hold fires."""
+    harness.hass.set_state(
+        _NWS_ALERTS_ENTITY, "1",
+        attributes={"Alerts": [{
+            "Event": event, "Severity": severity, "Certainty": certainty,
+            "Status": "Actual",
+            "Onset": "2026-07-15T08:00:00-05:00",
+            "Ends": "2026-07-16T00:00:00-05:00",
+        }]},
+    )
+    harness.strategy._inclement_config_override = {
+        _INCLEMENT_NWS_KEY: _NWS_ALERTS_ENTITY,
+    }
+
+
+from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+    CONF_INCLEMENT_NWS_ALERTS_ENTITY as _INCLEMENT_NWS_KEY,
+)
+
+
 # ── Summer mid-peak: hold for peak ──────────────────────────────────────────
 
 class TestSummerMidPeak:
@@ -652,12 +681,15 @@ class TestArbitrage:
         )
 
     def test_storm_overrides_arbitrage(self):
-        """Storm forecast takes priority over arbitrage."""
+        """Inclement warn-tier hold takes priority over arbitrage."""
         h = _BatteryHarness(soc=15, solcast_tomorrow="20", arbitrage_enabled=True)
-        h.hass.set_state(DEFAULT_WEATHER_ENTITY, "lightning")
-        result = h.strategy.determine_mode("off_peak", "summer")
-        # Storm path should win — switches to backup mode
-        assert "storm" in result["reason"].lower()
+        _arm_warn_alert(h)
+        result = h.strategy.determine_mode(
+            "off_peak", "summer", now=datetime(2026, 7, 15, 9, 0),
+        )
+        # full_hold (warn) wins — inclement path engaged, arbitrage skipped.
+        assert result["mode"] in (BATTERY_MODE_BACKUP, BATTERY_MODE_SELF_CONSUMPTION)
+        assert "inclement" in result["reason"].lower()
 
     def test_arbitrage_disabled_by_config(self):
         """Arbitrage disabled → normal off-peak behavior."""
@@ -938,20 +970,30 @@ class TestStormPaths:
     """Storm forecast paths — pre-charge and hold."""
 
     def test_storm_low_soc_pre_charges(self):
-        """Storm + low SOC → charge from grid."""
+        """Inclement warn + low SOC + grid-precharge ON → charge from grid."""
         h = _BatteryHarness(soc=50)
-        h.hass.set_state(DEFAULT_WEATHER_ENTITY, "lightning")
-        result = h.strategy.determine_mode("off_peak", "summer")
-        assert "storm" in result["reason"].lower()
+        _arm_warn_alert(h)
+        # Grid-precharge is OFF by default (solar-first) — turn it ON for this
+        # legacy-behavior test so the off_peak warn full_hold pre-charges.
+        h.strategy._inclement_config_override = {
+            _INCLEMENT_NWS_KEY: _NWS_ALERTS_ENTITY,
+            "inclement_grid_precharge_on_hold": True,
+        }
+        result = h.strategy.determine_mode(
+            "off_peak", "summer", now=datetime(2026, 7, 15, 9, 0),
+        )
+        assert "inclement" in result["reason"].lower()
         assert "pre-charging" in result["reason"].lower()
         charge_actions = [a for a in result["actions"] if "charge_from_grid" in a.get("target", "")]
         assert len(charge_actions) == 1
 
     def test_storm_high_soc_holds_backup(self):
-        """Storm + high SOC → switch to backup mode."""
+        """Inclement warn + high SOC (precharge OFF default) → backup hold."""
         h = _BatteryHarness(soc=95)
-        h.hass.set_state(DEFAULT_WEATHER_ENTITY, "tornado")
-        result = h.strategy.determine_mode("off_peak", "summer")
+        _arm_warn_alert(h)
+        result = h.strategy.determine_mode(
+            "off_peak", "summer", now=datetime(2026, 7, 15, 9, 0),
+        )
         assert result["mode"] == BATTERY_MODE_BACKUP
         assert "holding charge" in result["reason"].lower()
 
@@ -1435,13 +1477,13 @@ class TestArbitrageStateMatrixRows:
             soc=95, solcast_today="20", solcast_tomorrow="20",
             arbitrage_enabled=True, with_tou_engine=True,
         )
-        h.hass.set_state(DEFAULT_WEATHER_ENTITY, "tornado")
+        _arm_warn_alert(h)
         result = h.strategy.determine_mode(
             "off_peak", "summer", now=datetime(2026, 7, 15, 9, 0),
         )
-        # SOC≥90 → BACKUP mode
+        # SOC≥90 → BACKUP mode (full_hold)
         assert result["mode"] == BATTERY_MODE_BACKUP
-        assert "storm" in result["reason"].lower()
+        assert "inclement" in result["reason"].lower()
         # Storm bypasses arbitrage entirely — phase must be n/a
         assert result.get("arbitrage_phase") in (ARBITRAGE_PHASE_NA, None)
 
@@ -2220,7 +2262,7 @@ class TestD5InteractionGuards:
             soc=95, solcast_today="20", solcast_tomorrow="20",
             arbitrage_enabled=True, with_tou_engine=True,
         )
-        h.hass.set_state(DEFAULT_WEATHER_ENTITY, "tornado")
+        _arm_warn_alert(h)
         result = h.strategy.determine_mode(
             "off_peak", "summer", now=datetime(2026, 7, 15, 9, 0),
         )
@@ -2235,13 +2277,12 @@ class TestD5InteractionGuards:
             soc=15, solcast_today="20", solcast_tomorrow="20",
             arbitrage_enabled=True, with_tou_engine=True,
         )
-        h.hass.set_state(DEFAULT_WEATHER_ENTITY, "lightning")
+        _arm_warn_alert(h)
         result = h.strategy.determine_mode(
             "off_peak", "summer", now=datetime(2026, 7, 15, 9, 0),
         )
-        # Storm pre-charge path uses self_consumption + reserve = reserve_soc
-        # for the pre-charge case; the message says 'storm'
-        assert "storm" in result["reason"].lower()
+        # Inclement full_hold wins over the arbitrage CHARGE phase.
+        assert "inclement" in result["reason"].lower()
         # Phase machine didn't run
         assert result.get("arbitrage_phase") == ARBITRAGE_PHASE_NA
 
