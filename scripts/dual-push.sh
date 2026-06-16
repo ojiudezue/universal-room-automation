@@ -110,6 +110,31 @@ _push_with_timeout() {
   fi
 }
 
+# Push ONLY tags that are absent from the remote. Re-pushing an existing tag
+# makes Git emit a "[rejected] <tag> (already exists)" line and exit 1 (a tag
+# ref is never fast-forwarded), which for a mirror is pure noise and made
+# deploy.sh print a misleading "mirror push failed" warning. Computing the
+# missing set keeps tag mirroring best-effort AND zero-noise: existing tags
+# are never re-attempted (no rejection), genuinely-new tags still propagate.
+# If the remote tag list can't be read (network/auth/timeout) we SKIP tag
+# mirroring this run rather than blindly re-pushing and reintroducing noise.
+_push_new_tags() {
+  local remote="$1"
+  local remote_raw remote_tags local_tags new_tags
+  if ! remote_raw="$(_push_with_timeout git ls-remote --tags "$remote" 2>/dev/null)"; then
+    return 0
+  fi
+  remote_tags="$(printf '%s\n' "$remote_raw" \
+    | sed -e 's#.*refs/tags/##' -e 's/\^{}$//' | sort -u)"
+  local_tags="$(git tag | sort -u)"
+  new_tags="$(comm -23 <(printf '%s\n' "$local_tags") <(printf '%s\n' "$remote_tags"))"
+  if [[ -z "${new_tags//[[:space:]]/}" ]]; then
+    return 0
+  fi
+  # shellcheck disable=SC2086 — intentional word-split: one refspec per tag.
+  _push_with_timeout git push "$remote" $new_tags 2>/dev/null || return 0
+}
+
 # ---- D2: fail-fast preflight ------------------------------------------------
 # Validate the environment BEFORE any push and BEFORE any URL rewrite that
 # could embed a credential in .git/config. Never echoes GITEA_USER or
@@ -178,23 +203,23 @@ inject_gitea_creds() {
       # Print the would-be commands but NEVER echo the credentialed URL.
       echo "  [dry-run] git remote set-url gitea <credentialed-url-redacted>"
       echo "  [dry-run] git push gitea $BRANCH"
-      echo "  [dry-run] git push gitea --tags"
+      echo "  [dry-run] git push gitea <new-tags-only>"
       echo "  [dry-run] git remote set-url gitea $GITEA_CLEAN_URL"
       return 0
     fi
     git remote set-url gitea "https://${GITEA_USER}:${GITEA_TOKEN}@${EXPECTED_GITEA_HOST}/${repo}.git"
     _push_with_timeout git push gitea "$BRANCH"
-    _push_with_timeout git push gitea --tags
+    _push_new_tags gitea
     git remote set-url gitea "$GITEA_CLEAN_URL"
   else
     echo "[dual-push] no .env.local; relying on osxkeychain" >&2
     if $DRY_RUN; then
       echo "  [dry-run] git push gitea $BRANCH"
-      echo "  [dry-run] git push gitea --tags"
+      echo "  [dry-run] git push gitea <new-tags-only>"
       return 0
     fi
     _push_with_timeout git push gitea "$BRANCH"
-    _push_with_timeout git push gitea --tags
+    _push_new_tags gitea
   fi
 }
 
@@ -207,10 +232,10 @@ if ! $GITEA_ONLY; then
   echo "→ Pushing to GitHub origin/$BRANCH"
   if $DRY_RUN; then
     echo "  [dry-run] git push origin $BRANCH"
-    echo "  [dry-run] git push origin --tags"
+    echo "  [dry-run] git push origin <new-tags-only>"
   else
     git push origin "$BRANCH"
-    git push origin --tags
+    _push_new_tags origin
   fi
 fi
 
