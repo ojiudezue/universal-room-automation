@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.5.0
+# Universal Room Automation vv5.5.1
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -226,6 +226,8 @@ async def async_setup_entry(
             EnergyTOURateSensor(hass, entry),
             EnergyTOUSeasonSensor(hass, entry),
             EnergyBatteryStrategySensor(hass, entry),
+            # v5.5.1 D6: dedicated inclement-weather observability entity
+            InclementStateSensor(hass, entry),
             EnergySolarDayClassSensor(hass, entry),
             # v4.7.x Cycle A: WeatherProviderManager sensors
             WeatherActiveProviderSensor(hass, entry),
@@ -6809,6 +6811,73 @@ class EnergyBatteryStrategySensor(AggregationEntity, SensorEntity):
             "next_decision_boundary": next_boundary,
             "current_holds_active": holds,
             "evse_force_charge_until_iso": force_charge_until_iso,
+        }
+
+
+class InclementStateSensor(AggregationEntity, SensorEntity):
+    """Inclement-weather battery-hold decision, surfaced on its own entity.
+
+    Entity: sensor.ura_inclement_state
+    Device: URA: Energy Coordinator
+
+    v5.5.1 D6: the inclement decision already rides as an attribute pack on
+    EnergyBatteryStrategySensor (its extra_state_attributes returns the whole
+    battery_status dict, which carries every inclement_* key). This sensor
+    re-surfaces only the inclement-scoped subset on a dedicated entity so it
+    can be dashboarded without the full battery payload. Observability-only —
+    it reads already-loaded coordinator state, computes nothing, fires no I/O
+    and no DB queries (Reviewer B discipline, mirrored from the sibling).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:weather-lightning"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_inclement_state"
+        self._attr_name = "Inclement State"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> str:
+        """Return the headline inclement tier (none / notice / watch / warn)."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "unknown"
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return "unknown"
+        status = energy.battery_status
+        return status.get("inclement_tier", "none")
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return only the inclement-scoped subset of battery_status.
+
+        Each key is pulled via .get(...) so a missing inclement_* key never
+        raises. No whole-dict copy — this entity is inclement-scoped, not a
+        battery mirror. Constant-time over already-loaded state; no I/O / no
+        DB queries (Reviewer B compliance, mirrored from the sibling).
+        """
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        status = energy.battery_status
+        return {
+            "storm_forecast": status.get("storm_forecast"),
+            "inclement_hold_depth": status.get("inclement_hold_depth"),
+            "inclement_source": status.get("inclement_source"),
+            "active_alert_event": status.get("active_alert_event"),
+            "inclement_gated_out_events": status.get("inclement_gated_out_events"),
+            "inclement_expires_at": status.get("inclement_expires_at"),
+            "inclement_grid_precharge": status.get("inclement_grid_precharge"),
+            "inclement_reserve_floor": status.get("inclement_reserve_floor"),
+            "inclement_reason": status.get("inclement_reason"),
+            "inclement_solar_horizon": status.get("inclement_solar_horizon"),
         }
 
 
