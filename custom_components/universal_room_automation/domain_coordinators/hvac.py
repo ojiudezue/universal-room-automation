@@ -63,6 +63,13 @@ from .signals import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# How long a zone stays exempt from the continuous heat_cool enforcer after
+# emergency heat is set (freeze hazard). After this window the enforcer
+# resumes restoring heat_cool, on the assumption the freeze event is over.
+# Generous so a real cold snap is well covered; bounded so a stale hold can
+# never permanently strand a zone in "heat".
+EMERGENCY_HEAT_HOLD = timedelta(hours=2)
+
 
 class HVACCoordinator(BaseCoordinator):
     """HVAC Coordinator — zone comfort and cost management.
@@ -201,6 +208,17 @@ class HVACCoordinator(BaseCoordinator):
 
         # Observation mode — sensors run but no actions taken
         self._observation_mode: bool = False
+
+        # Zones currently held in emergency heat (freeze hazard response).
+        # The continuous heat_cool enforcer must NOT fight this intentional
+        # single-mode ("heat") state, so it skips any zone with a live hold.
+        # Maps zone_id -> UTC expiry; populated by _set_emergency_heat. The
+        # hold auto-expires after EMERGENCY_HEAT_HOLD so the enforcer resumes
+        # restoring heat_cool once the freeze event is over (there is no
+        # explicit "freeze cleared" signal routed to HVAC; the pre-fix code
+        # also left zones in "heat" indefinitely, so this only improves
+        # recovery, never worsens it).
+        self._emergency_heat_zones: dict[str, Any] = {}
 
         # v4.7.15 D6: HVAC consensus defer gate.
         # Master toggle (default ON). Operator can disable via
@@ -1025,17 +1043,41 @@ class HVACCoordinator(BaseCoordinator):
                         self._d6_deferrals_today += 1
                         return  # Skip this apply cycle — retry next tick.
 
-        # --- Ensure thermostats are in an active mode (always, even during arriving) ---
-        # Thermostats should never be left in "off" mode by URA.
-        # "Away" uses relaxed setpoints via preset, not hvac_mode=off.
-        # Skip zones mid-AC-reset (intentionally off for a short cycle).
-        # v4.7.8 D8: Also skip zones paused by EgressManager (we set them off
-        # deliberately; restoring to heat_cool here would defeat the pause).
+        # --- Continuous heat_cool enforcer (always, even during arriving) ---
+        # The operator runs zones in ranges/presets (heat_cool). A bare
+        # hvac_mode drift to a single mode (e.g. cool, with preset/setpoints
+        # unchanged) is NOT caught by the OverrideArrester (which only reverts
+        # on a MANUAL-PRESET override). The old loop here only restored zones
+        # stuck in "off", so a zone drifted to "cool"/"heat" sailed past with
+        # no recovery path. This makes the 5-min decision cycle a continuous
+        # heat_cool enforcer for ANY non-heat_cool drift on heat_cool-capable
+        # zones, regardless of how the drift happened.
+        #
+        # Gating (only act on UNINTENTIONAL drift):
+        #   - Skip zones paused by EgressManager (we set them "off"
+        #     deliberately; restoring heat_cool would defeat the pause). v4.7.8 D8
+        #   - Skip zones mid-AC-reset (intentionally "off" for a short cycle).
+        #   - Skip zones held in emergency heat (we set them "heat" for a
+        #     freeze hazard; restoring heat_cool would fight the safety response).
+        #   - Only act on heat_cool-CAPABLE zones (a genuinely heat-only /
+        #     cool-only unit is never forced into an unsupported mode).
+        #   - Idempotent: the `!= "heat_cool"` guard means no write when already
+        #     in heat_cool.
+        # The suppress() handshake (TTL window, A-F5) wraps the write so it does
+        # not register as a manual override → no feedback loop.
         for zone_id, zone in self._zone_manager.zones.items():
             if self._egress_manager.is_paused(zone_id):
                 continue
+            # Skip zones with a live emergency-heat hold; drop expired holds
+            # so the enforcer resumes restoring heat_cool after the freeze.
+            hold_until = self._emergency_heat_zones.get(zone_id)
+            if hold_until is not None:
+                if dt_util.utcnow() < hold_until:
+                    continue
+                del self._emergency_heat_zones[zone_id]
             if (
-                zone.hvac_mode == "off"
+                zone.hvac_mode != "heat_cool"
+                and self._override_arrester._supports_heat_cool(zone.climate_entity)
                 and not self._override_arrester.has_active_ac_reset(zone_id)
             ):
                 self._override_arrester.suppress(zone.climate_entity)
@@ -1050,8 +1092,8 @@ class HVACCoordinator(BaseCoordinator):
                         blocking=True,
                     )
                     _LOGGER.info(
-                        "HVAC: Restored %s to heat_cool (was off)",
-                        zone.zone_name,
+                        "HVAC: Enforced heat_cool on %s (was %s)",
+                        zone.zone_name, zone.hvac_mode,
                     )
                 except Exception as e:
                     self._override_arrester.unsuppress(zone.climate_entity)
@@ -1640,6 +1682,12 @@ class HVACCoordinator(BaseCoordinator):
                         "hvac_mode": "heat",
                     },
                     blocking=True,
+                )
+                # Mark this zone as intentionally non-heat_cool so the
+                # continuous heat_cool enforcer in _apply_house_state_presets
+                # does not fight the freeze response. Hold auto-expires.
+                self._emergency_heat_zones[zone_id] = (
+                    dt_util.utcnow() + EMERGENCY_HEAT_HOLD
                 )
                 _LOGGER.info(
                     "HVAC: Emergency heat set on %s (freeze hazard)",
