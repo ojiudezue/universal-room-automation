@@ -1,33 +1,52 @@
 # Energy Coordinator — User Manual
 
 **Device:** `URA: Energy Coordinator`
-**Last updated:** 2026-05-11 (v4.5.11.3 baseline; v4.5.12 sensor additions to follow)
+**Last updated:** 2026-06-16 (v5.5.1)
 **Scope:** every control, sensor, switch, and form field on the Energy Coordinator surface
 
-This is a task-oriented manual: skim the section headings to find what you need, read the troubleshooting recipes when something feels wrong. The reasoning behind each default is included so you can judge edge cases without re-deriving from first principles.
+This is a task-oriented manual: skim the section headings to find what you need, read the troubleshooting recipes when something feels wrong. The reasoning behind each default is included so you can judge edge cases without re-deriving from first principles. Behaviors are cited to source (`file:line`) or shipped release so they're verifiable — this manual does not describe a plausible-sounding mental model, only what the code actually does.
+
+### Changelog — what the v5.5.1 revision added/corrected
+
+This revision brings the manual current from the v4.5.x baseline through the v5.x line:
+
+- **Rewrote §2** — the battery strategy is now an **arbitrage umbrella** with an **attain fill-phase tri-state machine** (v5.3.8) and a **three-rung least-cost ladder** (v5.3.9). The old four-phase WAIT→CHARGE→HOLD→DISCHARGE diagram is preserved as the conceptual frame but the HOLD/attain semantics are corrected.
+- **Added §2a** — the three-rung solar-attainability ladder (rung_0 do-nothing / rung_1 pause-EVs-redirect-solar / rung_2 grid-charge). Solar-first, grid-last (v5.3.9).
+- **Added §3a** — inclement-weather battery hold (v5.5.0): NWS-alert-driven graduated hold, separate from arbitrage.
+- **Corrected the battery SOC + reserve sources** — URA reads the **Envoy** battery sensor (not SPAN), and writes the **enphase_envoy** reserve number. The `iq_battery_hacs`/`enphase_ev` reserve entities are a separate integration's readout, NOT URA's control surface.
+- **Updated the switches** — `Excess Solar Charging` was renamed to `EVSE Solar-Aware Charging` (v4.7.6); load-shedding tiers corrected to the actual `[pool, ev, smart_plugs, hvac]` cascade; added the strict EV-TOU + force-charge override.
+- **Added §6a** — the v5.3.1 energy-unit-normalization / 4-tier-attribution surfaces (zone/house cost-today sensors).
+- **Documented known limitations honestly** — the arbitrage-WAIT partial_hold-floor gap and the misleading secondary reserve entities.
 
 ---
 
 ## 1. What the Energy Coordinator does
 
-URA: Energy Coordinator is the brain that decides, every 5 minutes, how the house manages its battery, its grid imports, and its surplus solar. It runs six loosely-coupled subsystems under one decision cycle:
+URA: Energy Coordinator is the brain that decides, every 5 minutes, how the house manages its battery, its grid imports, and its surplus solar. It runs several loosely-coupled subsystems under one decision cycle:
 
-- **Battery Strategy** — the four-phase state machine (WAIT → CHARGE → HOLD → DISCHARGE) that arbitrages off-peak grid into peak displacement, with multi-day Solcast awareness and EV-charging mutual-exclusion
+- **Battery Strategy** — the arbitrage state machine (WAIT → CHARGE → HOLD → DISCHARGE umbrella) plus the **attain** fill-phase tri-state machine and the **three-rung least-cost ladder** that fill the battery for a forecast high-rate boundary using solar first and grid last (§2, §2a)
+- **Inclement-Weather Hold** — a separate, NWS-alert-driven graduated battery hold for power-threat storms (§3a), replacing reliance on Enphase Storm Guard
 - **Time-of-Use Engine** — knows which TOU period and rate apply at every moment, including cross-midnight transitions and seasonal switching
-- **Solar Forecast** — pulls Solcast (today + tomorrow + D+2) and classifies each day as excellent / good / moderate / poor / very_poor
-- **EV Charge Controller** — gates EVSEs by TOU period, battery state, and arbitrage mutual-exclusion
+- **Solar Forecast** — pulls Solcast (today + tomorrow + remaining) and classifies each day as excellent / good / moderate / poor / very_poor
+- **EV Charge Controller** — gates EVSEs by TOU period, battery state, arbitrage/attain mutual-exclusion, and load-shed/grid-cap ownership
 - **HVAC Constraint** — feeds offsets and coast/shed/precool/preheat signals into the HVAC Coordinator so climate behavior adjusts to energy state
-- **Load Shedding** — detects sustained grid imports above threshold and triggers reduction signals to other coordinators
+- **Load Shedding** — a reactive cascading peak limiter: detects sustained grid imports above threshold and walks down a four-tier hierarchy (§3)
 
-All six share the same `EnergyData` snapshot (refreshed every cycle) and the same circuit-monitor (Span / Emporia / Sense — via the per-circuit integrations you configured). Each subsystem has a master kill-switch.
+The subsystems share the same energy snapshot (refreshed every cycle) and the same circuit monitor (Span / Emporia via the per-circuit integrations you configured). Each subsystem has a master kill-switch.
+
+**Battery hardware:** URA reads battery state of charge from the **Enphase Envoy** (`sensor.envoy_<serial>_battery`, default derived in `energy_const.py:645`; `battery_soc` property at `energy_battery.py:401`). It does **NOT** read SPAN's `battery_level` — SPAN's reading is miscalibrated and is not a configured source. URA actuates the battery by writing the reserve-SOC number `number.enpower_482348004678_reserve_battery_level` (`DEFAULT_RESERVE_SOC_ENTITY`, `energy_const.py:137`), owned by the official `enphase_envoy` integration, plus the storage-mode select and charge-from-grid switch on the same Enpower device. The base reserve floor is **10%** (`DEFAULT_RESERVE_SOC`, `energy_const.py:109`).
+
+> **Caution — misleading secondary entities.** A *separate* battery integration (the `iq_battery_hacs` / `enphase_ev` family) exposes its own reserve-level entities. Those are a **frozen secondary readout from a different integration — not URA's control surface.** URA neither reads nor writes them. If you're diagnosing a reserve change, watch `number.enpower_482348004678_reserve_battery_level`, not the `iq_battery_hacs` reserve entity.
 
 **Decision cadence:** 5-minute polling cycle, plus event-driven response to circuit-level anomalies, EVSE state changes, and Envoy availability transitions.
 
 ---
 
-## 2. The four-phase battery state machine (v4.5.0)
+## 2. The battery strategy: arbitrage umbrella + attain fill phase
 
-This is the headliner. It replaced v3.11.0's SOC-trigger arbitrage that wasted off-peak charges.
+This is the headliner. The original v4.5.0 four-phase machine (below) is the conceptual frame; v5.3.8 (**attain**) and v5.3.9 (**three-rung ladder**, §2a) refined how the battery actually *fills* for a high-rate boundary. The guiding principle across all of it: **solar-first, grid-last.** URA pulls cheap off-peak grid only when projected solar will not reach the buffer target on its own.
+
+**Terminology — arbitrage vs. attain.** "Arbitrage" is the *umbrella* strategy (buy cheap, displace expensive). "Attain" is specifically the **fill phase** — the tri-state machine (`_run_attain_branch`, `energy_battery.py:2284`) that drives SOC up to `peak_buffer_target` ahead of the next high-rate period and then *pins* it there.
 
 ```
                     ┌─────── chunk_completed ───────┐
@@ -47,16 +66,43 @@ This is the headliner. It replaced v3.11.0's SOC-trigger arbitrage that wasted o
 
 | Phase | When | Reserve SOC | Charge from grid | What it does |
 |---|---|---|---|---|
-| **WAIT** | Off-peak, before the charge window opens | 10 (reserve_soc) | OFF | Battery serves loads naturally. SOC drifts down. |
-| **CHARGE** | Off-peak, charge window open, SOC < target, forecast still poor on recheck | 80 (peak_buffer_target) | **ON** | Grid charges the battery. **EV mutual-exclusion engages** — any EVSE that's running is paused for the duration. |
-| **HOLD** | SOC reached target during CHARGE | 80 | OFF | Buffer locked at target. Solar can still push above 80%, but grid won't. Eliminates the v3.11.0 drain-back-down regression. |
-| **DISCHARGE** | TOU enters mid_peak or peak | 10 | OFF | Battery covers load, displaces high-rate imports. Standard pre-v4.5.0 behavior. |
+| **WAIT** | Off-peak, before the charge window opens / fill not yet needed | 10 (reserve_soc) | OFF | Battery serves loads naturally. SOC drifts down. |
+| **CHARGE** | Off-peak, fill needed, the rung-2 (grid) path selected | peak_buffer_target (default 80) | **ON** | Grid charges the battery. **EV mutual-exclusion engages** — any running EVSE is paused for the duration (breaker protection). |
+| **HOLD** (attain `holding`) | SOC reached `peak_buffer_target` during fill | peak_buffer_target | OFF | Reserve **pinned** at target. Solar can still push above target, but grid won't. See attain semantics below. |
+| **DISCHARGE** | TOU enters mid_peak or peak | 10 | OFF | Battery covers load, displaces high-rate imports. |
 
-**Charge window timing:** `charge_start_time = next_high_rate_transition − arbitrage_charge_lead_time_min`. Default lead time is 360 min (6 hr). Biases toward earlier start so intraday Solcast updates (which accumulate from sunrise) can re-classify the target day. Hard min 120 min (physics floor + safety margin), hard max 720 min.
+**The attain tri-state machine (v5.3.8, `energy_battery.py:2284-2413`).** The fill phase is a three-state machine: `inactive → charging → holding`.
+- `inactive` — the entry predicate (solar projection + floor + rate gate) may fire and move to `charging`.
+- `charging` — verify-only maintenance; transitions to `holding` the moment SOC reaches `peak_buffer_target`.
+- `holding` — **re-emits a HOLD decision EVERY tick** (reserve pinned at `peak_buffer_target`, `charge_from_grid=False`; `energy_battery.py:2042-2043`). Crucially, **if SOC sags below target while holding, it STAYS holding** — the pinned reserve floor holds the battery up; it does not drop back to `charging` and re-pull grid. Holding is routed *before* the entry predicate and the chunk-lock, and exits only via the boundary handoff (within `ATTAIN_PEAK_HANDOFF_LEAD_MIN = 15` min of the high-rate boundary, the HOLD continues until the TOU branch takes over) or the charge window closing.
 
-**Per-chunk lock:** one arbitrage cycle per off-peak chunk. Resets on TOU transition INTO off_peak. Prevents oscillation if SOC dips post-completion or the forecast wobbles.
+**Charge window timing:** `charge_start_time = next_high_rate_transition − arbitrage_charge_lead_time_min`. Default lead time is 360 min (6 hr). Biases toward earlier start so intraday Solcast updates (which accumulate from sunrise) can re-classify the target day. Hard min 120 min, hard max 720 min.
 
-**Forecast re-check:** at the first WAIT→CHARGE transition per chunk, the coordinator re-classifies the target day's solar forecast. If the forecast improved (e.g., poor → good), the cycle aborts — sets `chunk_completed=True` and stays in WAIT for the rest of the chunk. No wasted grid charge.
+**Per-chunk lock:** one fill cycle per off-peak chunk. Resets on TOU transition INTO off_peak. Prevents oscillation if SOC dips post-completion or the forecast wobbles.
+
+**Solar-informed entry / forecast re-check:** the entry predicate consults the projected solar surplus (`_expected_solar_surplus_pct`, `energy_battery.py:1636`), which nets house load via `SOLAR_CAPTURE_FACTOR = 0.5` (`energy_battery.py:87` — a deliberately conservative constant: only ~half the remaining-day Solcast forecast is assumed to land in the battery before the boundary). If tomorrow's forecast classifies well enough that solar alone will reach target, the grid fill is suppressed. Stale/unavailable Solcast → surplus treated as 0 (fail toward charging — buffer matters more than a wasted cheap charge).
+
+---
+
+## 2a. The three-rung least-cost ladder (v5.3.9)
+
+**Why it exists.** On an excellent-solar morning (17 kW, net exporting, grid effectively $0), the old code would still fire a grid CHARGE *and pause both EVs* — burning money and blocking the cars while the sun would have filled the battery for free. The ladder (`_classify_attain_rung`, `energy_battery.py:1060-1085`) picks the **least-cost intervention** that still reaches `peak_buffer_target` at the boundary. It runs a two-pass projection each arbitrage-eligible tick:
+
+| Rung | Label | Condition | Action |
+|---|---|---|---|
+| **rung_0** | (none) | Today's solar **+ current loads (EVs included)** projects SOC ≥ target+hysteresis at the boundary | **Do nothing.** Arbitrage gate stays CLOSED, EVs keep charging on solar, no grid. |
+| **rung_1** | `redirect` | rung_0 misses, but re-projecting with the **EV load removed** attains target | **Pause EVs only** to redirect their solar into the battery. Grid stays closed. |
+| **rung_2** | `breaker` | Even with EVs paused, solar misses | **Grid charge** (`charge_from_grid=True`) — the LAST resort. EVs also paused, for compound-load (main-breaker) protection. |
+
+**Solar-first, grid-last** is the whole point: grid is only pulled at rung_2, and only when neither doing-nothing nor redirecting EV solar would reach the target in time.
+
+**No oscillation (the counterfactual exit).** While latched at rung_1 the EVs are paused, so the observed net-charge rate is artificially inflated (their load is gone). A naive re-check would read "solar attains now" → resume EVs → load returns → miss again → re-pause: bang-bang. So the rung_1 **exit is counterfactual** — it re-adds the EV load into the projection and only drops to rung_0 / resumes the EVs if solar *still* attains with the cars charging. This is a stable latch, mutation-guarded by a 5-tick oscillation test.
+
+**Cold boot:** until the trailing rate window has ≥2 samples, the ladder conservatively returns rung_2 (same shape as the attain cold-boot defer).
+
+**Breaker-safety chokepoint (D2).** A 20 kW grid charge + a charging EV + base load ≈ 134 A → main-breaker trip. A single dispatch-site chokepoint, keyed on the decision's `charge_from_grid` flag (so it covers arbitrage CHARGE, attain, AND rung_2 uniformly): no `charge_from_grid=True` fires until EVs are commanded paused in the same tick, and no EV is commanded ON while grid charge is on. The guard reads the **decision flag OR the live switch** (covering the ~35-min Enphase actuation lag), fails CLOSED on `unavailable`, and re-establishes the pause from the live switch after a reboot-mid-charge.
+
+**Observability:** no new config or entities — the ladder surfaces via the existing `arbitrage_phase`/`reason` plus a `paused_by_arbitrage_reasons` attribute (`redirect` vs `breaker`) on the EV diagnostic sensor.
 
 ---
 
@@ -83,19 +129,22 @@ Seven switches live on the URA: Energy Coordinator device page. **The 5 sub-feat
 
 ### `Load Shedding`
 **Default:** OFF
-**What it does:** enables the 4-level cascade when sustained grid import exceeds the configured threshold for the sustained-minutes window. Level 1 = pool pump speed reduction, 2 = EV chargers off, 3 = smart plugs off, 4 = HVAC energy-constraint signal (coast/shed offset to HVAC). Recovery is reverse order when import drops back below threshold.
-**Different from Grid Import Cap:** load-shedding is a graduated cascade with 4 priorities; grid-import-cap is a simple binary on/off acting only on EVSEs. The cap fires faster (1 decision tick) and finer (only EVSEs); load shedding requires sustained breach (default 5 min) and walks down a hierarchy.
+**What it does:** enables a **reactive cascading peak limiter** — when sustained grid import exceeds the configured threshold for the sustained-minutes window, it walks down a four-tier priority list (`LOAD_SHEDDING_PRIORITY = ["pool", "ev", "smart_plugs", "hvac"]`, `energy_const.py:610`): tier 1 = pool pump speed reduction, 2 = EV chargers off, 3 = smart plugs off, 4 = HVAC energy-constraint signal (coast/shed offset to HVAC). Recovery is reverse order when import drops back below threshold. Defaults: threshold **5 kW** (`energy_const.py:595`), sustained **15 min** (`energy_const.py:596`).
+**Pause-ownership is isolated (v5.4.1):** shed-paused EVs and plugs live in a dedicated `_paused_by_load_shed` set, so a sibling owner (TOU pause, arbitrage, grid-cap, solar-aware) can't turn a shed device back on, and shed release defers to every other owner. Orphan-restore survives a watchdog kill (state persists as an atomic JSON bundle); manual-off-wins (a device you turned off mid-shed stays off; one you turn back on gets re-shed).
+**Different from Grid Import Cap:** load-shedding is a graduated four-tier cascade; grid-import-cap is a simple binary on/off acting only on EVSEs. The cap fires faster (1 decision tick) and finer (only EVSEs); load shedding requires a sustained breach and walks down the hierarchy.
 
-### `Excess Solar Charging`
+### `EVSE Solar-Aware Charging`
 **Default:** OFF
-**What it does:** when ON and battery SOC ≥ `energy_excess_solar_soc` (default 95%) AND remaining today solar ≥ `energy_excess_solar_kwh` (default 5 kWh) AND current TOU is off-peak or mid-peak (never peak), **turn ON EVSEs** to absorb surplus solar that would otherwise be exported. Only turns off EVSEs that URA itself turned on (tracked via `_excess_solar_active` set) — won't fight a user who manually started charging.
+**Entity:** `switch.ura_energy_coordinator_evse_solar_aware_charging`
+**Renamed (v4.7.6):** this was previously `Excess Solar Charging` (`switch.ura_energy_coordinator_excess_solar_charging`). The history/unique_id is preserved (`{DOMAIN}_energy_excess_solar`) so your statistics survived the rename (`switch.py:46-69`).
+**What it does:** when ON and battery SOC ≥ `energy_excess_solar_soc` (default 95%) AND remaining today solar ≥ `energy_excess_solar_kwh` (default 5 kWh) AND current TOU is off-peak or mid-peak (never peak), **turn ON EVSEs** to absorb surplus solar that would otherwise be exported. Only turns off EVSEs that URA itself turned on — won't fight a user who manually started charging.
 **When to enable:** if your utility's net-metering doesn't credit exports as well as import-displacement (asymmetric rates), or if your battery is small relative to your daily PV production.
 
 ### `Grid Arbitrage`
 **Default:** OFF
-**What it does:** allows the four-phase battery state machine to do overnight grid-charging on poor-solar-tomorrow days. When `tomorrow_solar_class` is `poor`/`very_poor` AND the charge window is open (next high-rate transition within `arbitrage_charge_lead_time_min`), enables `charge_from_grid` to fill the battery from cheap off-peak grid.
-**Gated by `Peak Buffer Target`** — stops charging when SOC reaches the target.
-**Storm prep takes priority** — if a storm forecast is active, that path runs instead of arbitrage.
+**What it does:** master enable for the battery fill machinery — the attain tri-state machine (§2) and the three-rung ladder (§2a). On poor-solar-tomorrow days (`classify_tomorrow_solar` returns `poor`/`very_poor`, `energy_battery.py:556`) the charge window opens, and the ladder fills the battery using the least-cost rung — doing nothing if solar alone will reach target, pausing EVs to redirect solar if that's enough, and only pulling `charge_from_grid` as the last resort.
+**Gated by `Peak Buffer Target`** — fill stops (enters attain HOLD) when SOC reaches the target.
+**Inclement-weather hold takes priority** — if an active power-threat NWS alert is holding the battery (§3a), that path runs instead.
 
 ### `EV TOU Management` — strict policy behavior (v4.7.x)
 **Default:** ON
@@ -107,14 +156,41 @@ Seven switches live on the URA: Energy Coordinator device page. **The 5 sub-feat
 Master gating order — **strict precedence**:
 
 ```
-1. Envoy unavailable        → hold state, no commands fire
-2. Grid disconnected         → BACKUP storage mode
-3. Storm forecast active     → BACKUP / pre-charging (storm wins over arbitrage)
-4. Peak / mid_peak TOU       → DISCHARGE logic
-5. Off-peak                  → arbitrage phase OR drain-target fallback
+1. Envoy unavailable              → hold state, no commands fire
+2. Grid disconnected               → BACKUP storage mode
+3. Inclement-weather hold active   → full_hold (BACKUP) / partial_hold (elevated reserve floor)
+4. Peak / mid_peak TOU             → DISCHARGE logic
+5. Off-peak                        → attain fill (rung ladder) OR drain-target fallback
 ```
 
 Don't re-order these in custom automations layered on top — the precedence prevents combinations like "BACKUP + arbitrage charge" that would fight each other.
+
+---
+
+## 3a. Inclement-weather battery hold (v5.5.0)
+
+A **separate** subsystem from arbitrage — it holds the battery as backup ahead of a power-threat storm, replacing reliance on Enphase Storm Guard (cloud-only, no local veto, blunt 100% grid pre-charge, multi-day stale locks). Config lives under **Energy → Weather Providers** (`inclement.py`; CONF keys `energy_const.py:204-215`).
+
+**Detection — event-type relevance is the PRIMARY gate.** URA parses your NWS Alerts sensor (`CONF_INCLEMENT_NWS_ALERTS_ENTITY`) and gates first on the **Event name**: only events matching the operator-curated power-threat list (`DEFAULT_INCLEMENT_POWER_THREAT_EVENTS` — Tornado, Severe Thunderstorm, Ice Storm, Winter Storm, High Wind, Extreme Wind, Hurricane, Blizzard; `energy_const.py:224`) can ever hold the battery. **Severity is only a secondary noise filter** (default min "Severe"), never the gate. So a `Flood Watch` (Severity=Severe) fails the gate → NOTICE → battery discharges normally. *This is the "beats Enphase" property — Enphase Storm Guard would hold; URA does not.*
+
+**Graduated hold-depth ladder — not a binary hold:**
+| Rung | What it does |
+|---|---|
+| `full_hold` | Short-circuit to BACKUP storage mode (highest-confidence threat) |
+| `partial_hold` | TOU branches still run, but with an elevated reserve floor (default **50%**, `CONF_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR`, `energy_const.py:238`) |
+| `allow_discharge` | No override — byte-identical to a no-storm tick |
+
+The rung is matrix-driven by **(confidence tier × current TOU period × solar-recovery horizon)**. The operator thesis: a warning at 8am with a sunny day ahead means something different from a warning at dusk heading into a 6–12h overnight outage.
+
+**Solar-horizon recoverability (surplus-based, net of house load).** A mid_peak/peak discharge counts as "recoverable" only if projected solar surplus (the same `_expected_solar_surplus_pct` primitive used by attain, already net of house load via `SOLAR_CAPTURE_FACTOR=0.5`) exceeds what `partial_hold` would permit by a margin (default 5 %SOC). off_peak callers short-circuit (holding forgoes no arbitrage discharge there).
+
+**Hold duration = the alert's own Expires/Ends — the stale-lock fix.** No fixed timer anywhere. Each contributing alert's `min(Ends, Expires)` bounds the hold, re-evaluated every tick, so a hold cannot outlive its alert (directly fixing the Enphase multi-day stale lock).
+
+**No grid pre-charge by default.** `CONF_INCLEMENT_GRID_PRECHARGE_ON_HOLD` defaults **False** (`energy_const.py:237`) — URA never burns grid energy to backup-fill on a watch (solar-first). EVs: a charging EV's backup relies on the existing `_apply_evse_battery_hold` reserve clamp (which, per the v5.5.0 EV-audit §2 fix, can only **raise** the reserve, never lower it); this cycle pauses no EVs.
+
+**Observability:** `sensor.ura_inclement_state` (dedicated entity added in v5.5.1) plus inclement attributes on the battery-strategy sensor (`inclement_tier`, `inclement_hold_depth`, `inclement_gated_out_events`, `inclement_solar_horizon`, `inclement_reserve_floor`, `inclement_grid_precharge`) and `SIGNAL_INCLEMENT_STATE_CHANGED`.
+
+> **Setup note:** the feature stays dormant until `CONF_INCLEMENT_NWS_ALERTS_ENTITY` is wired to your NWS Alerts sensor in Energy → Weather Providers options. With no entity set (or no active alert), the resting state is `inclement_tier=none`, `hold_depth=allow_discharge`, `inclement_reserve_floor` == base `reserve_soc` (10).
 
 ---
 
@@ -155,7 +231,7 @@ These are set in **Coordinator Manager → Energy** at install time. Most are en
 |---|---|
 | **Solar Production Entity** | Enphase Envoy production sensor in kW (e.g., `sensor.envoy_current_power_production`) |
 | **Net Power Entity** | Whole-house net kW (positive = importing from grid; negative = exporting) |
-| **Battery SOC Entity** | Battery state-of-charge sensor in % (e.g., `sensor.enpower_battery_soc`) |
+| **Battery SOC Entity** | Battery state-of-charge sensor in % — the **Envoy** battery sensor (`sensor.envoy_<serial>_battery`), auto-derived from the Envoy serial. **Not** SPAN's `battery_level` (miscalibrated). |
 | **Battery Power Entity** | Battery charge/discharge kW |
 | **Grid Import Sensor** / **Grid Export Sensor** | Cumulative kWh totalizers from your utility meter or Envoy |
 | **Envoy Entity** | The Enphase Envoy gateway device entity (used as availability proxy) |
@@ -219,10 +295,20 @@ The HVAC Coordinator reads these to know how aggressively to coast / precool / p
 ### Arbitrage
 | Field | What it does |
 |---|---|
-| **Arbitrage Enabled** | Master for the four-phase state machine |
-| **Multi-Day Horizon Enabled** | When ON, gate also fires on D+2 poor forecasts (v4.5.0 default OFF until calibrated) |
-| **Grid Import Guard kW** | Hard cap on grid import during CHARGE (default 12 kW, was 20 before v4.5.0.3) |
-| **Excess Solar Enabled / SOC / kWh** | Routes surplus solar above the SOC threshold to other loads (heat pump, hot water, thermal banking) when daily kWh budget allows |
+| **Arbitrage Enabled** | Master for the attain fill machine + three-rung ladder (§2, §2a) |
+| **Grid Import Guard kW** | Hard cap on non-battery grid import during CHARGE (default 12 kW, 60A-breaker sized; `_grid_import_guard_triggered`, `energy_battery.py:1047`) |
+| **Excess Solar Enabled / SOC / kWh** | The EVSE Solar-Aware Charging knobs (see §3 switch) — routes surplus solar to EVSEs above the SOC threshold when the remaining-day kWh budget allows |
+
+### Inclement weather (Energy → Weather Providers)
+| Field | CONF key | Default | What it does |
+|---|---|---|---|
+| **NWS Alerts entity** | `inclement_nws_alerts_entity` | (unset → dormant) | The NWS Alerts sensor URA parses for power-threat events |
+| **Power-threat events** | `inclement_power_threat_events` | Tornado, Severe Thunderstorm, Ice Storm, Winter Storm, High Wind, Extreme Wind, Hurricane, Blizzard | The event-name allowlist (PRIMARY gate) |
+| **Min severity** | `inclement_warn_min_severity` | Severe | Secondary noise filter, applied after the event gate |
+| **Grid pre-charge on hold** | `inclement_grid_precharge_on_hold` | False | Whether to burn grid to backup-fill (solar-first by default) |
+| **Partial-hold reserve floor** | `inclement_partial_hold_reserve_floor` | 50% | Elevated reserve during a `partial_hold` |
+| **Recoverable surplus margin** | `inclement_recoverable_surplus_margin_pct` | 5 %SOC | Margin solar surplus must exceed to count a discharge "recoverable" |
+| **Condition corroboration mode** | `inclement_condition_corroboration_mode` | (named-bucket) | Local multi-provider condition cross-check |
 
 ---
 
@@ -248,6 +334,17 @@ The Energy Coordinator device hosts 40+ sensors. These are the ones to put on a 
 | `sensor.ura_energy_coordinator_zone_<zone>_cost_per_hour` | Live $/h burn rate per zone | v4.6.8 |
 
 **Why this matters:** prior to v4.6.8, multiple call sites computed cost from different rate lookups (some forgot delivery+transmission). The reconciliation made `TOURateEngine.get_effective_import_rate(now)` the single source of truth. All zone/house/appliance cost math now agrees.
+
+### v5.3.1 energy-unit normalization + 4-tier attribution
+
+A live audit on 2026-06-09 found zone/room energy sensors poisoned by a 1000× unit mismatch (Wh summed as kWh — e.g. a zone reading 1,671 kWh "today" at a ~1 kW draw) and lifetime counters leaking into today-scope equations (coverage delta of −839M kWh; attribution coverage of 24-billion %). v5.3.1 fixed it:
+
+- A shared `energy_state_to_kwh` helper (`domain_coordinators/_units.py`) normalizes Wh/kWh/MWh at every energy read; a one-shot version-gated baseline reset cleared the poisoned anchors.
+- Coverage-delta tiers (zone / house-device / whole-house) are now **today-scoped** via in-memory midnight-anchored baselines, with per-sensor cumulative-vs-today classification.
+- `coverage_rating` gained an **"Anomalous"** verdict (delta < −2% or > 100%) and **"Incomplete"** during the post-restart re-anchor window, so a poisoned reading can no longer be rated "Excellent".
+- Rooms whose energy sensors are all dead now report `energy_today = None` (not a silent 0.0) with `energy_sensors_dead: true` and a rate-limited WARNING.
+
+If a zone shows an implausible cost/energy figure, check `coverage_rating` for "Anomalous" and look for `scope_mismatch_warning` / `energy_sensors_dead` attributes before suspecting the rate engine.
 
 ### Today + cycle accounting
 - **`Energy Import Today`** / **`Energy Export Today`** — kWh totals reset at midnight.
@@ -303,14 +400,23 @@ The same shape used elsewhere in URA:
 
 ---
 
+## 7a. Known limitations (documented honestly)
+
+- **Arbitrage-WAIT can briefly bypass the inclement `partial_hold` floor** (MEDIUM, tracked follow-up; `energy_battery.py:1521`). When the arbitrage gate is open (tomorrow's solar poor/very_poor) *and* an uncorroborated power-threat **watch** is active overnight, the arbitrage WAIT phase returns `reserve_level = reserve_soc` (10), ignoring the elevated 50% floor. **Not a regression** — it is the build's original shape, and exposure is small (when tomorrow is poor, arbitrage is *filling the battery up* for the bad solar day, which itself serves backup; WAIT is a transient hold). The proper fix threads the floor through the arbitrage/attain state machine and is scoped as its own Tier-2-DB cycle. *Do not flag a brief reserve dip to 10 during arbitrage WAIT + an active uncorroborated watch as a violation — it is a known, accepted gap for v5.5.x.*
+- **Misleading secondary reserve entities.** The `iq_battery_hacs` / `enphase_ev` reserve-level entities are a *different* integration's frozen readout and are **not** URA's control surface. URA's reserve control is `number.enpower_482348004678_reserve_battery_level` only (see §1 caution).
+- **HA long-term statistics keep the historical 1000× datapoints** from the pre-v5.3.1 unit bug (cosmetic; ages out per recorder retention). Accepted for a single-user install.
+- **Upstairs/Outside zone energy recovery requires a SPAN circuit entity_id remap** — operator config work (hygiene bucket), not a code fix. v5.3.1's D4 makes the dead-sensor failure visible (`energy_sensors_dead: true`) meanwhile.
+
+---
+
 ## 8. Troubleshooting
 
 ### "Arbitrage charged but battery drained back down before peak"
 
-This was the v3.11.0 bug v4.5.0 fixed. If it's still happening on v4.5.0+:
-1. Confirm you're on v4.5.0 or later: `sensor.ura_universal_room_automation` or the integration's About page.
-2. Check **Battery Strategy** sensor: was the state HOLD between CHARGE end and mid_peak start? If not, see #2 below.
-3. Off-peak drain target may be too low. Look at the day class — if classified as "excellent" but the drain slider for excellent is set to 5%, the battery will drain even from HOLD via natural load. Raise the slider.
+This was the v3.11.0 bug v4.5.0 fixed and v5.3.8 hardened with the attain HOLD. If it's still happening:
+1. Confirm you're on v5.3.8 or later (manifest / About page).
+2. Check **Battery Strategy** sensor and its `attain_state` attribute: between fill-complete and mid_peak start it should be `holding` (reserve pinned at `peak_buffer_target`, `charge_from_grid=False`). In `holding`, SOC sagging below target is *expected and harmless* — the pinned reserve floor holds the battery up; it does not drain back down past the floor.
+3. If `attain_state` is NOT `holding` there, the fill cycle may have fallen through to the drain-target fallback. Check the **Battery Decision** sensor reason text and confirm the off-peak drain slider for the current day class isn't set absurdly low.
 
 ### "Arbitrage CHARGE never fires when it should"
 
@@ -509,6 +615,21 @@ The `_paused_by_<reason>` set + precedence-rule pattern is the same architecture
 |---|---|
 | `switch.ura_energy_coordinator_enabled` | Master — actuation kill |
 | `switch.ura_energy_coordinator_observation_mode` | Compute + record but don't actuate |
+| `switch.ura_energy_coordinator_arbitrage` | Enable the attain fill + three-rung ladder |
+| `switch.ura_energy_coordinator_ev_tou_management` | Strict EV TOU pause (carries `override_active_until_iso`) |
+| `switch.ura_energy_coordinator_evse_solar_aware_charging` | Solar-surplus EVSE absorb (formerly `excess_solar_charging`) |
+| `switch.ura_energy_coordinator_grid_import_cap` | Binary EVSE-only import cap |
+| `switch.ura_energy_coordinator_load_shedding` | Four-tier reactive shed cascade |
+
+### Buttons
+| Entity ID | Purpose |
+|---|---|
+| `button.ura_energy_coordinator_evse_force_charge_30min` | 30-min admin override of TOU EV pause (§10) |
+
+### Inclement-weather (v5.5.1)
+| Entity ID | Purpose |
+|---|---|
+| `sensor.ura_inclement_state` | Dedicated inclement-weather hold state observability entity |
 
 ### Number sliders
 | Entity ID | Default | Purpose |
@@ -581,6 +702,10 @@ These fields live in the CM → Energy step, alongside the existing Primary weat
 
 **See also:**
 - `docs/user-manual/HVAC_COORDINATOR.md` — the climate side of the same brain
-- `docs/readmes/README_v4.5.0.md` — the v4.5.0 battery-strategy redesign cycle (canonical reference)
-- `docs/QUALITY_CONTEXT.md` — bug-class catalog (#1–#43) that reviews check against
+- `docs/readmes/README_v4.5.0.md` — the original battery-strategy redesign
+- `docs/readmes/README_v5.3.8.md` / `README_v5.3.9.md` — attain fill phase + three-rung ladder
+- `docs/readmes/README_v5.5.0.md` — inclement-weather battery hold
+- `docs/readmes/README_v5.4.1.md` — load-shedding correctness fixes
+- `docs/readmes/README_v5.3.1.md` — energy unit normalization + 4-tier attribution
+- `docs/QUALITY_CONTEXT.md` — bug-class catalog that reviews check against
 - `docs/ENERGY_MANAGEMENT_EXPLAINER.md §15` — Weather Provider Manager architecture detail
