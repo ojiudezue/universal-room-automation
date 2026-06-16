@@ -267,7 +267,7 @@ These are set in **Coordinator Manager → Energy** at install time. Most are en
 | **Load Shedding Enabled** | Master toggle (also exposed as `switch.ura_energy_coordinator_load_shedding`) |
 | **Load Shedding Threshold (kW)** | Grid-import kW that triggers shed (default 5 kW; can also be `auto` for 90th-percentile auto-learn after 30+ days of data) |
 | **Load Shedding Sustained Minutes** | How long the import must exceed threshold before shed fires (default 15 min) |
-| **Load Shedding Mode** | `fixed` or `auto_learned` (the threshold-determination method) |
+| **Load Shedding Mode** | `fixed` or `auto` — the **threshold-determination** method (`LOAD_SHEDDING_MODE_FIXED` / `_AUTO`, `energy_const.py:597-598`). `auto` learns the threshold from the 90th percentile of peak import after 30+ days (`energy.py:4180`). This is NOT an advisory/actuate toggle. |
 
 ### Grid Import Cap (single-tier, EVSE-only)
 | Field | What to set it to |
@@ -286,11 +286,11 @@ These are set in **Coordinator Manager → Energy** at install time. Most are en
 The HVAC Coordinator reads these to know how aggressively to coast / precool / preheat based on energy state.
 | Field | Default | Effect |
 |---|---|---|
-| **Coast Offset** | +1.5°F | When coasting (high battery, excess solar), let setpoints drift this much |
-| **Pre-Cool Offset** | −1.5°F | When pre-cooling for forecasted peak, drop setpoints by this much |
-| **Pre-Heat Offset** | +1.5°F | Symmetric for heating |
-| **Shed Offset** | +3.0°F | When load shedding fires, widen setpoints by this much |
-| **Pre-Heat Temp Threshold** | 35°F | Forecast-low below which pre-heat fires |
+| **Coast Offset** | +3.0°F | When coasting (high battery, excess solar), let setpoints drift this much (`DEFAULT_CONSTRAINT_COAST_OFFSET`, `energy_const.py:603`) |
+| **Pre-Cool Offset** | −2.0°F | When pre-cooling for forecasted peak, drop setpoints by this much (`energy_const.py:604`) |
+| **Pre-Heat Offset** | +2.0°F | Symmetric for heating (`energy_const.py:605`) |
+| **Shed Offset** | +5.0°F | When load shedding fires, widen setpoints by this much (`energy_const.py:606`) |
+| **Pre-Heat Temp Threshold** | 40°F | Forecast-low below which pre-heat fires (`energy_const.py:607`) |
 
 ### Arbitrage
 | Field | What it does |
@@ -328,10 +328,10 @@ The Energy Coordinator device hosts 40+ sensors. These are the ones to put on a 
 
 | Sensor | Value | Notes |
 |---|---|---|
-| `sensor.ura_energy_coordinator_current_effective_rate` | Current effective $/kWh (base + delivery + transmission) | Read this for "what I pay if I import right now" |
-| `sensor.ura_energy_coordinator_zone_<zone>_cost_today` | Per-zone cost from per-zone-power × TOU rate | v4.6.8 |
-| `sensor.ura_energy_coordinator_whole_house_cost_today` | House cost rollup | v4.6.8 |
-| `sensor.ura_energy_coordinator_zone_<zone>_cost_per_hour` | Live $/h burn rate per zone | v4.6.8 |
+| `sensor.ura_energy_coordinator_current_effective_rate` | Current effective $/kWh (base + delivery + transmission) | Read this for "what I pay if I import right now" (`sensor.py:8336`, backed by `TOURateEngine.get_effective_import_rate`, `energy_tou.py:194`) |
+| `sensor.ura_zone_<zone>_energy_cost_today` | Per-zone cost from per-zone-power × TOU rate. **Lives on the per-zone aggregation device, not the EC device** — unique_id `{DOMAIN}_zone_<zone>_energy_cost_today` (`aggregation.py:4280`) | v4.6.8 |
+| `sensor.ura_energy_coordinator_energy_cost_today` | Whole-house cost rollup on the EC device (`EnergyCoordCostTodaySensor`, `sensor.py:7935`) | v4.6.8 |
+| `sensor.ura_zone_<zone>_cost_per_hour` | Live $/h burn rate per zone, on the aggregation device (`aggregation.py:4325`) | v4.6.8 |
 
 **Why this matters:** prior to v4.6.8, multiple call sites computed cost from different rate lookups (some forgot delivery+transmission). The reconciliation made `TOURateEngine.get_effective_import_rate(now)` the single source of truth. All zone/house/appliance cost math now agrees.
 
@@ -366,7 +366,7 @@ If a zone shows an implausible cost/energy figure, check `coverage_rating` for "
 
 ### Diagnostics
 - **`Battery Decision`** — the most recent decision-cycle reason text. Read this to understand why the battery is in its current state.
-- **`Load Shedding`** — current shed level (0–3) and reason.
+- **`Load Shedding`** — current shed level (0–4, one step per tier in the 4-tier cascade) and reason.
 - **`Envoy Status`** — Enphase availability + last-known communication time.
 - **`Pool Optimization`** — pool-pump schedule optimization status (if you have one).
 - **`Generator Status`** — backup runtime + fuel estimate.
@@ -457,8 +457,7 @@ Most likely the arbitrage mutual-exclusion paused it during CHARGE phase.
 ### "Load shedding never fires even when I see big grid imports"
 
 1. Confirm **Load Shedding Enabled** is ON.
-2. Confirm **Load Shedding Mode** is `actuate` (not `advisory` — advisory only updates the sensor without broadcasting).
-3. Check **Load Shedding Threshold** — sustained ≥ threshold for `Sustained Minutes` is required. A 10-second spike won't trigger.
+2. Check **Load Shedding Threshold** and **Sustained Minutes** — sustained import ≥ threshold for the full window is required. A 10-second spike won't trigger. (Note: **Load Shedding Mode** is `fixed`/`auto` and only selects how the *threshold* is determined — it is not an advisory/actuate switch; the `Enabled` toggle is the only on/off control.)
 4. Look at the **Load Shedding** sensor — it logs `imports_above_threshold_for=X.Xmin` so you can see how close you are.
 
 ### "Observation Mode is on but the battery still changes mode"
@@ -604,7 +603,7 @@ The `_paused_by_<reason>` set + precedence-rule pattern is the same architecture
 | `sensor.ura_energy_coordinator_ev_charge_rate_a` / `_b` | Live A/B charger output |
 | `sensor.ura_energy_coordinator_circuit_anomaly` | Per-circuit z-score anomaly detector |
 | `sensor.ura_energy_coordinator_battery_decision` | Last decision-cycle reason text |
-| `sensor.ura_energy_coordinator_load_shedding` | Current shed level (0–3) + reason |
+| `sensor.ura_energy_coordinator_load_shedding` | Current shed level (0–4, one step per cascade tier) + reason |
 | `sensor.ura_energy_coordinator_envoy_status` | Enphase availability + last comm |
 | `sensor.ura_energy_coordinator_pool_optimization` | Pool pump schedule status |
 | `sensor.ura_energy_coordinator_generator_status` | Backup runtime + fuel estimate |

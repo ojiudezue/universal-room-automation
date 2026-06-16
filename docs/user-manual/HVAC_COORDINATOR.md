@@ -17,7 +17,7 @@ This is a task-oriented manual: skim the section headings to find what you need,
 | v4.7.25 | Presence-timer knobs exposed as Number entities (48 Zone Vacancy Delay, 49 Energy-Saving, 50 Max Zone Occupied Time) + a Reset button |
 | v4.7.31 | HVAC zones resolved by NAME in the person-trust fallback (Bug Class #53 — the trust was silently dead for thermostat'd zones before this) |
 | v4.7.32 / .33 | OverrideArrester re-asserts `heat_cool` on revert + AC-reset restore (not just `off`); 5s suppression TTL window |
-| v5.4.0 | HC Pre-Conditioning master toggle (`switch.ura_hvac_coordinator_pre_conditioning`) |
+| v5.4.0 | HC Pre-Conditioning master toggle — "28 · HVAC Predictive Conditioning" (unique_id `ura_hvac_pre_conditioning_enabled`). Gates the WHOLE pre-conditioning chain (weather pre-cool + solar banking + pre-arrival + pre-heat), not just forecast pre-cool/pre-heat |
 | v5.5.0 | (Battery/inclement-weather cycle — no direct HVAC-device surface change; noted for completeness) |
 
 The big structural truth that did NOT change: HVAC still calls `climate.set_preset_mode(<name>)` per zone every cycle and lets the thermostat resolve the range. Direct `set_temperature` writes happen only for the energy-constraint offset path and AC nudges.
@@ -70,7 +70,7 @@ Winter (Dec-Feb): home 70-72 / sleep 68-70 / away 60-78 / vacation 58-80
 
 URA's per-cycle preset apply does NOT directly set `target_temp_high/low` — it calls `climate.set_preset_mode(preset_name)` (`hvac.py:1255-1262`) and relies on the thermostat's own preset machinery to resolve the range. Direct `set_temperature` writes are reserved for two narrower paths: the **energy-constraint offsets** (§6b, which add °F to the active range) and the **AC ramp-down nudge** (§3). The seasonal base ranges themselves are operator-editable as baseline presets (the `CONF_HVAC_BASELINE_<season>_<preset>_<dim>` config fields, `hvac_const.py:388-442`).
 
-**Override Arrester is suppressed during URA writes** — so the arrester doesn't fight URA's own legitimate preset changes. The suppression is a 5-second TTL window (`hvac_override.py:73`, `SUPPRESS_TTL_SECONDS=5`), wide enough to cover the multiple settle events a single `set_hvac_mode` + `set_preset_mode` produces.
+**Override Arrester is suppressed during URA writes** — so the arrester doesn't fight URA's own legitimate preset changes. The suppression is a 5-second TTL window (`hvac_override.py:79`, `SUPPRESS_TTL_SECONDS=5`), wide enough to cover the multiple settle events a single `set_hvac_mode` + `set_preset_mode` produces.
 
 ---
 
@@ -140,10 +140,9 @@ Eight switches live on the HVAC Coordinator device. Each gates a specific subsys
 **When to disable:** if you want manual thermostat changes to stick indefinitely (no automatic revert). Useful during testing or when family members complain that "Claude keeps changing my temperature."
 
 ### `AC Reset`
-**Default:** ON (legacy v3.8.3 trigger — "current > target while cooling")
-**What it does:** the legacy stuck-cycle detector. Fires when AC is actively cooling but the room temperature hasn't moved toward setpoint after 10 minutes. Backstop for undersized AC / low refrigerant scenarios.
-**When to disable:** if you don't want any automatic AC restart cycling at all.
-**Note:** v4.5.11 added the new `AC Ramp-Down (Energy-Aware)` switch which is the modern path for AC-related interventions. Both can coexist.
+**Default:** ON (`CONF_HVAC_AC_RESET_ENABLED`, `hvac_const.py:107/139`)
+**What it does:** gates the **hard-reset escalation** path (off → 60s → restore). The original standalone v3.8.3 "current > target while cooling after 10 min" detector was **replaced** in v4.5.11 — `check_ac_reset` now drives detection off sustained kWh-rate overshoot, and the old "still hot despite cooling" trigger no longer fires on its own (`hvac_override.py:969-975`). The hard reset survives only as the escalation step the AC Ramp-Down state machine reaches when a soft nudge proves ineffective. With AC Ramp-Down master OFF, this hard-reset path is currently unreachable (no auto-detection feeds it, and there is no manual force_reset button — `hvac_override.py:979-986`).
+**When to disable:** if you want to forbid the hard-reset escalation entirely (soft nudges still allowed via the ramp-down feature).
 
 ### `Fan Control`
 **Default:** ON
@@ -168,12 +167,14 @@ Eight switches live on the HVAC Coordinator device. Each gates a specific subsys
 **Default:** ON
 **What it does:** pre-conditions zones (~30 min ahead) when a person's geofence or BLE signal indicates they're arriving home.
 
-### `HVAC Predictive Conditioning` (v5.4.0 — NEW) — `switch.ura_hvac_coordinator_pre_conditioning`
+### `HVAC Predictive Conditioning` (v5.4.0 — NEW) — name "28 · HVAC Predictive Conditioning", unique_id `ura_hvac_pre_conditioning_enabled`
+> The device uses `has_entity_name`, so HA derives the entity_id from the device + friendly name (e.g. `switch.ura_hvac_coordinator_28_hvac_predictive_conditioning`). Match on the unique_id/friendly name if your generated entity_id differs.
+
 **Default:** ON
-**What it does:** master toggle for **predictive** pre-conditioning — the forecast-driven pre-cool (on a forecast-hot day) and pre-heat (on a forecast-cold day) branches inside `HVACPredictor._check_pre_conditioning` (`hvac_predict.py`, gated by `CONF_HVAC_PRE_CONDITIONING_ENABLED`, `hvac_const.py:92`). It is the sibling of the Solar HVAC Banking toggle.
-**When to disable:** if you don't want URA reaching for setpoints ahead of weather (e.g. you're managing comfort manually for the day).
-**Flip-OFF behavior:** toggling OFF mid-pre-condition releases the in-flight pre-cool/pre-heat back to the true baseline within one cycle (sourced from `_last_emitted_range`, not the offset-echoing live setpoint). Flipping back ON the same day re-arms.
-**Scope (important):** this gates *predictive* conditioning ONLY. The Energy Coordinator's **reactive** TOU offsets (`pre_cool` / `pre_heat` / `coast` / `shed` — see §6b) are a separate setpoint path and are intentionally NOT suppressed by this switch.
+**What it does:** master gate for the **entire pre-conditioning decision chain** inside `HVACPredictor._check_pre_conditioning` — forecast pre-cool, forecast pre-heat, solar thermal banking, AND pre-arrival (gated by `CONF_HVAC_PRE_CONDITIONING_ENABLED`, `hvac_const.py:92`; short-circuit at `hvac_predict.py:423-472`). When OFF, every one of those branches is skipped. It sits ABOVE (is a coarser parent of) the Solar HVAC Banking toggle — turning this OFF disables banking too, even if Solar HVAC Banking is still ON.
+**When to disable:** if you don't want URA reaching ahead of weather/solar for ANY zone (e.g. you're managing comfort manually for the day).
+**Flip-OFF behavior:** toggling OFF mid-condition releases in-flight pre-cool / pre-heat / banked zones back to their baseline range within one cycle (via `_release_banked_zones`; the daily-once "triggered_today" flags are also cleared, `hvac_predict.py:438-467`). Flipping back ON the same day re-arms.
+**Scope (important):** this gates URA's *predictive* conditioning. The Energy Coordinator's **reactive** TOU offsets (`pre_cool` / `pre_heat` / `coast` / `shed` — see §6b) are a separate setpoint path and are intentionally NOT suppressed by this switch.
 
 ### `Solar HVAC Banking` (v5.3.6 — on the Energy Coordinator device)
 **Default:** ON
@@ -682,7 +683,7 @@ Both gaps are candidates for a future Tier-1 sibling cycle (extend the trust vet
 | `switch.ura_hvac_coordinator_zone_sweep` | Switch | Renamed to "Vacancy Auto-Off" |
 | `switch.ura_hvac_pre_arrival` | Switch | Master |
 | `switch.ura_hvac_ac_ramp_master` | Switch | v4.5.11 |
-| `switch.ura_hvac_coordinator_pre_conditioning` | Switch | **v5.4.0 NEW** — HVAC Predictive Conditioning master |
+| "28 · HVAC Predictive Conditioning" (uid `ura_hvac_pre_conditioning_enabled`) | Switch | **v5.4.0 NEW** — master gate for the WHOLE pre-conditioning chain (pre-cool/pre-heat/solar-banking/pre-arrival). `has_entity_name` derives the entity_id from device+name; match on uid |
 | Egress Window HVAC Pause (uid `…_hvac_egress_window_pause`) | Switch | v4.7.8 |
 | 48 · Zone Vacancy Delay (uid `…_hvac_vacancy_grace_minutes`) | Number | **v4.7.25** |
 | 49 · Energy-Saving Vacancy Delay (uid `…_hvac_vacancy_grace_constrained`, ≤ #48) | Number | **v4.7.25** |
