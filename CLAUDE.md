@@ -166,6 +166,29 @@ Run the three reviews in PARALLEL — different framings can't share blind spots
 
 **Live Validation (Review D):** Post-restart, verify real values flow through — at least one row in the affected table has non-zero NOT NULL columns within an hour of restart. **Sentinels-only = payload shape broken** (the v4.6.1.1 / v4.6.3-initial-build shape). This single check would have caught both prior incidents.
 
+### Tier 3: Delicate Shared-Primitive / Invariant-Critical Cycle (FOUR framing-disjoint reviews + checkpoint)
+
+**Coined 2026-06-16 (v5.5.3 Arbitrage-WAIT).** Operator: *"This is very delicate. It needs a lot of review. Proceed carefully."* The standard 3 framing-disjoint reviews (Tier 2-DB) all returned SHIP on the v5.5.3 arbitrage/attain floor fix; a dedicated **4th adversarial-completeness reviewer found a real HIGH leak (D-HIGH-1)** — a 7th unclamped reserve-emission site that was a *latent v5.5.0 gap*, missed by the build, the plan, the orchestrator's own enumeration, AND reviewers A/B/C. Tier 3 exists because some changes can silently lose money or safety through ONE missed path, and three converging framings can still all miss it.
+
+**Trigger Tier 3 when ANY of:**
+- The change threads a value (reserve floor, clamp, gate, precedence) through a **state machine or a shared primitive consumed by many emission/decision sites** — i.e. the failure mode is *one missed site* (Bug Class #53, computed-but-not-consumed).
+- The change is **cost-AND-safety-impacting** (battery reserve, load-shed, HVAC safety) where a single wrong path = silent financial or comfort/safety loss.
+- The operator flags it delicate, OR the area has a history of multi-fix-up cycles (the v5.3.8 attain machinery: 1 build + 4 fix-ups + 7 reviews).
+
+**The four framings (one MUST be the adversarial completeness pass):**
+1. **A — local correctness** (arithmetic/clamp/helper logic, per-site).
+2. **B — integration / state-machine integrity** (no suppression of the legitimate action, no pre-existing-invariant regression, byte-identical on the no-op path, restart).
+3. **C — test authority via REAL per-site source mutation** — NOT aggregate monkeypatch. The reviewer edits production source to bypass/neuter ONE load-bearing site at a time, runs the suite, and confirms a SPECIFIC test fails, then restores. A site whose bypass leaves the suite green is an untested site = unacceptable. (A global monkeypatch proves the helper is load-bearing in aggregate; it does NOT prove each site routes through it.)
+4. **D — adversarial completeness / diff-blind.** Sole job: state the cycle's load-bearing invariant in **falsifiable** form ("under X, Y can never happen in ANY reachable path"), then BREAK it. D re-enumerates the ENTIRE invariant surface — **including pre-existing code, not just the diff** (D-HIGH-1 predated the cycle). Every flagged leak must come with a **concrete, legal-config reachable repro** (the values + state that trigger it; e.g. "target=30, floor=60, soc=45 → reserve 45, 15 below floor" — legal because the two sliders are independent). Run D in parallel with A/B/C; its framing cannot overlap theirs.
+
+**Additional Tier-3 stringency (beyond Tier 2-DB):**
+- **State the falsifiable invariant up front** in the planning doc — the single property the cycle must guarantee. D's job is to falsify exactly that.
+- **Config-boundary / combinatorial testing:** when ≥2 independent operator knobs interact, test the invariant at their EXTREMES and inversions (e.g. `floor > target`), not just the happy-path defaults. Independent sliders create legal combinations the happy path never exercises — that is where the leak hid.
+- **Orchestrator independent verification before ship — MANDATORY, do not trust reviewer summaries.** Before deploy, the orchestrator personally re-greps every emission/decision site and re-runs a real source mutation on the load-bearing site(s). (In v5.5.3 this caught that the verification regex missed a multi-line clamp; the re-run confirmed `2 failed` on mutation.)
+- **Operator checkpoint BEFORE deploy** (not just before build). Tier 3 changes touch the highest-blast-radius live behavior; surface the final review outcome + the invariant proof and get explicit go.
+
+**If the 4th pass (or any) finds a CRITICAL/HIGH:** fix, then re-verify the fixed site with its own mutation-anchored test AND re-run D's completeness enumeration (a fix can reveal an N+1th site). Do not ship until D's invariant holds across the whole surface.
+
 ### Record Live Validation Back Into the README — MANDATORY
 
 **Operator-coined 2026-06-05 (v4.7.24).** The `README_v<version>.md` is written pre-deploy with *prospective* "Live" acceptance criteria. After Live Validation (Review 3 / Review D) runs against the restarted HA instance, the README is NOT done — you MUST write the *observed* results back into it before closing the cycle:
