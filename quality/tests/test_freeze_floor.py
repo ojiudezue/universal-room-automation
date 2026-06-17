@@ -171,6 +171,17 @@ def _load_hvac_module():
     sys.modules["ura_hvac_pkg.domain_coordinators.preset_overrides"] = po
     spec.loader.exec_module(po)
 
+    # hvac_setpoint is REAL (the chokepoint under test). It only depends on
+    # hvac_const, already loaded real above.
+    setpoint_src = ROOT_DIR / ROOT_REL / "domain_coordinators" / "hvac_setpoint.py"
+    spec = importlib.util.spec_from_file_location(
+        "ura_hvac_pkg.domain_coordinators.hvac_setpoint", str(setpoint_src)
+    )
+    setpoint = importlib.util.module_from_spec(spec)
+    setpoint.__package__ = "ura_hvac_pkg.domain_coordinators"
+    sys.modules["ura_hvac_pkg.domain_coordinators.hvac_setpoint"] = setpoint
+    spec.loader.exec_module(setpoint)
+
     signals = types.ModuleType("ura_hvac_pkg.domain_coordinators.signals")
 
     def _signals_getattr(name):
@@ -408,12 +419,12 @@ def test_set_emergency_heat_method_removed():
 def test_freeze_hazard_no_longer_sets_single_mode_heat():
     """The freeze_risk branch must no longer dispatch set_hvac_mode=heat. We
     verify no _set_emergency_heat invocation survives in _handle_safety_hazard
-    and that the only emergency-heat reference is in explanatory comments."""
+    and that the freeze response is now the setpoint chokepoint."""
     src = _hvac_src()
     # No live call to the removed method.
     assert "self._set_emergency_heat()" not in src
-    # The freeze response is now the floor clamp.
-    assert "_apply_freeze_floor" in src
+    # The freeze response is now enforced at the setpoint chokepoint.
+    assert "emit_set_temperature" in src
 
 
 def test_smoke_co_fan_stop_branch_preserved():
@@ -429,3 +440,278 @@ def test_hvac_const_freeze_constants_present():
     assert hc.FREEZE_FLOOR == 50
     assert hc.FREEZE_TRIGGER_TEMP == 35
     assert hc.FREEZE_TRIGGER_HYSTERESIS == 3
+
+
+# ---------------------------------------------------------------------------
+# CHOKEPOINT — hvac_setpoint.emit_set_temperature / apply_setpoint_guards
+# ---------------------------------------------------------------------------
+
+
+def _setpoint_mod():
+    _load_hvac_module()
+    return sys.modules["ura_hvac_pkg.domain_coordinators.hvac_setpoint"]
+
+
+class _CapHass:
+    """Minimal hass whose services.async_call captures set_temperature data."""
+
+    def __init__(self):
+        self.calls = []
+
+        async def _async_call(domain, service, data, blocking=False):
+            self.calls.append(
+                {"domain": domain, "service": service, "data": dict(data),
+                 "blocking": blocking}
+            )
+
+        self.services = types.SimpleNamespace(async_call=_async_call)
+
+
+def test_apply_guards_pure_floor_raises_low():
+    sp = _setpoint_mod()
+    low, high = sp.apply_setpoint_guards(47, 60, freeze_active=True)
+    assert low == 50
+    assert high == 60  # already > low + deadband
+
+
+def test_apply_guards_inactive_is_identity():
+    sp = _setpoint_mod()
+    low, high = sp.apply_setpoint_guards(47, 49, freeze_active=False)
+    assert (low, high) == (47, 49)
+
+
+def test_apply_guards_deadband_fix_no_inversion():
+    """A-HIGH-1: clamping low to 50 with cool_high 49 must NOT invert; high is
+    pushed to low + MIN_DEADBAND (52)."""
+    sp = _setpoint_mod()
+    low, high = sp.apply_setpoint_guards(47, 49, freeze_active=True)
+    assert low == 50
+    assert high == 52
+    assert high > low  # never inverted
+
+
+def test_apply_guards_preserves_none_bounds():
+    sp = _setpoint_mod()
+    # low only
+    assert sp.apply_setpoint_guards(47, None, freeze_active=True) == (50, None)
+    # high only — no low to floor, deadband not enforced
+    assert sp.apply_setpoint_guards(None, 49, freeze_active=True) == (None, 49)
+
+
+@pytest.mark.asyncio
+async def test_emit_floors_low_during_freeze():
+    sp = _setpoint_mod()
+    hass = _CapHass()
+    await sp.emit_set_temperature(
+        hass, "climate.z", target_temp_low=47, target_temp_high=60,
+        freeze_active=True, blocking=True,
+    )
+    assert hass.calls[0]["data"]["target_temp_low"] == 50
+    assert hass.calls[0]["blocking"] is True
+
+
+@pytest.mark.asyncio
+async def test_emit_inactive_byte_identical():
+    sp = _setpoint_mod()
+    hass = _CapHass()
+    await sp.emit_set_temperature(
+        hass, "climate.z", target_temp_low=47, target_temp_high=60,
+        freeze_active=False,
+    )
+    assert hass.calls[0]["data"]["target_temp_low"] == 47
+    assert hass.calls[0]["data"]["target_temp_high"] == 60
+
+
+@pytest.mark.asyncio
+async def test_emit_above_floor_unchanged():
+    sp = _setpoint_mod()
+    hass = _CapHass()
+    await sp.emit_set_temperature(
+        hass, "climate.z", target_temp_low=53, target_temp_high=60,
+        freeze_active=True,
+    )
+    assert hass.calls[0]["data"]["target_temp_low"] == 53
+
+
+@pytest.mark.asyncio
+async def test_emit_deadband_never_inverts():
+    sp = _setpoint_mod()
+    hass = _CapHass()
+    await sp.emit_set_temperature(
+        hass, "climate.z", target_temp_low=47, target_temp_high=49,
+        freeze_active=True,
+    )
+    data = hass.calls[0]["data"]
+    assert data["target_temp_low"] == 50
+    assert data["target_temp_high"] == 52
+
+
+# ---------------------------------------------------------------------------
+# PER-EMISSION-CLASS: predict (pre-heat) + override (compromise) route through
+# the chokepoint and get floored during a freeze.
+# ---------------------------------------------------------------------------
+
+
+def _stub_recorder_deps():
+    """Stub the recorder modules hvac_override imports at module load time."""
+    if "homeassistant.components" not in sys.modules:
+        _stub_module("homeassistant.components").__path__ = []
+    if "homeassistant.components.recorder" not in sys.modules:
+        _stub_module(
+            "homeassistant.components.recorder",
+            get_instance=lambda *a, **kw: None,
+        ).__path__ = []
+    if "homeassistant.components.recorder.history" not in sys.modules:
+        _stub_module(
+            "homeassistant.components.recorder.history",
+            get_significant_states=lambda *a, **kw: {},
+        )
+    if "homeassistant.core" in sys.modules:
+        core = sys.modules["homeassistant.core"]
+        if not hasattr(core, "CALLBACK_TYPE"):
+            core.CALLBACK_TYPE = object
+        if not hasattr(core, "Event"):
+            core.Event = type("Event", (), {})
+    # hvac_override imports ZoneState too; the hvac loader's hvac_zones stub
+    # only carries ZoneManager.
+    zkey = "ura_hvac_pkg.domain_coordinators.hvac_zones"
+    zmod = sys.modules.get(zkey)
+    if zmod is not None and not hasattr(zmod, "ZoneState"):
+        zmod.ZoneState = type("ZoneState", (), {})
+
+
+# Modules loaded REAL for per-emission-class tests. Once loaded we OVERWRITE
+# the lightweight `object` stubs the hvac loader installed.
+_REAL_LOADED: dict[str, object] = {}
+
+
+def _load_real_submodule(name, attr):
+    _load_hvac_module()  # package + hvac_const + hvac_setpoint
+    _stub_recorder_deps()
+    key = f"ura_hvac_pkg.domain_coordinators.{name}"
+    if key in _REAL_LOADED:
+        return _REAL_LOADED[key]
+    src = ROOT_DIR / ROOT_REL / "domain_coordinators" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(key, str(src))
+    mod = importlib.util.module_from_spec(spec)
+    mod.__package__ = "ura_hvac_pkg.domain_coordinators"
+    sys.modules[key] = mod
+    spec.loader.exec_module(mod)
+    _REAL_LOADED[key] = mod
+    return mod
+
+
+def _load_predict_module():
+    # hvac_predict imports hvac_override at top → load override real first so
+    # the `object` stub doesn't shadow it.
+    _load_real_submodule("hvac_override", "OverrideArrester")
+    return _load_real_submodule("hvac_predict", "HVACPredictor")
+
+
+class _PHZone:
+    def __init__(self, zid, entity, low, high):
+        self.zone_id = zid
+        self.climate_entity = entity
+        self.zone_name = "Z"
+        self.target_temp_low = low
+        self.target_temp_high = high
+        self.any_room_occupied = True
+
+
+@pytest.mark.asyncio
+async def test_predict_preheat_floored_via_chokepoint():
+    """PER-CLASS (predict): pre-heat raises low+2; during a freeze with the
+    result < 50 the chokepoint floors it to 50."""
+    mod = _load_predict_module()
+    pred = mod.HVACPredictor.__new__(mod.HVACPredictor)
+    pred.hass = _CapHass()
+    zone = _PHZone("z1", "climate.z1", low=46, high=70)  # low+2 = 48 < 50
+    pred._zone_manager = types.SimpleNamespace(zones={"z1": zone})
+    pred._egress_manager = None
+    pred._override_arrester = None
+    # freeze-active accessor reads HC backref:
+    pred._hvac_coord = types.SimpleNamespace(freeze_active=True)
+    await pred._execute_pre_heat()
+    calls = [c["data"] for c in pred.hass.calls if c["service"] == "set_temperature"]
+    assert len(calls) == 1
+    assert calls[0]["target_temp_low"] == 50  # 48 floored to 50
+
+
+@pytest.mark.asyncio
+async def test_predict_preheat_no_freeze_unchanged():
+    mod = _load_predict_module()
+    pred = mod.HVACPredictor.__new__(mod.HVACPredictor)
+    pred.hass = _CapHass()
+    zone = _PHZone("z1", "climate.z1", low=46, high=70)
+    pred._zone_manager = types.SimpleNamespace(zones={"z1": zone})
+    pred._egress_manager = None
+    pred._override_arrester = None
+    pred._hvac_coord = types.SimpleNamespace(freeze_active=False)
+    await pred._execute_pre_heat()
+    calls = [c["data"] for c in pred.hass.calls if c["service"] == "set_temperature"]
+    assert calls[0]["target_temp_low"] == 48  # low+2, no floor
+
+
+def _load_override_module():
+    return _load_real_submodule("hvac_override", "OverrideArrester")
+
+
+@pytest.mark.asyncio
+async def test_override_compromise_floored_via_chokepoint():
+    """PER-CLASS (override): a compromise heat (low) below the floor during a
+    freeze is raised to 50 through the chokepoint."""
+    mod = _load_override_module()
+    arr = mod.OverrideArrester.__new__(mod.OverrideArrester)
+    arr.hass = _CapHass()
+    arr._compromise_active = {}
+    arr._grace_timers = {}
+    arr._compromise_timers = {}
+    arr._compromise_minutes = 30
+    arr._hvac_coord = types.SimpleNamespace(freeze_active=True)
+    zone = types.SimpleNamespace(
+        zone_id="z1", climate_entity="climate.z1", zone_name="Z",
+    )
+
+    # Patch async_call_later (imported into the module) to a no-op canceller so
+    # the revert scheduling doesn't blow up.
+    mod.async_call_later = lambda *a, **kw: (lambda: None)
+
+    await arr._apply_compromise(
+        zone, original_preset="home",
+        compromise_cool=60, compromise_heat=47,  # heat=low 47 < 50
+        expected_cool=60, expected_heat=47,
+    )
+    calls = [c["data"] for c in arr.hass.calls if c["service"] == "set_temperature"]
+    assert len(calls) == 1
+    assert calls[0]["target_temp_low"] == 50  # 47 floored
+
+
+# ---------------------------------------------------------------------------
+# FULL-CYCLE LEAK (D-HIGH repro): preset-apply (low 48) THEN pre-heat run in
+# sequence; the FINAL emitted low must be ≥ 50.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_full_cycle_preset_then_preheat_final_low_floored():
+    """D-HIGH: custom low 47/48 path emits via preset-apply, then pre-heat runs
+    after (low+2) — BOTH route through the chokepoint, so the final low ≥ 50."""
+    # 1. preset-apply: cool_setpoint 55 → baseline_low 48, freeze armed.
+    coord = _make_coord(cool_setpoint=55, outdoor_temp=30)
+    await coord._async_apply_preset_overrides()
+    apply_calls = _set_temp_calls(coord)
+    assert apply_calls[-1]["target_temp_low"] == 50  # floored at apply
+
+    # 2. pre-heat runs AFTER: low+2 from a custom 47 base = 49 (< 50).
+    mod = _load_predict_module()
+    pred = mod.HVACPredictor.__new__(mod.HVACPredictor)
+    pred.hass = _CapHass()
+    zone = _PHZone("z1", "climate.z1", low=47, high=55)  # low+2 = 49
+    pred._zone_manager = types.SimpleNamespace(zones={"z1": zone})
+    pred._egress_manager = None
+    pred._override_arrester = None
+    pred._hvac_coord = types.SimpleNamespace(freeze_active=True)
+    await pred._execute_pre_heat()
+    ph_calls = [c["data"] for c in pred.hass.calls if c["service"] == "set_temperature"]
+    # FINAL emission (pre-heat, the leak site) is also floored ≥ 50.
+    assert ph_calls[-1]["target_temp_low"] == 50

@@ -204,6 +204,13 @@ _load(
     "custom_components.universal_room_automation.domain_coordinators.hvac_zones",
     "domain_coordinators/hvac_zones.py",
 )
+# feature/freeze-floor: hvac_override now imports the setpoint chokepoint;
+# load it real (depends only on hvac_const, already loaded) so the relative
+# import in hvac_override resolves to the genuine module.
+_load(
+    "custom_components.universal_room_automation.domain_coordinators.hvac_setpoint",
+    "domain_coordinators/hvac_setpoint.py",
+)
 hvac_override = _load(
     "custom_components.universal_room_automation.domain_coordinators.hvac_override",
     "domain_coordinators/hvac_override.py",

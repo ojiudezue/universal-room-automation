@@ -55,6 +55,7 @@ from .hvac_fans import FanController
 from .hvac_override import OverrideArrester
 from .hvac_predict import HVACPredictor
 from .hvac_preset import PresetManager
+from .hvac_setpoint import apply_setpoint_guards, emit_set_temperature
 from .hvac_zones import ZoneManager
 from .signals import (
     EnergyConstraint,
@@ -168,6 +169,9 @@ class HVACCoordinator(BaseCoordinator):
         # Tier 1 review CRITICAL-1: wire backref so banking release path
         # sources the TRUE baseline from `_last_emitted_range`.
         self._predictor.set_hvac_coord(self)
+        # feature/freeze-floor: arrester reads freeze_active off HC for the
+        # setpoint chokepoint (mirror of the predictor backref above).
+        self._override_arrester.set_hvac_coord(self)
         # v4.7.8 D3: Egress Window HVAC Pause manager (sibling of OverrideArrester).
         # DB ref is wired in async_setup (mirror OverrideArrester pattern).
         self._egress_manager = EgressManager(
@@ -323,6 +327,17 @@ class HVACCoordinator(BaseCoordinator):
     def predictor(self) -> HVACPredictor:
         """Return predictor for sensor access."""
         return self._predictor
+
+    @property
+    def freeze_active(self) -> bool:
+        """Whether freeze-protection is currently armed (HC-owned).
+
+        feature/freeze-floor: shared accessor read by the predictor and the
+        override arrester so every `set_temperature` chokepoint emission knows
+        whether to apply the freeze floor. HC latches this each cycle via
+        `_update_freeze_active`; RAM-only by design.
+        """
+        return self._freeze_active
 
     @property
     def egress_manager(self) -> EgressManager:
@@ -1421,16 +1436,6 @@ class HVACCoordinator(BaseCoordinator):
             )
         return self._freeze_active
 
-    def _apply_freeze_floor(self, cool_low: float) -> float:
-        """Clamp the resolved heat_low (target_temp_low) up to the freeze floor.
-
-        Only acts when freeze is active AND the resolved low is below the
-        floor; otherwise a NO-OP (the common case). Never touches cool_high.
-        """
-        if self._freeze_active and cool_low < FREEZE_FLOOR:
-            return max(cool_low, float(FREEZE_FLOOR))
-        return cool_low
-
     async def _async_apply_preset_overrides(self) -> None:
         """D2: Apply OverrideEngine temperature ranges to thermostats.
 
@@ -1509,13 +1514,15 @@ class HVACCoordinator(BaseCoordinator):
                 )
                 resolved = engine.resolve_range(baseline_low, baseline_high, active)
 
-                # feature/freeze-floor: clamp the emitted heat_low
-                # (resolved.cool_low IS target_temp_low) up to FREEZE_FLOOR
-                # when a freeze is active. NO-OP when ≥ floor or freeze
-                # inactive. cool_high is untouched. Done before the throttle
-                # so the idempotent guard compares the actually-emitted low.
-                emit_low = self._apply_freeze_floor(resolved.cool_low)
-                emit_high = resolved.cool_high
+                # feature/freeze-floor: the setpoint chokepoint applies the
+                # freeze floor + deadband invariant. We compute the
+                # post-chokepoint pair here for the idempotent throttle so the
+                # guard compares the actually-emitted values; the chokepoint
+                # re-applies the same transform on the wire.
+                emit_low, emit_high = apply_setpoint_guards(
+                    resolved.cool_low, resolved.cool_high,
+                    freeze_active=self._freeze_active,
+                )
 
                 # Throttle: skip if resolved range matches last emitted
                 last = self._last_emitted_range.get(zone_id)
@@ -1528,14 +1535,12 @@ class HVACCoordinator(BaseCoordinator):
                     self._override_arrester.suppress(zone.climate_entity)
 
                 try:
-                    await self.hass.services.async_call(
-                        "climate",
-                        "set_temperature",
-                        {
-                            "entity_id": zone.climate_entity,
-                            "target_temp_low": emit_low,
-                            "target_temp_high": emit_high,
-                        },
+                    await emit_set_temperature(
+                        self.hass,
+                        zone.climate_entity,
+                        target_temp_low=resolved.cool_low,
+                        target_temp_high=resolved.cool_high,
+                        freeze_active=self._freeze_active,
                         blocking=False,
                     )
                     self._last_emitted_range[zone_id] = resolved_pair
@@ -1680,10 +1685,10 @@ class HVACCoordinator(BaseCoordinator):
         # Action 2 (freeze response) intentionally REMOVED in feature/freeze-floor.
         # The old single-mode `_set_emergency_heat` was defeated by the v5.5.2
         # heat_cool enforcer (reverted to heat_cool next cycle). The freeze
-        # response is now the HC-owned heat_low FLOOR clamp evaluated every
-        # decision cycle in `_async_apply_preset_overrides` (see
-        # `_update_freeze_active` / `_apply_freeze_floor`), driven by live
-        # outdoor temp rather than the edge-emitted safety hazard signal.
+        # response is now the HC-owned heat_low FLOOR enforced at the setpoint
+        # chokepoint (`hvac_setpoint.emit_set_temperature`) on EVERY climate
+        # write, gated by `_update_freeze_active` (live outdoor temp +
+        # hysteresis) rather than the edge-emitted safety hazard signal.
         # CONF_HVAC_ON_HAZARD_EMERGENCY_HEAT is now vestigial (kept for
         # back-compat but no longer drives anything).
 
@@ -1721,8 +1726,9 @@ class HVACCoordinator(BaseCoordinator):
                             )
 
     # feature/freeze-floor: `_set_emergency_heat` removed. The freeze response
-    # is now the heat_low FLOOR clamp (see `_apply_freeze_floor`). The
-    # smoke/CO fan-stop branch of `_handle_safety_hazard` is unchanged.
+    # is now the heat_low FLOOR enforced at the setpoint chokepoint
+    # (`hvac_setpoint.emit_set_temperature`). The smoke/CO fan-stop branch of
+    # `_handle_safety_hazard` is unchanged.
 
     # ------------------------------------------------------------------
     # v3.17.0: Zone Intelligence methods

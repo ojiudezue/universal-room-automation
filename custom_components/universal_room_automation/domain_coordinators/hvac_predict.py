@@ -28,6 +28,7 @@ from .hvac_const import (
 )
 from .hvac_override import OverrideArrester
 from .hvac_preset import PresetManager
+from .hvac_setpoint import emit_set_temperature
 from .hvac_zones import ZoneManager
 from .signals import EnergyConstraint
 
@@ -168,6 +169,16 @@ class HVACPredictor:
         preset-resolved baseline when the map has no entry.
         """
         self._hvac_coord = hvac_coord
+
+    def _freeze_active(self) -> bool:
+        """Current freeze-active state from HC; False when unwired.
+
+        feature/freeze-floor: predictive setpoint emissions (banking restore,
+        pre-cool, pre-heat) pass this to the chokepoint so they inherit the
+        freeze floor. None-safe (freeze treated inactive before wiring).
+        """
+        coord = self._hvac_coord
+        return bool(getattr(coord, "freeze_active", False)) if coord else False
 
     def set_egress_manager(self, egress_manager) -> None:
         """v4.7.8 D8: Wire EgressManager so predictive set_temperature
@@ -841,13 +852,12 @@ class HVACPredictor:
             if self._override_arrester:
                 self._override_arrester.suppress(zone.climate_entity)
             try:
-                await self.hass.services.async_call(
-                    "climate", "set_temperature",
-                    {
-                        "entity_id": zone.climate_entity,
-                        "target_temp_high": base_high,
-                        "target_temp_low": base_low,
-                    },
+                await emit_set_temperature(
+                    self.hass,
+                    zone.climate_entity,
+                    target_temp_low=base_low,
+                    target_temp_high=base_high,
+                    freeze_active=self._freeze_active(),
                     blocking=False,
                 )
                 # Keep throttle map consistent with the value we just wrote.
@@ -911,13 +921,12 @@ class HVACPredictor:
             self._override_arrester.suppress(zone.climate_entity)
 
         try:
-            await self.hass.services.async_call(
-                "climate", "set_temperature",
-                {
-                    "entity_id": zone.climate_entity,
-                    "target_temp_high": effective_high,
-                    "target_temp_low": zone.target_temp_low,
-                },
+            await emit_set_temperature(
+                self.hass,
+                zone.climate_entity,
+                target_temp_low=zone.target_temp_low,
+                target_temp_high=effective_high,
+                freeze_active=self._freeze_active(),
                 blocking=False,
             )
             _LOGGER.info(
@@ -1049,13 +1058,12 @@ class HVACPredictor:
                 self._override_arrester.suppress(zone.climate_entity)
 
             try:
-                await self.hass.services.async_call(
-                    "climate", "set_temperature",
-                    {
-                        "entity_id": zone.climate_entity,
-                        "target_temp_high": zone.target_temp_high,
-                        "target_temp_low": pre_heat_temp,
-                    },
+                await emit_set_temperature(
+                    self.hass,
+                    zone.climate_entity,
+                    target_temp_low=pre_heat_temp,
+                    target_temp_high=zone.target_temp_high,
+                    freeze_active=self._freeze_active(),
                     blocking=False,
                 )
                 _LOGGER.info(

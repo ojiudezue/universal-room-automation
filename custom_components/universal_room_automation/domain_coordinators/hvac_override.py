@@ -66,6 +66,7 @@ from .hvac_const import (
     OVERRIDE_SEVERE_DELTA,
     OVERRIDE_SEVERE_GRACE_MINUTES,
 )
+from .hvac_setpoint import emit_set_temperature
 from .hvac_zones import ZoneManager, ZoneState
 
 _LOGGER = logging.getLogger(__name__)
@@ -111,6 +112,12 @@ class OverrideArrester:
         # in-flight action cleanly; flipping nudge OFF mid-cycle should NOT
         # strand zones at +nudge_size°F). See plan §A2 setter side-effect.
         self._ac_nudge_enabled = True
+
+        # feature/freeze-floor: backref to the HVAC coordinator so restore /
+        # compromise / nudge emissions can read `freeze_active` and route
+        # through the setpoint chokepoint. Wired post-construction (mirrors the
+        # predictor's `set_hvac_coord`); None-safe (freeze treated inactive).
+        self._hvac_coord = None
 
         # Listener unsubscribes
         self._state_unsubs: list[CALLBACK_TYPE] = []
@@ -249,6 +256,20 @@ class OverrideArrester:
                 "AC ramp impact cache refresh failed: %s "
                 "(sensors will show stale values until next cycle)", e,
             )
+
+    def set_hvac_coord(self, hvac_coord) -> None:
+        """Wire the HVAC coordinator backref (freeze-floor chokepoint).
+
+        feature/freeze-floor: the arrester reads `hvac_coord.freeze_active`
+        when emitting setpoints via the chokepoint so restore/compromise/nudge
+        writes inherit the freeze floor.
+        """
+        self._hvac_coord = hvac_coord
+
+    def _freeze_active(self) -> bool:
+        """Current freeze-active state from HC; False when unwired."""
+        coord = self._hvac_coord
+        return bool(getattr(coord, "freeze_active", False)) if coord else False
 
     def set_database(self, db) -> None:
         """Wire UniversalRoomDatabase reference (v4.5.11).
@@ -866,11 +887,13 @@ class OverrideArrester:
 
         # Set compromise temperature
         try:
-            service_data: dict[str, Any] = {"entity_id": zone.climate_entity}
-            service_data["target_temp_high"] = compromise_cool
-            service_data["target_temp_low"] = compromise_heat
-            await self.hass.services.async_call(
-                "climate", "set_temperature", service_data, blocking=False,
+            await emit_set_temperature(
+                self.hass,
+                zone.climate_entity,
+                target_temp_low=compromise_heat,
+                target_temp_high=compromise_cool,
+                freeze_active=self._freeze_active(),
+                blocking=False,
             )
         except Exception as e:
             _LOGGER.error("Override: failed to set compromise on %s: %s",
@@ -1466,14 +1489,12 @@ class OverrideArrester:
         self.suppress(zone.climate_entity)
 
         try:
-            await self.hass.services.async_call(
-                "climate",
-                "set_temperature",
-                {
-                    "entity_id": zone.climate_entity,
-                    "target_temp_high": new_target,
-                    "target_temp_low": zone.target_temp_low,
-                },
+            await emit_set_temperature(
+                self.hass,
+                zone.climate_entity,
+                target_temp_low=zone.target_temp_low,
+                target_temp_high=new_target,
+                freeze_active=self._freeze_active(),
                 blocking=False,
             )
         except Exception as e:
@@ -1544,14 +1565,12 @@ class OverrideArrester:
         self.suppress(zone.climate_entity)
 
         try:
-            await self.hass.services.async_call(
-                "climate",
-                "set_temperature",
-                {
-                    "entity_id": zone.climate_entity,
-                    "target_temp_high": original_target,
-                    "target_temp_low": zone.target_temp_low,
-                },
+            await emit_set_temperature(
+                self.hass,
+                zone.climate_entity,
+                target_temp_low=zone.target_temp_low,
+                target_temp_high=original_target,
+                freeze_active=self._freeze_active(),
                 blocking=False,
             )
         except Exception as e:
@@ -1994,14 +2013,12 @@ class OverrideArrester:
         if original_target is not None:
             self.suppress(zone.climate_entity)
             try:
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_temperature",
-                    {
-                        "entity_id": zone.climate_entity,
-                        "target_temp_high": float(original_target),
-                        "target_temp_low": zone.target_temp_low,
-                    },
+                await emit_set_temperature(
+                    self.hass,
+                    zone.climate_entity,
+                    target_temp_low=zone.target_temp_low,
+                    target_temp_high=float(original_target),
+                    freeze_active=self._freeze_active(),
                     blocking=False,
                 )
             except Exception as e:
@@ -2214,13 +2231,12 @@ class OverrideArrester:
                 # Expired — restore now
                 self.suppress(zone.climate_entity)
                 try:
-                    await self.hass.services.async_call(
-                        "climate", "set_temperature",
-                        {
-                            "entity_id": zone.climate_entity,
-                            "target_temp_high": float(original_target),
-                            "target_temp_low": zone.target_temp_low,
-                        },
+                    await emit_set_temperature(
+                        self.hass,
+                        zone.climate_entity,
+                        target_temp_low=zone.target_temp_low,
+                        target_temp_high=float(original_target),
+                        freeze_active=self._freeze_active(),
                         blocking=False,
                     )
                 except Exception as e:
