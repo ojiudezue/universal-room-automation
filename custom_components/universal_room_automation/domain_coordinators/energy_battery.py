@@ -2914,6 +2914,12 @@ class BatteryStrategy:
             if summer_peak_ahead:
                 # Summer mid-peak, peak still ahead: hold charge for upcoming peak
                 hold_reserve = int(soc) if soc is not None else 100
+                # Bug Class #53: route through the inclement partial_hold floor
+                # like every other reserve-emitting path this cycle. Byte-
+                # identical when not partial_hold (helper guarantees this).
+                hold_reserve = self._floor_reserve(
+                    hold_reserve, effective_reserve, decision.hold_depth
+                )
                 return self._result(
                     BATTERY_MODE_SELF_CONSUMPTION,
                     "Mid-peak (summer) — holding charge for peak",

@@ -485,6 +485,114 @@ def test_attain_reboot_release_byte_identical_under_allow_discharge():
 
 
 # ===========================================================================
+# Site 7 — summer mid_peak peak-ahead HOLD (D-HIGH-1, Bug Class #53).
+# energy_battery.py:~2916 "Mid-peak (summer) — holding charge for peak" emitted
+# reserve_level = int(soc) WITHOUT consulting effective_reserve. Under a
+# partial_hold with floor > soc that leaks reserve BELOW the floor. This site is
+# reached when the D1b attain gate does NOT return (e.g. soc >= peak_buffer_target
+# so the attain entry predicate's soc<target fails) and a peak is still ahead.
+# Repro per review: peak_buffer_target=30, floor=60, soc=45 -> reserve 45 (leak).
+# ===========================================================================
+
+
+def _mid_peak_now():
+    """A summer mid_peak hour with peak still ahead before off_peak.
+
+    The default TOU engine is unwired (self._tou is None), so
+    `summer_peak_ahead` is True (legacy summer-always-hold) and the D1b
+    attain gate's `self._tou.peak_ahead_before_offpeak` precondition is
+    False — the attain branch never runs, and control falls straight to the
+    summer-hold emission. Exactly the leak path D flagged.
+    """
+    return datetime(2026, 6, 11, 15, 0, 0)  # 15:00, pre-peak mid_peak bracket
+
+
+def _seed_partial_hold(strat, now, floor=60):
+    """Pre-seed determine_mode's per-tick inclement cache with a real
+    partial_hold decision for `now`.
+
+    In mid_peak an UNCORROBORATED watch resolves to *discharge*, not
+    partial_hold (inclement.py:617) — only a corroborated-recoverable watch
+    does (inclement.py:669), which needs a live weather-manager solar-horizon
+    computation that is non-deterministic to stand up in a unit harness and is
+    covered by test_inclement_solar_horizon.py. The summer-hold emission
+    (Site 7) only cares that determine_mode receives a partial_hold decision
+    with reserve_floor > soc. So we inject a REAL InclementDecision into the
+    same per-tick cache determine_mode reuses (energy_battery.py:792-796),
+    then drive the REAL determine_mode("mid_peak", ...) emission path. The
+    classifier→fusion resolution is exercised elsewhere; here we isolate the
+    leak site.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.inclement import (
+        InclementDecision,
+        _na_horizon,
+    )
+    decision = InclementDecision(
+        hold_depth="partial_hold",
+        grid_precharge=False,
+        tier="watch",
+        source="alert",
+        contributing_event="Severe Thunderstorm Watch",
+        expires_at=None,
+        reserve_floor=floor,
+        reason="watch_corroborated_recoverable_partial_hold",
+        solar_horizon=_na_horizon(),
+    )
+    strat._last_inclement_decision = decision
+    strat._last_inclement_decision_at = now
+
+
+def test_mid_peak_summer_hold_floors_at_effective_reserve_under_partial_hold():
+    # Repro the review's numbers: target 30, floor 60, soc 45 -> must NOT leak.
+    strat, hass = _make_battery(soc=45)
+    strat._peak_buffer_target = 30  # soc(45) >= target(30) -> attain predicate skipped
+    now = _mid_peak_now()
+    _seed_partial_hold(strat, now, floor=60)  # floor 60 > soc 45
+    r = strat.determine_mode("mid_peak", "summer", now=now)
+    attrs = strat._inclement_attrs()
+    assert attrs["inclement_hold_depth"] == "partial_hold", attrs
+    assert r["reason"].startswith("Mid-peak (summer) — holding charge"), r["reason"]
+    eff = max(strat.reserve_soc, 60)  # effective_reserve for this tick == 60
+    # Pre-fix this emitted int(soc)=45 (below the floor). The clamp lifts it.
+    assert _reserve_value(r) >= eff, (_reserve_value(r), eff)
+    assert _reserve_value(r) == 60
+
+
+def test_mid_peak_summer_hold_byte_identical_under_allow_discharge():
+    # No alert -> allow_discharge -> emits the bare int(soc), unchanged.
+    strat, hass = _make_battery(soc=45)
+    strat._inclement_config_override = {}  # no NWS entity
+    strat._peak_buffer_target = 30
+    now = _mid_peak_now()
+    r = strat.determine_mode("mid_peak", "summer", now=now)
+    assert strat._inclement_attrs()["inclement_hold_depth"] == "allow_discharge"
+    assert r["reason"].startswith("Mid-peak (summer) — holding charge"), r["reason"]
+    assert _reserve_value(r) == 45  # bare int(soc), no floor applied
+
+
+def test_mutation_mid_peak_summer_hold_clamp_required(monkeypatch):
+    # Mutation gate: dropping the max() in _floor_reserve must regress this site
+    # below the floor. Proves the clamp at ~2921 is load-bearing.
+    now = _mid_peak_now()
+
+    def _build():
+        strat, hass = _make_battery(soc=45)
+        strat._peak_buffer_target = 30
+        _seed_partial_hold(strat, now, floor=60)
+        return strat
+
+    r_ok = _build().determine_mode("mid_peak", "summer", now=now)
+    assert _reserve_value(r_ok) == 60
+
+    strat_mut = _build()
+    monkeypatch.setattr(type(strat_mut), "_floor_reserve",
+                        staticmethod(_floor_passthrough))
+    r_mut = strat_mut.determine_mode("mid_peak", "summer", now=now)
+    assert _reserve_value(r_mut) == 45  # bare int(soc) — the leak
+    assert _reserve_value(r_mut) != 60
+
+
+# ===========================================================================
 # D2 — charge-not-suppressed: SOC->phase transition reads peak_buffer_target
 # ===========================================================================
 
