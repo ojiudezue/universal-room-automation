@@ -1453,6 +1453,24 @@ class BatteryStrategy:
         # Phase 5 — window not open yet. Battery serves loads naturally.
         return ARBITRAGE_PHASE_WAIT
 
+    @staticmethod
+    def _floor_reserve(
+        existing: int,
+        effective_reserve: int | None,
+        hold_depth: str,
+    ) -> int:
+        """Clamp a reserve_level up to the inclement partial_hold floor.
+
+        Bug Class #53 guard. Byte-identical to ``existing`` unless an active
+        ``partial_hold`` supplies a non-None ``effective_reserve`` that
+        exceeds ``existing``. ``max()`` can only RAISE — never lower a charge
+        target — so a CHARGE toward a higher target is never suppressed.
+        Defaults (``None`` / ``"allow_discharge"``) preserve legacy behavior.
+        """
+        if hold_depth == "partial_hold" and effective_reserve is not None:
+            return max(existing, effective_reserve)
+        return existing
+
     def _get_arbitrage_decision(
         self,
         soc: float | None,
@@ -1461,6 +1479,8 @@ class BatteryStrategy:
         tomorrow_class: str,
         current_mode: str | None,
         season: str,
+        effective_reserve: int | None = None,
+        hold_depth: str = "allow_discharge",
     ) -> dict[str, Any]:
         """Wrap phase resolution + side-effects into the standard decision dict.
 
@@ -1483,13 +1503,20 @@ class BatteryStrategy:
             # only on TOU transition INTO off-peak.)
             self._arbitrage_chunk_completed = True
             self._arbitrage_active = True
+            floored = self._floor_reserve(
+                self._peak_buffer_target, effective_reserve, hold_depth,
+            )
+            suffix = (
+                " (partial_hold floor)"
+                if floored != self._peak_buffer_target else ""
+            )
             return self._result(
                 BATTERY_MODE_SELF_CONSUMPTION,
                 f"Arbitrage HOLD — buffer locked at {self._peak_buffer_target}% "
-                f"(target_day={target_day_class})",
+                f"(target_day={target_day_class}){suffix}",
                 current_mode,
                 charge_from_grid=False,
-                reserve_level=self._peak_buffer_target,
+                reserve_level=floored,
                 season=season,
                 tomorrow_solar_class=tomorrow_class,
                 arbitrage_active=True,
@@ -1499,13 +1526,20 @@ class BatteryStrategy:
 
         if phase == ARBITRAGE_PHASE_CHARGE:
             self._arbitrage_active = True
+            floored = self._floor_reserve(
+                self._peak_buffer_target, effective_reserve, hold_depth,
+            )
+            suffix = (
+                " (partial_hold floor)"
+                if floored != self._peak_buffer_target else ""
+            )
             return self._result(
                 BATTERY_MODE_SELF_CONSUMPTION,
                 f"Arbitrage CHARGE — pulling grid to {self._peak_buffer_target}% "
-                f"(target_day={target_day_class})",
+                f"(target_day={target_day_class}){suffix}",
                 current_mode,
                 charge_from_grid=True,
-                reserve_level=self._peak_buffer_target,
+                reserve_level=floored,
                 season=season,
                 tomorrow_solar_class=tomorrow_class,
                 arbitrage_active=True,
@@ -1518,13 +1552,20 @@ class BatteryStrategy:
         # come from battery + solar; CHARGE will refill before the high-rate
         # window regardless of how low SOC drifted during WAIT.
         self._arbitrage_active = False
+        floored = self._floor_reserve(
+            self.reserve_soc, effective_reserve, hold_depth,
+        )
+        suffix = (
+            " (partial_hold floor)" if floored != self.reserve_soc else ""
+        )
         return self._result(
             BATTERY_MODE_SELF_CONSUMPTION,
             f"Arbitrage WAIT — charge window not yet open "
-            f"(target_day={target_day_class}, lead_time={self._arbitrage_charge_lead_time_min}m)",
+            f"(target_day={target_day_class}, "
+            f"lead_time={self._arbitrage_charge_lead_time_min}m){suffix}",
             current_mode,
             charge_from_grid=False,
-            reserve_level=self.reserve_soc,
+            reserve_level=floored,
             season=season,
             tomorrow_solar_class=tomorrow_class,
             arbitrage_active=False,
@@ -1952,6 +1993,8 @@ class BatteryStrategy:
         mins: int | None,
         tou_period: str = "off_peak",
         stage_note: str | None = None,
+        effective_reserve: int | None = None,
+        hold_depth: str = "allow_discharge",
     ) -> dict[str, Any]:
         """Build the ATTAIN-phase CHARGE decision dict.
 
@@ -1989,12 +2032,17 @@ class BatteryStrategy:
             f"{rate_str} over {ATTAIN_RATE_WINDOW_TICKS} ticks, "
             f"{mins_str} remaining; solar consumed by house/EV loads)"
         )
+        floored = self._floor_reserve(
+            self._peak_buffer_target, effective_reserve, hold_depth,
+        )
+        if floored != self._peak_buffer_target:
+            reason += " (partial_hold floor)"
         return self._result(
             BATTERY_MODE_SELF_CONSUMPTION,
             reason,
             current_mode,
             charge_from_grid=True,
-            reserve_level=self._peak_buffer_target,
+            reserve_level=floored,
             season=season,
             tomorrow_solar_class=tomorrow_class,
             arbitrage_active=True,
@@ -2010,6 +2058,8 @@ class BatteryStrategy:
         tomorrow_class: str,
         current_mode: str | None,
         season: str,
+        effective_reserve: int | None = None,
+        hold_depth: str = "allow_discharge",
     ) -> dict[str, Any]:
         """ATTAIN exit via SOC reaching target — HOLD-shaped.
 
@@ -2036,12 +2086,17 @@ class BatteryStrategy:
             else f"Peak-buffer attainability HOLD — locking reserve at "
                  f"{self._peak_buffer_target}% until boundary"
         )
+        floored = self._floor_reserve(
+            self._peak_buffer_target, effective_reserve, hold_depth,
+        )
+        if floored != self._peak_buffer_target:
+            reason += " (partial_hold floor)"
         return self._result(
             BATTERY_MODE_SELF_CONSUMPTION,
             reason,
             current_mode,
             charge_from_grid=False,
-            reserve_level=self._peak_buffer_target,
+            reserve_level=floored,
             season=season,
             tomorrow_solar_class=tomorrow_class,
             arbitrage_active=True,
@@ -2218,6 +2273,8 @@ class BatteryStrategy:
         tomorrow_class: str,
         current_mode: str | None,
         season: str,
+        effective_reserve: int | None = None,
+        hold_depth: str = "allow_discharge",
     ) -> dict[str, Any] | None:
         """M2 driver: invoke adoption exactly once post-boot.
 
@@ -2260,13 +2317,21 @@ class BatteryStrategy:
                 tou_period, soc,
             )
             self._attain_state = "inactive"
+            floored = self._floor_reserve(
+                self.reserve_soc, effective_reserve, hold_depth,
+            )
+            reason = (
+                "Peak-buffer attainability — reboot recovery: "
+                "orderly release (boot landed outside charge window)"
+            )
+            if floored != self.reserve_soc:
+                reason += " (partial_hold floor)"
             return self._result(
                 BATTERY_MODE_SELF_CONSUMPTION,
-                "Peak-buffer attainability — reboot recovery: "
-                "orderly release (boot landed outside charge window)",
+                reason,
                 current_mode,
                 charge_from_grid=False,
-                reserve_level=self.reserve_soc,
+                reserve_level=floored,
                 season=season,
                 tomorrow_solar_class=tomorrow_class,
                 arbitrage_active=False,
@@ -2291,6 +2356,8 @@ class BatteryStrategy:
         tomorrow_class: str,
         current_mode: str | None,
         season: str,
+        effective_reserve: int | None = None,
+        hold_depth: str = "allow_discharge",
     ) -> dict[str, Any] | None:
         """Run the tri-state attain decision flow (M1).
 
@@ -2315,6 +2382,7 @@ class BatteryStrategy:
         recovery = self._maybe_run_reboot_recovery(
             soc, now, tou_period, target_day_class, tomorrow_class,
             current_mode, season,
+            effective_reserve=effective_reserve, hold_depth=hold_depth,
         )
         if recovery is not None:
             return recovery
@@ -2367,6 +2435,7 @@ class BatteryStrategy:
                     target_day_class=target_day_class,
                     tomorrow_class=tomorrow_class,
                     current_mode=current_mode, season=season,
+                    effective_reserve=effective_reserve, hold_depth=hold_depth,
                 )
             # Persistent HOLD: re-emit every tick (charge_from_grid=False
             # via _result, reserve pinned at target). _result is
@@ -2376,6 +2445,7 @@ class BatteryStrategy:
                 target_day_class=target_day_class,
                 tomorrow_class=tomorrow_class,
                 current_mode=current_mode, season=season,
+                effective_reserve=effective_reserve, hold_depth=hold_depth,
             )
 
         # ---- Route CHARGING (after holding-first) -----------------------
@@ -2399,6 +2469,7 @@ class BatteryStrategy:
                     target_day_class=target_day_class,
                     tomorrow_class=tomorrow_class,
                     current_mode=current_mode, season=season,
+                    effective_reserve=effective_reserve, hold_depth=hold_depth,
                 )
             # Chunk lock raised elsewhere → drop to inactive, fall through.
             if self._arbitrage_chunk_completed:
@@ -2436,6 +2507,7 @@ class BatteryStrategy:
                     target_day_class=target_day_class,
                     tomorrow_class=tomorrow_class,
                     current_mode=current_mode, season=season,
+                    effective_reserve=effective_reserve, hold_depth=hold_depth,
                 )
             # Guard re-check while charging.
             snap = self._effective_import_kw()
@@ -2539,6 +2611,7 @@ class BatteryStrategy:
                 current_mode=current_mode, season=season,
                 projected=projected, rate=rate, mins=mins,
                 tou_period=tou_period, stage_note=stage_note,
+                effective_reserve=effective_reserve, hold_depth=hold_depth,
             )
 
         # ---- Route INACTIVE — entry predicate may fire -----------------
@@ -2599,6 +2672,7 @@ class BatteryStrategy:
             current_mode=current_mode, season=season,
             projected=projected, rate=rate, mins=mins,
             tou_period=tou_period, stage_note=stage_note,
+            effective_reserve=effective_reserve, hold_depth=hold_depth,
         )
 
     def determine_mode(
@@ -2818,6 +2892,8 @@ class BatteryStrategy:
                     tomorrow_class=tomorrow_class_mp,
                     current_mode=current_mode,
                     season=season,
+                    effective_reserve=effective_reserve,
+                    hold_depth=decision.hold_depth,
                 )
                 if attain_result is not None:
                     return attain_result
@@ -2838,6 +2914,12 @@ class BatteryStrategy:
             if summer_peak_ahead:
                 # Summer mid-peak, peak still ahead: hold charge for upcoming peak
                 hold_reserve = int(soc) if soc is not None else 100
+                # Bug Class #53: route through the inclement partial_hold floor
+                # like every other reserve-emitting path this cycle. Byte-
+                # identical when not partial_hold (helper guarantees this).
+                hold_reserve = self._floor_reserve(
+                    hold_reserve, effective_reserve, decision.hold_depth
+                )
                 return self._result(
                     BATTERY_MODE_SELF_CONSUMPTION,
                     "Mid-peak (summer) — holding charge for peak",
@@ -2903,6 +2985,8 @@ class BatteryStrategy:
                 tomorrow_class=tomorrow_class,
                 current_mode=current_mode,
                 season=season,
+                effective_reserve=effective_reserve,
+                hold_depth=decision.hold_depth,
             )
 
         # ── Attainability branch (fix-up pass — latched, solar-informed) ────
@@ -2919,6 +3003,8 @@ class BatteryStrategy:
                 tomorrow_class=tomorrow_class,
                 current_mode=current_mode,
                 season=season,
+                effective_reserve=effective_reserve,
+                hold_depth=decision.hold_depth,
             )
             if attain_result is not None:
                 return attain_result
