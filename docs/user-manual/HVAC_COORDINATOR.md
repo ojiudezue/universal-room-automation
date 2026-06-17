@@ -652,20 +652,18 @@ These are real, code-confirmed gaps — documented honestly so you can recognize
 ### Gap 1 — Daytime "away while occupied": no person-trust veto outside the night window
 The person-trust suppression (§1e) that protects a still occupant from a wrongful `away` flip **only runs when the house is in `home_night` / `sleep` / `waking`** (`FAN_TRUST_STATES`, `hvac_const.py:329`; gate at `hvac.py:1205`). In `home_day`, `home_evening`, and `guest`, there is **no person-trust veto on the D1 vacancy path**. So a person who sits still through the 15-min vacancy grace during the day — with a live BLE phone in the zone that *would* confirm presence — can still be flipped to `away`, because the daytime path never consults the tracker.
 
-- **Observed:** Zone-1 during `home_night` (the original v4.7.31 finding) and **Zone-2 during `home_day`**.
-- **Symptom:** zone retreats to the relaxed `away` setpoint while someone is demonstrably in the room; returns to `home` once a sensor re-triggers.
-- **Workaround today:** raise `48 · Zone Vacancy Delay` so the grace outlasts typical still periods, or rely on the camera/multi-room sources keeping `any_room_occupied` true.
+- **Observed:** Zone-1 during `home_night` (the original v4.7.31 finding) — genuine D1 case: the master-bedroom room actually flapped vacant (mmWave-sole, the still body dropped past timeout).
+- **NOT this gap — Zone-2 `home_day` (re-audited 2026-06-16):** the Zone-2 "away while occupied" was re-root-caused and is **NOT a D1 presence gap** — it is **D5 duty-cycle enforcement in COAST energy-mode** (`hvac.py:1165`: `if zone.runtime_exceeded and house_state != "sleep": away`). The room `occupied` bool was rock-solid (0 transitions/3h) while the AC duty-cycle thrashed the preset home↔away during the high-rate window. That is intentional thermal load-shedding, not a presence failure — do not "fix" it with a person-trust change. (A separate UX improvement would be to de-rate via setpoint instead of an `away` flip; not yet built.)
+- **Symptom (D1 / Zone-1):** zone retreats to the relaxed `away` setpoint while someone is demonstrably in the room; returns to `home` once a sensor re-triggers.
+- **Workaround today (D1):** raise `48 · Zone Vacancy Delay` so the grace outlasts typical still periods, or rely on the camera/multi-room sources keeping `any_room_occupied` true.
 - **Note:** the D6 8-hour failsafe *does* honor BLE/camera confirmation in every non-sleep state — this gap is specific to the D1 vacancy path's trust veto, not the failsafe.
 
-### Gap 2 — OverrideArrester does not restore a bare `hvac_mode→cool` drift with an unchanged preset
-The arrester reverts on a **preset change to `manual`** (`hvac_override.py:659`). The HVAC mode-restore loop in the main cycle (`hvac.py:1037-1053`) only catches the mode being **`off`** and restores it to `heat_cool`. The arrester's own `heat_cool` re-assert (§2, `hvac_override.py:929-948`) fires only *as part of* an override revert or AC-reset restore.
+### Gap 2 — bare `hvac_mode→cool` drift not restored — ✅ FIXED in v5.5.2
+*(historical — kept for context)* The arrester reverts on a **preset change to `manual`** (`hvac_override.py:659`); the old mode-restore loop only caught **`off`**. A thermostat whose `hvac_mode` drifted to `cool`/`heat` with an unchanged preset (e.g. set by the manufacturer's cloud app) was restored by **no** path.
 
-The uncovered case: a thermostat whose **`hvac_mode` drifts to `cool` (or `heat`) while its preset stays unchanged** — e.g. set directly by the manufacturer's cloud app, not through URA. No path treats this as an override (preset didn't go to `manual`) and no path treats it as `off` (the mode isn't `off`), so **it is not restored to `heat_cool` by any code path.**
+**v5.5.2 fix:** the decision-cycle restore loop (`hvac.py::_apply_house_state_presets`) now enforces `heat_cool` on **any** non-heat_cool mode for heat_cool-capable zones (not just `off`), every cycle, wrapped in the suppress() handshake. Egress-paused (`off`) and AC-reset (`off`) zones are still skipped. **Behavioral note:** this also means a Safety-Coordinator emergency-heat (single-mode `heat` on a freeze) is reverted to `heat_cool` next cycle — intended (you run via ranges; heat_cool heats via the low setpoint). The queued `PLANNING_freeze_safety_range_shift.md` makes the freeze response range-based so even that is consistent.
 
-- **Symptom:** a zone silently running in single `cool` mode (no range/deadband) until URA happens to issue a preset write for another reason.
-- **Workaround today:** set the mode back to `heat_cool` on the thermostat (or via the climate card); URA will keep it there once it's back on a named preset.
-
-Both gaps are candidates for a future Tier-1 sibling cycle (extend the trust veto to daytime states; widen the mode-restore loop to catch single-mode drift). They are NOT regressions — both behaviors have been present since the respective paths were written.
+Gap 1 remains a candidate for a future cycle; Gap 2 is resolved.
 
 ---
 

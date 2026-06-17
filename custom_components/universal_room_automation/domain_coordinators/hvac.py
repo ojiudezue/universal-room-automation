@@ -1025,17 +1025,39 @@ class HVACCoordinator(BaseCoordinator):
                         self._d6_deferrals_today += 1
                         return  # Skip this apply cycle — retry next tick.
 
-        # --- Ensure thermostats are in an active mode (always, even during arriving) ---
-        # Thermostats should never be left in "off" mode by URA.
-        # "Away" uses relaxed setpoints via preset, not hvac_mode=off.
-        # Skip zones mid-AC-reset (intentionally off for a short cycle).
-        # v4.7.8 D8: Also skip zones paused by EgressManager (we set them off
-        # deliberately; restoring to heat_cool here would defeat the pause).
+        # --- Continuous heat_cool enforcer (always, even during arriving) ---
+        # The operator runs zones in ranges/presets (heat_cool). A bare
+        # hvac_mode drift to a single mode (e.g. cool, with preset/setpoints
+        # unchanged) is NOT caught by the OverrideArrester (which only reverts
+        # on a MANUAL-PRESET override). The old loop here only restored zones
+        # stuck in "off", so a zone drifted to "cool"/"heat" sailed past with
+        # no recovery path. This makes the 5-min decision cycle a continuous
+        # heat_cool enforcer for ANY non-heat_cool drift on heat_cool-capable
+        # zones, regardless of how the drift happened.
+        #
+        # Gating (only act on UNINTENTIONAL drift):
+        #   - Skip zones paused by EgressManager (we set them "off"
+        #     deliberately; restoring heat_cool would defeat the pause). v4.7.8 D8
+        #   - Skip zones mid-AC-reset (intentionally "off" for a short cycle).
+        #   - Only act on heat_cool-CAPABLE zones (a genuinely heat-only /
+        #     cool-only unit is never forced into an unsupported mode).
+        #   - Idempotent: the `!= "heat_cool"` guard means no write when already
+        #     in heat_cool.
+        # The suppress() handshake (TTL window, A-F5) wraps the write so it does
+        # not register as a manual override → no feedback loop.
+        #
+        # NOTE (operator decision 2026-06-16): single-mode "heat" is
+        # INTENTIONALLY NOT exempt. If the Safety Coordinator sets a zone to
+        # "heat" as a freeze response, this enforcer WILL revert it to
+        # heat_cool on the next decision cycle. This is by design — heat_cool
+        # still heats via the low setpoint and the operator does not rely on
+        # single-mode heat. Do NOT "re-fix" this by adding a heat exemption.
         for zone_id, zone in self._zone_manager.zones.items():
             if self._egress_manager.is_paused(zone_id):
                 continue
             if (
-                zone.hvac_mode == "off"
+                zone.hvac_mode != "heat_cool"
+                and self._override_arrester._supports_heat_cool(zone.climate_entity)
                 and not self._override_arrester.has_active_ac_reset(zone_id)
             ):
                 self._override_arrester.suppress(zone.climate_entity)
@@ -1050,8 +1072,8 @@ class HVACCoordinator(BaseCoordinator):
                         blocking=True,
                     )
                     _LOGGER.info(
-                        "HVAC: Restored %s to heat_cool (was off)",
-                        zone.zone_name,
+                        "HVAC: Enforced heat_cool on %s (was %s)",
+                        zone.zone_name, zone.hvac_mode,
                     )
                 except Exception as e:
                     self._override_arrester.unsuppress(zone.climate_entity)
