@@ -2029,8 +2029,9 @@ class BatteryStrategy:
         # very next tick).
         self._arbitrage_chunk_completed = True
         reason = (
-            f"Peak-buffer attainability HOLD — SOC {soc:.0f}% reached "
-            f"target {self._peak_buffer_target}%; locking reserve until boundary"
+            f"Peak-buffer attainability HOLD — holding at target "
+            f"{self._peak_buffer_target}% (SOC now {soc:.0f}%); "
+            f"reserve locked until boundary"
             if soc is not None
             else f"Peak-buffer attainability HOLD — locking reserve at "
                  f"{self._peak_buffer_target}% until boundary"
