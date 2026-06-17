@@ -37,6 +37,9 @@ from .hvac_const import (
     DUTY_CYCLE_SHED,
     DUTY_CYCLE_WINDOW_SECONDS,
     FAN_TRUST_STATES,
+    FREEZE_FLOOR,
+    FREEZE_TRIGGER_HYSTERESIS,
+    FREEZE_TRIGGER_TEMP,
     HVAC_ANOMALY_MIN_SAMPLES,
     HVAC_COORDINATOR_ID,
     HVAC_COORDINATOR_NAME,
@@ -225,6 +228,14 @@ class HVACCoordinator(BaseCoordinator):
         # Per-zone last-emitted (cool_low, cool_high) to avoid redundant
         # set_temperature service calls when resolved range is unchanged.
         self._last_emitted_range: dict[str, tuple[float, float]] = {}
+
+        # feature/freeze-floor: freeze-protection heat_low FLOOR latch.
+        # Freeze arms when the best-available outdoor temp ≤ FREEZE_TRIGGER_TEMP
+        # and stays armed (hysteresis) until outdoor > FREEZE_TRIGGER_TEMP +
+        # FREEZE_TRIGGER_HYSTERESIS. RAM-only by design: on restart it
+        # re-derives from the live temp on the next decision cycle (no
+        # RestoreEntity → no Bug Class #52 unavailable-coercion risk).
+        self._freeze_active: bool = False
 
         # Diagnostics
         self._decision_logger = None
@@ -1359,6 +1370,67 @@ class HVACCoordinator(BaseCoordinator):
         if not self._observation_mode:
             await self._async_apply_preset_overrides()
 
+    # ------------------------------------------------------------------
+    # feature/freeze-floor: freeze-protection heat_low FLOOR
+    # ------------------------------------------------------------------
+
+    def _get_best_outdoor_temp(self) -> float | None:
+        """Return the best-available outdoor temperature (°F), or None.
+
+        Primary source is the predictor's configured outdoor-temp entity
+        (shared from the cover controller in async_setup). Fail-open: if no
+        usable reading is available we return None and the caller treats
+        freeze as NOT active — we never fabricate a freeze.
+        """
+        try:
+            predictor = getattr(self, "_predictor", None)
+            if predictor is not None:
+                temp = predictor._get_outdoor_temp()
+                if temp is not None:
+                    return temp
+        except Exception:  # noqa: BLE001 — fail-open on any read error
+            _LOGGER.debug("HVAC: freeze-floor outdoor temp read failed", exc_info=True)
+        return None
+
+    def _update_freeze_active(self) -> bool:
+        """Re-derive and latch the freeze-active state with hysteresis.
+
+        Freeze ARMS when outdoor ≤ FREEZE_TRIGGER_TEMP; once armed it stays
+        armed until outdoor > FREEZE_TRIGGER_TEMP + FREEZE_TRIGGER_HYSTERESIS
+        (38°F by default). Missing outdoor temp → fail-open (clear / never
+        arm). State is RAM-only; on restart it re-derives from the live temp.
+        """
+        temp = self._get_best_outdoor_temp()
+        was_active = self._freeze_active
+        if temp is None:
+            # Fail-open: no trusted source → do not hold a fabricated freeze.
+            self._freeze_active = False
+        elif not self._freeze_active:
+            if temp <= FREEZE_TRIGGER_TEMP:
+                self._freeze_active = True
+        else:
+            # Already armed — clear only above the hysteresis ceiling.
+            if temp > FREEZE_TRIGGER_TEMP + FREEZE_TRIGGER_HYSTERESIS:
+                self._freeze_active = False
+
+        if self._freeze_active != was_active:
+            _LOGGER.info(
+                "HVAC: freeze-protection floor %s (outdoor=%s°F, floor=%s°F)",
+                "ARMED" if self._freeze_active else "cleared",
+                temp, FREEZE_FLOOR,
+            )
+        return self._freeze_active
+
+    def _apply_freeze_floor(self, cool_low: float) -> float:
+        """Clamp the resolved heat_low (target_temp_low) up to the freeze floor.
+
+        Only acts when freeze is active AND the resolved low is below the
+        floor; otherwise a NO-OP (the common case). Never touches cool_high.
+        """
+        if self._freeze_active and cool_low < FREEZE_FLOOR:
+            return max(cool_low, float(FREEZE_FLOOR))
+        return cool_low
+
     async def _async_apply_preset_overrides(self) -> None:
         """D2: Apply OverrideEngine temperature ranges to thermostats.
 
@@ -1396,6 +1468,11 @@ class HVACCoordinator(BaseCoordinator):
             master_enabled = self._guest_mode_actuation_enabled
             engine = OverrideEngine()
 
+            # feature/freeze-floor: re-derive freeze-active state once per
+            # apply, before resolving any zone. The clamp below raises a
+            # dangerously-low resolved heat_low up to FREEZE_FLOOR.
+            self._update_freeze_active()
+
             target_preset = self._preset_manager.get_preset_for_house_state(
                 self._house_state
             )
@@ -1432,9 +1509,17 @@ class HVACCoordinator(BaseCoordinator):
                 )
                 resolved = engine.resolve_range(baseline_low, baseline_high, active)
 
+                # feature/freeze-floor: clamp the emitted heat_low
+                # (resolved.cool_low IS target_temp_low) up to FREEZE_FLOOR
+                # when a freeze is active. NO-OP when ≥ floor or freeze
+                # inactive. cool_high is untouched. Done before the throttle
+                # so the idempotent guard compares the actually-emitted low.
+                emit_low = self._apply_freeze_floor(resolved.cool_low)
+                emit_high = resolved.cool_high
+
                 # Throttle: skip if resolved range matches last emitted
                 last = self._last_emitted_range.get(zone_id)
-                resolved_pair = (resolved.cool_low, resolved.cool_high)
+                resolved_pair = (emit_low, emit_high)
                 if last == resolved_pair:
                     continue
 
@@ -1448,8 +1533,8 @@ class HVACCoordinator(BaseCoordinator):
                         "set_temperature",
                         {
                             "entity_id": zone.climate_entity,
-                            "target_temp_low": resolved.cool_low,
-                            "target_temp_high": resolved.cool_high,
+                            "target_temp_low": emit_low,
+                            "target_temp_high": emit_high,
                         },
                         blocking=False,
                     )
@@ -1458,7 +1543,7 @@ class HVACCoordinator(BaseCoordinator):
                         "HVAC: set_temperature %s low=%.1f high=%.1f "
                         "(override_sources=%s, house=%s)",
                         zone.zone_name,
-                        resolved.cool_low, resolved.cool_high,
+                        emit_low, emit_high,
                         list(resolved.sources.values()),
                         self._house_state,
                     )
@@ -1571,10 +1656,7 @@ class HVACCoordinator(BaseCoordinator):
         else:
             return
 
-        from ..const import (
-            CONF_HVAC_ON_HAZARD_STOP_FANS,
-            CONF_HVAC_ON_HAZARD_EMERGENCY_HEAT,
-        )
+        from ..const import CONF_HVAC_ON_HAZARD_STOP_FANS
 
         # Action 1: Stop all managed fans on smoke/CO critical
         # Review fix F1: match HazardType enum values (carbon_monoxide, not co)
@@ -1595,22 +1677,15 @@ class HVACCoordinator(BaseCoordinator):
                     hazard_type, severity,
                 )
 
-        # Action 2: Emergency heat on freeze
-        # Review fix F2: match HazardType.FREEZE_RISK.value (freeze_risk, not freeze)
-        if hazard_type == "freeze_risk" and severity in ("critical", "high"):
-            if self._get_signal_config(CONF_HVAC_ON_HAZARD_EMERGENCY_HEAT):
-                _LOGGER.warning(
-                    "HVAC: Freeze hazard — setting emergency heat on all zones",
-                )
-                task = self.hass.async_create_task(
-                    self._set_emergency_heat()
-                )
-                self._pending_tasks.add(task)
-                task.add_done_callback(self._pending_tasks.discard)
-            else:
-                _LOGGER.info(
-                    "HVAC: Freeze hazard — would set emergency heat (disabled by config)",
-                )
+        # Action 2 (freeze response) intentionally REMOVED in feature/freeze-floor.
+        # The old single-mode `_set_emergency_heat` was defeated by the v5.5.2
+        # heat_cool enforcer (reverted to heat_cool next cycle). The freeze
+        # response is now the HC-owned heat_low FLOOR clamp evaluated every
+        # decision cycle in `_async_apply_preset_overrides` (see
+        # `_update_freeze_active` / `_apply_freeze_floor`), driven by live
+        # outdoor temp rather than the edge-emitted safety hazard signal.
+        # CONF_HVAC_ON_HAZARD_EMERGENCY_HEAT is now vestigial (kept for
+        # back-compat but no longer drives anything).
 
     async def _stop_all_fans_safety(self) -> None:
         """Stop all fans managed by the fan controller (safety response).
@@ -1645,36 +1720,9 @@ class HVACCoordinator(BaseCoordinator):
                                 "HVAC: Failed to stop fan %s (safety)", fan_entity
                             )
 
-    async def _set_emergency_heat(self) -> None:
-        """Set emergency heat mode on all zone thermostats (freeze response).
-
-        Best-effort: failures logged but do not propagate.
-        """
-        for zone_id, zone in self._zone_manager.zones.items():
-            if not zone.climate_entity:
-                continue
-            try:
-                self._override_arrester.suppress(zone.climate_entity)
-                await self.hass.services.async_call(
-                    "climate", "set_hvac_mode",
-                    {
-                        "entity_id": zone.climate_entity,
-                        "hvac_mode": "heat",
-                    },
-                    blocking=True,
-                )
-                _LOGGER.info(
-                    "HVAC: Emergency heat set on %s (freeze hazard)",
-                    zone.zone_name,
-                )
-            except Exception as e:  # noqa: BLE001
-                _LOGGER.warning(
-                    "HVAC: Failed to set emergency heat on %s: %s",
-                    zone.climate_entity, e,
-                )
-            finally:
-                # Review fix F3: always unsuppress arrester (success or failure)
-                self._override_arrester.unsuppress(zone.climate_entity)
+    # feature/freeze-floor: `_set_emergency_heat` removed. The freeze response
+    # is now the heat_low FLOOR clamp (see `_apply_freeze_floor`). The
+    # smoke/CO fan-stop branch of `_handle_safety_hazard` is unchanged.
 
     # ------------------------------------------------------------------
     # v3.17.0: Zone Intelligence methods
