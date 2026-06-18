@@ -878,6 +878,7 @@ class EVChargerController:
         battery_soc: float | None,
         soc_threshold: int,
         reserve_soc: int | None = None,
+        solar_replenishing: bool = False,
     ) -> list[dict[str, Any]]:
         """Pause EVSEs draining the home battery. Resume on recovery.
 
@@ -1026,8 +1027,21 @@ class EVChargerController:
                     and reserve_soc is not None
                     and battery_soc <= reserve_soc + 2
                 )
+                # evse-offpeak-fill-release D2: solar-gate the high-SOC release.
+                # `soc_recovered = SOC >= soc_threshold+5` is a DAYTIME-solar
+                # assumption ("solar refilled the battery, the EV can share").
+                # At night (no solar) it wrongly lets the EV drain a high-SOC
+                # battery (~85→79) — high L2-rate battery wear and NOT
+                # guaranteed-grid. Gate it on solar ACTIVELY replenishing
+                # (TIME-windowed `_expected_solar_surplus_pct` and/or live
+                # `battery_power > +100W`, computed by the caller — NEVER raw
+                # `solcast_remaining`, which is high all night and is the
+                # original bug). At night the ONLY release is
+                # `battery_out_of_capacity` (reserve) → overnight EV charge is
+                # reserve-gated → guaranteed grid, sparing battery wear.
                 soc_recovered = (
-                    battery_soc is not None
+                    solar_replenishing
+                    and battery_soc is not None
                     and battery_soc >= soc_threshold + 5
                 )
 
@@ -1083,6 +1097,7 @@ class EVChargerController:
         soc_threshold: int,
         excess_solar_kwh_threshold: float,
         safety_margin_kwh: float = DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH,
+        peak_ahead: bool | None = None,
     ) -> list[dict[str, Any]]:
         """Pause EVSEs so the home battery fills first when solar is healthy.
 
@@ -1096,7 +1111,22 @@ class EVChargerController:
           - remaining_forecast_kwh < (excess_solar_kwh_threshold - safety_margin)
             (forecast no longer healthy enough to keep EV paused).
 
-        Never overrides peak — the existing TOU pause is canonical there.
+        evse-offpeak-fill-release D1: day/night-aware release (mirrors the
+        battery strategy at energy_battery.py:2240/2883). Fill-priority is a
+        DAYTIME-pre-peak battery-fill protection only; it must go inert in the
+        cheap-grid night window so the EVs actually charge. The PHASE is
+        TIME-anchored, never inferred from instantaneous PV:
+          - `peak`    → release (TOU pause is canonical there). Unchanged.
+          - `off_peak`→ release (NEW): the fixed cheap-grid window. Clear the
+            hold and do NOT re-hold; the off_peak ensure-on then charges. This
+            is cloud-proof (off_peak is a fixed TOU window, not a solar read).
+          - `mid_peak`→ hold ONLY IF `peak_ahead` (a real peak is still ahead
+            before the next off_peak — the pre-peak fill window). Post-peak
+            mid_peak (no peak ahead) → release. `peak_ahead` is computed by the
+            caller via `EnergyTOU.peak_ahead_before_offpeak(now)` — TIME only.
+            When `peak_ahead is None` (no TOU engine wired / legacy harness),
+            preserve the prior always-hold behavior so non-arbitrage setups
+            are unaffected.
 
         Mirrors D1's hybrid `self_modulates` and idempotent re-pause patterns.
         Shares `_pause_dispatch_ts` / `_observed_off_since_pause` with drain —
@@ -1124,10 +1154,18 @@ class EVChargerController:
         )
         self._fill_priority_solar_ok = bool(forecast_healthy)
 
-        # Never run during peak — TOU pause is the canonical rule there.
-        if tou_period == "peak":
-            # Don't dispatch resumes either; let TOU/drain control. Discard
-            # set membership silently so we don't auto-resume out of peak.
+        # evse-offpeak-fill-release D1: determine whether fill-priority is
+        # inert this tick. Inert = release-and-don't-rehold. TIME-anchored:
+        #   - peak / off_peak: always inert (release).
+        #   - mid_peak: inert when no peak is ahead before off_peak (post-peak).
+        #     `peak_ahead is None` (legacy / no TOU engine) → NOT inert (hold).
+        fill_priority_inert = (
+            tou_period in ("peak", "off_peak")
+            or (tou_period == "mid_peak" and peak_ahead is False)
+        )
+        if fill_priority_inert:
+            # Release every held EVSE and do NOT dispatch a re-hold. Let the
+            # off_peak ensure-on / TOU / drain rules control the charger.
             # v4.7.6 fix-up A-M4: also release fill_priority's dispatch
             # ownership so a stale dispatch entry doesn't linger on the sensor
             # surface for an EVSE no rule still owns.
@@ -1829,6 +1867,7 @@ class SmartPlugController:
         soc_threshold: int,
         reserve_soc: int | None = None,
         force_charge_active: bool = False,
+        solar_replenishing: bool = False,
     ) -> list[dict[str, Any]]:
         """Pause smart plugs draining the home battery. Resume on recovery.
 
@@ -1931,8 +1970,14 @@ class SmartPlugController:
                     and reserve_soc is not None
                     and battery_soc <= reserve_soc + 2
                 )
+                # evse-offpeak-fill-release D2 (parity with EV path): solar-gate
+                # the high-SOC release so an overnight no-solar high-SOC battery
+                # is NOT drained into the plug load — reserve-only release at
+                # night (see the EV docstring for the full rationale).
                 soc_recovered = (
-                    battery_soc is not None and battery_soc >= soc_threshold + 5
+                    solar_replenishing
+                    and battery_soc is not None
+                    and battery_soc >= soc_threshold + 5
                 )
 
                 if battery_out_of_capacity or soc_recovered:
@@ -1978,12 +2023,17 @@ class SmartPlugController:
         excess_solar_kwh_threshold: float,
         safety_margin_kwh: float = DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH,
         force_charge_active: bool = False,
+        peak_ahead: bool | None = None,
     ) -> list[dict[str, Any]]:
         """Mirror of EVPool.determine_fill_priority_actions for L1 plugs (D2).
 
         v4.7.6 fix-up A-H1: when `force_charge_active` is True, fill-priority
         is bypassed for all plugs and any current membership is released.
         v4.7.6 fix-up A-L4: forecast_decayed boundary is `<=` (close edge).
+
+        evse-offpeak-fill-release D1 (parity with the EV path): day/night-aware
+        release. `peak`/`off_peak` → inert (release). `mid_peak` → hold only if
+        `peak_ahead`; release post-peak. TIME-anchored — see the EV docstring.
         """
         actions: list[dict[str, Any]] = []
         now = _time.monotonic()
@@ -2001,7 +2051,13 @@ class SmartPlugController:
         )
         self._fill_priority_solar_ok = bool(forecast_healthy)
 
-        if tou_period == "peak":
+        # evse-offpeak-fill-release D1: fill-priority inert outside the
+        # daytime-pre-peak window (mirror of the EV path).
+        fill_priority_inert = (
+            tou_period in ("peak", "off_peak")
+            or (tou_period == "mid_peak" and peak_ahead is False)
+        )
+        if fill_priority_inert:
             # v4.7.6 fix-up A-M4 mirror: release ownership too.
             for plug_id in list(self._paused_by_fill_priority):
                 self._paused_by_fill_priority.discard(plug_id)

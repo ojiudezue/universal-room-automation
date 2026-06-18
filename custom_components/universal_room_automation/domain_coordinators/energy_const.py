@@ -562,6 +562,15 @@ DEFAULT_FILL_PRIORITY_SOC: Final = 80
 DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH: Final = 1.0
 CONF_ENERGY_FILL_PRIORITY_SOC: Final = "energy_fill_priority_soc"
 
+# evse-offpeak-fill-release D2: minimum TIME-windowed expected solar surplus
+# (in %SOC, from `BatteryStrategy.expected_solar_surplus_now_pct`) for the EV
+# battery-drain high-SOC release (`soc_recovered`) to be considered "solar is
+# actively replenishing". Below this floor (e.g. at night, where the daylight-
+# overlap term is ~0) the high-SOC release is suppressed and the ONLY release
+# is the reserve-gated `battery_out_of_capacity` → overnight EV charge is
+# guaranteed grid, not battery discharge. Small/conservative on purpose.
+DEFAULT_EV_SOLAR_REPLENISH_SURPLUS_PCT: Final = 1.0
+
 # v4.7.6 D1/D3.4: Per-EVSE / per-plug `self_modulates` config key suffix.
 # Stored on the per-EVSE config dict at EVPool._evse[evse_id]["self_modulates"];
 # defaults to False (smart manual-override detection on).
