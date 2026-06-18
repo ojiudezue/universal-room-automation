@@ -23,5 +23,11 @@ Ledgers: `docs/reviews/code-review/v5.5.4_freezefloor_*`.
 ## Known boundary (accepted, not fixed)
 **D-HIGH-2:** the chokepoint governs URA-emitted `set_temperature` ranges, NOT `set_preset_mode`. If guest-mode-actuation is off (URA emits no explicit range) AND a thermostat's OWN device-side away/vacation preset is configured below 50°F, that zone can sit below the floor. Requires a thermostat away-preset literally set <50°F (unlikely). Operator-accepted to avoid a double-writer regression.
 
-## Live Validation — PROSPECTIVE
-Cannot be exercised now (outdoor 94°F; floor only acts ≤35°F). At deploy: v5.5.4 healthy, zero URA errors, and **byte-identical no-freeze behavior** (all heat_cool zones hold their normal preset ranges, no spurious clamp — `_freeze_active` false). The floor itself is mutation-anchored across all 9 sites + the gate; real freeze validation deferred to a winter cold snap (≤35°F), where every zone's effective heat_low should read ≥50°F.
+## Live Validation — Validated 2026-06-18 (post-restart, v5.5.4 HACS-confirmed)
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Deploy healthy | PASS | `installed_version: v5.5.4`; config loaded; only the known DB-write-worker startup transient (no new URA errors). |
+| L2 | Byte-identical no-freeze behavior | **PASS** | Outdoor 88°F (» 35°F trigger → `_freeze_active` false). `climate.up_hallway_zone_2` + `..._studyb_zone_1` both `heat_cool` with `target_temp_low = 70` (normal summer `home` preset low), **not clamped to 50** — the floor is correctly dormant, no spurious write. |
+| L3 | Floor acts at ≤35°F | DEFERRED (winter) | Cannot exercise at 88°F. Mutation-anchored across all 9 emitters + the gate (floor-neuter → 9 test failures; D-HIGH-1-neuter → 2). |
+
+**Verdict:** v5.5.4 deployed healthy; the freeze floor is correctly inert with no freeze (byte-identical, L2 PASS). The floor itself is in-suite authoritative + mutation-verified; real freeze validation deferred to a winter cold snap (≤35°F), where every zone's effective heat_low should read ≥50°F. Cycle CLOSED (pending the seasonal live check).
