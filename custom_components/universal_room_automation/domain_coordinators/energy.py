@@ -2720,9 +2720,14 @@ class EnergyCoordinator(BaseCoordinator):
                     # unconditionally inside the pool method. NONE solar input
                     # to the phase decision — cloud-proof.
                     try:
+                        # A-L1: must yield None (not False) when no TOU engine,
+                        # so the pool keeps its legacy always-hold for mid_peak
+                        # instead of flipping to release. `is False` in the pool
+                        # gate only releases on a genuine "no peak ahead".
                         peak_ahead = (
-                            self._tou is not None
-                            and self._tou.peak_ahead_before_offpeak(_now_phase)
+                            self._tou.peak_ahead_before_offpeak(_now_phase)
+                            if self._tou is not None
+                            else None
                         )
                     except Exception:  # noqa: BLE001
                         peak_ahead = None
