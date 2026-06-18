@@ -105,7 +105,6 @@ def make_hvac_coordinator(hass, observation_mode=False):
     # Track what actions were taken
     coord._actions_taken = []
     coord._stop_all_fans_safety = AsyncMock()
-    coord._set_emergency_heat = AsyncMock()
 
     def handle_safety_hazard(hazard):
         """Replicate HVACCoordinator._handle_safety_hazard logic."""
@@ -131,13 +130,12 @@ def make_hvac_coordinator(hass, observation_mode=False):
             else:
                 coord._actions_taken.append("dry_run_stop_fans")
 
-        # Action 2: Emergency heat on freeze
-        if hazard_type == "freeze" and severity in ("critical", "high"):
-            if coord._get_signal_config(CONF_HVAC_ON_HAZARD_EMERGENCY_HEAT):
-                coord._actions_taken.append("emergency_heat")
-                hass.async_create_task(coord._set_emergency_heat())
-            else:
-                coord._actions_taken.append("dry_run_emergency_heat")
+        # feature/freeze-floor: the old "Action 2: Emergency heat on freeze"
+        # branch was REMOVED from production (`_set_emergency_heat` deleted).
+        # The freeze response is now an HC-owned heat_low FLOOR enforced at the
+        # setpoint chokepoint on every climate write, NOT a hazard-handler
+        # action — so `_handle_safety_hazard` no longer reacts to freeze. The
+        # replica intentionally has no freeze branch.
 
     coord._handle_safety_hazard = handle_safety_hazard
     return coord
@@ -546,8 +544,13 @@ class TestHvacSafetyHazardResponse:
 
         assert "stop_fans" in coord._actions_taken
 
-    def test_enabled_freeze_critical_emergency_heat(self):
-        """Enabled: freeze critical should activate emergency heat."""
+    def test_freeze_hazard_triggers_no_handler_action(self):
+        """feature/freeze-floor: freeze hazard no longer drives _handle_safety_hazard.
+
+        The emergency-heat path was removed; the freeze response is the
+        setpoint-chokepoint heat_low floor. The hazard handler must take NO
+        action on a freeze hazard, even with the (now-vestigial) toggle on.
+        """
         hass = make_mock_hass_with_cm_entry(
             signal_options={CONF_HVAC_ON_HAZARD_EMERGENCY_HEAT: True}
         )
@@ -555,18 +558,9 @@ class TestHvacSafetyHazardResponse:
 
         coord._handle_safety_hazard({"hazard_type": "freeze", "severity": "critical"})
 
-        assert "emergency_heat" in coord._actions_taken
-
-    def test_enabled_freeze_high_emergency_heat(self):
-        """Enabled: freeze high severity should also activate emergency heat."""
-        hass = make_mock_hass_with_cm_entry(
-            signal_options={CONF_HVAC_ON_HAZARD_EMERGENCY_HEAT: True}
-        )
-        coord = make_hvac_coordinator(hass)
-
-        coord._handle_safety_hazard({"hazard_type": "freeze", "severity": "high"})
-
-        assert "emergency_heat" in coord._actions_taken
+        assert "emergency_heat" not in coord._actions_taken
+        assert "dry_run_emergency_heat" not in coord._actions_taken
+        assert len(coord._actions_taken) == 0
 
     def test_non_critical_hazard_no_action_even_when_enabled(self):
         """Enabled: non-critical smoke should NOT trigger fan stop."""
@@ -1017,8 +1011,8 @@ class TestMultipleSignalsFireIndependently:
     should not also enable security door unlock.
     """
 
-    def test_hvac_fan_stop_independent_of_emergency_heat(self):
-        """Enabling fan stop should not enable emergency heat."""
+    def test_hvac_fan_stop_unaffected_by_freeze_hazard(self):
+        """Fan-stop on smoke is independent of (removed) freeze handling."""
         hass = make_mock_hass_with_cm_entry(
             signal_options={CONF_HVAC_ON_HAZARD_STOP_FANS: True}
         )
@@ -1028,11 +1022,13 @@ class TestMultipleSignalsFireIndependently:
         coord._handle_safety_hazard({"hazard_type": "smoke", "severity": "critical"})
         assert "stop_fans" in coord._actions_taken
 
-        # Freeze critical should NOT activate emergency heat
+        # feature/freeze-floor: freeze critical drives NO hazard-handler action
+        # (floor is enforced at the setpoint chokepoint, not here).
         coord._actions_taken.clear()
         coord._handle_safety_hazard({"hazard_type": "freeze", "severity": "critical"})
         assert "emergency_heat" not in coord._actions_taken
-        assert "dry_run_emergency_heat" in coord._actions_taken
+        assert "dry_run_emergency_heat" not in coord._actions_taken
+        assert len(coord._actions_taken) == 0
 
     def test_security_unlock_independent_of_arrival(self):
         """Enabling egress unlock should not enable arrival tracking."""

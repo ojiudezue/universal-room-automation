@@ -351,6 +351,19 @@ WINTER_MONTHS: Final = {12, 1, 2}
 # Shoulder = everything else (3, 4, 5, 10, 11)
 
 # Default seasonal ranges: {season: {preset: (cool, heat)}}
+# ============================================================================
+# Freeze-protection heat_low FLOOR (feature/freeze-floor).
+#
+# HC-owned safety net: when the best-available outdoor temp drops to freezing,
+# ensure each zone's heat_cool LOW bound (resolved.cool_low / target_temp_low)
+# is at least a pipe-safe floor. Normal winter presets already hold ≥58°F, so
+# this only catches a custom/edge preset set dangerously low. NOT exposed as
+# config in v1 (parsimony — operator confirmed). Defaults tuned for Central TX.
+# ============================================================================
+FREEZE_FLOOR: Final = 50           # °F — minimum heat_low when freeze active
+FREEZE_TRIGGER_TEMP: Final = 35    # °F — outdoor temp at/below which freeze arms
+FREEZE_TRIGGER_HYSTERESIS: Final = 3  # °F — clears when outdoor > 35+3 = 38
+
 SEASONAL_DEFAULTS: Final = {
     SEASON_SUMMER: {
         "home": (77, 70),

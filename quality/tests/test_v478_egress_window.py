@@ -790,12 +790,16 @@ def test_v478_paused_zone_skipped_in_dpm_apply(hvac_src):
     assert "is_paused(zone_id)" in apply_body, \
         "DPM apply must skip egress-paused zones (Ecobee re-engages on " \
         "set_temperature)"
-    # Guard appears BEFORE the services.async_call dispatch (the actual
-    # service call, not the docstring mention of set_temperature).
+    # Guard appears BEFORE the setpoint dispatch. feature/freeze-floor routed
+    # the apply path through the chokepoint `emit_set_temperature(...)`, so the
+    # dispatch anchor is the chokepoint call (the literal "set_temperature"
+    # string now lives in hvac_setpoint.py, not this method body).
     guard_idx = apply_body.find("is_paused(zone_id)")
-    dispatch_idx = apply_body.find('"set_temperature"')
+    dispatch_idx = apply_body.find("emit_set_temperature(")
+    assert dispatch_idx >= 0, \
+        "DPM apply must dispatch via the setpoint chokepoint"
     assert guard_idx < dispatch_idx, \
-        "is_paused guard must precede set_temperature dispatch in DPM apply"
+        "is_paused guard must precede the setpoint dispatch in DPM apply"
 
 
 def test_v478_force_charge_button_unaffected_by_egress_pause():
@@ -1066,12 +1070,13 @@ def test_v478_fixup_C_H1_DPM_apply_guards_egress_paused_zones(hvac_src):
     assert apply_start >= 0
     apply_end = hvac_src.find("\n    async def ", apply_start + 1)
     body = hvac_src[apply_start:apply_end if apply_end > 0 else len(hvac_src)]
-    # Guard appears before the actual service-call dispatch (the quoted
-    # service name in services.async_call), not the docstring mention.
+    # Guard appears before the setpoint dispatch. feature/freeze-floor routed
+    # the apply path through the chokepoint `emit_set_temperature(...)`; the
+    # raw "set_temperature" service literal now lives in hvac_setpoint.py.
     g = body.find("is_paused(zone_id)")
-    d = body.find('"set_temperature"')
+    d = body.find("emit_set_temperature(")
     assert g >= 0 and d >= 0 and g < d, \
-        "DPM apply guard must precede set_temperature dispatch (C-H1)"
+        "DPM apply guard must precede the setpoint dispatch (C-H1)"
 
 
 def test_v478_fixup_C_H3_strings_json_has_egress_translations():
