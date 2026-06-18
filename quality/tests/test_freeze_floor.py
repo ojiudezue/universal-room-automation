@@ -317,10 +317,13 @@ def _set_temp_calls(coord):
 @pytest.mark.asyncio
 async def test_clamp_fires_writes_floor_low():
     """MUTATION GATE: outdoor ≤35 and a resolved heat_low (<50) → set_temperature
-    writes target_temp_low=50. Deleting the clamp in `_apply_freeze_floor`
+    writes target_temp_low=50. Deleting the clamp in `apply_setpoint_guards`
     (or its call site) makes this assertion FAIL (low would be 48, not 50)."""
     # cool_setpoint 55 → baseline_low = 48 (< FREEZE_FLOOR 50)
     coord = _make_coord(cool_setpoint=55, outdoor_temp=33)
+    # D-HIGH-1: the decision cycle refreshes freeze state UNCONDITIONALLY
+    # before the apply path; mirror that call order here.
+    coord._update_freeze_active()
     await coord._async_apply_preset_overrides()
     calls = _set_temp_calls(coord)
     assert len(calls) == 1
@@ -334,6 +337,7 @@ async def test_no_op_when_already_warm():
     """Freeze active but resolved heat_low ≥ 50 → no clamp; the preset low is
     written byte-identical (cool_setpoint 60 → baseline_low = 53)."""
     coord = _make_coord(cool_setpoint=60, outdoor_temp=33)
+    coord._update_freeze_active()
     await coord._async_apply_preset_overrides()
     calls = _set_temp_calls(coord)
     assert len(calls) == 1
@@ -346,6 +350,7 @@ async def test_no_clamp_above_trigger():
     """Outdoor > 38 (warm) → freeze never arms; the dangerously-low preset is
     emitted UNCHANGED (low = 48, no floor applied)."""
     coord = _make_coord(cool_setpoint=55, outdoor_temp=70)
+    coord._update_freeze_active()
     await coord._async_apply_preset_overrides()
     calls = _set_temp_calls(coord)
     assert len(calls) == 1
@@ -384,6 +389,7 @@ async def test_fail_open_missing_outdoor_temp():
     """No outdoor temp available → freeze NOT active, no clamp, no crash. The
     dangerously-low preset is emitted unchanged (fail-open to normal preset)."""
     coord = _make_coord(cool_setpoint=55, outdoor_temp=None)
+    coord._update_freeze_active()
     await coord._async_apply_preset_overrides()
     calls = _set_temp_calls(coord)
     assert len(calls) == 1
@@ -698,6 +704,7 @@ async def test_full_cycle_preset_then_preheat_final_low_floored():
     after (low+2) — BOTH route through the chokepoint, so the final low ≥ 50."""
     # 1. preset-apply: cool_setpoint 55 → baseline_low 48, freeze armed.
     coord = _make_coord(cool_setpoint=55, outdoor_temp=30)
+    coord._update_freeze_active()  # cycle refreshes before apply (D-HIGH-1)
     await coord._async_apply_preset_overrides()
     apply_calls = _set_temp_calls(coord)
     assert apply_calls[-1]["target_temp_low"] == 50  # floored at apply
@@ -715,3 +722,163 @@ async def test_full_cycle_preset_then_preheat_final_low_floored():
     ph_calls = [c["data"] for c in pred.hass.calls if c["service"] == "set_temperature"]
     # FINAL emission (pre-heat, the leak site) is also floored ≥ 50.
     assert ph_calls[-1]["target_temp_low"] == 50
+
+
+# ---------------------------------------------------------------------------
+# D-HIGH-1: `_update_freeze_active()` must refresh `_freeze_active`
+# UNCONDITIONALLY once per decision cycle — BEFORE the predictor/arrester run —
+# even when the DPM-apply path is gated off (guest-mode-actuation disabled
+# AND observation mode). Mutation gate: if the refresh is reverted to its old
+# location INSIDE `_async_apply_preset_overrides` (gated), `freeze_active`
+# stays at its False default and the predictor's lazy read floors nothing.
+# ---------------------------------------------------------------------------
+
+
+class _LazyFreezePredictor:
+    """Stands in for the real predictor: its per-cycle `update()` reads
+    `coord.freeze_active` LAZILY (as the banking/pre-heat emitters do) and emits
+    a sub-floor heat_low through the REAL setpoint chokepoint. Whether that emit
+    is floored depends entirely on whether `_freeze_active` was refreshed BEFORE
+    this runs."""
+
+    def __init__(self, coord, outdoor_temp):
+        self._coord = coord
+        self._outdoor_temp = outdoor_temp
+        self.flushed = False
+
+    def _get_outdoor_temp(self):
+        return self._outdoor_temp
+
+    def flush_daily_outcome(self):
+        self.flushed = True
+
+    async def update(self, *a, **kw):
+        from ura_hvac_pkg.domain_coordinators.hvac_setpoint import (
+            emit_set_temperature,
+        )
+
+        # Lazy read — exactly like predict.py's `_freeze_active` property.
+        await emit_set_temperature(
+            self._coord.hass,
+            "climate.zone_1",
+            target_temp_low=46,  # < FREEZE_FLOOR
+            target_temp_high=70,
+            freeze_active=self._coord.freeze_active,
+            blocking=False,
+        )
+
+
+class _CycleNoopArrester(_FakeOverrideArrester):
+    async def async_startup_audit(self, *a, **kw):
+        pass
+
+    async def async_startup_ramp_audit(self, *a, **kw):
+        pass
+
+    def update_energy_state(self, *a, **kw):
+        pass
+
+    async def check_ac_reset(self, *a, **kw):
+        pass
+
+
+class _CycleZoneManager(_FakeZoneManager):
+    def update_all_zones(self):
+        pass
+
+    def update_room_conditions(self):
+        pass
+
+    def reset_daily_counters(self):
+        pass
+
+    def get_state_snapshot(self):
+        return {}
+
+
+class _CycleEgress(_FakeEgressManager):
+    async def async_tick(self, now):
+        pass
+
+
+def _make_cycle_coord(*, outdoor_temp, guest_mode, observation):
+    """Coordinator wired to run the REAL `_run_decision_cycle` end-to-end with
+    the predictor emitting lazily. DPM-apply path is gated off via
+    guest_mode/observation so only the unconditional refresh can arm freeze."""
+    import asyncio
+
+    mod = _load_hvac_module()
+    coord = mod.HVACCoordinator.__new__(mod.HVACCoordinator)
+    coord.hass = _FakeHass()
+    coord._enabled = True
+    coord._boot_settle_done = True
+    coord._decision_cycle_lock = asyncio.Lock()
+    coord._house_state = "home"
+    coord._guest_mode_actuation_enabled = guest_mode
+    coord._observation_mode = observation
+    coord._last_daily_reset = datetime.now(timezone.utc).date().isoformat()
+    coord._zone_manager = _CycleZoneManager(
+        {"zone_1": _FakeZone("zone_1", "climate.zone_1")}
+    )
+    coord._egress_manager = _CycleEgress()
+    coord._override_arrester = _CycleNoopArrester()
+    coord._preset_manager = _FakePresetManager(55)
+    coord._predictor = _LazyFreezePredictor(coord, outdoor_temp)
+    coord._last_emitted_range = {}
+    coord._freeze_active = False  # default — pre-fix this stays False
+    coord._startup_audit_done = True
+    coord._zone_intelligence_enabled = False
+    coord._energy_constraint = None
+    coord._energy_offset = 0
+    coord._energy_constraint_mode = "normal"
+    coord._fan_control_enabled = False
+    coord._defer_gate_enabled = False
+    coord._pre_arrival_zones = set()
+    coord._zone_state_save_counter = 0
+
+    async def _noop(*a, **kw):
+        pass
+
+    coord._fan_controller = types.SimpleNamespace(
+        update=_noop, turn_off_all_managed=_noop,
+    )
+    coord._cover_controller = types.SimpleNamespace(update=_noop)
+    coord._record_anomaly_observations = _noop
+    return coord
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "guest_mode,observation",
+    [
+        # Observation mode: `_apply_house_state_presets` (and its DPM-apply
+        # call) is skipped entirely; only the predictor runs.
+        (True, True),
+        # Both gates off (first-boot-shaped): guest-mode-actuation disabled AND
+        # observation — the gated apply path can never refresh freeze.
+        (False, True),
+    ],
+)
+async def test_freeze_refreshed_before_predictor_with_apply_gated(
+    guest_mode, observation
+):
+    """D-HIGH-1 MUTATION GATE: with the DPM-apply path gated off and a real
+    freeze, the predictor's lazy emit during the cycle STILL gets floored,
+    because `_update_freeze_active()` runs unconditionally BEFORE the predictor.
+
+    Revert the refresh into `_async_apply_preset_overrides` (the gated path) and
+    `freeze_active` stays False here → the emitted low is 46, not 50 → FAIL."""
+    coord = _make_cycle_coord(
+        outdoor_temp=30,  # ≤ FREEZE_TRIGGER_TEMP → arms
+        guest_mode=guest_mode, observation=observation,
+    )
+    assert coord._freeze_active is False  # default before the cycle runs
+
+    await coord._run_decision_cycle()
+
+    # Freeze was armed unconditionally by the cycle, before the predictor emit.
+    assert coord._freeze_active is True
+    calls = _set_temp_calls(coord)
+    assert len(calls) == 1
+    assert calls[0]["target_temp_low"] == 50  # 46 floored — the fix proves out
+    assert calls[0]["target_temp_high"] == 70

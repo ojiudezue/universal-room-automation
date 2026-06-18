@@ -663,7 +663,10 @@ The person-trust suppression (§1e) that protects a still occupant from a wrongf
 
 **v5.5.2 fix:** the decision-cycle restore loop (`hvac.py::_apply_house_state_presets`) now enforces `heat_cool` on **any** non-heat_cool mode for heat_cool-capable zones (not just `off`), every cycle, wrapped in the suppress() handshake. Egress-paused (`off`) and AC-reset (`off`) zones are still skipped. **Behavioral note:** this also means a Safety-Coordinator emergency-heat (single-mode `heat` on a freeze) is reverted to `heat_cool` next cycle — intended (you run via ranges; heat_cool heats via the low setpoint). The queued `PLANNING_freeze_safety_range_shift.md` makes the freeze response range-based so even that is consistent.
 
-Gap 1 remains a candidate for a future cycle; Gap 2 is resolved.
+### Gap 3 — freeze floor governs set_temperature ranges only, not device-side presets
+The freeze-protection floor (`hvac_setpoint.emit_set_temperature`) clamps every **URA-emitted `set_temperature` range** so the heat low can never go below 50°F during a freeze. It does **not** govern `set_preset_mode`. If guest-mode-actuation is disabled (so URA emits no explicit range) **and** the thermostat's **own device-side** `away`/`vacation` preset is configured below 50°F, that zone can sit below the freeze floor during a freeze. **Operator-accepted 2026-06-18** as a narrow boundary — it requires a thermostat away-preset literally set below 50°F. Not fixed to avoid a double-writer self-fight between URA and the device preset.
+
+Gap 1 and Gap 3 remain candidates / accepted boundaries; Gap 2 is resolved.
 
 ---
 

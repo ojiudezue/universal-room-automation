@@ -883,6 +883,19 @@ class HVACCoordinator(BaseCoordinator):
         self._zone_manager.update_all_zones()
         self._zone_manager.update_room_conditions()
 
+        # feature/freeze-floor (D-HIGH-1): re-derive the freeze-active latch
+        # ONCE per decision cycle, UNCONDITIONALLY — before any setpoint
+        # emitter runs. The predictor (banking/pre-heat) and the override
+        # arrester (nudge) read `_freeze_active` lazily and fire on independent
+        # triggers; the DPM apply path is double-gated (observation mode +
+        # guest_mode_actuation). If the refresh lived only inside that gated
+        # path, `_freeze_active` would stay at its False default during a real
+        # freeze whenever actuation gates are off / on the first boot cycle,
+        # and the floor would silently NO-OP at the predictor/arrester. Refresh
+        # here so every emitter in this cycle reads a current value. Logic
+        # (hysteresis, fail-open) is unchanged — only WHERE it's called.
+        self._update_freeze_active()
+
         # v4.7.8 D3/D6: Egress Window HVAC Pause — runs AFTER room conditions
         # are fresh (so window_state is current) but BEFORE preset apply +
         # predictor update (so paused zones get skipped cleanly downstream).
@@ -1299,6 +1312,16 @@ class HVACCoordinator(BaseCoordinator):
                 self._override_arrester.suppress(zone.climate_entity)
 
             # Execute the service call directly
+            #
+            # KNOWN BOUNDARY (freeze floor): the freeze-protection floor
+            # (hvac_setpoint.emit_set_temperature) governs URA-emitted
+            # set_temperature ranges only, NOT set_preset_mode. If
+            # guest-mode-actuation is disabled (so URA emits no explicit range)
+            # AND the thermostat's OWN device-side away/vacation preset is
+            # configured below 50°F, that zone can sit below the freeze floor
+            # during a freeze. Operator-accepted 2026-06-18 as a narrow
+            # boundary (requires a thermostat away-preset literally set < 50°F).
+            # Not fixed to avoid a double-writer self-fight.
             try:
                 await self.hass.services.async_call(
                     "climate",
@@ -1473,10 +1496,11 @@ class HVACCoordinator(BaseCoordinator):
             master_enabled = self._guest_mode_actuation_enabled
             engine = OverrideEngine()
 
-            # feature/freeze-floor: re-derive freeze-active state once per
-            # apply, before resolving any zone. The clamp below raises a
-            # dangerously-low resolved heat_low up to FREEZE_FLOOR.
-            self._update_freeze_active()
+            # feature/freeze-floor (D-HIGH-1): `_freeze_active` is refreshed
+            # unconditionally at the top of `_run_decision_cycle`, BEFORE this
+            # gated apply path runs, so it is already current here. The clamp
+            # below (via the setpoint chokepoint) raises a dangerously-low
+            # resolved heat_low up to FREEZE_FLOOR.
 
             target_preset = self._preset_manager.get_preset_for_house_state(
                 self._house_state

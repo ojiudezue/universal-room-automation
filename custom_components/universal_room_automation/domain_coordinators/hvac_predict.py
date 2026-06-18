@@ -28,7 +28,7 @@ from .hvac_const import (
 )
 from .hvac_override import OverrideArrester
 from .hvac_preset import PresetManager
-from .hvac_setpoint import emit_set_temperature
+from .hvac_setpoint import apply_setpoint_guards, emit_set_temperature
 from .hvac_zones import ZoneManager
 from .signals import EnergyConstraint
 
@@ -851,18 +851,26 @@ class HVACPredictor:
             base_low, base_high = baseline
             if self._override_arrester:
                 self._override_arrester.suppress(zone.climate_entity)
+            # B-L1: store the POST-guard pair the chokepoint will actually
+            # write (consistent with the DPM apply at hvac.py:1522-1529), so a
+            # banking-release during a freeze doesn't leave a pre-guard value
+            # in the throttle map that the next DPM cycle re-emits redundantly.
+            freeze_active = self._freeze_active()
+            emit_low, emit_high = apply_setpoint_guards(
+                base_low, base_high, freeze_active=freeze_active,
+            )
             try:
                 await emit_set_temperature(
                     self.hass,
                     zone.climate_entity,
                     target_temp_low=base_low,
                     target_temp_high=base_high,
-                    freeze_active=self._freeze_active(),
+                    freeze_active=freeze_active,
                     blocking=False,
                 )
                 # Keep throttle map consistent with the value we just wrote.
                 if last_emitted is not None:
-                    last_emitted[zone_id] = (base_low, base_high)
+                    last_emitted[zone_id] = (emit_low, emit_high)
                 _LOGGER.info(
                     "HVAC: Solar banking master OFF — released %s to baseline "
                     "(low=%.1f high=%.1f)",
