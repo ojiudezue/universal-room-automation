@@ -137,14 +137,17 @@ def _make_plug(plug_on=True, plug_id="switch.moes_plug_garage_a"):
 # ---------------------------------------------------------------------------
 
 class TestFillPriorityPause:
-    def test_fill_priority_pause_off_peak_low_soc_healthy_solar(self):
+    # evse-offpeak-fill-release D1: the daytime PRE-PEAK fill window is now
+    # `mid_peak` + `peak_ahead=True` (off_peak releases for cheap-grid charge).
+    def test_fill_priority_pause_midpeak_peak_ahead_low_soc_healthy_solar(self):
         ev, hass = _make_ev()
         actions = ev.determine_fill_priority_actions(
             soc=51.0,
             remaining_forecast_kwh=18.0,
-            tou_period="off_peak",
+            tou_period="mid_peak",
             soc_threshold=80,
             excess_solar_kwh_threshold=5.0,
+            peak_ahead=True,
         )
         assert any(a["service"] == "switch.turn_off" for a in actions)
         assert "garage_a" in ev._paused_by_fill_priority
@@ -153,15 +156,15 @@ class TestFillPriorityPause:
 
     def test_fill_priority_resume_at_target_soc(self):
         ev, hass = _make_ev()
-        # Pause first
+        # Pause first (daytime pre-peak window)
         ev.determine_fill_priority_actions(
-            soc=51.0, remaining_forecast_kwh=18.0, tou_period="off_peak",
-            soc_threshold=80, excess_solar_kwh_threshold=5.0,
+            soc=51.0, remaining_forecast_kwh=18.0, tou_period="mid_peak",
+            soc_threshold=80, excess_solar_kwh_threshold=5.0, peak_ahead=True,
         )
         hass.set_state("switch.garage_a", "off")
         actions = ev.determine_fill_priority_actions(
-            soc=82.0, remaining_forecast_kwh=10.0, tou_period="off_peak",
-            soc_threshold=80, excess_solar_kwh_threshold=5.0,
+            soc=82.0, remaining_forecast_kwh=10.0, tou_period="mid_peak",
+            soc_threshold=80, excess_solar_kwh_threshold=5.0, peak_ahead=True,
         )
         assert any(a["service"] == "switch.turn_on" for a in actions)
         assert "garage_a" not in ev._paused_by_fill_priority
@@ -169,18 +172,19 @@ class TestFillPriorityPause:
     def test_fill_priority_resume_on_forecast_decay(self):
         ev, hass = _make_ev()
         ev.determine_fill_priority_actions(
-            soc=51.0, remaining_forecast_kwh=18.0, tou_period="off_peak",
-            soc_threshold=80, excess_solar_kwh_threshold=5.0,
+            soc=51.0, remaining_forecast_kwh=18.0, tou_period="mid_peak",
+            soc_threshold=80, excess_solar_kwh_threshold=5.0, peak_ahead=True,
         )
         hass.set_state("switch.garage_a", "off")
         # remaining drops below threshold - safety_margin
         actions = ev.determine_fill_priority_actions(
             soc=52.0,
             remaining_forecast_kwh=2.0,    # 2.0 < (5.0 - 1.0) = 4.0
-            tou_period="off_peak",
+            tou_period="mid_peak",
             soc_threshold=80,
             excess_solar_kwh_threshold=5.0,
             safety_margin_kwh=1.0,
+            peak_ahead=True,
         )
         assert any(a["service"] == "switch.turn_on" for a in actions)
         assert "garage_a" not in ev._paused_by_fill_priority
@@ -199,8 +203,9 @@ class TestFillPriorityPause:
         ev, hass = _make_ev()
         for _ in range(3):
             actions = ev.determine_fill_priority_actions(
-                soc=51.0, remaining_forecast_kwh=18.0, tou_period="off_peak",
+                soc=51.0, remaining_forecast_kwh=18.0, tou_period="mid_peak",
                 soc_threshold=80, excess_solar_kwh_threshold=5.0,
+                peak_ahead=True,
             )
             assert any(a["service"] == "switch.turn_off" for a in actions)
 
@@ -210,8 +215,8 @@ class TestFillPriorityPause:
         # Even though conditions would normally pause (SOC 51 < 80),
         # excess-solar membership takes precedence (logged + skipped).
         actions = ev.determine_fill_priority_actions(
-            soc=51.0, remaining_forecast_kwh=18.0, tou_period="off_peak",
-            soc_threshold=80, excess_solar_kwh_threshold=5.0,
+            soc=51.0, remaining_forecast_kwh=18.0, tou_period="mid_peak",
+            soc_threshold=80, excess_solar_kwh_threshold=5.0, peak_ahead=True,
         )
         # No new pause dispatched for garage_a
         assert "garage_a" not in ev._paused_by_fill_priority
@@ -221,8 +226,8 @@ class TestFillPrioritySmartPlugParity:
     def test_fill_priority_smart_plug_parity(self):
         sp, hass, plug_id = _make_plug()
         actions = sp.determine_fill_priority_actions(
-            soc=51.0, remaining_forecast_kwh=18.0, tou_period="off_peak",
-            soc_threshold=80, excess_solar_kwh_threshold=5.0,
+            soc=51.0, remaining_forecast_kwh=18.0, tou_period="mid_peak",
+            soc_threshold=80, excess_solar_kwh_threshold=5.0, peak_ahead=True,
         )
         assert any(a["service"] == "switch.turn_off" for a in actions)
         assert plug_id in sp._paused_by_fill_priority
@@ -231,16 +236,17 @@ class TestFillPrioritySmartPlugParity:
 class TestFillPriorityResumeGating:
     def test_resume_blocked_when_drain_holds(self):
         ev, hass = _make_ev()
+        # Pause in the daytime pre-peak window (off_peak now releases).
         ev.determine_fill_priority_actions(
-            soc=51.0, remaining_forecast_kwh=18.0, tou_period="off_peak",
-            soc_threshold=80, excess_solar_kwh_threshold=5.0,
+            soc=51.0, remaining_forecast_kwh=18.0, tou_period="mid_peak",
+            soc_threshold=80, excess_solar_kwh_threshold=5.0, peak_ahead=True,
         )
         ev._paused_by_battery_drain.add("garage_a")
         hass.set_state("switch.garage_a", "off")
         actions = ev.determine_fill_priority_actions(
-            soc=82.0, remaining_forecast_kwh=10.0, tou_period="off_peak",
-            soc_threshold=80, excess_solar_kwh_threshold=5.0,
+            soc=82.0, remaining_forecast_kwh=10.0, tou_period="mid_peak",
+            soc_threshold=80, excess_solar_kwh_threshold=5.0, peak_ahead=True,
         )
-        # No turn_on; fill-priority discards self silently
+        # No turn_on; fill-priority discards self silently (drain still owns).
         assert not any(a["service"] == "switch.turn_on" for a in actions)
         assert "garage_a" not in ev._paused_by_fill_priority
