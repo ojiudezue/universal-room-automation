@@ -1632,6 +1632,24 @@ class BatteryStrategy:
             return None
         return (s1 - s0) / (elapsed_s / 3600.0)
 
+    def expected_solar_surplus_now_pct(self, now: datetime) -> float:
+        """Public: time-windowed expected solar surplus (%SOC) from `now`.
+
+        evse-offpeak-fill-release D2: a TIME-anchored "is solar replenishing"
+        signal for the EV battery-drain solar gate. Wraps the FIN-2 inclement
+        primitive `_expected_solar_surplus_pct` sliced to the next high-rate
+        boundary. Returns ~0 at night (no daylight overlap) and real-but-low on
+        a cloudy daytime — exactly the discrimination the EV phase decision
+        needs. NEVER uses raw `solcast_remaining` directly for a phase call;
+        the forecast is pro-rated by daylight overlap inside the primitive.
+        Best-effort: any failure returns 0.0 (fail toward reserve-gated grid).
+        """
+        try:
+            mins = self._minutes_to_high_rate_boundary(now)
+            return self._expected_solar_surplus_pct(now, mins)
+        except Exception:  # noqa: BLE001
+            return 0.0
+
     def _minutes_to_high_rate_boundary(self, now: datetime) -> int | None:
         """Minutes until the next high-rate TOU transition; None if unknown."""
         if self._tou is None:

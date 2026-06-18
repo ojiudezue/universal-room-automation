@@ -2675,11 +2675,36 @@ class EnergyCoordinator(BaseCoordinator):
                 #
                 # v4.7.6 D1: reserve_soc threaded through for the refined
                 # `battery_out_of_capacity` resume gate.
+                #
+                # evse-offpeak-fill-release D2: compute a TIME-anchored
+                # "solar actively replenishing" flag for the high-SOC release
+                # gate. Daytime-true / night-~0: the time-windowed expected
+                # solar surplus (daylight-overlap pro-rated; ~0 at night) OR a
+                # live charging battery (`battery_power_w > +100W`). NEVER raw
+                # `solcast_remaining` (high all night = the original bug). At
+                # night/no-solar this is False → only reserve-gated release →
+                # the EV charges from guaranteed grid, not battery discharge.
+                from .energy_const import (
+                    DEFAULT_EV_SOLAR_REPLENISH_SURPLUS_PCT,
+                )
+                _now_phase = dt_util.now()
+                try:
+                    _surplus_pct = self._battery.expected_solar_surplus_now_pct(
+                        _now_phase,
+                    )
+                except Exception:  # noqa: BLE001
+                    _surplus_pct = 0.0
+                _bat_pw = self._battery.battery_power_w
+                solar_replenishing = (
+                    _surplus_pct > DEFAULT_EV_SOLAR_REPLENISH_SURPLUS_PCT
+                    or (_bat_pw is not None and _bat_pw > 100)
+                )
                 drain_actions = self._ev.determine_battery_drain_actions(
                     battery_power_w=self._battery.battery_power_w,
                     battery_soc=self._battery.battery_soc,
                     soc_threshold=self._ev_battery_drain_soc,
                     reserve_soc=getattr(self._battery, "reserve_soc", None),
+                    solar_replenishing=solar_replenishing,
                 )
                 for action_spec in drain_actions:
                     await self._execute_service_action(action_spec)
@@ -2688,6 +2713,19 @@ class EnergyCoordinator(BaseCoordinator):
                 # switch — same toggle controls both turn-ON and pause sides).
                 if self._excess_solar_enabled:
                     from .energy_const import DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH
+                    # evse-offpeak-fill-release D1: TIME-anchored day/night
+                    # phase. `peak_ahead` = is a real peak still ahead before
+                    # the next off_peak (midnight-safe, season-aware). Drives
+                    # the mid_peak hold-vs-release; off_peak/peak release
+                    # unconditionally inside the pool method. NONE solar input
+                    # to the phase decision — cloud-proof.
+                    try:
+                        peak_ahead = (
+                            self._tou is not None
+                            and self._tou.peak_ahead_before_offpeak(_now_phase)
+                        )
+                    except Exception:  # noqa: BLE001
+                        peak_ahead = None
                     # v4.7.6 fix-up B-M3: pass tick-snapshot, not live attr.
                     fp_actions = self._ev.determine_fill_priority_actions(
                         soc=self._battery.battery_soc,
@@ -2696,6 +2734,7 @@ class EnergyCoordinator(BaseCoordinator):
                         soc_threshold=fill_priority_soc_tick,
                         excess_solar_kwh_threshold=self._excess_solar_kwh,
                         safety_margin_kwh=DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH,
+                        peak_ahead=peak_ahead,
                     )
                     for action_spec in fp_actions:
                         await self._execute_service_action(action_spec)
