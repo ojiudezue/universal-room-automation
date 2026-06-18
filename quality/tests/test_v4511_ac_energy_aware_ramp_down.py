@@ -538,7 +538,10 @@ class TestSoftNudge:
         idx = hvac_override_src.find("async def _perform_soft_nudge(")
         body = hvac_override_src[idx:idx + 4000]
         db_write_pos = body.find("set_ac_in_flight_nudge")
-        service_pos = body.find('services.async_call(')
+        # feature/freeze-floor: setpoint dispatch routed through the chokepoint
+        # `emit_set_temperature(...)`; the raw services.async_call now lives in
+        # hvac_setpoint.py. Ordering invariant is unchanged.
+        service_pos = body.find("emit_set_temperature(")
         assert db_write_pos > 0 and service_pos > 0
         assert db_write_pos < service_pos, (
             "R1 mitigation: DB write MUST precede setpoint change. "
@@ -556,7 +559,8 @@ class TestSoftNudge:
         # set membership. The ordering invariant (suppress BEFORE the service
         # call) is what this test guards — call-site form is incidental.
         suppress_pos = body.find("self.suppress(zone.climate_entity)")
-        service_pos = body.find('services.async_call(')
+        # feature/freeze-floor: setpoint dispatch is now the chokepoint call.
+        service_pos = body.find("emit_set_temperature(")
         assert suppress_pos > 0
         assert suppress_pos < service_pos, (
             "Suppress override BEFORE issuing setpoint change (R11)"

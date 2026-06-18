@@ -5694,7 +5694,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         """
         from .const import (
             CONF_HVAC_ON_HAZARD_STOP_FANS,
-            CONF_HVAC_ON_HAZARD_EMERGENCY_HEAT,
             CONF_SECURITY_ON_HAZARD_UNLOCK_EGRESS,
             CONF_SECURITY_ON_ARRIVAL_ADD_EXPECTED,
             CONF_ENERGY_ON_HAZARD_SHED_LOADS,
@@ -5714,10 +5713,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_HVAC_ON_HAZARD_STOP_FANS,
                 default=self._get_current(CONF_HVAC_ON_HAZARD_STOP_FANS, False),
             ): selector.BooleanSelector(),
-            vol.Optional(
-                CONF_HVAC_ON_HAZARD_EMERGENCY_HEAT,
-                default=self._get_current(CONF_HVAC_ON_HAZARD_EMERGENCY_HEAT, False),
-            ): selector.BooleanSelector(),
+            # feature/freeze-floor: the "Emergency heat on freeze hazard" toggle
+            # was removed here — the freeze response is now an unconditional,
+            # HC-owned heat_cool LOW floor (FREEZE_FLOOR via the setpoint
+            # chokepoint), not a single-mode-heat switch and not config-gated.
+            # CONF_HVAC_ON_HAZARD_EMERGENCY_HEAT remains in const.py (harmless;
+            # avoids an options migration) but is no longer surfaced.
             vol.Optional(
                 CONF_SECURITY_ON_HAZARD_UNLOCK_EGRESS,
                 default=self._get_current(CONF_SECURITY_ON_HAZARD_UNLOCK_EGRESS, False),

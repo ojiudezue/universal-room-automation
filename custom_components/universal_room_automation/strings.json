@@ -1342,7 +1342,6 @@
         "description": "Configure how coordinators respond to cross-system signals. All toggles default OFF — enable deliberately after testing.",
         "data": {
           "hvac_on_hazard_stop_fans": "HVAC: Stop fans on hazard",
-          "hvac_on_hazard_emergency_heat": "HVAC: Emergency heat on freeze hazard",
           "security_on_hazard_unlock_egress": "Security: Unlock egress doors on hazard",
           "security_on_arrival_add_expected": "Security: Add arriving person to expected list",
           "energy_on_hazard_shed_loads": "Energy: Shed non-critical loads on hazard",
@@ -1352,7 +1351,6 @@
         },
         "data_description": {
           "hvac_on_hazard_stop_fans": "When a safety hazard (smoke, CO) is detected, stop all HVAC fans to prevent spreading contaminants.",
-          "hvac_on_hazard_emergency_heat": "When a freeze hazard is detected, activate emergency heat to protect pipes.",
           "security_on_hazard_unlock_egress": "When a fire or CO hazard is detected, unlock egress doors for safe evacuation.",
           "security_on_arrival_add_expected": "When a person arrives (geofence), automatically add them to the expected arrivals list so entry does not trigger an alarm.",
           "energy_on_hazard_shed_loads": "When a safety hazard is detected, shed non-critical electrical loads to reduce risk.",

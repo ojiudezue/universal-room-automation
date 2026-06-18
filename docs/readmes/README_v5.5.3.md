@@ -19,10 +19,12 @@ A new `_floor_reserve(existing, effective_reserve, hold_depth)` helper (`energy_
 
 Ledger: `docs/reviews/code-review/v5.5.3_arbwait_summary.md` (+ reviews A/B/C/D).
 
-## Live Validation — PROSPECTIVE
-| # | Criterion | How to verify |
-|---|---|---|
-| L1 | Deploy healthy | v5.5.3 HACS-installed, config loaded, zero new URA ERRORs |
-| L2 | Byte-identical no-alert behavior | With no active inclement alert (allow_discharge), off_peak/mid_peak battery behavior is unchanged from v5.5.2 — normal drain/arbitrage, no spurious reserve elevation. `inclement_reserve_floor == reserve_soc`. |
-| L3 | Floor honored under partial_hold | (In-suite authoritative — requires an uncorroborated watch + arbitrage gate open, rare live.) Mutation-anchored across all 7 sites. If a partial_hold ever fires off_peak/mid_peak, recorder shows reserve ≥ floor. |
-| L4 | No regression | 24h `battery_mode` history: no unexpected `backup`, no skipped peak discharge on clear days. |
+## Live Validation — Validated 2026-06-17 (post-restart, v5.5.3 HACS-confirmed)
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Deploy healthy | **PASS** | `installed_version: v5.5.3`; config loaded; **zero** URA ERROR lines from the boot (not even the usual DB-write-worker startup transient). |
+| L2 | Byte-identical no-alert behavior | **PASS** | `sensor.ura_energy_coordinator_battery_strategy`: `inclement_tier=none`, `inclement_hold_depth=allow_discharge`, **`inclement_reserve_floor=10 == reserve_soc=10`** — the clamp is dormant with no active alert. Battery in normal off-peak drain (`"Off-peak drain — SOC 27% > target 20%"`), `arbitrage_active=false`, `attain_state=inactive`. Behavior identical to pre-v5.5.3. |
+| L3 | Floor honored under partial_hold | IN-SUITE AUTHORITATIVE | No live partial_hold at validation (no active inclement alert). Mutation-anchored across all 7 emission sites (real per-site source mutation, Reviewer C + orchestrator). Will show live if an uncorroborated watch + arbitrage gate ever coincide. |
+| L4 | No regression | PASS | Normal off-peak drain; no unexpected `backup`; no spurious reserve elevation. |
+
+**Verdict:** v5.5.3 deployed healthy; the partial_hold floor machinery is correctly inert with no active alert (byte-identical, L2 PASS), zero errors. The floor-honored guarantee (L3) is in-suite authoritative and mutation-verified across all 7 sites. Cycle CLOSED.
