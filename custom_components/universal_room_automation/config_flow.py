@@ -3284,6 +3284,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_ENERGY_GRID_IMPORT_CAP_ENABLED,
             CONF_ENERGY_GRID_IMPORT_CAP_KW,
             DEFAULT_GRID_IMPORT_CAP_KW,
+            # v5.5.x cycle: arbitrage grid-import guard (enabled + kW)
+            CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_ENABLED,
+            CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW,
+            DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW,
             CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
             DEFAULT_EV_BATTERY_DRAIN_SOC_THRESHOLD,
             # v4.7.x Cycle A: WeatherProviderManager ranked-list providers
@@ -3901,6 +3905,31 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     min=3, max=20, step=0.5,
                     unit_of_measurement="kW",
                     mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            # v5.5.x cycle: Arbitrage Grid-Charge Import Guard (default OFF).
+            # Mirrors the EV Grid Import Cap pattern. When OFF (default), the
+            # battery has no software import cap — only the Enphase hardware
+            # auto-curtail applies. When ON, the kW value is the threshold
+            # above which the arbitrage CHARGE chunk is aborted (after 2
+            # consecutive trips).
+            vol.Optional(
+                CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_ENABLED,
+                default=self._get_current(
+                    CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_ENABLED, False
+                ),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW,
+                default=self._get_current(
+                    CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW,
+                    DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=6, max=20, step=0.5,
+                    unit_of_measurement="kW",
+                    mode=selector.NumberSelectorMode.BOX,
                 )
             ),
             # v4.2.17: EV battery drain SOC threshold

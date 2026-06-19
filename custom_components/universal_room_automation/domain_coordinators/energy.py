@@ -189,6 +189,7 @@ class EnergyCoordinator(BaseCoordinator):
             CONF_ENERGY_PEAK_BUFFER_TARGET,
             CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
             CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW,
+            CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_ENABLED,
             CONF_ENERGY_MULTI_DAY_HORIZON_ENABLED,
             CONF_ENERGY_SOLCAST_DAY_3_ENTITY,
             DEFAULT_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
@@ -207,6 +208,13 @@ class EnergyCoordinator(BaseCoordinator):
             CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW,
             DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW,
         ))
+        # Default OFF — mirrors `CONF_ENERGY_GRID_IMPORT_CAP_ENABLED`
+        # convention (no DEFAULT_* const). When False, BatteryStrategy
+        # collapses the effective threshold to inf so the guard is inert
+        # at every consumption site.
+        grid_import_guard_enabled = bool(ec.get(
+            CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_ENABLED, False
+        ))
         self._battery = BatteryStrategy(
             hass,
             reserve_soc=reserve_soc,
@@ -221,6 +229,7 @@ class EnergyCoordinator(BaseCoordinator):
             peak_buffer_target=peak_buffer_target,
             arbitrage_charge_lead_time_min=lead_time,
             arbitrage_grid_import_guard_kw=grid_import_guard_kw,
+            arbitrage_grid_import_guard_enabled=grid_import_guard_enabled,
             tou_engine=self._tou,  # v4.5.0 D8: charge-window math
             multi_day_horizon_enabled=ec.get(
                 CONF_ENERGY_MULTI_DAY_HORIZON_ENABLED, False

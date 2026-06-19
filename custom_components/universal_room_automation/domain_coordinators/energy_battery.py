@@ -160,6 +160,7 @@ class BatteryStrategy:
         peak_buffer_target: int | None = None,
         arbitrage_charge_lead_time_min: int = DEFAULT_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
         arbitrage_grid_import_guard_kw: float = DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW,
+        arbitrage_grid_import_guard_enabled: bool = False,
         tou_engine: Any = None,
         multi_day_horizon_enabled: bool = False,
         solcast_day_3_entity: str | None = None,
@@ -231,14 +232,36 @@ class BatteryStrategy:
         # actual grid import exceeds this during a CHARGE tick, the
         # chunk is aborted (chunk_completed=True, return WAIT) to
         # protect against undersized breakers. One-shot per chunk.
+        #
+        # v5.5.x cycle (expose+default-off): when the new enable toggle
+        # is False (the default), collapse the effective threshold to
+        # `float('inf')`. Every downstream consumer is a `snap[0] > self.
+        # _arbitrage_grid_import_guard_kw` comparison (helper
+        # `_grid_import_guard_triggered()` + 3 inline sites + the
+        # 2-trip chunk-lock), all of which naturally no-op when the
+        # threshold is inf. This is a SINGLE load-bearing assignment
+        # at the chokepoint — by design, no per-site edits are needed
+        # (avoids Bug Class #53 "computed-but-not-consumed / one missed
+        # site"). The raw configured kW and the enabled bool are
+        # preserved separately for sensor-attr honesty (see
+        # `get_status()` below).
+        self._arbitrage_grid_import_guard_enabled: bool = bool(
+            arbitrage_grid_import_guard_enabled
+        )
         try:
-            self._arbitrage_grid_import_guard_kw: float = float(
+            self._arbitrage_grid_import_guard_kw_configured: float = float(
                 arbitrage_grid_import_guard_kw
             )
         except (TypeError, ValueError):
-            self._arbitrage_grid_import_guard_kw = (
+            self._arbitrage_grid_import_guard_kw_configured = (
                 DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW
             )
+        if self._arbitrage_grid_import_guard_enabled:
+            self._arbitrage_grid_import_guard_kw: float = (
+                self._arbitrage_grid_import_guard_kw_configured
+            )
+        else:
+            self._arbitrage_grid_import_guard_kw = float("inf")
         # Diagnostic surface — populated when the guard fires, so the
         # sensor and tests can assert on the abort cause.
         self._arbitrage_guard_aborted_at: str | None = None
@@ -3346,8 +3369,19 @@ class BatteryStrategy:
             "attain_solar_term_pct": self._attain_solar_term_pct,
             "arbitrage_chunk_completed": self._arbitrage_chunk_completed,
             "arbitrage_charge_lead_time_min": self._arbitrage_charge_lead_time_min,
-            # v4.5.0.2 grid-import guard surfaces
-            "arbitrage_grid_import_guard_kw": self._arbitrage_grid_import_guard_kw,
+            # v4.5.0.2 grid-import guard surfaces.
+            # v5.5.x cycle (expose+default-off): when DISABLED, report kW as
+            # None so the sensor never implies an unenforced 12 kW limit.
+            # `arbitrage_grid_import_guard_enabled` is the single source of
+            # truth for whether the guard is active.
+            "arbitrage_grid_import_guard_enabled": (
+                self._arbitrage_grid_import_guard_enabled
+            ),
+            "arbitrage_grid_import_guard_kw": (
+                self._arbitrage_grid_import_guard_kw_configured
+                if self._arbitrage_grid_import_guard_enabled
+                else None
+            ),
             "arbitrage_guard_aborted_at": self._arbitrage_guard_aborted_at,
             "arbitrage_guard_aborted_kw": self._arbitrage_guard_aborted_kw,
             "next_high_rate_transition": next_transition_iso,
