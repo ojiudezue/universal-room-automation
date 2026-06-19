@@ -26,7 +26,6 @@ from .energy_const import (
     BATTERY_MODE_BACKUP,
     BATTERY_MODE_SELF_CONSUMPTION,
     DEFAULT_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
-    DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW,
     DEFAULT_ARBITRAGE_SOC_TARGET,
     DEFAULT_CHARGE_FROM_GRID_ENTITY,
     DEFAULT_GRID_ENABLED_ENTITY,
@@ -253,15 +252,30 @@ class BatteryStrategy:
         self._arbitrage_grid_import_guard_enabled: bool = bool(
             arbitrage_grid_import_guard_enabled
         )
+        # v5.5.x fix-up (FIX 2): a hand-edited config that sets
+        # `kw=0`, `kw<0`, NaN, or inf with `enabled=True` MUST NOT be
+        # accepted as a finite 0 / negative threshold (which would trip
+        # the guard on every tick and brick arbitrage grid-charge).
+        # Treat any non-finite or ≤0 value as if it were None — the
+        # configured surface reports None AND the effective threshold
+        # collapses to inf. This matches the documented "enabled but no
+        # valid threshold → treated as DISABLED" runtime defence.
+        import math as _math
         if arbitrage_grid_import_guard_kw is None:
             self._arbitrage_grid_import_guard_kw_configured: float | None = None
         else:
             try:
-                self._arbitrage_grid_import_guard_kw_configured = float(
-                    arbitrage_grid_import_guard_kw
-                )
+                _coerced = float(arbitrage_grid_import_guard_kw)
             except (TypeError, ValueError):
+                _coerced = None
+            if (
+                _coerced is None
+                or not _math.isfinite(_coerced)
+                or _coerced <= 0
+            ):
                 self._arbitrage_grid_import_guard_kw_configured = None
+            else:
+                self._arbitrage_grid_import_guard_kw_configured = _coerced
         if (
             self._arbitrage_grid_import_guard_enabled
             and self._arbitrage_grid_import_guard_kw_configured is not None
@@ -271,6 +285,22 @@ class BatteryStrategy:
             )
         else:
             self._arbitrage_grid_import_guard_kw = float("inf")
+        # FIX 3 (observability): when the operator requested the guard
+        # ON but supplied no valid threshold (None / coercion failure /
+        # ≤0 / non-finite), the runtime defence silently disables it.
+        # Emit ONE warning at construction so this state is observable
+        # (don't spam per-tick).
+        if (
+            self._arbitrage_grid_import_guard_enabled
+            and self._arbitrage_grid_import_guard_kw_configured is None
+        ):
+            _LOGGER.warning(
+                "Arbitrage grid-import guard requested ON but no valid "
+                "threshold supplied (raw=%r) — guard is being treated "
+                "as DISABLED (effective threshold inf). Set a positive "
+                "finite kW (e.g. amps × 240 × 0.8 ÷ 1000) to enforce it.",
+                arbitrage_grid_import_guard_kw,
+            )
         # Diagnostic surface — populated when the guard fires, so the
         # sensor and tests can assert on the abort cause.
         self._arbitrage_guard_aborted_at: str | None = None

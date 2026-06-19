@@ -377,6 +377,36 @@ class TestConfigFlowRequiresKwWhenEnabled:
         assert data[CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW] == 15.0
 
 
+class TestRuntimeDefenceNonPositiveOrNonFiniteKw:
+    """FIX 2: a hand-edited config with `enabled=True` and a kW that is
+    None, ≤0, NaN, or inf MUST be treated as DISABLED (effective inf +
+    configured surface None). Without this, kw=0 would trip the guard
+    on every tick and brick arbitrage grid-charge."""
+
+    @pytest.mark.parametrize("bad_kw", [0, 0.0, -5, -5.0, float("nan"), float("inf")])
+    def test_enabled_with_bad_kw_collapses_to_inf(self, bad_kw):
+        from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
+            BatteryStrategy,
+        )
+        from conftest import MockHass  # type: ignore[import-not-found]
+
+        strat = BatteryStrategy(
+            MockHass(),
+            reserve_soc=20,
+            arbitrage_grid_import_guard_enabled=True,
+            arbitrage_grid_import_guard_kw=bad_kw,
+        )
+        # Effective threshold collapses to inf (guard inert).
+        assert math.isinf(strat._arbitrage_grid_import_guard_kw)
+        # Configured surface reports None — sensor never implies a
+        # finite limit that isn't enforced.
+        assert strat._arbitrage_grid_import_guard_kw_configured is None
+        # Sensor attr round-trip — kw is null on the sensor.
+        status = strat.get_status()
+        assert status["arbitrage_grid_import_guard_enabled"] is True
+        assert status["arbitrage_grid_import_guard_kw"] is None
+
+
 class TestRuntimeDefenceEnabledWithNoneKw:
     """Belt-and-suspenders: a hand-edited config that sets enabled=True
     without a kW (bypassing config-flow validation) MUST still be inert —
@@ -493,38 +523,157 @@ class TestInfSentinelReachesAllFourSites:
         assert strat._arbitrage_chunk_completed is True
 
     def test_site3_attain_charge_tick_uses_effective_field(self):
-        """Site 3 — inline guard re-check while ATTAIN is charging,
-        at ~:2532. Defended by direct field mutation: when the effective
-        field is inf, no attain-charging path can trip; when it's clobbered
-        to the configured kw, two consecutive over-cap reads must lock."""
+        """Site 3 — inline guard re-check while ATTAIN is charging, at
+        ~:2564 inside ``_run_attain_branch``. Drive the REAL method:
+        construct a CHARGING-state harness with the guard DISABLED,
+        invoke ``_run_attain_branch`` end-to-end, and observe the
+        production trip counter / chunk-completed flag — NOT a
+        comparison evaluated in the test body."""
         h = self._disabled_hot_harness()
         strat = h.strategy
-        # Disabled, force the attain charging branch by hand: snap > inf is
-        # False, so even with the attain path active the inline check at
-        # site 3 cannot fire.
-        snap = strat._effective_import_kw()
-        assert snap is not None
-        effective_kw = snap[0]
-        # Disabled (inf) — comparison is False
-        assert (effective_kw > strat._arbitrage_grid_import_guard_kw) is False
-        # Mutation — flip the effective field to the configured kw.
+        # Stub upstream gates the attain CHARGING route consults so
+        # the guard re-check at site 3 is the only thing that can
+        # decide WAIT vs CHARGE on this tick.
+        strat._maybe_run_reboot_recovery = (
+            lambda *a, **kw: None  # type: ignore[assignment]
+        )
+        strat._attain_target_boundary = (
+            lambda now, period: (now, "peak", 60)  # type: ignore[assignment]
+        )
+        strat._midpeak_rate_lt_peak = lambda now: True  # type: ignore[assignment]
+        strat._attain_target_period_at_or_above_current = (
+            lambda *a, **kw: False  # type: ignore[assignment]
+        )
+        strat._observed_net_charge_rate_per_hour = (
+            lambda: 5.0  # type: ignore[assignment]
+        )
+        strat._expected_solar_surplus_pct = (
+            lambda now, mins: 0.0  # type: ignore[assignment]
+        )
+        # charge_from_grid observed ON so M5 drift policy stays quiet.
+        strat._get_state_bool = lambda eid: True  # type: ignore[assignment]
+        # Force the CHARGING route + reset counters / completed flag.
+        strat._attain_state = "charging"
+        strat._arbitrage_chunk_completed = False
+        strat._arbitrage_guard_consecutive_trips = 0
+        strat._attain_charging_ticks = 0
+        strat._attain_cfg_observed_on = False
+
+        kwargs = dict(
+            soc=15.0,
+            now=_SUMMER_INSIDE_WINDOW,
+            tou_period="off_peak",
+            target_day_class="poor",
+            tomorrow_class="poor",
+            current_mode="self_consumption",
+            season="summer",
+            effective_reserve=20,
+            hold_depth="allow_discharge",
+        )
+
+        # Baseline — guard DISABLED (inf). Two ticks at 15 kW effective:
+        # the production inline at site 3 evaluates False against inf,
+        # so the trip counter MUST stay at 0 and the chunk MUST stay open.
+        strat._run_attain_branch(**kwargs)
+        strat._run_attain_branch(**kwargs)
+        assert strat._arbitrage_guard_consecutive_trips == 0
+        assert strat._arbitrage_chunk_completed is False
+        assert strat._arbitrage_guard_aborted_at is None
+
+        # Mutation — clobber the effective field with the raw configured
+        # kw (simulates a refactor where site 3 reads `_configured`).
+        # Reset trip-counter + completed flag, re-drive the SAME method.
+        # The production site MUST now advance the counter and lock the chunk.
         strat._arbitrage_grid_import_guard_kw = (
             strat._arbitrage_grid_import_guard_kw_configured
         )
-        # Now the same inline form at site 3 would fire.
-        assert (effective_kw > strat._arbitrage_grid_import_guard_kw) is True
+        strat._arbitrage_chunk_completed = False
+        strat._arbitrage_guard_consecutive_trips = 0
+        strat._arbitrage_guard_aborted_at = None
+        strat._arbitrage_guard_aborted_kw = None
+        strat._attain_state = "charging"
+        strat._attain_charging_ticks = 0
+        strat._attain_cfg_observed_on = False
+        strat._run_attain_branch(**kwargs)
+        strat._run_attain_branch(**kwargs)
+        # Production site 3 fired: counter advanced past lock threshold
+        # AND chunk was locked AND aborted_at was stamped.
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            ARBITRAGE_GUARD_CONSECUTIVE_TRIPS_TO_LOCK,
+        )
+        assert (
+            strat._arbitrage_guard_consecutive_trips
+            >= ARBITRAGE_GUARD_CONSECUTIVE_TRIPS_TO_LOCK
+        )
+        assert strat._arbitrage_chunk_completed is True
+        assert strat._arbitrage_guard_aborted_at is not None
+        assert strat._arbitrage_guard_aborted_kw == pytest.approx(15.0)
 
     def test_site4_attain_entry_uses_effective_field(self):
-        """Site 4 — guard-precedence inline at attain ENTRY, ~:2643. Same
-        shape as site 3; defended the same way. A future refactor that
-        reads `_configured` directly at entry would bypass the disable."""
+        """Site 4 — guard-precedence inline at attain ENTRY, at ~:2675
+        inside ``_run_attain_branch``. Drive the REAL method with state
+        forced to ``inactive`` so the entry-precedence path executes,
+        and assert against the production trip counter."""
         h = self._disabled_hot_harness()
         strat = h.strategy
-        snap = strat._effective_import_kw()
-        assert snap is not None
-        effective_kw = snap[0]
-        assert (effective_kw > strat._arbitrage_grid_import_guard_kw) is False
+        # Stub upstream so the ENTRY branch is reached and the guard
+        # check at site 4 is the only decisive logic on this tick.
+        strat._maybe_run_reboot_recovery = (
+            lambda *a, **kw: None  # type: ignore[assignment]
+        )
+        # _should_attain_peak_buffer returns (should, projected, rate, mins).
+        strat._should_attain_peak_buffer = (
+            lambda soc, now, tou_period="off_peak": (True, 30.0, 5.0, 60)
+        )  # type: ignore[assignment]
+        # Drive the ENTRY route.
+        strat._attain_state = "inactive"
+        strat._arbitrage_chunk_completed = False
+        strat._arbitrage_guard_consecutive_trips = 0
+
+        kwargs = dict(
+            soc=15.0,
+            now=_SUMMER_INSIDE_WINDOW,
+            tou_period="off_peak",
+            target_day_class="poor",
+            tomorrow_class="poor",
+            current_mode="self_consumption",
+            season="summer",
+            effective_reserve=20,
+            hold_depth="allow_discharge",
+        )
+
+        # Baseline — guard DISABLED (inf). Two ENTRY attempts must NOT
+        # advance the trip counter (snap > inf is False at site 4) and
+        # MUST instead transition to attain charging.
+        strat._run_attain_branch(**kwargs)
+        # After entry, state flipped to charging; reset it back to
+        # exercise site 4 again on tick 2.
+        strat._attain_state = "inactive"
+        strat._run_attain_branch(**kwargs)
+        assert strat._arbitrage_guard_consecutive_trips == 0
+        assert strat._arbitrage_chunk_completed is False
+        assert strat._arbitrage_guard_aborted_at is None
+
+        # Mutation — clobber the effective field, re-drive the SAME
+        # method. Site 4 must now advance the counter to lock and abort.
         strat._arbitrage_grid_import_guard_kw = (
             strat._arbitrage_grid_import_guard_kw_configured
         )
-        assert (effective_kw > strat._arbitrage_grid_import_guard_kw) is True
+        strat._attain_state = "inactive"
+        strat._arbitrage_chunk_completed = False
+        strat._arbitrage_guard_consecutive_trips = 0
+        strat._arbitrage_guard_aborted_at = None
+        strat._arbitrage_guard_aborted_kw = None
+        strat._run_attain_branch(**kwargs)
+        strat._attain_state = "inactive"
+        strat._run_attain_branch(**kwargs)
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            ARBITRAGE_GUARD_CONSECUTIVE_TRIPS_TO_LOCK,
+        )
+        assert (
+            strat._arbitrage_guard_consecutive_trips
+            >= ARBITRAGE_GUARD_CONSECUTIVE_TRIPS_TO_LOCK
+        )
+        assert strat._arbitrage_chunk_completed is True
+        assert strat._arbitrage_guard_aborted_at is not None
+        assert strat._arbitrage_guard_aborted_kw == pytest.approx(15.0)
