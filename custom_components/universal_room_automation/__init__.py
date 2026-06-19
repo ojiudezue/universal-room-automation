@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.5.6
+# Universal Room Automation vv5.5.7
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1176,6 +1176,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             # findings/digest rows don't grow unbounded.
                             ("optimization_findings", "prune_optimization_findings", {}),
                             ("optimization_daily_digest", "prune_optimization_daily_digest", {}),
+                            # DB space-reclamation: bounded incremental_vacuum
+                            # runs LAST so the prunes above have already freed
+                            # pages for it to reclaim. No-ops cleanly until the
+                            # supervised activation VACUUM (the button-triggered
+                            # full-vacuum method) converts the DB to INCREMENTAL
+                            # auto_vacuum. Bounded (<=2000 pages, ~8 MB) so it
+                            # completes far under the 5-min budget + 120s guard.
+                            ("incremental_vacuum", "incremental_vacuum", {}),
                         ]
 
                         async def _nightly_db_maintenance(_now):
@@ -1285,6 +1293,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # branch also schedules the optimizer prunes.
                 ("optimization_findings", "prune_optimization_findings", {}),
                 ("optimization_daily_digest", "prune_optimization_daily_digest", {}),
+                # DB space-reclamation fix-up HIGH-1: mirror the primary path
+                # so a deferred-startup (DB-init-race) boot ALSO schedules the
+                # bounded incremental_vacuum. Without this, the deferred branch
+                # never reclaims freed pages. Runs LAST, identical semantics.
+                ("incremental_vacuum", "incremental_vacuum", {}),
             ]
 
             async def _nightly_maintenance_deferred(_now):

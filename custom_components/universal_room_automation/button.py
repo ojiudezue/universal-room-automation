@@ -1,6 +1,6 @@
 """Button platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.5.6
+# Universal Room Automation vv5.5.7
 # Build: 2026-01-04
 # File: button.py
 #
@@ -50,6 +50,7 @@ async def async_setup_entry(
             AcknowledgeRoutineChangesButton(hass, entry),
             # v4.6.3 D13: anomaly subsystem diagnostic dump button
             AnomalyDiagnosticDumpButton(hass, entry),
+            VacuumDatabaseButton(hass, entry),  # supervised one-time DB VACUUM (manual only)
             # v4.7.x D3: admin force-charge override for EVSE TOU pause
             EVSEForceChargeButton(hass, entry),
             # Reset Presence Timers — single options-save → single reload.
@@ -1307,6 +1308,121 @@ class AnomalyDiagnosticDumpButton(ButtonEntity):
             "URA ANOMALY DIAGNOSTIC DUMP: %s",
             json.dumps(dump, default=str, indent=None),
         )
+
+
+# =============================================================================
+# DB space-reclamation — supervised one-time activation VACUUM button
+# =============================================================================
+
+
+class VacuumDatabaseButton(ButtonEntity):
+    """One-time SUPERVISED full VACUUM that activates INCREMENTAL auto_vacuum.
+
+    Entity: button.ura_coordinator_manager_vacuum_database
+    Device: URA: Coordinator Manager
+    Category: CONFIG
+
+    Press ONCE, supervised, at low activity. This triggers a full ``VACUUM``
+    that rewrites the entire DB file and takes an EXCLUSIVE lock for minutes on
+    a large (~900 MB) DB — it briefly blocks all DB access, so it is a manual
+    operator action and is DELIBERATELY NOT wired into the nightly 2:30
+    maintenance schedule (the v5.0.0 write-flood incident is why automatic
+    blocking DB ops are off-limits).
+
+    After this runs once, the DB is in INCREMENTAL auto_vacuum mode and the
+    nightly bounded ``incremental_vacuum`` op reclaims freed pages cheaply
+    thereafter. The DAO backs up the DB to ``<db>.prevacuum.bak`` before the
+    VACUUM and verifies integrity afterward.
+
+    The DAO guards against concurrent runs; the button additionally guards
+    against re-entrant presses and logs loudly.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:database-cog"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+
+        self.hass = hass
+        self._entry = entry
+        self._running = False
+        self._attr_unique_id = f"{DOMAIN}_vacuum_database"
+        self._attr_name = "Vacuum Database (one-time, supervised)"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+
+    async def async_added_to_hass(self) -> None:
+        """Re-evaluate availability once the database registers (boot)."""
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_DATABASE_READY
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_DATABASE_READY, self._handle_ready
+            )
+        )
+
+    @callback
+    def _handle_ready(self) -> None:
+        self.async_schedule_update_ha_state()
+
+    @property
+    def available(self) -> bool:
+        return self.hass.data.get(DOMAIN, {}).get("database") is not None
+
+    async def async_press(self) -> None:
+        """Run the one-time supervised activation VACUUM."""
+        if self._running:
+            _LOGGER.warning(
+                "Vacuum Database button: a VACUUM is already running — "
+                "ignoring re-entrant press"
+            )
+            return
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is None:
+            _LOGGER.warning("Vacuum Database button: database not available")
+            return
+        self._running = True
+        _LOGGER.warning(
+            "Vacuum Database button pressed — starting SUPERVISED one-time "
+            "full VACUUM (exclusive lock, minutes). This is a manual op and "
+            "is NOT part of the nightly schedule."
+        )
+        try:
+            result = await database.vacuum_full_supervised()
+        except Exception as err:
+            _LOGGER.error("Vacuum Database button: VACUUM raised %s", err)
+            result = {"status": "error", "error": str(err)}
+        finally:
+            self._running = False
+        _LOGGER.warning("Vacuum Database button: result = %s", result)
+        try:
+            await self.hass.services.async_call(
+                "persistent_notification", "create",
+                {
+                    "title": "URA Database Vacuum",
+                    "message": (
+                        f"Supervised VACUUM finished: `{result.get('status')}`.\n"
+                        f"Size: {result.get('size_mb_before')} MB → "
+                        f"{result.get('size_mb_after')} MB.\n"
+                        f"Integrity: {result.get('integrity_check')}.\n"
+                        f"Backup: `{result.get('backup_path')}`"
+                    ),
+                    "notification_id": "ura_vacuum_database",
+                },
+                blocking=False,
+            )
+        except Exception as err:
+            _LOGGER.warning(
+                "Vacuum Database button: notification failed: %s", err
+            )
 
 
 # ============================================================================

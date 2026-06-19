@@ -1014,9 +1014,12 @@ class TestPerZoneButtons:
         assert f'"method": "{method}"' in button_src
 
     def test_buttons_registered_per_zone(self, button_src):
-        # Setup iterates _discover_ac_zones and adds 3 buttons per zone
+        # Setup iterates _discover_ac_zones and adds 3 buttons per zone.
+        # Window widened 3000->3600 as the CM entity list grows with new
+        # diagnostic/maintenance buttons (e.g. VacuumDatabaseButton) that sit
+        # between the marker and the per-zone _make_ac_ramp_button calls.
         idx = button_src.find("ENTRY_TYPE_COORDINATOR_MANAGER")
-        body = button_src[idx:idx + 3000]
+        body = button_src[idx:idx + 3600]
         for action in ("force_nudge", "cancel_nudge", "clear_lockout"):
             assert f'"{action}"' in body
 
