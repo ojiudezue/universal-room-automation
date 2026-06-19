@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import shutil
 import statistics
 import time
 from contextlib import asynccontextmanager
@@ -68,6 +69,29 @@ class UniversalRoomDatabase:
         )
         _LOGGER.info("DB write worker started")
 
+    async def stop_write_worker(self) -> None:
+        """Stop the background write worker and CLOSE its persistent connection.
+
+        DB space-reclamation fix-up HIGH-1/HIGH-2: cancelling the worker task
+        triggers its ``asyncio.CancelledError`` handler, which flushes pending
+        writes and RETURNS — exiting the ``async with aiosqlite.connect(...)``
+        block, so the worker's persistent connection is closed (releasing any
+        WAL lock that would conflict with an exclusive VACUUM). Idempotent.
+
+        New writes submitted via ``_db()`` while the worker is stopped will
+        raise (fail-fast), so callers that must queue across the stop window
+        should use the queue directly — those items stay enqueued and are
+        processed once ``start_write_worker()`` is called again.
+        """
+        if self._write_task is not None and not self._write_task.done():
+            self._write_task.cancel()
+            try:
+                await self._write_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        self._write_task = None
+        _LOGGER.info("DB write worker stopped (connection closed)")
+
     async def _write_worker(self) -> None:
         """Background task that processes write queue sequentially.
 
@@ -78,6 +102,17 @@ class UniversalRoomDatabase:
         while True:
             try:
                 async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                    # DB space-reclamation (Part 1): declare INCREMENTAL
+                    # auto_vacuum so freed pages can be returned to the OS via
+                    # PRAGMA incremental_vacuum (incremental_vacuum() DAO, wired
+                    # nightly). Declared BEFORE journal_mode=WAL — on a fresh
+                    # file, WAL setup writes the header and would lock in
+                    # auto_vacuum=0 otherwise. On an existing NONE-mode DB this
+                    # declaration is INERT until a full VACUUM runs
+                    # (vacuum_full_supervised() — the supervised button); on a
+                    # fresh DB it takes effect immediately. Harmless either way;
+                    # auto_vacuum + WAL is a supported combination.
+                    await db.execute("PRAGMA auto_vacuum=INCREMENTAL")
                     await db.execute("PRAGMA busy_timeout=30000")
                     await db.execute("PRAGMA journal_mode=WAL")
                     _LOGGER.info("DB write worker connection established")
@@ -340,6 +375,15 @@ class UniversalRoomDatabase:
         failed_tables: list[str] = []
         try:
             async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                # DB space-reclamation (Part 1): set INCREMENTAL auto_vacuum
+                # BEFORE journal_mode=WAL and BEFORE any table is created.
+                # CAVEAT: on a brand-new file, switching to WAL writes the DB
+                # header and locks in auto_vacuum=0 — so auto_vacuum MUST be
+                # declared first or it silently reverts to NONE. (auto_vacuum
+                # can only be chosen for an empty DB without a full VACUUM.) On
+                # an existing DB this declaration is a no-op until
+                # vacuum_full_supervised() runs.
+                await db.execute("PRAGMA auto_vacuum=INCREMENTAL")
                 # Enable WAL mode for better concurrency (prevents "database is locked")
                 await db.execute("PRAGMA journal_mode=WAL")
                 await db.execute("PRAGMA busy_timeout=30000")
@@ -6761,3 +6805,266 @@ class UniversalRoomDatabase:
                 deleted, cutoff_days,
             )
         return deleted
+
+    # =========================================================================
+    # DB space-reclamation (incremental_vacuum + supervised activation VACUUM)
+    #
+    # The nightly prunes keep the LOGICAL DB size stable, but SQLite never
+    # returns freed pages to the OS without a VACUUM. The DB file had
+    # plateaued ~900 MB of mostly-empty pages. This pair reclaims that space
+    # WITHOUT ever blocking core DB access unattended:
+    #
+    #   * incremental_vacuum() — SAFE, automatic. Bounded PRAGMA
+    #     incremental_vacuum run through the single-writer worker, wired into
+    #     the nightly 2:30 maintenance loop. No-ops cleanly until activation.
+    #   * vacuum_full_supervised() — SUPERVISED, manual ONLY. The one-time
+    #     full VACUUM that activates INCREMENTAL auto_vacuum. Exposed as a
+    #     button; NEVER scheduled, because a full VACUUM of a ~900 MB Samba DB
+    #     takes an exclusive lock for minutes (watchdog risk). v5.0.0
+    #     write-flood is the cautionary precedent.
+    # =========================================================================
+
+    # Conservative per-night page cap for incremental_vacuum. At the default
+    # 4096-byte page size this reclaims up to ~8 MB/night — enough to chip
+    # away at the high-water mark while completing in well under a second
+    # (and trivially under the 120s _db() guard). Intentionally NOT unbounded.
+    _INCREMENTAL_VACUUM_MAX_PAGES = 2000
+
+    async def incremental_vacuum(self, max_pages: int | None = None) -> int:
+        """Reclaim up to `max_pages` freed pages back to the OS.
+
+        Runs ``PRAGMA incremental_vacuum(N)`` through the single-writer worker
+        (the ``_db()`` path), bounded to a conservative page count so it
+        completes well under the 120s write-guard. Returns the number of pages
+        actually reclaimed (delta in ``PRAGMA freelist_count``).
+
+        NO-OPs (returns 0) when ``PRAGMA auto_vacuum`` is not INCREMENTAL
+        (value 2) — i.e. before vacuum_full_supervised() has activated it on
+        the existing DB. This makes it safe to wire into the nightly schedule
+        immediately: it does nothing until activation, then begins reclaiming.
+        """
+        if max_pages is None:
+            max_pages = self._INCREMENTAL_VACUUM_MAX_PAGES
+        # Clamp to the conservative cap so a caller can't request an unbounded
+        # (and potentially guard-busting) reclamation.
+        max_pages = max(1, min(int(max_pages), self._INCREMENTAL_VACUUM_MAX_PAGES))
+        reclaimed = 0
+        try:
+            async with self._db() as db:
+                # Guard: incremental_vacuum only reclaims under INCREMENTAL
+                # auto_vacuum. auto_vacuum values: 0=NONE, 1=FULL, 2=INCREMENTAL.
+                cursor = await db.execute("PRAGMA auto_vacuum")
+                row = await cursor.fetchone()
+                mode = row[0] if row else 0
+                if mode != 2:
+                    _LOGGER.debug(
+                        "incremental_vacuum: auto_vacuum=%s (not INCREMENTAL) "
+                        "— no-op until supervised activation VACUUM runs",
+                        mode,
+                    )
+                    return 0
+                # Page size + freelist before, to report bytes reclaimed.
+                cursor = await db.execute("PRAGMA page_size")
+                row = await cursor.fetchone()
+                page_size = row[0] if row else 4096
+                cursor = await db.execute("PRAGMA freelist_count")
+                row = await cursor.fetchone()
+                free_before = row[0] if row else 0
+                if free_before <= 0:
+                    return 0
+                # Bounded reclamation. SQLite caps N at the freelist size.
+                await db.execute(f"PRAGMA incremental_vacuum({max_pages})")
+                await db.commit()
+                cursor = await db.execute("PRAGMA freelist_count")
+                row = await cursor.fetchone()
+                free_after = row[0] if row else 0
+                reclaimed = max(0, free_before - free_after)
+        except Exception as err:
+            _LOGGER.warning("incremental_vacuum failed: %s", err)
+            return 0
+        if reclaimed > 0:
+            _LOGGER.info(
+                "incremental_vacuum: reclaimed %d pages (~%.1f MB) "
+                "[cap=%d pages]",
+                reclaimed,
+                (reclaimed * page_size) / (1024 * 1024),
+                max_pages,
+            )
+        return reclaimed
+
+    # Guards against two concurrent supervised VACUUM runs (double button press).
+    _vacuum_in_progress: bool = False
+
+    async def vacuum_full_supervised(self) -> dict:
+        """One-time SUPERVISED full VACUUM that activates INCREMENTAL auto_vacuum.
+
+        This is a BLOCKING operation that takes an exclusive lock for minutes
+        on a large DB. It is triggered MANUALLY (a button) and is NEVER wired
+        into the unattended schedule. Operator runs it once, at low activity.
+
+        Steps:
+          (a) log start + current file size;
+          (b) drain the pending write queue (graceful flush) so we don't race
+              in-flight writes, then STOP the write worker (closes its
+              persistent connection so it can't hold a WAL lock against the
+              exclusive VACUUM; new writes queue rather than contend);
+          (d) BEFORE the VACUUM, checkpoint(TRUNCATE) the WAL into the .db then
+              copy the DB file to ``<db>.prevacuum.bak`` (a self-consistent,
+              standalone rollback safety net);
+          (c) on a DEDICATED short-lived connection (NOT the 120s-guarded
+              worker path) with a high busy_timeout, set
+              ``PRAGMA auto_vacuum=INCREMENTAL`` then run ``VACUUM`` — a 900 MB
+              SMB VACUUM will exceed 120s and must not be interrupted;
+          (e) verify via ``PRAGMA integrity_check`` (quick) + log final size;
+          (f) RESTART the write worker (always, in a finally block) + return a
+              result dict.
+
+        Concurrent presses are rejected via ``_vacuum_in_progress``.
+        """
+        if self._vacuum_in_progress:
+            _LOGGER.warning(
+                "vacuum_full_supervised: a VACUUM is already in progress — "
+                "ignoring re-entrant request"
+            )
+            return {"status": "already_running"}
+
+        self._vacuum_in_progress = True
+        result: dict = {"status": "error"}
+        worker_was_running = (
+            self._write_task is not None and not self._write_task.done()
+        )
+        try:
+            def _file_mb(path: str) -> float:
+                try:
+                    return os.path.getsize(path) / (1024 * 1024)
+                except OSError:
+                    return -1.0
+
+            size_before = _file_mb(self.db_file)
+            _LOGGER.warning(
+                "vacuum_full_supervised: STARTING supervised one-time VACUUM "
+                "(file=%s, size=%.1f MB). This holds an exclusive lock for "
+                "minutes — supervised op, NOT scheduled.",
+                self.db_file, size_before,
+            )
+            result["size_mb_before"] = round(size_before, 1)
+
+            # (b) Drain pending writes through the existing graceful flush so we
+            # don't race in-flight writes against the exclusive VACUUM lock.
+            # M-B1: surface (don't silently swallow) a flush error in the result
+            # so the operator/log records it; we still continue because the
+            # VACUUM uses its own connection and the worker is stopped next.
+            try:
+                await self._flush_pending_writes()
+            except Exception as err:
+                _LOGGER.warning(
+                    "vacuum_full_supervised: write-queue flush raised %s "
+                    "(continuing — VACUUM uses its own connection)", err,
+                )
+                result["flush_warning"] = str(err)
+
+            # (b2) HIGH-2 (B-H1): STOP the write worker so its persistent
+            # connection is CLOSED. A live worker connection holds a WAL lock
+            # that conflicts with the VACUUM's exclusive lock — and any writes
+            # arriving DURING the multi-minute VACUUM would contend on that lock
+            # and fail after busy_timeout. Stopping closes the connection;
+            # new _db() writes fail-fast (queued items wait) until restart.
+            # The worker is ALWAYS restarted in the finally block below.
+            await self.stop_write_worker()
+
+            # (d) Back up the DB file BEFORE the VACUUM (rollback safety net).
+            # M-B3: if an orphan/old .prevacuum.bak exists, shutil.copy2
+            # overwrites it (no failure). M-B2: in WAL mode recent writes live
+            # in the -wal sidecar, so a raw copy of the .db can be inconsistent.
+            # Checkpoint(TRUNCATE) on the dedicated connection (worker now
+            # stopped) folds the WAL back into the main file so the .bak is a
+            # valid standalone DB.
+            backup_path = f"{self.db_file}.prevacuum.bak"
+            try:
+                async with aiosqlite.connect(self.db_file, timeout=600.0) as ckpt:
+                    await ckpt.execute("PRAGMA busy_timeout=600000")
+                    # M-B2: make the .db self-consistent before the file copy.
+                    await ckpt.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                    await ckpt.commit()
+            except Exception as err:
+                _LOGGER.warning(
+                    "vacuum_full_supervised: pre-backup WAL checkpoint raised "
+                    "%s (continuing — backup may include -wal sidecar)", err,
+                )
+                result["checkpoint_warning"] = str(err)
+            try:
+                await self.hass.async_add_executor_job(
+                    shutil.copy2, self.db_file, backup_path,
+                )
+                result["backup_path"] = backup_path
+                _LOGGER.warning(
+                    "vacuum_full_supervised: backed up DB to %s before VACUUM",
+                    backup_path,
+                )
+            except Exception as err:
+                _LOGGER.error(
+                    "vacuum_full_supervised: backup to %s FAILED (%s) — "
+                    "aborting VACUUM (no safety net)", backup_path, err,
+                )
+                result["status"] = "backup_failed"
+                result["error"] = str(err)
+                return result
+
+            # (c) Dedicated short-lived connection with a high busy_timeout.
+            # NOT the worker connection: VACUUM needs exclusive access and the
+            # worker's persistent connection (plus transient readers) would
+            # conflict. The worker is stopped (b2); run at low activity so
+            # transient readers don't deadlock it.
+            try:
+                async with aiosqlite.connect(self.db_file, timeout=600.0) as db:
+                    # 10-minute busy_timeout — generous headroom for a large
+                    # SMB VACUUM. NOT bounded by the 120s _db() guard.
+                    await db.execute("PRAGMA busy_timeout=600000")
+                    # Activate INCREMENTAL auto_vacuum, then VACUUM to apply it.
+                    await db.execute("PRAGMA auto_vacuum=INCREMENTAL")
+                    await db.execute("VACUUM")
+                    await db.commit()
+
+                    # (e) Verify integrity (quick check) + row-count sanity.
+                    cursor = await db.execute("PRAGMA integrity_check(1)")
+                    integ_row = await cursor.fetchone()
+                    integrity = integ_row[0] if integ_row else "no_result"
+                    result["integrity_check"] = integrity
+
+                    cursor = await db.execute("PRAGMA auto_vacuum")
+                    av_row = await cursor.fetchone()
+                    result["auto_vacuum_after"] = av_row[0] if av_row else None
+            except Exception as err:
+                _LOGGER.error(
+                    "vacuum_full_supervised: VACUUM FAILED: %s — DB backup "
+                    "preserved at %s for manual restore", err, backup_path,
+                )
+                result["status"] = "vacuum_failed"
+                result["error"] = str(err)
+                return result
+
+            size_after = _file_mb(self.db_file)
+            result["size_mb_after"] = round(size_after, 1)
+            ok = result.get("integrity_check") == "ok"
+            result["status"] = "ok" if ok else "integrity_warning"
+            _LOGGER.warning(
+                "vacuum_full_supervised: DONE. size %.1f MB -> %.1f MB "
+                "(reclaimed ~%.1f MB), integrity=%s, auto_vacuum=%s. "
+                "Nightly incremental_vacuum will now reclaim freed pages.",
+                size_before, size_after, max(0.0, size_before - size_after),
+                result.get("integrity_check"), result.get("auto_vacuum_after"),
+            )
+            return result
+        finally:
+            # HIGH-2: ALWAYS restart the write worker (even if VACUUM raised)
+            # so DB writes resume. Only restart if it was running on entry —
+            # don't spuriously start a worker that the caller never had up.
+            if worker_was_running:
+                try:
+                    await self.start_write_worker()
+                except Exception as err:
+                    _LOGGER.error(
+                        "vacuum_full_supervised: FAILED to restart write "
+                        "worker after VACUUM: %s — writes will not flush!", err,
+                    )
+            self._vacuum_in_progress = False
