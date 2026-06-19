@@ -221,6 +221,7 @@ def _build_strategy(
         tou_engine=TOURateEngine(),
         arbitrage_charge_lead_time_min=lead_time_min,
         arbitrage_grid_import_guard_kw=12.0,
+        arbitrage_grid_import_guard_enabled=True,
     )
     return strat, hass
 
@@ -1172,6 +1173,7 @@ def _build_strategy_with_solar(
         tou_engine=TOURateEngine(),
         arbitrage_charge_lead_time_min=360,
         arbitrage_grid_import_guard_kw=12.0,
+        arbitrage_grid_import_guard_enabled=True,
     )
     return strat, hass
 

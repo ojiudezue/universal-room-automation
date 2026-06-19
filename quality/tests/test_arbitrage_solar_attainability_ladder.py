@@ -248,6 +248,7 @@ def _build_strategy(
         tou_engine=TOURateEngine(),
         arbitrage_charge_lead_time_min=360,
         arbitrage_grid_import_guard_kw=12.0,
+        arbitrage_grid_import_guard_enabled=True,
     )
     return strat, hass
 
@@ -1115,6 +1116,7 @@ class TestCapacityFix:
             tou_engine=TOURateEngine(),
             arbitrage_charge_lead_time_min=360,
             arbitrage_grid_import_guard_kw=12.0,
+            arbitrage_grid_import_guard_enabled=True,
         )
         # Verify the strategy reads the canonical 40 kWh fallback (NOT
         # the prior 13.5). If a future revert restores 13.5 this fails.

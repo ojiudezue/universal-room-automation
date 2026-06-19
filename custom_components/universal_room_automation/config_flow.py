@@ -3284,6 +3284,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_ENERGY_GRID_IMPORT_CAP_ENABLED,
             CONF_ENERGY_GRID_IMPORT_CAP_KW,
             DEFAULT_GRID_IMPORT_CAP_KW,
+            # v5.5.x cycle: arbitrage grid-import guard (enabled + kW).
+            # NO DEFAULT_* imported here — design (c): kW has no default,
+            # the form field renders blank, and cross-field validation
+            # rejects enabled=True with a missing/blank kW.
+            CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_ENABLED,
+            CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW,
             CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
             DEFAULT_EV_BATTERY_DRAIN_SOC_THRESHOLD,
             # v4.7.x Cycle A: WeatherProviderManager ranked-list providers
@@ -3346,6 +3352,21 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 user_input[CONF_INCLEMENT_POWER_THREAT_EVENTS] = [
                     ln.strip() for ln in _threat.splitlines() if ln.strip()
                 ]
+
+            # v5.5.x cycle (c): cross-field validation — when the arbitrage
+            # grid-import guard toggle is ON, the kW value is REQUIRED. No
+            # silent finite default. Field-scoped error on the kw key
+            # matches this step's existing error convention (per-field code
+            # + `base` summary; see envoy validation below at :3368-3374).
+            _guard_enabled = user_input.get(
+                CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_ENABLED
+            )
+            _guard_kw = user_input.get(CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW)
+            if _guard_enabled and _guard_kw is None:
+                errors[CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW] = (
+                    "guard_kw_required_when_enabled"
+                )
+                errors.setdefault("base", "guard_kw_required_when_enabled")
 
             submitted_envoy = user_input.get(CONF_ENERGY_ENVOY_ENTITY) or ""
             if submitted_envoy:
@@ -3901,6 +3922,37 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     min=3, max=20, step=0.5,
                     unit_of_measurement="kW",
                     mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            # v5.5.x cycle: Arbitrage Grid-Charge Import Guard (default OFF,
+            # NO kW default — design (c)). Mirrors the EV Grid Import Cap
+            # pattern for the toggle; intentionally diverges on the kW: when
+            # the operator turns the toggle ON, they MUST type a kW (their
+            # DER breaker's continuous rating). No silent finite default
+            # (the old hidden 12 kW guard was harming summer pre-charge —
+            # we will not let a fresh enable silently re-impose any guess).
+            #
+            # Idiomatic blank render: `default=<stored> or vol.UNDEFINED`
+            # (used elsewhere in this file, e.g. CONF_OUTSIDE_TEMP_SENSOR
+            # at :2439). When no value is stored, the field renders blank.
+            # Cross-field validation in async_step_coordinator_energy
+            # rejects enabled=True with a missing/blank kW.
+            vol.Optional(
+                CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_ENABLED,
+                default=self._get_current(
+                    CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_ENABLED, False
+                ),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW,
+                default=self._get_current(
+                    CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW
+                ) or vol.UNDEFINED,
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=6, max=20, step=0.5,
+                    unit_of_measurement="kW",
+                    mode=selector.NumberSelectorMode.BOX,
                 )
             ),
             # v4.2.17: EV battery drain SOC threshold

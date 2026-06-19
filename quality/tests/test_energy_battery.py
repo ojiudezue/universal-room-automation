@@ -195,7 +195,8 @@ class _BatteryHarness:
                  multi_day_horizon_enabled=False,
                  solcast_day_3="80",
                  net_power="-500", net_power_uom="W",
-                 grid_import_guard_kw=12.0):  # v4.5.0.3: default sized for 60A breaker
+                 grid_import_guard_kw=12.0,  # v4.5.0.3: default sized for 60A breaker
+                 grid_import_guard_enabled=True):  # pre-cycle behavior: always-on
         self.hass = MockHass()
         self.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, str(soc))
         self.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, storage_mode)
@@ -251,6 +252,7 @@ class _BatteryHarness:
             tou_engine=self.tou_engine,
             arbitrage_charge_lead_time_min=lead_time_min,
             arbitrage_grid_import_guard_kw=grid_import_guard_kw,
+            arbitrage_grid_import_guard_enabled=grid_import_guard_enabled,
             multi_day_horizon_enabled=multi_day_horizon_enabled,
             solcast_day_3_entity=(
                 "sensor.solcast_pv_forecast_forecast_day_3"

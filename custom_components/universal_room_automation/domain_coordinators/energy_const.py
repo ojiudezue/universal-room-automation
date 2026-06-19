@@ -516,6 +516,19 @@ DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW: Final = 12.0
 CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW: Final = (
     "energy_arbitrage_grid_import_guard_kw"
 )
+# v5.5.x cycle: expose the guard in config flow with an enable toggle,
+# default OFF. Mirrors `CONF_ENERGY_GRID_IMPORT_CAP_ENABLED` — no
+# DEFAULT_* const, the False default is applied at read sites and in
+# the config-flow schema. When disabled, `BatteryStrategy` collapses
+# the effective threshold to `float('inf')` so every consumer (helper
+# + inline `snap[0] > ...` checks + chunk-lock) naturally no-ops.
+# Justification: operator's Enphase battery firmware auto-curtails on
+# breaker size, so the software guard is redundant for safety and was
+# harming summer pre-charge (aborting the whole arbitrage chunk on
+# >12 kW transient import). Guard kept as dormant opt-in.
+CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_ENABLED: Final = (
+    "energy_arbitrage_grid_import_guard_enabled"
+)
 # Consecutive guard trips required before the chunk is locked. The
 # battery_power CT lags net_power by one Envoy poll at CHARGE entry, so a
 # single tick can read full inrush on net while battery still reads ~0 →
