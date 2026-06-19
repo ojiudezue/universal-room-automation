@@ -49,7 +49,7 @@ _SUMMER_INSIDE_WINDOW = datetime(2026, 7, 15, 9, 0)
 def _make_harness(
     *,
     enabled: bool,
-    kw: float = 12.0,
+    kw: float | None = 12.0,
     net_power_w: str = "25000",
     battery_power_w_signed: str = "-10000",
 ):
@@ -194,7 +194,13 @@ class TestConfigRoundTrip:
     """Setting enabled=True + kw=15 via the energy config dict must
     persist into BatteryStrategy. Mirrors the energy.py ec.get() read
     plumbing without booting the full coordinator (which requires a
-    real ConfigEntry + many ancillary entities)."""
+    real ConfigEntry + many ancillary entities).
+
+    v5.5.x cycle design (c): NO silent finite default for the kW. When
+    both keys are absent (the default install) the read path passes
+    kw=None, and BatteryStrategy keeps the configured surface as None
+    while collapsing the effective threshold to inf.
+    """
 
     def test_disabled_default_when_keys_absent(self):
         from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
@@ -203,16 +209,15 @@ class TestConfigRoundTrip:
         from custom_components.universal_room_automation.domain_coordinators.energy_const import (
             CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_ENABLED,
             CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW,
-            DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW,
         )
         from conftest import MockHass  # type: ignore[import-not-found]
 
         ec: dict = {}  # empty energy config — both keys absent
         enabled = bool(ec.get(CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_ENABLED, False))
-        kw = float(ec.get(
-            CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW,
-            DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW,
-        ))
+        # v5.5.x (c): NO default — pass None when absent. Mirrors the
+        # production energy.py read path.
+        raw = ec.get(CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW)
+        kw = None if raw is None else float(raw)
         strat = BatteryStrategy(
             MockHass(),
             reserve_soc=20,
@@ -221,11 +226,13 @@ class TestConfigRoundTrip:
         )
         assert enabled is False
         assert math.isinf(strat._arbitrage_grid_import_guard_kw)
-        # Honest sensor attr surface
+        # Honest sensor attr surface — no silent 12 kW default
         assert strat._arbitrage_grid_import_guard_enabled is False
-        assert strat._arbitrage_grid_import_guard_kw_configured == (
-            DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW
-        )
+        assert strat._arbitrage_grid_import_guard_kw_configured is None
+        # Sensor attr round-trip
+        status = strat.get_status()
+        assert status["arbitrage_grid_import_guard_enabled"] is False
+        assert status["arbitrage_grid_import_guard_kw"] is None
 
     def test_enabled_true_kw_15_round_trip(self):
         from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
@@ -242,7 +249,8 @@ class TestConfigRoundTrip:
             CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW: 15.0,
         }
         enabled = bool(ec.get(CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_ENABLED, False))
-        kw = float(ec.get(CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW, 12.0))
+        raw = ec.get(CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW)
+        kw = None if raw is None else float(raw)
         strat = BatteryStrategy(
             MockHass(),
             reserve_soc=20,
@@ -252,6 +260,154 @@ class TestConfigRoundTrip:
         assert enabled is True
         assert strat._arbitrage_grid_import_guard_kw == 15.0
         assert strat._arbitrage_grid_import_guard_kw_configured == 15.0
+
+
+# ---------------------------------------------------------------------------
+# v5.5.x cycle (c): cross-field validation + runtime defence
+# ---------------------------------------------------------------------------
+
+
+class TestConfigFlowRequiresKwWhenEnabled:
+    """Config-flow validation: enabling the toggle with a blank/missing kW
+    must be REJECTED by the energy options step — the form is re-shown
+    (errors populated, config NOT written).
+
+    Reuses the existing HA-stub harness from
+    `test_v4743_no_eager_migration` which already loads config_flow
+    against mock homeassistant modules. The harness restores sys.modules
+    after loading, so to invoke the real step body we have to re-pin the
+    HA stubs around the call (mirrors the `_call_build_schema` pattern
+    in that file).
+    """
+
+    def _make_flow(self):
+        from test_v4743_no_eager_migration import (  # type: ignore[import-not-found]
+            _OptionsFlow,
+        )
+        from unittest.mock import MagicMock
+
+        entry = MagicMock()
+        entry.options = {}
+        entry.data = {}
+        flow = _OptionsFlow.__new__(_OptionsFlow)
+        flow._config_entry = entry
+        flow._selected_zone_entry_id = None
+        flow._pending_delete_rule_id = None
+        flow.hass = MagicMock()
+        flow.hass.data = {}
+        return flow
+
+    async def _invoke_step(self, flow, user_input):
+        """Pin HA stubs around the call so the step's lazy `from
+        homeassistant.data_entry_flow import section` resolves."""
+        import sys
+        import types as _types
+
+        ha_def = _types.ModuleType("homeassistant.data_entry_flow")
+        ha_def.section = lambda schema, options=None: schema
+        ha_parent = _types.ModuleType("homeassistant")
+        ha_parent.data_entry_flow = ha_def
+
+        saved = {
+            "homeassistant": sys.modules.get("homeassistant"),
+            "homeassistant.data_entry_flow": sys.modules.get(
+                "homeassistant.data_entry_flow"
+            ),
+        }
+        sys.modules["homeassistant"] = ha_parent
+        sys.modules["homeassistant.data_entry_flow"] = ha_def
+        try:
+            return await flow.async_step_coordinator_energy(user_input=user_input)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    sys.modules.pop(k, None)
+                else:
+                    sys.modules[k] = v
+
+    @pytest.mark.asyncio
+    async def test_enabled_without_kw_is_rejected(self):
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_ENABLED,
+            CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW,
+        )
+
+        flow = self._make_flow()
+        result = await self._invoke_step(
+            flow,
+            user_input={
+                CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_ENABLED: True,
+                # NO kw — operator left it blank.
+            },
+        )
+
+        # FakeOptionsFlow.async_show_form (from harness) returns
+        # {"type": "form", **kw}, so the result carries the errors dict.
+        assert result["type"] == "form"
+        errors = result.get("errors") or {}
+        assert errors, "errors dict must be populated"
+        assert (
+            errors.get(CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW)
+            == "guard_kw_required_when_enabled"
+        )
+        # `base` summary also present (mirrors envoy-validation convention).
+        assert errors.get("base") == "guard_kw_required_when_enabled"
+
+    @pytest.mark.asyncio
+    async def test_enabled_with_kw_15_is_accepted(self):
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_ENABLED,
+            CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW,
+        )
+
+        flow = self._make_flow()
+        result = await self._invoke_step(
+            flow,
+            user_input={
+                CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_ENABLED: True,
+                CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW: 15.0,
+            },
+        )
+
+        # Accepted path: FakeOptionsFlow.async_create_entry returns
+        # {"type": "create_entry", **kw} — config is written, no form re-show.
+        assert result["type"] == "create_entry"
+        data = result.get("data", {})
+        assert data[CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_ENABLED] is True
+        assert data[CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW] == 15.0
+
+
+class TestRuntimeDefenceEnabledWithNoneKw:
+    """Belt-and-suspenders: a hand-edited config that sets enabled=True
+    without a kW (bypassing config-flow validation) MUST still be inert —
+    treated as DISABLED (effective inf), never silently re-imposing any
+    default threshold."""
+
+    def test_enabled_with_none_kw_collapses_to_inf(self):
+        from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
+            BatteryStrategy,
+        )
+        from conftest import MockHass  # type: ignore[import-not-found]
+
+        strat = BatteryStrategy(
+            MockHass(),
+            reserve_soc=20,
+            arbitrage_grid_import_guard_enabled=True,
+            arbitrage_grid_import_guard_kw=None,
+        )
+        assert math.isinf(strat._arbitrage_grid_import_guard_kw)
+        assert strat._arbitrage_grid_import_guard_kw_configured is None
+
+    def test_enabled_with_none_kw_helper_never_trips_at_100kw(self):
+        h = _make_harness(
+            enabled=True,
+            kw=None,  # type: ignore[arg-type]
+            net_power_w="100000",
+            battery_power_w_signed="0",
+        )
+        # Effective threshold is inf — helper cannot trip.
+        assert math.isinf(h.strategy._arbitrage_grid_import_guard_kw)
+        assert h.strategy._grid_import_guard_triggered() is False
 
 
 # ---------------------------------------------------------------------------

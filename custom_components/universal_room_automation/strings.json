@@ -946,8 +946,8 @@
           "garage_b_self_modulates": "Check this for smart EVSEs/plugs with native solar or schedule modes (Emporia, Tesla Wall Connector). URA re-pauses every cycle; use the EVSE Force-Charge button to override. Leave unchecked for any other hardware — URA detects real user toggles and backs off for 1 hour.",
           "energy_grid_import_cap_enabled": "Pause EV charging when total grid import exceeds the cap. Resumes when import drops below cap minus 1 kW hysteresis.",
           "energy_grid_import_cap_kw": "Maximum grid import in kW before pausing EV charging. Default: 8 kW.",
-          "energy_arbitrage_grid_import_guard_enabled": "Enable a software cap on how much the BATTERY may import from grid while arbitrage grid-charging. Default OFF — the battery hardware already curtails to the breaker. Only enable to throttle BELOW the hardware limit.",
-          "energy_arbitrage_grid_import_guard_kw": "Optional software cap on how much the BATTERY may import from grid while arbitrage grid-charging. Default OFF — the battery hardware already curtails to the breaker. Only enable to throttle BELOW the hardware limit; set to your DER breaker's continuous rating (amps × 240 × 0.8 ÷ 1000).",
+          "energy_arbitrage_grid_import_guard_enabled": "Enable a software cap on how much the BATTERY may import from grid while arbitrage grid-charging. Default OFF — the battery hardware already curtails to the breaker. Only enable to throttle BELOW the hardware limit. When enabled you MUST enter a kW value below — there is no default threshold.",
+          "energy_arbitrage_grid_import_guard_kw": "Software cap on how much the BATTERY may import from grid while arbitrage grid-charging. Default OFF. When enabled you MUST enter your DER breaker's continuous rating (amps × 240 × 0.8 ÷ 1000) — there is no default threshold.",
           "energy_ev_battery_drain_soc": "When the home battery is actively discharging below this SOC AND EV+L1 is charging, URA pauses to protect battery reserve. Default 50% (deep floor behind Pause EV Until Battery SOC). Range 5-95%. See README_v4.7.6.1 for the asymmetric-defaults rationale.",
           "energy_utility_meter_entity": "Utility company net energy meter (e.g., SmartHub). Used for bill prediction calibration and divergence tracking against Envoy-derived consumption.",
           "occupancy_weighted_energy": "Use Bayesian occupancy predictions to weight energy consumption estimates by room occupancy patterns. Requires B1/B2 Bayesian data. Default: OFF.",
@@ -973,6 +973,9 @@
               "inclement_condition_corroboration_mode": "'any' — over-eager (one provider stormy holds); 'majority' — balanced (recommended); 'unanimous' — under-eager (one stale provider blocks)."
             }
           }
+        },
+        "error": {
+          "guard_kw_required_when_enabled": "The Arbitrage Grid-Charge Import Guard is ON but no kW value was entered. Enter your DER breaker's continuous rating (amps × 240 × 0.8 ÷ 1000) — there is no default threshold."
         }
       },
       "coordinator_hvac": {

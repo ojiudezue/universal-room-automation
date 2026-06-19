@@ -159,7 +159,7 @@ class BatteryStrategy:
         arbitrage_soc_target: int = DEFAULT_ARBITRAGE_SOC_TARGET,
         peak_buffer_target: int | None = None,
         arbitrage_charge_lead_time_min: int = DEFAULT_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
-        arbitrage_grid_import_guard_kw: float = DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW,
+        arbitrage_grid_import_guard_kw: float | None = None,
         arbitrage_grid_import_guard_enabled: bool = False,
         tou_engine: Any = None,
         multi_day_horizon_enabled: bool = False,
@@ -245,18 +245,27 @@ class BatteryStrategy:
         # site"). The raw configured kW and the enabled bool are
         # preserved separately for sensor-attr honesty (see
         # `get_status()` below).
+        # v5.5.x cycle (c): NO silent finite default. If the operator
+        # never supplied a kw (None), the configured surface reports None
+        # AND the effective threshold collapses to inf — i.e. enabled=True
+        # but kw=None is treated as DISABLED (belt-and-suspenders against
+        # hand-edited configs that bypass config-flow validation).
         self._arbitrage_grid_import_guard_enabled: bool = bool(
             arbitrage_grid_import_guard_enabled
         )
-        try:
-            self._arbitrage_grid_import_guard_kw_configured: float = float(
-                arbitrage_grid_import_guard_kw
-            )
-        except (TypeError, ValueError):
-            self._arbitrage_grid_import_guard_kw_configured = (
-                DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW
-            )
-        if self._arbitrage_grid_import_guard_enabled:
+        if arbitrage_grid_import_guard_kw is None:
+            self._arbitrage_grid_import_guard_kw_configured: float | None = None
+        else:
+            try:
+                self._arbitrage_grid_import_guard_kw_configured = float(
+                    arbitrage_grid_import_guard_kw
+                )
+            except (TypeError, ValueError):
+                self._arbitrage_grid_import_guard_kw_configured = None
+        if (
+            self._arbitrage_grid_import_guard_enabled
+            and self._arbitrage_grid_import_guard_kw_configured is not None
+        ):
             self._arbitrage_grid_import_guard_kw: float = (
                 self._arbitrage_grid_import_guard_kw_configured
             )
