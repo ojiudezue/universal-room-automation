@@ -69,6 +69,29 @@ class UniversalRoomDatabase:
         )
         _LOGGER.info("DB write worker started")
 
+    async def stop_write_worker(self) -> None:
+        """Stop the background write worker and CLOSE its persistent connection.
+
+        DB space-reclamation fix-up HIGH-1/HIGH-2: cancelling the worker task
+        triggers its ``asyncio.CancelledError`` handler, which flushes pending
+        writes and RETURNS — exiting the ``async with aiosqlite.connect(...)``
+        block, so the worker's persistent connection is closed (releasing any
+        WAL lock that would conflict with an exclusive VACUUM). Idempotent.
+
+        New writes submitted via ``_db()`` while the worker is stopped will
+        raise (fail-fast), so callers that must queue across the stop window
+        should use the queue directly — those items stay enqueued and are
+        processed once ``start_write_worker()`` is called again.
+        """
+        if self._write_task is not None and not self._write_task.done():
+            self._write_task.cancel()
+            try:
+                await self._write_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        self._write_task = None
+        _LOGGER.info("DB write worker stopped (connection closed)")
+
     async def _write_worker(self) -> None:
         """Background task that processes write queue sequentially.
 
@@ -6882,15 +6905,19 @@ class UniversalRoomDatabase:
         Steps:
           (a) log start + current file size;
           (b) drain the pending write queue (graceful flush) so we don't race
-              in-flight writes;
+              in-flight writes, then STOP the write worker (closes its
+              persistent connection so it can't hold a WAL lock against the
+              exclusive VACUUM; new writes queue rather than contend);
+          (d) BEFORE the VACUUM, checkpoint(TRUNCATE) the WAL into the .db then
+              copy the DB file to ``<db>.prevacuum.bak`` (a self-consistent,
+              standalone rollback safety net);
           (c) on a DEDICATED short-lived connection (NOT the 120s-guarded
               worker path) with a high busy_timeout, set
               ``PRAGMA auto_vacuum=INCREMENTAL`` then run ``VACUUM`` — a 900 MB
               SMB VACUUM will exceed 120s and must not be interrupted;
-          (d) BEFORE the VACUUM, copy the DB file to ``<db>.prevacuum.bak`` as
-              the rollback safety net;
           (e) verify via ``PRAGMA integrity_check`` (quick) + log final size;
-          (f) return a result dict.
+          (f) RESTART the write worker (always, in a finally block) + return a
+              result dict.
 
         Concurrent presses are rejected via ``_vacuum_in_progress``.
         """
@@ -6903,6 +6930,9 @@ class UniversalRoomDatabase:
 
         self._vacuum_in_progress = True
         result: dict = {"status": "error"}
+        worker_was_running = (
+            self._write_task is not None and not self._write_task.done()
+        )
         try:
             def _file_mb(path: str) -> float:
                 try:
@@ -6921,6 +6951,9 @@ class UniversalRoomDatabase:
 
             # (b) Drain pending writes through the existing graceful flush so we
             # don't race in-flight writes against the exclusive VACUUM lock.
+            # M-B1: surface (don't silently swallow) a flush error in the result
+            # so the operator/log records it; we still continue because the
+            # VACUUM uses its own connection and the worker is stopped next.
             try:
                 await self._flush_pending_writes()
             except Exception as err:
@@ -6928,9 +6961,37 @@ class UniversalRoomDatabase:
                     "vacuum_full_supervised: write-queue flush raised %s "
                     "(continuing — VACUUM uses its own connection)", err,
                 )
+                result["flush_warning"] = str(err)
+
+            # (b2) HIGH-2 (B-H1): STOP the write worker so its persistent
+            # connection is CLOSED. A live worker connection holds a WAL lock
+            # that conflicts with the VACUUM's exclusive lock — and any writes
+            # arriving DURING the multi-minute VACUUM would contend on that lock
+            # and fail after busy_timeout. Stopping closes the connection;
+            # new _db() writes fail-fast (queued items wait) until restart.
+            # The worker is ALWAYS restarted in the finally block below.
+            await self.stop_write_worker()
 
             # (d) Back up the DB file BEFORE the VACUUM (rollback safety net).
+            # M-B3: if an orphan/old .prevacuum.bak exists, shutil.copy2
+            # overwrites it (no failure). M-B2: in WAL mode recent writes live
+            # in the -wal sidecar, so a raw copy of the .db can be inconsistent.
+            # Checkpoint(TRUNCATE) on the dedicated connection (worker now
+            # stopped) folds the WAL back into the main file so the .bak is a
+            # valid standalone DB.
             backup_path = f"{self.db_file}.prevacuum.bak"
+            try:
+                async with aiosqlite.connect(self.db_file, timeout=600.0) as ckpt:
+                    await ckpt.execute("PRAGMA busy_timeout=600000")
+                    # M-B2: make the .db self-consistent before the file copy.
+                    await ckpt.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                    await ckpt.commit()
+            except Exception as err:
+                _LOGGER.warning(
+                    "vacuum_full_supervised: pre-backup WAL checkpoint raised "
+                    "%s (continuing — backup may include -wal sidecar)", err,
+                )
+                result["checkpoint_warning"] = str(err)
             try:
                 await self.hass.async_add_executor_job(
                     shutil.copy2, self.db_file, backup_path,
@@ -6952,7 +7013,8 @@ class UniversalRoomDatabase:
             # (c) Dedicated short-lived connection with a high busy_timeout.
             # NOT the worker connection: VACUUM needs exclusive access and the
             # worker's persistent connection (plus transient readers) would
-            # conflict. Run at low activity so readers don't deadlock it.
+            # conflict. The worker is stopped (b2); run at low activity so
+            # transient readers don't deadlock it.
             try:
                 async with aiosqlite.connect(self.db_file, timeout=600.0) as db:
                     # 10-minute busy_timeout — generous headroom for a large
@@ -6994,4 +7056,15 @@ class UniversalRoomDatabase:
             )
             return result
         finally:
+            # HIGH-2: ALWAYS restart the write worker (even if VACUUM raised)
+            # so DB writes resume. Only restart if it was running on entry —
+            # don't spuriously start a worker that the caller never had up.
+            if worker_was_running:
+                try:
+                    await self.start_write_worker()
+                except Exception as err:
+                    _LOGGER.error(
+                        "vacuum_full_supervised: FAILED to restart write "
+                        "worker after VACUUM: %s — writes will not flush!", err,
+                    )
             self._vacuum_in_progress = False

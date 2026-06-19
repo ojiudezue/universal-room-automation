@@ -1293,6 +1293,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # branch also schedules the optimizer prunes.
                 ("optimization_findings", "prune_optimization_findings", {}),
                 ("optimization_daily_digest", "prune_optimization_daily_digest", {}),
+                # DB space-reclamation fix-up HIGH-1: mirror the primary path
+                # so a deferred-startup (DB-init-race) boot ALSO schedules the
+                # bounded incremental_vacuum. Without this, the deferred branch
+                # never reclaims freed pages. Runs LAST, identical semantics.
+                ("incremental_vacuum", "incremental_vacuum", {}),
             ]
 
             async def _nightly_maintenance_deferred(_now):
