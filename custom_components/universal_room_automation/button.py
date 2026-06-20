@@ -1350,7 +1350,9 @@ class VacuumDatabaseButton(ButtonEntity):
         self._entry = entry
         self._running = False
         self._attr_unique_id = f"{DOMAIN}_vacuum_database"
-        self._attr_name = "Vacuum Database (one-time, supervised)"
+        # Visible name kept mere-mortal-friendly (operator 2026-06-19); the
+        # unique_id / entity_id interior identity is unchanged.
+        self._attr_name = "Optimize Database Storage"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "coordinator_manager")},
             name="URA: Coordinator Manager",
