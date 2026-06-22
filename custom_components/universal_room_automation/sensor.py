@@ -953,7 +953,14 @@ class LightsOnCountSensor(UniversalRoomEntity, SensorEntity):
 
 
 class FansOnCountSensor(UniversalRoomEntity, SensorEntity):
-    """Count of fans currently on."""
+    """Count of fans currently on in the room area.
+
+    D6 (bathroom-exhaust intelligence cycle): renamed display to
+    "Comfort Fans On" to disambiguate from the humidity-fan path. Entity
+    ID + unique ID unchanged (only `_attr_name`). The underlying count is
+    area-derived (coordinator._calculate_device_counts → all `fan.*` in
+    the area); humidity fans on switch-domain entities are unaffected.
+    """
 
     _attr_icon = "mdi:fan"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -961,7 +968,7 @@ class FansOnCountSensor(UniversalRoomEntity, SensorEntity):
 
     def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
         """Initialize the sensor."""
-        super().__init__(coordinator, "fans_on_count", "Fans On")
+        super().__init__(coordinator, "fans_on_count", "Comfort Fans On")
 
     @property
     def native_value(self) -> int:
@@ -1284,11 +1291,41 @@ class ComfortScoreSensor(UniversalRoomEntity, SensorEntity):
         """Initialize the sensor."""
         super().__init__(coordinator, "comfort_score", "Comfort Score")
 
-    def _get_setpoint(self) -> float:
-        """Get target temp from room config (default 76 F)."""
-        from .const import CONF_TARGET_TEMP_COOL, DEFAULT_TARGET_TEMP_COOL
+    def _get_comfort_range(self) -> tuple[float, float]:
+        """Return (low, high) of the per-room comfort range.
+
+        D8 (bathroom-exhaust intelligence cycle): both `CONF_TARGET_TEMP_HEAT`
+        (low bound) and `CONF_TARGET_TEMP_COOL` (high bound) are read here.
+        Pre-D8 only the high bound was consumed (Bug Class #53 — collected-
+        but-not-consumed); this wiring fixes that. Defensive: if low > high
+        (validator slipped), normalize via min/max so the scorer never
+        crashes on a pathological config.
+        """
+        from .const import (
+            CONF_TARGET_TEMP_COOL,
+            CONF_TARGET_TEMP_HEAT,
+            DEFAULT_TARGET_TEMP_COOL,
+            DEFAULT_TARGET_TEMP_HEAT,
+        )
         config = {**self.coordinator.entry.data, **self.coordinator.entry.options}
-        return config.get(CONF_TARGET_TEMP_COOL, DEFAULT_TARGET_TEMP_COOL)
+        low = float(config.get(CONF_TARGET_TEMP_HEAT, DEFAULT_TARGET_TEMP_HEAT))
+        high = float(config.get(CONF_TARGET_TEMP_COOL, DEFAULT_TARGET_TEMP_COOL))
+        if low > high:
+            low, high = min(low, high), max(low, high)
+        return low, high
+
+    @staticmethod
+    def _comfort_range_temp_score(temp: float, low: float, high: float) -> float:
+        """Bi-directional comfort-range temperature score (D8).
+
+        In-range [low, high] → 100. Below low → -10 pts per °F below.
+        Above high → -10 pts per °F above. Floored at 0.
+        """
+        if low <= temp <= high:
+            return 100.0
+        if temp < low:
+            return max(0.0, 100.0 - (low - temp) * 10.0)
+        return max(0.0, 100.0 - (temp - high) * 10.0)
 
     @property
     def native_value(self) -> int | None:
@@ -1303,19 +1340,15 @@ class ComfortScoreSensor(UniversalRoomEntity, SensorEntity):
         if temp is None:
             return None
 
-        setpoint = self._get_setpoint()
-
-        # Temperature component: 100 at setpoint, -10 per degree F deviation
-        temp_score = max(0, 100 - abs(temp - setpoint) * 10)
+        low, high = self._get_comfort_range()
+        temp_score = self._comfort_range_temp_score(temp, low, high)
 
         # Humidity component: 100 at 45%, -2 per % deviation
         if humidity is not None:
             humidity_score = max(0, 100 - abs(humidity - 45) * 2)
         else:
-            # No humidity data — use neutral score so it doesn't drag down
             humidity_score = 70
 
-        # Occupancy component: 100 when occupied, 50 when not
         occupied = self.coordinator.data.get(STATE_OCCUPIED, False)
         occupancy_score = 100 if occupied else 50
 
@@ -1335,8 +1368,8 @@ class ComfortScoreSensor(UniversalRoomEntity, SensorEntity):
         if temp is None:
             return {}
 
-        setpoint = self._get_setpoint()
-        temp_score = max(0, 100 - abs(temp - setpoint) * 10)
+        low, high = self._get_comfort_range()
+        temp_score = self._comfort_range_temp_score(temp, low, high)
         humidity_score = (
             max(0, 100 - abs(humidity - 45) * 2) if humidity is not None else 70
         )
@@ -1344,7 +1377,8 @@ class ComfortScoreSensor(UniversalRoomEntity, SensorEntity):
 
         return {
             "temperature": temp,
-            "setpoint": setpoint,
+            "comfort_range_low": low,
+            "comfort_range_high": high,
             "humidity": humidity,
             "occupied": occupied,
             "temp_score": round(temp_score, 1),
@@ -1392,11 +1426,37 @@ class EnergyEfficiencyScoreSensor(UniversalRoomEntity, SensorEntity):
                 return hvac, zone
         return hvac, None
 
-    def _get_setpoint(self) -> float:
-        """Get target temp from room config (default 76 F)."""
-        from .const import CONF_TARGET_TEMP_COOL, DEFAULT_TARGET_TEMP_COOL
+    def _get_comfort_range(self) -> tuple[float, float]:
+        """Return (low, high) of the per-room comfort range.
+
+        D8: reads BOTH CONF_TARGET_TEMP_HEAT (low) and CONF_TARGET_TEMP_COOL
+        (high). Defensive normalization on inverted configs.
+        """
+        from .const import (
+            CONF_TARGET_TEMP_COOL,
+            CONF_TARGET_TEMP_HEAT,
+            DEFAULT_TARGET_TEMP_COOL,
+            DEFAULT_TARGET_TEMP_HEAT,
+        )
         config = {**self.coordinator.entry.data, **self.coordinator.entry.options}
-        return config.get(CONF_TARGET_TEMP_COOL, DEFAULT_TARGET_TEMP_COOL)
+        low = float(config.get(CONF_TARGET_TEMP_HEAT, DEFAULT_TARGET_TEMP_HEAT))
+        high = float(config.get(CONF_TARGET_TEMP_COOL, DEFAULT_TARGET_TEMP_COOL))
+        if low > high:
+            low, high = min(low, high), max(low, high)
+        return low, high
+
+    @staticmethod
+    def _comfort_range_deviation(temp: float, low: float, high: float) -> float:
+        """Return signed deviation magnitude (in °F) from the comfort range.
+
+        Zero when in-range; positive value when outside. Distance to the
+        closer bound.
+        """
+        if low <= temp <= high:
+            return 0.0
+        if temp < low:
+            return low - temp
+        return temp - high
 
     @property
     def native_value(self) -> int | None:
@@ -1407,7 +1467,6 @@ class EnergyEfficiencyScoreSensor(UniversalRoomEntity, SensorEntity):
         hvac, zone = self._get_zone_for_room()
 
         if zone is not None:
-            # HVAC zone data available — use duty cycle and override count
             from .domain_coordinators.hvac_const import DUTY_CYCLE_WINDOW_SECONDS
             if zone.window_start is not None:
                 duty_pct = min(
@@ -1422,19 +1481,18 @@ class EnergyEfficiencyScoreSensor(UniversalRoomEntity, SensorEntity):
             score = 100 - (duty_pct * 0.5) - override_penalty
             return max(0, min(100, round(score)))
 
-        # Fallback: simple temperature proximity scoring
+        # Fallback (D8): comfort-range proximity. In-range = 90; within 3°F
+        # of the closer bound = 70; else 50. Symmetric across both bounds.
         temp = self.coordinator.data.get(STATE_TEMPERATURE)
         if temp is None:
             return None
-
-        setpoint = self._get_setpoint()
-        deviation = abs(temp - setpoint)
-        if deviation <= 2:
+        low, high = self._get_comfort_range()
+        deviation = self._comfort_range_deviation(temp, low, high)
+        if deviation == 0.0:
             return 90
-        elif deviation <= 5:
+        if deviation <= 3:
             return 70
-        else:
-            return 50
+        return 50
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -1464,12 +1522,15 @@ class EnergyEfficiencyScoreSensor(UniversalRoomEntity, SensorEntity):
             attrs["override_penalty"] = zone.override_count_today * 5
         else:
             temp = self.coordinator.data.get(STATE_TEMPERATURE)
-            setpoint = self._get_setpoint()
-            attrs["scoring_method"] = "temperature_proximity"
+            low, high = self._get_comfort_range()
+            attrs["scoring_method"] = "comfort_range_proximity"
             attrs["temperature"] = temp
-            attrs["setpoint"] = setpoint
+            attrs["comfort_range_low"] = low
+            attrs["comfort_range_high"] = high
             if temp is not None:
-                attrs["deviation_f"] = round(abs(temp - setpoint), 1)
+                attrs["deviation_f"] = round(
+                    self._comfort_range_deviation(temp, low, high), 1,
+                )
 
         return attrs
 

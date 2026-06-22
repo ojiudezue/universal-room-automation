@@ -183,6 +183,14 @@ from custom_components.universal_room_automation.domain_coordinators.hvac_fans i
     RoomFanState,
 )
 
+# NOTE — Bathroom-exhaust intelligence cycle: the v4.6.2.1 Path B humidity-fan
+# code in hvac_fans.py was removed (humidity fans are now exclusively
+# room-owned via automation.py). The Path B test classes that exercised
+# `_evaluate_humidity_fan` and `RoomFanState.humidity_fan_*` fields have been
+# deleted from this module — they tested behavior that no longer exists.
+# Path A coverage (max-runtime cap, hysteresis, suppression) is preserved
+# below and supplemented by test_bathroom_exhaust_intelligence_cycle.py.
+
 
 def _utcnow():
     return datetime.now(timezone.utc)
@@ -408,155 +416,12 @@ class TestHysteresisPathA:
 
 
 # ---------------------------------------------------------------------------
-# D4 — Path B (hvac_fans.py)
+# D4 (Path B) — REMOVED. The bathroom-exhaust intelligence cycle deleted the
+# Path B humidity-fan code in hvac_fans.py; all D4 tests below this point
+# (TestHvacFansUserThreshold, TestHvacFansMaxRuntime) tested behavior that no
+# longer exists. See test_bathroom_exhaust_intelligence_cycle.py for the new
+# I1 invariant + Path A coverage.
 # ---------------------------------------------------------------------------
-
-
-def _make_room_fan_state(
-    room_name: str = "bathroom",
-    humidity_fan_threshold: float = DEFAULT_HUMIDITY_THRESHOLD,
-    humidity_fan_max_runtime: int = DEFAULT_HUMIDITY_FAN_MAX_RUNTIME,
-) -> RoomFanState:
-    """Helper: create a RoomFanState for testing."""
-    return RoomFanState(
-        room_name=room_name,
-        zone_id="zone_1",
-        fan_entities=[],
-        humidity_fan_entities=["fan.exhaust"],
-        humidity_fan_threshold=humidity_fan_threshold,
-        humidity_fan_max_runtime=humidity_fan_max_runtime,
-    )
-
-
-def _make_fan_controller() -> FanController:
-    """Create a minimal FanController for unit testing."""
-    hass = MagicMock()
-    zone_manager = MagicMock()
-    zone_manager.zones = {}
-    return FanController(hass=hass, zone_manager=zone_manager)
-
-
-class TestHvacFansUserThreshold:
-    """D4: Path B uses user-configured threshold, not hardcoded 60."""
-
-    def test_hvac_fans_uses_user_threshold(self):
-        """Room with threshold=70: fan does not activate at humidity=65."""
-        controller = _make_fan_controller()
-        room_fan = _make_room_fan_state(humidity_fan_threshold=70.0)
-
-        # Fan is currently off
-        result = controller._evaluate_humidity_fan(65.0, room_fan, h_currently_on=False)
-        assert result is False, (
-            "Fan must NOT activate at 65% when user threshold is 70%"
-        )
-
-    def test_hvac_fans_activates_at_user_threshold(self):
-        """Room with threshold=70: fan activates at humidity=72."""
-        controller = _make_fan_controller()
-        room_fan = _make_room_fan_state(humidity_fan_threshold=70.0)
-
-        result = controller._evaluate_humidity_fan(72.0, room_fan, h_currently_on=False)
-        assert result is True, (
-            "Fan must activate at 72% when user threshold is 70%"
-        )
-
-    def test_hvac_fans_default_threshold_is_not_hardcoded(self, hvac_fans_src: str):
-        """hvac_fans.py must import DEFAULT_HUMIDITY_THRESHOLD from ..const, not hvac_const."""
-        assert "DEFAULT_HUMIDITY_THRESHOLD" in hvac_fans_src
-        # The old DEFAULT_HUMIDITY_FAN_ON must NOT be imported
-        assert "DEFAULT_HUMIDITY_FAN_ON" not in hvac_fans_src
-
-    def test_hvac_fans_hysteresis_tracks_user_threshold(self):
-        """OFF threshold = user threshold - DEFAULT_HUMIDITY_FAN_HYSTERESIS."""
-        controller = _make_fan_controller()
-        # threshold=70, off_threshold=60
-        room_fan = _make_room_fan_state(humidity_fan_threshold=70.0)
-
-        # Fan is on; humidity = 62 (above 60 off_threshold) — should stay on
-        result_stay_on = controller._evaluate_humidity_fan(62.0, room_fan, h_currently_on=True)
-        assert result_stay_on is True, (
-            "Fan should stay on at 62% with threshold=70 (off_threshold=60)"
-        )
-
-        # Humidity = 58 (below off_threshold=60) — should turn off
-        result_turn_off = controller._evaluate_humidity_fan(58.0, room_fan, h_currently_on=True)
-        assert result_turn_off is False, (
-            "Fan should turn off at 58% with threshold=70 (off_threshold=60)"
-        )
-
-
-class TestHvacFansMaxRuntime:
-    """D4: Path B max-runtime cap."""
-
-    def test_hvac_fans_max_runtime_force_off(self, hvac_fans_src: str):
-        """hvac_fans.py must contain the max-runtime exceeded log string."""
-        assert "humidity_fan_max_runtime_exceeded" in hvac_fans_src
-
-    def test_humidity_on_since_field_in_room_fan_state(self):
-        """RoomFanState must have humidity_on_since field."""
-        room_fan = RoomFanState(room_name="test", zone_id="z1")
-        assert hasattr(room_fan, "humidity_on_since")
-        assert room_fan.humidity_on_since is None
-
-    def test_humidity_cap_suppressed_field_in_room_fan_state(self):
-        """RoomFanState must have humidity_cap_suppressed field."""
-        room_fan = RoomFanState(room_name="test", zone_id="z1")
-        assert hasattr(room_fan, "humidity_cap_suppressed")
-        assert room_fan.humidity_cap_suppressed is False
-
-    def test_humidity_fan_threshold_field_in_room_fan_state(self):
-        """RoomFanState must have humidity_fan_threshold field with correct default."""
-        room_fan = RoomFanState(room_name="test", zone_id="z1")
-        assert room_fan.humidity_fan_threshold == DEFAULT_HUMIDITY_THRESHOLD
-
-    def test_humidity_fan_max_runtime_field_in_room_fan_state(self):
-        """RoomFanState must have humidity_fan_max_runtime field with correct default."""
-        room_fan = RoomFanState(room_name="test", zone_id="z1")
-        assert room_fan.humidity_fan_max_runtime == DEFAULT_HUMIDITY_FAN_MAX_RUNTIME
-
-    def test_suppression_blocks_retrigger(self):
-        """After cap fires, suppressed fan must not re-trigger even above threshold."""
-        controller = _make_fan_controller()
-        room_fan = _make_room_fan_state(humidity_fan_threshold=60.0)
-        room_fan.humidity_cap_suppressed = True
-
-        # Humidity is still 75% (above threshold=60) — but suppressed
-        result = controller._evaluate_humidity_fan(75.0, room_fan, h_currently_on=False)
-        assert result is False, (
-            "Suppressed fan must NOT re-trigger even when humidity is above ON threshold"
-        )
-
-    def test_suppression_clears_when_humidity_drops_below_off_threshold(self):
-        """Suppression must clear when humidity drops below OFF threshold, allowing re-trigger."""
-        controller = _make_fan_controller()
-        room_fan = _make_room_fan_state(humidity_fan_threshold=60.0)
-        room_fan.humidity_cap_suppressed = True
-
-        # off_threshold = 60 - 10 = 50; humidity = 45 (below off_threshold)
-        result = controller._evaluate_humidity_fan(45.0, room_fan, h_currently_on=False)
-        # Suppression clears, humidity < threshold → result is False (fan stays off)
-        assert room_fan.humidity_cap_suppressed is False, (
-            "Suppression must be cleared when humidity drops below off_threshold"
-        )
-        assert result is False, (
-            "Fan stays off after suppression clears (humidity below threshold)"
-        )
-
-    def test_suppression_clears_allows_retrigger_next_cycle(self):
-        """After suppression clears, next evaluation at high humidity should turn fan on."""
-        controller = _make_fan_controller()
-        room_fan = _make_room_fan_state(humidity_fan_threshold=60.0)
-        room_fan.humidity_cap_suppressed = True
-
-        # First call: humidity drops below off_threshold — clears suppression
-        controller._evaluate_humidity_fan(45.0, room_fan, h_currently_on=False)
-        assert room_fan.humidity_cap_suppressed is False
-
-        # Second call: humidity back above threshold — should activate
-        result = controller._evaluate_humidity_fan(65.0, room_fan, h_currently_on=False)
-        assert result is True, (
-            "Fan must re-activate at 65% after suppression is cleared"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -634,17 +499,8 @@ class TestHumidityDefaultsSingleSourceOfTruth:
                                 f"from const.py."
                             )
 
-    def test_no_literal_60_get_fallback_in_evaluate_humidity_fan(self, hvac_fans_src: str):
-        """_evaluate_humidity_fan must not reference hardcoded 60 via .get(..., 60) pattern."""
-        idx = hvac_fans_src.find("def _evaluate_humidity_fan")
-        assert idx > 0
-        # Extract the function body up to the next method definition
-        end_idx = hvac_fans_src.find("\n    def ", idx + 1)
-        func_body = hvac_fans_src[idx:end_idx] if end_idx > 0 else hvac_fans_src[idx:idx + 1500]
-        # The old pattern was: humidity >= 60 or humidity > 50 (hardcoded)
-        assert "humidity >= 60" not in func_body, (
-            "_evaluate_humidity_fan must not use hardcoded '60' threshold"
-        )
-        assert "humidity > 50" not in func_body, (
-            "_evaluate_humidity_fan must not use hardcoded '50' off-threshold"
-        )
+    def test_evaluate_humidity_fan_removed_from_hvac_fans(self, hvac_fans_src: str):
+        """Bathroom-exhaust intelligence cycle: the Path B humidity-fan
+        evaluator was removed (humidity fans are now exclusively room-owned
+        via automation.py::handle_humidity_based_fan_control)."""
+        assert "def _evaluate_humidity_fan" not in hvac_fans_src

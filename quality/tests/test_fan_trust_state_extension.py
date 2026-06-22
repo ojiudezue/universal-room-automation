@@ -249,7 +249,6 @@ def _make_room_fan(
         zone_id="z1",
         room_type=room_type,
         fan_entities=["fan.master"],
-        humidity_fan_entities=[],
         is_on=is_on,
         speed_pct=speed_pct,
         trigger=trigger,

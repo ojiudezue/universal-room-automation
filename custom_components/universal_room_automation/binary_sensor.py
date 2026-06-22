@@ -53,6 +53,10 @@ from .const import (
     COMFORT_HUMIDITY_MAX,
     DEFAULT_FAN_TEMP_THRESHOLD,
     DEFAULT_HUMIDITY_THRESHOLD,
+    CONF_HUMIDITY_FANS,
+    CONF_HUMIDITY_FAN_THRESHOLD,
+    CONF_HUMIDITY_FAN_CONTROL_ENABLED,
+    DEFAULT_HUMIDITY_FAN_CONTROL_ENABLED,
     # v3.5.0 Camera Census
     CONF_CAMERA_PERSON_ENTITIES,
     CONF_TRACKED_PERSONS,
@@ -183,6 +187,9 @@ async def async_setup_entry(
         HVACCoordinatedBinarySensor(coordinator),
         EnergySavingActiveBinarySensor(coordinator),
         FanShouldRunBinarySensor(coordinator),
+        # D6 — humidity-fan visibility sensors (bathroom-exhaust intelligence cycle).
+        HumidityFanShouldRunBinarySensor(coordinator),
+        HumidityFanActiveBinarySensor(coordinator),
         HVACCoolingBinarySensor(coordinator),
         HVACHeatingBinarySensor(coordinator),
         RoomAlertBinarySensor(coordinator),
@@ -677,14 +684,20 @@ class EnergySavingActiveBinarySensor(UniversalRoomEntity, BinarySensorEntity):
 
 
 class FanShouldRunBinarySensor(UniversalRoomEntity, BinarySensorEntity):
-    """Binary sensor for fan run recommendation."""
+    """Comfort-fan run recommendation (temp-driven).
+
+    D6 (bathroom-exhaust intelligence cycle): renamed display to
+    "Comfort Fan Should Run" to disambiguate from the new humidity-fan
+    sensor below. Entity ID + unique ID unchanged (only `_attr_name`).
+    Logic is comfort-only — reads `fan_temp_threshold`, not humidity.
+    """
 
     _attr_icon = "mdi:fan"
     _attr_entity_registry_enabled_default = False
 
     def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
         """Initialize the sensor."""
-        super().__init__(coordinator, "fan_should_run", "Fan Should Run")
+        super().__init__(coordinator, "fan_should_run", "Comfort Fan Should Run")
 
     @property
     def available(self) -> bool:
@@ -701,6 +714,94 @@ class FanShouldRunBinarySensor(UniversalRoomEntity, BinarySensorEntity):
         
         fan_threshold = self.coordinator.entry.data.get("fan_temp_threshold", 80)
         return temp >= fan_threshold
+
+
+class HumidityFanShouldRunBinarySensor(UniversalRoomEntity, BinarySensorEntity):
+    """D6 — humidity-fan run recommendation.
+
+    True iff the room-path logic WOULD turn the humidity fan on right now
+    (humidity ≥ threshold, NOT cap-suppressed, NOT toggle-#3 disabled).
+    Spike-trigger surface is intentionally NOT consulted here (this sensor
+    is the absolute-threshold + suppression + toggle view; the fan
+    actually running is HumidityFanActiveBinarySensor below).
+    """
+
+    _attr_icon = "mdi:fan-alert"
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
+        super().__init__(
+            coordinator, "humidity_fan_should_run", "Humidity Fan Should Run",
+        )
+
+    @property
+    def available(self) -> bool:
+        merged = {
+            **self.coordinator.entry.data,
+            **self.coordinator.entry.options,
+        }
+        return bool(merged.get(CONF_HUMIDITY_FANS))
+
+    @property
+    def is_on(self) -> bool:
+        merged = {
+            **self.coordinator.entry.data,
+            **self.coordinator.entry.options,
+        }
+        if not merged.get(CONF_HUMIDITY_FANS):
+            return False
+        if not merged.get(
+            CONF_HUMIDITY_FAN_CONTROL_ENABLED, DEFAULT_HUMIDITY_FAN_CONTROL_ENABLED,
+        ):
+            return False
+        humidity = (
+            self.coordinator.data.get(STATE_HUMIDITY)
+            if self.coordinator.data else None
+        )
+        if humidity is None:
+            return False
+        # Cap-suppressed → fan must stay off until humidity drops below OFF.
+        automation = getattr(self.coordinator, "automation", None)
+        if automation is not None and getattr(
+            automation, "_humidity_cap_suppressed", False,
+        ):
+            return False
+        threshold = float(
+            merged.get(CONF_HUMIDITY_FAN_THRESHOLD, DEFAULT_HUMIDITY_THRESHOLD)
+        )
+        return float(humidity) >= threshold
+
+
+class HumidityFanActiveBinarySensor(UniversalRoomEntity, BinarySensorEntity):
+    """D6 — humidity-fan controller-active state.
+
+    True iff the room-tier controller is actively driving the humidity fan
+    (anchor set). Distinct from "physically on": if an operator turned the
+    fan on manually with the controller idle, this reads False.
+    """
+
+    _attr_icon = "mdi:fan-clock"
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
+        super().__init__(
+            coordinator, "humidity_fan_active", "Humidity Fan Active",
+        )
+
+    @property
+    def available(self) -> bool:
+        merged = {
+            **self.coordinator.entry.data,
+            **self.coordinator.entry.options,
+        }
+        return bool(merged.get(CONF_HUMIDITY_FANS))
+
+    @property
+    def is_on(self) -> bool:
+        automation = getattr(self.coordinator, "automation", None)
+        if automation is None:
+            return False
+        return getattr(automation, "_humidity_fan_triggered_time", None) is not None
 
 
 class HVACCoolingBinarySensor(UniversalRoomEntity, BinarySensorEntity):

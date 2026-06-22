@@ -601,7 +601,6 @@ def _make_room_fan_on(now: datetime, vacancy_time: str = "") -> RoomFanState:
         room_name="Master Bedroom",
         zone_id="zone_1",
         fan_entities=["fan.master_bedroom"],
-        humidity_fan_entities=[],
         is_on=True,
         trigger="temperature",
         speed_pct=33,

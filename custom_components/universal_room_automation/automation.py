@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
+from collections import deque
 from datetime import datetime, time, timedelta
 from typing import Any
 
@@ -99,6 +101,26 @@ from .const import (
     DEFAULT_HUMIDITY_FAN_TIMEOUT,
     DEFAULT_HUMIDITY_FAN_MAX_RUNTIME,
     DEFAULT_HUMIDITY_FAN_HYSTERESIS,
+    # Bathroom-exhaust intelligence cycle
+    CONF_HUMIDITY_FAN_CONTROL_ENABLED,
+    DEFAULT_HUMIDITY_FAN_CONTROL_ENABLED,
+    CONF_WET_ROOM,
+    CONF_HUMIDITY_FAN_SPIKE_ENABLED,
+    CONF_HUMIDITY_FAN_SPIKE_DELTA_PCT,
+    CONF_HUMIDITY_FAN_SPIKE_EMA_ALPHA_S,
+    CONF_HUMIDITY_FAN_SPIKE_BASELINE_MODE,
+    HUMIDITY_FAN_SPIKE_MODE_EMA,
+    HUMIDITY_FAN_SPIKE_MODE_WINDOW_MIN,
+    DEFAULT_HUMIDITY_FAN_SPIKE_DELTA_PCT,
+    DEFAULT_HUMIDITY_FAN_SPIKE_EMA_ALPHA_S,
+    DEFAULT_HUMIDITY_FAN_SPIKE_BASELINE_MODE,
+    CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED,
+    CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S,
+    CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S,
+    CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S,
+    DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S,
+    DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S,
+    DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S,
     # Sleep protection
     CONF_SLEEP_PROTECTION_ENABLED,
     CONF_SLEEP_START_HOUR,
@@ -189,6 +211,20 @@ class RoomAutomation:
         self._humidity_on_since: datetime | None = None
         # v4.6.2.1: Suppression after max-runtime cap fires.
         self._humidity_cap_suppressed: bool = False
+        # Bathroom-exhaust intelligence cycle:
+        # D2 — EMA-baseline humidity-spike detection.
+        self._humidity_ema: float | None = None
+        self._humidity_ema_samples: int = 0
+        self._humidity_ema_warmup_seen_at: datetime | None = None
+        self._humidity_ema_last_sample_ts: datetime | None = None
+        # D2 — `window_min` baseline-mode rolling buffer.
+        self._humidity_window: deque[tuple[datetime, float]] = deque()
+        # D2 — whether the active fan-on cycle was spike-triggered (drives
+        # baseline-relative OFF).
+        self._humidity_spike_was_trigger: bool = False
+        # D3 — presence/usage-proportional post-vacancy runtime window.
+        self._humidity_presence_runtime_until: datetime | None = None
+        self._humidity_last_room_occupied: bool | None = None
         # v3.1.0: Shared space - track last auto-off to prevent repeated triggers
         self._last_auto_off_date: str | None = None
         # v3.1.0: Alert light state tracking
@@ -1663,47 +1699,57 @@ class RoomAutomation:
         return False
 
     async def handle_humidity_based_fan_control(
-        self, humidity: float | None
+        self,
+        humidity: float | None,
+        room_occupied: bool | None = None,
     ) -> None:
         """Control humidity fans/switches based on humidity level.
 
-        v3.2.8.2: Supports both fan.* and switch.* domains for RF fans on outlets.
-        v4.6.2.1: Added max-runtime cap, hysteresis (Path A), and constant cleanup.
-          - _humidity_fan_triggered_time: min-runtime gate (fan must run >= timeout before
-            being allowed off after humidity drops). Unchanged semantics.
-          - _humidity_on_since: max-runtime gate (force off after max_runtime seconds).
-          - _humidity_cap_suppressed: suppression after cap fires — humidity must drop
-            below OFF threshold before re-activation is allowed.
-        v4.6.2.3: Reload-mid-cycle anchor seeding — if the fan is observed ON at startup
-          (post-reload/restart) but _humidity_on_since is None, seed it to now so the
-          max-runtime cap has a valid reference point. Seeding is monotonic: once set,
-          we do not overwrite until the fan turns off. Suppression state is left untouched
-          (a suppressed fan that is physically still on continues to be suppressed).
+        Bathroom-exhaust intelligence cycle (D1-D4): humidity/exhaust fans are
+        ALWAYS room-owned — independent of CONF_HVAC_COORDINATION_ENABLED and
+        CONF_FAN_CONTROL_ENABLED. The HVAC-coord humidity path in hvac_fans.py
+        has been removed. The room-tier path is now the SOLE controller (I1),
+        gated only by toggle #3 (CONF_HUMIDITY_FAN_CONTROL_ENABLED) + per-knob
+        enables. The orphan-fan state (toggle #1 ON + toggle #2 OFF leaving a
+        humidity fan unmanaged) is eliminated by this consolidation.
+
+        Pre-existing semantics preserved:
+          v3.2.8.2 — supports both fan.* and switch.* domains.
+          v4.6.2.1 — max-runtime cap, hysteresis, post-cap suppression.
+          v4.6.2.3 — reload-mid-cycle anchor seeding (now also the upgrade
+            migration mechanism for fans physically ON in previously-HVAC-
+            managed rooms — see I1 acceptance test).
+
+        New (this cycle):
+          D2 — EMA-baseline spike detection (current >= baseline + Δ), warm-up
+            fallback to the absolute threshold, baseline-relative OFF.
+          D3 — presence/usage-proportional post-vacancy runtime: keeps the
+            exhaust running for min(BASE + PER_MIN*occupancy_min, CAP) seconds
+            after vacancy, modeled on guest_toilet_automation2.
+          D4 — wet-room (CONF_WET_ROOM) gates D2/D3 default-on and exempts
+            wet-room exhausts from FAN_SLEEP_OFF.
         """
         humidity_fans = self.config.get(CONF_HUMIDITY_FANS, [])
         if not humidity_fans or humidity is None:
             return
 
-        # v3.18.1: Defer to HVAC coordinator if managing.
-        # v4.6.4 P3b: clear Path A anchor state on HVAC-managing entry so the
-        # reload-seed at line ~1685 runs cleanly when HVAC stops managing later.
-        # Without this clear, a stale `_humidity_on_since` from a pre-HVAC run
-        # blocks reload-seeding (which only fires when the anchor is None) and
-        # the max-runtime cap loses its reference point on HVAC release.
-        # KNOWN TRADE-OFF: this clear runs on every HVAC-managing eval, not only
-        # on the transition INTO HVAC-managing. A fan that bounces in and out of
-        # HVAC-managing windows therefore resets its runtime budget each cycle.
-        # Accepted as a safety bias — the max-runtime cap is a stuck-sensor /
-        # runaway-humidity guard rather than a true budget tracker, and a fresh
-        # window per handoff is preferable to carrying stale (possibly hours-old)
-        # anchors across multi-hour HVAC management.
-        if self._is_hvac_managing_fans():
-            self._humidity_on_since = None
-            self._humidity_fan_triggered_time = None
+        # D1 — toggle #3 master enable. When False, no automated controller
+        # acts on humidity fans (operator owns them manually). Defaults True to
+        # preserve behavior for entries without the new field; anchor state is
+        # NOT cleared so re-enabling later picks up where it left off (max-
+        # runtime cap re-arms via reload-seed if needed).
+        if not self.config.get(
+            CONF_HUMIDITY_FAN_CONTROL_ENABLED, DEFAULT_HUMIDITY_FAN_CONTROL_ENABLED,
+        ):
             return
 
-        # v3.18.1: Fan sleep policy — turn off humidity fans during sleep if policy=off
-        if self.is_sleep_mode_active():
+        wet_room = bool(self.config.get(CONF_WET_ROOM, False))
+
+        # v3.18.1: Fan sleep policy — turn off humidity fans during sleep if
+        # policy=off, EXCEPT wet-room exhausts (D4 sleep-exemption: a 3am
+        # bathroom exhaust must not be blocked by sleep policy; max-runtime
+        # cap still bounds total runtime).
+        if self.is_sleep_mode_active() and not wet_room:
             policy = self.config.get(CONF_FAN_SLEEP_POLICY, DEFAULT_FAN_SLEEP_POLICY)
             if policy == FAN_SLEEP_OFF:
                 await self._safe_service_call(
@@ -1712,10 +1758,9 @@ class RoomAutomation:
                 )
                 self._humidity_fan_triggered_time = None
                 self._humidity_on_since = None
+                # D3: clear presence-runtime extension on forced sleep-off.
+                self._humidity_presence_runtime_until = None
                 # v4.6.4 P3a: do NOT clear `_humidity_cap_suppressed` here.
-                # Sleep onset must not void the post-cap-fire suppression contract
-                # ("humidity must drop below OFF threshold before re-trigger") —
-                # otherwise cap-fire + sleep within minutes leaks the contract on wake.
                 return
 
         threshold = self.config.get(CONF_HUMIDITY_FAN_THRESHOLD, DEFAULT_HUMIDITY_THRESHOLD)
@@ -1724,10 +1769,37 @@ class RoomAutomation:
         off_threshold = threshold - DEFAULT_HUMIDITY_FAN_HYSTERESIS
         now = dt_util.now()
 
+        # D2 — EMA spike detection state update (before the cap check so a
+        # spike-armed fan still sees a fresh sample on the tick the cap fires).
+        spike_enabled = bool(self.config.get(CONF_HUMIDITY_FAN_SPIKE_ENABLED, False))
+        spike_delta = float(
+            self.config.get(
+                CONF_HUMIDITY_FAN_SPIKE_DELTA_PCT,
+                DEFAULT_HUMIDITY_FAN_SPIKE_DELTA_PCT,
+            )
+        )
+        spike_alpha_s = float(
+            self.config.get(
+                CONF_HUMIDITY_FAN_SPIKE_EMA_ALPHA_S,
+                DEFAULT_HUMIDITY_FAN_SPIKE_EMA_ALPHA_S,
+            )
+        )
+        spike_mode = self.config.get(
+            CONF_HUMIDITY_FAN_SPIKE_BASELINE_MODE,
+            DEFAULT_HUMIDITY_FAN_SPIKE_BASELINE_MODE,
+        )
+        spike_fired = False
+        if spike_enabled and spike_alpha_s > 0:
+            try:
+                self._humidity_update_baseline(humidity, now, spike_alpha_s, spike_mode)
+                spike_fired = self._humidity_spike_should_fire(
+                    humidity, now, spike_alpha_s, spike_delta, spike_mode,
+                )
+            except Exception as exc:  # noqa: BLE001 — never let analytics break actuation
+                _LOGGER.debug("humidity_fan_spike: baseline/spike eval errored: %s", exc)
+                spike_fired = False
+
         # v4.6.2.3: Reload-mid-cycle anchor seeding.
-        # If the fan is physically on but _humidity_on_since is None (e.g., the coordinator
-        # just reloaded or restarted mid-cycle), seed both anchor fields so that the
-        # max-runtime cap has a reference point. Monotonic: only seed when anchor is unset.
         if self._humidity_on_since is None and self._fan_is_actually_on(humidity_fans):
             _LOGGER.info(
                 "humidity_fan_reload_seeding: fan already on at startup — seeding anchor"
@@ -1749,15 +1821,16 @@ class RoomAutomation:
                 "homeassistant", SERVICE_TURN_OFF, {"entity_id": humidity_fans},
                 blocking=False,
             )
-            # v4.6.4 P3c: intentionally clear BOTH anchor fields on cap-fire.
-            # `_humidity_on_since` resets so a future re-trigger starts a fresh
-            # runtime window; `_humidity_fan_triggered_time` clears so `fan_is_on`
-            # (derived from it) flips false and the next eval routes through the
-            # ON branch rather than the OFF branch.
+            # v4.6.4 P3c: clear anchors on cap-fire.
             self._humidity_on_since = None
             self._humidity_fan_triggered_time = None
-            # Suppression: require humidity to drop below OFF threshold before re-trigger.
             self._humidity_cap_suppressed = True
+            self._humidity_spike_was_trigger = False
+            self._humidity_presence_runtime_until = None
+            # D2 — clear EMA state on fan-off so the next ON event seeds a
+            # fresh baseline (no stale shower humidity bleeding into the
+            # post-cap quiet period).
+            self._humidity_reset_baseline()
             return
 
         # v4.6.2.1: Clear suppression once humidity drops below OFF threshold.
@@ -1765,63 +1838,213 @@ class RoomAutomation:
             if humidity <= off_threshold:
                 self._humidity_cap_suppressed = False
             else:
-                # Still suppressed — do not re-trigger
+                # Still suppressed — do not re-trigger (spike does NOT bypass
+                # suppression — operator-settled, Q-review.)
                 return
 
-        # v4.6.2.1: Hysteresis — derive ON/OFF thresholds from a single configured value.
-        # Fan is currently on if _humidity_fan_triggered_time is set.
+        # D3 — presence/usage-proportional post-vacancy runtime book-keeping.
+        # Update the vacancy edge + window timer BEFORE the OFF branch so the
+        # window keeps the fan ON when humidity is already below off_threshold.
+        presence_runtime_enabled = bool(
+            self.config.get(CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED, False)
+        )
+        if presence_runtime_enabled and wet_room and room_occupied is not None:
+            self._humidity_update_presence_runtime(now, room_occupied)
+
+        # v4.6.2.1: Hysteresis — fan_is_on derived from anchor.
         fan_is_on = self._humidity_fan_triggered_time is not None
 
-        if humidity >= threshold:
-            # Turn on humidity fans/switches
-            if not fan_is_on:
-                self._humidity_fan_triggered_time = dt_util.now()
-                self._humidity_on_since = now
+        # D2 — compose the ON trigger: absolute threshold OR spike.
+        absolute_triggered = humidity >= threshold
+        on_trigger = absolute_triggered or spike_fired
 
-            # Use homeassistant domain to support both fans and switches
+        if on_trigger:
+            if not fan_is_on:
+                self._humidity_fan_triggered_time = now
+                self._humidity_on_since = now
+                self._humidity_spike_was_trigger = spike_fired and not absolute_triggered
+                if self._humidity_spike_was_trigger:
+                    _LOGGER.info(
+                        "humidity_fan_spike_triggered: baseline ≈ %s, "
+                        "current %.1f%% (mode=%s)",
+                        ("%.1f" % self._humidity_ema) if self._humidity_ema is not None else "n/a",
+                        humidity, spike_mode,
+                    )
             await self._safe_service_call(
                 "homeassistant",
                 SERVICE_TURN_ON,
                 {"entity_id": humidity_fans},
                 blocking=False,
             )
-            _LOGGER.debug("Turned on humidity fans - humidity at %.1f%%", humidity)
+            _LOGGER.debug(
+                "Turned on humidity fans — humidity at %.1f%% (spike=%s)",
+                humidity, spike_fired,
+            )
+            return
 
-        elif fan_is_on and humidity <= off_threshold:
-            # Humidity dropped below OFF threshold — check min-runtime gate
-            elapsed = (now - self._humidity_fan_triggered_time).total_seconds()
-            if elapsed >= timeout:
-                await self._safe_service_call(
-                    "homeassistant",
-                    SERVICE_TURN_OFF,
-                    {"entity_id": humidity_fans},
-                    blocking=False,
-                )
-                _LOGGER.debug(
-                    "Turned off humidity fans — humidity %.1f%% < off threshold %.1f%%,"
-                    " ran %.0f s",
-                    humidity, off_threshold, elapsed,
-                )
-                self._humidity_fan_triggered_time = None
-                self._humidity_on_since = None
-        # else: fan is on and humidity is between off_threshold and threshold — hysteresis hold
+        # D3 — keep the fan on during the post-vacancy window even when humidity
+        # has dropped below OFF threshold. Window does NOT extend through the
+        # max-runtime cap (the cap-branch above clears the window).
+        if (
+            fan_is_on
+            and self._humidity_presence_runtime_until is not None
+            and now < self._humidity_presence_runtime_until
+        ):
+            return  # presence-runtime hold
 
-    def should_coordinate_with_hvac(self) -> bool:
-        """Check if HVAC coordination is enabled and HVAC is running."""
-        if not self.config.get(CONF_HVAC_COORDINATION_ENABLED, False):
+        # OFF branch — humidity at/below off_threshold OR (spike-was-trigger and
+        # baseline-relative OFF condition met).
+        if fan_is_on:
+            spike_off_ok = False
+            if self._humidity_spike_was_trigger and self._humidity_ema is not None:
+                delta_off = max(spike_delta / 2.0, 1.0)  # Δ_off ≈ Δ/2
+                spike_off_ok = humidity <= self._humidity_ema + delta_off
+
+            ready_to_off = humidity <= off_threshold or spike_off_ok
+            if ready_to_off:
+                elapsed = (now - self._humidity_fan_triggered_time).total_seconds()
+                if elapsed >= timeout:
+                    await self._safe_service_call(
+                        "homeassistant",
+                        SERVICE_TURN_OFF,
+                        {"entity_id": humidity_fans},
+                        blocking=False,
+                    )
+                    _LOGGER.debug(
+                        "Turned off humidity fans — humidity %.1f%% (spike_off=%s),"
+                        " ran %.0f s",
+                        humidity, spike_off_ok, elapsed,
+                    )
+                    self._humidity_fan_triggered_time = None
+                    self._humidity_on_since = None
+                    self._humidity_spike_was_trigger = False
+                    self._humidity_presence_runtime_until = None
+                    # D2: clear baseline state on fan-off for re-arming.
+                    self._humidity_reset_baseline()
+        # else: fan is off and humidity below threshold — nothing to do.
+
+    # ------------------------------------------------------------------
+    # D2/D3 helpers — humidity baseline + presence-runtime window
+    # ------------------------------------------------------------------
+
+    def _humidity_reset_baseline(self) -> None:
+        """Clear EMA + window state — called on fan-off and cap-fire."""
+        self._humidity_ema = None
+        self._humidity_ema_samples = 0
+        self._humidity_ema_warmup_seen_at = None
+        self._humidity_ema_last_sample_ts = None
+        self._humidity_window.clear()
+
+    def _humidity_update_baseline(
+        self,
+        humidity: float,
+        now: datetime,
+        alpha_s: float,
+        mode: str,
+    ) -> None:
+        """Update EMA or window-min baseline with the latest humidity sample."""
+        if mode == HUMIDITY_FAN_SPIKE_MODE_WINDOW_MIN:
+            self._humidity_window.append((now, humidity))
+            cutoff = now - timedelta(seconds=alpha_s)
+            while self._humidity_window and self._humidity_window[0][0] < cutoff:
+                self._humidity_window.popleft()
+            if self._humidity_ema_warmup_seen_at is None:
+                self._humidity_ema_warmup_seen_at = now
+            self._humidity_ema_samples += 1
+            return
+
+        # EMA mode (default).
+        if self._humidity_ema is None:
+            self._humidity_ema = humidity
+            self._humidity_ema_warmup_seen_at = now
+            self._humidity_ema_last_sample_ts = now
+            self._humidity_ema_samples = 1
+            return
+        dt_s = max(
+            (now - self._humidity_ema_last_sample_ts).total_seconds()
+            if self._humidity_ema_last_sample_ts is not None
+            else 0.0,
+            0.0,
+        )
+        alpha_per_sample = 1.0 - math.exp(-dt_s / max(alpha_s, 1.0))
+        alpha_per_sample = max(0.0, min(1.0, alpha_per_sample))
+        self._humidity_ema = (
+            alpha_per_sample * humidity
+            + (1.0 - alpha_per_sample) * self._humidity_ema
+        )
+        self._humidity_ema_last_sample_ts = now
+        self._humidity_ema_samples += 1
+
+    def _humidity_spike_should_fire(
+        self,
+        humidity: float,
+        now: datetime,
+        alpha_s: float,
+        delta_pct: float,
+        mode: str,
+    ) -> bool:
+        """Return True iff the spike trigger should fire post-warm-up."""
+        if self._humidity_ema_warmup_seen_at is None:
             return False
-
-        climate_entity = self.config.get(CONF_CLIMATE_ENTITY)
-        if not climate_entity:
+        warmup_required_s = max(alpha_s / 2.0, 1.0)
+        elapsed = (now - self._humidity_ema_warmup_seen_at).total_seconds()
+        if elapsed < warmup_required_s:
             return False
+        if mode == HUMIDITY_FAN_SPIKE_MODE_WINDOW_MIN:
+            if not self._humidity_window:
+                return False
+            baseline = min(h for _, h in self._humidity_window)
+        else:
+            if self._humidity_ema is None:
+                return False
+            baseline = self._humidity_ema
+        return humidity >= baseline + delta_pct
 
-        state = self.hass.states.get(climate_entity)
-        if not state:
-            return False
+    def _humidity_update_presence_runtime(
+        self, now: datetime, room_occupied: bool,
+    ) -> None:
+        """Track occupied→vacant edge and arm presence-runtime window.
 
-        # Check if HVAC is actively heating or cooling
-        hvac_action = state.attributes.get("hvac_action")
-        return hvac_action in ["heating", "cooling"]
+        Reads `_became_occupied_time` from the room coordinator (sole source of
+        truth for occupancy duration; coordinator.py:152). Fires only on the
+        true edge from occupied→vacant; ignores re-vacate when window already
+        armed at a longer occupancy.
+        """
+        last = self._humidity_last_room_occupied
+        self._humidity_last_room_occupied = room_occupied
+        if last is None or last == room_occupied:
+            return
+        if not room_occupied:
+            became = getattr(self.coordinator, "_became_occupied_time", None)
+            if not isinstance(became, datetime):
+                return
+            occupied_seconds = max((now - became).total_seconds(), 0.0)
+            base_s = int(self.config.get(
+                CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S,
+                DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S,
+            ))
+            per_min_s = int(self.config.get(
+                CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S,
+                DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S,
+            ))
+            cap_s = int(self.config.get(
+                CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S,
+                DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S,
+            ))
+            occupancy_min = occupied_seconds / 60.0
+            post_run_s = min(base_s + per_min_s * occupancy_min, cap_s)
+            self._humidity_presence_runtime_until = now + timedelta(seconds=post_run_s)
+            _LOGGER.info(
+                "humidity_fan_presence_runtime: occupancy=%.1f min -> post-run %ds",
+                occupancy_min, int(post_run_s),
+            )
+
+    # D8 step 1 — `should_coordinate_with_hvac` was zero-caller dead code
+    # (graphify + grep confirmed). Removed in the bathroom-exhaust intelligence
+    # cycle alongside the humidity-fan path consolidation. Its sole caller
+    # surface (CONF_CLIMATE_ENTITY climate-state polling for "actively
+    # heating/cooling") is not reused anywhere; the live `_is_hvac_managing_fans`
+    # helper below remains the comfort-fan handshake.
 
     def _is_hvac_managing_fans(self) -> bool:
         """Check if HVAC coordinator is managing this room's fans.

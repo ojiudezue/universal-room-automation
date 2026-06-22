@@ -260,6 +260,10 @@ async def async_setup_entry(
         # L2 is an unconditional safety veto).
         RoomFanRecheckEnabledSwitch(coordinator),
         RoomFanRecheckL2AllowedSwitch(coordinator),
+        # D6 (bathroom-exhaust intelligence cycle): per-room mirrors of
+        # options-flow toggles #2 (comfort) and #3 (humidity).
+        RoomComfortFanControlSwitch(coordinator),
+        RoomHumidityFanControlSwitch(coordinator),
     ]
 
     async_add_entities(entities)
@@ -4221,3 +4225,97 @@ class OptimizerKillSwitch(SwitchEntity, RestoreEntity):
         # (default released) and write the state out so the entity isn't
         # stuck in "unknown" until the first user interaction.
         self.async_write_ha_state()
+
+
+# ============================================================================
+# D6 — Room-device switches for the bathroom-exhaust intelligence cycle.
+# These mirror the options-flow toggles #2 (comfort) and #3 (humidity) onto
+# the room device so per-room operator control is one tap (not a config-flow
+# round-trip). Writeback pattern follows RoomFanRecheckEnabledSwitch.
+# ============================================================================
+
+
+class _RoomBooleanOptionSwitch(
+    UniversalRoomEntity, SwitchEntity, RestoreEntity,
+):
+    """Generic per-room boolean options-writeback switch.
+
+    Subclasses set `_conf_key`, `_default`, the entity slug+display name in
+    `__init__`. RestoreEntity is the runtime store; entry.options seeds
+    install-time defaults. Writes the value back into the room entry.options
+    on toggle so consumers reading `entry.options` pick it up immediately.
+    """
+
+    _attr_entity_category = EntityCategory.CONFIG
+    _conf_key: str = ""
+    _default: bool = False
+
+    def _read_default(self) -> bool:
+        merged = {
+            **self.coordinator.entry.data,
+            **self.coordinator.entry.options,
+        }
+        return bool(merged.get(self._conf_key, self._default))
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state in ("on", "off"):
+            self._attr_is_on = last_state.state == "on"
+        else:
+            self._attr_is_on = self._read_default()
+
+    def _mirror_options(self, value: bool) -> None:
+        try:
+            entry = self.coordinator.entry
+            self.hass.config_entries.async_update_entry(
+                entry,
+                options={**entry.options, self._conf_key: value},
+            )
+        except Exception:  # noqa: BLE001 — best-effort options mirror
+            _LOGGER.debug(
+                "%s: options mirror failed", type(self).__name__, exc_info=True,
+            )
+
+    async def async_turn_on(self, **kwargs) -> None:
+        self._attr_is_on = True
+        self._mirror_options(True)
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        self._attr_is_on = False
+        self._mirror_options(False)
+        self.async_write_ha_state()
+
+
+class RoomComfortFanControlSwitch(_RoomBooleanOptionSwitch):
+    """D6 — per-room Comfort Fan Control toggle (mirrors CONF_FAN_CONTROL_ENABLED)."""
+
+    _attr_icon = "mdi:fan-auto"
+
+    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
+        from .const import CONF_FAN_CONTROL_ENABLED
+        super().__init__(
+            coordinator, "comfort_fan_control", "Comfort Fan Control",
+        )
+        self._conf_key = CONF_FAN_CONTROL_ENABLED
+        self._default = False
+        self._attr_is_on = self._read_default()
+
+
+class RoomHumidityFanControlSwitch(_RoomBooleanOptionSwitch):
+    """D6 — per-room Humidity Fan Control toggle (mirrors CONF_HUMIDITY_FAN_CONTROL_ENABLED)."""
+
+    _attr_icon = "mdi:fan-alert"
+
+    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
+        from .const import (
+            CONF_HUMIDITY_FAN_CONTROL_ENABLED,
+            DEFAULT_HUMIDITY_FAN_CONTROL_ENABLED,
+        )
+        super().__init__(
+            coordinator, "humidity_fan_control", "Humidity Fan Control",
+        )
+        self._conf_key = CONF_HUMIDITY_FAN_CONTROL_ENABLED
+        self._default = DEFAULT_HUMIDITY_FAN_CONTROL_ENABLED
+        self._attr_is_on = self._read_default()

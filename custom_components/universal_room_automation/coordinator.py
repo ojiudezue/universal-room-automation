@@ -2248,9 +2248,12 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                         data.get(STATE_OCCUPIED, False)
                     )
 
-                    # Humidity-based fan control
+                    # Humidity-based fan control (D3 receives room occupancy
+                    # so the post-vacancy presence-runtime window can arm on
+                    # the true occupied→vacant edge).
                     await self.automation.handle_humidity_based_fan_control(
-                        data.get(STATE_HUMIDITY)
+                        data.get(STATE_HUMIDITY),
+                        room_occupied=data.get(STATE_OCCUPIED),
                     )
                 
                 # v3.1.0: Shared space scheduled auto-off check
