@@ -150,6 +150,15 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         self._last_occupancy_source: str = "none"  # Track source for ble→motion re-entry
         self._last_source_reentry_time: datetime | None = None  # Cooldown for re-entry
         self._became_occupied_time: datetime | None = None  # v3.2.4: When current occupancy session started
+        # Bathroom-exhaust intelligence cycle (FIX 1): snapshot of
+        # _became_occupied_time captured ON THE VACANT TICK, BEFORE the live
+        # attribute is cleared (see clears at coordinator.py:1548/1554/2133/
+        # 2148). The humidity handler runs LATER in the same tick and needs
+        # the duration of the occupancy session that just ended. The handler
+        # (automation.py::_humidity_update_presence_runtime) reads this
+        # snapshot instead of the live (already-cleared) attribute on the
+        # occupied→vacant edge.
+        self._last_occupied_since_for_handler: datetime | None = None
         self._unsub_state_listeners = []
 
         # Debounce: require sensors active for N seconds before confirming entry
@@ -1545,12 +1554,24 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     self._last_occupied_time = now
                     data[STATE_OCCUPANCY_SOURCE] = "timeout"
                 else:
+                    # FIX 1: stash before clear so humidity handler (runs
+                    # later this tick) can read the just-ended session's
+                    # duration on the occupied→vacant edge.
+                    if self._became_occupied_time is not None:
+                        self._last_occupied_since_for_handler = (
+                            self._became_occupied_time
+                        )
                     self._became_occupied_time = None
                     data[STATE_OCCUPANCY_SOURCE] = "none"
             else:
                 data[STATE_TIMEOUT_REMAINING] = 0
                 data[STATE_OCCUPIED] = False
                 data[STATE_OCCUPANCY_SOURCE] = "none"
+                # FIX 1: same snapshot on the no-motion path.
+                if self._became_occupied_time is not None:
+                    self._last_occupied_since_for_handler = (
+                        self._became_occupied_time
+                    )
                 self._became_occupied_time = None
         
         # Calculate time since last motion
@@ -2130,6 +2151,11 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             data[STATE_OCCUPIED] = False
             data[STATE_OCCUPANCY_SOURCE] = "override"
             self._last_occupied_state = False
+            # FIX 1: snapshot before clear.
+            if self._became_occupied_time is not None:
+                self._last_occupied_since_for_handler = (
+                    self._became_occupied_time
+                )
             self._became_occupied_time = None
 
         # === v3.22.12: Skip automation on first refresh ===
@@ -2248,13 +2274,19 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                         data.get(STATE_OCCUPIED, False)
                     )
 
-                    # Humidity-based fan control (D3 receives room occupancy
-                    # so the post-vacancy presence-runtime window can arm on
-                    # the true occupied→vacant edge).
-                    await self.automation.handle_humidity_based_fan_control(
-                        data.get(STATE_HUMIDITY),
-                        room_occupied=data.get(STATE_OCCUPIED),
-                    )
+                # FIX 3b (bathroom-exhaust intelligence): humidity venting is
+                # independent of the master climate-automation switch — gated
+                # SOLELY by toggle #3 (CONF_HUMIDITY_FAN_CONTROL_ENABLED) +
+                # per-knob enables inside the handler, and by the safety cap.
+                # Moved OUT of the `if self._is_climate_automation_enabled()`
+                # gate so a bathroom exhaust still vents (and the max-runtime
+                # safety cap still fires) when comfort-fan automation is off.
+                # D3 receives room occupancy so the post-vacancy
+                # presence-runtime window can arm on the true edge.
+                await self.automation.handle_humidity_based_fan_control(
+                    data.get(STATE_HUMIDITY),
+                    room_occupied=data.get(STATE_OCCUPIED),
+                )
                 
                 # v3.1.0: Shared space scheduled auto-off check
                 await self.automation.check_scheduled_auto_off()

@@ -1733,14 +1733,42 @@ class RoomAutomation:
         if not humidity_fans or humidity is None:
             return
 
-        # D1 — toggle #3 master enable. When False, no automated controller
-        # acts on humidity fans (operator owns them manually). Defaults True to
-        # preserve behavior for entries without the new field; anchor state is
-        # NOT cleared so re-enabling later picks up where it left off (max-
-        # runtime cap re-arms via reload-seed if needed).
-        if not self.config.get(
+        toggle3_on = bool(self.config.get(
             CONF_HUMIDITY_FAN_CONTROL_ENABLED, DEFAULT_HUMIDITY_FAN_CONTROL_ENABLED,
-        ):
+        ))
+
+        # FIX 3a (bathroom-exhaust intelligence) — SAFETY-CAP EXCEPTION:
+        # Even when toggle #3 is OFF (operator owns the fan manually), the
+        # max-runtime safety cap MUST still force-off a humidity fan that has
+        # exceeded its cap. Without this exception, a reload-seeded anchor +
+        # toggle-#3 OFF leaves the cap unreachable and the fan can run
+        # indefinitely. Cap-only — no other automation resumes under
+        # toggle-off (no on-logic, no off-threshold logic).
+        if not toggle3_on:
+            if self._humidity_on_since is not None:
+                max_runtime_cap = self.config.get(
+                    CONF_HUMIDITY_FAN_MAX_RUNTIME,
+                    DEFAULT_HUMIDITY_FAN_MAX_RUNTIME,
+                )
+                now_cap = dt_util.now()
+                elapsed_cap = (now_cap - self._humidity_on_since).total_seconds()
+                if elapsed_cap >= max_runtime_cap:
+                    _LOGGER.info(
+                        "humidity_fan_max_runtime_exceeded (toggle3=OFF safety): "
+                        "forcing off after %.0f s (cap %.0f s)",
+                        elapsed_cap, max_runtime_cap,
+                    )
+                    await self._safe_service_call(
+                        "homeassistant", SERVICE_TURN_OFF,
+                        {"entity_id": humidity_fans},
+                        blocking=False,
+                    )
+                    self._humidity_on_since = None
+                    self._humidity_fan_triggered_time = None
+                    self._humidity_cap_suppressed = True
+                    self._humidity_spike_was_trigger = False
+                    self._humidity_presence_runtime_until = None
+                    self._humidity_reset_baseline()
             return
 
         wet_room = bool(self.config.get(CONF_WET_ROOM, False))
@@ -1842,17 +1870,28 @@ class RoomAutomation:
                 # suppression — operator-settled, Q-review.)
                 return
 
+        # v4.6.2.1: Hysteresis — fan_is_on derived from anchor.
+        fan_is_on = self._humidity_fan_triggered_time is not None
+
         # D3 — presence/usage-proportional post-vacancy runtime book-keeping.
         # Update the vacancy edge + window timer BEFORE the OFF branch so the
         # window keeps the fan ON when humidity is already below off_threshold.
+        #
+        # FIX 2 (bathroom-exhaust intelligence): only ARM the window when the
+        # fan is actually on. Without this, a no-shower vacancy edge armed a
+        # latent window that a later unrelated fan-on cycle would inherit and
+        # silently extend. Update last_room_occupied tracking ALWAYS so we
+        # don't miss an edge, but only ARM when fan_is_on.
         presence_runtime_enabled = bool(
             self.config.get(CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED, False)
         )
         if presence_runtime_enabled and wet_room and room_occupied is not None:
-            self._humidity_update_presence_runtime(now, room_occupied)
-
-        # v4.6.2.1: Hysteresis — fan_is_on derived from anchor.
-        fan_is_on = self._humidity_fan_triggered_time is not None
+            if fan_is_on:
+                self._humidity_update_presence_runtime(now, room_occupied)
+            else:
+                # Keep edge-tracking current so a future fan-on cycle's
+                # vacate edge fires correctly; do NOT arm the window.
+                self._humidity_last_room_occupied = room_occupied
 
         # D2 — compose the ON trigger: absolute threshold OR spike.
         absolute_triggered = humidity >= threshold
@@ -1921,7 +1960,13 @@ class RoomAutomation:
                     self._humidity_presence_runtime_until = None
                     # D2: clear baseline state on fan-off for re-arming.
                     self._humidity_reset_baseline()
-        # else: fan is off and humidity below threshold — nothing to do.
+        else:
+            # FIX 2 (bathroom-exhaust intelligence): no-fan, no-trigger path.
+            # If a stale presence-runtime window is hanging around from a
+            # prior cycle, clear it so it cannot bleed into a future fan-on
+            # cycle. Tie the window's lifetime strictly to fan-on cycles.
+            if self._humidity_presence_runtime_until is not None:
+                self._humidity_presence_runtime_until = None
 
     # ------------------------------------------------------------------
     # D2/D3 helpers — humidity baseline + presence-runtime window
@@ -2015,7 +2060,19 @@ class RoomAutomation:
         if last is None or last == room_occupied:
             return
         if not room_occupied:
-            became = getattr(self.coordinator, "_became_occupied_time", None)
+            # FIX 1 (bathroom-exhaust intelligence): the coordinator clears
+            # `_became_occupied_time` to None earlier in the SAME tick that we
+            # observe the occupied→vacant edge (see coordinator.py:1548/1554/
+            # 2148-style clears). Reading the live attr here always returned
+            # None and the post-vacancy window never armed. Prefer the
+            # snapshot the coordinator stashes JUST BEFORE its clear; fall
+            # back to the live attr only if the snapshot is missing (e.g.
+            # tests that drive the handler directly).
+            became = getattr(
+                self.coordinator, "_last_occupied_since_for_handler", None,
+            )
+            if not isinstance(became, datetime):
+                became = getattr(self.coordinator, "_became_occupied_time", None)
             if not isinstance(became, datetime):
                 return
             occupied_seconds = max((now - became).total_seconds(), 0.0)
