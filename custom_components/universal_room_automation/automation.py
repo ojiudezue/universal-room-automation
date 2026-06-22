@@ -1149,11 +1149,23 @@ class RoomAutomation:
             else:
                 available.append(cover_id)
         if unavailable:
-            room_name = self.config.get("room_name", "Unknown")
-            _LOGGER.warning(
-                "Room %s: Skipping %d unavailable cover(s): %s",
-                room_name, len(unavailable), unavailable,
-            )
+            # Log-rate fix: `_get_available_covers` is called on every cover
+            # op (entry/timed/HVAC), so a down integration (e.g. PowerView
+            # gateway offline) flooded the log with this warning ~every
+            # 1-2s. Warn only when the unavailable SET changes (goes down or
+            # partially recovers), not on every call. Lazy per-instance
+            # tracker — no __init__ change needed.
+            unavailable_key = frozenset(unavailable)
+            if getattr(self, "_last_unavailable_covers_logged", None) != unavailable_key:
+                self._last_unavailable_covers_logged = unavailable_key
+                room_name = self.config.get("room_name", "Unknown")
+                _LOGGER.warning(
+                    "Room %s: Skipping %d unavailable cover(s): %s",
+                    room_name, len(unavailable), unavailable,
+                )
+        elif getattr(self, "_last_unavailable_covers_logged", None) is not None:
+            # All covers recovered — reset so a future outage warns once again.
+            self._last_unavailable_covers_logged = None
         return available
 
     async def _control_covers_entry(self, state_data: dict[str, Any]) -> None:
