@@ -28,8 +28,14 @@ A (local correctness) · B (integration/state-machine + the I1 migration) · C (
 - **H4 — spike + purge.** A shower with the spike enabled turns the exhaust on via EMA spike (or absolute), and in a wet room the exhaust keeps running a usage-proportional window after vacancy. Signal: `Humidity Fan Active` true through the purge; `humidity_fan_presence_runtime` log line. Window: next shower.
 - **H5 — Option-2 gate boundary + universal cap.** Under ManualMode / master-off / humidity-toggle-off, venting does NOT start, but a fan already past `max_runtime` is still force-off'd by the safety cap. Largely in-suite-authoritative (gate cross-product); live-observable via the new binary sensors + `is_overridden`/toggle states.
 
-## Live Validation — *(prospective; to be written back post-restart)*
-- **L1 — deploy healthy:** `update.universal_room_automation_update` installed_version `v5.6.0`; new entities resolve; zero boot ERRORs. *(fill observed)*
-- **L2 — decouple intact:** a configured humidity-fan room actuates on humidity; `hvac_fans` humidity-free. *(fill observed)*
-- **L3 — gate + cap:** venting suppressed under master-off/toggle-off; cap still universal. *(in-suite-authoritative; note any live signal)*
-- **L4 — behavioral (spike/purge):** deferred to a real shower window; note when observed. *(fill observed / window)*
+## Live Validation — Validated 2026-06-23 (post-restart)
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | Deploy healthy | **PASS** | `update.universal_room_automation_update` installed_version = `v5.6.0`; **zero** URA ERROR entries in the system log at boot; integration loaded (entities present). |
+| H1 | New surfaces exist | **PASS** | Room-device switches live across rooms: `switch.av_closet_av_closet_humidity_fan_control` (on), `switch.av_closet_av_closet_comfort_fan_control` (off). Comfort rename live: `binary_sensor.master_bedroom_fan_should_run` friendly name = "Master Bedroom **Comfort** Fan Should Run" (slug unchanged). The `Humidity Fan Should Run` / `Humidity Fan Active` binary sensors are registered **disabled-by-default** (`_attr_entity_registry_enabled_default = False`, diagnostic/opt-in) — intentionally absent from the state machine until a user enables them; not a defect. |
+| D8 | Comfort-range scoring (Bug Class #53) | **PASS** | `sensor.guest_bedroom_1_comfort_score` = 74 with attrs `comfort_range_low: 68`, `comfort_range_high: 76` — both bounds scored; the legacy `setpoint` attribute is gone. |
+| L2 | Decouple intact (invariant I1) | **code-proven; no live regression** | `hvac_fans.py` is humidity-free (0 grep hits); the humidity handler is a single hoisted coordinator call; zero boot errors. Behavioral proof — a humidity event actuating the exhaust — deferred to a real bathroom-use window. |
+| L3 / H5 | Option-2 gate boundary + universal cap | **in-suite-authoritative** | Gate cross-product (venting gated by master-automation + toggle #3; cap fires universally) proven by the cycle suite 66/66, incl. the orchestrator's own `and`→`or` source mutation on `_humidity_gate` (fails 2 named tests). Live-observable via the per-room comfort/humidity fan-control switches. |
+| L4 / H4 | Spike detection + presence-proportional purge | **deferred to live window** | Fires only on a real humidity spike / wet-room vacancy; will be noted when next observed (e.g. a shower). |
+
+**Notes:** (1) The two new humidity binary sensors are diagnostic and disabled-by-default — enable them per room to watch should-run/active live. (2) The behavioral headline (spike→exhaust on, usage-proportional purge, ManualMode suppresses venting while the cap still force-offs) is in-suite-authoritative and awaits a real bathroom-use window for a live note; the cycle is otherwise validated. (3) Cover log-spam fix rode in bundled; no separate validation needed (log-on-change is observable only during a Hunter-Douglas outage).

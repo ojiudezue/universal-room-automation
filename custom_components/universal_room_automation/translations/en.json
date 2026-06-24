@@ -107,6 +107,7 @@
           "presence_sensors": "Presence Sensors (mmWave)",
           "occupancy_sensors": "Combined Occupancy Sensors",
           "scanner_areas": "BLE Scanner Areas (Optional)",
+          "disable_camera_presence": "Disable Camera Presence (Opt-Out)",
           "temperature_sensor": "Temperature Sensor",
           "humidity_sensor": "Humidity Sensor",
           "illuminance_sensor": "Light Level Sensor",
@@ -121,6 +122,7 @@
           "presence_sensors": "mmWave/radar sensors that detect presence without movement",
           "occupancy_sensors": "Pre-combined occupancy sensors (motion + presence)",
           "scanner_areas": "Only needed for sparse scanner homes. Select areas where BLE scanners are located that should map to this room. Leave empty if this room has its own scanner.",
+          "disable_camera_presence": "Skip camera-based presence detection for this room. Use for rooms with chronic camera person-classifier false positives (TV reflections, sun-glare hallways). The room's other sensors (mmWave, PIR, BLE) continue to contribute.",
           "temperature_sensor": "Room temperature for climate automation and alerts",
           "humidity_sensor": "Room humidity for fan control and comfort alerts",
           "illuminance_sensor": "Light level (lux) for 'turn on if dark' automation",
@@ -325,29 +327,43 @@
         }
       },
       "climate": {
-        "title": "Climate & HVAC",
-        "description": "Configure temperature-based fan control and HVAC coordination. Fan speed thresholds will be configured in a follow-up step if fan control is enabled.",
+        "title": "Climate & Fans",
+        "description": "Configure fans first (HVAC-managed, comfort, humidity/exhaust), then the climate backstop at the bottom (comfort range + thermostat fallback).",
         "data": {
-          "climate_entity": "Climate/Thermostat Entity",
-          "hvac_coordination_enabled": "Enable HVAC Coordination",
-          "target_temp_cool": "Cooling Target",
-          "target_temp_heat": "Heating Target",
-          "fan_control_enabled": "Enable Fan Control",
+          "hvac_coordination_enabled": "Enable HVAC-Managed Fans",
+          "fan_control_enabled": "Enable Comfort Fan Control",
+          "humidity_fan_control_enabled": "Enable Humidity/Exhaust Fan Control",
+          "wet_room": "Wet Room (bathroom/laundry)",
+          "humidity_fan_spike_enabled": "Enable Humidity Spike Detection",
+          "humidity_fan_presence_runtime_enabled": "Enable Post-Vacancy Runtime",
+          "humidity_fan_presence_runtime_base_s": "Post-Vacancy Base Runtime (s)",
+          "humidity_fan_presence_runtime_per_min_s": "Added Runtime per Minute Occupied (s)",
+          "humidity_fan_presence_runtime_cap_s": "Post-Vacancy Runtime Cap (s)",
           "fan_temp_threshold": "Fan Start Temperature",
           "humidity_fan_threshold": "Humidity Fan Threshold",
           "humidity_fan_timeout": "Humidity Fan Min Runtime",
-          "humidity_fan_max_runtime": "Humidity Fan Max Runtime"
+          "humidity_fan_max_runtime": "Humidity Fan Max Runtime",
+          "target_temp_heat": "Comfort Range — Low (°F)",
+          "target_temp_cool": "Comfort Range — High (°F)",
+          "climate_entity": "Climate/Thermostat Entity (fallback)"
         },
         "data_description": {
-          "climate_entity": "Your thermostat or HVAC controller (auto-detected from area if available)",
-          "hvac_coordination_enabled": "Coordinate room automation with HVAC state",
-          "target_temp_cool": "Target temperature for cooling mode",
-          "target_temp_heat": "Target temperature for heating mode",
-          "fan_control_enabled": "Automatically control fans based on temperature (speed thresholds in next step)",
-          "fan_temp_threshold": "Temperature above which fans turn on",
-          "humidity_fan_threshold": "Humidity % above which exhaust fans turn on",
+          "hvac_coordination_enabled": "When ON, comfort fans are managed by the HVAC coordinator instead of room-level rules.",
+          "fan_control_enabled": "Automatically control comfort/ceiling fans based on temperature (speed thresholds in next step).",
+          "humidity_fan_control_enabled": "Master switch for humidity/exhaust automation. When OFF, URA does not actuate the humidity fans at all.",
+          "wet_room": "When ON, this room is treated as a wet room: enables humidity spike + post-vacancy runtime by default and exempts the exhaust from sleep-policy force-off.",
+          "humidity_fan_spike_enabled": "Adaptive baseline detection — fires the fan when humidity rises sharply above its running baseline (catches showers before the absolute threshold).",
+          "humidity_fan_presence_runtime_enabled": "After vacancy, keep the exhaust running for a usage-proportional period to finish venting.",
+          "humidity_fan_presence_runtime_base_s": "Minimum post-vacancy runtime (seconds).",
+          "humidity_fan_presence_runtime_per_min_s": "Additional seconds of post-vacancy runtime per minute of prior occupancy.",
+          "humidity_fan_presence_runtime_cap_s": "Hard cap on the post-vacancy runtime; must be ≤ Humidity Fan Max Runtime.",
+          "fan_temp_threshold": "Temperature above which comfort fans turn on.",
+          "humidity_fan_threshold": "Humidity % above which exhaust fans turn on (absolute threshold; OR-companion to spike detection).",
           "humidity_fan_timeout": "Minimum continuous runtime before the fan is allowed to turn off after humidity drops below threshold. Prevents short-cycling.",
-          "humidity_fan_max_runtime": "Maximum continuous humidity-fan runtime. Forces off if humidity stays elevated longer than this — protects against stuck humidity sensors and runaway runs. Set higher for laundry rooms; lower for bathrooms."
+          "humidity_fan_max_runtime": "Maximum continuous humidity-fan runtime. Forces off if humidity stays elevated longer than this — protects against stuck humidity sensors and runaway runs.",
+          "target_temp_heat": "Lower bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
+          "target_temp_cool": "Upper bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
+          "climate_entity": "Optional fallback thermostat for zone-thermostat resolution when the zone has no explicit thermostat set."
         }
       },
       "fan_speeds": {
@@ -744,14 +760,40 @@
           "sleep_end_hour": "Sleep End Hour",
           "geofence_entities": "Geofence Device Trackers",
           "guest_mode_persistence_seconds": "Guest Mode Persistence (seconds)",
-          "guest_mode_require_confidence": "Guest Mode Min Census Confidence"
+          "guest_mode_require_confidence": "Guest Mode Min Census Confidence",
+          "fan_recheck_enabled": "Fan Recheck (master)"
         },
         "data_description": {
           "sleep_start_hour": "Hour (0–23) when the house enters sleep mode. Default: 23 (11 PM).",
           "sleep_end_hour": "Hour (0–23) when the house exits sleep mode. Default: 6 (6 AM).",
           "geofence_entities": "Device tracker entities used for geofence-based arrival/departure detection. Select person device trackers that report home/not_home zones.",
           "guest_mode_persistence_seconds": "How long an unidentified person must persist before the house enters Guest mode. Filters transient ID failures (face DB miss, BLE coverage gap). Set to 0 to disable persistence (instant trigger). Default: 300s (5 min).",
-          "guest_mode_require_confidence": "Minimum census confidence required to trigger Guest mode. 'medium' refuses to fire when cameras disagree or no camera data. 'high' requires both camera platforms agree. Default: medium."
+          "guest_mode_require_confidence": "Minimum census confidence required to trigger Guest mode. 'medium' refuses to fire when cameras disagree or no camera data. 'high' requires both camera platforms agree. Default: medium.",
+          "fan_recheck_enabled": "Master kill-switch for the fan-noise Mode-2 BLE-gated fan-pause+recheck. Default OFF; flip ON after live validation. Timing knobs live under the collapsed Advanced section."
+        },
+        "sections": {
+          "fan_recheck_advanced": {
+            "name": "Fan Recheck Timing (Advanced — rarely change)",
+            "description": "Timing knobs for the fan-noise Mode-2 recheck state machine. Defaults are tuned for typical mmwave + ceiling-fan setups; only adjust if you understand the trade-offs.",
+            "data": {
+              "fan_recheck_arm_delay_s": "Arm Delay (s)",
+              "fan_recheck_spindown_s": "Fan Spindown (s)",
+              "fan_recheck_window_s": "Recheck Window (s)",
+              "fan_recheck_cooldown_s": "Cooldown After Recheck (s)",
+              "fan_recheck_max_per_hour": "Max Rechecks Per Hour",
+              "fan_recheck_hvac_suppress_s": "HVAC Suppression Window (s)",
+              "fan_recheck_mmwave_history_ticks": "mmWave-Sole Consecutive Ticks"
+            },
+            "data_description": {
+              "fan_recheck_arm_delay_s": "Delay between trigger eligibility and arming the recheck. Filters quick false-positives. Default: 60s.",
+              "fan_recheck_spindown_s": "How long airflow takes to stop after the fan is paused. mmWave is ignored during this period. Default: 30s.",
+              "fan_recheck_window_s": "Observation window after spindown. If mmWave drops while the fan is paused, the room vacates. Default: 60s.",
+              "fan_recheck_cooldown_s": "Wait time between rechecks per room before another can fire. Default: 1800s (30 min).",
+              "fan_recheck_max_per_hour": "Hard cap on how many rechecks a single room can run per hour. 0 disables the cap. Default: 2.",
+              "fan_recheck_hvac_suppress_s": "How long HVAC fan-routing stays suppressed for this room after a recheck pauses the fan, so heat/cool doesn't immediately re-energize it. Default: 600s (10 min).",
+              "fan_recheck_mmwave_history_ticks": "Number of consecutive presence ticks that must be mmWave-only (no motion/occupancy/camera) before a recheck is eligible. Default: 3."
+            }
+          }
         }
       },
       "coordinator_safety": {
@@ -1402,6 +1444,7 @@
           "presence_sensors": "Presence Sensors (mmWave)",
           "occupancy_sensors": "Combined Occupancy Sensors",
           "scanner_areas": "BLE Scanner Areas (Optional)",
+          "disable_camera_presence": "Disable Camera Presence (Opt-Out)",
           "temperature_sensor": "Temperature Sensor",
           "humidity_sensor": "Humidity Sensor",
           "illuminance_sensor": "Light Level Sensor",
@@ -1416,6 +1459,7 @@
           "presence_sensors": "mmWave/radar presence sensors",
           "occupancy_sensors": "Pre-combined occupancy sensors",
           "scanner_areas": "For sparse scanner homes only. Select areas with BLE scanners that should map to this room.",
+          "disable_camera_presence": "Skip camera-based presence detection for this room. Use for chronic camera false positives (TV reflections, sun-glare hallways).",
           "temperature_sensor": "Room temperature sensor",
           "humidity_sensor": "Room humidity sensor",
           "illuminance_sensor": "Light level (lux) sensor",
@@ -1637,21 +1681,28 @@
         }
       },
       "climate": {
-        "title": "Climate & HVAC",
-        "description": "Update temperature and HVAC settings.",
+        "title": "Climate & Fans",
+        "description": "Configure fans first (HVAC-managed, comfort, humidity/exhaust), then the climate backstop at the bottom.",
         "data": {
-          "climate_entity": "Climate Entity",
-          "hvac_coordination_enabled": "Enable HVAC Coordination",
-          "target_temp_cool": "Cooling Target",
-          "target_temp_heat": "Heating Target",
-          "fan_control_enabled": "Enable Fan Control",
+          "hvac_coordination_enabled": "Enable HVAC-Managed Fans",
+          "fan_control_enabled": "Enable Comfort Fan Control",
+          "humidity_fan_control_enabled": "Enable Humidity/Exhaust Fan Control",
+          "wet_room": "Wet Room (bathroom/laundry)",
+          "humidity_fan_spike_enabled": "Enable Humidity Spike Detection",
+          "humidity_fan_presence_runtime_enabled": "Enable Post-Vacancy Runtime",
+          "humidity_fan_presence_runtime_base_s": "Post-Vacancy Base Runtime (s)",
+          "humidity_fan_presence_runtime_per_min_s": "Added Runtime per Minute Occupied (s)",
+          "humidity_fan_presence_runtime_cap_s": "Post-Vacancy Runtime Cap (s)",
           "fan_temp_threshold": "Fan Start Temperature",
           "fan_speed_low_temp": "Low Speed Temperature",
           "fan_speed_med_temp": "Medium Speed Temperature",
           "fan_speed_high_temp": "High Speed Temperature",
           "humidity_fan_threshold": "Humidity Fan Threshold (%)",
           "humidity_fan_timeout": "Humidity Fan Min Runtime (s)",
-          "humidity_fan_max_runtime": "Humidity Fan Max Runtime (s)"
+          "humidity_fan_max_runtime": "Humidity Fan Max Runtime (s)",
+          "target_temp_heat": "Comfort Range — Low (°F)",
+          "target_temp_cool": "Comfort Range — High (°F)",
+          "climate_entity": "Climate/Thermostat Entity (fallback)"
         }
       },
       "sleep_protection": {
