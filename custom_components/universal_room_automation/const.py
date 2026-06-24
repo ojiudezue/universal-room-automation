@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.6.1
+# Universal Room Automation vv5.6.2
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.6.1"
+VERSION: Final = "v5.6.2"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -577,7 +577,7 @@ TIMING_MODE_TIME: Final = "time"
 TIMING_MODE_BOTH_LATEST: Final = "both_latest"
 TIMING_MODE_BOTH_EARLIEST: Final = "both_earliest"
 
-# --- Step 5: Climate & HVAC ---
+# --- Step 5: Climate & Fans ---
 CONF_CLIMATE_ENTITY: Final = "climate_entity"
 CONF_HVAC_COORDINATION_ENABLED: Final = "hvac_coordination_enabled"
 CONF_TARGET_TEMP_COOL: Final = "target_temp_cool"

@@ -63,3 +63,17 @@ def test_en_translation_matches_strings_step(flow, step_id, strings_step):
             f"{flow}.{step_id}.{sub}: translations/en.json is missing keys {sorted(missing)} "
             f"— sync them from strings.json or the UI shows raw snake_case keys."
         )
+
+    # Menu-item labels (options-flow menus) must match too. A step rename that
+    # updates the step title but forgets the menu_options label leaves a stale
+    # menu entry (the v5.6.1 "Climate & HVAC" menu-item miss).
+    s_menu = strings_step.get("menu_options", {})
+    e_menu = en_step.get("menu_options", {})
+    for key, label in s_menu.items():
+        assert key in e_menu, (
+            f"{flow}.{step_id}.menu_options is missing key {key!r} in translations/en.json."
+        )
+        assert e_menu[key] == label, (
+            f"{flow}.{step_id}.menu_options[{key!r}] drift: "
+            f"strings.json={label!r} en.json={e_menu.get(key)!r}"
+        )
