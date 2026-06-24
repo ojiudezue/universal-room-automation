@@ -1702,6 +1702,7 @@ class RoomAutomation:
         self,
         humidity: float | None,
         room_occupied: bool | None = None,
+        automation_enabled: bool = True,
     ) -> None:
         """Control humidity fans/switches based on humidity level.
 
@@ -1737,14 +1738,31 @@ class RoomAutomation:
             CONF_HUMIDITY_FAN_CONTROL_ENABLED, DEFAULT_HUMIDITY_FAN_CONTROL_ENABLED,
         ))
 
+        # FIX B (second fix-up — D-HIGH-2): reload-seed MUST run ABOVE the
+        # cap-only early-return. Previously the seed lived below it
+        # (v4.6.2.3 site, automation.py:1831-ish), so on a restart with
+        # toggle #3 OFF (or master-automation OFF) and the fan physically
+        # ON, the anchor never got seeded and the safety cap could never
+        # fire — the fan ran indefinitely. Seed first; cap-only branch
+        # second.
+        now_seed = dt_util.now()
+        if (
+            self._humidity_on_since is None
+            and self._fan_is_actually_on(humidity_fans)
+        ):
+            _LOGGER.info(
+                "humidity_fan_reload_seeding: fan already on at startup — seeding anchor"
+            )
+            self._humidity_on_since = now_seed
+            self._humidity_fan_triggered_time = now_seed
+
         # FIX 3a (bathroom-exhaust intelligence) — SAFETY-CAP EXCEPTION:
-        # Even when toggle #3 is OFF (operator owns the fan manually), the
-        # max-runtime safety cap MUST still force-off a humidity fan that has
-        # exceeded its cap. Without this exception, a reload-seeded anchor +
-        # toggle-#3 OFF leaves the cap unreachable and the fan can run
-        # indefinitely. Cap-only — no other automation resumes under
-        # toggle-off (no on-logic, no off-threshold logic).
-        if not toggle3_on:
+        # FIX A (second fix-up — Option 2 / D-HIGH-1): also take this
+        # cap-only branch when master-automation is OFF. The safety cap
+        # is a universal backstop; venting/on-logic/off-threshold are
+        # comfort automation and require BOTH master-automation enabled
+        # AND toggle #3 ON.
+        if (not toggle3_on) or (not automation_enabled):
             if self._humidity_on_since is not None:
                 max_runtime_cap = self.config.get(
                     CONF_HUMIDITY_FAN_MAX_RUNTIME,
@@ -1754,8 +1772,10 @@ class RoomAutomation:
                 elapsed_cap = (now_cap - self._humidity_on_since).total_seconds()
                 if elapsed_cap >= max_runtime_cap:
                     _LOGGER.info(
-                        "humidity_fan_max_runtime_exceeded (toggle3=OFF safety): "
-                        "forcing off after %.0f s (cap %.0f s)",
+                        "humidity_fan_max_runtime_exceeded (cap-only safety, "
+                        "toggle3=%s automation=%s): forcing off after %.0f s "
+                        "(cap %.0f s)",
+                        toggle3_on, automation_enabled,
                         elapsed_cap, max_runtime_cap,
                     )
                     await self._safe_service_call(
@@ -1827,13 +1847,9 @@ class RoomAutomation:
                 _LOGGER.debug("humidity_fan_spike: baseline/spike eval errored: %s", exc)
                 spike_fired = False
 
-        # v4.6.2.3: Reload-mid-cycle anchor seeding.
-        if self._humidity_on_since is None and self._fan_is_actually_on(humidity_fans):
-            _LOGGER.info(
-                "humidity_fan_reload_seeding: fan already on at startup — seeding anchor"
-            )
-            self._humidity_on_since = now
-            self._humidity_fan_triggered_time = now
+        # v4.6.2.3 reload-mid-cycle anchor seeding moved ABOVE the cap-only
+        # branch (FIX B, second fix-up) so the cap is reachable when toggle
+        # #3 or master-automation is OFF. Do NOT re-seed here.
 
         # v4.6.2.1: Max-runtime cap — check before normal logic.
         if (
@@ -2075,6 +2091,14 @@ class RoomAutomation:
                 became = getattr(self.coordinator, "_became_occupied_time", None)
             if not isinstance(became, datetime):
                 return
+            # FIX C (second fix-up): consume-and-clear the snapshot so a
+            # stale prior-session anchor cannot arm an inflated window
+            # on a later, unrelated vacate edge (e.g. after a
+            # fan-recheck-release path that left the snapshot populated).
+            try:
+                self.coordinator._last_occupied_since_for_handler = None
+            except Exception:  # noqa: BLE001
+                pass
             occupied_seconds = max((now - became).total_seconds(), 0.0)
             base_s = int(self.config.get(
                 CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S,

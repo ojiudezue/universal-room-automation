@@ -693,12 +693,13 @@ def test_FIX1_handler_reads_coordinator_snapshot_not_live_attr():
     )
 
 
-def test_FIX2_no_fan_vacancy_does_not_arm_or_bleed_into_later_fan_on_cycle():
-    """FIX 2 mutation anchor (HIGH).
+def test_FIX2_no_fan_vacancy_does_not_arm_window():
+    """FIX 2 mutation anchor — PART 1 (HIGH).
 
-    A vacancy edge with no fan running must NOT arm the presence-runtime
-    window, and must NOT bleed into a later unrelated fan-on cycle.
-    Pre-FIX2 the window armed on every vacate edge regardless of fan state.
+    A vacancy edge with NO fan running must NOT arm the presence-runtime
+    window. Pre-FIX2 the window armed on every vacate edge regardless of
+    fan state. Split from the composite test (FIX F, second fix-up) so a
+    single-site regression on the arm path is caught in isolation.
     """
     t0 = datetime(2026, 6, 22, 9, 0, 0, tzinfo=timezone.utc)
     auto, _ = _make_automation(
@@ -723,7 +724,39 @@ def test_FIX2_no_fan_vacancy_does_not_arm_or_bleed_into_later_fan_on_cycle():
     assert auto._humidity_presence_runtime_until is None, (
         "FIX 2: no-fan vacancy must not arm presence-runtime window"
     )
-    # Later: a separate fan-on cycle (different person, short shower) starts.
+
+
+def test_FIX2_stale_window_cleared_on_later_no_fan_vacate():
+    """FIX 2 mutation anchor — PART 2 (HIGH).
+
+    If a stale presence-runtime window somehow got armed earlier (e.g.
+    by a no-longer-existing bug path or external mutation), a subsequent
+    fan-OFF vacate edge in a fresh cycle MUST NOT inherit / extend it.
+    Pre-FIX2 the window armed on every vacate edge; the no-fan path
+    silently bled a stale window into the next fan-on cycle.
+    """
+    t0 = datetime(2026, 6, 22, 9, 0, 0, tzinfo=timezone.utc)
+    auto, _ = _make_automation(
+        threshold=65.0,
+        extra_config={
+            CONF_WET_ROOM: True,
+            CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED: True,
+            CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S: 60,
+            CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S: 30,
+            CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S: 600,
+        },
+    )
+    # Person enters — no fan ON.
+    auto.coordinator._became_occupied_time = t0 - timedelta(minutes=5)
+    _set_now(t0)
+    _run(auto.handle_humidity_based_fan_control(40.0, room_occupied=True))
+    assert auto._humidity_fan_triggered_time is None
+    # Person leaves — no-fan vacate. Window must not arm.
+    _simulate_coord_vacate(auto.coordinator)
+    _set_now(t0 + timedelta(seconds=10))
+    _run(auto.handle_humidity_based_fan_control(40.0, room_occupied=False))
+    assert auto._humidity_presence_runtime_until is None
+    # Later: a separate fan-on cycle (different person, short shower).
     t1 = t0 + timedelta(hours=1)
     auto.coordinator._became_occupied_time = t1 - timedelta(seconds=30)
     _set_now(t1)
@@ -1120,194 +1153,480 @@ def test_d8_efficiency_score_deviation_symmetric():
 
 
 # ---------------------------------------------------------------------------
-# FIX 4 (D8 consumption path) — drive sensor.py:1344 (ComfortScoreSensor
-# .native_value) and sensor.py:1490 (EnergyEfficiencyScoreSensor
-# .native_value) by source-extracting the property body. Bypasses the
-# heavy HA dependency chain (RestoreEntity / CoordinatorEntity / DOMAIN
-# manager) that prevents importing sensor.py wholesale in this test
-# environment, while still executing the EXACT source bytes from those
-# call sites — a mutation that hard-codes the score to a constant will
-# fail these tests.
+# FIX 4 (D8 consumption path) — REPLACED in second fix-up by FIX E (real
+# sensor construction). The old extract-and-`exec` D8 score tests were
+# C-MED-1 (test authority); FIX E builds the actual ComfortScoreSensor /
+# EnergyEfficiencyScoreSensor classes with a mock coordinator and reads
+# `.native_value` directly. See `test_FIXE_real_*` below. The legacy
+# helpers `_extract_method_body` / `_make_score_sensor_stub` /
+# `_exec_native_value` were also removed.
 # ---------------------------------------------------------------------------
 
 
-def _extract_method_body(class_name: str, method_name: str) -> str:
-    """Source-extract a single method body from sensor.py and dedent twice
-    (class + def levels), returning a top-level function definition."""
-    src = _read(os.path.join(_ura_root, "sensor.py"))
-    cls_idx = src.find(f"class {class_name}(")
-    assert cls_idx > 0, f"{class_name} not found"
-    # Find `    def <method>(` after the class.
-    method_marker = f"\n    def {method_name}("
-    m_idx = src.find(method_marker, cls_idx)
-    assert m_idx > 0, f"{class_name}.{method_name} not found"
-    # End at the next sibling def/class or end-of-class via dedent.
-    end_candidates = [
-        src.find("\n    def ", m_idx + 1),
-        src.find("\n    @", m_idx + 1),
-        src.find("\nclass ", m_idx + 1),
-    ]
-    end_candidates = [c for c in end_candidates if c > 0]
-    end = min(end_candidates) if end_candidates else len(src)
-    body = src[m_idx + 1:end]
-    # Dedent one level (class-method indent: 4 spaces).
-    body = "\n".join(line[4:] if line.startswith("    ") else line for line in body.splitlines())
-    return body
+# ---------------------------------------------------------------------------
+# FIX D (second fix-up) — coordinator-wiring integration tests.
+#
+# The first fix-up's tests called `handle_humidity_based_fan_control`
+# directly, bypassing every gate at coordinator.py — which is why both
+# D-HIGH-1 (humidity trapped under master-automation gate) and D-HIGH-2
+# (reload-seed below the cap-only branch) shipped green. These tests
+# drive the SAME gate-stack expression the coordinator does, against a
+# minimal stand-in coordinator, AND assert structural invariants on the
+# real coordinator.py source so a neuter of the call site (replacing
+# the line with `pass`) will fail at least one named test below.
+# ---------------------------------------------------------------------------
 
 
-def _make_score_sensor_stub(coordinator_data: dict, entry_data: dict, entry_options: dict | None = None):
-    """Construct a stand-in `self` for the source-extracted native_value.
+_COORDINATOR_PATH = os.path.join(_ura_root, "coordinator.py")
 
-    Mirrors the surface area the method touches:
-      self.coordinator.data
-      self.coordinator.entry.data / .options
-      self.hass.data         (for EnergyEfficiencyScoreSensor zone lookup)
+
+def test_FIXD_coordinator_has_exactly_one_humidity_call_site():
+    """Mutation anchor: neutering coordinator.py:2286 (the new hoisted call
+    site) → `pass` reduces the call-site count to zero and this test fails.
+    A second call site (a re-introduced double-call) likewise fails this
+    test. Single-call invariant is the gate-stack correctness anchor."""
+    src = _read(_COORDINATOR_PATH)
+    n = src.count("handle_humidity_based_fan_control(")
+    assert n == 1, (
+        f"Expected EXACTLY ONE call to handle_humidity_based_fan_control "
+        f"in coordinator.py, got {n}. A double-call would break the cap "
+        f"(2x evaluation) and the single-call invariant; zero calls means "
+        f"the wiring was removed."
+    )
+
+
+def test_FIXD_coordinator_call_site_passes_automation_enabled_expr():
+    """Structural assertion that the hoisted call passes the full gate
+    expression (skip-first AND master-automation) as `automation_enabled`.
+    Neutering to a hard-coded `automation_enabled=True` (or removing the
+    kwarg entirely so it defaults True) breaks the Option-2 contract and
+    fails THIS test.
     """
-    self_obj = types.SimpleNamespace()
-    self_obj.coordinator = types.SimpleNamespace()
-    self_obj.coordinator.data = coordinator_data
-    self_obj.coordinator.entry = types.SimpleNamespace(
-        data=entry_data,
-        options=entry_options or {},
+    src = _read(_COORDINATOR_PATH)
+    # The single call site must contain the exact expression. Tolerate
+    # whitespace by collapsing within a search-window starting at the call.
+    idx = src.find("handle_humidity_based_fan_control(")
+    assert idx > 0
+    window = src[idx: idx + 1200]
+    # Required kwargs.
+    assert "room_occupied=" in window, "must forward room_occupied"
+    assert "automation_enabled=" in window, "must forward automation_enabled"
+    # The gate expression: both the skip-first capture AND the master
+    # enable predicate must appear inside the call's argument list.
+    assert "_skip_first_this_tick" in window, (
+        "automation_enabled must consult the per-tick skip-first capture"
     )
-    self_obj.hass = types.SimpleNamespace(data={})
-    return self_obj
-
-
-def _exec_native_value(class_name: str, self_obj):
-    """Exec the source-extracted native_value with a synthetic globals dict
-    that mirrors the sensor.py module's needs."""
-    # Pull the helpers the method calls into a shared globals dict.
-    from custom_components.universal_room_automation.const import (  # noqa: E402
-        STATE_TEMPERATURE, STATE_HUMIDITY, STATE_OCCUPIED,
-        CONF_TARGET_TEMP_COOL, CONF_TARGET_TEMP_HEAT,
-        DEFAULT_TARGET_TEMP_COOL, DEFAULT_TARGET_TEMP_HEAT,
-        DOMAIN,
+    assert "_is_automation_enabled()" in window, (
+        "automation_enabled must consult master-automation predicate"
     )
-    # The class also needs the static helpers + _get_comfort_range — extract
-    # the temp helpers. Skip _get_comfort_range (uses `from .const import …`
-    # relative imports that fail under exec); install a synthetic shim on
-    # `self` that reads the same CONF_* keys with the same DEFAULT_* fallback.
-    score_helper = _extract_method_body(class_name, "_comfort_range_temp_score") \
-        if class_name == "ComfortScoreSensor" else None
-    dev_helper = _extract_method_body(class_name, "_comfort_range_deviation") \
-        if class_name == "EnergyEfficiencyScoreSensor" else None
-    range_helper = None
-    zone_helper = None
-    body = _extract_method_body(class_name, "native_value")
-    # The first line of `body` is the decorator `@property` left over from
-    # the line preceding `def native_value` — strip leading decorators.
-    body_lines = body.splitlines()
-    while body_lines and (body_lines[0].lstrip().startswith("@") or not body_lines[0].strip()):
-        body_lines.pop(0)
-    body = "\n".join(body_lines)
 
-    g: dict = {
-        "STATE_TEMPERATURE": STATE_TEMPERATURE,
-        "STATE_HUMIDITY": STATE_HUMIDITY,
-        "STATE_OCCUPIED": STATE_OCCUPIED,
-        "DOMAIN": DOMAIN,
-        "Any": object,
+
+def test_FIXD_coordinator_captures_skip_first_before_consumed():
+    """The `_skip_first_this_tick` capture MUST happen BEFORE the
+    skip-first branch flips the flag (line 2174 in pre-fix-up coords).
+    Otherwise the hoisted humidity call always sees False and the
+    skip-first VENTING suppression is wrong on cold-boot. Verified
+    structurally — the capture line precedes the first assignment to
+    `self._skip_first_automation = False`."""
+    src = _read(_COORDINATOR_PATH)
+    cap_idx = src.find("_skip_first_this_tick = self._skip_first_automation")
+    clear_idx = src.find("self._skip_first_automation = False")
+    assert cap_idx > 0, "FIX A: per-tick skip-first capture missing"
+    assert clear_idx > 0
+    assert cap_idx < clear_idx, (
+        "FIX A: skip-first capture must precede the flag clear"
+    )
+
+
+def _build_fake_coordinator(
+    *, automation: "RoomAutomation",
+    skip_first: bool, master_enabled: bool,
+    humidity: float | None, occupied: bool,
+) -> tuple[object, "function"]:
+    """Construct a stand-in coordinator that mirrors the exact gate
+    expression at coordinator.py site (post-FIX A) so we can drive the
+    real handler through the real gate stack without importing the full
+    coordinator module (heavy HA dep tree)."""
+    # Defensive: if a sibling test file clobbered const, fall back to
+    # the canonical string keys (handler uses dict.get with these names).
+    try:
+        from custom_components.universal_room_automation.const import (  # noqa: E402
+            STATE_HUMIDITY, STATE_OCCUPIED,
+        )
+    except ImportError:
+        STATE_HUMIDITY = "humidity"
+        STATE_OCCUPIED = "occupied"
+    coord = types.SimpleNamespace()
+    coord._skip_first_automation = skip_first
+    coord._is_automation_enabled = lambda: master_enabled
+    coord.data = {STATE_HUMIDITY: humidity, STATE_OCCUPIED: occupied}
+    coord.automation = automation
+    coord._became_occupied_time = None
+    coord._last_occupied_since_for_handler = None
+
+    async def _drive_one_tick():
+        # Mirrors the EXACT post-fix coordinator.py expression:
+        #   _skip_first_this_tick = coord._skip_first_automation
+        #   ... (skip-first branch consumes the flag — irrelevant here) ...
+        #   await self.automation.handle_humidity_based_fan_control(
+        #       data.get(STATE_HUMIDITY),
+        #       room_occupied=data.get(STATE_OCCUPIED),
+        #       automation_enabled=(
+        #           (not _skip_first_this_tick)
+        #           and self._is_automation_enabled()
+        #       ),
+        #   )
+        skip_capture = coord._skip_first_automation
+        coord._skip_first_automation = False
+        gate = (not skip_capture) and coord._is_automation_enabled()
+        await coord.automation.handle_humidity_based_fan_control(
+            coord.data.get(STATE_HUMIDITY),
+            room_occupied=coord.data.get(STATE_OCCUPIED),
+            automation_enabled=gate,
+        )
+
+    return coord, _drive_one_tick
+
+
+def test_FIXD_master_off_cap_fires_no_venting():
+    """Integration: master-automation OFF, toggle #3 ON, anchor seeded
+    past cap → safety cap force-offs the fan. NO venting (no turn-on,
+    no off-threshold off, no presence-runtime arming)."""
+    t0 = datetime(2026, 6, 22, 9, 0, 0, tzinfo=timezone.utc)
+    auto, log = _make_automation(max_runtime=60)
+    _set_now(t0)
+    # Pre-seed an anchor (simulating a fan that was running before
+    # master-automation got disabled).
+    auto._humidity_on_since = t0
+    auto._humidity_fan_triggered_time = t0
+    _coord, drive = _build_fake_coordinator(
+        automation=auto, skip_first=False, master_enabled=False,
+        humidity=80.0, occupied=False,
+    )
+    log.clear()
+    _set_now(t0 + timedelta(seconds=120))  # past cap
+    _run(drive())
+    turn_offs = [s for _, s, _ in log if s == "turn_off"]
+    turn_ons = [s for _, s, _ in log if s == "turn_on"]
+    assert turn_offs, "Safety cap MUST fire under master-automation OFF"
+    assert turn_ons == [], "NO venting under master-off"
+    assert auto._humidity_cap_suppressed is True
+
+
+def test_FIXD_master_off_no_anchor_no_actuation():
+    """Integration: master-automation OFF, no prior anchor, humidity
+    spike → ZERO actuations. The cap-only branch returns early; venting
+    is suppressed."""
+    t0 = datetime(2026, 6, 22, 9, 0, 0, tzinfo=timezone.utc)
+    auto, log = _make_automation(max_runtime=3600)
+    _set_now(t0)
+    _coord, drive = _build_fake_coordinator(
+        automation=auto, skip_first=False, master_enabled=False,
+        humidity=95.0, occupied=True,
+    )
+    _run(drive())
+    assert log == [], "Master-off + no anchor must produce zero service calls"
+
+
+def test_FIXD_skip_first_suppresses_venting_cap_still_evaluates():
+    """Integration: skip-first tick → automation_enabled = False even if
+    master is ON. Venting suppressed. Cap-only branch reachable; a
+    just-seeded anchor (elapsed≈0) means cap does NOT fire on this tick,
+    so the net behavior is zero actuation (the intended skip-first
+    semantics for VENTING). Cap WILL fire on a later tick if elapsed
+    crosses the threshold."""
+    t0 = datetime(2026, 6, 22, 9, 0, 0, tzinfo=timezone.utc)
+    auto, log = _make_automation(max_runtime=60, fan_on=True)
+    _set_now(t0)
+    _coord, drive = _build_fake_coordinator(
+        automation=auto, skip_first=True, master_enabled=True,
+        humidity=90.0, occupied=True,
+    )
+    _run(drive())
+    # Anchor must seed (reload-seed runs above cap-only branch — FIX B).
+    assert auto._humidity_on_since == t0, "FIX B: reload-seed must run"
+    # NO venting on the skip-first tick.
+    turn_ons = [s for _, s, _ in log if s == "turn_on"]
+    assert turn_ons == [], "skip-first must suppress venting"
+    # Cap not yet exceeded — no turn-off either.
+    turn_offs = [s for _, s, _ in log if s == "turn_off"]
+    assert turn_offs == []
+
+
+def test_FIXD_skip_first_then_cap_fires_when_elapsed_exceeds():
+    """Integration: after the skip-first tick, the cap evaluates on the
+    next tick. If elapsed >= cap, cap fires under master-OFF (Option 2
+    safety contract)."""
+    t0 = datetime(2026, 6, 22, 9, 0, 0, tzinfo=timezone.utc)
+    auto, log = _make_automation(max_runtime=60, fan_on=True)
+    _set_now(t0)
+    _coord, drive = _build_fake_coordinator(
+        automation=auto, skip_first=True, master_enabled=False,
+        humidity=70.0, occupied=False,
+    )
+    _run(drive())  # skip-first tick: seeds anchor, no actuation
+    assert auto._humidity_on_since == t0
+    # Next tick (master-off, skip-first consumed), past cap.
+    _coord._skip_first_automation = False  # consumed above
+    log.clear()
+    _set_now(t0 + timedelta(seconds=120))
+    _run(drive())
+    assert [s for _, s, _ in log if s == "turn_off"], (
+        "Cap MUST fire on the post-skip-first tick when elapsed exceeds"
+    )
+
+
+def test_FIXD_toggle3_off_master_on_cap_only():
+    """Integration: master-automation ON but toggle #3 OFF → cap-only.
+    Sibling of the toggle-3 off pure test, but routed through the gate
+    stack the coordinator actually uses (gate decided here = True from
+    coordinator perspective; toggle-3 OFF decided inside the handler)."""
+    t0 = datetime(2026, 6, 22, 9, 0, 0, tzinfo=timezone.utc)
+    auto, log = _make_automation(
+        max_runtime=60,
+        extra_config={CONF_HUMIDITY_FAN_CONTROL_ENABLED: False},
+    )
+    _set_now(t0)
+    auto._humidity_on_since = t0
+    auto._humidity_fan_triggered_time = t0
+    _coord, drive = _build_fake_coordinator(
+        automation=auto, skip_first=False, master_enabled=True,
+        humidity=80.0, occupied=False,
+    )
+    log.clear()
+    _set_now(t0 + timedelta(seconds=120))
+    _run(drive())
+    assert [s for _, s, _ in log if s == "turn_off"], (
+        "Cap MUST fire under toggle #3 OFF even though master is ON"
+    )
+    assert [s for _, s, _ in log if s == "turn_on"] == [], (
+        "Toggle #3 OFF: no venting"
+    )
+
+
+def test_FIXD_fan_recheck_release_snapshot_consumed_and_cleared():
+    """FIX C end-to-end: a fan-recheck-release path stashes the snapshot
+    (coordinator.py:2561 site). The next vacate edge in a fresh cycle
+    consumes-AND-clears it so a later, unrelated vacate edge does NOT
+    inherit a stale anchor. Mutation acceptance: removing the
+    consume-and-clear in `_humidity_update_presence_runtime` makes the
+    stale-arm-on-fresh-cycle re-emerge → this test fails.
+    """
+    t0 = datetime(2026, 6, 22, 9, 0, 0, tzinfo=timezone.utc)
+    auto, _ = _make_automation(
+        threshold=65.0,
+        extra_config={
+            CONF_WET_ROOM: True,
+            CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED: True,
+            CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S: 60,
+            CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S: 30,
+            CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S: 600,
+        },
+    )
+    # Cycle 1: shower fan ran, occupant present for 5 min, then fan-recheck
+    # release fires (mimic coordinator.py:2561 — snapshot stashed, live
+    # attr cleared).
+    auto.coordinator._became_occupied_time = t0 - timedelta(minutes=5)
+    _set_now(t0)
+    _run(auto.handle_humidity_based_fan_control(80.0, room_occupied=True))
+    assert auto._humidity_fan_triggered_time is not None
+    # Simulate fan-recheck-release: stash snapshot then clear live.
+    auto.coordinator._last_occupied_since_for_handler = (
+        auto.coordinator._became_occupied_time
+    )
+    auto.coordinator._became_occupied_time = None
+    _set_now(t0 + timedelta(seconds=10))
+    _run(auto.handle_humidity_based_fan_control(70.0, room_occupied=False))
+    assert auto._humidity_presence_runtime_until is not None, (
+        "Cycle 1 vacate edge must arm via the snapshot"
+    )
+    # FIX C: snapshot MUST be consumed (set back to None) so a later
+    # vacate edge cannot inherit it.
+    assert auto.coordinator._last_occupied_since_for_handler is None, (
+        "FIX C: snapshot must be consume-and-cleared after D3 reads it"
+    )
+
+
+# ---------------------------------------------------------------------------
+# FIX E (second fix-up) — replace extract-and-exec D8 score tests with
+# real ComfortScoreSensor / EnergyEfficiencyScoreSensor instances
+# constructed against a mock coordinator. Reads .native_value directly.
+# Per-site mutation property preserved: hard-coding `temp_score` /
+# `deviation` at sensor.py:1344 / 1490 must fail a named test below.
+# ---------------------------------------------------------------------------
+
+
+_sensor_full = "custom_components.universal_room_automation.sensor"
+
+
+def _load_sensor_module():
+    """Lazy-load sensor.py with the in-test HA module stubs. The full
+    `.coordinator` import tree is too heavy under the mock harness — we
+    pre-install shell modules for `.coordinator`, `.entity`,
+    `.aggregation`, and `.domain_coordinators.energy_billing` exposing
+    ONLY the names sensor.py touches at import time. The real class
+    bodies sensor.py defines are then constructed from the actual
+    sensor.py source bytes (so a per-site mutation in sensor.py shows
+    up in `.native_value`)."""
+    if _sensor_full in sys.modules:
+        return sys.modules[_sensor_full]
+    # HA shim sensor.py touches but the cycle harness didn't pre-stub.
+    extra: dict = {
+        "homeassistant.helpers.restore_state": {
+            "RestoreEntity": type("RestoreEntity", (), {}),
+        },
     }
-    # exec the helpers first so the native_value can reference them as
-    # top-level functions — then call them through a bound-method shim.
-    if score_helper:
-        exec(score_helper, g)
-    if dev_helper:
-        exec(dev_helper, g)
-    exec(body, g)
+    for _name, _attrs in extra.items():
+        _existing = sys.modules.get(_name)
+        if _existing is None:
+            sys.modules[_name] = _mock_module(_name, **_attrs)
+        else:
+            for _k, _v in _attrs.items():
+                if not hasattr(_existing, _k):
+                    setattr(_existing, _k, _v)
+    # Add HA-const names sensor.py imports (UnitOf*, PERCENTAGE, LIGHT_LUX).
+    _ha_const = sys.modules.get("homeassistant.const")
+    if _ha_const is not None:
+        for _name in (
+            "UnitOfTemperature", "UnitOfEnergy", "UnitOfPower", "UnitOfTime",
+            "PERCENTAGE", "LIGHT_LUX",
+        ):
+            if not hasattr(_ha_const, _name):
+                setattr(_ha_const, _name, _mock_cls())
+    # If a sibling test file (collected earlier) installed a partial URA
+    # `const` stub clobbering the real const.py, re-load the real const
+    # over it so sensor.py's wide STATE_*/CONF_* imports resolve.
+    _const_full = "custom_components.universal_room_automation.const"
+    _existing_const = sys.modules.get(_const_full)
+    if _existing_const is None or not hasattr(_existing_const, "STATE_TEMPERATURE"):
+        try:
+            _load_module(_const_full, os.path.join(_ura_root, "const.py"))
+        except Exception:  # noqa: BLE001
+            pass
+    # Shell `.coordinator` module exposing only `UniversalRoomCoordinator`.
+    _coord_full = "custom_components.universal_room_automation.coordinator"
+    if _coord_full not in sys.modules:
+        sys.modules[_coord_full] = _mock_module(
+            _coord_full,
+            UniversalRoomCoordinator=type("UniversalRoomCoordinator", (), {}),
+        )
+    # Shell `.entity` module — UniversalRoomEntity used as a base class by
+    # ComfortScoreSensor / EnergyEfficiencyScoreSensor. Provide a no-op
+    # __init__ so .native_value works on instances built via __new__.
+    _entity_full = "custom_components.universal_room_automation.entity"
+    if _entity_full not in sys.modules:
+        class _StubEntity:
+            def __init__(self, coordinator=None, *a, **kw):
+                self.coordinator = coordinator
+        sys.modules[_entity_full] = _mock_module(
+            _entity_full, UniversalRoomEntity=_StubEntity,
+        )
+    # Shell `.aggregation` — AggregationEntity is a sibling base class
+    # used by other sensors in sensor.py, but not by the two D8 score
+    # sensors. Provide a no-op base.
+    _agg_full = "custom_components.universal_room_automation.aggregation"
+    if _agg_full not in sys.modules:
+        sys.modules[_agg_full] = _mock_module(
+            _agg_full,
+            AggregationEntity=type("AggregationEntity", (), {}),
+        )
+    # Shell `.domain_coordinators` package + the energy_billing helper.
+    _dc_full = "custom_components.universal_room_automation.domain_coordinators"
+    if _dc_full not in sys.modules:
+        sys.modules[_dc_full] = _mock_module(_dc_full)
+    _eb_full = (
+        "custom_components.universal_room_automation."
+        "domain_coordinators.energy_billing"
+    )
+    if _eb_full not in sys.modules:
+        sys.modules[_eb_full] = _mock_module(
+            _eb_full, _get_effective_rate_kwh=lambda *a, **kw: 0.0,
+        )
+    try:
+        return _load_module(_sensor_full, os.path.join(_ura_root, "sensor.py"))
+    except Exception as exc:  # noqa: BLE001
+        pytest.skip(f"sensor.py not loadable under test harness: {exc}")
 
-    native_value_fn = g["native_value"]
-    # Patch self_obj with bound-method shims for the helpers the source calls
-    # as `self._comfort_range_*` / `self._get_comfort_range` / `self._get_zone_for_room`.
-    if "_comfort_range_temp_score" in g:
-        self_obj._comfort_range_temp_score = staticmethod(g["_comfort_range_temp_score"])
-        # The source calls it as `self._comfort_range_temp_score(...)`, which
-        # works for a regular attribute holding a function.
-        self_obj._comfort_range_temp_score = g["_comfort_range_temp_score"]
-    if "_comfort_range_deviation" in g:
-        self_obj._comfort_range_deviation = g["_comfort_range_deviation"]
 
-    def _bound_get_range():
-        config = {**self_obj.coordinator.entry.data, **self_obj.coordinator.entry.options}
-        low = float(config.get(CONF_TARGET_TEMP_HEAT, DEFAULT_TARGET_TEMP_HEAT))
-        high = float(config.get(CONF_TARGET_TEMP_COOL, DEFAULT_TARGET_TEMP_COOL))
-        if low > high:
-            low, high = min(low, high), max(low, high)
-        return low, high
-    self_obj._get_comfort_range = _bound_get_range
-    # EnergyEfficiencyScoreSensor uses _get_zone_for_room — stub to (None, None)
-    # so the fallback comfort-range branch is exercised.
-    self_obj._get_zone_for_room = lambda: (None, None)
-
-    return native_value_fn(self_obj)
+def _build_real_score_sensor(cls_name: str, coord_data, entry_data, entry_options=None):
+    sensor_mod = _load_sensor_module()
+    cls = getattr(sensor_mod, cls_name)
+    # Construct a mock coordinator that satisfies CoordinatorEntity's
+    # attribute access in __init__ + the property reads.
+    coordinator = MagicMock()
+    coordinator.data = coord_data
+    coordinator.entry = MagicMock()
+    coordinator.entry.entry_id = "test_entry"
+    coordinator.entry.data = entry_data
+    coordinator.entry.options = entry_options or {}
+    # CoordinatorEntity.__init__ may set listeners etc — sidestep super().__init__
+    # by constructing via __new__ and manually attaching the bits we need.
+    inst = cls.__new__(cls)
+    inst.coordinator = coordinator
+    inst.hass = MagicMock()
+    inst.hass.data = {}
+    return inst
 
 
-def test_FIX4_comfort_score_sensor_native_value_penalizes_too_cold():
-    """FIX 4 — drives the EXACT source bytes at sensor.py:1344
-    (ComfortScoreSensor.native_value). A hard-coded constant return at that
-    site would fail this test.
-    """
-    self_obj = _make_score_sensor_stub(
-        coordinator_data={"temperature": 65, "occupied": False},
+def test_FIXE_real_ComfortScoreSensor_native_value_penalizes_too_cold():
+    """FIX E mutation anchor (sensor.py:1344). Hard-coding
+    `temp_score = 100` (bypass low-bound branch) MUST fail this test."""
+    sensor = _build_real_score_sensor(
+        "ComfortScoreSensor",
+        coord_data={"temperature": 65, "occupied": False},
         entry_data={"target_temp_heat": 70, "target_temp_cool": 76},
     )
-    val = _exec_native_value("ComfortScoreSensor", self_obj)
+    val = sensor.native_value
     # temp_score = 100 - (70-65)*10 = 50; humidity=None → 70; occupancy=50
-    # score = 50*0.4 + 70*0.3 + 50*0.3 = 20 + 21 + 15 = 56
-    assert val == 56, f"Expected low-bound penalty score 56, got {val}"
+    # 50*0.4 + 70*0.3 + 50*0.3 = 56
+    assert val == 56, f"Expected 56, got {val}"
 
 
-def test_FIX4_comfort_score_sensor_native_value_penalizes_too_warm():
-    """FIX 4 — high-bound penalty: temp=81, high=76 → -10/°F.
-    Drives sensor.py:1344 ComfortScoreSensor.native_value.
-    """
-    self_obj = _make_score_sensor_stub(
-        coordinator_data={"temperature": 81, "occupied": False},
+def test_FIXE_real_ComfortScoreSensor_native_value_penalizes_too_warm():
+    sensor = _build_real_score_sensor(
+        "ComfortScoreSensor",
+        coord_data={"temperature": 81, "occupied": False},
         entry_data={"target_temp_heat": 70, "target_temp_cool": 76},
     )
-    val = _exec_native_value("ComfortScoreSensor", self_obj)
-    # temp_score = 100 - (81-76)*10 = 50; same totals as cold case
-    assert val == 56, f"Expected high-bound penalty score 56, got {val}"
+    val = sensor.native_value
+    assert val == 56
 
 
-def test_FIX4_comfort_score_in_range_full_score():
-    self_obj = _make_score_sensor_stub(
-        coordinator_data={"temperature": 73, "humidity": 45, "occupied": True},
+def test_FIXE_real_ComfortScoreSensor_in_range_full_score():
+    sensor = _build_real_score_sensor(
+        "ComfortScoreSensor",
+        coord_data={"temperature": 73, "humidity": 45, "occupied": True},
         entry_data={"target_temp_heat": 70, "target_temp_cool": 76},
     )
-    val = _exec_native_value("ComfortScoreSensor", self_obj)
-    # 100*0.4 + 100*0.3 + 100*0.3 = 100
-    assert val == 100
+    assert sensor.native_value == 100
 
 
-def test_FIX4_efficiency_score_native_value_penalizes_too_cold():
-    """FIX 4 — drives EXACT source bytes at sensor.py:1490
-    (EnergyEfficiencyScoreSensor.native_value, fallback branch). A
-    hard-coded constant at that site would fail this test."""
-    self_obj = _make_score_sensor_stub(
-        coordinator_data={"temperature": 65},
+def test_FIXE_real_EnergyEfficiencyScoreSensor_native_value_penalizes_too_cold():
+    """FIX E mutation anchor (sensor.py:1490). Hard-coding
+    `deviation = 0` (bypass low-bound branch) MUST fail this test."""
+    sensor = _build_real_score_sensor(
+        "EnergyEfficiencyScoreSensor",
+        coord_data={"temperature": 65},
         entry_data={"target_temp_heat": 70, "target_temp_cool": 76},
     )
-    val = _exec_native_value("EnergyEfficiencyScoreSensor", self_obj)
-    # deviation = 70-65 = 5 → >3 → 50
-    assert val == 50, f"Expected too-cold fallback 50, got {val}"
-
-
-def test_FIX4_efficiency_score_native_value_penalizes_too_warm():
-    self_obj = _make_score_sensor_stub(
-        coordinator_data={"temperature": 81},
-        entry_data={"target_temp_heat": 70, "target_temp_cool": 76},
-    )
-    val = _exec_native_value("EnergyEfficiencyScoreSensor", self_obj)
-    # deviation = 81-76 = 5 → >3 → 50
+    # No zone manager — fallback branch.
+    val = sensor.native_value
     assert val == 50
 
 
-def test_FIX4_efficiency_score_in_range_returns_90():
-    self_obj = _make_score_sensor_stub(
-        coordinator_data={"temperature": 73},
+def test_FIXE_real_EnergyEfficiencyScoreSensor_native_value_penalizes_too_warm():
+    sensor = _build_real_score_sensor(
+        "EnergyEfficiencyScoreSensor",
+        coord_data={"temperature": 81},
         entry_data={"target_temp_heat": 70, "target_temp_cool": 76},
     )
-    val = _exec_native_value("EnergyEfficiencyScoreSensor", self_obj)
-    assert val == 90
+    assert sensor.native_value == 50
+
+
+def test_FIXE_real_EnergyEfficiencyScoreSensor_in_range_returns_90():
+    sensor = _build_real_score_sensor(
+        "EnergyEfficiencyScoreSensor",
+        coord_data={"temperature": 73},
+        entry_data={"target_temp_heat": 70, "target_temp_cool": 76},
+    )
+    assert sensor.native_value == 90
