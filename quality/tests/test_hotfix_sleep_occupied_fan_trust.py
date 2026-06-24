@@ -216,12 +216,9 @@ class TestOrthogonalPathsNotTouched:
         body = automation_src[idx: next_def]
         assert "sleep_occupied_hold" not in body
 
-    def test_hvac_fans_humidity_fan_path_unchanged(self, hvac_fans_src):
-        """_evaluate_humidity_fan must NOT reference night-trust."""
-        idx = hvac_fans_src.find("def _evaluate_humidity_fan")
-        assert idx > 0
-        next_def = hvac_fans_src.find("    def _", idx + 50)
-        body = hvac_fans_src[idx: next_def]
-        assert "sleep_occupied" not in body
-        assert "night_trust" not in body
-        assert "FAN_TRUST_STATES" not in body
+    def test_hvac_fans_humidity_fan_path_removed(self, hvac_fans_src):
+        """Bathroom-exhaust intelligence cycle: humidity-fan path entirely
+        removed from hvac_fans.py (I1 invariant). The night-trust hotfix is
+        therefore guaranteed not to interact with humidity fans."""
+        assert "def _evaluate_humidity_fan" not in hvac_fans_src
+        assert "humidity_fan_entities" not in hvac_fans_src

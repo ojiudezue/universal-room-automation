@@ -20,15 +20,9 @@ from ..const import (
     CONF_ENTRY_TYPE,
     CONF_FAN_SLEEP_POLICY,
     CONF_FANS,
-    CONF_HUMIDITY_FANS,
-    CONF_HUMIDITY_FAN_MAX_RUNTIME,
-    CONF_HUMIDITY_FAN_THRESHOLD,
     CONF_ROOM_NAME,
     CONF_ROOM_TYPE,
     DEFAULT_FAN_SLEEP_POLICY,
-    DEFAULT_HUMIDITY_FAN_HYSTERESIS,
-    DEFAULT_HUMIDITY_FAN_MAX_RUNTIME,
-    DEFAULT_HUMIDITY_THRESHOLD,
     DOMAIN,
     ENTRY_TYPE_ROOM,
     FAN_SLEEP_NORMAL,
@@ -69,34 +63,19 @@ class RoomFanState:
     # don't fire the bedroom-only branch.
     room_type: str = ROOM_TYPE_GENERIC
     fan_entities: list[str] = field(default_factory=list)
-    humidity_fan_entities: list[str] = field(default_factory=list)
     is_on: bool = False
     speed_pct: int = 0
-    trigger: str = ""  # "temperature" | "fan_assist" | "humidity" | ""
+    trigger: str = ""  # "temperature" | "fan_assist" | ""
     last_on_time: str = ""
     vacancy_detected_time: str = ""
     manual_off_cooldown_until: str = ""  # ISO datetime — skip activation until this time
-    # Fan-noise Mode-2 mitigation: HVAC handshake. While set in the future,
-    # FanController.update skips this room's fan write so the room-tier
-    # recheck mechanism can pause + observe mmwave without HVAC re-issuing.
+    # Fan-noise Mode-2 mitigation: HVAC handshake.
     fan_recheck_suppress_until: str = ""
-    # Per-room CONF_FAN_SLEEP_POLICY (off/reduce/normal). Drives the
-    # night-trust speed cap at FanController.update — `normal` skips the
-    # cap entirely, `reduce` caps at FAN_SPEED_LOW_PCT (legacy behavior),
-    # `off` is honored by the room-level path in automation.py and is
-    # left alone here (coordinator side does NOT force-off — the
-    # room-level path already turns the fan off at sleep with policy=off).
-    # Defaults to "reduce" to preserve prior behavior for unset rooms.
+    # Per-room CONF_FAN_SLEEP_POLICY (off/reduce/normal).
     fan_sleep_policy: str = DEFAULT_FAN_SLEEP_POLICY
-    # v4.6.2.1: Humidity fan config pulled from room options at registration time
-    humidity_fan_threshold: float = DEFAULT_HUMIDITY_THRESHOLD
-    humidity_fan_max_runtime: int = DEFAULT_HUMIDITY_FAN_MAX_RUNTIME
-    # v4.6.2.1: Max-runtime gate — set on every off→on transition, cleared on on→off.
-    # Distinct from last_on_time which tracks temp-fan min-runtime.
-    humidity_on_since: datetime | None = None
-    # v4.6.2.1: Suppression flag — True after max-runtime force-off. Cleared only when
-    # humidity drops below OFF threshold, preventing immediate re-trigger.
-    humidity_cap_suppressed: bool = False
+    # NOTE: humidity exhaust state was previously tracked on this dataclass
+    # but is now owned exclusively by the room-tier path in automation.py
+    # (see ``handle_humidity_based_fan_control``).
 
 
 class FanController:
@@ -148,18 +127,14 @@ class FanController:
 
             merged = {**entry.data, **entry.options}
             fans = merged.get(CONF_FANS, [])
-            humidity_fans = merged.get(CONF_HUMIDITY_FANS, [])
 
-            if not fans and not humidity_fans:
+            if not fans:
                 continue
 
             fan_list = fans if isinstance(fans, list) else [fans]
-            hfan_list = humidity_fans if isinstance(humidity_fans, list) else [humidity_fans]
-            # Filter empty strings
             fan_list = [f for f in fan_list if f]
-            hfan_list = [f for f in hfan_list if f]
 
-            if not fan_list and not hfan_list:
+            if not fan_list:
                 continue
 
             self._room_fans[room_name] = RoomFanState(
@@ -167,22 +142,14 @@ class FanController:
                 zone_id=room_to_zone[room_name],
                 room_type=merged.get(CONF_ROOM_TYPE, ROOM_TYPE_GENERIC),
                 fan_entities=fan_list,
-                humidity_fan_entities=hfan_list,
-                humidity_fan_threshold=float(
-                    merged.get(CONF_HUMIDITY_FAN_THRESHOLD, DEFAULT_HUMIDITY_THRESHOLD)
-                ),
-                humidity_fan_max_runtime=int(
-                    merged.get(CONF_HUMIDITY_FAN_MAX_RUNTIME, DEFAULT_HUMIDITY_FAN_MAX_RUNTIME)
-                ),
                 fan_sleep_policy=str(
                     merged.get(CONF_FAN_SLEEP_POLICY, DEFAULT_FAN_SLEEP_POLICY)
                 ),
             )
 
             _LOGGER.info(
-                "HVAC Fans: %s -> %d fans, %d humidity fans (zone %s)",
-                room_name, len(fan_list), len(hfan_list),
-                room_to_zone[room_name],
+                "HVAC Fans: %s -> %d comfort fans (zone %s)",
+                room_name, len(fan_list), room_to_zone[room_name],
             )
 
         _LOGGER.info("HVAC Fans: Discovered fans in %d rooms", len(self._room_fans))
@@ -272,7 +239,6 @@ class FanController:
                     break
 
             room_temp = room_cond.temperature if room_cond else None
-            humidity = room_cond.humidity if room_cond else None
             occupied = room_cond.occupied if room_cond else False
             setpoint_high = zone.target_temp_high
 
@@ -322,56 +288,12 @@ class FanController:
                     elif not should_on:
                         room_fan.last_on_time = ""
 
-            # Evaluate humidity fans
-            if room_fan.humidity_fan_entities and humidity is not None:
-                h_currently_on = any(
-                    self._is_entity_on(e) for e in room_fan.humidity_fan_entities
-                )
-
-                # v4.6.2.3: Reload-mid-cycle anchor seeding.
-                # If the fan is observed on but humidity_on_since is None (e.g., the
-                # coordinator reloaded while the fan was running), seed the anchor so
-                # the max-runtime cap has a valid reference point. Monotonic: only seed
-                # when the anchor is not yet set; subsequent ticks leave it unchanged.
-                if h_currently_on and room_fan.humidity_on_since is None:
-                    _LOGGER.info(
-                        "HVAC Fans: %s humidity_fan_reload_seeding — fan already on at"
-                        " startup, seeding anchor",
-                        room_name,
-                    )
-                    room_fan.humidity_on_since = now
-
-                # v4.6.2.1: Max-runtime cap — force off if fan has run too long.
-                # Protects against stuck humidity sensors and runaway cycles.
-                if (
-                    h_currently_on
-                    and room_fan.humidity_on_since is not None
-                    and (now - room_fan.humidity_on_since).total_seconds()
-                    >= room_fan.humidity_fan_max_runtime
-                ):
-                    _LOGGER.info(
-                        "HVAC Fans: %s humidity_fan_max_runtime_exceeded"
-                        " — forcing off after %.0f s (cap %.0f s)",
-                        room_name,
-                        (now - room_fan.humidity_on_since).total_seconds(),
-                        room_fan.humidity_fan_max_runtime,
-                    )
-                    await self._set_fan_state(room_fan.humidity_fan_entities, False, 0)
-                    room_fan.humidity_on_since = None
-                    # Suppression: require humidity to drop below OFF threshold
-                    # before allowing re-activation (v4.5.18 stale-signal gate shape).
-                    room_fan.humidity_cap_suppressed = True
-                    h_currently_on = False
-
-                h_on = self._evaluate_humidity_fan(humidity, room_fan, h_currently_on)
-                if h_on != h_currently_on:
-                    await self._set_fan_state(
-                        room_fan.humidity_fan_entities, h_on, 100
-                    )
-                    if h_on:
-                        room_fan.humidity_on_since = now
-                    else:
-                        room_fan.humidity_on_since = None
+            # D1 — Humidity fans are evaluated EXCLUSIVELY by the room-tier
+            # path in automation.py::handle_humidity_based_fan_control. The
+            # HVAC coordinator does NOT read or write humidity-fan state in
+            # any branch (eliminates the v4.6.x dual-controller orphan: with
+            # HVAC-coord ON + comfort-fan OFF, the humidity fan no longer
+            # falls between owners).
 
     def _apply_night_trust_speed_cap(
         self, room_fan: RoomFanState, speed: int, live_policy: str | None,
@@ -605,35 +527,8 @@ class FanController:
         # Default off
         return False, "", 0
 
-    def _evaluate_humidity_fan(
-        self,
-        humidity: float,
-        room_fan: RoomFanState,
-        h_currently_on: bool,
-    ) -> bool:
-        """Evaluate humidity fan with hysteresis and suppression.
-
-        v4.6.2.1: Uses user-configured threshold (not hardcoded 60%).
-        ON threshold: humidity >= room_fan.humidity_fan_threshold
-        OFF threshold: humidity <= threshold - DEFAULT_HUMIDITY_FAN_HYSTERESIS
-        Suppression: if humidity_cap_suppressed, block re-trigger until humidity
-        drops below OFF threshold.
-        """
-        threshold = room_fan.humidity_fan_threshold
-        off_threshold = threshold - DEFAULT_HUMIDITY_FAN_HYSTERESIS
-
-        # Clear suppression once humidity drops below OFF threshold
-        if room_fan.humidity_cap_suppressed:
-            if humidity <= off_threshold:
-                room_fan.humidity_cap_suppressed = False
-            else:
-                return False  # Still suppressed — do not re-trigger
-
-        if humidity >= threshold:
-            return True
-        if h_currently_on and humidity > off_threshold:
-            return True  # Hysteresis: stay on until below OFF threshold
-        return False
+    # NOTE: previous Path B exhaust evaluator removed; exhaust automation
+    # is now exclusively room-owned (see automation.py).
 
     def _compute_speed(self, delta: float) -> int:
         """Compute fan speed percentage from temperature delta."""

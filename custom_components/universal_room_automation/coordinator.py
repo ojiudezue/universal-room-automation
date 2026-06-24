@@ -126,6 +126,7 @@ from .domain_coordinators.signals import (
 from .domain_coordinators.energy_billing import _get_effective_rate_kwh
 from .domain_coordinators._units import energy_state_to_kwh, power_state_to_w
 from .automation import RoomAutomation
+from ._humidity_gate import humidity_venting_enabled
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -150,6 +151,15 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         self._last_occupancy_source: str = "none"  # Track source for ble→motion re-entry
         self._last_source_reentry_time: datetime | None = None  # Cooldown for re-entry
         self._became_occupied_time: datetime | None = None  # v3.2.4: When current occupancy session started
+        # Bathroom-exhaust intelligence cycle (FIX 1): snapshot of
+        # _became_occupied_time captured ON THE VACANT TICK, BEFORE the live
+        # attribute is cleared (see clears at coordinator.py:1548/1554/2133/
+        # 2148). The humidity handler runs LATER in the same tick and needs
+        # the duration of the occupancy session that just ended. The handler
+        # (automation.py::_humidity_update_presence_runtime) reads this
+        # snapshot instead of the live (already-cleared) attribute on the
+        # occupied→vacant edge.
+        self._last_occupied_since_for_handler: datetime | None = None
         self._unsub_state_listeners = []
 
         # Debounce: require sensors active for N seconds before confirming entry
@@ -1545,12 +1555,24 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     self._last_occupied_time = now
                     data[STATE_OCCUPANCY_SOURCE] = "timeout"
                 else:
+                    # FIX 1: stash before clear so humidity handler (runs
+                    # later this tick) can read the just-ended session's
+                    # duration on the occupied→vacant edge.
+                    if self._became_occupied_time is not None:
+                        self._last_occupied_since_for_handler = (
+                            self._became_occupied_time
+                        )
                     self._became_occupied_time = None
                     data[STATE_OCCUPANCY_SOURCE] = "none"
             else:
                 data[STATE_TIMEOUT_REMAINING] = 0
                 data[STATE_OCCUPIED] = False
                 data[STATE_OCCUPANCY_SOURCE] = "none"
+                # FIX 1: same snapshot on the no-motion path.
+                if self._became_occupied_time is not None:
+                    self._last_occupied_since_for_handler = (
+                        self._became_occupied_time
+                    )
                 self._became_occupied_time = None
         
         # Calculate time since last motion
@@ -2130,7 +2152,18 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             data[STATE_OCCUPIED] = False
             data[STATE_OCCUPANCY_SOURCE] = "override"
             self._last_occupied_state = False
+            # FIX 1: snapshot before clear.
+            if self._became_occupied_time is not None:
+                self._last_occupied_since_for_handler = (
+                    self._became_occupied_time
+                )
             self._became_occupied_time = None
+
+        # FIX A (second fix-up): capture skip-first BEFORE the if-block
+        # consumes it. The hoisted humidity call below uses this to decide
+        # whether the VENTING path is allowed this tick (cap-only is
+        # always allowed regardless).
+        _skip_first_this_tick = self._skip_first_automation
 
         # === v3.22.12: Skip automation on first refresh ===
         # On reload/restart, the first refresh sees sensors and may detect
@@ -2145,6 +2178,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             if data[STATE_OCCUPIED] and not self._became_occupied_time:
                 self._became_occupied_time = now
             elif not data[STATE_OCCUPIED]:
+                # FIX C (second fix-up): snapshot before clear so the
+                # humidity handler can read a just-ended session's
+                # duration on the skip-first restart path (would have
+                # been silently bypassed otherwise).
+                if self._became_occupied_time is not None:
+                    self._last_occupied_since_for_handler = (
+                        self._became_occupied_time
+                    )
                 self._became_occupied_time = None
             _LOGGER.info(
                 "Room %s: First refresh — synced occupancy state to %s "
@@ -2248,11 +2289,11 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                         data.get(STATE_OCCUPIED, False)
                     )
 
-                    # Humidity-based fan control
-                    await self.automation.handle_humidity_based_fan_control(
-                        data.get(STATE_HUMIDITY)
-                    )
-                
+                # FIX A (second fix-up — D-HIGH-1): humidity call HOISTED OUT
+                # of the master-automation gate to the post-block unconditional
+                # site below, so the safety cap can fire under master-off /
+                # ManualMode / toggle-#3-off.
+
                 # v3.1.0: Shared space scheduled auto-off check
                 await self.automation.check_scheduled_auto_off()
                 await self.automation.check_auto_off_warning()
@@ -2325,6 +2366,29 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     _LOGGER.error(
                         "Error in independent cover automation: %s", e
                     )
+
+        # FIX A (second fix-up — D-HIGH-1): humidity handler runs EXACTLY
+        # ONCE per tick, REGARDLESS of master-automation / skip-first /
+        # toggle-#3 state. The handler itself honors the gate stack:
+        #   - VENTING (turn-on, off-threshold, EMA spike, presence-runtime,
+        #     sleep-policy off) requires `automation_enabled=True` AND
+        #     toggle #3 ON inside the handler.
+        #   - The max-runtime SAFETY CAP fires universally — it is the
+        #     backstop, not comfort automation.
+        # Skip-first suppresses venting (anchor just seeded ⇒ elapsed≈0
+        # so the cap won't false-fire); the cap still evaluates so a
+        # post-restart fan that was already past its cap is force-off'd.
+        try:
+            await self.automation.handle_humidity_based_fan_control(
+                data.get(STATE_HUMIDITY),
+                room_occupied=data.get(STATE_OCCUPIED),
+                automation_enabled=humidity_venting_enabled(
+                    _skip_first_this_tick,
+                    self._is_automation_enabled(),
+                ),
+            )
+        except Exception as e:
+            _LOGGER.error("Error in humidity-fan automation: %s", e)
 
         # === Data Logging (for Phase 3 & 4) ===
         database = self.hass.data[DOMAIN].get("database")
@@ -2523,6 +2587,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         self.data[STATE_OCCUPANCY_SOURCE] = OCCUPANCY_SOURCE_FAN_RECHECK_RELEASE
         self.data[STATE_TIMEOUT_REMAINING] = 0
         self._last_motion_time = None
+        # FIX C (second fix-up): snapshot before clear so the humidity
+        # handler can read the just-ended session's duration on the
+        # Mode-2 fan-recheck vacancy force path (was silently bypassed,
+        # leaving the post-vacancy presence-runtime window mis-armed).
+        if self._became_occupied_time is not None:
+            self._last_occupied_since_for_handler = (
+                self._became_occupied_time
+            )
         self._became_occupied_time = None
         self._last_occupied_state = False
         room_name = self.entry.data.get("room_name", "unknown")

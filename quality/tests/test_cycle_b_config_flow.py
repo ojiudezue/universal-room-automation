@@ -139,6 +139,8 @@ def _build_ha_modules():
     ha_ev = _mod("homeassistant.helpers.event")
     ha_util = _mod("homeassistant.util")
     ha_dt = _mod("homeassistant.util.dt")
+    ha_def = _mod("homeassistant.data_entry_flow")
+    ha_def.section = lambda schema, opts=None: schema
 
     ha.config_entries = ha_ce
     ha.core = ha_core

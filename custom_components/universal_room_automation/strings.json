@@ -327,29 +327,43 @@
         }
       },
       "climate": {
-        "title": "Climate & HVAC",
-        "description": "Configure temperature-based fan control and HVAC coordination. Fan speed thresholds will be configured in a follow-up step if fan control is enabled.",
+        "title": "Climate & Fans",
+        "description": "Configure fans first (HVAC-managed, comfort, humidity/exhaust), then the climate backstop at the bottom (comfort range + thermostat fallback).",
         "data": {
-          "climate_entity": "Climate/Thermostat Entity",
-          "hvac_coordination_enabled": "Enable HVAC Coordination",
-          "target_temp_cool": "Cooling Target",
-          "target_temp_heat": "Heating Target",
-          "fan_control_enabled": "Enable Fan Control",
+          "hvac_coordination_enabled": "Enable HVAC-Managed Fans",
+          "fan_control_enabled": "Enable Comfort Fan Control",
+          "humidity_fan_control_enabled": "Enable Humidity/Exhaust Fan Control",
+          "wet_room": "Wet Room (bathroom/laundry)",
+          "humidity_fan_spike_enabled": "Enable Humidity Spike Detection",
+          "humidity_fan_presence_runtime_enabled": "Enable Post-Vacancy Runtime",
+          "humidity_fan_presence_runtime_base_s": "Post-Vacancy Base Runtime (s)",
+          "humidity_fan_presence_runtime_per_min_s": "Added Runtime per Minute Occupied (s)",
+          "humidity_fan_presence_runtime_cap_s": "Post-Vacancy Runtime Cap (s)",
           "fan_temp_threshold": "Fan Start Temperature",
           "humidity_fan_threshold": "Humidity Fan Threshold",
           "humidity_fan_timeout": "Humidity Fan Min Runtime",
-          "humidity_fan_max_runtime": "Humidity Fan Max Runtime"
+          "humidity_fan_max_runtime": "Humidity Fan Max Runtime",
+          "target_temp_heat": "Comfort Range — Low (°F)",
+          "target_temp_cool": "Comfort Range — High (°F)",
+          "climate_entity": "Climate/Thermostat Entity (fallback)"
         },
         "data_description": {
-          "climate_entity": "Your thermostat or HVAC controller (auto-detected from area if available)",
-          "hvac_coordination_enabled": "Coordinate room automation with HVAC state",
-          "target_temp_cool": "Target temperature for cooling mode",
-          "target_temp_heat": "Target temperature for heating mode",
-          "fan_control_enabled": "Automatically control fans based on temperature (speed thresholds in next step)",
-          "fan_temp_threshold": "Temperature above which fans turn on",
-          "humidity_fan_threshold": "Humidity % above which exhaust fans turn on",
+          "hvac_coordination_enabled": "When ON, comfort fans are managed by the HVAC coordinator instead of room-level rules.",
+          "fan_control_enabled": "Automatically control comfort/ceiling fans based on temperature (speed thresholds in next step).",
+          "humidity_fan_control_enabled": "Master switch for humidity/exhaust automation. When OFF, URA does not actuate the humidity fans at all.",
+          "wet_room": "When ON, this room is treated as a wet room: enables humidity spike + post-vacancy runtime by default and exempts the exhaust from sleep-policy force-off.",
+          "humidity_fan_spike_enabled": "Adaptive baseline detection — fires the fan when humidity rises sharply above its running baseline (catches showers before the absolute threshold).",
+          "humidity_fan_presence_runtime_enabled": "After vacancy, keep the exhaust running for a usage-proportional period to finish venting.",
+          "humidity_fan_presence_runtime_base_s": "Minimum post-vacancy runtime (seconds).",
+          "humidity_fan_presence_runtime_per_min_s": "Additional seconds of post-vacancy runtime per minute of prior occupancy.",
+          "humidity_fan_presence_runtime_cap_s": "Hard cap on the post-vacancy runtime; must be ≤ Humidity Fan Max Runtime.",
+          "fan_temp_threshold": "Temperature above which comfort fans turn on.",
+          "humidity_fan_threshold": "Humidity % above which exhaust fans turn on (absolute threshold; OR-companion to spike detection).",
           "humidity_fan_timeout": "Minimum continuous runtime before the fan is allowed to turn off after humidity drops below threshold. Prevents short-cycling.",
-          "humidity_fan_max_runtime": "Maximum continuous humidity-fan runtime. Forces off if humidity stays elevated longer than this — protects against stuck humidity sensors and runaway runs. Set higher for laundry rooms; lower for bathrooms."
+          "humidity_fan_max_runtime": "Maximum continuous humidity-fan runtime. Forces off if humidity stays elevated longer than this — protects against stuck humidity sensors and runaway runs.",
+          "target_temp_heat": "Lower bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
+          "target_temp_cool": "Upper bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
+          "climate_entity": "Optional fallback thermostat for zone-thermostat resolution when the zone has no explicit thermostat set."
         }
       },
       "fan_speeds": {
@@ -1667,21 +1681,28 @@
         }
       },
       "climate": {
-        "title": "Climate & HVAC",
-        "description": "Update temperature and HVAC settings.",
+        "title": "Climate & Fans",
+        "description": "Configure fans first (HVAC-managed, comfort, humidity/exhaust), then the climate backstop at the bottom.",
         "data": {
-          "climate_entity": "Climate Entity",
-          "hvac_coordination_enabled": "Enable HVAC Coordination",
-          "target_temp_cool": "Cooling Target",
-          "target_temp_heat": "Heating Target",
-          "fan_control_enabled": "Enable Fan Control",
+          "hvac_coordination_enabled": "Enable HVAC-Managed Fans",
+          "fan_control_enabled": "Enable Comfort Fan Control",
+          "humidity_fan_control_enabled": "Enable Humidity/Exhaust Fan Control",
+          "wet_room": "Wet Room (bathroom/laundry)",
+          "humidity_fan_spike_enabled": "Enable Humidity Spike Detection",
+          "humidity_fan_presence_runtime_enabled": "Enable Post-Vacancy Runtime",
+          "humidity_fan_presence_runtime_base_s": "Post-Vacancy Base Runtime (s)",
+          "humidity_fan_presence_runtime_per_min_s": "Added Runtime per Minute Occupied (s)",
+          "humidity_fan_presence_runtime_cap_s": "Post-Vacancy Runtime Cap (s)",
           "fan_temp_threshold": "Fan Start Temperature",
           "fan_speed_low_temp": "Low Speed Temperature",
           "fan_speed_med_temp": "Medium Speed Temperature",
           "fan_speed_high_temp": "High Speed Temperature",
           "humidity_fan_threshold": "Humidity Fan Threshold (%)",
           "humidity_fan_timeout": "Humidity Fan Min Runtime (s)",
-          "humidity_fan_max_runtime": "Humidity Fan Max Runtime (s)"
+          "humidity_fan_max_runtime": "Humidity Fan Max Runtime (s)",
+          "target_temp_heat": "Comfort Range — Low (°F)",
+          "target_temp_cool": "Comfort Range — High (°F)",
+          "climate_entity": "Climate/Thermostat Entity (fallback)"
         }
       },
       "sleep_protection": {

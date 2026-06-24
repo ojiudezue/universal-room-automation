@@ -592,6 +592,37 @@ CONF_HUMIDITY_FAN_TIMEOUT: Final = "humidity_fan_timeout"
 CONF_HUMIDITY_FAN_MAX_RUNTIME: Final = "humidity_fan_max_runtime"
 CONF_FAN_VACANCY_HOLD: Final = "fan_vacancy_hold"
 
+# --- Bathroom-exhaust intelligence (humidity-fan unification cycle) ---
+# Toggle #3: master enable for humidity-fan automation (D4/D5).
+# Default True — preserves behavior for entries without the new field.
+CONF_HUMIDITY_FAN_CONTROL_ENABLED: Final = "humidity_fan_control_enabled"
+DEFAULT_HUMIDITY_FAN_CONTROL_ENABLED: Final = True
+
+# Wet-room flag (D4). Defaults to True iff room_type == bathroom; else False.
+# Operator opts in for laundry/mudroom. Gates D2/D3 default-on + the
+# sleep-policy exemption in automation.py.
+CONF_WET_ROOM: Final = "wet_room"
+
+# D2 — EMA-baseline humidity-spike detection.
+CONF_HUMIDITY_FAN_SPIKE_ENABLED: Final = "humidity_fan_spike_enabled"
+CONF_HUMIDITY_FAN_SPIKE_DELTA_PCT: Final = "humidity_fan_spike_delta_pct"
+CONF_HUMIDITY_FAN_SPIKE_EMA_ALPHA_S: Final = "humidity_fan_spike_ema_alpha_s"
+CONF_HUMIDITY_FAN_SPIKE_BASELINE_MODE: Final = "humidity_fan_spike_baseline_mode"
+HUMIDITY_FAN_SPIKE_MODE_EMA: Final = "ema"
+HUMIDITY_FAN_SPIKE_MODE_WINDOW_MIN: Final = "window_min"
+DEFAULT_HUMIDITY_FAN_SPIKE_DELTA_PCT: Final = 10  # pp above baseline
+DEFAULT_HUMIDITY_FAN_SPIKE_EMA_ALPHA_S: Final = 2700  # ~45 min time constant
+DEFAULT_HUMIDITY_FAN_SPIKE_BASELINE_MODE: Final = HUMIDITY_FAN_SPIKE_MODE_EMA
+
+# D3 — Presence/usage-proportional post-vacancy runtime.
+CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED: Final = "humidity_fan_presence_runtime_enabled"
+CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S: Final = "humidity_fan_presence_runtime_base_s"
+CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S: Final = "humidity_fan_presence_runtime_per_min_s"
+CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S: Final = "humidity_fan_presence_runtime_cap_s"
+DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S: Final = 60
+DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S: Final = 30
+DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S: Final = 600
+
 # --- Step 6: Sleep Protection ---
 CONF_SLEEP_PROTECTION_ENABLED: Final = "sleep_protection_enabled"
 CONF_SLEEP_START_HOUR: Final = "sleep_start_hour"

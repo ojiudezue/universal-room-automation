@@ -173,7 +173,6 @@ def _make_room_fan(is_on=False, trigger="", speed_pct=0, vacancy_time="", last_o
         room_name="Study A",
         zone_id="zone_1",
         fan_entities=["fan.test_fan"],
-        humidity_fan_entities=[],
         is_on=is_on,
         trigger=trigger,
         speed_pct=speed_pct,
