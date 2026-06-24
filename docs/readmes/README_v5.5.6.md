@@ -24,10 +24,12 @@ A (correctness) SHIP, B (state-machine/restart) SHIP, C (test authority) FIX-FIR
 **Delayed (next battery grid-charge — the headline):**
 - **H4 — no spurious guard abort with the guard off.** During any arbitrage CHARGE / attain grid-charge window (next poor-tomorrow night), `arbitrage_guard_aborted_at` does NOT advance even if effective grid import exceeds 12 kW (AC + battery charge). Signal: `arbitrage_guard_aborted_at` stays at its pre-deploy value through a grid-charge that pulls >12 kW. Verdict: violated if the guard aborts a chunk while disabled. Window: next grid-charge (may be days out — tomorrow_solar_class must be poor/very_poor to trigger arbitrage grid-charge; not exercised on moderate-tomorrow nights). The ENABLED path (byte-identical to old guard) is proven in-suite, not live.
 
-## Live Validation — PROSPECTIVE (write back after restart + first grid-charge)
-| # | Criterion | How |
-|---|---|---|
-| L1 | Deploy healthy | v5.5.6 HACS-installed, config loaded, zero new URA errors |
-| L2 | Guard inert by default (H1) | battery_strategy attrs: `..._enabled: false`, `..._kw: null` |
-| L3 | Config surface (H2) | toggle OFF + blank kW field visible in Energy options |
-| L4 | No spurious abort (H4) | next grid-charge >12 kW does not advance `arbitrage_guard_aborted_at` |
+## Live Validation — Validated 2026-06-19 (post-restart, HA on v5.5.7 incl. this cycle)
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | Deploy healthy | **PASS** | `update.universal_room_automation_update` installed_version `v5.5.7` (carries v5.5.6 code); zero URA ERROR entries in system log at boot |
+| L2 | Guard inert by default (H1) | **PASS** | `sensor.ura_energy_coordinator_battery_strategy` attrs `arbitrage_grid_import_guard_enabled: false`, `arbitrage_grid_import_guard_kw: null`, `arbitrage_guard_aborted_at: null`, `arbitrage_guard_aborted_kw: null` — guard not enforcing, sensor honest |
+| L3 | Config surface (H2) | **in-suite / code-proven** | config-flow toggle/field render is not API-observable; the disabled default is confirmed live via the `..._enabled: false` attr; field round-trip proven in `test_arbitrage_grid_import_guard_expose.py` |
+| L4 | No spurious abort (H4) | **PENDING — no grid-charge yet** | `arbitrage_guard_aborted_at: null` is the clean baseline; meaningful proof requires a real arbitrage/attain grid-charge pulling >12 kW (next poor/very_poor-tomorrow night). tomorrow_solar_class was `moderate` at validation → no grid-charge scheduled. Re-check on next grid-charge. |
+
+**Boot transient (dismissed):** immediately post-restart the battery_strategy read `state: unknown`, `reason: "Envoy unavailable — holding"`, `inclement_reason: "initializing"` — normal Envoy reconnect lag (~3-7 min). The guard attrs (config-derived) were already correct during the transient.

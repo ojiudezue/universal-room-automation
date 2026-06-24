@@ -22,9 +22,16 @@ A (data integrity / incremental path) + B (full-VACUUM supervision / worker paus
 **Delayed (operator presses the VACUUM button — the headline):**
 - **H4 — supervised VACUUM activates incremental mode and reclaims space.** After one button press: `PRAGMA auto_vacuum` becomes `INCREMENTAL (2)`, the DB file shrinks materially from ~900 MB, `integrity_check` returns `ok`, a `.prevacuum.bak` is written, and the write worker resumes (writes flow again, no `>120s` guard trip). Signal: `sensor.ura_coordinator_manager_db_size` drops; button completes without error. Window: when the operator triggers it. Thereafter the nightly incremental keeps the file lean.
 
-## Live Validation — PROSPECTIVE (write back after restart, then after the button press)
-| # | Criterion | How |
-|---|---|---|
-| L1 | Deploy healthy / inert | v5.5.7 installed; button entity present; DB size unchanged; zero new errors |
-| L2 | Nightly op wired (H2) | both schedules include `incremental_vacuum`; returns 0 on NONE-mode DB |
-| L3 | Supervised reclaim (H4) | after button press: auto_vacuum=INCREMENTAL, db_size drops, integrity ok, `.prevacuum.bak` exists, worker resumes |
+## Live Validation — Validated 2026-06-19 (post-restart; reclaim pending operator button press)
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | Deploy healthy / inert | **PASS** | `update.universal_room_automation_update` installed_version `v5.5.7`; button entity present (actual id `button.ura_coordinator_manager_vacuum_database_one_time_supervised`, state `unknown`); `sensor.ura_coordinator_manager_db_size` = **900.65 MB (unchanged)** — confirms inert deploy; zero URA ERROR entries in system log at boot |
+| L2 | Nightly op wired (H2) | **code-proven; inert confirmed** | both schedules carry `incremental_vacuum`; no-op on the current `auto_vacuum=NONE` DB (the unchanged 900.65 MB size is the live evidence of inertness). Runs for real at the next nightly maintenance once incremental mode is active. |
+| L3 | Supervised VACUUM ran (H4) | **PASS (mechanism) — premise corrected** | operator pressed the button 2026-06-19 20:30 CDT. Log sequence: backup → `.prevacuum.bak` written → VACUUM → **`integrity_check: ok`**, **`auto_vacuum_after: 2` (INCREMENTAL activated)**, re-entrant presses correctly ignored. Result dict `{'status':'ok','size_mb_before':899.9,'size_mb_after':884.1,'integrity_check':'ok','auto_vacuum_after':2}`. |
+
+### Important finding — the bloat hypothesis was wrong
+The supervised VACUUM reclaimed only **~15.8 MB** (899.9 → 884.1 MB), not the hundreds implied by "~900 MB high-water mark of reclaimable empty pages." **The DB is genuinely ~884 MB of *live* data, not bloat** — there were very few free pages to return (the nightly prune had kept it tight). So there is **no large one-time reclaim to be had.**
+
+The durable value is the **`auto_vacuum=INCREMENTAL` activation**, not the one-time shrink: from now on, pages the nightly prune frees are returned to the OS incrementally instead of accumulating into a growing high-water mark. The cycle's mechanism is sound and the activation is the lasting win; the original "~900 MB reclaimable" motivation was a mis-diagnosis. If the file ever does grow with genuine free pages, the nightly `incremental_vacuum` will now trim it without another full VACUUM.
+
+**Note:** the button's live entity_id carries the full friendly suffix `_one_time_supervised` (the README body's shorthand `button.ura_coordinator_manager_vacuum_database` is the unique-id stem, not the resolved entity_id).

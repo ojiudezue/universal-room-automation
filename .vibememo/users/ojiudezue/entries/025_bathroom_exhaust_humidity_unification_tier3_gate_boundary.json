@@ -1,0 +1,55 @@
+{
+  "format_version": "2.1",
+  "entry_id": "025",
+  "author": "ojiudezue",
+  "session_id": "claude_20260623_bathroom_exhaust_humidity_unification_tier3",
+  "timestamp": "2026-06-24T01:07:30Z",
+  "type": "decision",
+  "weight": "load-bearing",
+  "title": "Bathroom-Exhaust Intelligence + Humidity-Fan Unification (Tier 3, in fix-up): humidity/exhaust fans decoupled to ALWAYS room-owned; and the load-bearing call — VENTING is gated by master-automation + toggle #3, but the max-runtime SAFETY CAP fires UNIVERSALLY as a backstop independent of every operator automation toggle",
+  "summary": "A Tier-3 cycle (4 framing-disjoint reviews + fix-up rounds) to make humidity/exhaust fans self-contained in rooms: removed the humidity-fan controller entirely from hvac_fans.py so automation.py is the sole owner (invariant I1 = exactly-one-owner), added EMA humidity-spike detection (catches shower spikes a high absolute threshold misses), presence/usage-proportional post-vacancy runtime (the Guest-Toilet-Automation2 'number 2' smell pattern: min(base + per_min*occupied, cap)), a Wet Room flag (auto-true for room_type=bathroom; exempts the exhaust from comfort-fan sleep-off), and a D8 reframe of the room temps as a desired COMFORT RANGE scored on BOTH bounds. The central decision crystallized through review: where is the independence boundary for a bathroom exhaust? Operator landed on Option 2 — venting respects the operator's automation toggles (ManualMode/master-off SUPPRESSES venting), but the safety cap is a universal bound that force-offs a runaway fan no matter what. NOT yet shipped: mid second fix-up round at the time of writing.",
+  "decisions": [
+    "GATE BOUNDARY (Option 2, the load-bearing call) — separate VENTING (comfort/health automation) from the SAFETY CAP (a bound). Venting (turn-on, off-threshold, EMA spike, presence-runtime, sleep-policy) requires BOTH the room's master automation enabled AND humidity-fan toggle #3 on; ManualMode or master-off or toggle-3-off => NO venting (operator owns the fan). But the max-runtime force-off fires UNIVERSALLY — independent of master automation AND toggle #3 — because a stuck exhaust running forever is a safety/noise problem, not a comfort preference. Rejected Option 1 (fully independent venting that runs even under ManualMode): ManualMode means 'hands off', and a dedicated toggle #3 already exists to govern humidity venting; only the cap transcends it.",
+    "ARCHITECTURE — humidity/exhaust fans are now ALWAYS room-owned (automation.py::handle_humidity_based_fan_control is the sole writer). The entire humidity path — discovery, _evaluate_humidity_fan, the max-runtime cap, the humidity RoomFanState fields — was DELETED from hvac_fans.py. Reason: the old split (HVAC-managed rooms used hvac_fans with no sleep handling; non-HVAC rooms used automation.py with sleep+min-runtime) produced an ORPHAN bug (HVAC-coord ON + fan-control OFF => hvac.py ran turn_off_all_managed which ignored humidity fans, and the room path deferred => nobody owned them). Invariant I1: exactly-one-owner across the full toggle x house-state cross-product.",
+    "D8 COMFORT-RANGE REFRAME — the per-room cooling/heating setpoints are reframed as a desired COMFORT RANGE (low + high), and BOTH bounds are now scored (was: only TARGET_TEMP_COOL read; Bug Class #53 computed-but-not-consumed on the heat bound). Kept CONF_CLIMATE_ENTITY + the temps (demoted into a collapsed config section, not removed) because aggregation.py's zone-thermostat fallback uses the room CONF_CLIMATE_ENTITY when a zone has no dedicated thermostat — deleting them would break that resilience. Zone comfort desires come from HC presets, not zone config, which is why the room-level range is the right home for the comfort-scoring inputs.",
+    "EMA SPIKE over absolute-only — humidity venting adds rate-of-rise (EMA baseline + delta, default +10% over a ~45min time-constant, OR an absolute 60% floor) so a high-set absolute threshold still catches a shower/wash spike. Exposed the EMA alpha + delta as config (operator wanted the constants tunable, in a hidden/collapsed section, no HA Advanced Mode — HA's data_entry_flow section() is the replacement).",
+    "PRESENCE-PROPORTIONAL RUNTIME — ported the operator's automation.guest_toilet_automation2 pattern: after vacancy, run the exhaust min(base + per_min*occupied_minutes, cap) seconds (longer visit => longer purge = smell handling). Wet-room only.",
+    "PROCESS — elevated to Tier 3 (4 framing-disjoint reviews incl. the adversarial-completeness D pass + operator pre-deploy checkpoint) because the change threads a single value (fan ownership + the safety cap) through a state machine consumed by many gate/emission sites — the one-missed-site failure mode (Bug Class #53), and it is cost/comfort/safety-adjacent."
+  ],
+  "alternatives_considered": [
+    "Option 1 — humidity venting fully independent of ALL operator toggles (vents + caps even under ManualMode). Rejected by the operator: ManualMode is a deliberate 'operator owns everything' mode; only the safety cap should transcend it, not venting.",
+    "Option B (earlier branch) — toggle-off = full manual ownership including NO safety cap (the as-built behavior). Rejected: a disabled toggle silently revoking the max-runtime cap can leave a bathroom fan running indefinitely; the cap must remain a safety bound. This became Option A, then refined to Option 2 when the deeper master-automation gate surfaced.",
+    "Keeping the two divergent humidity-fan paths (hvac_fans + automation) and just patching the orphan. Rejected: the divergence (sleep handling in one path only) was the root cause; unify to one owner instead.",
+    "Deleting CONF_CLIMATE_ENTITY + the room temps outright (they looked vestigial in the Climate step). Rejected: aggregation.py's zone-thermostat fallback depends on the room climate entity. Demote + reframe as a comfort range instead of remove.",
+    "Trusting the build's green test suite. Rejected by the reviews: all 52 cycle tests called the handler directly, bypassing every coordinator gate — so two HIGH stuck-on/stuck-off leaks shipped GREEN. Integration tests that drive the real _async_update_data are now required."
+  ],
+  "implications": [
+    "Tier-3's 4th adversarial-completeness pass + the FOCUSED re-pass after the fix-up earned their keep AGAIN: round 1 all four reviews said FIX-FIRST; the fix-up resolved them but its STRUCTURAL changes (hoisting the humidity call out of the inner climate gate) EXPOSED two new HIGHs one gate-level deeper (the call was still trapped under the master-automation elif; and the reload-seed sat below the cap-only early-return so the cap couldn't fire on a boot-with-toggle-off+fan-on). Standing lesson reconfirmed: a fix can reveal an N+1 site — re-run D's completeness enumeration after every fix-up, do not trust that the first fix closed the surface.",
+    "SYSTEMIC TEST GAP named: a cycle that touches the coordinator gate stack (_is_automation_enabled / climate / cover / skip-first / fan-recheck) MUST have integration tests that drive the real _async_update_data, not just direct-handler unit tests. Direct-handler tests bypass the gates and give false green — exactly how the D3-dead-in-production bug and both gate HIGHs passed review. This is the same 'mock-shaped-to-code / tests don't drive the real surface' bank from entry 024, now with a concrete coordinator-integration remedy.",
+    "Bug Class #53 (computed-but-not-consumed / one-missed-site) hit THREE times in this one cycle: D3 presence-runtime was dead because the coordinator zeroed _became_occupied_time before the handler read it (masked by tests that held the attr set); D8 scored only the cool bound; and the humidity call was trapped under successive gates. The class is now the dominant recurring failure mode in URA — mutation-anchored + integration-level tests are the standing defense.",
+    "The orchestrator-independent-verification rule paid off: I personally re-read the source to adjudicate a direct reviewer conflict (Reviewer A 'D3 never arms' vs Reviewer B 'D3 window leaks') — both were right about different timelines (A about today: nothing arms; B about post-fix: the fix activates a latent bleed). Trusting either summary alone would have produced a wrong fix.",
+    "A clean separation primitive emerged that is worth protecting: 'automation a user can disable' vs 'a safety bound that transcends user toggles'. The max-runtime cap is the first explicit instance; future safety bounds (e.g. breaker/thermal limits) should follow the same 'universal, ungated' pattern rather than living inside an automation gate."
+  ],
+  "follow_up": [
+    "Cycle NOT shipped — second fix-up round (Option 2 gate boundary + reload-seed reorder + snapshot fixes at the 2 missed clear sites + coordinator-integration tests + real-sensor D8 tests) running at time of writing; then re-verify (focused C mutation re-pass + D re-enumeration + orchestrator's own source mutation) + operator pre-deploy checkpoint before deploy. Branch feature/bathroom-exhaust-intelligence.",
+    "Ship will bundle the parked feature/cover-log-spam-ratelimit log-on-change fix (a617ded8).",
+    "Guest-mode false-positive backlog (separate finding this session): house wrongly GUEST with no guests — an away person stamped tracking_status=LOST is excluded from 'trusted' + an outdoor 'Outside' zone phantom census occupant => false guest. Override applied (home_night, is_overridden); two fix candidates tracked. See project_guest_mode_false_positive_backlog memory.",
+    "Jaya bedroom occupancy RESOLVED earlier this session (BLE room-mapping + zigbee mmwave config, not the fan veto) but now FLAPS on jittery Bermuda area placement — live follow-up: tune Bermuda or add an occupancy debounce. See project_jaya_bedroom_occupancy_resolved memory.",
+    "PowerView blinds unreliability was a Hunter Douglas gateway POWER issue (not URA, not IP), fixed by power-cycle. IP-change steps in back pocket. See project_powerview_and_humidity_fan_followups memory."
+  ],
+  "refs": {
+    "entries": [
+      "024",
+      "008"
+    ],
+    "files": [
+      "docs/planning/PLANNING_bathroom_exhaust_intelligence_and_humidity_fan_unification.md",
+      "custom_components/universal_room_automation/automation.py",
+      "custom_components/universal_room_automation/domain_coordinators/hvac_fans.py",
+      "custom_components/universal_room_automation/coordinator.py",
+      "custom_components/universal_room_automation/sensor.py",
+      "quality/tests/test_bathroom_exhaust_intelligence_cycle.py"
+    ]
+  },
+  "ship_target": "Bathroom-exhaust intelligence + humidity-fan unification (D1-D8) — built + Tier-3 reviewed + in 2nd fix-up; NOT yet shipped. Manifest version unbumped. Awaiting fix-up verification + operator deploy checkpoint."
+}

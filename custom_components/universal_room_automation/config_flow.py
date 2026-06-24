@@ -26,6 +26,16 @@ from homeassistant.helpers import selector
 from homeassistant.helpers import entity_registry as er
 from homeassistant.const import CONF_NAME
 
+try:  # Bathroom-exhaust intelligence cycle: hoisted from function-local so the
+    # cycle_b test harness (which strips HA mocks after config_flow import)
+    # doesn't ModuleNotFoundError when async_step_climate is later invoked
+    # under a torn-down mock tree. Pre-existing `fan_recheck_advanced` section
+    # uses still import it function-local; keep that pattern there.
+    from homeassistant.data_entry_flow import section as _ha_section
+except Exception:  # noqa: BLE001 — tests may mock without data_entry_flow
+    def _ha_section(schema, options=None):  # type: ignore[no-redef]
+        return schema
+
 _LOGGER = logging.getLogger(__name__)
 
 from .const import (
@@ -209,6 +219,26 @@ from .const import (
     DEFAULT_HUMIDITY_THRESHOLD,
     DEFAULT_HUMIDITY_FAN_TIMEOUT,
     DEFAULT_HUMIDITY_FAN_MAX_RUNTIME,
+    # Bathroom-exhaust intelligence cycle
+    CONF_HUMIDITY_FAN_CONTROL_ENABLED,
+    DEFAULT_HUMIDITY_FAN_CONTROL_ENABLED,
+    CONF_WET_ROOM,
+    CONF_HUMIDITY_FAN_SPIKE_ENABLED,
+    CONF_HUMIDITY_FAN_SPIKE_DELTA_PCT,
+    CONF_HUMIDITY_FAN_SPIKE_EMA_ALPHA_S,
+    CONF_HUMIDITY_FAN_SPIKE_BASELINE_MODE,
+    HUMIDITY_FAN_SPIKE_MODE_EMA,
+    HUMIDITY_FAN_SPIKE_MODE_WINDOW_MIN,
+    DEFAULT_HUMIDITY_FAN_SPIKE_DELTA_PCT,
+    DEFAULT_HUMIDITY_FAN_SPIKE_EMA_ALPHA_S,
+    DEFAULT_HUMIDITY_FAN_SPIKE_BASELINE_MODE,
+    CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED,
+    CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S,
+    CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S,
+    CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S,
+    DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S,
+    DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S,
+    DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S,
     # Sleep protection
     CONF_SLEEP_PROTECTION_ENABLED,
     CONF_SLEEP_START_HOUR,
@@ -311,6 +341,37 @@ from .const import (
     DEFAULT_ANOMALY_SENSITIVITY,
     ANOMALY_SENSITIVITY_OPTIONS,
 )
+
+
+# =============================================================================
+# Bathroom-exhaust intelligence cycle — climate-fans form validation
+# =============================================================================
+def _validate_climate_fans_form(user_input: dict) -> str | None:
+    """Cross-field validation for the "Climate & Fans" step.
+
+    Returns a translation-key suitable error string for `errors["base"]`, or
+    None if the form is valid. Validates:
+      D8 — comfort-range low ≤ high (low > high is rejected; low == high
+            is a legal degenerate range with zero in-range band).
+      D5 — presence-runtime cap ≤ humidity-fan max-runtime.
+    """
+    heat = user_input.get(CONF_TARGET_TEMP_HEAT)
+    cool = user_input.get(CONF_TARGET_TEMP_COOL)
+    if heat is not None and cool is not None:
+        try:
+            if float(heat) > float(cool):
+                return "comfort_range_inverted"
+        except (TypeError, ValueError):
+            pass
+    cap_s = user_input.get(CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S)
+    max_runtime = user_input.get(CONF_HUMIDITY_FAN_MAX_RUNTIME)
+    if cap_s is not None and max_runtime is not None:
+        try:
+            if int(cap_s) > int(max_runtime):
+                return "presence_runtime_cap_above_max"
+        except (TypeError, ValueError):
+            pass
+    return None
 
 
 # =============================================================================
@@ -1716,34 +1777,82 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         return len(errors) == 0, errors
 
     async def async_step_climate(self, user_input=None):
-        """Handle climate and HVAC configuration.
+        """Handle "Climate & Fans" configuration (D7 rename).
 
-        v3.6.24: Fan speed fields moved to conditional fan_speeds sub-step.
-        Area pre-population for climate entity added.
+        Fans-first information hierarchy (D5/D7/D8):
+          1. Toggle #1 (HVAC-managed) / #2 (comfort) / #3 (humidity) + wet_room
+          2. Humidity-fan controls (threshold, timeout, max-runtime)
+          3. Presence-runtime triplet
+          4. Collapsed advanced spike-baseline section
+          5. Comfort-range pair + climate-entity fallback (DEMOTED to bottom)
         """
+        section = _ha_section
+        errors: dict[str, str] = {}
         if user_input is not None:
-            self._data.update(user_input)
-            # v3.6.24: Conditional routing — fan speeds if fan control enabled
-            if user_input.get(CONF_FAN_CONTROL_ENABLED):
-                return await self.async_step_fan_speeds()
-            return await self.async_step_sleep_protection()
+            # Flatten the collapsed advanced section back into top-level keys
+            # so consumers read the same shape they always did.
+            advanced = user_input.pop("humidity_fan_advanced", None)
+            if isinstance(advanced, dict):
+                user_input.update(advanced)
+            climate_group = user_input.pop("climate_backstop", None)
+            if isinstance(climate_group, dict):
+                user_input.update(climate_group)
+            # D5/D8 cross-field validation
+            err = _validate_climate_fans_form(user_input)
+            if err:
+                errors["base"] = err
+            else:
+                # D4 default cascade: bathroom rooms get wet_room=True unless
+                # operator explicitly overrode it.
+                room_type = self._data.get(CONF_ROOM_TYPE)
+                if (
+                    CONF_WET_ROOM not in user_input
+                    and room_type == ROOM_TYPE_BATHROOM
+                ):
+                    user_input[CONF_WET_ROOM] = True
+                self._data.update(user_input)
+                if user_input.get(CONF_FAN_CONTROL_ENABLED):
+                    return await self.async_step_fan_speeds()
+                return await self.async_step_sleep_protection()
 
-        # v3.6.24: Area pre-population for climate entity
         area_id = self._data.get(CONF_AREA_ID)
         area_climate = self._get_area_entities(area_id, "climate") if area_id else []
+        room_type = self._data.get(CONF_ROOM_TYPE)
+        wet_default = (room_type == ROOM_TYPE_BATHROOM)
 
         data_schema = vol.Schema({
-            vol.Optional(CONF_CLIMATE_ENTITY, default=area_climate[0] if area_climate else vol.UNDEFINED): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="climate")
-            ),
+            # --- Fans first ---
             vol.Optional(CONF_HVAC_COORDINATION_ENABLED, default=False): selector.BooleanSelector(),
-            vol.Optional(CONF_TARGET_TEMP_COOL, default=DEFAULT_TARGET_TEMP_COOL): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=60, max=90, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
-            ),
-            vol.Optional(CONF_TARGET_TEMP_HEAT, default=DEFAULT_TARGET_TEMP_HEAT): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=60, max=90, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
-            ),
             vol.Optional(CONF_FAN_CONTROL_ENABLED, default=False): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_HUMIDITY_FAN_CONTROL_ENABLED,
+                default=DEFAULT_HUMIDITY_FAN_CONTROL_ENABLED,
+            ): selector.BooleanSelector(),
+            vol.Optional(CONF_WET_ROOM, default=wet_default): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_HUMIDITY_FAN_SPIKE_ENABLED, default=wet_default,
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED, default=wet_default,
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S,
+                default=DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S,
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=600, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
+            ),
+            vol.Optional(
+                CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S,
+                default=DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S,
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=300, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
+            ),
+            vol.Optional(
+                CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S,
+                default=DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S,
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=60, max=3600, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
+            ),
             vol.Optional(CONF_FAN_TEMP_THRESHOLD, default=DEFAULT_FAN_TEMP_THRESHOLD): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=60, max=100, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
             ),
@@ -1756,12 +1865,60 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             vol.Optional(CONF_HUMIDITY_FAN_MAX_RUNTIME, default=DEFAULT_HUMIDITY_FAN_MAX_RUNTIME): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=600, max=14400, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
             ),
+            vol.Optional("humidity_fan_advanced"): section(
+                vol.Schema({
+                    vol.Optional(
+                        CONF_HUMIDITY_FAN_SPIKE_DELTA_PCT,
+                        default=DEFAULT_HUMIDITY_FAN_SPIKE_DELTA_PCT,
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(min=3, max=30, unit_of_measurement="%", mode=selector.NumberSelectorMode.BOX)
+                    ),
+                    vol.Optional(
+                        CONF_HUMIDITY_FAN_SPIKE_EMA_ALPHA_S,
+                        default=DEFAULT_HUMIDITY_FAN_SPIKE_EMA_ALPHA_S,
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(min=300, max=14400, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
+                    ),
+                    vol.Optional(
+                        CONF_HUMIDITY_FAN_SPIKE_BASELINE_MODE,
+                        default=DEFAULT_HUMIDITY_FAN_SPIKE_BASELINE_MODE,
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                {"label": "EMA (adaptive average)", "value": HUMIDITY_FAN_SPIKE_MODE_EMA},
+                                {"label": "Window minimum", "value": HUMIDITY_FAN_SPIKE_MODE_WINDOW_MIN},
+                            ],
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                        )
+                    ),
+                }),
+                {"collapsed": True},
+            ),
+            # --- Climate backstop LAST (D8 demote) ---
+            vol.Optional("climate_backstop"): section(
+                vol.Schema({
+                    vol.Optional(CONF_TARGET_TEMP_HEAT, default=DEFAULT_TARGET_TEMP_HEAT): selector.NumberSelector(
+                        selector.NumberSelectorConfig(min=60, max=90, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
+                    ),
+                    vol.Optional(CONF_TARGET_TEMP_COOL, default=DEFAULT_TARGET_TEMP_COOL): selector.NumberSelector(
+                        selector.NumberSelectorConfig(min=60, max=90, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
+                    ),
+                    vol.Optional(
+                        CONF_CLIMATE_ENTITY,
+                        default=area_climate[0] if area_climate else vol.UNDEFINED,
+                    ): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="climate")
+                    ),
+                }),
+                {"collapsed": False},
+            ),
         })
 
         return self.async_show_form(
             step_id="climate",
             data_schema=data_schema,
-            description_placeholders={"name": "Configure climate and HVAC"},
+            errors=errors,
+            description_placeholders={"name": "Configure fans, then climate backstop"},
         )
 
     async def async_step_fan_speeds(self, user_input=None):
@@ -7678,13 +7835,25 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         )
 
     async def async_step_climate(self, user_input=None):
-        """Reconfigure climate."""
+        """Reconfigure "Climate & Fans" (D7 rename + D5/D8 demote)."""
+        section = _ha_section
+        errors: dict[str, str] = {}
         if user_input is not None:
+            advanced = user_input.pop("humidity_fan_advanced", None)
+            if isinstance(advanced, dict):
+                user_input.update(advanced)
+            climate_group = user_input.pop("climate_backstop", None)
+            if isinstance(climate_group, dict):
+                user_input.update(climate_group)
+            err = _validate_climate_fans_form(user_input)
+            if err:
+                errors["base"] = err
+                # fall through to redisplay form
             # v3.6.23: Auto-populate zone thermostat if room is in a zone
             # v3.18.0: Deferred ZM update to avoid reload race condition
             pending_zm_update = None
             climate_entity = user_input.get(CONF_CLIMATE_ENTITY)
-            if climate_entity:
+            if not errors and climate_entity:
                 room_zone = self._get_current(CONF_ZONE) or ""
                 if room_zone:
                     zm_entry = self._find_zone_manager_entry()
@@ -7703,106 +7872,207 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                                 {**zm_entry.options, "zones": zones},
                             )
 
-            try:
-                merged = {**self._config_entry.options, **user_input}
-                _LOGGER.debug("climate save: entry_id=%s, merged_keys=%d",
-                              self._config_entry.entry_id, len(merged))
-                result = self.async_create_entry(title="", data=merged)
-            except Exception:
-                _LOGGER.exception("climate save FAILED")
-                raise
+            if not errors:
+                try:
+                    merged = {**self._config_entry.options, **user_input}
+                    _LOGGER.debug("climate save: entry_id=%s, merged_keys=%d",
+                                  self._config_entry.entry_id, len(merged))
+                    result = self.async_create_entry(title="", data=merged)
+                except Exception:
+                    _LOGGER.exception("climate save FAILED")
+                    raise
 
-            # v3.18.0: Fire ZM update after room entry is saved to avoid
-            # concurrent reload race between room and ZM entries
-            if pending_zm_update:
-                zm_entry_ref, zm_options = pending_zm_update
+                # v3.18.0: Fire ZM update after room entry is saved
+                if pending_zm_update:
+                    zm_entry_ref, zm_options = pending_zm_update
 
-                async def _deferred_zm_update():
-                    await asyncio.sleep(2)
-                    self.hass.config_entries.async_update_entry(
-                        zm_entry_ref,
-                        options=zm_options,
-                    )
+                    async def _deferred_zm_update():
+                        await asyncio.sleep(2)
+                        self.hass.config_entries.async_update_entry(
+                            zm_entry_ref,
+                            options=zm_options,
+                        )
 
-                self.hass.async_create_task(_deferred_zm_update())
+                    self.hass.async_create_task(_deferred_zm_update())
 
-            return result
+                return result
+
+        room_type = self._get_current(CONF_ROOM_TYPE)
+        wet_default = bool(
+            self._get_current(
+                CONF_WET_ROOM,
+                room_type == ROOM_TYPE_BATHROOM,
+            )
+        )
 
         data_schema = vol.Schema({
+            # --- Fans first ---
             vol.Optional(
-                CONF_CLIMATE_ENTITY,
-                default=self._get_current(CONF_CLIMATE_ENTITY) or vol.UNDEFINED
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="climate")
-            ),
-            vol.Optional(
-                CONF_HVAC_COORDINATION_ENABLED, 
-                default=self._get_current(CONF_HVAC_COORDINATION_ENABLED, False)
+                CONF_HVAC_COORDINATION_ENABLED,
+                default=self._get_current(CONF_HVAC_COORDINATION_ENABLED, False),
             ): selector.BooleanSelector(),
-            vol.Optional(
-                CONF_TARGET_TEMP_COOL,
-                default=self._get_current(CONF_TARGET_TEMP_COOL, DEFAULT_TARGET_TEMP_COOL)
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=60, max=90, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
-            ),
-            vol.Optional(
-                CONF_TARGET_TEMP_HEAT,
-                default=self._get_current(CONF_TARGET_TEMP_HEAT, DEFAULT_TARGET_TEMP_HEAT)
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=60, max=90, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
-            ),
             vol.Optional(
                 CONF_FAN_CONTROL_ENABLED,
-                default=self._get_current(CONF_FAN_CONTROL_ENABLED, False)
+                default=self._get_current(CONF_FAN_CONTROL_ENABLED, False),
             ): selector.BooleanSelector(),
             vol.Optional(
+                CONF_HUMIDITY_FAN_CONTROL_ENABLED,
+                default=self._get_current(
+                    CONF_HUMIDITY_FAN_CONTROL_ENABLED,
+                    DEFAULT_HUMIDITY_FAN_CONTROL_ENABLED,
+                ),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_WET_ROOM, default=wet_default,
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_HUMIDITY_FAN_SPIKE_ENABLED,
+                default=self._get_current(CONF_HUMIDITY_FAN_SPIKE_ENABLED, wet_default),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED,
+                default=self._get_current(
+                    CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED, wet_default,
+                ),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S,
+                default=self._get_current(
+                    CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S,
+                    DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=600, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
+            ),
+            vol.Optional(
+                CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S,
+                default=self._get_current(
+                    CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S,
+                    DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=300, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
+            ),
+            vol.Optional(
+                CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S,
+                default=self._get_current(
+                    CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S,
+                    DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=60, max=3600, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
+            ),
+            vol.Optional(
                 CONF_FAN_TEMP_THRESHOLD,
-                default=self._get_current(CONF_FAN_TEMP_THRESHOLD, DEFAULT_FAN_TEMP_THRESHOLD)
+                default=self._get_current(CONF_FAN_TEMP_THRESHOLD, DEFAULT_FAN_TEMP_THRESHOLD),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=60, max=100, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
             ),
             vol.Optional(
                 CONF_FAN_SPEED_LOW_TEMP,
-                default=self._get_current(CONF_FAN_SPEED_LOW_TEMP, DEFAULT_FAN_SPEED_LOW)
+                default=self._get_current(CONF_FAN_SPEED_LOW_TEMP, DEFAULT_FAN_SPEED_LOW),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=60, max=100, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
             ),
             vol.Optional(
                 CONF_FAN_SPEED_MED_TEMP,
-                default=self._get_current(CONF_FAN_SPEED_MED_TEMP, DEFAULT_FAN_SPEED_MED)
+                default=self._get_current(CONF_FAN_SPEED_MED_TEMP, DEFAULT_FAN_SPEED_MED),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=60, max=100, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
             ),
             vol.Optional(
                 CONF_FAN_SPEED_HIGH_TEMP,
-                default=self._get_current(CONF_FAN_SPEED_HIGH_TEMP, DEFAULT_FAN_SPEED_HIGH)
+                default=self._get_current(CONF_FAN_SPEED_HIGH_TEMP, DEFAULT_FAN_SPEED_HIGH),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=60, max=100, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
             ),
             vol.Optional(
                 CONF_HUMIDITY_FAN_THRESHOLD,
-                default=self._get_current(CONF_HUMIDITY_FAN_THRESHOLD, DEFAULT_HUMIDITY_THRESHOLD)
+                default=self._get_current(CONF_HUMIDITY_FAN_THRESHOLD, DEFAULT_HUMIDITY_THRESHOLD),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=30, max=80, unit_of_measurement="%", mode=selector.NumberSelectorMode.SLIDER)
             ),
             vol.Optional(
                 CONF_HUMIDITY_FAN_TIMEOUT,
-                default=self._get_current(CONF_HUMIDITY_FAN_TIMEOUT, DEFAULT_HUMIDITY_FAN_TIMEOUT)
+                default=self._get_current(CONF_HUMIDITY_FAN_TIMEOUT, DEFAULT_HUMIDITY_FAN_TIMEOUT),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=60, max=3600, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
             ),
             vol.Optional(
                 CONF_HUMIDITY_FAN_MAX_RUNTIME,
-                default=self._get_current(CONF_HUMIDITY_FAN_MAX_RUNTIME, DEFAULT_HUMIDITY_FAN_MAX_RUNTIME)
+                default=self._get_current(CONF_HUMIDITY_FAN_MAX_RUNTIME, DEFAULT_HUMIDITY_FAN_MAX_RUNTIME),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=600, max=14400, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
+            ),
+            vol.Optional("humidity_fan_advanced"): section(
+                vol.Schema({
+                    vol.Optional(
+                        CONF_HUMIDITY_FAN_SPIKE_DELTA_PCT,
+                        default=self._get_current(
+                            CONF_HUMIDITY_FAN_SPIKE_DELTA_PCT,
+                            DEFAULT_HUMIDITY_FAN_SPIKE_DELTA_PCT,
+                        ),
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(min=3, max=30, unit_of_measurement="%", mode=selector.NumberSelectorMode.BOX)
+                    ),
+                    vol.Optional(
+                        CONF_HUMIDITY_FAN_SPIKE_EMA_ALPHA_S,
+                        default=self._get_current(
+                            CONF_HUMIDITY_FAN_SPIKE_EMA_ALPHA_S,
+                            DEFAULT_HUMIDITY_FAN_SPIKE_EMA_ALPHA_S,
+                        ),
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(min=300, max=14400, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
+                    ),
+                    vol.Optional(
+                        CONF_HUMIDITY_FAN_SPIKE_BASELINE_MODE,
+                        default=self._get_current(
+                            CONF_HUMIDITY_FAN_SPIKE_BASELINE_MODE,
+                            DEFAULT_HUMIDITY_FAN_SPIKE_BASELINE_MODE,
+                        ),
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                {"label": "EMA (adaptive average)", "value": HUMIDITY_FAN_SPIKE_MODE_EMA},
+                                {"label": "Window minimum", "value": HUMIDITY_FAN_SPIKE_MODE_WINDOW_MIN},
+                            ],
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                        )
+                    ),
+                }),
+                {"collapsed": True},
+            ),
+            # --- Climate backstop LAST (D8 demote) ---
+            vol.Optional("climate_backstop"): section(
+                vol.Schema({
+                    vol.Optional(
+                        CONF_TARGET_TEMP_HEAT,
+                        default=self._get_current(CONF_TARGET_TEMP_HEAT, DEFAULT_TARGET_TEMP_HEAT),
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(min=60, max=90, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
+                    ),
+                    vol.Optional(
+                        CONF_TARGET_TEMP_COOL,
+                        default=self._get_current(CONF_TARGET_TEMP_COOL, DEFAULT_TARGET_TEMP_COOL),
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(min=60, max=90, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
+                    ),
+                    vol.Optional(
+                        CONF_CLIMATE_ENTITY,
+                        default=self._get_current(CONF_CLIMATE_ENTITY) or vol.UNDEFINED,
+                    ): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="climate")
+                    ),
+                }),
+                {"collapsed": False},
             ),
         })
 
         return self.async_show_form(
             step_id="climate",
             data_schema=data_schema,
-            description_placeholders={"name": "Reconfigure climate"},
+            errors=errors,
+            description_placeholders={"name": "Reconfigure climate & fans"},
         )
 
     async def async_step_sleep_protection(self, user_input=None):

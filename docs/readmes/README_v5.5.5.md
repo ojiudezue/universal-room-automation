@@ -24,11 +24,13 @@ A (release + phase invariant) APPROVE, B (drain + never-discharge-into-EV invari
 
 **Note for the watcher:** H3 may legitimately be *serialized* behind an arbitrage battery grid-charge on a poor-solar-tomorrow night (the EV starts after the battery reaches `peak_buffer_target`) — confirm via `attain_state`/`arbitrage_phase`, not just `paused_by_fill_priority`. A delay due to arbitrage is NOT a violation.
 
-## Live Validation — PROSPECTIVE (write back after tonight's off_peak)
-| # | Criterion | How |
-|---|---|---|
-| L1 | Deploy healthy | v5.5.5 HACS-installed, config loaded, zero new URA errors |
-| L2 | Daytime no-regression (H1) | post-restart now: EVs held during peak/mid_peak with SOC<80 (fill still protects the day) |
-| L3 | Overnight release (H2) | tonight: `paused_by_fill_priority == []` through off_peak |
-| L4 | EVs charge (H3) | tonight→morning: a real charging session in off_peak; cars meaningfully charged by ~06:00 |
-| L5 | Grid-guaranteed (H4) | battery stays ≥ reserve during the off_peak EV charge |
+## Live Validation — Validated 2026-06-20 (overnight off_peak 2026-06-19→20)
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | Deploy healthy | **PASS** | live on the instance; zero URA ERROR logs |
+| L2 | Daytime no-regression (H1) | **PASS** (validated at deploy) | EVs held during peak/mid_peak with SOC<80 |
+| L3 | Overnight release (H2) | **PASS** | `sensor.ura_energy_coordinator_ev_charging_status` `paused_by_fill_priority: []` through off_peak; URA proactively turned both Emporia L2 chargers ON (`offpeak_proactive_on`) and the L1 Moes plugs |
+| L4 | EVs charge (H3) | **PASS (URA side) — confirmed for L1; L2 idle by physical reality, not URA** | L1 Moes plugs charged 1440 W ×2 sustained through off_peak. Both L2 Emporia chargers were turned ON + Ready/Offering but drew ~0 real charge — **operator-confirmed benign: garage A car was FULL (correctly declining), garage B had NO car connected**. URA offered charge to every charger; charging occurred wherever a car actually needed it. |
+| L5 | Grid-guaranteed (H4) | **PASS** | battery drained to its 20% off-peak drain-target on house load (EVs paused pre-off-peak), then **held ~19–20% (> reserve 10%)** while grid covered the L1 charging; recovered to 25% next morning on solar. Never drained into a car. SOC via `sensor.envoy_482543015950_battery`. |
+
+**Interpretation:** the v5.5.5 overnight-charging fix is fully validated on the URA side — the 24/7 fill-priority hold is gone, off_peak release fires, chargers are offered, and the home battery is preserved (grid carries the load). The two L2 cars not filling is expected physical reality (one full, one absent), not a URA defect.
