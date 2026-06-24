@@ -126,6 +126,7 @@ from .domain_coordinators.signals import (
 from .domain_coordinators.energy_billing import _get_effective_rate_kwh
 from .domain_coordinators._units import energy_state_to_kwh, power_state_to_w
 from .automation import RoomAutomation
+from ._humidity_gate import humidity_venting_enabled
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -2381,9 +2382,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             await self.automation.handle_humidity_based_fan_control(
                 data.get(STATE_HUMIDITY),
                 room_occupied=data.get(STATE_OCCUPIED),
-                automation_enabled=(
-                    (not _skip_first_this_tick)
-                    and self._is_automation_enabled()
+                automation_enabled=humidity_venting_enabled(
+                    _skip_first_this_tick,
+                    self._is_automation_enabled(),
                 ),
             )
         except Exception as e:

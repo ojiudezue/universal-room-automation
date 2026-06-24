@@ -172,6 +172,10 @@ _const_full = "custom_components.universal_room_automation.const"
 if _const_full not in sys.modules:
     _load_module(_const_full, os.path.join(_ura_root, "const.py"))
 
+_humidity_gate_full = "custom_components.universal_room_automation._humidity_gate"
+if _humidity_gate_full not in sys.modules:
+    _load_module(_humidity_gate_full, os.path.join(_ura_root, "_humidity_gate.py"))
+
 _automation_full = "custom_components.universal_room_automation.automation"
 if _automation_full not in sys.modules:
     _load_module(_automation_full, os.path.join(_ura_root, "automation.py"))
@@ -1630,3 +1634,50 @@ def test_FIXE_real_EnergyEfficiencyScoreSensor_in_range_returns_90():
         entry_data={"target_temp_heat": 70, "target_temp_cool": 76},
     )
     assert sensor.native_value == 90
+
+
+# ---------------------------------------------------------------------------
+# FIXF — Tier-3 test-authority closure: extract+test the humidity venting
+# gate as a real importable helper, not a test-side mirror of the inline
+# expression. See custom_components/.../_humidity_gate.py for context.
+#
+# Mutation acceptance: flipping the helper's `and` to `or` (or to a bare
+# `True` / `or True`) MUST fail at least one of the four truth-table tests
+# below. The prior FIXD structural tests only catch deletion / missing
+# kwargs in coordinator.py — they cannot see a logic flip in the decision
+# itself. With the helper in place, the flip is now falsifiable.
+# ---------------------------------------------------------------------------
+from custom_components.universal_room_automation._humidity_gate import (  # noqa: E402
+    humidity_venting_enabled,
+)
+
+
+def test_FIXF_humidity_gate_skipfalse_autotrue_allows_venting():
+    """Non-skip-first tick under master-automation ON → venting allowed.
+    This is the ONLY combination that returns True. An `and`->`or`
+    mutation still passes this case (both sides True), so the other
+    three cases below carry the mutation-falsification weight."""
+    assert humidity_venting_enabled(False, True) is True
+
+
+def test_FIXF_humidity_gate_skiptrue_autotrue_blocks_venting():
+    """Skip-first tick (anchors just seeded) → venting MUST be suppressed
+    even with master ON. Mutation: `and`->`or` returns True here →
+    venting would run on the first post-reload tick, violating the
+    skip-first contract. This test fails under that mutation."""
+    assert humidity_venting_enabled(True, True) is False
+
+
+def test_FIXF_humidity_gate_skipfalse_autofalse_blocks_venting():
+    """Master-automation OFF (ManualMode) → venting MUST be suppressed.
+    Mutation: `and`->`or` returns True here → humidity VENTING would
+    run under ManualMode, violating the operator's Option-2 decision
+    (only the safety cap may transcend the gates). This test fails
+    under that mutation."""
+    assert humidity_venting_enabled(False, False) is False
+
+
+def test_FIXF_humidity_gate_skiptrue_autofalse_blocks_venting():
+    """Both gates off → trivially False. Backstop: catches mutations
+    that hard-code the return to True / 1 / a non-empty constant."""
+    assert humidity_venting_enabled(True, False) is False
