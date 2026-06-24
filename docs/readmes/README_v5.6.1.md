@@ -11,8 +11,12 @@ v5.6.0 shipped the new **Climate & Fans** step's rename + field labels in `strin
 ## Why it drifted
 HA loads config-flow UI text from `translations/<lang>.json`, not `strings.json`. The build edited the source and the suite (which never renders the config flow) stayed green. The new parity test closes that gap.
 
-## Live Validation — *(prospective; written back post-restart)*
-- **L1 — labels render:** the room **Climate & Fans** step shows the renamed title and friendly labels (no raw snake_case keys). *(fill observed)*
+## Live Validation — Validated 2026-06-23 (post-restart)
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | Hotfix healthy | **PASS** | `update.universal_room_automation_update` installed_version = `v5.6.1`; zero URA ERROR entries in the system log at boot. |
+| L2 | Translations synced | **PASS** | `translations/en.json` `options.step.climate.title` = "Climate & Fans" (was "Climate & HVAC"); all new field labels present; parity test `test_strings_en_translation_parity.py` 77/77. HA serves config-flow text from `en.json`, reloaded on this restart. |
+| L3 | Visual render | **operator-confirm** | Reopen a room's **Climate & Fans** step — labels show friendly names (no raw snake_case keys). Code+file-proven; final confirmation is visual. |
 
 ## Known follow-up (not in this hotfix)
 The spike/EMA + presence-runtime knobs render **flat**, not inside the collapsed `humidity_fan_advanced` section the plan intended (the `section()` grouping did not land in v5.6.0). Functional, but more cluttered than designed — a small config_flow.py follow-up if we want the advanced knobs collapsed.
