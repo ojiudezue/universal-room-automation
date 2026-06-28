@@ -10,5 +10,9 @@ Completes the v5.6.x strings cleanup. The room "Climate & Fans" step wraps its a
 - **Parity test extended** to assert `sections` parity (section keys, `name`, `data`/`data_description`) between strings.json and en.json — so a section-label drift is now caught alongside step/menu drift.
 - No logic change.
 
-## Live Validation — *(prospective; written back post-restart)*
-- **L1 — section labels render:** in the room **Climate & Fans** step, expand "Advanced — Humidity Spike Tuning" and "Climate Backstop" — headers + fields show friendly labels (no raw keys). *(fill observed)*
+## Live Validation — Validated 2026-06-28 (post-restart)
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | Hotfix healthy | **PASS** | installed_version = `v5.6.3`; zero URA ERROR entries at boot. |
+| L2 | Section strings present | **PASS (file+test)** | `sections.humidity_fan_advanced` + `sections.climate_backstop` present in `translations/en.json` (both flows) with names + field labels; parity test 77/77 incl. sections; served post-restart. |
+| L3 | Visual render | **operator-confirm** | In the room **Climate & Fans** step, expand "Advanced — Humidity Spike Tuning" + "Climate Backstop" — headers + fields show friendly labels. |
