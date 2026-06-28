@@ -77,3 +77,48 @@ def test_en_translation_matches_strings_step(flow, step_id, strings_step):
             f"{flow}.{step_id}.menu_options[{key!r}] drift: "
             f"strings.json={label!r} en.json={e_menu.get(key)!r}"
         )
+
+    # `sections` parity. When config_flow.py wraps fields inside a HA
+    # `section(...)`, the field labels must live under `sections.<key>.data`
+    # (not the step's top-level `data`), or HA renders both the section
+    # header and its fields as raw snake_case keys. We assert:
+    #   - every section key in strings.json exists in en.json
+    #   - each section's `name` matches
+    #   - each section's `data` / `data_description` keys are a subset in en.json
+    s_sections = strings_step.get("sections", {})
+    e_sections = en_step.get("sections", {})
+    for sec_key, s_sec in s_sections.items():
+        assert sec_key in e_sections, (
+            f"{flow}.{step_id}.sections is missing key {sec_key!r} in translations/en.json "
+            f"— the section header would render as raw snake_case in the UI."
+        )
+        e_sec = e_sections[sec_key]
+        # Two valid shapes for a section value:
+        #   - str: shorthand for {"name": "<string>"} (existing convention in
+        #     hvac_baseline_presets, hvac_dynamic_preset, etc.)
+        #   - dict: full {"name": ..., "data": {...}, "data_description": {...}}
+        if isinstance(s_sec, str):
+            assert e_sec == s_sec, (
+                f"{flow}.{step_id}.sections.{sec_key} drift: "
+                f"strings.json={s_sec!r} en.json={e_sec!r}"
+            )
+            continue
+        # dict form
+        if "name" in s_sec:
+            e_name = e_sec.get("name") if isinstance(e_sec, dict) else e_sec
+            assert e_name == s_sec["name"], (
+                f"{flow}.{step_id}.sections.{sec_key}.name drift: "
+                f"strings.json={s_sec['name']!r} en.json={e_name!r}"
+            )
+        if not isinstance(e_sec, dict):
+            raise AssertionError(
+                f"{flow}.{step_id}.sections.{sec_key}: strings.json has dict-form section "
+                f"but translations/en.json has {type(e_sec).__name__} — cannot carry data labels."
+            )
+        for sub in ("data", "data_description"):
+            missing = set(s_sec.get(sub, {})) - set(e_sec.get(sub, {}))
+            assert not missing, (
+                f"{flow}.{step_id}.sections.{sec_key}.{sub}: translations/en.json "
+                f"is missing keys {sorted(missing)} — sync them from strings.json or "
+                f"the UI shows raw snake_case keys."
+            )
