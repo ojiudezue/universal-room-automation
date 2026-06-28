@@ -756,6 +756,135 @@ async def test_d_high_1_behavioral_sleep_hour_suppresses_beta_in_home_evening():
         )
 
 
+@pytest.mark.asyncio
+async def test_n1_1_behavioral_debounce_below_threshold_suppresses_beta():
+    """N+1-1 BEHAVIORAL: with the indoor-clear debounce counter below its
+    threshold (default 3), path β must NOT fire even when every OTHER β
+    condition is satisfied. Guards the D-HIGH-2 single-tick mmWave-dropout
+    repro (a still resident in bed whose phone died → one vacant tick must
+    not force AWAY).
+
+    Substring-preserving logic inversion this BEHAVIORAL test catches and a
+    source-grep test MISSES (the `_indoor_clear_consecutive_ticks` token and
+    the debounce assignment both remain present):
+
+        presence.py debounce fold (~:4830)
+        - _indoor_clear_debounced = (
+        -     _indoor_clear_consecutive_ticks >= _indoor_clear_ticks_req
+        - )
+        + _indoor_clear_debounced = True
+
+    Under that inversion β fires on tick 1 → AWAY. Verified 2026-06-28
+    (orchestrator): inversion → this test FAILS (sm.state==AWAY); revert → PASS.
+    NOTE: this test deliberately does NOT pre-elevate
+    `coord._indoor_clear_consecutive_ticks` (left at the __init__ default 0),
+    so one tick of indoor-clear lands at 1 < 3 — the debounce is the sole
+    suppressor here (grace is elapsed, not a sleep hour, census 0, indoor empty).
+    """
+    from custom_components.universal_room_automation.domain_coordinators import (
+        presence as presence_mod,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.house_state import (
+        HouseState as _HS,
+    )
+    from unittest.mock import patch as _patch
+
+    fixed_now = datetime(2026, 5, 30, 14, 0, 0)  # hour 14 → NOT a sleep hour
+
+    with _patch.object(presence_mod, "dt_util") as _mock_dt:
+        _mock_dt.utcnow.return_value = fixed_now
+        _mock_dt.now.return_value = fixed_now
+
+        coord, manager, sm = _build_runnable_presence_for_wiring(
+            initial_state=_HS.HOME_DAY,
+        )
+        _install_lost_away_person_coordinator(
+            coord, names=["alice", "bob"], grace_min_ago=120,  # grace elapsed
+        )
+        outside_tracker = MagicMock()
+        outside_tracker.mode = ZonePresenceMode.OCCUPIED
+        outside_tracker.raw_occupied = True
+        coord._zone_trackers = {"Outside": outside_tracker}
+        coord._outdoor_zone_names_snapshot = lambda: {"Outside"}
+        # Counter left at default 0 → after one indoor-clear tick = 1 < 3.
+
+        await coord._run_inference("test_n1_1_debounce")
+
+        assert sm.state == _HS.HOME_DAY, (
+            f"N+1-1: debounce below threshold must suppress path β (single-tick "
+            f"dropout must not force AWAY); got sm.state={sm.state!r}"
+        )
+        assert coord._veto_path != "lost_admitted", (
+            f"N+1-1: β must not fire below debounce threshold; got "
+            f"veto_path={coord._veto_path!r}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_n1_1_behavioral_stampless_lost_person_holds_beta():
+    """N+1-1 BEHAVIORAL: a LOST+away person with NO `_lost_away_since` stamp
+    (e.g. just after a restart) → grace can NOT be considered elapsed →
+    path β suppressed. Guards the stampless-conservatism (D-MED-2 / A-LOW-1)
+    gate at its real site.
+
+    Substring-preserving logic inversion caught here (grep MISSES — the
+    `_any_stampless` token remains):
+
+        presence.py (~:4805)
+        - if _any_stampless:
+        -     _grace_elapsed = False
+        + if _any_stampless:
+        -     _grace_elapsed = False
+        + if _any_stampless:
+        +     _grace_elapsed = True
+
+    Verified 2026-06-28 (orchestrator): inversion → this test FAILS
+    (sm.state==AWAY); revert → PASS. The debounce counter is pre-elevated here
+    so the stampless gate is the sole suppressor.
+    """
+    from custom_components.universal_room_automation.domain_coordinators import (
+        presence as presence_mod,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.house_state import (
+        HouseState as _HS,
+    )
+    from unittest.mock import patch as _patch
+
+    fixed_now = datetime(2026, 5, 30, 14, 0, 0)  # not a sleep hour
+
+    with _patch.object(presence_mod, "dt_util") as _mock_dt:
+        _mock_dt.utcnow.return_value = fixed_now
+        _mock_dt.now.return_value = fixed_now
+
+        coord, manager, sm = _build_runnable_presence_for_wiring(
+            initial_state=_HS.HOME_DAY,
+        )
+        pc = _install_lost_away_person_coordinator(
+            coord, names=["alice", "bob"], grace_min_ago=120,
+        )
+        # Make BOTH residents STAMPLESS (e.g. post-restart) — no _lost_away_since.
+        pc._lost_away_since = {}
+
+        outside_tracker = MagicMock()
+        outside_tracker.mode = ZonePresenceMode.OCCUPIED
+        outside_tracker.raw_occupied = True
+        coord._zone_trackers = {"Outside": outside_tracker}
+        coord._outdoor_zone_names_snapshot = lambda: {"Outside"}
+        # Debounce satisfied so the STAMPLESS gate is the sole suppressor.
+        coord._indoor_clear_consecutive_ticks = 5
+
+        await coord._run_inference("test_n1_1_stampless")
+
+        assert sm.state == _HS.HOME_DAY, (
+            f"N+1-1: a stampless LOST+away person must hold path β (grace not "
+            f"elapsed); got sm.state={sm.state!r}"
+        )
+        assert coord._veto_path != "lost_admitted", (
+            f"N+1-1: β must not fire with a stampless LOST person; got "
+            f"veto_path={coord._veto_path!r}"
+        )
+
+
 def test_path_alpha_still_byte_identical_after_fixup():
     """Path α (v4.7.14 ACTIVE-only) must remain unaffected by the fix-up.
 
