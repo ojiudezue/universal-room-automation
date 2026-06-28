@@ -685,6 +685,77 @@ async def test_c_high_1_a4_behavioral_outdoor_zone_does_not_block_path_beta():
         )
 
 
+@pytest.mark.asyncio
+async def test_d_high_1_behavioral_sleep_hour_suppresses_beta_in_home_evening():
+    """D-HIGH-1 BEHAVIORAL: during sleep HOURS the LOST-admitted AWAY veto
+    (path β) must be suppressed even when the house STATE is not yet a sleep
+    state (e.g. HOME_EVENING at 23:00) — a still resident with a dead phone
+    must NOT be force-AWAYed. This is the headline D-HIGH-1 falsification.
+
+    SUBSTRING-PRESERVING logic-flip this behavioral test catches and the
+    source-grep `test_source_invariant_sleep_exempt_unions_with_sleep_hour`
+    MISSES (token `_sleep_hour_now` stays present):
+
+        presence.py sleep_exempt derivation
+        - current_state in (SLEEP, HOME_NIGHT, WAKING) or _sleep_hour_now
+        + current_state in (SLEEP, HOME_NIGHT, WAKING) and _sleep_hour_now
+
+    Under `and`, HOME_EVENING (not a sleep state) → False → sleep_exempt_state
+    False → path β fires → AWAY. The fix's `or` keeps β suppressed via the
+    sleep-HOUR limb. Verified 2026-06-28 (orchestrator): applied the `or`→`and`
+    flip, this test FAILED (sm.state==AWAY); the grep test PASSED under the
+    flip; reverted → this test PASSES.
+    """
+    from custom_components.universal_room_automation.domain_coordinators import (
+        presence as presence_mod,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.house_state import (
+        HouseState as _HS,
+    )
+    from unittest.mock import patch as _patch
+
+    # Hour 23 == sleep hour (coord built with sleep_start_hour=23). The
+    # person_coordinator stamps are based at 14:00; grace (120 min) is long
+    # elapsed against a 23:00 "now", so ONLY the sleep-hour exemption stands
+    # between the still resident and a force-AWAY.
+    fixed_now = datetime(2026, 5, 30, 23, 0, 0)
+
+    with _patch.object(presence_mod, "dt_util") as _mock_dt:
+        _mock_dt.utcnow.return_value = fixed_now
+        _mock_dt.now.return_value = fixed_now
+
+        coord, manager, sm = _build_runnable_presence_for_wiring(
+            initial_state=_HS.HOME_EVENING,
+        )
+        _install_lost_away_person_coordinator(
+            coord, names=["alice", "bob"], grace_min_ago=120,
+        )
+
+        # Occupied OUTDOOR zone bypasses the "nobody home" early branch;
+        # the snapshot override keeps any_indoor_zone_occupied=False so path β
+        # is the only road to AWAY. Everything EXCEPT sleep-exemption is
+        # satisfied for β to fire — so β's suppression here is attributable
+        # solely to the sleep-hour limb.
+        outside_tracker = MagicMock()
+        outside_tracker.mode = ZonePresenceMode.OCCUPIED
+        outside_tracker.raw_occupied = True
+        coord._zone_trackers = {"Outside": outside_tracker}
+        coord._outdoor_zone_names_snapshot = lambda: {"Outside"}
+        coord._indoor_clear_consecutive_ticks = 5
+
+        await coord._run_inference("test_d_high_1_sleep_hour")
+
+        assert sm.state == _HS.HOME_EVENING, (
+            f"D-HIGH-1: a sleep-HOUR must suppress path β even in HOME_EVENING "
+            f"(state not yet a sleep state); a still resident with a dead phone "
+            f"must not be force-AWAYed. Got sm.state={sm.state!r}"
+        )
+        assert coord._veto_path != "lost_admitted", (
+            f"D-HIGH-1: path β must not fire under sleep-hour exemption; got "
+            f"veto_path={coord._veto_path!r}"
+        )
+
+
 def test_path_alpha_still_byte_identical_after_fixup():
     """Path α (v4.7.14 ACTIVE-only) must remain unaffected by the fix-up.
 
