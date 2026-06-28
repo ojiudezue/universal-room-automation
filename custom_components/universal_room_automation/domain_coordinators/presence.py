@@ -50,11 +50,13 @@ from ..const import (
     D3_DIAGNOSTIC_ENABLED,  # v4.7.16 D3 (post-review B MED #1) — kill switch
     DEFAULT_DISABLE_CAMERA_PRESENCE,  # v4.7.16 D4
     DEFAULT_LOST_AWAY_GRACE_MIN,  # v5.7.0 WS-A3
+    DEFAULT_LOST_AWAY_INDOOR_CLEAR_TICKS,  # v5.7.0 fix-up FIX-2b
     DEFAULT_LOST_AWAY_SLEEP_EXEMPT,  # v5.7.0 WS-A3
     DEFAULT_ZONE_IS_OUTDOOR,  # v5.7.0 WS-A4
     DIAGNOSTICS_SCOPE_HOUSE,
     DOMAIN,
     CONF_LOST_AWAY_GRACE_MIN,  # v5.7.0 WS-A3
+    CONF_LOST_AWAY_INDOOR_CLEAR_TICKS,  # v5.7.0 fix-up FIX-2b
     CONF_LOST_AWAY_SLEEP_EXEMPT,  # v5.7.0 WS-A3
     ENTRY_TYPE_ROOM,  # v4.7.16 D3, D4
     TIER1_KINDS,  # provenance-split cycle: D2 vocabulary
@@ -943,10 +945,13 @@ class StateInferenceEngine:
 
         hour = now.hour
 
-        # v5.7.0 WS-A2: per-call veto-path diagnostic. Default to "none";
-        # path α / β branches overwrite below. Preserved across ticks that
-        # take the early-return branches so operators see the last-resolved
-        # path on the sensor surface even on no-change ticks.
+        # v5.7.0 WS-A2: per-call veto-path diagnostic. Re-initialized to
+        # "none" each call; path α / β branches overwrite below.
+        # v5.7.0 fix-up FIX-6 (B3/D-LOW-2): the prior docstring claim that
+        # the value was "preserved across ticks" did not match the code
+        # (each call re-sets to "none"). Dropped that claim — operators
+        # reading the sensor surface get the verdict from the MOST RECENT
+        # inference tick, not a sticky last-non-none verdict.
         self._veto_path: str = "none"
 
         # Nobody home
@@ -1266,6 +1271,18 @@ class PresenceCoordinator(BaseCoordinator):
         # Read by sensors + reviewers for diagnostics; gating wired in
         # post-v4.7.15 helper integration pass.
         self._v4716_zone_verdicts: Dict[str, Dict[str, Any]] = {}
+        # v5.7.0 fix-up FIX-2b: indoor-clear debounce counter for the WS-A2
+        # path-β AWAY veto. Incremented on each tick where
+        # `any_indoor_zone_occupied == False`, reset to 0 on any indoor
+        # occupancy. Path β requires this counter to meet
+        # `CONF_LOST_AWAY_INDOOR_CLEAR_TICKS` before firing — a single-tick
+        # mmWave dropout cannot force AWAY on a present-still resident.
+        self._indoor_clear_consecutive_ticks: int = 0
+        # v5.7.0 fix-up: cache for the CM options entry (read once per
+        # process; refreshed if a new CM appears). Hoisted here so the
+        # WS-A3 grace/sleep CONF read in _run_inference doesn't rely on
+        # a class-attr fallback.
+        self._cm_entry_cache: Optional[Any] = None
         self._transitions_today: int = 0
         self._transition_reset_date: str = ""
         # Room area_id lookup: room_name -> area_id (from config entries)
@@ -4703,82 +4720,172 @@ class PresenceCoordinator(BaseCoordinator):
                 _cm_opts = {**_cm_entry.data, **_cm_entry.options}
             except Exception:  # noqa: BLE001 — defensive
                 _cm_opts = {}
-        _grace_min = int(
-            _cm_opts.get(
-                CONF_LOST_AWAY_GRACE_MIN, DEFAULT_LOST_AWAY_GRACE_MIN
+        # v5.7.0 fix-up FIX-4 (A-MED-1): wrap int()/bool() reads in try/except
+        # so storage corruption (a non-numeric CONF value) cannot abort the
+        # inference tick. Fall back to the const defaults.
+        try:
+            _grace_min = int(
+                _cm_opts.get(
+                    CONF_LOST_AWAY_GRACE_MIN, DEFAULT_LOST_AWAY_GRACE_MIN
+                )
             )
-        )
-        _sleep_exempt_cfg = bool(
-            _cm_opts.get(
-                CONF_LOST_AWAY_SLEEP_EXEMPT,
-                DEFAULT_LOST_AWAY_SLEEP_EXEMPT,
+        except (TypeError, ValueError):  # noqa: BLE001 — storage corruption
+            _grace_min = DEFAULT_LOST_AWAY_GRACE_MIN
+            _LOGGER.debug(
+                "v5.7.0 WS-A3: %s CONF unreadable; falling back to %d min",
+                CONF_LOST_AWAY_GRACE_MIN, DEFAULT_LOST_AWAY_GRACE_MIN,
             )
-        )
+        try:
+            _sleep_exempt_cfg = bool(
+                _cm_opts.get(
+                    CONF_LOST_AWAY_SLEEP_EXEMPT,
+                    DEFAULT_LOST_AWAY_SLEEP_EXEMPT,
+                )
+            )
+        except Exception:  # noqa: BLE001 — defensive
+            _sleep_exempt_cfg = DEFAULT_LOST_AWAY_SLEEP_EXEMPT
+        try:
+            _indoor_clear_ticks_req = int(
+                _cm_opts.get(
+                    CONF_LOST_AWAY_INDOOR_CLEAR_TICKS,
+                    DEFAULT_LOST_AWAY_INDOOR_CLEAR_TICKS,
+                )
+            )
+            if _indoor_clear_ticks_req < 0:
+                _indoor_clear_ticks_req = DEFAULT_LOST_AWAY_INDOOR_CLEAR_TICKS
+        except (TypeError, ValueError):  # noqa: BLE001
+            _indoor_clear_ticks_req = DEFAULT_LOST_AWAY_INDOOR_CLEAR_TICKS
 
-        # Per-person LOST-since timestamps come from person_coordinator —
-        # the existing `_person_lost_since` map populated by the
-        # confidence/decay path (person_coordinator.py:240, 276-279). The
-        # WS-A1 build adds the same stamp at the canonical LOST sites
-        # (person_state == "not_home"/"home" with no Bermuda) so phone-off
-        # residents get a grace timestamp too. Missing entry => treat as
-        # "just went LOST now" => grace NOT elapsed (conservative — we
-        # would rather DELAY path β than force-AWAY prematurely).
+        # v5.7.0 fix-up FIX-5 (MED-B1): read the SEPARATE WS-A stamp dict
+        # (`_lost_away_since`) — NOT `_person_lost_since`, which is owned by
+        # the BLE pre-arrival timer. Stamping/clearing happens at the same
+        # 4 LOST sites + 4 home transitions in person_coordinator, so the
+        # two maps stay aligned on real away/home edges; isolating the maps
+        # ensures BLE pre-arrival's `_min_away_minutes` budget is byte-
+        # unaffected by WS-A grace.
         _lost_since_map: dict = {}
         if person_coordinator is not None:
             try:
                 _lost_since_map = dict(
-                    getattr(person_coordinator, "_person_lost_since", {}) or {}
+                    getattr(person_coordinator, "_lost_away_since", {}) or {}
                 )
             except Exception:  # noqa: BLE001
                 _lost_since_map = {}
         _now_local = dt_util.now()
         _grace_remaining_s: Optional[int] = None
         _grace_elapsed = True
-        _oldest_lost_age_s: int = 0
+        _youngest_lost_age_s: int = 0
         if lost_away_persons:
-            # Only the persons in the path-β denominator matter. Use the
-            # OLDEST LOST timestamp (longest-known absence) — if that hasn't
-            # crossed the grace, no LOST-away person has.
-            _oldest_dt = None
+            # v5.7.0 fix-up FIX-2a (D-MED-1/D-MED-2/A-LOW-1): gate grace on
+            # the YOUNGEST (most-recently-lost) stamp, not the oldest. The
+            # most-recently-lost person is the one most likely to still be
+            # home with a dead phone; `grace_elapsed` must remain False
+            # until even that newest stamp exceeds the window. Also fixes
+            # A-LOW-1: a person without a stamp keeps grace_elapsed=False
+            # (we never break out preserving an artificial elapsed=True).
+            _youngest_dt = None
+            _any_stampless = False
             for name in lost_away_persons:
                 dt = _lost_since_map.get(name)
                 if dt is None:
-                    # No stamp ==> conservative: treat as just-now, so
-                    # grace cannot have elapsed for this person.
-                    _oldest_dt = _now_local
-                    break
-                if _oldest_dt is None or dt < _oldest_dt:
-                    _oldest_dt = dt
-            if _oldest_dt is not None:
+                    # No stamp => treat as "just went LOST now" => the
+                    # youngest LOST-age is 0 and grace cannot have elapsed.
+                    _any_stampless = True
+                    _youngest_dt = _now_local
+                    continue
+                if _youngest_dt is None or dt > _youngest_dt:
+                    _youngest_dt = dt
+            if _any_stampless:
+                _grace_elapsed = False
+                _grace_remaining_s = max(0, _grace_min * 60)
+                _youngest_lost_age_s = 0
+            elif _youngest_dt is not None:
                 try:
-                    _oldest_lost_age_s = int(
-                        (_now_local - _oldest_dt).total_seconds()
+                    _youngest_lost_age_s = int(
+                        (_now_local - _youngest_dt).total_seconds()
                     )
-                except Exception:  # noqa: BLE001 — defensive: tz mismatch
-                    _oldest_lost_age_s = 0
+                except Exception:  # noqa: BLE001 — tz mismatch
+                    _youngest_lost_age_s = 0
                 _grace_seconds = _grace_min * 60
-                if _oldest_lost_age_s < _grace_seconds:
+                if _youngest_lost_age_s < _grace_seconds:
                     _grace_elapsed = False
                     _grace_remaining_s = max(
-                        0, _grace_seconds - _oldest_lost_age_s
+                        0, _grace_seconds - _youngest_lost_age_s
                     )
                 else:
                     _grace_remaining_s = 0
-        # Expose for sensor diagnostic surface.
-        self._lost_away_persons = list(lost_away_persons)
-        self._lost_away_grace_remaining_s = _grace_remaining_s
+
+        # v5.7.0 fix-up FIX-2b (D-HIGH-2): indoor-clear consecutive-tick
+        # debounce. `any_indoor_zone_occupied` is already computed earlier
+        # in this method (~:4416). Increment counter when clear; reset on
+        # any indoor signal. Path β cannot fire until the counter meets
+        # the configured threshold — protects against a single mmWave
+        # dropout (or a 0-min grace misconfig) force-AWAYing a present
+        # resident.
+        if any_indoor_zone_occupied:
+            self._indoor_clear_consecutive_ticks = 0
+        else:
+            self._indoor_clear_consecutive_ticks = min(
+                self._indoor_clear_consecutive_ticks + 1, 10_000
+            )
+        _indoor_clear_debounced = (
+            self._indoor_clear_consecutive_ticks >= _indoor_clear_ticks_req
+        )
 
         # Sleep exemption: SLEEP / HOME_NIGHT / WAKING are the protected
         # windows where a sleeping resident's phone may be dead for hours.
-        # Only applies to path β — path α (ACTIVE-only) is byte-identical
-        # to v4.7.14 and ignores this flag.
+        # v5.7.0 fix-up FIX-1 (D-HIGH-1): also union with the sleep-HOUR
+        # predicate so a still resident with a dead phone at e.g. 22:55
+        # (HOME_EVENING but already inside the sleep window 23-06) is not
+        # force-AWAYed before the state-machine has rolled into SLEEP.
+        # Uses the SAME `_is_sleep_hour` the engine uses for guest-gate
+        # suppression (~:1066), so both surfaces agree on what "sleep hour"
+        # means.
+        # VACATION: HouseState.VACATION is intentionally NOT in the
+        # sleep-exempt tuple — when residents are deliberately away the
+        # whole point is to allow force-AWAY; sleep-hour OR-extension is
+        # also harmless during VACATION because by definition no resident
+        # is home to be misjudged.
+        _sleep_hour_now = False
+        try:
+            _sleep_hour_now = bool(
+                self._inference_engine._is_sleep_hour(_now_local.hour)
+            )
+        except Exception:  # noqa: BLE001 — defensive: engine attr missing
+            _sleep_hour_now = False
         _sleep_exempt_state = bool(
             _sleep_exempt_cfg
-            and current_state in (
-                HouseState.SLEEP,
-                HouseState.HOME_NIGHT,
-                HouseState.WAKING,
+            and (
+                current_state in (
+                    HouseState.SLEEP,
+                    HouseState.HOME_NIGHT,
+                    HouseState.WAKING,
+                )
+                or _sleep_hour_now
             )
+        )
+
+        # v5.7.0 fix-up FIX-6 (B4): populate the diagnostic enumeration of
+        # LOST-away persons even when a resident is HOME so the sensor
+        # attribute is debuggable on the no-β-fire path. Grace remaining
+        # is suppressed (set to None) when β is sleep-exempt so the surface
+        # does not surface a misleading `grace_remaining_s = 0` (A-LOW-2).
+        self._lost_away_persons = list(lost_away_persons)
+        if _sleep_exempt_state:
+            self._lost_away_grace_remaining_s = None
+        else:
+            self._lost_away_grace_remaining_s = _grace_remaining_s
+        # Surface the debounce counter for live diagnostics.
+        self._lost_away_indoor_clear_ticks = self._indoor_clear_consecutive_ticks
+
+        # FIX-2b: fold the debounce into the grace_elapsed signal passed
+        # into infer(). Path β requires BOTH grace elapsed AND debounce
+        # satisfied. We bake debounce into `grace_elapsed_for_lost_away`
+        # so the engine surface stays unchanged (engine signature is the
+        # invariant — see I3) — semantically, grace_elapsed now means
+        # "all gates the caller can compute outside the engine are clear".
+        _grace_elapsed_with_debounce = bool(
+            _grace_elapsed and _indoor_clear_debounced
         )
 
         new_state = self._inference_engine.infer(
@@ -4791,7 +4898,7 @@ class PresenceCoordinator(BaseCoordinator):
             # v5.7.0 WS-A path-β kwargs.
             all_trusted_or_lost_away_persons_away=all_trusted_or_lost_away_persons_away,
             any_indoor_zone_occupied=any_indoor_zone_occupied,
-            grace_elapsed_for_lost_away=_grace_elapsed,
+            grace_elapsed_for_lost_away=_grace_elapsed_with_debounce,
             lost_away_persons_present=bool(lost_away_persons),
             sleep_exempt_state=_sleep_exempt_state,
         )

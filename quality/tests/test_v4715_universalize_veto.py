@@ -916,7 +916,7 @@ class TestD2ZoneAggregatorLayer3:
 # _run_inference. Honest re-baseline; the hard upper bound
 # (test_run_inference_only_defined_once) re-derives body length
 # via AST so this constant must stay ≥ body_lines*60.
-_RUN_INFERENCE_WINDOW = 84000
+_RUN_INFERENCE_WINDOW = 90000  # v5.7.0 fix-up: widened from 84000 — FIX-1/2/4/6 added ~80 lines (debounce + sleep-hour union + try/except + diag attr)
 
 
 class TestD3WakingSustainedSignal:

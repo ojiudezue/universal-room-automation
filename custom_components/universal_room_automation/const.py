@@ -1404,6 +1404,13 @@ CONF_LOST_AWAY_GRACE_MIN: Final = "lost_away_grace_min"
 DEFAULT_LOST_AWAY_GRACE_MIN: Final = 60  # minutes
 CONF_LOST_AWAY_SLEEP_EXEMPT: Final = "lost_away_sleep_exempt"
 DEFAULT_LOST_AWAY_SLEEP_EXEMPT: Final = True
+# v5.7.0 fix-up FIX-2b — indoor-clear debounce. Path β may only fire after
+# `any_indoor_zone_occupied == False` has been observed for this many
+# CONSECUTIVE inference ticks. Protects against a single-tick mmWave
+# dropout (or grace=0 misconfig) force-AWAYing a present-but-still
+# resident. Default 3 ticks (~30-60s depending on tick cadence).
+CONF_LOST_AWAY_INDOOR_CLEAR_TICKS: Final = "lost_away_indoor_clear_ticks"
+DEFAULT_LOST_AWAY_INDOOR_CLEAR_TICKS: Final = 3
 
 # Phone manufacturer allowlist (OUI values from UniFi device_tracker)
 PHONE_MANUFACTURERS: Final = frozenset({
