@@ -439,6 +439,252 @@ def test_source_invariant_grace_remaining_suppressed_on_sleep_exempt():
 # Path α byte-identical preservation (I3) — re-asserted under the fix-up
 # =============================================================================
 
+# =============================================================================
+# C-HIGH-1 BEHAVIORAL — drive the REAL _run_inference (mutation-anchored)
+# =============================================================================
+#
+# The source-grep tests above (test_c_high_1_*) catch DELETION/RENAME but
+# NOT a LOGIC-FLIP. The tests below drive the production `_run_inference`
+# end-to-end and assert the RESOLVED house state on the state machine.
+#
+# Each test documents the EXACT logic-flip mutation that breaks it (the
+# mutation a substring-only test would silently miss). Verified by
+# applying the mutation, running the test, confirming this behavioral
+# test fails, then reverting.
+
+from custom_components.universal_room_automation.domain_coordinators.presence import (  # noqa: E402
+    ZonePresenceMode,
+)
+
+
+def _build_runnable_presence_for_wiring(initial_state=None):
+    """Mirror v4715's `_build_runnable_presence` so behavioral tests for
+    path-β wiring drive the REAL `_run_inference` against a real
+    HouseStateMachine. We re-implement (rather than import) to keep this
+    file's import surface independent of the v4715 test file's load order.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.house_state import (
+        HouseState as _HS,
+        HouseStateMachine,
+        VALID_TRANSITIONS,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.presence import (
+        PresenceCoordinator,
+    )
+    from homeassistant.util import dt as _dt_util
+
+    if initial_state is None:
+        initial_state = _HS.HOME_DAY
+
+    sm = HouseStateMachine(initial_state=initial_state)
+    # Defang hysteresis so the transition() call always proceeds on a
+    # valid target. Mirrors v4715's defang at quality/tests/
+    # test_v4715_universalize_veto.py:1287-1303.
+    sm._hysteresis = {s: 0 for s in _HS}
+
+    def _ct(self, new_state):
+        if new_state == self._state:
+            return False
+        return new_state in VALID_TRANSITIONS.get(self._state, set())
+
+    sm.can_transition = _ct.__get__(sm, type(sm))
+    sm._state_since = _dt_util.utcnow() - timedelta(hours=1)
+
+    manager = MagicMock()
+    manager.house_state_machine = sm
+    manager.coordinators = {}
+
+    hass = MagicMock()
+    hass.data = {"universal_room_automation": {"coordinator_manager": manager}}
+    coord = PresenceCoordinator(
+        hass=hass,
+        sleep_start_hour=23,
+        sleep_end_hour=6,
+        guest_persistence_seconds=300,
+    )
+    coord._enabled = True
+    # Boot-settle gate must be open or the inference body returns before
+    # touching the state machine.
+    coord._boot_settle_done = True
+    coord._zone_trackers = {}
+    coord._census_count = 0
+    coord._unidentified_count = 0
+    return coord, manager, sm
+
+
+def _install_lost_away_person_coordinator(coord, *, names, grace_min_ago=120):
+    """Stamp a person_coordinator into hass.data with all listed names as
+    LOST + location=away, plus `_lost_away_since` stamps older than the
+    default 60-min grace so the path-β grace gate is satisfied.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.presence import (
+        TRACKING_STATUS_LOST,
+    )
+
+    pc = MagicMock()
+    pc.data = {
+        name: {"location": "away", "tracking_status": TRACKING_STATUS_LOST}
+        for name in names
+    }
+    fixed_now = datetime(2026, 5, 30, 14, 0, 0)
+    pc._lost_away_since = {
+        name: fixed_now - timedelta(minutes=grace_min_ago) for name in names
+    }
+    coord.hass.data["universal_room_automation"]["person_coordinator"] = pc
+    return pc
+
+
+@pytest.mark.asyncio
+async def test_c_high_1_a1_behavioral_lost_away_admitted_resolves_to_away():
+    """C-HIGH-1 / A1 BEHAVIORAL: all residents LOST+away → path β fires
+    via `_run_inference` and the state machine transitions to AWAY.
+
+    Mutation that breaks this test (and that the source-grep test
+    `test_c_high_1_a1_predicate_call_present_in_run_inference` would
+    MISS — the substring `_tracking_active_or_lost_away_local(info)`
+    still appears intact):
+
+        presence.py:~4373
+        - if not _tracking_active_or_lost_away_local(info):
+        + if not (_tracking_active_or_lost_away_local(info) and False):
+
+    Under that flip every person fails the admission check and
+    `relaxed_persons` stays empty → `all_trusted_or_lost_away_persons_away`
+    stays False → path β does not fire → state machine stays HOME_DAY.
+    Verified 2026-06-28: applied the flip, ran this test, it FAILED with
+    `sm.state == HOME_DAY`; reverted, the test PASSES. The companion
+    source-grep test PASSED under both states (substring intact) —
+    confirming the gap this behavioral test closes.
+    """
+    from custom_components.universal_room_automation.domain_coordinators import (
+        presence as presence_mod,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.house_state import (
+        HouseState as _HS,
+    )
+    from unittest.mock import patch as _patch
+
+    fixed_now = datetime(2026, 5, 30, 14, 0, 0)
+
+    with _patch.object(presence_mod, "dt_util") as _mock_dt:
+        _mock_dt.utcnow.return_value = fixed_now
+        _mock_dt.now.return_value = fixed_now
+
+        coord, manager, sm = _build_runnable_presence_for_wiring(
+            initial_state=_HS.HOME_DAY,
+        )
+        _install_lost_away_person_coordinator(
+            coord, names=["alice", "bob"], grace_min_ago=120,
+        )
+
+        # Camera-ghost: an OCCUPIED OUTDOOR zone makes `any_zone_occupied=True`
+        # which BYPASSES the engine's "Nobody home" early branch (presence.py
+        # ~:958, which returns AWAY at 0.9 without touching _veto_path).
+        # The outdoor snapshot override keeps `any_indoor_zone_occupied=False`
+        # so this test cleanly isolates the A1 admission half — path β is
+        # the ONLY road to AWAY for this state shape. Path α is also denied
+        # because all residents are LOST (H3 ACTIVE-only filter excludes
+        # them → tracked_count=0 → all_tracked_persons_away=False).
+        outside_tracker = MagicMock()
+        outside_tracker.mode = ZonePresenceMode.OCCUPIED
+        outside_tracker.raw_occupied = True
+        coord._zone_trackers = {"Outside": outside_tracker}
+        coord._outdoor_zone_names_snapshot = lambda: {"Outside"}
+
+        # Pre-elevate the indoor-clear debounce counter past the default
+        # 3-tick threshold so FIX-2b does not suppress β on this single
+        # tick. The increment-on-clear is min(counter+1, 10_000), so
+        # starting at 5 leaves us at 6 ≥ 3.
+        coord._indoor_clear_consecutive_ticks = 5
+
+        await coord._run_inference("test_a1_behavioral")
+
+        assert sm.state == _HS.AWAY, (
+            f"A1 wiring: LOST+away residents must resolve to AWAY via "
+            f"path β; got sm.state={sm.state!r}"
+        )
+        assert coord._veto_path == "lost_admitted", (
+            f"A1 wiring: expected veto_path='lost_admitted', got "
+            f"{coord._veto_path!r}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_c_high_1_a4_behavioral_outdoor_zone_does_not_block_path_beta():
+    """C-HIGH-1 / A4 BEHAVIORAL: an OCCUPIED outdoor zone must NOT block
+    path β — `_run_inference` must filter outdoor zones out of the indoor
+    aggregation. State machine resolves AWAY.
+
+    Substring-preserving mutation that breaks this BEHAVIORAL test while
+    the source-grep test `test_c_high_1_a4_outdoor_snapshot_call_present_in_run_inference`
+    continues to PASS (both substrings `_outdoor_zone_names_snapshot`
+    AND `zone_name not in outdoor_zone_names` still appear verbatim):
+
+        presence.py:~4436 (inside the `any_indoor_zone_occupied = any(...)`
+        generator expression)
+        - if zone_name not in outdoor_zone_names
+        + if (zone_name not in outdoor_zone_names) or True
+
+    Under that flip the outdoor "Outside" zone is treated as indoor →
+    `any_indoor_zone_occupied=True` → `indoor_blocked=True` → path β
+    denied → state machine stays HOME_DAY. Verified 2026-06-28: applied
+    the flip, ran this test, it FAILED with sm.state == HOME_DAY; the
+    source-grep test PASSED under the SAME flip (substring intact);
+    reverted, the behavioral test PASSES. This is the exact gap a
+    string-only assertion misses.
+    """
+    from custom_components.universal_room_automation.domain_coordinators import (
+        presence as presence_mod,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.house_state import (
+        HouseState as _HS,
+    )
+    from unittest.mock import patch as _patch
+
+    fixed_now = datetime(2026, 5, 30, 14, 0, 0)
+
+    with _patch.object(presence_mod, "dt_util") as _mock_dt:
+        _mock_dt.utcnow.return_value = fixed_now
+        _mock_dt.now.return_value = fixed_now
+
+        coord, manager, sm = _build_runnable_presence_for_wiring(
+            initial_state=_HS.HOME_DAY,
+        )
+        _install_lost_away_person_coordinator(
+            coord, names=["alice", "bob"], grace_min_ago=120,
+        )
+
+        # An OUTDOOR zone is OCCUPIED — must NOT block path β.
+        outside_tracker = MagicMock()
+        outside_tracker.mode = ZonePresenceMode.OCCUPIED
+        outside_tracker.raw_occupied = True
+        coord._zone_trackers = {"Outside": outside_tracker}
+
+        # Override the snapshot helper to declare "Outside" outdoor.
+        # This drives the SAME load-bearing call site at
+        # presence.py:~4432 (`self._outdoor_zone_names_snapshot()`); the
+        # method itself is unit-tested elsewhere — what we're proving
+        # here is the WIRING into the indoor aggregation.
+        coord._outdoor_zone_names_snapshot = lambda: {"Outside"}
+
+        # Pre-elevate the debounce counter (see test above).
+        coord._indoor_clear_consecutive_ticks = 5
+
+        await coord._run_inference("test_a4_behavioral")
+
+        assert sm.state == _HS.AWAY, (
+            f"A4 wiring: occupied OUTDOOR zone must be excluded from the "
+            f"indoor aggregation so path β can fire; got sm.state="
+            f"{sm.state!r}. If this fails with HOME_DAY, the wiring at "
+            f"presence.py:~4436 has regressed (outdoor zone is being "
+            f"counted as indoor)."
+        )
+        assert coord._veto_path == "lost_admitted", (
+            f"A4 wiring: expected veto_path='lost_admitted', got "
+            f"{coord._veto_path!r}"
+        )
+
+
 def test_path_alpha_still_byte_identical_after_fixup():
     """Path α (v4.7.14 ACTIVE-only) must remain unaffected by the fix-up.
 
