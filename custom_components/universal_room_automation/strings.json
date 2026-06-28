@@ -342,10 +342,7 @@
           "fan_temp_threshold": "Fan Start Temperature",
           "humidity_fan_threshold": "Humidity Fan Threshold",
           "humidity_fan_timeout": "Humidity Fan Min Runtime",
-          "humidity_fan_max_runtime": "Humidity Fan Max Runtime",
-          "target_temp_heat": "Comfort Range — Low (°F)",
-          "target_temp_cool": "Comfort Range — High (°F)",
-          "climate_entity": "Climate/Thermostat Entity (fallback)"
+          "humidity_fan_max_runtime": "Humidity Fan Max Runtime"
         },
         "data_description": {
           "hvac_coordination_enabled": "When ON, comfort fans are managed by the HVAC coordinator instead of room-level rules.",
@@ -360,10 +357,35 @@
           "fan_temp_threshold": "Temperature above which comfort fans turn on.",
           "humidity_fan_threshold": "Humidity % above which exhaust fans turn on (absolute threshold; OR-companion to spike detection).",
           "humidity_fan_timeout": "Minimum continuous runtime before the fan is allowed to turn off after humidity drops below threshold. Prevents short-cycling.",
-          "humidity_fan_max_runtime": "Maximum continuous humidity-fan runtime. Forces off if humidity stays elevated longer than this — protects against stuck humidity sensors and runaway runs.",
-          "target_temp_heat": "Lower bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
-          "target_temp_cool": "Upper bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
-          "climate_entity": "Optional fallback thermostat for zone-thermostat resolution when the zone has no explicit thermostat set."
+          "humidity_fan_max_runtime": "Maximum continuous humidity-fan runtime. Forces off if humidity stays elevated longer than this — protects against stuck humidity sensors and runaway runs."
+        },
+        "sections": {
+          "humidity_fan_advanced": {
+            "name": "Advanced — Humidity Spike Tuning",
+            "data": {
+              "humidity_fan_spike_delta_pct": "Spike Delta (% above baseline)",
+              "humidity_fan_spike_ema_alpha_s": "Baseline EMA Time-Constant (s)",
+              "humidity_fan_spike_baseline_mode": "Baseline Mode"
+            },
+            "data_description": {
+              "humidity_fan_spike_delta_pct": "How many percentage points above the running baseline counts as a spike (e.g. 10 = fire when humidity rises 10pp above its baseline).",
+              "humidity_fan_spike_ema_alpha_s": "Time-constant of the EMA (exponential moving average) baseline, in seconds. Larger = slower baseline that ignores brief blips; smaller = faster baseline that adapts to room changes.",
+              "humidity_fan_spike_baseline_mode": "How the baseline is computed: EMA (adaptive average) tracks the slow drift; Window minimum uses the lowest value over a recent window."
+            }
+          },
+          "climate_backstop": {
+            "name": "Climate Backstop (comfort range + thermostat fallback)",
+            "data": {
+              "target_temp_heat": "Comfort Range — Low (°F)",
+              "target_temp_cool": "Comfort Range — High (°F)",
+              "climate_entity": "Climate/Thermostat Entity (fallback)"
+            },
+            "data_description": {
+              "target_temp_heat": "Lower bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
+              "target_temp_cool": "Upper bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
+              "climate_entity": "Optional fallback thermostat for zone-thermostat resolution when the zone has no explicit thermostat set."
+            }
+          }
         }
       },
       "fan_speeds": {
@@ -1699,10 +1721,35 @@
           "fan_speed_high_temp": "High Speed Temperature",
           "humidity_fan_threshold": "Humidity Fan Threshold (%)",
           "humidity_fan_timeout": "Humidity Fan Min Runtime (s)",
-          "humidity_fan_max_runtime": "Humidity Fan Max Runtime (s)",
-          "target_temp_heat": "Comfort Range — Low (°F)",
-          "target_temp_cool": "Comfort Range — High (°F)",
-          "climate_entity": "Climate/Thermostat Entity (fallback)"
+          "humidity_fan_max_runtime": "Humidity Fan Max Runtime (s)"
+        },
+        "sections": {
+          "humidity_fan_advanced": {
+            "name": "Advanced — Humidity Spike Tuning",
+            "data": {
+              "humidity_fan_spike_delta_pct": "Spike Delta (% above baseline)",
+              "humidity_fan_spike_ema_alpha_s": "Baseline EMA Time-Constant (s)",
+              "humidity_fan_spike_baseline_mode": "Baseline Mode"
+            },
+            "data_description": {
+              "humidity_fan_spike_delta_pct": "How many percentage points above the running baseline counts as a spike (e.g. 10 = fire when humidity rises 10pp above its baseline).",
+              "humidity_fan_spike_ema_alpha_s": "Time-constant of the EMA (exponential moving average) baseline, in seconds. Larger = slower baseline that ignores brief blips; smaller = faster baseline that adapts to room changes.",
+              "humidity_fan_spike_baseline_mode": "How the baseline is computed: EMA (adaptive average) tracks the slow drift; Window minimum uses the lowest value over a recent window."
+            }
+          },
+          "climate_backstop": {
+            "name": "Climate Backstop (comfort range + thermostat fallback)",
+            "data": {
+              "target_temp_heat": "Comfort Range — Low (°F)",
+              "target_temp_cool": "Comfort Range — High (°F)",
+              "climate_entity": "Climate/Thermostat Entity (fallback)"
+            },
+            "data_description": {
+              "target_temp_heat": "Lower bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
+              "target_temp_cool": "Upper bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
+              "climate_entity": "Optional fallback thermostat for zone-thermostat resolution when the zone has no explicit thermostat set."
+            }
+          }
         }
       },
       "sleep_protection": {
