@@ -65,6 +65,12 @@ CONF_ZONE: Final = "zone"
 CONF_ZONE_NAME: Final = "zone_name"
 CONF_ZONE_ROOMS: Final = "zone_rooms"
 CONF_ZONE_DESCRIPTION: Final = "zone_description"
+# v5.7.0 WS-A4: per-zone outdoor flag. An outdoor zone (e.g. "Outside",
+# "Front Porch") still tracks raw occupancy but is EXCLUDED from the
+# indoor-occupancy aggregation that gates the v5.7.0 AWAY path β. An
+# occupied doorbell-camera zone must not block AWAY when everyone is away.
+CONF_ZONE_IS_OUTDOOR: Final = "zone_is_outdoor"
+DEFAULT_ZONE_IS_OUTDOOR: Final = False
 CONF_SHARED_SPACE: Final = "shared_space"
 CONF_SHARED_SPACE_AUTO_OFF_HOUR: Final = "shared_space_auto_off_hour"
 CONF_SHARED_SPACE_WARNING: Final = "shared_space_warning"
@@ -1379,6 +1385,25 @@ DEFAULT_GUEST_PERSISTENCE_SECONDS: Final = 300  # 5 min; set 0 to disable
 # Confidence gate: minimum census confidence level required to fire guest mode
 CONF_GUEST_MODE_REQUIRE_CONFIDENCE: Final = "guest_mode_require_confidence"
 DEFAULT_GUEST_REQUIRE_CONFIDENCE: Final = "medium"  # blocks low/none confidence
+
+# v5.7.0 WS-A3: configurable grace + sleep-exemption for the LOST-admitted
+# AWAY veto path β. v4.7.14 path α (ACTIVE-only) is unchanged.
+#
+# Grace prevents a tracker that JUST went LOST from immediately forcing AWAY
+# during normal in-house BLE flap (phone walked out of scanner range for a
+# few minutes). After the grace elapses AND the house is empty of indoor
+# evidence (no indoor zone occupied + census==0 + no unidentified), path β
+# is permitted to force AWAY.
+#
+# Sleep-exempt: a sleeping resident's phone can be off / dead / in airplane
+# mode for hours. During SLEEP / HOME_NIGHT / WAKING, path β is suppressed
+# regardless of grace elapsed when sleep-exempt is True (the operator-safe
+# default). Set False only if you do not have anyone whose phone dies
+# overnight.
+CONF_LOST_AWAY_GRACE_MIN: Final = "lost_away_grace_min"
+DEFAULT_LOST_AWAY_GRACE_MIN: Final = 60  # minutes
+CONF_LOST_AWAY_SLEEP_EXEMPT: Final = "lost_away_sleep_exempt"
+DEFAULT_LOST_AWAY_SLEEP_EXEMPT: Final = True
 
 # Phone manufacturer allowlist (OUI values from UniFi device_tracker)
 PHONE_MANUFACTURERS: Final = frozenset({

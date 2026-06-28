@@ -910,7 +910,13 @@ class TestD2ZoneAggregatorLayer3:
 # Bumped 68000 -> 72000 in the fan-noise Mode-2 cycle when the
 # per-room fan-recheck per-tick fan-out block was added inside
 # _run_inference. Honest re-baseline.
-_RUN_INFERENCE_WINDOW = 72000
+# Bumped 72000 -> 84000 in v5.7.0 WS-A when the LOST-admitted
+# AWAY-veto wiring (path-β denominator, indoor-zone aggregation,
+# grace/sleep-exempt computation) added ~80 lines inside
+# _run_inference. Honest re-baseline; the hard upper bound
+# (test_run_inference_only_defined_once) re-derives body length
+# via AST so this constant must stay ≥ body_lines*60.
+_RUN_INFERENCE_WINDOW = 84000
 
 
 class TestD3WakingSustainedSignal:

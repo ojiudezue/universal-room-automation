@@ -144,6 +144,9 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                 
                 if not person_state:
                     _LOGGER.warning("Person entity not found: %s", person_entity_id)
+                    # v5.7.0 WS-A3: stamp LOST-since for grace timing.
+                    if person_name not in self._person_lost_since:
+                        self._person_lost_since[person_name] = now
                     person_data[person_name] = {
                         "location": "unknown",
                         "previous_location": old_location,
@@ -324,6 +327,10 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                             new_previous_location_time = old_previous_location_time
 
                         if person_state.state == "home":
+                            # v5.7.0 WS-A3: LOST-home is NOT path-β eligible —
+                            # clear any stale LOST-since stamp so the next
+                            # away transition starts a fresh grace window.
+                            self._person_lost_since.pop(person_name, None)
                             person_data[person_name] = {
                                 "location": "home",
                                 "previous_location": new_previous_location,
@@ -336,6 +343,11 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                                 "recent_path": [],  # Clear path when tracking is lost
                             }
                         else:
+                            # v5.7.0 WS-A3: stamp LOST-since on first observed
+                            # away tick; preserve across subsequent ticks so
+                            # the WS-A3 grace timer measures real elapsed.
+                            if person_name not in self._person_lost_since:
+                                self._person_lost_since[person_name] = now
                             person_data[person_name] = {
                                 "location": "away",
                                 "previous_location": new_previous_location,
@@ -368,6 +380,12 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                         new_previous_location = old_previous_location
                         new_previous_location_time = old_previous_location_time
 
+                    # v5.7.0 WS-A3: stamp LOST-since on away, clear on home.
+                    if location == "away":
+                        if person_name not in self._person_lost_since:
+                            self._person_lost_since[person_name] = now
+                    else:
+                        self._person_lost_since.pop(person_name, None)
                     person_data[person_name] = {
                         "location": location,
                         "previous_location": new_previous_location,
