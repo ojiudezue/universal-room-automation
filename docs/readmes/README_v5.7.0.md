@@ -52,8 +52,12 @@ hypotheses:
 
 > Shipwatch note: deep behavioral correctness (dead-phone-home→stays-HOME) is in-suite-authoritative (the watcher can't stage it). The Shipwatch `home_assistant` adapter is currently a stub (backlogged), so these resolve `pending` until it ships. Verify entity/attribute names against live HA before trusting `confirmed`.
 
-## Live Validation — *(prospective; written back post-restart)*
-- **L1** — `update.universal_room_automation_update` installed_version `v5.7.0`; zero URA boot ERRORs.
-- **L2** — `sensor.ura_presence_coordinator_presence_house_state` exposes `veto_path` / `lost_away_persons`.
-- **L3 (I1, the headline)** — over a real day: a genuine all-away period resolves AWAY via `veto_path=lost_admitted` (or `active`); and no force-AWAY occurs while someone is home (no AWAY with `veto_path=lost_admitted` while a resident is present). Cite the observed transition + attrs.
-- **L4** — config knobs present + round-trip (grace, sleep-exempt in Presence; `is_outdoor` per zone).
+## Live Validation — Validated 2026-06-29 (post-restart)
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | Deploy healthy | **PASS** | `update.universal_room_automation_update` installed_version = `v5.7.0`; zero URA ERROR entries in the system log at boot. |
+| L2 | New diagnostics live | **PASS** | `sensor.ura_presence_coordinator_presence_house_state` (state `home_day`) exposes `veto_path="none"` (no veto firing — house occupied, correct), `lost_away_persons=[]`, `lost_away_grace_remaining_s=null`, `outdoor_zones=[]`, `all_tracked_persons_away=false`. |
+| L3 (I1, headline) | No force-AWAY-while-home / lost-away→AWAY | **in-suite-authoritative + standing live check** | The invariant is mutation-anchored across 6 behavioral tests (orchestrator-verified). Live: requires a real all-away period to observe `veto_path=lost_admitted` → AWAY, and confirmation that no AWAY-via-`lost_admitted` ever occurs while a resident is present. Watch `veto_path` over the next all-away window. |
+| L4 | Config knobs | **code-proven (config-flow round-trip tested)** | `CONF_LOST_AWAY_GRACE_MIN` / `CONF_LOST_AWAY_SLEEP_EXEMPT` in the Presence options step; `CONF_ZONE_IS_OUTDOOR` per zone (default false → `outdoor_zones=[]` live, consistent). Not entities, so verified in-suite + visible on opening room/coordinator config. |
+
+**Note:** the headline behavioral correctness (dead-phone-home → stays HOME; lost-away-empty → AWAY) cannot be staged on the live instance without a real away event, so it is in-suite-authoritative (the 6 logic-flip-anchored behavioral tests). The deploy is healthy and the detection surface is live; L3's live observation is the standing watch. WS-B (HVAC actuation) remains gated on observing L3 live.
