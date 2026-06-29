@@ -848,17 +848,72 @@ def _schedule_envoy_revalidation(
         )
 
 
+def _migrate_solar_banking_to_energy_precool(
+    hass: HomeAssistant, entry: ConfigEntry,
+) -> None:
+    """v5.7.1: migrate CONF_HVAC_SOLAR_BANK_ENABLED → CONF_ENERGY_PRECOOL_ENABLED.
+
+    The Solar HVAC Banking toggle was folded into the unified Energy
+    Saver Pre-Cool feature. An operator who had banking OFF must NOT
+    silently have pre-cool flipped ON by the default-seeded constructor;
+    we copy their persisted choice into the new key BEFORE
+    EnergyCoordinator.__init__ runs (it reads CONF_ENERGY_PRECOOL_ENABLED
+    from CM entry options).
+
+    Behavior:
+    - If options carry the legacy key AND not the new key, copy the
+      legacy value to the new key and DROP the legacy key.
+    - If both keys are present (e.g. cycle re-run), drop the legacy key
+      and keep the operator's most recent value at the new key.
+    - If only the new key is present, no-op (idempotent).
+    - If neither is present, no-op (fresh install — constructor seeds
+      from DEFAULT_ENERGY_PRECOOL_ENABLED).
+
+    Offset + Scope are NEW knobs with sensible defaults — no migration
+    needed; first start hydrates them from defaults.
+    See PLANNING_v5.7.x_energy_pre_cool_unification.md (D5).
+    """
+    OLD_KEY = "hvac_solar_bank_enabled"
+    NEW_KEY = "energy_precool_enabled"
+    opts = entry.options or {}
+    if OLD_KEY not in opts:
+        return  # idempotent — already migrated or fresh install
+    try:
+        new_options = dict(opts)
+        legacy_value = bool(new_options.pop(OLD_KEY))
+        if NEW_KEY not in new_options:
+            new_options[NEW_KEY] = legacy_value
+        hass.config_entries.async_update_entry(entry, options=new_options)
+        _LOGGER.info(
+            "v5.7.1 migration: %s=%s -> %s=%s (entry %s)",
+            OLD_KEY, legacy_value, NEW_KEY, new_options[NEW_KEY],
+            entry.entry_id,
+        )
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug(
+            "v5.7.1 solar_banking → energy_precool migration failed (non-fatal)",
+            exc_info=True,
+        )
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Universal Room Automation from a config entry."""
-    
+
     # Initialize hass.data[DOMAIN] if needed
     if DOMAIN not in hass.data:
         hass.data[DOMAIN] = {}
-    
+
     # MIGRATION: v2.x → v3.0.0
     if not entry.data.get(CONF_ENTRY_TYPE):
         _LOGGER.info("Detected v2.x entry '%s', migrating to v3.0.0", entry.title)
         await _migrate_to_v3(hass, entry)
+
+    # v5.7.1: idempotent migration of the retired solar-banking toggle
+    # into the new energy-precool toggle. Runs BEFORE coordinator
+    # construction so EnergyCoordinator.__init__ reads the migrated
+    # value. Safe to call on every entry type (no-op for non-CM entries
+    # since the legacy key only lived in CM options).
+    _migrate_solar_banking_to_energy_precool(hass, entry)
     
     entry_type = entry.data.get(CONF_ENTRY_TYPE)
     

@@ -323,11 +323,21 @@ def _make_constraint(soc=98, forecast_high=92, mode="normal"):
 
 def _install_hvac_in_hass(hass, *, pre_conditioning_enabled: bool,
                           banking_enabled: bool = True):
-    """Wire fake HC + EC into hass.data so the gate-read helpers find them."""
+    """Wire fake HC + EC into hass.data so the gate-read helpers find them.
+
+    v5.7.1: solar_banking_enabled was retired and replaced with
+    energy_precool_enabled (operator master toggle on the EC device for
+    the unified Energy Saver Pre-Cool branch). The `banking_enabled`
+    kwarg is preserved as the public API for these tests but it now
+    seeds the new attribute. Default offset/scope are also seeded so
+    HVACPredictor accessors return sensible values during the test.
+    """
     hvac = MagicMock()
     hvac.pre_conditioning_enabled = pre_conditioning_enabled
     energy = MagicMock()
-    energy.solar_banking_enabled = banking_enabled
+    energy.energy_precool_enabled = banking_enabled
+    energy.energy_precool_offset = -2.0
+    energy.energy_precool_scope = "auto_pv_tiered"
     manager = MagicMock()
     manager.coordinators = {"hvac": hvac, "energy": energy}
     from custom_components.universal_room_automation.const import DOMAIN
@@ -420,11 +430,11 @@ class TestD1GatePreConditioning:
             hass, pre_conditioning_enabled=False, banking_enabled=True,
         )
         pred._first_eval_done = True  # not exercising restart reconciliation
-        # Spies — must NOT be called.
-        should_bank_spy = MagicMock(return_value=True)
-        pred._should_solar_bank = should_bank_spy
-        weather_spy = MagicMock(return_value=True)
-        pred._should_weather_pre_cool = weather_spy
+        # v5.7.1: single unified trigger spy. Must NOT be called when
+        # master "28" gate is OFF (defense-in-depth check — the master
+        # gate sits above the unified Energy Saver Pre-Cool branch).
+        unified_spy = MagicMock(return_value=True)
+        pred._should_energy_precool = unified_spy
         precool_calls = []
 
         async def _spy_precool(zone, offset, reason):
@@ -440,26 +450,35 @@ class TestD1GatePreConditioning:
             pre_arrival_zones=set(),
             zone_intelligence_enabled=True,
         ))
-        assert should_bank_spy.call_count == 0, (
-            "gate OFF → _should_solar_bank must NEVER be called"
-        )
-        assert weather_spy.call_count == 0, (
-            "gate OFF → _should_weather_pre_cool must NEVER be called"
+        assert unified_spy.call_count == 0, (
+            "master '28' gate OFF → _should_energy_precool must NEVER be called"
         )
         assert precool_calls == [], (
             "gate OFF → _execute_zone_pre_cool must NEVER be called"
         )
         assert pred._pre_conditioning_zones == set()
-        assert pred._solar_banking_zones == set()
+        assert pred._energy_precool_zones == set()
 
     def test_gate_on_preserves_behavior(self, fake_predictor):
-        """Gate default ON + banking-eligible conditions → banking fires
-        (byte-identical to v5.3.7 pre-cycle behavior)."""
+        """Master '28' ON + pre-cool gate ON + eligible conditions → unified
+        Energy Saver Pre-Cool fires. v5.7.1 rename: reason is now
+        `energy_precool` and the tracking set is `_energy_precool_zones`.
+        """
         pred, hass = fake_predictor
         _install_hvac_in_hass(
             hass, pre_conditioning_enabled=True, banking_enabled=True,
         )
         pred._first_eval_done = True
+        # Scope = whole_house to bank the (unoccupied / away) zone — the
+        # default auto_pv_tiered would skip the away-only zone unless
+        # export surplus passes the dispatch-time re-check.
+        manager = hass.data[
+            __import__(
+                "custom_components.universal_room_automation.const",
+                fromlist=["DOMAIN"],
+            ).DOMAIN
+        ]["coordinator_manager"]
+        manager.coordinators["energy"].energy_precool_scope = "whole_house"
         constraint = _make_constraint(soc=98, forecast_high=92)
         pred._get_net_power = MagicMock(return_value=-800.0)
         precool_calls = []
@@ -476,9 +495,9 @@ class TestD1GatePreConditioning:
             zone_intelligence_enabled=True,
         ))
         assert any(
-            reason == "solar_banking" for _, _, reason in precool_calls
+            reason == "energy_precool" for _, _, reason in precool_calls
         )
-        assert "z1" in pred._solar_banking_zones
+        assert "z1" in pred._energy_precool_zones
 
     def test_gate_no_hvac_failsafe_on(self, fake_predictor):
         """HC not yet registered → helper returns True (fail-safe)."""
@@ -516,7 +535,7 @@ class TestD1GatePreConditioning:
             zone_intelligence_enabled=True,
         ))
         assert "z1" in pred._last_pre_conditioning_zones or (
-            "z1" in pred._last_banked_zones
+            "z1" in pred._last_precool_zones
         )
 
         # Cycle 2: operator flips master OFF mid-window. Live setpoints
@@ -542,32 +561,35 @@ class TestD1GatePreConditioning:
         payload = set_temp_calls[0].args[2]
         assert payload["target_temp_high"] == 75.0
         assert payload["target_temp_low"] == 68.0
-        assert pred._last_banked_zones == set()
+        assert pred._last_precool_zones == set()
         assert pred._last_pre_conditioning_zones == set()
 
     def test_same_day_flip_off_then_on_re_engages_pre_cool(
         self, fake_predictor,
     ):
         """A-HIGH-1: flip OFF mid-pre-cool then flip ON later the SAME day
-        → weather pre-cool re-engages on the next cycle.
+        → unified Energy Saver Pre-Cool re-engages on the next cycle.
 
         Mutation: leave `_pre_cool_triggered_today=True` across the flip-OFF
-        release → this test fails because `_should_weather_pre_cool` keeps
+        release → this test fails because `_should_energy_precool` keeps
         bailing on the `not _pre_cool_triggered_today` guard until midnight.
         """
         pred, hass = fake_predictor
         pred._first_eval_done = True
-        # Cycle 1: gate ON, weather pre-cool fires → triggered_today set.
+        # Cycle 1: master + pre-cool gates ON, unified pre-cool fires.
+        # v5.7.1: banking_enabled now seeds energy_precool_enabled — keep
+        # it ON across cycles so the gate-flip behavior being tested is
+        # the MASTER "28" toggle (not the new pre-cool sub-gate).
         _install_hvac_in_hass(
-            hass, pre_conditioning_enabled=True, banking_enabled=False,
+            hass, pre_conditioning_enabled=True, banking_enabled=True,
         )
         _install_fake_hvac_coord(
             pred, last_emitted={"z1": (68.0, 75.0)},
         )
-        pred._get_net_power = MagicMock(return_value=0.0)
-        # Force weather pre-cool to fire on cycle 1.
-        pred._should_weather_pre_cool = MagicMock(return_value=True)
-        pred._should_solar_bank = MagicMock(return_value=False)
+        # Force PV surplus so the unified trigger can fire on cycle 3.
+        pred._get_net_power = MagicMock(return_value=-800.0)
+        # Force unified pre-cool to fire on cycle 1.
+        pred._should_energy_precool = MagicMock(return_value=True)
         precool_calls: list = []
 
         async def _spy_precool(zone, offset, reason):
@@ -592,7 +614,7 @@ class TestD1GatePreConditioning:
 
         # Cycle 2: same day, operator flips master OFF mid-window.
         _install_hvac_in_hass(
-            hass, pre_conditioning_enabled=False, banking_enabled=False,
+            hass, pre_conditioning_enabled=False, banking_enabled=True,
         )
         now2 = datetime(2026, 6, 11, 13, 5, 0)
         _run_coro(pred._check_pre_conditioning(
@@ -610,14 +632,18 @@ class TestD1GatePreConditioning:
         assert pred._pre_heat_triggered_today is False
 
         # Cycle 3: operator flips master back ON, still same day,
-        # still inside the pre-cool window — the REAL _should_weather_pre_cool
+        # still inside the pre-cool window — the REAL _should_energy_precool
         # should re-fire (no spy this time).
         # Restore the real method by deleting the spy attribute so attribute
         # lookup hits the class definition again.
-        del pred._should_weather_pre_cool
+        del pred._should_energy_precool
         _install_hvac_in_hass(
-            hass, pre_conditioning_enabled=True, banking_enabled=False,
+            hass, pre_conditioning_enabled=True, banking_enabled=True,
         )
+        # Default scope is auto_pv_tiered → occupied-only when no real
+        # surplus. We have PV surplus (-800W) so it will expand; but to
+        # be unambiguous about the home_day fake zone (occupied=True via
+        # fake_zone fixture) any scope works.
         precool_calls.clear()
         now3 = datetime(2026, 6, 11, 13, 10, 0)
         _run_coro(pred._check_pre_conditioning(
@@ -633,8 +659,8 @@ class TestD1GatePreConditioning:
         )
         assert pred._pre_cool_triggered_today is True
         assert any(
-            reason == "weather" for _zid, _off, reason in precool_calls
-        ), "weather pre-cool should fire on re-engage cycle"
+            reason == "energy_precool" for _zid, _off, reason in precool_calls
+        ), "unified energy pre-cool should fire on re-engage cycle"
 
     def test_steady_state_off_does_not_repeat_release(self, fake_predictor):
         """Idempotency: gate OFF for the second cycle → no re-issued release."""
@@ -642,7 +668,7 @@ class TestD1GatePreConditioning:
         pred._first_eval_done = True
         pred._last_pre_conditioning_gate_enabled = False
         pred._last_pre_conditioning_zones = set()
-        pred._last_banked_zones = set()
+        pred._last_precool_zones = set()
         pred._pre_cool_active = False
         pred._pre_heat_active = False
         _install_hvac_in_hass(

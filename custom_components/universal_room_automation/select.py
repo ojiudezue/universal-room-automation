@@ -57,6 +57,9 @@ async def async_setup_entry(
             # v4.7.34 Phase 1 D7: Optimizer autonomy level (6 options).
             # Lives on the Optimization Coordinator device.
             OptimizerAutonomyLevelSelect(hass, entry),
+            # v5.7.1: Energy Saver Pre-Cool Scope (EC device).
+            # Three options: occupied_only / whole_house / auto_pv_tiered.
+            EnergyPreCoolScopeSelect(hass, entry),
         ]
         async_add_entities(entities)
         return
@@ -687,3 +690,101 @@ class OptimizerAutonomyLevelSelect(SelectEntity):
         except Exception:  # noqa: BLE001
             pass
         await super().async_will_remove_from_hass()
+
+
+# ============================================================================
+# v5.7.1 — Energy Saver Pre-Cool Scope (EC device)
+# ----------------------------------------------------------------------------
+# Three-value selector wired to EnergyCoordinator.energy_precool_scope.
+# entry.options is the SOLE source of truth (mirror of OffPeakDrainNumber /
+# PeakBufferTargetNumber pattern — no RestoreEntity). Setter pushes the new
+# value to EC BEFORE async_update_entry so the next HVAC decision cycle sees
+# the new scope immediately. Restart re-seeds via __init__'s config read.
+# Invalid restored / configured values fall back to DEFAULT_ENERGY_PRECOOL_SCOPE.
+# ============================================================================
+
+
+class EnergyPreCoolScopeSelect(SelectEntity):
+    """Select entity for Energy Saver Pre-Cool scope."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:home-thermometer-outline"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.entity import EntityCategory
+        from .domain_coordinators.hvac_const import (
+            CONF_ENERGY_PRECOOL_SCOPE,
+            DEFAULT_ENERGY_PRECOOL_SCOPE,
+            ENERGY_PRECOOL_SCOPE_VALUES,
+        )
+        self.hass = hass
+        self._entry = entry
+        self._conf_key = CONF_ENERGY_PRECOOL_SCOPE
+        self._attr_options = list(ENERGY_PRECOOL_SCOPE_VALUES)
+        self._attr_entity_category = EntityCategory.CONFIG
+        self._attr_unique_id = f"{DOMAIN}_energy_energy_precool_scope"
+        self._attr_name = "Energy Saver Pre-Cool Scope"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "energy_coordinator")},
+            name="URA: Energy Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Energy Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        merged = {**entry.data, **entry.options}
+        raw = merged.get(self._conf_key, DEFAULT_ENERGY_PRECOOL_SCOPE)
+        if raw not in ENERGY_PRECOOL_SCOPE_VALUES:
+            raw = DEFAULT_ENERGY_PRECOOL_SCOPE
+        self._current = raw
+
+    def _get_energy(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        return manager.coordinators.get("energy") if manager else None
+
+    @property
+    def current_option(self) -> str:
+        return self._current
+
+    @property
+    def available(self) -> bool:
+        return self._get_energy() is not None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        energy = self._get_energy()
+        if energy is not None:
+            try:
+                energy.energy_precool_scope = self._current
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "Energy Saver Pre-Cool Scope: seed-push deferred",
+                )
+
+    async def async_select_option(self, option: str) -> None:
+        from .domain_coordinators.hvac_const import (
+            CONF_ENERGY_PRECOOL_SCOPE,
+            DEFAULT_ENERGY_PRECOOL_SCOPE,
+            ENERGY_PRECOOL_SCOPE_VALUES,
+        )
+        if option not in ENERGY_PRECOOL_SCOPE_VALUES:
+            option = DEFAULT_ENERGY_PRECOOL_SCOPE
+        self._current = option
+        energy = self._get_energy()
+        if energy is not None:
+            energy.energy_precool_scope = option
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={
+                    **self._entry.options,
+                    CONF_ENERGY_PRECOOL_SCOPE: option,
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "Energy Saver Pre-Cool Scope: options-writeback failed",
+                exc_info=True,
+            )
+        self.async_write_ha_state()
+        _LOGGER.info("Energy Saver Pre-Cool Scope set to: %s", option)

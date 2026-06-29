@@ -2285,19 +2285,47 @@ class HVACCoordinator(BaseCoordinator):
         attrs["fan_control_enabled"] = self._fan_control_enabled
         # v3.17.0: Zone Intelligence attributes
         attrs["pre_arrival_zones"] = list(self._pre_arrival_zones)
-        solar_banking_zones = getattr(
-            self._predictor, "_solar_banking_zones", set()
+        # v5.7.1 — Energy Saver Pre-Cool attrs (replaces solar_banking
+        # surface; no compat alias per planning §10 Q4 default). Surfaces
+        # zones banked THIS cycle, the operator master-gate state, the
+        # operator-configured offset + scope, and the effective scope
+        # applied this cycle (for auto_pv_tiered visibility into whether
+        # the unoccupied-zone expansion was active). See
+        # PLANNING_v5.7.x_energy_pre_cool_unification.md (D1.4).
+        energy_precool_zones = getattr(
+            self._predictor, "_energy_precool_zones", set()
         )
-        attrs["solar_banking_zones"] = list(solar_banking_zones)
-        # Surface the operator master gate so dashboards can distinguish
-        # "operator OFF" (banking_enabled=false) from "gate open but
-        # conditions unmet" (banking_enabled=true, solar_banking_zones=[]).
-        # See PLANNING_solar_banking_toggle.md (D5).
+        attrs["energy_precool_zones"] = list(energy_precool_zones)
         try:
-            gate_fn = getattr(self._predictor, "_is_solar_banking_enabled", None)
-            attrs["banking_enabled"] = bool(gate_fn()) if callable(gate_fn) else True
-        except Exception:
-            attrs["banking_enabled"] = True
+            gate_fn = getattr(
+                self._predictor, "_is_energy_precool_enabled", None,
+            )
+            attrs["energy_precool_enabled"] = (
+                bool(gate_fn()) if callable(gate_fn) else True
+            )
+        except Exception:  # noqa: BLE001
+            attrs["energy_precool_enabled"] = True
+        try:
+            off_fn = getattr(
+                self._predictor, "_get_energy_precool_offset", None,
+            )
+            attrs["energy_precool_offset"] = (
+                float(off_fn()) if callable(off_fn) else -2.0
+            )
+        except Exception:  # noqa: BLE001
+            attrs["energy_precool_offset"] = -2.0
+        try:
+            scope_fn = getattr(
+                self._predictor, "_get_energy_precool_scope", None,
+            )
+            attrs["energy_precool_scope"] = (
+                str(scope_fn()) if callable(scope_fn) else "auto_pv_tiered"
+            )
+        except Exception:  # noqa: BLE001
+            attrs["energy_precool_scope"] = "auto_pv_tiered"
+        attrs["energy_precool_scope_effective"] = getattr(
+            self._predictor, "_energy_precool_scope_effective", "n/a",
+        )
         # HC pre-conditioning master gate (parent of weather pre-cool +
         # solar banking + pre-arrival + pre-heat). Mirrors the
         # banking_enabled attr so dashboards can distinguish "operator

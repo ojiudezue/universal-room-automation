@@ -163,10 +163,16 @@ from custom_components.universal_room_automation.domain_coordinators.hvac_const 
     DUTY_CYCLE_WINDOW_SECONDS,
     MIN_DEADBAND,
     SOLAR_BANK_FLOOR,
-    SOLAR_BANK_OFFSET,
     SOLAR_BANK_SOC_MIN,
-    SOLAR_BANK_TEMP_MIN,
 )
+# v5.7.1: SOLAR_BANK_OFFSET and SOLAR_BANK_TEMP_MIN were retired when
+# Solar HVAC Banking was folded into the unified Energy Saver Pre-Cool
+# feature. The arithmetic floor-clamp tests below now read the default
+# pre-cool offset (operator-configurable; -2.0 °F default).
+from custom_components.universal_room_automation.domain_coordinators.hvac_const import (  # noqa: E402
+    DEFAULT_ENERGY_PRECOOL_OFFSET as _LEGACY_BANK_OFFSET_DEFAULT,
+)
+SOLAR_BANK_OFFSET = _LEGACY_BANK_OFFSET_DEFAULT  # -2.0 (was -3.0 pre-v5.7.1)
 
 
 def _utcnow():
@@ -347,7 +353,11 @@ class TestZonePreConditioning:
         assert mode != "normal"
 
     def test_solar_banking_offset_floored_tight_band(self):
-        """Solar banking on tight band (71-74) -> clamped to 73 F."""
+        """Pre-cool on tight band (71-74) -> floored at deadband.
+
+        v5.7.1: default offset is now -2.0°F (configurable, was -3.0
+        hardcoded). 74-2=72 vs floor max(72, 71+2)=73 → clamped to 73.
+        """
         target_temp_high = 74.0
         target_temp_low = 71.0
         offset = SOLAR_BANK_OFFSET
@@ -360,7 +370,10 @@ class TestZonePreConditioning:
         assert effective_high < target_temp_high
 
     def test_solar_banking_on_away_zone_82F(self):
-        """Solar banking on away zone (82 F) -> cools to 79 F."""
+        """Pre-cool on away zone (82 F) -> cools by default offset.
+
+        v5.7.1: offset is -2.0 (was -3.0); 82-2=80.
+        """
         target_temp_high = 82.0
         target_temp_low = 60.0
         offset = SOLAR_BANK_OFFSET
@@ -369,7 +382,7 @@ class TestZonePreConditioning:
         floor = max(SOLAR_BANK_FLOOR, target_temp_low + MIN_DEADBAND)
         effective_high = max(banked_high, floor)
 
-        assert effective_high == 79.0
+        assert effective_high == 80.0
 
     def test_pre_arrival_fans_skipped_during_sleep(self):
         """Pre-arrival fans should NOT activate during sleep."""

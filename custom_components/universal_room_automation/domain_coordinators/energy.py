@@ -496,18 +496,38 @@ class EnergyCoordinator(BaseCoordinator):
         self._dynamic_preset_enabled: bool = ec.get(
             CONF_DYNAMIC_PRESET_ENABLED, DEFAULT_DYNAMIC_PRESET_ENABLED
         )
-        # Solar HVAC Banking master enable (EC sub-switch). Seeded from CM
-        # options; runtime-tunable via the "Solar HVAC Banking" switch on
-        # the EC device. HVACPredictor reads this via _is_solar_banking_enabled()
-        # to short-circuit the banking branch in _check_pre_conditioning.
-        # See PLANNING_solar_banking_toggle.md (D3).
+        # v5.7.1 — Energy Saver Pre-Cool (EC-owned operator surfaces).
+        # Replaces the v4.7-era CONF_HVAC_SOLAR_BANK_ENABLED toggle, which
+        # was retired in v5.7.1 (PLANNING_v5.7.x_energy_pre_cool_unification.md
+        # D3). The CONF_HVAC_SOLAR_BANK_ENABLED value (if present in
+        # options) is migrated to CONF_ENERGY_PRECOOL_ENABLED at
+        # async_migrate_entry time — by the time we hit this constructor
+        # the new key is authoritative. HVACPredictor reads these via
+        # _is_energy_precool_enabled() / _get_energy_precool_offset() /
+        # _get_energy_precool_scope() to drive the unified Energy Saver
+        # Pre-Cool branch in _check_pre_conditioning.
         from .hvac_const import (
-            CONF_HVAC_SOLAR_BANK_ENABLED,
-            DEFAULT_HVAC_SOLAR_BANK_ENABLED,
+            CONF_ENERGY_PRECOOL_ENABLED,
+            DEFAULT_ENERGY_PRECOOL_ENABLED,
+            CONF_ENERGY_PRECOOL_OFFSET,
+            DEFAULT_ENERGY_PRECOOL_OFFSET,
+            CONF_ENERGY_PRECOOL_SCOPE,
+            DEFAULT_ENERGY_PRECOOL_SCOPE,
+            ENERGY_PRECOOL_SCOPE_VALUES,
         )
-        self._solar_banking_enabled: bool = bool(ec.get(
-            CONF_HVAC_SOLAR_BANK_ENABLED, DEFAULT_HVAC_SOLAR_BANK_ENABLED
+        self._energy_precool_enabled: bool = bool(ec.get(
+            CONF_ENERGY_PRECOOL_ENABLED, DEFAULT_ENERGY_PRECOOL_ENABLED,
         ))
+        self._energy_precool_offset: float = float(ec.get(
+            CONF_ENERGY_PRECOOL_OFFSET, DEFAULT_ENERGY_PRECOOL_OFFSET,
+        ))
+        _raw_scope = ec.get(
+            CONF_ENERGY_PRECOOL_SCOPE, DEFAULT_ENERGY_PRECOOL_SCOPE,
+        )
+        self._energy_precool_scope: str = (
+            _raw_scope if _raw_scope in ENERGY_PRECOOL_SCOPE_VALUES
+            else DEFAULT_ENERGY_PRECOOL_SCOPE
+        )
         # Lazily instantiated on first evaluate call (avoids circular import at __init__).
         self._dynamic_preset_source: Any = None
         # Accumulated overrides per zone from the most recent evaluate call.
@@ -5699,21 +5719,64 @@ class EnergyCoordinator(BaseCoordinator):
         self._occupancy_weighted = value
         _LOGGER.info("Energy occupancy-weighted prediction: %s", value)
 
+    # ------------------------------------------------------------------
+    # v5.7.1 — Energy Saver Pre-Cool (EC-owned operator surfaces).
+    # Replaces the retired solar_banking_enabled property/setter.
+    # ------------------------------------------------------------------
+
     @property
-    def solar_banking_enabled(self) -> bool:
-        """Whether HVAC solar banking is enabled (operator master toggle).
+    def energy_precool_enabled(self) -> bool:
+        """Whether Energy Saver Pre-Cool is enabled (operator master toggle).
 
-        Read by HVACPredictor._is_solar_banking_enabled() to short-circuit the
-        solar-banking branch in _check_pre_conditioning when the operator
-        flips this OFF from the EC device card.
+        Read by HVACPredictor._is_energy_precool_enabled() to short-
+        circuit the unified pre-cool branch in _check_pre_conditioning
+        when the operator flips this OFF from the EC device card.
         """
-        return self._solar_banking_enabled
+        return self._energy_precool_enabled
 
-    @solar_banking_enabled.setter
-    def solar_banking_enabled(self, value: bool) -> None:
-        """Set HVAC solar-banking master enable."""
-        self._solar_banking_enabled = bool(value)
-        _LOGGER.info("Energy HVAC solar-banking master: %s", value)
+    @energy_precool_enabled.setter
+    def energy_precool_enabled(self, value: bool) -> None:
+        """Set Energy Saver Pre-Cool master enable."""
+        self._energy_precool_enabled = bool(value)
+        _LOGGER.info("Energy Saver Pre-Cool master: %s", value)
+
+    @property
+    def energy_precool_offset(self) -> float:
+        """Operator-configured pre-cool offset (°F; sign-convention negative)."""
+        return self._energy_precool_offset
+
+    @energy_precool_offset.setter
+    def energy_precool_offset(self, value: float) -> None:
+        """Set Energy Saver Pre-Cool offset (°F)."""
+        try:
+            self._energy_precool_offset = float(value)
+        except (TypeError, ValueError):
+            from .hvac_const import DEFAULT_ENERGY_PRECOOL_OFFSET
+            self._energy_precool_offset = DEFAULT_ENERGY_PRECOOL_OFFSET
+        _LOGGER.info(
+            "Energy Saver Pre-Cool offset: %.2f°F",
+            self._energy_precool_offset,
+        )
+
+    @property
+    def energy_precool_scope(self) -> str:
+        """Operator-configured pre-cool scope (one of three values)."""
+        return self._energy_precool_scope
+
+    @energy_precool_scope.setter
+    def energy_precool_scope(self, value: str) -> None:
+        """Set Energy Saver Pre-Cool scope. Invalid values fall back to default."""
+        from .hvac_const import (
+            DEFAULT_ENERGY_PRECOOL_SCOPE,
+            ENERGY_PRECOOL_SCOPE_VALUES,
+        )
+        if value in ENERGY_PRECOOL_SCOPE_VALUES:
+            self._energy_precool_scope = value
+        else:
+            self._energy_precool_scope = DEFAULT_ENERGY_PRECOOL_SCOPE
+        _LOGGER.info(
+            "Energy Saver Pre-Cool scope: %s", self._energy_precool_scope,
+        )
 
     @property
     def delivery_rate(self) -> float:

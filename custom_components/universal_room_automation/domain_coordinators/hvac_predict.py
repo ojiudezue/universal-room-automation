@@ -16,15 +16,21 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from .hvac_const import (
+    DEFAULT_ENERGY_PRECOOL_OFFSET,
+    DEFAULT_ENERGY_PRECOOL_SCOPE,
+    ENERGY_PRECOOL_EXPORT_THRESHOLD_W,
+    ENERGY_PRECOOL_HOUR_START,
+    ENERGY_PRECOOL_SCOPE_AUTO_PV_TIERED,
+    ENERGY_PRECOOL_SCOPE_OCCUPIED_ONLY,
+    ENERGY_PRECOOL_SCOPE_VALUES,
+    ENERGY_PRECOOL_SCOPE_WHOLE_HOUSE,
     MIN_DEADBAND,
     SEASON_SHOULDER,
     SEASON_SUMMER,
     SEASON_WINTER,
     SEASONAL_DEFAULTS,
     SOLAR_BANK_FLOOR,
-    SOLAR_BANK_OFFSET,
     SOLAR_BANK_SOC_MIN,
-    SOLAR_BANK_TEMP_MIN,
 )
 from .hvac_override import OverrideArrester
 from .hvac_preset import PresetManager
@@ -122,7 +128,7 @@ class HVACPredictor:
         # Pre-arrival fan visibility (consumed by diagnostic sensor)
         self._last_fan_activation_rooms: list[str] = []
         self._last_fan_skipped_rooms: list[dict[str, Any]] = []
-        self._solar_banking_zones: set[str] = set()
+        self._energy_precool_zones: set[str] = set()  # v5.7.1 rename
         self._solar_bank_triggered_today: bool = False
         self._net_power_entity: str | None = net_power_entity or None
         # v4.5.10: configurable tunables (URA mirror pattern: install-time
@@ -131,9 +137,9 @@ class HVACPredictor:
         self._solar_bank_soc_min: int = int(solar_bank_soc_min)
         self._precool_forecast_high: float = float(precool_forecast_high)
         self._preheat_forecast_low: float = float(preheat_forecast_low)
-        # Mid-bank gate-flip-OFF release tracking (plan D3).
-        self._last_banking_gate_enabled: bool = True
-        self._last_banked_zones: set[str] = set()
+        # v5.7.1: renamed banking trackers -> pre-cool trackers.
+        self._last_precool_gate_enabled: bool = True
+        self._last_precool_zones: set[str] = set()
         # Tier 1 review HIGH-1: one-shot post-restart reconciliation flag.
         # `_last_banked_zones` is RAM-only — a restart mid-bank with the
         # gate subsequently flipped OFF would never release. On the first
@@ -417,9 +423,14 @@ class HVACPredictor:
 
         # Reset tracking sets each cycle
         self._pre_conditioning_zones = set()
-        self._solar_banking_zones = set()
+        # v5.7.1: renamed _solar_banking_zones → _energy_precool_zones.
+        self._energy_precool_zones = set()
         self._last_fan_activation_rooms = []
         self._last_fan_skipped_rooms = []
+        # v5.7.1: per-cycle effective scope label (for the
+        # energy_precool_scope_effective attr on the HVAC house-state
+        # sensor). Default "n/a" — overwritten when the trigger fires.
+        self._energy_precool_scope_effective: str = "n/a"
 
         # HC Pre-Conditioning master gate (D1). When the operator-facing
         # switch is OFF this short-circuits the ENTIRE pre-conditioning
@@ -437,23 +448,24 @@ class HVACPredictor:
             and self._last_pre_conditioning_gate_enabled
             and (
                 self._last_pre_conditioning_zones
-                or self._last_banked_zones
+                or self._last_precool_zones
                 or self._pre_cool_active
                 or self._pre_heat_active
             )
         ):
             # Operator just flipped OFF mid-pre-cool/pre-heat → release
-            # everything once. Includes the banking-tracked set so the
-            # parent gate is authoritative even over the EC-owned
-            # banking-zone tracker.
+            # everything once. Includes the energy-pre-cool tracked set
+            # so the parent gate is authoritative even over the EC-owned
+            # energy-pre-cool gate (defense in depth: master "28" remains
+            # the kill-switch above the unified pre-cool path).
             release_set = (
                 set(self._last_pre_conditioning_zones)
-                | set(self._last_banked_zones)
+                | set(self._last_precool_zones)
             )
             if release_set:
                 await self._release_banked_zones(release_set)
             self._last_pre_conditioning_zones = set()
-            self._last_banked_zones = set()
+            self._last_precool_zones = set()
             # Clear in-flight flags so the natural peak/off-peak boundary
             # check doesn't double-release on a later cycle.
             if self._pre_cool_active:
@@ -482,54 +494,28 @@ class HVACPredictor:
             # this cycle. Tracking sets stay empty (already reset above).
             return
 
-        forecast_high = constraint.forecast_high_temp if constraint else None
-        soc = constraint.soc if constraint else None
+        # ====================================================================
+        # v5.7.1 — Unified Energy Saver Pre-Cool (PV-aware, scope-aware)
+        # ====================================================================
+        # Replaces the v3.17.0 weather-pre-cool branch + the solar-banking
+        # branch. Single trigger, single dispatch, single operator gate on
+        # the EC device ("Energy Saver Pre-Cool"). PV surplus is REQUIRED
+        # in ALL reachable paths (I1) — no pure-forecast-heat trigger.
+        # See PLANNING_v5.7.x_energy_pre_cool_unification.md (D1).
+        # ====================================================================
+        precool_gate_on = self._is_energy_precool_enabled()
 
-        # --- Weather pre-cool (occupant-comfort driven; skip when away) ---
-        if not is_unoccupied and self._should_weather_pre_cool(constraint, now):
-            for zone_id, zone in self._zone_manager.zones.items():
-                if zone.any_room_occupied:
-                    await self._execute_zone_pre_cool(zone, offset=-2.0, reason="weather")
-                    self._pre_conditioning_zones.add(zone_id)
-
-        # End pre-cool when peak starts (run regardless of house_state so the
-        # _pre_cool_active flag clears even if the user came home mid-event)
-        if self._pre_cool_active and hour >= PEAK_HOUR_START:
-            self._pre_cool_active = False
-            _LOGGER.info("HVAC Pre-cool ended: peak period started")
-
-        # --- ZI-only features below (guarded by toggle) ---
-        if not zone_intelligence_enabled:
-            return
-
-        # --- Solar banking (economics-driven — runs regardless of house_state) ---
-        # Bank ALL zones including away/vacation — energy has nowhere better to
-        # go (battery already ≥95% full, grid export is the only alternative).
-        # Storing thermal mass into the building is most valuable when nobody's
-        # home, since there's no comfort cost to over-cooling.
-        #
-        # Operator master gate (EC sub-switch "Solar HVAC Banking", default ON).
-        # When OFF, the banking branch short-circuits entirely. If the gate
-        # was just flipped OFF while zones were mid-bank in the prior cycle
-        # (_last_banked_zones non-empty), explicitly release them by writing
-        # the baseline (target_temp_low, target_temp_high) range back to the
-        # thermostat — preset-mode is unchanged so
-        # _apply_house_state_presets' set_preset_mode path will not re-issue
-        # setpoints, and the DPM apply path is throttled by
-        # _last_emitted_range. See PLANNING_solar_banking_toggle.md.
-        banking_gate_on = self._is_solar_banking_enabled()
-
-        # Tier 1 review HIGH-1: post-restart reconciliation.
-        # `_last_banked_zones` is RAM-only. If HA restarted mid-bank and the
-        # operator subsequently turned the gate OFF, no release would ever
-        # fire because `_last_banked_zones` was reset to empty at __init__.
-        # On the FIRST eval after startup, if gate is OFF, scan zones whose
-        # CURRENT live setpoints sit BELOW the resolved baseline by > 0.5°F
-        # (banking direction = cooler) and treat them as orphan-banked.
-        # Bounded: runs exactly once per process lifetime.
+        # Post-restart reconciliation. RAM-only `_last_precool_zones` is
+        # empty on cold boot — if HA restarted mid-pre-cool and the
+        # operator subsequently flipped the gate OFF, no release would
+        # ever fire. On the FIRST eval after startup, if gate is OFF, scan
+        # zones whose CURRENT live setpoints sit BELOW the resolved
+        # baseline by > 0.5°F and treat them as orphan-banked. Bounded:
+        # runs exactly once per process lifetime. Same shape as the
+        # deleted banking reconciliation.
         if not self._first_eval_done:
             self._first_eval_done = True
-            if not banking_gate_on:
+            if not precool_gate_on:
                 orphans: set[str] = set()
                 for zone_id, zone in self._zone_manager.zones.items():
                     cur_high = getattr(zone, "target_temp_high", None)
@@ -539,64 +525,96 @@ class HVACPredictor:
                     if baseline is None:
                         continue
                     _base_low, base_high = baseline
-                    # Banking offsets the cool target DOWN (cooler). Only
-                    # reconcile zones whose live cool target is meaningfully
-                    # below baseline — > 0.5°F to avoid float-noise flaps.
                     if cur_high < base_high - 0.5:
                         orphans.add(zone_id)
                 if orphans:
                     _LOGGER.info(
-                        "HVAC: post-restart banking reconciliation — "
+                        "HVAC: post-restart energy-pre-cool reconciliation — "
                         "releasing %d orphan zones (%s)",
                         len(orphans), sorted(orphans),
                     )
                     await self._release_banked_zones(orphans)
-            # Initialize gate-state tracker to the live value so the
-            # standard flip-detection below behaves correctly on cycle 2.
-            self._last_banking_gate_enabled = banking_gate_on
+            self._last_precool_gate_enabled = precool_gate_on
 
+        # Mid-cycle flip-OFF: release within one cycle (I5).
         if (
-            not banking_gate_on
-            and self._last_banking_gate_enabled
-            and self._last_banked_zones
+            not precool_gate_on
+            and self._last_precool_gate_enabled
+            and self._last_precool_zones
         ):
-            # Gate just flipped OFF mid-bank → release once.
-            await self._release_banked_zones(set(self._last_banked_zones))
-            self._last_banked_zones = set()
-        self._last_banking_gate_enabled = banking_gate_on
+            await self._release_banked_zones(set(self._last_precool_zones))
+            self._last_precool_zones = set()
+        self._last_precool_gate_enabled = precool_gate_on
 
-        if banking_gate_on and self._should_solar_bank(constraint, now):
+        # Trigger + per-zone scope dispatch. Reads BOTH offset and scope
+        # from EC once per cycle; the auto_pv_tiered branch re-reads
+        # net power at per-zone dispatch time (I6, not cached from the
+        # gate — operator-required so unoccupied-zone expansion only
+        # happens during *current* export surplus).
+        if precool_gate_on and self._should_energy_precool(constraint, now):
+            offset_f = self._get_energy_precool_offset()
+            scope = self._get_energy_precool_scope()
+            net_power_now = self._get_net_power()
+            export_surplus = (
+                net_power_now < -ENERGY_PRECOOL_EXPORT_THRESHOLD_W
+            )
+            # Effective-scope label for the HVAC house-state sensor.
+            if scope == ENERGY_PRECOOL_SCOPE_AUTO_PV_TIERED:
+                self._energy_precool_scope_effective = (
+                    "auto_pv_tiered(expanded)" if export_surplus
+                    else "auto_pv_tiered(occupied_only)"
+                )
+            else:
+                self._energy_precool_scope_effective = scope
+
             for zone_id, zone in self._zone_manager.zones.items():
-                await self._execute_zone_pre_cool(zone, offset=SOLAR_BANK_OFFSET, reason="solar_banking")
-                self._pre_conditioning_zones.add(zone_id)
-                self._solar_banking_zones.add(zone_id)
-                # Tier 1 review MEDIUM-1: zones enter the tracked set when
-                # banked; they LEAVE only on explicit release (gate-off
-                # release path above) or natural preset re-alignment.
-                self._last_banked_zones.add(zone_id)
+                is_occupied = bool(
+                    getattr(zone, "any_room_occupied", False)
+                )
+                if scope == ENERGY_PRECOOL_SCOPE_OCCUPIED_ONLY:
+                    if not is_occupied:
+                        continue  # comfort-first; never bank empty zones
+                elif scope == ENERGY_PRECOOL_SCOPE_AUTO_PV_TIERED:
+                    # Default: occupied always; unoccupied ONLY under
+                    # real export surplus (the operator-coined
+                    # "free banking" case).
+                    if not is_occupied and not export_surplus:
+                        continue
+                # ENERGY_PRECOOL_SCOPE_WHOLE_HOUSE: no per-zone gate.
 
-        # Tier 1 review MEDIUM-1: prune `_last_banked_zones` against the
-        # LIVE zone setpoint. The banking window closes at hour >= 14 but
-        # thermostats remain banked until the next preset cycle naturally
-        # re-aligns them. We detect "no longer banked" by comparing the
-        # zone's CURRENT cool target (live state) to the resolved baseline:
-        # within 0.5°F (banking direction) → not banked anymore. We do
-        # NOT compare against `_last_emitted_range` because that map only
-        # tracks preset emits — banking writes go through
-        # `_execute_zone_pre_cool` directly and bypass it, so the map
-        # holds the pre-banking baseline throughout banking and a naive
-        # equality check would prune immediately. Zones banked THIS cycle
-        # are excluded from the prune scan (just-added live values still
-        # propagating from the climate service call).
-        if self._last_banked_zones:
-            just_banked = set(self._solar_banking_zones)
-            for zone_id in list(self._last_banked_zones):
+                await self._execute_zone_pre_cool(
+                    zone, offset=offset_f, reason="energy_precool",
+                )
+                self._pre_conditioning_zones.add(zone_id)
+                self._energy_precool_zones.add(zone_id)
+                self._last_precool_zones.add(zone_id)
+
+        # End pre-cool when peak starts (run regardless of house_state so
+        # the _pre_cool_active flag clears even if the user came home
+        # mid-event).
+        if self._pre_cool_active and hour >= PEAK_HOUR_START:
+            self._pre_cool_active = False
+            _LOGGER.info("HVAC Pre-cool ended: peak period started")
+
+        # --- ZI-only features below (guarded by toggle) ---
+        if not zone_intelligence_enabled:
+            return
+
+        # Prune `_last_precool_zones` against the LIVE zone setpoint.
+        # The pre-cool window closes at hour >= 14 but thermostats
+        # remain banked until the next preset cycle naturally re-aligns
+        # them. We detect "no longer banked" by comparing the zone's
+        # CURRENT cool target to the resolved baseline: within 0.5°F →
+        # not banked anymore. Zones written THIS cycle are excluded from
+        # the prune scan (just-written live values still propagating).
+        if self._last_precool_zones:
+            just_banked = set(self._energy_precool_zones)
+            for zone_id in list(self._last_precool_zones):
                 if zone_id in just_banked:
                     continue
                 zone = self._zone_manager.zones.get(zone_id)
                 if zone is None:
-                    # Zone disappeared from registry — drop from tracking.
-                    self._last_banked_zones.discard(zone_id)
+                    self._last_precool_zones.discard(zone_id)
                     continue
                 cur_high = getattr(zone, "target_temp_high", None)
                 if cur_high is None:
@@ -605,9 +623,8 @@ class HVACPredictor:
                 if baseline is None:
                     continue
                 _base_low, base_high = baseline
-                # Within 0.5°F of baseline → naturally re-aligned.
                 if cur_high >= base_high - 0.5:
-                    self._last_banked_zones.discard(zone_id)
+                    self._last_precool_zones.discard(zone_id)
 
         # --- Pre-arrival (person-routed; skip when away/vacation as a defensive
         # belt — pre_arrival_zones should be empty during away anyway, but the
@@ -653,63 +670,71 @@ class HVACPredictor:
         # the superset in `_check_pre_conditioning`.
         self._last_pre_conditioning_zones = set(self._pre_conditioning_zones)
 
-    def _should_weather_pre_cool(
+    def _should_energy_precool(
         self, constraint: EnergyConstraint | None, now,
     ) -> bool:
-        """Check if weather pre-cool conditions are met."""
-        season = self._preset_manager.current_season
-        forecast_high = constraint.forecast_high_temp if constraint else None
-        soc = constraint.soc if constraint else None
-        hour = now.hour
+        """Unified PV-aware energy pre-cool trigger (v5.7.1).
 
-        if (
-            not self._pre_cool_active
-            and not self._pre_cool_triggered_today
-            and season in (SEASON_SUMMER, SEASON_SHOULDER)
-            and forecast_high is not None
-            and forecast_high >= self._precool_forecast_high  # v4.5.10
-            and PEAK_HOUR_START - PRECOOL_LEAD_HOURS <= hour < PEAK_HOUR_START
-            and (soc is None or soc >= PRECOOL_SOC_MIN)
-        ):
-            self._pre_cool_active = True
-            self._pre_cool_triggered_today = True
-            _LOGGER.info(
-                "HVAC Pre-cool triggered: forecast_high=%.0fF, hour=%d, soc=%s",
-                forecast_high, hour, soc,
-            )
-            return True
-        return self._pre_cool_active and hour < PEAK_HOUR_START
+        Replaces the v3.17.0 weather-pre-cool + solar-banking branches.
+        PV surplus is REQUIRED (I1) — no pure-forecast-heat trigger.
+        Forecast heat raises aggressiveness (lower SOC threshold) when
+        also solar-rich.
 
-    def _should_solar_bank(
-        self, constraint: EnergyConstraint | None, now,
-    ) -> bool:
-        """Bank thermal mass ONLY when solar is truly excess.
+        Season-gated to summer/shoulder. Hour-window: [10, 14). SOC
+        floor: 30% on hot days (forecast >= self._precool_forecast_high)
+        else 95% (cool-day banking). `constraint.mode == "normal"` keeps
+        the inclement-weather hold (v5.5.0) compatible — non-normal
+        modes prevent pre-cool.
 
-        Priority: battery charging > EV > thermal banking > grid export.
-        Banking is last resort before grid export.
+        Sets _pre_cool_active + _pre_cool_triggered_today (daily-once
+        flap guard, shared with the deleted weather-pre-cool path).
         """
         if constraint is None:
             return False
-
         season = self._preset_manager.current_season
         if season not in (SEASON_SUMMER, SEASON_SHOULDER):
             return False
+        if self._pre_cool_active and now.hour < PEAK_HOUR_START:
+            return True  # already in-flight, stay engaged until peak
+        if self._pre_cool_active or self._pre_cool_triggered_today:
+            return False  # daily-once guard (same as weather-pre-cool)
 
-        soc = constraint.soc or 0
-        forecast_high = constraint.forecast_high_temp or 0
+        hour = now.hour
+        if not (ENERGY_PRECOOL_HOUR_START <= hour < PEAK_HOUR_START):
+            return False
 
-        # Check real-time net export
+        # I1 — PV surplus is REQUIRED. Net power sign: negative = export.
         net_power = self._get_net_power()
+        if net_power >= -ENERGY_PRECOOL_EXPORT_THRESHOLD_W:
+            return False
 
-        # v4.5.10: SOC threshold is now self._solar_bank_soc_min (configurable).
-        return (
-            soc >= self._solar_bank_soc_min
-            and net_power < -500  # Actively exporting >500W
-            and forecast_high >= SOLAR_BANK_TEMP_MIN
-            and constraint.mode == "normal"  # Off-peak, no constraint active
-            and now.hour >= 10
-            and now.hour < 14  # Before peak starts
+        if getattr(constraint, "mode", "normal") != "normal":
+            return False
+
+        forecast_high = constraint.forecast_high_temp
+        soc = constraint.soc
+
+        # SOC floor — must have enough battery to safely cool from house
+        # mass. Hot day → lower floor (we WANT to bank aggressively even
+        # if the battery isn't full because peak-AC cost >> mid-day
+        # discharge). Cool day → higher floor (banking only for grid-
+        # export-avoidance reasons; need a nearly-full battery first).
+        is_hot = (
+            forecast_high is not None
+            and forecast_high >= self._precool_forecast_high
         )
+        soc_floor = PRECOOL_SOC_MIN if is_hot else self._solar_bank_soc_min
+        if soc is not None and soc < soc_floor:
+            return False
+
+        self._pre_cool_active = True
+        self._pre_cool_triggered_today = True
+        _LOGGER.info(
+            "Energy Saver Pre-Cool triggered: forecast_high=%s, hour=%d, "
+            "soc=%s, net_power=%.0fW (exporting), is_hot=%s, soc_floor=%d",
+            forecast_high, hour, soc, net_power, is_hot, soc_floor,
+        )
+        return True
 
     def _is_pre_conditioning_enabled(self) -> bool:
         """Master operator gate for ALL HC pre-conditioning branches.
@@ -734,14 +759,39 @@ class HVACPredictor:
             # Any unexpected lookup failure → preserve current behavior.
             return True
 
-    def _is_solar_banking_enabled(self) -> bool:
-        """Master operator gate for solar HVAC banking.
+    def _is_energy_precool_enabled(self) -> bool:
+        """Master operator gate for the unified Energy Saver Pre-Cool branch.
 
-        Reads `solar_banking_enabled` from the EnergyCoordinator via the
+        Reads `energy_precool_enabled` from the EnergyCoordinator via the
         coordinator_manager registry (same accessor pattern used by the EC
-        sub-switches in switch.py).  Defaults to True when EC is not yet
+        sub-switches in switch.py). Defaults to True when EC is not yet
         registered — fail-safe = preserve current behavior, never silently
         disable a feature because EC was slow to register at startup.
+        v5.7.1 replaces the deleted _is_solar_banking_enabled.
+        """
+        try:
+            from ..const import DOMAIN
+            from .hvac_const import DEFAULT_ENERGY_PRECOOL_ENABLED
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            energy = manager.coordinators.get("energy") if (
+                manager is not None and hasattr(manager, "coordinators")
+            ) else None
+            if energy is None:
+                return DEFAULT_ENERGY_PRECOOL_ENABLED
+            return bool(getattr(
+                energy, "energy_precool_enabled",
+                DEFAULT_ENERGY_PRECOOL_ENABLED,
+            ))
+        except Exception:  # noqa: BLE001
+            return True
+
+    def _get_energy_precool_offset(self) -> float:
+        """Operator-configured pre-cool offset (°F from target_temp_high).
+
+        Defaults to DEFAULT_ENERGY_PRECOOL_OFFSET when EC not yet
+        registered. The 72°F floor (SOLAR_BANK_FLOOR) still clamps the
+        resulting setpoint (I3) — an absurd configured value cannot
+        breach the floor.
         """
         try:
             from ..const import DOMAIN
@@ -750,11 +800,37 @@ class HVACPredictor:
                 manager is not None and hasattr(manager, "coordinators")
             ) else None
             if energy is None:
-                return True
-            return bool(getattr(energy, "solar_banking_enabled", True))
-        except Exception:
-            # Any unexpected lookup failure → preserve current behavior.
-            return True
+                return DEFAULT_ENERGY_PRECOOL_OFFSET
+            return float(getattr(
+                energy, "energy_precool_offset",
+                DEFAULT_ENERGY_PRECOOL_OFFSET,
+            ))
+        except Exception:  # noqa: BLE001
+            return DEFAULT_ENERGY_PRECOOL_OFFSET
+
+    def _get_energy_precool_scope(self) -> str:
+        """Operator-configured pre-cool scope.
+
+        Returns one of ENERGY_PRECOOL_SCOPE_VALUES. Invalid or missing
+        values fall back to DEFAULT_ENERGY_PRECOOL_SCOPE.
+        """
+        try:
+            from ..const import DOMAIN
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            energy = manager.coordinators.get("energy") if (
+                manager is not None and hasattr(manager, "coordinators")
+            ) else None
+            if energy is None:
+                return DEFAULT_ENERGY_PRECOOL_SCOPE
+            scope = getattr(
+                energy, "energy_precool_scope",
+                DEFAULT_ENERGY_PRECOOL_SCOPE,
+            )
+            if scope not in ENERGY_PRECOOL_SCOPE_VALUES:
+                return DEFAULT_ENERGY_PRECOOL_SCOPE
+            return scope
+        except Exception:  # noqa: BLE001
+            return DEFAULT_ENERGY_PRECOOL_SCOPE
 
     def _resolve_baseline_range(self, zone_id: str) -> tuple[float, float] | None:
         """Return the TRUE (baseline_low, baseline_high) for a zone.
