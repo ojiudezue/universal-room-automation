@@ -97,6 +97,15 @@ def _cleanup_solar_banking_orphan(hass: HomeAssistant) -> None:
 
     Bug Class #46-safe: calls entity_registry.async_remove(), not
     async_update_entry.
+
+    B-RE-2 (v5.7.1 re-review): cross-entry setup order is non-deterministic.
+    The integration-entry migration (`_migrate_solar_banking_to_energy_precool`
+    in __init__.py) MUST read RestoreEntity state for this orphan BEFORE we
+    remove the registry entry — otherwise the migration cannot look up the
+    entity_id and `restore_off` defaults to False, silently re-enabling an
+    operator-explicit OFF. The migration sets `solar_banking_cleanup_done`
+    after its own read+remove, so this function becomes a no-op backstop
+    once the migration has run on any integration entry.
     """
     if hass.data.setdefault(DOMAIN, {}).get(
         "solar_banking_cleanup_done"

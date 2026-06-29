@@ -911,14 +911,20 @@ async def _migrate_solar_banking_to_energy_precool(
         # entity_id by its unique_id, then ask RestoreStateData for the
         # last persisted state. If "off", force NEW_KEY=False.
         restore_off = False
+        legacy_entity_id = None
+        legacy_unique_id = f"{DOMAIN}_energy_solar_banking"
         try:
             from homeassistant.helpers import entity_registry as er
+            # B-RE-1 fix: RestoreStateData.async_get does NOT exist; the
+            # real API is the module-level @callback `async_get`. It is
+            # SYNCHRONOUS — never await it (an await on a non-coroutine
+            # raises TypeError, which a bare-except would silently swallow
+            # and re-enable the operator's OFF setting). Mirror the
+            # `er.async_get(hass)` shape.
             from homeassistant.helpers.restore_state import (
-                RestoreStateData,
+                async_get as async_get_restore_data,
             )
             registry = er.async_get(hass)
-            legacy_unique_id = f"{DOMAIN}_energy_solar_banking"
-            legacy_entity_id = None
             for ent in registry.entities.values():
                 if (
                     ent.domain == "switch"
@@ -927,7 +933,7 @@ async def _migrate_solar_banking_to_energy_precool(
                     legacy_entity_id = ent.entity_id
                     break
             if legacy_entity_id is not None:
-                restore_data = await RestoreStateData.async_get(hass)
+                restore_data = async_get_restore_data(hass)
                 stored = restore_data.last_states.get(legacy_entity_id)
                 state_str = None
                 if stored is not None:
@@ -942,11 +948,42 @@ async def _migrate_solar_banking_to_energy_precool(
                         legacy_unique_id, legacy_entity_id, NEW_KEY,
                         legacy_options_value,
                     )
-        except Exception:  # noqa: BLE001
-            _LOGGER.debug(
-                "v5.7.1 RestoreEntity OFF probe failed (non-fatal)",
-                exc_info=True,
+        except (ImportError, AttributeError, KeyError) as exc:
+            # B-RE-1 fix: narrow the except so a future contract break
+            # (e.g. RestoreState API rename, missing attribute) is LOUD
+            # instead of silently swallowing a TypeError and re-enabling
+            # the operator's OFF. Fail-safe to options seed below.
+            _LOGGER.warning(
+                "v5.7.1 RestoreEntity OFF probe failed (%s: %s) — falling "
+                "back to options seed; verify RestoreState API contract",
+                type(exc).__name__, exc,
             )
+
+        # B-RE-2 fix: perform the orphan registry removal HERE, AFTER the
+        # RestoreState read, so a sibling switch-platform setup cannot
+        # race the migration's registry lookup. Idempotent: gated by the
+        # `solar_banking_cleanup_done` marker in hass.data; switch.py's
+        # `_cleanup_solar_banking_orphan` will no-op once we set it.
+        if legacy_entity_id is not None:
+            try:
+                from homeassistant.helpers import entity_registry as er
+                registry = er.async_get(hass)
+                if registry.async_get(legacy_entity_id) is not None:
+                    registry.async_remove(legacy_entity_id)
+                    _LOGGER.info(
+                        "v5.7.1 migration: removed orphan %s "
+                        "(unique_id=%s) after RestoreState probe",
+                        legacy_entity_id, legacy_unique_id,
+                    )
+            except (ImportError, AttributeError, KeyError) as exc:
+                _LOGGER.warning(
+                    "v5.7.1 orphan removal failed (%s: %s) — "
+                    "switch-platform backstop will retry",
+                    type(exc).__name__, exc,
+                )
+            hass.data.setdefault(DOMAIN, {})[
+                "solar_banking_cleanup_done"
+            ] = True
 
         if NEW_KEY not in new_options:
             new_options[NEW_KEY] = False if restore_off else legacy_options_value

@@ -951,10 +951,24 @@ class TestD5Migration:
                     stored.state = inner
                     self.last_states[legacy_entity_id] = stored
 
+        # B-RE-1 fix-up test authority: the real HA API exposes a SYNC
+        # module-level `async_get` (@callback) — NOT a classmethod and NOT
+        # a coroutine. The prior mock used `async def async_get` which
+        # silently let `await RestoreStateData.async_get(hass)` in
+        # production return a coroutine (truthy, no TypeError) and
+        # masked the inert-migration bug. We now mirror the real shape:
+        # module-level sync `async_get`, plus a class with NO `async_get`
+        # — so any future regression that does `RestoreStateData.async_get`
+        # or `await async_get(...)` fails loudly here.
+        _restore_singleton = _RestoreData()
+
+        def _async_get_restore(hass):  # sync, mirrors real @callback
+            return _restore_singleton
+
+        rs_mod.async_get = _async_get_restore
+
         class _RestoreStateData:
-            @staticmethod
-            async def async_get(hass):
-                return _RestoreData()
+            """Mirror real HA: no async_get classmethod/staticmethod."""
 
         rs_mod.RestoreStateData = _RestoreStateData
         # Don't clobber RestoreEntity used by the rest of the suite.
@@ -1100,6 +1114,97 @@ class TestD5Migration:
         assert f'energy_solar_banking' in src, (
             "cleanup helper must look up the legacy unique_id slug"
         )
+
+    # --- v5.7.1 re-review (B-RE-1 CRITICAL) -----------------------------------
+    def test_restore_state_helper_is_called_sync_not_awaited(self):
+        """B-RE-1 mutation test: production must call the @callback
+        `async_get` SYNCHRONOUSLY. Re-adding `await` (or routing through
+        the non-existent `RestoreStateData.async_get` classmethod) would
+        make the probe raise inside the migration's try/except and force
+        `restore_off=False`, silently re-enabling an operator OFF.
+
+        We verify the source contract: production must NOT `await` the
+        restore-state lookup, and must use the module-level helper."""
+        src = open(os.path.join(_ura_path, "__init__.py")).read()
+        # The migration block contains this exact phrase; the await form
+        # must be absent.
+        assert "await RestoreStateData.async_get" not in src, (
+            "B-RE-1: `await RestoreStateData.async_get(hass)` is broken — "
+            "RestoreStateData has no classmethod `async_get`, and the "
+            "module-level `async_get` is sync (@callback). The await form "
+            "raises TypeError, which the migration's except swallows and "
+            "silently re-enables an operator's banking-OFF."
+        )
+        assert "await async_get_restore_data" not in src, (
+            "B-RE-1: the module-level restore-state helper is sync — "
+            "never await it."
+        )
+        assert "async_get_restore_data(hass)" in src, (
+            "B-RE-1: migration must call the sync module-level helper "
+            "(imported here as `async_get_restore_data`)."
+        )
+
+    # --- v5.7.1 re-review (B-RE-2 HIGH) --------------------------------------
+    def test_migration_removes_orphan_after_reading_restore_state(self):
+        """B-RE-2 mutation: if `_cleanup_solar_banking_orphan` (switch.py)
+        runs before the integration-entry migration's registry read, the
+        migration can't find the entity_id and `restore_off` defaults to
+        False -> operator OFF silently re-enabled. The fix moves the
+        orphan removal INTO the migration AFTER the RestoreState probe,
+        and sets `solar_banking_cleanup_done` so the switch-platform
+        backstop no-ops on a later setup.
+
+        Verify both source contracts:
+          1. The migration takes ownership of the removal (calls
+             `registry.async_remove` AFTER its RestoreState read).
+          2. The switch-platform helper still gates on
+             `solar_banking_cleanup_done` to become a backstop.
+        """
+        init_src = open(os.path.join(_ura_path, "__init__.py")).read()
+        sw_src = open(os.path.join(_ura_path, "switch.py")).read()
+
+        # Locate the migration function body.
+        mig_marker = "_migrate_solar_banking_to_energy_precool"
+        assert mig_marker in init_src
+        mig_start = init_src.index(f"async def {mig_marker}")
+        # Function body up to the next top-level `async def` / `def`.
+        rest = init_src[mig_start:]
+        next_def = rest.find("\nasync def ", 1)
+        if next_def < 0:
+            next_def = rest.find("\ndef ", 1)
+        mig_body = rest[:next_def if next_def > 0 else len(rest)]
+
+        # 1. Migration body must do BOTH the RestoreState probe AND the
+        #    orphan removal — and the probe must come FIRST.
+        probe_pos = mig_body.find("async_get_restore_data(hass)")
+        remove_pos = mig_body.find("registry.async_remove(legacy_entity_id)")
+        assert probe_pos > 0, (
+            "B-RE-2: migration must read RestoreState before removing "
+            "the orphan registry entry."
+        )
+        assert remove_pos > 0, (
+            "B-RE-2: migration must take ownership of the orphan removal "
+            "(switch-platform-only removal races the registry lookup "
+            "across config entries)."
+        )
+        assert probe_pos < remove_pos, (
+            "B-RE-2: orphan removal MUST happen AFTER RestoreState read."
+        )
+
+        # 2. The migration must set the cleanup-done marker so the
+        #    switch-platform backstop no-ops.
+        assert '"solar_banking_cleanup_done"' in mig_body, (
+            "B-RE-2: migration must set `solar_banking_cleanup_done` to "
+            "neutralize the switch-platform backstop."
+        )
+
+        # 3. Switch-platform backstop still gates on the marker.
+        assert 'solar_banking_cleanup_done' in sw_src
+        assert (
+            'if hass.data.setdefault(DOMAIN, {}).get(\n'
+            '        "solar_banking_cleanup_done"\n'
+            '    ):'
+        ) in sw_src or 'solar_banking_cleanup_done' in sw_src
 
 
 # ===========================================================================
