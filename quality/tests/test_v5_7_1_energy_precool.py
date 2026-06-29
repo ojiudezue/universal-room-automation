@@ -191,15 +191,20 @@ def _load_real_predictor_class():
         f"{_dc_name}.hvac_override",
         f"{_dc_name}.hvac_preset",
         f"{_dc_name}.hvac_zones",
+        f"{_dc_name}.hvac_setpoint",  # v5.7.1 fix-up (A3): stub deterministically
         f"{_dc_name}.signals",
     )
     saved = {n: sys.modules.get(n, _SENTINEL) for n in peer_names}
 
     def _ensure_stub(name, **attrs):
-        if sys.modules.get(name) is None or not hasattr(
-            sys.modules[name], list(attrs)[0]
-        ):
-            sys.modules[name] = _mock_module(name, **attrs)
+        # v5.7.1 fix-up (A3 MED): force-install a fresh stub regardless of
+        # what a prior peer test left in sys.modules. The previous
+        # `setdefault`-style guard let stale modules (loaded by sibling
+        # tests with partial peer sets) leak through, which made
+        # hvac_setpoint absent and hvac_predict's `from .hvac_setpoint
+        # import ...` raise ModuleNotFoundError. Always replace; the
+        # `saved`/restore block below restores prior state.
+        sys.modules[name] = _mock_module(name, **attrs)
 
     _ensure_stub(
         f"{_dc_name}.hvac_override",
@@ -212,6 +217,20 @@ def _load_real_predictor_class():
     _ensure_stub(
         f"{_dc_name}.hvac_zones",
         ZoneManager=type("ZoneManager", (), {}),
+    )
+    # v5.7.1 fix-up (A3 MED): hvac_predict imports apply_setpoint_guards +
+    # emit_set_temperature at module load. Stub both so the exec succeeds
+    # in any test-ordering scenario.
+    async def _stub_emit_set_temperature(*a, **k):
+        return None
+
+    def _stub_apply_setpoint_guards(*a, **k):
+        return None
+
+    _ensure_stub(
+        f"{_dc_name}.hvac_setpoint",
+        apply_setpoint_guards=_stub_apply_setpoint_guards,
+        emit_set_temperature=_stub_emit_set_temperature,
     )
     _ensure_stub(
         f"{_dc_name}.signals",
@@ -841,10 +860,14 @@ class TestD5Migration:
         # heavy __init__ module body (which pulls in many platform deps).
         # Instead we'll read source + exec a stub that just defines
         # _migrate_solar_banking_to_energy_precool.
+        #
+        # v5.7.1 fix-up (B-1): helper became `async def` to consult
+        # RestoreStateData. We also need to provide a DOMAIN binding (the
+        # production module imports it from .const).
         path = os.path.join(_ura_path, "__init__.py")
         src = open(path).read()
         start = src.find(
-            "def _migrate_solar_banking_to_energy_precool("
+            "async def _migrate_solar_banking_to_energy_precool("
         )
         assert start > 0, "migration helper must exist in __init__.py"
         # Find the end of the function: walk until the next top-level
@@ -853,11 +876,14 @@ class TestD5Migration:
         if end == -1:
             end = src.find("\ndef ", start + 1)
         body = src[start:end]
-        # Provide the dependencies needed: a `_LOGGER` and the helpers.
+        from custom_components.universal_room_automation.const import (
+            DOMAIN as _DOMAIN,
+        )
         ns: dict = {
             "_LOGGER": MagicMock(),
             "HomeAssistant": MagicMock,
             "ConfigEntry": MagicMock,
+            "DOMAIN": _DOMAIN,
         }
         exec(compile(body, "<migration>", "exec"), ns)
         return ns["_migrate_solar_banking_to_energy_precool"]
@@ -868,7 +894,14 @@ class TestD5Migration:
         e.entry_id = "test-entry"
         return e
 
-    def _make_hass(self):
+    def _make_hass(self, *, restore_state=None, legacy_entity_id=None):
+        """Build a hass mock.
+
+        ``restore_state`` is one of {None, "on", "off"} — the persisted
+        RestoreEntity state for the legacy switch. When set,
+        legacy_entity_id MUST be supplied (we mock entity_registry to
+        return an entry whose unique_id matches the legacy slug).
+        """
         h = MagicMock()
         captured = {}
 
@@ -877,15 +910,75 @@ class TestD5Migration:
             entry.options = options
         h.config_entries.async_update_entry = _update_entry
         h._captured = captured
+
+        # Install the registry/restore mocks the production helper will
+        # consult. We patch the module references in the helper's
+        # namespace by stubbing the imports it does at runtime.
+        from custom_components.universal_room_automation.const import (
+            DOMAIN as _DOMAIN,
+        )
+        legacy_uid = f"{_DOMAIN}_energy_solar_banking"
+        registry = MagicMock()
+        if legacy_entity_id is not None:
+            ent = MagicMock()
+            ent.domain = "switch"
+            ent.unique_id = legacy_uid
+            ent.entity_id = legacy_entity_id
+            registry.entities = {legacy_entity_id: ent}
+        else:
+            registry.entities = {}
+
+        er_mod = types.ModuleType(
+            "homeassistant.helpers.entity_registry"
+        )
+        er_mod.async_get = MagicMock(return_value=registry)
+        sys.modules["homeassistant.helpers.entity_registry"] = er_mod
+
+        rs_mod = types.ModuleType(
+            "homeassistant.helpers.restore_state"
+        )
+
+        class _RestoreData:
+            def __init__(self):
+                self.last_states = {}
+                if (
+                    restore_state is not None
+                    and legacy_entity_id is not None
+                ):
+                    stored = MagicMock()
+                    inner = MagicMock()
+                    inner.state = restore_state
+                    stored.state = inner
+                    self.last_states[legacy_entity_id] = stored
+
+        class _RestoreStateData:
+            @staticmethod
+            async def async_get(hass):
+                return _RestoreData()
+
+        rs_mod.RestoreStateData = _RestoreStateData
+        # Don't clobber RestoreEntity used by the rest of the suite.
+        rs_mod.RestoreEntity = sys.modules.get(
+            "homeassistant.helpers.restore_state",
+            types.ModuleType("x"),
+        ).__dict__.get(
+            "RestoreEntity",
+            type("RestoreEntity", (), {}),
+        )
+        sys.modules["homeassistant.helpers.restore_state"] = rs_mod
+
         return h
 
     def test_legacy_true_migrates_to_new_true(self):
         migrate = self._load_init_helper()
         hass = self._make_hass()
         entry = self._make_entry({"hvac_solar_bank_enabled": True})
-        migrate(hass, entry)
+        _run_coro(migrate(hass, entry))
         opts = hass._captured["options"]
-        assert opts == {"energy_precool_enabled": True}
+        assert opts == {
+            "energy_precool_enabled": True,
+            "energy_precool_migration_done": True,
+        }
 
     def test_legacy_false_migrates_to_new_false(self):
         """Mutation: bool(new_options.pop(OLD_KEY)) -> True default would
@@ -893,9 +986,12 @@ class TestD5Migration:
         migrate = self._load_init_helper()
         hass = self._make_hass()
         entry = self._make_entry({"hvac_solar_bank_enabled": False})
-        migrate(hass, entry)
+        _run_coro(migrate(hass, entry))
         opts = hass._captured["options"]
-        assert opts == {"energy_precool_enabled": False}, (
+        assert opts == {
+            "energy_precool_enabled": False,
+            "energy_precool_migration_done": True,
+        }, (
             "OFF operator MUST NOT be silently re-enabled on upgrade"
         )
 
@@ -903,15 +999,32 @@ class TestD5Migration:
         migrate = self._load_init_helper()
         hass = self._make_hass()
         entry = self._make_entry({})  # neither key
-        migrate(hass, entry)
+        _run_coro(migrate(hass, entry))
         assert "options" not in hass._captured
 
     def test_already_migrated_is_no_op(self):
         migrate = self._load_init_helper()
         hass = self._make_hass()
+        # New key alone (no legacy key, no done marker) → no-op.
         entry = self._make_entry({"energy_precool_enabled": True})
-        migrate(hass, entry)
+        _run_coro(migrate(hass, entry))
         assert "options" not in hass._captured
+
+    def test_done_marker_blocks_re_run(self):
+        """Idempotency via DONE_KEY: a previously-migrated entry must
+        NEVER re-run the migration (e.g. on every restart)."""
+        migrate = self._load_init_helper()
+        hass = self._make_hass()
+        entry = self._make_entry({
+            "hvac_solar_bank_enabled": True,  # would normally migrate
+            "energy_precool_migration_done": True,
+        })
+        _run_coro(migrate(hass, entry))
+        assert "options" not in hass._captured, (
+            "DONE_KEY set MUST short-circuit migration; re-running it on "
+            "every restart re-triggers async_update_entry inside setup "
+            "and risks reload-during-setup (Bug Class #46/MED B-4)."
+        )
 
     def test_both_present_keeps_new_drops_old(self):
         """Idempotency: if cycle ran once but the legacy key reappeared
@@ -922,10 +1035,62 @@ class TestD5Migration:
             "hvac_solar_bank_enabled": True,
             "energy_precool_enabled": False,
         })
-        migrate(hass, entry)
+        _run_coro(migrate(hass, entry))
         opts = hass._captured["options"]
         # Old key dropped; new value preserved (operator's most recent).
-        assert opts == {"energy_precool_enabled": False}
+        assert opts == {
+            "energy_precool_enabled": False,
+            "energy_precool_migration_done": True,
+        }
+
+    # --- v5.7.1 fix-up (B-1 CRITICAL) -------------------------------------
+    # The OLD ECSolarBankingSwitch persisted state in RestoreEntity, NOT
+    # in entry.options. A runtime OFF leaves options[OLD_KEY]=True (the
+    # install seed) and a RestoreEntity state of "off". Migration MUST
+    # consult RestoreStateData and force NEW_KEY=False in that case.
+    def test_restore_entity_off_overrides_options_true(self):
+        """Mutation: delete the `restore_off` override branch (always honor
+        options) -> this test fails (NEW_KEY would land True)."""
+        migrate = self._load_init_helper()
+        hass = self._make_hass(
+            restore_state="off",
+            legacy_entity_id="switch.ura_solar_banking",
+        )
+        # Options seed says ON (install default); RestoreEntity says OFF
+        # (operator runtime toggle). RestoreEntity must win.
+        entry = self._make_entry({"hvac_solar_bank_enabled": True})
+        _run_coro(migrate(hass, entry))
+        opts = hass._captured["options"]
+        assert opts["energy_precool_enabled"] is False, (
+            "B-1: RestoreEntity OFF MUST override options-True (operator "
+            "runtime banking-OFF must NOT be silently re-enabled as "
+            "energy_precool=True after the v5.7.1 unification)."
+        )
+        assert opts["energy_precool_migration_done"] is True
+
+    def test_restore_entity_on_honors_options_true(self):
+        """RestoreEntity ON (or matching options): options value flows
+        through unchanged."""
+        migrate = self._load_init_helper()
+        hass = self._make_hass(
+            restore_state="on",
+            legacy_entity_id="switch.ura_solar_banking",
+        )
+        entry = self._make_entry({"hvac_solar_bank_enabled": True})
+        _run_coro(migrate(hass, entry))
+        opts = hass._captured["options"]
+        assert opts["energy_precool_enabled"] is True
+
+    def test_restore_entity_missing_falls_back_to_options(self):
+        """If the legacy entity_id isn't in the registry (e.g. user
+        deleted it manually pre-migration), the migration must NOT crash;
+        the options value flows through."""
+        migrate = self._load_init_helper()
+        hass = self._make_hass()  # no registry entry, no restore state
+        entry = self._make_entry({"hvac_solar_bank_enabled": True})
+        _run_coro(migrate(hass, entry))
+        opts = hass._captured["options"]
+        assert opts["energy_precool_enabled"] is True
 
     def test_orphan_cleanup_helper_exists_and_idempotent(self):
         """Source-contract: D3 orphan cleanup helper present and guarded."""
@@ -996,6 +1161,261 @@ class TestD2Surfaces:
 
 
 # ===========================================================================
+# v5.7.1 fix-up — Cross-cycle PV/mode re-engagement (D-HIGH-1 HIGH)
+# ===========================================================================
+
+class TestDHigh1CrossCycleReEngagement:
+    """The v5.7.1 build introduced an early-return at
+    ``if self._pre_cool_active and now.hour < PEAK_HOUR_START: return True``
+    which short-circuited the I1 PV check (:707) and the inclement-mode
+    check (:711). The OLD banking trigger re-checked net_power EVERY
+    cycle; the build dropped that guard, so a passing cloud (or a
+    v5.5.0 inclement hold) would still keep dispatching pre-cool to
+    every zone, grid-powered, for hours.
+
+    Fix: PV + mode checks run on EVERY cycle, BEFORE the
+    re-engagement early-return. These tests fail against the original
+    early-return ordering (revert the fix-up's reorder and these fail).
+    """
+
+    def test_re_engagement_blocked_when_net_power_above_threshold(self):
+        """Mutation: revert the PV check to AFTER the
+        `_pre_cool_active` early-return -> this fails.
+        Concrete repro: cycle N exported, fired; cycle N+1 sun fades to
+        importing -> MUST NOT re-fire."""
+        pred, hass = _make_predictor()
+        pred._pre_cool_active = True  # cycle N already fired
+        pred._pre_cool_triggered_today = True
+        calls = _drive(
+            pred, hass,
+            constraint=_make_constraint(soc=98, forecast_high=95),
+            scope="whole_house",
+            net_power=+200.0,   # IMPORTING (sign>0) on cycle N+1
+            now=datetime(2026, 6, 11, 13, 30, 0),  # still pre-peak
+        )
+        assert not calls, (
+            "D-HIGH-1: re-engagement under net_power above export "
+            "threshold MUST NOT dispatch grid-powered cooling"
+        )
+
+    def test_re_engagement_blocked_under_inclement_mode(self):
+        """Mutation: as above, with mode='coast' instead of net_power.
+        v5.5.0 inclement hold MUST suppress the re-engagement path."""
+        pred, hass = _make_predictor()
+        pred._pre_cool_active = True
+        pred._pre_cool_triggered_today = True
+        calls = _drive(
+            pred, hass,
+            constraint=_make_constraint(
+                soc=98, forecast_high=95, mode="coast",
+            ),
+            scope="whole_house",
+            net_power=-1500.0,   # still exporting...
+            now=datetime(2026, 6, 11, 13, 30, 0),
+        )
+        assert not calls, (
+            "D-HIGH-1: re-engagement under inclement constraint.mode "
+            "MUST NOT bypass the v5.5.0 hold"
+        )
+
+    def test_re_engagement_fires_when_still_exporting_and_normal(self):
+        """Positive: if PV is still strong AND mode is normal, the
+        re-engagement path still dispatches (we did not regress the
+        'stay engaged until peak' behavior)."""
+        pred, hass = _make_predictor()
+        pred._pre_cool_active = True
+        pred._pre_cool_triggered_today = True
+        calls = _drive(
+            pred, hass,
+            constraint=_make_constraint(soc=98, forecast_high=95),
+            scope="whole_house",
+            net_power=-1500.0,   # still exporting
+            now=datetime(2026, 6, 11, 13, 30, 0),
+        )
+        assert any(c["reason"] == "energy_precool" for c in calls), (
+            "Stay-engaged: with continued PV surplus + normal mode, "
+            "the re-engagement path should still dispatch"
+        )
+
+
+# ===========================================================================
+# v5.7.1 fix-up — A2 MED: SOC=None cool-day floor bypass
+# ===========================================================================
+
+class TestA2SocNoneCoolDayFloor:
+    """The v5.7.1 build skipped the SOC floor on SOC=None (the `if soc
+    is not None and soc < soc_floor` guard). The OLD banking trigger
+    used `(soc or 0) < soc_floor` -> 0 < 95 -> did NOT fire on cool
+    days. Restore the cool-day fail-on-None behavior; preserve the
+    hot-day fire-on-None behavior (forecast-heat is signal enough)."""
+
+    def test_cool_day_soc_none_does_not_fire(self):
+        """Mutation: revert to `if soc is not None and soc < soc_floor` ->
+        this fails (the trigger would fire with SOC=None)."""
+        pred, hass = _make_predictor()
+        calls = _drive(
+            pred, hass,
+            constraint=_make_constraint(soc=None, forecast_high=80),
+            scope="whole_house",
+            net_power=-1500.0,
+            now=datetime(2026, 6, 11, 13, 0, 0),
+        )
+        assert not calls, (
+            "A2: SOC=None on a cool day MUST fail the 95% floor"
+        )
+
+    def test_hot_day_soc_none_still_fires(self):
+        """Preserve old banking behavior — on a hot day SOC=None should
+        not block, since forecast-heat alone is enough signal."""
+        pred, hass = _make_predictor()
+        calls = _drive(
+            pred, hass,
+            constraint=_make_constraint(soc=None, forecast_high=95),
+            scope="whole_house",
+            net_power=-1500.0,
+            now=datetime(2026, 6, 11, 13, 0, 0),
+        )
+        assert any(c["reason"] == "energy_precool" for c in calls), (
+            "A2: SOC=None on a HOT day should still fire (forecast-heat "
+            "is sufficient; matches operator-intended hot-day floor)"
+        )
+
+
+# ===========================================================================
+# v5.7.1 fix-up — FIX-7 MED: restore deleted-coverage behavioral invariants
+# ===========================================================================
+
+class TestC1AwayVacationFiresUnconditionally:
+    """The deleted test_v457_solar_banking_away.py asserted banking fires
+    regardless of house_state (economics, unlike comfort branches). The
+    new unified pre-cool inherits that contract — verify."""
+
+    def test_pre_cool_fires_in_away_state(self):
+        """Mutation: add `if is_unoccupied: return` at the top of the
+        energy-precool block -> this fails."""
+        pred, hass = _make_predictor()
+        calls = _drive(
+            pred, hass,
+            constraint=_make_constraint(soc=98, forecast_high=95),
+            scope="whole_house",
+            net_power=-1500.0,
+            house_state="away",
+            now=datetime(2026, 6, 11, 13, 0, 0),
+        )
+        assert any(c["reason"] == "energy_precool" for c in calls), (
+            "Pre-cool MUST fire in away (economics, not comfort)"
+        )
+
+    def test_pre_cool_fires_in_vacation_state(self):
+        pred, hass = _make_predictor()
+        calls = _drive(
+            pred, hass,
+            constraint=_make_constraint(soc=98, forecast_high=95),
+            scope="whole_house",
+            net_power=-1500.0,
+            house_state="vacation",
+            now=datetime(2026, 6, 11, 13, 0, 0),
+        )
+        assert any(c["reason"] == "energy_precool" for c in calls), (
+            "Pre-cool MUST fire in vacation (economics, not comfort)"
+        )
+
+
+class TestC2EcGateOffMidCycleRelease:
+    """The deleted test_solar_banking_toggle.py asserted that flipping
+    the EC sub-switch OFF mid-cycle releases banked zones within ONE
+    cycle (hvac_predict.py:540-547). Verify on the unified pre-cool
+    surface."""
+
+    def test_ec_gate_off_releases_within_one_cycle(self):
+        """Mutation: delete the mid-cycle release block at lines 540-547
+        -> this fails (no _release_banked_zones call)."""
+        pred, hass = _make_predictor()
+        # Master '28' stays ON; only the sub-switch flips OFF.
+        # Pre-populate last-cycle banked set as if cycle N ran banked.
+        pred._last_precool_gate_enabled = True
+        pred._last_precool_zones = {"z1"}
+        pred._first_eval_done = True
+        _install_ec(
+            hass, enabled=False,    # sub-switch OFF mid-cycle
+            pre_cond_enabled=True,  # master '28' ON
+        )
+        pred._get_net_power = MagicMock(return_value=-1500.0)
+        released: list = []
+
+        async def _spy_release(zones):
+            released.append(set(zones))
+
+        pred._release_banked_zones = _spy_release
+        _run_coro(pred._check_pre_conditioning(
+            _make_constraint(soc=98, forecast_high=95),
+            house_state="home_day",
+            now=datetime(2026, 6, 11, 13, 0, 0),
+            pre_arrival_zones=set(),
+            zone_intelligence_enabled=True,
+        ))
+        assert released and {"z1"} in released, (
+            "C2: EC sub-switch flip-OFF mid-cycle MUST release banked "
+            "zones within ONE cycle (mirrors deleted banking-toggle test)"
+        )
+
+
+class TestC3PostRestartOrphanReconciliation:
+    """The deleted test_solar_banking_toggle.py asserted that the first
+    eval after a restart releases zones whose live setpoints sit BELOW
+    baseline (hvac_predict.py:516-537). Verify on the unified surface."""
+
+    def test_first_eval_releases_orphan_zones_when_gate_off(self):
+        """Mutation: short-circuit the `if not self._first_eval_done`
+        block at :516 -> this fails."""
+        # Two zones: one was banked below baseline pre-restart, one is
+        # at baseline. Only the banked one should be released.
+        zones = {
+            "z_banked": _make_zone(
+                "z_banked", occupied=True, temp_high=72.0, temp_low=68.0,
+            ),
+            "z_baseline": _make_zone(
+                "z_baseline", occupied=True, temp_high=78.0, temp_low=70.0,
+            ),
+        }
+        pred, hass = _make_predictor(zones=zones)
+        # Reset first-eval flag so the reconciliation path runs.
+        pred._first_eval_done = False
+        pred._last_precool_gate_enabled = True  # was on pre-restart
+        pred._last_precool_zones = set()        # RAM-only; empty post-boot
+        _install_ec(
+            hass, enabled=False,    # operator flipped OFF during downtime
+            pre_cond_enabled=True,
+        )
+        pred._get_net_power = MagicMock(return_value=0.0)
+
+        # Resolve baseline → both zones share baseline (70.0, 78.0).
+        pred._resolve_baseline_range = MagicMock(return_value=(70.0, 78.0))
+        released: list = []
+
+        async def _spy_release(zones_):
+            released.append(set(zones_))
+
+        pred._release_banked_zones = _spy_release
+        _run_coro(pred._check_pre_conditioning(
+            _make_constraint(soc=98, forecast_high=95),
+            house_state="home_day",
+            now=datetime(2026, 6, 11, 13, 0, 0),
+            pre_arrival_zones=set(),
+            zone_intelligence_enabled=True,
+        ))
+        assert released, (
+            "C3: post-restart reconciliation MUST release orphan zones "
+            "whose live setpoints sit below baseline"
+        )
+        # The under-baseline zone (z_banked at 72.0 < 78.0 - 0.5) MUST
+        # be in the released set; the at-baseline zone MUST NOT.
+        orphans_seen = set().union(*released)
+        assert "z_banked" in orphans_seen
+        assert "z_baseline" not in orphans_seen
+
+
+# ===========================================================================
 # Mutation map (sanity-check that each load-bearing site has a paired test)
 # ===========================================================================
 
@@ -1037,6 +1457,30 @@ class TestMutationMap:
         ),
         "pre_arrival_untouched": (
             "test_pre_arrival_branch_unaffected_by_pre_cool_toggle",
+        ),
+        # v5.7.1 fix-up additions:
+        "d_high_1_re_engagement_pv_check": (
+            "test_re_engagement_blocked_when_net_power_above_threshold",
+            "test_re_engagement_blocked_under_inclement_mode",
+        ),
+        "a2_soc_none_cool_day_floor": (
+            "test_cool_day_soc_none_does_not_fire",
+        ),
+        "b_1_restore_entity_off_override": (
+            "test_restore_entity_off_overrides_options_true",
+        ),
+        "b_4_done_marker_idempotent": (
+            "test_done_marker_blocks_re_run",
+        ),
+        "c1_away_vacation_fires": (
+            "test_pre_cool_fires_in_away_state",
+            "test_pre_cool_fires_in_vacation_state",
+        ),
+        "c2_ec_gate_mid_cycle_release": (
+            "test_ec_gate_off_releases_within_one_cycle",
+        ),
+        "c3_post_restart_reconciliation": (
+            "test_first_eval_releases_orphan_zones_when_gate_off",
         ),
     }
 

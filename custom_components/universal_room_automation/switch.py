@@ -901,8 +901,8 @@ OccupancyWeightedPredictionSwitch = _ec_switch_factory(
 
 # v5.7.1 — Energy Saver Pre-Cool master toggle (EC device).
 # Replaces the v4.7-era ECSolarBankingSwitch (which is RETIRED — the
-# `solar_banking` unique_id is cleaned up via _migrate_solar_banking_entity
-# below at platform setup, Bug Class #46-safe). Gates the unified PV-aware
+# `solar_banking` unique_id is cleaned up via _cleanup_solar_banking_orphan
+# at platform setup, Bug Class #46-safe). Gates the unified PV-aware
 # Energy Saver Pre-Cool branch in HVACPredictor._check_pre_conditioning.
 # Default ON so installs that previously had banking ON keep the equivalent
 # behavior post-upgrade; existing OFF state is migrated by async_migrate_entry.

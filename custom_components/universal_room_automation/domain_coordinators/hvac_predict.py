@@ -129,7 +129,7 @@ class HVACPredictor:
         self._last_fan_activation_rooms: list[str] = []
         self._last_fan_skipped_rooms: list[dict[str, Any]] = []
         self._energy_precool_zones: set[str] = set()  # v5.7.1 rename
-        self._solar_bank_triggered_today: bool = False
+        # v5.7.1 fix-up (LOW): dropped dead `_solar_bank_triggered_today`.
         self._net_power_entity: str | None = net_power_entity or None
         # v4.5.10: configurable tunables (URA mirror pattern: install-time
         # seeds; future Number entities can write to these instance attrs).
@@ -226,7 +226,7 @@ class HVACPredictor:
             self._pre_heat_triggered_today = False
             self._pre_cool_active = False
             self._pre_heat_active = False
-            self._solar_bank_triggered_today = False
+            # v5.7.1 fix-up (LOW): _solar_bank_triggered_today removed.
 
         # Cycle EC/HC reboot pickup — D2 #12. One-shot post-restart pass:
         # derive triggered_today flags from the clock so we do not re-fire
@@ -694,22 +694,22 @@ class HVACPredictor:
         season = self._preset_manager.current_season
         if season not in (SEASON_SUMMER, SEASON_SHOULDER):
             return False
-        if self._pre_cool_active and now.hour < PEAK_HOUR_START:
-            return True  # already in-flight, stay engaged until peak
-        if self._pre_cool_active or self._pre_cool_triggered_today:
-            return False  # daily-once guard (same as weather-pre-cool)
 
         hour = now.hour
         if not (ENERGY_PRECOOL_HOUR_START <= hour < PEAK_HOUR_START):
             return False
 
-        # I1 — PV surplus is REQUIRED. Net power sign: negative = export.
+        # v5.7.1 fix-up (D-HIGH-1): PV+mode BEFORE re-engagement gate.
         net_power = self._get_net_power()
         if net_power >= -ENERGY_PRECOOL_EXPORT_THRESHOLD_W:
             return False
-
         if getattr(constraint, "mode", "normal") != "normal":
             return False
+
+        if self._pre_cool_active and hour < PEAK_HOUR_START:
+            return True  # already in-flight + still solar-rich + normal mode
+        if self._pre_cool_active or self._pre_cool_triggered_today:
+            return False  # daily-once guard (same as weather-pre-cool)
 
         forecast_high = constraint.forecast_high_temp
         soc = constraint.soc
@@ -724,7 +724,12 @@ class HVACPredictor:
             and forecast_high >= self._precool_forecast_high
         )
         soc_floor = PRECOOL_SOC_MIN if is_hot else self._solar_bank_soc_min
-        if soc is not None and soc < soc_floor:
+        # v5.7.1 fix-up (A2 MED): SOC=None FAILS cool-day floor (mirrors
+        # old `(soc or 0) < soc_floor`); hot-day fires on None.
+        if soc is None:
+            if not is_hot:
+                return False
+        elif soc < soc_floor:
             return False
 
         self._pre_cool_active = True
