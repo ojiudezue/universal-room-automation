@@ -8,6 +8,15 @@ but keep it **near the top of next-work**. Plan filed + gate cleared:
 ENTER BUILD; Tier 2-DB; ~30-50h: D2 subentries + D3a/b/c cleanup). Do NOT start without
 explicit operator sign-off — core work goes first.
 
+## Shipwatch `home_assistant` adapter — IMPLEMENT (sibling repo) + URA README migration (2026-06-28)
+
+URA is currently **PAUSED** in Shipwatch (`~/.shipwatch/projects.yaml` → `ura: enabled: false`): its READMEs use old un-namespaced `ha_*` query kinds + prose acceptance, which the new Shipwatch adapter registry rejects (`parse_error`). Worse, the Shipwatch `home_assistant` adapter is a **STUB** — `~/Code/shipwatch/src/shipwatch/oracle/adapters/home_assistant.py:46` raises `NotImplementedError("HA adapter migration pending (Reviewer B)")` — so even correctly-formatted hypotheses resolve to `error`/`pending`, never `confirmed`/`violated`. To make Shipwatch actually evaluate URA post-deploy:
+1. **Implement the `home_assistant` adapter** (sibling repo `~/Code/shipwatch/`): the 6 registered kinds — `home_assistant.state`, `state_attribute`, `history_max`, `history_min`, `history_count_above`, `log_count` — via HA REST + `HA_TOKEN`.
+2. **Migrate in-window URA READMEs** (last 14 days, per `default_window_days:14`) to the new `## Acceptance` fenced-YAML block with `home_assistant.*` kinds (or remove their acceptance blocks). Older READMEs are auto-skipped.
+3. **Re-enable** `ura: enabled: true` in `~/.shipwatch/projects.yaml`.
+New v5.7.0+ READMEs already author the contract in the new schema (forward-compatible). **Sibling-repo cycle; NOT part of the URA guest-mode work.**
+
+
 ## Fan-noise mmwave mitigation — DESIGN ONLY (feature cycle, Tier 2), 2026-06-03
 
 **Problem.** Summer ceiling fans add mmwave noise → false "occupied." Operator's
