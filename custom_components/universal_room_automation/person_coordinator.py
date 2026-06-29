@@ -1,6 +1,6 @@
 """Person tracking coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.6.3
+# Universal Room Automation vv5.7.0
 # Build: 2026-01-03
 # File: person_coordinator.py
 # v3.2.9: No changes (zone fixes in aggregation.py, fan fixes in automation.py)
@@ -103,6 +103,13 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         # v3.18.6: BLE pre-arrival detection state
         self._person_was_away: dict[str, bool] = {}
         self._person_lost_since: dict[str, datetime] = {}  # When person went LOST
+        # v5.7.0 fix-up FIX-5 (MED-B1): WS-A grace MUST NOT shift the timing
+        # of the BLE pre-arrival feature (which reads `_person_lost_since`
+        # with its own `_min_away_minutes` budget). Keep a SEPARATE stamp
+        # dict for the WS-A2 path-β grace; it is populated at the SAME LOST
+        # sites and cleared at the SAME home transitions, but lives apart so
+        # BLE pre-arrival semantics are byte-unaffected.
+        self._lost_away_since: dict[str, datetime] = {}
         self._pre_arrival_enabled: bool = True
         self._min_away_minutes: int = 15  # Minimum LOST time before BLE re-detection triggers pre-arrival
 
@@ -144,6 +151,14 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                 
                 if not person_state:
                     _LOGGER.warning("Person entity not found: %s", person_entity_id)
+                    # v5.7.0 WS-A3: stamp LOST-since for grace timing.
+                    if person_name not in self._person_lost_since:
+                        self._person_lost_since[person_name] = now
+                    # v5.7.0 fix-up FIX-5: parallel stamp on the WS-A-only
+                    # map. Separate from `_person_lost_since` so BLE
+                    # pre-arrival timing is unaffected.
+                    if person_name not in self._lost_away_since:
+                        self._lost_away_since[person_name] = now
                     person_data[person_name] = {
                         "location": "unknown",
                         "previous_location": old_location,
@@ -238,6 +253,8 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                             # Person just appeared via BLE after being genuinely away
                             self._person_was_away[person_name] = False
                             self._person_lost_since.pop(person_name, None)
+                            # v5.7.0 fix-up FIX-5: parallel clear.
+                            self._lost_away_since.pop(person_name, None)
                             if self._pre_arrival_enabled:
                                 # v3.21.1: Check Presence observation mode before dispatching
                                 # DOMAIN already imported at module level (line 32)
@@ -270,11 +287,20 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                             # Present — clear away state
                             self._person_was_away[person_name] = False
                             self._person_lost_since.pop(person_name, None)
+                            # v5.7.0 fix-up FIX-5: parallel clear.
+                            self._lost_away_since.pop(person_name, None)
                         else:
                             # No room detected — track LOST duration
                             if tracking_status == TRACKING_STATUS_LOST:
                                 if person_name not in self._person_lost_since:
                                     self._person_lost_since[person_name] = now
+                                # v5.7.0 fix-up FIX-5: parallel stamp. Note
+                                # this branch is BLE-LOST without a person
+                                # away/home opinion — we still stamp the
+                                # WS-A map; the WS-A2 denominator gates
+                                # further (LOST+away required).
+                                if person_name not in self._lost_away_since:
+                                    self._lost_away_since[person_name] = now
                                 lost_duration = (now - self._person_lost_since[person_name]).total_seconds()
                                 if lost_duration >= self._min_away_minutes * 60:
                                     self._person_was_away[person_name] = True
@@ -324,6 +350,12 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                             new_previous_location_time = old_previous_location_time
 
                         if person_state.state == "home":
+                            # v5.7.0 WS-A3: LOST-home is NOT path-β eligible —
+                            # clear any stale LOST-since stamp so the next
+                            # away transition starts a fresh grace window.
+                            self._person_lost_since.pop(person_name, None)
+                            # v5.7.0 fix-up FIX-5: parallel clear.
+                            self._lost_away_since.pop(person_name, None)
                             person_data[person_name] = {
                                 "location": "home",
                                 "previous_location": new_previous_location,
@@ -336,6 +368,14 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                                 "recent_path": [],  # Clear path when tracking is lost
                             }
                         else:
+                            # v5.7.0 WS-A3: stamp LOST-since on first observed
+                            # away tick; preserve across subsequent ticks so
+                            # the WS-A3 grace timer measures real elapsed.
+                            if person_name not in self._person_lost_since:
+                                self._person_lost_since[person_name] = now
+                            # v5.7.0 fix-up FIX-5: parallel stamp on WS-A map.
+                            if person_name not in self._lost_away_since:
+                                self._lost_away_since[person_name] = now
                             person_data[person_name] = {
                                 "location": "away",
                                 "previous_location": new_previous_location,
@@ -368,6 +408,17 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                         new_previous_location = old_previous_location
                         new_previous_location_time = old_previous_location_time
 
+                    # v5.7.0 WS-A3: stamp LOST-since on away, clear on home.
+                    if location == "away":
+                        if person_name not in self._person_lost_since:
+                            self._person_lost_since[person_name] = now
+                        # v5.7.0 fix-up FIX-5: parallel WS-A stamp.
+                        if person_name not in self._lost_away_since:
+                            self._lost_away_since[person_name] = now
+                    else:
+                        self._person_lost_since.pop(person_name, None)
+                        # v5.7.0 fix-up FIX-5: parallel WS-A clear.
+                        self._lost_away_since.pop(person_name, None)
                     person_data[person_name] = {
                         "location": location,
                         "previous_location": new_previous_location,

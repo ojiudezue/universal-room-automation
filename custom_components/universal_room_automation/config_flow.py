@@ -270,6 +270,8 @@ from .const import (
     CONF_ZONE_NAME,
     CONF_ZONE_ROOMS,
     CONF_ZONE_DESCRIPTION,
+    CONF_ZONE_IS_OUTDOOR,  # v5.7.0 WS-A4
+    DEFAULT_ZONE_IS_OUTDOOR,  # v5.7.0 WS-A4
     CONF_ZONE_THERMOSTAT,
     CONF_SHARED_SPACE,
     CONF_SHARED_SPACE_AUTO_OFF_HOUR,
@@ -846,6 +848,11 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
                     zones[zone_name] = {
                         CONF_ZONE_DESCRIPTION: user_input.get(CONF_ZONE_DESCRIPTION, ""),
                         CONF_ZONE_ROOMS: selected_rooms,
+                        # v5.7.0 WS-A4: per-zone outdoor flag — excluded from
+                        # the indoor-occupancy aggregation gating AWAY path β.
+                        CONF_ZONE_IS_OUTDOOR: user_input.get(
+                            CONF_ZONE_IS_OUTDOOR, DEFAULT_ZONE_IS_OUTDOOR
+                        ),
                     }
                     self.hass.config_entries.async_update_entry(
                         zone_manager_entry,
@@ -865,6 +872,10 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
                             CONF_ZONE_NAME: zone_name,
                             CONF_ZONE_DESCRIPTION: user_input.get(CONF_ZONE_DESCRIPTION, ""),
                             CONF_ZONE_ROOMS: selected_rooms,
+                            # v5.7.0 WS-A4: persist on legacy zone entries too.
+                            CONF_ZONE_IS_OUTDOOR: user_input.get(
+                                CONF_ZONE_IS_OUTDOOR, DEFAULT_ZONE_IS_OUTDOOR
+                            ),
                             CONF_INTEGRATION_ENTRY_ID: self._integration_entry_id or self._find_integration_entry().entry_id,
                         }
                     )
@@ -887,6 +898,16 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             vol.Optional(CONF_ZONE_DESCRIPTION): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
             ),
+            # v5.7.0 WS-A4: outdoor zone flag. Default False — only flip True
+            # for zones whose occupancy should NOT count toward indoor presence
+            # accounting (doorbell-camera "Outside", "Front Porch"). Outdoor
+            # zones still surface in `any_zone_occupied` for non-presence
+            # consumers; they are excluded from the WS-A2 path-β indoor guard
+            # and the WS-A4 indoor-zone aggregation.
+            vol.Optional(
+                CONF_ZONE_IS_OUTDOOR,
+                default=DEFAULT_ZONE_IS_OUTDOOR,
+            ): selector.BooleanSelector(),
         }
         
         # Only add room selector if rooms exist
@@ -3010,6 +3031,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_GUEST_MODE_REQUIRE_CONFIDENCE,
             DEFAULT_GUEST_PERSISTENCE_SECONDS,
             DEFAULT_GUEST_REQUIRE_CONFIDENCE,
+            # v5.7.0 WS-A3: LOST-admitted AWAY-veto grace + sleep exemption.
+            CONF_LOST_AWAY_GRACE_MIN,
+            DEFAULT_LOST_AWAY_GRACE_MIN,
+            CONF_LOST_AWAY_SLEEP_EXEMPT,
+            DEFAULT_LOST_AWAY_SLEEP_EXEMPT,
             CONF_FAN_RECHECK_ENABLED,
             DEFAULT_FAN_RECHECK_ENABLED,
             CONF_FAN_RECHECK_ARM_DELAY_S,
@@ -3114,6 +3140,34 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.SelectSelectorMode.LIST,
                 )
             ),
+            # v5.7.0 WS-A3: LOST-admitted AWAY-veto grace window (minutes).
+            # 0 = no grace (fires as soon as path-β denominator clears). The
+            # 60-min default protects against transient BLE flap while the
+            # phone is intermittently dropping off the scanner.
+            vol.Optional(
+                CONF_LOST_AWAY_GRACE_MIN,
+                default=self._get_current(
+                    CONF_LOST_AWAY_GRACE_MIN,
+                    DEFAULT_LOST_AWAY_GRACE_MIN,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=240, step=5,
+                    unit_of_measurement="min",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            # v5.7.0 WS-A3: sleep-exemption switch. When True (default),
+            # path β is suppressed during SLEEP/HOME_NIGHT/WAKING regardless
+            # of grace — protects a sleeping resident whose phone may die
+            # overnight from being marked AWAY in the middle of the night.
+            vol.Optional(
+                CONF_LOST_AWAY_SLEEP_EXEMPT,
+                default=self._get_current(
+                    CONF_LOST_AWAY_SLEEP_EXEMPT,
+                    DEFAULT_LOST_AWAY_SLEEP_EXEMPT,
+                ),
+            ): selector.BooleanSelector(),
             # v4.6.3 D10: Anomaly sensitivity
             vol.Optional(
                 CONF_PRESENCE_ANOMALY_SENSITIVITY,
@@ -6481,6 +6535,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             current_zone_name = orig_zone_name
             current_zone_desc = zone_data.get(CONF_ZONE_DESCRIPTION, "")
             current_zone_rooms = zone_data.get(CONF_ZONE_ROOMS, [])
+            # v5.7.0 WS-A4: per-zone outdoor flag.
+            current_zone_is_outdoor = bool(zone_data.get(
+                CONF_ZONE_IS_OUTDOOR, DEFAULT_ZONE_IS_OUTDOOR
+            ))
         else:
             orig_zone_name = (
                 zone_entry.data.get(CONF_ZONE_NAME)
@@ -6494,6 +6552,15 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             )
             current_zone_rooms = zone_entry.options.get(
                 CONF_ZONE_ROOMS, zone_entry.data.get(CONF_ZONE_ROOMS, [])
+            )
+            # v5.7.0 WS-A4: per-zone outdoor flag.
+            current_zone_is_outdoor = bool(
+                zone_entry.options.get(
+                    CONF_ZONE_IS_OUTDOOR,
+                    zone_entry.data.get(
+                        CONF_ZONE_IS_OUTDOOR, DEFAULT_ZONE_IS_OUTDOOR
+                    ),
+                )
             )
 
         if user_input is not None:
@@ -6567,6 +6634,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         CONF_ZONE_DESCRIPTION, ""
                     ),
                     CONF_ZONE_ROOMS: selected_rooms,
+                    # v5.7.0 WS-A4: persist outdoor flag in ZM zones dict.
+                    CONF_ZONE_IS_OUTDOOR: bool(user_input.get(
+                        CONF_ZONE_IS_OUTDOOR, current_zone_is_outdoor
+                    )),
                 }
                 self._auto_mirror_to_siblings(
                     zm_entry,
@@ -6585,6 +6656,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     CONF_ZONE_NAME: zone_name,
                     CONF_ZONE_DESCRIPTION: user_input.get(CONF_ZONE_DESCRIPTION, ""),
                     CONF_ZONE_ROOMS: selected_rooms,
+                    # v5.7.0 WS-A4: persist outdoor flag on legacy zone entries.
+                    CONF_ZONE_IS_OUTDOOR: bool(user_input.get(
+                        CONF_ZONE_IS_OUTDOOR, current_zone_is_outdoor
+                    )),
                 }
                 self.hass.config_entries.async_update_entry(
                     zone_entry, options=new_zone_options
@@ -6598,6 +6673,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         CONF_ZONE_NAME: zone_name,
                         CONF_ZONE_DESCRIPTION: user_input.get(CONF_ZONE_DESCRIPTION, ""),
                         CONF_ZONE_ROOMS: selected_rooms,
+                        # v5.7.0 WS-A4.
+                        CONF_ZONE_IS_OUTDOOR: bool(user_input.get(
+                            CONF_ZONE_IS_OUTDOOR, current_zone_is_outdoor
+                        )),
                     },
                 )
 
@@ -6625,6 +6704,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
             ),
+            # v5.7.0 WS-A4: outdoor zone toggle on zone edit form.
+            vol.Optional(
+                CONF_ZONE_IS_OUTDOOR,
+                default=current_zone_is_outdoor,
+            ): selector.BooleanSelector(),
         }
         
         if room_options:

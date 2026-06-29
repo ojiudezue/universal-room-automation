@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.6.3
+# Universal Room Automation vv5.7.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -3972,6 +3972,31 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
             )
             attrs["all_tracked_persons_away"] = getattr(
                 presence, "_all_tracked_persons_away", False
+            )
+            # v5.7.0 WS-A diagnostics:
+            #   veto_path: which AWAY-veto limb most recently fired —
+            #       "none" / "active" / "lost_admitted". Lets operators tell
+            #       at a glance whether path α (v4.7.14) or path β (v5.7.0)
+            #       drove the last AWAY transition (or none).
+            #   lost_away_persons: the subset of the path-β denominator
+            #       admitted via the LOST/STALE+away relaxation. Empty
+            #       under v4.7.14 baseline.
+            #   lost_away_grace_remaining_s: seconds remaining on the
+            #       oldest LOST-since stamp before path β may fire. None
+            #       when no LOST persons are present.
+            #   outdoor_zones: zone_names flagged CONF_ZONE_IS_OUTDOOR;
+            #       excluded from the WS-A4 indoor-occupancy aggregation
+            #       that gates path β.
+            attrs["veto_path"] = str(getattr(presence, "_veto_path", "none"))
+            attrs["lost_away_persons"] = list(
+                getattr(presence, "_lost_away_persons", []) or []
+            )
+            _grace_rem = getattr(presence, "_lost_away_grace_remaining_s", None)
+            attrs["lost_away_grace_remaining_s"] = (
+                int(_grace_rem) if _grace_rem is not None else None
+            )
+            attrs["outdoor_zones"] = list(
+                getattr(presence, "_outdoor_zones", []) or []
             )
             # v4.7.15 D5: Mirror signal_consensus dimension as attributes.
             # Same value also published as dedicated sensor.ura_signal_consensus_confidence;
