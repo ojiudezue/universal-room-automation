@@ -72,14 +72,70 @@ DEFAULT_HVAC_COVER_SOLAR_END_HOUR: Final = 18
 CONF_HVAC_SOLAR_BANK_SOC_MIN: Final = "hvac_solar_bank_soc_min"
 DEFAULT_HVAC_SOLAR_BANK_SOC_MIN: Final = 95  # %
 
-# Solar HVAC Banking master enable — operator-facing master switch (EC device).
-# When OFF, the solar-banking branch in HVACPredictor._check_pre_conditioning
-# short-circuits. Default ON preserves status-quo banking behavior. Surfaced
-# as an EC sub-switch (switch.py) so the operator can disable from the
-# "URA: Energy Coordinator" device card on a good-solar-day if banking is
-# over-cooling. See PLANNING_solar_banking_toggle.md.
-CONF_HVAC_SOLAR_BANK_ENABLED: Final = "hvac_solar_bank_enabled"
-DEFAULT_HVAC_SOLAR_BANK_ENABLED: Final = True
+# v5.7.1 — Solar HVAC Banking master enable is RETIRED.
+# Folded into the unified Energy Saver Pre-Cool feature below
+# (CONF_ENERGY_PRECOOL_ENABLED). The legacy CONF key is kept as a
+# back-compat string literal in __init__.async_migrate_entry so we can
+# detect+migrate pre-v5.7.1 options. Do NOT re-introduce the constant.
+# See PLANNING_v5.7.x_energy_pre_cool_unification.md (D3, D5).
+
+# ---------- Energy Saver Pre-Cool (v5.7.1 unification) ----------
+# Working name (user-facing). The constant NAME stays ENERGY_PRECOOL_NAME
+# and is the single source for the display string used by the switch /
+# Number / Select on the EC device. Rename later is a one-line value swap
+# + a strings.json / translations/en.json edit.
+ENERGY_PRECOOL_NAME: Final = "Energy Saver Pre-Cool"
+
+# Operator master gate (EC device sub-switch). Replaces
+# CONF_HVAC_SOLAR_BANK_ENABLED. Default ON so the new install gets the
+# unified PV-aware pre-cool out of the box (matches the prior banking
+# default). Migration of the old key's value lives in
+# __init__.async_migrate_entry.
+CONF_ENERGY_PRECOOL_ENABLED: Final = "energy_precool_enabled"
+DEFAULT_ENERGY_PRECOOL_ENABLED: Final = True
+
+# Operator-configurable pre-cool offset (°F from target_temp_high).
+# Default -2.0 (per operator 2026-06-28: "make the space not too cold
+# suddenly"). Sign convention: negative = cooler. The 72°F floor
+# (SOLAR_BANK_FLOOR) still clamps the resulting setpoint (I3) — an
+# absurd configured value cannot breach the floor.
+CONF_ENERGY_PRECOOL_OFFSET: Final = "energy_precool_offset"
+DEFAULT_ENERGY_PRECOOL_OFFSET: Final = -2.0
+ENERGY_PRECOOL_OFFSET_MIN: Final = -5.0
+ENERGY_PRECOOL_OFFSET_MAX: Final = 0.0
+ENERGY_PRECOOL_OFFSET_STEP: Final = 0.5
+
+# Operator-configurable pre-cool scope. Three values:
+#   occupied_only — comfort-first; never bank empty zones.
+#   whole_house   — operator explicitly opts in to unconditional whole-house
+#                   banking when the trigger fires (still respects floor + PV).
+#   auto_pv_tiered — default. Occupied-zones-only normally; expand to
+#                    unoccupied zones ONLY when there is real export surplus
+#                    at per-zone dispatch time (re-check, not cached).
+CONF_ENERGY_PRECOOL_SCOPE: Final = "energy_precool_scope"
+ENERGY_PRECOOL_SCOPE_OCCUPIED_ONLY: Final = "occupied_only"
+ENERGY_PRECOOL_SCOPE_WHOLE_HOUSE: Final = "whole_house"
+ENERGY_PRECOOL_SCOPE_AUTO_PV_TIERED: Final = "auto_pv_tiered"
+ENERGY_PRECOOL_SCOPE_VALUES: Final = (
+    ENERGY_PRECOOL_SCOPE_OCCUPIED_ONLY,
+    ENERGY_PRECOOL_SCOPE_WHOLE_HOUSE,
+    ENERGY_PRECOOL_SCOPE_AUTO_PV_TIERED,
+)
+DEFAULT_ENERGY_PRECOOL_SCOPE: Final = ENERGY_PRECOOL_SCOPE_AUTO_PV_TIERED
+
+# Net-power threshold: must be exporting more than this (W) to qualify
+# as "real solar surplus". Sign convention: negative = exporting.
+# Inherited from the deleted hardcoded SOLAR_BANK threshold (was `< -500`
+# at hvac_predict.py:707). Also used by the auto_pv_tiered scope's
+# per-zone dispatch-time re-check (I6).
+ENERGY_PRECOOL_EXPORT_THRESHOLD_W: Final = 500.0
+
+# Hour window. Union of the two deleted windows:
+#   banking: [10, 14)
+#   weather: [12, 14)
+# Unified window: [10, 14). End is PEAK_HOUR_START (=14) — kept as a
+# Python constant in hvac_predict.py for symmetry with PEAK_HOUR_END.
+ENERGY_PRECOOL_HOUR_START: Final = 10
 
 # HC Pre-Conditioning master enable (HVAC sub-switch on HC device).
 # When OFF, ALL pre-conditioning branches in
@@ -149,10 +205,15 @@ DEFAULT_MAX_OCCUPANCY_HOURS: Final = 8  # Stale sensor failsafe threshold
 DEFAULT_ZONE_ENTRY_DWELL_MINUTES: Final = 3  # v4.2.2: Min occupancy before preset change
 CONF_HVAC_ZONE_ENTRY_DWELL: Final = "hvac_zone_entry_dwell"  # Config key
 
-# v3.17.0: Solar banking
+# v3.17.0 → v5.7.1: Solar banking constants.
+# SOLAR_BANK_SOC_MIN + SOLAR_BANK_FLOOR retained — both still referenced
+# by the unified Energy Saver Pre-Cool path (the SOC floor for cool-day
+# banking; the absolute 72°F floor clamp invariant I3).
+# SOLAR_BANK_TEMP_MIN + SOLAR_BANK_OFFSET deleted in v5.7.1 — the offset
+# is now operator-configurable (CONF_ENERGY_PRECOOL_OFFSET) and the
+# forecast-hot threshold is unified with the weather-pre-cool threshold
+# self._precool_forecast_high.
 SOLAR_BANK_SOC_MIN: Final = 95  # % — battery must be effectively full
-SOLAR_BANK_TEMP_MIN: Final = 85.0  # °F — forecast must be hot
-SOLAR_BANK_OFFSET: Final = -3.0  # °F from target_temp_high
 SOLAR_BANK_FLOOR: Final = 72.0  # °F — absolute minimum cooling setpoint
 MIN_DEADBAND: Final = 2.0  # °F — Ecobee auto mode minimum
 

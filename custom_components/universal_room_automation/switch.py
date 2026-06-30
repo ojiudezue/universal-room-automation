@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.7.0
+# Universal Room Automation vv5.7.1
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -83,6 +83,56 @@ def _migrate_excess_solar_entity_id(hass: HomeAssistant, entry: ConfigEntry) -> 
     )
 
 
+def _cleanup_solar_banking_orphan(hass: HomeAssistant) -> None:
+    """v5.7.1: Remove the orphan ECSolarBankingSwitch from the entity registry.
+
+    The Solar HVAC Banking toggle was RETIRED in v5.7.1 (folded into
+    Energy Saver Pre-Cool). The new switch uses a different unique_id
+    (`{DOMAIN}_energy_energy_precool`), so the old `solar_banking`
+    entity becomes an unavailable orphan on upgrade. Remove it once.
+
+    Idempotent: subsequent runs find no orphan and no-op. Guarded with a
+    small marker in hass.data so it does not loop on reload within the
+    same process lifetime.
+
+    Bug Class #46-safe: calls entity_registry.async_remove(), not
+    async_update_entry.
+
+    B-RE-2 (v5.7.1 re-review): cross-entry setup order is non-deterministic.
+    The integration-entry migration (`_migrate_solar_banking_to_energy_precool`
+    in __init__.py) MUST read RestoreEntity state for this orphan BEFORE we
+    remove the registry entry — otherwise the migration cannot look up the
+    entity_id and `restore_off` defaults to False, silently re-enabling an
+    operator-explicit OFF. The migration sets `solar_banking_cleanup_done`
+    after its own read+remove, so this function becomes a no-op backstop
+    once the migration has run on any integration entry.
+    """
+    if hass.data.setdefault(DOMAIN, {}).get(
+        "solar_banking_cleanup_done"
+    ):
+        return
+    try:
+        from homeassistant.helpers import entity_registry as er
+        registry = er.async_get(hass)
+        legacy_unique_id = f"{DOMAIN}_energy_solar_banking"
+        # entity_registry has no by-unique_id index; scan switch domain.
+        for ent in list(registry.entities.values()):
+            if ent.domain == "switch" and ent.unique_id == legacy_unique_id:
+                registry.async_remove(ent.entity_id)
+                _LOGGER.info(
+                    "v5.7.1: removed orphan Solar HVAC Banking switch %s "
+                    "(unique_id=%s) — replaced by Energy Saver Pre-Cool",
+                    ent.entity_id, legacy_unique_id,
+                )
+                break
+        hass.data[DOMAIN]["solar_banking_cleanup_done"] = True
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug(
+            "v5.7.1 solar_banking orphan cleanup failed (non-fatal)",
+            exc_info=True,
+        )
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -102,6 +152,7 @@ async def async_setup_entry(
             _migrate_excess_solar_entity_id(hass, entry)
         except Exception:
             _LOGGER.debug("v4.7.6 alias migration failed (non-fatal)", exc_info=True)
+        _cleanup_solar_banking_orphan(hass)  # v5.7.1 orphan cleanup
         async_add_entities([
             CoordinatorEnabledSwitch(
                 hass, entry,
@@ -190,9 +241,10 @@ async def async_setup_entry(
             ECExcessSolarSwitch(hass, entry),
             ECArbitrageSwitch(hass, entry),
             ECEvTouSwitch(hass, entry),
-            # Solar HVAC Banking master toggle (EC device). Default ON; gates
-            # the HVACPredictor banking branch (PLANNING_solar_banking_toggle.md).
-            ECSolarBankingSwitch(hass, entry),
+            # v5.7.1 — Energy Saver Pre-Cool master toggle (EC device).
+            # Replaces the retired ECSolarBankingSwitch; gates the unified
+            # PV-aware energy-pre-cool branch in HVACPredictor.
+            ECEnergyPreCoolSwitch(hass, entry),
             # v4.7.2 D2: Dynamic Preset master kill switch (migrated to HVAC device)
             HVACDynamicPresetSwitch(hass, entry),
             # v4.7.1 fix-up D3 / v4.7.2 D3: Custom Preset Ranges master toggle (HVAC device)
@@ -856,16 +908,21 @@ OccupancyWeightedPredictionSwitch = _ec_switch_factory(
     default=False,                    # default (unchanged)
 )
 
-# Solar HVAC Banking master toggle (EC device, gates HVACPredictor banking
-# branch). Default ON to preserve historical behavior; operator flips OFF
-# when banking over-cools on good-solar days (2026-06-11 operator complaint).
-# See PLANNING_solar_banking_toggle.md (D4).
-ECSolarBankingSwitch = _ec_switch_factory(
-    "solar_banking_enabled",          # attr_name on EnergyCoordinator
-    "solar_banking",                  # unique_id suffix → {DOMAIN}_energy_solar_banking
-    "Solar HVAC Banking",             # display name
-    "mdi:home-thermometer",           # icon
-    default=True,                     # PRESERVES current behavior
+# v5.7.1 — Energy Saver Pre-Cool master toggle (EC device).
+# Replaces the v4.7-era ECSolarBankingSwitch (which is RETIRED — the
+# `solar_banking` unique_id is cleaned up via _cleanup_solar_banking_orphan
+# at platform setup, Bug Class #46-safe). Gates the unified PV-aware
+# Energy Saver Pre-Cool branch in HVACPredictor._check_pre_conditioning.
+# Default ON so installs that previously had banking ON keep the equivalent
+# behavior post-upgrade; existing OFF state is migrated by async_migrate_entry.
+# See PLANNING_v5.7.x_energy_pre_cool_unification.md (D2).
+from .domain_coordinators.hvac_const import ENERGY_PRECOOL_NAME as _ENERGY_PRECOOL_NAME
+ECEnergyPreCoolSwitch = _ec_switch_factory(
+    "energy_precool_enabled",         # attr_name on EnergyCoordinator
+    "energy_precool",                 # unique_id suffix → {DOMAIN}_energy_energy_precool
+    _ENERGY_PRECOOL_NAME,             # "Energy Saver Pre-Cool"
+    "mdi:snowflake-thermometer",      # icon
+    default=True,                     # mirrors prior banking default
 )
 
 # v4.7.6 D6.2: Renamed friendly name "EV TOU Management" → "EVSE TOU Management"

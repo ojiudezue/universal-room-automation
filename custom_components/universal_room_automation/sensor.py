@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.7.0
+# Universal Room Automation vv5.7.1
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -10214,8 +10214,11 @@ class HVACZoneIntelligenceSensor(AggregationEntity, SensorEntity):
                 z.zone_id for z in zones.values()
                 if z.zone_presence_state == "pre_arrival"
             ],
-            "zones_solar_banking": list(
-                getattr(hvac.predictor, "_solar_banking_zones", set())
+            # v5.7.1 fix-up (A1/B-3): rename to track unified pre-cool source
+            # attr `_energy_precool_zones`. Old key `zones_solar_banking` is
+            # retired (no compat alias per planning §10 Q4).
+            "zones_energy_precool": list(
+                getattr(hvac.predictor, "_energy_precool_zones", set())
             ),
             "zones_runtime_limited": [
                 z.zone_id for z in zones.values()

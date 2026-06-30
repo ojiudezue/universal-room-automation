@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.7.0
+# Universal Room Automation vv5.7.1
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -848,18 +848,185 @@ def _schedule_envoy_revalidation(
         )
 
 
+async def _migrate_solar_banking_to_energy_precool(
+    hass: HomeAssistant, entry: ConfigEntry,
+) -> bool:
+    """v5.7.1: migrate CONF_HVAC_SOLAR_BANK_ENABLED → CONF_ENERGY_PRECOOL_ENABLED.
+
+    The Solar HVAC Banking toggle was folded into the unified Energy
+    Saver Pre-Cool feature. An operator who had banking OFF must NOT
+    silently have pre-cool flipped ON by the default-seeded constructor;
+    we copy their persisted choice into the new key BEFORE
+    EnergyCoordinator.__init__ runs (it reads CONF_ENERGY_PRECOOL_ENABLED
+    from CM entry options).
+
+    v5.7.1 fix-up (B-1 CRITICAL): the OLD `ECSolarBankingSwitch` only
+    `setattr`+`async_write_ha_state` on toggle — its durable OFF state was
+    held in the entity's RestoreEntity record (unique_id
+    `{DOMAIN}_energy_solar_banking`), NOT in `entry.options`. An operator
+    who flipped banking OFF at runtime therefore has
+    `options[hvac_solar_bank_enabled]=True` (the install seed) AND a
+    RestoreEntity state of "off". The plain options copy would migrate
+    True → energy_precool_enabled=True, re-enabling pre-cool. We MUST
+    consult RestoreStateData and force OFF when the persisted entity
+    state is "off".
+
+    Behavior:
+    - If options carry the legacy key AND not the new key:
+        - Look up the orphan switch's last persisted state via the
+          entity registry (unique_id slug) + RestoreStateData.
+        - If RestoreEntity says "off", force NEW_KEY=False (regardless
+          of the options seed). Otherwise honor the options value.
+        - DROP the legacy key.
+    - If both keys are present (e.g. cycle re-run), drop the legacy key
+      and keep the operator's most recent value at the new key.
+    - If only the new key is present, no-op (idempotent).
+    - If neither is present, no-op (fresh install — constructor seeds
+      from DEFAULT_ENERGY_PRECOOL_ENABLED).
+
+    Idempotent via the `energy_precool_migration_done` flag on
+    entry.options — mirrors `arbitrage_target_rename_migration_done`.
+
+    Offset + Scope are NEW knobs with sensible defaults — no migration
+    needed; first start hydrates them from defaults.
+    See PLANNING_v5.7.x_energy_pre_cool_unification.md (D5).
+
+    Returns True if something was changed in entry.options.
+    """
+    OLD_KEY = "hvac_solar_bank_enabled"
+    NEW_KEY = "energy_precool_enabled"
+    DONE_KEY = "energy_precool_migration_done"
+    opts = entry.options or {}
+    if opts.get(DONE_KEY):
+        return False  # already migrated this entry once
+    if OLD_KEY not in opts:
+        # No legacy key to migrate. Still set the done-marker so we
+        # don't re-scan RestoreEntity on every restart for fresh installs.
+        return False
+    try:
+        new_options = dict(opts)
+        legacy_options_value = bool(new_options.pop(OLD_KEY))
+
+        # B-1: RestoreEntity-OFF override. Look up the orphan switch's
+        # entity_id by its unique_id, then ask RestoreStateData for the
+        # last persisted state. If "off", force NEW_KEY=False.
+        restore_off = False
+        legacy_entity_id = None
+        legacy_unique_id = f"{DOMAIN}_energy_solar_banking"
+        try:
+            from homeassistant.helpers import entity_registry as er
+            # B-RE-1 fix: RestoreStateData.async_get does NOT exist; the
+            # real API is the module-level @callback `async_get`. It is
+            # SYNCHRONOUS — never await it (an await on a non-coroutine
+            # raises TypeError, which a bare-except would silently swallow
+            # and re-enable the operator's OFF setting). Mirror the
+            # `er.async_get(hass)` shape.
+            from homeassistant.helpers.restore_state import (
+                async_get as async_get_restore_data,
+            )
+            registry = er.async_get(hass)
+            for ent in registry.entities.values():
+                if (
+                    ent.domain == "switch"
+                    and ent.unique_id == legacy_unique_id
+                ):
+                    legacy_entity_id = ent.entity_id
+                    break
+            if legacy_entity_id is not None:
+                restore_data = async_get_restore_data(hass)
+                stored = restore_data.last_states.get(legacy_entity_id)
+                state_str = None
+                if stored is not None:
+                    inner = getattr(stored, "state", None)
+                    state_str = getattr(inner, "state", None)
+                if isinstance(state_str, str) and state_str.lower() == "off":
+                    restore_off = True
+                    _LOGGER.info(
+                        "v5.7.1 migration (B-1): RestoreEntity state for "
+                        "legacy %s (%s) is 'off' — forcing %s=False over "
+                        "options seed %s",
+                        legacy_unique_id, legacy_entity_id, NEW_KEY,
+                        legacy_options_value,
+                    )
+        except (ImportError, AttributeError, KeyError) as exc:
+            # B-RE-1 fix: narrow the except so a future contract break
+            # (e.g. RestoreState API rename, missing attribute) is LOUD
+            # instead of silently swallowing a TypeError and re-enabling
+            # the operator's OFF. Fail-safe to options seed below.
+            _LOGGER.warning(
+                "v5.7.1 RestoreEntity OFF probe failed (%s: %s) — falling "
+                "back to options seed; verify RestoreState API contract",
+                type(exc).__name__, exc,
+            )
+
+        # B-RE-2 fix: perform the orphan registry removal HERE, AFTER the
+        # RestoreState read, so a sibling switch-platform setup cannot
+        # race the migration's registry lookup. Idempotent: gated by the
+        # `solar_banking_cleanup_done` marker in hass.data; switch.py's
+        # `_cleanup_solar_banking_orphan` will no-op once we set it.
+        if legacy_entity_id is not None:
+            try:
+                from homeassistant.helpers import entity_registry as er
+                registry = er.async_get(hass)
+                if registry.async_get(legacy_entity_id) is not None:
+                    registry.async_remove(legacy_entity_id)
+                    _LOGGER.info(
+                        "v5.7.1 migration: removed orphan %s "
+                        "(unique_id=%s) after RestoreState probe",
+                        legacy_entity_id, legacy_unique_id,
+                    )
+            except (ImportError, AttributeError, KeyError) as exc:
+                _LOGGER.warning(
+                    "v5.7.1 orphan removal failed (%s: %s) — "
+                    "switch-platform backstop will retry",
+                    type(exc).__name__, exc,
+                )
+            hass.data.setdefault(DOMAIN, {})[
+                "solar_banking_cleanup_done"
+            ] = True
+
+        if NEW_KEY not in new_options:
+            new_options[NEW_KEY] = False if restore_off else legacy_options_value
+        elif restore_off:
+            # Operator-explicit OFF persisted on the retired switch
+            # outranks even a same-cycle new-key default.
+            new_options[NEW_KEY] = False
+        new_options[DONE_KEY] = True
+        hass.config_entries.async_update_entry(entry, options=new_options)
+        _LOGGER.info(
+            "v5.7.1 migration: %s=%s (restore_off=%s) -> %s=%s (entry %s)",
+            OLD_KEY, legacy_options_value, restore_off,
+            NEW_KEY, new_options[NEW_KEY], entry.entry_id,
+        )
+        return True
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug(
+            "v5.7.1 solar_banking → energy_precool migration failed (non-fatal)",
+            exc_info=True,
+        )
+        return False
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Universal Room Automation from a config entry."""
-    
+
     # Initialize hass.data[DOMAIN] if needed
     if DOMAIN not in hass.data:
         hass.data[DOMAIN] = {}
-    
+
     # MIGRATION: v2.x → v3.0.0
     if not entry.data.get(CONF_ENTRY_TYPE):
         _LOGGER.info("Detected v2.x entry '%s', migrating to v3.0.0", entry.title)
         await _migrate_to_v3(hass, entry)
-    
+
+    # v5.7.1 fix-up (B-2 CRITICAL): the solar-banking → energy-precool
+    # migration MUST run on the CM entry's options BEFORE the integration
+    # entry constructs EnergyCoordinator from cm_config. Calling it here
+    # per-entry races: HA can set up the integration entry before the CM
+    # entry, in which case EC reads un-migrated options and defaults
+    # energy_precool ON. Mirror the arbitrage_target migration pattern —
+    # invoke it inline in the integration block immediately BEFORE
+    # cm_config is built (see ~line 1922). No call here.
     entry_type = entry.data.get(CONF_ENTRY_TYPE)
     
     if entry_type == ENTRY_TYPE_INTEGRATION:
@@ -1862,6 +2029,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     except Exception as e:
                         _LOGGER.error(
                             "v4.5.0 arbitrage_target rename migration failed: %s", e
+                        )
+
+                # v5.7.1 fix-up (B-2 CRITICAL): solar-banking → energy-precool
+                # migration MUST run on the CM entry HERE, BEFORE cm_config is
+                # built, so EnergyCoordinator.__init__ reads the migrated
+                # value (and the RestoreEntity-OFF override) instead of the
+                # un-migrated install seed. Idempotent via DONE_KEY.
+                if cm_entry is not None:
+                    try:
+                        await _migrate_solar_banking_to_energy_precool(
+                            hass, cm_entry,
+                        )
+                        cm_entry = (
+                            hass.config_entries.async_get_entry(cm_entry.entry_id)
+                            or cm_entry
+                        )
+                    except Exception as e:
+                        _LOGGER.error(
+                            "v5.7.1 solar_banking → energy_precool migration "
+                            "failed: %s", e,
                         )
 
                 if cm_entry is not None:

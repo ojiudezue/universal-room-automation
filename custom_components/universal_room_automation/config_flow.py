@@ -4353,8 +4353,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_HVAC_COVER_SOLAR_END_HOUR,
             CONF_HVAC_SOLAR_BANK_SOC_MIN,
             DEFAULT_HVAC_SOLAR_BANK_SOC_MIN,
-            CONF_HVAC_SOLAR_BANK_ENABLED,
-            DEFAULT_HVAC_SOLAR_BANK_ENABLED,
+            # v5.7.1: CONF_HVAC_SOLAR_BANK_ENABLED retired; replaced by
+            # CONF_ENERGY_PRECOOL_ENABLED (operator master gate on the EC
+            # device). The legacy options value migrates via
+            # async_migrate_entry. See PLANNING_v5.7.x_energy_pre_cool_unification.md.
+            CONF_ENERGY_PRECOOL_ENABLED,
+            DEFAULT_ENERGY_PRECOOL_ENABLED,
             CONF_HVAC_PRE_CONDITIONING_ENABLED,
             DEFAULT_HVAC_PRE_CONDITIONING_ENABLED,
             CONF_HVAC_PRECOOL_FORECAST_HIGH,
@@ -4614,14 +4618,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.NumberSelectorMode.SLIDER,
                 )
             ),
-            # Solar HVAC Banking master enable (also exposed as EC sub-switch).
-            # Default ON preserves status-quo behavior; operator can override
-            # here at install/options time. Runtime toggle is the
-            # ECSolarBankingSwitch on the EC device card.
+            # v5.7.1 — Energy Saver Pre-Cool master enable (also exposed as
+            # EC sub-switch "Energy Saver Pre-Cool"). Default ON. Runtime
+            # toggle is the ECEnergyPreCoolSwitch on the EC device card; this
+            # field only seeds the initial state at install. Operator-tunable
+            # offset + scope live as separate EC entities (Number + Select);
+            # the install schema only carries the enable flag.
             vol.Optional(
-                CONF_HVAC_SOLAR_BANK_ENABLED,
+                CONF_ENERGY_PRECOOL_ENABLED,
                 default=self._get_current(
-                    CONF_HVAC_SOLAR_BANK_ENABLED, DEFAULT_HVAC_SOLAR_BANK_ENABLED,
+                    CONF_ENERGY_PRECOOL_ENABLED, DEFAULT_ENERGY_PRECOOL_ENABLED,
                 ),
             ): selector.BooleanSelector(),
             # HC Pre-Conditioning master enable (D1, parent gate for all

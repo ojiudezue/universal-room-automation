@@ -324,14 +324,25 @@ class TestSubControllerWiring:
         assert "self._solar_bank_floor" in body, (
             "_execute_zone_pre_cool must use self._solar_bank_floor (not module constant)"
         )
-        # Find _should_solar_bank — must use self._solar_bank_soc_min
-        idx = predict_src.find("def _should_solar_bank")
-        body = predict_src[idx:idx + 1500]
-        assert "self._solar_bank_soc_min" in body
-        # _should_weather_pre_cool — must use self._precool_forecast_high
-        idx = predict_src.find("def _should_weather_pre_cool")
-        body = predict_src[idx:idx + 1500]
-        assert "self._precool_forecast_high" in body
+        # v5.7.1: _should_weather_pre_cool + _should_solar_bank were
+        # unified into _should_energy_precool. Both runtime fields
+        # (`self._solar_bank_soc_min` cool-day SOC floor + the
+        # `self._precool_forecast_high` hot-day discriminator) are read
+        # inside the new method.
+        idx = predict_src.find("def _should_energy_precool")
+        assert idx > 0, (
+            "v5.7.1: _should_energy_precool MUST exist (replaces the "
+            "deleted _should_solar_bank + _should_weather_pre_cool)"
+        )
+        body = predict_src[idx:idx + 2500]
+        assert "self._solar_bank_soc_min" in body, (
+            "v5.7.1 unified trigger MUST still read self._solar_bank_soc_min "
+            "(cool-day SOC floor) — runtime-tunable field preserved"
+        )
+        assert "self._precool_forecast_high" in body, (
+            "v5.7.1 unified trigger MUST still read self._precool_forecast_high "
+            "(hot-day forecast threshold) — runtime-tunable field preserved"
+        )
         # Pre-heat path — must use self._preheat_forecast_low
         idx = predict_src.find("self._preheat_forecast_low")
         assert idx > 0, (
