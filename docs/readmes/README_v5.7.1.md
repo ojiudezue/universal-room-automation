@@ -49,8 +49,12 @@ hypotheses:
 
 > Shipwatch note: pre-cool only actuates on real solar export, so live "fired correctly" needs a good-solar window; the migration + entity presence are immediately checkable. The HA adapter stub is backlogged → hypotheses resolve `pending` until it ships. Verify entity/attribute names live before trusting `confirmed`.
 
-## Live Validation — *(prospective; written back post-restart)*
-- **L1** — installed_version `v5.7.1`; zero URA boot ERRORs.
-- **L2** — the 3 EC-device entities present (`switch`/`number`/`select` for Energy Saver Pre-Cool); old `switch.ura_energy_solar_banking` orphan gone.
-- **L3 (migration)** — `energy_precool_enabled` reflects the operator's prior banking choice (OFF stays OFF); `energy_precool_offset`/`_scope` attrs on the HVAC house-state sensor.
-- **L4 (I1)** — pre-cool fires only on a real-export window (standing watch); never on a hot-but-no-sun day. In-suite-authoritative; live note over the next good-solar day.
+## Live Validation — Validated 2026-06-29 (post-restart)
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | Deploy healthy | **PASS** | `update.universal_room_automation_update` installed_version = `v5.7.1`; zero URA ERROR entries at boot. |
+| L2 | EC entities + orphan cleanup | **PASS** | `number.ura_energy_coordinator_energy_saver_pre_cool_offset`=−2.0, `select.…_scope`=`auto_pv_tiered`, `switch.…_energy_saver_pre_cool` present. Old `switch.ura_energy_coordinator_solar_hvac_banking` → 404 (orphan removed). |
+| L3 | Migration honors prior banking choice | **FAIL — follow-up** | The switch came up **ON** despite the operator's solar banking being **OFF** (off since 2026-06-27). Root cause: the migration early-returns when the legacy options key `hvac_solar_bank_enabled` is ABSENT (`__init__.py:902-905`) BEFORE consulting RestoreEntity — so a *runtime-only* OFF (stored in RestoreEntity, options key never written) is not preserved. The B-1 RestoreEntity-OFF probe only runs when the options key is present. No `restore_off` log line confirms the probe didn't fire. (Possible secondary: legacy unique_id slug `…energy_solar_banking` vs the live entity `…solar_hvac_banking` — to verify in the fix.) **Not dangerous:** the switch is a live operator toggle and pre-cool is PV-gated (only actuates on real export surplus), so even ON it won't over-cool on a no-sun day. |
+| L4 | I1 (PV-gated) | **in-suite-authoritative** | Pre-cool actuates only on real export surplus; mutation-anchored + orchestrator-verified (D-HIGH-1 cross-cycle). Live "fired correctly" needs a good-solar window — standing watch. |
+
+**Follow-up (v5.7.2 candidate):** fix the migration to consult RestoreEntity-OFF even when the legacy options key is absent (and verify the unique_id slug), so an operator's runtime banking-OFF is preserved. Until then, if you want it off, toggle `switch.ura_energy_coordinator_energy_saver_pre_cool` OFF (live).
