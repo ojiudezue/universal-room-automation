@@ -17,6 +17,49 @@ URA is currently **PAUSED** in Shipwatch (`~/.shipwatch/projects.yaml` → `ura:
 New v5.7.0+ READMEs already author the contract in the new schema (forward-compatible). **Sibling-repo cycle; NOT part of the URA guest-mode work.**
 
 
+## Offline-actuator visibility + recovery (Tier 1 + Tier 2), 2026-06-30
+
+**Trigger.** AV Closet light didn't auto-on at entry and didn't auto-off at exit. Root
+cause was NOT URA code (lighting code byte-unchanged across v5.6.0–v5.7.1) and NOT a
+config mis-wire (room correctly drives Shelly relay `switch.switch_shelly1pmgen3_wifi_avcloset`
+from Zigbee lux+motion). The **Shelly relay was offline** (`unavailable`/`restored:true`
+since the 17:04 restart; whole device dead — power/voltage sensors also unavailable).
+URA detected occupancy fine (motion+occupied 19:44:23, zigbee lux=0=dark) but
+`turn_on_if_dark` / exit `turn_off` no-op'd against a dead entity. Operator: "the shelly
+could be down" → it WAS; same WiFi event left dozens of Shelly/Sonoff devices unavailable
+(48 Shelly entries, only 1 in `setup_retry`; rest `loaded` w/ devices off-WiFi).
+
+**Gap confirmed in code.** `sensor.<room>_unavailable_entities`
+(`sensor.py:1639` `_get_unavailable_entities`) only checks INPUT sensors — `motion_sensors`,
+`presence_sensors`, `occupancy_sensors`, `power_sensors`, `temperature_sensor`,
+`humidity_sensor`, `illuminance_sensor`. It does **NOT** check actuators (`lights`,
+`night_lights`, `alert_lights`, fans, covers, `climate_entity`). So a dead light/fan/cover
+is structurally invisible — the tracker read `0` through the entire outage.
+
+**D1 — Visibility (Tier 1, near-term).** Extend `_get_unavailable_entities` to also include
+the configured actuator targets (lights/night_lights/alert_lights, fan entities, covers,
+climate_entity). A dead relay then shows in `unavailable_entities` + can raise the room
+alert / NM nudge. Small, fail-safe, additive. Verify against prior-art surfaces first
+(does an actuator-availability helper already exist on the coordinator?).
+
+**D2 — Reconcile-on-return (Tier 2).** When a configured actuator transitions
+`unavailable → available`, re-assert URA's desired state (off if vacant, on if occupied+dark)
+instead of waiting for the next occupancy event — closes the gap where a recovered relay
+stays stuck in whatever physical state it was left in. Review for no-flap / no double-actuation
+on boot transients.
+
+**D3 — Reload-as-recovery (operator idea, design first).** On detecting a configured device
+`unavailable`, optionally issue a targeted `homeassistant.reload_config_entry` for THAT
+device's config entry as a self-heal attempt (debounced, capped, opt-in). CAUTION: reload
+only helps a device that's back on WiFi; for a truly-offline device it's a no-op/worse, and
+unbounded auto-reload risks a storm. Must be: per-entry (never blanket), rate-limited, gated
+behind a switch. Likely a small coordinator-level helper, NOT per-room.
+
+**Operator note (2026-06-30):** when troubleshooting "automation broke," check device
+availability FIRST (now codified in CLAUDE.md → Troubleshooting). Reloads issued this session
+for the 1 stuck Shelly + Sonoff + Tuya account entries; off-WiFi devices stayed unavailable →
+confirms a network event, not an HA wedge.
+
 ## Fan-noise mmwave mitigation — DESIGN ONLY (feature cycle, Tier 2), 2026-06-03
 
 **Problem.** Summer ceiling fans add mmwave noise → false "occupied." Operator's
