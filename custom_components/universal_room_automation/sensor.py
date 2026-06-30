@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.7.1
+# Universal Room Automation vv5.7.2
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -1631,41 +1631,102 @@ class UnavailableEntitiesSensor(UniversalRoomEntity, SensorEntity):
         """Initialize the sensor."""
         super().__init__(coordinator, "unavailable_entities", "Unavailable Entities")
 
+    # Configured-entity roles, split by category. Inputs degrade DETECTION;
+    # actuators degrade ACTUATION — different operational meaning, surfaced
+    # separately in the attributes so consumers can treat them differently.
+    _SENSOR_LIST_KEYS = ("motion_sensors", "presence_sensors",
+                         "occupancy_sensors", "power_sensors")
+    _SENSOR_SINGLE_KEYS = ("temperature_sensor", "humidity_sensor",
+                           "illuminance_sensor")
+    _ACTUATOR_LIST_KEYS = ("lights", "night_lights", "alert_lights",
+                           "fans", "humidity_fans", "covers")
+    _ACTUATOR_SINGLE_KEYS = ("climate_entity",)
+
     @property
     def native_value(self) -> int:
-        """Return count of unavailable entities."""
+        """Return count of unavailable configured entities (inputs + actuators)."""
         return len(self._get_unavailable_entities())
 
-    def _get_unavailable_entities(self) -> list[str]:
-        """Get list of unavailable entities."""
-        unavailable = []
-        # v3.2.4 FIX: Merge entry.options with entry.data (options has reconfigured values)
+    def _iter_configured(self):
+        """Yield (entity_id, role, category) for every configured entity."""
+        # v3.2.4 FIX: options overlays data (reconfigured values live in options)
         config = {**self.coordinator.entry.data, **self.coordinator.entry.options}
-        
-        # Check all configured sensors
-        for key in ["motion_sensors", "presence_sensors", "occupancy_sensors", "power_sensors"]:
-            sensors = config.get(key, [])
-            for sensor in sensors:
-                if sensor:
-                    state = self.coordinator.hass.states.get(sensor)
-                    if not state or state.state in ("unavailable", "unknown"):
-                        unavailable.append(sensor)
-        
-        # Check single sensors
-        for key in ["temperature_sensor", "humidity_sensor", "illuminance_sensor"]:
-            sensor = config.get(key)
-            if sensor:
-                state = self.coordinator.hass.states.get(sensor)
-                if not state or state.state in ("unavailable", "unknown"):
-                    unavailable.append(sensor)
-        
-        return unavailable
+        for key in self._SENSOR_LIST_KEYS:
+            for eid in config.get(key) or []:
+                if eid:
+                    yield eid, key, "sensor"
+        for key in self._SENSOR_SINGLE_KEYS:
+            eid = config.get(key)
+            if eid:
+                yield eid, key, "sensor"
+        for key in self._ACTUATOR_LIST_KEYS:
+            for eid in config.get(key) or []:
+                if eid:
+                    yield eid, key, "actuator"
+        for key in self._ACTUATOR_SINGLE_KEYS:
+            eid = config.get(key)
+            if eid:
+                yield eid, key, "actuator"
+
+    @staticmethod
+    def _unavailable_reason(state) -> str | None:
+        """Best-effort reason an entity is not usable, derived from its HA state."""
+        if state is None:
+            return "entity_missing"  # not registered / removed from HA
+        if state.state == "unavailable":
+            # `restored` placeholder = HA rehydrated the entity but the
+            # integration/device has not reported since the last restart
+            # (device offline or integration not loaded) — the AV-closet case.
+            if state.attributes.get("restored"):
+                return "offline_since_restart"
+            return "device_unreachable"
+        if state.state == "unknown":
+            return "state_unknown"
+        return None
+
+    def _unavailable_details(self) -> list[dict[str, Any]]:
+        """Structured detail for every unavailable configured entity."""
+        details: dict[str, dict[str, Any]] = {}
+        for eid, role, category in self._iter_configured():
+            state = self.coordinator.hass.states.get(eid)
+            if state is not None and state.state not in ("unavailable", "unknown"):
+                continue
+            entry = details.get(eid)
+            if entry is None:
+                since = None
+                if state is not None and state.last_changed is not None:
+                    since = state.last_changed.isoformat()
+                entry = {
+                    "entity_id": eid,
+                    "roles": [],
+                    "category": category,
+                    "state": state.state if state is not None else "missing",
+                    "reason": self._unavailable_reason(state),
+                    "since": since,
+                }
+                details[eid] = entry
+            if role not in entry["roles"]:
+                entry["roles"].append(role)
+        return list(details.values())
+
+    def _get_unavailable_entities(self) -> list[str]:
+        """Flat list of unavailable entity_ids (backward-compatible)."""
+        return [d["entity_id"] for d in self._unavailable_details()]
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return list of unavailable entities."""
+        """Structured breakdown of unavailable configured entities."""
+        details = self._unavailable_details()
+        sensors = [d["entity_id"] for d in details if d["category"] == "sensor"]
+        actuators = [d["entity_id"] for d in details if d["category"] == "actuator"]
         return {
-            "unavailable_entities": self._get_unavailable_entities()
+            # Backward-compatible flat list (now spans inputs + actuators).
+            "unavailable_entities": [d["entity_id"] for d in details],
+            "details": details,
+            "unavailable_sensors": sensors,
+            "unavailable_actuators": actuators,
+            "sensor_count": len(sensors),
+            "actuator_count": len(actuators),
         }
 
 
