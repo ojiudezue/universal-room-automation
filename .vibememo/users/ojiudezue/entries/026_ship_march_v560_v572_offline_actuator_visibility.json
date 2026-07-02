@@ -1,0 +1,59 @@
+{
+  "format_version": "2.1",
+  "entry_id": "026",
+  "author": "ojiudezue",
+  "session_id": "claude_20260628_ship_march_and_offline_actuator_visibility",
+  "timestamp": "2026-07-02T05:30:00Z",
+  "type": "decision",
+  "weight": "load-bearing",
+  "title": "Ship march v5.6.0→v5.7.2 (bathroom-exhaust ships; WS-A guest trust; Energy Saver Pre-Cool unification) + the AV-closet lesson: a dead actuator makes URA fail SILENTLY — check device availability FIRST, and the D1/D2/D3 triage (visibility ship / reconcile design / auto-reload parked on OC)",
+  "summary": "Long arc closing entry 025's cycle and three more: v5.6.0 bathroom-exhaust + humidity unification SHIPPED+validated; v5.6.1-3 config-flow string fixes; v5.7.0 WS-A guest-detection trust (Tier 3, lost-but-away admitted to the away veto, path-alpha byte-identical); v5.7.1 Energy Saver Pre-Cool (Tier 3, PV-gated unification of weather pre-cool + solar banking, one known migration L3 FAIL tracked). Then the operationally-instructive tail: operator reported 'lighting automations broke after the fan changes' — code was byte-unchanged; real causes were (a) integrations offline and (b) in the AV closet, the room's Shelly light relay sitting unavailable/restored:true, so URA detected occupancy perfectly and its turn_on/turn_off no-op'd against a dead entity. The per-room unavailable-entities tracker read 0 the whole outage because it only watched INPUT sensors, never actuators. Shipped v5.7.2 (Tier 1): the sensor now covers actuators with structured per-entity detail (roles/category/state/reason/since; reason includes offline_since_restart from the restored placeholder). Live validation was stronger than planned: the flaky AV Shelly re-dropped post-restart and the sensor caught it exactly as designed.",
+  "decisions": [
+    "SILENT-ACTUATOR FAILURE CLASS + TRIAGE ORDER — when a room 'stops automating', check the actuator device's availability BEFORE suspecting URA code or config. A URA room cannot actuate an unavailable entity; the failure is invisible because service calls no-op. Codified as a CLAUDE.md Troubleshooting section. Corollary: device offline ≠ integration failed — 47/48 Shelly config entries stayed 'loaded' while their devices sat off-WiFi; reloading a loaded entry only helps a device that is back on the network (proven live: reloads of Sonoff/Tuya/stuck-Shelly revived nothing off-WiFi).",
+    "D1 OVERLOAD, NOT A NEW SENSOR — extend the existing UnavailableEntitiesSensor rather than adding an entity: nothing internal consumed its count (verified), per-room entity count is already heavy, and the sensor/actuator distinction is better served by categorized attributes (unavailable_sensors vs unavailable_actuators + details[] with reason tokens). Operator explicitly asked for 'richer and more structured'; reason vocabulary: offline_since_restart / device_unreachable / entity_missing / state_unknown.",
+    "D2 STUDY-BEFORE-BUILD, LIVE-INTENT-ONLY — operator's instinct: 'a bad restore would be really difficult to troubleshoot; study what HA learned first.' Research confirmed: RestoreEntity is restart-only (async_added_to_hass), core has NO reconcile-on-reconnect primitive, and some devices power back to a default state. Design filed (PLANNING_reconcile_on_return.md): per-room ActuatorReconciler that resolves desired state from LIVE inputs (occupied/is_dark/sleep) — NEVER a stored snapshot; six guards (config-membership, manual_mode off, boot-settle, 15s debounce, 6/hr cap, coordinator data ready); lights+fans only, covers/climate excluded; Tier 2-DB.",
+    "D3 AUTO-RELOAD PARKED ON THE OC, NOT BUILT — operator: reloads tax the system, integration provenance uncertain (HA-native vs HACS, incl. deliberately-killed integrations), sketch a precision/performance safety pattern or discard. Parked as OC plan Appendix C: only viable as an Optimization-Coordinator action under the autonomy ladder (L1 Shadow first), per-entry targeted, provenance-allowlisted, recoverability-gated, single-shot-per-outage, rate-capped, kill-switched. Operator may discard if D1 visibility + a manual reload proves sufficient.",
+    "WS-A v5.7.0 (earlier in arc) — lost-but-away trackers admitted to the away veto via a guarded path-beta (indoor-clear + grace + sleep-exempt + debounce), path-alpha byte-identical; falsifiable invariant 'never AWAY while a resident is home' mutation-anchored across 6 behavioral tests. v5.7.1 — pre-cool unified under one PV-gated trigger with the PV check re-run EVERY cycle including re-engagement; solar banking retired via migration (one L3 FAIL: runtime-only banking-OFF not preserved when the legacy options key is absent — tracked, low-harm because pre-cool is PV-gated)."
+  ],
+  "alternatives_considered": [
+    "Blaming the fan/humidity cycles for the lighting breakage (operator's initial hypothesis). Disproven by byte-identical diff of the lighting functions across v5.6.0-v5.7.1 — regression checks should diff the suspect surface before archaeology.",
+    "My own mid-investigation wrong guess: 'AV closet is mis-wired to the grow controller for lux/motion.' The operator's config page + entity registry proved occupancy_lux_temp_humidity_avcloset IS the Zigbee multisensor. Lesson re-learned: verify device identity from the registry (IEEE/battery/linkquality) before claiming mis-wiring.",
+    "Blanket-reloading all 48 Shelly entries. Rejected: blinks every working light for near-zero gain; only 1 entry was actually setup_retry.",
+    "A new standalone 'unavailable actuators' sensor. Rejected for entity bloat; categorized attributes on the existing sensor carry the same signal.",
+    "Building D2 reconcile straight away. Rejected in favor of study-first; the study materially changed the design (live-intent-only, no snapshots — because devices self-default on power-up and RestoreEntity can't help).",
+    "Unit-mirror test for the D1 sensor (copy the logic into the test). Rejected as the weak pattern prior cycles flagged; used the live house as the behavioral oracle instead (known-offline actuators existed at deploy time) + suite-baseline gate."
+  ],
+  "implications": [
+    "A durable separation emerged mirroring entry 025's 'automation vs safety bound': INPUT failures degrade detection, ACTUATOR failures degrade actuation — they need different visibility and different recovery. The old tracker conflated 'unavailable entities' with 'unavailable inputs' and so missed half the failure surface.",
+    "The live house beat the unit harness as a validation oracle for this class: the AV Shelly re-dropping post-restart gave a real offline_since_restart observation no mock would have staged, and stair-closet recovering proved the clearing path. For diagnostic sensors over real device state, prefer live acceptance criteria over logic-mirror tests.",
+    "Reload-as-recovery is mostly a placebo for the common failure mode (device off-WiFi). The evidence is now recorded; future 'just reload it' impulses should re-read this entry.",
+    "The operator's escalating design taste held across all three deliverables: richer-not-basic (D1), study-before-build (D2), safety-pattern-or-discard (D3). Match proposals to that bar up front.",
+    "AV-closet Shelly1PMGen3 is genuinely flaky hardware (2 offline episodes in one day) — operator-side fix pending; URA now surfaces it instead of silently failing."
+  ],
+  "follow_up": [
+    "v5.7.2 CLOSED (L1-L4 PASS, README write-back committed). AV Shelly hardware/WiFi check = operator-side.",
+    "D2 build = its own Tier 2-DB cycle when operator green-lights (plan: docs/planning/PLANNING_reconcile_on_return.md, delivered to operator).",
+    "v5.7.1 migration L3 FAIL still open (runtime banking-OFF not honored when legacy options key absent) — v5.7.2-candidate scope was superseded by this actuator cycle; now a small standalone fix: default-OFF approach per operator.",
+    "WS-B (guest HVAC actuation) still gated on WS-A L3 live observation (a real all-away day; watch veto_path).",
+    "Census over-count investigation (the REAL live guest-mode cause) still open; camera-census outdoor exclusion = docs-only per operator.",
+    "Inclement-weather reserve (task #17) still needs operator D0 (wire the Dynamic Weather NWS entity).",
+    "Jullison WiFi / Inovelli lights + the batch of off-WiFi Shelly/Sonoff devices = operator-side network follow-up."
+  ],
+  "refs": {
+    "entries": [
+      "025",
+      "024"
+    ],
+    "files": [
+      "docs/readmes/README_v5.7.2.md",
+      "docs/readmes/README_v5.7.1.md",
+      "docs/readmes/README_v5.7.0.md",
+      "docs/planning/PLANNING_reconcile_on_return.md",
+      "docs/planning/PLANNING_OPTIMIZATION_COORDINATOR_v2_agentic.md",
+      "docs/BACKLOG.md",
+      "custom_components/universal_room_automation/sensor.py",
+      "CLAUDE.md"
+    ]
+  },
+  "ship_target": "v5.6.0 + v5.6.1/.2/.3 + v5.7.0 + v5.7.1 + v5.7.2 ALL SHIPPED + LIVE-VALIDATED (v5.7.2 closed 2026-07-01 with L1-L4 PASS). D2 = design filed, not built. D3 = parked on OC plan Appendix C."
+}
