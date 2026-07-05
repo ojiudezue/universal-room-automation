@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.7.2
+# Universal Room Automation vv5.8.0
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -126,6 +126,7 @@ from .domain_coordinators.signals import (
 from .domain_coordinators.energy_billing import _get_effective_rate_kwh
 from .domain_coordinators._units import energy_state_to_kwh, power_state_to_w
 from .automation import RoomAutomation
+from .actuator_reconciler import ActuatorReconciler
 from ._humidity_gate import humidity_venting_enabled
 
 _LOGGER = logging.getLogger(__name__)
@@ -306,7 +307,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         
         # Automation handler
         self.automation = RoomAutomation(hass, config, self)
-        
+
+        # Reconcile-on-Return (v5.8.0, D2): per-room actuator reconciler that
+        # re-asserts a light/fan's LIVE-computed desired state when it
+        # transitions unavailable -> available. Owns its OWN unsub list, armed
+        # in async_config_entry_first_refresh (the rebuild hook) so a rebuild
+        # can't orphan it (Bug Class #50). Torn down in async_unload_entry.
+        self._actuator_reconciler = ActuatorReconciler(self)
+
         # v4.0.10: Jitter poll interval to prevent thundering herd.
         # 31 rooms starting at the same HA restart time all poll simultaneously,
         # causing 20-39s event loop contention. 0-5s jitter spreads rooms over
@@ -1094,7 +1102,13 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 room_name,
             )
 
-        # v3.12.0 M2: Subscribe to coordinator signals for trigger/AI-rule detection.
+        # v3.12.0 M2: Subscribe to coordinator signals for trigger/AI-rule
+        # detection. NOTE: the reconciler listener re-arm lives at the TOP of
+        # _update_signal_subscriptions (B-HIGH-1 / D2.9), so BOTH the
+        # first_refresh path AND the in-place options-save rebuild path
+        # (_on_entry_update below) re-arm it. Re-arming only here would orphan
+        # the listener against the OLD entity set the moment an in-place ROOM
+        # rebuild fires (Bug Class #50).
         self._update_signal_subscriptions()
 
         # v3.12.0: Re-evaluate signal subscriptions when entry options change
@@ -1121,6 +1135,17 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
         Can be called multiple times — clears old subscriptions first.
         """
+        # Reconcile-on-Return (v5.8.0, D2.9 / B-HIGH-1): (re-)arm the actuator
+        # reconciler's OWN state-change listener at the TOP of this rebuild
+        # hook. This hook runs on BOTH the first_refresh path AND the in-place
+        # options-save rebuild (_on_entry_update), so a rebuild — including a
+        # future in-place ROOM rebuild that does NOT force a full reload —
+        # cannot silently orphan the reconciler listener against the OLD entity
+        # set (Bug Class #50). The reconciler owns + drains its OWN
+        # _unsub_reconciler_listeners list and clears any stale coalesce timer.
+        if getattr(self, "_actuator_reconciler", None) is not None:
+            self._actuator_reconciler.async_register_listeners()
+
         # Clear existing signal subscriptions
         for unsub in self._unsub_signal_listeners:
             unsub()
@@ -2565,6 +2590,27 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         self._recent_occupancy_sources.append(
             str(data.get(STATE_OCCUPANCY_SOURCE, "none"))
         )
+
+        # Reconcile-on-Return (v5.8.0, D2.7 grace + D2.11 quarantine): once the
+        # presence boot-settle gate has released, arm the reconciler's post-boot
+        # grace window (idempotent), then poll for stability-proven quarantine
+        # release. Both are cheap, in-memory, and take ZERO DB writes (D2.8).
+        reconciler = getattr(self, "_actuator_reconciler", None)
+        if reconciler is not None:
+            # D-MED: quarantine release is single-sourced by this poll, so it
+            # must survive a degraded grace-arm. Guard the two calls SEPARATELY
+            # so a failure arming grace cannot strand a quarantined device
+            # forever (and vice versa).
+            try:
+                if reconciler._boot_settle_done():
+                    reconciler.note_boot_settle_released()
+            except Exception:  # noqa: BLE001 — must never fail refresh
+                _LOGGER.debug("reconciler grace-arm raised", exc_info=True)
+            try:
+                reconciler.check_quarantine_release()
+            except Exception:  # noqa: BLE001 — must never fail refresh
+                _LOGGER.debug("reconciler quarantine poll raised", exc_info=True)
+
         return data
 
     def recent_occupancy_sources(self) -> list[str]:

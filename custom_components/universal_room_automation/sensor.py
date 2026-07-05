@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.7.2
+# Universal Room Automation vv5.8.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -112,7 +112,7 @@ from .const import (
 )
 from .coordinator import UniversalRoomCoordinator
 from .entity import UniversalRoomEntity
-from .aggregation import AggregationEntity
+from .aggregation import AggregationEntity, _get_room_coordinators
 from .domain_coordinators.energy_billing import _get_effective_rate_kwh
 
 _LOGGER = logging.getLogger(__name__)
@@ -157,6 +157,8 @@ async def async_setup_entry(
             IntegrationHouseStateSensor(hass, entry),
             # v3.6.21: Music following health sensor
             MusicFollowingHealthSensor(hass, entry),
+            # v5.8.0 D2.12: house-wide reconcile-on-return roll-up
+            ReconcileHealthSensor(hass, entry),
         ]
         async_add_entities(census_sensors)
 
@@ -510,6 +512,7 @@ async def async_setup_entry(
         LastAutomationTimeSensor(coordinator),  # v3.2.6: New sensor
         DatabaseStatusSensor(coordinator),
         AutomationHealthSensor(coordinator),  # v3.6.17: Composite automation health
+        RoomReconcileSensor(coordinator),  # v5.8.0 D2.12: reconcile-on-return diagnostic
         RoomSignalInventorySensor(coordinator),  # v4.7.16 D2: BLE tier + signal inventory
         AIAutomationStatusSensor(coordinator),  # v3.12.0 M4: AI rule + chain tracking
     ])
@@ -1684,12 +1687,34 @@ class UnavailableEntitiesSensor(UniversalRoomEntity, SensorEntity):
             return "state_unknown"
         return None
 
+    def _reconciler(self):
+        """Return the room's ActuatorReconciler, or None (None-safe)."""
+        return getattr(self.coordinator, "_actuator_reconciler", None)
+
     def _unavailable_details(self) -> list[dict[str, Any]]:
-        """Structured detail for every unavailable configured entity."""
+        """Structured detail for every unavailable configured entity.
+
+        Reconcile-on-Return (v5.8.0, D2.11): a currently-quarantined
+        (flapping) actuator is surfaced here with reason "flapping" plus its
+        transition_count + since even though it may report an "available"
+        state — so a chronically flaky device is grep-visible next to the
+        offline ones.
+        """
         details: dict[str, dict[str, Any]] = {}
+        reconciler = self._reconciler()
+        flapping_ids: set[str] = set()
+        if reconciler is not None:
+            try:
+                flapping_ids = {
+                    f["entity_id"] for f in reconciler.flapping_entities()
+                }
+            except Exception:  # noqa: BLE001 — diagnostics must degrade
+                flapping_ids = set()
         for eid, role, category in self._iter_configured():
             state = self.coordinator.hass.states.get(eid)
-            if state is not None and state.state not in ("unavailable", "unknown"):
+            is_unavail = state is None or state.state in ("unavailable", "unknown")
+            is_flapping = eid in flapping_ids
+            if not is_unavail and not is_flapping:
                 continue
             entry = details.get(eid)
             if entry is None:
@@ -1704,6 +1729,19 @@ class UnavailableEntitiesSensor(UniversalRoomEntity, SensorEntity):
                     "reason": self._unavailable_reason(state),
                     "since": since,
                 }
+                # D2.11: flapping actuators get reason "flapping" +
+                # transition_count + since (overrides the availability-derived
+                # reason — a flapping device is the more actionable signal).
+                if is_flapping and reconciler is not None:
+                    detail = None
+                    try:
+                        detail = reconciler.flapping_detail(eid)
+                    except Exception:  # noqa: BLE001
+                        detail = None
+                    if detail is not None:
+                        entry["reason"] = "flapping"
+                        entry["transition_count"] = detail.get("transition_count")
+                        entry["since"] = detail.get("since")
                 details[eid] = entry
             if role not in entry["roles"]:
                 entry["roles"].append(role)
@@ -1719,7 +1757,7 @@ class UnavailableEntitiesSensor(UniversalRoomEntity, SensorEntity):
         details = self._unavailable_details()
         sensors = [d["entity_id"] for d in details if d["category"] == "sensor"]
         actuators = [d["entity_id"] for d in details if d["category"] == "actuator"]
-        return {
+        attrs = {
             # Backward-compatible flat list (now spans inputs + actuators).
             "unavailable_entities": [d["entity_id"] for d in details],
             "details": details,
@@ -1728,6 +1766,23 @@ class UnavailableEntitiesSensor(UniversalRoomEntity, SensorEntity):
             "sensor_count": len(sensors),
             "actuator_count": len(actuators),
         }
+        # Reconcile-on-Return (v5.8.0, D2.4): reconcile diagnostics. None-safe —
+        # a room with no lights/fans has no reconciler, so we degrade to zeros.
+        reconciler = self._reconciler()
+        if reconciler is not None:
+            try:
+                attrs.update(reconciler.diagnostics())
+            except Exception:  # noqa: BLE001 — diagnostics must degrade
+                pass
+        else:
+            attrs.update({
+                "reconciles_today": 0,
+                "recent_reconciles": [],
+                "reconcile_debounced_count": 0,
+                "reconcile_coalesced_count": 0,
+                "flapping_entities": [],
+            })
+        return attrs
 
 
 class LastAutomationTriggerSensor(UniversalRoomEntity, SensorEntity):
@@ -2230,6 +2285,59 @@ class AutomationHealthSensor(UniversalRoomEntity, SensorEntity):
             attrs["last_exit_verify_time"] = None
 
         return attrs
+
+
+# =============================================================================
+# Reconcile-on-Return (v5.8.0, D2.12): per-room RoomReconcileSensor
+# =============================================================================
+
+
+class RoomReconcileSensor(UniversalRoomEntity, SensorEntity):
+    """Per-room reconcile diagnostic. Prior art: AutomationHealthSensor.
+
+    Entity: sensor.<room>_room_reconcile
+    State:  reconciles_today (int)
+    Attrs:  last_reconcile, reconciles_today, coalesced_count,
+            last_skip_reason, would_reconcile {entity_id: desired_state}.
+
+    Does NOT duplicate flapping_entities — that lives on
+    sensor.<room>_unavailable_entities (D2.11).
+    """
+
+    _attr_icon = "mdi:backup-restore"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator, "room_reconcile", "Room Reconcile")
+
+    def _reconciler(self):
+        return getattr(self.coordinator, "_actuator_reconciler", None)
+
+    @property
+    def native_value(self) -> int:
+        reconciler = self._reconciler()
+        if reconciler is None:
+            return 0
+        try:
+            return reconciler.reconciles_today
+        except Exception:  # noqa: BLE001
+            return 0
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        reconciler = self._reconciler()
+        if reconciler is None:
+            return {
+                "last_reconcile": None,
+                "reconciles_today": 0,
+                "coalesced_count": 0,
+                "last_skip_reason": None,
+                "would_reconcile": {},
+            }
+        try:
+            return reconciler.room_sensor_attrs()
+        except Exception:  # noqa: BLE001
+            return {}
 
 
 # =============================================================================
@@ -5819,6 +5927,77 @@ class MusicFollowingHealthSensor(AggregationEntity, SensorEntity):
         if mf is None:
             return {}
         return mf.get_diagnostic_data()
+
+
+class ReconcileHealthSensor(AggregationEntity, SensorEntity):
+    """House-wide reconcile roll-up. Prior art: MusicFollowingHealthSensor.
+
+    Entity: sensor.ura_reconcile_health (house_reconcile_health)
+    State:  total reconciles today across all rooms (int).
+    Attrs:  total_reconciles_today, rooms_with_quarantined_actuators,
+            top_flappers [{entity_id, room, transition_count}],
+            rooms_with_auto_recovery_off [room].
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:backup-restore"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_reconcile_health"
+        self._attr_name = "Reconcile Health"
+
+    def _reconcilers(self):
+        out = []
+        for coord in _get_room_coordinators(self.hass):
+            r = getattr(coord, "_actuator_reconciler", None)
+            if r is not None:
+                out.append((coord, r))
+        return out
+
+    @property
+    def native_value(self) -> int:
+        total = 0
+        for _coord, r in self._reconcilers():
+            try:
+                total += r.reconciles_today
+            except Exception:  # noqa: BLE001
+                pass
+        return total
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        total = 0
+        rooms_quarantined = 0
+        top_flappers: list[dict] = []
+        rooms_ar_off: list[str] = []
+        for coord, r in self._reconcilers():
+            room_name = coord.entry.data.get("room_name", "Unknown")
+            try:
+                total += r.reconciles_today
+                flapping = r.flapping_entities()
+                if flapping:
+                    rooms_quarantined += 1
+                for f in flapping:
+                    top_flappers.append({
+                        "entity_id": f["entity_id"],
+                        "room": room_name,
+                        "transition_count": f.get("transition_count_at_entry"),
+                    })
+                if not r._auto_recovery_on():
+                    rooms_ar_off.append(room_name)
+            except Exception:  # noqa: BLE001
+                continue
+        top_flappers.sort(
+            key=lambda x: (x.get("transition_count") or 0), reverse=True,
+        )
+        return {
+            "total_reconciles_today": total,
+            "rooms_with_quarantined_actuators": rooms_quarantined,
+            "top_flappers": top_flappers[:10],
+            "rooms_with_auto_recovery_off": rooms_ar_off,
+        }
 
 
 class MusicFollowingAnomalySensor(AggregationEntity, SensorEntity):

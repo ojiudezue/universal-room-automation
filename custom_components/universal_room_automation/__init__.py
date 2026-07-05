@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.7.2
+# Universal Room Automation vv5.8.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -3780,6 +3780,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             for unsub in substrate_listeners:
                 unsub()
             substrate_listeners.clear()
+            # Reconcile-on-Return (v5.8.0, D2.9): tear down the reconciler's OWN
+            # listener + any pending coalesce/grace timers. Its unsub list is
+            # separate from every coordinator list (Bug Class #38).
+            reconciler = getattr(coordinator, "_actuator_reconciler", None)
+            if reconciler is not None and hasattr(reconciler, "async_teardown"):
+                await reconciler.async_teardown()
             debounce_unsub = getattr(coordinator, "_debounce_refresh_unsub", None)
             if debounce_unsub is not None:
                 debounce_unsub()

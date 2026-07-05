@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.7.2
+# Universal Room Automation vv5.8.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.7.2"
+VERSION: Final = "v5.8.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1540,6 +1540,53 @@ BOOT_SETTLE_TIMEOUT_SECONDS: Final = 60
 # compute. Currently 1 — present so a future cycle can raise the bar without
 # a magic number proliferating through presence.py.
 BOOT_SETTLE_MIN_INPUTS: Final = 1
+
+
+# ============================================================================
+# RECONCILE-ON-RETURN (v5.8.0 — D2 of offline-actuator visibility + recovery)
+# ============================================================================
+#
+# Per-room ActuatorReconciler re-asserts a room's LIVE-computed desired state
+# for a single light/fan entity when it transitions unavailable -> available.
+# Constants per PLANNING_reconcile_on_return.md §3.6. All RAM-only / no DB.
+
+# Per-entity debounce: suppress a re-assert within this many seconds of the
+# entity's prior available->unavailable->available cycle. Suppresses fast WiFi
+# roam flap; an order of magnitude under typical occupancy hold times.
+RECONCILE_DEBOUNCE_SECONDS: Final = 15
+# Per-entity rolling-hour reconcile cap.
+RECONCILE_MAX_PER_HOUR: Final = 6
+# Diagnostic ring bound (recent_reconciles).
+RECONCILE_RING_SIZE: Final = 10
+# D2.7 per-room cross-entity coalesce window: after the first available edge in
+# a room, collect siblings for this many seconds then run ONE resolver pass.
+RECONCILE_COALESCE_WINDOW_SECONDS: Final = 2.5
+# D2.7 post-boot-settle grace: after _boot_settle_done flips True, ignore
+# available transitions as reconcile triggers for this many seconds.
+RECONCILE_POST_BOOT_GRACE_SECONDS: Final = 10
+# D2.11 flap quarantine: per-entity availability-transition count within
+# RECONCILE_FLAP_WINDOW_SECONDS that trips quarantine. Keyed on transitions
+# (not reconciles) so it trips before the 6/hr cap can mask the problem.
+RECONCILE_FLAP_THRESHOLD: Final = 4
+# D2.11 rolling window over which flap transitions accumulate.
+RECONCILE_FLAP_WINDOW_SECONDS: Final = 120
+# D2.11 continuous-available duration (zero transitions) required to release
+# from quarantine. 5x the entry window makes enter/exit hysteresis inherent.
+# Release is stability-proven, NOT bare-timer.
+RECONCILE_FLAP_STABILITY_SECONDS: Final = 600
+# D2.12 named-bucket triples the flap_sensitivity config-flow dropdown maps to.
+# NOT operator-facing raw seconds. (THRESHOLD, WINDOW, STABILITY).
+RECONCILE_FLAP_SENSITIVITY_BUCKETS: Final = {
+    "relaxed": (6, 180, 900),
+    "normal": (4, 120, 600),
+    "aggressive": (3, 90, 450),
+}
+# D2.12 config-flow field key for the per-room flap-sensitivity dropdown.
+CONF_FLAP_SENSITIVITY: Final = "flap_sensitivity"
+# States that mean an entity is NOT providing real data. Mirrors the
+# _UNAVAILABLE_STATES frozenset in occupancy_substrate.py (promoted here so the
+# reconciler shares one canonical definition).
+RECONCILE_UNAVAILABLE_STATES: Final = frozenset({"unavailable", "unknown"})
 
 
 # ============================================================================

@@ -158,6 +158,7 @@ from .const import (
     # Automation behavior
     CONF_ENTRY_LIGHT_ACTION,
     CONF_EXIT_LIGHT_ACTION,
+    CONF_FLAP_SENSITIVITY,
     CONF_ILLUMINANCE_THRESHOLD,
     CONF_LIGHT_BRIGHTNESS_PCT,
     CONF_LIGHT_TRANSITION_ON,
@@ -7725,6 +7726,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         """
         if user_input is not None:
             try:
+                # v5.8.0 D2.12: flatten the collapsed reconcile_advanced section
+                # back to a top-level CONF_FLAP_SENSITIVITY key (mirrors the
+                # fan_recheck_advanced flatten pattern) so the reconciler reads
+                # the same key it would read pre-collapse.
+                advanced = user_input.pop("reconcile_advanced", None)
+                if isinstance(advanced, dict):
+                    user_input = {**user_input, **advanced}
                 merged = {**self._config_entry.options, **user_input}
                 _LOGGER.debug(
                     "options_lighting save: entry_id=%s, options_keys=%d, input_keys=%d, merged_keys=%d",
@@ -7745,6 +7753,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             {"label": "None (Manual Control)", "value": LIGHT_ACTION_NONE},
             {"label": "Turn On Always", "value": LIGHT_ACTION_TURN_ON},
             {"label": "Smart (Only When Dark)", "value": LIGHT_ACTION_TURN_ON_IF_DARK},
+        ]
+
+        flap_sensitivity_options = [
+            {"label": "Relaxed (fewer false quarantines)", "value": "relaxed"},
+            {"label": "Normal (default)", "value": "normal"},
+            {"label": "Aggressive (quarantine flaky devices sooner)", "value": "aggressive"},
         ]
 
         light_exit_actions = [
@@ -7788,6 +7802,23 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_current(CONF_LIGHT_TRANSITION_OFF, DEFAULT_LIGHT_TRANSITION_OFF)
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=10, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
+            ),
+            # v5.8.0 D2.12: reconcile-on-return flap-sensitivity as a named-bucket
+            # dropdown in a collapsed section. NO per-knob Number entities
+            # ("Configurability Clarity" + "Number Fields = Form Fields" rules).
+            vol.Optional("reconcile_advanced"): _ha_section(
+                vol.Schema({
+                    vol.Optional(
+                        CONF_FLAP_SENSITIVITY,
+                        default=self._get_current(CONF_FLAP_SENSITIVITY, "normal"),
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=flap_sensitivity_options,
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                        )
+                    ),
+                }),
+                {"collapsed": True},
             ),
         })
 
