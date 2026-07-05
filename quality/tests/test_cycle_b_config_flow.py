@@ -603,19 +603,26 @@ class TestD3SplitOptionsStep:
 
     @pytest.mark.asyncio
     async def test_options_lighting_has_6_fields(self):
-        """Lighting step has exactly 6 fields (all lighting-related)."""
+        """Lighting step has 6 lighting fields + the v5.8.0 reconcile_advanced section = 7.
+
+        v5.8.0 D2.12 (reconcile-on-return) added a collapsed ``reconcile_advanced``
+        section holding the ``flap_sensitivity`` named-bucket dropdown. It counts
+        as one top-level schema key, taking the step from 6 → 7. Still well under
+        the HA 11-field density cap (see ``test_neither_step_exceeds_11_fields``).
+        """
         flow = _make_options_flow(data={CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM})
         result = await flow.async_step_options_lighting(user_input=None)
         assert result["type"] == "form"
         assert result["step_id"] == "options_lighting"
         keys = _schema_keys(result)
-        assert len(keys) == 6
+        assert len(keys) == 7
         assert CONF_ENTRY_LIGHT_ACTION in keys
         assert CONF_EXIT_LIGHT_ACTION in keys
         assert CONF_ILLUMINANCE_THRESHOLD in keys
         assert CONF_LIGHT_BRIGHTNESS_PCT in keys
         assert CONF_LIGHT_TRANSITION_ON in keys
         assert CONF_LIGHT_TRANSITION_OFF in keys
+        assert "reconcile_advanced" in keys
 
     @pytest.mark.asyncio
     async def test_options_covers_has_11_fields(self):

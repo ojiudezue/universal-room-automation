@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.7.2
+# Universal Room Automation vv5.8.0
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -316,6 +316,8 @@ async def async_setup_entry(
         # options-flow toggles #2 (comfort) and #3 (humidity).
         RoomComfortFanControlSwitch(coordinator),
         RoomHumidityFanControlSwitch(coordinator),
+        # v5.8.0 D2.12: reconcile-on-return per-room gate (guard 9). Default ON.
+        AutoRecoverySwitch(coordinator),
     ]
 
     async_add_entities(entities)
@@ -3572,6 +3574,58 @@ class CoverAutomationSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
         self._attr_is_on = False
         self.async_write_ha_state()
         _LOGGER.info("Cover automation disabled for room: %s", self.coordinator.entry.data.get("room_name"))
+
+
+class AutoRecoverySwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
+    """Per-room reconcile-on-return gate (v5.8.0, D2.12, guard 9).
+
+    Straight sibling of AutomationSwitch / ClimateAutomationSwitch /
+    CoverAutomationSwitch. SEPARATE from the master AutomationSwitch and
+    manual_mode — this gates ONLY whether the ActuatorReconciler dispatches a
+    service call. When OFF, the reconciler STILL computes would_reconcile for
+    observability (the manual dry-run / safe-rollout lever). Default ON.
+
+    Bug Class #52 guard: an ``unavailable`` / ``unknown`` last-state does NOT
+    coerce to OFF — it falls back to the default (ON).
+    """
+
+    _attr_icon = "mdi:backup-restore"
+    # Enabled by default (v5.8.0 operator decision): this is the documented
+    # dry-run / safe-rollout lever (flip OFF, watch would_reconcile, flip ON).
+    # A registry-disabled entity would force the operator to enable a hidden
+    # entity before the dry-run path is usable, defeating its purpose.
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
+        """Initialize the switch."""
+        super().__init__(coordinator, "auto_recovery", "Auto-Recovery")
+        self._attr_is_on = True  # Default to enabled
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last state (Bug Class #52 guard)."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state in ("on", "off"):
+            # Only adopt a CONCRETE on/off. An unavailable/unknown last-state
+            # must NOT coerce to OFF — leave the default ON.
+            self._attr_is_on = last_state.state == "on"
+
+    @property
+    def available(self) -> bool:
+        """Switch is always available."""
+        return True
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable reconcile-on-return for this room."""
+        self._attr_is_on = True
+        self.async_write_ha_state()
+        _LOGGER.info("Auto-Recovery enabled for room: %s", self.coordinator.entry.data.get("room_name"))
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Disable reconcile-on-return (dry-run / preview mode)."""
+        self._attr_is_on = False
+        self.async_write_ha_state()
+        _LOGGER.info("Auto-Recovery disabled for room: %s", self.coordinator.entry.data.get("room_name"))
 
 
 class ManualModeSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):

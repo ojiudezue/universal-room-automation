@@ -488,3 +488,40 @@ def test_v475_d5_manage_zones_step_instantiates_without_attr_error():
         f"tasks while rendering: {flow.hass.created_tasks!r}. Form-render "
         "paths must stay synchronous — Bug Class #42 prevention."
     )
+
+
+# =============================================================================
+# v5.8.0 D2.12 (C-GAP-2) — reconcile_advanced flatten save-path
+# =============================================================================
+
+
+def test_v580_reconcile_advanced_section_flattens_flap_sensitivity():
+    """C-GAP-2: submitting the collapsed reconcile_advanced section to
+    async_step_options_lighting must FLATTEN flap_sensitivity to a top-level
+    key in the saved data (mirrors the fan_recheck_advanced flatten). A dropped
+    flatten would leave flap_sensitivity buried in a nested dict the reconciler
+    never reads.
+    """
+    cf = _load_config_flow(_DEFAULT_SELECT_MODES, _DEFAULT_TEXT_TYPES)
+    OptionsFlow = cf.UniversalRoomAutomationOptionsFlow
+
+    class _Entry:
+        entry_id = "entry_test"
+        data = {"entry_type": "room", "room_name": "Bedroom"}
+        options: dict = {}
+
+    flow = OptionsFlow.__new__(OptionsFlow)
+    flow._config_entry = _Entry()
+
+    result = _run_coro_isolated(
+        flow.async_step_options_lighting(
+            user_input={"reconcile_advanced": {"flap_sensitivity": "aggressive"}}
+        )
+    )
+    assert result["type"] == "create_entry"
+    assert result["data"]["flap_sensitivity"] == "aggressive", (
+        "reconcile_advanced.flap_sensitivity must be flattened to a top-level "
+        f"key; got data={result['data']!r}"
+    )
+    # And it must NOT remain nested.
+    assert "reconcile_advanced" not in result["data"]
