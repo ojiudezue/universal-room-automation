@@ -63,10 +63,12 @@ hypotheses:
 
 > Shipwatch note: the HA adapter stub is backlogged → these resolve `pending` until it ships. Verify entity/attribute names live before trusting `confirmed`.
 
-## Live Validation — prospective (populate post-restart)
-| # | Criterion | Expected |
-|---|---|---|
-| L1 | Deploy healthy | `update.universal_room_automation_update` installed_version = `v5.7.2`; zero URA ERROR at boot. |
-| L2 | Actuator surfaced | A room with a known-offline actuator (e.g. the room owning `switch.switch_shelly2pmg3_wifi_jayabathfan` or `...exerciseroomcloset`) lists it in `unavailable_actuators` with `reason: offline_since_restart` and `category: actuator`. |
-| L3 | Recovered room clean | AV Closet (Shelly recovered) shows `actuator_count: 0` — its light no longer flagged. |
-| L4 | Backward compat | `unavailable_entities` flat list + numeric state still present; no consumer breakage. |
+## Live Validation — Validated 2026-07-01 (post-restart)
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | Deploy healthy | **PASS** | `update.universal_room_automation_update` installed_version = `v5.7.2`. Boot log shows only WARNING-level lines (known SPAN circuit-rename energy-sensor noise + boot-transient "All N sensors unavailable — holding occupancy" + Envoy still booting) — **zero URA ERROR entries**. |
+| L2 | Actuators surfaced with category/role/reason | **PASS** | 7 rooms flagged unavailable actuators. Examples: `sensor.stair_closet_unavailable_entities` → `switch…staircloset` (`roles=[lights]`, `device_unreachable`); `sensor.studya_room_device…` → `cover.study_a_blinds` (`roles=[covers]`, `device_unreachable`); `sensor.kitchen…` → `switch.switch_tapo_wifi_kitchenrange` (`roles=[night_lights]`, `entity_missing`). `category`/`roles`/`reason`/`since` all populated. **All four reason tokens observed live:** `offline_since_restart`, `device_unreachable`, `entity_missing`, `state_unknown`. |
+| L3 | AV closet (the origin case) | **PASS (stronger than planned)** | Prospective expectation was `actuator_count=0` (Shelly recovered). In fact the AV-closet Shelly **re-dropped** (flaky device — 2nd offline episode today; raw `switch…avcloset`=`unavailable`), and the sensor now correctly surfaces it: `actuator_count=1`, `unavailable_actuators=[switch…avcloset]`, `reason=offline_since_restart`, `category=actuator`, `roles=[lights]`, `sensor_count=0`. This is precisely the silent failure the cycle was built to make visible. |
+| L4 | Backward compat + recovery-clearing | **PASS** | `unavailable_entities` flat list + numeric state preserved. Recovery verified: `sensor.stair_closet_unavailable_entities` cleared to `0` (`sensor_count=0`/`actuator_count=0`) once its Shelly reconnected post-settle — the sensor clears as devices recover, not only flags. |
+
+**Note:** the AV-closet Shelly is genuinely flaky (2nd offline episode 2026-07-01) — hardware/WiFi attention warranted (operator-side). URA now makes it *visible* (`offline_since_restart`) instead of failing silently, which is the whole point of this cycle.

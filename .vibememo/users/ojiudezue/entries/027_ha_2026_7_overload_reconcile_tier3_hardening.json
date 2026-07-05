@@ -1,0 +1,59 @@
+{
+  "format_version": "2.1",
+  "entry_id": "027",
+  "author": "ojiudezue",
+  "session_id": "claude_20260703_ha_overload_and_reconcile_tier3_hardening",
+  "timestamp": "2026-07-04T02:30:00Z",
+  "type": "decision",
+  "weight": "load-bearing",
+  "title": "HA 2026.7.0 upgrade overload triaged to a duplicate core integration (URA exonerated) + Reconcile-on-Return hardened Tier 2-DB→Tier 3 with D2.7–D2.12 (coalesce, zero-write, flap quarantine, observability)",
+  "summary": "Two arcs. (1) The house went sluggish and Shelly/other devices came up half-initialized after the 2026-07-02 17:34 UTC restart — which was the HA core 2026.7.0 upgrade. URA shipped nothing in the window and the v5.7.2 unavailable-actuator check is a per-room in-memory hass.states.get() scan (sensor.py:1623-1730), not a device/network scan — exonerated by both code and logs. Root load source: the CORE `linkplay` integration (23 config entries) duplicating the same WiiM speakers the `wiim` custom integration already serves (24/24 reachable), failing getMetaInfo ~3/sec = 350k+ warnings. Disabled all 23; CPU fell and the WebSocket '4096 pending messages' backpressure error stopped recurring. Suspected amplifier: HA 2026.7 change #173974 ('call state-change listeners immediately instead of deferring to the event loop') — removes loop yield points so one chatty integration can stall the whole loop. Bug-report package written for the operator to file (not filed). (2) A perf/bug-class review of the not-yet-built Reconcile-on-Return plan, triggered by the overload, elevated it Tier 2-DB→Tier 3 and grew it from 6 guards to 12 across new deliverables D2.7–D2.12.",
+  "decisions": [
+    "OVERLOAD ROOT-CAUSE = DUPLICATE CORE INTEGRATION, NOT URA — a batch of unavailable/half-init devices across rooms is a network/platform event, never URA (restating the entry-026 triage rule and applying it under load). The specific bomb: core `linkplay` and the `wiim` custom integration were BOTH bound to the same 23 physical speakers; linkplay's failing getMetaInfo poll ran ~3/sec for weeks harmlessly, then the 2026.7.0 scheduling change (#173974, synchronous listener dispatch) removed the loop's yield points and the same duplicate load began stalling the whole event loop. Durable lesson: duplicate integrations covering the same hardware are latent load bombs a core scheduling change can detonate. Fix = disable the redundant one (all 23 linkplay entries), reversible.",
+    "DON'T RELOAD TO INVESTIGATE WHEN THE DEVICE IS ALREADY CONNECTED — operator declined reloading the Envoy (RuntimeError: Session is closed ×364) and the 2 setup_retry Shelly entries via blanket action; wanted the broken state captured live for a bug report and only targeted reloads once devices were confirmed back on WiFi. Reinforces entry-026: reload is placebo for off-WiFi devices and destroys forensic state.",
+    "RECONCILE-ON-RETURN ELEVATED Tier 2-DB → Tier 3 + FOUR GUARDS (D2.7-D2.10) — the design threads reconcile logic through a boot-time availability transition consumed by many actuator sites (Bug Class #53 shape) in an area with prior boot-storm AND write-flood incidents, so it earns the 4-framing-disjoint bar incl. adversarial-completeness pass D. D2.7 boot-settle COALESCE window (RECONCILE_COALESCE_WINDOW_SECONDS=2.5 + 10s post-boot grace) collapses N simultaneous reconnects into one resolver pass per room — kills the batch-reconnect storm the linkplay incident made vivid. D2.8 ZERO-synchronous-DB-write invariant (batched activity-log only), citing the June write-flood. D2.9 reconciler-owned _unsub_reconciler_listeners re-armed in the rebuild hook (Bug Class #50). D2.10 branch-table PARITY test vs _control_lights_entry, elevated from review-recommendation to a GATING acceptance test (Bug Class #53 self-risk).",
+    "D2.11 FLAP DETECTOR + STABILITY-PROVEN DEQUARANTINE — the flat 6/hr cap leaves a chronically flaky actuator (AV-closet Shelly) burning reconciles forever and invisible. Enter quarantine at FLAP_THRESHOLD=4 availability transitions within FLAP_WINDOW=120s (keyed on transitions, more sensitive than the reconcile cap so it trips first); stop reconciling; surface reason:'flapping' on the v5.7.2 sensor. Dequarantine is STABILITY-PROVEN not bare-timer: continuous available for FLAP_STABILITY=600s → one reconcile → resume. A device that never stabilizes stays quarantined indefinitely and visible — a bare timer would re-admit a dying device. RAM-only, no persist (Bug Class #52). Hysteresis inherent: 600s exit ≫ 120s enter.",
+    "D2.12 OBSERVABILITY — MASTER TOGGLE, NO OBSERVATION MODE, DRY-RUN VIA SENSOR — per-room `Auto-Recovery` switch (default ON, sibling of ClimateAutomationSwitch/CoverAutomationSwitch) is the operator-facing master toggle (renamed off the jargon 'reconcile'). A per-room observation/shadow switch was REJECTED because observation mode is a COORDINATOR-scoped concept in URA (all *ObservationModeSwitch classes are coordinator-level), not per-room. Instead 'what it would do' folds into RoomReconcileSensor.would_reconcile (resolver's computed target for skipped entities), which DOUBLES as the manual dry-run rollout lever: toggle a room's Auto-Recovery OFF, watch would_reconcile, flip ON when satisfied. Flap tuning is exposed as a NAMED-BUCKET flap_sensitivity dropdown (relaxed/normal/aggressive) in a collapsed reconfigure section, NOT raw-seconds Number entities — per the Configurability-Clarity and Number-Fields=Form-Fields feedback rules; const defaults stay the source of truth.",
+    "ROOM-DEVICE TOGGLE ASYMMETRY FILED AS SEPARATE CYCLE — climate + cover expose per-room switches; fan + humidity have only config-flow fields (CONF_FAN_CONTROL_ENABLED, CONF_HUMIDITY_FAN_CONTROL_ENABLED) and no room-device switch, despite v5.6.0 making automation.py the sole fan owner. Add FanControlSwitch + HumidityControlSwitch — but as its OWN small cycle, not bundled into the Tier-3 reconcile plan, because the pre-existing config field creates a dual-source-of-truth that needs a focused resolution (init from CONF, then RestoreEntity+runtime, automation.py reads ONE signal). Filed to docs/BACKLOG.md."
+  ],
+  "alternatives_considered": [
+    "Blaming URA / the v5.7.2 actuator-visibility check for the overload (operator's leading hypothesis: 'did an unrestricted scan stress the infrastructure?'). Disproven by reading sensor.py:1623-1730 — it iterates only the room's ~10-30 configured entity_ids doing in-memory hass.states.get(), zero network I/O, and is a diagnostic entity disabled by default. It physically cannot stress devices.",
+    "Blaming the Shelly integration itself. Disproven: 89/91 Shelly entries were 'loaded', only 2 setup_retry (genuinely off-WiFi); no Shelly-integration changes in the 2026.7 changelog. The half-init look was setup racing a stalled loop.",
+    "Keeping observation mode as the reconcile rollout lever (my initial proposal). Rejected by operator: observation mode is coordinator-scoped in URA, not a room concept. The would_reconcile sensor attribute + Auto-Recovery-OFF gives the same dry-run without inventing a per-room shadow mode.",
+    "Exposing the reconcile/flap tunables as raw per-knob Number entities. Rejected per the standing Configurability-Clarity rule — named-bucket dropdown (flap_sensitivity) with const-backed defaults instead.",
+    "Bundling the Fan/Humidity room-device switches into the reconcile Tier-3 cycle. Rejected — they're unrelated to reconcile and their dual-source-of-truth reconciliation deserves its own focused review.",
+    "A bare-timer dequarantine (release a flapping device after N minutes regardless of stability). Rejected — it re-admits a device that is still dying; release must be proven by continuous stability, and non-stabilizing devices stay quarantined and visible."
+  ],
+  "implications": [
+    "The reconcile plan's whole guard architecture is now shaped by two prior production incidents made concrete by this one: the June write-flood (→ zero-DB-write invariant) and the boot-away-actuation storm (→ coalesce window). A batch-reconnect after a network event — exactly the 2026-06-30 event that motivated the feature — is now the design's primary adversarial scenario, not an edge case.",
+    "Duplicate integrations over the same hardware are now a known latent-load class for this house. Worth an audit for other doublings (the wiim/linkplay pair was invisible until a core scheduling change surfaced it).",
+    "HA 2026.7.0's #173974 (immediate listener dispatch) changes the loop-fairness characteristics of a large instance; the house is now more sensitive to any single chatty integration. This is an environmental shift the operator should weigh before future upgrades and when triaging load.",
+    "The 'named-bucket over raw knobs' and 'observation-mode-is-coordinator-scoped' rulings are reusable URA UX invariants — future per-room feature surfaces should default to them.",
+    "Reconcile-on-Return is now a 12-guard Tier-3 design (D2.7-D2.12) still DESIGN-ONLY; the review-triggered growth means the eventual build is larger but the invariant surface is enumerated up front, which is the point of Tier 3."
+  ],
+  "follow_up": [
+    "Reconcile-on-Return build = Tier-3 cycle (candidate v5.8.0) when operator green-lights. Plan: docs/planning/PLANNING_reconcile_on_return.md (D2.7-D2.12, guard count 12, Reviewer-D invariant in §2.1).",
+    "Fan/Humidity room-device toggle symmetry = separate small cycle (docs/BACKLOG.md entry filed 2026-07-04); watch the dual-source-of-truth.",
+    "File the HA 2026.7 overload bug (package at /tmp/ha_2026.7_overload_bug_report_2026-07-03.md); attach full log + Shelly diagnostics + system-health + a loop profiler dump if grabbable.",
+    "Recorder DB is 23.6 GB (HA-wide, not URA) — recorder-config diet recommended (purge_keep_days + exclude high-churn diagnostic entities); not drafted.",
+    "Re-enable linkplay only if a wiim-integration gap is found; otherwise leave disabled. The 23 disabled entries are reversible.",
+    "Older queue still open: v5.7.1 migration default-OFF fix; census over-count; inclement reserve D0 NWS wiring; inclement arbitrage-WAIT floor gap.",
+    "Operator restarting the terminal host for maintenance mid-session; resume via memory pickup project_session_pickup_2026_07_04.md."
+  ],
+  "refs": {
+    "entries": [
+      "026",
+      "025",
+      "021"
+    ],
+    "files": [
+      "docs/planning/PLANNING_reconcile_on_return.md",
+      "docs/BACKLOG.md",
+      "custom_components/universal_room_automation/sensor.py",
+      "custom_components/universal_room_automation/switch.py",
+      "custom_components/universal_room_automation/const.py",
+      "CLAUDE.md"
+    ]
+  },
+  "ship_target": "No ship. Operational fix (23 core linkplay entries disabled, reversible) + Reconcile-on-Return plan hardened to Tier 3 / D2.7-D2.12 (DESIGN-ONLY, awaiting green-light) + Fan/Humidity toggle-symmetry backlog entry."
+}

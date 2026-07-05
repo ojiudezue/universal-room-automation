@@ -1437,3 +1437,28 @@ Currently `z_threshold` is global per coordinator (HVAC, Security, etc.).
 3. B3 pre-emptive actions (planned — zone/house level, see `docs/planning/PLANNING_v4.x_B3_PREEMPTIVE_ACTIONS.md`)
 4. DB write queue deeper fixes (if room count grows or warmup becomes unacceptable)
 5. House Energy/Cost Accounting Reconciliation (when downstream feature needs canonical cost figure)
+
+---
+
+## Room-device toggle symmetry: Fan Control + Humidity Control switches (filed 2026-07-04)
+
+**Status:** Filed, not queued. Own small cycle (NOT part of reconcile-on-return).
+
+**Gap:** Climate and cover expose per-room automation toggles on the room device
+(`ClimateAutomationSwitch` switch.py:3507, `CoverAutomationSwitch` switch.py:3542,
+default-ON RestoreEntity). Fan and humidity have only config-flow fields
+(`CONF_FAN_CONTROL_ENABLED` const.py:591, `CONF_HUMIDITY_FAN_CONTROL_ENABLED` const.py:604)
+and NO room-device switch — despite v5.6.0 making `automation.py` the sole owner of
+humidity/exhaust fans. Asymmetric operator surface.
+
+**Deliverable:** per-room `FanControlSwitch` + `HumidityControlSwitch`, mirroring the
+climate/cover switch pattern.
+
+**Watch-out (the reason this isn't a trivial copy):** the config field already exists, so
+adding a switch creates two sources of truth. Resolution (matches options-as-source-of-truth
+pattern): initialize the switch from the CONF value, then RestoreEntity + runtime toggle take
+over, and `automation.py` must read exactly ONE signal (the switch state), never both. Get
+the single-source right or it's a dual-source drift bug. RestoreEntity must not coerce
+unavailable→OFF (Bug Class #52).
+
+**Tier:** likely Tier 2 (config flow + options flow + RestoreEntity round-trip). ~small.

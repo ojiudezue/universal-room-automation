@@ -85,6 +85,16 @@ When the operator says "we have X" — treat it as a verification task before re
 - Before acting on any "missing table" or schema diagnosis from MCP tools, cross-validate against the live HA instance (use `ha-mcp` or SSH).
 - If the Samba mount is stale or down, remount before querying: `mount_smbfs '//homeassistant:Verycool9277%40%5E@192.168.13.13/config' /Users/ojiudezue/ha-config`
 
+## Troubleshooting — "room automation broke" / light didn't turn on or off
+
+Before blaming URA code when a room stops actuating (light/fan/cover didn't turn on at entry or off at exit), **first check whether the actuator device is offline.** A URA room cannot control an `unavailable` entity — it detects occupancy fine but the `turn_on`/`turn_off` call no-ops against a dead device, which *looks* like an automation regression.
+
+Checklist:
+1. **Read the room's config** for which entities it actually drives — `lights`, `night_lights`, `alert_lights`, `climate_entity`, motion/lux/humidity sources. From the live mount: `.storage/core.config_entries` (filter `domain == universal_room_automation`, match the room title). Don't assume which physical device a friendly name maps to — verify (e.g. AV Closet light is the Shelly relay `switch.switch_shelly1pmgen3_wifi_avcloset`, not `light.light01_light01`; its lux/motion is the Zigbee `occupancy_lux_temp_humidity_avcloset`, NOT the AC-Infinity grow controller).
+2. **Check the configured actuator's live state.** If `unavailable` / `restored:true`, it's offline (confirm via the device's sibling power/voltage sensors — whole-device-dead vs one weird entity). `sensor.<room>_unavailable_entities` only tracks *input sensors*, not actuators, so a dead light is invisible there (gap tracked in BACKLOG).
+3. **Device offline ≠ integration failed.** Check config-entry state via `ha_get_integration <domain>`: a Shelly entry can stay `loaded` while its device is off-WiFi (entities go `unavailable`). Reloading a `loaded` entry only recovers a device that's **back on WiFi**; it won't revive one that's physically off. A batch of unavailable devices across rooms usually means a **network event**, not URA.
+4. **Recovery:** reload the specific stuck config entry (`homeassistant.reload_config_entry` with `entry_id`) — don't blanket-reload all entries (blinks every working device). Cloud integrations (Sonoff/Tuya) are a single account entry covering many devices.
+
 ## Testing
 ```bash
 PYTHONPATH=quality python3 -m pytest quality/tests/ -v
