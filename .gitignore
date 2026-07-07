@@ -79,3 +79,6 @@ dashboard-v3/playwright/.cache/
 .claude/scheduled_tasks.lock
 .claude/*.lock
 .claude/settings.local.json
+
+# Local HA reproduction env (v5.8.0 incident, do not commit)
+.venv-ha/
