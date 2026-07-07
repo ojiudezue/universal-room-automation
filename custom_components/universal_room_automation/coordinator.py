@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.8.0
+# Universal Room Automation vv5.8.1
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -308,13 +308,6 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # Automation handler
         self.automation = RoomAutomation(hass, config, self)
 
-        # Reconcile-on-Return (v5.8.0, D2): per-room actuator reconciler that
-        # re-asserts a light/fan's LIVE-computed desired state when it
-        # transitions unavailable -> available. Owns its OWN unsub list, armed
-        # in async_config_entry_first_refresh (the rebuild hook) so a rebuild
-        # can't orphan it (Bug Class #50). Torn down in async_unload_entry.
-        self._actuator_reconciler = ActuatorReconciler(self)
-
         # v4.0.10: Jitter poll interval to prevent thundering herd.
         # 31 rooms starting at the same HA restart time all poll simultaneously,
         # causing 20-39s event loop contention. 0-5s jitter spreads rooms over
@@ -326,6 +319,18 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             name=f"{DOMAIN}_{entry.data.get('room_name', 'unknown')}",
             update_interval=timedelta(seconds=30 + jitter),
         )
+
+        # Reconcile-on-Return (v5.8.0, D2): per-room actuator reconciler that
+        # re-asserts a light/fan's LIVE-computed desired state when it
+        # transitions unavailable -> available. Owns its OWN unsub list, armed
+        # in async_config_entry_first_refresh (the rebuild hook) so a rebuild
+        # can't orphan it (Bug Class #50). Torn down in async_unload_entry.
+        # MUST be constructed AFTER super().__init__() — the reconciler reads
+        # ``coordinator.hass``, which DataUpdateCoordinator sets in its __init__.
+        # (v5.8.0 setup-crash root cause: it was built before super().__init__,
+        # so coordinator.hass did not exist yet — AttributeError on HA 2026.2,
+        # RecursionError on HA 2026.7. Reproduced in repro_v580/.)
+        self._actuator_reconciler = ActuatorReconciler(self)
     
     # =========================================================================
     # v3.0.0 CONFIG HELPER METHODS
