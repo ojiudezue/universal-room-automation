@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.8.1
+# Universal Room Automation vv5.9.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -3348,6 +3348,23 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
             attrs["peak_age_minutes"] = result.house.peak_age_minutes
             attrs["face_recognized_persons"] = result.house.face_recognized_persons
             attrs["enhanced_census"] = True
+        # v5.9.0 D-E observability: same-area dedup contributions + pending
+        # sustain-latch + naive-sum diagnostic. Read directly from the
+        # PersonCensus instance so the shape lines up with build-time state.
+        try:
+            census = self.hass.data.get(DOMAIN, {}).get("census")
+            if census is not None:
+                attrs["area_contributions"] = dict(
+                    getattr(census, "_last_area_contributions", {}) or {}
+                )
+                attrs["raw_pre_dedup_sum"] = int(
+                    getattr(census, "_last_raw_pre_dedup_sum", 0) or 0
+                )
+                from homeassistant.util import dt as _dt_util
+                pending_info = census.get_pending_peak_info("house", _dt_util.now())
+                attrs["pending_peak"] = pending_info
+        except Exception:  # pragma: no cover - defensive
+            _LOGGER.debug("Failed to attach v5.9.0 census observability attrs", exc_info=True)
         return attrs
 
 

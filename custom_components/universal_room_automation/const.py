@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.8.1
+# Universal Room Automation vv5.9.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.8.1"
+VERSION: Final = "v5.9.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1364,9 +1364,22 @@ CONF_ENHANCED_CENSUS: Final = "enhanced_census"
 # Hold/decay timing (defaults in seconds, configurable via UI in minutes)
 CONF_CENSUS_HOLD_INTERIOR: Final = "census_hold_interior"
 CONF_CENSUS_HOLD_EXTERIOR: Final = "census_hold_exterior"
-DEFAULT_CENSUS_HOLD_INTERIOR_MINUTES: Final = 15
+# v5.9.0 D-C: interior hold reduced from 15 -> 3 minutes. With v5.9.0 D-B
+# sustain-before-latch removing the thoroughfare-handoff spike source, the
+# hold only needs to survive mmWave still-body gaps (seconds to a few minutes),
+# not transient dropouts. 3 minutes preserves dwell tolerance without
+# amplifying spurious peaks for 15+ minutes.
+DEFAULT_CENSUS_HOLD_INTERIOR_MINUTES: Final = 3
 DEFAULT_CENSUS_HOLD_EXTERIOR_MINUTES: Final = 5
 CENSUS_DECAY_STEP_SECONDS: Final = 300  # -1 person per 5 min after hold expires
+
+# v5.9.0 D-B: sustain-before-latch window. A fresh_count HIGHER than the
+# stored peak only latches after this many seconds of sustained observation,
+# preventing a thoroughfare-handoff spike (~5-15s tail overlap) from pinning
+# an inflated peak for the full hold + decay window. Downward moves stay
+# instant. Plain constant per Configurability-Clarity (no CONF key, no
+# Number entity, no options-flow field).
+CENSUS_PEAK_SUSTAIN_SECONDS: Final = 15
 
 # Event-driven census
 CENSUS_EVENT_DEBOUNCE_SECONDS: Final = 30  # v4.2.8: was 5s, increased to reduce DB write burst from camera events
