@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation vv5.8.1
+# Universal Room Automation vv5.9.0
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -49,6 +49,7 @@ from .const import (
     DEFAULT_CENSUS_HOLD_INTERIOR_MINUTES,
     DEFAULT_CENSUS_HOLD_EXTERIOR_MINUTES,
     CENSUS_DECAY_STEP_SECONDS,
+    CENSUS_PEAK_SUSTAIN_SECONDS,
     CENSUS_FACE_RECOGNITION_WINDOW_SECONDS,
     CONF_GUEST_VLAN_SSID,
     DEFAULT_GUEST_VLAN_SSID,
@@ -705,6 +706,24 @@ class PersonCensus:
         self._peak_property_count: int = 0
         self._peak_property_timestamp: datetime | None = None
 
+        # v5.9.0 D-B: sustain-before-latch pending state. A fresh_count above
+        # the stored peak enters a pending state timestamped `now`; it only
+        # promotes to `peak` after CENSUS_PEAK_SUSTAIN_SECONDS have elapsed
+        # AND fresh_count has stayed >= pending value across the interval.
+        # If fresh_count dips before the sustain window elapses, pending is
+        # cleared and the current lower peak stands. Per-zone parity with
+        # the existing peak fields.
+        self._pending_house_peak: int = 0
+        self._pending_house_peak_since: datetime | None = None
+        self._pending_property_peak: int = 0
+        self._pending_property_peak_since: datetime | None = None
+
+        # v5.9.0 D-A / D-E observability: last computed area-contribution map
+        # for the interior (house) census, and the pre-dedup naive sum. Read
+        # by the census sensor's extra_state_attributes.
+        self._last_area_contributions: dict[str, dict[str, Any]] = {}
+        self._last_raw_pre_dedup_sum: int = 0
+
     # ------------------------------------------------------------------
     # Transit detection helpers (cross-platform)
     # ------------------------------------------------------------------
@@ -876,35 +895,93 @@ class PersonCensus:
         active_platforms: list[str] = []
 
         if cross_validation_enabled:
+            # v5.9.0 D-A: same-area spatial dedup. Cameras sharing an HA
+            # area_id observe the same physical space — a single body should
+            # contribute at most 1 to that area regardless of how many
+            # cameras see it. Across different areas we still SUM. Cameras
+            # with no area_id fall back to individual contribution.
+            #
+            # Grouping is per-platform-family:
+            #   * frigate_area_counts: area_id -> max Frigate person_count
+            #     (Frigate is numeric — max over cameras in the area).
+            #   * binary_area_seen:    area_id -> max(1) if any non-Frigate
+            #     camera in the area detects a person (binary is 0/1 — max
+            #     collapses to "at least one saw someone").
+            # Unassigned cameras contribute individually (list of counts).
+            # v5.9.0 B-C1: collect per-camera contributions with area_id
+            # and collapse via the shared _dedup_by_area helper. The same
+            # helper is used by _get_unrecognized_camera_count so both
+            # paths cannot diverge.
+            frigate_contributions: list[tuple[str | None, int]] = []
+            binary_contributions: list[tuple[str | None, int]] = []
+            raw_frigate_sum = 0
+            raw_binary_sum = 0
+
             for entity_id in configured_interior:
                 platform = self._camera_manager.get_platform_for_camera(entity_id)
+                camera_info = self._camera_manager._camera_by_entity.get(entity_id)
+                area_id = camera_info.area_id if camera_info else None
 
                 if platform == CAMERA_PLATFORM_FRIGATE:
-                    camera_info = self._camera_manager._camera_by_entity.get(entity_id)
                     if camera_info and camera_info.person_count_sensor:
-                        # Check if Frigate sensor is actually available
                         state = self.hass.states.get(camera_info.person_count_sensor)
                         if state and state.state not in ("unavailable", "unknown"):
                             frigate_available = True
                             count = self._get_sensor_int(camera_info.person_count_sensor)
-                            frigate_total += count
-                        # If unavailable, skip — will fall through to degraded mode
+                            raw_frigate_sum += count
+                            if count > 0:
+                                frigate_contributions.append((area_id, count))
+                        # If unavailable, skip — falls through to degraded mode
                     else:
                         # Binary-only Frigate sensor
                         if self._is_entity_available(entity_id):
                             frigate_available = True
                             if self._is_entity_on(entity_id):
-                                frigate_total += 1
+                                raw_frigate_sum += 1
+                                frigate_contributions.append((area_id, 1))
 
                 else:
-                    # All non-Frigate platforms (UniFi, Reolink, Dahua):
-                    # count per-camera binary detections
+                    # Non-Frigate platforms (UniFi, Reolink, Dahua): binary.
                     if self._is_entity_available(entity_id):
                         binary_platforms_available = True
                         if platform and platform not in active_platforms:
                             active_platforms.append(platform)
                         if self._is_entity_on(entity_id):
-                            binary_platform_count += 1
+                            raw_binary_sum += 1
+                            binary_contributions.append((area_id, 1))
+
+            # Collapse per-platform contributions via the shared helper.
+            frigate_total = self._dedup_by_area(frigate_contributions)
+            binary_platform_count = self._dedup_by_area(binary_contributions)
+
+            # Observability (D-E): record area contributions + naive sum
+            # for the path that actually ships. Reflects both platforms so
+            # the operator can measure dedup impact per-area.
+            def _area_max_map(
+                contribs: list[tuple[str | None, int]],
+            ) -> dict[str, int]:
+                out: dict[str, int] = {}
+                for aid, cnt in contribs:
+                    if not aid or cnt <= 0:
+                        continue
+                    if cnt > out.get(aid, 0):
+                        out[aid] = cnt
+                return out
+
+            frigate_area_counts = _area_max_map(frigate_contributions)
+            binary_area_seen = _area_max_map(binary_contributions)
+            area_contribs: dict[str, dict[str, Any]] = {}
+            for aid, cnt in frigate_area_counts.items():
+                area_contribs[aid] = {"max_count": cnt, "platform": "frigate"}
+            for aid, cnt in binary_area_seen.items():
+                if aid in area_contribs:
+                    # Both a Frigate and a binary camera share this area —
+                    # keep the frigate max_count but note the mix.
+                    area_contribs[aid]["binary_seen"] = cnt
+                else:
+                    area_contribs[aid] = {"max_count": cnt, "platform": "binary"}
+            self._last_area_contributions = area_contribs
+            self._last_raw_pre_dedup_sum = raw_frigate_sum + raw_binary_sum
 
             if frigate_available and CAMERA_PLATFORM_FRIGATE not in active_platforms:
                 active_platforms.insert(0, CAMERA_PLATFORM_FRIGATE)
@@ -978,6 +1055,12 @@ class PersonCensus:
             frigate_total = single_source_total
             binary_platform_count = 0
             agreement = CENSUS_AGREEMENT_SINGLE
+
+            # v5.9.0 B-M2: cross-validation-disabled path doesn't compute
+            # area contributions — clear the observability fields so stale
+            # values from a prior enabled run don't leak into attributes.
+            self._last_area_contributions = {}
+            self._last_raw_pre_dedup_sum = single_source_total
 
         # Cross-correlate with BLE
         ble_id_set = set(ble_persons)
@@ -1274,6 +1357,33 @@ class PersonCensus:
             return False
         return state.state == "on"
 
+    @staticmethod
+    def _dedup_by_area(counts: list[tuple[str | None, int]]) -> int:
+        """v5.9.0 D-A: same-area spatial dedup.
+
+        Given a list of (area_id, count) contributions, collapse counts
+        that share an ``area_id`` to ``max(count)`` for that area, then
+        sum across areas. Cameras with a null ``area_id`` contribute
+        individually (sum, no dedup).
+
+        This is the single load-bearing helper used by BOTH
+        ``_calculate_house_census`` (raw camera totals) and
+        ``_get_unrecognized_camera_count`` (unrecognized/face-gated
+        totals). Bug Class #53 guard: keep dedup in one place so the two
+        paths cannot diverge.
+        """
+        area_max: dict[str, int] = {}
+        unassigned: list[int] = []
+        for area_id, count in counts:
+            if count <= 0:
+                continue
+            if area_id:
+                if count > area_max.get(area_id, 0):
+                    area_max[area_id] = count
+            else:
+                unassigned.append(count)
+        return sum(area_max.values()) + sum(unassigned)
+
     def _get_sensor_int(self, entity_id: str, default: int = 0) -> int:
         """Return integer value of a numeric sensor."""
         state = self.hass.states.get(entity_id)
@@ -1377,7 +1487,13 @@ class PersonCensus:
         Returns (held_count, is_peak_held, peak_age_minutes).
 
         Logic:
-          - If fresh_count >= stored peak: update peak, use fresh_count
+          - v5.9.0 D-B: If fresh_count > stored peak, enter/continue a
+            PENDING latch. Only promote to peak once fresh_count has held
+            >= pending value for CENSUS_PEAK_SUSTAIN_SECONDS. Transient
+            spikes below the sustain window never propagate through
+            hold/decay. Downward moves keep instant/decay semantics — a real
+            departure should not be delayed.
+          - If fresh_count == stored peak: refresh peak timestamp (existing).
           - If within hold window: use stored peak
           - After hold window (house only): decay -1 per CENSUS_DECAY_STEP_SECONDS
           - After hold window (property): instant drop to fresh_count
@@ -1387,21 +1503,78 @@ class PersonCensus:
         if zone == "house":
             peak = self._peak_house_camera_count
             peak_ts = self._peak_house_timestamp
+            pending = self._pending_house_peak
+            pending_since = self._pending_house_peak_since
         else:
             peak = self._peak_property_count
             peak_ts = self._peak_property_timestamp
+            pending = self._pending_property_peak
+            pending_since = self._pending_property_peak_since
 
-        # Update peak if fresh count is higher or equal
-        if fresh_count >= peak or peak_ts is None:
-            peak = fresh_count
-            peak_ts = now
-            if zone == "house":
-                self._peak_house_camera_count = peak
-                self._peak_house_timestamp = peak_ts
-            else:
-                self._peak_property_count = peak
-                self._peak_property_timestamp = peak_ts
+        # v5.9.0 D-B: sustain-before-latch gate on UPWARD moves.
+        # v5.9.0 B-M1: the sustain gate is a HOUSE-ONLY policy. The
+        # property (exterior) zone keeps its documented instant-rise /
+        # instant-drop semantics — a perimeter camera firing is a safety
+        # signal that must not be delayed by 15s.
+        if peak_ts is None:
+            # First observation: latch immediately (no prior peak to protect).
+            self._store_peak(zone, fresh_count, now)
+            self._clear_pending(zone)
             return (fresh_count, False, 0)
+
+        sustain_applies = zone == "house"
+
+        if fresh_count > peak and sustain_applies:
+            # Upward move — must sustain before latching.
+            if pending_since is None or fresh_count > pending:
+                # Start (or raise) a pending latch. Higher pending resets
+                # the sustain timer to `now` so the operator can't inch a
+                # peak up by 1 every 14s.
+                self._set_pending(zone, fresh_count, now)
+                # Return the CURRENT peak — pending has not yet promoted.
+                elapsed = (now - peak_ts).total_seconds()
+                if elapsed < hold_seconds:
+                    return (peak, True, int(elapsed / 60))
+                # Peak is past hold window; fall through to decay path
+                # (below) using stored peak/peak_ts — do NOT return here.
+                # A-L1: keep _pending_* tidy — the peak is about to be
+                # rewritten by the decay path, so the pending state
+                # tracked against the old peak is no longer meaningful.
+                self._clear_pending(zone)
+            else:
+                # fresh_count is at or below the pending target (but still
+                # above the stored peak). Check whether it has sustained.
+                pending_elapsed = (now - pending_since).total_seconds()
+                if pending_elapsed >= CENSUS_PEAK_SUSTAIN_SECONDS:
+                    # Sustain window met — promote pending to peak.
+                    # Use pending value (the sustained-or-exceeded target).
+                    self._store_peak(zone, pending, now)
+                    self._clear_pending(zone)
+                    return (pending, False, 0)
+                # Still within sustain window: keep the CURRENT peak.
+                elapsed = (now - peak_ts).total_seconds()
+                if elapsed < hold_seconds:
+                    return (peak, True, int(elapsed / 60))
+                # Fall through to decay path.
+                # A-L1: same rationale as above.
+                self._clear_pending(zone)
+        elif fresh_count > peak:
+            # B-M1: property zone — no sustain gate. Latch instantly,
+            # matching pre-v5.9.0 semantics for the exterior.
+            self._store_peak(zone, fresh_count, now)
+            self._clear_pending(zone)
+            return (fresh_count, False, 0)
+        elif fresh_count == peak:
+            # Equal to stored peak: refresh timestamp (matches prior semantics).
+            self._store_peak(zone, fresh_count, now)
+            self._clear_pending(zone)
+            return (fresh_count, False, 0)
+        else:
+            # fresh_count < peak. A dip clears any pending latch (the
+            # higher value did NOT sustain). Then fall through to
+            # hold/decay for the downward path (instant/decay semantics).
+            if pending_since is not None and fresh_count < pending:
+                self._clear_pending(zone)
 
         elapsed = (now - peak_ts).total_seconds()
 
@@ -1429,6 +1602,53 @@ class PersonCensus:
             self._peak_property_timestamp = now
             return (fresh_count, False, 0)
 
+    # v5.9.0 D-B helpers for the sustain-latch state machine ------------------
+
+    def _store_peak(self, zone: str, value: int, ts: datetime) -> None:
+        """Write the promoted peak for the given zone."""
+        if zone == "house":
+            self._peak_house_camera_count = value
+            self._peak_house_timestamp = ts
+        else:
+            self._peak_property_count = value
+            self._peak_property_timestamp = ts
+
+    def _set_pending(self, zone: str, value: int, ts: datetime) -> None:
+        """Start/raise a pending latch for the given zone."""
+        if zone == "house":
+            self._pending_house_peak = value
+            self._pending_house_peak_since = ts
+        else:
+            self._pending_property_peak = value
+            self._pending_property_peak_since = ts
+
+    def _clear_pending(self, zone: str) -> None:
+        """Drop the pending latch for the given zone."""
+        if zone == "house":
+            self._pending_house_peak = 0
+            self._pending_house_peak_since = None
+        else:
+            self._pending_property_peak = 0
+            self._pending_property_peak_since = None
+
+    def get_pending_peak_info(self, zone: str, now: datetime) -> dict[str, Any] | None:
+        """Return {value, seconds_remaining} if a pending latch is active.
+
+        Used by the census sensor's D-E observability attributes. Returns
+        None when no pending latch is in flight.
+        """
+        if zone == "house":
+            pending = self._pending_house_peak
+            since = self._pending_house_peak_since
+        else:
+            pending = self._pending_property_peak
+            since = self._pending_property_peak_since
+        if since is None or pending <= 0:
+            return None
+        elapsed = (now - since).total_seconds()
+        remaining = max(0, int(CENSUS_PEAK_SUSTAIN_SECONDS - elapsed))
+        return {"value": pending, "seconds_remaining": remaining}
+
     def _get_unrecognized_camera_count(self) -> int:
         """Count interior cameras detecting persons with unrecognized faces.
 
@@ -1438,10 +1658,18 @@ class PersonCensus:
 
         Face recognition must be fresh (within CENSUS_FACE_RECOGNITION_WINDOW_SECONDS)
         to be trusted. Stale face matches are treated as unknown.
+
+        v5.9.0 B-C1 fix: per-camera unrecognized contributions are grouped
+        by ``CameraInfo.area_id`` and collapsed via ``_dedup_by_area``
+        (same-area max, cross-area sum), matching the path in
+        ``_calculate_house_census``. Without this, the enhanced-census
+        path (default ON) overwrites the raw house result with a naive
+        sum and re-inflates the count Bug Class #53 D-A was meant to
+        prevent.
         """
-        unrecognized = 0
         now = dt_util.utcnow()
         configured_interior = self._get_interior_camera_entities()
+        contributions: list[tuple[str | None, int]] = []
 
         for entity_id in configured_interior:
             platform = self._camera_manager.get_platform_for_camera(entity_id)
@@ -1457,11 +1685,13 @@ class PersonCensus:
             if count <= 0:
                 continue
 
+            area_id = camera_info.area_id
+
             # Check face recognition for this camera
             bs_id = camera_info.entity_id
             if not bs_id.endswith("_person_occupancy"):
                 # Can't derive face sensor — count as unrecognized
-                unrecognized += count
+                contributions.append((area_id, count))
                 continue
 
             base_name = bs_id[len("binary_sensor."):-len("_person_occupancy")]
@@ -1489,12 +1719,16 @@ class PersonCensus:
             if face_is_fresh:
                 # Camera sees someone AND face is recently recognized — not a guest
                 # But there may be MORE people than the recognized face
-                unrecognized += max(0, count - 1)
+                contribution = max(0, count - 1)
             else:
                 # Face is unknown, stale, or no match — all detected are unrecognized
-                unrecognized += count
+                contribution = count
 
-        return unrecognized
+            if contribution > 0:
+                contributions.append((area_id, contribution))
+
+        # v5.9.0 B-C1: same helper used by _calculate_house_census.
+        return self._dedup_by_area(contributions)
 
     def _get_wifi_guest_count(self, now: datetime | None = None) -> int:
         """Count GUEST phones on WiFi VLAN (shared entertainment network).

@@ -48,9 +48,12 @@ hypotheses:
     window: { first_check_after: 10m, confirm_after: 1h, alert_if_violated_after: 24h }
 ```
 
-## Live Validation — to populate post-restart (write-back rule)
-- **L1 Rooms load:** all 40 URA config entries `loaded` (0 `setup_error`) — the exact regression this hotfix targets.
-- **L2 Version:** `update.universal_room_automation_update` installed_version = `v5.8.1`.
-- **L3 Reconcile surfaces live:** `sensor.universal_room_automation_reconcile_health` present; per-room `sensor.<room>_room_reconcile` + `switch.<room>_auto_recovery` (enabled by default) present.
-- **L4 No error storm:** zero URA ERROR / RecursionError lines in the boot log.
-- (Then the v5.8.0 feature-level L4–L7 from README_v5.8.0.md — AV-closet reconcile canary, coalesce, flap quarantine, no write spike.)
+## Live Validation — Validated 2026-07-06 (post-restart)
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | Rooms load (the exact v5.8.0 regression) | **PASS** | `ha_get_integration universal_room_automation` → `state_summary: {loaded: 40}`. **Zero `setup_error`** (v5.8.0 had 37/40 in setup_error). |
+| L2 | Version | **PASS** | `update.universal_room_automation_update` installed_version = `v5.8.1`. |
+| L3 | Reconcile feature actually live | **PASS (stronger than planned)** | `sensor.universal_room_automation_reconcile_health` state = `3` (`total_reconciles_today: 3`) — the reconciler not only loaded but already re-asserted 3 actuators post-boot. `rooms_with_auto_recovery_off: []` (all rooms armed). |
+| L4 | No error storm | **PASS** | `error_log` search `RecursionError` = 0 lines. |
+
+The construction-order fix is confirmed on the live house: every room set up cleanly and reconcile-on-return is functioning. The deeper v5.8.0 feature-level checks (AV-closet reconcile canary, coalesce, flap quarantine, no write spike from README_v5.8.0.md) now ride on this working base and can be observed on the next real WiFi/actuator event.

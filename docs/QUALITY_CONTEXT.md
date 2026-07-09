@@ -2197,6 +2197,55 @@ promise — every code path must honor it or the attribute is lying.
 
 ---
 
+### Bug Class #54 — Perceived actuation-latency misattribution (measure before blaming code) ⚠️
+
+**Symptom.** "The light is slow / room automation got sluggish" is reported
+after a stretch of code deploys, and the instinct is to hunt the recent
+diffs for a latency regression. In practice the perceived lag usually
+lives in a layer the code never touched: an actuator knocked offline by a
+network event (the call silently no-ops — silent-actuator class, v5.7.2),
+a flaky WiFi/Matter *sensor* whose detection→report leg starts the whole
+chain late, or device-radio round-trip cost — none of which show up as a
+code-path delta. Chasing the diff wastes review cycles and can "fix"
+paths that were never slow.
+
+**Exemplar — 2026-07-08 master-bath "sluggish light".** Operator reported
+sluggish motion→light over a week spanning the HA 2026.7 upgrade +
+v5.7.x/v5.8.x URA deploys. Measured from recorder history, the in-HA
+latency distribution (motion state → device confirmed on) was
+**byte-for-byte identical** pre-upgrade vs post-everything (night ~1.0s,
+day ~1.5s — the delta being Matter round-trip per device class). The real
+cause: a **network event at 00:39:32** took a batch of Shelly relays
+offline (master-bath both light channels + stair closet, same second);
+motion fired clean all day while `turn_on` no-op'd against dead relays.
+`sensor.<room>_unavailable_entities` had it flagged the whole time
+(`actuator_count=3`, `reason: offline_since_restart`).
+
+**Triage protocol (in order — device layer BEFORE code layer):**
+1. **Check the room's `unavailable_entities` sensor** (`actuator_count`,
+   `details[].reason`) and the house `reconcile_health` sensor. A dead
+   actuator fully explains "slow/absent" actuation. Batch `since`
+   timestamps across rooms = network event, not URA.
+2. **Measure, don't infer:** pull recorder history for the room's
+   trigger sensor + actuated entity; compute `actuation.last_changed −
+   motion.last_changed` per event. Then pull the SAME pair for a window
+   pre-dating the suspect deploys and DIFF the distributions. Identical
+   distributions = no code regression, full stop.
+3. Remember the invisible leg: history timestamps start when HA *hears*
+   the sensor — a slow/flaky sensor radio shifts the whole event and can
+   never appear in these deltas. Repeated `unavailable` flaps on the
+   sensor entity are the tell.
+4. Only if the measured in-HA delta actually widened: NOW suspect the
+   event→refresh→automation path (rate limiter, listener changes, event-
+   loop load) and bisect by deploy date.
+
+**Detection (pre-ship).** Any cycle touching the room update tick, state
+listeners, or the automation entry path should state in its README how to
+re-run the step-2 measurement, so the next "it feels slow" report starts
+from data.
+
+---
+
 ## ✅ MANDATORY VALIDATION CHECKLIST
 
 **Before EVERY deployment, complete this checklist:**

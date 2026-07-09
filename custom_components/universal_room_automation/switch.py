@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.8.1
+# Universal Room Automation vv5.9.0
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -3598,7 +3598,7 @@ class AutoRecoverySwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
 
     def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
         """Initialize the switch."""
-        super().__init__(coordinator, "auto_recovery", "Auto-Recovery")
+        super().__init__(coordinator, "auto_recovery", "Device Auto Recovery")
         self._attr_is_on = True  # Default to enabled
 
     async def async_added_to_hass(self) -> None:
