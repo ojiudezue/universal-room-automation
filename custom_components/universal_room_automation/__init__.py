@@ -3855,6 +3855,20 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # diffs the removed entities off the tracked set. Fires ONLY on
         # successful unload (unload_ok True) — mirrors the coordinator
         # teardown branch. Symmetric with the "loaded" dispatch above.
+        #
+        # F7 fix-up (A-MED-5): options-reload cycles unloaded->loaded
+        # refreshes back-to-back. There is a ~one-tick window between the
+        # unloaded refresh finishing and the loaded refresh starting where
+        # the room's entities are unmapped. Any state-change event that
+        # lands in that window is dropped by the substrate's
+        # `mapping is None` guard. RECOVERY: the loaded refresh (F1/F2)
+        # re-seeds from LIVE state — if the entity moved during the blind
+        # window, that new state is captured by the re-seed and either
+        # (a) matches the pre-refresh snapshot (no synthetic edge needed)
+        # or (b) flips the bucket and emits a synthetic edge. So
+        # transitions that occur during the blind window are NOT lost —
+        # they're recovered by the live-state read at the tail of the
+        # loaded refresh.
         try:
             from homeassistant.helpers.dispatcher import async_dispatcher_send
             from .domain_coordinators.signals import SIGNAL_ROOM_ENTRY_LIFECYCLE

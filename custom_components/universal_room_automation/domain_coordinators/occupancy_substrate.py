@@ -42,12 +42,16 @@ Responsibilities (per planning doc D1):
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import Any, Callable, Dict, Optional, Set
+from typing import Any, Callable, Dict, Optional, Set, Tuple
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import (
+    async_call_later,
+    async_track_state_change_event,
+)
 
 from ..const import (
     CONF_ENTRY_TYPE,
@@ -135,35 +139,48 @@ class OccupancySubstrate:
         # — surfaces the "no Tier-1 sensors configured" configuration gap
         # (planning doc D5).
         self._no_conf_lists_logged: bool = False
+        # F3 fix-up (B-HIGH-1): teardown sentinel. Set at the top of
+        # ``async_teardown``; ``refresh_subscriptions`` short-circuits on
+        # it so a late-arriving lifecycle event cannot race with teardown
+        # to re-install listeners after the substrate is gone.
+        self._is_torn_down: bool = False
+        # F4 fix-up (B-MED-1): serialize refresh_subscriptions calls. The
+        # method body between lock-acquire and return MUST remain
+        # await-free; the lock acquisition IS the only await point.
+        self._refresh_lock = asyncio.Lock()
+        # F6 fix-up (B-MED-3): one-shot retry flag if
+        # async_track_state_change_event raises during refresh.
+        self._refresh_retry_pending: bool = False
+        # F3 fix-up: track the retry timer unsub so async_teardown can
+        # cancel it (Bug Class #19).
+        self._refresh_retry_unsub: Optional[Callable[[], None]] = None
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
-    async def async_setup(self) -> None:
-        """Discover CONF-listed Tier-1 entities and start tracking edges.
+    def _discover_entity_map(
+        self,
+    ) -> Tuple[Dict[str, Dict[str, str]], Dict[str, tuple]]:
+        """Return (room_entities, entity_to_room_kind) from live config entries.
 
-        Safe to invoke multiple times — each call performs a clean
-        re-discovery (Bug Class #38). Stale entries pruned, new entries
-        seeded + subscribed. Boot-settle dispatch suppression is preserved
-        across re-discovery (the flag is only flipped by
-        ``release_boot_settle``).
+        F1 fix-up (A-MED-2): single source of truth for the CONF-list walk
+        shared by ``async_setup`` and ``refresh_subscriptions``. The prior
+        "byte-parallel" split invited drift (e.g. duplicate-list WARNs that
+        fired at cold-boot but not at live-add). Includes the multi-list
+        precedence WARN and the cross-room duplicate WARN so both paths
+        diagnose identically.
+
+        Returns:
+            room_entities: {room_name: {entity_id: kind}}
+            entity_to_room_kind: {entity_id: (room_name, kind)}
         """
-        # Tear down any prior listeners first — re-discovery support.
-        self._teardown_listeners()
-
-        # Build the per-room, per-kind set of curated entity_ids.
-        # Shape: {room_name: {entity_id: kind}}. The inner dict tracks
-        # the chosen kind for each entity in the room; precedence motion
-        # → mmwave → occupancy if the same entity_id is listed in
-        # multiple CONF lists for the same room (defensive case).
         room_entities: Dict[str, Dict[str, str]] = {}
         try:
             entries = self.hass.config_entries.async_entries(DOMAIN)
         except Exception:  # noqa: BLE001 — defensive: registry mid-reload
             _LOGGER.warning(
-                "OccupancySubstrate: cannot enumerate config entries — "
-                "discovery skipped",
+                "OccupancySubstrate: cannot enumerate config entries",
                 exc_info=True,
             )
             entries = []
@@ -180,11 +197,7 @@ class OccupancySubstrate:
                 continue
 
             per_room = room_entities.setdefault(room_name, {})
-            # Walk the kinds in declared precedence; the first match for
-            # a given entity_id wins and a WARN is emitted if the same
-            # entity_id was already classified under an earlier kind in
-            # this same room (multi-list membership — should not happen
-            # in normal configs).
+            # Walk kinds in declared precedence; first match wins.
             for kind in _KIND_PRECEDENCE:
                 conf_key = _KIND_TO_CONF[kind]
                 entity_ids = list(merged.get(conf_key, []) or [])
@@ -203,40 +216,11 @@ class OccupancySubstrate:
                         continue
                     per_room[entity_id] = kind
 
-        # Prune stale rooms from ``_raw_state`` whose configs disappeared
-        # entirely (room entry removed) so we don't keep ghost state.
-        for stale_room in list(self._raw_state.keys()):
-            if stale_room not in room_entities:
-                self._raw_state.pop(stale_room, None)
-
-        # Reset entity classification map for the fresh discovery pass.
-        self._entity_to_room_kind = {}
-
-        # Collect all entity_ids and seed ``_raw_state`` from current
-        # ``hass.states`` (v4.7.18.1 B-HIGH-1 seed pattern).
-        all_entity_ids: Set[str] = set()
-        total_listener_entities = 0
+        # Build entity->(room,kind) map with cross-room duplicate WARN.
+        entity_to_room_kind: Dict[str, tuple] = {}
         for room_name, entity_map in room_entities.items():
-            # Make sure every room has a stable per-kind bucket so that
-            # ``get_room_kinds`` projection is consistent.
-            bucket = self._raw_state.setdefault(room_name, {})
-            # Re-key bucket to only include kinds we still care about.
-            for k in TIER1_KINDS:
-                bucket.setdefault(k, False)
-            # Reset all to False before seeding so a CONF list shrink
-            # doesn't leave stale True bits from a previously-tracked
-            # entity that's now gone (planning D1 re-discovery clean).
-            for k in TIER1_KINDS:
-                bucket[k] = False
             for entity_id, kind in entity_map.items():
-                # C-MEDIUM-2 fix-up: WARN on cross-room duplicate entity_id.
-                # If the same entity_id was already claimed by another
-                # room earlier in the iteration order, keep the first
-                # claim (stable for the operator) and surface the
-                # divergence loudly — the substrate cycle exists exactly
-                # to surface configuration overlap, so silently losing
-                # one room would defeat the point.
-                prior = self._entity_to_room_kind.get(entity_id)
+                prior = entity_to_room_kind.get(entity_id)
                 if prior is not None and prior[0] != room_name:
                     _LOGGER.warning(
                         "OccupancySubstrate: entity %s claimed by multiple "
@@ -245,21 +229,83 @@ class OccupancySubstrate:
                         entity_id, prior[0], prior[1], room_name, kind,
                     )
                     continue
-                self._entity_to_room_kind[entity_id] = (room_name, kind)
-                all_entity_ids.add(entity_id)
-                total_listener_entities += 1
-                # Seed from current state.
-                try:
-                    state = self.hass.states.get(entity_id)
-                except Exception:  # pragma: no cover — defensive
-                    state = None
-                if state is None:
-                    continue
-                if state.state in _UNAVAILABLE_STATES:
-                    continue
-                is_on = state.state == "on"
-                if is_on:
-                    bucket[kind] = True
+                entity_to_room_kind[entity_id] = (room_name, kind)
+
+        return room_entities, entity_to_room_kind
+
+    def _reset_and_seed_room_bucket(
+        self,
+        room_name: str,
+        entity_map: Dict[str, str],
+        desired_entity_to_room_kind: Dict[str, tuple],
+    ) -> Dict[str, bool]:
+        """Reset every kind bucket for ``room_name`` to False, then re-seed
+        from live state across each entity mapped to this room.
+
+        Returns the pre-reset snapshot so callers can compute True→False
+        edges for kinds whose value flipped as a result of the reset.
+
+        F1 fix-up (A-HIGH-1 + C-MED-1): mirrors ``async_setup`` semantics
+        on every refresh. Guarantees: shrinking a CONF list clears the
+        stuck-True bucket; reclassifying an entity clears the OLD-kind
+        stuck-True bucket.
+        """
+        bucket = self._raw_state.setdefault(room_name, {})
+        # Snapshot BEFORE reset so callers can dispatch True→False edges.
+        pre_reset = {k: bool(bucket.get(k, False)) for k in TIER1_KINDS}
+        for k in TIER1_KINDS:
+            bucket[k] = False
+        # Re-seed from live state across this room's FULL sensor set.
+        for entity_id, _entity_kind in entity_map.items():
+            # Kind for THIS room comes from the desired canonical map
+            # (post cross-room duplicate filtering); an entity claimed by
+            # another room contributes nothing here.
+            mapping = desired_entity_to_room_kind.get(entity_id)
+            if mapping is None or mapping[0] != room_name:
+                continue
+            _r, canonical_kind = mapping
+            try:
+                state = self.hass.states.get(entity_id)
+            except Exception:  # pragma: no cover — defensive
+                state = None
+            if state is None:
+                continue
+            if state.state in _UNAVAILABLE_STATES:
+                continue
+            if state.state == "on":
+                bucket[canonical_kind] = True
+        return pre_reset
+
+    async def async_setup(self) -> None:
+        """Discover CONF-listed Tier-1 entities and start tracking edges.
+
+        Safe to invoke multiple times — each call performs a clean
+        re-discovery (Bug Class #38). Stale entries pruned, new entries
+        seeded + subscribed. Boot-settle dispatch suppression is preserved
+        across re-discovery (the flag is only flipped by
+        ``release_boot_settle``).
+        """
+        # Tear down any prior listeners first — re-discovery support.
+        self._teardown_listeners()
+
+        # F1 fix-up (A-MED-2): shared discovery walk.
+        room_entities, desired_entity_to_room_kind = self._discover_entity_map()
+
+        # Prune stale rooms from ``_raw_state`` whose configs disappeared
+        # entirely (room entry removed) so we don't keep ghost state.
+        for stale_room in list(self._raw_state.keys()):
+            if stale_room not in room_entities:
+                self._raw_state.pop(stale_room, None)
+
+        self._entity_to_room_kind = desired_entity_to_room_kind
+
+        # Reset every desired room's bucket to False, then re-seed from
+        # live state across each room's FULL sensor set.
+        all_entity_ids: Set[str] = set(desired_entity_to_room_kind.keys())
+        for room_name, entity_map in room_entities.items():
+            self._reset_and_seed_room_bucket(
+                room_name, entity_map, desired_entity_to_room_kind,
+            )
 
         # Register one listener per entity. Using a single
         # ``async_track_state_change_event`` call with the full list keeps
@@ -299,224 +345,233 @@ class OccupancySubstrate:
         """Re-enumerate ROOM entries and atomically swap the listener set.
 
         Substrate re-subscribe cycle (post-v5.11.0): called by
-        ``PresenceCoordinator`` on ``SIGNAL_ROOM_ENTRY_LIFECYCLE``
-        (dispatched from ROOM ``async_setup_entry`` / ``async_unload_entry``
-        / suppressed ``_async_update_listener`` writes at ``__init__.py``
-        room-lifecycle sites). Restores the pre-v4.7.24 (commit
-        ``e165e1cb``) per-room-onboarding guarantee: a room added WITHOUT
-        an HA restart is event-driven immediately.
+        ``PresenceCoordinator`` on ``SIGNAL_ROOM_ENTRY_LIFECYCLE``.
+        Restores the pre-v4.7.24 per-room-onboarding guarantee: a room
+        added WITHOUT an HA restart is event-driven immediately.
 
-        Design:
-        1. Re-build the desired ``(entity_id, room_name, kind)`` triples
-           from currently-LOADED ROOM entries (SAME discovery walk as
-           ``async_setup`` — kept intentionally byte-parallel so future
-           edits to one path force review of the other).
-        2. Diff against ``self._entity_to_room_kind`` — compute
-           ``added`` / ``removed`` sets.
-        3. Fast-path: if the desired set equals the tracked set AND no
-           kind reclassification, this is a no-op (options_updated writes
-           that don't move sensor lists hit this path).
-        4. Atomic swap: register the NEW ``async_track_state_change_event``
-           listener over the FULL new entity list BEFORE releasing the
-           prior unsub. Per-kind edge idempotence in
-           ``_handle_state_change`` (``prior == occupied`` short-circuit
-           at the "true edge only" gate) neutralizes duplicate delivery
-           during the overlap window; ``mapping is None`` at
-           ``_handle_state_change`` covers removed entities whose events
-           land after the map has been repointed but before the old
-           unsub fires.
-        5. Seed newly-added entities from ``hass.states.get()`` (mirrors
-           the v4.7.18.1 B-HIGH-1 seed pattern in ``async_setup``).
-        6. Prune ``_raw_state`` rooms whose entries are gone.
-        7. If ``_boot_settle_done`` is True (typical live-add case),
-           dispatch synthetic True-slot edges for the newly-added room's
-           kinds so consumers that missed the boot-settle release don't
-           stay silent until the next real edge — mirrors
-           ``release_boot_settle`` semantics for the late-add case.
+        F1/F2 fix-up (A-HIGH-1 + A-MED-3 + C-HIGH-4 + C-MED-1): the body
+        MIRRORS async_setup's reset-then-seed-then-swap semantics on every
+        call. Steps:
+
+        1. Snapshot the CURRENT raw state (pre-refresh).
+        2. Discover desired triples via the shared helper.
+        3. Diff added/removed/reclassified. Fast-path noop when clean.
+        4. For every desired room: reset every kind bucket to False and
+           re-seed from live state across the room's FULL sensor set.
+           This kills: shrink-a-CONF-list stuck-True, reclassify old-kind
+           stuck-True, add-sensor-to-existing-room stuck-False.
+        5. Atomic swap: register the NEW async_track_state_change_event
+           listener BEFORE releasing the prior unsub. Repoint the
+           entity->room/kind map between register and release. Order
+           protects in-flight events: a new-listener event during the
+           overlap sees the seeded bucket and short-circuits on
+           ``prior == occupied``.
+        6. Prune rooms whose entries are gone.
+        7. Post boot-settle, emit synthetic edges: True→False for every
+           slot the reset+re-seed FLIPPED False, and False→True for every
+           slot that moved to True (subsumes the old added-rooms-only
+           step 7 — covers add-sensor-to-existing-room, which was the
+           C-HIGH-4 blind spot).
+
+        F4 fix-up (B-MED-1): serialize via ``self._refresh_lock``. The
+        body inside the lock MUST remain await-free — that's the
+        atomicity invariant. Any future await inside requires re-audit.
+        The lock acquire is the only await point.
+
+        F3 fix-up (B-HIGH-1): honors the ``_is_torn_down`` sentinel.
 
         Bug Class #50 guardrail: this method is the ONLY caller that
         mutates ``self._unsub_listeners`` outside ``async_setup`` /
-        ``_teardown_listeners``. It preserves the invariant that no
-        external periodic rebuild path can clobber the substrate's own
-        subscription list — verified 2026-07-10 grep of `_unsub_listeners`
-        in presence.py: appended selectively, never wholesale-cleared
-        outside async_teardown.
+        ``_teardown_listeners``.
         """
-        # ---- Step 1: rebuild desired triples (mirror async_setup) ----
-        room_entities: Dict[str, Dict[str, str]] = {}
-        try:
-            entries = self.hass.config_entries.async_entries(DOMAIN)
-        except Exception:  # noqa: BLE001 — defensive: registry mid-reload
-            _LOGGER.warning(
-                "OccupancySubstrate.refresh_subscriptions: cannot enumerate "
-                "config entries — skipping",
-                exc_info=True,
-            )
-            return
-
-        for entry in entries:
-            try:
-                merged = {**(entry.data or {}), **(entry.options or {})}
-            except Exception:  # noqa: BLE001 — defensive
-                continue
-            if merged.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
-                continue
-            room_name = merged.get(CONF_ROOM_NAME)
-            if not room_name:
-                continue
-
-            per_room = room_entities.setdefault(room_name, {})
-            for kind in _KIND_PRECEDENCE:
-                conf_key = _KIND_TO_CONF[kind]
-                entity_ids = list(merged.get(conf_key, []) or [])
-                for entity_id in entity_ids:
-                    if not entity_id:
-                        continue
-                    if entity_id in per_room:
-                        continue  # precedence already claimed
-                    per_room[entity_id] = kind
-
-        # Build the desired (entity -> (room, kind)) map with the same
-        # cross-room duplicate handling as async_setup (first claim wins,
-        # WARN on duplicate).
-        desired_entity_to_room_kind: Dict[str, tuple] = {}
-        desired_rooms: Set[str] = set()
-        for room_name, entity_map in room_entities.items():
-            desired_rooms.add(room_name)
-            for entity_id, kind in entity_map.items():
-                prior = desired_entity_to_room_kind.get(entity_id)
-                if prior is not None and prior[0] != room_name:
-                    _LOGGER.warning(
-                        "OccupancySubstrate.refresh_subscriptions: entity "
-                        "%s claimed by multiple rooms — kept first claim "
-                        "(room=%s kind=%s), ignoring (room=%s kind=%s)",
-                        entity_id, prior[0], prior[1], room_name, kind,
-                    )
-                    continue
-                desired_entity_to_room_kind[entity_id] = (room_name, kind)
-
-        # ---- Step 2: diff ----
-        current_keys = set(self._entity_to_room_kind.keys())
-        desired_keys = set(desired_entity_to_room_kind.keys())
-        added = desired_keys - current_keys
-        removed = current_keys - desired_keys
-        reclassified = {
-            e for e in (current_keys & desired_keys)
-            if self._entity_to_room_kind[e] != desired_entity_to_room_kind[e]
-        }
-        added_rooms = desired_rooms - set(self._raw_state.keys())
-
-        # ---- Step 3: fast-path no-op ----
-        if not added and not removed and not reclassified:
+        # F3: teardown-race guard. The sentinel is set at the TOP of
+        # async_teardown so a late-arriving lifecycle event cannot
+        # re-install listeners on a torn-down substrate.
+        if self._is_torn_down:
             _LOGGER.debug(
-                "OccupancySubstrate.refresh_subscriptions: no diff — noop "
-                "(tracked=%d entities, %d rooms)",
-                len(current_keys), len(desired_rooms),
+                "OccupancySubstrate.refresh_subscriptions: substrate is "
+                "torn down — skipping"
             )
             return
 
-        _LOGGER.info(
-            "OccupancySubstrate.refresh_subscriptions: diff added=%d "
-            "removed=%d reclassified=%d added_rooms=%d",
-            len(added), len(removed), len(reclassified), len(added_rooms),
-        )
+        # F4: serialize concurrent refresh calls. The lock acquire is the
+        # ONLY await point in this method; the body below MUST stay
+        # await-free to preserve the atomic-swap invariant.
+        async with self._refresh_lock:
+            # Re-check the teardown sentinel — a teardown may have
+            # completed while we were waiting on the lock.
+            if self._is_torn_down:
+                return
 
-        # ---- Step 4: atomic swap — register NEW listener BEFORE unsub of old ----
-        prior_unsubs = list(self._unsub_listeners)
-        new_unsub = None
-        if desired_keys:
-            try:
-                new_unsub = async_track_state_change_event(
-                    self.hass,
-                    list(desired_keys),
-                    self._handle_state_change,
-                )
-            except Exception:  # noqa: BLE001 — defensive
-                _LOGGER.warning(
-                    "OccupancySubstrate.refresh_subscriptions: new "
-                    "state-change subscription failed — keeping old "
-                    "listener in place",
-                    exc_info=True,
+            # ---- Step 1: snapshot pre-refresh raw state ----
+            snapshot: Dict[str, Dict[str, bool]] = {
+                room: {k: bool(bucket.get(k, False)) for k in TIER1_KINDS}
+                for room, bucket in self._raw_state.items()
+            }
+
+            # ---- Step 2: discover via shared helper ----
+            room_entities, desired_entity_to_room_kind = (
+                self._discover_entity_map()
+            )
+            desired_rooms: Set[str] = set(room_entities.keys())
+
+            # ---- Step 3: diff ----
+            current_keys = set(self._entity_to_room_kind.keys())
+            desired_keys = set(desired_entity_to_room_kind.keys())
+            added = desired_keys - current_keys
+            removed = current_keys - desired_keys
+            reclassified = {
+                e for e in (current_keys & desired_keys)
+                if self._entity_to_room_kind[e]
+                != desired_entity_to_room_kind[e]
+            }
+
+            if not added and not removed and not reclassified:
+                _LOGGER.debug(
+                    "OccupancySubstrate.refresh_subscriptions: no diff — "
+                    "noop (tracked=%d entities, %d rooms)",
+                    len(current_keys), len(desired_rooms),
                 )
                 return
 
-        # Repoint the entity->room/kind map BEFORE releasing the old
-        # listener. During the overlap window, both listeners are
-        # registered; the per-kind edge idempotence guard in
-        # `_handle_state_change` (`prior == occupied` short-circuit)
-        # prevents any double-dispatch. For removed entities that receive
-        # an in-flight event, `mapping is None` covers them at
-        # `_handle_state_change` (they're gone from the map now).
-        self._entity_to_room_kind = desired_entity_to_room_kind
+            _LOGGER.info(
+                "OccupancySubstrate.refresh_subscriptions: diff added=%d "
+                "removed=%d reclassified=%d",
+                len(added), len(removed), len(reclassified),
+            )
 
-        # Register new unsub in the list, then release prior ones. Order
-        # matters: the list carries the NEW unsub before old are released
-        # so any concurrent teardown (e.g. async_teardown() racing an
-        # in-flight refresh) still tears down the new one.
-        self._unsub_listeners = []
-        if new_unsub is not None:
-            self._unsub_listeners.append(new_unsub)
-        for unsub in prior_unsubs:
+            # ---- Step 4: reset+seed BEFORE the atomic swap ----
+            # Seeding BEFORE the swap means an in-flight added-entity
+            # event that hits the NEW listener AFTER swap will see
+            # `prior == occupied` and short-circuit — no double dispatch.
+            for room_name, entity_map in room_entities.items():
+                self._reset_and_seed_room_bucket(
+                    room_name, entity_map, desired_entity_to_room_kind,
+                )
+
+            # ---- Step 5: atomic swap ----
+            prior_unsubs = list(self._unsub_listeners)
+            new_unsub = None
+            if desired_keys:
+                try:
+                    new_unsub = async_track_state_change_event(
+                        self.hass,
+                        list(desired_keys),
+                        self._handle_state_change,
+                    )
+                except Exception:  # noqa: BLE001 — defensive
+                    _LOGGER.warning(
+                        "OccupancySubstrate.refresh_subscriptions: new "
+                        "state-change subscription failed — keeping old "
+                        "listener in place; will retry once in 30s",
+                        exc_info=True,
+                    )
+                    # F6 (B-MED-3): schedule a single guarded retry.
+                    self._schedule_refresh_retry()
+                    return
+
+            # Repoint the entity->room/kind map after the new listener is
+            # up and before old are released.
+            self._entity_to_room_kind = desired_entity_to_room_kind
+
+            self._unsub_listeners = []
+            if new_unsub is not None:
+                self._unsub_listeners.append(new_unsub)
+            for unsub in prior_unsubs:
+                try:
+                    unsub()
+                except Exception:  # noqa: BLE001 — defensive
+                    _LOGGER.debug(
+                        "OccupancySubstrate.refresh_subscriptions: prior "
+                        "unsub raised (non-fatal)",
+                        exc_info=True,
+                    )
+
+            # ---- Step 6: prune rooms whose entries are gone ----
+            for stale_room in list(self._raw_state.keys()):
+                if stale_room not in desired_rooms:
+                    self._raw_state.pop(stale_room, None)
+
+            # ---- Step 7: emit synthetic edges post-settle ----
+            # F2 fix-up (C-HIGH-4): compute deltas between snapshot and
+            # the reset+re-seeded state for EVERY (room, kind) — this
+            # subsumes the old added-rooms-only path AND covers
+            # add-sensor-to-existing-room.
+            if self._boot_settle_done:
+                emitted_true = 0
+                emitted_false = 0
+                for room_name in desired_rooms:
+                    bucket = self._raw_state.get(room_name, {})
+                    prior_bucket = snapshot.get(room_name, {})
+                    for kind in TIER1_KINDS:
+                        cur = bool(bucket.get(kind, False))
+                        prev = bool(prior_bucket.get(kind, False))
+                        if cur == prev:
+                            continue
+                        self._dispatch(room_name, kind, cur)
+                        if cur:
+                            emitted_true += 1
+                        else:
+                            emitted_false += 1
+                if emitted_true or emitted_false:
+                    _LOGGER.info(
+                        "OccupancySubstrate.refresh_subscriptions: emitted "
+                        "%d True-edge and %d False-edge synthetic "
+                        "dispatch(es)",
+                        emitted_true, emitted_false,
+                    )
+
+    def _schedule_refresh_retry(self) -> None:
+        """F6 fix-up (B-MED-3): schedule ONE guarded refresh retry.
+
+        Uses a one-shot ``_refresh_retry_pending`` flag so a re-arm loop
+        cannot form — if this retry itself fails, we log and stop (the
+        next lifecycle event will re-trigger the normal path).
+        """
+        if self._refresh_retry_pending or self._is_torn_down:
+            return
+        self._refresh_retry_pending = True
+
+        async def _retry(_now: Any) -> None:
+            self._refresh_retry_pending = False
+            self._refresh_retry_unsub = None
+            if self._is_torn_down:
+                return
             try:
-                unsub()
+                await self.refresh_subscriptions()
             except Exception:  # noqa: BLE001 — defensive
                 _LOGGER.debug(
-                    "OccupancySubstrate.refresh_subscriptions: prior "
-                    "unsub raised (non-fatal)",
+                    "OccupancySubstrate: retry refresh_subscriptions raised",
                     exc_info=True,
                 )
 
-        # ---- Step 5: seed newly-added entities from hass.states ----
-        # Ensure each desired room has a stable per-kind bucket and seed
-        # newly-added entities' True/False from current state.
-        for room_name in desired_rooms:
-            bucket = self._raw_state.setdefault(room_name, {})
-            for k in TIER1_KINDS:
-                bucket.setdefault(k, False)
-
-        # For added entities, seed True kinds. For reclassified entities,
-        # clear the OLD kind slot's contribution isn't tractable at this
-        # granularity (multiple entities can share a kind slot per room),
-        # so we conservatively re-seed the NEW kind from current state.
-        for entity_id in added | reclassified:
-            room_name, kind = desired_entity_to_room_kind[entity_id]
-            try:
-                state = self.hass.states.get(entity_id)
-            except Exception:  # pragma: no cover — defensive
-                state = None
-            if state is None:
-                continue
-            if state.state in _UNAVAILABLE_STATES:
-                continue
-            if state.state == "on":
-                self._raw_state[room_name][kind] = True
-
-        # ---- Step 6: prune rooms whose entries are gone ----
-        for stale_room in list(self._raw_state.keys()):
-            if stale_room not in desired_rooms:
-                self._raw_state.pop(stale_room, None)
-
-        # ---- Step 7: synthetic True-slot dispatch for newly-added rooms ----
-        # If boot-settle already released (typical live-add case), fan out
-        # synthetic edges for the newly-added rooms' True slots so
-        # consumers don't stay silent until the next real edge. Mirrors
-        # `release_boot_settle` semantics for the LATE-add case.
-        if self._boot_settle_done and added_rooms:
-            emitted = 0
-            for room_name in added_rooms:
-                for kind, value in self._raw_state.get(room_name, {}).items():
-                    if value:
-                        self._dispatch(room_name, kind, True)
-                        emitted += 1
-            if emitted:
-                _LOGGER.info(
-                    "OccupancySubstrate.refresh_subscriptions: emitted %d "
-                    "synthetic True-slot dispatch(es) for %d added room(s)",
-                    emitted, len(added_rooms),
-                )
+        try:
+            self._refresh_retry_unsub = async_call_later(
+                self.hass, 30, _retry,
+            )
+        except Exception:  # noqa: BLE001 — defensive
+            self._refresh_retry_pending = False
+            _LOGGER.debug(
+                "OccupancySubstrate: could not schedule refresh retry",
+                exc_info=True,
+            )
 
     async def async_teardown(self) -> None:
-        """Unsub every listener and clear local subscribers."""
+        """Unsub every listener and clear local subscribers.
+
+        F3 fix-up (B-HIGH-1): set ``_is_torn_down`` at the TOP so any
+        in-flight ``refresh_subscriptions`` short-circuits. Also cancels
+        the F6 retry timer.
+        """
+        self._is_torn_down = True
+        # Cancel any pending refresh retry (Bug Class #19).
+        if self._refresh_retry_unsub is not None:
+            try:
+                self._refresh_retry_unsub()
+            except Exception:  # noqa: BLE001 — defensive
+                pass
+            self._refresh_retry_unsub = None
+        self._refresh_retry_pending = False
         self._teardown_listeners()
         self._local_subscribers.clear()
 
@@ -612,6 +667,16 @@ class OccupancySubstrate:
 
     def _dispatch(self, room_name: str, kind: str, new_state: bool) -> None:
         """Dispatch the per-kind edge to subscribers + the HA dispatcher.
+
+        F8 fix-up (C-LOW-2): SINGLE-WRITER discipline — this is the only
+        method that emits ``SIGNAL_SUBSTRATE_KIND_CHANGED`` and invokes
+        local subscribers. ``_handle_state_change`` and
+        ``refresh_subscriptions`` funnel through here so any future
+        cross-cutting emit concern lands in one place.
+
+        F8 fix-up (C-LOW-3): ``room_name`` is informational (used by the
+        zone tier to route the edge back into the tracker); ``kind`` +
+        ``new_state`` are the load-bearing payload.
 
         Bug Class #34: ``async_dispatcher_send`` is imported at module
         top (NOT function-local) — the v4.7.20.1 recurrence is one of

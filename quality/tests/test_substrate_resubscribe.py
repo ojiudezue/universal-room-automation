@@ -264,6 +264,13 @@ def test_refresh_atomic_swap_no_double_dispatch(monkeypatch) -> None:
     ) == 1
     dispatched.clear()
 
+    # F1/F2 fix-up: refresh_subscriptions re-seeds from LIVE state, so
+    # the surviving sensor's true state must be visible via hass.states.
+    hass.states.get = MagicMock(
+        side_effect=lambda eid: (
+            _FakeState("on") if eid == "binary_sensor.office_motion" else None
+        ),
+    )
     # Options add a second motion sensor — trigger refresh.
     entry.options = {
         CONF_MOTION_SENSORS: [

@@ -21,6 +21,7 @@ Camera integration hardened from camera_census.py lessons:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -1398,6 +1399,11 @@ class PresenceCoordinator(BaseCoordinator):
         # Substrate signal subscription unsub (dispatcher channel). Captured
         # so async_teardown can clean it up — Bug Class #38.
         self._substrate_signal_unsub: Optional[Any] = None
+        # F3 fix-up (B-HIGH-1): track substrate refresh tasks scheduled
+        # from the room-lifecycle handler so async_teardown can cancel +
+        # gather them BEFORE the substrate is torn down. Prevents a
+        # late-fired refresh from racing with teardown.
+        self._substrate_refresh_tasks: Set[Any] = set()
         # Routine-Awareness Next-State Forecaster (cycle:
         # routine-next-state-forecaster). Built in async_setup right
         # after the house_state_log hydration; teardown calls
@@ -2239,6 +2245,25 @@ class PresenceCoordinator(BaseCoordinator):
                 )
             )
 
+            # F5 fix-up (C-LOW-1): sweep any room that loaded BETWEEN
+            # the substrate's discovery walk and the subscriber attach
+            # above — its lifecycle dispatch would have been missed
+            # otherwise. refresh_subscriptions() is a no-op if nothing
+            # actually diffs. Tracked per F3.
+            try:
+                _sweep_task = self.hass.async_create_task(
+                    self._substrate.refresh_subscriptions()
+                )
+                self._substrate_refresh_tasks.add(_sweep_task)
+                _sweep_task.add_done_callback(
+                    self._substrate_refresh_tasks.discard
+                )
+            except Exception:  # noqa: BLE001 — defensive
+                _LOGGER.debug(
+                    "Cold-boot substrate refresh sweep failed to schedule",
+                    exc_info=True,
+                )
+
             # Discover and subscribe to room occupancy sensors (Tier 1).
             # Post-substrate this is a thin compatibility shim — the actual
             # state-change subscription lives in the substrate. We keep the
@@ -2809,7 +2834,21 @@ class PresenceCoordinator(BaseCoordinator):
             "scheduling substrate refresh",
             entry_id, room_name, action,
         )
-        self.hass.async_create_task(self._substrate.refresh_subscriptions())
+        # F3 fix-up (B-HIGH-1): track the task so async_teardown can
+        # cancel+gather it before the substrate is torn down; wrap in
+        # try/except so a lifecycle event can never propagate a raise
+        # up the dispatcher chain.
+        try:
+            task = self.hass.async_create_task(
+                self._substrate.refresh_subscriptions()
+            )
+            self._substrate_refresh_tasks.add(task)
+            task.add_done_callback(self._substrate_refresh_tasks.discard)
+        except Exception:  # noqa: BLE001 — defensive: never raise from dispatcher
+            _LOGGER.debug(
+                "Failed to schedule substrate refresh for %s (%s)",
+                room_name, action, exc_info=True,
+            )
 
     # ------------------------------------------------------------------
     # Tier 2: Zone Camera Sensors (via CameraIntegrationManager)
@@ -5933,6 +5972,28 @@ class PresenceCoordinator(BaseCoordinator):
                     exc_info=True,
                 )
             self._fan_recheck_manager = None
+
+        # F3 fix-up (B-HIGH-1): cancel + gather any in-flight substrate
+        # refresh tasks BEFORE we tear the substrate down. The
+        # substrate's own ``_is_torn_down`` sentinel is set at the top of
+        # its async_teardown, so any task that survives cancellation
+        # short-circuits on its next resume — but cancel+gather is the
+        # cleaner contract.
+        if self._substrate_refresh_tasks:
+            _pending = list(self._substrate_refresh_tasks)
+            for _t in _pending:
+                try:
+                    _t.cancel()
+                except Exception:  # noqa: BLE001 — defensive
+                    pass
+            try:
+                await asyncio.gather(*_pending, return_exceptions=True)
+            except Exception:  # noqa: BLE001 — defensive
+                _LOGGER.debug(
+                    "Substrate refresh task gather raised during teardown",
+                    exc_info=True,
+                )
+            self._substrate_refresh_tasks.clear()
 
         # Occupancy substrate unification cycle: tear down substrate
         # listeners + local subscribers before _cancel_listeners runs so
