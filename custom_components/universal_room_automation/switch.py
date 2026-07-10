@@ -4605,7 +4605,11 @@ class MFPersonFollowSwitch(SwitchEntity, RestoreEntity):
             return
         try:
             from homeassistant.helpers.event import async_call_later
-            async_call_later(self.hass, 5, self._apply_restore_to_singleton)
+            # v5.10.0 re-review follow-up: track the retry so teardown
+            # cancels it (Bug Class #34 — untracked deferred callback).
+            self.async_on_remove(
+                async_call_later(self.hass, 5, self._apply_restore_to_singleton)
+            )
         except Exception:  # noqa: BLE001
             pass
 
