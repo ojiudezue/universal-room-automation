@@ -1643,7 +1643,10 @@ class UnavailableEntitiesSensor(UniversalRoomEntity, SensorEntity):
                            "illuminance_sensor")
     _ACTUATOR_LIST_KEYS = ("lights", "night_lights", "alert_lights",
                            "fans", "humidity_fans", "covers")
-    _ACTUATOR_SINGLE_KEYS = ("climate_entity",)
+    # v5.10.0 D1: room_media_player is an ACTUATOR — a dead speaker means
+    # music_following silently no-ops. Surface it in
+    # sensor.<room>_unavailable_entities so operators can see it.
+    _ACTUATOR_SINGLE_KEYS = ("climate_entity", "room_media_player")
 
     @property
     def native_value(self) -> int:
@@ -6283,7 +6286,11 @@ class MusicFollowingLastTransferSensor(AggregationEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return last transfer event details."""
+        """Return last transfer event details.
+
+        v5.10.0 D1+D8: extended with last_skip_reason / last_skip_* attrs
+        so operators can see WHY a transfer didn't fire without new sensors.
+        """
         mf = self._music_following or self.hass.data.get(DOMAIN, {}).get("music_following")
         if mf is None or not mf._last_transfer_result:
             return {}
@@ -6293,6 +6300,11 @@ class MusicFollowingLastTransferSensor(AggregationEntity, SensorEntity):
             "to_room": mf._last_transfer_to,
             "time": mf._last_transfer_time_iso,
             "result": mf._last_transfer_result,
+            # v5.10.0 D1+D8
+            "last_skip_reason": getattr(mf, "_last_skip_reason", ""),
+            "last_skip_from_room": getattr(mf, "_last_skip_from_room", ""),
+            "last_skip_to_room": getattr(mf, "_last_skip_to_room", ""),
+            "last_skip_time": getattr(mf, "_last_skip_time_iso", ""),
         }
 
 

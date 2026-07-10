@@ -290,6 +290,17 @@ async def async_setup_entry(
             # RestoreEntity; modeled on EnergyObservationModeSwitch:396).
             OptimizerKillSwitch(hass, entry),
         ])
+        # v5.10.0 D5: per-person MF DND switches. Read tracked_persons
+        # from the INTEGRATION entry (source of truth for persons).
+        try:
+            person_switches = _build_per_person_mf_switches(hass, entry)
+            if person_switches:
+                async_add_entities(person_switches)
+        except Exception:
+            _LOGGER.debug(
+                "v5.10.0 per-person MF switch registration failed (non-fatal)",
+                exc_info=True,
+            )
         return
 
     # Room entry — standard room switches
@@ -4430,3 +4441,140 @@ class RoomHumidityFanControlSwitch(_RoomBooleanOptionSwitch):
         self._conf_key = CONF_HUMIDITY_FAN_CONTROL_ENABLED
         self._default = DEFAULT_HUMIDITY_FAN_CONTROL_ENABLED
         self._attr_is_on = self._read_default()
+
+
+# ============================================================================
+# v5.10.0 D5: Per-person Music Following DND switch
+# ============================================================================
+
+
+def _build_per_person_mf_switches(hass: HomeAssistant, cm_entry: ConfigEntry) -> list:
+    """v5.10.0 D5: build one MFPersonFollowSwitch per tracked person.
+
+    Called from the Coordinator Manager entry setup so persons show up on
+    the MF Coordinator device (no per-person Person device exists yet —
+    critique noted a future migration if/when that changes).
+
+    Reads ``CONF_TRACKED_PERSONS`` from the INTEGRATION entry (set by
+    the config-flow → __init__.py :1641 write-back). Returns [] if the
+    integration entry isn't yet loaded or has no tracked persons.
+    """
+    from .const import CONF_TRACKED_PERSONS  # noqa: PLC0415
+    tracked: list[str] = []
+    for e in hass.config_entries.async_entries(DOMAIN):
+        if e.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+            merged = {**e.data, **e.options}
+            tracked = list(merged.get(CONF_TRACKED_PERSONS) or [])
+            break
+    switches = []
+    for person_id in tracked:
+        if not isinstance(person_id, str) or not person_id:
+            continue
+        switches.append(MFPersonFollowSwitch(hass, cm_entry, person_id))
+    return switches
+
+
+class MFPersonFollowSwitch(SwitchEntity, RestoreEntity):
+    """v5.10.0 D5: per-person Music Following DND toggle.
+
+    ON  → this person's transitions trigger music transfers (default).
+    OFF → the person is removed from MusicFollowing._enabled_persons and
+          their transitions do NOT trigger transfers.
+
+    Persistence: RestoreEntity. Guarded against Bug Class #52
+    (RestoreEntity unavailable/unknown coercion): if the last-state is
+    a transient (unavailable/unknown), we DEFAULT the switch back ON
+    (the constructor default), we do NOT force it OFF.
+
+    Device: attached to the MF Coordinator device today. Critique noted a
+    future migration to a per-Person device when that device exists.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:account-music"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, person_id: str
+    ) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._person_id = person_id
+        # Default ON — matches the __init__.py:1913 auto-enable-for-all.
+        self._is_on = True
+        # entity_id-safe slug (lowercased with underscores).
+        slug = person_id.lower().replace(" ", "_")
+        self._attr_unique_id = f"{DOMAIN}_mf_person_follow_{slug}"
+        self._attr_name = f"Music Following: {person_id}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "music_following_coordinator")},
+            name="URA: Music Following Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Music Following Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_mf(self):
+        return self.hass.data.get(DOMAIN, {}).get("music_following")
+
+    @property
+    def is_on(self) -> bool:
+        return self._is_on
+
+    async def async_turn_on(self, **kwargs) -> None:
+        self._is_on = True
+        mf = self._get_mf()
+        if mf is not None:
+            try:
+                mf.enable_for_person(self._person_id)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "enable_for_person(%s) failed", self._person_id, exc_info=True
+                )
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        self._is_on = False
+        mf = self._get_mf()
+        if mf is not None:
+            try:
+                mf.disable_for_person(self._person_id)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "disable_for_person(%s) failed", self._person_id, exc_info=True
+                )
+        self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        # Bug Class #52 guard — treat transient last_state as "keep default".
+        if last_state is None or last_state.state not in ("on", "off"):
+            if last_state is not None and last_state.state in ("unavailable", "unknown"):
+                _LOGGER.info(
+                    "MFPersonFollowSwitch(%s): last_state=%s treated as OFF-but-log "
+                    "(Bug Class #52 guard) — keeping constructor default ON",
+                    self._person_id, last_state.state,
+                )
+            # Apply constructor default to the singleton.
+            mf = self._get_mf()
+            if mf is not None and self._is_on:
+                try:
+                    mf.enable_for_person(self._person_id)
+                except Exception:  # noqa: BLE001
+                    pass
+            return
+        self._is_on = last_state.state == "on"
+        mf = self._get_mf()
+        if mf is not None:
+            try:
+                if self._is_on:
+                    mf.enable_for_person(self._person_id)
+                else:
+                    mf.disable_for_person(self._person_id)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "MFPersonFollowSwitch(%s) restore→singleton failed",
+                    self._person_id, exc_info=True,
+                )

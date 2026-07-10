@@ -289,6 +289,11 @@ from .const import (
     # v3.3.1: Music following
     CONF_ROOM_MEDIA_PLAYER,
     CONF_MUSIC_FOLLOWING_ENABLED,
+    # v5.10.0 D11: per-room speaker loudness calibration.
+    CONF_ROOM_MEDIA_VOLUME_SCALE,
+    DEFAULT_ROOM_MEDIA_VOLUME_SCALE,
+    MIN_ROOM_MEDIA_VOLUME_SCALE,
+    MAX_ROOM_MEDIA_VOLUME_SCALE,
     CONF_ZONE_PLAYER_ENTITY,
     CONF_ZONE_PLAYER_MODE,
     ZONE_PLAYER_MODE_INDEPENDENT,
@@ -5477,6 +5482,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_MF_UNJOIN_DELAY,
             CONF_MF_POSITION_OFFSET,
             CONF_MF_MIN_CONFIDENCE,
+            # v5.10.0 D2: sleep + night suppression
+            CONF_MF_SLEEP_SUPPRESS,
+            CONF_MF_NIGHT_SUPPRESS_MODE,
+            MF_NIGHT_MODES,
             DEFAULT_MF_COOLDOWN_SECONDS,
             DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE,
             DEFAULT_MF_PING_PONG_WINDOW,
@@ -5484,6 +5493,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_MF_UNJOIN_DELAY,
             DEFAULT_MF_POSITION_OFFSET,
             DEFAULT_MF_MIN_CONFIDENCE,
+            DEFAULT_MF_SLEEP_SUPPRESS,
+            DEFAULT_MF_NIGHT_SUPPRESS_MODE,
         )
 
         if user_input is not None:
@@ -5584,6 +5595,29 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         {"value": "normal", "label": "Normal — standard sensitivity, recommended for most homes"},
                         {"value": "sensitive", "label": "Sensitive — catches subtler anomalies, more notifications"},
                         {"value": "very_sensitive", "label": "Very Sensitive — flags small deviations; expect frequent advisories"},
+                    ],
+                    mode=selector.SelectSelectorMode.LIST,
+                )
+            ),
+            # v5.10.0 D2: Sleep + night suppression. Defaults: ON /
+            # dwell_only (the conservative option per critique §4).
+            vol.Optional(
+                CONF_MF_SLEEP_SUPPRESS,
+                default=self._get_current(
+                    CONF_MF_SLEEP_SUPPRESS, DEFAULT_MF_SLEEP_SUPPRESS,
+                ),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_MF_NIGHT_SUPPRESS_MODE,
+                default=self._get_current(
+                    CONF_MF_NIGHT_SUPPRESS_MODE, DEFAULT_MF_NIGHT_SUPPRESS_MODE,
+                ),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        {"value": "off", "label": "Off — follow music normally at night"},
+                        {"value": "dwell_only", "label": "Own bedroom only — only transfer to the person's dwell room"},
+                        {"value": "block_all", "label": "Block all — never transfer music at night"},
                     ],
                     mode=selector.SelectSelectorMode.LIST,
                 )
@@ -8278,6 +8312,23 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_current(CONF_ROOM_MEDIA_PLAYER) or vol.UNDEFINED
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="media_player")
+            ),
+            # v5.10.0 D11: per-room speaker loudness calibration. Applied
+            # only on cross-platform generic transfers (Sonos ↔ WiiM etc.
+            # where absolute volume levels aren't directly comparable).
+            vol.Optional(
+                CONF_ROOM_MEDIA_VOLUME_SCALE,
+                default=self._get_current(
+                    CONF_ROOM_MEDIA_VOLUME_SCALE,
+                    DEFAULT_ROOM_MEDIA_VOLUME_SCALE,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=MIN_ROOM_MEDIA_VOLUME_SCALE,
+                    max=MAX_ROOM_MEDIA_VOLUME_SCALE,
+                    step=0.05,
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
             ),
         })
 

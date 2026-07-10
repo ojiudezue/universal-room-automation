@@ -236,6 +236,12 @@ class TransitionDetector:
                 )
                 self._record_transition(person_id, previous_location, current_location, timestamp)
                 # Skip notifying listeners — transition is logged but not acted on
+                # v5.10.0 D4: feed the suppression back to MusicFollowing so
+                # the previously-vestigial counter (#53 subclass) reflects
+                # reality. Best-effort — MF may not be initialized yet.
+                self._notify_ping_pong_suppressed(
+                    person_id, previous_location, current_location,
+                )
             else:
                 self._record_transition(person_id, previous_location, current_location, timestamp)
                 # Notify listeners
@@ -608,6 +614,36 @@ class TransitionDetector:
                     await result
             except Exception as e:
                 _LOGGER.error("Transition listener error: %s", e)
+
+    def _notify_ping_pong_suppressed(
+        self, person_id: str, from_room: str, to_room: str
+    ) -> None:
+        """v5.10.0 D4: feed a ping-pong suppression back to MusicFollowing.
+
+        Ping-pong suppression happens BEFORE ``_notify_listeners`` so MF
+        never sees suppressed transitions. Its ``ping_pong_suppressed``
+        counter was vestigial (Bug Class #53 subclass). Here we call
+        MF's stat recorder directly — best-effort, guard for early boot.
+        """
+        try:
+            from .const import DOMAIN  # noqa: PLC0415
+            mf = self.hass.data.get(DOMAIN, {}).get("music_following")
+            if mf is None:
+                return
+            record_stat = getattr(mf, "_record_stat", None)
+            if record_stat is None:
+                return
+            record_stat(
+                "ping_pong_suppressed",
+                person_id,
+                from_room,
+                to_room,
+            )
+        except Exception:
+            # Non-fatal — this is diagnostic, not on the transfer path.
+            _LOGGER.debug(
+                "Ping-pong feedback to MusicFollowing failed", exc_info=True
+            )
 
     async def _async_cleanup_history(self, now: datetime) -> None:
         """Periodic cleanup of old location history and ping-pong records."""

@@ -2173,6 +2173,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         CONF_MF_UNJOIN_DELAY,
                         CONF_MF_POSITION_OFFSET,
                         CONF_MF_MIN_CONFIDENCE,
+                        # v5.10.0 D2: sleep + night suppression seeds
+                        CONF_MF_SLEEP_SUPPRESS,
+                        CONF_MF_NIGHT_SUPPRESS_MODE,
                         DEFAULT_MF_COOLDOWN_SECONDS,
                         DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE,
                         DEFAULT_MF_PING_PONG_WINDOW,
@@ -2180,6 +2183,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         DEFAULT_MF_UNJOIN_DELAY,
                         DEFAULT_MF_POSITION_OFFSET,
                         DEFAULT_MF_MIN_CONFIDENCE,
+                        DEFAULT_MF_SLEEP_SUPPRESS,
+                        DEFAULT_MF_NIGHT_SUPPRESS_MODE,
                     )
                     mf_coordinator = MusicFollowingCoordinator(
                         hass,
@@ -2203,6 +2208,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         )),
                         high_confidence_distance=float(cm_config.get(
                             CONF_MF_HIGH_CONFIDENCE_DISTANCE, DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE
+                        )),
+                        # v5.10.0 D2: seed sleep + night gate from CM options.
+                        sleep_suppress=bool(cm_config.get(
+                            CONF_MF_SLEEP_SUPPRESS, DEFAULT_MF_SLEEP_SUPPRESS,
+                        )),
+                        night_suppress_mode=str(cm_config.get(
+                            CONF_MF_NIGHT_SUPPRESS_MODE, DEFAULT_MF_NIGHT_SUPPRESS_MODE,
                         )),
                     )
                     coordinator_manager.register_coordinator(mf_coordinator)
@@ -4219,6 +4231,9 @@ from .const import (
     CONF_COMFORT_TEMP_MIN as _CONF_COMFORT_TEMP_MIN,
     CONF_COMFORT_TEMP_MAX as _CONF_COMFORT_TEMP_MAX,
     CONF_COMFORT_HUMIDITY_MAX as _CONF_COMFORT_HUMIDITY_MAX,
+    # v5.10.0 D2 — MF sleep + night suppression CM keys.
+    CONF_MF_SLEEP_SUPPRESS as _CONF_MF_SLEEP_SUPPRESS,
+    CONF_MF_NIGHT_SUPPRESS_MODE as _CONF_MF_NIGHT_SUPPRESS_MODE,
 )
 
 # The 14 HVAC tunable factory CONFs share an identical dispatch pattern:
@@ -4372,6 +4387,10 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     # v4.7.35 fix-up (B-B2) — deny-list edits are options-only; no full
     # reload (chokepoint reads CM options fresh on every action).
     _CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
+    # v5.10.0 D2 — MF sleep + night suppression push through
+    # MusicFollowing.update_gate_config() without a CM reload.
+    _CONF_MF_SLEEP_SUPPRESS,
+    _CONF_MF_NIGHT_SUPPRESS_MODE,
 })
 
 
@@ -4679,6 +4698,77 @@ def _apply_in_place(
             hvac._vacancy_grace_constrained = hvac._vacancy_grace
     except AttributeError:
         pass
+
+    # ----- v5.10.0 D2 — Music Following sleep + night suppression -----
+    # Live-attr push into the standalone MusicFollowing singleton via
+    # update_gate_config(). If the coordinator or singleton is missing
+    # (mid-teardown), leave the key OUT of `applied` so the next diff
+    # retries it — mirrors the HVAC pattern above.
+    _mf_keys = {_CONF_MF_SLEEP_SUPPRESS, _CONF_MF_NIGHT_SUPPRESS_MODE}
+    if changed_keys & _mf_keys:
+        mf_coord = None
+        try:
+            if manager is not None:
+                mf_coord = manager.coordinators.get("music_following")
+        except Exception:
+            mf_coord = None
+        mf = hass.data.get(DOMAIN, {}).get("music_following")
+        if mf is None:
+            _LOGGER.info(
+                "CM in-place apply: MusicFollowing singleton not available "
+                "(likely mid-reload); values for %s are persisted in "
+                "entry.options and will be picked up on next MF setup",
+                sorted(changed_keys & _mf_keys),
+            )
+        else:
+            if _CONF_MF_SLEEP_SUPPRESS in changed_keys:
+                try:
+                    mf.update_gate_config(
+                        sleep_suppress=bool(
+                            new_options[_CONF_MF_SLEEP_SUPPRESS],
+                        ),
+                    )
+                    applied.add(_CONF_MF_SLEEP_SUPPRESS)
+                    # Mirror into the coord so a later reload preserves the
+                    # value from options (which is the source of truth).
+                    if mf_coord is not None:
+                        try:
+                            mf_coord._sleep_suppress = bool(
+                                new_options[_CONF_MF_SLEEP_SUPPRESS],
+                            )
+                        except Exception:
+                            pass
+                except (AttributeError, KeyError, ValueError, TypeError) as err:
+                    _LOGGER.warning(
+                        "CM in-place apply: MF live-attr push failed for "
+                        "key=%s value=%r: %s",
+                        _CONF_MF_SLEEP_SUPPRESS,
+                        new_options.get(_CONF_MF_SLEEP_SUPPRESS),
+                        err,
+                    )
+            if _CONF_MF_NIGHT_SUPPRESS_MODE in changed_keys:
+                try:
+                    mf.update_gate_config(
+                        night_suppress_mode=str(
+                            new_options[_CONF_MF_NIGHT_SUPPRESS_MODE],
+                        ),
+                    )
+                    applied.add(_CONF_MF_NIGHT_SUPPRESS_MODE)
+                    if mf_coord is not None:
+                        try:
+                            mf_coord._night_suppress_mode = str(
+                                new_options[_CONF_MF_NIGHT_SUPPRESS_MODE],
+                            )
+                        except Exception:
+                            pass
+                except (AttributeError, KeyError, ValueError, TypeError) as err:
+                    _LOGGER.warning(
+                        "CM in-place apply: MF live-attr push failed for "
+                        "key=%s value=%r: %s",
+                        _CONF_MF_NIGHT_SUPPRESS_MODE,
+                        new_options.get(_CONF_MF_NIGHT_SUPPRESS_MODE),
+                        err,
+                    )
 
     # ----- Keys whose consumer re-reads entry.options each tick -----
     # No live-attr push needed (option write already persisted by the

@@ -1181,6 +1181,41 @@ DEFAULT_MF_MIN_CONFIDENCE: Final = 0.6
 DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE: Final = 8.0  # feet — tighter than person tracking (10ft)
 
 # ============================================================================
+# v5.10.0 D2 Music Following — sleep + night suppression
+# ============================================================================
+# Gate transfers while the house is in SLEEP / HOME_NIGHT so a 3am walk to
+# the bathroom doesn't blast music into the hallway.
+CONF_MF_SLEEP_SUPPRESS: Final = "mf_sleep_suppress"
+CONF_MF_NIGHT_SUPPRESS_MODE: Final = "mf_night_suppress_mode"
+
+DEFAULT_MF_SLEEP_SUPPRESS: Final = True
+
+# Night-mode options — plain-language, not jargon (per D0.5 labels audit).
+MF_NIGHT_MODE_OFF: Final = "off"
+MF_NIGHT_MODE_DWELL_ONLY: Final = "dwell_only"
+MF_NIGHT_MODE_BLOCK_ALL: Final = "block_all"
+MF_NIGHT_MODES: Final = (
+    MF_NIGHT_MODE_OFF,
+    MF_NIGHT_MODE_DWELL_ONLY,
+    MF_NIGHT_MODE_BLOCK_ALL,
+)
+DEFAULT_MF_NIGHT_SUPPRESS_MODE: Final = MF_NIGHT_MODE_DWELL_ONLY
+
+# v5.10.0 D6: stale-transition age ceiling — transitions older than this
+# (measured at lock-acquire time) are skipped instead of executed on
+# now-outdated context.
+DEFAULT_MF_STALE_TRANSITION_SECONDS: Final = 15
+
+# v5.10.0 D11: per-room speaker loudness calibration (form field only —
+# NOT a Number entity). Applied on cross-platform generic transfers to
+# compensate for platforms whose volume levels aren't directly comparable
+# (Sonos 0.4 vs WiiM 0.4 driving passive speakers).
+CONF_ROOM_MEDIA_VOLUME_SCALE: Final = "room_media_volume_scale"
+DEFAULT_ROOM_MEDIA_VOLUME_SCALE: Final = 1.0
+MIN_ROOM_MEDIA_VOLUME_SCALE: Final = 0.5
+MAX_ROOM_MEDIA_VOLUME_SCALE: Final = 1.5
+
+# ============================================================================
 # v3.6.29 Notification Manager
 # ============================================================================
 
