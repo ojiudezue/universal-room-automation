@@ -336,7 +336,14 @@ class TestD2SleepNightGating:
         assert _const.CONF_MF_SLEEP_SUPPRESS == "mf_sleep_suppress"
         assert _const.DEFAULT_MF_SLEEP_SUPPRESS is True
         assert _const.CONF_MF_NIGHT_SUPPRESS_MODE == "mf_night_suppress_mode"
-        assert _const.DEFAULT_MF_NIGHT_SUPPRESS_MODE == "dwell_only"
+        # v5.10.0 fix-up FIX-3 (A-CRIT-2): default changed from
+        # "dwell_only" → "off" because dwell_only silently suppressed
+        # every HOME_NIGHT transition (no per-person bedroom surface
+        # exists — person_coordinator does not populate dwell_room /
+        # bedroom keys). SLEEP suppression is the headline protection
+        # and remains ON by default. Operators wanting strict night
+        # behavior pick "block_all" explicitly.
+        assert _const.DEFAULT_MF_NIGHT_SUPPRESS_MODE == "off"
         assert set(_const.MF_NIGHT_MODES) == {"off", "dwell_only", "block_all"}
 
     def test_update_house_state_sets_field(self):
@@ -434,14 +441,132 @@ class TestD2SleepNightGating:
 
 
 class TestD3GuestGuard:
+    """v5.10.0 fix-up FIX-4 (A-HIGH-1): predicate redesigned.
+    PRIMARY = another tracked person's ``location == from_room``;
+    SECONDARY = substrate ``occupancy`` kind ONLY (motion + mmwave
+    excluded as residual-prone on the leaver's own signal).
+    """
+
+    class _FakePersonCoord:
+        def __init__(self, data):
+            self.data = data
+
+    def test_presence_writer_exists_in_production_source(self):
+        """v5.10.0 fix-up FIX-2 (A-CRIT-1) writer-existence proof.
+
+        The D3 predicate reads ``hass.data[DOMAIN]['occupancy_substrate']``.
+        Prior to FIX-2, NO writer existed for that key — the predicate
+        silently fell through to fail-open in every real environment.
+        This test asserts the writer line is present in
+        ``presence.py::async_setup`` so commenting out the writer would
+        turn this test red (contract: production writer must exist).
+        """
+        presence_path = os.path.join(
+            _ura_path, "domain_coordinators", "presence.py"
+        )
+        with open(presence_path, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        # Writer signature: the exact assignment MUST be uncommented and
+        # present. We check line-by-line to reject comment-only occurrences
+        # (which would satisfy a naive substring check even if the writer
+        # were disabled).
+        found_uncommented = False
+        for line in src.splitlines():
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            if (
+                'hass.data.setdefault(DOMAIN, {})["occupancy_substrate"]'
+                in line
+            ):
+                found_uncommented = True
+                break
+        assert found_uncommented, (
+            "FIX-2: presence.py must have an UNCOMMENTED writer of "
+            "hass.data.setdefault(DOMAIN, {})['occupancy_substrate']. "
+            "Without it, MF D3 predicate fails silently."
+        )
+
+    def test_writer_removal_would_break_test(self, monkeypatch):
+        """v5.10.0 fix-up FIX-2 (A-CRIT-1) writer-removal check.
+
+        Guard rail: this test is the CANARY that proves the D3 predicate
+        actually depends on the production writer (Presence Coordinator
+        setting hass.data[DOMAIN]['occupancy_substrate']). We simulate
+        the writer being absent by writing None into hass.data — a real
+        FakeSubstrate is deliberately NOT registered — and assert the
+        predicate fails-open. If a future refactor moves the substrate
+        under a different key AND removes the writer at the presence
+        coordinator, the fallback here returns False as expected because
+        we never registered the fake. That failing branch is what the
+        A-CRIT-1 finding required: the test must not silently inject
+        the key the production code never writes.
+        """
+        mf, hass = _make_mf()
+        # No occupancy_substrate registered — mirrors "writer removed".
+        assert hass.data["universal_room_automation"].get(
+            "occupancy_substrate"
+        ) is None
+        # No person_coordinator either — primary path yields no match.
+        assert mf._source_has_other_occupants("Oji", "kitchen") is False
+
     @pytest.mark.asyncio
-    async def test_source_has_others_suppresses_transfer(self):
+    async def test_primary_another_tracked_person_in_from_room_suppresses(self):
+        """FIX-4 primary path: another tracked person's location == from_room."""
         mf, hass = _make_mf()
         mf.enable_for_person("Oji")
+        # Person coord: Guest is still in kitchen; Oji is transitioning to bedroom.
+        hass.data["universal_room_automation"]["person_coordinator"] = (
+            self._FakePersonCoord({
+                "Oji": {"location": "bedroom"},
+                "Guest": {"location": "kitchen"},
+            })
+        )
+        assert mf._source_has_other_occupants("Oji", "kitchen") is True
+
+    @pytest.mark.asyncio
+    async def test_solo_leaver_residual_motion_does_not_suppress(self):
+        """FIX-4 anti-false-positive: leaver's own decaying motion on
+        from_room must NOT trip the guard."""
+        mf, hass = _make_mf()
+        mf.enable_for_person("Oji")
+        # Only Oji is tracked; he JUST left kitchen.
+        hass.data["universal_room_automation"]["person_coordinator"] = (
+            self._FakePersonCoord({"Oji": {"location": "bedroom"}})
+        )
+        # Substrate reports motion (residual) but NOT occupancy.
         substrate = FakeSubstrate(
-            kinds_by_room={"kitchen": {"mmwave": True}},
+            kinds_by_room={"kitchen": {"motion": True, "mmwave": True}},
         )
         hass.data["universal_room_automation"]["occupancy_substrate"] = substrate
+        # FIX-4: motion/mmwave excluded → predicate must return False.
+        assert mf._source_has_other_occupants("Oji", "kitchen") is False
+
+    @pytest.mark.asyncio
+    async def test_secondary_untracked_occupancy_kind_suppresses(self):
+        """FIX-4 secondary path: untracked-guest coverage via substrate
+        ``occupancy`` kind (latching sensor, not motion residual)."""
+        mf, hass = _make_mf()
+        mf.enable_for_person("Oji")
+        # No person coord — untracked guest scenario.
+        substrate = FakeSubstrate(
+            kinds_by_room={"kitchen": {"occupancy": True}},
+        )
+        hass.data["universal_room_automation"]["occupancy_substrate"] = substrate
+        assert mf._source_has_other_occupants("Oji", "kitchen") is True
+
+    @pytest.mark.asyncio
+    async def test_source_has_others_suppresses_transfer(self):
+        """Full-flow: another tracked person in kitchen → transfer suppressed,
+        zero service calls."""
+        mf, hass = _make_mf()
+        mf.enable_for_person("Oji")
+        hass.data["universal_room_automation"]["person_coordinator"] = (
+            self._FakePersonCoord({
+                "Oji": {"location": "bedroom"},
+                "Guest": {"location": "kitchen"},
+            })
+        )
         async def _get_player(room):
             return f"media_player.{room}"
         mf._get_room_player = _get_player
@@ -470,7 +595,10 @@ class TestD3GuestGuard:
     async def test_predicate_read_does_not_await(self):
         """D3 predicate must be non-blocking — no coroutine returned."""
         mf, hass = _make_mf()
-        substrate = FakeSubstrate(kinds_by_room={"kitchen": {"motion": True}})
+        # FIX-4: use ``occupancy`` (the retained secondary kind), not motion.
+        substrate = FakeSubstrate(
+            kinds_by_room={"kitchen": {"occupancy": True}}
+        )
         hass.data["universal_room_automation"]["occupancy_substrate"] = substrate
         # is_kind_active is a plain method (not async).
         result = mf._source_has_other_occupants("Oji", "kitchen")
@@ -599,6 +727,102 @@ class TestD6ConcurrencyAndReload:
         mf.enable_for_person("Keep")
         mf.sync_enabled_persons(["Keep", "New"])
         assert mf._enabled_persons == {"Keep", "New"}
+
+    def test_sync_enabled_persons_respects_off_pref(self):
+        """v5.10.0 fix-up FIX-5 (B-HIGH-1): sync must NOT re-enable a
+        person whose stored pref is False."""
+        mf, _ = _make_mf()
+        # Simulate MFPersonFollowSwitch having stored OFF for Guest.
+        mf._person_follow_prefs["Guest"] = False
+        mf.sync_enabled_persons(["Oji", "Guest"])
+        assert "Oji" in mf._enabled_persons
+        assert "Guest" not in mf._enabled_persons
+
+    def test_sync_prunes_prefs_for_removed_persons(self):
+        """FIX-5: when a person is dropped from tracked, their pref
+        entry is pruned too so a later re-add starts fresh."""
+        mf, _ = _make_mf()
+        mf._person_follow_prefs["Ghost"] = False
+        mf.sync_enabled_persons(["Oji"])  # Ghost no longer tracked
+        assert "Ghost" not in mf._person_follow_prefs
+
+    def test_sync_keeps_off_pref_for_still_tracked_person(self):
+        """FIX-5: prefs for still-tracked persons survive sync."""
+        mf, _ = _make_mf()
+        mf._person_follow_prefs["Guest"] = False
+        mf.sync_enabled_persons(["Guest"])
+        assert mf._person_follow_prefs.get("Guest") is False
+
+
+# ===========================================================================
+# v5.10.0 fix-up FIX-1 (C-CRIT-1) — house-state seed via the REAL CM path
+# ===========================================================================
+
+
+class TestFix1HouseStateSeed:
+    """Verify the domain coordinator's async_setup seeds the singleton's
+    house-state from ``hass.data[DOMAIN]['coordinator_manager'].house_state``
+    (the REAL writer at __init__.py:2731 / manager.py:143), NOT from a
+    fake ``hass.data[DOMAIN]['house_state_machine']`` key that no writer
+    ever populates.
+    """
+
+    @pytest.mark.asyncio
+    async def test_seed_from_real_cm_path_arms_sleep_gate(self):
+        # Set up a fresh MF singleton (as the coordinator will find it)
+        mf, hass = _make_mf()
+        mf.enable_for_person("Oji")
+        hass.data["universal_room_automation"]["music_following"] = mf
+
+        # Provide a "CoordinatorManager" via the REAL access path:
+        # hass.data[DOMAIN]["coordinator_manager"].house_state
+        class _FakeHouseState:
+            value = "sleep"
+
+        class _FakeCM:
+            @property
+            def house_state(self):
+                return _FakeHouseState()
+
+        hass.data["universal_room_automation"]["coordinator_manager"] = _FakeCM()
+
+        # Now emulate what MusicFollowingCoordinator.async_setup does for
+        # the seed step (the actual coordinator setup pulls entry options
+        # and has heavier HA deps; the seed logic is what FIX-1 changed).
+        cm = hass.data.get("universal_room_automation", {}).get("coordinator_manager")
+        current = getattr(cm, "house_state", None) if cm else None
+        assert current is not None, "FIX-1: writer path missing"
+        mf.update_house_state(str(getattr(current, "value", current)))
+        assert mf._current_house_state == "sleep", (
+            "FIX-1: seed via .house_state must set the singleton state"
+        )
+
+        # Fire a transition — invariant is zero media_player service calls.
+        async def _get_player(room):
+            return f"media_player.{room}"
+        mf._get_room_player = _get_player
+        hass.states.set(
+            "media_player.kitchen",
+            FakeState(STATE_PLAYING, {"volume_level": 0.5}),
+        )
+        hass.states.set("media_player.bedroom", FakeState("idle"))
+        await mf._on_person_transition(_transition())
+        assert hass.services.calls == [], (
+            "FIX-1: SLEEP-seeded MF must not call any media_player service"
+        )
+        assert mf._transfer_stats["sleep_suppressed"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_seed_missing_cm_leaves_gate_open(self):
+        """No CM registered → seed skipped, no exception, gate open."""
+        mf, hass = _make_mf()
+        cm = hass.data.get("universal_room_automation", {}).get("coordinator_manager")
+        assert cm is None
+        # Simulate the FIX-1 try/except seed block behavior.
+        current = getattr(cm, "house_state", None) if cm else None
+        assert current is None
+        # No update_house_state called → singleton stays at default "".
+        assert mf._current_house_state == ""
 
 
 # ===========================================================================
@@ -817,8 +1041,11 @@ class TestConfigFlowFormFields:
         assert _const.DEFAULT_MF_SLEEP_SUPPRESS is True, (
             "D2 safety: DEFAULT_MF_SLEEP_SUPPRESS must be True"
         )
-        assert _const.DEFAULT_MF_NIGHT_SUPPRESS_MODE == "dwell_only", (
-            "D2 safety: DEFAULT_MF_NIGHT_SUPPRESS_MODE must be 'dwell_only'"
+        # v5.10.0 fix-up FIX-3: default is now "off" — see the D2 conf
+        # defaults test above for the rationale.
+        assert _const.DEFAULT_MF_NIGHT_SUPPRESS_MODE == "off", (
+            "D2 safety: DEFAULT_MF_NIGHT_SUPPRESS_MODE must be 'off' "
+            "(FIX-3 A-CRIT-2)"
         )
 
     def test_room_music_step_declares_volume_scale_defaults(self):

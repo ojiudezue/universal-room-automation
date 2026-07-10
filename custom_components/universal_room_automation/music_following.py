@@ -132,6 +132,14 @@ class MusicFollowing:
         # v5.10.0 D6: stale-transition threshold in seconds.
         self._stale_transition_seconds: float = 15.0
 
+        # v5.10.0 fix-up FIX-3 + FIX-5: one-shot flags / prefs.
+        self._warned_dwell_only_no_surface: bool = False
+        # FIX-5 (B-HIGH-1): per-person follow-preference authority. The
+        # MFPersonFollowSwitch writes here on restore + on toggle; sync,
+        # reload, and auto-enable-all consult it. False = DND (user has
+        # turned this person's music-following OFF).
+        self._person_follow_prefs: dict[str, bool] = {}
+
         # v3.6.21 C1: Transfer tracking for diagnostic sensor
         self._state: str = "idle"  # idle / following / transferring / cooldown / error
         self._transfer_stats: dict[str, int] = {
@@ -164,6 +172,11 @@ class MusicFollowing:
         # v5.10.0 D1: silent-actuator counter — how many times we no-op'd
         # because the target speaker was offline.
         self._target_unavailable_skips: int = 0
+        # v5.10.0 fix-up B-MED-2: initialize the per-transfer join flag
+        # so an early read on the first transition doesn't AttributeError.
+        # Also reset at the top of _transfer_media (defensive; the flag
+        # is authoritative there).
+        self._last_transfer_used_join: bool = False
         # Listeners for sensor push updates
         self._diagnostic_listeners: list = []
 
@@ -190,17 +203,38 @@ class MusicFollowing:
         _LOGGER.info("Music following disabled for: %s", person_id)
 
     def sync_enabled_persons(self, tracked_persons: list[str]) -> None:
-        """v5.10.0 D6 (addresses C5): re-sync enabled_persons to tracked list.
+        """v5.10.0 D6 (addresses C5) + v5.10.0 fix-up FIX-5 (B-HIGH-1):
+        reconcile membership of _enabled_persons against tracked-persons,
+        WITHOUT clobbering per-person DND prefs.
 
-        Options-flow reload can add/remove a tracked person. The standalone
-        MusicFollowing singleton survives the coordinator reload, so
-        _enabled_persons drifts out of sync. Call this from the coord's
-        options-update listener to reconcile.
+        Options-flow reload can add/remove a tracked person. The
+        standalone MusicFollowing singleton survives the coordinator
+        reload, so _enabled_persons drifts out of sync. Called from the
+        coordinator's async_setup (see
+        domain_coordinators/music_following.py:async_setup) after the
+        singleton is bound.
+
+        Rule: newly-tracked persons default ON UNLESS a stored pref
+        already says OFF (the MFPersonFollowSwitch wrote its restore
+        pref on async_added_to_hass). Removed persons are dropped.
+        Prefs for a person who has just been dropped are pruned too,
+        so a later re-add starts fresh.
         """
         wanted = set(tracked_persons or [])
-        added = wanted - self._enabled_persons
-        removed = self._enabled_persons - wanted
-        self._enabled_persons = wanted
+        prefs = self._person_follow_prefs
+        target = set()
+        for p in wanted:
+            if prefs.get(p) is False:
+                # Explicit OFF pref — do NOT enable.
+                continue
+            target.add(p)
+        added = target - self._enabled_persons
+        removed = self._enabled_persons - wanted  # dropped ONLY if untracked
+        self._enabled_persons = (self._enabled_persons - removed) | added
+        # Prune prefs for untracked persons.
+        for p in list(prefs.keys()):
+            if p not in wanted:
+                prefs.pop(p, None)
         if added or removed:
             _LOGGER.info(
                 "MusicFollowing: re-synced enabled_persons "
@@ -435,31 +469,79 @@ class MusicFollowing:
 
     def _source_has_other_occupants(self, person_id: str, from_room: str) -> bool:
         """v5.10.0 D3: True iff the source room still has an occupant
-        beyond the transitioning person.
+        besides ``person_id`` (the person that just transitioned OUT).
 
-        Non-blocking: reads the OccupancySubstrate's in-memory raw_state
-        via ``is_kind_active`` (dict lookup, no await). If the substrate
-        is unavailable or errors, returns False (fail-open — do NOT
-        block transfers on a broken predicate).
+        v5.10.0 fix-up FIX-4 (A-HIGH-1): redesigned to avoid false
+        positives on the leaver's OWN residual motion/mmwave signal.
 
-        This is a room-tier presence signal — it does NOT distinguish
-        between the transitioning person and another occupant. That's
-        the correct behavior for the guest-in-source-room case:
-        if there is ANY presence indication after our own person moved
-        to the target room, err on the side of "someone is still here."
+        PRIMARY (exact, immune to residual): another TRACKED person's
+        current ``location`` equals ``from_room``. Reads the person
+        coordinator (writer: person_coordinator.py location-updater
+        block around :161-233 which populates the ``location`` key
+        for tracked persons).
+
+        SECONDARY (guest coverage — untracked occupants): substrate
+        ``occupancy`` kind active on ``from_room``. ``motion`` is
+        DELIBERATELY EXCLUDED here because motion-only signals decay
+        slowly after the leaver walks out and would false-positive on
+        the leaver themselves. ``occupancy`` kinds (contact / seat /
+        binary occupancy sensors) latch on real presence, not on
+        decaying PIR trails.
+
+        Non-blocking (dict lookups, no await). If the substrate is
+        unavailable or the person coord read errors, returns False —
+        fail-open (do NOT block transfers on a broken predicate).
         """
+        # --- PRIMARY: another tracked person's location matches from_room
+        try:
+            person_coord = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+            if person_coord is not None and hasattr(person_coord, "data"):
+                data = person_coord.data or {}
+                for other_id, pdata in data.items():
+                    if other_id == person_id:
+                        continue
+                    if not isinstance(pdata, dict):
+                        continue
+                    loc = pdata.get("location")
+                    if not isinstance(loc, str) or not loc:
+                        continue
+                    # Slug-compare — person coord may store spaces / case.
+                    if loc.lower().replace(" ", "_") == (
+                        from_room or ""
+                    ).lower().replace(" ", "_"):
+                        return True
+        except Exception:  # noqa: BLE001 — fail-open on predicate error
+            pass
+
+        # --- SECONDARY: untracked-occupant coverage via substrate
+        # v5.10.0 fix-up FIX-2 (A-CRIT-1): reader — the writer for this
+        # key lives in the Presence Coordinator's async_setup at
+        # domain_coordinators/presence.py (setdefault call directly
+        # after ``OccupancySubstrate(self.hass)`` construction) and is
+        # cleaned up in async_teardown symmetrically.
         try:
             substrate = self.hass.data.get(DOMAIN, {}).get("occupancy_substrate")
             if substrate is None:
+                # v5.10.0 fix-up A-LOW-4: format-drift canary — the writer
+                # lives in Presence Coordinator async_setup. If it's
+                # missing here, either presence hasn't set up yet OR the
+                # key was renamed. Fail-open (return False) but log DEBUG
+                # so the miss is visible in tail-follow.
+                _LOGGER.debug(
+                    "MusicFollowing D3: occupancy_substrate absent from "
+                    "hass.data[%r] — falling through to fail-open "
+                    "(person=%r, from_room=%r)",
+                    DOMAIN, person_id, from_room,
+                )
                 return False
-            # Any of the presence kinds active = room still has someone.
-            for kind in ("motion", "mmwave", "occupancy"):
-                try:
-                    if substrate.is_kind_active(from_room, kind):
-                        return True
-                except Exception:
-                    continue
-        except Exception:
+            # ONLY the ``occupancy`` kind — see docstring above for why
+            # ``motion`` (and ``mmwave``, most residual-prone) are excluded.
+            try:
+                if substrate.is_kind_active(from_room, "occupancy"):
+                    return True
+            except Exception:  # noqa: BLE001
+                return False
+        except Exception:  # noqa: BLE001
             return False
         return False
 
@@ -478,6 +560,17 @@ class MusicFollowing:
             dwell = data.get("dwell_room") or data.get("bedroom")
             if isinstance(dwell, str) and dwell:
                 return dwell
+            # v5.10.0 fix-up A-LOW-4: format-drift canary — log DEBUG when
+            # the lookup misses so a future person_coordinator schema
+            # change (e.g. renaming ``dwell_room`` → ``bedroom_slug``) is
+            # discoverable in the logs before it silently degrades D2.
+            _LOGGER.debug(
+                "MusicFollowing: no dwell_room/bedroom for person %r "
+                "(person_coord.data keys=%s) — HOME_NIGHT dwell_only will "
+                "fall through to WARN+block_all fallback",
+                person_id,
+                sorted(data.keys()) if isinstance(data, dict) else "?",
+            )
         except Exception:
             return None
         return None
@@ -506,8 +599,24 @@ class MusicFollowing:
             if mode == "dwell_only":
                 dwell = self._dwell_room_for_person(person_id)
                 if dwell is None:
-                    # No known dwell room — err on the side of NOT blasting
-                    # music at night. Suppress.
+                    # v5.10.0 fix-up FIX-3 (A-CRIT-2): no per-person
+                    # bedroom surface exists today (person_coordinator
+                    # does not populate ``dwell_room`` / ``bedroom`` keys;
+                    # see person_coordinator.py location-updater block).
+                    # Behave as BLOCK_ALL and log a one-shot WARNING so
+                    # the semantics are discoverable — the config-flow
+                    # label was updated to name this behavior explicitly.
+                    if not self._warned_dwell_only_no_surface:
+                        _LOGGER.warning(
+                            "MusicFollowing: night_suppress_mode='dwell_only' "
+                            "is set, but no per-person bedroom mapping "
+                            "surface exists (person_coordinator does not "
+                            "expose 'dwell_room'/'bedroom' fields). "
+                            "Behaving as 'block_all' — every HOME_NIGHT "
+                            "transition will be suppressed. Pick 'off' or "
+                            "'block_all' explicitly to silence this warning."
+                        )
+                        self._warned_dwell_only_no_surface = True
                     return "night_suppressed"
                 if dwell.lower().replace(" ", "_") != to_room.lower().replace(" ", "_"):
                     return "night_suppressed"
@@ -526,7 +635,39 @@ class MusicFollowing:
         # the underlying occupancy context may have changed. Skip.
         if transition_ts is not None:
             try:
-                age = (now - transition_ts).total_seconds()
+                # v5.10.0 fix-up B-MED-1: normalize tz-awareness before
+                # subtracting. dt_util.now() is tz-aware (local); the
+                # transition timestamp may arrive naive (datetime.now())
+                # depending on caller. Coerce both to the same awareness
+                # to avoid TypeError on naive-vs-aware subtraction.
+                from datetime import timezone as _tz  # noqa: PLC0415
+                _now = now
+                _ts = transition_ts
+                _norm_ok = True
+                try:
+                    if _now.tzinfo is None and _ts.tzinfo is not None:
+                        _now = _now.replace(tzinfo=_tz.utc)
+                    elif _now.tzinfo is not None and _ts.tzinfo is None:
+                        _ts = _ts.replace(tzinfo=_now.tzinfo)
+                except Exception:
+                    _LOGGER.debug(
+                        "Music transfer: tz normalization failed for "
+                        "now=%r transition_ts=%r; treating age as 0",
+                        now, transition_ts, exc_info=True,
+                    )
+                    _norm_ok = False
+                if _norm_ok:
+                    try:
+                        age = (_now - _ts).total_seconds()
+                    except Exception:
+                        _LOGGER.debug(
+                            "Music transfer: tz-normalized subtract failed "
+                            "for now=%r transition_ts=%r; age=0",
+                            now, transition_ts, exc_info=True,
+                        )
+                        age = 0.0
+                else:
+                    age = 0.0
             except Exception:
                 age = 0.0
             if age > self._stale_transition_seconds:
@@ -999,6 +1140,14 @@ class MusicFollowing:
         ONLY on cross-platform generic transfers where absolute volume
         levels aren't directly comparable across platforms.
         """
+        # v5.10.0 fix-up A-LOW-3: coerce non-numeric source volume to 0.5
+        # (matches the ATTR_MEDIA_VOLUME_LEVEL default in _transfer_media).
+        # Player integrations occasionally return None / "None" / an int
+        # rather than a float; the scale + clamp math below assumes float.
+        try:
+            source_volume = float(source_volume)
+        except (TypeError, ValueError):
+            source_volume = 0.5
         try:
             from .const import (  # noqa: PLC0415
                 CONF_ROOM_MEDIA_VOLUME_SCALE,
@@ -1123,15 +1272,20 @@ class MusicFollowing:
         - Same platform with multiroom support: media_player.join (SYNCHRONIZED)
         - Cross-platform/Generic: play_media (INDEPENDENT)
         """
+        # v5.10.0 fix-up B-MED-2: defensive reset — the caller
+        # (_execute_transfer) already resets, but making this authoritative
+        # here means any FUTURE caller of _transfer_media can't leak the
+        # previous transfer's flag into _verify_transfer.
+        self._last_transfer_used_join = False
         try:
             source_platform = self._get_player_platform(from_player)
             target_platform = self._get_player_platform(to_player)
-            
+
             _LOGGER.info(
                 "🎵 Transfer method: %s (%s) → %s (%s)",
                 from_player, source_platform, to_player, target_platform
             )
-            
+
             # v3.6.19: Save source volume before any transfer attempt
             volume = from_state.attributes.get(ATTR_MEDIA_VOLUME_LEVEL, 0.5)
             self._saved_volumes[from_player] = volume

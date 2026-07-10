@@ -1911,7 +1911,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     _LOGGER.info("✓ MusicFollowing initialized successfully")
                     
                     # Enable music following for all tracked persons by default
+                    # v5.10.0 fix-up FIX-5 (B-HIGH-1): consult the
+                    # singleton's per-person prefs so an explicit OFF
+                    # pref (from a restored MFPersonFollowSwitch) is not
+                    # clobbered by the auto-enable-all boot pass.
+                    _prefs = getattr(music_following, "_person_follow_prefs", {}) or {}
                     for person_name in tracked_persons:
+                        if _prefs.get(person_name) is False:
+                            continue
                         music_following.enable_for_person(person_name)
 
                     # v3.5.2: Transit validation and egress direction tracking
@@ -4729,15 +4736,15 @@ def _apply_in_place(
                         ),
                     )
                     applied.add(_CONF_MF_SLEEP_SUPPRESS)
-                    # Mirror into the coord so a later reload preserves the
-                    # value from options (which is the source of truth).
-                    if mf_coord is not None:
-                        try:
-                            mf_coord._sleep_suppress = bool(
-                                new_options[_CONF_MF_SLEEP_SUPPRESS],
-                            )
-                        except Exception:
-                            pass
+                    # v5.10.0 fix-up B-LOW-1: mirror-write into
+                    # ``mf_coord._sleep_suppress`` deleted. It was never
+                    # load-bearing — the coordinator re-reads from
+                    # entry.options on its next async_setup (see
+                    # domain_coordinators/music_following.py :__init__ +
+                    # async_setup pushing via update_gate_config()).
+                    # Options is the source of truth on the persisted
+                    # side; the singleton is the source of truth on the
+                    # live side. No third mirror is needed.
                 except (AttributeError, KeyError, ValueError, TypeError) as err:
                     _LOGGER.warning(
                         "CM in-place apply: MF live-attr push failed for "
@@ -4754,13 +4761,9 @@ def _apply_in_place(
                         ),
                     )
                     applied.add(_CONF_MF_NIGHT_SUPPRESS_MODE)
-                    if mf_coord is not None:
-                        try:
-                            mf_coord._night_suppress_mode = str(
-                                new_options[_CONF_MF_NIGHT_SUPPRESS_MODE],
-                            )
-                        except Exception:
-                            pass
+                    # v5.10.0 fix-up B-LOW-1: mirror-write into
+                    # ``mf_coord._night_suppress_mode`` deleted — same
+                    # rationale as _sleep_suppress above.
                 except (AttributeError, KeyError, ValueError, TypeError) as err:
                     _LOGGER.warning(
                         "CM in-place apply: MF live-attr push failed for "

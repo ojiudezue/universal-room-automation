@@ -142,18 +142,61 @@ class MusicFollowingCoordinator(BaseCoordinator):
                     night_suppress_mode=self._night_suppress_mode,
                     stale_transition_seconds=self._stale_transition_seconds,
                 )
-                # Seed the initial house state (best-effort) so the gate
-                # is active even before the first SIGNAL_HOUSE_STATE_CHANGED.
+                # v5.10.0 fix-up FIX-1 (C-CRIT-1): seed the initial house state
+                # via the REAL access path so the gate is armed on setup /
+                # reload / restart-into-SLEEP without waiting for the first
+                # SIGNAL_HOUSE_STATE_CHANGED. The prior seed read
+                # ``hass.data[DOMAIN]["house_state_machine"]`` — no writer
+                # exists for that key — and dereferenced ``.current_state``
+                # (wrong attr). Real writer: CoordinatorManager.__init__ at
+                # domain_coordinators/manager.py:143 (``self._house_state_machine``)
+                # exposed via the ``.house_state`` property at
+                # domain_coordinators/manager.py:201-204 (which returns
+                # ``self._house_state_machine.state``). The CM itself is
+                # registered in hass.data at __init__.py:2731.
                 try:
-                    hs_machine = self.hass.data.get(DOMAIN, {}).get("house_state_machine")
-                    current = getattr(hs_machine, "current_state", None) if hs_machine else None
+                    cm = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+                    current = getattr(cm, "house_state", None) if cm else None
                     if current is not None:
                         mf.update_house_state(str(getattr(current, "value", current)))
                 except Exception:
                     _LOGGER.debug("Initial house_state seed failed (non-fatal)", exc_info=True)
+                # Note: an initial synthetic SIGNAL_HOUSE_STATE_CHANGED
+                # emit after boot-settle was considered as a convergence
+                # aid for OTHER subscribers (HVAC, routine_forecaster,
+                # optimization) but SKIPPED as risky — that signal is
+                # consumed by multiple coordinators whose transition logic
+                # assumes real state-machine transitions, not synthetic
+                # boot echoes. Direct seed of MF here is sufficient for
+                # MF's SLEEP invariant.
             except AttributeError:
                 # Older MusicFollowing without D2 hooks — skip.
                 _LOGGER.debug("MusicFollowing has no update_gate_config; skipping")
+            # v5.10.0 fix-up FIX-5 (B-HIGH-1): reconcile membership of
+            # MF._enabled_persons against the current tracked-persons
+            # list. Reads CONF_TRACKED_PERSONS from the INTEGRATION
+            # entry (writer: __init__.py :1641 write-back). Respects
+            # per-person DND prefs stored on the singleton — see the
+            # sync_enabled_persons docstring.
+            try:
+                from ..const import (  # noqa: PLC0415
+                    CONF_TRACKED_PERSONS,
+                    CONF_ENTRY_TYPE,
+                    ENTRY_TYPE_INTEGRATION,
+                )
+                tracked: list[str] = []
+                for _ce in self.hass.config_entries.async_entries(DOMAIN):
+                    if _ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                        merged = {**_ce.data, **_ce.options}
+                        tracked = list(merged.get(CONF_TRACKED_PERSONS) or [])
+                        break
+                if tracked and hasattr(mf, "sync_enabled_persons"):
+                    mf.sync_enabled_persons(tracked)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "MF sync_enabled_persons at setup failed",
+                    exc_info=True,
+                )
             _LOGGER.info(
                 "MusicFollowingCoordinator setup: wrapping existing MusicFollowing "
                 "(cooldown=%ds, ping_pong=%ds, verify=%ds, unjoin=%ds, "

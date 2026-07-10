@@ -20,23 +20,28 @@
 
 ## Transfer decision gates (in order)
 
-Every gate lives inside `_on_person_transition` → `_execute_transfer`. Reading the sequence top-to-bottom describes exactly what happens on a transition:
+Every gate lives inside `_on_person_transition` → `_execute_transfer`. Reading the sequence top-to-bottom describes exactly what happens on a transition. Order below is authoritative (v5.10.0 fix-up A-MED-1 — reconciled with `music_following.py`):
 
-1. **Same-room short-circuit** (`music_following.py:231`). Records `same_room` (v5.10.0 D4).
-2. **Enabled-person membership** (`music_following.py:241`). `_enabled_persons` is populated at setup from `CONF_TRACKED_PERSONS` and re-synced on options-flow update (v5.10.0 D6).
-3. **Minimum confidence** (`music_following.py:249`). `MIN_CONFIDENCE` — instance-shadowed by the coordinator from `CONF_MF_MIN_CONFIDENCE`.
-4. **BLE proximity threshold** (`music_following.py:262`). `_mf_high_confidence_distance` injected from `CONF_MF_HIGH_CONFIDENCE_DISTANCE`. Reads `person_coordinator.data[person_id]["closest_distance"]`.
-5. **House-state gate** (v5.10.0 D2). If `HouseState.SLEEP` and `CONF_MF_SLEEP_SUPPRESS` is on → records `sleep_suppressed`, returns. If `HouseState.HOME_NIGHT` and `CONF_MF_NIGHT_SUPPRESS_MODE` = `block_all` → returns; if `dwell_only` → allow only when target is the person's dwell room; if `off` → allow.
-6. **Concurrency lock acquisition** (v5.10.0 D6). Single `async with self._transfer_lock:` (no `.locked()` pre-check).
-7. **Stale-transition age check** (v5.10.0 D6). If transition timestamp older than N seconds → records `stale_transition`, returns.
-8. **Per-person + target cooldown** (`music_following.py:301`). `MUSIC_TRANSFER_COOLDOWN_SECONDS = 8`.
-9. **Player resolution** — `_get_room_player(from_room)` / `_get_room_player(to_room)` (`music_following.py:569`). Strategy chain: room config `room_media_player` → zone config `zone_player_entity` → HA Area lookup (multiroom-platform preference in v5.10.0 D7) → naming convention.
-10. **Source-playing check** (`music_following.py:343`). Source must be `STATE_PLAYING`.
-11. **Target availability pre-flight** (v5.10.0 D1). Target state must exist and not be `unavailable`/`unknown`; otherwise records `target_unavailable`, returns WITHOUT fading source.
-12. **Winner rule** (`music_following.py:351`). Target not already playing.
-13. **Source-room occupancy guard** (v5.10.0 D3). Non-blocking read of room occupancy: if the source room has other occupants beyond the transitioning person → records `source_has_others`, returns.
+Gates 1-4 run in `_on_person_transition` BEFORE lock acquisition.
+
+1. **Same-room short-circuit**. Records `same_room` (v5.10.0 D4).
+2. **Enabled-person membership**. `_enabled_persons` is populated at setup from `CONF_TRACKED_PERSONS` and re-synced on the coordinator's setup / options-flow update (v5.10.0 fix-up FIX-5). Per-person MFPersonFollowSwitch prefs are the source of truth.
+3. **Minimum confidence**. `MIN_CONFIDENCE` — instance-shadowed by the coordinator from `CONF_MF_MIN_CONFIDENCE`.
+4. **BLE proximity threshold**. `_mf_high_confidence_distance` injected from `CONF_MF_HIGH_CONFIDENCE_DISTANCE`. Reads `person_coordinator.data[person_id]["closest_distance"]`.
+5. **Concurrency lock acquisition** (v5.10.0 D6). Single `async with self._transfer_lock:` (no `.locked()` pre-check).
+
+Gates 6-13 run inside `_execute_transfer` — under the lock.
+
+6. **Stale-transition age check** (v5.10.0 D6, tz-aware normalization in v5.10.0 fix-up B-MED-1). If transition timestamp older than `CONF_MF_STALE_TRANSITION_SECONDS` → records `stale_transition`, returns.
+7. **House-state gate** (v5.10.0 D2). If `HouseState.SLEEP` and `CONF_MF_SLEEP_SUPPRESS` is on → records `sleep_suppressed`, returns. If `HouseState.HOME_NIGHT`: `block_all` → returns; `dwell_only` → BEHAVES AS `block_all` and logs a one-shot WARNING today (no per-person bedroom surface yet — v5.10.0 fix-up FIX-3); `off` (default) → allow.
+8. **Per-person + target cooldown**. `MUSIC_TRANSFER_COOLDOWN_SECONDS = 8`. Records `cooldown_blocked`.
+9. **Player resolution** — `_get_room_player(from_room)` / `_get_room_player(to_room)`. Strategy chain: room config `room_media_player` → zone config `zone_player_entity` → HA Area lookup (multiroom-platform preference in v5.10.0 D7) → naming convention.
+10. **Target availability pre-flight** (v5.10.0 D1). Target state must exist and not be `unavailable`/`unknown`; otherwise records `target_unavailable`, returns WITHOUT fading source.
+11. **Source-room occupancy guard** (v5.10.0 D3; predicate redesigned in v5.10.0 fix-up FIX-4). Primary: another tracked person's `location == from_room` (via person_coordinator). Secondary (untracked-guest coverage): substrate `occupancy` kind active on `from_room` (motion / mmwave EXCLUDED — residual-prone). Records `source_has_others`.
+12. **Source-playing check**. Source must be `STATE_PLAYING`.
+13. **Winner rule**. Target not already playing. Records `active_playback_blocked`.
 14. **Transfer method dispatch** — MASS `transfer_queue` → same-platform `join` → generic `play_media`.
-15. **Post-transfer verification** (`music_following.py:426`). Skipped on same-platform `join` path in v5.10.0 D12.
+15. **Post-transfer verification**. Skipped on same-platform `join` path in v5.10.0 D12.
 16. **Group cleanup** — schedule delayed `unjoin` of source and volume restore.
 
 ## Cross-tier signal reads (REUSED)
@@ -59,7 +64,7 @@ Per CLAUDE.md "Number Fields = Form Fields":
 | `CONF_MF_MIN_CONFIDENCE` | 0.6 | Minimum transition confidence |
 | `CONF_MF_HIGH_CONFIDENCE_DISTANCE` | 8.0 ft | BLE proximity ceiling |
 | `CONF_MF_SLEEP_SUPPRESS` (v5.10.0) | True | Suppress transfers in SLEEP |
-| `CONF_MF_NIGHT_SUPPRESS_MODE` (v5.10.0) | `dwell_only` | HOME_NIGHT policy |
+| `CONF_MF_NIGHT_SUPPRESS_MODE` (v5.10.0) | `off` (default changed in v5.10.0 fix-up FIX-3 — dwell_only had no per-person bedroom surface and silently suppressed every HOME_NIGHT transition) | HOME_NIGHT policy |
 | room-level `room_media_volume_scale` (v5.10.0) | 1.0 | Per-room cross-platform loudness scale |
 
 ## Stat glossary
@@ -71,7 +76,7 @@ Consumed by `MusicFollowingHealthSensor`, `MusicFollowingTransfersTodaySensor`, 
 | `success` | Verified transfer | `_execute_transfer` post-verify |
 | `failed` | Transfer method returned False | `_execute_transfer` |
 | `unverified` | Method OK, target not playing | `_execute_transfer` |
-| `cooldown_blocked` | Per-person cooldown hit OR lock-serialized | `_execute_transfer` |
+| `cooldown_blocked` | Per-person same-target cooldown (`MUSIC_TRANSFER_COOLDOWN_SECONDS`) hit. NOTE (v5.10.0 fix-up A-MED-2): lock serialization is no longer counted here — v5.10.0 D6 removed the `.locked()` pre-check that used to emit this stat on contention. Real lock-serialized transitions now flow through and are decided by the stale-transition guard. | `_execute_transfer` |
 | `active_playback_blocked` | Winner rule (target already playing) | `_execute_transfer` |
 | `low_confidence` | Below `MIN_CONFIDENCE` or BLE too far | `_on_person_transition` |
 | `ping_pong_suppressed` | v5.10.0 D4: wired from `transitions.py:231` back into MF | `TransitionDetector._is_ping_pong` |
@@ -96,6 +101,12 @@ Ping-pong is enforced in `transitions.py:231`, BEFORE MF sees the transition. Th
 ## Device layout
 
 All MF diagnostic sensors + the CM master enable-switch attach to the coordinator device via `_music_following_device_info()` (`sensor.py:5873`, `switch.py:191`). Per-person MF Switch entities (v5.10.0 D5) attach to the MF coordinator device (with an in-code TODO noting a future migration to per-person devices when they exist).
+
+### Known limitation (v5.10.0 fix-up C-M1): person add/remove requires manual CM reload
+
+`_build_per_person_mf_switches` (`switch.py:_build_per_person_mf_switches`) is called once per CM entry setup. When the operator adds or removes a tracked person from the INTEGRATION entry's person-tracking step, the CM entry does NOT auto-reload — the per-person switches will not appear/disappear until the operator manually reloads the Coordinator Manager entry from the HA UI (or the next HA restart). The MusicFollowing singleton is reconciled anyway via `sync_enabled_persons` at MF-coordinator setup (v5.10.0 fix-up FIX-5), so behavior is correct even without the switch; only the UI surface is out of date.
+
+Automating a CM-entry reload on integration-entry option changes was considered and dropped: cross-entry reload orchestration risks introducing new race conditions with the CM's own options-flow, and the operator-visible payoff is small (a rare configuration change).
 
 ## Egress diagnostic (D0 note)
 

@@ -1199,7 +1199,18 @@ MF_NIGHT_MODES: Final = (
     MF_NIGHT_MODE_DWELL_ONLY,
     MF_NIGHT_MODE_BLOCK_ALL,
 )
-DEFAULT_MF_NIGHT_SUPPRESS_MODE: Final = MF_NIGHT_MODE_DWELL_ONLY
+# v5.10.0 fix-up FIX-3 (A-CRIT-2): default changed from DWELL_ONLY to OFF.
+# The DWELL_ONLY mode reads ``person_coordinator.data[person][dwell_room]``
+# / ``bedroom`` (music_following.py:_dwell_room_for_person) — but the
+# person_coordinator does NOT populate those keys (person_coordinator.py
+# writes only ``location`` / ``previous_location`` / ``previous_location_time``
+# etc. per the location-updater block starting at :161). No CONF binds a
+# person to a bedroom either. With DWELL_ONLY as the default, EVERY
+# HOME_NIGHT transition was silently suppressed (dwell resolves None →
+# night_suppressed). SLEEP suppression is the headline protection and
+# remains ON by default; HOME_NIGHT now allows normal follow. Operators
+# who want strict night behavior can pick BLOCK_ALL explicitly.
+DEFAULT_MF_NIGHT_SUPPRESS_MODE: Final = MF_NIGHT_MODE_OFF
 
 # v5.10.0 D6: stale-transition age ceiling — transitions older than this
 # (measured at lock-acquire time) are skipped instead of executed on

@@ -5616,7 +5616,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 selector.SelectSelectorConfig(
                     options=[
                         {"value": "off", "label": "Off — follow music normally at night"},
-                        {"value": "dwell_only", "label": "Own bedroom only — only transfer to the person's dwell room"},
+                        {"value": "dwell_only", "label": "Own bedroom only — currently unwired; behaves as 'block all' + logs a warning until per-person bedroom mapping ships"},
                         {"value": "block_all", "label": "Block all — never transfer music at night"},
                     ],
                     mode=selector.SelectSelectorMode.LIST,

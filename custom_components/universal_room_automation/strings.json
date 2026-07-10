@@ -1201,7 +1201,7 @@
           "mf_min_confidence": "Minimum transition confidence (0.1-1.0) required to trigger a music transfer. Lower values transfer more aggressively. Default: 0.6.",
           "mf_high_confidence_distance": "Only transfer music when the person's closest BLE scanner is within this range (feet). Tighter than person tracking (10ft) to avoid BLE bleed-through from adjacent rooms. Default: 8.",
           "mf_sleep_suppress": "When on, music does not follow anyone while the house is in SLEEP state. Default: on.",
-          "mf_night_suppress_mode": "Policy for HOME_NIGHT: off = follow as normal; own bedroom only = only transfer to the person's dwell room; block all = never transfer at night."
+          "mf_night_suppress_mode": "Policy for HOME_NIGHT: off (default) = follow as normal; own bedroom only = only transfer to the person's dwell room (NOTE: per-person bedroom mapping is not yet wired — this currently behaves as 'block all' and logs a warning); block all = never transfer at night."
         }
       },
       "coordinator_optimization": {

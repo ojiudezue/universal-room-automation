@@ -4505,7 +4505,12 @@ class MFPersonFollowSwitch(SwitchEntity, RestoreEntity):
         # entity_id-safe slug (lowercased with underscores).
         slug = person_id.lower().replace(" ", "_")
         self._attr_unique_id = f"{DOMAIN}_mf_person_follow_{slug}"
-        self._attr_name = f"Music Following: {person_id}"
+        # v5.10.0 fix-up C-L1: with has_entity_name=True + the parent
+        # device name ("URA: Music Following Coordinator"), HA prefixes
+        # the device name automatically. Emitting "Music Following: X"
+        # here produced "Music Following Coordinator Music Following: X".
+        # Just the person_id keeps the friendly name clean.
+        self._attr_name = person_id
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "music_following_coordinator")},
             name="URA: Music Following Coordinator",
@@ -4518,6 +4523,22 @@ class MFPersonFollowSwitch(SwitchEntity, RestoreEntity):
     def _get_mf(self):
         return self.hass.data.get(DOMAIN, {}).get("music_following")
 
+    def _write_pref(self, mf, value: bool) -> None:
+        """v5.10.0 fix-up FIX-5 (B-HIGH-1): write per-person follow pref
+        into the MusicFollowing singleton's authoritative pref dict.
+        Prefs are the SINGLE source of truth for per-person enable
+        state and survive coordinator reloads (the singleton persists).
+        """
+        try:
+            prefs = getattr(mf, "_person_follow_prefs", None)
+            if isinstance(prefs, dict):
+                prefs[self._person_id] = bool(value)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "MFPersonFollowSwitch(%s): pref write failed",
+                self._person_id, exc_info=True,
+            )
+
     @property
     def is_on(self) -> bool:
         return self._is_on
@@ -4528,6 +4549,7 @@ class MFPersonFollowSwitch(SwitchEntity, RestoreEntity):
         if mf is not None:
             try:
                 mf.enable_for_person(self._person_id)
+                self._write_pref(mf, True)
             except Exception:  # noqa: BLE001
                 _LOGGER.debug(
                     "enable_for_person(%s) failed", self._person_id, exc_info=True
@@ -4540,11 +4562,52 @@ class MFPersonFollowSwitch(SwitchEntity, RestoreEntity):
         if mf is not None:
             try:
                 mf.disable_for_person(self._person_id)
+                self._write_pref(mf, False)
             except Exception:  # noqa: BLE001
                 _LOGGER.debug(
                     "disable_for_person(%s) failed", self._person_id, exc_info=True
                 )
         self.async_write_ha_state()
+
+    async def _apply_restore_to_singleton(self, _now=None) -> None:
+        """v5.10.0 fix-up FIX-5 (C-H1): deferred re-apply of restored
+        state to the MusicFollowing singleton.
+
+        On restart the switch's async_added_to_hass fires before the
+        integration finishes initialising the MusicFollowing singleton
+        (registered at __init__.py:1910). Retrying every 5s (capped)
+        keeps the pref-write in sync with the singleton's arrival
+        without depending on a signal that doesn't exist for MF-ready.
+        """
+        mf = self._get_mf()
+        if mf is not None:
+            try:
+                if self._is_on:
+                    mf.enable_for_person(self._person_id)
+                else:
+                    mf.disable_for_person(self._person_id)
+                self._write_pref(mf, self._is_on)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "MFPersonFollowSwitch(%s) deferred restore→singleton failed",
+                    self._person_id, exc_info=True,
+                )
+            return
+        # MF still not up — schedule another retry (max 12 attempts = 60s).
+        self._deferred_attempts = getattr(self, "_deferred_attempts", 0) + 1
+        if self._deferred_attempts >= 12:
+            _LOGGER.debug(
+                "MFPersonFollowSwitch(%s): giving up on deferred restore "
+                "after %d retries; sync_enabled_persons will reconcile on "
+                "next coord setup",
+                self._person_id, self._deferred_attempts,
+            )
+            return
+        try:
+            from homeassistant.helpers.event import async_call_later
+            async_call_later(self.hass, 5, self._apply_restore_to_singleton)
+        except Exception:  # noqa: BLE001
+            pass
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
@@ -4562,19 +4625,28 @@ class MFPersonFollowSwitch(SwitchEntity, RestoreEntity):
             if mf is not None and self._is_on:
                 try:
                     mf.enable_for_person(self._person_id)
+                    self._write_pref(mf, True)
                 except Exception:  # noqa: BLE001
                     pass
+            elif mf is None:
+                # v5.10.0 fix-up FIX-5 (C-H1): MF not up yet — schedule
+                # deferred re-apply.
+                await self._apply_restore_to_singleton()
             return
         self._is_on = last_state.state == "on"
         mf = self._get_mf()
-        if mf is not None:
-            try:
-                if self._is_on:
-                    mf.enable_for_person(self._person_id)
-                else:
-                    mf.disable_for_person(self._person_id)
-            except Exception:  # noqa: BLE001
-                _LOGGER.debug(
-                    "MFPersonFollowSwitch(%s) restore→singleton failed",
-                    self._person_id, exc_info=True,
-                )
+        if mf is None:
+            # v5.10.0 fix-up FIX-5 (C-H1): defer until MF singleton is up.
+            await self._apply_restore_to_singleton()
+            return
+        try:
+            if self._is_on:
+                mf.enable_for_person(self._person_id)
+            else:
+                mf.disable_for_person(self._person_id)
+            self._write_pref(mf, self._is_on)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "MFPersonFollowSwitch(%s) restore→singleton failed",
+                self._person_id, exc_info=True,
+            )
