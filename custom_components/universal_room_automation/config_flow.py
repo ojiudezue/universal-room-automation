@@ -1167,10 +1167,10 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
                 selector.EntitySelectorConfig(domain=["light", "switch"], multiple=True)
             ),
             vol.Optional(CONF_FANS, default=area_fans or []): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="fan", multiple=True)
+                selector.EntitySelectorConfig(domain=["fan", "switch"], multiple=True)
             ),
             vol.Optional(CONF_HUMIDITY_FANS, default=[]): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="fan", multiple=True)
+                selector.EntitySelectorConfig(domain=["fan", "switch"], multiple=True)
             ),
             # Fan-noise mitigation D1: per-room adjacency for the
             # Layer-1 BLE corroboration ladder. Rooms whose BLE
@@ -7584,13 +7584,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_FANS,
                 default=self._get_current(CONF_FANS, [])
             ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="fan", multiple=True)
+                selector.EntitySelectorConfig(domain=["fan", "switch"], multiple=True)
             ),
             vol.Optional(
                 CONF_HUMIDITY_FANS,
                 default=self._get_current(CONF_HUMIDITY_FANS, [])
             ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="fan", multiple=True)
+                selector.EntitySelectorConfig(domain=["fan", "switch"], multiple=True)
             ),
             # Fan-noise mitigation D1: per-room adjacency (Layer-2 of
             # the BLE corroboration ladder). Round-trips through
