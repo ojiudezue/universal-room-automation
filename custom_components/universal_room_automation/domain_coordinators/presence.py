@@ -2461,6 +2461,32 @@ class PresenceCoordinator(BaseCoordinator):
             len(all_entries), entry_types,
         )
 
+        # Zone Delete Flow D3: prune any tracker whose zone is no longer
+        # present in the ZM zones dict OR in a legacy ENTRY_TYPE_ZONE entry.
+        # Defense-in-depth: the full ZM reload after a delete rebuilds this
+        # method's outputs from scratch, but any tracker created by a prior
+        # rebuild pass would otherwise linger until a live reference finally
+        # went stale. Pruning up-front closes that window explicitly.
+        current_zone_names: set[str] = set()
+        for _e in all_entries:
+            _et = _e.data.get(CONF_ENTRY_TYPE)
+            if _et == ENTRY_TYPE_ZONE:
+                _zn = _e.data.get(CONF_ZONE_NAME, "")
+                if _zn:
+                    current_zone_names.add(_zn)
+            elif _et == ENTRY_TYPE_ZONE_MANAGER:
+                _opts = _e.options.get("zones", {}) or {}
+                _data = _e.data.get("zones", {}) or {}
+                current_zone_names.update(_opts.keys())
+                current_zone_names.update(_data.keys())
+        stale = [zn for zn in list(self._zone_trackers.keys())
+                 if zn not in current_zone_names]
+        for zn in stale:
+            self._zone_trackers.pop(zn, None)
+            _LOGGER.info(
+                "Zone tracker pruned (zone no longer in config): %s", zn,
+            )
+
         # Legacy: individual ENTRY_TYPE_ZONE entries
         for entry in all_entries:
             if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE:

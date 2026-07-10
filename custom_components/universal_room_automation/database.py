@@ -6667,6 +6667,94 @@ class UniversalRoomDatabase:
                 zone_id, err,
             )
 
+    async def async_delete_zone_data(
+        self,
+        zone_name: str,
+        zone_id: str | None,
+    ) -> dict[str, int]:
+        """Purge all zone-keyed DB rows for a zone being deleted.
+
+        Zone Delete Flow cycle: atomic multi-table purge triggered when a
+        zone is removed from the Zone Manager options dict.
+
+        Two keying regimes are handled:
+          - Name-keyed: `zone_events` (col ``zone TEXT``). Always purged.
+          - Id-keyed: `ac_reset_state`, `egress_state`, `ac_ramp_events`
+            (col/PK ``zone_id TEXT``). Purged only when ``zone_id`` is not
+            None (husk zones with no thermostat have no zone_id and never
+            wrote id-keyed rows).
+
+        Note on ``fan_recheck_state``: the plan lists it as zone_id-keyed,
+        but the live schema (line 1244) is per-ROOM (PK ``room_id``). Rooms
+        survive zone deletion (they become unassigned), so fan_recheck rows
+        must NOT be touched — skipping is correct.
+
+        Atomicity: wrapped in an explicit ``BEGIN IMMEDIATE ... COMMIT``
+        transaction so a mid-flight failure rolls the whole purge back. This
+        matches the SPAN cycle A-HIGH-1 finding (partial multi-table writes
+        leave silent inconsistency).
+
+        Args:
+            zone_name: Zone name string (matches `zone_events.zone`).
+            zone_id:   HVAC zone_id ("zone_N") or None for husk zones.
+
+        Returns:
+            Dict mapping table name to rows deleted. Tables that were
+            skipped (id-keyed tables when zone_id is None) map to 0.
+            On failure returns an empty dict and logs a warning.
+        """
+        result: dict[str, int] = {
+            "zone_events": 0,
+            "ac_reset_state": 0,
+            "egress_state": 0,
+            "ac_ramp_events": 0,
+        }
+        try:
+            async with self._db() as db:
+                # Explicit transaction (Bug Class SPAN A-HIGH-1: partial
+                # multi-table purge = silent inconsistency).
+                await db.execute("BEGIN IMMEDIATE")
+                try:
+                    cur = await db.execute(
+                        "DELETE FROM zone_events WHERE zone = ?",
+                        (zone_name,),
+                    )
+                    result["zone_events"] = cur.rowcount or 0
+                    if zone_id is not None:
+                        cur = await db.execute(
+                            "DELETE FROM ac_reset_state WHERE zone_id = ?",
+                            (zone_id,),
+                        )
+                        result["ac_reset_state"] = cur.rowcount or 0
+                        cur = await db.execute(
+                            "DELETE FROM egress_state WHERE zone_id = ?",
+                            (zone_id,),
+                        )
+                        result["egress_state"] = cur.rowcount or 0
+                        cur = await db.execute(
+                            "DELETE FROM ac_ramp_events WHERE zone_id = ?",
+                            (zone_id,),
+                        )
+                        result["ac_ramp_events"] = cur.rowcount or 0
+                    await db.commit()
+                except Exception:
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                    raise
+        except Exception as err:
+            _LOGGER.warning(
+                "async_delete_zone_data failed for zone=%r zone_id=%r: %s",
+                zone_name, zone_id, err,
+            )
+            return {}
+        _LOGGER.info(
+            "async_delete_zone_data: zone=%r zone_id=%r rows=%s",
+            zone_name, zone_id, result,
+        )
+        return result
+
     async def prune_stale_egress_state(self, cutoff_days: int = 7) -> int:
         """Prune stale egress_state rows.
 

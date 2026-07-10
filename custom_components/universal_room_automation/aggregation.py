@@ -3420,6 +3420,38 @@ class ZoneSensorBase(AggregationEntity):
             sw_version=VERSION,
         )
 
+    def _zone_still_configured(self) -> bool:
+        """Zone Delete Flow D3: is this sensor's zone still in the ZM options?
+
+        Returns True during the normal window (zone present). Returns False
+        during the reload window after a zone has been removed from the ZM
+        options dict but before entity_registry.async_remove has run against
+        this entity — that transient window is where an aggregator would
+        otherwise pull a KeyError trying to read from a deleted zone.
+        Errors default to True so a lookup failure never nukes a live sensor.
+        """
+        try:
+            from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_ZONE_MANAGER
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE_MANAGER:
+                    merged = {**entry.data, **entry.options}
+                    return self.zone in (merged.get("zones", {}) or {})
+            # No ZM entry — legacy shape (per-zone entries); assume configured.
+            return True
+        except Exception:  # noqa: BLE001 — availability guard must never raise
+            return True
+
+    @property
+    def available(self) -> bool:
+        """Report unavailable during the reload window if the zone is gone.
+
+        Zone Delete Flow D3: falls back to parent availability when the zone
+        is still configured (i.e. steady-state — no change in behavior).
+        """
+        if not self._zone_still_configured():
+            return False
+        return super().available
+
     async def async_added_to_hass(self) -> None:
         """Handle entity added to hass - set up coordinator readiness polling.
 
