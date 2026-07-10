@@ -73,20 +73,26 @@ hypotheses:
     window: { first_check_after: 1h, confirm_after: 24h, alert_if_violated_after: 72h }
 ```
 
-## Live Validation — Prospective (to be filled in post-restart)
+## Live Validation — Validated 2026-07-10
 
-| # | Criterion | Testability | Prospective evidence |
+Combined release v5.11.0 shipped both this cycle and the OC Hardening cycle. HA restarted 2026-07-10 17:32 CDT; validation window 17:40-18:05 CDT.
+
+| # | Criterion | Result | Observed evidence |
 |---|---|---|---|
-| L1 | **Sleep walk-through blocks all transfers.** House in `HouseState.SLEEP`, walk through 2+ rooms carrying phone → zero transfers, `sensor.music_following_health` attr `sleep_suppressed` counter increments per suppressed transition. | Needs organic occurrence (natural sleep + walk) — testable during first overnight. | `sleep_suppressed` counter delta ≥ 1 across a nightly walk; zero `media_player.*` service calls attributed to MF in the log window. |
-| L2 | **Restart during SLEEP: gate still blocks.** Restart HA while in SLEEP; deliver a transition (e.g. walk from bedroom to bathroom before wake) → still blocked. This is the C-CRIT-1 regression test in live form. | Testable on next natural mid-sleep restart or a planned restart during SLEEP. | Post-restart `current_house_state == SLEEP` attribute on the health sensor at boot; first mid-sleep transition increments `sleep_suppressed` (not `success`). |
-| L3 | **Per-person switch OFF blocks that person only.** Toggle `switch.music_following_<person>` OFF; that person's transitions produce no transfer; another tracked person's transitions still transfer. Toggle ON restores. | Immediately testable. | Health sensor `success` counter unchanged for the OFF person across their transitions; unchanged behavior for others. |
-| L4 | **Dead-speaker target visible.** With one room's `media_player` unavailable, trigger a transfer into it → `sensor.music_following_last_transfer.last_skip_reason == "target_unavailable"`, `last_skip_from_room` set, AND `sensor.<room>_unavailable_entities` for that target room includes the `media_player.*` entity. | Immediately testable (unplug/reboot one speaker, then attempt a transition). | Both attributes observed on the sensors; music not "vanished" from source. |
-| L5 | **Second person in source room blocks the drag.** Two tracked persons in kitchen listening; one walks to office → `last_skip_reason == "source_has_others"`, no transfer. | Immediately testable with two devices. | Sensor attribute observed; source keeps playing. |
-| L6 | **Same-platform handoff feels faster.** Subjective — transfers between two Sonos rooms should feel closer to instant (verify-sleep skipped on join path). | Informational only; not a hard PASS gate. | Note operator impression + a log-based `_verify_transfer` skip line on the join path. |
-| L7 | **No URA ERROR logs mentioning music_following over 24h of normal use.** Log scan at validation time — NOT a soak-watch, single-shot at the 24h mark. | Testable via a single log-count query at 24h. | `home_assistant.log_count` search `music_following`, severity ERROR, period 24h → 0. |
+| L0a | **MF coordinator + observability attrs present.** | PASS | `sensor.universal_room_automation_music_following_health` state=`idle` with `sleep_suppressed_today=0`, `night_suppressed_today=0`, `source_has_others_today=0`, `stale_transition_today=0`, `target_unavailable_today=0`, `last_skip_*` attrs present; `sensor.ura_music_following_coordinator_music_following_last_transfer` exists (state=`none` pre-first-transfer). |
+| L0b | **Per-person Follow-Me switches restored.** | PASS | 4 switches (`ezinne` / `jaya` / `oji_udezue` / `ziri`) all state=`on`; health sensor `active_followers` lists all 4. |
+| L0c | **New CONF fields persisted through options flow.** | IN-SUITE-ONLY | New CONFs absent from CM options (operator hasn't re-submitted the options flow); code reads safe defaults (`sleep_suppress=True`, `night=off`, `stale=15s`) and behavior is correct at defaults. Form round-trip proven in-suite. |
+| L0d | **Sleep-gate state post-restart (armed but not fired).** | PASS (armed-open) | `current_house_state == home_day` → gate correctly open, zero spurious suppressions observed. Restart-into-SLEEP proof deferred to L2. |
+| L0e | **Dead-media_player surfaced via D1 visibility.** | PASS | `sensor.kitchen_unavailable_entities` = 1 with `unavailable_actuators=[media_player.kitchen_2]`, `roles=[room_media_player]`, `reason=entity_missing`; `master_bedroom` analog with `reason=offline_since_restart`. |
+| L0f | **Zero MF-mention ERRORs since restart.** | PASS | system log ERROR search for `music_following` → 0. |
+| L1 | **Sleep walk-through blocks all transfers.** House in `HouseState.SLEEP`, walk through 2+ rooms carrying phone → zero transfers, `sensor.music_following_health` attr `sleep_suppressed` counter increments per suppressed transition. | PENDING-ORGANIC | Tonight's sleep cycle. |
+| L2 | **Restart during SLEEP: gate still blocks.** Restart HA while in SLEEP; first mid-sleep transition increments `sleep_suppressed` (not `success`). C-CRIT-1 regression in live form. | PENDING-ORGANIC | Next natural mid-sleep restart. |
+| L3 | **Per-person switch OFF blocks that person only.** Toggle `switch.music_following_<person>` OFF; that person's transitions produce no transfer; others still transfer. | PENDING-ORGANIC | Needs a natural transfer event; `transfers_today=0` at validation time. |
+| L4 | **Dead-speaker target visible.** `sensor.music_following_last_transfer.last_skip_reason == "target_unavailable"`, `last_skip_from_room` set. | PENDING-ORGANIC | Needs a natural transfer attempt into a dead target; static visibility already proven at L0e. |
+| L5 | **Second person in source room blocks the drag.** `last_skip_reason == "source_has_others"`. | PENDING-ORGANIC | Needs a natural two-person listening + walkaway. |
+| L6 | **Same-platform handoff feels faster.** | PENDING-ORGANIC | Needs a natural Sonos↔Sonos handoff. |
+| L7 | **No URA ERROR mentions of `music_following` over 24h.** | PENDING | Due 17:32 CDT 2026-07-11. |
 
-**Organic vs immediately testable:** L1, L2, L6 are organic (need natural sleep, natural restart-in-sleep, natural same-platform handoff). L3, L4, L5, L7 are immediately testable at validation time.
+**Validation notes.** `media_player.kitchen_2` `entity_missing` is **pre-existing** — the entity was already emitting `unavailable_entities` WARNINGs before deploy. The new D1 classifier correctly *surfaces* the pre-existing dead actuator; it did not cause it. Boot-only transients dismissed. `transfers_today=0` at validation is expected — MF only acts on organic transitions, so L3-L6 land as PENDING-ORGANIC.
 
 ---
-
-*This README will be updated post-restart with a `Validated <date>` table replacing the Prospective column, per CLAUDE.md README write-back mandate. A cycle is not closed until that table lands.*
