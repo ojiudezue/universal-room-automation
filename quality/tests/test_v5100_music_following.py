@@ -170,13 +170,35 @@ else:
     _mf_mod = _load(_mf_fullname, os.path.join(_ura_path, "music_following.py"))
 _ura.music_following = _mf_mod
 
+# Test-ordering pollution guard (2026-07-10):
+# Earlier test files (test_v4_6_10_setup_telemetry.py,
+# test_v4_6_12_aggregator_sensors.py) call
+# `sys.modules.setdefault("homeassistant.util.dt", <tz-aware MagicMock stub>)`
+# at module-import time and never tear it down. When this file loads after
+# them, our own `setdefault` no-ops and music_following.py binds
+# `dt_util = <polluted tz-aware stub>` while our `_transition()` helper
+# builds naive-local timestamps. The stale-transition guard then computes
+# age = tz-aware-utc - naive-local-as-utc ≈ 7h and short-circuits every
+# transfer at "stale_transition", so all downstream gate/stat asserts
+# silently see 0 counters (7 tests fail).
+#
+# Fix at the victim, not the polluter: overwrite the loaded module's
+# top-level `dt_util` and `STATE_PLAYING` attributes with our own clean
+# stubs. This is confined to the module we own here — nothing in
+# sys.modules is touched, so downstream test files see exactly the
+# environment they saw before this fix.
+class _CleanDT:
+    utcnow = staticmethod(datetime.utcnow)
+    now = staticmethod(datetime.now)
+    as_local = staticmethod(lambda dt: dt)
+
+_mf_mod.dt_util = _CleanDT
+_mf_mod.STATE_PLAYING = "playing"
+
 MusicFollowing = _mf_mod.MusicFollowing
 RoomTransition = _trans.RoomTransition
-# STATE_PLAYING sentinel matches whatever the imported module resolved
-# at load time (may be the string "playing" from our mock, OR a
-# MagicMock if a sibling test bootstrapped first). Tests use this
-# value to build FakeState so equality checks succeed regardless of
-# load order.
+# STATE_PLAYING is the "playing" string from our pollution guard above.
+# Tests use this value to build FakeState so equality checks succeed.
 STATE_PLAYING = _mf_mod.STATE_PLAYING
 
 
