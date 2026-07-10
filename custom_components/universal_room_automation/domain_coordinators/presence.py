@@ -2168,6 +2168,19 @@ class PresenceCoordinator(BaseCoordinator):
             # shape the prior state-change callback used.
             from .occupancy_substrate import OccupancySubstrate  # noqa: PLC0415
             self._substrate = OccupancySubstrate(self.hass)
+            # v5.10.0 fix-up FIX-2 (A-CRIT-1): register the substrate in
+            # hass.data so cross-coordinator readers (e.g. MusicFollowing
+            # D3 guest-in-source-room guard at music_following.py:452)
+            # have a real writer to bind to. Mirrors the MusicFollowing
+            # singleton registration at __init__.py:1910. Cleared in
+            # async_teardown alongside self._substrate = None (see below).
+            try:
+                self.hass.data.setdefault(DOMAIN, {})["occupancy_substrate"] = self._substrate
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "OccupancySubstrate hass.data registration failed",
+                    exc_info=True,
+                )
             # Mirror the boot-settle gate state: if HA is already RUNNING
             # (options-flow reload, not cold boot) the gate is born
             # released, so the substrate must also dispatch immediately.
@@ -5878,6 +5891,14 @@ class PresenceCoordinator(BaseCoordinator):
                     exc_info=True,
                 )
             self._substrate = None
+            # v5.10.0 fix-up FIX-2: symmetric hass.data cleanup for the
+            # occupancy_substrate key registered at setup.
+            try:
+                _dom = self.hass.data.get(DOMAIN, {})
+                if _dom.get("occupancy_substrate") is not None:
+                    _dom.pop("occupancy_substrate", None)
+            except Exception:  # noqa: BLE001
+                pass
 
         # B-M1 / C-C7 fix-up: reset the optimizer-intent unsub handle so
         # re-setup after teardown re-subscribes cleanly. The actual

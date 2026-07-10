@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.9.0
+# Universal Room Automation vv5.11.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -1643,7 +1643,10 @@ class UnavailableEntitiesSensor(UniversalRoomEntity, SensorEntity):
                            "illuminance_sensor")
     _ACTUATOR_LIST_KEYS = ("lights", "night_lights", "alert_lights",
                            "fans", "humidity_fans", "covers")
-    _ACTUATOR_SINGLE_KEYS = ("climate_entity",)
+    # v5.10.0 D1: room_media_player is an ACTUATOR — a dead speaker means
+    # music_following silently no-ops. Surface it in
+    # sensor.<room>_unavailable_entities so operators can see it.
+    _ACTUATOR_SINGLE_KEYS = ("climate_entity", "room_media_player")
 
     @property
     def native_value(self) -> int:
@@ -6283,7 +6286,11 @@ class MusicFollowingLastTransferSensor(AggregationEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return last transfer event details."""
+        """Return last transfer event details.
+
+        v5.10.0 D1+D8: extended with last_skip_reason / last_skip_* attrs
+        so operators can see WHY a transfer didn't fire without new sensors.
+        """
         mf = self._music_following or self.hass.data.get(DOMAIN, {}).get("music_following")
         if mf is None or not mf._last_transfer_result:
             return {}
@@ -6293,6 +6300,11 @@ class MusicFollowingLastTransferSensor(AggregationEntity, SensorEntity):
             "to_room": mf._last_transfer_to,
             "time": mf._last_transfer_time_iso,
             "result": mf._last_transfer_result,
+            # v5.10.0 D1+D8
+            "last_skip_reason": getattr(mf, "_last_skip_reason", ""),
+            "last_skip_from_room": getattr(mf, "_last_skip_from_room", ""),
+            "last_skip_to_room": getattr(mf, "_last_skip_to_room", ""),
+            "last_skip_time": getattr(mf, "_last_skip_time_iso", ""),
         }
 
 
@@ -14278,8 +14290,15 @@ class OptimizerFindingsSensor(_OptimizerCMSensorBase):
         coord = self._get_coord()
         if coord is None or not coord._last_findings:
             return "initializing"
-        # Latest finding description (last in list).
-        return coord._last_findings[-1].description[:255]
+        # v5.11.0 D7 — exclude META sentinel from the display state so
+        # the operator's timeline doesn't flip to "cycle_ok" on every
+        # quiet cycle. META rows still persist to the DB (Review-D
+        # anchor) but don't pollute the visible state.
+        for f in reversed(coord._last_findings):
+            if str(f.dimension) != "meta":
+                return f.description[:255]
+        # Only META rows this cycle → truly quiet; state reflects that.
+        return "cycle_ok"
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -14405,11 +14424,52 @@ class OptimizerReasoningSensor(_OptimizerCMSensorBase):
             veto_count = int(getattr(coord, "dry_run_veto_count", 0))
         except Exception:
             veto_count = 0
+        # v5.11.0 — observability attrs (D9 tripwire, D1 dedup keys,
+        # D4 boot-storm cache, D2 shadow-sample count, D6 promotion
+        # readiness). Per critique's binding decision, NEW sensor
+        # entities are NOT created; these ride on the existing
+        # reasoning sensor.
+        notify_dedup_active_keys = 0
+        try:
+            notify_dedup_active_keys = len(
+                getattr(coord, "_notify_dedup_state", {}) or {}
+            )
+        except Exception:
+            notify_dedup_active_keys = 0
+        try:
+            shadow_samples_count = len(
+                getattr(coord, "_shadow_accuracy_samples", []) or []
+            )
+        except Exception:
+            shadow_samples_count = 0
+        promotion_readiness: dict = {}
+        try:
+            if hasattr(coord, "_compute_promotion_readiness"):
+                promotion_readiness = coord._compute_promotion_readiness()
+        except Exception:
+            promotion_readiness = {}
         return {
             "cycle_summary": cycle_summary[:1024],
             "cycle_actions_proposed": actions,
             "dry_run_veto_count": veto_count,
             "last_cycle_at": getattr(coord, "_last_evaluation_iso", None),
+            # v5.11.0 D9 — write-volume tripwire observability.
+            "write_volume_alarmed_at": getattr(
+                coord, "_write_volume_alarmed_at", None
+            ),
+            "persistence_suspended": bool(getattr(
+                coord, "_persistence_suspended", False
+            )),
+            # v5.11.0 D1 — notify-dedup active key count.
+            "notify_dedup_active_keys": notify_dedup_active_keys,
+            # v5.11.0 D4 — boot-storm cache expiry.
+            "boot_storm_cache_expires_iso": getattr(
+                coord, "_boot_storm_cache_expires_iso", None
+            ),
+            # v5.11.0 D2 — shadow-accuracy sample count.
+            "shadow_accuracy_samples_count": shadow_samples_count,
+            # v5.11.0 D6 — promotion readiness per scorable dimension.
+            "promotion_readiness": promotion_readiness,
         }
 
 
@@ -14485,6 +14545,10 @@ class RoomOptimizationHealthSensor(UniversalRoomEntity, SensorEntity):
         opt = self._get_optimizer()
         if opt is None:
             return None
+        # v5.11.0 — per critique binding decision: return None until the
+        # first cycle has completed (avoids Bug Class #5 fake defaults).
+        if not getattr(opt, "_last_evaluation_iso", None):
+            return None
         room = self._room_name()
         if not room:
             return None
@@ -14497,14 +14561,36 @@ class RoomOptimizationHealthSensor(UniversalRoomEntity, SensorEntity):
     def extra_state_attributes(self) -> dict:
         opt = self._get_optimizer()
         if opt is None:
-            return {"degraded_dimensions": []}
+            return {"degraded_dimensions": [], "worst_open": None}
         room = self._room_name()
-        degraded = []
+        degraded: list[str] = []
+        # v5.11.0 — worst_open: the highest-severity currently-open room
+        # finding, so the operator can see the reason for a degraded
+        # room-score at a glance.
+        severity_rank = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+        worst_open: dict | None = None
+        worst_rank = 0
         for f in opt._last_findings:
             if f.level == "room" and f.target_id == room:
-                if str(f.dimension) not in degraded:
-                    degraded.append(str(f.dimension))
-        return {"degraded_dimensions": degraded}
+                dim_str = str(f.dimension)
+                if dim_str not in degraded and dim_str != "meta":
+                    degraded.append(dim_str)
+                # Skip META for worst_open — it's a liveness sentinel.
+                if dim_str == "meta":
+                    continue
+                sev = (getattr(f, "severity", "low") or "low").lower()
+                rank = severity_rank.get(sev, 0)
+                if rank > worst_rank:
+                    worst_rank = rank
+                    worst_open = {
+                        "dimension": dim_str,
+                        "severity": sev,
+                        "description": (f.description or "")[:255],
+                    }
+        return {
+            "degraded_dimensions": degraded,
+            "worst_open": worst_open,
+        }
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()

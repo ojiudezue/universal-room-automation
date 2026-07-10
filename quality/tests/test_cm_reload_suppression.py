@@ -226,6 +226,9 @@ def _load_init_listener_helpers():
         "_CONF_COMFORT_TEMP_MIN":                 "comfort_temp_min",
         "_CONF_COMFORT_TEMP_MAX":                 "comfort_temp_max",
         "_CONF_COMFORT_HUMIDITY_MAX":             "comfort_humidity_max",
+        # v5.10.0 D2 — MF sleep + night suppression CM keys.
+        "_CONF_MF_SLEEP_SUPPRESS":                "mf_sleep_suppress",
+        "_CONF_MF_NIGHT_SUPPRESS_MODE":           "mf_night_suppress_mode",
         # ENTRY_TYPE_ROOM (C-HIGH-3 path in _async_update_listener).
         "ENTRY_TYPE_ROOM":                        "room",
         # Typing — frozenset[str] subscript requires Python 3.9+; ok.

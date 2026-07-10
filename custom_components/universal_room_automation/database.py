@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.9.0
+# Universal Room Automation vv5.11.0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -807,6 +807,30 @@ class UniversalRoomDatabase:
                 # of appending duplicates. Multi-person notifications fire N
                 # times per day; without UNIQUE the table would grow by N
                 # rows/day with identical payloads.
+                # -- Optimizer shadow-accuracy samples (v5.11.0 D2) ----------
+                # Persists per-cycle shadow-accuracy sample tuples so the
+                # rolling accuracy % survives HA restarts. Without this,
+                # the 7-day window resets to zero on every restart and the
+                # `warming_up` gate never closes (blocks L1->L2 promotion).
+                # Writes are BATCHED per cycle via
+                # ``log_shadow_samples_batch`` — NEVER per-sample (that was
+                # the v5.0-v5.2 write-flood pattern).
+                if not await self._create_table_safe(
+                    db, "optimizer_shadow_samples", [
+                    """CREATE TABLE IF NOT EXISTS optimizer_shadow_samples (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        observed_at TEXT NOT NULL,
+                        dimension TEXT NOT NULL,
+                        target_id TEXT,
+                        matched INTEGER NOT NULL
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_optshadow_observed_at
+                    ON optimizer_shadow_samples(observed_at DESC)""",
+                    """CREATE INDEX IF NOT EXISTS idx_optshadow_dimension
+                    ON optimizer_shadow_samples(dimension)""",
+                ]):
+                    failed_tables.append("optimizer_shadow_samples")
+
                 if not await self._create_table_safe(db, "optimization_daily_digest", [
                     """CREATE TABLE IF NOT EXISTS optimization_daily_digest (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -5225,6 +5249,133 @@ class UniversalRoomDatabase:
                 "get_recent_optimization_findings failed: %s", e,
             )
             return []
+
+    # ====================================================================
+    # v5.11.0 D2 — Optimizer shadow-accuracy sample DAOs.
+    # ====================================================================
+    #
+    # Schema DDL is defined once in ``__init__`` above (per Tier-2-DB
+    # Review C: tests must read schema FROM production, never hand-copy).
+    # These DAOs are the single writer + reader for the table.
+
+    async def log_shadow_samples_batch(
+        self, samples: list[tuple],
+    ) -> int:
+        """v5.11.0 D2 — batched writer for shadow-accuracy sample rows.
+
+        Signature: samples = list of (observed_at_iso, dimension,
+        target_id, matched_bool). One ``_db()`` round-trip regardless
+        of sample count — mirrors ``log_findings_batch`` discipline
+        (never per-sample; that pattern caused the v5.0-v5.2 write-flood
+        incident that rolled the optimizer back).
+
+        Returns the count of rows written.
+        """
+        if not samples:
+            return 0
+        rows: list[tuple] = []
+        for s in samples:
+            if not isinstance(s, tuple) or len(s) != 4:
+                continue
+            observed_at, dim, target_id, matched = s
+            if not isinstance(observed_at, str) or not isinstance(dim, str):
+                continue
+            rows.append((
+                observed_at,
+                dim,
+                target_id if isinstance(target_id, str) else None,
+                1 if matched else 0,
+            ))
+        if not rows:
+            return 0
+        try:
+            async with self._db() as db:
+                await db.executemany(
+                    """INSERT INTO optimizer_shadow_samples
+                       (observed_at, dimension, target_id, matched)
+                       VALUES (?, ?, ?, ?)""",
+                    rows,
+                )
+                await db.commit()
+                return len(rows)
+        except Exception as e:
+            _LOGGER.warning(
+                "log_shadow_samples_batch: insert failed: %s", e,
+            )
+            return 0
+
+    async def get_recent_shadow_samples(
+        self, window_days: int = 7, limit: int = 50000,
+    ) -> list[dict]:
+        """v5.11.0 D2 — read shadow-accuracy samples within window.
+
+        Used by the OC ``async_setup`` to seed ``_shadow_accuracy_samples``
+        so the rolling accuracy % survives HA restarts.
+        """
+        cutoff = (dt_util.utcnow() - timedelta(days=window_days)).isoformat()
+        try:
+            async with self._db_read() as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute(
+                    """SELECT observed_at, dimension, target_id, matched
+                       FROM optimizer_shadow_samples
+                       WHERE observed_at >= ?
+                       ORDER BY observed_at DESC
+                       LIMIT ?""",
+                    (cutoff, limit),
+                )
+                rows = await cursor.fetchall()
+                return [dict(r) for r in rows]
+        except Exception as e:
+            _LOGGER.warning(
+                "get_recent_shadow_samples failed: %s", e,
+            )
+            return []
+
+    async def prune_optimizer_shadow_samples(
+        self, window_days: int = 7, batch_size: int = 1000,
+    ) -> int:
+        """v5.11.0 D2 — prune shadow samples past retention window.
+
+        Batched-DELETE shape mirrors ``prune_optimization_findings`` to
+        dodge Bug Class #25 (write-queue stalls on large deletes).
+        """
+        cutoff = (dt_util.utcnow() - timedelta(days=window_days)).isoformat()
+        total_deleted = 0
+        _batch_count = 0
+        while True:
+            _batch_count += 1
+            if _batch_count > 500:
+                _LOGGER.warning(
+                    "optimizer_shadow_samples prune hit max batch limit"
+                )
+                break
+            try:
+                async with self._db() as db:
+                    cursor = await db.execute(
+                        """DELETE FROM optimizer_shadow_samples
+                           WHERE rowid IN (
+                             SELECT rowid FROM optimizer_shadow_samples
+                             WHERE observed_at < ? LIMIT ?
+                           )""",
+                        (cutoff, batch_size),
+                    )
+                    await db.commit()
+                    deleted = cursor.rowcount
+                    total_deleted += deleted
+            except Exception as e:
+                _LOGGER.error(
+                    "Error pruning optimizer_shadow_samples: %s", e,
+                )
+                break
+            if deleted < batch_size:
+                break
+            await asyncio.sleep(0.1)
+        if total_deleted > 0:
+            _LOGGER.info(
+                "Pruned %d optimizer_shadow_samples entries", total_deleted,
+            )
+        return total_deleted
 
     # ====================================================================
     # v4.7.36 Phase 3 — Optimization daily digest DAOs.

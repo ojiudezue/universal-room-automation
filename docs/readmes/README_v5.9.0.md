@@ -50,10 +50,12 @@ hypotheses:
     window: { first_check_after: 1h, confirm_after: 24h, alert_if_violated_after: 72h }
 ```
 
-## Live Validation — to populate post-restart (write-back rule)
-- **L1 Deploy healthy:** installed_version `v5.9.0`; 40/40 entries loaded; zero URA ERROR in boot log.
-- **L2 Census attrs:** persons-in-house sensor exposes `area_contributions` / `raw_pre_dedup_sum` / `pending_peak`; when two same-area cameras both see one person, `raw_pre_dedup_sum` exceeds the deduped state (the delta is the fix, visible).
-- **L3 Thoroughfare walk (operator):** one person garage-hallway → stairway: census must NOT latch 2 (pending_peak may blip, no promotion). A real second person entering: census reaches 2 within ~60s.
-- **L4 AWAY-veto regression guard:** with a genuine unknown person present, `unidentified_count` still reaches ≥1 (guest gate + veto unaffected).
-- **L5 Rider:** per-room switch shows label "Device Auto Recovery"; same entity_id as v5.8.1.
-- **L6 Lingering:** after a room's cameras go clear, the house census decays within the new 3-min hold (was 15).
+## Live Validation — Validated 2026-07-08 (post-restart)
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | Deploy healthy | **PASS** | `installed_version = v5.9.0`; `state_summary: {loaded: 40}` (40/40). Only ERROR lines are a known **shutdown-transient** burst at 21:23:12 ("DB write worker not running" during teardown, pre-boot) — zero post-boot URA errors. |
+| L2 | Census attrs live | **PASS** | `sensor.universal_room_automation_persons_in_house` = 3 with all three new attrs present: `area_contributions: {}`, `raw_pre_dedup_sum: 0`, `pending_peak: null` (cameras currently clear → honest empty values). `identified_count: 3`, `unidentified_count: 0` — no phantom guests at validation time. |
+| L4 | AWAY-veto guard | **PASS (indirect)** | `unidentified_count = 0` with 3 identified residents present — the veto-feeding value is sane post-dedup. Positive case (real guest → ≥1) is organic; the mutation-anchored suite covers the code path. |
+| L5 | Rider rename | **PASS** | Switches show "**<Room> Device Auto Recovery**" (AV Closet, Breakfast Nook, Butler Pantry, Dining Room sampled); entity_ids unchanged (`*_auto_recovery`), all ON. |
+| L3 | Thoroughfare walk | **PENDING (operator)** | One person garage-hallway → stairway must NOT latch 2 (`pending_peak` may blip, no promotion); a real second person latches within ~60s. Observe on next natural walk; `pending_peak` attr makes it visible. |
+| L6 | 3-min decay | **PENDING (organic)** | After cameras go clear, house census decays within the new 3-min hold (was 15). Observable within hours of normal occupancy. |

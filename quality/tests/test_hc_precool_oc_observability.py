@@ -818,7 +818,9 @@ class TestD2bDimensionVerdicts:
         verdicts = coord._compute_dimension_verdicts(per_dim, raised)
         assert verdicts["comfort"] == "degraded"
         assert verdicts["sensor_health"] == "critical"
-        assert verdicts["energy_efficiency"] == "ok"
+        # v5.11.0 D5 — stub dimensions carry the explicit `stub` token
+        # instead of a silent `ok` verdict (see PLANNING D5).
+        assert verdicts["energy_efficiency"] == "stub"
 
     def test_raised_evaluator_maps_to_not_run(self):
         coord, _ = self._make_coord_for_verdicts()

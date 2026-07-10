@@ -27,15 +27,23 @@ from ..const import (
     DEFAULT_MF_COOLDOWN_SECONDS,
     DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE,
     DEFAULT_MF_MIN_CONFIDENCE,
+    DEFAULT_MF_NIGHT_SUPPRESS_MODE,
     DEFAULT_MF_PING_PONG_WINDOW,
     DEFAULT_MF_POSITION_OFFSET,
+    DEFAULT_MF_SLEEP_SUPPRESS,
+    DEFAULT_MF_STALE_TRANSITION_SECONDS,
     DEFAULT_MF_UNJOIN_DELAY,
     DEFAULT_MF_VERIFY_DELAY,
     DOMAIN,
 )
 from .base import BaseCoordinator, CoordinatorAction, Intent
 from .coordinator_diagnostics import AnomalyDetector
-from .signals import SIGNAL_PERSON_ARRIVING, SIGNAL_SAFETY_HAZARD, SIGNAL_SECURITY_EVENT
+from .signals import (
+    SIGNAL_HOUSE_STATE_CHANGED,
+    SIGNAL_PERSON_ARRIVING,
+    SIGNAL_SAFETY_HAZARD,
+    SIGNAL_SECURITY_EVENT,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -80,6 +88,9 @@ class MusicFollowingCoordinator(BaseCoordinator):
         position_offset: int = DEFAULT_MF_POSITION_OFFSET,
         min_confidence: float = DEFAULT_MF_MIN_CONFIDENCE,
         high_confidence_distance: float = DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE,
+        sleep_suppress: bool = DEFAULT_MF_SLEEP_SUPPRESS,
+        night_suppress_mode: str = DEFAULT_MF_NIGHT_SUPPRESS_MODE,
+        stale_transition_seconds: float = DEFAULT_MF_STALE_TRANSITION_SECONDS,
     ) -> None:
         """Initialize the Music Following Coordinator."""
         super().__init__(
@@ -94,6 +105,10 @@ class MusicFollowingCoordinator(BaseCoordinator):
         self._unjoin_delay = unjoin_delay
         self._position_offset = position_offset
         self._min_confidence = min_confidence
+        # v5.10.0 D2/D6: house-state gate + stale-transition threshold
+        self._sleep_suppress = sleep_suppress
+        self._night_suppress_mode = night_suppress_mode
+        self._stale_transition_seconds = stale_transition_seconds
         # v4.6.5.3 M4 (review note from v4.6.5.2): one-shot flag per metric so
         # we log INFO on the FIRST post-deploy observation. The v4.6.5.2 Fix 1
         # denominator change starts re-drifting the stale baseline from
@@ -120,6 +135,68 @@ class MusicFollowingCoordinator(BaseCoordinator):
             # Apply configurable tuning parameters
             mf.MIN_CONFIDENCE = self._min_confidence
             mf._mf_high_confidence_distance = self._high_confidence_distance
+            # v5.10.0 D2/D6: push gate config into the singleton
+            try:
+                mf.update_gate_config(
+                    sleep_suppress=self._sleep_suppress,
+                    night_suppress_mode=self._night_suppress_mode,
+                    stale_transition_seconds=self._stale_transition_seconds,
+                )
+                # v5.10.0 fix-up FIX-1 (C-CRIT-1): seed the initial house state
+                # via the REAL access path so the gate is armed on setup /
+                # reload / restart-into-SLEEP without waiting for the first
+                # SIGNAL_HOUSE_STATE_CHANGED. The prior seed read
+                # ``hass.data[DOMAIN]["house_state_machine"]`` — no writer
+                # exists for that key — and dereferenced ``.current_state``
+                # (wrong attr). Real writer: CoordinatorManager.__init__ at
+                # domain_coordinators/manager.py:143 (``self._house_state_machine``)
+                # exposed via the ``.house_state`` property at
+                # domain_coordinators/manager.py:201-204 (which returns
+                # ``self._house_state_machine.state``). The CM itself is
+                # registered in hass.data at __init__.py:2731.
+                try:
+                    cm = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+                    current = getattr(cm, "house_state", None) if cm else None
+                    if current is not None:
+                        mf.update_house_state(str(getattr(current, "value", current)))
+                except Exception:
+                    _LOGGER.debug("Initial house_state seed failed (non-fatal)", exc_info=True)
+                # Note: an initial synthetic SIGNAL_HOUSE_STATE_CHANGED
+                # emit after boot-settle was considered as a convergence
+                # aid for OTHER subscribers (HVAC, routine_forecaster,
+                # optimization) but SKIPPED as risky — that signal is
+                # consumed by multiple coordinators whose transition logic
+                # assumes real state-machine transitions, not synthetic
+                # boot echoes. Direct seed of MF here is sufficient for
+                # MF's SLEEP invariant.
+            except AttributeError:
+                # Older MusicFollowing without D2 hooks — skip.
+                _LOGGER.debug("MusicFollowing has no update_gate_config; skipping")
+            # v5.10.0 fix-up FIX-5 (B-HIGH-1): reconcile membership of
+            # MF._enabled_persons against the current tracked-persons
+            # list. Reads CONF_TRACKED_PERSONS from the INTEGRATION
+            # entry (writer: __init__.py :1641 write-back). Respects
+            # per-person DND prefs stored on the singleton — see the
+            # sync_enabled_persons docstring.
+            try:
+                from ..const import (  # noqa: PLC0415
+                    CONF_TRACKED_PERSONS,
+                    CONF_ENTRY_TYPE,
+                    ENTRY_TYPE_INTEGRATION,
+                )
+                tracked: list[str] = []
+                for _ce in self.hass.config_entries.async_entries(DOMAIN):
+                    if _ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                        merged = {**_ce.data, **_ce.options}
+                        tracked = list(merged.get(CONF_TRACKED_PERSONS) or [])
+                        break
+                if tracked and hasattr(mf, "sync_enabled_persons"):
+                    mf.sync_enabled_persons(tracked)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "MF sync_enabled_persons at setup failed",
+                    exc_info=True,
+                )
             _LOGGER.info(
                 "MusicFollowingCoordinator setup: wrapping existing MusicFollowing "
                 "(cooldown=%ds, ping_pong=%ds, verify=%ds, unjoin=%ds, "
@@ -201,6 +278,17 @@ class MusicFollowingCoordinator(BaseCoordinator):
                 self.hass,
                 SIGNAL_SECURITY_EVENT,
                 self._handle_security_event,
+            )
+        )
+
+        # v5.10.0 D2: Subscribe to house-state changes for sleep/night gate.
+        # Uses the same _unsub_listeners pattern as everything else —
+        # Bug Class #50 guard (rebuild-clobber protection).
+        self._unsub_listeners.append(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_HOUSE_STATE_CHANGED,
+                self._handle_house_state_changed,
             )
         )
 
@@ -471,25 +559,45 @@ class MusicFollowingCoordinator(BaseCoordinator):
         if not person_entity:
             return
 
-        from ..const import CONF_MUSIC_ON_ARRIVAL_START
+        # v5.10.0 D9: arrival-start was never implemented (truth-in-
+        # advertising bug per C7). Full implementation depends on a
+        # person-preferred-media surface that doesn't exist. Rather than
+        # ship a toggle that does nothing, log at DEBUG only. The
+        # CONF_MUSIC_ON_ARRIVAL_START key is kept in const.py for
+        # back-compat but the options-flow field is being retired.
+        _LOGGER.debug(
+            "MusicFollowing: Person arriving %s in zone %s "
+            "(arrival-start is not implemented — see docs/Coordinator/MUSIC_FOLLOWING.md)",
+            person_entity, zone or "unknown",
+        )
 
-        if self._get_signal_config(CONF_MUSIC_ON_ARRIVAL_START):
-            _LOGGER.info(
-                "MusicFollowing: Person arriving %s — would start music in zone %s "
-                "(arrival music start is a convenience stub)",
-                person_entity, zone or "unknown",
-            )
-            # Note: Actual playback start requires knowing the person's preferred
-            # media and zone speaker. The MusicFollowing class is event-driven via
-            # TransitionDetector and doesn't expose a "start playing" API.
-            # This handler logs the intent; full implementation deferred to a
-            # future cycle when person-preferred-media config exists.
-        else:
-            _LOGGER.info(
-                "MusicFollowing: Person arriving %s — would start music "
-                "(disabled by config)",
-                person_entity,
-            )
+    @callback
+    def _handle_house_state_changed(self, payload: Any) -> None:
+        """v5.10.0 D2: push new HouseState into MusicFollowing singleton.
+
+        Payload is a ``HouseStateChange`` dataclass (signals.py:173) with
+        a ``new_state`` string. Falsifiable invariant fed by this hook:
+        during ``HouseState.SLEEP`` (with sleep_suppress on) MF SHALL NOT
+        call any media_player service.
+        """
+        if self._music_following is None:
+            return
+        new_state = ""
+        try:
+            if payload is None:
+                return
+            if isinstance(payload, dict):
+                new_state = str(payload.get("new_state") or "")
+            elif hasattr(payload, "new_state"):
+                new_state = str(getattr(payload, "new_state", "") or "")
+        except Exception:
+            return
+        if not new_state:
+            return
+        try:
+            self._music_following.update_house_state(new_state)
+        except Exception:
+            _LOGGER.debug("MF update_house_state failed", exc_info=True)
 
     @callback
     def _handle_security_event(self, payload: Any) -> None:
@@ -562,6 +670,18 @@ class MusicFollowingCoordinator(BaseCoordinator):
             task.cancel()
         self._pending_tasks.clear()
         self._cancel_listeners()
+        # v5.10.0 D6 (addresses C4): tell the standalone MusicFollowing to
+        # clear its own in-flight cleanup tasks + volatile state. The
+        # singleton is preserved across CM reload; without this call
+        # stale _cleanup_tasks + _saved_volumes carry over.
+        if self._music_following is not None:
+            try:
+                await self._music_following.async_teardown()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "MusicFollowing.async_teardown failed (non-fatal)",
+                    exc_info=True,
+                )
         if self.anomaly_detector is not None:
             try:
                 await self.anomaly_detector.save_baselines()

@@ -116,6 +116,10 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     # OC Pillar B (admin surface) — pending-escalation key. Editing it must
     # NOT tear down the CM entry (the confirm/cancel buttons read it fresh).
     _extract_conf(CONST_SRC, "CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL"),
+    # v5.10.0 D2 — Music Following sleep + night suppression push
+    # through MusicFollowing.update_gate_config() without a CM reload.
+    _extract_conf(CONST_SRC, "CONF_MF_SLEEP_SUPPRESS"),
+    _extract_conf(CONST_SRC, "CONF_MF_NIGHT_SUPPRESS_MODE"),
 }
 
 
@@ -154,9 +158,9 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     """Headline number: Cycle 1's 5 + 10 EC/Bayesian + 4 Routine +
     14 HVAC tunables + 4 D5 + 6 v4.7.34 Optimizer + 4 v4.7.35 LLM +
     1 v4.7.35 fix-up (safety deny-list) + 1 OC Pillar B
-    (pending-escalation) = 49 keys."""
+    (pending-escalation) + 2 v5.10.0 D2 (MF sleep + night) = 51 keys."""
     ns = _load_init_dispatch_namespace()
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 49
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 51
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +261,9 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_COMFORT_TEMP_MIN":                 "comfort_temp_min",
         "_CONF_COMFORT_TEMP_MAX":                 "comfort_temp_max",
         "_CONF_COMFORT_HUMIDITY_MAX":             "comfort_humidity_max",
+        # v5.10.0 D2 — MF sleep + night suppression CM keys.
+        "_CONF_MF_SLEEP_SUPPRESS":                "mf_sleep_suppress",
+        "_CONF_MF_NIGHT_SUPPRESS_MODE":           "mf_night_suppress_mode",
         "ENTRY_TYPE_ROOM":                        "room",
     }
     mod = ast.Module(body=body, type_ignores=[])
@@ -297,6 +304,12 @@ def test_apply_in_place_dispatch_coverage():
         "hvac_egress_threshold_min",
         "hvac_egress_resume_delay_min",
         "fan_interference_hold_s",
+    })
+    # v5.10.0 D2 — MF sleep + night suppression (hand-written branch calling
+    # MusicFollowing.update_gate_config()).
+    covered.update({
+        "mf_sleep_suppress",
+        "mf_night_suppress_mode",
     })
     # No-live-attr keys (Routine + Bayesian + DPM dwell + DPM hyst)
     covered.update(ns["_NO_LIVE_ATTR_KEYS"])

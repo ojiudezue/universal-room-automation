@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.9.0
+# Universal Room Automation vv5.11.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.9.0"
+VERSION: Final = "v5.11.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1181,6 +1181,52 @@ DEFAULT_MF_MIN_CONFIDENCE: Final = 0.6
 DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE: Final = 8.0  # feet — tighter than person tracking (10ft)
 
 # ============================================================================
+# v5.10.0 D2 Music Following — sleep + night suppression
+# ============================================================================
+# Gate transfers while the house is in SLEEP / HOME_NIGHT so a 3am walk to
+# the bathroom doesn't blast music into the hallway.
+CONF_MF_SLEEP_SUPPRESS: Final = "mf_sleep_suppress"
+CONF_MF_NIGHT_SUPPRESS_MODE: Final = "mf_night_suppress_mode"
+
+DEFAULT_MF_SLEEP_SUPPRESS: Final = True
+
+# Night-mode options — plain-language, not jargon (per D0.5 labels audit).
+MF_NIGHT_MODE_OFF: Final = "off"
+MF_NIGHT_MODE_DWELL_ONLY: Final = "dwell_only"
+MF_NIGHT_MODE_BLOCK_ALL: Final = "block_all"
+MF_NIGHT_MODES: Final = (
+    MF_NIGHT_MODE_OFF,
+    MF_NIGHT_MODE_DWELL_ONLY,
+    MF_NIGHT_MODE_BLOCK_ALL,
+)
+# v5.10.0 fix-up FIX-3 (A-CRIT-2): default changed from DWELL_ONLY to OFF.
+# The DWELL_ONLY mode reads ``person_coordinator.data[person][dwell_room]``
+# / ``bedroom`` (music_following.py:_dwell_room_for_person) — but the
+# person_coordinator does NOT populate those keys (person_coordinator.py
+# writes only ``location`` / ``previous_location`` / ``previous_location_time``
+# etc. per the location-updater block starting at :161). No CONF binds a
+# person to a bedroom either. With DWELL_ONLY as the default, EVERY
+# HOME_NIGHT transition was silently suppressed (dwell resolves None →
+# night_suppressed). SLEEP suppression is the headline protection and
+# remains ON by default; HOME_NIGHT now allows normal follow. Operators
+# who want strict night behavior can pick BLOCK_ALL explicitly.
+DEFAULT_MF_NIGHT_SUPPRESS_MODE: Final = MF_NIGHT_MODE_OFF
+
+# v5.10.0 D6: stale-transition age ceiling — transitions older than this
+# (measured at lock-acquire time) are skipped instead of executed on
+# now-outdated context.
+DEFAULT_MF_STALE_TRANSITION_SECONDS: Final = 15
+
+# v5.10.0 D11: per-room speaker loudness calibration (form field only —
+# NOT a Number entity). Applied on cross-platform generic transfers to
+# compensate for platforms whose volume levels aren't directly comparable
+# (Sonos 0.4 vs WiiM 0.4 driving passive speakers).
+CONF_ROOM_MEDIA_VOLUME_SCALE: Final = "room_media_volume_scale"
+DEFAULT_ROOM_MEDIA_VOLUME_SCALE: Final = 1.0
+MIN_ROOM_MEDIA_VOLUME_SCALE: Final = 0.5
+MAX_ROOM_MEDIA_VOLUME_SCALE: Final = 1.5
+
+# ============================================================================
 # v3.6.29 Notification Manager
 # ============================================================================
 
@@ -1801,6 +1847,55 @@ OPTIMIZER_NOTIFY_DEDUP_CYCLES: Final = 12
 # v4.7.36 fix-up (A6): occupancy-accuracy disagreement must persist this many
 # seconds before firing (motion-on/occupancy-off is transient at sensor wake).
 OPTIMIZER_OCCUPANCY_ACCURACY_GATE_SECONDS: Final = 120
+
+# ------------------------------------------------------------------
+# v5.11.0 — OC hardening: runtime write-volume tripwire (D9)
+# ------------------------------------------------------------------
+# The v5.0.0-v5.2.1 incident (rolled back) proved a per-finding write path
+# can saturate the write queue and take the house down. The tripwire is
+# the code-level trip-wire the postmortem demanded: an in-memory counter
+# of OC-attributed DB writes over a rolling window. If it exceeds this
+# threshold, OC self-suspends its persistence path (evaluation continues),
+# fires a single NM anomaly, and records `write_volume_alarmed_at`. The
+# threshold sits generously above the batched steady-state cost, which
+# after v5.11.0 F1 (fix-up) covers ALL five OC-attributed DB write
+# channels routed through ``_record_db_write``:
+#   1. ``_persist_findings_batch`` — Tier-1 findings (1/cycle)
+#   2. ``_persist_findings_batch`` — LLM Tier-2 findings (≤1/cycle)
+#   3. ``_persist_shadow_samples_batch`` — shadow samples (≤1/cycle)
+#   4. ``_log_activity`` via ``_flush_cycle_activity_summaries``
+#      (≤2/cycle: shadow + clamp summary rows)
+#   5. ``persist_daily_digest`` — once/day, amortizes to ~0/cycle
+# Counted steady-state ceiling ≈ 5 writes/cycle × 12 cycles/hour = 60
+# writes/hour. 2.5x → 150. Anything past this cap is regression territory
+# (a per-finding write path re-emerging, which is what the postmortem
+# was written to catch).
+OPTIMIZER_WRITE_VOLUME_WINDOW_SECONDS: Final = 3600  # rolling 1-hour window
+OPTIMIZER_WRITE_VOLUME_THRESHOLD: Final = 150  # ~2.5x steady-state ceiling
+
+# v5.11.0 — Stub dimensions that are declared but not yet implemented
+# (return []). D5 excludes them from operator-visible `dimension_verdicts`
+# so silent "why does X never flag" support-load stops accumulating.
+OPTIMIZER_STUB_DIMENSIONS: Final = frozenset({
+    "automation_responsiveness",
+    "energy_efficiency",
+    "setpoint_compliance",
+})
+
+# v5.11.0 — Boot-storm gate cache TTL (D4). Once the gate closes
+# (no boot-storm), cache the negative verdict for this many cycles so
+# the ~150 state reads per steady-state cycle stop.
+OPTIMIZER_BOOT_STORM_CACHE_CYCLES: Final = 6
+
+# v5.11.0 — Shadow-accuracy sample retention max rows (D2). Persistence
+# is per-cycle-batched (never per-sample); a small ceiling protects the
+# table from unbounded growth. 7-day window × ~10 samples/cycle × 12
+# cycles/hour × 24 hours = ~20K samples max — this cap is well above.
+OPTIMIZER_SHADOW_SAMPLE_MAX_ROWS: Final = 50000
+# Minimum samples per dimension before promotion_readiness reports ready.
+OPTIMIZER_PROMOTION_READINESS_MIN_SAMPLES: Final = 20
+# Accuracy floor (0-1) for promotion readiness.
+OPTIMIZER_PROMOTION_READINESS_ACCURACY_FLOOR: Final = 0.60
 
 # 5-min cycle (matches SCAN_INTERVAL_ENERGY cadence — runs last per
 # priority=5).

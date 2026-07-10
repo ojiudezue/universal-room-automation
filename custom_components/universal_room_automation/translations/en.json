@@ -1183,21 +1183,25 @@
         "description": "Configure the Music Following Coordinator. Controls how music transfers when a person moves between rooms. Adjust timing parameters to tune transfer behavior for your speaker setup.",
         "data": {
           "mf_cooldown_seconds": "Transfer Cooldown (seconds)",
-          "mf_ping_pong_window": "Ping-Pong Suppression Window (seconds)",
-          "mf_verify_delay": "Post-Transfer Verification Delay (seconds)",
-          "mf_unjoin_delay": "Speaker Group Unjoin Delay (seconds)",
-          "mf_position_offset": "Media Position Offset (seconds)",
-          "mf_min_confidence": "Minimum Transition Confidence",
-          "mf_high_confidence_distance": "High Confidence BLE Distance (ft)"
+          "mf_ping_pong_window": "Return-trip suppression window (seconds)",
+          "mf_verify_delay": "Post-transfer verification delay (seconds)",
+          "mf_unjoin_delay": "Source speaker release delay (seconds)",
+          "mf_position_offset": "Cross-platform seek offset (seconds)",
+          "mf_min_confidence": "Minimum transition confidence",
+          "mf_high_confidence_distance": "BLE proximity threshold (ft)",
+          "mf_sleep_suppress": "Do not transfer music while sleeping",
+          "mf_night_suppress_mode": "Night-mode transfer policy"
         },
         "data_description": {
           "mf_cooldown_seconds": "Minimum seconds between transfers to the same target room per person. Prevents rapid repeated transfers. Default: 8.",
-          "mf_ping_pong_window": "Seconds within which an A-to-B-to-A transition is suppressed as ping-pong. Default: 60.",
+          "mf_ping_pong_window": "Suppress the return leg when someone briefly walks away and comes back within this many seconds. Default: 60.",
           "mf_verify_delay": "Seconds to wait after transfer before verifying the target speaker is playing. Default: 2.",
-          "mf_unjoin_delay": "Seconds to wait before unjoining the source speaker from a group after transfer. Default: 5.",
-          "mf_position_offset": "Seconds to add to the media position when resuming on the target speaker, to account for transfer delay. Default: 3.",
+          "mf_unjoin_delay": "Seconds before releasing the source speaker from the group after a successful transfer. Default: 5.",
+          "mf_position_offset": "Compensates for network latency during cross-platform transfers by seeking this many seconds ahead. Default: 3.",
           "mf_min_confidence": "Minimum transition confidence (0.1-1.0) required to trigger a music transfer. Lower values transfer more aggressively. Default: 0.6.",
-          "mf_high_confidence_distance": "Maximum BLE distance (feet) from closest area scanner to trigger music transfer. Tighter than person tracking default (10ft) to avoid transfers on BLE bleed-through from adjacent rooms. Default: 8."
+          "mf_high_confidence_distance": "Only transfer music when the person's closest BLE scanner is within this range (feet). Tighter than person tracking (10ft) to avoid BLE bleed-through from adjacent rooms. Default: 8.",
+          "mf_sleep_suppress": "When on, music does not follow anyone while the house is in SLEEP state. Default: on.",
+          "mf_night_suppress_mode": "Policy for HOME_NIGHT: off (default) = follow as normal; own bedroom only = only transfer to the person's dwell room (NOTE: per-person bedroom mapping is not yet wired — this currently behaves as 'block all' and logs a warning); block all = never transfer at night."
         }
       },
       "coordinator_optimization": {
@@ -1777,11 +1781,13 @@
         "description": "Configure how music follows you into this room.",
         "data": {
           "music_following_enabled": "Enable Music Following",
-          "room_media_player": "Room Media Player"
+          "room_media_player": "Room Media Player",
+          "room_media_volume_scale": "Speaker loudness calibration (0.5-1.5)"
         },
         "data_description": {
           "music_following_enabled": "Automatically transfer music when you enter this room",
-          "room_media_player": "Primary media player for this room"
+          "room_media_player": "Primary media player for this room",
+          "room_media_volume_scale": "Adjust if this room's speaker is noticeably louder/quieter than others at the same volume level. 1.0 = no scaling. Only applied on cross-platform generic transfers."
         }
       },
       "energy": {
