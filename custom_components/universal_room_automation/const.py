@@ -1848,6 +1848,55 @@ OPTIMIZER_NOTIFY_DEDUP_CYCLES: Final = 12
 # seconds before firing (motion-on/occupancy-off is transient at sensor wake).
 OPTIMIZER_OCCUPANCY_ACCURACY_GATE_SECONDS: Final = 120
 
+# ------------------------------------------------------------------
+# v5.11.0 — OC hardening: runtime write-volume tripwire (D9)
+# ------------------------------------------------------------------
+# The v5.0.0-v5.2.1 incident (rolled back) proved a per-finding write path
+# can saturate the write queue and take the house down. The tripwire is
+# the code-level trip-wire the postmortem demanded: an in-memory counter
+# of OC-attributed DB writes over a rolling window. If it exceeds this
+# threshold, OC self-suspends its persistence path (evaluation continues),
+# fires a single NM anomaly, and records `write_volume_alarmed_at`. The
+# threshold sits generously above the batched steady-state cost, which
+# after v5.11.0 F1 (fix-up) covers ALL five OC-attributed DB write
+# channels routed through ``_record_db_write``:
+#   1. ``_persist_findings_batch`` — Tier-1 findings (1/cycle)
+#   2. ``_persist_findings_batch`` — LLM Tier-2 findings (≤1/cycle)
+#   3. ``_persist_shadow_samples_batch`` — shadow samples (≤1/cycle)
+#   4. ``_log_activity`` via ``_flush_cycle_activity_summaries``
+#      (≤2/cycle: shadow + clamp summary rows)
+#   5. ``persist_daily_digest`` — once/day, amortizes to ~0/cycle
+# Counted steady-state ceiling ≈ 5 writes/cycle × 12 cycles/hour = 60
+# writes/hour. 2.5x → 150. Anything past this cap is regression territory
+# (a per-finding write path re-emerging, which is what the postmortem
+# was written to catch).
+OPTIMIZER_WRITE_VOLUME_WINDOW_SECONDS: Final = 3600  # rolling 1-hour window
+OPTIMIZER_WRITE_VOLUME_THRESHOLD: Final = 150  # ~2.5x steady-state ceiling
+
+# v5.11.0 — Stub dimensions that are declared but not yet implemented
+# (return []). D5 excludes them from operator-visible `dimension_verdicts`
+# so silent "why does X never flag" support-load stops accumulating.
+OPTIMIZER_STUB_DIMENSIONS: Final = frozenset({
+    "automation_responsiveness",
+    "energy_efficiency",
+    "setpoint_compliance",
+})
+
+# v5.11.0 — Boot-storm gate cache TTL (D4). Once the gate closes
+# (no boot-storm), cache the negative verdict for this many cycles so
+# the ~150 state reads per steady-state cycle stop.
+OPTIMIZER_BOOT_STORM_CACHE_CYCLES: Final = 6
+
+# v5.11.0 — Shadow-accuracy sample retention max rows (D2). Persistence
+# is per-cycle-batched (never per-sample); a small ceiling protects the
+# table from unbounded growth. 7-day window × ~10 samples/cycle × 12
+# cycles/hour × 24 hours = ~20K samples max — this cap is well above.
+OPTIMIZER_SHADOW_SAMPLE_MAX_ROWS: Final = 50000
+# Minimum samples per dimension before promotion_readiness reports ready.
+OPTIMIZER_PROMOTION_READINESS_MIN_SAMPLES: Final = 20
+# Accuracy floor (0-1) for promotion readiness.
+OPTIMIZER_PROMOTION_READINESS_ACCURACY_FLOOR: Final = 0.60
+
 # 5-min cycle (matches SCAN_INTERVAL_ENERGY cadence — runs last per
 # priority=5).
 SCAN_INTERVAL_OPTIMIZATION: Final = timedelta(minutes=5)

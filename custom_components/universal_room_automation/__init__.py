@@ -1343,6 +1343,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             # findings/digest rows don't grow unbounded.
                             ("optimization_findings", "prune_optimization_findings", {}),
                             ("optimization_daily_digest", "prune_optimization_daily_digest", {}),
+                            # v5.11.0 F-MED (B-MED-2 fix-up): the D2
+                            # shadow-samples table needs the same nightly
+                            # prune wiring as findings/digest — else
+                            # ``optimizer_shadow_samples`` grows unbounded.
+                            ("optimizer_shadow_samples", "prune_optimizer_shadow_samples", {}),
                             # DB space-reclamation: bounded incremental_vacuum
                             # runs LAST so the prunes above have already freed
                             # pages for it to reclaim. No-ops cleanly until the
@@ -1460,6 +1465,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # branch also schedules the optimizer prunes.
                 ("optimization_findings", "prune_optimization_findings", {}),
                 ("optimization_daily_digest", "prune_optimization_daily_digest", {}),
+                # v5.11.0 F-MED (D-MED-2 fix-up): mirror primary path so
+                # deferred-startup ALSO schedules the shadow-samples prune.
+                ("optimizer_shadow_samples", "prune_optimizer_shadow_samples", {}),
                 # DB space-reclamation fix-up HIGH-1: mirror the primary path
                 # so a deferred-startup (DB-init-race) boot ALSO schedules the
                 # bounded incremental_vacuum. Without this, the deferred branch
