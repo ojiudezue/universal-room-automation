@@ -433,31 +433,16 @@ MIRROR_KEYS_ZONE_ENERGY: frozenset[str] = frozenset({
     "zone_energy_sensors",
 })
 
-# zone_dynamic_preset: DPM drives the shared thermostat's setpoint. All DPM
-# keys (master toggle, offset, reset-on-guest, sleep, customize_buckets, plus
-# 8 home cells + 8 sleep cells) mirror to siblings.
+# zone_dynamic_preset: DPM drives the shared thermostat's setpoint. Only the
+# 4 active knobs mirror to siblings.
+# v5.11.x cleanup — bucket cells were UI-stripped in v4.7.18 D1; this drops
+# them from sibling mirror too. Constants remain in energy_const.py for
+# options-dict restore.
 MIRROR_KEYS_ZONE_DPM: frozenset[str] = frozenset({
     "zone_dynamic_preset_enabled",
     "zone_dynamic_preset_offset",
     "zone_dynamic_preset_reset_offset_guest",
     "zone_dynamic_preset_sleep_enabled",
-    "zone_dynamic_preset_customize_buckets",
-    "zone_dynamic_preset_cool_home_low",
-    "zone_dynamic_preset_cool_home_high",
-    "zone_dynamic_preset_mild_home_low",
-    "zone_dynamic_preset_mild_home_high",
-    "zone_dynamic_preset_hot_home_low",
-    "zone_dynamic_preset_hot_home_high",
-    "zone_dynamic_preset_extreme_home_low",
-    "zone_dynamic_preset_extreme_home_high",
-    "zone_dynamic_preset_cool_sleep_low",
-    "zone_dynamic_preset_cool_sleep_high",
-    "zone_dynamic_preset_mild_sleep_low",
-    "zone_dynamic_preset_mild_sleep_high",
-    "zone_dynamic_preset_hot_sleep_low",
-    "zone_dynamic_preset_hot_sleep_high",
-    "zone_dynamic_preset_extreme_sleep_low",
-    "zone_dynamic_preset_extreme_sleep_high",
 })
 
 
@@ -7134,28 +7119,17 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         # Tombstone: do NOT reintroduce the old import path.
         # Regression guard: quality/tests/test_v4742_dead_import_removed.py
         import voluptuous as vol
+        # v5.11.x cleanup: only the 4 active DPM CONF keys are imported.
+        # The 17 vestigial bucket-cell + customize_buckets constants were
+        # UI-stripped in v4.7.18 D1 and are no longer read at this call
+        # site. Constants remain defined in energy_const.py so existing
+        # entry.options rows carrying those keys survive a restart
+        # (data-safe strip).
         from .domain_coordinators.energy_const import (
             CONF_ZONE_DYNAMIC_PRESET_ENABLED,
             CONF_ZONE_DYNAMIC_PRESET_OFFSET,
             CONF_ZONE_DYNAMIC_PRESET_RESET_OFFSET_GUEST,
             CONF_ZONE_DYNAMIC_PRESET_SLEEP_ENABLED,
-            CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS,
-            CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_LOW,
-            CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_HIGH,
-            CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_LOW,
-            CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_HIGH,
-            CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_LOW,
-            CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_HIGH,
-            CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_LOW,
-            CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_HIGH,
-            CONF_ZONE_DYNAMIC_PRESET_COOL_SLEEP_LOW,
-            CONF_ZONE_DYNAMIC_PRESET_COOL_SLEEP_HIGH,
-            CONF_ZONE_DYNAMIC_PRESET_MILD_SLEEP_LOW,
-            CONF_ZONE_DYNAMIC_PRESET_MILD_SLEEP_HIGH,
-            CONF_ZONE_DYNAMIC_PRESET_HOT_SLEEP_LOW,
-            CONF_ZONE_DYNAMIC_PRESET_HOT_SLEEP_HIGH,
-            CONF_ZONE_DYNAMIC_PRESET_EXTREME_SLEEP_LOW,
-            CONF_ZONE_DYNAMIC_PRESET_EXTREME_SLEEP_HIGH,
             MIN_DEADBAND,
         )
 
@@ -7206,24 +7180,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             return await self.async_step_zone_config_menu()
 
         # Initial render: use zone_data as defaults
+        # v5.11.x cleanup: render call reduced to the 4 active conf_keys.
         return self.async_show_form(
             step_id="zone_dynamic_preset",
             data_schema=self._build_dynamic_preset_schema(
                 zone_data, zone_data,
                 MIN_TEMP, MAX_TEMP,
-                CONF_ZONE_DYNAMIC_PRESET_ENABLED,
-                CONF_ZONE_DYNAMIC_PRESET_OFFSET,
-                CONF_ZONE_DYNAMIC_PRESET_RESET_OFFSET_GUEST,
-                CONF_ZONE_DYNAMIC_PRESET_SLEEP_ENABLED,
-                CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS,
-                CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_HIGH,
-                CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_HIGH,
-                CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_HIGH,
-                CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_HIGH,
-                CONF_ZONE_DYNAMIC_PRESET_COOL_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_COOL_SLEEP_HIGH,
-                CONF_ZONE_DYNAMIC_PRESET_MILD_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_MILD_SLEEP_HIGH,
-                CONF_ZONE_DYNAMIC_PRESET_HOT_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_HOT_SLEEP_HIGH,
-                CONF_ZONE_DYNAMIC_PRESET_EXTREME_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_EXTREME_SLEEP_HIGH,
+                conf_enabled=CONF_ZONE_DYNAMIC_PRESET_ENABLED,
+                conf_offset=CONF_ZONE_DYNAMIC_PRESET_OFFSET,
+                conf_reset_guest=CONF_ZONE_DYNAMIC_PRESET_RESET_OFFSET_GUEST,
+                conf_sleep_enabled=CONF_ZONE_DYNAMIC_PRESET_SLEEP_ENABLED,
             ),
             description_placeholders={"zone_name": zone_name},
         )
@@ -7231,42 +7197,35 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
     def _build_dynamic_preset_schema(
         self, source_data: dict, current_data: dict,
         min_temp: float, max_temp: float,
-        *conf_keys,
+        *,
+        conf_enabled: str,
+        conf_offset: str,
+        conf_reset_guest: str,
+        conf_sleep_enabled: str,
     ) -> "vol.Schema":
         """Build the voluptuous schema for zone_dynamic_preset step (Surface 2).
 
-        v4.7.18 D1: stripped the 16 per-bucket cells (8 home + 8 sleep) AND
-        the customize_buckets toggle. The cells were unread at runtime in
-        v4.7.17.2 (the median-driven mechanic replaced bucket-cell setpoints)
-        and the UI was misleading-looks-live-isn't. Surface 2 collapses to
-        the 4 fields that drive runtime behavior:
-          - CONF_ENABLED        (zone enable)
-          - CONF_OFFSET         (per-zone offset °F)
-          - CONF_RESET_GUEST    (reset offset when guest mode active)
-          - CONF_SLEEP_ENABLED  (apply sleep-window pinning)
+        v4.7.18 D1 stripped the 16 per-bucket cells (8 home + 8 sleep) AND
+        the customize_buckets toggle from the rendered form. v5.11.x
+        cleanup removes them from the signature too — the schema now
+        collapses to the 4 fields that drive runtime behavior:
+          - conf_enabled        (zone enable)
+          - conf_offset         (per-zone offset °F)
+          - conf_reset_guest    (reset offset when guest mode active)
+          - conf_sleep_enabled  (apply sleep-window pinning)
 
         Bucket cells remain in entry.options (data preserved — strip is
-        UI-only). The remaining `*conf_keys` positional args are accepted
-        for back-compat with existing callers but only the first 4 are
-        consumed; the rest are intentionally ignored.
+        UI-only). The CONF constants remain defined in energy_const.py
+        for options-dict restore compatibility.
 
         source_data: zone_data from ZM entry (persisted values)
         current_data: user_input on re-render (or source_data on first load)
         """
         import voluptuous as vol
-        # v4.7.18 D1: only the first 4 conf_keys are read; the trailing 17
-        # (customize_buckets + 16 bucket cells) are ignored. Callers still
-        # pass them today — kept as positional args to avoid signature churn
-        # on the two render call sites.
-        if len(conf_keys) < 4:
-            raise ValueError(
-                "_build_dynamic_preset_schema requires at least 4 conf_keys "
-                "(enabled, offset, reset_guest, sleep_enabled)"
-            )
-        CONF_ENABLED = conf_keys[0]
-        CONF_OFFSET = conf_keys[1]
-        CONF_RESET_GUEST = conf_keys[2]
-        CONF_SLEEP_ENABLED = conf_keys[3]
+        CONF_ENABLED = conf_enabled
+        CONF_OFFSET = conf_offset
+        CONF_RESET_GUEST = conf_reset_guest
+        CONF_SLEEP_ENABLED = conf_sleep_enabled
 
         def _f(key, default):
             v = current_data.get(key, source_data.get(key))

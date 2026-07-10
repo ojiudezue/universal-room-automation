@@ -392,7 +392,7 @@ class ZoneEntryDwellNumber(NumberEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_hvac_zone_entry_dwell"
-        self._attr_name = "47 · Zone Entry Dwell (minutes)"
+        self._attr_name = "47 · Zone Entry Wait Time (minutes)"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",
@@ -2017,7 +2017,7 @@ def _build_hvac_v4510_numbers():
         ),
         _hvac_tunable_number_factory(
             suffix="fan_off_hysteresis",
-            name="66 · Fan Off Hysteresis",
+            name="66 · Fan Off Temperature Margin",
             icon="mdi:fan-minus",
             sub_controller_attr="_fan_controller",
             runtime_field="_deactivation_delta",
@@ -2324,7 +2324,7 @@ class DynamicPresetDwellMinutesNumber(NumberEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_energy_dynamic_preset_dwell_minutes"
-        self._attr_name = "03 · Dynamic Preset Dwell (minutes)"
+        self._attr_name = "03 · Dynamic Preset Settle Time (minutes)"
         self._attr_native_min_value = 15.0
         self._attr_native_max_value = 240.0
         self._attr_device_info = DeviceInfo(
@@ -2402,7 +2402,7 @@ class DynamicPresetHysteresisFNumber(NumberEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_energy_dynamic_preset_hysteresis_f"
-        self._attr_name = "04 · Dynamic Preset Hysteresis (°F)"
+        self._attr_name = "04 · Dynamic Preset Temperature Margin (°F)"
         self._attr_native_min_value = 0.5
         self._attr_native_max_value = 5.0
         self._attr_device_info = DeviceInfo(

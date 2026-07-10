@@ -434,11 +434,13 @@ def test_constrained_error_key_present(strings_json, translations_en):
 
 
 def test_zone_entry_dwell_renumbered_to_47(number_tree):
+    # v5.11.x label pass: "Dwell" replaced with plain "Wait Time"; numeric
+    # prefix preserved so operator ordering is unchanged.
     cls = _find_class(number_tree, "ZoneEntryDwellNumber")
     name = _class_attr_literal(cls, "_attr_name")
-    assert name is not None and name.startswith("47 · Zone Entry Dwell"), (
+    assert name is not None and name.startswith("47 · Zone Entry Wait Time"), (
         f"Expected ZoneEntryDwellNumber._attr_name to start '47 · Zone Entry "
-        f"Dwell', got {name!r}"
+        f"Wait Time', got {name!r}"
     )
 
 
