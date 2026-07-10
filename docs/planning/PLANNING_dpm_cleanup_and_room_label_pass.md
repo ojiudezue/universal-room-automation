@@ -355,7 +355,98 @@ git tag pre-review-v<next-version> -m "Pre-review baseline: DPM cleanup + room l
 
 ---
 
-## Appendix A — Full room-facing label audit (TO FILL BEFORE BUILD)
+## Appendix A — Full room-facing label audit
 
-*[Placeholder — this section is populated during D2.1 and shown to
-operator for wording sign-off before any code edits.]*
+### How to review
+
+Skim the table below. Every row marked **DONE** is already applied in
+the labels worktree (17 D2.4 rewrites + `_attr_name` renumbers). Every
+row marked **PROPOSED** is a wording-only rewrite the builder will
+apply in the fix-up pass. Rows already plain (KEEP) are omitted from
+the table to keep it readable — the denylist test still guards them.
+
+To veto a row, respond with just the row number(s) and a replacement
+or "leave it" (e.g. `#7 leave it`, `#12 use "Presence hold-off"
+instead`). Unvetoed **PROPOSED** rows ship as-is in the fix-up pass.
+
+Style rules applied: no denylist words (hysteresis, debounce,
+provenance, substrate, tier, failsafe, "occ "); keep-but-gloss for
+mmWave/BLE/PIR/lux (technical noun stays, the *explanation* moves to
+`data_description` in plain words); numeric entity-name prefixes
+preserved (`47 · …` etc.). A label already clear stays.
+
+### Inventory summary
+
+- **Labels inventoried:** ~168 (config.step room-facing + options.step
+  room-facing `data` labels, plus room-facing entity `_attr_name`
+  prefixes on switch/number/button that surface on the HVAC-coordinator
+  device but are visited from the same operator flow).
+- **Kept as-is (already plain):** ~131 — omitted from the table below.
+- **Already applied (DONE, from D2.4 + `_attr_name` renumbers):** 17
+  (10 D2.4 label rewrites + 5 number/switch renumbers + 2
+  `data_description` glosses).
+- **Proposed rewrites for operator sign-off (PROPOSED):** 20.
+
+### Table
+
+| # | Surface | Key | Current | Proposed | Rationale |
+|---|---------|-----|---------|----------|-----------|
+| 1 | config.sensors | data.presence_sensors | Presence Sensors | Presence Sensors (mmWave/radar) | DONE — D2.4 #1. Gloss on label; long-form still in data_description. |
+| 2 | config.sensors | data.occupancy_sensors | Pre-Combined Motion + Presence Sensors | Combined Motion + Presence Sensors | DONE — D2.4 #2. "Pre-" reads like jargon. |
+| 3 | config.sensors | data.scanner_areas | BLE Scanner Areas (Optional) | Phone Bluetooth Coverage Helpers (Optional) | DONE — D2.4 #3. "BLE Scanner Areas" is jargon; keep BLE in the data_description gloss. |
+| 4 | config.sensors | data.is_egress_window | Treat as egress window | Treat as door-style window (pauses HVAC) | DONE — D2.4 #4. "Egress" is legalese; explain the effect. |
+| 5 | config.room_setup | data.occupancy_debounce | Motion Detection Delay | Motion Detection Delay | DONE — D2.4 #5. Label unchanged; description rewritten to drop "debounce". |
+| 6 | config.climate | data.hvac_coordination_enabled | Enable HVAC-Managed Fans | Enable HVAC-Managed Fans | DONE — D2.4 #6. Description rewritten to plain wording. |
+| 7 | options.coordinator_hvac_settings | data.hvac_zone_entry_dwell | (renamed to "Zone Entry Wait Time" in D2.4) | Zone Entry Wait Time | DONE — D2.4 #7. "Dwell" → "wait time". |
+| 8 | config.sleep_protection | data.sleep_bypass_motion_count | Motions Required to Wake Automation | Motions Required to Wake Automation | DONE — D2.4 #10. Label kept; description rewritten. |
+| 9 | options.zone_dynamic_preset | data.zone_dynamic_preset_offset | Offset | Offset (°F) | DONE — D2.4 (Part 1). Adds unit. |
+| 10 | options.zone_dynamic_preset | data.zone_dynamic_preset_reset_offset_guest | Reset offset during Guest Mode | Reset offset during Guest Mode | DONE — description tightened Part 1. |
+| 11 | options.hvac_dynamic_preset | data.dynamic_preset_dwell_minutes | (was "Dwell (min)") | Settle Time (minutes) | DONE — attr_name #03 renumber + label rewrite. |
+| 12 | options.hvac_dynamic_preset | data.dynamic_preset_hysteresis_f | (was "Hysteresis (°F)") | Temperature Margin (°F) | DONE — attr_name #04 renumber + label rewrite. |
+| 13 | number entity | 47 · Zone Entry Wait Time | (was 47 · Zone Entry Dwell) | 47 · Zone Entry Wait Time (minutes) | DONE — number.py:395 renumber. |
+| 14 | number entity | 48 · Zone Vacancy Delay | already plain | (kept) | DONE — audited, no change. |
+| 15 | number entity | 49 · Zone Vacancy Delay · Energy-Saving | already plain | (kept) | DONE — audited. |
+| 16 | number entity | 50 · Max Zone Occupied Time | already plain | (kept) | DONE — audited. |
+| 17 | switch entity | 46 · Vacancy Auto-Off | already plain | (kept) | DONE — audited. |
+| 18 | config.integration_config | data.notification_level | Default Notification Level | Default Notification Level | KEEP — plain. |
+| 19 | config.room_setup | data.shared_space_warning | Warning Flash | Pre-Off Warning Flash | PROPOSED — "Warning Flash" alone is ambiguous; description says it flashes 5 min before auto-off. |
+| 20 | config.sensors | data.motion_sensors | Motion Sensors (PIR) | Motion Sensors (PIR) | KEEP — PIR gloss OK, in scope of style rule. |
+| 21 | config.sensors | data.disable_camera_presence | Disable Camera Presence (Opt-Out) | Ignore Camera Person Detection | PROPOSED — "opt-out" is developer wording; use plain verb. |
+| 22 | config.sensors | data.door_type | Door Type | Door Type (interior or exterior) | PROPOSED — hint the choice inline. |
+| 23 | config.devices | data.light_capabilities | Light Features | Light Features (auto-detected) | PROPOSED — signals it's usually left alone. |
+| 24 | config.devices | data.humidity_fans | Exhaust/Humidity Fans (or Switches) | Exhaust / Bathroom Fans (or Switches) | PROPOSED — "Humidity fans" is jargon; "bathroom fans" is what people search for. |
+| 25 | config.devices | data.auto_switches | Auto Devices | Auto-On / Auto-Off Devices | PROPOSED — clarifies vs. Manual Devices. |
+| 26 | config.devices | data.manual_switches | Manual Devices | Auto-Off Only Devices | PROPOSED — matches the real behavior in the description. |
+| 27 | config.cover_behavior | data.entry_cover_action | Covers on Entry | Covers when Someone Enters | PROPOSED — verb form reads plainer. |
+| 28 | config.cover_behavior | data.exit_cover_action | Covers on Exit | Covers when the Room Empties | PROPOSED — matches Entry rewrite. |
+| 29 | config.cover_behavior | data.open_timing_mode | Open Timing | When Covers Can Open | PROPOSED — "Open Timing" is telegraphic. |
+| 30 | config.cover_behavior | data.close_timing_mode | Close Timing | When Covers Auto-Close | PROPOSED — sibling of #29. |
+| 31 | config.cover_behavior | data.cover_hvac_managed | HVAC Solar-Gain Management | Let HVAC Close These for Sun Control | PROPOSED — "solar-gain" is jargon; the description already carries the detail. |
+| 32 | config.automation_behavior | data.illuminance_dark_threshold | Dark Threshold | Dark Threshold (lux) | PROPOSED — add unit; "illuminance" internal name stays as key. |
+| 33 | config.automation_behavior | data.light_transition_seconds_on | Turn On Transition | Fade-In Time (seconds) | PROPOSED — "transition" is developer wording. |
+| 34 | config.automation_behavior | data.light_transition_seconds_off | Turn Off Transition | Fade-Out Time (seconds) | PROPOSED — sibling of #33. |
+| 35 | config.climate | data.humidity_fan_presence_runtime_base_s | Post-Vacancy Base Runtime (s) | Base Run-On Time After Vacancy (s) | PROPOSED — "Post-vacancy base runtime" is engineering-speak. |
+| 36 | config.climate | data.humidity_fan_presence_runtime_per_min_s | Added Runtime per Minute Occupied (s) | Extra Run-On per Minute Occupied (s) | PROPOSED — sibling of #35; "added runtime" → "extra run-on". |
+| 37 | config.climate | data.humidity_fan_presence_runtime_cap_s | Post-Vacancy Runtime Cap (s) | Max Run-On Time After Vacancy (s) | PROPOSED — sibling of #35. |
+| 38 | config.climate | data.humidity_fan_timeout | Humidity Fan Min Runtime | Humidity Fan Minimum Run Time | PROPOSED — spell out "Min"; "Runtime" reads as one word (developer sense). |
+| 39 | config.climate | data.humidity_fan_max_runtime | Humidity Fan Max Runtime | Humidity Fan Maximum Run Time | PROPOSED — sibling of #38. |
+| 40 | config.sleep_protection | data.fan_sleep_policy | Fan Sleep Policy | Fans During Sleep | PROPOSED — "policy" is corporate/developer wording. |
+| 41 | options.basic_setup | data.room_guest_occupancy_threshold_min | Guest Signal Threshold | Minutes of Unknown Occupancy Before Guest Mode | PROPOSED — "signal threshold" is telegraphic; explicit noun-phrase reads once. |
+| 42 | options.zone_dynamic_preset | data.zone_dynamic_preset_enabled | Enable DPM for this zone | Enable Dynamic Preset for this Zone | PROPOSED — spell out "DPM" acronym on the label (it's used in title but a plain user won't know DPM=Dynamic Preset Management). |
+
+### Notes
+
+- **Rows omitted:** integration-config, energy-setup, and coordinator
+  steps (person_tracking, camera_census, perimeter_alerting,
+  coordinator_*) are NOT in the `_ROOM_FACING_STEPS` allowlist and are
+  out-of-scope for this cycle. Their labels were spot-checked and did
+  not trigger the denylist.
+- **`entity` block (strings.json lines 1818-1908):** all HVAC- and
+  Optimizer-scoped; not per-room. No renames needed for this cycle.
+  Numeric-prefix `_attr_name` rows above cover the operator-visible
+  changes.
+- **Sections (`humidity_fan_advanced`, `climate_backstop`,
+  `fan_recheck_advanced`):** kept; their internal-jargon labels
+  (EMA, spike delta, mmWave-sole ticks) are gated behind "Advanced"
+  collapse and glossed in `data_description`. Style rule permits
+  keep-but-gloss for advanced sections per operator directive.
