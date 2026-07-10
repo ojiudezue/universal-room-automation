@@ -849,6 +849,12 @@ class UniversalRoomDatabase:
                     failed_tables.append("optimization_daily_digest")
 
                 # -- Metric baselines ----------------------------------------
+                # F11 (v5.12.0): the `metric_name` column has ONE reserved
+                # prefix — `_migration` — used by schema/scope migrations to
+                # persist a sentinel that gates one-shot rewrites. See
+                # `energy.py::_restore_energy_baselines` for the
+                # `_migration/circuit_scope_v2` sentinel. Real coordinators
+                # MUST NOT emit metrics whose name starts with `_`.
                 if not await self._create_table_safe(db, "metric_baselines", [
                     """CREATE TABLE IF NOT EXISTS metric_baselines (
                         coordinator_id TEXT NOT NULL,

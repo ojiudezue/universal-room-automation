@@ -2379,6 +2379,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         CONF_ENERGY_DECISION_INTERVAL,
                         CONF_ENERGY_EVSE_A_ENTITY,
                         CONF_ENERGY_EVSE_B_ENTITY,
+                        CONF_ENERGY_EVSE_A_SPAN_BREAKER,
+                        CONF_ENERGY_EVSE_B_SPAN_BREAKER,
                         CONF_ENERGY_L1_CHARGER_ENTITIES,
                         CONF_ENERGY_WEATHER_ENTITY,
                         CONF_ENERGY_SOLAR_CLASSIFICATION_MODE,
@@ -2416,6 +2418,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     evse_b_power = cm_config.get(CONF_ENERGY_EVSE_B_ENTITY)
                     if evse_b_power:
                         evse_config["garage_b"]["power"] = evse_b_power
+                    # v5.12.0: SPAN breaker overrides (rename-recovery).
+                    # Absent options keep the DEFAULT_EVSE_ENTITIES value —
+                    # byte-identical behaviour on upgrade.
+                    evse_a_breaker = cm_config.get(CONF_ENERGY_EVSE_A_SPAN_BREAKER)
+                    if evse_a_breaker:
+                        evse_config["garage_a"]["span_breaker"] = evse_a_breaker
+                    evse_b_breaker = cm_config.get(CONF_ENERGY_EVSE_B_SPAN_BREAKER)
+                    if evse_b_breaker:
+                        evse_config["garage_b"]["span_breaker"] = evse_b_breaker
                     # v4.7.6 D3.4: per-EVSE self_modulates flag from config flow.
                     # Default False (Option B / smart manual-override detection).
                     if "garage_a_self_modulates" in cm_config:

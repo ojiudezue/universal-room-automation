@@ -43,10 +43,22 @@ DEFAULT_GENERATOR_STATUS_ENTITY = "sensor.generac_2325624_status_2"
 class CircuitInfo:
     """Tracks state for a single SPAN circuit."""
 
-    def __init__(self, entity_id: str, friendly_name: str, panel: str) -> None:
+    def __init__(
+        self,
+        entity_id: str,
+        friendly_name: str,
+        panel: str,
+        unique_id: str | None = None,
+    ) -> None:
         self.entity_id = entity_id
         self.friendly_name = friendly_name
         self.panel = panel
+        # v5.12.0 SPAN circuit-identity re-key: stable per-circuit id from HA
+        # entity registry. Baselines are scoped to this instead of the
+        # user-editable friendly_name (which SPAN re-syncs on rename).
+        # None only when the entity has no registry entry (extras path, or
+        # a race during boot); scope then falls back to entity_id.
+        self.unique_id: str | None = unique_id
         self.last_power: float | None = None
         self.was_loaded: bool = False
         self.zero_since: float | None = None  # timestamp when went to zero
@@ -87,6 +99,32 @@ class SPANCircuitMonitor:
         # v3.13.3: Dedup z-score alerts — cooldown per circuit (epoch timestamp)
         self._zscore_alerted: dict[str, float] = {}
 
+    def _lookup_unique_id(self, entity_id: str) -> str | None:
+        """Return the entity-registry unique_id for `entity_id`, or None.
+
+        v5.12.0 SPAN circuit-identity re-key. Guarded — entity registry may
+        not be populated at boot, or the entity may be state-only (no
+        registry entry). Falls back to None; the scope chain in
+        `_get_power_baseline` then uses entity_id.
+        """
+        try:
+            from homeassistant.helpers import entity_registry as er
+            registry = er.async_get(self.hass)
+            entry = registry.async_get(entity_id)
+            if entry is None:
+                _LOGGER.debug(
+                    "Circuit %s has no entity-registry entry; scope falls back to entity_id",
+                    entity_id,
+                )
+                return None
+            return entry.unique_id
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "Circuit unique_id lookup failed for %s: %s (fallback to entity_id)",
+                entity_id, e,
+            )
+            return None
+
     def discover_circuits(self) -> int:
         """Discover circuit power entities from multiple sources.
 
@@ -94,6 +132,8 @@ class SPANCircuitMonitor:
         1. SPAN auto-discover (if enabled) — existing pattern
         2. Extra entities — manually configured power sensors
         All deduplicated by entity_id.
+        v5.12.0: Populates CircuitInfo.unique_id from entity registry so
+        anomaly baselines can be persisted keyed on a rename-stable id.
         """
         count = 0
         skipped_unknown = 0
@@ -120,7 +160,10 @@ class SPANCircuitMonitor:
                     continue
 
                 panel = "left" if "_2" in entity_id or "Span Left" in friendly else "right"
-                self._circuits[entity_id] = CircuitInfo(entity_id, friendly, panel)
+                uid = self._lookup_unique_id(entity_id)
+                self._circuits[entity_id] = CircuitInfo(
+                    entity_id, friendly, panel, unique_id=uid,
+                )
                 count += 1
 
         # Tier 2: Extra manually-configured entities
@@ -135,7 +178,10 @@ class SPANCircuitMonitor:
                 )
                 continue
             friendly = state.attributes.get("friendly_name", entity_id)
-            self._circuits[entity_id] = CircuitInfo(entity_id, friendly, "custom")
+            uid = self._lookup_unique_id(entity_id)
+            self._circuits[entity_id] = CircuitInfo(
+                entity_id, friendly, "custom", unique_id=uid,
+            )
             count += 1
 
         # v4.2.1: Remove excluded circuits (e.g., sub-panel feed that overlaps Emporia)
@@ -153,11 +199,37 @@ class SPANCircuitMonitor:
         return len(self._circuits)
 
     def _get_power_baseline(self, entity_id: str) -> MetricBaseline:
-        """Get or create a power baseline for a circuit."""
+        """Get or create a power baseline for a circuit.
+
+        v5.12.0 SPAN circuit-identity re-key: scope resolution order is
+        unique_id → entity_id (F10 doc fix — friendly_name is DELIBERATELY
+        excluded from the runtime chain because the whole point of the
+        cycle is to move OFF friendly_name; the migration path in
+        _restore_energy_baselines handles legacy friendly-scoped rows
+        exactly once, then rewrites them to unique_id). entity_id is
+        stable under SPAN's circuit-number naming mode but not under a
+        SPAN-app rename in circuit-name mode. Fallback to entity_id is
+        DEBUG-logged so post-migration boots surface any circuits that
+        still landed on the fallback path.
+        """
         if entity_id not in self._power_baselines:
-            # Use circuit-friendly name as scope for readability
             circuit = self._circuits.get(entity_id)
-            scope = circuit.friendly_name if circuit else entity_id
+            if circuit is not None and circuit.unique_id:
+                scope = circuit.unique_id
+            elif circuit is not None:
+                scope = entity_id
+                _LOGGER.debug(
+                    "Circuit baseline scope fell back to entity_id for %s "
+                    "(no unique_id — check entity registry)",
+                    entity_id,
+                )
+            else:
+                scope = entity_id
+                _LOGGER.debug(
+                    "Circuit baseline scope fell back to entity_id for %s "
+                    "(no CircuitInfo)",
+                    entity_id,
+                )
             self._power_baselines[entity_id] = MetricBaseline(
                 metric_name="circuit_power",
                 coordinator_id="energy",
