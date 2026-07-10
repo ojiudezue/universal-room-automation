@@ -403,6 +403,13 @@ CONF_ENERGY_SOLAR_THRESHOLD_POOR: Final = "energy_solar_threshold_poor"
 
 CONF_ENERGY_EVSE_A_ENTITY: Final = "energy_evse_a_entity"
 CONF_ENERGY_EVSE_B_ENTITY: Final = "energy_evse_b_entity"
+# v5.12.0 SPAN circuit-identity re-key (companion to circuit baseline scope
+# migration): the SPAN breaker `switch.` entity_id for each EVSE is
+# rename-fragile (same failure mode as circuit baselines). Surface as options
+# so the operator can retarget after a SPAN-app rename without a code change.
+# Backward-compat: unset → falls back to DEFAULT_EVSE_ENTITIES in energy_pool.
+CONF_ENERGY_EVSE_A_SPAN_BREAKER: Final = "energy_evse_a_span_breaker"
+CONF_ENERGY_EVSE_B_SPAN_BREAKER: Final = "energy_evse_b_span_breaker"
 CONF_ENERGY_L1_CHARGER_ENTITIES: Final = "energy_l1_charger_entities"
 CONF_ENERGY_TOU_RATE_FILE: Final = "energy_tou_rate_file"
 
