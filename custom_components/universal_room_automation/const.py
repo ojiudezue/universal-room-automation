@@ -1811,11 +1811,21 @@ OPTIMIZER_OCCUPANCY_ACCURACY_GATE_SECONDS: Final = 120
 # of OC-attributed DB writes over a rolling window. If it exceeds this
 # threshold, OC self-suspends its persistence path (evaluation continues),
 # fires a single NM anomaly, and records `write_volume_alarmed_at`. The
-# threshold is generously above the batched steady-state cost (2 writes
-# per cycle × 12 cycles/hour = 24 writes/hour); anything past this cap
-# is definitionally regression territory.
+# threshold sits generously above the batched steady-state cost, which
+# after v5.11.0 F1 (fix-up) covers ALL five OC-attributed DB write
+# channels routed through ``_record_db_write``:
+#   1. ``_persist_findings_batch`` — Tier-1 findings (1/cycle)
+#   2. ``_persist_findings_batch`` — LLM Tier-2 findings (≤1/cycle)
+#   3. ``_persist_shadow_samples_batch`` — shadow samples (≤1/cycle)
+#   4. ``_log_activity`` via ``_flush_cycle_activity_summaries``
+#      (≤2/cycle: shadow + clamp summary rows)
+#   5. ``persist_daily_digest`` — once/day, amortizes to ~0/cycle
+# Counted steady-state ceiling ≈ 5 writes/cycle × 12 cycles/hour = 60
+# writes/hour. 2.5x → 150. Anything past this cap is regression territory
+# (a per-finding write path re-emerging, which is what the postmortem
+# was written to catch).
 OPTIMIZER_WRITE_VOLUME_WINDOW_SECONDS: Final = 3600  # rolling 1-hour window
-OPTIMIZER_WRITE_VOLUME_THRESHOLD: Final = 60  # ~2.5x steady-state ceiling
+OPTIMIZER_WRITE_VOLUME_THRESHOLD: Final = 150  # ~2.5x steady-state ceiling
 
 # v5.11.0 — Stub dimensions that are declared but not yet implemented
 # (return []). D5 excludes them from operator-visible `dimension_verdicts`

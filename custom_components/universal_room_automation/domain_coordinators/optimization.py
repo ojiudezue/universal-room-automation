@@ -624,6 +624,12 @@ class OptimizationCoordinator(BaseCoordinator):
         # ``hasattr(self, "_notify_dedup_state")`` warts in the old code
         # are gone.
         self._notify_dedup_state: dict[str, int] = {}
+        # v5.11.0 F-MED (A-MED-1 fix-up): keys recorded THIS cycle in
+        # ``_notify_if_severe`` are stashed here so ``_decrement_notify
+        # _dedup_ttls`` can skip them exactly once (avoids collapsing
+        # the intended 12-cycle window to 11 via a same-cycle
+        # decrement). Cleared at end-of-cycle by the decrement helper.
+        self._notify_dedup_just_set: set[str] = set()
 
         # v5.11.0 D2 — pending shadow-accuracy samples for this cycle.
         # Batched write on cycle end (never per-sample). Drained by
@@ -993,15 +999,11 @@ class OptimizationCoordinator(BaseCoordinator):
         # intended 12-cycle window to 1.2 cycles in high-severity cycles.
         # Now it decrements exactly once per cycle regardless of finding
         # count. See MED-3 in PLANNING_audit_optimization_coordinator.md.
+        # v5.11.0 F1 (MED-1 fix-up): also skip the decrement for dedup
+        # keys we set THIS cycle (see ``_notify_if_severe``). Otherwise a
+        # freshly-set key gets one free cycle burned off the intended
+        # 12-cycle window on the very cycle it was recorded.
         self._decrement_notify_dedup_ttls()
-        # v5.11.0 D2 — batched persistence of shadow-accuracy samples.
-        # Gated by the D9 tripwire; single DAO call per cycle.
-        try:
-            await self._persist_shadow_samples_batch()
-        except Exception:  # noqa: BLE001
-            _LOGGER.debug(
-                "Optimizer: shadow-sample batch persist raised", exc_info=True,
-            )
         self._last_evaluation_iso = dt_util.utcnow().isoformat()
         # v5.4 D2b — compute per-dimension verdicts from this cycle's
         # findings. Result keyed by dimension token; value derived from
@@ -1021,6 +1023,10 @@ class OptimizationCoordinator(BaseCoordinator):
         # whose predicted_effect was set ≥ OBSERVE_DELAY ago and populate
         # observed_effect. Best-effort: a single match-check raising must
         # not blackhole the cycle (mirrors A1 evaluator pattern).
+        # v5.11.0 F2 (fix-up): validator MUST run BEFORE the sample
+        # persist so the samples it buffers this cycle land in the same
+        # DAO call. Previously the persist ran first, adding a one-cycle
+        # lag between validator output and DB row.
         try:
             self._run_shadow_accuracy_validator()
         except Exception:  # noqa: BLE001 — defensive
@@ -1028,6 +1034,22 @@ class OptimizationCoordinator(BaseCoordinator):
                 "Optimizer shadow-accuracy validator raised; ignoring",
                 exc_info=True,
             )
+        # v5.11.0 D2 — batched persistence of shadow-accuracy samples.
+        # Gated by the D9 tripwire; single DAO call per cycle.
+        # v5.11.0 F2 (fix-up): boot-storm-skip cycles MUST be write-quiet
+        # on this channel too — mirror the activity-buffer treatment.
+        # Drop-and-clear so the buffer can't accumulate across skips
+        # and then over-write on the first non-skip cycle.
+        if skip_persist:
+            self._pending_shadow_samples.clear()
+        else:
+            try:
+                await self._persist_shadow_samples_batch()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "Optimizer: shadow-sample batch persist raised",
+                    exc_info=True,
+                )
         return all_findings
 
     # ------------------------------------------------------------------
@@ -3548,12 +3570,20 @@ class OptimizationCoordinator(BaseCoordinator):
         ``_persist_findings_batch`` to bound per-cycle DB writes to 1
         per tier (post-mortem fix for the write-queue saturation
         incident). New callers should prefer the batch variant.
+
+        v5.11.0 F1 (fix-up): even though there is no live caller (Review
+        D confirmed), gate on the D9 tripwire defensively so a future
+        caller cannot silently reintroduce the write-flood pattern.
         """
+        if self._check_write_volume_tripwire():
+            return
         database = self.hass.data.get(DOMAIN, {}).get("database")
         if database is None:
             return
         try:
             await database.log_finding(finding)
+            # v5.11.0 F1: count this OC-attributed write.
+            self._record_db_write()
         except Exception as exc:  # noqa: BLE001
             _LOGGER.debug("log_finding failed: %s", exc, exc_info=True)
 
@@ -3569,16 +3599,31 @@ class OptimizationCoordinator(BaseCoordinator):
         ``_notify_if_severe``, so a cycle with 10 HIGH findings
         decremented ALL keys 10x — collapsing the intended 12-cycle
         (1h) dedup window to ~1.2 cycles.
+
+        v5.11.0 F-MED (A-MED-1 fix-up): keys set DURING the current
+        cycle must NOT be decremented that same cycle — otherwise a
+        freshly-recorded key burns 1 of its 12 cycles on the very
+        cycle it was recorded, delivering an effective 11-cycle window
+        instead of the intended 12. The set is populated by
+        ``_notify_if_severe`` when it records a new dedup entry and
+        cleared at the end of this helper.
         """
-        if not self._notify_dedup_state:
-            return
-        stale: list[str] = []
-        for k in list(self._notify_dedup_state.keys()):
-            self._notify_dedup_state[k] -= 1
-            if self._notify_dedup_state[k] <= 0:
-                stale.append(k)
-        for k in stale:
-            self._notify_dedup_state.pop(k, None)
+        just_set = getattr(self, "_notify_dedup_just_set", None) or set()
+        if self._notify_dedup_state:
+            stale: list[str] = []
+            for k in list(self._notify_dedup_state.keys()):
+                if k in just_set:
+                    # Recorded this cycle → do not decrement yet.
+                    continue
+                self._notify_dedup_state[k] -= 1
+                if self._notify_dedup_state[k] <= 0:
+                    stale.append(k)
+            for k in stale:
+                self._notify_dedup_state.pop(k, None)
+        # Clear the just-set marker at end-of-cycle so the NEXT cycle's
+        # decrement covers these keys normally.
+        if just_set:
+            just_set.clear()
 
     # ------------------------------------------------------------------
     # v5.11.0 D9 — Write-volume tripwire
@@ -3611,6 +3656,11 @@ class OptimizationCoordinator(BaseCoordinator):
         if self._persistence_suspended:
             return True
         # First trip: page once, then latch.
+        # v5.11.0 F-LOW (A-LOW-2 fix-up): recovery is HA RESTART. There
+        # is intentionally NO auto-unlatch (a rolling-window auto-clear
+        # would silently mask the very regression this trip-wire exists
+        # to surface) and NO kill-switch clear helper (the operator's
+        # explicit restart doubles as the postmortem trigger).
         self._persistence_suspended = True
         self._write_volume_alarmed_at = dt_util.utcnow().isoformat()
         _LOGGER.error(
@@ -3744,17 +3794,41 @@ class OptimizationCoordinator(BaseCoordinator):
         # dimension's count (conservative: forces re-warm-up post-upgrade).
         by_dim_total: dict[str, int] = {}
         by_dim_matches: dict[str, int] = {}
+        # v5.11.0 F-MED (D-clause-4 fix-up): also track sample-time span
+        # per dimension so a burst of 20+ samples in a single hour
+        # cannot clear the ``shadow_accuracy_not_ready`` blocker — the
+        # critique-spec requires the window itself (7 days) to have
+        # elapsed, not just the sample count to be met.
+        by_dim_min_ts: dict[str, datetime | None] = {}
+        by_dim_max_ts: dict[str, datetime | None] = {}
         for s in self._shadow_accuracy_samples:
             if isinstance(s, tuple) and len(s) == 4:
                 _ts, dim, _tgt, matched = s
                 by_dim_total[dim] = by_dim_total.get(dim, 0) + 1
                 if matched:
                     by_dim_matches[dim] = by_dim_matches.get(dim, 0) + 1
+                # Parse timestamp defensively.
+                try:
+                    _parsed = datetime.fromisoformat(str(_ts))
+                    cur_min = by_dim_min_ts.get(dim)
+                    cur_max = by_dim_max_ts.get(dim)
+                    if cur_min is None or _parsed < cur_min:
+                        by_dim_min_ts[dim] = _parsed
+                    if cur_max is None or _parsed > cur_max:
+                        by_dim_max_ts[dim] = _parsed
+                except (ValueError, TypeError):
+                    continue
         for dim in scorable_dims:
             blockers: list[str] = []
             total = by_dim_total.get(dim, 0)
             matches = by_dim_matches.get(dim, 0)
             accuracy = (matches / total) if total > 0 else None
+            # v5.11.0 F-LOW (C-LOW-1 fix-up): defensive only — the two
+            # scorable_dims (COMFORT, OCCUPANCY_ACCURACY) are disjoint
+            # from OPTIMIZER_STUB_DIMENSIONS in v5.11.0, so this branch
+            # is unreachable at present. Kept so that if a future
+            # dimension is BOTH declared scorable AND marked stub during
+            # a transition, promotion is blocked correctly.
             if dim in OPTIMIZER_STUB_DIMENSIONS:
                 blockers.append("stub_oracle")
             if kill_switch:
@@ -3773,6 +3847,21 @@ class OptimizationCoordinator(BaseCoordinator):
                 accuracy < OPTIMIZER_PROMOTION_READINESS_ACCURACY_FLOOR
             ):
                 blockers.append("accuracy_below_threshold")
+            # v5.11.0 F-MED (D-clause-4 fix-up): critique-spec'd
+            # ``window_incomplete`` blocker. Require the sample-time
+            # SPAN to cover OPTIMIZER_SHADOW_ACCURACY_WINDOW_DAYS —
+            # 20 samples in a single hour must NOT clear
+            # ``shadow_accuracy_not_ready``. Only enforced when we
+            # have both endpoints (else samples_below_min already
+            # covers the empty case).
+            _min_ts = by_dim_min_ts.get(dim)
+            _max_ts = by_dim_max_ts.get(dim)
+            if _min_ts is not None and _max_ts is not None:
+                _span = _max_ts - _min_ts
+                if _span < timedelta(
+                    days=OPTIMIZER_SHADOW_ACCURACY_WINDOW_DAYS,
+                ):
+                    blockers.append("window_incomplete")
             if self._last_shadow_accuracy_status != "ready":
                 blockers.append("shadow_accuracy_not_ready")
             result[dim] = {
@@ -3923,19 +4012,33 @@ class OptimizationCoordinator(BaseCoordinator):
                         break
                 if room_has_unavail:
                     rooms_with_unavailable += 1
-                # v5.11.0 D4 — short-circuit once the fraction threshold
-                # is exceeded; no need to walk the remaining rooms.
-                if total_rooms > 0:
-                    _frac_now = rooms_with_unavailable / total_rooms
-                    if _frac_now > OPTIMIZER_BOOT_STORM_ROOM_FRACTION:
-                        return (True, (
-                            f"boot_storm_signature "
-                            f"({rooms_with_unavailable}/{total_rooms} rooms "
-                            f"have unavailable sensors, "
-                            f"frac={_frac_now:.2f} > "
-                            f"{OPTIMIZER_BOOT_STORM_ROOM_FRACTION:.2f})"
-                        ))
+                # v5.11.0 F3 (fix-up): the previous in-loop fraction test
+                # (running_partial_count / running_partial_total) was
+                # broken — one flaky room sorting first produced 1/1 >
+                # 0.5, tripping the gate every cycle AND preventing the
+                # negative cache from arming. Full-fleet fraction test
+                # runs ONCE below after the walk completes. The cache
+                # (F3 rider on MED-1) delivers the perf win the
+                # short-circuit was meant to; the D9 write-volume
+                # tripwire (see F1) is the designated backstop for
+                # non-boot mass-unavailability inside the cache TTL.
+            # Post-loop full-fleet fraction test.
+            if total_rooms > 0:
+                _frac = rooms_with_unavailable / total_rooms
+                if _frac > OPTIMIZER_BOOT_STORM_ROOM_FRACTION:
+                    return (True, (
+                        f"boot_storm_signature "
+                        f"({rooms_with_unavailable}/{total_rooms} rooms "
+                        f"have unavailable sensors, "
+                        f"frac={_frac:.2f} > "
+                        f"{OPTIMIZER_BOOT_STORM_ROOM_FRACTION:.2f})"
+                    ))
             # v5.11.0 D4 — cache the negative verdict for K cycles.
+            # NOTE (F3): while the cache is warm the gate is BLIND to a
+            # non-boot mass-unavailability spike for up to
+            # OPTIMIZER_BOOT_STORM_CACHE_CYCLES cycles. The D9 write-
+            # volume tripwire (now complete per F1 — activity_log +
+            # digest counted) is the designated backstop for that shape.
             self._boot_storm_cache_cycles_remaining = (
                 OPTIMIZER_BOOT_STORM_CACHE_CYCLES
             )
@@ -3982,6 +4085,13 @@ class OptimizationCoordinator(BaseCoordinator):
             self._notify_dedup_state[dkey_str] = (
                 OPTIMIZER_NOTIFY_DEDUP_CYCLES
             )
+            # v5.11.0 F-MED (A-MED-1 fix-up): record the key as
+            # freshly-set THIS cycle so the end-of-cycle decrement
+            # skips it exactly once. Otherwise the intended 12-cycle
+            # window is collapsed to 11 by the same-cycle decrement.
+            if getattr(self, "_notify_dedup_just_set", None) is None:
+                self._notify_dedup_just_set = set()
+            self._notify_dedup_just_set.add(dkey_str)
         sev_map = {"critical": Severity.CRITICAL, "high": Severity.HIGH}
         try:
             await nm.async_notify(
@@ -4097,6 +4207,22 @@ class OptimizationCoordinator(BaseCoordinator):
         details: dict,
         finding: OptimizationFinding | None = None,
     ) -> None:
+        """v5.11.0 F1 (fix-up): SINGLE DAO chokepoint for the
+        ``ura_activity_log`` OC-attributed write channel.
+
+        Every OC-side activity write flows through this method — the
+        22 ``_log_activity`` sites inside ``_apply_action`` (kill-switch,
+        clamp, advisory, domain-block, safety-denylist, shadow, ...)
+        + ``_flush_cycle_activity_summaries`` all land here. This is
+        the SECOND write-flood channel the v5.0-v5.2 postmortem missed
+        (per-cycle activity writes could hit ~100/cycle when the LLM
+        tier emits ``proposed_action`` findings, entering ``_apply_action``
+        for every one). Gating here catches all of it in ONE place.
+        """
+        # v5.11.0 F1: tripwire gate BEFORE any DAO call. Drop-and-log
+        # (do NOT queue) — a latch means we're in regression territory.
+        if self._check_write_volume_tripwire():
+            return
         logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
         if logger is None:
             return
@@ -4116,6 +4242,8 @@ class OptimizationCoordinator(BaseCoordinator):
                 importance=importance,
                 details=details,
             )
+            # v5.11.0 F1: one DAO call = one OC-attributed DB write.
+            self._record_db_write()
         except Exception:  # noqa: BLE001
             _LOGGER.debug("activity_logger.log failed", exc_info=True)
 
@@ -4284,6 +4412,15 @@ class OptimizationCoordinator(BaseCoordinator):
                 "duplicate write (in-memory once-per-day guard)", today,
             )
             return None
+        # v5.11.0 F1: tripwire gate — a latched persistence-suspend
+        # must also suppress the once-a-day digest write, otherwise a
+        # regressed OC could still hit the DB via the digest DAO.
+        if self._check_write_volume_tripwire():
+            _LOGGER.info(
+                "Optimizer: persistence suspended by tripwire; "
+                "dropping daily digest write for %s", today,
+            )
+            return None
         try:
             row_id = await database.log_daily_digest(
                 date=today,
@@ -4298,6 +4435,8 @@ class OptimizationCoordinator(BaseCoordinator):
             # the next call to retry.
             if row_id is not None:
                 self._last_persisted_digest_date = today
+                # v5.11.0 F1: one DAO call = one OC-attributed DB write.
+                self._record_db_write()
             return row_id
         except Exception as exc:  # noqa: BLE001
             _LOGGER.warning("persist_daily_digest failed: %s", exc)
