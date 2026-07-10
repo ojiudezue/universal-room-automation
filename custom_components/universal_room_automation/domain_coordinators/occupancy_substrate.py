@@ -295,6 +295,226 @@ class OccupancySubstrate:
                     "substrate discovery."
                 )
 
+    async def refresh_subscriptions(self) -> None:
+        """Re-enumerate ROOM entries and atomically swap the listener set.
+
+        Substrate re-subscribe cycle (post-v5.11.0): called by
+        ``PresenceCoordinator`` on ``SIGNAL_ROOM_ENTRY_LIFECYCLE``
+        (dispatched from ROOM ``async_setup_entry`` / ``async_unload_entry``
+        / suppressed ``_async_update_listener`` writes at ``__init__.py``
+        room-lifecycle sites). Restores the pre-v4.7.24 (commit
+        ``e165e1cb``) per-room-onboarding guarantee: a room added WITHOUT
+        an HA restart is event-driven immediately.
+
+        Design:
+        1. Re-build the desired ``(entity_id, room_name, kind)`` triples
+           from currently-LOADED ROOM entries (SAME discovery walk as
+           ``async_setup`` — kept intentionally byte-parallel so future
+           edits to one path force review of the other).
+        2. Diff against ``self._entity_to_room_kind`` — compute
+           ``added`` / ``removed`` sets.
+        3. Fast-path: if the desired set equals the tracked set AND no
+           kind reclassification, this is a no-op (options_updated writes
+           that don't move sensor lists hit this path).
+        4. Atomic swap: register the NEW ``async_track_state_change_event``
+           listener over the FULL new entity list BEFORE releasing the
+           prior unsub. Per-kind edge idempotence in
+           ``_handle_state_change`` (``prior == occupied`` short-circuit
+           at the "true edge only" gate) neutralizes duplicate delivery
+           during the overlap window; ``mapping is None`` at
+           ``_handle_state_change`` covers removed entities whose events
+           land after the map has been repointed but before the old
+           unsub fires.
+        5. Seed newly-added entities from ``hass.states.get()`` (mirrors
+           the v4.7.18.1 B-HIGH-1 seed pattern in ``async_setup``).
+        6. Prune ``_raw_state`` rooms whose entries are gone.
+        7. If ``_boot_settle_done`` is True (typical live-add case),
+           dispatch synthetic True-slot edges for the newly-added room's
+           kinds so consumers that missed the boot-settle release don't
+           stay silent until the next real edge — mirrors
+           ``release_boot_settle`` semantics for the late-add case.
+
+        Bug Class #50 guardrail: this method is the ONLY caller that
+        mutates ``self._unsub_listeners`` outside ``async_setup`` /
+        ``_teardown_listeners``. It preserves the invariant that no
+        external periodic rebuild path can clobber the substrate's own
+        subscription list — verified 2026-07-10 grep of `_unsub_listeners`
+        in presence.py: appended selectively, never wholesale-cleared
+        outside async_teardown.
+        """
+        # ---- Step 1: rebuild desired triples (mirror async_setup) ----
+        room_entities: Dict[str, Dict[str, str]] = {}
+        try:
+            entries = self.hass.config_entries.async_entries(DOMAIN)
+        except Exception:  # noqa: BLE001 — defensive: registry mid-reload
+            _LOGGER.warning(
+                "OccupancySubstrate.refresh_subscriptions: cannot enumerate "
+                "config entries — skipping",
+                exc_info=True,
+            )
+            return
+
+        for entry in entries:
+            try:
+                merged = {**(entry.data or {}), **(entry.options or {})}
+            except Exception:  # noqa: BLE001 — defensive
+                continue
+            if merged.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                continue
+            room_name = merged.get(CONF_ROOM_NAME)
+            if not room_name:
+                continue
+
+            per_room = room_entities.setdefault(room_name, {})
+            for kind in _KIND_PRECEDENCE:
+                conf_key = _KIND_TO_CONF[kind]
+                entity_ids = list(merged.get(conf_key, []) or [])
+                for entity_id in entity_ids:
+                    if not entity_id:
+                        continue
+                    if entity_id in per_room:
+                        continue  # precedence already claimed
+                    per_room[entity_id] = kind
+
+        # Build the desired (entity -> (room, kind)) map with the same
+        # cross-room duplicate handling as async_setup (first claim wins,
+        # WARN on duplicate).
+        desired_entity_to_room_kind: Dict[str, tuple] = {}
+        desired_rooms: Set[str] = set()
+        for room_name, entity_map in room_entities.items():
+            desired_rooms.add(room_name)
+            for entity_id, kind in entity_map.items():
+                prior = desired_entity_to_room_kind.get(entity_id)
+                if prior is not None and prior[0] != room_name:
+                    _LOGGER.warning(
+                        "OccupancySubstrate.refresh_subscriptions: entity "
+                        "%s claimed by multiple rooms — kept first claim "
+                        "(room=%s kind=%s), ignoring (room=%s kind=%s)",
+                        entity_id, prior[0], prior[1], room_name, kind,
+                    )
+                    continue
+                desired_entity_to_room_kind[entity_id] = (room_name, kind)
+
+        # ---- Step 2: diff ----
+        current_keys = set(self._entity_to_room_kind.keys())
+        desired_keys = set(desired_entity_to_room_kind.keys())
+        added = desired_keys - current_keys
+        removed = current_keys - desired_keys
+        reclassified = {
+            e for e in (current_keys & desired_keys)
+            if self._entity_to_room_kind[e] != desired_entity_to_room_kind[e]
+        }
+        added_rooms = desired_rooms - set(self._raw_state.keys())
+
+        # ---- Step 3: fast-path no-op ----
+        if not added and not removed and not reclassified:
+            _LOGGER.debug(
+                "OccupancySubstrate.refresh_subscriptions: no diff — noop "
+                "(tracked=%d entities, %d rooms)",
+                len(current_keys), len(desired_rooms),
+            )
+            return
+
+        _LOGGER.info(
+            "OccupancySubstrate.refresh_subscriptions: diff added=%d "
+            "removed=%d reclassified=%d added_rooms=%d",
+            len(added), len(removed), len(reclassified), len(added_rooms),
+        )
+
+        # ---- Step 4: atomic swap — register NEW listener BEFORE unsub of old ----
+        prior_unsubs = list(self._unsub_listeners)
+        new_unsub = None
+        if desired_keys:
+            try:
+                new_unsub = async_track_state_change_event(
+                    self.hass,
+                    list(desired_keys),
+                    self._handle_state_change,
+                )
+            except Exception:  # noqa: BLE001 — defensive
+                _LOGGER.warning(
+                    "OccupancySubstrate.refresh_subscriptions: new "
+                    "state-change subscription failed — keeping old "
+                    "listener in place",
+                    exc_info=True,
+                )
+                return
+
+        # Repoint the entity->room/kind map BEFORE releasing the old
+        # listener. During the overlap window, both listeners are
+        # registered; the per-kind edge idempotence guard in
+        # `_handle_state_change` (`prior == occupied` short-circuit)
+        # prevents any double-dispatch. For removed entities that receive
+        # an in-flight event, `mapping is None` covers them at
+        # `_handle_state_change` (they're gone from the map now).
+        self._entity_to_room_kind = desired_entity_to_room_kind
+
+        # Register new unsub in the list, then release prior ones. Order
+        # matters: the list carries the NEW unsub before old are released
+        # so any concurrent teardown (e.g. async_teardown() racing an
+        # in-flight refresh) still tears down the new one.
+        self._unsub_listeners = []
+        if new_unsub is not None:
+            self._unsub_listeners.append(new_unsub)
+        for unsub in prior_unsubs:
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001 — defensive
+                _LOGGER.debug(
+                    "OccupancySubstrate.refresh_subscriptions: prior "
+                    "unsub raised (non-fatal)",
+                    exc_info=True,
+                )
+
+        # ---- Step 5: seed newly-added entities from hass.states ----
+        # Ensure each desired room has a stable per-kind bucket and seed
+        # newly-added entities' True/False from current state.
+        for room_name in desired_rooms:
+            bucket = self._raw_state.setdefault(room_name, {})
+            for k in TIER1_KINDS:
+                bucket.setdefault(k, False)
+
+        # For added entities, seed True kinds. For reclassified entities,
+        # clear the OLD kind slot's contribution isn't tractable at this
+        # granularity (multiple entities can share a kind slot per room),
+        # so we conservatively re-seed the NEW kind from current state.
+        for entity_id in added | reclassified:
+            room_name, kind = desired_entity_to_room_kind[entity_id]
+            try:
+                state = self.hass.states.get(entity_id)
+            except Exception:  # pragma: no cover — defensive
+                state = None
+            if state is None:
+                continue
+            if state.state in _UNAVAILABLE_STATES:
+                continue
+            if state.state == "on":
+                self._raw_state[room_name][kind] = True
+
+        # ---- Step 6: prune rooms whose entries are gone ----
+        for stale_room in list(self._raw_state.keys()):
+            if stale_room not in desired_rooms:
+                self._raw_state.pop(stale_room, None)
+
+        # ---- Step 7: synthetic True-slot dispatch for newly-added rooms ----
+        # If boot-settle already released (typical live-add case), fan out
+        # synthetic edges for the newly-added rooms' True slots so
+        # consumers don't stay silent until the next real edge. Mirrors
+        # `release_boot_settle` semantics for the LATE-add case.
+        if self._boot_settle_done and added_rooms:
+            emitted = 0
+            for room_name in added_rooms:
+                for kind, value in self._raw_state.get(room_name, {}).items():
+                    if value:
+                        self._dispatch(room_name, kind, True)
+                        emitted += 1
+            if emitted:
+                _LOGGER.info(
+                    "OccupancySubstrate.refresh_subscriptions: emitted %d "
+                    "synthetic True-slot dispatch(es) for %d added room(s)",
+                    emitted, len(added_rooms),
+                )
+
     async def async_teardown(self) -> None:
         """Unsub every listener and clear local subscribers."""
         self._teardown_listeners()

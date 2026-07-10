@@ -3474,18 +3474,43 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     # Store coordinator
     hass.data[DOMAIN][entry.entry_id] = coordinator
-    
+
     # v3.2.5: Add update listener to reload entry when options change
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
-    
+
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    
+
+    # Substrate re-subscribe cycle (D1): fire SIGNAL_ROOM_ENTRY_LIFECYCLE so
+    # PresenceCoordinator can call OccupancySubstrate.refresh_subscriptions()
+    # and pick up this room's Tier-1 CONF sensors WITHOUT waiting for a
+    # restart. Restores the pre-v4.7.24 (commit e165e1cb) per-room-onboarding
+    # guarantee — see PLANNING_substrate_resubscribe_on_room_add.md and the
+    # Master Bath Toilet 2026-07-09 regression evidence.
+    # If presence has not yet installed its subscriber (cold-boot ordering:
+    # ROOM entries can load before presence), the dispatch is a no-op and the
+    # substrate picks this room up at its own async_setup() enumeration path.
+    try:
+        from homeassistant.helpers.dispatcher import async_dispatcher_send
+        from .domain_coordinators.signals import SIGNAL_ROOM_ENTRY_LIFECYCLE
+        async_dispatcher_send(
+            hass,
+            SIGNAL_ROOM_ENTRY_LIFECYCLE,
+            entry.entry_id,
+            entry.data.get("room_name"),
+            "loaded",
+        )
+    except Exception:  # noqa: BLE001 — defensive; must not block room setup
+        _LOGGER.debug(
+            "SIGNAL_ROOM_ENTRY_LIFECYCLE dispatch (loaded) failed (non-fatal)",
+            exc_info=True,
+        )
+
     _LOGGER.info(
         "Successfully set up Universal Room Automation for room: %s",
         entry.data.get("room_name")
     )
-    
+
     return True
 
 
@@ -3824,6 +3849,27 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 coordinator._trailing_refresh_unsub = None
             # setup/unload symmetry: defensive `pop(key, None)`.
             hass.data[DOMAIN].pop(entry.entry_id, None)
+
+        # Substrate re-subscribe cycle (D1): fire SIGNAL_ROOM_ENTRY_LIFECYCLE
+        # so PresenceCoordinator's OccupancySubstrate.refresh_subscriptions()
+        # diffs the removed entities off the tracked set. Fires ONLY on
+        # successful unload (unload_ok True) — mirrors the coordinator
+        # teardown branch. Symmetric with the "loaded" dispatch above.
+        try:
+            from homeassistant.helpers.dispatcher import async_dispatcher_send
+            from .domain_coordinators.signals import SIGNAL_ROOM_ENTRY_LIFECYCLE
+            async_dispatcher_send(
+                hass,
+                SIGNAL_ROOM_ENTRY_LIFECYCLE,
+                entry.entry_id,
+                entry.data.get("room_name"),
+                "unloaded",
+            )
+        except Exception:  # noqa: BLE001 — defensive
+            _LOGGER.debug(
+                "SIGNAL_ROOM_ENTRY_LIFECYCLE dispatch (unloaded) failed (non-fatal)",
+                exc_info=True,
+            )
 
     return unload_ok
 
@@ -4841,9 +4887,36 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
                 entry.title, entry.entry_id, sorted(changed_keys),
             )
             snapshots[entry.entry_id] = dict(new)
+            # Substrate re-subscribe cycle (D1): fire lifecycle signal even
+            # on suppressed writes. Substrate CONF sensor lists (motion /
+            # mmwave / occupancy) are NOT in _ROOM_SUPPRESS_KEYS today, so
+            # this dispatch is defensive against future expansion of the
+            # suppress set silently reopening the v4.7.24 blind spot.
+            # refresh_subscriptions() diffs to zero-change when nothing
+            # sensor-list-relevant moved — cost = one enumeration walk.
+            try:
+                from homeassistant.helpers.dispatcher import async_dispatcher_send
+                from .domain_coordinators.signals import SIGNAL_ROOM_ENTRY_LIFECYCLE
+                async_dispatcher_send(
+                    hass,
+                    SIGNAL_ROOM_ENTRY_LIFECYCLE,
+                    entry.entry_id,
+                    entry.data.get("room_name"),
+                    "options_updated",
+                )
+            except Exception:  # noqa: BLE001 — defensive
+                _LOGGER.debug(
+                    "SIGNAL_ROOM_ENTRY_LIFECYCLE dispatch (options_updated) failed (non-fatal)",
+                    exc_info=True,
+                )
             return
         # Mixed / unknown change → reseed snapshot so future slider-only
         # writes diff against current state, then fall through to reload.
+        # NOTE: The fall-through path triggers a full ROOM reload via
+        # hass.config_entries.async_reload(entry.entry_id) (see below),
+        # which cycles unload → setup and thus fires "unloaded" and
+        # "loaded" naturally — no explicit "options_updated" dispatch
+        # needed on the fall-through branch.
         snapshots[entry.entry_id] = dict(new)
 
     if entry_type == ENTRY_TYPE_COORDINATOR_MANAGER:
