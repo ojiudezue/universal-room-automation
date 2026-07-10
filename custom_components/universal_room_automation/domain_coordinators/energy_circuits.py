@@ -202,10 +202,14 @@ class SPANCircuitMonitor:
         """Get or create a power baseline for a circuit.
 
         v5.12.0 SPAN circuit-identity re-key: scope resolution order is
-        unique_id → entity_id → friendly_name. Anything above friendly_name
-        is stable under SPAN-app circuit renames. Fallback to entity_id
-        (stable in circuit-number naming mode) or friendly_name (legacy)
-        is DEBUG-logged so post-migration boots surface any circuits that
+        unique_id → entity_id (F10 doc fix — friendly_name is DELIBERATELY
+        excluded from the runtime chain because the whole point of the
+        cycle is to move OFF friendly_name; the migration path in
+        _restore_energy_baselines handles legacy friendly-scoped rows
+        exactly once, then rewrites them to unique_id). entity_id is
+        stable under SPAN's circuit-number naming mode but not under a
+        SPAN-app rename in circuit-name mode. Fallback to entity_id is
+        DEBUG-logged so post-migration boots surface any circuits that
         still landed on the fallback path.
         """
         if entity_id not in self._power_baselines:

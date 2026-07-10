@@ -112,10 +112,20 @@ class TestHeatCoolCorrectionSource:
 class TestSpanPruneSource:
     def setup_method(self):
         self.src = _read(_ENERGY_PY)
-        # Isolate the restore method body.
+        # Isolate the restore method body — code only, NOT the docstring
+        # (v5.12.0 F12 added rollback SQL examples inside the docstring that
+        # would otherwise collide with the structural substring checks below).
         start = self.src.index("async def _restore_energy_baselines(")
         end = self.src.index("\n    async def async_teardown(", start)
-        self.body = self.src[start:end]
+        method = self.src[start:end]
+        # Strip the leading triple-quoted docstring.
+        _q = '"""'
+        first = method.find(_q)
+        if first != -1:
+            second = method.find(_q, first + 3)
+            if second != -1:
+                method = method[second + 3:]
+        self.body = method
 
     def test_only_unmapped_tab_pruned(self):
         # v4.7.32.1: substring match catches panel-prefixed scopes like

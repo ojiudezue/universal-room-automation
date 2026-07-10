@@ -4674,6 +4674,19 @@ class EnergyCoordinator(BaseCoordinator):
                    sample_count, last_updated
             FROM metric_baselines_pruned_backup
             WHERE coordinator_id='energy' AND metric_name='circuit_power';
+            -- F12 rollback caveat: also delete the migration sentinel so
+            -- the next boot re-runs the migration path against the restored
+            -- friendly-scoped rows:
+            DELETE FROM metric_baselines
+              WHERE coordinator_id='energy'
+                AND metric_name='_migration'
+                AND scope='circuit_scope_v2';
+            -- Any unique_id-keyed rows that were WRITTEN after migration
+            -- (from live samples during the current release window) are
+            -- harmless leftovers post-rollback: they simply won't have a
+            -- friendly-scoped predecessor and the runtime chain in
+            -- `_get_power_baseline` will keep using them. They can be
+            -- DELETED manually if strict pre-migration parity is required.
         """
         import aiosqlite
         from .coordinator_diagnostics import MetricBaseline
@@ -4697,205 +4710,326 @@ class EnergyCoordinator(BaseCoordinator):
                     "last_updated TEXT, pruned_at TEXT)"
                 )
 
-                # v5.12.0: sentinel row indicates the friendly_name→unique_id
-                # migration has already run. Private `_migration` metric_name
-                # is a reserved prefix (grep confirms no collisions).
-                cursor = await conn.execute(
-                    "SELECT 1 FROM metric_baselines "
-                    "WHERE coordinator_id='energy' "
-                    "AND metric_name='_migration' AND scope='circuit_scope_v2'"
-                )
-                sentinel_row = await cursor.fetchone()
-                migration_done = sentinel_row is not None
-
-                # Build lookup maps for both the already-migrated (unique_id)
-                # shape and the pre-migration (friendly_name) shape. `circuit`
-                # dict keys are entity_ids at runtime.
-                uid_to_entity: dict[str, str] = {}
-                friendly_to_entity: dict[str, str] = {}
-                for eid, circuit in self._circuits._circuits.items():
-                    if circuit.unique_id:
-                        uid_to_entity[circuit.unique_id] = eid
-                    if circuit.friendly_name:
-                        # First-wins on collisions (documented risk in plan §B).
-                        friendly_to_entity.setdefault(circuit.friendly_name, eid)
-
-                cursor = await conn.execute("""
-                    SELECT metric_name, scope, mean, variance,
-                           sample_count, last_updated
-                    FROM metric_baselines
-                    WHERE coordinator_id = 'energy'
-                """)
-                rows = await cursor.fetchall()
+                # v5.12.0 F1: wrap the ENTIRE scan/backup/rewrite/DELETE/sentinel
+                # + orphan-prune sequence in a single BEGIN IMMEDIATE transaction.
+                # A crash mid-loop must leave the DB fully pre-migration (sentinel
+                # unwritten → clean re-run on next boot). We keep the connection
+                # open across the transaction so the aiosqlite driver's implicit
+                # autocommit doesn't defeat atomicity.
+                await conn.execute("BEGIN IMMEDIATE")
+                # `circuit_baselines` and other counters are declared here so the
+                # post-commit `restore_baselines` step (in-memory state must
+                # lead disk state) can consume them.
                 circuit_baselines: dict[str, MetricBaseline] = {}
                 unmatched = 0
                 stale_unmapped: list[str] = []
-                # Migration counters (v5.12.0)
                 mig_rewritten = 0
+                mig_rewritten_from_entity_id = 0  # F2: separate counter
                 mig_already_v2 = 0
                 mig_unmatched_left: list[str] = []
-                from datetime import datetime as _dt, timezone as _tz
-                _migrated_at = _dt.now(_tz.utc).isoformat()
-                for row in rows:
-                    # Skip the sentinel itself.
-                    if row["metric_name"] == "_migration":
-                        continue
-                    baseline = MetricBaseline(
-                        metric_name=row["metric_name"],
-                        coordinator_id="energy",
-                        scope=row["scope"],
-                        mean=row["mean"],
-                        variance=row["variance"],
-                        sample_count=row["sample_count"],
-                        last_updated=row["last_updated"],
+                mig_attached_via_entity_id = 0  # F2: no rewrite, just attach
+                try:
+                    # v5.12.0: sentinel row indicates the friendly_name→unique_id
+                    # migration has already run. Private `_migration` metric_name
+                    # is a reserved prefix (grep confirms no collisions).
+                    cursor = await conn.execute(
+                        "SELECT 1 FROM metric_baselines "
+                        "WHERE coordinator_id='energy' "
+                        "AND metric_name='_migration' AND scope='circuit_scope_v2'"
                     )
-                    if row["metric_name"] == "peak_import_kw":
-                        baseline.max_samples = 1500
-                        self._peak_import_baseline = baseline
-                    elif row["metric_name"] == "soc_at_peak_start":
-                        baseline.max_samples = 365
-                        self._soc_at_peak_baseline = baseline
-                    elif row["metric_name"] == "daily_import_cost":
-                        baseline.max_samples = 365
-                        self._daily_import_cost_baseline = baseline
-                    elif row["metric_name"] == "solar_forecast_error_pct":
-                        baseline.max_samples = 365
-                        self._solar_forecast_error_baseline = baseline
-                    elif row["metric_name"] == "circuit_power":
-                        scope = row["scope"]
-                        # 1. Already-v2 shape: scope matches a live unique_id.
-                        if scope in uid_to_entity:
-                            eid = uid_to_entity[scope]
-                            # Rewrite in-memory scope so subsequent
-                            # save-loops persist under unique_id even if the
-                            # circuit's baseline gets re-fetched. Baseline
-                            # was constructed with scope=row["scope"] which
-                            # already IS the unique_id here — no-op reassign.
-                            baseline.scope = scope
-                            circuit_baselines[eid] = baseline
-                            mig_already_v2 += 1
-                        # 2. Pre-migration shape: scope matches a friendly_name
-                        #    that has a resolvable unique_id → rewrite the row.
-                        elif (
-                            not migration_done
-                            and scope in friendly_to_entity
-                            and self._circuits._circuits[
-                                friendly_to_entity[scope]
-                            ].unique_id
-                        ):
-                            eid = friendly_to_entity[scope]
-                            new_uid = self._circuits._circuits[eid].unique_id
-                            # Back up pre-migration row FIRST (safety).
+                    sentinel_row = await cursor.fetchone()
+                    migration_done = sentinel_row is not None
+
+                    # Build lookup maps for the already-migrated (unique_id)
+                    # shape, the pre-migration (friendly_name) shape, and the
+                    # entity_id fallback shape (F2 — some rows were written under
+                    # scope=entity_id when unique_id was unresolved at save-time
+                    # or when the operator saved under a rename-mode circuit).
+                    # `circuit` dict keys are entity_ids at runtime.
+                    uid_to_entity: dict[str, str] = {}
+                    friendly_to_entity: dict[str, str] = {}
+                    entity_id_set: set[str] = set()
+                    # F5: detect duplicate friendly_names → WARN with both
+                    # candidates, then preserve first-wins semantics.
+                    friendly_first: dict[str, str] = {}
+                    for eid, circuit in self._circuits._circuits.items():
+                        if circuit.unique_id:
+                            uid_to_entity[circuit.unique_id] = eid
+                        if circuit.friendly_name:
+                            fname = circuit.friendly_name
+                            if fname in friendly_first:
+                                _LOGGER.warning(
+                                    "Duplicate SPAN friendly_name '%s' shared by "
+                                    "circuits %s and %s — first-wins for baseline "
+                                    "restore may attach to the wrong circuit; "
+                                    "rename one in the SPAN app to disambiguate",
+                                    fname, friendly_first[fname], eid,
+                                )
+                            else:
+                                friendly_first[fname] = eid
+                                friendly_to_entity[fname] = eid
+                        entity_id_set.add(eid)
+
+                    cursor = await conn.execute("""
+                        SELECT metric_name, scope, mean, variance,
+                               sample_count, last_updated
+                        FROM metric_baselines
+                        WHERE coordinator_id = 'energy'
+                    """)
+                    rows = await cursor.fetchall()
+                    from datetime import datetime as _dt, timezone as _tz
+                    _migrated_at = _dt.now(_tz.utc).isoformat()
+                    for row in rows:
+                        # Skip the sentinel itself.
+                        if row["metric_name"] == "_migration":
+                            continue
+                        baseline = MetricBaseline(
+                            metric_name=row["metric_name"],
+                            coordinator_id="energy",
+                            scope=row["scope"],
+                            mean=row["mean"],
+                            variance=row["variance"],
+                            sample_count=row["sample_count"],
+                            last_updated=row["last_updated"],
+                        )
+                        if row["metric_name"] == "peak_import_kw":
+                            baseline.max_samples = 1500
+                            self._peak_import_baseline = baseline
+                        elif row["metric_name"] == "soc_at_peak_start":
+                            baseline.max_samples = 365
+                            self._soc_at_peak_baseline = baseline
+                        elif row["metric_name"] == "daily_import_cost":
+                            baseline.max_samples = 365
+                            self._daily_import_cost_baseline = baseline
+                        elif row["metric_name"] == "solar_forecast_error_pct":
+                            baseline.max_samples = 365
+                            self._solar_forecast_error_baseline = baseline
+                        elif row["metric_name"] == "circuit_power":
+                            scope = row["scope"]
+                            # 1. Already-v2 shape: scope matches a live unique_id.
+                            if scope in uid_to_entity:
+                                eid = uid_to_entity[scope]
+                                # Rewrite in-memory scope so subsequent
+                                # save-loops persist under unique_id even if the
+                                # circuit's baseline gets re-fetched. Baseline
+                                # was constructed with scope=row["scope"] which
+                                # already IS the unique_id here — no-op reassign.
+                                baseline.scope = scope
+                                circuit_baselines[eid] = baseline
+                                mig_already_v2 += 1
+                            # 2. Pre-migration shape: scope matches a friendly_name
+                            #    that has a resolvable unique_id → rewrite the row.
+                            elif (
+                                not migration_done
+                                and scope in friendly_to_entity
+                                and self._circuits._circuits[
+                                    friendly_to_entity[scope]
+                                ].unique_id
+                            ):
+                                eid = friendly_to_entity[scope]
+                                new_uid = self._circuits._circuits[eid].unique_id
+                                # Back up pre-migration row FIRST (safety).
+                                await conn.execute(
+                                    "INSERT INTO metric_baselines_pruned_backup "
+                                    "SELECT coordinator_id, metric_name, scope, mean, "
+                                    "variance, sample_count, last_updated, ? "
+                                    "FROM metric_baselines "
+                                    "WHERE coordinator_id='energy' "
+                                    "AND metric_name='circuit_power' AND scope = ?",
+                                    (_migrated_at, scope),
+                                )
+                                # Rewrite: INSERT OR REPLACE at new scope, DELETE old.
+                                await conn.execute(
+                                    "INSERT OR REPLACE INTO metric_baselines "
+                                    "(coordinator_id, metric_name, scope, mean, "
+                                    " variance, sample_count, last_updated) "
+                                    "VALUES ('energy', 'circuit_power', ?, ?, ?, ?, ?)",
+                                    (
+                                        new_uid,
+                                        row["mean"],
+                                        row["variance"],
+                                        row["sample_count"],
+                                        row["last_updated"],
+                                    ),
+                                )
+                                await conn.execute(
+                                    "DELETE FROM metric_baselines "
+                                    "WHERE coordinator_id='energy' "
+                                    "AND metric_name='circuit_power' AND scope = ?",
+                                    (scope,),
+                                )
+                                baseline.scope = new_uid
+                                circuit_baselines[eid] = baseline
+                                mig_rewritten += 1
+                            # 2b. F2 (Review B-HIGH-1): scope matches a live
+                            #     entity_id. Rows written under scope=entity_id
+                            #     (unique_id unresolved at save-time, or saved
+                            #     while operator was mid-rename) would otherwise
+                            #     be orphaned. Attach directly; if a unique_id
+                            #     now resolves AND the migration is running,
+                            #     upgrade the row via the same backup→rewrite→
+                            #     delete path used by branch 2.
+                            elif scope in entity_id_set:
+                                eid = scope
+                                circuit = self._circuits._circuits[eid]
+                                if not migration_done and circuit.unique_id:
+                                    new_uid = circuit.unique_id
+                                    await conn.execute(
+                                        "INSERT INTO metric_baselines_pruned_backup "
+                                        "SELECT coordinator_id, metric_name, scope, mean, "
+                                        "variance, sample_count, last_updated, ? "
+                                        "FROM metric_baselines "
+                                        "WHERE coordinator_id='energy' "
+                                        "AND metric_name='circuit_power' AND scope = ?",
+                                        (_migrated_at, scope),
+                                    )
+                                    await conn.execute(
+                                        "INSERT OR REPLACE INTO metric_baselines "
+                                        "(coordinator_id, metric_name, scope, mean, "
+                                        " variance, sample_count, last_updated) "
+                                        "VALUES ('energy', 'circuit_power', ?, ?, ?, ?, ?)",
+                                        (
+                                            new_uid,
+                                            row["mean"],
+                                            row["variance"],
+                                            row["sample_count"],
+                                            row["last_updated"],
+                                        ),
+                                    )
+                                    await conn.execute(
+                                        "DELETE FROM metric_baselines "
+                                        "WHERE coordinator_id='energy' "
+                                        "AND metric_name='circuit_power' AND scope = ?",
+                                        (scope,),
+                                    )
+                                    baseline.scope = new_uid
+                                    circuit_baselines[eid] = baseline
+                                    mig_rewritten_from_entity_id += 1
+                                else:
+                                    # No unique_id available (or migration
+                                    # already done) — attach in place; on save
+                                    # the runtime `_get_power_baseline` chain
+                                    # will re-persist under entity_id.
+                                    circuit_baselines[eid] = baseline
+                                    mig_attached_via_entity_id += 1
+                            # 3. "Unmapped Tab" stale scopes → v4.7.32 auto-prune.
+                            elif "Unmapped Tab" in str(row["scope"]):
+                                stale_unmapped.append(scope)
+                            # 4. Unknown scope, no resolution → leave in place at
+                            #    INFO. Covers the 3 known orphans (`'Battery Power'`,
+                            #    `'Span Left Subpanel Power'`, `'Span Left Unknown
+                            #    Power'`) per plan D3.4. Manual DELETE remains the
+                            #    exit ramp; we no longer WARN each boot.
+                            else:
+                                mig_unmatched_left.append(scope)
+                                _LOGGER.info(
+                                    "Circuit baseline '%s' has no matching circuit "
+                                    "(kept in place; manual DELETE if intentionally orphaned)",
+                                    scope,
+                                )
+                    # F1 note: `restore_baselines` (in-memory) is deferred until
+                    # AFTER commit — disk state leads memory state so a crash
+                    # doesn't leave RAM promising rows the DB doesn't have.
+
+                    # Insert migration sentinel if we ran the migration path this boot.
+                    if not migration_done:
+                        await conn.execute(
+                            "INSERT OR REPLACE INTO metric_baselines "
+                            "(coordinator_id, metric_name, scope, mean, variance, "
+                            " sample_count, last_updated) "
+                            "VALUES ('energy', '_migration', 'circuit_scope_v2', "
+                            " 0, 0, 1, ?)",
+                            (_migrated_at,),
+                        )
+
+                    # F1: Unmapped-Tab prune folded into the same transaction so
+                    # crash-mid-prune leaves the DB pre-migration.
+                    if stale_unmapped:
+                        # Reversible prune: copy each row to a backup table BEFORE
+                        # deleting, so a bad prune can be undone with
+                        # (use OR IGNORE so a scope that has since relearned is
+                        # NOT clobbered — Review B1):
+                        #   INSERT OR IGNORE INTO metric_baselines
+                        #     (coordinator_id,metric_name,scope,mean,variance,
+                        #      sample_count,last_updated)
+                        #   SELECT coordinator_id,metric_name,scope,mean,variance,
+                        #      sample_count,last_updated
+                        #   FROM metric_baselines_pruned_backup;
+                        _pruned_at = _migrated_at
+                        for _sc in stale_unmapped:
                             await conn.execute(
                                 "INSERT INTO metric_baselines_pruned_backup "
                                 "SELECT coordinator_id, metric_name, scope, mean, "
                                 "variance, sample_count, last_updated, ? "
-                                "FROM metric_baselines "
-                                "WHERE coordinator_id='energy' "
+                                "FROM metric_baselines WHERE coordinator_id='energy' "
                                 "AND metric_name='circuit_power' AND scope = ?",
-                                (_migrated_at, scope),
-                            )
-                            # Rewrite: INSERT OR REPLACE at new scope, DELETE old.
-                            await conn.execute(
-                                "INSERT OR REPLACE INTO metric_baselines "
-                                "(coordinator_id, metric_name, scope, mean, "
-                                " variance, sample_count, last_updated) "
-                                "VALUES ('energy', 'circuit_power', ?, ?, ?, ?, ?)",
-                                (
-                                    new_uid,
-                                    row["mean"],
-                                    row["variance"],
-                                    row["sample_count"],
-                                    row["last_updated"],
-                                ),
+                                (_pruned_at, _sc),
                             )
                             await conn.execute(
                                 "DELETE FROM metric_baselines "
                                 "WHERE coordinator_id='energy' "
                                 "AND metric_name='circuit_power' AND scope = ?",
-                                (scope,),
+                                (_sc,),
                             )
-                            baseline.scope = new_uid
-                            circuit_baselines[eid] = baseline
-                            mig_rewritten += 1
-                        # 3. "Unmapped Tab" stale scopes → v4.7.32 auto-prune.
-                        elif "Unmapped Tab" in str(row["scope"]):
-                            stale_unmapped.append(scope)
-                        # 4. Unknown scope, no resolution → leave in place at
-                        #    INFO. Covers the 3 known orphans (`'Battery Power'`,
-                        #    `'Span Left Subpanel Power'`, `'Span Left Unknown
-                        #    Power'`) per plan D3.4. Manual DELETE remains the
-                        #    exit ramp; we no longer WARN each boot.
-                        else:
-                            mig_unmatched_left.append(scope)
-                            _LOGGER.info(
-                                "Circuit baseline '%s' has no matching circuit "
-                                "(kept in place; manual DELETE if intentionally orphaned)",
-                                scope,
-                            )
+
+                    # F1: single commit — everything above is one atomic write.
+                    await conn.commit()
+                except Exception:
+                    # F1: crash mid-loop must leave the DB fully pre-migration.
+                    # WARN — not debug-swallow — so operator sees a broken
+                    # migration attempt. Re-raise so the outer except also logs.
+                    try:
+                        await conn.rollback()
+                    except Exception as _rb_err:  # noqa: BLE001
+                        _LOGGER.warning(
+                            "SPAN scope migration: rollback also failed: %s",
+                            _rb_err,
+                        )
+                    _LOGGER.warning(
+                        "SPAN scope migration aborted mid-transaction; "
+                        "rolled back to pre-migration state (next boot will retry)"
+                    )
+                    raise
+
+                # F1: disk state is now durable — safe to update in-memory state.
                 if circuit_baselines:
                     self._circuits.restore_baselines(circuit_baselines)
-                # Insert migration sentinel if we ran the migration path this boot.
+
+                # F9: summary log — INFO when any migration work happened,
+                # DEBUG on all-zero counters (first boot on already-v2 DB, or
+                # a fresh install with nothing to migrate).
                 if not migration_done:
-                    await conn.execute(
-                        "INSERT OR REPLACE INTO metric_baselines "
-                        "(coordinator_id, metric_name, scope, mean, variance, "
-                        " sample_count, last_updated) "
-                        "VALUES ('energy', '_migration', 'circuit_scope_v2', "
-                        " 0, 0, 1, ?)",
-                        (_migrated_at,),
+                    _did_work = (
+                        mig_rewritten
+                        or mig_rewritten_from_entity_id
+                        or mig_already_v2
+                        or mig_attached_via_entity_id
+                        or mig_unmatched_left
+                        or stale_unmapped
                     )
-                    # Commit BEFORE the (also-committing) stale_unmapped branch
-                    # so that the migration writes (backup rows, rewritten
-                    # rows, sentinel) are durable even if there are no unmapped
-                    # rows to prune. A stale_unmapped-only boot on an already-
-                    # migrated DB never reaches this branch (migration_done).
-                    await conn.commit()
-                    _LOGGER.info(
-                        "SPAN scope migration: %d migrated, %d already-v2, "
-                        "%d unmatched-left-in-place (%s), %d unmapped-pruned",
+                    summary_msg = (
+                        "SPAN scope migration: %d migrated, "
+                        "%d rewritten-from-entity_id, %d attached-via-entity_id, "
+                        "%d already-v2, %d unmatched-left-in-place (%s), "
+                        "%d unmapped-pruned"
+                    )
+                    summary_args = (
                         mig_rewritten,
+                        mig_rewritten_from_entity_id,
+                        mig_attached_via_entity_id,
                         mig_already_v2,
                         len(mig_unmatched_left),
                         ", ".join(repr(s) for s in mig_unmatched_left) or "-",
                         len(stale_unmapped),
                     )
-                # Legacy `unmatched` counter is now folded into
-                # mig_unmatched_left — retained as 0 for log-shape parity.
+                    if _did_work:
+                        _LOGGER.info(summary_msg, *summary_args)
+                    else:
+                        _LOGGER.debug(
+                            summary_msg + " (first boot; nothing to migrate)",
+                            *summary_args,
+                        )
                 if stale_unmapped:
-                    # Reversible prune: copy each row to a backup table BEFORE
-                    # deleting, so a bad prune can be undone with (use OR IGNORE so
-                    # a scope that has since relearned is NOT clobbered — Review B1):
-                    #   INSERT OR IGNORE INTO metric_baselines
-                    #     (coordinator_id,metric_name,scope,mean,variance,
-                    #      sample_count,last_updated)
-                    #   SELECT coordinator_id,metric_name,scope,mean,variance,
-                    #      sample_count,last_updated
-                    #   FROM metric_baselines_pruned_backup;
-                    from datetime import datetime as _dt, timezone as _tz
-                    _pruned_at = _dt.now(_tz.utc).isoformat()
-                    await conn.execute(
-                        "CREATE TABLE IF NOT EXISTS metric_baselines_pruned_backup ("
-                        "coordinator_id TEXT, metric_name TEXT, scope TEXT, "
-                        "mean REAL, variance REAL, sample_count INTEGER, "
-                        "last_updated TEXT, pruned_at TEXT)"
-                    )
-                    for _sc in stale_unmapped:
-                        await conn.execute(
-                            "INSERT INTO metric_baselines_pruned_backup "
-                            "SELECT coordinator_id, metric_name, scope, mean, "
-                            "variance, sample_count, last_updated, ? "
-                            "FROM metric_baselines WHERE coordinator_id='energy' "
-                            "AND metric_name='circuit_power' AND scope = ?",
-                            (_pruned_at, _sc),
-                        )
-                        await conn.execute(
-                            "DELETE FROM metric_baselines "
-                            "WHERE coordinator_id='energy' "
-                            "AND metric_name='circuit_power' AND scope = ?",
-                            (_sc,),
-                        )
-                    await conn.commit()
                     _LOGGER.info(
                         "SPAN: pruned %d orphaned 'Unmapped Tab' circuit baselines "
                         "(backed up to metric_baselines_pruned_backup; reversible). "
@@ -4905,12 +5039,18 @@ class EnergyCoordinator(BaseCoordinator):
                 # v5.12.0: `unmatched` is retained for shape parity but is
                 # always 0 — orphan rows are now classified into
                 # `mig_unmatched_left` (INFO, kept in place) instead of
-                # WARNed each boot. Log accounting excludes the sentinel row
-                # and the migration/orphan classes so the total matches the
-                # count of restored real baselines.
+                # WARNed each boot. F6: restored-count derived from a fresh
+                # SELECT that excludes the sentinel — accounting matches
+                # the number of real baselines actually in the table.
+                cursor = await conn.execute(
+                    "SELECT COUNT(*) FROM metric_baselines "
+                    "WHERE coordinator_id='energy' AND metric_name != '_migration'"
+                )
+                _row = await cursor.fetchone()
+                _restored_ct = int(_row[0]) if _row else 0
                 _LOGGER.info(
                     "Restored %d energy baselines (peak_import: %d samples)",
-                    len(rows) - unmatched - len(stale_unmapped) - len(mig_unmatched_left),
+                    _restored_ct - len(mig_unmatched_left),
                     self._peak_import_baseline.sample_count,
                 )
         except Exception as e:

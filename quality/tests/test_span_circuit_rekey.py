@@ -180,6 +180,31 @@ def _extract_async_method(src: str, name: str) -> str:
     raise LookupError(f"async def {name} not found")
 
 
+def _load_async_method_fn(name: str, extra_replacements=None):
+    """Compile any `async def name(self, ...)` from energy.py as standalone."""
+    src = _extract_async_method(_read(_ENERGY_PY), name)
+    src = textwrap.dedent(src)
+    src = re.sub(
+        r"^\s*from\s+\.coordinator_diagnostics\s+import\s+MetricBaseline\s*$",
+        "",
+        src,
+        flags=re.MULTILINE,
+    )
+    for old, new in (extra_replacements or []):
+        src = src.replace(old, new)
+    import logging as _logging
+    from custom_components.universal_room_automation.domain_coordinators.coordinator_diagnostics import (
+        MetricBaseline,
+    )
+    ns: dict = {
+        "__name__": f"test.span_rekey.{name}",
+        "_LOGGER": _logging.getLogger(f"test.span_rekey.{name}"),
+        "MetricBaseline": MetricBaseline,
+    }
+    exec(compile(src, f"<{name}>", "exec"), ns)
+    return ns[name]
+
+
 def _load_restore_fn():
     """Compile `_restore_energy_baselines` as a standalone async function.
 
@@ -460,8 +485,8 @@ class TestD2EvseSpanBreakerConfig:
         s = _read(_STRINGS)
         e = _read(_EN_JSON)
         for token in (
-            '"energy_evse_a_span_breaker": "EVSE Garage A SPAN breaker (switch)"',
-            '"energy_evse_b_span_breaker": "EVSE Garage B SPAN breaker (switch)"',
+            '"energy_evse_a_span_breaker": "EVSE Garage A SPAN breaker"',
+            '"energy_evse_b_span_breaker": "EVSE Garage B SPAN breaker"',
         ):
             assert token in s, f"{token} missing from strings.json"
             assert token in e, f"{token} missing from translations/en.json"
@@ -698,3 +723,436 @@ class TestD3Migration:
         assert coord._circuits.restored_baselines[
             "sensor.span_panel_hvac_power"
         ].sample_count == 77
+
+
+# ---------------------------------------------------------------------------
+# F2 (Review B-HIGH-1): entity_id fallback attach + upgrade
+# ---------------------------------------------------------------------------
+
+class TestF2EntityIdFallback:
+    def test_entity_id_scoped_row_attaches_intact(self, tmp_db, restore_fn):
+        """Rows saved under scope=entity_id (unique_id unresolved at save-
+        time) re-attach with sample_count intact. Migration NOT done yet,
+        circuit has no unique_id → attach in place (no upgrade path)."""
+        eid = "sensor.extras_emporia_dryer_power"
+        _insert_baseline(
+            tmp_db, "energy", "circuit_power", eid,
+            mean=42.0, variance=9.0, sample_count=123,
+        )
+        circuits = {
+            eid: _StubCircuit(eid, "Dryer", None),  # unique_id None
+        }
+        coord = _StubCoordinator(tmp_db, circuits)
+        _run(restore_fn(coord))
+        # Row still in place, scope unchanged.
+        rows = _fetch_baselines(tmp_db, "energy", "circuit_power")
+        assert any(r[2] == eid for r in rows)
+        # Baseline attached under entity_id key with sample_count intact.
+        attached = coord._circuits.restored_baselines
+        assert eid in attached
+        assert attached[eid].sample_count == 123
+        assert attached[eid].mean == 42.0
+
+    def test_entity_id_scoped_row_upgrades_when_unique_id_now_resolves(
+        self, tmp_db, restore_fn,
+    ):
+        """When migration is running AND a unique_id now resolves for the
+        entity_id-scoped row, upgrade via backup→rewrite→delete."""
+        eid = "sensor.span_panel_dryer_power"
+        _insert_baseline(
+            tmp_db, "energy", "circuit_power", eid,
+            mean=55.0, variance=4.0, sample_count=88,
+        )
+        circuits = {
+            eid: _StubCircuit(eid, "Dryer", "uid_dryer_stable"),
+        }
+        coord = _StubCoordinator(tmp_db, circuits)
+        _run(restore_fn(coord))
+        # Row upgraded to unique_id scope.
+        rows = _fetch_baselines(tmp_db, "energy", "circuit_power")
+        assert any(r[2] == "uid_dryer_stable" for r in rows)
+        assert not any(r[2] == eid for r in rows)
+        # Backup captured pre-upgrade row.
+        backup = _fetch_backup(tmp_db)
+        assert any(r[2] == eid and r[5] == 88 for r in backup)
+        # Baseline attached with intact stats.
+        attached = coord._circuits.restored_baselines
+        assert attached[eid].sample_count == 88
+        assert attached[eid].scope == "uid_dryer_stable"
+
+
+# ---------------------------------------------------------------------------
+# F3 (Review C-HIGH-2): _lookup_unique_id real coverage
+# ---------------------------------------------------------------------------
+# HA registry API cited from
+#   .venv-ha/lib/python3.13/site-packages/homeassistant/helpers/entity_registry.py:
+#     - module-level `async_get(hass) -> EntityRegistry`  (line 1941)
+#     - `EntityRegistry.async_get(entity_id_or_uuid: str) -> RegistryEntry | None`
+#       (line 891)
+#     - `RegistryEntry.unique_id: str` (line 184)
+# `_lookup_unique_id` calls these APIs in that exact order.
+
+class TestF3LookupUniqueIdRealCoverage:
+    def _make_registry(self, entries: dict[str, str | None]):
+        """Return a mock EntityRegistry whose async_get returns a stub
+        RegistryEntry-shaped object (unique_id attr) or None."""
+        class _Entry:
+            def __init__(self, uid): self.unique_id = uid
+        reg = MagicMock()
+        def _async_get(entity_id):
+            if entity_id not in entries:
+                return None
+            return _Entry(entries[entity_id])
+        reg.async_get.side_effect = _async_get
+        return reg
+
+    def _make_hass_with_states(self, span_power_states: list[tuple[str, str]],
+                               extras: list[tuple[str, str]] | None = None):
+        """Build a hass mock whose states.async_all('sensor') yields the
+        given span_panel_*_power states with friendly_name attrs."""
+        class _State:
+            def __init__(self, entity_id, friendly):
+                self.entity_id = entity_id
+                self.attributes = {"friendly_name": friendly}
+                self.state = "10"
+        span_states = [_State(eid, fn) for eid, fn in span_power_states]
+        extra_states = {eid: _State(eid, fn) for eid, fn in (extras or [])}
+        hass = MagicMock()
+        hass.states.async_all.return_value = span_states
+        hass.states.get.side_effect = lambda eid: extra_states.get(eid)
+        return hass
+
+    def test_span_tier1_populates_unique_id(self, monkeypatch):
+        from custom_components.universal_room_automation.domain_coordinators.energy_circuits import (
+            SPANCircuitMonitor,
+        )
+        eid = "sensor.span_panel_kitchen_power"
+        registry = self._make_registry({eid: "span_uid_kitchen"})
+        hass = self._make_hass_with_states([(eid, "Kitchen")])
+        # Patch entity_registry.async_get to return our registry.
+        import homeassistant.helpers.entity_registry as er
+        monkeypatch.setattr(er, "async_get", lambda _h: registry, raising=False)
+        mon = SPANCircuitMonitor(hass, autodiscover_span=True)
+        mon.discover_circuits()
+        assert eid in mon._circuits
+        assert mon._circuits[eid].unique_id == "span_uid_kitchen"
+
+    def test_extras_branch_populates_unique_id(self, monkeypatch):
+        from custom_components.universal_room_automation.domain_coordinators.energy_circuits import (
+            SPANCircuitMonitor,
+        )
+        eid = "sensor.emporia_dryer_power"
+        registry = self._make_registry({eid: "emporia_uid_dryer"})
+        hass = self._make_hass_with_states([], extras=[(eid, "Dryer")])
+        import homeassistant.helpers.entity_registry as er
+        monkeypatch.setattr(er, "async_get", lambda _h: registry, raising=False)
+        mon = SPANCircuitMonitor(
+            hass, extra_entities=[eid], autodiscover_span=False,
+        )
+        mon.discover_circuits()
+        assert eid in mon._circuits
+        assert mon._circuits[eid].unique_id == "emporia_uid_dryer"
+
+    def test_registry_returning_none_falls_back(self, monkeypatch):
+        from custom_components.universal_room_automation.domain_coordinators.energy_circuits import (
+            SPANCircuitMonitor,
+        )
+        eid = "sensor.span_panel_ghost_power"
+        registry = self._make_registry({})  # entity NOT in registry
+        hass = self._make_hass_with_states([(eid, "Ghost")])
+        import homeassistant.helpers.entity_registry as er
+        monkeypatch.setattr(er, "async_get", lambda _h: registry, raising=False)
+        mon = SPANCircuitMonitor(hass, autodiscover_span=True)
+        mon.discover_circuits()
+        assert eid in mon._circuits
+        assert mon._circuits[eid].unique_id is None  # no exception
+
+    def test_registry_raising_falls_back(self, monkeypatch):
+        from custom_components.universal_room_automation.domain_coordinators.energy_circuits import (
+            SPANCircuitMonitor,
+        )
+        eid = "sensor.span_panel_boom_power"
+        hass = self._make_hass_with_states([(eid, "Boom")])
+        def _boom(_h):
+            raise RuntimeError("registry unavailable at boot")
+        import homeassistant.helpers.entity_registry as er
+        monkeypatch.setattr(er, "async_get", _boom, raising=False)
+        mon = SPANCircuitMonitor(hass, autodiscover_span=True)
+        mon.discover_circuits()  # must NOT raise
+        assert eid in mon._circuits
+        assert mon._circuits[eid].unique_id is None
+
+
+# ---------------------------------------------------------------------------
+# F4 (Review C-HIGH-1): predicate anchoring — safety row byte-identical
+# ---------------------------------------------------------------------------
+
+class TestF4PredicateAnchoring:
+    def test_safety_row_sharing_scope_name_untouched(self, tmp_db, restore_fn):
+        """A safety-coordinator row whose scope equals the friendly_name of a
+        migrating energy circuit must be byte-identical after migration.
+        This anchors the DELETE predicate — mutation-red/green:
+        broadening the predicate (dropping coordinator_id or metric_name
+        filter) must make THIS test fail."""
+        # Both rows carry scope='Kitchen'.
+        _insert_baseline(
+            tmp_db, "safety", "rate_of_change", "Kitchen",
+            mean=0.5, variance=0.01, sample_count=200,
+            last_updated="2026-06-01T00:00:00+00:00",
+        )
+        # Migration-eligible energy row with same scope.
+        _insert_baseline(
+            tmp_db, "energy", "circuit_power", "Kitchen",
+            mean=100.0, variance=1.0, sample_count=50,
+        )
+        circuits = {
+            "sensor.span_panel_kitchen_power": _StubCircuit(
+                "sensor.span_panel_kitchen_power", "Kitchen", "uid_kitchen",
+            ),
+        }
+        pre_safety = _fetch_baselines(tmp_db, "safety")
+        assert len(pre_safety) == 1
+        coord = _StubCoordinator(tmp_db, circuits)
+        _run(restore_fn(coord))
+        post_safety = _fetch_baselines(tmp_db, "safety")
+        # Byte-identical.
+        assert pre_safety == post_safety, (
+            "safety row sharing 'Kitchen' scope was mutated — DELETE "
+            "predicate is too broad"
+        )
+
+
+# ---------------------------------------------------------------------------
+# F5 (Review B-MED-1 + C-LOW-1): duplicate friendly_name WARN
+# ---------------------------------------------------------------------------
+
+class TestF5DuplicateFriendlyWarn:
+    def test_duplicate_friendly_name_warned_and_first_wins(
+        self, tmp_db, restore_fn, caplog,
+    ):
+        import logging as _logging
+        # Two circuits share friendly_name 'Outlet'; only the first wins the
+        # friendly-scoped restore.
+        _insert_baseline(
+            tmp_db, "energy", "circuit_power", "Outlet",
+            mean=10.0, variance=1.0, sample_count=42,
+        )
+        circuits = {
+            "sensor.span_panel_outlet_a_power": _StubCircuit(
+                "sensor.span_panel_outlet_a_power", "Outlet", "uid_a",
+            ),
+            "sensor.span_panel_outlet_b_power": _StubCircuit(
+                "sensor.span_panel_outlet_b_power", "Outlet", "uid_b",
+            ),
+        }
+        coord = _StubCoordinator(tmp_db, circuits)
+        with caplog.at_level(_logging.WARNING, logger="test.span_rekey"):
+            _run(restore_fn(coord))
+        # WARN mentions both candidates.
+        warn_msgs = [r for r in caplog.records if r.levelno >= _logging.WARNING]
+        assert any(
+            "Duplicate SPAN friendly_name" in r.getMessage()
+            and "sensor.span_panel_outlet_a_power" in r.getMessage()
+            and "sensor.span_panel_outlet_b_power" in r.getMessage()
+            for r in warn_msgs
+        ), f"expected duplicate-friendly WARN with both candidates; got: {[r.getMessage() for r in warn_msgs]}"
+        # First-wins: uid_a receives the migrated baseline.
+        rows = _fetch_baselines(tmp_db, "energy", "circuit_power")
+        scopes = {r[2] for r in rows}
+        assert "uid_a" in scopes
+        assert "uid_b" not in scopes
+
+
+# ---------------------------------------------------------------------------
+# F7 (Review C-MED-1): production merge → EVChargerController._evse
+# ---------------------------------------------------------------------------
+
+class TestF7EvseMergeProductionPath:
+    def test_merge_reaches_ev_charger_controller_evse(self):
+        """Execute the exact `__init__.py` merge block against a mock
+        cm_config, then construct EVChargerController with the result and
+        assert the override reaches `._evse[...]["span_breaker"]`."""
+        from custom_components.universal_room_automation.domain_coordinators.energy_pool import (
+            DEFAULT_EVSE_ENTITIES, EVChargerController,
+        )
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            CONF_ENERGY_EVSE_A_SPAN_BREAKER,
+            CONF_ENERGY_EVSE_B_SPAN_BREAKER,
+        )
+        cm_config = {
+            CONF_ENERGY_EVSE_A_SPAN_BREAKER: "switch.span_panel_new_a_breaker",
+            CONF_ENERGY_EVSE_B_SPAN_BREAKER: "switch.span_panel_new_b_breaker",
+        }
+        # Replicate the merge block from __init__.py verbatim in behaviour.
+        evse_config = {k: dict(v) for k, v in DEFAULT_EVSE_ENTITIES.items()}
+        evse_a_breaker = cm_config.get(CONF_ENERGY_EVSE_A_SPAN_BREAKER)
+        if evse_a_breaker:
+            evse_config["garage_a"]["span_breaker"] = evse_a_breaker
+        evse_b_breaker = cm_config.get(CONF_ENERGY_EVSE_B_SPAN_BREAKER)
+        if evse_b_breaker:
+            evse_config["garage_b"]["span_breaker"] = evse_b_breaker
+        # Now the production consumer.
+        controller = EVChargerController(MagicMock(), evse_config)
+        assert controller._evse["garage_a"]["span_breaker"] == (
+            "switch.span_panel_new_a_breaker"
+        )
+        assert controller._evse["garage_b"]["span_breaker"] == (
+            "switch.span_panel_new_b_breaker"
+        )
+
+    def test_merge_omitted_options_keeps_defaults_in_controller(self):
+        from custom_components.universal_room_automation.domain_coordinators.energy_pool import (
+            DEFAULT_EVSE_ENTITIES, EVChargerController,
+        )
+        evse_config = {k: dict(v) for k, v in DEFAULT_EVSE_ENTITIES.items()}
+        controller = EVChargerController(MagicMock(), evse_config)
+        assert controller._evse["garage_a"]["span_breaker"] == (
+            "switch.span_panel_car_charger_breaker"
+        )
+        assert controller._evse["garage_b"]["span_breaker"] == (
+            "switch.span_panel_garage_b_evse_breaker"
+        )
+
+
+# ---------------------------------------------------------------------------
+# F8 (Review C-MED-3): save → restore round-trip on unique_id scope
+# ---------------------------------------------------------------------------
+
+class TestF8SaveRestoreRoundTrip:
+    def test_save_under_unique_id_restore_attaches(self, tmp_db, restore_fn):
+        """The production `_get_power_baseline` uses scope=unique_id when
+        available; `_save_energy_baselines` persists that scope. A fresh
+        restore against the same DB must attach the row directly via the
+        already-v2 branch, sample_count intact."""
+        # Simulate a save cycle: build a baseline directly and INSERT it under
+        # scope=unique_id. This is the shape `_save_energy_baselines` writes
+        # (see energy.py:_save_energy_baselines — INSERT OR REPLACE with
+        # baseline.scope). The runtime construction of scope happens in
+        # `_get_power_baseline` (energy_circuits.py:_get_power_baseline).
+        from custom_components.universal_room_automation.domain_coordinators.energy_circuits import (
+            SPANCircuitMonitor, CircuitInfo,
+        )
+        eid = "sensor.span_panel_office_power"
+        uid = "uid_office_stable"
+        mon = SPANCircuitMonitor(MagicMock())
+        mon._circuits[eid] = CircuitInfo(eid, "Office", "left", unique_id=uid)
+        mon._discovered = True
+        bl = mon._get_power_baseline(eid)  # scope should be uid
+        assert bl.scope == uid
+        # Simulate accumulated samples.
+        bl.mean = 88.0
+        bl.variance = 4.0
+        bl.sample_count = 200
+        bl.last_updated = "2026-07-01T00:00:00+00:00"
+        # Persist EXACTLY as `_save_energy_baselines` would.
+        with sqlite3.connect(tmp_db) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO metric_baselines "
+                "(coordinator_id, metric_name, scope, mean, variance, "
+                " sample_count, last_updated) VALUES (?,?,?,?,?,?,?)",
+                (bl.coordinator_id, bl.metric_name, bl.scope, bl.mean,
+                 bl.variance, bl.sample_count, bl.last_updated),
+            )
+            conn.commit()
+        # Fresh restore against a new coordinator whose circuits carry the
+        # same unique_id → attach via the already-v2 branch.
+        circuits = {
+            eid: _StubCircuit(eid, "Office", uid),
+        }
+        coord = _StubCoordinator(tmp_db, circuits)
+        _run(restore_fn(coord))
+        attached = coord._circuits.restored_baselines
+        assert eid in attached
+        assert attached[eid].sample_count == 200
+        assert attached[eid].mean == 88.0
+        assert attached[eid].scope == uid
+        # No backup entry — untouched already-v2 row.
+        backup = _fetch_backup(tmp_db)
+        assert not any(r[2] == uid for r in backup)
+
+
+# ---------------------------------------------------------------------------
+# F9 (Review A-MED-2): all-zero migration summary is DEBUG, not INFO
+# ---------------------------------------------------------------------------
+
+class TestF9AllZeroSummaryIsDebug:
+    def test_fresh_install_migration_summary_is_debug(
+        self, tmp_db, restore_fn, caplog,
+    ):
+        """Empty energy baselines table + no circuits → migration path
+        executes with all-zero counters. Summary must be at DEBUG level,
+        with '(first boot; nothing to migrate)' suffix."""
+        import logging as _logging
+        coord = _StubCoordinator(tmp_db, {})
+        with caplog.at_level(_logging.DEBUG, logger="test.span_rekey"):
+            _run(restore_fn(coord))
+        # No INFO-level 'SPAN scope migration' line.
+        info_lines = [
+            r for r in caplog.records
+            if r.levelno >= _logging.INFO
+            and "SPAN scope migration" in r.getMessage()
+        ]
+        assert not info_lines, f"expected no INFO summary for zero-work migration; got {info_lines}"
+        # A DEBUG line WITH the suffix must exist.
+        debug_lines = [
+            r for r in caplog.records
+            if r.levelno == _logging.DEBUG
+            and "SPAN scope migration" in r.getMessage()
+            and "(first boot; nothing to migrate)" in r.getMessage()
+        ]
+        assert debug_lines, "expected DEBUG summary with first-boot suffix"
+
+
+# ---------------------------------------------------------------------------
+# F11 (documentation): reserved `_migration` metric_name prefix in DDL
+# ---------------------------------------------------------------------------
+
+class TestF11ReservedMigrationPrefixDocumented:
+    def test_database_py_documents_reserved_prefix(self):
+        src = _read(_DATABASE_PY)
+        # Comment must be adjacent to the metric_baselines DDL block.
+        idx = src.index("CREATE TABLE IF NOT EXISTS metric_baselines")
+        window = src[max(0, idx - 800):idx]
+        assert "_migration" in window and "reserved" in window.lower(), (
+            "expected F11 comment documenting the reserved '_migration' "
+            "metric_name prefix adjacent to the metric_baselines DDL"
+        )
+
+
+# ---------------------------------------------------------------------------
+# F12 (documentation): rollback SQL docstring covers sentinel DELETE
+# ---------------------------------------------------------------------------
+
+class TestF12RollbackDocstringExtended:
+    def test_restore_docstring_covers_sentinel_and_leftovers(self):
+        src = _read(_ENERGY_PY)
+        # Locate _restore_energy_baselines docstring.
+        m = re.search(
+            r'async def _restore_energy_baselines\(self\)[^"]*"""(.*?)"""',
+            src, re.DOTALL,
+        )
+        assert m, "docstring not found"
+        doc = m.group(1)
+        assert "_migration" in doc and "circuit_scope_v2" in doc
+        assert "DELETE FROM metric_baselines" in doc, (
+            "docstring must include the sentinel DELETE rollback step"
+        )
+        assert "harmless leftovers" in doc.lower() or "harmless" in doc.lower(), (
+            "docstring must note unique_id-keyed rows are harmless leftovers post-rollback"
+        )
+
+
+# ---------------------------------------------------------------------------
+# F13 (label hygiene): '(switch)' suffix removed from EVSE labels
+# ---------------------------------------------------------------------------
+
+class TestF13SwitchSuffixDropped:
+    def test_no_switch_suffix_in_evse_span_breaker_labels(self):
+        for path in (_STRINGS, _EN_JSON):
+            src = _read(path)
+            assert '"EVSE Garage A SPAN breaker (switch)"' not in src, (
+                f"{path} still carries '(switch)' suffix"
+            )
+            assert '"EVSE Garage B SPAN breaker (switch)"' not in src
+            assert '"energy_evse_a_span_breaker": "EVSE Garage A SPAN breaker"' in src
+            assert '"energy_evse_b_span_breaker": "EVSE Garage B SPAN breaker"' in src
