@@ -110,6 +110,16 @@ from ..const import (
     OPTIMIZER_MAX_FINDINGS_PER_CYCLE,
     OPTIMIZER_BOOT_SETTLE_CYCLES,
     OPTIMIZER_BOOT_STORM_ROOM_FRACTION,
+    # v5.11.0 — OC hardening: tripwire + stub filter + shadow persistence.
+    OPTIMIZER_WRITE_VOLUME_WINDOW_SECONDS,
+    OPTIMIZER_WRITE_VOLUME_THRESHOLD,
+    OPTIMIZER_STUB_DIMENSIONS,
+    OPTIMIZER_BOOT_STORM_CACHE_CYCLES,
+    OPTIMIZER_SHADOW_SAMPLE_MAX_ROWS,
+    OPTIMIZER_PROMOTION_READINESS_MIN_SAMPLES,
+    OPTIMIZER_PROMOTION_READINESS_ACCURACY_FLOOR,
+    OPTIMIZER_SHADOW_ACCURACY_MIN_SAMPLES,
+    OPTIMIZER_SHADOW_ACCURACY_WINDOW_DAYS,
     OPTIMIZER_OUTCOME_ADVISORY_ONLY,
     OPTIMIZER_OUTCOME_APPLIED,
     OPTIMIZER_OUTCOME_BELOW_GATE,
@@ -560,7 +570,11 @@ class OptimizationCoordinator(BaseCoordinator):
         # `OPTIMIZER_SHADOW_ACCURACY_*` constants gate warm-up.
         # Stored as a list of (observed_at_utc_iso, match_bool) tuples;
         # consumers compute the % over the trailing window.
-        self._shadow_accuracy_samples: list[tuple[str, bool]] = []
+        # v5.11.0 D2 — samples upgraded from (ts, matched) to
+        # (ts, dimension, target_id, matched) to enable per-dimension
+        # accuracy for D6 promotion_readiness. Legacy shape still
+        # accepted at read time for restore-from-DB compat.
+        self._shadow_accuracy_samples: list[tuple] = []
         self._last_shadow_accuracy_pct: float | None = None
         self._last_shadow_accuracy_status: str = "warming_up"
 
@@ -586,6 +600,35 @@ class OptimizationCoordinator(BaseCoordinator):
         # 5-min tick may also be in flight) AND tick-vs-tick races during
         # boot. Set/cleared in the run_cycle try/finally.
         self._cycle_running: bool = False
+
+        # v5.11.0 D9 — runtime write-volume tripwire. Counts OC-attributed
+        # DB writes in a rolling window. If it exceeds threshold, OC
+        # self-suspends its PERSISTENCE path (evaluation still runs), fires
+        # ONE NM anomaly, and sets ``_write_volume_alarmed_at``. This is
+        # the code-level trip-wire the v5.0.0-v5.2.1 incident postmortem
+        # demanded. The counter itself never touches the DB — it's a
+        # cheap in-memory deque of timestamps.
+        self._db_write_timestamps: deque[datetime] = deque()
+        self._write_volume_alarmed_at: str | None = None
+        self._persistence_suspended: bool = False
+
+        # v5.11.0 D4 — boot-storm gate cache. Once the gate returns
+        # "no boot-storm", cache the negative verdict for
+        # OPTIMIZER_BOOT_STORM_CACHE_CYCLES cycles so the ~150 state
+        # reads per steady-state cycle stop.
+        self._boot_storm_cache_cycles_remaining: int = 0
+        self._boot_storm_cache_expires_iso: str | None = None
+
+        # v5.11.0 D1 — notify-dedup TTL state (fix MED-3: decrement is
+        # now per-cycle, not per-finding). Eagerly initialized here so
+        # ``hasattr(self, "_notify_dedup_state")`` warts in the old code
+        # are gone.
+        self._notify_dedup_state: dict[str, int] = {}
+
+        # v5.11.0 D2 — pending shadow-accuracy samples for this cycle.
+        # Batched write on cycle end (never per-sample). Drained by
+        # ``_persist_shadow_samples_batch``.
+        self._pending_shadow_samples: list[tuple[str, str, str, bool]] = []
 
     # ------------------------------------------------------------------
     # BaseCoordinator contract
@@ -646,8 +689,51 @@ class OptimizationCoordinator(BaseCoordinator):
                         "(no applied rows in last hour)",
                     )
         except Exception:  # noqa: BLE001
+            # v5.11.0 D8 (LOW-2 fix): elevate to WARNING so a persistent
+            # DB seed error is visible to the operator — silent DEBUG
+            # would mask silent invariant loss (rate-cap disabled).
+            _LOGGER.warning(
+                "Optimizer: rate-cap seed from DB failed (non-fatal); "
+                "the per-hour cap will cold-start (may over-issue actions "
+                "until the deque fills organically)",
+                exc_info=True,
+            )
+
+        # v5.11.0 D2 — restore shadow-accuracy samples from the DB so the
+        # rolling accuracy % survives HA restarts (MED-2 fix). Without
+        # this the `warming_up` gate never closes (blocks L1→L2). Best-
+        # effort: falls back to a cold list if DB read fails.
+        try:
+            db = self.hass.data.get(DOMAIN, {}).get("database")
+            if db is not None and hasattr(db, "get_recent_shadow_samples"):
+                rows = await db.get_recent_shadow_samples(
+                    window_days=OPTIMIZER_SHADOW_ACCURACY_WINDOW_DAYS,
+                    limit=OPTIMIZER_SHADOW_SAMPLE_MAX_ROWS,
+                )
+                restored = 0
+                for r in rows or []:
+                    try:
+                        ts = str(r.get("observed_at"))
+                        dim = str(r.get("dimension"))
+                        target = r.get("target_id")
+                        matched = bool(r.get("matched"))
+                        self._shadow_accuracy_samples.append(
+                            (ts, dim,
+                             target if isinstance(target, str) else "",
+                             matched)
+                        )
+                        restored += 1
+                    except Exception:  # noqa: BLE001
+                        continue
+                if restored:
+                    _LOGGER.info(
+                        "Optimizer: restored %d shadow-accuracy samples "
+                        "from the last %d days",
+                        restored, OPTIMIZER_SHADOW_ACCURACY_WINDOW_DAYS,
+                    )
+        except Exception:  # noqa: BLE001
             _LOGGER.debug(
-                "Optimizer: rate-cap seed from DB failed (non-fatal)",
+                "Optimizer: shadow-sample restore from DB failed",
                 exc_info=True,
             )
 
@@ -895,8 +981,27 @@ class OptimizationCoordinator(BaseCoordinator):
         # at sensor.py:13637, 13858), so a single fire is sufficient.
         self._dispatch_findings_updated_signal()
 
-        all_findings = list(findings) + list(llm_findings)
+        # v5.11.0 D3 — apply cap ONCE MORE on the merged list. Tier-1 and
+        # LLM tiers each cap independently; the merged list can peak at
+        # 2×cap = 200 in pathological cycles. Cap-of-caps enforces the
+        # single global bound on ``_last_findings``.
+        all_findings = self._cap_findings(list(findings) + list(llm_findings))
         self._last_findings = all_findings
+        # v5.11.0 D1 — decrement notify-dedup TTLs ONCE per cycle.
+        # Previously (v4.7.36 A2) the decrement ran INSIDE
+        # ``_notify_if_severe`` — per-finding — which collapsed the
+        # intended 12-cycle window to 1.2 cycles in high-severity cycles.
+        # Now it decrements exactly once per cycle regardless of finding
+        # count. See MED-3 in PLANNING_audit_optimization_coordinator.md.
+        self._decrement_notify_dedup_ttls()
+        # v5.11.0 D2 — batched persistence of shadow-accuracy samples.
+        # Gated by the D9 tripwire; single DAO call per cycle.
+        try:
+            await self._persist_shadow_samples_batch()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "Optimizer: shadow-sample batch persist raised", exc_info=True,
+            )
         self._last_evaluation_iso = dt_util.utcnow().isoformat()
         # v5.4 D2b — compute per-dimension verdicts from this cycle's
         # findings. Result keyed by dimension token; value derived from
@@ -968,6 +1073,14 @@ class OptimizationCoordinator(BaseCoordinator):
         verdicts: dict[str, str] = {}
         severity_rank = {"low": 1, "medium": 2, "high": 3, "critical": 4}
         for dim, dim_findings in per_dim_findings.items():
+            # v5.11.0 D5 — mark stub dimensions with an explicit `stub`
+            # verdict so operators inspecting `dimension_verdicts` don't
+            # see silent `ok` on dims that were never actually built.
+            # Kept in the map so the presence of stubs stays visible;
+            # display filtering happens on the reasoning sensor.
+            if dim in OPTIMIZER_STUB_DIMENSIONS:
+                verdicts[dim] = "stub"
+                continue
             if dim in raised_dims:
                 verdicts[dim] = "not_run"
                 continue
@@ -1161,23 +1274,47 @@ class OptimizationCoordinator(BaseCoordinator):
             if match is None:
                 scorable_inconclusive += 1
             else:
-                self._shadow_accuracy_samples.append(
-                    (now.isoformat(), bool(match)),
+                # v5.11.0 D2 — upgrade sample shape to 4-tuple:
+                # (ts_iso, dimension, target_id, matched). Enables per-
+                # dimension accuracy for promotion_readiness (D6).
+                _tgt = finding.target_id or ""
+                sample = (
+                    now.isoformat(), dim_str, _tgt, bool(match),
                 )
+                self._shadow_accuracy_samples.append(sample)
+                # v5.11.0 D2 — also buffer for batched DB persistence.
+                # Defensive: test harnesses may instantiate the coord
+                # without going through ``__init__`` (mocked instance),
+                # in which case _pending_shadow_samples is absent —
+                # skip persistence buffering rather than crash.
+                if hasattr(self, "_pending_shadow_samples"):
+                    self._pending_shadow_samples.append(sample)
         # Prune samples older than the window.
         window_cutoff = now - timedelta(
             days=OPTIMIZER_SHADOW_ACCURACY_WINDOW_DAYS,
         )
-        kept: list[tuple[str, bool]] = []
-        for ts_iso, m in self._shadow_accuracy_samples:
+        kept: list = []
+        for sample in self._shadow_accuracy_samples:
+            # v5.11.0 D2 — supports both legacy (ts, matched) and new
+            # (ts, dim, target, matched) shape after restore-from-DB
+            # migrates old rows on first cycle.
+            if isinstance(sample, tuple) and len(sample) == 4:
+                ts_iso = sample[0]
+            elif isinstance(sample, tuple) and len(sample) == 2:
+                ts_iso = sample[0]
+            else:
+                continue
             try:
                 ts = datetime.fromisoformat(ts_iso)
                 if ts.tzinfo is None:
                     ts = ts.replace(tzinfo=timezone.utc)
                 if ts >= window_cutoff:
-                    kept.append((ts_iso, m))
+                    kept.append(sample)
             except (ValueError, TypeError):
                 continue
+        # v5.11.0 D2 — hard cap on in-memory sample list.
+        if len(kept) > OPTIMIZER_SHADOW_SAMPLE_MAX_ROWS:
+            kept = kept[-OPTIMIZER_SHADOW_SAMPLE_MAX_ROWS:]
         self._shadow_accuracy_samples = kept
         total = len(self._shadow_accuracy_samples)
         if total < OPTIMIZER_SHADOW_ACCURACY_MIN_SAMPLES:
@@ -1196,7 +1333,13 @@ class OptimizationCoordinator(BaseCoordinator):
             else:
                 self._last_shadow_accuracy_status = "warming_up"
             return
-        matches = sum(1 for _, m in self._shadow_accuracy_samples if m)
+        # v5.11.0 D2 — support both legacy 2-tuple and new 4-tuple shapes.
+        matches = 0
+        for s in self._shadow_accuracy_samples:
+            if len(s) == 4 and s[3]:
+                matches += 1
+            elif len(s) == 2 and s[1]:
+                matches += 1
         self._last_shadow_accuracy_pct = round(100.0 * matches / total, 1)
         self._last_shadow_accuracy_status = "ready"
 
@@ -3414,6 +3557,91 @@ class OptimizationCoordinator(BaseCoordinator):
         except Exception as exc:  # noqa: BLE001
             _LOGGER.debug("log_finding failed: %s", exc, exc_info=True)
 
+    # ------------------------------------------------------------------
+    # v5.11.0 D1 — Notify-dedup TTL per-cycle decrement (MED-3 fix)
+    # ------------------------------------------------------------------
+
+    def _decrement_notify_dedup_ttls(self) -> None:
+        """v5.11.0 D1 — decrement all notify-dedup TTLs exactly once
+        per cycle. Called at the end of ``_run_cycle_body``.
+
+        Fixes MED-3: previously the decrement ran per-finding inside
+        ``_notify_if_severe``, so a cycle with 10 HIGH findings
+        decremented ALL keys 10x — collapsing the intended 12-cycle
+        (1h) dedup window to ~1.2 cycles.
+        """
+        if not self._notify_dedup_state:
+            return
+        stale: list[str] = []
+        for k in list(self._notify_dedup_state.keys()):
+            self._notify_dedup_state[k] -= 1
+            if self._notify_dedup_state[k] <= 0:
+                stale.append(k)
+        for k in stale:
+            self._notify_dedup_state.pop(k, None)
+
+    # ------------------------------------------------------------------
+    # v5.11.0 D9 — Write-volume tripwire
+    # ------------------------------------------------------------------
+
+    def _record_db_write(self) -> None:
+        """v5.11.0 D9 — record one OC-attributed DB write.
+
+        Cheap: append current time, evict entries older than the rolling
+        window. No DB writes of its own — pure in-memory bookkeeping.
+        """
+        now = dt_util.utcnow()
+        self._db_write_timestamps.append(now)
+        cutoff = now - timedelta(seconds=OPTIMIZER_WRITE_VOLUME_WINDOW_SECONDS)
+        while (self._db_write_timestamps
+               and self._db_write_timestamps[0] < cutoff):
+            self._db_write_timestamps.popleft()
+
+    def _check_write_volume_tripwire(self) -> bool:
+        """v5.11.0 D9 — check + maybe trip.
+
+        Returns True iff the tripwire is currently tripped (persistence
+        should be suspended). First trip fires ONE NM anomaly + sets
+        ``_write_volume_alarmed_at``. Idempotent: subsequent checks
+        while tripped do NOT re-page.
+        """
+        count = len(self._db_write_timestamps)
+        if count <= OPTIMIZER_WRITE_VOLUME_THRESHOLD:
+            return False
+        if self._persistence_suspended:
+            return True
+        # First trip: page once, then latch.
+        self._persistence_suspended = True
+        self._write_volume_alarmed_at = dt_util.utcnow().isoformat()
+        _LOGGER.error(
+            "Optimizer write-volume tripwire FIRED: %d OC-attributed DB "
+            "writes in the last %ds (threshold=%d). Persistence "
+            "SUSPENDED; evaluation continues.",
+            count, OPTIMIZER_WRITE_VOLUME_WINDOW_SECONDS,
+            OPTIMIZER_WRITE_VOLUME_THRESHOLD,
+        )
+        # Fire single NM anomaly if NM present.
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is not None:
+            try:
+                # Fire-and-forget so tripwire never blocks the cycle.
+                self.hass.async_create_task(nm.async_notify(
+                    coordinator_id="optimization",
+                    severity=Severity.CRITICAL,
+                    title="URA Optimizer — write-volume tripwire",
+                    message=(
+                        f"OC persistence suspended: {count} DB writes in "
+                        f"{OPTIMIZER_WRITE_VOLUME_WINDOW_SECONDS}s "
+                        f"(threshold={OPTIMIZER_WRITE_VOLUME_THRESHOLD}). "
+                        "Regression suspected — see logs."
+                    ),
+                    hazard_type=None,
+                    location="house",
+                ))
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("tripwire NM fire failed", exc_info=True)
+        return True
+
     async def _persist_findings_batch(
         self, findings: list[OptimizationFinding],
     ) -> None:
@@ -3424,14 +3652,26 @@ class OptimizationCoordinator(BaseCoordinator):
         no-op (no DB acquisition). One ``_db()`` round-trip regardless
         of finding count — this is the core fix for the v5.2.1 write
         queue saturation that took the live house down.
+
+        v5.11.0 D9: gated by the write-volume tripwire. If persistence
+        has been suspended, the call is a no-op (evaluation still runs).
         """
         if not findings:
+            return
+        if self._check_write_volume_tripwire():
+            _LOGGER.info(
+                "Optimizer: persistence suspended by tripwire; "
+                "dropping batch of %d findings (evaluation continues)",
+                len(findings),
+            )
             return
         database = self.hass.data.get(DOMAIN, {}).get("database")
         if database is None:
             return
         try:
             written = await database.log_findings_batch(findings)
+            # v5.11.0 D9 — one DAO call = one OC-attributed DB write.
+            self._record_db_write()
             if written:
                 _LOGGER.debug(
                     "Optimizer: batched %d findings into one DB write",
@@ -3439,6 +3679,113 @@ class OptimizationCoordinator(BaseCoordinator):
                 )
         except Exception as exc:  # noqa: BLE001
             _LOGGER.debug("log_findings_batch failed: %s", exc, exc_info=True)
+
+    async def _persist_shadow_samples_batch(self) -> None:
+        """v5.11.0 D2 — persist buffered shadow-accuracy samples.
+
+        Batched: one DAO call per cycle regardless of sample count.
+        Never per-sample (that would recreate the write-flood pattern).
+        Gated by the D9 tripwire.
+        """
+        if not self._pending_shadow_samples:
+            return
+        if self._check_write_volume_tripwire():
+            self._pending_shadow_samples.clear()
+            return
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is None or not hasattr(database, "log_shadow_samples_batch"):
+            self._pending_shadow_samples.clear()
+            return
+        rows = list(self._pending_shadow_samples)
+        self._pending_shadow_samples.clear()
+        try:
+            await database.log_shadow_samples_batch(rows)
+            # v5.11.0 D9 — one DAO call = one OC-attributed DB write.
+            self._record_db_write()
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "log_shadow_samples_batch failed: %s", exc, exc_info=True,
+            )
+
+    def _compute_promotion_readiness(self) -> dict[str, dict]:
+        """v5.11.0 D6 — per-dimension L1→L2 promotion readiness.
+
+        Returns ``{dimension: {ready: bool, blocked_by: [reasons],
+        evidence: {samples: int, accuracy: float|None}}}``.
+
+        Blocker reasons (canonical, per critique spec):
+          - samples_below_min
+          - accuracy_below_threshold
+          - stub_oracle
+          - kill_switch_engaged
+          - dimension_autonomy_below_L2
+          - shadow_accuracy_not_ready
+
+        Only computed for the two scorable dimensions (comfort +
+        occupancy_accuracy) plus surfaces `not_run` for stub dims.
+        Rides on D2's persisted samples and D5's stub filter.
+        """
+        result: dict[str, dict] = {}
+        try:
+            cfg = self._read_cm_config()
+        except Exception:  # noqa: BLE001
+            cfg = {}
+        kill_switch = bool(cfg.get(CONF_OPTIMIZER_KILL_SWITCH, False))
+        # Effective per-dimension cap
+        dim_map = cfg.get(CONF_OPTIMIZER_DIMENSION_AUTONOMY) or {}
+        # Only scorable v1 dimensions have promotion readiness.
+        scorable_dims = (
+            OPTIMIZER_DIMENSION_COMFORT,
+            OPTIMIZER_DIMENSION_OCCUPANCY_ACCURACY,
+        )
+        # Bucket samples by dimension. Supports both new 4-tuple shape
+        # (ts, dim, target, matched) and legacy 2-tuple (ts, matched).
+        # Legacy samples are unattributed → they do NOT contribute to any
+        # dimension's count (conservative: forces re-warm-up post-upgrade).
+        by_dim_total: dict[str, int] = {}
+        by_dim_matches: dict[str, int] = {}
+        for s in self._shadow_accuracy_samples:
+            if isinstance(s, tuple) and len(s) == 4:
+                _ts, dim, _tgt, matched = s
+                by_dim_total[dim] = by_dim_total.get(dim, 0) + 1
+                if matched:
+                    by_dim_matches[dim] = by_dim_matches.get(dim, 0) + 1
+        for dim in scorable_dims:
+            blockers: list[str] = []
+            total = by_dim_total.get(dim, 0)
+            matches = by_dim_matches.get(dim, 0)
+            accuracy = (matches / total) if total > 0 else None
+            if dim in OPTIMIZER_STUB_DIMENSIONS:
+                blockers.append("stub_oracle")
+            if kill_switch:
+                blockers.append("kill_switch_engaged")
+            # Dimension autonomy cap: strings.
+            per_dim_cap = dim_map.get(dim)
+            if per_dim_cap is not None:
+                cap_rank = OPTIMIZER_LEVEL_RANK.get(per_dim_cap, 0)
+                if cap_rank < OPTIMIZER_LEVEL_RANK.get(
+                    OPTIMIZER_LEVEL_REVERSIBLE_DEVICE, 2
+                ):
+                    blockers.append("dimension_autonomy_below_L2")
+            if total < OPTIMIZER_PROMOTION_READINESS_MIN_SAMPLES:
+                blockers.append("samples_below_min")
+            elif accuracy is not None and (
+                accuracy < OPTIMIZER_PROMOTION_READINESS_ACCURACY_FLOOR
+            ):
+                blockers.append("accuracy_below_threshold")
+            if self._last_shadow_accuracy_status != "ready":
+                blockers.append("shadow_accuracy_not_ready")
+            result[dim] = {
+                "ready": not blockers,
+                "blocked_by": blockers,
+                "evidence": {
+                    "samples": total,
+                    "accuracy": (
+                        round(accuracy, 3) if accuracy is not None else None
+                    ),
+                },
+            }
+        return result
 
     def _dispatch_finding_signal(self, finding: OptimizationFinding) -> None:
         """Legacy per-finding signal dispatch — kept for back-compat.
@@ -3546,6 +3893,12 @@ class OptimizationCoordinator(BaseCoordinator):
             return (True, f"uptime_grace "
                     f"(cycle {self._cycles_since_start + 1}/"
                     f"{OPTIMIZER_BOOT_SETTLE_CYCLES})")
+        # v5.11.0 D4 (MED-1 fix): boot-storm cache — once we've verified
+        # "no boot-storm" once, cache the negative verdict for K cycles
+        # so the ~150 state reads per steady-state 30-room cycle stop.
+        if self._boot_storm_cache_cycles_remaining > 0:
+            self._boot_storm_cache_cycles_remaining -= 1
+            return (False, "")
         try:
             total_rooms = 0
             rooms_with_unavailable = 0
@@ -3570,16 +3923,26 @@ class OptimizationCoordinator(BaseCoordinator):
                         break
                 if room_has_unavail:
                     rooms_with_unavailable += 1
-            if total_rooms > 0:
-                frac = rooms_with_unavailable / total_rooms
-                if frac > OPTIMIZER_BOOT_STORM_ROOM_FRACTION:
-                    return (True, (
-                        f"boot_storm_signature "
-                        f"({rooms_with_unavailable}/{total_rooms} rooms "
-                        f"have unavailable sensors, "
-                        f"frac={frac:.2f} > "
-                        f"{OPTIMIZER_BOOT_STORM_ROOM_FRACTION:.2f})"
-                    ))
+                # v5.11.0 D4 — short-circuit once the fraction threshold
+                # is exceeded; no need to walk the remaining rooms.
+                if total_rooms > 0:
+                    _frac_now = rooms_with_unavailable / total_rooms
+                    if _frac_now > OPTIMIZER_BOOT_STORM_ROOM_FRACTION:
+                        return (True, (
+                            f"boot_storm_signature "
+                            f"({rooms_with_unavailable}/{total_rooms} rooms "
+                            f"have unavailable sensors, "
+                            f"frac={_frac_now:.2f} > "
+                            f"{OPTIMIZER_BOOT_STORM_ROOM_FRACTION:.2f})"
+                        ))
+            # v5.11.0 D4 — cache the negative verdict for K cycles.
+            self._boot_storm_cache_cycles_remaining = (
+                OPTIMIZER_BOOT_STORM_CACHE_CYCLES
+            )
+            self._boot_storm_cache_expires_iso = (
+                dt_util.utcnow()
+                + SCAN_INTERVAL_OPTIMIZATION * OPTIMIZER_BOOT_STORM_CACHE_CYCLES
+            ).isoformat()
         except Exception as exc:  # noqa: BLE001
             _LOGGER.debug(
                 "boot-storm gate check failed; proceeding with cycle: %s",
@@ -3602,17 +3965,11 @@ class OptimizationCoordinator(BaseCoordinator):
         except Exception:  # noqa: BLE001
             dkey = None
         if dkey is not None:
-            if not hasattr(self, "_notify_dedup_state"):
-                # (cycles_remaining_int) keyed by stringified dedup_key.
-                self._notify_dedup_state: dict[str, int] = {}
-            # Decrement existing TTLs each call so the dict drains naturally.
-            stale: list[str] = []
-            for k in list(self._notify_dedup_state.keys()):
-                self._notify_dedup_state[k] -= 1
-                if self._notify_dedup_state[k] <= 0:
-                    stale.append(k)
-            for k in stale:
-                self._notify_dedup_state.pop(k, None)
+            # v5.11.0 D1 (MED-3 fix): TTL decrement moved to per-cycle
+            # helper ``_decrement_notify_dedup_ttls`` (called once at
+            # end of ``_run_cycle_body``). Previously decremented here
+            # per-finding, collapsing the 12-cycle window to ~1.2 cycles
+            # in high-severity cycles.
             dkey_str = str(dkey)
             if dkey_str in self._notify_dedup_state:
                 _LOGGER.debug(

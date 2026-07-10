@@ -1802,6 +1802,45 @@ OPTIMIZER_NOTIFY_DEDUP_CYCLES: Final = 12
 # seconds before firing (motion-on/occupancy-off is transient at sensor wake).
 OPTIMIZER_OCCUPANCY_ACCURACY_GATE_SECONDS: Final = 120
 
+# ------------------------------------------------------------------
+# v5.11.0 — OC hardening: runtime write-volume tripwire (D9)
+# ------------------------------------------------------------------
+# The v5.0.0-v5.2.1 incident (rolled back) proved a per-finding write path
+# can saturate the write queue and take the house down. The tripwire is
+# the code-level trip-wire the postmortem demanded: an in-memory counter
+# of OC-attributed DB writes over a rolling window. If it exceeds this
+# threshold, OC self-suspends its persistence path (evaluation continues),
+# fires a single NM anomaly, and records `write_volume_alarmed_at`. The
+# threshold is generously above the batched steady-state cost (2 writes
+# per cycle × 12 cycles/hour = 24 writes/hour); anything past this cap
+# is definitionally regression territory.
+OPTIMIZER_WRITE_VOLUME_WINDOW_SECONDS: Final = 3600  # rolling 1-hour window
+OPTIMIZER_WRITE_VOLUME_THRESHOLD: Final = 60  # ~2.5x steady-state ceiling
+
+# v5.11.0 — Stub dimensions that are declared but not yet implemented
+# (return []). D5 excludes them from operator-visible `dimension_verdicts`
+# so silent "why does X never flag" support-load stops accumulating.
+OPTIMIZER_STUB_DIMENSIONS: Final = frozenset({
+    "automation_responsiveness",
+    "energy_efficiency",
+    "setpoint_compliance",
+})
+
+# v5.11.0 — Boot-storm gate cache TTL (D4). Once the gate closes
+# (no boot-storm), cache the negative verdict for this many cycles so
+# the ~150 state reads per steady-state cycle stop.
+OPTIMIZER_BOOT_STORM_CACHE_CYCLES: Final = 6
+
+# v5.11.0 — Shadow-accuracy sample retention max rows (D2). Persistence
+# is per-cycle-batched (never per-sample); a small ceiling protects the
+# table from unbounded growth. 7-day window × ~10 samples/cycle × 12
+# cycles/hour × 24 hours = ~20K samples max — this cap is well above.
+OPTIMIZER_SHADOW_SAMPLE_MAX_ROWS: Final = 50000
+# Minimum samples per dimension before promotion_readiness reports ready.
+OPTIMIZER_PROMOTION_READINESS_MIN_SAMPLES: Final = 20
+# Accuracy floor (0-1) for promotion readiness.
+OPTIMIZER_PROMOTION_READINESS_ACCURACY_FLOOR: Final = 0.60
+
 # 5-min cycle (matches SCAN_INTERVAL_ENERGY cadence — runs last per
 # priority=5).
 SCAN_INTERVAL_OPTIMIZATION: Final = timedelta(minutes=5)
