@@ -63,6 +63,7 @@ from .signals import (
     SIGNAL_HOUSE_STATE_CHANGED,
     SIGNAL_PERSON_ARRIVING,
     SIGNAL_SAFETY_HAZARD,
+    SIGNAL_ZM_ZONES_UPDATED,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -582,6 +583,19 @@ class HVACCoordinator(BaseCoordinator):
                 self.hass,
                 SIGNAL_SAFETY_HAZARD,
                 self._handle_safety_hazard,
+            )
+        )
+
+        # Zone Delete Flow (fix-up R4 / B-HIGH-1): prune the deleted zone
+        # from the in-memory ``ZoneManager.zones`` dict AND rewrite the
+        # persisted ``_zone_state_store`` snapshot so a restart doesn't
+        # RESURRECT the zone via ``restore_state_snapshot`` (hvac.py:503).
+        # Unsub tracked via ``_unsub_listeners`` per Bug Class #50.
+        self._unsub_listeners.append(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_ZM_ZONES_UPDATED,
+                self._handle_zm_zones_updated,
             )
         )
 
@@ -1661,6 +1675,91 @@ class HVACCoordinator(BaseCoordinator):
     # ------------------------------------------------------------------
 
     @callback
+    def _handle_zm_zones_updated(self, payload: Any) -> None:
+        """Zone Delete Flow (fix-up R4 / B-HIGH-1 + B-HIGH-2): prune the
+        deleted zone from ``ZoneManager.zones`` AND rewrite the persisted
+        ``_zone_state_store`` snapshot without the deleted zone_id.
+
+        Without the persisted-snapshot rewrite, the next boot's
+        ``restore_state_snapshot`` (hvac.py:503) would RESURRECT the
+        deleted zone into ``ZoneManager.zones``. This is the load-bearing
+        part of the fix — pruning the in-memory dict alone would only
+        survive until restart.
+        """
+        if payload is None:
+            return
+        try:
+            deleted_name = (payload or {}).get("deleted_zone_name") or ""
+            deleted_id = (payload or {}).get("deleted_zone_id")
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("ZM zones updated payload malformed", exc_info=True)
+            return
+        # 1) In-memory prune: if we know the zone_id, drop it; otherwise
+        #    fall back to matching by zone_name.
+        try:
+            zm = self._zone_manager
+            zones = getattr(zm, "_zones", None) or getattr(zm, "zones", None) or {}
+            pruned_ids: list[str] = []
+            if deleted_id and deleted_id in zones:
+                zones.pop(deleted_id, None)
+                pruned_ids.append(deleted_id)
+            else:
+                # zone_id-unknown path: scan by zone_name.
+                for zid in list(zones.keys()):
+                    zs = zones.get(zid)
+                    zname = getattr(zs, "zone_name", "") or ""
+                    if zname == deleted_name or (
+                        " + " in zname
+                        and deleted_name in [p.strip() for p in zname.split(" + ")]
+                    ):
+                        zones.pop(zid, None)
+                        pruned_ids.append(zid)
+            if pruned_ids:
+                _LOGGER.info(
+                    "HVAC: pruned %d zone(s) from ZoneManager for deleted "
+                    "zone=%r: %s", len(pruned_ids), deleted_name, pruned_ids,
+                )
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "HVAC: in-memory zone prune failed for %r", deleted_name,
+                exc_info=True,
+            )
+        # 2) Persisted snapshot rewrite (LOAD-BEARING — else restart
+        #    resurrects the zone via restore_state_snapshot at line 503).
+        async def _rewrite_zone_state_store() -> None:
+            try:
+                stored = await self._zone_state_store.async_load()
+                if not isinstance(stored, dict):
+                    return
+                changed = False
+                for zid in list(stored.keys()):
+                    if zid == "__person_zone_map":
+                        continue
+                    if deleted_id and zid == deleted_id:
+                        stored.pop(zid, None)
+                        changed = True
+                        continue
+                    # zone_id-unknown fallback: also drop entries whose
+                    # snapshot payload names the deleted zone.
+                    payload_zn = ""
+                    if isinstance(stored[zid], dict):
+                        payload_zn = stored[zid].get("zone_name", "") or ""
+                    if payload_zn == deleted_name:
+                        stored.pop(zid, None)
+                        changed = True
+                if changed:
+                    await self._zone_state_store.async_save(stored)
+                    _LOGGER.info(
+                        "HVAC: rewrote zone_state_store without deleted "
+                        "zone=%r (id=%r)", deleted_name, deleted_id,
+                    )
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.warning(
+                    "HVAC: zone_state_store rewrite failed for %r: %s",
+                    deleted_name, e,
+                )
+        self.hass.async_create_task(_rewrite_zone_state_store())
+
     def _handle_safety_hazard(self, hazard: Any) -> None:
         """Handle safety hazard signal — stop fans on smoke/CO, emergency heat on freeze.
 

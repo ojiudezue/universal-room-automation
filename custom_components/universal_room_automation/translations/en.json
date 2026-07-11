@@ -1844,7 +1844,8 @@
       "no_zones_configured": "No zones have been configured yet. Add a zone from the integration setup first.",
       "zone_not_found": "The selected zone could not be found. It may have been deleted.",
       "zone_removed": "Zone removed. The Zone Manager will reload to apply the change.",
-      "zone_delete_legacy_use_native": "This zone is stored as a legacy config entry. Delete it from the Home Assistant integrations page instead (three-dot menu on the zone entry)."
+      "zone_delete_legacy_use_native": "This zone is stored as a legacy config entry. Delete it from the Home Assistant integrations page instead (three-dot menu on the zone entry).",
+      "zone_delete_hvac_not_ready": "This zone has a thermostat but the HVAC coordinator is not ready yet. Please wait for Home Assistant to finish starting up and try again."
     }
   },
   "issues": {

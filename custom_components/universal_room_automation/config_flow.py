@@ -347,6 +347,36 @@ from .const import (
 
 
 # =============================================================================
+# Zone Delete Flow — module-level confirm-name gate (extracted for test authority)
+# =============================================================================
+def _check_zone_confirm_name(typed: str | None, zone_name: str) -> bool:
+    """Return True if operator-typed input matches the zone name.
+
+    Extracted from ``async_step_zone_delete_confirm`` so BOTH the
+    production step AND the test suite call the SAME helper (fix-up T3
+    / C-CRIT-3: a hand-copied inline predicate is un-testable — a
+    silent inline mutation of the compare would leave the suite green).
+
+    Comparison rules (fix-up C-LOW-3):
+      - ``None`` inputs never match
+      - Whitespace-trim both sides
+      - Case-fold both sides (case-insensitive)
+      - NFC-normalize both sides so pre-composed vs decomposed
+        Unicode (e.g. combining accents) is treated as equal
+
+    The confirm gate is defensive — a mismatch is safe (form re-renders
+    with an error), a false-positive match is destructive (zone gets
+    deleted). Keep the predicate conservative.
+    """
+    import unicodedata
+    if typed is None or not isinstance(zone_name, str):
+        return False
+    left = unicodedata.normalize("NFC", str(typed)).strip().casefold()
+    right = unicodedata.normalize("NFC", zone_name).strip().casefold()
+    return bool(left) and left == right
+
+
+# =============================================================================
 # Bathroom-exhaust intelligence cycle — climate-fans form validation
 # =============================================================================
 def _validate_climate_fans_form(user_input: dict) -> str | None:
@@ -7248,7 +7278,18 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         """
         from homeassistant.util import slugify
         zslug = slugify(zone_name)
-        # Name-keyed (aggregation.py 3539..5587 + select.py 297)
+        # Name-keyed prefixes:
+        #   - {DOMAIN}_zone_{zone_name}_  → aggregation.py 3539..5587
+        #     (13 unique_ids: _occupied, _anyone, _safety_alert, _avg_temp,
+        #     _avg_humidity, _temp_delta, _humidity_delta, _total_power,
+        #     _energy_today, _energy_cost_today, _cost_per_hour, _active_rooms,
+        #     _identified_people, _last_identified_person, _last_identified_time)
+        #   - {DOMAIN}_zone_{zslug}_       → aggregation.py:5619
+        #     `_zone_{zone_slug}_presence_status` (the single slug-keyed
+        #     entity — verified by grep of `zone_{zone_slug}` and
+        #     `_zone_{zslug}_` in the source). Fix-up R11: prefix is NOT
+        #     dead, exactly one entity family matches — keep AND document.
+        #   - {DOMAIN}_{zslug}_presence_mode → select.py:297
         name_prefixes = [
             f"{DOMAIN}_zone_{zone_name}_",
             f"{DOMAIN}_zone_{zslug}_",
@@ -7273,49 +7314,65 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ]
         return name_prefixes, id_prefixes
 
-    def _resolve_zone_id_for_delete(self, zone_name: str) -> str | None:
+    def _resolve_zone_id_for_delete(
+        self, zone_name: str, has_thermostat: bool = False,
+    ) -> tuple[str | None, str]:
         """Reverse-map zone_name → zone_id via live HVAC ZoneManager.
 
-        Returns None for husk zones (no thermostat). Errors default to None
-        (safe — id-keyed tables get skipped, no false deletion).
+        Returns ``(zone_id, status)`` where status is one of:
+          - ``"resolved"``    — found; zone_id is a real ``zone_N``.
+          - ``"husk"``        — no thermostat configured; None is
+                                the correct answer.
+          - ``"coord_down"``  — thermostat IS configured but HVAC
+                                coordinator/ZM unavailable; caller
+                                MUST treat this as an ERROR and abort
+                                (fix-up R7 / A-MED-2 — silently
+                                degrading a thermostat-carrying zone to
+                                the husk path would skip id-keyed table
+                                purge and leak rows).
+          - ``"unknown"``     — thermostat configured but no matching
+                                zone_id in ZoneManager (e.g. zone
+                                thermostat not yet discovered). Same
+                                caller contract as ``coord_down``.
         """
         try:
             hvac = self.hass.data.get(DOMAIN, {}).get("hvac_coordinator")
             if hvac is None:
-                return None
+                return (None, "coord_down" if has_thermostat else "husk")
             zm = getattr(hvac, "zone_manager", None) or getattr(hvac, "_zone_manager", None)
             if zm is None:
-                return None
+                return (None, "coord_down" if has_thermostat else "husk")
             for zid, zs in zm.zones.items():
                 zname = getattr(zs, "zone_name", "") or ""
                 if zname == zone_name:
-                    return zid
+                    return (zid, "resolved")
                 if " + " in zname and zone_name in [p.strip() for p in zname.split(" + ")]:
-                    return zid
-            return None
+                    return (zid, "resolved")
+            return (None, "unknown" if has_thermostat else "husk")
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
                 "zone_id resolve failed for zone=%s", zone_name, exc_info=True,
             )
-            return None
+            return (None, "coord_down" if has_thermostat else "husk")
 
-    def _summarize_zone_deletion(
+    async def _summarize_zone_deletion(
         self, zone_name: str,
     ) -> dict[str, Any]:
         """Read-only pre-delete summary for the confirm screen.
 
-        Returns keys: n_entities, n_rooms, n_db_rows_estimate, n_tables,
-        room_entry_ids, thermostat_entity, zone_id, is_legacy.
+        Returns keys: n_entities, n_rooms, n_db_rows, n_tables,
+        room_entry_ids, thermostat_entity, zone_id, resolve_status,
+        is_legacy, is_shared_thermostat.
 
-        DB row estimate is optimistic — counts tables that WOULD be purged
-        (not live row counts, which would require a DB read). The confirm
-        wording says "rows across N tables" so surfacing table count is
-        honest; per-row precision is not needed for a confirm gate.
+        Fix-up R6 / A-HIGH-2: ``n_db_rows`` is now the REAL sum of
+        rows across the six zone-keyed tables via the new
+        ``async_count_zone_rows`` DAO — not a table-count. This lets
+        the confirm screen tell the operator the truth.
         """
         from homeassistant.helpers import entity_registry as er
         er_reg = er.async_get(self.hass)
 
-        # Find zone config
+        # Find zone config.
         zone_cfg: dict[str, Any] = {}
         is_legacy = False
         zm_entry = self._find_zone_manager_entry()
@@ -7325,7 +7382,23 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         else:
             is_legacy = True
         thermostat = zone_cfg.get(CONF_ZONE_THERMOSTAT)
-        zone_id = self._resolve_zone_id_for_delete(zone_name)
+        has_therm = bool(thermostat)
+        zone_id, resolve_status = self._resolve_zone_id_for_delete(
+            zone_name, has_thermostat=has_therm,
+        )
+
+        # Shared-thermostat detection (fix-up A-MED-4): another zone in
+        # the ZM dict has the SAME thermostat entity ⇒ deleting this
+        # zone shrinks the canonical "A + B" pair to a single zone.
+        is_shared_thermostat = False
+        if has_therm and zm_entry is not None:
+            merged = {**zm_entry.data, **zm_entry.options}
+            for other_name, other_cfg in (merged.get("zones", {}) or {}).items():
+                if other_name == zone_name:
+                    continue
+                if (other_cfg or {}).get(CONF_ZONE_THERMOSTAT) == thermostat:
+                    is_shared_thermostat = True
+                    break
 
         name_prefixes, id_prefixes = self._get_zone_entity_unique_id_prefixes(
             zone_name, zone_id,
@@ -7356,17 +7429,28 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         except Exception:  # noqa: BLE001
             _LOGGER.debug("room count failed", exc_info=True)
 
-        # DB tables that will be touched
-        n_tables = 1 + (3 if zone_id else 0)  # zone_events + optional 3 id-keyed
+        # Real DB row counts (fix-up R6 / A-HIGH-2 / C-LOW-2).
+        n_db_rows = 0
+        n_tables = 3 + (3 if zone_id else 0)  # 3 name-keyed + optional 3 id-keyed
+        try:
+            db = self.hass.data.get(DOMAIN, {}).get("database")
+            if db is not None:
+                counts = await db.async_count_zone_rows(zone_name, zone_id)
+                n_db_rows = sum(counts.values())
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("db count failed", exc_info=True)
+
         return {
             "n_entities": n_entities,
             "n_rooms": len(room_entry_ids),
-            "n_db_rows_estimate": n_tables,  # honest: table count, not row count
+            "n_db_rows": n_db_rows,
             "n_tables": n_tables,
             "room_entry_ids": room_entry_ids,
             "thermostat_entity": thermostat,
             "zone_id": zone_id,
+            "resolve_status": resolve_status,
             "is_legacy": is_legacy,
+            "is_shared_thermostat": is_shared_thermostat,
         }
 
     async def async_step_zone_delete_confirm(self, user_input=None):
@@ -7386,22 +7470,52 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         if zm_entry is None:
             return self.async_abort(reason="zone_delete_legacy_use_native")
 
-        summary = self._summarize_zone_deletion(zone_name)
+        # Fix-up A-MED-4: if a legacy ENTRY_TYPE_ZONE entry with the SAME
+        # name coexists with the ZM entry, warn — the ZM options mutation
+        # will not clean it up, and after the ZM zone is gone the legacy
+        # entry may confuse discovery. Non-fatal; delete proceeds.
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE:
+                if entry.data.get(CONF_ZONE_NAME, "") == zone_name:
+                    _LOGGER.warning(
+                        "Zone delete: legacy ENTRY_TYPE_ZONE entry with same "
+                        "name '%s' coexists (entry_id=%s). ZM delete will not "
+                        "touch it; delete it manually if unused.",
+                        zone_name, entry.entry_id,
+                    )
+
+        summary = await self._summarize_zone_deletion(zone_name)
+
+        # Fix-up R7 / A-MED-2: thermostat present but zone_id unresolvable
+        # is an ERROR, not a husk fall-through. Silently degrading to husk
+        # here would skip id-keyed table purge for a real thermostat zone.
+        if summary["resolve_status"] in ("coord_down", "unknown") and (
+            summary.get("thermostat_entity")
+        ):
+            _LOGGER.warning(
+                "Zone delete refused: thermostat=%r configured but zone_id "
+                "unresolvable (status=%s). HVAC coordinator may be down or "
+                "the thermostat entity was not discovered. Try again after "
+                "HA/URA stabilizes.",
+                summary.get("thermostat_entity"), summary["resolve_status"],
+            )
+            return self.async_abort(reason="zone_delete_hvac_not_ready")
+
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            typed = (user_input.get("confirm_zone_name") or "").strip()
-            if typed.lower() != zone_name.strip().lower():
+            typed = user_input.get("confirm_zone_name")
+            if not _check_zone_confirm_name(typed, zone_name):
                 errors["base"] = "confirm_name_mismatch"
             else:
-                await self._delete_zone(zm_entry, zone_name)
+                await self._delete_zone(zm_entry, zone_name, precomputed=summary)
                 return self.async_abort(reason="zone_removed")
 
         placeholders = {
             "zone_name": zone_name,
             "n_entities": str(summary["n_entities"]),
             "n_rooms": str(summary["n_rooms"]),
-            "n_db_rows": str(summary["n_db_rows_estimate"]),
+            "n_db_rows": str(summary["n_db_rows"]),
             "n_tables": str(summary["n_tables"]),
         }
         return self.async_show_form(
@@ -7413,39 +7527,140 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             errors=errors,
         )
 
-    async def _delete_zone(self, zm_entry, zone_name: str) -> None:
+    async def _delete_zone(
+        self, zm_entry, zone_name: str,
+        precomputed: dict[str, Any] | None = None,
+    ) -> None:
         """Zone Delete Flow D2: atomic zone removal helper.
 
-        Ordering (per plan §D2):
-          1. Snapshot (zone_cfg, thermostat, zone_id, room list)
-          2. Entity registry sweep (name-keyed + id-keyed patterns)
-          3. Device registry removal (identifier zone_{zone_name})
-          4. Room reassignment (CONF_ZONE = "")
-          5. DB purge via async_delete_zone_data DAO
-          6. Options mutation LAST + ZM reload
+        Ordering (per plan §D2 + review fix-ups):
+          0. Safety assertion — never reload parent entry.
+          1. Acquire per-hass ``zm_options_lock`` (R10 / B-MED-2) — an
+             options RMW must not race a concurrent delete or add.
+          2. Snapshot (zone_cfg, thermostat, zone_id, room list). Reuses
+             ``precomputed`` when the caller already ran ``_summarize``
+             (fix-up A-LOW-1 — avoids double scan).
+          3. Entity registry sweep (name-keyed + id-keyed patterns).
+          4. Device registry removal (identifier zone_{zone_name}) —
+             guarded by "no foreign entities remain" check
+             (fix-up A-MED-5).
+          5. Room reassignment: single ``async_update_entry`` call
+             mutating BOTH ``data`` AND ``options`` (fix-up R3 /
+             A-HIGH-1 / Bug Class #14). CONF_ZONE writes are covered
+             by the ROOM suppress-allowlist (fix-up R2) so this does
+             NOT storm per-room reloads.
+          6. DB purge via ``async_delete_zone_data`` DAO (BEFORE the
+             tripwire so BEFORE the reload-triggering options mutation
+             — fix-up A-LOW-3 places the tripwire before the mutation).
           7. Post-sweep tripwire WARNING for any surviving matches
+             (BEFORE options mutation so the tripwire sees pre-reload
+             state, not a reload-window transient).
+          8. Options mutation LAST (single ``async_update_entry``): the
+             ZM entry's update-listener (``_async_update_listener``,
+             __init__.py:4694) schedules the reload — DO NOT re-add an
+             explicit ``async_create_task(async_reload(...))`` here
+             (fix-up R1 / B-CRIT-1).
+          9. Dispatch ``SIGNAL_ZM_ZONES_UPDATED`` so HVAC + presence
+             prune their in-memory zone state AND rewrite the HVAC
+             zone-state store (else next boot RESURRECTS the zone via
+             hvac.py:503 ``restore_state_snapshot`` — fix-up R4 /
+             B-HIGH-1 + B-HIGH-2).
+        """
+        from homeassistant.helpers import (
+            device_registry as dr,
+            entity_registry as er,
+            dispatcher,
+        )
+        from .domain_coordinators.signals import SIGNAL_ZM_ZONES_UPDATED
+
+        # Step 0: SAFETY — never operate on non-ZM entry.
+        assert zm_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE_MANAGER, (
+            "Zone Delete Flow: refusing to operate on non-ZM entry — "
+            "legacy ENTRY_TYPE_ZONE must use HA native delete"
+        )
+
+        # Step 1: reentrancy lock (fix-up R10 / B-MED-2).
+        lock_bag = self.hass.data.setdefault(DOMAIN, {})
+        lock = lock_bag.get("zm_options_lock")
+        if lock is None:
+            import asyncio as _asyncio
+            lock = _asyncio.Lock()
+            lock_bag["zm_options_lock"] = lock
+        if lock.locked():
+            _LOGGER.warning(
+                "Zone delete for %r contending with another ZM options RMW "
+                "— serializing", zone_name,
+            )
+        async with lock:
+            await self._delete_zone_locked(
+                zm_entry, zone_name, precomputed,
+            )
+            # Post-hoc row count sanity (fix-up A-MED-1). Any survivor
+            # row for the deleted zone is a WARNING — the DAO reported
+            # 0 by construction, so a non-zero here is either a race,
+            # a schema drift, or a missed column.
+            try:
+                db = self.hass.data.get(DOMAIN, {}).get("database")
+                if db is not None:
+                    post = await db.async_count_zone_rows(
+                        zone_name, self._resolve_zone_id_for_delete(zone_name)[0],
+                    )
+                    lingering = sum(post.values())
+                    if lingering:
+                        _LOGGER.warning(
+                            "Zone delete post-purge sanity: %d rows still "
+                            "reference zone=%r (per-table=%s)",
+                            lingering, zone_name, post,
+                        )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("post-purge sanity failed", exc_info=True)
+
+        # Step 9: dispatch AFTER the lock is released so subscribers can
+        # take their own hass.data locks without deadlocking on ours.
+        try:
+            zone_id_final, _ = self._resolve_zone_id_for_delete(zone_name)
+            dispatcher.async_dispatcher_send(
+                self.hass, SIGNAL_ZM_ZONES_UPDATED,
+                {"deleted_zone_name": zone_name, "deleted_zone_id": zone_id_final},
+            )
+            _LOGGER.info(
+                "Zone delete signal dispatched: zone=%r zone_id=%r",
+                zone_name, zone_id_final,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "SIGNAL_ZM_ZONES_UPDATED dispatch failed for zone=%r",
+                zone_name, exc_info=True,
+            )
+
+    async def _delete_zone_locked(
+        self, zm_entry, zone_name: str,
+        precomputed: dict[str, Any] | None,
+    ) -> None:
+        """Body of ``_delete_zone`` executed under ``zm_options_lock``.
+
+        Split so the lock scope is obvious and so the tripwire /
+        post-hoc counts run inside the lock but the dispatcher fire
+        happens outside (see caller).
         """
         from homeassistant.helpers import (
             device_registry as dr,
             entity_registry as er,
         )
 
-        # D2.0: SAFETY — never reload the parent entry (2026-06-03 incident).
-        assert zm_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE_MANAGER, (
-            "Zone Delete Flow: refusing to operate on non-ZM entry — "
-            "legacy ENTRY_TYPE_ZONE must use HA native delete"
-        )
-
-        # Step 1: snapshot
-        summary = self._summarize_zone_deletion(zone_name)
+        # Step 2: snapshot (reuse precomputed if the caller ran summary).
+        summary = precomputed or await self._summarize_zone_deletion(zone_name)
         zone_id = summary["zone_id"]
         room_entry_ids: list[str] = summary["room_entry_ids"]
         _LOGGER.info(
-            "Zone delete starting: zone=%r zone_id=%r entities=%d rooms=%d",
-            zone_name, zone_id, summary["n_entities"], summary["n_rooms"],
+            "Zone delete starting: zone=%r zone_id=%r resolve=%s "
+            "entities=%d rooms=%d db_rows=%d shared_thermostat=%s",
+            zone_name, zone_id, summary.get("resolve_status"),
+            summary["n_entities"], summary["n_rooms"], summary["n_db_rows"],
+            summary.get("is_shared_thermostat"),
         )
 
-        # Step 2: entity registry sweep
+        # Step 3: entity registry sweep.
         er_reg = er.async_get(self.hass)
         name_prefixes, id_prefixes = self._get_zone_entity_unique_id_prefixes(
             zone_name, zone_id,
@@ -7474,21 +7689,43 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             )
         _LOGGER.info("Zone delete: removed %d entity registry entries", removed)
 
-        # Step 3: device registry
+        # Step 4: device registry — guarded (fix-up A-MED-5).
         try:
             dev_reg = dr.async_get(self.hass)
             dev = dev_reg.async_get_device(
                 identifiers={(DOMAIN, f"zone_{zone_name}")}
             )
             if dev is not None:
-                dev_reg.async_remove_device(dev.id)
+                # Refuse removal if any foreign-platform entity is still
+                # bound to this device (e.g. an operator's HA scene/
+                # automation attached an entity to this zone device).
+                # Skipping is safer than nuking third-party wiring.
+                foreign = [
+                    e.entity_id for e in er_reg.entities.values()
+                    if getattr(e, "device_id", None) == dev.id
+                    and e.platform != DOMAIN
+                ]
+                if foreign:
+                    _LOGGER.warning(
+                        "Zone delete: device %s has %d foreign-platform "
+                        "entity(ies) still bound (%s) — skipping device "
+                        "removal to avoid orphaning third-party entities.",
+                        dev.id, len(foreign), foreign[:5],
+                    )
+                else:
+                    dev_reg.async_remove_device(dev.id)
         except Exception:  # noqa: BLE001
             _LOGGER.warning(
                 "Device registry remove failed for zone=%r", zone_name,
                 exc_info=True,
             )
 
-        # Step 4: reassign rooms (CONF_ZONE = "")
+        # Step 5: reassign rooms (fix-up R3 / A-HIGH-1 / Bug Class #14).
+        # Clear CONF_ZONE from BOTH ``data`` AND ``options`` in a SINGLE
+        # ``async_update_entry`` call so the production read predicate
+        # ``.options.get(CONF_ZONE) or .data.get(CONF_ZONE)`` returns
+        # falsy. Clearing only ``options`` leaves a stale zone name in
+        # ``data`` and the read expression still returns it.
         for room_entry_id in room_entry_ids:
             try:
                 room_entry = self.hass.config_entries.async_get_entry(
@@ -7498,10 +7735,14 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     continue
                 if room_entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
                     continue
+                new_data = dict(room_entry.data)
                 new_options = dict(room_entry.options)
+                new_data[CONF_ZONE] = ""
                 new_options[CONF_ZONE] = ""
                 self.hass.config_entries.async_update_entry(
-                    room_entry, options=new_options,
+                    room_entry,
+                    data=new_data,
+                    options=new_options,
                 )
             except Exception:  # noqa: BLE001
                 _LOGGER.warning(
@@ -7509,7 +7750,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     exc_info=True,
                 )
 
-        # Step 5: DB purge via new DAO
+        # Step 6: DB purge via new DAO.
         try:
             db = self.hass.data.get(DOMAIN, {}).get("database")
             if db is not None:
@@ -7520,19 +7761,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 exc_info=True,
             )
 
-        # Step 6: options mutation LAST + reload (ZM entry only)
-        merged = {**zm_entry.data, **zm_entry.options}
-        current_zones = merged.get("zones", {}) or {}
-        new_zones = {k: v for k, v in current_zones.items() if k != zone_name}
-        self.hass.config_entries.async_update_entry(
-            zm_entry,
-            options={**zm_entry.options, "zones": new_zones},
-        )
-        self.hass.async_create_task(
-            self.hass.config_entries.async_reload(zm_entry.entry_id)
-        )
-
-        # Step 7: post-sweep tripwire — WARN on any surviving matches
+        # Step 7: post-sweep tripwire BEFORE the reload-triggering options
+        # mutation (fix-up A-LOW-3). Any survivor here indicates a missed
+        # unique_id pattern; the reload-window would otherwise re-populate
+        # transient state and mask the tripwire.
         try:
             survivors: list[str] = []
             for ent in er_reg.entities.values():
@@ -7551,6 +7783,21 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 )
         except Exception:  # noqa: BLE001
             pass
+
+        # Step 8: options mutation LAST (single call). The ZM entry's
+        # update-listener (__init__.py:4694) sees a non-suppressed change
+        # and schedules an untracked ``async_reload`` (line 4814).
+        # DO NOT re-add an explicit ``async_create_task(async_reload(...))``
+        # here — reload is triggered by _async_update_listener via
+        # ``async_update_entry`` (fix-up R1 / B-CRIT-1: the pre-review
+        # build fired it twice → concurrent reload race).
+        merged = {**zm_entry.data, **zm_entry.options}
+        current_zones = merged.get("zones", {}) or {}
+        new_zones = {k: v for k, v in current_zones.items() if k != zone_name}
+        self.hass.config_entries.async_update_entry(
+            zm_entry,
+            options={**zm_entry.options, "zones": new_zones},
+        )
 
     def _build_dynamic_preset_schema(
         self, source_data: dict, current_data: dict,

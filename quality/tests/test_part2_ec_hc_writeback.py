@@ -257,6 +257,8 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_COMFORT_TEMP_MIN":                 "comfort_temp_min",
         "_CONF_COMFORT_TEMP_MAX":                 "comfort_temp_max",
         "_CONF_COMFORT_HUMIDITY_MAX":             "comfort_humidity_max",
+        # Zone Delete Flow fix-up R2 — CONF_ZONE in _ROOM_SUPPRESS_KEYS.
+        "CONF_ZONE":                              "zone",
         "ENTRY_TYPE_ROOM":                        "room",
     }
     mod = ast.Module(body=body, type_ignores=[])

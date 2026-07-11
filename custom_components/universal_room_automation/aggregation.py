@@ -3429,17 +3429,48 @@ class ZoneSensorBase(AggregationEntity):
         this entity — that transient window is where an aggregator would
         otherwise pull a KeyError trying to read from a deleted zone.
         Errors default to True so a lookup failure never nukes a live sensor.
+
+        Fix-up R9 / B-MED-1: results are cached on the instance; the cache
+        is invalidated when SIGNAL_ZM_ZONES_UPDATED fires (see
+        ``async_added_to_hass``). This avoids a full ``async_entries`` walk
+        on every ``available`` call for every zone sensor.
+
+        During an unrelated reload window (transient config-entry state)
+        the cache falls back to ``True`` so the entity does not flap
+        available/unavailable at boot.
         """
+        # Cache hit fast path.
+        cached = getattr(self, "_zone_configured_cache", None)
+        if cached is not None:
+            return cached
         try:
             from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_ZONE_MANAGER
+            zm_found = False
             for entry in self.hass.config_entries.async_entries(DOMAIN):
                 if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE_MANAGER:
+                    zm_found = True
                     merged = {**entry.data, **entry.options}
-                    return self.zone in (merged.get("zones", {}) or {})
-            # No ZM entry — legacy shape (per-zone entries); assume configured.
+                    result = self.zone in (merged.get("zones", {}) or {})
+                    self._zone_configured_cache = result
+                    return result
+            # No ZM entry — legacy shape (per-zone entries) OR transient
+            # reload window where the ZM entry is temporarily gone. Assume
+            # configured so we don't flap during a reload (fix-up R9).
+            if not zm_found:
+                # Do NOT cache: the ZM entry may reappear on next call.
+                return True
             return True
         except Exception:  # noqa: BLE001 — availability guard must never raise
             return True
+
+    def _invalidate_zone_configured_cache(self, payload=None) -> None:
+        """SIGNAL_ZM_ZONES_UPDATED handler — clear the availability cache."""
+        try:
+            self._zone_configured_cache = None
+            # Ask HA to re-poll our state so the new unavailable rolls out.
+            self.async_write_ha_state()
+        except Exception:  # noqa: BLE001
+            pass
 
     @property
     def available(self) -> bool:
@@ -3462,6 +3493,25 @@ class ZoneSensorBase(AggregationEntity):
         required-for-availability issue.
         """
         await super().async_added_to_hass()
+
+        # Zone Delete Flow (fix-up R9 / B-MED-1): subscribe to
+        # SIGNAL_ZM_ZONES_UPDATED so the availability cache invalidates
+        # when a zone is deleted. Unsub via async_on_remove per HA pattern.
+        try:
+            from homeassistant.helpers.dispatcher import async_dispatcher_connect
+            from .domain_coordinators.signals import SIGNAL_ZM_ZONES_UPDATED
+            self.async_on_remove(
+                async_dispatcher_connect(
+                    self.hass,
+                    SIGNAL_ZM_ZONES_UPDATED,
+                    self._invalidate_zone_configured_cache,
+                )
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "ZoneSensorBase: SIGNAL_ZM_ZONES_UPDATED subscribe failed",
+                exc_info=True,
+            )
 
         # Check if coordinators are ready immediately
         if self._get_zone_coordinators():
