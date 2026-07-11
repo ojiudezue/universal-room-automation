@@ -605,7 +605,7 @@ class ResetPresenceTimersButton(ButtonEntity):
 
     Slot 51 on the URA: HVAC Coordinator device card — parked right after
     the 47-50 presence-timer cluster it resets:
-        47 · Zone Entry Dwell (minutes)
+        47 · Entry Wait (min)
         48 · Zone Vacancy Delay (minutes)
         49 · Zone Vacancy Delay · Energy-Saving (minutes)
         50 · Max Zone Occupied Time (hours)
