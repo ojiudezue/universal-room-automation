@@ -79,6 +79,7 @@ from .signals import (
     SIGNAL_OPTIMIZER_INTENT_VETO,
     SIGNAL_PERSON_ARRIVING,
     SIGNAL_PRESENCE_ENTITIES_UPDATE,
+    SIGNAL_ZM_ZONES_UPDATED,
 )
 from homeassistant.helpers.dispatcher import (
     async_dispatcher_connect,
@@ -2299,6 +2300,20 @@ class PresenceCoordinator(BaseCoordinator):
                 )
             )
 
+            # Zone Delete Flow (fix-up R4 / B-HIGH-2): presence lives on
+            # the parent entry and does NOT reload when a ZM options
+            # mutation fires, so the ``_discover_zones`` prune block is
+            # dead code on the delete path. Subscribe here so the prune
+            # runs whenever the config_flow deletes a zone. Unsub tracked
+            # via ``_unsub_listeners`` per Bug Class #50.
+            self._unsub_listeners.append(
+                async_dispatcher_connect(
+                    self.hass,
+                    SIGNAL_ZM_ZONES_UPDATED,
+                    self._handle_zm_zones_updated,
+                )
+            )
+
             # OC Phase 5 Pillar A: subscribe to SIGNAL_OPTIMIZER_INTENT so
             # this coordinator can veto Optimizer actuation on presence
             # input sensors (mmWave, occupancy). Bug Class #50 guardrail:
@@ -2505,6 +2520,67 @@ class PresenceCoordinator(BaseCoordinator):
             self._rebuild_adjacency_cache()
         return list((self._adjacency_cache or {}).get(room_name, []))
 
+    def _prune_stale_zone_trackers(self, all_entries=None) -> None:
+        """Zone Delete Flow (fix-up R4 / B-HIGH-2): prune any tracker whose
+        zone is no longer present in a ZM zones dict OR in a legacy
+        ENTRY_TYPE_ZONE entry.
+
+        Callable from BOTH ``_discover_zones`` (defense-in-depth on every
+        rebuild) AND ``_handle_zm_zones_updated`` (the delete-path signal
+        target — presence lives on the parent entry and does not reload on
+        a ZM options mutation, so the rebuild alone is dead code on that
+        path). Safe to call multiple times; idempotent.
+        """
+        from ..const import (
+            CONF_ENTRY_TYPE, ENTRY_TYPE_ZONE, ENTRY_TYPE_ZONE_MANAGER,
+            CONF_ZONE_NAME,
+        )
+        if all_entries is None:
+            try:
+                all_entries = self.hass.config_entries.async_entries(DOMAIN)
+            except Exception:  # noqa: BLE001
+                return
+        current_zone_names: set[str] = set()
+        for _e in all_entries:
+            _et = _e.data.get(CONF_ENTRY_TYPE)
+            if _et == ENTRY_TYPE_ZONE:
+                _zn = _e.data.get(CONF_ZONE_NAME, "")
+                if _zn:
+                    current_zone_names.add(_zn)
+            elif _et == ENTRY_TYPE_ZONE_MANAGER:
+                _opts = _e.options.get("zones", {}) or {}
+                _data = _e.data.get("zones", {}) or {}
+                current_zone_names.update(_opts.keys())
+                current_zone_names.update(_data.keys())
+        stale = [zn for zn in list(self._zone_trackers.keys())
+                 if zn not in current_zone_names]
+        for zn in stale:
+            self._zone_trackers.pop(zn, None)
+            _LOGGER.info(
+                "Zone tracker pruned (zone no longer in config): %s", zn,
+            )
+
+    def _handle_zm_zones_updated(self, payload=None) -> None:
+        """Zone Delete Flow (fix-up R4 / B-HIGH-2): SIGNAL_ZM_ZONES_UPDATED
+        target.
+
+        Presence lives on the parent entry — a ZM options mutation does
+        NOT reload presence, so the ``_discover_zones`` prune block would
+        never re-run on the delete path. This handler re-runs the prune
+        directly.
+        """
+        try:
+            self._prune_stale_zone_trackers()
+            _LOGGER.debug(
+                "Presence: zone tracker prune via SIGNAL_ZM_ZONES_UPDATED "
+                "complete (payload=%s)", payload,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "Presence: zone tracker prune via signal failed",
+                exc_info=True,
+            )
+
     def _discover_zones(self) -> None:
         """Discover zones and their rooms from config entries.
 
@@ -2521,6 +2597,15 @@ class PresenceCoordinator(BaseCoordinator):
             "Zone discovery: %d config entries, types: %s",
             len(all_entries), entry_types,
         )
+
+        # Zone Delete Flow D3: prune any tracker whose zone is no longer
+        # present in the ZM zones dict OR in a legacy ENTRY_TYPE_ZONE entry.
+        # Extracted into ``_prune_stale_zone_trackers`` (fix-up R4 / B-HIGH-2)
+        # so it can be re-invoked on the SIGNAL_ZM_ZONES_UPDATED path — the
+        # presence coordinator lives on the parent entry and does NOT reload
+        # when a ZM options mutation fires, so the ``_discover_zones`` call
+        # site alone was dead code on the delete path.
+        self._prune_stale_zone_trackers(all_entries)
 
         # Legacy: individual ENTRY_TYPE_ZONE entries
         for entry in all_entries:

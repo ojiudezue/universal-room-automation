@@ -184,6 +184,23 @@ SIGNAL_OPTIMIZER_INTENT_VETO: Final = "ura_optimizer_intent_veto"
 SIGNAL_OPTIMIZER_FINDING_EMITTED: Final = "ura_optimizer_finding_emitted"
 
 
+# Zone Delete Flow (v5.12+): dispatched by ``_delete_zone`` AFTER the ZM
+# options mutation has removed a zone from the zones dict. Subscribers:
+#   - HVAC coordinator: prune the deleted zone_id from
+#     ``ZoneManager.zones`` AND rewrite the persisted zone-state snapshot
+#     (hvac.py) so a restart doesn't RESURRECT the zone via
+#     ``restore_state_snapshot``.
+#   - Presence coordinator: prune ``_zone_trackers`` for the deleted
+#     zone_name (the ``_discover_zones`` prune block is dead code on the
+#     delete path because presence lives on the parent entry and never
+#     reloads on a ZM options mutation).
+#   - Zone-available cache in ``ZoneAvailabilityStatusSwitch`` (R9):
+#     invalidate the cached zones-keyset so the next ``available()``
+#     scan hits fresh state.
+# Payload: ``{"deleted_zone_name": str, "deleted_zone_id": str | None}``.
+SIGNAL_ZM_ZONES_UPDATED: Final = "ura_zm_zones_updated"
+
+
 # ============================================================================
 # Shared data classes for inter-coordinator communication
 # ============================================================================

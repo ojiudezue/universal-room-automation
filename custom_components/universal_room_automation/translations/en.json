@@ -83,7 +83,7 @@
           "zone": "Zone",
           "shared_space": "Shared Space",
           "shared_space_auto_off_hour": "Auto-Off Hour",
-          "shared_space_warning": "Warning Flash",
+          "shared_space_warning": "Pre-Off Warning Flash",
           "occupancy_timeout": "Occupancy Timeout",
           "occupancy_debounce": "Motion Detection Delay"
         },
@@ -96,7 +96,7 @@
           "shared_space_auto_off_hour": "Hour (0-23) to turn off forgotten devices. 23 = 11 PM",
           "shared_space_warning": "Flash lights 5 minutes before auto-off as a warning",
           "occupancy_timeout": "Seconds after last motion before room is marked vacant",
-          "occupancy_debounce": "Milliseconds to wait before confirming occupancy after motion is detected. Lower = faster response, higher = fewer false triggers. 0 for instant response with pre-filtered sensors (Screek, ESPHome LD2410)."
+          "occupancy_debounce": "How long to wait after a sensor trips before URA calls the room 'occupied'. Lower = faster response, higher = fewer false triggers. Use 0 if your sensor already filters noise (e.g. Screek, LD2410)."
         }
       },
       "sensors": {
@@ -104,24 +104,24 @@
         "description": "Select sensors for occupancy detection and environmental monitoring. At least one occupancy sensor (motion, presence, or combined) is required.",
         "data": {
           "motion_sensors": "Motion Sensors (PIR)",
-          "presence_sensors": "Presence Sensors (mmWave)",
-          "occupancy_sensors": "Combined Occupancy Sensors",
+          "presence_sensors": "Presence Sensors",
+          "occupancy_sensors": "Pre-Combined Motion + Presence Sensors",
           "scanner_areas": "BLE Scanner Areas (Optional)",
-          "disable_camera_presence": "Disable Camera Presence (Opt-Out)",
+          "disable_camera_presence": "Ignore Camera Person Detection",
           "temperature_sensor": "Temperature Sensor",
           "humidity_sensor": "Humidity Sensor",
           "illuminance_sensor": "Light Level Sensor",
           "door_sensor": "Door Sensor",
-          "door_type": "Door Type",
+          "door_type": "Door Type (interior or exterior)",
           "window_sensor": "Window Sensor",
           "is_egress_window": "Treat as egress window",
           "water_leak_sensor": "Water Leak Sensor"
         },
         "data_description": {
           "motion_sensors": "PIR sensors that detect movement (triggers occupancy)",
-          "presence_sensors": "mmWave/radar sensors that detect presence without movement",
-          "occupancy_sensors": "Pre-combined occupancy sensors (motion + presence)",
-          "scanner_areas": "Only needed for sparse scanner homes. Select areas where BLE scanners are located that should map to this room. Leave empty if this room has its own scanner.",
+          "presence_sensors": "mmWave/radar sensors that see you even when you're still — good for reading nooks and desks",
+          "occupancy_sensors": "Sensors that already fuse motion and presence into one signal — usually vendor-supplied",
+          "scanner_areas": "Only needed if BLE (phone Bluetooth beacon) coverage in this room is thin. Point it at nearby rooms whose scanners can see this one.",
           "disable_camera_presence": "Skip camera-based presence detection for this room. Use for rooms with chronic camera person-classifier false positives (TV reflections, sun-glare hallways). The room's other sensors (mmWave, PIR, BLE) continue to contribute.",
           "temperature_sensor": "Room temperature for climate automation and alerts",
           "humidity_sensor": "Room humidity for fan control and comfort alerts",
@@ -129,7 +129,7 @@
           "door_sensor": "Door open/closed sensor for security alerts",
           "door_type": "Interior doors vs. egress (exterior) doors have different alert thresholds",
           "window_sensor": "Window open/closed sensor for security alerts",
-          "is_egress_window": "When ON (default), leaving this window open for the configured Egress Pause Threshold (~3 min) pauses the HVAC zone that serves this room (hvac_mode: off). Designed for kid-forgetfulness — small ventilation windows that open frequently but shouldn't stop HVAC should be set OFF.",
+          "is_egress_window": "When ON, leaving this window open for a few minutes pauses the HVAC for the zone that serves this room (so you're not cooling the outside). Turn OFF for small vent windows that open often but shouldn't stop HVAC.",
           "water_leak_sensor": "Water/moisture sensor for safety alerts"
         }
       },
@@ -138,13 +138,13 @@
         "description": "Select the lights, fans, covers, and switches that should be automated based on room occupancy. Night light details and cover settings will be configured in follow-up steps if applicable.",
         "data": {
           "lights": "Lights",
-          "light_capabilities": "Light Features",
+          "light_capabilities": "Light Features (auto-detected)",
           "night_lights": "Night Lights (Subset)",
           "fans": "Cooling Fans (or Switches)",
-          "humidity_fans": "Exhaust/Humidity Fans (or Switches)",
+          "humidity_fans": "Exhaust / Bathroom Fans (or Switches)",
           "covers": "Window Covers/Blinds",
-          "auto_switches": "Auto Devices",
-          "manual_switches": "Manual Devices",
+          "auto_switches": "Auto-On / Auto-Off Devices",
+          "manual_switches": "Auto-Off Only Devices",
           "auto_devices": "Auto Devices",
           "manual_devices": "Manual Devices"
         },
@@ -182,17 +182,17 @@
         "description": "Configure how window covers/blinds respond to occupancy and time-of-day.",
         "data": {
           "cover_type": "Cover Type",
-          "entry_cover_action": "Covers on Entry",
-          "exit_cover_action": "Covers on Exit",
-          "open_timing_mode": "Open Timing",
+          "entry_cover_action": "Covers when Someone Enters",
+          "exit_cover_action": "Covers when the Room Empties",
+          "open_timing_mode": "When Covers Can Open",
           "open_time_start": "Earliest Open Time",
           "open_time_end": "Latest Open Time",
           "sunrise_offset": "Sunrise Offset",
           "timed_close_enabled": "Enable Timed Close",
-          "close_timing_mode": "Close Timing",
+          "close_timing_mode": "When Covers Auto-Close",
           "close_time": "Close Time",
           "sunset_offset": "Sunset Offset",
-          "cover_hvac_managed": "HVAC Solar-Gain Management"
+          "cover_hvac_managed": "Let HVAC Close These for Sun Control"
         },
         "data_description": {
           "cover_type": "Roller shades (open/close) vs. venetian blinds (tilt)",
@@ -215,10 +215,10 @@
         "data": {
           "entry_light_action": "Lights on Entry",
           "exit_light_action": "Lights on Exit",
-          "illuminance_dark_threshold": "Dark Threshold",
+          "illuminance_dark_threshold": "Dark Threshold (lux)",
           "light_brightness_pct": "Light Brightness",
-          "light_transition_seconds_on": "Turn On Transition",
-          "light_transition_seconds_off": "Turn Off Transition"
+          "light_transition_seconds_on": "Fade-In Time (seconds)",
+          "light_transition_seconds_off": "Fade-Out Time (seconds)"
         },
         "data_description": {
           "entry_light_action": "What to do with lights when someone enters the room",
@@ -336,16 +336,16 @@
           "wet_room": "Wet Room (bathroom/laundry)",
           "humidity_fan_spike_enabled": "Enable Humidity Spike Detection",
           "humidity_fan_presence_runtime_enabled": "Enable Post-Vacancy Runtime",
-          "humidity_fan_presence_runtime_base_s": "Post-Vacancy Base Runtime (s)",
-          "humidity_fan_presence_runtime_per_min_s": "Added Runtime per Minute Occupied (s)",
-          "humidity_fan_presence_runtime_cap_s": "Post-Vacancy Runtime Cap (s)",
+          "humidity_fan_presence_runtime_base_s": "Base Run-On Time After Vacancy (s)",
+          "humidity_fan_presence_runtime_per_min_s": "Extra Run-On per Minute Occupied (s)",
+          "humidity_fan_presence_runtime_cap_s": "Max Run-On Time After Vacancy (s)",
           "fan_temp_threshold": "Fan Start Temperature",
           "humidity_fan_threshold": "Humidity Fan Threshold",
-          "humidity_fan_timeout": "Humidity Fan Min Runtime",
-          "humidity_fan_max_runtime": "Humidity Fan Max Runtime"
+          "humidity_fan_timeout": "Humidity Fan Minimum Run Time",
+          "humidity_fan_max_runtime": "Humidity Fan Maximum Run Time"
         },
         "data_description": {
-          "hvac_coordination_enabled": "When ON, comfort fans are managed by the HVAC coordinator instead of room-level rules.",
+          "hvac_coordination_enabled": "When ON, comfort fans follow the whole-house cooling plan instead of just this room's temperature.",
           "fan_control_enabled": "Automatically control comfort/ceiling fans based on temperature (speed thresholds in next step).",
           "humidity_fan_control_enabled": "Master switch for humidity/exhaust automation. When OFF, URA does not actuate the humidity fans at all.",
           "wet_room": "When ON, this room is treated as a wet room: enables humidity spike + post-vacancy runtime by default and exempts the exhaust from sleep-policy force-off.",
@@ -409,15 +409,15 @@
           "sleep_protection_enabled": "Enable Sleep Protection",
           "sleep_start_hour": "Sleep Start Hour",
           "sleep_end_hour": "Sleep End Hour",
-          "sleep_bypass_motion_count": "Motion Bypass Count",
+          "sleep_bypass_motion_count": "Motions Required to Wake Automation",
           "sleep_block_covers": "Block Cover Automation",
-          "fan_sleep_policy": "Fan Sleep Policy"
+          "fan_sleep_policy": "Fans During Sleep"
         },
         "data_description": {
           "sleep_protection_enabled": "Block most automation during sleep hours",
           "sleep_start_hour": "Hour when sleep mode starts (0-23, e.g., 22 = 10 PM)",
           "sleep_end_hour": "Hour when sleep mode ends (0-23, e.g., 7 = 7 AM)",
-          "sleep_bypass_motion_count": "Motion events needed to override sleep mode",
+          "sleep_bypass_motion_count": "How many motion trips during sleep hours before URA treats the room as awake and resumes normal automation.",
           "sleep_block_covers": "Prevent covers from opening during sleep hours",
           "fan_sleep_policy": "How fans behave during sleep hours: off, reduced speed, or normal"
         }
@@ -548,7 +548,18 @@
           "zone_energy": "⚡ Zone Energy",
           "zone_persons": "👤 Primary Persons",
           "zone_cameras": "📷 Zone Cameras",
-          "zone_dynamic_preset": "🌤️ Dynamic Preset (Weather-Driven)"
+          "zone_dynamic_preset": "🌤️ Dynamic Preset (Weather-Driven)",
+          "zone_delete_confirm": "🗑️ Remove this zone"
+        }
+      },
+      "zone_delete_confirm": {
+        "title": "Remove this zone?",
+        "description": "You are about to remove the zone **{zone_name}** from Universal Room Automation.\n\nWhat will happen:\n- {n_entities} sensors and controls for this zone will be deleted (temperature, occupancy, energy, HVAC controls, etc.).\n- {n_rooms} room(s) currently assigned to this zone will become unassigned. They will keep working; you can put them in another zone later.\n- Historical data for this zone in the URA database will be cleared ({n_db_rows} rows across {n_tables} tables).\n- If this zone shares a thermostat with another zone, the thermostat setting is NOT changed — the other zone keeps working.\n- Any dashboard cards or automations referencing this zone's sensors will show as unavailable and should be updated.\n\nThis cannot be undone. To confirm, type the zone name below.",
+        "data": {
+          "confirm_zone_name": "Type the zone name to confirm"
+        },
+        "data_description": {
+          "confirm_zone_name": "Type '{zone_name}' exactly to confirm removal"
         }
       },
       "zone_hvac": {
@@ -599,53 +610,18 @@
       },
       "zone_dynamic_preset": {
         "title": "🌡️ Zone Dynamic Preset",
-        "description": "Configure per-zone Dynamic Preset temperature ranges for zone '{zone_name}'. Enable DPM for this zone and set target setpoint ranges for each outdoor condition bucket.",
+        "description": "Enable dynamic preset for zone '{zone_name}', set a small offset if this zone runs warm or cool, and (optionally) keep a distinct sleep-window offset.",
         "data": {
-          "zone_dynamic_preset_enabled": "Enable DPM for this zone",
-          "zone_dynamic_preset_offset": "Offset",
+          "zone_dynamic_preset_enabled": "Enable Dynamic Preset for this Zone",
+          "zone_dynamic_preset_offset": "Offset (°F)",
           "zone_dynamic_preset_reset_offset_guest": "Reset offset during Guest Mode",
-          "zone_dynamic_preset_sleep_enabled": "Enable sleep preset ranges",
-          "zone_dynamic_preset_cool_home_low": "Cool: Home Low",
-          "zone_dynamic_preset_cool_home_high": "Cool: Home High",
-          "zone_dynamic_preset_mild_home_low": "Mild: Home Low",
-          "zone_dynamic_preset_mild_home_high": "Mild: Home High",
-          "zone_dynamic_preset_hot_home_low": "Hot: Home Low",
-          "zone_dynamic_preset_hot_home_high": "Hot: Home High",
-          "zone_dynamic_preset_extreme_home_low": "Extreme: Home Low",
-          "zone_dynamic_preset_extreme_home_high": "Extreme: Home High",
-          "zone_dynamic_preset_cool_sleep_low": "Cool: Sleep Low",
-          "zone_dynamic_preset_cool_sleep_high": "Cool: Sleep High",
-          "zone_dynamic_preset_mild_sleep_low": "Mild: Sleep Low",
-          "zone_dynamic_preset_mild_sleep_high": "Mild: Sleep High",
-          "zone_dynamic_preset_hot_sleep_low": "Hot: Sleep Low",
-          "zone_dynamic_preset_hot_sleep_high": "Hot: Sleep High",
-          "zone_dynamic_preset_extreme_sleep_low": "Extreme: Sleep Low",
-          "zone_dynamic_preset_extreme_sleep_high": "Extreme: Sleep High"
+          "zone_dynamic_preset_sleep_enabled": "Enable sleep preset ranges"
         },
         "data_description": {
           "zone_dynamic_preset_enabled": "When enabled, DPM adjusts this zone's thermostat setpoints based on outdoor conditions.",
           "zone_dynamic_preset_offset": "Additional °F offset applied on top of bucket adjustments (0-3°F, step 0.5). Useful for zones that consistently run warm/cool.",
           "zone_dynamic_preset_reset_offset_guest": "When Guest Mode is active, reset this zone's offset to 0 to maintain comfortable temperatures for guests.",
-          "zone_dynamic_preset_sleep_enabled": "Enable separate temperature ranges for sleep preset. When off, sleep uses the same ranges as home preset.",
-          "zone_dynamic_preset_cool_home_low": "Minimum cooling setpoint (°F) for home preset in cool outdoor conditions.",
-          "zone_dynamic_preset_cool_home_high": "Maximum cooling setpoint (°F) for home preset in cool outdoor conditions.",
-          "zone_dynamic_preset_mild_home_low": "Minimum cooling setpoint (°F) for home preset in mild outdoor conditions.",
-          "zone_dynamic_preset_mild_home_high": "Maximum cooling setpoint (°F) for home preset in mild outdoor conditions.",
-          "zone_dynamic_preset_hot_home_low": "Minimum cooling setpoint (°F) for home preset in hot outdoor conditions.",
-          "zone_dynamic_preset_hot_home_high": "Maximum cooling setpoint (°F) for home preset in hot outdoor conditions.",
-          "zone_dynamic_preset_extreme_home_low": "Minimum cooling setpoint (°F) for home preset in extreme heat conditions.",
-          "zone_dynamic_preset_extreme_home_high": "Maximum cooling setpoint (°F) for home preset in extreme heat conditions.",
-          "zone_dynamic_preset_cool_sleep_low": "Minimum cooling setpoint (°F) for sleep preset in cool conditions.",
-          "zone_dynamic_preset_cool_sleep_high": "Maximum cooling setpoint (°F) for sleep preset in cool conditions.",
-          "zone_dynamic_preset_mild_sleep_low": "Minimum cooling setpoint (°F) for sleep preset in mild conditions.",
-          "zone_dynamic_preset_mild_sleep_high": "Maximum cooling setpoint (°F) for sleep preset in mild conditions.",
-          "zone_dynamic_preset_hot_sleep_low": "Minimum cooling setpoint (°F) for sleep preset in hot conditions.",
-          "zone_dynamic_preset_hot_sleep_high": "Maximum cooling setpoint (°F) for sleep preset in hot conditions.",
-          "zone_dynamic_preset_extreme_sleep_low": "Minimum cooling setpoint (°F) for sleep preset in extreme conditions.",
-          "zone_dynamic_preset_extreme_sleep_high": "Maximum cooling setpoint (°F) for sleep preset in extreme conditions."
-        },
-        "sections": {
-          "sleep_section": "Sleep Preset Ranges"
+          "zone_dynamic_preset_sleep_enabled": "Enable separate temperature ranges for sleep preset. When off, sleep uses the same ranges as home preset."
         }
       },
       "global_sensors": {
@@ -1043,7 +1019,7 @@
           "hvac_ac_reset_enabled": "AC Reset",
           "zone_vacancy_sweep_enabled": "Vacancy Auto-Off",
           "pre_arrival_sources": "Pre-Arrival Trigger Sources",
-          "hvac_zone_entry_dwell": "Zone Entry Dwell (minutes)",
+          "hvac_zone_entry_dwell": "Zone Entry Wait Time (minutes)",
           "hvac_vacancy_grace_minutes": "Zone Vacancy Delay (minutes)",
           "hvac_vacancy_grace_constrained": "Zone Vacancy Delay · Energy-Saving (minutes)",
           "hvac_max_occupancy_hours": "Max Zone Occupied Time (hours)",
@@ -1104,8 +1080,8 @@
           "dpm_cool_day_relax_f": "Relax cool ceiling on cool-feeling days (°F)",
           "dpm_hot_day_tighten_f": "Tighten cool ceiling on hot-feeling days (°F)",
           "dpm_relax_ceiling_mode": "Skip relax on hot days",
-          "dynamic_preset_dwell_minutes": "Adjustment Dwell Minutes",
-          "dynamic_preset_hysteresis_f": "Adjustment Hysteresis (°F)"
+          "dynamic_preset_dwell_minutes": "Settle Time (minutes)",
+          "dynamic_preset_hysteresis_f": "Temperature Margin (°F)"
         },
         "data_description": {
           "dynamic_preset_enabled": "Master toggle for the Dynamic Preset feature. When off, all zones fall back to the seasonal baseline setpoints.",
@@ -1446,11 +1422,11 @@
           "zone": "Zone",
           "shared_space": "Shared Space",
           "shared_space_auto_off_hour": "Auto-Off Hour",
-          "shared_space_warning": "Warning Flash",
+          "shared_space_warning": "Pre-Off Warning Flash",
           "occupancy_timeout": "Occupancy Timeout",
           "occupancy_debounce": "Motion Detection Delay",
           "room_is_guest_room": "Is Guest Room",
-          "room_guest_occupancy_threshold_min": "Guest Signal Threshold"
+          "room_guest_occupancy_threshold_min": "Minutes of Unknown Occupancy Before Guest Mode"
         },
         "data_description": {
           "room_name": "A friendly name for this room",
@@ -1461,7 +1437,7 @@
           "shared_space_auto_off_hour": "Hour (0-23) to turn off devices",
           "shared_space_warning": "Flash lights before auto-off",
           "occupancy_timeout": "Seconds until room is marked vacant",
-          "occupancy_debounce": "Milliseconds to wait before confirming occupancy after motion. Lower = faster, higher = fewer false triggers. 0 for pre-filtered sensors.",
+          "occupancy_debounce": "How long to wait after a sensor trips before URA calls the room 'occupied'. Lower = faster response, higher = fewer false triggers. Use 0 if your sensor already filters noise (e.g. Screek, LD2410).",
           "room_is_guest_room": "When enabled, sustained unknown occupancy in this room will arm the guest signal (see Guest Signal Threshold below).",
           "room_guest_occupancy_threshold_min": "Minutes of continuous unknown occupancy before Guest Mode is triggered via the sustained-occupancy path. Range: 5-240 min. Default: 30."
         }
@@ -1471,24 +1447,24 @@
         "description": "Update presence and environmental sensors.",
         "data": {
           "motion_sensors": "Motion Sensors (PIR)",
-          "presence_sensors": "Presence Sensors (mmWave)",
-          "occupancy_sensors": "Combined Occupancy Sensors",
+          "presence_sensors": "Presence Sensors",
+          "occupancy_sensors": "Pre-Combined Motion + Presence Sensors",
           "scanner_areas": "BLE Scanner Areas (Optional)",
-          "disable_camera_presence": "Disable Camera Presence (Opt-Out)",
+          "disable_camera_presence": "Ignore Camera Person Detection",
           "temperature_sensor": "Temperature Sensor",
           "humidity_sensor": "Humidity Sensor",
           "illuminance_sensor": "Light Level Sensor",
           "door_sensor": "Door Sensor",
-          "door_type": "Door Type",
+          "door_type": "Door Type (interior or exterior)",
           "window_sensor": "Window Sensor",
           "is_egress_window": "Treat as egress window",
           "water_leak_sensor": "Water Leak Sensor"
         },
         "data_description": {
           "motion_sensors": "PIR sensors that detect movement",
-          "presence_sensors": "mmWave/radar presence sensors",
-          "occupancy_sensors": "Pre-combined occupancy sensors",
-          "scanner_areas": "For sparse scanner homes only. Select areas with BLE scanners that should map to this room.",
+          "presence_sensors": "mmWave/radar sensors that see you even when you're still",
+          "occupancy_sensors": "Sensors that already fuse motion and presence into one signal",
+          "scanner_areas": "Only needed if BLE (phone Bluetooth beacon) coverage in this room is thin. Point it at nearby rooms whose scanners can see this one.",
           "disable_camera_presence": "Skip camera-based presence detection for this room. Use for chronic camera false positives (TV reflections, sun-glare hallways).",
           "temperature_sensor": "Room temperature sensor",
           "humidity_sensor": "Room humidity sensor",
@@ -1496,7 +1472,7 @@
           "door_sensor": "Door open/closed sensor",
           "door_type": "Interior vs. egress (exterior) door",
           "window_sensor": "Window open/closed sensor",
-          "is_egress_window": "When ON (default), leaving this window open past the Egress Pause Threshold pauses the HVAC zone (hvac_mode: off). Turn OFF for small ventilation windows.",
+          "is_egress_window": "When ON, leaving this window open for a few minutes pauses the HVAC for the zone that serves this room (so you're not cooling the outside). Turn OFF for small vent windows that open often but shouldn't stop HVAC.",
           "water_leak_sensor": "Water/moisture sensor"
         }
       },
@@ -1505,13 +1481,13 @@
         "description": "Update devices to automate.",
         "data": {
           "lights": "Lights",
-          "light_capabilities": "Light Features",
+          "light_capabilities": "Light Features (auto-detected)",
           "fans": "Cooling Fans (or Switches)",
-          "humidity_fans": "Exhaust/Humidity Fans (or Switches)",
+          "humidity_fans": "Exhaust / Bathroom Fans (or Switches)",
           "covers": "Window Covers/Blinds",
           "cover_type": "Cover Type",
-          "auto_switches": "Auto Devices",
-          "manual_switches": "Manual Devices",
+          "auto_switches": "Auto-On / Auto-Off Devices",
+          "manual_switches": "Auto-Off Only Devices",
           "auto_devices": "Auto Devices",
           "manual_devices": "Manual Devices"
         },
@@ -1536,16 +1512,16 @@
           "exit_light_action": "Lights on Exit",
           "illuminance_dark_threshold": "Dark Threshold (lux)",
           "light_brightness_pct": "Light Brightness %",
-          "light_transition_seconds_on": "Turn On Transition (s)",
-          "light_transition_seconds_off": "Turn Off Transition (s)",
-          "entry_cover_action": "Covers on Entry",
-          "exit_cover_action": "Covers on Exit",
-          "open_timing_mode": "Open Timing",
+          "light_transition_seconds_on": "Fade-In Time (seconds)",
+          "light_transition_seconds_off": "Fade-Out Time (seconds)",
+          "entry_cover_action": "Covers when Someone Enters",
+          "exit_cover_action": "Covers when the Room Empties",
+          "open_timing_mode": "When Covers Can Open",
           "open_time_start": "Earliest Open Time",
           "open_time_end": "Latest Open Time",
           "sunrise_offset": "Sunrise Offset (minutes)",
           "timed_close_enabled": "Enable Timed Close",
-          "close_timing_mode": "Close Timing",
+          "close_timing_mode": "When Covers Auto-Close",
           "close_time": "Close Time",
           "sunset_offset": "Sunset Offset (minutes)"
         }
@@ -1558,8 +1534,8 @@
           "exit_light_action": "Lights on Exit",
           "illuminance_dark_threshold": "Dark Threshold (lux)",
           "light_brightness_pct": "Light Brightness %",
-          "light_transition_seconds_on": "Turn On Transition (s)",
-          "light_transition_seconds_off": "Turn Off Transition (s)"
+          "light_transition_seconds_on": "Fade-In Time (seconds)",
+          "light_transition_seconds_off": "Fade-Out Time (seconds)"
         },
         "data_description": {
           "entry_light_action": "What to do with lights when someone enters the room",
@@ -1584,7 +1560,7 @@
           "cover_close_time_source": "Close Time Source",
           "cover_close_hour": "Close Hour",
           "sunset_offset": "Sunset Offset (minutes)",
-          "cover_hvac_managed": "HVAC Solar-Gain Management"
+          "cover_hvac_managed": "Let HVAC Close These for Sun Control"
         },
         "data_description": {
           "cover_type": "Roller/shade style or venetian tilt style",
@@ -1720,16 +1696,16 @@
           "wet_room": "Wet Room (bathroom/laundry)",
           "humidity_fan_spike_enabled": "Enable Humidity Spike Detection",
           "humidity_fan_presence_runtime_enabled": "Enable Post-Vacancy Runtime",
-          "humidity_fan_presence_runtime_base_s": "Post-Vacancy Base Runtime (s)",
-          "humidity_fan_presence_runtime_per_min_s": "Added Runtime per Minute Occupied (s)",
-          "humidity_fan_presence_runtime_cap_s": "Post-Vacancy Runtime Cap (s)",
+          "humidity_fan_presence_runtime_base_s": "Base Run-On Time After Vacancy (s)",
+          "humidity_fan_presence_runtime_per_min_s": "Extra Run-On per Minute Occupied (s)",
+          "humidity_fan_presence_runtime_cap_s": "Max Run-On Time After Vacancy (s)",
           "fan_temp_threshold": "Fan Start Temperature",
           "fan_speed_low_temp": "Low Speed Temperature",
           "fan_speed_med_temp": "Medium Speed Temperature",
           "fan_speed_high_temp": "High Speed Temperature",
           "humidity_fan_threshold": "Humidity Fan Threshold (%)",
-          "humidity_fan_timeout": "Humidity Fan Min Runtime (s)",
-          "humidity_fan_max_runtime": "Humidity Fan Max Runtime (s)"
+          "humidity_fan_timeout": "Humidity Fan Minimum Run Time (s)",
+          "humidity_fan_max_runtime": "Humidity Fan Maximum Run Time (s)"
         },
         "sections": {
           "humidity_fan_advanced": {
@@ -1767,15 +1743,15 @@
           "sleep_protection_enabled": "Enable Sleep Protection",
           "sleep_start_hour": "Sleep Start Hour",
           "sleep_end_hour": "Sleep End Hour",
-          "sleep_bypass_motion_count": "Motion Bypass Count",
+          "sleep_bypass_motion_count": "Motions Required to Wake Automation",
           "sleep_block_covers": "Block Cover Automation",
-          "fan_sleep_policy": "Fan Sleep Policy"
+          "fan_sleep_policy": "Fans During Sleep"
         },
         "data_description": {
           "sleep_protection_enabled": "Block most automation during sleep hours",
           "sleep_start_hour": "Hour when sleep mode starts (0-23, e.g., 22 = 10 PM)",
           "sleep_end_hour": "Hour when sleep mode ends (0-23, e.g., 7 = 7 AM)",
-          "sleep_bypass_motion_count": "Motion events needed to override sleep mode",
+          "sleep_bypass_motion_count": "How many motion trips during sleep hours before URA treats the room as awake and resumes normal automation.",
           "sleep_block_covers": "Prevent covers from opening during sleep hours",
           "fan_sleep_policy": "How fans behave during sleep hours: off, reduced speed, or normal"
         }
@@ -1836,11 +1812,15 @@
       "cover_temp_hysteresis_too_small": "Cover Open Temp must be at least 3°F below Cover Close Temp to prevent solar-gain flapping. Adjust either value and try again.",
       "baseline_preset_invalid_deadband": "Each season/preset row's Cool High must be at least 3°F above its Heat Low. Adjust the values and try again.",
       "vacancy_grace_constrained_exceeds_normal": "Energy-Saving Zone Vacancy Delay must be less than or equal to the normal Zone Vacancy Delay.",
-      "cover_and_vacancy_combined": "Two settings need fixing: Cover Open Temp must be at least 3°F below Cover Close Temp, AND Energy-Saving Zone Vacancy Delay must be ≤ the normal Zone Vacancy Delay."
+      "cover_and_vacancy_combined": "Two settings need fixing: Cover Open Temp must be at least 3°F below Cover Close Temp, AND Energy-Saving Zone Vacancy Delay must be ≤ the normal Zone Vacancy Delay.",
+      "confirm_name_mismatch": "That doesn't match the zone name. Type the zone name exactly to confirm removal."
     },
     "abort": {
       "no_zones_configured": "No zones have been configured yet. Add a zone from the integration setup first.",
-      "zone_not_found": "The selected zone could not be found. It may have been deleted."
+      "zone_not_found": "The selected zone could not be found. It may have been deleted.",
+      "zone_removed": "Zone removed. The Zone Manager will reload to apply the change.",
+      "zone_delete_legacy_use_native": "This zone is stored as a legacy config entry. Delete it from the Home Assistant integrations page instead (three-dot menu on the zone entry).",
+      "zone_delete_hvac_not_ready": "This zone has a thermostat but the HVAC coordinator is not ready yet. Please wait for Home Assistant to finish starting up and try again."
     }
   },
   "issues": {

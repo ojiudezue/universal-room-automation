@@ -4657,14 +4657,28 @@ class EnergyCoordinator(BaseCoordinator):
     async def _restore_energy_baselines(self) -> None:
         """Restore MetricBaselines from metric_baselines table.
 
-        v5.12.0 SPAN circuit-identity re-key + one-shot migration:
+        v5.12.0 SPAN circuit-identity re-key + RESUMABLE migration
+        (v5.13.1 hotfix — was one-shot in v5.13.0):
         pre-migration rows carry scope=friendly_name. We back up each
         migrated row to `metric_baselines_pruned_backup` (v4.7.32 pattern)
         BEFORE rewriting scope to the rename-stable entity-registry
-        unique_id, then INSERT a `_migration/circuit_scope_v2` sentinel so
-        subsequent boots skip the migration path. Idempotent: rows already
-        keyed on unique_id are attached directly; a missing sentinel with
-        all-migrated rows is a safe no-op.
+        unique_id, then INSERT a `_migration/circuit_scope_v2` sentinel
+        (informational — records that the migration path executed at
+        least once; does NOT gate subsequent boots).
+
+        Boot-ordering resilience (v5.13.1): if the span_panel integration
+        has not populated hass.states by the time
+        `_restore_energy_baselines` runs, `discover_circuits()` returns
+        no matches on boot N and rows fall through to
+        `mig_unmatched_left`. On boot N+1 (once span_panel is up),
+        the friendly→unique and entity_id→unique rewrite branches
+        must run AGAIN so those rows finally migrate. The rewrite
+        branches are per-row idempotent (branch 1 handles already-v2
+        rows without rewriting) so re-running them is safe.
+
+        Sentinel purpose: log verbosity only. First boot: INFO summary
+        of what happened. Later boots: INFO when work happened this
+        boot (progress made), DEBUG when nothing changed.
 
         Reversibility (extends v4.7.32):
             INSERT OR IGNORE INTO metric_baselines
@@ -4675,8 +4689,10 @@ class EnergyCoordinator(BaseCoordinator):
             FROM metric_baselines_pruned_backup
             WHERE coordinator_id='energy' AND metric_name='circuit_power';
             -- F12 rollback caveat: also delete the migration sentinel so
-            -- the next boot re-runs the migration path against the restored
-            -- friendly-scoped rows:
+            -- the next boot's summary log reports the first-boot INFO line
+            -- again (the sentinel is informational-only post-v5.13.1; the
+            -- rewrite branches always run when rows resolve, gated per-row
+            -- by the already-v2 short-circuit — not by the sentinel):
             DELETE FROM metric_baselines
               WHERE coordinator_id='energy'
                 AND metric_name='_migration'
@@ -4729,16 +4745,26 @@ class EnergyCoordinator(BaseCoordinator):
                 mig_unmatched_left: list[str] = []
                 mig_attached_via_entity_id = 0  # F2: no rewrite, just attach
                 try:
-                    # v5.12.0: sentinel row indicates the friendly_name→unique_id
-                    # migration has already run. Private `_migration` metric_name
-                    # is a reserved prefix (grep confirms no collisions).
+                    # v5.12.0 / v5.13.1: sentinel row indicates the
+                    # friendly_name→unique_id migration path has executed at
+                    # least once. It is INFORMATIONAL — it drives log
+                    # verbosity only. The rewrite branches ALWAYS run when
+                    # rows now resolve (per-row idempotent: branch 1
+                    # short-circuits rows already keyed on unique_id
+                    # without rewriting). This makes the migration resumable
+                    # across the span_panel boot-ordering race (v5.13.1
+                    # hotfix — v5.13.0 gated the rewrites on the sentinel,
+                    # which permanently blocked re-migration if boot 1
+                    # ran before span_panel populated hass.states).
+                    # Private `_migration` metric_name is a reserved prefix
+                    # (grep confirms no collisions).
                     cursor = await conn.execute(
                         "SELECT 1 FROM metric_baselines "
                         "WHERE coordinator_id='energy' "
                         "AND metric_name='_migration' AND scope='circuit_scope_v2'"
                     )
                     sentinel_row = await cursor.fetchone()
-                    migration_done = sentinel_row is not None
+                    sentinel_present = sentinel_row is not None
 
                     # Build lookup maps for the already-migrated (unique_id)
                     # shape, the pre-migration (friendly_name) shape, and the
@@ -4819,9 +4845,12 @@ class EnergyCoordinator(BaseCoordinator):
                                 mig_already_v2 += 1
                             # 2. Pre-migration shape: scope matches a friendly_name
                             #    that has a resolvable unique_id → rewrite the row.
+                            #    v5.13.1: no sentinel gate — this branch runs on
+                            #    EVERY boot so rows that were unresolvable on a
+                            #    prior boot (span_panel not yet up) get migrated
+                            #    once the registry resolves.
                             elif (
-                                not migration_done
-                                and scope in friendly_to_entity
+                                scope in friendly_to_entity
                                 and self._circuits._circuits[
                                     friendly_to_entity[scope]
                                 ].unique_id
@@ -4872,7 +4901,12 @@ class EnergyCoordinator(BaseCoordinator):
                             elif scope in entity_id_set:
                                 eid = scope
                                 circuit = self._circuits._circuits[eid]
-                                if not migration_done and circuit.unique_id:
+                                # v5.13.1: no sentinel gate — upgrade whenever
+                                # a unique_id now resolves for an entity_id-
+                                # scoped row (was gated on `not migration_done`
+                                # in v5.13.0, which stranded rows if the boot-1
+                                # discovery race hit).
+                                if circuit.unique_id:
                                     new_uid = circuit.unique_id
                                     await conn.execute(
                                         "INSERT INTO metric_baselines_pruned_backup "
@@ -4922,7 +4956,15 @@ class EnergyCoordinator(BaseCoordinator):
                             #    exit ramp; we no longer WARN each boot.
                             else:
                                 mig_unmatched_left.append(scope)
-                                _LOGGER.info(
+                                # v5.13.1 review MEDIUM-1: INFO on first boot
+                                # only; DEBUG once the sentinel exists so the
+                                # 3 known permanent orphans don't emit 3 INFO
+                                # lines every boot forever.
+                                _unmatched_log = (
+                                    _LOGGER.debug if sentinel_present
+                                    else _LOGGER.info
+                                )
+                                _unmatched_log(
                                     "Circuit baseline '%s' has no matching circuit "
                                     "(kept in place; manual DELETE if intentionally orphaned)",
                                     scope,
@@ -4931,8 +4973,20 @@ class EnergyCoordinator(BaseCoordinator):
                     # AFTER commit — disk state leads memory state so a crash
                     # doesn't leave RAM promising rows the DB doesn't have.
 
-                    # Insert migration sentinel if we ran the migration path this boot.
-                    if not migration_done:
+                    # Insert / refresh the migration sentinel. Informational
+                    # only — never gates the rewrite branches. v5.13.1 review
+                    # LOW-1: written when absent OR when rewrite work happened
+                    # this boot (keeps last_updated = most-recent productive
+                    # pass), skipped on steady-state boots (write-volume
+                    # discipline: zero needless writes per boot).
+                    # (computed inline — the aggregate `_rewrote_this_boot`
+                    # is only assembled after the transaction block)
+                    _sentinel_work = bool(
+                        mig_rewritten
+                        or mig_rewritten_from_entity_id
+                        or stale_unmapped
+                    )
+                    if not sentinel_present or _sentinel_work:
                         await conn.execute(
                             "INSERT OR REPLACE INTO metric_baselines "
                             "(coordinator_id, metric_name, scope, mean, variance, "
@@ -4995,33 +5049,43 @@ class EnergyCoordinator(BaseCoordinator):
                 if circuit_baselines:
                     self._circuits.restore_baselines(circuit_baselines)
 
-                # F9: summary log — INFO when any migration work happened,
-                # DEBUG on all-zero counters (first boot on already-v2 DB, or
-                # a fresh install with nothing to migrate).
-                if not migration_done:
-                    _did_work = (
-                        mig_rewritten
-                        or mig_rewritten_from_entity_id
-                        or mig_already_v2
-                        or mig_attached_via_entity_id
-                        or mig_unmatched_left
-                        or stale_unmapped
-                    )
-                    summary_msg = (
-                        "SPAN scope migration: %d migrated, "
-                        "%d rewritten-from-entity_id, %d attached-via-entity_id, "
-                        "%d already-v2, %d unmatched-left-in-place (%s), "
-                        "%d unmapped-pruned"
-                    )
-                    summary_args = (
-                        mig_rewritten,
-                        mig_rewritten_from_entity_id,
-                        mig_attached_via_entity_id,
-                        mig_already_v2,
-                        len(mig_unmatched_left),
-                        ", ".join(repr(s) for s in mig_unmatched_left) or "-",
-                        len(stale_unmapped),
-                    )
+                # F9 / v5.13.1: summary log verbosity.
+                #   First boot (sentinel wasn't present): always emit — INFO
+                #     if any work happened, DEBUG with '(first boot; nothing
+                #     to migrate)' suffix otherwise.
+                #   Later boots (sentinel present): INFO when progress was
+                #     made this boot (rewrite branches did work), DEBUG when
+                #     nothing changed. This makes a boot-N+1 completion of
+                #     the migration (after a boot-1 discovery race) visible
+                #     without flooding steady-state boots.
+                _rewrote_this_boot = (
+                    mig_rewritten
+                    or mig_rewritten_from_entity_id
+                    or stale_unmapped
+                )
+                _did_work = (
+                    _rewrote_this_boot
+                    or mig_already_v2
+                    or mig_attached_via_entity_id
+                    or mig_unmatched_left
+                )
+                summary_msg = (
+                    "SPAN scope migration: %d migrated, "
+                    "%d rewritten-from-entity_id, %d attached-via-entity_id, "
+                    "%d already-v2, %d unmatched-left-in-place (%s), "
+                    "%d unmapped-pruned"
+                )
+                summary_args = (
+                    mig_rewritten,
+                    mig_rewritten_from_entity_id,
+                    mig_attached_via_entity_id,
+                    mig_already_v2,
+                    len(mig_unmatched_left),
+                    ", ".join(repr(s) for s in mig_unmatched_left) or "-",
+                    len(stale_unmapped),
+                )
+                if not sentinel_present:
+                    # First boot on this DB.
                     if _did_work:
                         _LOGGER.info(summary_msg, *summary_args)
                     else:
@@ -5029,6 +5093,12 @@ class EnergyCoordinator(BaseCoordinator):
                             summary_msg + " (first boot; nothing to migrate)",
                             *summary_args,
                         )
+                else:
+                    # Subsequent boot — only INFO when progress was made.
+                    if _rewrote_this_boot:
+                        _LOGGER.info(summary_msg, *summary_args)
+                    else:
+                        _LOGGER.debug(summary_msg, *summary_args)
                 if stale_unmapped:
                     _LOGGER.info(
                         "SPAN: pruned %d orphaned 'Unmapped Tab' circuit baselines "

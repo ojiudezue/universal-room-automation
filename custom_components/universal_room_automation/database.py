@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.13.0
+# Universal Room Automation vv5.14.0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -849,10 +849,14 @@ class UniversalRoomDatabase:
                     failed_tables.append("optimization_daily_digest")
 
                 # -- Metric baselines ----------------------------------------
-                # F11 (v5.12.0): the `metric_name` column has ONE reserved
-                # prefix — `_migration` — used by schema/scope migrations to
-                # persist a sentinel that gates one-shot rewrites. See
-                # `energy.py::_restore_energy_baselines` for the
+                # F11 (v5.12.0, revised v5.13.1): the `metric_name` column
+                # has ONE reserved prefix — `_migration` — used by
+                # schema/scope migrations to persist an INFORMATIONAL
+                # sentinel row. The sentinel records that a migration path
+                # has executed at least once; it does NOT gate rewrites
+                # (the rewrite branches are per-row idempotent and re-run
+                # every boot so a boot-1 discovery race doesn't strand
+                # rows). See `energy.py::_restore_energy_baselines` for the
                 # `_migration/circuit_scope_v2` sentinel. Real coordinators
                 # MUST NOT emit metrics whose name starts with `_`.
                 if not await self._create_table_safe(db, "metric_baselines", [
@@ -6823,6 +6827,190 @@ class UniversalRoomDatabase:
                 "egress_state clear failed for %s: %s",
                 zone_id, err,
             )
+
+    async def async_delete_zone_data(
+        self,
+        zone_name: str,
+        zone_id: str | None,
+    ) -> dict[str, int]:
+        """Purge all zone-keyed DB rows for a zone being deleted.
+
+        Zone Delete Flow cycle: atomic multi-table purge triggered when a
+        zone is removed from the Zone Manager options dict.
+
+        Two keying regimes are handled:
+          - Name-keyed: ``zone_events`` (col ``zone TEXT``, line 473),
+            ``census_snapshots`` (col ``zone TEXT NOT NULL``, line 589),
+            and ``ura_activity_log`` (col ``zone TEXT`` nullable, line
+            1120). All three are always purged.
+          - Id-keyed: ``ac_reset_state`` (PK ``zone_id``, line 1194),
+            ``egress_state`` (PK ``zone_id``, line 1223), and
+            ``ac_ramp_events`` (col ``zone_id NOT NULL``, line 1267).
+            Purged only when ``zone_id`` is not None (husk zones with no
+            thermostat have no zone_id and never wrote id-keyed rows).
+
+        Six tables total. Verified via re-grep of every ``zone TEXT`` and
+        ``zone_id TEXT`` column in the ``CREATE TABLE`` DDL surface
+        (fix-up R5, review A-CRIT-1). ``room_state.last_lux_zone`` is a
+        lux-band label (bright/dim), NOT a zone name — not purged.
+
+        Note on ``fan_recheck_state``: the plan lists it as zone_id-keyed,
+        but the live schema is per-ROOM (PK ``room_id``). Rooms survive
+        zone deletion (they become unassigned), so fan_recheck rows must
+        NOT be touched — skipping is correct.
+
+        Atomicity: uses the same explicit ``BEGIN ... COMMIT`` shape as
+        the v4.6.7 anomaly_log migration (database.py:1539) which is
+        proven to work against the production ``aiosqlite.connect`` +
+        ``_write_worker`` write-queue connection (worker at
+        database.py:104 opens the connection with sqlite3's implicit
+        deferred-transaction semantics — ``BEGIN`` is issued as a
+        RAW statement AFTER the PRAGMA setup, before any auto-opened
+        implicit txn interferes; the same pattern works here because
+        this DAO is the sole caller for the duration of one _db() lease
+        and no prior execute has been issued on the connection this
+        turn). Fix-up R8: adjusted from ``BEGIN IMMEDIATE`` (which is
+        the sqlite3 module's default write-lock flavor) to plain
+        ``BEGIN`` to byte-match the migration precedent that has run
+        in production since v4.6.7.
+
+        Args:
+            zone_name: Zone name string (matches ``zone_events.zone``).
+            zone_id:   HVAC zone_id ("zone_N") or None for husk zones.
+
+        Returns:
+            Dict mapping table name to rows deleted. Tables that were
+            skipped (id-keyed tables when zone_id is None) map to 0.
+            On failure returns an empty dict and logs a warning.
+        """
+        result: dict[str, int] = {
+            "zone_events": 0,
+            "census_snapshots": 0,
+            "ura_activity_log": 0,
+            "ac_reset_state": 0,
+            "egress_state": 0,
+            "ac_ramp_events": 0,
+        }
+        try:
+            async with self._db() as db:
+                # Explicit transaction (Bug Class SPAN A-HIGH-1: partial
+                # multi-table purge = silent inconsistency). Matches the
+                # v4.6.7 anomaly_log migration pattern at line 1539.
+                await db.execute("BEGIN")
+                try:
+                    # Name-keyed tables.
+                    cur = await db.execute(
+                        "DELETE FROM zone_events WHERE zone = ?",
+                        (zone_name,),
+                    )
+                    result["zone_events"] = cur.rowcount or 0
+                    cur = await db.execute(
+                        "DELETE FROM census_snapshots WHERE zone = ?",
+                        (zone_name,),
+                    )
+                    result["census_snapshots"] = cur.rowcount or 0
+                    cur = await db.execute(
+                        "DELETE FROM ura_activity_log WHERE zone = ?",
+                        (zone_name,),
+                    )
+                    result["ura_activity_log"] = cur.rowcount or 0
+                    # Id-keyed tables (skipped for husk zones).
+                    if zone_id is not None:
+                        cur = await db.execute(
+                            "DELETE FROM ac_reset_state WHERE zone_id = ?",
+                            (zone_id,),
+                        )
+                        result["ac_reset_state"] = cur.rowcount or 0
+                        cur = await db.execute(
+                            "DELETE FROM egress_state WHERE zone_id = ?",
+                            (zone_id,),
+                        )
+                        result["egress_state"] = cur.rowcount or 0
+                        cur = await db.execute(
+                            "DELETE FROM ac_ramp_events WHERE zone_id = ?",
+                            (zone_id,),
+                        )
+                        result["ac_ramp_events"] = cur.rowcount or 0
+                    await db.commit()
+                except Exception:
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                    raise
+        except Exception as err:
+            _LOGGER.warning(
+                "async_delete_zone_data failed for zone=%r zone_id=%r: %s",
+                zone_name, zone_id, err,
+            )
+            return {}
+        _LOGGER.info(
+            "async_delete_zone_data: zone=%r zone_id=%r rows=%s",
+            zone_name, zone_id, result,
+        )
+        return result
+
+    async def async_count_zone_rows(
+        self,
+        zone_name: str,
+        zone_id: str | None,
+    ) -> dict[str, int]:
+        """Read-only pre-delete row-count per zone-keyed table.
+
+        Zone Delete Flow fix-up R6 / A-HIGH-2: the D1 confirm screen
+        must show HONEST row counts (not a table count masquerading as
+        a row count). This DAO gets called once during
+        ``_summarize_zone_deletion`` so the operator sees real numbers.
+
+        Also serves as the Tier 2-DB pre-delete row-rate snapshot per
+        review protocol.
+
+        Returns a dict with the same 6 table keys as
+        ``async_delete_zone_data``. Id-keyed tables report 0 when
+        ``zone_id`` is None. On any read failure returns a dict of 6
+        zeros and logs debug — the confirm screen degrades gracefully.
+        """
+        result: dict[str, int] = {
+            "zone_events": 0,
+            "census_snapshots": 0,
+            "ura_activity_log": 0,
+            "ac_reset_state": 0,
+            "egress_state": 0,
+            "ac_ramp_events": 0,
+        }
+        try:
+            async with self._db_read() as db:
+                for tbl in ("zone_events", "census_snapshots", "ura_activity_log"):
+                    try:
+                        cur = await db.execute(
+                            f"SELECT COUNT(*) FROM {tbl} WHERE zone = ?",
+                            (zone_name,),
+                        )
+                        row = await cur.fetchone()
+                        result[tbl] = int(row[0]) if row else 0
+                    except Exception as err:
+                        _LOGGER.debug(
+                            "async_count_zone_rows(%s): %s", tbl, err,
+                        )
+                if zone_id is not None:
+                    for tbl in ("ac_reset_state", "egress_state", "ac_ramp_events"):
+                        try:
+                            cur = await db.execute(
+                                f"SELECT COUNT(*) FROM {tbl} WHERE zone_id = ?",
+                                (zone_id,),
+                            )
+                            row = await cur.fetchone()
+                            result[tbl] = int(row[0]) if row else 0
+                        except Exception as err:
+                            _LOGGER.debug(
+                                "async_count_zone_rows(%s): %s", tbl, err,
+                            )
+        except Exception as err:
+            _LOGGER.debug(
+                "async_count_zone_rows failed for zone=%r zone_id=%r: %s",
+                zone_name, zone_id, err,
+            )
+        return result
 
     async def prune_stale_egress_state(self, cutoff_days: int = 7) -> int:
         """Prune stale egress_state rows.

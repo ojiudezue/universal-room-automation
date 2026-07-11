@@ -63,6 +63,7 @@ from .signals import (
     SIGNAL_HOUSE_STATE_CHANGED,
     SIGNAL_PERSON_ARRIVING,
     SIGNAL_SAFETY_HAZARD,
+    SIGNAL_ZM_ZONES_UPDATED,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -585,6 +586,19 @@ class HVACCoordinator(BaseCoordinator):
             )
         )
 
+        # Zone Delete Flow (fix-up R4 / B-HIGH-1): prune the deleted zone
+        # from the in-memory ``ZoneManager.zones`` dict AND rewrite the
+        # persisted ``_zone_state_store`` snapshot so a restart doesn't
+        # RESURRECT the zone via ``restore_state_snapshot`` (hvac.py:503).
+        # Unsub tracked via ``_unsub_listeners`` per Bug Class #50.
+        self._unsub_listeners.append(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_ZM_ZONES_UPDATED,
+                self._handle_zm_zones_updated,
+            )
+        )
+
         # Set up diagnostics
         try:
             await self._setup_diagnostics()
@@ -1091,7 +1105,8 @@ class HVACCoordinator(BaseCoordinator):
         # heat_cool on the next decision cycle. This is by design — heat_cool
         # still heats via the low setpoint and the operator does not rely on
         # single-mode heat. Do NOT "re-fix" this by adding a heat exemption.
-        for zone_id, zone in self._zone_manager.zones.items():
+        # snapshot: zones dict may be pruned by _handle_zm_zones_updated mid-await
+        for zone_id, zone in list(self._zone_manager.zones.items()):
             if self._egress_manager.is_paused(zone_id):
                 continue
             if (
@@ -1141,7 +1156,8 @@ class HVACCoordinator(BaseCoordinator):
         )
 
         zi = self._zone_intelligence_enabled
-        for zone_id, zone in self._zone_manager.zones.items():
+        # snapshot: zones dict may be pruned by _handle_zm_zones_updated mid-await
+        for zone_id, zone in list(self._zone_manager.zones.items()):
             # v4.7.8 D8: Skip preset apply for zones paused by EgressManager.
             # Preset restoration happens on resume; applying here would push
             # a preset to an off compressor and the restore would override it.
@@ -1508,7 +1524,8 @@ class HVACCoordinator(BaseCoordinator):
             if target_preset is None:
                 return
 
-            for zone_id, zone in self._zone_manager.zones.items():
+            # snapshot: zones dict may be pruned by _handle_zm_zones_updated mid-await
+            for zone_id, zone in list(self._zone_manager.zones.items()):
                 # v4.7.8 fix-up C-H1 (plan §D8 spec gap): DPM apply must
                 # skip egress-paused zones. Ecobee thermostats re-engage
                 # mode on set_temperature after an explicit off, silently
@@ -1661,6 +1678,110 @@ class HVACCoordinator(BaseCoordinator):
     # ------------------------------------------------------------------
 
     @callback
+    def _handle_zm_zones_updated(self, payload: Any) -> None:
+        """Zone Delete Flow (fix-up R4 / B-HIGH-1 + B-HIGH-2): prune the
+        deleted zone from ``ZoneManager.zones`` AND rewrite the persisted
+        ``_zone_state_store`` snapshot without the deleted zone_id.
+
+        Without the persisted-snapshot rewrite, the next boot's
+        ``restore_state_snapshot`` (hvac.py:503) would RESURRECT the
+        deleted zone into ``ZoneManager.zones``. This is the load-bearing
+        part of the fix — pruning the in-memory dict alone would only
+        survive until restart.
+        """
+        if payload is None:
+            return
+        try:
+            deleted_name = (payload or {}).get("deleted_zone_name") or ""
+            deleted_id = (payload or {}).get("deleted_zone_id")
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("ZM zones updated payload malformed", exc_info=True)
+            return
+        # 1) In-memory prune: if we know the zone_id, drop it; otherwise
+        #    fall back to matching by zone_name.
+        #
+        # Concurrency note (P1): this mutates the live zones dict shared
+        # with HVAC iteration loops. Callers that iterate `zones` with an
+        # await in the loop body MUST snapshot via `list(...)` — see the
+        # snapshotted sites at hvac.py:1108, 1158, 1525, 1825 (and mirror
+        # sites in hvac_override.py, hvac_predict.py). The try/except here
+        # is a defense-in-depth belt so a raced pop cannot crash the
+        # dispatcher; the primary correctness contract is the caller-side
+        # snapshot.
+        try:
+            zm = self._zone_manager
+            zones = getattr(zm, "_zones", None) or getattr(zm, "zones", None) or {}
+            pruned_ids: list[str] = []
+            try:
+                if deleted_id and deleted_id in zones:
+                    zones.pop(deleted_id, None)
+                    pruned_ids.append(deleted_id)
+                else:
+                    # zone_id-unknown path: scan by zone_name.
+                    for zid in list(zones.keys()):
+                        zs = zones.get(zid)
+                        zname = getattr(zs, "zone_name", "") or ""
+                        if zname == deleted_name or (
+                            " + " in zname
+                            and deleted_name in [p.strip() for p in zname.split(" + ")]
+                        ):
+                            zones.pop(zid, None)
+                            pruned_ids.append(zid)
+            except (KeyError, RuntimeError) as pop_err:  # noqa: BLE001
+                # RuntimeError: dict mutated during another consumer's
+                # iteration (defense-in-depth; snapshotting is the real fix).
+                # KeyError: raced pop from a concurrent handler.
+                _LOGGER.warning(
+                    "HVAC: raced zone prune for %r (id=%r): %s",
+                    deleted_name, deleted_id, pop_err,
+                )
+            if pruned_ids:
+                _LOGGER.info(
+                    "HVAC: pruned %d zone(s) from ZoneManager for deleted "
+                    "zone=%r: %s", len(pruned_ids), deleted_name, pruned_ids,
+                )
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "HVAC: in-memory zone prune failed for %r", deleted_name,
+                exc_info=True,
+            )
+        # 2) Persisted snapshot rewrite (LOAD-BEARING — else restart
+        #    resurrects the zone via restore_state_snapshot at line 503).
+        async def _rewrite_zone_state_store() -> None:
+            try:
+                stored = await self._zone_state_store.async_load()
+                if not isinstance(stored, dict):
+                    return
+                changed = False
+                # zone_id-only matching is sufficient here:
+                #   - The persisted snapshot payload never carries
+                #     `zone_name` (see hvac_zones.get_state_snapshot at
+                #     hvac_zones.py:631-648 — keys are last_occupied_time,
+                #     vacancy_sweep_done, zone_presence_state, ...).
+                #   - When deleted_id is unknown, that path is the
+                #     thermostat-configured coord_down/unknown case,
+                #     which R7 (config_flow.py:7492-7502) aborts BEFORE
+                #     dispatch. Husk zones (no thermostat) never enter
+                #     this store, so name-based fallback is dead code.
+                for zid in list(stored.keys()):
+                    if zid == "__person_zone_map":
+                        continue
+                    if deleted_id and zid == deleted_id:
+                        stored.pop(zid, None)
+                        changed = True
+                if changed:
+                    await self._zone_state_store.async_save(stored)
+                    _LOGGER.info(
+                        "HVAC: rewrote zone_state_store without deleted "
+                        "zone=%r (id=%r)", deleted_name, deleted_id,
+                    )
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.warning(
+                    "HVAC: zone_state_store rewrite failed for %r: %s",
+                    deleted_name, e,
+                )
+        self.hass.async_create_task(_rewrite_zone_state_store())
+
     def _handle_safety_hazard(self, hazard: Any) -> None:
         """Handle safety hazard signal — stop fans on smoke/CO, emergency heat on freeze.
 
@@ -1723,7 +1844,8 @@ class HVACCoordinator(BaseCoordinator):
         """
         from ..const import CONF_FANS
 
-        for zone_id, zone in self._zone_manager.zones.items():
+        # snapshot: zones dict may be pruned by _handle_zm_zones_updated mid-await
+        for zone_id, zone in list(self._zone_manager.zones.items()):
             for room_name in zone.rooms:
                 coordinator = self._get_room_coordinator(room_name)
                 if coordinator is None:

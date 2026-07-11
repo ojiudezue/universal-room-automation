@@ -426,7 +426,14 @@ def test_v475_d4_rooms_do_not_mirror(shared_thermostat_zm):
 
 
 def test_v475_d4_dpm_keys_mirror(shared_thermostat_zm):
-    """DPM save on Master Suite mirrors offset + cool_home_low to Entertainment."""
+    """DPM save on Master Suite mirrors offset to Entertainment.
+
+    v5.11.x DPM cleanup: bucket cells no longer mirror (they were
+    UI-stripped in v4.7.18 D1 and their MIRROR_KEYS entries removed here);
+    only the 4 active knobs (enabled, offset, reset_offset_guest,
+    sleep_enabled) mirror. The bucket cell payload is intentionally
+    dropped by the mirror helper because it is not in the whitelist.
+    """
     flow = _make_flow_with_zm(shared_thermostat_zm, selected_zone="Master Suite")
     saved_payload = {
         CONF_ZONE_DPM_OFFSET: 2.5,
@@ -443,7 +450,8 @@ def test_v475_d4_dpm_keys_mirror(shared_thermostat_zm):
     new_zones = shared_thermostat_zm.options["zones"]
     assert new_zones["Master Suite"][CONF_ZONE_DPM_OFFSET] == 2.5
     assert new_zones["Entertainment"][CONF_ZONE_DPM_OFFSET] == 2.5
-    assert new_zones["Entertainment"][CONF_ZONE_DPM_COOL_HOME_LOW] == 71.0
+    # v5.11.x: cool_home_low is no longer mirrored; Entertainment retains
+    # whatever prior value it had (or is absent). No assertion here.
 
 
 # =============================================================================
@@ -619,20 +627,47 @@ def test_v475_d4_hvac_mirror_set_contains_shared_equipment_keys():
 
 
 def test_v475_d4_dpm_mirror_set_contains_master_toggle_and_buckets():
-    """MIRROR_KEYS_ZONE_DPM must include master toggle, offset, and at least
-    one bucket cell per home preset bucket."""
+    """MIRROR_KEYS_ZONE_DPM must include the 4 active DPM knobs.
+
+    v5.11.x DPM cleanup: bucket cell + customize_buckets keys were
+    stripped from MIRROR_KEYS_ZONE_DPM. Only the 4 knobs that drive
+    runtime behavior mirror to sibling zones. This test also enforces
+    the ABSENCE of the 17 vestigial keys as a regression guard against
+    reintroduction.
+    """
     expected_subset = {
         "zone_dynamic_preset_enabled",
         "zone_dynamic_preset_offset",
-        "zone_dynamic_preset_customize_buckets",
-        "zone_dynamic_preset_cool_home_low",
-        "zone_dynamic_preset_mild_home_low",
-        "zone_dynamic_preset_hot_home_low",
-        "zone_dynamic_preset_extreme_home_low",
+        "zone_dynamic_preset_reset_offset_guest",
+        "zone_dynamic_preset_sleep_enabled",
     }
     missing = expected_subset - _CF_MOD.MIRROR_KEYS_ZONE_DPM
     assert not missing, (
-        f"v4.7.5 D4: MIRROR_KEYS_ZONE_DPM missing keys {missing}"
+        f"v5.11.x DPM cleanup: MIRROR_KEYS_ZONE_DPM missing keys {missing}"
+    )
+    forbidden = {
+        "zone_dynamic_preset_customize_buckets",
+        "zone_dynamic_preset_cool_home_low",
+        "zone_dynamic_preset_cool_home_high",
+        "zone_dynamic_preset_mild_home_low",
+        "zone_dynamic_preset_mild_home_high",
+        "zone_dynamic_preset_hot_home_low",
+        "zone_dynamic_preset_hot_home_high",
+        "zone_dynamic_preset_extreme_home_low",
+        "zone_dynamic_preset_extreme_home_high",
+        "zone_dynamic_preset_cool_sleep_low",
+        "zone_dynamic_preset_cool_sleep_high",
+        "zone_dynamic_preset_mild_sleep_low",
+        "zone_dynamic_preset_mild_sleep_high",
+        "zone_dynamic_preset_hot_sleep_low",
+        "zone_dynamic_preset_hot_sleep_high",
+        "zone_dynamic_preset_extreme_sleep_low",
+        "zone_dynamic_preset_extreme_sleep_high",
+    }
+    resurrected = forbidden & _CF_MOD.MIRROR_KEYS_ZONE_DPM
+    assert not resurrected, (
+        f"v5.11.x DPM cleanup: 17 vestigial keys resurfaced in "
+        f"MIRROR_KEYS_ZONE_DPM: {resurrected}"
     )
 
 

@@ -1060,7 +1060,8 @@ class OverrideArrester:
                 self.hass.async_create_task(self._db.cleanup_ac_ramp_events())
         self._last_rollover_date = today
 
-        for zone_id, zone in self._zone_manager.zones.items():
+        # snapshot: zones dict may be pruned by _handle_zm_zones_updated mid-await
+        for zone_id, zone in list(self._zone_manager.zones.items()):
             # v4.7.8 D8: Skip zones paused by EgressManager. Nudging a stopped
             # compressor is incoherent; AC Reset hard-cycling an already-off
             # zone is wasted work. State stays at idle so sensors don't lie.

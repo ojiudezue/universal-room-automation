@@ -229,6 +229,9 @@ def _load_init_listener_helpers():
         # v5.10.0 D2 — MF sleep + night suppression CM keys.
         "_CONF_MF_SLEEP_SUPPRESS":                "mf_sleep_suppress",
         "_CONF_MF_NIGHT_SUPPRESS_MODE":           "mf_night_suppress_mode",
+        # Zone Delete Flow fix-up R2 — CONF_ZONE added to _ROOM_SUPPRESS_KEYS
+        # so zone reassignment during delete doesn't storm per-room reloads.
+        "CONF_ZONE":                              "zone",
         # ENTRY_TYPE_ROOM (C-HIGH-3 path in _async_update_listener).
         "ENTRY_TYPE_ROOM":                        "room",
         # Typing — frozenset[str] subscript requires Python 3.9+; ok.
