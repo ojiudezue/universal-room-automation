@@ -248,7 +248,7 @@ class TestHVACTunableNumberFactory:
         "63 · Cover Override Duration",
         "64 · Solar Banking Cool Floor",
         "65 · Fan On Threshold",
-        "66 · Fan Off Hysteresis",
+        "66 · Fan Off Margin (°F)",
     ])
     def test_each_number_has_friendly_name(self, number_src, expected_name):
         assert f'name="{expected_name}"' in number_src, (

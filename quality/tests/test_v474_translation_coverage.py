@@ -247,22 +247,22 @@ class TestD5Surface2FieldCoverage:
             )
 
     def test_d5_surface2_section_keys_in_strings(self, strings):
-        """D5: post-v4.7.18 D1 strip, only `sleep_section` remains in
-        Surface 2 sections (customize_buckets_section was retired)."""
+        """v5.11.x DPM cleanup: sleep_section wrapper is removed along with
+        the 16 bucket cells it wrapped. Both section keys must be absent."""
         sections = strings["options"]["step"]["zone_dynamic_preset"].get("sections", {})
-        assert "sleep_section" in sections, (
-            "D5: strings.json zone_dynamic_preset.sections must have 'sleep_section'"
+        assert "sleep_section" not in sections, (
+            "v5.11.x DPM cleanup: sleep_section must be stripped from strings.json"
         )
         assert "customize_buckets_section" not in sections, (
             "v4.7.18 B-L3/C-L1: customize_buckets_section must be stripped"
         )
 
     def test_d5_surface2_section_keys_in_translations(self, translations_en):
-        """D5: post-v4.7.18 D1 strip, only `sleep_section` remains in
-        Surface 2 sections (customize_buckets_section was retired)."""
+        """v5.11.x DPM cleanup: sleep_section wrapper is removed along with
+        the 16 bucket cells it wrapped. Both section keys must be absent."""
         sections = translations_en["options"]["step"]["zone_dynamic_preset"].get("sections", {})
-        assert "sleep_section" in sections, (
-            "D5: translations/en.json zone_dynamic_preset.sections must have 'sleep_section'"
+        assert "sleep_section" not in sections, (
+            "v5.11.x DPM cleanup: sleep_section must be stripped from translations/en.json"
         )
         assert "customize_buckets_section" not in sections, (
             "v4.7.18 B-L3/C-L1: customize_buckets_section must be stripped"

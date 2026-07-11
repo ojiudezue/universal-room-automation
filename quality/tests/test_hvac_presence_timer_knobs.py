@@ -434,11 +434,15 @@ def test_constrained_error_key_present(strings_json, translations_en):
 
 
 def test_zone_entry_dwell_renumbered_to_47(number_tree):
+    # v5.11.x label pass (REVISE-APPLIED row 16): tightened to 3-word rule.
+    # "Zone Entry Wait Time" -> "Entry Wait (min)"; numeric prefix preserved
+    # so operator ordering is unchanged. Zone scope preserved on the paired
+    # config-flow label.
     cls = _find_class(number_tree, "ZoneEntryDwellNumber")
     name = _class_attr_literal(cls, "_attr_name")
-    assert name is not None and name.startswith("47 · Zone Entry Dwell"), (
-        f"Expected ZoneEntryDwellNumber._attr_name to start '47 · Zone Entry "
-        f"Dwell', got {name!r}"
+    assert name is not None and name.startswith("47 · Entry Wait"), (
+        f"Expected ZoneEntryDwellNumber._attr_name to start '47 · Entry "
+        f"Wait', got {name!r}"
     )
 
 
