@@ -143,6 +143,10 @@ class SPANCircuitMonitor:
         """
         if force:
             self._circuits = {}
+            # v5.14.1 review MED-3: clear stale entity→baseline entries too,
+            # so a force-rediscovery can't silently mask circuit renames via
+            # leftover cache (restore re-merges from DB immediately after).
+            self._power_baselines = {}
             self._discovered = False
         count = 0
         skipped_unknown = 0

@@ -825,9 +825,12 @@ class EnergyCoordinator(BaseCoordinator):
         if _ha_running:
             # Reload path — HA is already up. Do the re-pass inline once,
             # cheap-check first so we don't burn a migration for no reason.
-            self.hass.async_create_task(
+            # v5.14.1 review MED-1: track the task so teardown cancels it
+            # (Bug Class #50 — untracked task racing a new instance).
+            _repass_task = self.hass.async_create_task(
                 self._span_scope_migration_repass("reload")
             )
+            self._unsub_listeners.append(_repass_task.cancel)
         else:
             try:
                 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED  # noqa: PLC0415
@@ -863,6 +866,19 @@ class EnergyCoordinator(BaseCoordinator):
         already-v2 rows short-circuit and the previously-unmatched
         friendly/entity_id rows finally migrate.
         """
+        # v5.14.1 review MED-2 + LOW: at most ONE re-pass per process.
+        # Steady-state cost is therefore one COUNT query + one read-only
+        # attach scan per boot (no writes — sentinel and rewrites are
+        # gated), NOT "a no-op": stated honestly because migrated shapes
+        # (span_* uids, extras uids) cannot be reliably distinguished
+        # from unmigrated scopes by SQL shape alone.
+        if getattr(self, "_span_repass_done", False):
+            _LOGGER.debug(
+                "SPAN scope migration re-pass (%s): already ran this "
+                "process — skip", trigger,
+            )
+            return
+        self._span_repass_done = True
         import aiosqlite
         db = self.hass.data.get("universal_room_automation", {}).get("database")
         if db is None:
