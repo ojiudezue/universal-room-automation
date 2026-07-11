@@ -726,6 +726,153 @@ class TestD3Migration:
 
 
 # ---------------------------------------------------------------------------
+# v5.13.1 REGRESSION PIN: boot-ordering resumability
+#
+# Tonight's live incident: boot 1 ran `_restore_energy_baselines` BEFORE
+# span_panel populated hass.states → discover_circuits() returned no
+# SPAN circuits → all ~39 rows fell to mig_unmatched_left AND the sentinel
+# was written, permanently blocking re-migration in v5.13.0.
+#
+# These tests must go RED if anyone re-adds a sentinel/migration_done gate
+# on the friendly→unique or entity_id→unique rewrite branches.
+# ---------------------------------------------------------------------------
+
+class TestV5131BootOrderingResumability:
+    def test_boot1_empty_discovery_leaves_rows_then_boot2_migrates(
+        self, tmp_db, restore_fn,
+    ):
+        """Exact live scenario: boot 1 finds NO circuits → rows unmatched,
+        sentinel written. Boot 2 has discovery populated → rows migrate."""
+        # Legacy friendly-scoped row.
+        _insert_baseline(
+            tmp_db, "energy", "circuit_power", "Kitchen Outlets",
+            mean=120.5, variance=25.0, sample_count=250,
+        )
+        # Boot 1: span_panel not up yet — empty circuits.
+        coord_boot1 = _StubCoordinator(tmp_db, {})
+        _run(restore_fn(coord_boot1))
+        # Row still present at friendly_name (unmatched-left-in-place).
+        rows_after_boot1 = _fetch_baselines(tmp_db, "energy", "circuit_power")
+        assert any(r[2] == "Kitchen Outlets" for r in rows_after_boot1), (
+            "boot-1 with empty discovery must leave the row in place"
+        )
+        # Sentinel written on boot 1 (informational).
+        sentinel_after_boot1 = _fetch_baselines(tmp_db, "energy", "_migration")
+        assert len(sentinel_after_boot1) == 1
+
+        # Boot 2: span_panel is up — circuits + unique_ids available.
+        eid = "sensor.span_panel_kitchen_outlets_power"
+        circuits_boot2 = {
+            eid: _StubCircuit(eid, "Kitchen Outlets", "span_uid_kitchen"),
+        }
+        coord_boot2 = _StubCoordinator(tmp_db, circuits_boot2)
+        _run(restore_fn(coord_boot2))
+        # THE PIN: rewrite branch must have fired despite sentinel presence.
+        rows_after_boot2 = _fetch_baselines(tmp_db, "energy", "circuit_power")
+        scopes = {r[2] for r in rows_after_boot2}
+        assert "span_uid_kitchen" in scopes, (
+            "boot-2 MUST migrate the row now that discovery resolves — "
+            "if this fails, a sentinel/migration_done gate has been re-added "
+            "to the friendly→unique rewrite branch"
+        )
+        assert "Kitchen Outlets" not in scopes, (
+            "old friendly-scoped row must be deleted after boot-2 rewrite"
+        )
+        # sample_count preserved end-to-end.
+        migrated = [r for r in rows_after_boot2 if r[2] == "span_uid_kitchen"][0]
+        assert migrated[5] == 250, "sample_count lost across boot-1 + boot-2"
+        # Backup captured pre-migration row on boot 2.
+        backup = _fetch_backup(tmp_db)
+        assert any(r[2] == "Kitchen Outlets" and r[5] == 250 for r in backup)
+        # Baseline attached in-memory on boot 2.
+        assert eid in coord_boot2._circuits.restored_baselines
+        assert coord_boot2._circuits.restored_baselines[eid].sample_count == 250
+
+    def test_boot1_entity_id_scoped_row_upgrades_on_boot2(
+        self, tmp_db, restore_fn,
+    ):
+        """Same resumability guarantee for the entity_id→unique_id branch:
+        boot 1 discovery empty → row untouched, sentinel written; boot 2
+        with unique_id available upgrades the row."""
+        eid = "sensor.span_panel_dryer_power"
+        _insert_baseline(
+            tmp_db, "energy", "circuit_power", eid,
+            mean=55.0, variance=4.0, sample_count=88,
+        )
+        # Boot 1: empty circuits.
+        coord_boot1 = _StubCoordinator(tmp_db, {})
+        _run(restore_fn(coord_boot1))
+        assert any(r[2] == eid for r in _fetch_baselines(
+            tmp_db, "energy", "circuit_power"))
+        assert len(_fetch_baselines(tmp_db, "energy", "_migration")) == 1
+
+        # Boot 2: circuit resolves with a unique_id.
+        circuits_boot2 = {
+            eid: _StubCircuit(eid, "Dryer", "uid_dryer_stable"),
+        }
+        coord_boot2 = _StubCoordinator(tmp_db, circuits_boot2)
+        _run(restore_fn(coord_boot2))
+        rows = _fetch_baselines(tmp_db, "energy", "circuit_power")
+        scopes = {r[2] for r in rows}
+        assert "uid_dryer_stable" in scopes, (
+            "boot-2 MUST upgrade the entity_id-scoped row — "
+            "if this fails, a sentinel/migration_done gate has been re-added "
+            "to the entity_id→unique rewrite branch"
+        )
+        assert eid not in scopes, (
+            "old entity_id-scoped row must be deleted after boot-2 upgrade"
+        )
+        # sample_count preserved.
+        upgraded = [r for r in rows if r[2] == "uid_dryer_stable"][0]
+        assert upgraded[5] == 88
+
+    def test_boot3_after_full_migration_is_idempotent_debug(
+        self, tmp_db, restore_fn, caplog,
+    ):
+        """Boot 3 (after boots 1 + 2 above): row already at unique_id scope,
+        sentinel present — no further rewrites, summary at DEBUG."""
+        import logging as _logging
+        # Skip straight to the post-boot-2 state: v2-scoped row + sentinel.
+        _insert_baseline(
+            tmp_db, "energy", "circuit_power", "span_uid_kitchen",
+            mean=120.5, variance=25.0, sample_count=250,
+        )
+        _insert_baseline(
+            tmp_db, "energy", "_migration", "circuit_scope_v2",
+            sample_count=1,
+        )
+        eid = "sensor.span_panel_kitchen_outlets_power"
+        circuits = {
+            eid: _StubCircuit(eid, "Kitchen Outlets", "span_uid_kitchen"),
+        }
+        coord = _StubCoordinator(tmp_db, circuits)
+        pre_backup = _fetch_backup(tmp_db)
+        with caplog.at_level(_logging.DEBUG, logger="test.span_rekey"):
+            _run(restore_fn(coord))
+        # No new rewrites.
+        post_backup = _fetch_backup(tmp_db)
+        assert pre_backup == post_backup, "boot-3 must not touch backup table"
+        rows = _fetch_baselines(tmp_db, "energy", "circuit_power")
+        assert len(rows) == 1 and rows[0][2] == "span_uid_kitchen"
+        # Summary at DEBUG (no _rewrote_this_boot work).
+        info_msgs = [
+            r for r in caplog.records
+            if r.levelno >= _logging.INFO
+            and "SPAN scope migration" in r.getMessage()
+        ]
+        assert not info_msgs, (
+            f"boot-3 steady-state must summarise at DEBUG; got INFO: "
+            f"{[r.getMessage() for r in info_msgs]}"
+        )
+        debug_msgs = [
+            r for r in caplog.records
+            if r.levelno == _logging.DEBUG
+            and "SPAN scope migration" in r.getMessage()
+        ]
+        assert debug_msgs, "expected a DEBUG summary line on boot 3"
+
+
+# ---------------------------------------------------------------------------
 # F2 (Review B-HIGH-1): entity_id fallback attach + upgrade
 # ---------------------------------------------------------------------------
 
