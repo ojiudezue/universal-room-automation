@@ -4956,7 +4956,15 @@ class EnergyCoordinator(BaseCoordinator):
                             #    exit ramp; we no longer WARN each boot.
                             else:
                                 mig_unmatched_left.append(scope)
-                                _LOGGER.info(
+                                # v5.13.1 review MEDIUM-1: INFO on first boot
+                                # only; DEBUG once the sentinel exists so the
+                                # 3 known permanent orphans don't emit 3 INFO
+                                # lines every boot forever.
+                                _unmatched_log = (
+                                    _LOGGER.debug if sentinel_present
+                                    else _LOGGER.info
+                                )
+                                _unmatched_log(
                                     "Circuit baseline '%s' has no matching circuit "
                                     "(kept in place; manual DELETE if intentionally orphaned)",
                                     scope,
@@ -4965,20 +4973,28 @@ class EnergyCoordinator(BaseCoordinator):
                     # AFTER commit — disk state leads memory state so a crash
                     # doesn't leave RAM promising rows the DB doesn't have.
 
-                    # Insert / refresh the migration sentinel every boot.
-                    # It is informational (drives log verbosity) and its
-                    # presence never gates the rewrite branches — writing it
-                    # unconditionally is safe (INSERT OR REPLACE) and keeps
-                    # the row's last_updated as the most-recent migration
-                    # pass timestamp for observability.
-                    await conn.execute(
-                        "INSERT OR REPLACE INTO metric_baselines "
-                        "(coordinator_id, metric_name, scope, mean, variance, "
-                        " sample_count, last_updated) "
-                        "VALUES ('energy', '_migration', 'circuit_scope_v2', "
-                        " 0, 0, 1, ?)",
-                        (_migrated_at,),
+                    # Insert / refresh the migration sentinel. Informational
+                    # only — never gates the rewrite branches. v5.13.1 review
+                    # LOW-1: written when absent OR when rewrite work happened
+                    # this boot (keeps last_updated = most-recent productive
+                    # pass), skipped on steady-state boots (write-volume
+                    # discipline: zero needless writes per boot).
+                    # (computed inline — the aggregate `_rewrote_this_boot`
+                    # is only assembled after the transaction block)
+                    _sentinel_work = bool(
+                        mig_rewritten
+                        or mig_rewritten_from_entity_id
+                        or stale_unmapped
                     )
+                    if not sentinel_present or _sentinel_work:
+                        await conn.execute(
+                            "INSERT OR REPLACE INTO metric_baselines "
+                            "(coordinator_id, metric_name, scope, mean, variance, "
+                            " sample_count, last_updated) "
+                            "VALUES ('energy', '_migration', 'circuit_scope_v2', "
+                            " 0, 0, 1, ?)",
+                            (_migrated_at,),
+                        )
 
                     # F1: Unmapped-Tab prune folded into the same transaction so
                     # crash-mid-prune leaves the DB pre-migration.
