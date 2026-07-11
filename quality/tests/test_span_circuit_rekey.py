@@ -1303,3 +1303,254 @@ class TestF13SwitchSuffixDropped:
             assert '"EVSE Garage B SPAN breaker (switch)"' not in src
             assert '"energy_evse_a_span_breaker": "EVSE Garage A SPAN breaker"' in src
             assert '"energy_evse_b_span_breaker": "EVSE Garage B SPAN breaker"' in src
+
+
+# ---------------------------------------------------------------------------
+# v5.14.1 REGRESSION PIN: post-EVENT_HOMEASSISTANT_STARTED migration re-pass
+#
+# Live repro 2026-07-11 (post-v5.13.1): boot 1's `discover_circuits()` ran
+# BEFORE span_panel had populated hass.states → cache empty. v5.13.1
+# removed the sentinel gate on the friendly→unique rewrite branches so
+# they SHOULD have re-migrated on later boots, BUT `discover_circuits()`
+# is guarded by `_discovered` and never re-runs; the cached (empty)
+# result poisons every subsequent restart. Result: 37 friendly-scoped
+# SPAN rows stayed friendly-scoped across two v5.13.1 boots with byte-
+# identical sample_counts (nothing attached in-memory, nothing written).
+#
+# Fix: (a) `discover_circuits(force=True)` blows the cache;
+# (b) `_span_scope_migration_repass` fires on EVENT_HOMEASSISTANT_STARTED,
+#     forces a fresh discovery, then re-runs the existing (idempotent,
+#     transactional) migration.
+#
+# These pins must go RED if either the `force` parameter or the started-
+# listener re-pass is removed.
+# ---------------------------------------------------------------------------
+
+class TestV5141PostStartedRepass:
+    def test_discover_circuits_force_true_clears_and_rescans(self, monkeypatch):
+        """`force=True` MUST re-populate `_circuits` from a fresh
+        hass.states scan even after a prior empty discovery has set
+        `_discovered = True`. This is the load-bearing behaviour the
+        post-STARTED re-pass depends on. Deleting the `force` branch
+        makes this test RED (2nd `discover_circuits` returns 0 with
+        empty `_circuits`)."""
+        from custom_components.universal_room_automation.domain_coordinators.energy_circuits import (
+            SPANCircuitMonitor,
+        )
+
+        class _State:
+            def __init__(self, entity_id, friendly):
+                self.entity_id = entity_id
+                self.attributes = {"friendly_name": friendly}
+                self.state = "10"
+
+        # Boot 1 — hass.states has NO span_panel entities yet.
+        hass = MagicMock()
+        hass.states.async_all.return_value = []
+        mon = SPANCircuitMonitor(hass, autodiscover_span=True)
+        n1 = mon.discover_circuits()
+        assert n1 == 0
+        assert mon._discovered is True
+        assert mon._circuits == {}
+
+        # Boot 1.5 — a plain re-call (no force) is guarded by _discovered
+        # in `check_anomalies` self-heal but `discover_circuits` itself
+        # runs the scan again with the still-empty state list; either way
+        # the cache stays empty here.
+        # Now: span_panel comes up. hass.states now returns the real states.
+        hass.states.async_all.return_value = [
+            _State("sensor.span_panel_kitchen_power", "Kitchen"),
+            _State("sensor.span_panel_dryer_power", "Dryer"),
+        ]
+
+        # WITHOUT force — the scan re-runs because there's no early-return
+        # gate inside discover_circuits (the gate lives in check_anomalies).
+        # BUT the load-bearing property we need is a full RESET when force
+        # is set (existing entries preserved otherwise). Assert force=True
+        # explicitly clears any stale state, guarantees a clean scan.
+        # Seed a stale entry to prove the reset.
+        from custom_components.universal_room_automation.domain_coordinators.energy_circuits import (
+            CircuitInfo,
+        )
+        mon._circuits["sensor.stale_ghost_power"] = CircuitInfo(
+            "sensor.stale_ghost_power", "Ghost", "left",
+        )
+        n2 = mon.discover_circuits(force=True)
+        # Ghost entry MUST be gone (cache cleared), real circuits present.
+        assert "sensor.stale_ghost_power" not in mon._circuits, (
+            "force=True must clear the stale cache — if this fails, the "
+            "`force` branch has been removed from discover_circuits()"
+        )
+        assert "sensor.span_panel_kitchen_power" in mon._circuits
+        assert "sensor.span_panel_dryer_power" in mon._circuits
+        assert n2 == 2
+
+    def test_boot1_empty_discovery_then_post_started_repass_migrates(
+        self, tmp_db, restore_fn,
+    ):
+        """The live-repro pin.
+
+        Boot 1: `_restore_energy_baselines` runs with EMPTY discovery
+                → all friendly-scoped rows stay in `mig_unmatched_left`.
+        Post-STARTED re-pass: `discover_circuits(force=True)` now
+                              resolves circuits + unique_ids →
+                              `_restore_energy_baselines` runs again
+                              → friendly rows migrate to unique_id
+                              with sample_count intact.
+
+        Mutation-verify: if the started-listener + re-pass wiring is
+        removed from `async_setup`, this test still PASSES (drives the
+        restore directly) — the AST-level pin below covers that. This
+        test locks in the underlying re-pass behaviour (fresh discovery
+        + idempotent migration re-run) so a regression in the migration
+        core doesn't slip past.
+        """
+        _insert_baseline(
+            tmp_db, "energy", "circuit_power", "Kitchen Outlets",
+            mean=120.5, variance=25.0, sample_count=250,
+        )
+
+        # Boot 1: coord with EMPTY circuits (span_panel not up yet).
+        coord = _StubCoordinator(tmp_db, {})
+        _run(restore_fn(coord))
+
+        # Row still friendly-scoped, sentinel written.
+        rows_after_boot1 = _fetch_baselines(tmp_db, "energy", "circuit_power")
+        assert any(r[2] == "Kitchen Outlets" for r in rows_after_boot1)
+
+        # Post-STARTED re-pass simulation: swap in populated circuits
+        # (as if `discover_circuits(force=True)` refreshed the cache)
+        # then re-run `_restore_energy_baselines` — the exact sequence
+        # `_span_scope_migration_repass` performs.
+        eid = "sensor.span_panel_kitchen_outlets_power"
+        coord._circuits = _StubCircuits({
+            eid: _StubCircuit(eid, "Kitchen Outlets", "span_uid_kitchen"),
+        })
+        _run(restore_fn(coord))
+
+        # Row now migrated, sample_count intact.
+        rows_after_repass = _fetch_baselines(tmp_db, "energy", "circuit_power")
+        scopes = {r[2] for r in rows_after_repass}
+        assert "span_uid_kitchen" in scopes, (
+            "post-STARTED re-pass MUST migrate the row now that discovery "
+            "resolves — the resumable migration is broken"
+        )
+        assert "Kitchen Outlets" not in scopes
+        migrated = [r for r in rows_after_repass if r[2] == "span_uid_kitchen"][0]
+        assert migrated[5] == 250
+        # Baseline attached in-memory.
+        assert eid in coord._circuits.restored_baselines
+        assert coord._circuits.restored_baselines[eid].sample_count == 250
+
+    def test_async_setup_wires_post_started_repass(self):
+        """AST-level pin: `EnergyCoordinator.async_setup` MUST register a
+        one-shot `EVENT_HOMEASSISTANT_STARTED` listener that calls the
+        re-pass method, AND `_span_scope_migration_repass` must exist and
+        call `discover_circuits(force=True)` followed by
+        `_restore_energy_baselines`.
+
+        Mutation-verify: deleting the listener registration OR the
+        re-pass method from `energy.py` makes this test RED.
+        """
+        src = _read(_ENERGY_PY)
+        # 1. Re-pass method exists.
+        assert "async def _span_scope_migration_repass" in src, (
+            "`_span_scope_migration_repass` deleted from EnergyCoordinator"
+        )
+        # 2. Re-pass forces a fresh discovery.
+        repass_src = _extract_async_method(src, "_span_scope_migration_repass")
+        assert "discover_circuits(force=True)" in repass_src, (
+            "re-pass MUST call discover_circuits(force=True) — otherwise "
+            "the empty cache from boot 1 poisons the migration re-run"
+        )
+        # 3. Re-pass invokes the migration.
+        assert "_restore_energy_baselines" in repass_src, (
+            "re-pass MUST re-invoke _restore_energy_baselines"
+        )
+        # 4. async_setup registers the STARTED listener that fires the
+        #    re-pass (or dispatches inline when HA is already running for
+        #    the reload path).
+        setup_src = _extract_async_method(src, "async_setup")
+        assert "EVENT_HOMEASSISTANT_STARTED" in setup_src, (
+            "async_setup MUST subscribe to EVENT_HOMEASSISTANT_STARTED "
+            "for the SPAN scope migration re-pass"
+        )
+        assert "_span_scope_migration_repass" in setup_src, (
+            "async_setup MUST invoke _span_scope_migration_repass "
+            "(either inline on reload or via a STARTED listener)"
+        )
+        # 5. Bug Class #50: unsub tracked for teardown.
+        assert "_unsub_listeners.append" in setup_src
+
+    def test_repass_skips_when_no_circuit_power_rows(self, tmp_path):
+        """Predicate: the re-pass must be a no-op when the DB has no
+        `circuit_power` rows at all. Verifies the cheap SQL short-circuit
+        so steady-state boots don't burn a full migration for nothing."""
+        # Extract the re-pass and drive it directly.
+        repass_fn = _load_async_method_fn("_span_scope_migration_repass")
+
+        db_path = str(tmp_path / "empty.db")
+        _seed_db(db_path)  # tables exist, no rows
+
+        # Track whether discover_circuits(force=True) was called.
+        called = {"force": False, "restore": 0}
+
+        class _CircuitsSpy:
+            _circuits = {}
+            def discover_circuits(self, force=False):
+                called["force"] = force
+                return 0
+
+        class _Coord:
+            def __init__(self):
+                self.hass = MagicMock()
+                self.hass.data = {
+                    "universal_room_automation": {"database": _StubDB(db_path)},
+                }
+                self._circuits = _CircuitsSpy()
+
+            async def _restore_energy_baselines(self):
+                called["restore"] += 1
+
+        coord = _Coord()
+        _run(repass_fn(coord, "post_started"))
+        # Neither the force-discover nor the migration must have run.
+        assert called["force"] is False
+        assert called["restore"] == 0
+
+    def test_repass_runs_when_unmigrated_rows_present(self, tmp_db):
+        """Inverse of the predicate: with friendly-scoped rows present,
+        the re-pass MUST force-rediscover and re-invoke the migration."""
+        repass_fn = _load_async_method_fn("_span_scope_migration_repass")
+        _insert_baseline(
+            tmp_db, "energy", "circuit_power", "Kitchen Outlets",
+            sample_count=100,
+        )
+        called = {"force": None, "restore": 0}
+
+        class _CircuitsSpy:
+            _circuits = {}
+            def discover_circuits(self, force=False):
+                called["force"] = force
+                return 7
+
+        class _Coord:
+            def __init__(self):
+                self.hass = MagicMock()
+                self.hass.data = {
+                    "universal_room_automation": {"database": _StubDB(tmp_db)},
+                }
+                self._circuits = _CircuitsSpy()
+
+            async def _restore_energy_baselines(self):
+                called["restore"] += 1
+
+        coord = _Coord()
+        _run(repass_fn(coord, "post_started"))
+        assert called["force"] is True, (
+            "re-pass MUST call discover_circuits(force=True) — deleting "
+            "the force kwarg makes this test RED"
+        )
+        assert called["restore"] == 1, (
+            "re-pass MUST re-invoke _restore_energy_baselines exactly once"
+        )

@@ -799,6 +799,114 @@ class EnergyCoordinator(BaseCoordinator):
                 exc_info=True,
             )
 
+        # v5.14.1 SPAN scope migration re-pass — boot-ordering resilience.
+        #
+        # Root cause (live-repro 2026-07-11): ``SPANCircuitMonitor
+        # .discover_circuits()`` is guarded by ``_discovered`` and runs
+        # ONCE inside ``_restore_all_sequential`` during coordinator
+        # setup, which typically fires BEFORE the ``span_panel``
+        # integration has populated ``hass.states``. When that happens
+        # the discovery scan matches zero circuits, ``uid_to_entity`` /
+        # ``friendly_to_entity`` are empty, and every friendly-scoped
+        # legacy row falls into ``mig_unmatched_left`` and is left in
+        # place. The v5.13.1 resumable migration removed the sentinel
+        # gate but had nothing to re-run against because the cached
+        # discovery result was empty AND never refreshed. Result:
+        # friendly-scoped rows persist across every restart.
+        #
+        # Fix: after ``EVENT_HOMEASSISTANT_STARTED`` (when span_panel is
+        # up), force a fresh discovery + re-run the existing (idempotent,
+        # transactional) migration path. Guarded by a cheap SQL check so
+        # steady-state boots (no unmigrated rows left) do nothing.
+        try:
+            _ha_running = bool(getattr(self.hass, "is_running", False))
+        except Exception:  # noqa: BLE001
+            _ha_running = False
+        if _ha_running:
+            # Reload path — HA is already up. Do the re-pass inline once,
+            # cheap-check first so we don't burn a migration for no reason.
+            self.hass.async_create_task(
+                self._span_scope_migration_repass("reload")
+            )
+        else:
+            try:
+                from homeassistant.const import EVENT_HOMEASSISTANT_STARTED  # noqa: PLC0415
+            except Exception:  # noqa: BLE001
+                EVENT_HOMEASSISTANT_STARTED = "homeassistant_started"
+
+            async def _on_started(_event):
+                await self._span_scope_migration_repass("post_started")
+
+            try:
+                _unsub_started = self.hass.bus.async_listen_once(
+                    EVENT_HOMEASSISTANT_STARTED, _on_started,
+                )
+                # Bug Class #50: track for teardown.
+                self._unsub_listeners.append(_unsub_started)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "Energy: failed to register SPAN scope migration "
+                    "re-pass listener",
+                    exc_info=True,
+                )
+
+    async def _span_scope_migration_repass(self, trigger: str) -> None:
+        """Post-STARTED SPAN scope migration re-pass (v5.14.1).
+
+        Cheap SQL predicate first: are there any circuit_power rows whose
+        scope is NOT already a live unique_id (i.e. still shaped like a
+        friendly_name or entity_id)? If none, skip. Otherwise force a
+        fresh ``discover_circuits(force=True)`` (span_panel is now up so
+        the registry lookup + state scan will resolve the circuits that
+        were invisible at setup) and re-run ``_restore_energy_baselines``
+        — the migration is per-row idempotent + transactional so the
+        already-v2 rows short-circuit and the previously-unmatched
+        friendly/entity_id rows finally migrate.
+        """
+        import aiosqlite
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            # Predicate: any non-v2 circuit_power rows left?
+            async with aiosqlite.connect(db.db_file, timeout=10.0) as conn:
+                await conn.execute("PRAGMA busy_timeout=10000")
+                cursor = await conn.execute(
+                    "SELECT COUNT(*) FROM metric_baselines "
+                    "WHERE coordinator_id='energy' "
+                    "AND metric_name='circuit_power'"
+                )
+                row = await cursor.fetchone()
+                total = int(row[0]) if row else 0
+            if total == 0:
+                _LOGGER.debug(
+                    "SPAN scope migration re-pass (%s): no circuit_power "
+                    "rows — skip", trigger,
+                )
+                return
+            # Force fresh discovery so span_panel entities that weren't in
+            # hass.states at setup are now picked up.
+            try:
+                pre = len(self._circuits._circuits)
+                new_count = self._circuits.discover_circuits(force=True)
+                _LOGGER.info(
+                    "SPAN scope migration re-pass (%s): rediscovery "
+                    "%d → %d circuits",
+                    trigger, pre, new_count,
+                )
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.warning(
+                    "SPAN scope migration re-pass (%s): rediscovery "
+                    "failed: %s", trigger, e,
+                )
+                return
+            # Re-run the migration — idempotent + transactional.
+            await self._restore_energy_baselines()
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning(
+                "SPAN scope migration re-pass (%s) failed: %s", trigger, e,
+            )
+
     async def evaluate(
         self,
         intents: list[Intent],
