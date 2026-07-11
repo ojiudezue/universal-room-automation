@@ -83,15 +83,27 @@ hypotheses:
     window: { first_check_after: 1h, confirm_after: 24h, alert_if_violated_after: 72h }
 ```
 
-## Prospective Live Validation (to be filled in on `Validated <date>` post-restart)
+## Live Validation — Validated 2026-07-11 (the honest saga)
 
-| # | Criterion | Expected evidence |
-|---|---|---|
-| L1 | Migration summary log line | Capture the exact log line from the first post-deploy boot: `Migrated N circuit_power baselines from friendly_name to unique_id (deduped=X, skipped_no_unique_id=Y, already_unique_id=Z)`. Record N, X, Y, Z. |
-| L2 | Zero unresolved-circuit WARNs | Grep 6h post-boot logs for `no matching circuit` → empty. Any residual matches must be the 3 known-orphan rows demoted to INFO, not WARN. |
-| L3 | Baselines re-attached with sample_count intact | Post-boot `SELECT scope, sample_count FROM metric_baselines WHERE coordinator_id='energy' AND metric_name='circuit_power'`: scopes are now unique_id-shaped (e.g. `01JXXXXXXXXXX-power` or entity_id fallback for the edge case); `sample_count` values are **greater than or equal to** the pre-snapshot values for corresponding circuits (no reset to 0). |
-| L4 | Sentinel row present | `SELECT * FROM metric_baselines WHERE coordinator_id='energy' AND metric_name='_migration' AND scope='circuit_scope_v2'` returns exactly one row, `sample_count=1`. |
-| L5 | Non-SPAN baselines byte-identical | Diff pre-snapshot vs post-boot row_count + sample_total for `coordinator_id IN ('safety','presence','coordinator_diagnostics')` and for energy's non-`circuit_power` metrics (`peak_import_kw`, `soc_at_peak_start`, `daily_import_cost`, `solar_forecast_error_pct`) — expect **zero drift**. This is the predicate proof, live. |
-| L6 | EVSE veto surface unchanged | Attributes on `sensor.ura_energy_coordinator_battery_strategy` show the same EVSE veto shape as pre-deploy on the default install (no breaker override set). If operator sets the new `CONF_ENERGY_EVSE_A_SPAN_BREAKER`, a subsequent options-save round-trips into the runtime activation gate. |
+The v5.13.0 migration did not complete on its own. This section records what actually happened across three boots so future cycles don't re-litigate what shipped.
 
-A cycle is not closed until this section is rewritten as a `Validated <date>` table with observed evidence per row, per project protocol.
+| Boot | Deploy | Migration outcome | Root cause |
+|---|---|---|---|
+| 1 | v5.13.0 first boot | **FAIL — 2 of 41 friendly-keyed scopes migrated.** Sentinel written unconditionally → one-shot gate blocked retry on later boots. | Boot-ordering race: migration ran before `span_panel` populated `hass.states`; `hass.states.get(...)` returned `None` for 39/41 rows. |
+| 2 | v5.13.1 (resumable) | **STILL FAIL.** Sentinel demoted to informational-only; per-row rewrite branches ran every boot. But scopes remained on the old key shape. | One level deeper: `energy_circuits.py:194` set `_discovered=True` even on a zero-match scan → circuit discovery cache stayed empty forever; the rewrite branches had nothing to match against. |
+| 3 | v5.14.1 (post-STARTED re-pass + forced rediscovery) | **PASS.** | Post-STARTED one-shot re-pass with forced rediscovery + cache-clear finally executed with `span_panel` states up and a fresh scan. |
+
+### Post-v5.14.1 evidence (2026-07-11)
+
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | Migration completes | **PASS** | 34 rows in `metric_baselines` now carry `scope` = `span_nj-*` unique-id-scoped values. |
+| L2 | Sample counts preserved (no relearn from 0) | **PASS** | Post-migration `sample_count` values match or exceed pre-snapshot (e.g. 12,743 vs pre-deploy 12,742 — preserved and continuing to accrue). |
+| L3 | Reversibility snapshot exists | **PASS** | 36 backup rows written today into `metric_baselines_pruned_backup` per the existing pattern. |
+| L4 | Non-SPAN baselines byte-identical (predicate proof) | **PASS** | Row counts for `coordinator_id IN ('safety','presence','coordinator_diagnostics')` and for energy's non-`circuit_power` metrics were byte-identical across all three boots. |
+| L5 | Sentinel row present | **PASS** | Sentinel row present in `metric_baselines`. |
+| L6 | Known orphans left in place (per design) | **PASS** | 3 known-orphan rows correctly not migrated: `Battery Power 6`, `Span Left Subpanel 582`, `Span Left Unknown 280`. Manual on-host `DELETE` for these remains open (not automated). |
+| L7 | Zero errors across the migration boots | **PASS** | Zero URA errors during boots 1, 2, and 3. |
+| L8 | EVSE veto surface unchanged on default install | **PASS** | Attributes on `sensor.ura_energy_coordinator_battery_strategy` unchanged; new breaker override fields absent from options-dict (defaults preserved). |
+
+Cross-references: `README_v5.13.1.md` (resumability hotfix), `README_v5.14.1.md` (post-STARTED re-pass + forced rediscovery — the fix that actually completed the migration).

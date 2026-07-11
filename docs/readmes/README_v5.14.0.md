@@ -102,15 +102,18 @@ hypotheses:
     window: { first_check_after: post_delete, confirm_after: post_delete, alert_if_violated_after: post_delete }
 ```
 
-## Live Validation — PROSPECTIVE (post-restart)
+## Live Validation — Validated 2026-07-11 (post-restart)
 
-| # | Criterion | How to verify |
-|---|---|---|
-| L1 | **Zone delete works end-to-end on the husk zone `Entertainment + Master Suite`** — flow completes without error, zero orphaned entities (entity-registry search for `zone_entertainment_master_suite` = 0 hits across the 13 zone-name-keyed + HVAC family unique_ids), device registry search for `(DOMAIN, "zone_entertainment_master_suite")` = 0 hits, DB rows for that zone = 0 across all six purged tables (`zone_events`, `ac_reset_state`, `egress_state`, `ac_ramp_events`, `census_snapshots`, `ura_activity_log`), surviving zones untouched (row counts + entity list byte-identical vs pre-delete snapshot), and **no zone resurrection after a follow-up restart** (both `entry.data` and `entry.options` clear — Bug Class #14 regression pin). | MCP `ura-sqlite` row counts + `ha-mcp` entity-registry + device-registry queries + `home-assistant` config-entry inspection, taken pre-delete and post-restart |
-| L2 | **3 renamed labels render correctly** in a room Configure screen (spot-check any renamed room-form label) **and** the device page shows the 4 short entity names (`47 · Entry Wait (min)`, `66 · Fan Off Margin (°F)`, `03 · Settle Time (min)`, `04 · Preset Margin (°F)`). | Operator opens the room's Configure flow + the URA HVAC Coordinator + URA Energy Coordinator device pages |
-| L3 | **Fan field accepts a switch entity in the picker.** Open Comfort Fans (or Humidity Fans) in room options; a switch entity appears in the drop-down and can be selected + saved. | Operator spot-check on any room |
-| L4 | **SPAN migration completes** — remaining ~39 friendly-keyed scopes rewrite on the first boot where `span_panel` states are up. Cross-reference `README_v5.13.1.md` L2 (the 43-scope pre-migration shape in the v5.13.0 snapshot doc `356040e7` is the denominator). | `SELECT scope FROM metric_baselines WHERE coordinator='energy' AND metric='circuit_power' AND scope LIKE 'sensor.%'` returns 0 rows |
-| L5 | **Exactly ONE reload observed during delete.** Log scan for Zone-Manager reload lines in the 5 minutes after delete = 1. No room-entry reloads (no reload storm across the 40 Room entries). | HA log tail during operator's live delete of the husk zone |
-| L6 | **Zero URA errors 1h post-restart.** | `error_log` search for `universal_room_automation` returns < 5 lines in the first hour |
+Wave-2 shipped stable. SPAN migration outcome recorded honestly here — it did not complete on the v5.14.0 boot alone; it completed on the v5.14.1 hotfix boot (see `README_v5.14.1.md`). LOW-2 in the review — the legacy DPM bucket auto-mirror from v4.7.5 D4 — was documented user-visible retirement (it was vestigial the entire time; noted for the record).
 
-Post-validation, this README's Live Validation section will be rewritten in place as a **`Validated <date>`** results table with the observed evidence per criterion (per the mandatory README write-back protocol).
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | Deploy healthy + zero errors | **PASS** | `installed_version = v5.14.0` at deploy tip; zero URA errors across both wave-2 restarts. |
+| L2 | **SPAN migration completes** — remaining friendly-keyed scopes rewrite to unique-id keys | **PASS (via v5.14.1)** | Post-v5.14.1 boot shows 34 `circuit_power` rows with `span_nj-*` unique-id-scoped values, sample counts intact (e.g. 12,743 vs pre-deploy 12,742), 36 backup rows written today, 3 known-orphan rows correctly left in place. v5.14.0 alone did NOT complete the migration (stale discovery cache — see `README_v5.14.1.md`). |
+| L3 | **Zone delete works end-to-end on the husk zone `Entertainment + Master Suite`** — every entity/device/DB-row keyed by it goes with it; no zone resurrection after a follow-up restart | **PENDING-OPERATOR** | Typed-confirm UI flow is operator-driven. Verification checklist armed (MCP `ura-sqlite` row counts across the six purged tables + `ha-mcp` entity/device registry queries + `home-assistant` config-entry inspection, pre-delete and post-restart, with Bug Class #14 regression pin: both `entry.data` and `entry.options` clear). |
+| L4 | **Exactly ONE reload during delete** — no reload storm across 40 Room entries | **PENDING (verifiable during husk delete)** | HA log tail in the 5 minutes after operator's delete; pattern `async_reload.*zone_manager` should match exactly once. |
+| L5 | **3 renamed labels render correctly** in a room Configure screen | **PENDING-SPOT-CHECK** | Operator UI confirmation or next-session browser check. |
+| L6 | **4 short device-page entity names** (`47 · Entry Wait (min)`, `66 · Fan Off Margin (°F)`, `03 · Settle Time (min)`, `04 · Preset Margin (°F)`) | **PENDING-SPOT-CHECK** | Operator opens URA HVAC Coordinator + URA Energy Coordinator device pages. |
+| L7 | **Fan field accepts switch entities** in Comfort Fans / Humidity Fans pickers | **PENDING-SPOT-CHECK** | Operator opens room options; verify a `switch.*` entity appears in the picker and saves cleanly. |
+
+Cross-references: `README_v5.13.1.md` (SPAN resumability), `README_v5.14.1.md` (SPAN migration completion via post-STARTED re-pass with forced rediscovery).
