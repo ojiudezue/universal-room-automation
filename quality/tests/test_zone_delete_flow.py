@@ -970,3 +970,148 @@ def test_deferred_integration_tests_documented():
     assert len(DEFERRED_INTEGRATION_TESTS) == 4
     for _name, rationale in DEFERRED_INTEGRATION_TESTS.items():
         assert "Live-validation" in rationale or "Live" in rationale
+
+
+# ---------------------------------------------------------------------------
+# 19. R7 branch — thermostat-configured + zone_id unresolvable aborts with
+#     `zone_delete_hvac_not_ready`; husk zones proceed past the guard.
+#
+#     Post-review P3 addition. Two-part coverage:
+#       (a) STATIC: production body contains the exact abort key + guard
+#           token shape (parallels test #11 pattern), so a silent
+#           removal of the guard goes RED here without HA runtime.
+#       (b) DYNAMIC (thermostat + coord_down): drive
+#           async_step_zone_delete_confirm with a stubbed
+#           _summarize_zone_deletion that returns resolve_status=coord_down
+#           and thermostat_entity set — expect abort key.
+#       (c) DYNAMIC (husk, no thermostat): same driver with
+#           thermostat_entity="" — the R7 guard must be skipped and the
+#           form (or later step) must be reached (i.e. NO
+#           zone_delete_hvac_not_ready abort).
+# ---------------------------------------------------------------------------
+
+
+def test_r7_hvac_not_ready_guard_static_shape():
+    """P3 (a): STATIC assertion — the R7 guard body contains the abort
+    reason key AND references thermostat_entity AND references
+    resolve_status. Fires without HA runtime; a silent guard removal
+    (e.g. dropping the abort or gating the wrong summary field) goes
+    RED here.
+    """
+    text = _CONFIG_FLOW_PY.read_text()
+    m = re.search(
+        r"async def async_step_zone_delete_confirm\(.*?"
+        r"async def _delete_zone\(",
+        text, re.DOTALL,
+    )
+    assert m is not None, "async_step_zone_delete_confirm body not located"
+    body = m.group(0)
+    assert 'reason="zone_delete_hvac_not_ready"' in body, (
+        "R7 abort key missing — someone dropped the guard "
+        "(post-review P3)."
+    )
+    assert 'summary["resolve_status"]' in body, (
+        "R7 guard must read resolve_status from summary (post-review P3)."
+    )
+    assert 'summary.get("thermostat_entity")' in body, (
+        "R7 guard must read thermostat_entity from summary (post-review P3)."
+    )
+    # Guard shape: coord_down OR unknown, AND thermostat set.
+    assert '"coord_down"' in body and '"unknown"' in body, (
+        "R7 guard must trigger on both coord_down and unknown "
+        "resolve_status values (post-review P3)."
+    )
+
+
+def _drive_confirm_step(resolve_status: str, thermostat_entity: str):
+    """P3 dynamic driver — instantiate OptionsFlow, stub the
+    summarize helper, run async_step_zone_delete_confirm to completion.
+    """
+    import importlib
+    import sys
+    root_str = str(_ROOT)
+    if root_str not in sys.path:
+        sys.path.insert(0, root_str)
+    try:
+        cf = importlib.import_module(
+            "custom_components.universal_room_automation.config_flow"
+        )
+    except Exception as e:
+        pytest.skip(f"config_flow import failed: {e}")
+    cls = getattr(cf, "UniversalRoomAutomationOptionsFlow", None)
+    if cls is None:
+        pytest.skip("OptionsFlow class not exposed")
+    flow = cls.__new__(cls)
+    flow.hass = MagicMock()
+    # ZM entry PRESENT — bypass the legacy fall-through.
+    zm_entry = MagicMock()
+    zm_entry.data = {}
+    flow.hass.config_entries.async_entries.return_value = []  # no legacy dup
+    flow._selected_zone_name = "TestZone"
+    flow._config_entry = MagicMock()
+
+    def _find_zm():
+        return zm_entry
+    flow._find_zone_manager_entry = _find_zm
+
+    async def _fake_summary(_name):
+        return {
+            "n_entities": 0,
+            "n_rooms": 0,
+            "n_db_rows": 0,
+            "n_tables": 6,
+            "thermostat_entity": thermostat_entity,
+            "resolve_status": resolve_status,
+            "zone_id": None,
+            "room_entry_ids": [],
+        }
+    flow._summarize_zone_deletion = _fake_summary
+
+    captured = {}
+
+    def _fake_abort(reason=None):
+        captured["type"] = "abort"
+        captured["reason"] = reason
+        return {"type": "abort", "reason": reason}
+
+    def _fake_show_form(**kwargs):
+        captured["type"] = "form"
+        captured["step_id"] = kwargs.get("step_id")
+        return {"type": "form", "step_id": kwargs.get("step_id")}
+
+    flow.async_abort = _fake_abort
+    flow.async_show_form = _fake_show_form
+
+    async def _run():
+        return await flow.async_step_zone_delete_confirm()
+
+    result = asyncio.run(_run())
+    return result, captured
+
+
+def test_r7_thermostat_configured_and_coord_down_aborts():
+    """P3 (b) DYNAMIC: thermostat is configured but the HVAC coord is
+    down (or resolution status is unknown). The guard must abort with
+    `zone_delete_hvac_not_ready` rather than silently falling through
+    to husk delete (which would skip id-keyed table purge).
+    """
+    result, _ = _drive_confirm_step(
+        resolve_status="coord_down",
+        thermostat_entity="climate.upstairs",
+    )
+    assert result.get("reason") == "zone_delete_hvac_not_ready"
+
+
+def test_r7_husk_zone_bypasses_guard():
+    """P3 (c) DYNAMIC: husk zone (no thermostat_entity) with the SAME
+    resolve_status must NOT trigger the R7 abort — the guard is
+    thermostat-conditional. The step falls through to the form.
+    """
+    result, _ = _drive_confirm_step(
+        resolve_status="coord_down",
+        thermostat_entity="",
+    )
+    assert result.get("reason") != "zone_delete_hvac_not_ready"
+    # Fall-through path: the form is shown for the typed-name confirm.
+    assert result.get("type") == "form"
+    assert result.get("step_id") == "zone_delete_confirm"

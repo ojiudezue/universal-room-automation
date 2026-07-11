@@ -1105,7 +1105,8 @@ class HVACCoordinator(BaseCoordinator):
         # heat_cool on the next decision cycle. This is by design — heat_cool
         # still heats via the low setpoint and the operator does not rely on
         # single-mode heat. Do NOT "re-fix" this by adding a heat exemption.
-        for zone_id, zone in self._zone_manager.zones.items():
+        # snapshot: zones dict may be pruned by _handle_zm_zones_updated mid-await
+        for zone_id, zone in list(self._zone_manager.zones.items()):
             if self._egress_manager.is_paused(zone_id):
                 continue
             if (
@@ -1155,7 +1156,8 @@ class HVACCoordinator(BaseCoordinator):
         )
 
         zi = self._zone_intelligence_enabled
-        for zone_id, zone in self._zone_manager.zones.items():
+        # snapshot: zones dict may be pruned by _handle_zm_zones_updated mid-await
+        for zone_id, zone in list(self._zone_manager.zones.items()):
             # v4.7.8 D8: Skip preset apply for zones paused by EgressManager.
             # Preset restoration happens on resume; applying here would push
             # a preset to an off compressor and the restore would override it.
@@ -1522,7 +1524,8 @@ class HVACCoordinator(BaseCoordinator):
             if target_preset is None:
                 return
 
-            for zone_id, zone in self._zone_manager.zones.items():
+            # snapshot: zones dict may be pruned by _handle_zm_zones_updated mid-await
+            for zone_id, zone in list(self._zone_manager.zones.items()):
                 # v4.7.8 fix-up C-H1 (plan §D8 spec gap): DPM apply must
                 # skip egress-paused zones. Ecobee thermostats re-engage
                 # mode on set_temperature after an explicit off, silently
@@ -1696,24 +1699,42 @@ class HVACCoordinator(BaseCoordinator):
             return
         # 1) In-memory prune: if we know the zone_id, drop it; otherwise
         #    fall back to matching by zone_name.
+        #
+        # Concurrency note (P1): this mutates the live zones dict shared
+        # with HVAC iteration loops. Callers that iterate `zones` with an
+        # await in the loop body MUST snapshot via `list(...)` — see the
+        # snapshotted sites at hvac.py:1108, 1158, 1525, 1825 (and mirror
+        # sites in hvac_override.py, hvac_predict.py). The try/except here
+        # is a defense-in-depth belt so a raced pop cannot crash the
+        # dispatcher; the primary correctness contract is the caller-side
+        # snapshot.
         try:
             zm = self._zone_manager
             zones = getattr(zm, "_zones", None) or getattr(zm, "zones", None) or {}
             pruned_ids: list[str] = []
-            if deleted_id and deleted_id in zones:
-                zones.pop(deleted_id, None)
-                pruned_ids.append(deleted_id)
-            else:
-                # zone_id-unknown path: scan by zone_name.
-                for zid in list(zones.keys()):
-                    zs = zones.get(zid)
-                    zname = getattr(zs, "zone_name", "") or ""
-                    if zname == deleted_name or (
-                        " + " in zname
-                        and deleted_name in [p.strip() for p in zname.split(" + ")]
-                    ):
-                        zones.pop(zid, None)
-                        pruned_ids.append(zid)
+            try:
+                if deleted_id and deleted_id in zones:
+                    zones.pop(deleted_id, None)
+                    pruned_ids.append(deleted_id)
+                else:
+                    # zone_id-unknown path: scan by zone_name.
+                    for zid in list(zones.keys()):
+                        zs = zones.get(zid)
+                        zname = getattr(zs, "zone_name", "") or ""
+                        if zname == deleted_name or (
+                            " + " in zname
+                            and deleted_name in [p.strip() for p in zname.split(" + ")]
+                        ):
+                            zones.pop(zid, None)
+                            pruned_ids.append(zid)
+            except (KeyError, RuntimeError) as pop_err:  # noqa: BLE001
+                # RuntimeError: dict mutated during another consumer's
+                # iteration (defense-in-depth; snapshotting is the real fix).
+                # KeyError: raced pop from a concurrent handler.
+                _LOGGER.warning(
+                    "HVAC: raced zone prune for %r (id=%r): %s",
+                    deleted_name, deleted_id, pop_err,
+                )
             if pruned_ids:
                 _LOGGER.info(
                     "HVAC: pruned %d zone(s) from ZoneManager for deleted "
@@ -1732,19 +1753,20 @@ class HVACCoordinator(BaseCoordinator):
                 if not isinstance(stored, dict):
                     return
                 changed = False
+                # zone_id-only matching is sufficient here:
+                #   - The persisted snapshot payload never carries
+                #     `zone_name` (see hvac_zones.get_state_snapshot at
+                #     hvac_zones.py:631-648 — keys are last_occupied_time,
+                #     vacancy_sweep_done, zone_presence_state, ...).
+                #   - When deleted_id is unknown, that path is the
+                #     thermostat-configured coord_down/unknown case,
+                #     which R7 (config_flow.py:7492-7502) aborts BEFORE
+                #     dispatch. Husk zones (no thermostat) never enter
+                #     this store, so name-based fallback is dead code.
                 for zid in list(stored.keys()):
                     if zid == "__person_zone_map":
                         continue
                     if deleted_id and zid == deleted_id:
-                        stored.pop(zid, None)
-                        changed = True
-                        continue
-                    # zone_id-unknown fallback: also drop entries whose
-                    # snapshot payload names the deleted zone.
-                    payload_zn = ""
-                    if isinstance(stored[zid], dict):
-                        payload_zn = stored[zid].get("zone_name", "") or ""
-                    if payload_zn == deleted_name:
                         stored.pop(zid, None)
                         changed = True
                 if changed:
@@ -1822,7 +1844,8 @@ class HVACCoordinator(BaseCoordinator):
         """
         from ..const import CONF_FANS
 
-        for zone_id, zone in self._zone_manager.zones.items():
+        # snapshot: zones dict may be pruned by _handle_zm_zones_updated mid-await
+        for zone_id, zone in list(self._zone_manager.zones.items()):
             for room_name in zone.rooms:
                 coordinator = self._get_room_coordinator(room_name)
                 if coordinator is None:

@@ -567,7 +567,8 @@ class HVACPredictor:
             else:
                 self._energy_precool_scope_effective = scope
 
-            for zone_id, zone in self._zone_manager.zones.items():
+            # snapshot: zones dict may be pruned by _handle_zm_zones_updated mid-await
+            for zone_id, zone in list(self._zone_manager.zones.items()):
                 is_occupied = bool(
                     getattr(zone, "any_room_occupied", False)
                 )
@@ -630,7 +631,8 @@ class HVACPredictor:
         # belt — pre_arrival_zones should be empty during away anyway, but the
         # explicit gate documents the contract) ---
         if not is_unoccupied:
-            for zone_id, zone in self._zone_manager.zones.items():
+            # snapshot: zones dict may be pruned by _handle_zm_zones_updated mid-await
+            for zone_id, zone in list(self._zone_manager.zones.items()):
                 if zone_id in pre_arrival_zones:
                     await self._execute_zone_pre_cool(zone, offset=-2.0, reason="pre_arrival")
                     # Fans as comfort bridge (skip during sleep — Critique 5 fix)
@@ -1128,7 +1130,8 @@ class HVACPredictor:
 
     async def _execute_pre_heat(self) -> None:
         """Raise heating setpoints to pre-heat before on-peak."""
-        for zone in self._zone_manager.zones.values():
+        # snapshot: zones dict may be pruned by _handle_zm_zones_updated mid-await
+        for zone in list(self._zone_manager.zones.values()):
             # v4.7.8 D8: skip predictive pre-heat dispatch for paused zones.
             if (
                 self._egress_manager is not None
