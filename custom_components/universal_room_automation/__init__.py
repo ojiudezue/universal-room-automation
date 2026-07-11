@@ -4889,10 +4889,29 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
     # already mutated by the setter that triggered this listener. So a
     # ROOM-entry write that ONLY changed comfort-slider keys is a pure
     # persistence operation — no reload required.
+    # Zone Delete Flow fix-up R2 (B-CRIT-2): CONF_ZONE writes during zone
+    # reassignment (delete flow clears each affected ROOM's CONF_ZONE) must
+    # NOT trigger per-room reloads — deleting a 6-room zone would otherwise
+    # storm 6 ROOM reloads in parallel plus the ZM reload.
+    #
+    # Verified safe (fix-up R2 precondition): CONF_ZONE consumers all read
+    # LIVE from the entry every tick — no in-memory cache to push to:
+    #   - aggregation.py:508  data.entry.data.get(CONF_ZONE) or ...options.get
+    #   - aggregation.py:892  coord.entry.options.get(CONF_ZONE) or ...data
+    #   - aggregation.py:942  coord.entry.options.get(CONF_ZONE) or ...data
+    #   - aggregation.py:3549 coord.entry.options.get(CONF_ZONE)
+    #   - aggregation.py:5714 coord.entry.options.get(CONF_ZONE) or ...data
+    #   - __init__.py:111     config_entry.options.get(CONF_ZONE) or ...data
+    #   - safety.py:2335      merged.get(CONF_ZONE, "") after merge
+    # None of these cache; nothing to push in-place. The suppress branch
+    # is a documented no-op (persistence has already happened via
+    # ``async_update_entry``); consumers pick up the new value on their
+    # next natural tick.
     _ROOM_SUPPRESS_KEYS: frozenset[str] = frozenset({
         _CONF_COMFORT_TEMP_MIN,
         _CONF_COMFORT_TEMP_MAX,
         _CONF_COMFORT_HUMIDITY_MAX,
+        CONF_ZONE,
     })
 
     if entry_type == ENTRY_TYPE_ROOM:

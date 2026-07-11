@@ -548,7 +548,18 @@
           "zone_energy": "⚡ Zone Energy",
           "zone_persons": "👤 Primary Persons",
           "zone_cameras": "📷 Zone Cameras",
-          "zone_dynamic_preset": "🌤️ Dynamic Preset (Weather-Driven)"
+          "zone_dynamic_preset": "🌤️ Dynamic Preset (Weather-Driven)",
+          "zone_delete_confirm": "🗑️ Remove this zone"
+        }
+      },
+      "zone_delete_confirm": {
+        "title": "Remove this zone?",
+        "description": "You are about to remove the zone **{zone_name}** from Universal Room Automation.\n\nWhat will happen:\n- {n_entities} sensors and controls for this zone will be deleted (temperature, occupancy, energy, HVAC controls, etc.).\n- {n_rooms} room(s) currently assigned to this zone will become unassigned. They will keep working; you can put them in another zone later.\n- Historical data for this zone in the URA database will be cleared ({n_db_rows} rows across {n_tables} tables).\n- If this zone shares a thermostat with another zone, the thermostat setting is NOT changed — the other zone keeps working.\n- Any dashboard cards or automations referencing this zone's sensors will show as unavailable and should be updated.\n\nThis cannot be undone. To confirm, type the zone name below.",
+        "data": {
+          "confirm_zone_name": "Type the zone name to confirm"
+        },
+        "data_description": {
+          "confirm_zone_name": "Type '{zone_name}' exactly to confirm removal"
         }
       },
       "zone_hvac": {
@@ -1801,11 +1812,15 @@
       "cover_temp_hysteresis_too_small": "Cover Open Temp must be at least 3°F below Cover Close Temp to prevent solar-gain flapping. Adjust either value and try again.",
       "baseline_preset_invalid_deadband": "Each season/preset row's Cool High must be at least 3°F above its Heat Low. Adjust the values and try again.",
       "vacancy_grace_constrained_exceeds_normal": "Energy-Saving Zone Vacancy Delay must be less than or equal to the normal Zone Vacancy Delay.",
-      "cover_and_vacancy_combined": "Two settings need fixing: Cover Open Temp must be at least 3°F below Cover Close Temp, AND Energy-Saving Zone Vacancy Delay must be ≤ the normal Zone Vacancy Delay."
+      "cover_and_vacancy_combined": "Two settings need fixing: Cover Open Temp must be at least 3°F below Cover Close Temp, AND Energy-Saving Zone Vacancy Delay must be ≤ the normal Zone Vacancy Delay.",
+      "confirm_name_mismatch": "That doesn't match the zone name. Type the zone name exactly to confirm removal."
     },
     "abort": {
       "no_zones_configured": "No zones have been configured yet. Add a zone from the integration setup first.",
-      "zone_not_found": "The selected zone could not be found. It may have been deleted."
+      "zone_not_found": "The selected zone could not be found. It may have been deleted.",
+      "zone_removed": "Zone removed. The Zone Manager will reload to apply the change.",
+      "zone_delete_legacy_use_native": "This zone is stored as a legacy config entry. Delete it from the Home Assistant integrations page instead (three-dot menu on the zone entry).",
+      "zone_delete_hvac_not_ready": "This zone has a thermostat but the HVAC coordinator is not ready yet. Please wait for Home Assistant to finish starting up and try again."
     }
   },
   "issues": {

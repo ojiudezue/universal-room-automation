@@ -264,6 +264,8 @@ def _load_init_dispatch_namespace() -> dict:
         # v5.10.0 D2 — MF sleep + night suppression CM keys.
         "_CONF_MF_SLEEP_SUPPRESS":                "mf_sleep_suppress",
         "_CONF_MF_NIGHT_SUPPRESS_MODE":           "mf_night_suppress_mode",
+        # Zone Delete Flow fix-up R2 — CONF_ZONE in _ROOM_SUPPRESS_KEYS.
+        "CONF_ZONE":                              "zone",
         "ENTRY_TYPE_ROOM":                        "room",
     }
     mod = ast.Module(body=body, type_ignores=[])
