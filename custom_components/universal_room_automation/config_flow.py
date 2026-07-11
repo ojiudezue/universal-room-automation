@@ -3439,6 +3439,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_ENERGY_DECISION_INTERVAL,
             CONF_ENERGY_EVSE_A_ENTITY,
             CONF_ENERGY_EVSE_B_ENTITY,
+            CONF_ENERGY_EVSE_A_SPAN_BREAKER,
+            CONF_ENERGY_EVSE_B_SPAN_BREAKER,
             CONF_ENERGY_L1_CHARGER_ENTITIES,
             CONF_ENERGY_WEATHER_ENTITY,
             CONF_ENERGY_SOLAR_CLASSIFICATION_MODE,
@@ -3857,6 +3859,20 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 description={"suggested_value": self._get_current(CONF_ENERGY_EVSE_B_ENTITY)},
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="power")
+            ),
+            # v5.12.0: SPAN breaker overrides for EVSE pause/resume — recover
+            # from a SPAN-app breaker rename without a code deploy.
+            vol.Optional(
+                CONF_ENERGY_EVSE_A_SPAN_BREAKER,
+                description={"suggested_value": self._get_current(CONF_ENERGY_EVSE_A_SPAN_BREAKER)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="switch")
+            ),
+            vol.Optional(
+                CONF_ENERGY_EVSE_B_SPAN_BREAKER,
+                description={"suggested_value": self._get_current(CONF_ENERGY_EVSE_B_SPAN_BREAKER)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="switch")
             ),
             vol.Optional(
                 CONF_ENERGY_L1_CHARGER_ENTITIES,

@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.11.0
+# Universal Room Automation vv5.13.0
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -290,6 +290,13 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # D3 actuation-critical path. Cleared only on first_refresh (stale
         # listener purge) and on unload (see __init__.py).
         self._unsub_substrate_listeners: list = []
+
+        # Substrate re-subscribe cycle (D4): per-(entity_id) canary set —
+        # once a "substrate gap" WARN fires for a given sensor of this
+        # room, mute it for the rest of this HA boot to avoid log spam
+        # under sustained poll deliveries. Reset only on process restart.
+        # See ``_check_substrate_gap`` in ``_async_update_data``.
+        self._substrate_gap_warned: set = set()
 
         # v3.12.0: M3 AI rule conflict tracking
         self._conflict_detected: bool = False
@@ -1223,6 +1230,63 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
     # async_will_remove_from_hass is an Entity lifecycle method — never called
     # on DataUpdateCoordinator subclasses. Removed in v3.12.0.
 
+    def _check_substrate_gap(
+        self,
+        room_name: str,
+        motion_sensors: list,
+        mmwave_sensors: list,
+        occupancy_sensors: list,
+    ) -> None:
+        """Substrate-gap canary (D4 — substrate re-subscribe cycle).
+
+        If a Tier-1 sensor from THIS room's CONF lists is currently ON
+        but is NOT tracked by the shared OccupancySubstrate, the
+        substrate must have missed a per-entry lifecycle hook (the
+        v4.7.24 → 2026-07-10 regression class). Log ONCE per (room,
+        entity) per boot so the failure mode stays visible.
+
+        WRITER: OccupancySubstrate._entity_to_room_kind is populated in
+        ``occupancy_substrate.py:async_setup`` / ``refresh_subscriptions``
+        only — no other coordinator writes it.
+
+        Extracted from ``_async_update_data`` in the v5.12.0 fix-up pass
+        so the canary can be exercised by focused MagicMock tests
+        (Review C C-MED-2). Behavior is byte-identical to the inline
+        block that shipped in the original v5.12.0 build.
+        """
+        try:
+            substrate = self.hass.data.get(DOMAIN, {}).get("occupancy_substrate")
+        except Exception:  # noqa: BLE001 — defensive
+            substrate = None
+        if substrate is None:
+            return
+        tracked = getattr(substrate, "_entity_to_room_kind", None)
+        if not isinstance(tracked, dict):
+            return
+        for sensor in (
+            list(motion_sensors)
+            + list(mmwave_sensors)
+            + list(occupancy_sensors)
+        ):
+            if not sensor or sensor in self._substrate_gap_warned:
+                continue
+            if sensor in tracked:
+                continue
+            # Only fire the canary on an actual edge — the sensor is
+            # currently ON but substrate isn't tracking it.
+            if not self._is_sensor_on(sensor):
+                continue
+            self._substrate_gap_warned.add(sensor)
+            _LOGGER.warning(
+                "substrate gap: room=%s sensor=%s is ON but not "
+                "in OccupancySubstrate — poll-tick delivered "
+                "edge instead of substrate signal. Likely a "
+                "per-entry lifecycle hook regression "
+                "(v4.7.24-class). One WARN per (room, entity) "
+                "per boot.",
+                room_name, sensor,
+            )
+
     def _is_sensor_on(self, entity_id: str) -> bool:
         """Check if a binary sensor is on."""
         state = self.hass.states.get(entity_id)
@@ -1512,6 +1576,11 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     break
 
         any_sensor_active = motion_detected or presence_detected or occupancy_detected
+
+        # ---- Substrate-gap canary (D4 — substrate re-subscribe cycle) ----
+        self._check_substrate_gap(
+            room_name, motion_sensors, mmwave_sensors, occupancy_sensors,
+        )
 
         # === Fix #6: Entry debouncing (time-based) ===
         # Require sensors active for N seconds before confirming new entry.

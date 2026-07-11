@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.11.0
+# Universal Room Automation vv5.13.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -2379,6 +2379,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         CONF_ENERGY_DECISION_INTERVAL,
                         CONF_ENERGY_EVSE_A_ENTITY,
                         CONF_ENERGY_EVSE_B_ENTITY,
+                        CONF_ENERGY_EVSE_A_SPAN_BREAKER,
+                        CONF_ENERGY_EVSE_B_SPAN_BREAKER,
                         CONF_ENERGY_L1_CHARGER_ENTITIES,
                         CONF_ENERGY_WEATHER_ENTITY,
                         CONF_ENERGY_SOLAR_CLASSIFICATION_MODE,
@@ -2416,6 +2418,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     evse_b_power = cm_config.get(CONF_ENERGY_EVSE_B_ENTITY)
                     if evse_b_power:
                         evse_config["garage_b"]["power"] = evse_b_power
+                    # v5.12.0: SPAN breaker overrides (rename-recovery).
+                    # Absent options keep the DEFAULT_EVSE_ENTITIES value —
+                    # byte-identical behaviour on upgrade.
+                    evse_a_breaker = cm_config.get(CONF_ENERGY_EVSE_A_SPAN_BREAKER)
+                    if evse_a_breaker:
+                        evse_config["garage_a"]["span_breaker"] = evse_a_breaker
+                    evse_b_breaker = cm_config.get(CONF_ENERGY_EVSE_B_SPAN_BREAKER)
+                    if evse_b_breaker:
+                        evse_config["garage_b"]["span_breaker"] = evse_b_breaker
                     # v4.7.6 D3.4: per-EVSE self_modulates flag from config flow.
                     # Default False (Option B / smart manual-override detection).
                     if "garage_a_self_modulates" in cm_config:
@@ -3474,18 +3485,43 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     # Store coordinator
     hass.data[DOMAIN][entry.entry_id] = coordinator
-    
+
     # v3.2.5: Add update listener to reload entry when options change
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
-    
+
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    
+
+    # Substrate re-subscribe cycle (D1): fire SIGNAL_ROOM_ENTRY_LIFECYCLE so
+    # PresenceCoordinator can call OccupancySubstrate.refresh_subscriptions()
+    # and pick up this room's Tier-1 CONF sensors WITHOUT waiting for a
+    # restart. Restores the pre-v4.7.24 (commit e165e1cb) per-room-onboarding
+    # guarantee — see PLANNING_substrate_resubscribe_on_room_add.md and the
+    # Master Bath Toilet 2026-07-09 regression evidence.
+    # If presence has not yet installed its subscriber (cold-boot ordering:
+    # ROOM entries can load before presence), the dispatch is a no-op and the
+    # substrate picks this room up at its own async_setup() enumeration path.
+    try:
+        from homeassistant.helpers.dispatcher import async_dispatcher_send
+        from .domain_coordinators.signals import SIGNAL_ROOM_ENTRY_LIFECYCLE
+        async_dispatcher_send(
+            hass,
+            SIGNAL_ROOM_ENTRY_LIFECYCLE,
+            entry.entry_id,
+            entry.data.get("room_name"),
+            "loaded",
+        )
+    except Exception:  # noqa: BLE001 — defensive; must not block room setup
+        _LOGGER.debug(
+            "SIGNAL_ROOM_ENTRY_LIFECYCLE dispatch (loaded) failed (non-fatal)",
+            exc_info=True,
+        )
+
     _LOGGER.info(
         "Successfully set up Universal Room Automation for room: %s",
         entry.data.get("room_name")
     )
-    
+
     return True
 
 
@@ -3824,6 +3860,41 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 coordinator._trailing_refresh_unsub = None
             # setup/unload symmetry: defensive `pop(key, None)`.
             hass.data[DOMAIN].pop(entry.entry_id, None)
+
+        # Substrate re-subscribe cycle (D1): fire SIGNAL_ROOM_ENTRY_LIFECYCLE
+        # so PresenceCoordinator's OccupancySubstrate.refresh_subscriptions()
+        # diffs the removed entities off the tracked set. Fires ONLY on
+        # successful unload (unload_ok True) — mirrors the coordinator
+        # teardown branch. Symmetric with the "loaded" dispatch above.
+        #
+        # F7 fix-up (A-MED-5): options-reload cycles unloaded->loaded
+        # refreshes back-to-back. There is a ~one-tick window between the
+        # unloaded refresh finishing and the loaded refresh starting where
+        # the room's entities are unmapped. Any state-change event that
+        # lands in that window is dropped by the substrate's
+        # `mapping is None` guard. RECOVERY: the loaded refresh (F1/F2)
+        # re-seeds from LIVE state — if the entity moved during the blind
+        # window, that new state is captured by the re-seed and either
+        # (a) matches the pre-refresh snapshot (no synthetic edge needed)
+        # or (b) flips the bucket and emits a synthetic edge. So
+        # transitions that occur during the blind window are NOT lost —
+        # they're recovered by the live-state read at the tail of the
+        # loaded refresh.
+        try:
+            from homeassistant.helpers.dispatcher import async_dispatcher_send
+            from .domain_coordinators.signals import SIGNAL_ROOM_ENTRY_LIFECYCLE
+            async_dispatcher_send(
+                hass,
+                SIGNAL_ROOM_ENTRY_LIFECYCLE,
+                entry.entry_id,
+                entry.data.get("room_name"),
+                "unloaded",
+            )
+        except Exception:  # noqa: BLE001 — defensive
+            _LOGGER.debug(
+                "SIGNAL_ROOM_ENTRY_LIFECYCLE dispatch (unloaded) failed (non-fatal)",
+                exc_info=True,
+            )
 
     return unload_ok
 
@@ -4841,9 +4912,36 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
                 entry.title, entry.entry_id, sorted(changed_keys),
             )
             snapshots[entry.entry_id] = dict(new)
+            # Substrate re-subscribe cycle (D1): fire lifecycle signal even
+            # on suppressed writes. Substrate CONF sensor lists (motion /
+            # mmwave / occupancy) are NOT in _ROOM_SUPPRESS_KEYS today, so
+            # this dispatch is defensive against future expansion of the
+            # suppress set silently reopening the v4.7.24 blind spot.
+            # refresh_subscriptions() diffs to zero-change when nothing
+            # sensor-list-relevant moved — cost = one enumeration walk.
+            try:
+                from homeassistant.helpers.dispatcher import async_dispatcher_send
+                from .domain_coordinators.signals import SIGNAL_ROOM_ENTRY_LIFECYCLE
+                async_dispatcher_send(
+                    hass,
+                    SIGNAL_ROOM_ENTRY_LIFECYCLE,
+                    entry.entry_id,
+                    entry.data.get("room_name"),
+                    "options_updated",
+                )
+            except Exception:  # noqa: BLE001 — defensive
+                _LOGGER.debug(
+                    "SIGNAL_ROOM_ENTRY_LIFECYCLE dispatch (options_updated) failed (non-fatal)",
+                    exc_info=True,
+                )
             return
         # Mixed / unknown change → reseed snapshot so future slider-only
         # writes diff against current state, then fall through to reload.
+        # NOTE: The fall-through path triggers a full ROOM reload via
+        # hass.config_entries.async_reload(entry.entry_id) (see below),
+        # which cycles unload → setup and thus fires "unloaded" and
+        # "loaded" naturally — no explicit "options_updated" dispatch
+        # needed on the fall-through branch.
         snapshots[entry.entry_id] = dict(new)
 
     if entry_type == ENTRY_TYPE_COORDINATOR_MANAGER:

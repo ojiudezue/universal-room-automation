@@ -146,6 +146,24 @@ SIGNAL_FAN_RECHECK_FINISHED: Final = "ura_fan_recheck_finished"
 # legitimate temporal smoothing on top of this common substrate.
 SIGNAL_SUBSTRATE_KIND_CHANGED: Final = "ura_substrate_kind_changed"
 
+# Substrate re-subscribe on room add/remove/edit (post-v5.11.0 fix cycle).
+# Dispatched from ROOM entry lifecycle sites in __init__.py:
+#   - ROOM async_setup_entry (action="loaded")   — after coordinator stored
+#   - ROOM async_unload_entry (action="unloaded") — before hass.data pop
+#   - _async_update_listener  (action="options_updated") — comfort-slider
+#     suppressed writes AND fall-through to reload paths (fire once at
+#     the listener boundary so future _ROOM_SUPPRESS_KEYS expansion
+#     cannot silently re-open the v4.7.24 blind spot).
+# Payload positional args: ``(entry_id: str, room_name: str, action: str)``
+# where action ∈ {"loaded", "unloaded", "options_updated"}.
+# PresenceCoordinator subscribes and drives
+# ``OccupancySubstrate.refresh_subscriptions()`` (diff-based atomic swap).
+# Restores the pre-v4.7.24 (commit e165e1cb) per-room-onboarding guarantee:
+# a room added WITHOUT an HA restart is event-driven immediately from
+# ROOM setup, not gated on the ~34s poll interval (Master Bath Toilet
+# live evidence 2026-07-09).
+SIGNAL_ROOM_ENTRY_LIFECYCLE: Final = "ura_room_entry_lifecycle"
+
 
 # Optimization Coordinator (Phase 1, v4.7.34 candidate).
 # SIGNAL_OPTIMIZER_INTENT — fired by OptimizerIntentBroker BEFORE an L2+
