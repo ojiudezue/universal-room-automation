@@ -190,6 +190,29 @@ _CYCLE_TOUCHED_KEYS = (
     # -- HVAC DPM Adjustment labels
     ("hvac_dynamic_preset", "data", "dynamic_preset_dwell_minutes"),
     ("hvac_dynamic_preset", "data", "dynamic_preset_hysteresis_f"),
+    # -- Appendix A PROPOSED (rows 18-40) + Part 1 wording (row 40)
+    ("room_setup", "data", "shared_space_warning"),
+    ("sensors", "data", "disable_camera_presence"),
+    ("sensors", "data", "door_type"),
+    ("devices", "data", "light_capabilities"),
+    ("devices", "data", "humidity_fans"),
+    ("devices", "data", "auto_switches"),
+    ("devices", "data", "manual_switches"),
+    ("cover_behavior", "data", "entry_cover_action"),
+    ("cover_behavior", "data", "exit_cover_action"),
+    ("cover_behavior", "data", "open_timing_mode"),
+    ("cover_behavior", "data", "close_timing_mode"),
+    ("cover_behavior", "data", "cover_hvac_managed"),
+    ("automation_behavior", "data", "illuminance_dark_threshold"),
+    ("automation_behavior", "data", "light_transition_seconds_on"),
+    ("automation_behavior", "data", "light_transition_seconds_off"),
+    ("climate", "data", "humidity_fan_presence_runtime_base_s"),
+    ("climate", "data", "humidity_fan_presence_runtime_per_min_s"),
+    ("climate", "data", "humidity_fan_presence_runtime_cap_s"),
+    ("climate", "data", "humidity_fan_timeout"),
+    ("climate", "data", "humidity_fan_max_runtime"),
+    ("sleep_protection", "data", "fan_sleep_policy"),
+    ("basic_setup", "data", "room_guest_occupancy_threshold_min"),
 )
 
 
