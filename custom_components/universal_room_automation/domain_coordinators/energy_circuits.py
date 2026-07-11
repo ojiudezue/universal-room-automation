@@ -125,7 +125,7 @@ class SPANCircuitMonitor:
             )
             return None
 
-    def discover_circuits(self) -> int:
+    def discover_circuits(self, force: bool = False) -> int:
         """Discover circuit power entities from multiple sources.
 
         v4.2.0: Three-tier discovery:
@@ -134,7 +134,20 @@ class SPANCircuitMonitor:
         All deduplicated by entity_id.
         v5.12.0: Populates CircuitInfo.unique_id from entity registry so
         anomaly baselines can be persisted keyed on a rename-stable id.
+        v5.14.1: ``force=True`` clears the existing cache and re-runs
+        discovery — used by the post-EVENT_HOMEASSISTANT_STARTED migration
+        re-pass to pick up SPAN circuits that hadn't populated
+        ``hass.states`` yet during the initial (setup-time) discovery. The
+        default ``force=False`` preserves the one-shot semantics that
+        ``check_anomalies`` relies on.
         """
+        if force:
+            self._circuits = {}
+            # v5.14.1 review MED-3: clear stale entity→baseline entries too,
+            # so a force-rediscovery can't silently mask circuit renames via
+            # leftover cache (restore re-merges from DB immediately after).
+            self._power_baselines = {}
+            self._discovered = False
         count = 0
         skipped_unknown = 0
 
