@@ -4,7 +4,7 @@
 **Last Updated:** May 10, 2026 (v4.5.11.3 cycle aftermath)
 **Current Production:** v4.5.11.3
 **Status:** Active quality standards
-**Bug Classes:** 51 documented (7 original + 13 from Jan–Mar 2026 + 2 from v3.20–v3.22 hardening + 1 from v4.1.1 lambda scope + 1 from v4.2.5 closure escape + 3 from v4.2.8–v4.2.11 DB performance + 1 from v4.2.24 sync update_listener + 1 from v4.2.9 maintenance budgeting + 2 from v4.5.11.x AC ramp-down cycle + 1 from v4.6.15 lambda+async_create_task + 1 from v4.7.x EV TOU bookkeeping short-circuit + 1 from v4.7.4 async_update_entry re-entrancy + 1 from day-boundary-blind TOU decision)
+**Bug Classes:** 60 documented (#1–#60 below; latest additions #55–#60 from the v5.10.0–v5.14.1 wave-2 review stack, folded in 2026-07-12)
 
 **Quality bar — read every cycle:** Two independent staff-engineer-level code reviews using software engineering best practices. The bug-class catalog below is a regression-prevention reference, NOT the review framework. See `CLAUDE.md` § Review Protocol for the canonical statement.
 
@@ -2243,6 +2243,135 @@ motion fired clean all day while `turn_on` no-op'd against dead relays.
 listeners, or the automation entry path should state in its README how to
 re-run the step-2 measurement, so the next "it feels slow" report starts
 from data.
+
+---
+
+### Bug Class #55 — Cross-coordinator read without a verified writer ("reads without writers") ⚠️
+
+**Symptom.** Code reads a key from `hass.data`, a coordinator's shared
+dict, or `entry.options`/`entry.data` — but no code in the current tree
+ever WRITES that key. The read is a permanent no-op (or silently re-pins
+a stale value via an `or`-fallback), and tests that INJECT the key prove
+nothing about the production path. Read-side dual of Bug Class #53
+(computed-but-not-consumed is the write-side dual).
+
+**Exemplars.** v5.10.0 Music Following: 3 CRITICALs where MF read keys no
+writer produced (review doc `v5.10.0_music_following.md`). v5.14.0
+A-HIGH-1: an options/data key still read via `or`-fallback after its last
+writer was removed — recurrence surface distinct from #14 (fallback
+across `data` vs `options`, not across defaults).
+
+**Detection.** Every reader of a shared/persisted key must cite the
+writer's `file:line` in review. If no writer can be cited, the read is a
+finding. Test-authority corollary: the mutation "remove the writer" must
+fail a named test; a test that injects the key itself is a stub.
+
+---
+
+### Bug Class #56 — Tripwire/telemetry blind to the channel it was built for ⚠️
+
+**Symptom.** A safety tripwire or telemetry counter built to prevent a
+specific historical incident instruments the *convenient* path, not the
+*dangerous* one — so the exact channel implicated in the incident stays
+uncounted and ungated.
+
+**Exemplar — v5.11.0 OC hardening (B-HIGH-1, D-HIGH-1/2).** The DB
+write-volume tripwire (built after the v5.2.1 write-flood rollback)
+counted `optimizer_findings` writes (easy to instrument) but missed
+`ura_activity_log` — the actual v5.2.1 flood channel. Sibling
+occurrences: v4.6.1.1 dispatch shape, v5.2.1 itself.
+
+**Detection.** When a guard exists because of a named incident, verify BY
+NAME that it counts and gates the specific channel from that incident.
+Planning docs for guard cycles must enumerate the full channel list and
+state which channels the guard covers.
+
+---
+
+### Bug Class #57 — Partial state consumed as final ⚠️
+
+**Symptom.** A short-circuit or threshold is evaluated against a
+*running* per-cycle count (mid fan-in) rather than the *fleet total*, so
+it fires prematurely. Sibling of Bug Class #7 (stale data source) but
+distinct: the data isn't stale, it's incomplete-by-design and the
+consumer treats it as complete.
+
+**Exemplar — v5.11.0 A-HIGH-1.** An OC threshold short-circuited on the
+running count while later contributors were still fanning in. Numerous
+prior per-room fan-in bugs share the shape.
+
+**Detection.** For any aggregate consumed by a gate, state the
+completeness condition explicitly: at the moment of the read, is the
+aggregate FINAL for this cycle? If a loop or gather is still in flight,
+the consumer must wait for the barrier or be justified per-item.
+
+---
+
+### Bug Class #58 — Centralized subscription loses per-entry lifecycle hooks ⚠️
+
+**Symptom.** A primitive is refactored out of a per-entry setup path into
+a centralized manager; the entry-lifecycle hooks the OLD per-entry path
+satisfied implicitly (new entry → subscribe; entry removed → unsubscribe;
+reload → resubscribe) are silently dropped, and new/reloaded entries no
+longer get the behavior until a restart or periodic rebuild.
+
+**Exemplar — v4.7.24 → v5.12.0 substrate regression.** Centralizing
+occupancy subscriptions in the substrate lost the per-room instant
+onboarding the old per-entry path provided; new rooms fell back to
+poll-bound latching until v5.12.0 restored lifecycle-driven
+resubscription (SIGNAL_ROOM_ENTRY_LIFECYCLE + atomic
+refresh_subscriptions). Related: Bug Class #50 (subscription cleared by
+periodic rebuild).
+
+**Detection.** When centralizing anything out of a per-entry path, list
+what the old path provided *for free* at each lifecycle moment (setup,
+unload, reload, options-update) and re-attach each explicitly. Review
+question: "what did the OLD per-entry path provide that the NEW
+centralized path does not?"
+
+---
+
+### Bug Class #59 — Display-name used as persistence key across a renameable upstream ⚠️
+
+**Symptom.** A DB scope / persistence key is derived from a friendly name
+or other user-facing display string owned by an upstream integration. The
+moment the operator renames it upstream (or the vendor app re-keys), the
+persisted history orphans and accumulation restarts from zero — a rename
+bomb with no error.
+
+**Exemplar — SPAN circuit re-key saga (v5.13.0 → v5.14.1).** Energy
+`circuit_power` baselines were keyed on SPAN friendly names
+(operator-mutable in the SPAN app); migrating 41 scopes to registry
+`unique_id`-derived `span_nj-*` keys took three releases (one-shot ran
+before span_panel loaded; then a discovery cache that latched empty).
+
+**Detection.** For any persistence key, ask: "does ANY upstream let the
+operator rename this component?" If yes, key on registry `unique_id` or a
+DB primary key — never the display string. Applies to signals and
+dispatch payloads too.
+
+---
+
+### Bug Class #60 — Hand-copied SQL/logic in tests (stub-mirror) ⚠️
+
+**Symptom.** A test file re-implements the production logic it claims to
+verify — hand-copied DDL, mirrored purge/migration SQL, or writes to a
+test-owned seam production never uses. The suite stays green under ANY
+production mutation because the test certifies its own mirror, not the
+code.
+
+**Exemplars.** v5.14.0 zone delete: the initial `test_zone_delete_flow.py`
+mirrored the DAO purge in-test — ALL FIVE Review-C mutations went green
+pre-fix-up. v5.13.0 C-HIGH-2/C-MED-1 (shape-blind predicate, hand-copied
+DDL). v5.12.0 C-HIGH-1/2/3 (tests wrote to seams production never
+writes). v5.9.0 "stub-mirror". v4.6.3 Review C.
+
+**Detection.** Behavioral tests must import schema/DDL from production
+constants and drive production code paths (real DAO calls, real
+dispatcher) — never issue their own INSERT/UPDATE/DELETE against a
+hand-built schema. Authority bar: for each load-bearing site, one
+real-source mutation must turn a NAMED test red (Tier 2-DB Review C /
+Tier 3 framing-C).
 
 ---
 
