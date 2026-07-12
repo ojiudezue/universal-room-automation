@@ -95,4 +95,11 @@ Combined release v5.11.0 shipped both this cycle and the OC Hardening cycle. HA 
 
 **Validation notes.** `media_player.kitchen_2` `entity_missing` is **pre-existing** — the entity was already emitting `unavailable_entities` WARNINGs before deploy. The new D1 classifier correctly *surfaces* the pre-existing dead actuator; it did not cause it. Boot-only transients dismissed. `transfers_today=0` at validation is expected — MF only acts on organic transitions, so L3-L6 land as PENDING-ORGANIC.
 
+### Organic follow-up — Validated 2026-07-12 (recorder-based, read-only)
+
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | Sleep walk-through blocks all transfers | **PASS (invariant) / gate UNEXERCISED** | Only post-deploy sleep window: 2026-07-10 22:00:02 → 07-11 06:00:09. Across 55 recorder rows of `music_following_health` attrs in that window: `transfers_today=0` in every row, `last_transfer_result=ping_pong_suppressed` throughout; `music_following_last_transfer` never changed state (no `success` anywhere post-deploy). **But `sleep_suppressed_today=0` in all rows** — every overnight transition (~55, mmWave bedroom↔bathroom churn) was suppressed *upstream* by the ping-pong guard (`transitions.py:231`; suppressed transitions never reach MF per `transitions.py:624`), so the D2 gate (`music_following.py:685`, correctly ordered before cooldown/lookup/service call at :683-696) was never reached. Strong form (`sleep_suppressed` increments) remains **PENDING-ORGANIC**: needs a genuine non-ping-pong walk (e.g. bedroom→kitchen) during sleep. Night 07-11→07-12 had NO sleep window — house held `guest` 20:57→06:05 (flagged to operator). |
+| — | **CORRECTION to L0d + H2 (2026-07-12)** | **L0d evidence RETRACTED** | H2's oracle attribute `sensor.music_following_health.current_house_state` **does not exist**: `get_diagnostic_data()` (`music_following.py:363-392`) never emits it; internal `_current_house_state` is DEBUG-log-only (`music_following.py:255-258`); repo-wide grep finds no writer; live sensor confirms absence. The L0d row's "`current_house_state == home_day`" could not have been read from this sensor — L0d stands as PASS only on its *zero-spurious-suppressions* half. **Follow-up filed:** add `current_house_state` to `get_diagnostic_data()` and re-point/repair H2 (as written, H2 can never be evaluated by Shipwatch). |
+
 ---
