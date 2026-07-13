@@ -3548,6 +3548,15 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT,
             DEFAULT_INCLEMENT_CONDITION_CORROBORATION_MODE,
             INCLEMENT_ADVANCED_SECTION,
+            # v5.15.x — Envoy write-verification cloud oracles
+            CONF_ENERGY_CLOUD_RESERVE_ORACLE_ENTITY,
+            CONF_ENERGY_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+            CONF_ENERGY_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
+            CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+            DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY,
+            DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+            DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
         )
         from .const import CONF_OCCUPANCY_WEIGHTED_ENERGY
         from .domain_coordinators.energy_const import (
@@ -4304,6 +4313,61 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     default=self._get_current(_field_key, False),
                 )
             ] = selector.BooleanSelector()
+        # v5.15.x — Envoy write-verification cloud oracle overrides.
+        # Optional fields; empty/unset cleanly DISABLES that surface's
+        # verification (logged once at INFO). Grouped as a collapsed
+        # subsection mirroring the inclement_advanced section pattern.
+        _schema_dict[
+            vol.Optional("cloud_verification")
+        ] = section(
+            vol.Schema({
+                vol.Optional(
+                    CONF_ENERGY_CLOUD_RESERVE_ORACLE_ENTITY,
+                    description={
+                        "suggested_value": self._get_current(
+                            CONF_ENERGY_CLOUD_RESERVE_ORACLE_ENTITY,
+                            DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY,
+                        ),
+                    },
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="number")
+                ),
+                vol.Optional(
+                    CONF_ENERGY_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+                    description={
+                        "suggested_value": self._get_current(
+                            CONF_ENERGY_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+                            DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+                        ),
+                    },
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="switch")
+                ),
+                vol.Optional(
+                    CONF_ENERGY_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
+                    description={
+                        "suggested_value": self._get_current(
+                            CONF_ENERGY_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
+                            DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
+                        ),
+                    },
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="select")
+                ),
+                vol.Optional(
+                    CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+                    description={
+                        "suggested_value": self._get_current(
+                            CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+                            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+                        ),
+                    },
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+            }),
+            options={"collapsed": True},
+        )
         data_schema = vol.Schema(_schema_dict)
 
         # v4.2.29: surface envoy validation errors per-field.

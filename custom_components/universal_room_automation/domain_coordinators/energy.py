@@ -244,6 +244,16 @@ class EnergyCoordinator(BaseCoordinator):
             ),
             solcast_day_3_entity=ec.get(CONF_ENERGY_SOLCAST_DAY_3_ENTITY),
         )
+        # v5.15.x D1 — Envoy write-verification tripwire. Read-only
+        # (invariant W-6). Back-reference on the strategy so
+        # get_status() surfaces verifier attrs.
+        try:
+            from .energy_write_verify import WriteVerifier
+            self._write_verifier = WriteVerifier(hass, self)
+            self._battery._write_verifier = self._write_verifier
+        except Exception:
+            _LOGGER.debug("WriteVerifier init failed (swallowed)", exc_info=True)
+            self._write_verifier = None
         # E2: Pool, EV, Smart Plugs
         self._pool = PoolOptimizer(hass, pool_speed_entity=pool_speed_entity)
         self._ev = EVChargerController(hass, evse_config=evse_config)
@@ -712,6 +722,15 @@ class EnergyCoordinator(BaseCoordinator):
             CONF_ENERGY_RESERVE_SOC_ENTITY: "reserve_soc_number",
             CONF_ENERGY_GRID_ENABLED_ENTITY: "grid_enabled",
             CONF_ENERGY_CHARGE_FROM_GRID_ENTITY: "charge_from_grid",
+            # v5.15.x — cloud verification oracles (empty → surface's
+            # verification is disabled; logged once at INFO by
+            # WriteVerifier).
+            "energy_cloud_reserve_oracle_entity": "cloud_reserve_oracle",
+            "energy_cloud_charge_from_grid_oracle_entity": (
+                "cloud_charge_from_grid_oracle"
+            ),
+            "energy_cloud_storage_mode_oracle_entity": "cloud_storage_mode_oracle",
+            "energy_cloud_battery_soc_fallback_entity": "battery_soc_cloud",
             CONF_ENERGY_SOLCAST_TODAY_ENTITY: "solcast_today",
             CONF_ENERGY_SOLCAST_REMAINING_ENTITY: "solcast_remaining",
             CONF_ENERGY_SOLCAST_TOMORROW_ENTITY: "solcast_tomorrow",
@@ -3095,6 +3114,17 @@ class EnergyCoordinator(BaseCoordinator):
                     self._periodic_db_writes(decision)
                 )
 
+            # v5.15.x D1.5 — reversion sweep. READ-ONLY (W-6). Detects
+            # shape-(c) silent revert (operator flipped switch in app).
+            try:
+                verifier = getattr(self, "_write_verifier", None)
+                if verifier is not None:
+                    await verifier.reversion_sweep()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "reversion sweep failed (swallowed)", exc_info=True,
+                )
+
             # Notify energy sensors to refresh
             from homeassistant.helpers.dispatcher import async_dispatcher_send as _send
             from .signals import SIGNAL_ENERGY_ENTITIES_UPDATE
@@ -3285,6 +3315,11 @@ class EnergyCoordinator(BaseCoordinator):
         # commanded paused above).
         for action_spec in decision.get("actions", []):
             await self._execute_service_action(action_spec)
+            # v5.15.x D1.3 — write-verification tap. READ-ONLY (W-6).
+            try:
+                await self._tap_write_verifier(action_spec, decision)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("write_verifier tap failed (swallowed)", exc_info=True)
 
         return pause_reason, pause_requested, grid_charge_intent
 
@@ -4418,6 +4453,31 @@ class EnergyCoordinator(BaseCoordinator):
                 self._learned_threshold_kw = sorted_readings[min(idx, len(sorted_readings) - 1)]
                 return self._learned_threshold_kw
         return self._load_shedding_threshold_kw
+
+    async def _tap_write_verifier(
+        self, action_spec: Any, decision: dict[str, Any]
+    ) -> None:
+        """v5.15.x D1.3 — post-dispatch tap; schedules a delayed
+        oracle-vs-commanded compare. READ-ONLY (W-6)."""
+        verifier = getattr(self, "_write_verifier", None)
+        if verifier is None:
+            return
+        try:
+            svc = action_spec.get("service")
+            data = action_spec.get("data") or {}
+        except AttributeError:
+            svc = getattr(action_spec, "service", None)
+            data = getattr(action_spec, "data", {}) or {}
+        if not svc:
+            return
+        if svc == "number.set_value":
+            await verifier.schedule("reserve_soc", data.get("value"))
+        elif svc == "switch.turn_on":
+            await verifier.schedule("charge_from_grid", True)
+        elif svc == "switch.turn_off":
+            await verifier.schedule("charge_from_grid", False)
+        elif svc == "select.select_option":
+            await verifier.schedule("storage_mode", data.get("option"))
 
     async def _send_nm_alert(
         self,

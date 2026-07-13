@@ -242,6 +242,19 @@ class BatteryStrategy:
         # parks, so exposing the emitter's actual last emission is the correct
         # release-floor source. None until the emitter has run once (boot).
         self._last_reserve_level: int | None = None
+        # v5.15.x — commanded-value ledgers + SOC-fallback state for
+        # write-verification (see PLANNING_envoy_write_verification_and_redundancy.md).
+        self._last_reserve_level_at: Any = None
+        self._last_charge_from_grid_command: bool | None = None
+        self._last_charge_from_grid_command_at: Any = None
+        self._last_storage_mode_command: str | None = None
+        self._last_storage_mode_command_at: Any = None
+        self._soc_lkg: float | None = None
+        self._soc_lkg_at: Any = None
+        self._last_soc_divergence_at: Any = None
+        self._soc_source_last: str = "envoy"
+        self._write_failover_by_surface: dict[str, bool] = {}
+        self._write_verifier: Any = None
         self._solar_classification_mode = solar_classification_mode
         self._custom_solar_thresholds = custom_solar_thresholds
 
@@ -471,15 +484,57 @@ class BatteryStrategy:
             min(MAX_ARBITRAGE_CHARGE_LEAD_TIME_MIN, v),
         )
 
-    def _get_entity(self, key: str, default: str | None = None) -> str | None:
+    def _get_entity(
+        self,
+        key: str,
+        default: str | None = None,
+        *,
+        role: str = "read",
+    ) -> str | None:
         """Get entity ID from config or default.
 
-        v4.3.1: default is now optional (None). Envoy-derived entities have
-        no production default — they MUST come via config (auto-derive seeds
-        them in __init__.py). Non-envoy entities (Solcast, Enpower, Weather)
-        still pass their hardcoded defaults explicitly.
+        v4.3.1: default is now optional (None).
+        v5.15.x D3.1 (dormant): ``role`` kwarg is scaffolding for future
+        cloud write-failover. Backwards compatible — ``role="read"``
+        (default) preserves all existing behavior. When ``role="write"``
+        AND the per-surface failover flag is True, the cloud oracle
+        entity is returned. Ships DORMANT.
         """
+        if role == "write" and self._write_failover_by_surface.get(key):
+            cloud = self._cloud_write_target(key)
+            if cloud is not None:
+                return cloud
         return self._entities.get(key, default)
+
+    def _cloud_write_target(self, key: str) -> str | None:
+        """Coherent cloud write target for a failover surface (W-5)."""
+        try:
+            from .energy_const import (
+                DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+                DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY,
+                DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
+            )
+        except Exception:
+            return None
+        map_ = {
+            "charge_from_grid": (
+                "cloud_charge_from_grid_oracle",
+                DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+            ),
+            "reserve_soc_number": (
+                "cloud_reserve_oracle",
+                DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY,
+            ),
+            "storage_mode": (
+                "cloud_storage_mode_oracle",
+                DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
+            ),
+        }
+        entry = map_.get(key)
+        if entry is None:
+            return None
+        cloud_key, cloud_default = entry
+        return self._entities.get(cloud_key, cloud_default)
 
     def _get_state_float(self, entity_id: str | None) -> float | None:
         """Get numeric state from an entity. None entity_id → None."""
@@ -513,8 +568,126 @@ class BatteryStrategy:
 
     @property
     def battery_soc(self) -> float | None:
-        """Current battery state of charge (%). None if envoy not configured."""
-        return self._get_state_float(self._get_entity("battery_soc"))
+        """Current battery state of charge (%).
+
+        v5.15.x D2 — three-tier resolver: primary Envoy → LKG (<5min) →
+        cloud fallback. None only when all three are unavailable.
+        """
+        from homeassistant.util import dt as dt_util
+        from .energy_const import (
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+            DEFAULT_SOC_LKG_MAX_AGE_S,
+        )
+        primary = self._get_state_float(self._get_entity("battery_soc"))
+        if primary is not None:
+            self._soc_lkg = primary
+            self._soc_lkg_at = dt_util.utcnow()
+            self._soc_source_last = "envoy"
+            try:
+                self._check_soc_source_divergence(primary)
+            except Exception:
+                _LOGGER.debug("divergence check raised (swallowed)", exc_info=True)
+            return primary
+        if self._soc_lkg is not None and self._soc_lkg_at is not None:
+            age = (dt_util.utcnow() - self._soc_lkg_at).total_seconds()
+            if age <= DEFAULT_SOC_LKG_MAX_AGE_S:
+                self._soc_source_last = "lkg"
+                return self._soc_lkg
+        fallback = self._get_state_float(
+            self._get_entity(
+                "battery_soc_cloud", DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+            )
+        )
+        if fallback is not None:
+            _LOGGER.warning(
+                "SOC primary+LKG unavailable — using cloud fallback %.1f%%",
+                fallback,
+            )
+            self._soc_source_last = "cloud_fallback"
+            return fallback
+        self._soc_source_last = "none"
+        return None
+
+    def _check_soc_source_divergence(self, primary: float) -> None:
+        """Emit soc_source_divergence anomaly (W-4). Never raises.
+
+        Units vigilance: honor cloud fallback's unit_of_measurement.
+        Non-'%' unit OR ~1000x disagreement → WIRING bug, NOT divergence.
+        """
+        from datetime import timedelta
+        from homeassistant.util import dt as dt_util
+        from .energy_const import (
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+            DEFAULT_SOC_DIVERGENCE_THRESHOLD_PCT,
+        )
+        fb_eid = self._get_entity(
+            "battery_soc_cloud", DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        )
+        fallback = self._get_state_float(fb_eid)
+        if fallback is None:
+            return
+        fb_unit = None
+        try:
+            st = self.hass.states.get(fb_eid) if fb_eid else None
+            if st is not None:
+                fb_unit = st.attributes.get("unit_of_measurement")
+        except Exception:
+            fb_unit = None
+        if fb_unit is not None and fb_unit not in ("", "%"):
+            _LOGGER.warning(
+                "SOC WIRING/units mismatch: cloud fallback %s unit=%r; "
+                "suppressing divergence anomaly.",
+                fb_eid, fb_unit,
+            )
+            return
+        if fallback > 0 and primary > 0 and (
+            fallback / primary > 500 or primary / fallback > 500
+        ):
+            _LOGGER.warning(
+                "SOC WIRING/units mismatch: envoy=%.3f cloud=%.3f "
+                "(factor-of-1000); suppressing.",
+                primary, fallback,
+            )
+            return
+        if abs(primary - fallback) <= DEFAULT_SOC_DIVERGENCE_THRESHOLD_PCT:
+            return
+        now = dt_util.utcnow()
+        if (
+            self._last_soc_divergence_at is not None
+            and (now - self._last_soc_divergence_at) < timedelta(hours=1)
+        ):
+            return
+        self._last_soc_divergence_at = now
+        _LOGGER.warning(
+            "SOC divergence: envoy=%.1f cloud=%.1f threshold=%d",
+            primary, fallback, DEFAULT_SOC_DIVERGENCE_THRESHOLD_PCT,
+        )
+        try:
+            from ..const import DOMAIN
+            from .anomaly_event import (
+                AnomalyEvent, AnomalySeverity, AnomalyType, build_context_json,
+            )
+            db = self.hass.data.get(DOMAIN, {}).get("database")
+            if db is None:
+                return
+            payload = build_context_json(
+                source_signal="soc_source_check",
+                extra={
+                    "primary": primary, "fallback": fallback,
+                    "threshold_pct": DEFAULT_SOC_DIVERGENCE_THRESHOLD_PCT,
+                },
+            )
+            evt = AnomalyEvent(
+                coordinator="energy",
+                type="soc_source_divergence",
+                severity=AnomalySeverity.WARNING,
+                anomaly_type=AnomalyType.POINT_IN_TIME,
+                detected_at=now.isoformat(),
+                payload=payload,
+            )
+            self.hass.async_create_task(db.save_anomaly_event(evt))
+        except Exception:
+            _LOGGER.debug("divergence emit failed (swallowed)", exc_info=True)
 
     @property
     def solar_production(self) -> float | None:
@@ -1093,8 +1266,15 @@ class BatteryStrategy:
 
     @property
     def envoy_available(self) -> bool:
-        """Whether the Envoy is responding (SOC and storage mode both readable)."""
-        return self.battery_soc is not None and self.current_storage_mode is not None
+        """Whether the Envoy is responding.
+
+        v5.15.x D2: checks the PRIMARY Envoy SOC directly (not the
+        three-tier resolver) so a healthy cloud fallback does NOT mask
+        a real Envoy outage and prevent the state machine's envoy-
+        unavailable branch from firing.
+        """
+        primary_soc = self._get_state_float(self._get_entity("battery_soc"))
+        return primary_soc is not None and self.current_storage_mode is not None
 
     # ------------------------------------------------------------------
     # v4.5.0 D1: arbitrage four-phase state machine
@@ -3326,7 +3506,24 @@ class BatteryStrategy:
         # emitter explicitly commanded a reserve_level this tick (some paths
         # pass None to leave reserve untouched — do not clobber prior).
         if reserve_level is not None:
-            self._last_reserve_level = int(max(0, min(100, reserve_level)))
+            from homeassistant.util import dt as dt_util
+            _new_res = int(max(0, min(100, reserve_level)))
+            if self._last_reserve_level != _new_res:
+                self._last_reserve_level_at = dt_util.utcnow()
+            self._last_reserve_level = _new_res
+        # v5.15.x D1.2 — commanded ledgers for reversion detection.
+        try:
+            from homeassistant.util import dt as dt_util
+            _now = dt_util.utcnow()
+            if self._last_charge_from_grid_command != bool(charge_from_grid):
+                self._last_charge_from_grid_command_at = _now
+            self._last_charge_from_grid_command = bool(charge_from_grid)
+            if mode is not None and self._last_storage_mode_command != mode:
+                self._last_storage_mode_command_at = _now
+            if mode is not None:
+                self._last_storage_mode_command = mode
+        except Exception:
+            _LOGGER.debug("commanded ledger update failed (swallowed)", exc_info=True)
         # v4.5.0 D1: keep self._arbitrage_phase synced with the dict.
         # Defaults to "n/a" for any non-arbitrage code path (peak/mid_peak/
         # storm/disconnect), matching state matrix invariants 4 + 6.
@@ -3556,4 +3753,11 @@ class BatteryStrategy:
             "threshold_warning": warning,
             "threshold_position": self._threshold_position(soc, tomorrow_class),
             "next_action_estimate": self._next_action_estimate(soc, tomorrow_class),
+            # v5.15.x diagnostics
+            "soc_source": self._soc_source_last,
+            **(
+                self._write_verifier.get_status_attrs()
+                if self._write_verifier is not None
+                else {}
+            ),
         }

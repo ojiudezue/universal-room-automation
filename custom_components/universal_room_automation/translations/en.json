@@ -988,6 +988,22 @@
               "inclement_recoverable_surplus_margin_pct": "How much projected solar SURPLUS (net of house load) must EXCEED what a partial hold would let URA discharge, before that discharge counts as 'recoverable' by sun before nightfall. Default 5% SOC. URA reuses the attainability surplus projection (which already nets house load via a 0.5 capture factor), then requires this extra margin so a cloudy / high-load day doesn't falsely read as recoverable. This is a margin over a load-net surplus, NOT a raw kWh threshold. Only consulted during mid_peak / peak rungs — off_peak holds without consulting recoverability.",
               "inclement_condition_corroboration_mode": "'any' — over-eager (one provider stormy holds); 'majority' — balanced (recommended); 'unanimous' — under-eager (one stale provider blocks)."
             }
+          },
+          "cloud_verification": {
+            "name": "Envoy Cloud Verification (Advanced)",
+            "description": "Optional Enphase cloud entities used to verify that battery commands actually took effect and to fall back on when the local Envoy is briefly unavailable. Leave defaults unless you renamed the cloud (HACS enphase_ev) integration's entities. Leave any field blank to disable that surface's verification.",
+            "data": {
+              "energy_cloud_reserve_oracle_entity": "Battery Reserve — Cloud Verification Entity",
+              "energy_cloud_charge_from_grid_oracle_entity": "Charge From Grid — Cloud Verification Entity",
+              "energy_cloud_storage_mode_oracle_entity": "Battery Mode — Cloud Verification Entity",
+              "energy_cloud_battery_soc_fallback_entity": "Battery Charge % — Cloud Fallback Sensor"
+            },
+            "data_description": {
+              "energy_cloud_reserve_oracle_entity": "Cloud number entity used to verify that the reserve % you commanded is what the Enphase cloud actually reports 15 minutes later. Leave the default (from the enphase_ev HACS integration) unless you renamed it.",
+              "energy_cloud_charge_from_grid_oracle_entity": "Cloud switch entity used to verify that URA's charge-from-grid commands actually propagated. If URA commanded OFF and this reports ON with no intervening command, an anomaly is raised.",
+              "energy_cloud_storage_mode_oracle_entity": "Cloud select entity that reports the battery's active mode (Self-Consumption, Backup, Savings, Full Backup). Used to verify storage-mode writes. Unmapped values are treated as inconclusive — never as a mismatch.",
+              "energy_cloud_battery_soc_fallback_entity": "Cloud SOC sensor used ONLY when the local Envoy SOC sensor is unavailable and the 5-minute last-known-good cache is stale. Also cross-checked against the primary at every read for divergence."
+            }
           }
         },
         "error": {

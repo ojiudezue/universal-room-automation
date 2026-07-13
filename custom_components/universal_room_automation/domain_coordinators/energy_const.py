@@ -192,6 +192,50 @@ CONF_ENERGY_WEATHER_FALLBACK_2: Final = "energy_weather_fallback_2"
 CONF_WEATHER_STALENESS_MAX_HOURS: Final = "weather_staleness_max_hours"
 CONF_WEATHER_DIVERGENCE_THRESHOLD_F: Final = "weather_divergence_threshold_f"
 
+# v5.15.x — Envoy Write-Verification + Cloud Read-Fallback
+CONF_ENERGY_CLOUD_RESERVE_ORACLE_ENTITY: Final = "energy_cloud_reserve_oracle_entity"
+CONF_ENERGY_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY: Final = (
+    "energy_cloud_charge_from_grid_oracle_entity"
+)
+CONF_ENERGY_CLOUD_STORAGE_MODE_ORACLE_ENTITY: Final = (
+    "energy_cloud_storage_mode_oracle_entity"
+)
+CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY: Final = (
+    "energy_cloud_battery_soc_fallback_entity"
+)
+DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY: Final = "number.iq_battery_hacs_battery_reserve"
+DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY: Final = (
+    "switch.iq_battery_hacs_charge_battery_from_grid"
+)
+DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY: Final = (
+    "select.iq_gateway_hacs_system_profile"
+)
+DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY: Final = (
+    "sensor.iq_battery_hacs_battery_overall_charge"
+)
+DEFAULT_WRITE_VERIFY_WINDOW_S: Final = 900
+MIN_WRITE_VERIFY_WINDOW_S: Final = 300
+MAX_WRITE_VERIFY_WINDOW_S: Final = 1800
+DEFAULT_SOC_LKG_MAX_AGE_S: Final = 300
+DEFAULT_SOC_DIVERGENCE_THRESHOLD_PCT: Final = 3
+STORAGE_MODE_LOCAL_TO_CLOUD: Final = {
+    "self_consumption": "Self-Consumption",
+    "backup": "Backup",
+    "savings": "Savings",
+    "full_backup": "Full Backup",
+}
+STORAGE_MODE_CLOUD_TO_LOCAL: Final = {
+    v: k for k, v in STORAGE_MODE_LOCAL_TO_CLOUD.items()
+}
+WRITE_VERIFY_SURFACE_RESERVE: Final = "reserve_soc"
+WRITE_VERIFY_SURFACE_CHARGE_FROM_GRID: Final = "charge_from_grid"
+WRITE_VERIFY_SURFACE_STORAGE_MODE: Final = "storage_mode"
+WRITE_VERIFY_NM_SURFACES: Final = (
+    WRITE_VERIFY_SURFACE_RESERVE,
+    WRITE_VERIFY_SURFACE_CHARGE_FROM_GRID,
+    WRITE_VERIFY_SURFACE_STORAGE_MODE,
+)
+
 # ============================================================================
 # Inclement-weather detection + TOU/solar-horizon-aware battery hold
 # (Robust Inclement-Weather Reserve cycle — supersedes has_storm_forecast()).
