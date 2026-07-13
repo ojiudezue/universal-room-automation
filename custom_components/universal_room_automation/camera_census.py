@@ -1388,11 +1388,14 @@ class PersonCensus:
         sum across areas. Cameras with a null ``area_id`` contribute
         individually (sum, no dedup).
 
-        This is the single load-bearing helper used by BOTH
-        ``_calculate_house_census`` (raw camera totals) and
-        ``_get_unrecognized_camera_count`` (unrecognized/face-gated
-        totals). Bug Class #53 guard: keep dedup in one place so the two
-        paths cannot diverge.
+        Used by ``_calculate_house_census`` (raw camera totals). NOTE
+        (2026-07-13 BLE-cancel fix-up a3e5c49b): ``_get_unrecognized_camera_count``
+        no longer calls this helper — it INLINES the same per-area-max
+        semantics as Step 2/4 of its four-step algorithm, because the BLE
+        subtraction must happen BETWEEN dedup and summation. If you change
+        the dedup semantics here, mirror the change in that function's
+        Step 2/4 (deliberate fork; see the review record
+        wave2026_07_13 docs for rationale).
         """
         area_max: dict[str, int] = {}
         unassigned: list[int] = []
@@ -1800,9 +1803,12 @@ class PersonCensus:
         to be trusted. Stale face matches are treated as unknown.
 
         v5.9.0 B-C1 fix: per-camera unrecognized contributions are grouped
-        by ``CameraInfo.area_id`` and collapsed via ``_dedup_by_area``
-        (same-area max, cross-area sum), matching the path in
-        ``_calculate_house_census``. Without this, the enhanced-census
+        by ``CameraInfo.area_id`` with same-area max / cross-area sum
+        semantics, matching ``_calculate_house_census``. NOTE (2026-07-13
+        fix-up a3e5c49b): the dedup is now INLINED as Steps 2/4 of the
+        four-step algorithm below (no longer a ``_dedup_by_area`` call) so
+        the BLE subtraction can happen between dedup and summation —
+        keep the semantics in lockstep with ``_dedup_by_area``. Without this, the enhanced-census
         path (default ON) overwrites the raw house result with a naive
         sum and re-inflates the count Bug Class #53 D-A was meant to
         prevent.
