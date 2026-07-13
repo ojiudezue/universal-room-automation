@@ -6102,6 +6102,17 @@ class EnergyCoordinator(BaseCoordinator):
         return self._last_battery_full_time
 
     @property
+    def battery_full_time_attrs(self) -> dict:
+        """H2 diagnostic attrs for the Battery Full Time sensor.
+
+        v5.16.1 fix-up follow-up (Bug Class #55): the predictor computed
+        these (basis, current_charge_rate_kw, taper_band, taper_note,
+        missing_input, ...) but no entity surfaced them — the sensor had
+        no extra_state_attributes at all.
+        """
+        return dict(getattr(self._predictor, "_battery_full_time_attrs", {}) or {})
+
+    @property
     def forecast_accuracy(self) -> float:
         """Rolling forecast accuracy percentage."""
         return self._accuracy.rolling_accuracy

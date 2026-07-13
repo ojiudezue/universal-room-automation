@@ -8981,6 +8981,21 @@ class EnergyBatteryFullTimeSensor(AggregationEntity, SensorEntity):
             return None
         return energy.battery_full_time
 
+    @property
+    def extra_state_attributes(self) -> dict:
+        # v5.16.1 H2 follow-up: surface the predictor's basis/rate/taper
+        # attrs (were computed but never exposed — Bug Class #55).
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        try:
+            return energy.battery_full_time_attrs
+        except Exception:  # noqa: BLE001
+            return {}
+
 
 class EnergyForecastAccuracySensor(AggregationEntity, SensorEntity):
     """Forecast accuracy (7-day rolling %).
