@@ -1149,20 +1149,15 @@ class EnergyCoordinator(BaseCoordinator):
                     )
                     continue
                 if state.get("paused_by_energy"):
-                    # D1 (INV-D1-RESTORE): skip re-adding TOU pause
-                    # membership when `_ev_tou_enabled` is currently OFF.
-                    # Without this guard, a toggle flipped off before a
-                    # restart would re-orphan devices across boots.
-                    # Defensive getattr — bound-method test harnesses may
-                    # not set the toggle attribute; treat missing as ON
-                    # for backwards compatibility.
-                    if getattr(self, "_ev_tou_enabled", True) is False:
-                        _LOGGER.info(
-                            "Restore: skipping paused_by_energy re-add "
-                            "for %s (ev_tou_enabled=False)", evse_id,
-                        )
-                    else:
-                        self._ev._paused_by_us.add(evse_id)
+                    # Fix 3 (A-MED-2 / C-HIGH-2): re-add UNCONDITIONALLY.
+                    # The prior skip-guard left a physically-off device
+                    # with no owner and a dead ensure-on (nothing knew to
+                    # turn it back on). Under Fix 3 the always-on
+                    # `release_all_tou` path (energy.py:~3080) drains the
+                    # set AND issues a compensating turn_on on the FIRST
+                    # tick when the toggle is OFF, restoring restart-
+                    # consistent behavior with in-session toggle-off.
+                    self._ev._paused_by_us.add(evse_id)
                 if state.get("excess_solar_active"):
                     self._ev._excess_solar_active.add(evse_id)
             # Restore grid cap + battery drain state from key-value store.
@@ -1181,19 +1176,10 @@ class EnergyCoordinator(BaseCoordinator):
                 try:
                     for eid in _json.loads(grid_cap_json):
                         if eid in valid_evse_ids:
-                            # D1 (INV-D1-RESTORE): skip re-add when the
-                            # grid-import-cap toggle is currently OFF.
-                            # Defensive getattr — see paused_by_energy
-                            # rationale above.
-                            if getattr(
-                                self, "_grid_import_cap_enabled", True,
-                            ) is False:
-                                _LOGGER.info(
-                                    "Restore: skipping _paused_by_grid_cap "
-                                    "re-add for %s (grid_import_cap_"
-                                    "enabled=False)", eid,
-                                )
-                                continue
+                            # Fix 3 (A-MED-2 / C-HIGH-2): re-add
+                            # UNCONDITIONALLY; always-on
+                            # `release_all_grid_cap` drains + turn_on
+                            # next tick when toggle is OFF.
                             self._ev._paused_by_grid_cap.add(eid)
                 except (ValueError, TypeError):
                     pass
@@ -1216,19 +1202,10 @@ class EnergyCoordinator(BaseCoordinator):
                 try:
                     for eid in _json.loads(fp_json):
                         if eid in valid_evse_ids:
-                            # D1 (INV-D1-RESTORE): skip re-add when the
-                            # excess-solar toggle is currently OFF.
-                            # Defensive getattr — see paused_by_energy
-                            # rationale above.
-                            if getattr(
-                                self, "_excess_solar_enabled", True,
-                            ) is False:
-                                _LOGGER.info(
-                                    "Restore: skipping _paused_by_fill_"
-                                    "priority re-add for %s (excess_"
-                                    "solar_enabled=False)", eid,
-                                )
-                                continue
+                            # Fix 3 (A-MED-2 / C-HIGH-2): re-add
+                            # UNCONDITIONALLY; always-on
+                            # `release_all_fill_priority` drains + turn_on
+                            # next tick when toggle is OFF.
                             self._ev._paused_by_fill_priority.add(eid)
                 except (ValueError, TypeError):
                     pass
@@ -3067,8 +3044,14 @@ class EnergyCoordinator(BaseCoordinator):
                 # tier respects the same admin override.
                 if self._ev_tou_enabled:
                     _fc_active = self._ev._is_force_charge_active()  # noqa: SLF001
+                    # Fix 6d (A-LOW-1): thread `grid_charge_on` for L1
+                    # parity with EVSE breaker-safety cede. Uses the same
+                    # `grid_charge_intent` computed for the EVSE branch
+                    # above so L1/L2 cede on the exact same signal.
                     plug_actions = self._smart_plugs.determine_actions(
-                        period, force_charge_active=_fc_active,
+                        period,
+                        force_charge_active=_fc_active,
+                        grid_charge_on=bool(grid_charge_intent),
                     )
                     for action_spec in plug_actions:
                         await self._execute_service_action(action_spec)

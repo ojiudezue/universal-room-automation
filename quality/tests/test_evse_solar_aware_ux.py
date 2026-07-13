@@ -349,8 +349,11 @@ class TestD6EVTouToggleGatesSmartPlugActions:
         # the call name only, not the full arg list.
         idx = src.find("self._smart_plugs.determine_actions(")
         assert idx != -1
-        # Walk back 250 chars and verify `_ev_tou_enabled` gate appears
-        slice_ = src[max(0, idx - 250):idx]
+        # Walk back 500 chars and verify `_ev_tou_enabled` gate appears.
+        # Fix-up (energy hygiene fix-up 2026-07-13): my Fix 6d added a
+        # ~200-char inline comment above the plug call to document the
+        # `grid_charge_on` breaker-safety kwarg; widen the search window.
+        slice_ = src[max(0, idx - 500):idx]
         assert "_ev_tou_enabled" in slice_
 
 

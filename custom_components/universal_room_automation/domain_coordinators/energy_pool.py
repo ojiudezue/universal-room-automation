@@ -1820,6 +1820,10 @@ class EVChargerController:
                     "EV release_all_tou: releasing %s (TOU toggle OFF)",
                     evse_id,
                 )
+        # Fix 6e (A-LOW-2): with TOU toggle OFF, no proactive off-peak
+        # claim is valid — drop membership for ALL current holds, not
+        # just those that also lived in `_paused_by_us`. Idempotent.
+        self._proactive_offpeak_holds.clear()
         return actions
 
     def release_all_fill_priority(self) -> list[dict[str, Any]]:
@@ -1832,6 +1836,10 @@ class EVChargerController:
                 or evse_id in self._paused_by_grid_cap
                 or evse_id in self._paused_by_arbitrage
                 or evse_id in self._paused_by_load_shed
+                # Fix 4 (A-MED-1): a TOU-paused device must NOT be
+                # turned_on when fill-priority toggle flips OFF during
+                # peak — `_paused_by_us` still legitimately holds it.
+                or evse_id in self._paused_by_us
             ):
                 _LOGGER.debug(
                     "EV release_all_fill_priority: %s dropped fill-priority "
@@ -1867,6 +1875,8 @@ class EVChargerController:
                 or evse_id in self._paused_by_fill_priority
                 or evse_id in self._paused_by_arbitrage
                 or evse_id in self._paused_by_load_shed
+                # Fix 4 (A-MED-1): TOU-owner defers grid-cap release too.
+                or evse_id in self._paused_by_us
             ):
                 _LOGGER.debug(
                     "EV release_all_grid_cap: %s dropped grid-cap "
@@ -1956,6 +1966,15 @@ class SmartPlugController:
         # live incident: socket_2 flipped manually at 01:04).
         self._proactive_offpeak_holds: set[str] = set()
 
+        # Fix 5 (A-MED-3 / C-LOW-1): mirror EVPool.__init__ pattern which
+        # calls `_prune_removed_evses()` here (energy_pool.py:279). Without
+        # this call, `prune_removed_plugs` was dead code and the plug
+        # owner-sets could carry membership for entity_ids no longer in
+        # `_plugs` after an options-flow reload. Options-reload rebuilds
+        # SmartPlugController from scratch via `async_setup_entry`, so
+        # this is defense-in-depth for any future in-place reconfig path.
+        self.prune_removed_plugs()
+
     # ------------------------------------------------------------------
     # v4.7.6 helpers
     # ------------------------------------------------------------------
@@ -1999,6 +2018,7 @@ class SmartPlugController:
         self,
         tou_period: str,
         force_charge_active: bool = False,
+        grid_charge_on: bool = False,
     ) -> list[dict[str, Any]]:
         """Determine smart plug actions based on TOU period.
 
@@ -2066,6 +2086,29 @@ class SmartPlugController:
                         entity_id,
                     )
                     continue
+                # Fix 6d (A-LOW-1): breaker-safety cede for L1 parity
+                # with EVSE (energy_pool.py:572-601). When the battery is
+                # commanding (or the live grid switch shows)
+                # `charge_from_grid=True`, do NOT ensure-on the plug —
+                # the grid is already pulling significant load; adding a
+                # plug now is the compound-load breaker condition. If
+                # the plug is currently ON, command it OFF.
+                # Operator principle: L1 behaves like L2.
+                if grid_charge_on:
+                    self._proactive_offpeak_holds.discard(entity_id)
+                    if state.state == "on":
+                        actions.append({
+                            "service": "switch.turn_off",
+                            "target": entity_id,
+                            "data": {},
+                        })
+                        _LOGGER.info(
+                            "Smart plug %s paused (breaker-safety: "
+                            "grid charge active)",
+                            entity_id,
+                        )
+                    continue
+
                 # (b) Force-charge is its own escape hatch — skip the
                 # proactive-on claim so hold-set cleanly reflects only
                 # TOU-driven holds.
@@ -2137,6 +2180,8 @@ class SmartPlugController:
                     "Plug release_all_tou: releasing %s (TOU toggle OFF)",
                     entity_id,
                 )
+        # Fix 6e (A-LOW-2) mirror: plug tier — drop all proactive holds.
+        self._proactive_offpeak_holds.clear()
         return actions
 
     def release_all_fill_priority(self) -> list[dict[str, Any]]:
@@ -2147,6 +2192,8 @@ class SmartPlugController:
             if (
                 entity_id in self._paused_by_battery_drain
                 or entity_id in self._paused_by_load_shed
+                # Fix 4 (A-MED-1) mirror: plug tier — TOU-owner defers.
+                or entity_id in self._paused_by_us
             ):
                 _LOGGER.debug(
                     "Plug release_all_fill_priority: %s dropped fill-priority "
@@ -2174,8 +2221,11 @@ class SmartPlugController:
         """Drop hold-set membership for plug entity_ids no longer
         configured. Mirrors EVPool prune (see `_prune_removed_evses`).
 
-        Called from EnergyCoordinator so options-flow reload cleans
-        state for removed plugs. Idempotent.
+        Fix 5 (A-MED-3 / C-LOW-1): called from `__init__` (mirrors
+        EVPool.__init__:279) so options-flow reload paths that rebuild
+        SmartPlugController from scratch get clean owner-sets. The prior
+        docstring claimed a caller in EnergyCoordinator that did not
+        exist — the method was dead code. Idempotent.
         """
         current = set(self._plugs)
         for owner_set in (

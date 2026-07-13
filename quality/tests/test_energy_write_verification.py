@@ -282,8 +282,16 @@ async def test_reversion_sweep_detects_silent_flip(hass, monkeypatch):
     coord._battery._entities["cloud_charge_from_grid_oracle"] = "switch.oracle_cfg"
     _set_state(hass, "switch.oracle_cfg", "on")
     coord._battery._last_charge_from_grid_command = False
+    # Fix 6a (B-HIGH-2): mint via the SUT's OWN bound `dt_util` so
+    # aware/naive matches regardless of which test bootstrap ran first
+    # or reassigned `sys.modules["homeassistant.util.dt"]` at collection
+    # time (multiple sibling tests do the latter; a fresh `from
+    # homeassistant.util import dt` would sometimes bind a different
+    # module object than the SUT's captured import).
+    from custom_components.universal_room_automation.domain_coordinators \
+        import energy_write_verify as _wv  # noqa: E402
     coord._battery._last_charge_from_grid_command_at = (
-        datetime.utcnow() - timedelta(seconds=60)
+        _wv.dt_util.utcnow() - timedelta(seconds=60)
     )
     # Patch dt_util.utcnow inside the module so age > window.
     emitted = []
@@ -608,8 +616,11 @@ def test_supersession_check_early_returns_when_ledger_advanced(hass):
     coord._battery._entities["cloud_reserve_oracle"] = "number.oracle"
     _set_state(hass, "number.oracle", "30", unit="%")
     v = WriteVerifier(hass, coord)
-    stale = datetime.utcnow() - timedelta(minutes=10)
-    fresh = datetime.utcnow()
+    # Fix 6a (B-HIGH-2): mint via the SUT's OWN captured dt_util binding.
+    from custom_components.universal_room_automation.domain_coordinators \
+        import energy_write_verify as _wv  # noqa: E402
+    stale = _wv.dt_util.utcnow() - timedelta(minutes=10)
+    fresh = _wv.dt_util.utcnow()
     coord._battery._last_reserve_level = 50
     coord._battery._last_reserve_level_at = fresh
     # Would normally MISMATCH (oracle=30 vs commanded=50) → emit anomaly
@@ -680,9 +691,12 @@ def test_reversion_coalesced_no_reemit_while_standing(hass):
     coord._battery._entities["cloud_reserve_oracle"] = "number.oracle"
     _set_state(hass, "number.oracle", "30", unit="%")
     v = m.WriteVerifier(hass, coord)
-    # Set a stale commanded ledger so the sweep engages. Match the
-    # test-harness dt_util.utcnow (naive datetime) — see mock at :68.
-    old = datetime.utcnow() - timedelta(hours=1)
+    # Fix 6a (B-HIGH-2): mint via the SUT's OWN captured dt_util binding
+    # (see previous sites for rationale — sibling tests reassign
+    # `sys.modules["homeassistant.util.dt"]` at collection time).
+    from custom_components.universal_room_automation.domain_coordinators \
+        import energy_write_verify as _wv  # noqa: E402
+    old = _wv.dt_util.utcnow() - timedelta(hours=1)
     coord._battery._last_reserve_level = 50
     coord._battery._last_reserve_level_at = old
     emitted: list[str] = []

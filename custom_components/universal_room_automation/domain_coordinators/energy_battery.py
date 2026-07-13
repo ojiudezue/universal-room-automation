@@ -242,6 +242,21 @@ class BatteryStrategy:
         # parks, so exposing the emitter's actual last emission is the correct
         # release-floor source. None until the emitter has run once (boot).
         self._last_reserve_level: int | None = None
+        # Fix 1 (A-HIGH-1/B-HIGH-1): the pre-overlay STRATEGY-DESIRED reserve.
+        # Retained as a separate ledger so consumers that need the raw
+        # strategy value (e.g. release-floor auditing, diagnostics) can
+        # read it without racing the overlay writer. `_last_reserve_level`
+        # is the SINGLE-WRITER-PER-TICK effective ledger (post-overlay,
+        # post-max()): written by `_apply_evse_battery_hold` (energy.py)
+        # when the overlay raises the emitted value AND by the dispatch
+        # tap (`_tap_write_verifier`) when a reserve action flushes to HA.
+        # `_result` writes ONLY to `_last_reserve_level_desired`. Without
+        # this split the two writers ping-ponged 20↔60 each tick under a
+        # standing hold with deadband suppressing dispatch → the
+        # write-verify supersession belt fired every tick and the sweep
+        # never verified reserve for the hold's duration.
+        # Unit: % SOC (0-100), semantic: floor (minimum).
+        self._last_reserve_level_desired: int | None = None
         # v5.15.x — commanded-value ledgers + SOC-fallback state for
         # write-verification (see PLANNING_envoy_write_verification_and_redundancy.md).
         self._last_reserve_level_at: Any = None
@@ -955,15 +970,21 @@ class BatteryStrategy:
 
         EV dead-band fix-up (A-HIGH-1 / B-H3 / D-HIGH-2 convergent finding):
         the parallel `current_offpeak_drain_target()` accessor mirrors only
-        the drain-target fallback path (:3116-3175). The real emitter can
-        park HIGHER via:
+        the drain-target fallback path. The real emitter can park HIGHER via:
           - inclement `partial_hold` clamp `max(drain_target, effective_reserve)`
-            (:3145-3146 / :3165-3166)
           - arbitrage/attain paths pinned to `peak_buffer_target`
-        Sourcing the release floor from `_last_reserve_level` (persisted in
-        `_result()`) captures ALL of those parks, closing the Bug Class #53
-        one-missed-site risk at the release-floor input. Boot fallback: the
-        drain-target accessor; final fallback: static `reserve_soc`.
+          - EVSE-battery-hold overlay `max(existing, hold_soc)`
+
+        Fix 1 (single-writer-per-tick) semantic: reads the EFFECTIVE
+        post-overlay ledger `_last_reserve_level`, which is the value the
+        Enphase hardware is (or will be) commanded to. This is the
+        "what the battery is parking at" truth. The pre-overlay strategy
+        desired is available as `_last_reserve_level_desired` for
+        diagnostics; consumers of the release floor MUST use the effective
+        value because releasing another EV against a lower "desired" floor
+        would defeat the standing hold.
+        Boot fallback: the drain-target accessor; final fallback: static
+        `reserve_soc`.
         """
         if self._last_reserve_level is not None:
             return int(self._last_reserve_level)
@@ -3203,13 +3224,14 @@ class BatteryStrategy:
         # / "full_hold short-circuits TOU exactly as the old storm path" /
         # "allow_discharge byte-identical to no-storm path".
         # NOTE: _apply_evse_battery_hold (energy.py:_apply_evse_battery_hold
-        # ~2639) runs AFTER this returns and is max()-safe — it can only
+        # ~2678) runs AFTER this returns and is max()-safe — it can only
         # RAISE the reserve floor, never lower a full_hold/partial_hold
-        # floor (EV audit §2). The overlay ALSO stamps
-        # `_last_reserve_level` when it raises (D2, INV-D2-LEDGER, ledger
-        # must equal the value the hardware sees, not the pre-overlay
-        # strategy desired — otherwise the write-verify sweep false-alarms
-        # `write_reverted` during standing holds).
+        # floor (EV audit §2). Fix 1 (A-HIGH-1/B-HIGH-1): the overlay is
+        # the SOLE per-tick writer of `_last_reserve_level` (effective
+        # post-max) alongside the dispatch tap. `_result` writes only the
+        # pre-overlay STRATEGY-DESIRED into `_last_reserve_level_desired`.
+        # This prevents the ping-pong that caused the write-verify sweep
+        # to never verify reserve during standing EVSE holds.
         # ──────────────────────────────────────────────────────────────
 
         # Grid disconnected — emergency backup
@@ -3556,17 +3578,19 @@ class BatteryStrategy:
 
         self._last_mode = mode
         self._last_reason = reason
-        # EV dead-band fix-up: persist the commanded reserve so the release
-        # floor read by `current_park_floor()` matches the emitter's ACTUAL
-        # last park, not a parallel re-derivation. Only overwrite when the
-        # emitter explicitly commanded a reserve_level this tick (some paths
-        # pass None to leave reserve untouched — do not clobber prior).
+        # Fix 1 (A-HIGH-1 = B-HIGH-1): the STRATEGY-DESIRED reserve is
+        # stamped to `_last_reserve_level_desired` ONLY. The single-writer-
+        # per-tick effective ledger `_last_reserve_level(+_at)` is written
+        # by `_apply_evse_battery_hold` (post-max effective) and by the
+        # dispatch tap (`_tap_write_verifier`, actual dispatched value).
+        # Under a standing hold with deadband suppressing dispatch, this
+        # split prevents the 20↔60 ping-pong that permanently invalidated
+        # the write-verify supersession belt (energy_write_verify.py:269)
+        # and sweep window guard (:395). See docstring on
+        # `self._last_reserve_level_desired` (init).
         if reserve_level is not None:
-            from homeassistant.util import dt as dt_util
             _new_res = int(max(0, min(100, reserve_level)))
-            if self._last_reserve_level != _new_res:
-                self._last_reserve_level_at = dt_util.utcnow()
-            self._last_reserve_level = _new_res
+            self._last_reserve_level_desired = _new_res
         # v5.15.x fix-up A/B-HIGH-2 — commanded ledger stamping MOVED to
         # the dispatch tap in energy.py::_tap_write_verifier so:
         #   (a) EVSE-hold max() raise at energy.py:2663-2678 is captured
@@ -3575,8 +3599,8 @@ class BatteryStrategy:
         #       an action was actually appended + dispatched (was:
         #       stamped every cycle even with no action → false reversion
         #       alerts).
-        # _last_reserve_level continues to be stamped above for the EV
-        # dead-band release-floor consumer at :912-918.
+        # Fix 1: `_last_reserve_level` is NO LONGER stamped here — the
+        # overlay + dispatch tap are the sole writers.
         # v4.5.0 D1: keep self._arbitrage_phase synced with the dict.
         # Defaults to "n/a" for any non-arbitrage code path (peak/mid_peak/
         # storm/disconnect), matching state matrix invariants 4 + 6.
