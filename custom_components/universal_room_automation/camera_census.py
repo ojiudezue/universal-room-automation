@@ -26,6 +26,11 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
+    CONF_AREA_ID,
+    CONF_ROOM_NAME,
+    ENTRY_TYPE_ROOM,
+    TRACKING_STATUS_STALE,
+    TRACKING_STATUS_LOST,
     CONF_CAMERA_PERSON_ENTITIES,
     CONF_EGRESS_CAMERAS,
     CONF_PERIMETER_CAMERAS,
@@ -105,6 +110,12 @@ class CensusZoneResult:
     peak_age_minutes: int = 0
     face_recognized_persons: list[str] = field(default_factory=list)
     enhanced_census: bool = False
+    # Cycle census_ble_cancel_unrecognized (2026-07-13): per-cycle diagnostic
+    # count of unrecognized camera contributions cancelled by BLE area
+    # correlation. Populated by ``_apply_enhanced_house_census`` from
+    # ``PersonCensus._last_ble_cancelled_count``. Zero on the raw path and
+    # whenever no cancellation occurred.
+    ble_cancelled_count: int = 0
 
 
 @dataclass
@@ -723,6 +734,17 @@ class PersonCensus:
         # by the census sensor's extra_state_attributes.
         self._last_area_contributions: dict[str, dict[str, Any]] = {}
         self._last_raw_pre_dedup_sum: int = 0
+
+        # Cycle census_ble_cancel_unrecognized (2026-07-13): last per-cycle
+        # BLE-cancellation total. Written at the END of
+        # ``_get_unrecognized_camera_count`` so that any mid-cycle exception
+        # leaves the prior value intact (rather than a partial half-count);
+        # read by ``_apply_enhanced_house_census`` to populate the
+        # ``ble_cancelled_count`` diagnostic on the returned CensusZoneResult.
+        # Seed here so the attribute is always defined even before the first
+        # enhanced-census cycle runs (avoids AttributeError on the raw path
+        # or if the enhanced path takes an early-return during setup).
+        self._last_ble_cancelled_count: int = 0
 
     # ------------------------------------------------------------------
     # Transit detection helpers (cross-platform)
@@ -1417,7 +1439,44 @@ class PersonCensus:
 
         return home_persons
 
-    def _ble_home_by_area(self) -> dict[str | None, int]:
+    def _build_room_to_area_id_map(self) -> dict[str, str]:
+        """Return ``{room_name: registry_area_id}`` from URA room config entries.
+
+        Cycle census_ble_cancel_unrecognized (2026-07-13) — Fix 3 (review
+        A-H2). We CANNOT invert ``person_coordinator._area_id_to_room``:
+        that dict is populated by ``_build_scanner_room_map()`` with THREE
+        keys per area (registry area_id, area Name, normalized-name) all
+        mapping to the same ``room_name`` value. Inverting it (`room -> aid`)
+        is last-wins over the three keys and typically yields the
+        *normalized name*, NOT the registry ``area_id``. But
+        ``CameraInfo.area_id`` is the registry area_id — so a renamed area
+        would silently never cancel.
+
+        Rooms store their canonical registry area_id under ``CONF_AREA_ID``
+        in the room config entry (see person_coordinator.py:549 for the
+        production read of the same field). Build the map directly.
+        """
+        room_to_area: dict[str, str] = {}
+        try:
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                    continue
+                merged = {**entry.data, **entry.options}
+                room_name = merged.get(CONF_ROOM_NAME) or entry.data.get(
+                    CONF_ROOM_NAME
+                )
+                area_id = merged.get(CONF_AREA_ID)
+                if room_name and area_id:
+                    room_to_area[room_name] = area_id
+        except Exception:  # noqa: BLE001 — graceful degradation (invariant I3)
+            _LOGGER.debug(
+                "_build_room_to_area_id_map failed; returning empty",
+                exc_info=True,
+            )
+            return {}
+        return room_to_area
+
+    def _ble_home_by_area(self) -> dict[str, int]:
         """Return ``{area_id: count}`` of residents BLE places at home, keyed by area.
 
         Cycle: census_ble_cancel_unrecognized (2026-07-13).
@@ -1433,18 +1492,26 @@ class PersonCensus:
         a resident in the kitchen must NOT cancel a genuine guest in the foyer.
 
         Consults ``person_coordinator.data``: for each tracked person whose
-        ``location`` is a real room slug (not "away"/"unknown"/""/"home"/"lost"),
-        resolves the room slug BACK to an ``area_id`` via the *inverse* of
-        ``person_coordinator._area_id_to_room`` (that cache is populated in
-        ``_build_scanner_room_map()`` — area_id -> room_name — the same
-        primitive Bermuda room resolution reads from, so we route through
-        the identical mapping instead of string-comparing slugs).
+        ``location`` is a real room name and whose ``tracking_status`` is
+        ACTIVE (i.e. NOT STALE and NOT LOST), resolves the room name to a
+        registry ``area_id`` via ``_build_room_to_area_id_map`` (which reads
+        each URA room entry's ``CONF_AREA_ID`` directly — see the docstring
+        on that helper for why we cannot invert
+        ``person_coordinator._area_id_to_room``).
 
-        LOST / away / unknown-location residents are excluded (invariant:
-        they cannot cancel any camera). "home" is excluded because it is
-        the fallback sentinel used when the tracking status says home but
-        no specific room was resolved — the resident's location is not
-        precise enough to cancel a specific camera's area.
+        Exclusion rules (Fix 5a — Bug Class #7 stale data source):
+        - ``tracking_status == 'stale'`` — bermuda_decay keeps a departed
+          resident's room ≤300s under STALE; a departed resident MUST NOT
+          cancel a real guest arriving in that area.
+        - ``tracking_status == 'lost'`` — no recent tracking data at all.
+        - ``location`` values ``away``/``unknown``/``home``/``lost`` (the
+          "not resolved to a specific room" sentinels — cannot cancel a
+          specific camera's area).
+        - Room slugs that don't resolve to any registered ``area_id`` are
+          DROPPED entirely (Fix 4 — A-H3): an unmapped resident must not
+          cancel guests on null-area cameras. The prior implementation
+          bucketed them under key ``None`` which cross-cancelled with
+          null-area cameras and broke invariant I1.
 
         Returns ``{}`` on any exception or when ``person_coordinator`` is
         not initialized — graceful degradation means no cancellation is
@@ -1458,20 +1525,28 @@ class PersonCensus:
             if not person_coordinator or not person_coordinator.data:
                 return {}
 
-            # Invert the area_id -> room_name cache once per call.
-            area_by_room = getattr(person_coordinator, "_area_id_to_room", None)
-            if not area_by_room:
+            room_to_area = self._build_room_to_area_id_map()
+            if not room_to_area:
                 return {}
-            room_to_area: dict[str, str] = {
-                room: aid for aid, room in area_by_room.items()
-            }
 
-            result: dict[str | None, int] = {}
+            result: dict[str, int] = {}
             for _person_id, person_info in person_coordinator.data.items():
                 location = person_info.get("location", "")
                 if not location or location in ("away", "unknown", "home", "lost"):
                     continue
+                # Fix 5a: STALE/LOST residents cannot cancel. A departed
+                # resident held in STALE by bermuda_decay must not cancel a
+                # real guest walking into the room they just left.
+                tracking_status = person_info.get("tracking_status")
+                if tracking_status in (
+                    TRACKING_STATUS_STALE, TRACKING_STATUS_LOST,
+                ):
+                    continue
                 area_id = room_to_area.get(location)
+                # Fix 4 (A-H3): unmapped location must cancel NOTHING —
+                # DROP entirely rather than bucketing under None.
+                if not area_id:
+                    continue
                 result[area_id] = result.get(area_id, 0) + 1
 
             return result
@@ -1734,15 +1809,24 @@ class PersonCensus:
         """
         now = dt_util.utcnow()
         configured_interior = self._get_interior_camera_entities()
-        contributions: list[tuple[str | None, int]] = []
-        # Cycle census_ble_cancel_unrecognized (2026-07-13): per-cycle
-        # area-correlated BLE subtraction bookkeeping. See _ble_home_by_area
-        # for invariants I1/I2/I3. A copy of the map so we can decrement
-        # per-camera without mutating the shared dict — a resident cancels
-        # AT MOST one camera contribution per cycle.
+        # Fix 2 (review A-H1 / B-M2 / C-HIGH-2): per-area redesign.
+        #
+        # The prior implementation subtracted BLE per-CAMERA with a
+        # decrementing budget, then handed area-tagged contributions to
+        # ``_dedup_by_area`` (same-area MAX). Two failure modes:
+        #   (a) Same-area under-cancel — two cameras cover playroom, a
+        #       resident is BLE-there: camera A cancelled, camera B not,
+        #       ``_dedup_by_area`` takes max(0, B) = B, resident re-arms.
+        #   (b) Order dependence — camera A vs B first changes which
+        #       camera absorbs the cancellation.
+        #
+        # Redesign: (1) compute per-camera RAW contribution (post-face,
+        # pre-BLE); (2) group by area, take MAX (mirrors
+        # ``_dedup_by_area`` semantics); (3) subtract
+        # ``min(area_raw_max, ble_here)`` per area; (4) sum. Null-area
+        # cameras contribute individually and are never cancelled.
         ble_by_area = self._ble_home_by_area()
-        ble_remaining: dict[str | None, int] = dict(ble_by_area)
-        cancelled_total = 0
+        raw_contributions: list[tuple[str | None, int]] = []
 
         for entity_id in configured_interior:
             platform = self._camera_manager.get_platform_for_camera(entity_id)
@@ -1764,7 +1848,7 @@ class PersonCensus:
             bs_id = camera_info.entity_id
             if not bs_id.endswith("_person_occupancy"):
                 # Can't derive face sensor — count as unrecognized
-                contributions.append((area_id, count))
+                raw_contributions.append((area_id, count))
                 continue
 
             base_name = bs_id[len("binary_sensor."):-len("_person_occupancy")]
@@ -1797,32 +1881,56 @@ class PersonCensus:
                 # Face is unknown, stale, or no match — all detected are unrecognized
                 raw_contribution = count
 
-            # Cycle census_ble_cancel_unrecognized: area-correlated BLE
-            # subtraction. Invariants: I1 (guest-in-different-area
-            # unaffected — ble_remaining keyed on THIS camera's area_id),
-            # I2 (completeness — reduce by exactly min(raw, ble_here)),
-            # I3 (monotone — correction never inflates; bounded by min()).
-            ble_here = ble_remaining.get(area_id, 0) if raw_contribution > 0 else 0
-            correction = min(raw_contribution, ble_here)
+            if raw_contribution > 0:
+                raw_contributions.append((area_id, raw_contribution))
+
+        # Step 2: collapse per-area (max within area). Null-area cameras
+        # contribute individually and pass through unassigned_raw.
+        area_raw_max: dict[str, int] = {}
+        unassigned_raw: list[int] = []
+        for aid, cnt in raw_contributions:
+            if cnt <= 0:
+                continue
+            if aid:
+                if cnt > area_raw_max.get(aid, 0):
+                    area_raw_max[aid] = cnt
+            else:
+                unassigned_raw.append(cnt)
+
+        # Step 3: per-area BLE subtraction. Invariants:
+        #   I1 — an area with no resident BLE-here is untouched; a guest
+        #        there still contributes.
+        #   I2 — reduction is exactly ``min(area_raw_max, ble_here)``
+        #        (C-HIGH-2 min-bound anchor: 2 residents in an area with
+        #        pc=1 → cancelled == 1, not 2).
+        #   I3 — subtraction is monotone-reducing. Null-area cameras
+        #        (unassigned_raw) are NEVER cancelled — Fix 4 also
+        #        enforces this at the source (_ble_home_by_area drops
+        #        unmapped residents rather than bucketing under None).
+        cancelled_total = 0
+        area_contributions: dict[str, int] = {}
+        for aid, raw_max in area_raw_max.items():
+            ble_here = ble_by_area.get(aid, 0)
+            correction = min(raw_max, ble_here)
             if correction > 0:
-                ble_remaining[area_id] = ble_here - correction
                 cancelled_total += correction
                 _LOGGER.info(
-                    "BLE-cancel: camera=%s area=%s pc=%d ble_here=%d correction=%d contribution=%d",
-                    entity_id, area_id, count, ble_here, correction,
-                    raw_contribution - correction,
+                    "BLE-cancel: area=%s raw_max=%d ble_here=%d correction=%d contribution=%d",
+                    aid, raw_max, ble_here, correction, raw_max - correction,
                 )
-            contribution = raw_contribution - correction
+            final = raw_max - correction
+            if final > 0:
+                area_contributions[aid] = final
 
-            if contribution > 0:
-                contributions.append((area_id, contribution))
-
-        # D3: publish per-cycle diagnostic BEFORE returning so a mid-cycle
-        # exception cannot leave a stale value visible.
+        # D3: publish per-cycle diagnostic. On earlier exception the
+        # attribute retains its previous value (seeded 0 in __init__) —
+        # publishing a partial half-count would be worse than surfacing
+        # the last known good.
         self._last_ble_cancelled_count = cancelled_total
 
-        # v5.9.0 B-C1: same helper used by _calculate_house_census.
-        return self._dedup_by_area(contributions)
+        # Step 4: sum. Null-area contributions summed individually (no
+        # dedup between null-area cameras — matches ``_dedup_by_area``).
+        return sum(area_contributions.values()) + sum(unassigned_raw)
 
     def _get_wifi_guest_count(self, now: datetime | None = None) -> int:
         """Count GUEST phones on WiFi VLAN (shared entertainment network).
@@ -2105,8 +2213,10 @@ class PersonCensus:
             enhanced_census=True,
             # Cycle census_ble_cancel_unrecognized: read the count
             # deposited by _get_unrecognized_camera_count above; safe
-            # because we just called it on this cycle.
-            ble_cancelled_count=int(getattr(self, "_last_ble_cancelled_count", 0) or 0),
+            # because we just called it on this cycle. Attribute is
+            # always defined (seeded 0 in __init__), so no getattr
+            # dance required.
+            ble_cancelled_count=self._last_ble_cancelled_count,
         )
 
     def _apply_enhanced_property_census(

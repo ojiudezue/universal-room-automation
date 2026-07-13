@@ -1158,17 +1158,32 @@ The enhanced path had lost a property the raw path had. This cycle restores it *
 Let, for interior camera `C` on this census cycle:
 - `pc` = person_count reported by `sensor.<C>_person_count`
 - `fresh_face` = 1 if `sensor.<C>_last_recognized_face` has a valid recent (`<= CENSUS_FACE_RECOGNITION_WINDOW_SECONDS`) match, else 0
-- `ble_here` = number of tracked residents whose `person_coordinator.data[person]["location"]` slug maps to `C.area_id` via the inverse of `person_coordinator._area_id_to_room`
 
-Contribution formula (implemented in `_get_unrecognized_camera_count`, lines around 1719-1770):
+The BLE-cancel step is **per-area, not per-camera**. Two cameras that cover the same physical area (e.g. playroom_a and playroom_b both in area `a_playroom`) are collapsed to a single per-area contribution BEFORE BLE subtraction, so that a resident BLE-there cannot leak past camera A into camera B.
+
+Contribution formula (implemented in `_get_unrecognized_camera_count`, review fix-up 2026-07-13):
 ```
-face_covered      = 1 if fresh_face else 0
-raw_contribution  = max(0, pc - face_covered)             # existing behaviour
-correction        = min(raw_contribution, ble_here)        # NEW (this cycle)
-contribution      = raw_contribution - correction
+# Step 1: per-camera raw contribution, area-tagged
+for each Frigate interior camera C:
+    face_covered      = 1 if fresh_face(C) else 0
+    raw_contribution  = max(0, pc(C) - face_covered)
+    raw_contributions.append((C.area_id, raw_contribution))
+
+# Step 2: collapse per-area (max within area; null-area kept individually)
+area_raw_max = {aid: max(raw for (a, raw) in raw_contributions if a == aid) for aid in areas}
+
+# Step 3: subtract BLE per-area
+for aid, raw_max in area_raw_max.items():
+    ble_here    = number of ACTIVE-tracking residents whose location resolves to aid
+    correction  = min(raw_max, ble_here)
+    final       = raw_max - correction
+
+# Step 4: sum area finals + null-area (unassigned) contributions
 ```
 
-Per-camera contributions are then routed through `_dedup_by_area` (same-area max, cross-area sum) — the same helper the v5.9.0 fix installed for overcount protection.
+The `raw_max`/`sum` collapse in Step 2 mirrors `_dedup_by_area` (same-area max, cross-area sum). The BLE subtraction lives OUTSIDE that helper (Step 3) because the per-area max must be known BEFORE `min(raw_max, ble_here)` can be computed correctly — moving the subtraction back into the per-camera loop reintroduces the same-area under-cancel bug (review fix-up M6 anchor).
+
+**Resolving the room→area_id join** — `ble_here` for area `aid` counts each resident whose `person_coordinator.data[person]["location"]` (a room name string such as `"Kitchen"`) is registered as a URA room with `CONF_AREA_ID == aid`. The join is built by `_build_room_to_area_id_map`, which reads `CONF_AREA_ID` from each URA room config entry **directly** — NOT by inverting `person_coordinator._area_id_to_room`. The latter dict stores THREE keys per area (registry area_id, area display Name, normalized name) all mapping to the same room_name value; inverting it is last-wins over those three keys and typically yields the normalized name rather than the registry area_id. Since `CameraInfo.area_id` is the registry area_id, an inverted-dict helper silently never cancels when the area's display Name differs from its slug (the rename case).
 
 #### Multi-person truth table
 
@@ -1187,7 +1202,15 @@ Per-camera contributions are then routed through `_dedup_by_area` (same-area max
 
 - **I1 — soundness:** a camera-detected person with NO resident BLE correlate in the SAME area still contributes to `unidentified_raw`. A resident in the kitchen NEVER cancels a guest in the foyer. Row 7 above is the load-bearing case.
 - **I2 — completeness:** when at least one resident is BLE-here-in-area, contribution is reduced by exactly `min(raw_contribution, ble_here)`.
-- **I3 — arithmetic bound:** the correction is monotone-reducing — it can only lower `unidentified_raw`, never raise it. LOST/away residents are excluded from `_ble_home_by_area` (they cannot cancel anything). On any exception in the helper, `{}` is returned and no cancellation is applied — the code degrades to the pre-cycle over-arming behavior rather than silently under-detecting guests.
+- **I3 — arithmetic bound:** the correction is monotone-reducing — it can only lower `unidentified_raw`, never raise it. On any exception in the helper, `{}` is returned and no cancellation is applied — the code degrades to the pre-cycle over-arming behavior rather than silently under-detecting guests.
+
+**Who is excluded from `_ble_home_by_area`** (i.e. cannot cancel):
+
+- `location ∈ {away, unknown, home, lost}` — the "not resolved to a specific room" sentinels.
+- `tracking_status ∈ {stale, lost}` — bermuda_decay keeps a departed resident's `location` populated for up to 300s in STALE; a departed resident MUST NOT cancel a real guest arriving in the area they just left. Only `TRACKING_STATUS_ACTIVE` residents can cancel.
+- Room names that do NOT resolve to any registered URA room's `CONF_AREA_ID` — these are DROPPED entirely (not bucketed under `None`). Bucketing under `None` would cross-cancel with null-area cameras (`CameraInfo.area_id is None`) and suppress real guests on unassigned-area cameras.
+
+**Accepted sibling of row 4 (residual, not fixed this cycle):** if a resident's phone is FRESH but the resident is actually elsewhere unmapped (e.g. their location resolves to a room without a camera), and a genuine guest walks under that room's *area-siblings* — the `ble_here` count is correctly zero for the guest's area and I1 holds. The narrower case where a fresh-BLE resident is misplaced BY BLE to the guest's area (rather than their true area) reduces to a bad BLE reading and is not addressable at the census layer. Documented as a known limitation of the room→area join fidelity.
 
 ### 3. Interaction with the v4.7.14 AWAY veto
 
