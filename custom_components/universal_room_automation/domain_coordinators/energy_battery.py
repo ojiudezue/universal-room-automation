@@ -651,6 +651,29 @@ class BatteryStrategy:
         """Get the SOC drain target for off-peak based on tomorrow's solar class."""
         return self._drain_targets.get(tomorrow_class, DEFAULT_OFFPEAK_DRAIN_UNKNOWN)
 
+    def current_offpeak_drain_target(self) -> int:
+        """Return today's applicable off-peak drain target.
+
+        EV charge-start dead-band fix: the drain-target used by the emitter at
+        `_get_off_peak_decision` (see :3101-3114) picks the more conservative
+        (higher) target between D+1 and D+2 when `multi_day_horizon_enabled`.
+        This accessor mirrors that selection so the drain-release floor
+        (`max(reserve_soc, current_offpeak_drain_target())`) matches the
+        emitter and the two "floors" (static reserve vs live drain target)
+        are reconciled — Bug Class #53 (one-missed-site) closure at the
+        release-floor input.
+        """
+        tomorrow_class = self.classify_tomorrow_solar()
+        d1_target = self._get_offpeak_drain_target(tomorrow_class)
+        if not self._multi_day_horizon_enabled:
+            return d1_target
+        try:
+            d2_class = self.classify_solar_day_n(2)
+        except Exception:  # noqa: BLE001
+            return d1_target
+        d2_target = self._get_offpeak_drain_target(d2_class)
+        return max(d1_target, d2_target)
+
     def classify_solar_day_n(self, days_ahead: int) -> str:
         """v4.5.0 D3: classify the solar forecast for `days_ahead` from today.
 
@@ -3434,6 +3457,15 @@ class BatteryStrategy:
                 "horizon_enabled": self._multi_day_horizon_enabled,
             },
             "drain_targets": dict(self._drain_targets),
+            # EV charge-start dead-band fix D5: expose tonight's applicable
+            # drain target and the effective release floor threaded into
+            # both EV and plug drain-release gates. `drain_targets` above
+            # already surfaces the per-class map; these two answer "which
+            # entry is tonight's" and "what SOC does the EV release at".
+            "current_offpeak_drain_target": self.current_offpeak_drain_target(),
+            "effective_release_floor": max(
+                self.reserve_soc, self.current_offpeak_drain_target()
+            ),
             "threshold_warning": warning,
             "threshold_position": self._threshold_position(soc, tomorrow_class),
             "next_action_estimate": self._next_action_estimate(soc, tomorrow_class),

@@ -884,6 +884,23 @@ class EVChargerController:
 
         Pauses when: EVSE is charging AND battery is discharging AND SOC < threshold.
 
+        EV charge-start dead-band fix: the `reserve_soc` kwarg is repurposed
+        as the **effective release floor** F = max(static reserve_soc,
+        current_offpeak_drain_target()). Threaded by the caller from
+        `BatteryStrategy` so the release gate reconciles with the
+        drain-target the battery emitter is actually parking at. Before
+        this fix, the release used the static reserve (10) while the
+        battery parked at the higher drain target (e.g. 40 for
+        `tomorrow=unknown`) → SOC never dropped low enough to trigger
+        `battery_out_of_capacity` → EV silently starved overnight.
+        Excellent solar (drain_target=10=reserve) is byte-identical.
+
+        Release-side sticky (Operator D4 Option 1): once SOC is at/below the
+        effective release floor F (within ±2% hysteresis), the pause gate
+        does NOT re-engage even if the EV briefly discharges the battery
+        (Enphase hold has ~5-15min lag). Prevents 1-tick oscillation at
+        the floor where the drain rule has nothing left to protect.
+
         v4.7.6 D1: Refined resume gate.
           - `battery_out_of_capacity = battery_ok AND soc <= reserve_soc + 2`
             (we're at the reserve floor; capacity is exhausted — resume).
@@ -990,8 +1007,25 @@ class EVChargerController:
             soc_low = (
                 battery_soc is not None and battery_soc < soc_threshold
             )
+            # EV charge-start dead-band fix D4 Option 1 (release-side sticky):
+            # Once SOC is at/below the effective release floor F (within +2
+            # hysteresis), do NOT re-engage the drain pause. At the floor the
+            # battery has nothing left to protect — its own reserve mechanism
+            # (`_evse_battery_hold_active`, see :305/:323) commands hold on the
+            # next battery decision cycle; the drain rule would only be a
+            # destructive 1-tick oscillator here.
+            at_or_below_floor = (
+                battery_soc is not None
+                and reserve_soc is not None
+                and battery_soc <= reserve_soc + 2
+            )
 
-            if state["charging"] and battery_discharging and soc_low:
+            if (
+                state["charging"]
+                and battery_discharging
+                and soc_low
+                and not at_or_below_floor
+            ):
                 # v4.7.6 D1: Idempotent re-pause — re-dispatch every tick.
                 # Mirrors the TOU pattern at lines 319-323.
                 actions.append({
@@ -1871,6 +1905,14 @@ class SmartPlugController:
     ) -> list[dict[str, Any]]:
         """Pause smart plugs draining the home battery. Resume on recovery.
 
+        EV charge-start dead-band fix (parity with EV path): `reserve_soc` is
+        the **effective release floor** F = max(static reserve_soc,
+        current_offpeak_drain_target()); `solar_replenishing` gates the
+        high-SOC `soc_recovered` release (pre-existing L1/L2 gap from
+        `energy.py:2941-2947` where the kwarg defaulted to False). Release-side
+        sticky at floor prevents 1-tick oscillation. See the EV docstring
+        for the full rationale.
+
         v4.7.6 D1 mirror: hybrid self_modulates, idempotent re-pause, refined
         battery_out_of_capacity gate, observed-off / grace-window state.
 
@@ -1946,7 +1988,15 @@ class SmartPlugController:
                     entity_id, observed_off, grace_expired,
                 )
 
-            if is_on and battery_discharging and soc_low:
+            # EV charge-start dead-band fix D4 Option 1 (release-side sticky
+            # mirror): at/below effective floor F ± 2, do NOT re-engage pause.
+            at_or_below_floor = (
+                battery_soc is not None
+                and reserve_soc is not None
+                and battery_soc <= reserve_soc + 2
+            )
+
+            if is_on and battery_discharging and soc_low and not at_or_below_floor:
                 # v4.7.6 D1: idempotent re-pause every tick
                 actions.append({
                     "service": "switch.turn_off",

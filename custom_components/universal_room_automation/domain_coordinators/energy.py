@@ -2860,11 +2860,25 @@ class EnergyCoordinator(BaseCoordinator):
                     _surplus_pct > DEFAULT_EV_SOLAR_REPLENISH_SURPLUS_PCT
                     or (_bat_pw is not None and _bat_pw > 100)
                 )
+                # EV charge-start dead-band fix D1: thread the effective
+                # release floor F = max(reserve_soc, current_offpeak_drain_target)
+                # into the `reserve_soc` kwarg so the release gate
+                # reconciles with the drain target the battery emitter is
+                # actually parking at (Bug Class #53 one-missed-site closure).
+                _reserve_soc_static = getattr(self._battery, "reserve_soc", None)
+                try:
+                    _drain_target = self._battery.current_offpeak_drain_target()
+                except Exception:  # noqa: BLE001
+                    _drain_target = None
+                if _reserve_soc_static is not None and _drain_target is not None:
+                    _effective_release_floor = max(_reserve_soc_static, _drain_target)
+                else:
+                    _effective_release_floor = _reserve_soc_static
                 drain_actions = self._ev.determine_battery_drain_actions(
                     battery_power_w=self._battery.battery_power_w,
                     battery_soc=self._battery.battery_soc,
                     soc_threshold=self._ev_battery_drain_soc,
-                    reserve_soc=getattr(self._battery, "reserve_soc", None),
+                    reserve_soc=_effective_release_floor,
                     solar_replenishing=solar_replenishing,
                 )
                 for action_spec in drain_actions:
@@ -2938,12 +2952,20 @@ class EnergyCoordinator(BaseCoordinator):
                 # v4.7.6 fix-up A-H1: propagate Force-Charge state from EVPool
                 # so plug pause rules respect the same admin override.
                 force_charge_active = self._ev._is_force_charge_active()
+                # EV charge-start dead-band fix D2: L1/L2 parity — thread
+                # the same effective release floor F used for the EV path
+                # above, AND the `solar_replenishing` flag the EV path
+                # already computes (the pre-existing plug-path gap: this
+                # kwarg previously defaulted to False, so the plug's
+                # `soc_recovered` gate could never fire and release was
+                # reserve-only).
                 plug_drain_actions = self._smart_plugs.determine_battery_drain_actions(
                     battery_power_w=self._battery.battery_power_w,
                     battery_soc=self._battery.battery_soc,
                     soc_threshold=self._ev_battery_drain_soc,
-                    reserve_soc=getattr(self._battery, "reserve_soc", None),
+                    reserve_soc=_effective_release_floor,
                     force_charge_active=force_charge_active,
+                    solar_replenishing=solar_replenishing,
                 )
                 for action_spec in plug_drain_actions:
                     await self._execute_service_action(action_spec)
