@@ -162,3 +162,17 @@ tripwire correctly showed no_data because the lying local read suppressed
 any re-command (B-LOW-2 restart gap made concrete). Cloud-first
 reads+writes structurally fix the class; the boot self-heal scenario is
 mutation-anchored.
+
+### Post-deploy retro-audit (2026-07-13 ~12:50): the silent-control-loss window
+
+Recorder diff of local `switch.enpower_482348004678_charge_from_grid` vs
+cloud `switch.iq_battery_hacs_charge_battery_from_grid`, 7-day window:
+**cloud OFF the entire window; local commanded ON during every arbitrage
+charge window** (e.g. 07-06 12:50-13:44), with 246 local state entries
+incl. chronic `unavailable` flapping. Conclusion: charge-from-grid control
+was silently dead for ≥7 days (recorder-bounded; likely since an early-July
+firmware push to 8.3.5167) — every CHARGE window ran solar-only and every
+peak started underfilled. Reserve writes still landed in the same period
+(07-12 ramp), so the loss was surface-specific. First restored+verified
+grid charge: 2026-07-13 12:30 (v5.16.1 H1). Optional follow-up: peak-import
+cost audit vs pre-break baseline.
