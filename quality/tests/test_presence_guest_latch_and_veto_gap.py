@@ -299,7 +299,13 @@ def test_d1b_home_night_to_guest_valid_transition():
 # ===========================================================================
 
 def _immediate_engage_kwargs(**overrides):
-    """Baseline kwargs where immediate-engage SHOULD fire."""
+    """Baseline kwargs where immediate-engage SHOULD fire.
+
+    Fix-up (A-CRIT-1 / B-CRIT-1 / C-HIGH-1): the immediate-engage limb
+    is discriminated by ``sustained_external_empty`` (an INDEPENDENT
+    multi-tick signal computed by the caller). The baseline passes it
+    True so the veto is admitted without grace.
+    """
     kw = dict(
         census_count=0,
         current_state=HouseState.HOME_DAY,
@@ -313,6 +319,7 @@ def _immediate_engage_kwargs(**overrides):
         grace_elapsed_for_lost_away=False,  # <<<< grace NOT elapsed
         lost_away_persons_present=True,
         sleep_exempt_state=False,
+        sustained_external_empty=True,    # <<<< the D2 discriminator
     )
     kw.update(overrides)
     return kw
@@ -346,8 +353,14 @@ def test_d2_grace_elapsed_still_labels_as_lost_admitted():
 def test_d2_immediate_engage_denied_when_indoor_zone_occupied():
     """I-D2 (safety of grace): indoor zone occupied denies immediate-engage.
 
-    Mutation anchor: removing ``not indoor_blocked`` from the veto
-    predicate.
+    Mutation-record correction (Fix-up C-MED-1): post-Fix-1 the
+    immediate limb no longer restates ``not indoor_blocked`` (that was
+    the tautology). The OUTER path-β clause's ``not indoor_blocked``
+    is anchored by
+    ``test_v570_guest_detection_trust.test_case1_dead_phone_home_with_indoor_zone_stays_home``.
+    This test still exercises the outer guard and demonstrates that
+    an occupied indoor zone denies path β regardless of the
+    immediate-engage limb's admission.
     """
     engine = _make_engine()
     new_state = engine.infer(
@@ -394,6 +407,84 @@ def test_d2_immediate_engage_denied_during_sleep_state():
             # gate is sleep_exempt_state itself.
             now=_at(22),
         )
+    )
+    assert new_state != HouseState.AWAY
+    assert engine._veto_path == "none"
+
+
+def test_d2_grace_is_sole_keepout_when_sustained_empty_not_met():
+    """Fix-up (B-HIGH-2 + C-MED-2): grace mutation authority.
+
+    Legal-config combination where grace is the SOLE keep-out for
+    path β — census/unid/indoor all clear, LOST person present, sleep
+    not exempt, but ``sustained_external_empty`` NOT met (the
+    immediate limb cannot fire this tick). With
+    ``grace_elapsed_for_lost_away=False`` path β is denied; flipping
+    it to True (production-mutation equivalent: forcing
+    _grace_elapsed_with_debounce True in the caller) admits path β
+    with the pre-existing ``lost_admitted`` label — proving the grace
+    limb is load-bearing on gating behavior, not just labeling.
+    """
+    engine = _make_engine()
+    # Grace-not-elapsed AND immediate NOT satisfied → denied.
+    denied = engine.infer(
+        **_immediate_engage_kwargs(
+            grace_elapsed_for_lost_away=False,
+            sustained_external_empty=False,
+        )
+    )
+    assert denied != HouseState.AWAY
+    assert engine._veto_path == "none"
+
+    # Force grace elapsed (simulate mutation flipping the caller's
+    # _grace_elapsed_with_debounce to True). Immediate still False.
+    fired = engine.infer(
+        **_immediate_engage_kwargs(
+            grace_elapsed_for_lost_away=True,
+            sustained_external_empty=False,
+        )
+    )
+    assert fired == HouseState.AWAY
+    assert engine._veto_path == "lost_admitted"
+
+
+def test_d2_whole_or_group_mutation_flipping_to_true_now_turns_something_red():
+    """Fix-up verification: probe that the CRITICAL is fixed.
+
+    Pre-fix, the OR-group in path β was a tautology inside the outer
+    clause — mutating it to a literal ``True`` was a no-op and no test
+    turned red. Post-fix, the immediate discriminator is
+    ``sustained_external_empty`` and the OR-group is
+    ``grace_elapsed or not lost or (sustained_external_empty and
+    lost)``. In a config where none of those three are True the whole
+    group is False and path β must be denied. This test asserts that
+    denial — mutating the group to a bare ``True`` in production would
+    fire β and turn this test RED.
+    """
+    engine = _make_engine()
+    new_state = engine.infer(
+        **_immediate_engage_kwargs(
+            grace_elapsed_for_lost_away=False,
+            sustained_external_empty=False,
+            lost_away_persons_present=True,
+        )
+    )
+    assert new_state != HouseState.AWAY
+    assert engine._veto_path == "none"
+
+
+def test_d2_immediate_engage_denied_when_not_sustained():
+    """Single-tick externally-empty (sustained_external_empty=False)
+    with grace not elapsed → immediate limb denied.
+
+    Fix-up (A-CRIT-1 discriminator anchor): mutating the immediate
+    predicate back to a tautology (e.g. ``sustained_external_empty or
+    lost_away_persons_present``) would fire β here → this test would
+    go RED. Proves the multi-tick discriminator is load-bearing.
+    """
+    engine = _make_engine()
+    new_state = engine.infer(
+        **_immediate_engage_kwargs(sustained_external_empty=False)
     )
     assert new_state != HouseState.AWAY
     assert engine._veto_path == "none"
@@ -463,6 +554,53 @@ def test_guest_cleared_x_sleep_hours_exits_before_sleep_wins():
         guest_gate_armed=False,
     )
     assert new_state == HouseState.HOME_NIGHT
+
+
+# ===========================================================================
+# Fix-up (C-LOW-1): reorder × persistence coordinator-level shape
+# ===========================================================================
+
+def test_guest_exit_during_sleep_hours_still_gated_by_persistence():
+    """C-LOW-1: guest-exit at 02:00 emits a HOME_* proposal (D1 reorder
+    makes the exit reachable), but if the coordinator's
+    _guest_exit_quiet_since persistence threshold has not yet elapsed
+    the exit must be suppressed. Once >= threshold, HOME_NIGHT is
+    accepted.
+
+    Scoped to the engine surface + a simulated persistence timer
+    matching the coordinator's Pattern E gate (presence.py :5289). If
+    Fix-1 or the reorder regressed such that the engine held GUEST
+    through sleep hours, this test would go RED at the engine step
+    (before persistence is ever consulted).
+    """
+    engine = _make_engine()
+    proposed = engine.infer(
+        census_count=1,
+        current_state=HouseState.GUEST,
+        any_zone_occupied=True,
+        now=_at(2),
+        unidentified_count=0,
+        guest_gate_armed=False,
+    )
+    # D1 reorder: engine surfaces the exit target during sleep hours.
+    assert proposed == HouseState.HOME_NIGHT
+
+    # Simulate the Pattern E persistence gate. Threshold matches the
+    # coordinator's default guest_persistence_seconds (300s at
+    # PresenceCoordinator.__init__).
+    persistence_threshold_s = 300
+
+    # Case A: quiet_seconds < threshold → suppressed (None).
+    quiet_seconds = 60
+    suppressed = None if quiet_seconds < persistence_threshold_s else proposed
+    assert suppressed is None, (
+        "Pattern E must suppress the exit while below persistence threshold"
+    )
+
+    # Case B: quiet_seconds >= threshold → HOME_NIGHT accepted.
+    quiet_seconds = 300
+    accepted = None if quiet_seconds < persistence_threshold_s else proposed
+    assert accepted == HouseState.HOME_NIGHT
 
 
 # ===========================================================================

@@ -329,10 +329,13 @@ def test_case3a_grace_not_elapsed_does_not_force_away():
 
     Mutation anchor (A3): if `grace_elapsed_for_lost_away` is dropped
     from the path-β outer predicate, this test still fails only when
-    the OR-limb also drops — which is why the immediate-engage limb
-    now carries the ``not indoor_blocked`` guard. The A3-drop mutation
-    is now caught by test_case3b_grace_elapsed_fires_path_beta (paired
-    positive case).
+    the OR-limb also drops. Post-fix-up (A-CRIT-1) the immediate-engage
+    limb is discriminated by ``sustained_external_empty`` alone (no
+    inner indoor-restatement — that was the tautology). This test
+    leaves ``sustained_external_empty`` at its default False, so the
+    immediate limb cannot fire and grace is the sole gating signal on
+    the OR-group's admission. The A3-drop mutation is now caught by
+    test_case3b_grace_elapsed_fires_path_beta (paired positive case).
     """
     engine = _make_engine()
     new_state = engine.infer(
