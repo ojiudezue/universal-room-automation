@@ -240,6 +240,62 @@ Symmetric bugs for `_paused_by_fill_priority` (`_excess_solar_enabled`, `energy.
 
 ---
 
+### D4 — L1 plug off-peak proactive ensure-on (post-plan operator addition, 2026-07-13)
+
+**Origin.** Post-plan live incident 2026-07-13, 01:04 local: operator
+manually flipped `switch.socket_2` on because URA would NOT start it —
+plug was off at boot and the L1 pool controller had no proactive
+turn-on path. Added to the cycle after the plan doc was filed.
+
+**Bug.** `SmartPlugController.determine_actions(period)` (`energy_pool
+.py:1864` pre-build) has a peak/mid_peak pause branch but the `else`
+branch ONLY resumes plugs already in `_paused_by_us`. A plug that was
+never paused by URA (fresh boot, manually toggled off, plugged in late)
+sits idle through the entire off_peak window regardless of TOU.
+
+**Fix.** Mirror the EVSE proactive off_peak ensure-on
+(`EVChargerController.determine_actions` off_peak branch,
+`energy_pool.py:528-636`) — carry-over guards win (drain / fill /
+load-shed / TOU-us), force-charge cedes, else ensure-on and claim
+`_proactive_offpeak_holds`. New `_proactive_offpeak_holds: set[str]`
+added to SmartPlugController init. New `prune_removed_plugs()` mirrors
+`_prune_removed_evses` for options-flow reload cleanup.
+
+**Files touched.**
+
+| File | Change |
+|---|---|
+| `energy_pool.py` `SmartPlugController.__init__` | Add `self._proactive_offpeak_holds: set[str] = set()` |
+| `energy_pool.py` `SmartPlugController.determine_actions` | Split off_peak branch into carry-over guards → force-charge cede → ensure-on + claim hold. Signature adds `force_charge_active: bool = False`. |
+| `energy_pool.py` `SmartPlugController.prune_removed_plugs` (NEW) | Drop stale membership from all owner sets when a plug is removed from options. |
+| `energy.py` decision cycle | Thread `force_charge_active=self._ev._is_force_charge_active()` into `_smart_plugs.determine_actions(period, ...)`. |
+
+**Preserve.**
+- Peak / mid_peak pause behavior byte-identical (`_paused_by_us` still
+  populated, `switch.turn_off` still issued).
+- Load-shed carry-over precedence unchanged.
+- Unknown-period safe no-op behavior preserved (legacy TOU
+  bookkeeping still drops; no proactive-on issued).
+
+**Acceptance criteria.**
+- **Verify (unit):** `test_plug_offpeak_ensure_on_starts_off_plug` —
+  plug off at off_peak with no carry-over guard → turn_on issued and
+  `_proactive_offpeak_holds` claims it.
+- **Verify (unit):** `test_plug_offpeak_defers_to_battery_drain_
+  carryover` — battery-drain carry-over holds, no turn_on.
+- **Verify (unit):** `test_plug_offpeak_ceded_when_force_charge_active`
+  — force-charge cedes, plug not claimed.
+- **Verify (unit):** `test_plug_peak_still_pauses` — regression guard on
+  the unchanged peak branch.
+- **Verify (unit):** `test_plug_prune_drops_removed_plug_membership` —
+  reload discipline.
+- **Live:** After deploy, `switch.socket_2` (or any managed L1 plug)
+  observed OFF at off_peak start receives `switch.turn_on` within 5 min
+  and appears in the coordinator's `_proactive_offpeak_holds` diagnostic
+  attribute.
+
+---
+
 ## Tier classification and review framings
 
 **Tier 2-DB** (three framing-disjoint reviews). Rationale: pause-owner release paths are cross-coordinator (energy ↔ energy_pool ↔ energy_battery) with restart-persistence surface AND toggle-transition matrix — classic regression-prone shape. Not Tier 3: no state-machine invariant threading; no monetary/safety single-path failure mode (release-late is a comfort/efficiency issue, not a money-losing silent-drain).

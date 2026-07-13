@@ -1767,6 +1767,131 @@ class EVChargerController:
 
         return status
 
+    # ------------------------------------------------------------------
+    # D1 — release-only paths (run unconditionally each tick when the
+    # owning feature toggle is OFF, so no device gets stranded in a
+    # pause-owner set after its toggle flips off). Mirror of the
+    # release-side logic inside the main decision paths, but with the
+    # "should still be paused?" predicate inverted to "toggle is off,
+    # always drain the set". See PLANNING_energy_pause_release_hygiene.md
+    # D1 (INV-D1-RELEASE).
+    # ------------------------------------------------------------------
+
+    def release_all_tou(self) -> list[dict[str, Any]]:
+        """Drain `_paused_by_us` when the EV TOU toggle is OFF.
+
+        For each EVSE currently in `_paused_by_us`: drop membership,
+        clear proactive-offpeak-hold intent bookkeeping, and issue
+        `switch.turn_on` if no other stronger pause-owner (drain,
+        fill-priority, grid-cap, arbitrage, load-shed) holds the device.
+        Cross-owner deferral matches `determine_actions` off-peak branch
+        (energy_pool.py carry-over guards).
+        """
+        actions: list[dict[str, Any]] = []
+        for evse_id in list(self._paused_by_us):
+            self._paused_by_us.discard(evse_id)
+            self._proactive_offpeak_holds.discard(evse_id)
+            # Cross-owner deferral — a stronger pause holds it.
+            if (
+                evse_id in self._paused_by_battery_drain
+                or evse_id in self._paused_by_fill_priority
+                or evse_id in self._paused_by_grid_cap
+                or evse_id in self._paused_by_arbitrage
+                or evse_id in self._paused_by_load_shed
+            ):
+                _LOGGER.debug(
+                    "EV release_all_tou: %s dropped TOU membership; "
+                    "another owner still holds device",
+                    evse_id,
+                )
+                continue
+            config = self._evse.get(evse_id, {})
+            switch_entity = config.get("switch", "")
+            if not switch_entity:
+                continue
+            state = self._get_evse_state(evse_id)
+            if not state["is_on"]:
+                actions.append({
+                    "service": "switch.turn_on",
+                    "target": switch_entity,
+                    "data": {},
+                })
+                _LOGGER.info(
+                    "EV release_all_tou: releasing %s (TOU toggle OFF)",
+                    evse_id,
+                )
+        return actions
+
+    def release_all_fill_priority(self) -> list[dict[str, Any]]:
+        """Drain `_paused_by_fill_priority` when the excess-solar toggle is OFF."""
+        actions: list[dict[str, Any]] = []
+        for evse_id in list(self._paused_by_fill_priority):
+            self._paused_by_fill_priority.discard(evse_id)
+            if (
+                evse_id in self._paused_by_battery_drain
+                or evse_id in self._paused_by_grid_cap
+                or evse_id in self._paused_by_arbitrage
+                or evse_id in self._paused_by_load_shed
+            ):
+                _LOGGER.debug(
+                    "EV release_all_fill_priority: %s dropped fill-priority "
+                    "membership; another owner still holds device",
+                    evse_id,
+                )
+                continue
+            config = self._evse.get(evse_id, {})
+            switch_entity = config.get("switch", "")
+            if not switch_entity:
+                continue
+            state = self._get_evse_state(evse_id)
+            if not state["is_on"]:
+                actions.append({
+                    "service": "switch.turn_on",
+                    "target": switch_entity,
+                    "data": {},
+                })
+                _LOGGER.info(
+                    "EV release_all_fill_priority: releasing %s "
+                    "(excess-solar toggle OFF)",
+                    evse_id,
+                )
+        return actions
+
+    def release_all_grid_cap(self) -> list[dict[str, Any]]:
+        """Drain `_paused_by_grid_cap` when the grid-import-cap toggle is OFF."""
+        actions: list[dict[str, Any]] = []
+        for evse_id in list(self._paused_by_grid_cap):
+            self._paused_by_grid_cap.discard(evse_id)
+            if (
+                evse_id in self._paused_by_battery_drain
+                or evse_id in self._paused_by_fill_priority
+                or evse_id in self._paused_by_arbitrage
+                or evse_id in self._paused_by_load_shed
+            ):
+                _LOGGER.debug(
+                    "EV release_all_grid_cap: %s dropped grid-cap "
+                    "membership; another owner still holds device",
+                    evse_id,
+                )
+                continue
+            config = self._evse.get(evse_id, {})
+            switch_entity = config.get("switch", "")
+            if not switch_entity:
+                continue
+            state = self._get_evse_state(evse_id)
+            if not state["is_on"]:
+                actions.append({
+                    "service": "switch.turn_on",
+                    "target": switch_entity,
+                    "data": {},
+                })
+                _LOGGER.info(
+                    "EV release_all_grid_cap: releasing %s "
+                    "(grid-cap toggle OFF)",
+                    evse_id,
+                )
+        return actions
+
 
 # ============================================================================
 # Smart Plug Controller
@@ -1821,6 +1946,15 @@ class SmartPlugController:
         self._battery_drain_cooldown: dict[str, float] = {}
         # v4.7.6 D4 cache
         self._fill_priority_solar_ok: bool = False
+        # D4 (post-plan operator addition, 2026-07-13): proactive off-peak
+        # hold intent-state for L1 plugs. Mirrors EVPool's
+        # `_proactive_offpeak_holds` (see energy_pool.py:249). L1 plugs are
+        # peer "small EVSE" devices per v4.7.6 D6 — same TOU treatment.
+        # Enables `determine_actions` to ensure-on during off_peak so a
+        # plug that was off at boot / manually turned off / plugged in
+        # late does not sit idle through the cheap window (2026-07-13
+        # live incident: socket_2 flipped manually at 01:04).
+        self._proactive_offpeak_holds: set[str] = set()
 
     # ------------------------------------------------------------------
     # v4.7.6 helpers
@@ -1861,10 +1995,32 @@ class SmartPlugController:
     # production caller. The canonical config-update path is HA's options-flow
     # reload which rebuilds SmartPlugController from scratch.
 
-    def determine_actions(self, tou_period: str) -> list[dict[str, Any]]:
+    def determine_actions(
+        self,
+        tou_period: str,
+        force_charge_active: bool = False,
+    ) -> list[dict[str, Any]]:
         """Determine smart plug actions based on TOU period.
 
         v4.2.21: Pauses on peak AND mid_peak (was peak only).
+
+        D4 (post-plan operator addition, 2026-07-13): off_peak branch is
+        now an **ensure-on with precedence pre-check**, mirroring EVPool
+        `determine_actions` (energy_pool.py:528-636). Prior behavior only
+        resumed plugs in `_paused_by_us`; a plug that was off at boot,
+        manually turned off, or plugged in late never got started. Live
+        incident 2026-07-13: operator manually flipped socket_2 at 01:04
+        because URA would not re-enable it. Same guard precedence as
+        EVSE: carry-over guards (drain/fill/load-shed/TOU-us) win;
+        force-charge is its own escape hatch; if no guard fires, ensure
+        the plug is ON and claim the proactive-offpeak hold.
+
+        Args:
+            tou_period: current TOU period ("peak", "mid_peak",
+                "off_peak", or unknown).
+            force_charge_active: True when EVPool's admin force-charge
+                override is currently open. When True, plug proactive-on
+                is skipped (force-charge is authorized by its own path).
         """
         actions: list[dict[str, Any]] = []
 
@@ -1874,6 +2030,9 @@ class SmartPlugController:
                 continue
 
             if tou_period in ("peak", "mid_peak"):
+                # Clear any stale proactive-offpeak hold — set is
+                # off-peak-intent only. Mirrors EVSE cleanup at line ~505.
+                self._proactive_offpeak_holds.discard(entity_id)
                 # B-LOW-1 fix-up: don't issue a cosmetic re-pause when
                 # load-shed already claims the plug (device is already off).
                 if (
@@ -1888,33 +2047,147 @@ class SmartPlugController:
                     })
                     self._paused_by_us.add(entity_id)
                     _LOGGER.info("Smart plug: pausing %s (%s)", entity_id, tou_period)
+            elif tou_period == "off_peak":
+                # D4: ensure-on with precedence pre-check.
+                # (a) Carry-over guards (battery protections) win — drop
+                # TOU bookkeeping and clear any stale proactive-offpeak
+                # hold, but do NOT turn the plug back on. Mirrors EVSE
+                # off_peak branch at energy_pool.py:558-570.
+                if (
+                    entity_id in self._paused_by_battery_drain
+                    or entity_id in self._paused_by_fill_priority
+                    or entity_id in self._paused_by_load_shed
+                ):
+                    self._paused_by_us.discard(entity_id)
+                    self._proactive_offpeak_holds.discard(entity_id)
+                    _LOGGER.debug(
+                        "Smart plug: %s carry-over guard holds off_peak — "
+                        "no ensure-on",
+                        entity_id,
+                    )
+                    continue
+                # (b) Force-charge is its own escape hatch — skip the
+                # proactive-on claim so hold-set cleanly reflects only
+                # TOU-driven holds.
+                if force_charge_active:
+                    self._proactive_offpeak_holds.discard(entity_id)
+                    continue
+                # (c) Ensure-on — re-issue turn_on idempotently each tick
+                # (Bug Class #43 — intent-state). If user manually
+                # disables the plug mid-off-peak, next tick re-enforces.
+                if state.state != "on":
+                    actions.append({
+                        "service": "switch.turn_on",
+                        "target": entity_id,
+                        "data": {},
+                    })
+                    _LOGGER.info(
+                        "Smart plug: proactive off-peak turn-on for %s",
+                        entity_id,
+                    )
+                # (d) Claim the hold; drop legacy TOU bookkeeping.
+                self._proactive_offpeak_holds.add(entity_id)
+                self._paused_by_us.discard(entity_id)
             else:
+                # Unknown/empty TOU period — safe no-op (do not
+                # proactively turn-on or pause). Mirrors EVSE B-LOW-2.
                 if entity_id in self._paused_by_us:
-                    # Don't resume if battery drain is active
-                    if entity_id in self._paused_by_battery_drain:
-                        self._paused_by_us.discard(entity_id)
-                        _LOGGER.info("Smart plug: clearing TOU pause for %s (battery drain active)", entity_id)
-                        continue
-                    # load-shedding-correctness D1: load-shed peer holds
-                    # the device — TOU drops its bookkeeping but does NOT
-                    # turn the plug back on (load-shed owns the resume).
-                    if entity_id in self._paused_by_load_shed:
-                        self._paused_by_us.discard(entity_id)
-                        _LOGGER.info(
-                            "Smart plug: clearing TOU pause for %s (load shed active)",
-                            entity_id,
-                        )
-                        continue
-                    if state.state != "on":
-                        actions.append({
-                            "service": "switch.turn_on",
-                            "target": entity_id,
-                            "data": {},
-                        })
-                        _LOGGER.info("Smart plug: resuming %s (off-peak)", entity_id)
+                    # Preserve prior legacy behavior for the unknown-period
+                    # case: if we had paused it, drop bookkeeping (no
+                    # turn-on issued, matches EVSE guarded no-op).
                     self._paused_by_us.discard(entity_id)
 
         return actions
+
+    # ------------------------------------------------------------------
+    # D1 mirror — release-only paths for the smart-plug tier.
+    # ------------------------------------------------------------------
+
+    def release_all_tou(self) -> list[dict[str, Any]]:
+        """Drain `_paused_by_us` when the EV TOU toggle is OFF (plug tier).
+
+        Mirrors `EVPool.release_all_tou`. Cross-owner deferral matches
+        the plug off_peak branch above.
+        """
+        actions: list[dict[str, Any]] = []
+        for entity_id in list(self._paused_by_us):
+            self._paused_by_us.discard(entity_id)
+            self._proactive_offpeak_holds.discard(entity_id)
+            if (
+                entity_id in self._paused_by_battery_drain
+                or entity_id in self._paused_by_fill_priority
+                or entity_id in self._paused_by_load_shed
+            ):
+                _LOGGER.debug(
+                    "Plug release_all_tou: %s dropped TOU membership; "
+                    "another owner still holds device",
+                    entity_id,
+                )
+                continue
+            state = self.hass.states.get(entity_id)
+            if state is None:
+                continue
+            if state.state != "on":
+                actions.append({
+                    "service": "switch.turn_on",
+                    "target": entity_id,
+                    "data": {},
+                })
+                _LOGGER.info(
+                    "Plug release_all_tou: releasing %s (TOU toggle OFF)",
+                    entity_id,
+                )
+        return actions
+
+    def release_all_fill_priority(self) -> list[dict[str, Any]]:
+        """Drain `_paused_by_fill_priority` when excess-solar toggle is OFF."""
+        actions: list[dict[str, Any]] = []
+        for entity_id in list(self._paused_by_fill_priority):
+            self._paused_by_fill_priority.discard(entity_id)
+            if (
+                entity_id in self._paused_by_battery_drain
+                or entity_id in self._paused_by_load_shed
+            ):
+                _LOGGER.debug(
+                    "Plug release_all_fill_priority: %s dropped fill-priority "
+                    "membership; another owner still holds device",
+                    entity_id,
+                )
+                continue
+            state = self.hass.states.get(entity_id)
+            if state is None:
+                continue
+            if state.state != "on":
+                actions.append({
+                    "service": "switch.turn_on",
+                    "target": entity_id,
+                    "data": {},
+                })
+                _LOGGER.info(
+                    "Plug release_all_fill_priority: releasing %s "
+                    "(excess-solar toggle OFF)",
+                    entity_id,
+                )
+        return actions
+
+    def prune_removed_plugs(self) -> None:
+        """Drop hold-set membership for plug entity_ids no longer
+        configured. Mirrors EVPool prune (see `_prune_removed_evses`).
+
+        Called from EnergyCoordinator so options-flow reload cleans
+        state for removed plugs. Idempotent.
+        """
+        current = set(self._plugs)
+        for owner_set in (
+            self._paused_by_us,
+            self._paused_by_battery_drain,
+            self._paused_by_fill_priority,
+            self._paused_by_load_shed,
+            self._proactive_offpeak_holds,
+        ):
+            for eid in list(owner_set):
+                if eid not in current:
+                    owner_set.discard(eid)
 
     def determine_battery_drain_actions(
         self,

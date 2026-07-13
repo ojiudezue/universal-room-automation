@@ -3202,9 +3202,14 @@ class BatteryStrategy:
         # Reordering silently breaks: "grid-disconnect wins over a full_hold"
         # / "full_hold short-circuits TOU exactly as the old storm path" /
         # "allow_discharge byte-identical to no-storm path".
-        # NOTE: _apply_evse_battery_hold (energy.py:2453) runs AFTER this
-        # returns and is max()-safe — it can only RAISE the reserve floor,
-        # never lower a full_hold/partial_hold floor (EV audit §2).
+        # NOTE: _apply_evse_battery_hold (energy.py:_apply_evse_battery_hold
+        # ~2639) runs AFTER this returns and is max()-safe — it can only
+        # RAISE the reserve floor, never lower a full_hold/partial_hold
+        # floor (EV audit §2). The overlay ALSO stamps
+        # `_last_reserve_level` when it raises (D2, INV-D2-LEDGER, ledger
+        # must equal the value the hardware sees, not the pre-overlay
+        # strategy desired — otherwise the write-verify sweep false-alarms
+        # `write_reverted` during standing holds).
         # ──────────────────────────────────────────────────────────────
 
         # Grid disconnected — emergency backup
