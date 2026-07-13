@@ -108,13 +108,13 @@ hypotheses:
     window: { first_check_after: 1d, confirm_after: 2d, alert_if_violated_after: 3d }
 ```
 
-## Live Validation (prospective — write observed results back post-restart)
+## Live Validation — Validated 2026-07-13 (deploy restart 10:53 CDT)
 
-| # | Criterion | How to verify |
-|---|---|---|
-| L1 | Deploy healthy; zero URA errors across restart; census pipeline alive (the BLE CRITICAL's crash signature absent: no "Census periodic update failed") | error_log scan + census sensor updating |
-| L2 | census_hold_interior=3 LIVE (applied via stop-edit-start at this deploy) + guest arming drops (H2) | integration options read-back + house-state history over 48-72h |
-| L3 | ble_cancelled_count attr present and incrementing on resident common-area passes | house census sensor attrs vs recorder |
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | Deploy healthy; zero URA errors; census pipeline alive | **PASS (4 boot transients noted)** | `installed_version=v5.16.0`; census sensors updating post-boot (`persons_in_house=2` at 10:57); ZERO occurrences of the B-C1 crash signature ("Census periodic update failed"). Four boot-window "DB write worker not running" ERRORs at 10:53:26-35 (setup-ordering race, pre-existing class — 1 occurrence at the v5.15.0 boot, 4 here; boot-only, none post-setup; **filed as a small Tier-1 candidate: start_write_worker before first logging consumers**). |
+| L2 | census_hold_interior=3 LIVE | **PASS** | Applied via the restart-window edit (core-down at +3s, written pre-boot-read); post-boot read-back = 3 (survived, vs the 2026-07-12 running-HA clobber). Guest-arming rate comparison runs over the next 48-72h (H2). |
+| L3 | ble_cancelled_count present | **PASS (present, =0)** | Attr live on `sensor.universal_room_automation_persons_in_house`; 0 is correct at validation time (unidentified=0, nothing to cancel). Increment check rides the next resident common-area pass without a face hit. |
 | L4 | Sleep transition works the next guest-straddles-22:00 evening: GUEST exits by gate-clear + ~12 min chain (300s exit persistence + hysteresis) | house-state history on the next false-arm evening (PENDING-ORGANIC) |
 | L5 | Empty-house: next full-family departure engages AWAY within ~5 min with veto_path=lost_admitted_immediate, NO flap cycle | house-state sensor attrs + history (PENDING-ORGANIC) |
 | L6 | Write-verify: first reserve write verifies (H3); flip charge_from_grid in the Enphase app once → NM alert within ~20 min (operator-staged reversion test) | battery-strategy attrs + NM |

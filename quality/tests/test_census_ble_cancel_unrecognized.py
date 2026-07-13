@@ -868,3 +868,122 @@ def test_end_to_end_ble_cancelled_count_zero_default() -> None:
         raw, ble_persons=[], now=datetime.now(timezone.utc),
     )
     assert result.ble_cancelled_count == 0
+
+
+# ===========================================================================
+# H3 (2026-07-13) — BLE-cancel kill switch
+# ===========================================================================
+
+
+def _make_census_with_ble_cancel(enabled: bool) -> tuple[PersonCensus, MagicMock]:
+    """Build a census fixture and expose the integration entry so the
+    test can toggle CONF_CENSUS_BLE_CANCEL_ENABLED live.
+
+    Returns (census, integration_entry). Mutating integration_entry.options
+    then reading `census._get_unrecognized_camera_count()` on the next
+    call exercises the live options-read pattern.
+    """
+    info, pcs, face = _make_frigate_camera("cam", "a1")
+    states = {pcs: _make_person_count_state(2), face: _make_face_state("unknown")}
+    pc_stub = _StubPersonCoordinator(
+        person_data={"oji": _person("Kitchen")},
+        area_id_to_room=_triple_key_map([("a1", "Kitchen", "Kitchen")]),
+    )
+    hass = make_hass()
+    hass.states.get = lambda entity_id: states.get(entity_id)
+    integration_entry = MagicMock()
+    integration_entry.data = {
+        ura_const.CONF_ENTRY_TYPE: ura_const.ENTRY_TYPE_INTEGRATION,
+    }
+    integration_entry.options = {
+        ura_const.CONF_CAMERA_PERSON_ENTITIES: [info.entity_id],
+        ura_const.CONF_ENHANCED_CENSUS: True,
+        ura_const.CONF_CENSUS_BLE_CANCEL_ENABLED: enabled,
+    }
+    room_entry = MagicMock()
+    room_entry.data = {
+        ura_const.CONF_ENTRY_TYPE: ura_const.ENTRY_TYPE_ROOM,
+        ura_const.CONF_ROOM_NAME: "Kitchen",
+        ura_const.CONF_AREA_ID: "a1",
+    }
+    room_entry.options = {}
+    hass.config_entries.async_entries.return_value = [integration_entry, room_entry]
+    try:
+        hass.data[ura_const.DOMAIN] = {"person_coordinator": pc_stub}
+    except Exception:  # pragma: no cover
+        hass.data = {ura_const.DOMAIN: {"person_coordinator": pc_stub}}
+    mgr = _StubCameraManager({info.entity_id: info})
+    census = PersonCensus(hass, mgr)  # type: ignore[arg-type]
+    return census, integration_entry
+
+
+def test_h3_gate_off_skips_subtraction() -> None:
+    """H3: kill switch OFF — subtraction skipped. 2 people at the camera,
+    1 resident BLE-here: WITHOUT cancellation, unrecognized count == 2
+    (both flow through as raw). Contrast with gate ON: count == 1.
+
+    Drives the REAL _get_unrecognized_camera_count function.
+    """
+    census, _entry = _make_census_with_ble_cancel(enabled=False)
+    assert census._get_unrecognized_camera_count() == 2
+
+
+def test_h3_gate_on_default_still_subtracts() -> None:
+    """H3: kill switch ON (default) — subtraction ACTIVE, resident cancels."""
+    census, _entry = _make_census_with_ble_cancel(enabled=True)
+    assert census._get_unrecognized_camera_count() == 1
+
+
+def test_h3_default_is_true_when_option_absent() -> None:
+    """H3: when the option is absent from entry.options, default is True.
+
+    This preserves current behavior for existing installations that
+    haven't seen the new field.
+    """
+    info, pcs, face = _make_frigate_camera("cam", "a1")
+    states = {pcs: _make_person_count_state(2), face: _make_face_state("unknown")}
+    pc_stub = _StubPersonCoordinator(
+        person_data={"oji": _person("Kitchen")},
+        area_id_to_room=_triple_key_map([("a1", "Kitchen", "Kitchen")]),
+    )
+    # Standard fixture — CONF_CENSUS_BLE_CANCEL_ENABLED NOT set.
+    census = _make_census(
+        {info.entity_id: info}, states,
+        person_coordinator=pc_stub,
+        room_config=[("Kitchen", "a1")],
+    )
+    # Default = True → subtraction ACTIVE → count == 1.
+    assert census._get_unrecognized_camera_count() == 1
+    # And the accessor reports True.
+    assert census._get_ble_cancel_enabled() is True
+
+
+def test_h3_options_read_live_across_ticks() -> None:
+    """H3: the accessor reads options LIVE per call (same pattern as
+    _get_hold_seconds). Mutating integration_entry.options between
+    ticks flips behavior without any explicit reload."""
+    census, entry = _make_census_with_ble_cancel(enabled=True)
+    assert census._get_unrecognized_camera_count() == 1  # gate ON, cancelled
+    # Flip live — no restart, no _make_census rebuild.
+    entry.options = {**entry.options, ura_const.CONF_CENSUS_BLE_CANCEL_ENABLED: False}
+    assert census._get_unrecognized_camera_count() == 2  # gate OFF, raw
+
+
+def test_h3_mutation_anchor_gate_removed(monkeypatch) -> None:
+    """Behavior test (2026-07-13 relabel per C-MED-2): the docstring
+    previously claimed 'MUTATION ANCHOR' but the test SIMULATES the
+    absence of the gate by monkeypatching the ACCESSOR to always
+    return True, rather than editing the production call site. It
+    proves the gate is READ at that site (the aggregate is load-
+    bearing), but a real per-site source mutation is provided below
+    by ``test_c_med_1_h3_options_round_trip_real_source_mutation``.
+    """
+    census, _entry = _make_census_with_ble_cancel(enabled=False)
+    # Mutation: force the gate accessor True regardless of options.
+    monkeypatch.setattr(
+        census, "_get_ble_cancel_enabled", lambda: True,
+    )
+    # Under the mutation the subtraction still runs → count == 1.
+    assert census._get_unrecognized_camera_count() == 1
+    # (The non-mutated invariant is count == 2 under gate=OFF, proven
+    # by test_h3_gate_off_skips_subtraction above.)

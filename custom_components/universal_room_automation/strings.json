@@ -710,7 +710,8 @@
           "enhanced_census": "Enhanced Census (v2)",
           "guest_vlan_ssid": "Guest WiFi SSID",
           "census_hold_interior": "Interior Hold (minutes)",
-          "census_hold_exterior": "Exterior Hold (minutes)"
+          "census_hold_exterior": "Exterior Hold (minutes)",
+          "census_ble_cancel_enabled": "Phone presence can excuse unrecognized camera detections"
         },
         "data_description": {
           "census_cross_validation": "When you run multiple camera platforms (e.g., Frigate and UniFi Protect), person counts are compared between them for higher accuracy. Turn this off if you only use one camera platform or prefer simpler, single-source counting.",
@@ -721,7 +722,8 @@
           "enhanced_census": "Enable event-driven sensor fusion with hold/decay, WiFi guest VLAN detection, and Frigate face recognition differentiation. Separates 'people seen' from 'people recognized' for better guest detection.",
           "guest_vlan_ssid": "SSID of your guest WiFi network (e.g., 'Revel'). Phones connected to this SSID are counted as guests. Leave blank to disable WiFi guest detection.",
           "census_hold_interior": "How long (in minutes) to hold the peak person count for indoor cameras before starting decay. Prevents count drops when people move between rooms or sit in camera blind spots. Default: 15 minutes.",
-          "census_hold_exterior": "How long (in minutes) to hold the peak person count for outdoor/perimeter cameras before dropping. Shorter than interior because outdoor detections are more transient. Default: 5 minutes."
+          "census_hold_exterior": "How long (in minutes) to hold the peak person count for outdoor/perimeter cameras before dropping. Shorter than interior because outdoor detections are more transient. Default: 5 minutes.",
+          "census_ble_cancel_enabled": "When someone's phone places them in the same area as a camera that sees an unrecognized person, don't count that person toward guest detection. Turn off if guest detection seems to miss real guests."
         }
       },
       "perimeter_alerting": {
@@ -991,7 +993,7 @@
           },
           "cloud_verification": {
             "name": "Envoy Cloud Verification (Advanced)",
-            "description": "Optional Enphase cloud entities used to verify that battery commands actually took effect and to fall back on when the local Envoy is briefly unavailable. Leave defaults unless you renamed the cloud (HACS enphase_ev) integration's entities. Leave any field blank to disable that surface's verification.",
+            "description": "Optional Enphase cloud entities used to verify that battery commands actually took effect and to fall back on when the local Envoy is briefly unavailable. Leave defaults unless you renamed the cloud (HACS enphase_ev) integration's entities. Under H1 cloud-first writes (2026-07-13) these entities are ALSO the actual write targets for reserve / charge_from_grid / storage_mode. BLANKING a field disables that surface's verification AND coherently demotes both writes and command-state reads on that surface back to the LOCAL leg (documented via a one-time INFO log at startup).",
             "data": {
               "energy_cloud_reserve_oracle_entity": "Battery Reserve — Cloud Verification Entity",
               "energy_cloud_charge_from_grid_oracle_entity": "Charge From Grid — Cloud Verification Entity",

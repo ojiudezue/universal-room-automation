@@ -57,6 +57,7 @@ class DailyEnergyPredictor:
         power_profiles: Any | None = None,
         room_ids: list[str] | None = None,
         occupancy_enabled_fn: Any | None = None,
+        battery_power_w_fn: Any | None = None,
     ) -> None:
         """Initialize daily predictor."""
         self.hass = hass
@@ -76,6 +77,15 @@ class DailyEnergyPredictor:
         self._power_profiles = power_profiles
         self._room_ids = room_ids or []
         self._occupancy_enabled_fn = occupancy_enabled_fn
+        # H2 (2026-07-13): live battery charge-power callable (Watts;
+        # positive = charging, negative = discharging — Envoy convention).
+        # None → fall back to solar-forecast model.
+        self._battery_power_w_fn = battery_power_w_fn
+
+        # H2 (2026-07-13): rich attrs for the battery_full_time surface.
+        # basis: 'current_rate' | 'solar_forecast' | 'unavailable'
+        # missing_input: 'solcast' | 'soc' | None when inputs available
+        self._battery_full_time_attrs: dict[str, Any] = {}
 
         # Today's prediction
         self._prediction_date: str = ""
@@ -390,23 +400,131 @@ class DailyEnergyPredictor:
     def _estimate_battery_full_time(self, now: datetime) -> None:
         """Estimate when battery will reach 100% SOC today.
 
-        v3.14.0: Consumption-aware + taper-aware. Deducts remaining home
-        consumption from available solar, and uses SOC-based charge rate
-        taper (Encharge tapers significantly above 80% SOC).
+        H2 (2026-07-13) — v2 per operator's mental model: "battery full
+        time IF we charged to 100% at the CURRENT charge rate (solar or
+        grid) minus consumption." No moving-target modeling — always to
+        100%, always from the CURRENT observed rate.
+
+        Two modes:
+          - CURRENT_RATE — battery is currently charging (battery_power_w
+            > 0). ETA is piecewise from current SOC to 100 at the
+            current rate, taper-adjusted (rate scaled per band).
+          - SOLAR_FORECAST — battery is not currently charging. Fall
+            back to the pre-H2 model (net solar remaining vs remaining
+            capacity), retaining ``unlikely_today`` semantics.
+
+        Sign convention: battery_power_w positive = CHARGING, negative
+        = DISCHARGING (Envoy convention).
         """
         soc = self._get_float(self._battery_soc_entity)
         remaining_forecast = self._get_float(self._solcast_remaining_entity)
 
-        if soc is None or remaining_forecast is None:
+        # H2: surface WHY, not bare unknown.
+        if soc is None:
             self._battery_full_time = None
+            self._battery_full_time_attrs = {
+                "basis": "unavailable",
+                "missing_input": "soc",
+            }
+            return
+        if remaining_forecast is None:
+            self._battery_full_time = None
+            self._battery_full_time_attrs = {
+                "basis": "unavailable",
+                "missing_input": "solcast",
+            }
             return
 
         if soc >= 99:
             self._battery_full_time = "already_full"
+            self._battery_full_time_attrs = {
+                "basis": "already_full",
+                "current_soc": soc,
+            }
             return
 
         # How much energy needed to fill battery
         total_capacity = self._get_battery_capacity_kwh()
+
+        # H2 primary path — CURRENT_RATE. Consult the live battery power
+        # callable (from the strategy) — positive value = charging.
+        current_rate_kw: float | None = None
+        if self._battery_power_w_fn is not None:
+            try:
+                raw_w = self._battery_power_w_fn()
+                if raw_w is not None:
+                    current_rate_kw = float(raw_w) / 1000.0
+            except Exception:  # noqa: BLE001
+                current_rate_kw = None
+
+        # Piecewise band definition. Each band has a NOMINAL rate (kW)
+        # — the OBSERVED rate is scaled per band to reflect Encharge
+        # taper. When observed 0 < soc rate < AVERAGE, the ratio
+        # (observed / nominal below-80) is applied to the higher bands.
+        bands = [(80, AVERAGE_CHARGE_RATE_KW), (90, 2.5), (100, 1.5)]
+
+        if current_rate_kw is not None and current_rate_kw > 0.05:
+            # Actively charging — build ETA from CURRENT rate + taper.
+            observed_ratio = current_rate_kw / AVERAGE_CHARGE_RATE_KW
+            hours_to_fill = 0.0
+            current_soc = soc
+            taper_band = None
+            for threshold, nominal_rate in bands:
+                if current_soc >= threshold:
+                    continue
+                # Scale each band's nominal rate by the observed ratio
+                # so we honor the CURRENT rate (not a modeled ideal).
+                band_rate = max(0.1, nominal_rate * observed_ratio)
+                band_kwh = total_capacity * (
+                    min(threshold, 100) - current_soc
+                ) / 100.0
+                hours_to_fill += band_kwh / band_rate
+                if taper_band is None:
+                    taper_band = f"<{threshold}"
+                current_soc = threshold
+
+            # Review B-H2-2 (2026-07-13): clamp on hours_to_fill > 24.
+            # A bare HH:MM ETA without a date is misleading when the fill
+            # spans multiple days (e.g. dead-of-winter, degraded system).
+            # Report "unlikely_today" and retain the current rate in
+            # attrs so the operator sees WHY.
+            if hours_to_fill > 24:
+                self._battery_full_time = "unlikely_today"
+                self._battery_full_time_attrs = {
+                    "basis": "current_rate",
+                    "current_charge_rate_kw": round(current_rate_kw, 2),
+                    "taper_band": taper_band,
+                    "current_soc": soc,
+                    "hours_to_fill": round(hours_to_fill, 2),
+                    "reason": "hours_to_fill_exceeds_24",
+                    "taper_note": (
+                        "bands scaled from observed rate; hardware may "
+                        "taper harder near full"
+                    ),
+                    "inputs": "live battery_power_w + soc",
+                }
+                return
+            estimated_time = now + timedelta(hours=hours_to_fill)
+            self._battery_full_time = estimated_time.strftime("%H:%M")
+            self._battery_full_time_attrs = {
+                "basis": "current_rate",
+                "current_charge_rate_kw": round(current_rate_kw, 2),
+                "taper_band": taper_band,
+                "current_soc": soc,
+                "hours_to_fill": round(hours_to_fill, 2),
+                # Review B-H2-1 (2026-07-13): honest caveat — the piecewise
+                # bands are scaled from the OBSERVED rate; near 100% the
+                # Encharge hardware can taper harder than our model, so
+                # the HH:MM ETA is a best-effort estimate not a guarantee.
+                "taper_note": (
+                    "bands scaled from observed rate; hardware may "
+                    "taper harder near full"
+                ),
+                "inputs": "live battery_power_w + soc",
+            }
+            return
+
+        # SOLAR_FORECAST fallback — battery not currently charging.
         remaining_capacity_kwh = total_capacity * (100 - soc) / 100.0
 
         # v3.14.0: Deduct remaining home consumption from available solar
@@ -428,22 +546,73 @@ class DailyEnergyPredictor:
         # Can we fill it with net available solar?
         if net_available_solar < remaining_capacity_kwh:
             self._battery_full_time = "unlikely_today"
+            self._battery_full_time_attrs = {
+                "basis": "solar_forecast",
+                "net_solar_remaining_kwh": round(net_available_solar, 2),
+                "assumed_consumption_kwh": round(remaining_consumption, 2),
+                "remaining_capacity_kwh": round(remaining_capacity_kwh, 2),
+                "current_charge_rate_kw": (
+                    round(current_rate_kw, 2)
+                    if current_rate_kw is not None else None
+                ),
+                "inputs": "solcast + capacity model (not currently charging)",
+            }
             return
 
         # v3.14.0: SOC-based charge rate taper (Encharge behavior)
         # Calculate piecewise — each band has a different charge rate
-        bands = [(80, AVERAGE_CHARGE_RATE_KW), (90, 2.5), (100, 1.5)]
         hours_to_fill = 0.0
         current_soc = soc
+        taper_band = None
         for threshold, rate in bands:
             if current_soc >= threshold:
                 continue
             band_kwh = total_capacity * (min(threshold, 100) - current_soc) / 100.0
             hours_to_fill += band_kwh / rate
+            if taper_band is None:
+                taper_band = f"<{threshold}"
             current_soc = threshold
 
+        # Review B-H2-2 (2026-07-13) — solar_forecast branch symmetry
+        # with the current_rate clamp above.
+        if hours_to_fill > 24:
+            self._battery_full_time = "unlikely_today"
+            self._battery_full_time_attrs = {
+                "basis": "solar_forecast",
+                "net_solar_remaining_kwh": round(net_available_solar, 2),
+                "assumed_consumption_kwh": round(remaining_consumption, 2),
+                "taper_band": taper_band,
+                "current_soc": soc,
+                "current_charge_rate_kw": (
+                    round(current_rate_kw, 2)
+                    if current_rate_kw is not None else None
+                ),
+                "reason": "hours_to_fill_exceeds_24",
+                "taper_note": (
+                    "banded capacity model; hardware may taper harder near full"
+                ),
+                "inputs": "solcast + capacity model (not currently charging)",
+            }
+            return
         estimated_time = now + timedelta(hours=hours_to_fill)
         self._battery_full_time = estimated_time.strftime("%H:%M")
+        self._battery_full_time_attrs = {
+            "basis": "solar_forecast",
+            "net_solar_remaining_kwh": round(net_available_solar, 2),
+            "assumed_consumption_kwh": round(remaining_consumption, 2),
+            "taper_band": taper_band,
+            "current_soc": soc,
+            "current_charge_rate_kw": (
+                round(current_rate_kw, 2)
+                if current_rate_kw is not None else None
+            ),
+            # Review B-H2-1 (2026-07-13): banded capacity model, near-full
+            # taper may exceed nominal.
+            "taper_note": (
+                "banded capacity model; hardware may taper harder near full"
+            ),
+            "inputs": "solcast + capacity model (not currently charging)",
+        }
 
     def restore_consumption_history(self, rows: list[dict]) -> None:
         """Restore per-DOW consumption history from DB rows on startup.
@@ -493,6 +662,9 @@ class DailyEnergyPredictor:
             "predicted_consumption_kwh": self._predicted_consumption_kwh,
             "predicted_net_kwh": self._predicted_net_kwh,
             "battery_full_time": self._battery_full_time,
+            # H2 (2026-07-13): enriched attrs (basis, current rate,
+            # taper band, missing_input on unavailable, …).
+            "battery_full_time_attrs": dict(self._battery_full_time_attrs),
             "adjustment_factor": round(self._adjustment_factor, 3),
         }
 

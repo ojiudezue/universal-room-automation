@@ -124,3 +124,41 @@ every-cycle start evaluation, not just an undo of its own pause."*
   family), hygiene call-site anchors static-source (needs coordinator
   harness), test_cycle_b pre-existing ordering pollution (unrelated),
   A-LOW-2 proactive-holds display nit — all in the pickup memo.
+
+---
+
+## Addendum — Hotfix batch v5.16.1 (H1 cloud-first writes · H2 battery_full_time v2 · H3 BLE kill switch)
+
+**Builds** `114043a8`/`a4e40c30`/`dcd6fe2c` · **Fix-up** `44881a35` · 3 focused framing-disjoint reviews.
+
+| Severity | Found | Fixed |
+|---|---:|---:|
+| HIGH | 5 (A:2, B:1, C:3 test-authority — overlap-adjusted 5 distinct) | 5 |
+| MED | 5 | 5 |
+| LOW | 4 | 3 (+1 retired by live evidence) |
+
+Headline findings, all fixed in `44881a35`:
+- **B-H1-1:** the self-heal re-dispatch loop cancelled/rescheduled the pending
+  verification every cycle — a persistently-refusing Enlighten would never
+  trigger the REVERTED alarm (heal loop masks the alarm). Fixed: same-value
+  pending checks mature; N=3 consecutive self-heals raise the unmaskable alarm.
+- **A-HIGH-1:** `current_storage_mode` was a missed W-5 command-state read
+  (local leg) → storage_mode had no self-heal. Fixed w/ cloud read + label
+  normalization (cloud labels confirmed live).
+- **A-HIGH-2:** explicit-blank cloud field + `is not None` → writes dispatched
+  with NO entity — an advertised config action killed a surface's writes.
+  Fixed: falsy check → coherent demotion to local (reads+writes together).
+- **C-HIGH-1/2/3:** W-5 anchored at 1 of ~7 sites; secondary witness and tap
+  normalization had zero authority; two "anchor" docstrings overstated
+  (4th recurrence of claimed-but-false anchors this wave). Fixed: real
+  anchors added (witness deletion → behavioral divergence test red,
+  re-verified independently by orchestrator: RED×2, byte-identical restore).
+- Also: unavailable-cloud N-strike backoff (no infinite 5-min dispatch loop),
+  H2 ETA clamp + taper honesty attr, H3 options round-trip anchor.
+
+Live-evidence trail motivating H1: URA's 11:06:27 local charge_from_grid
+write accepted-then-ignored (cloud off, hardware following cloud); the
+tripwire correctly showed no_data because the lying local read suppressed
+any re-command (B-LOW-2 restart gap made concrete). Cloud-first
+reads+writes structurally fix the class; the boot self-heal scenario is
+mutation-anchored.

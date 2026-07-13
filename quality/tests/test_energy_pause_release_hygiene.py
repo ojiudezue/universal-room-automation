@@ -313,7 +313,7 @@ class _FakeBattery:
         self._last_reserve_level_at = None
         self._reserve_entity = reserve_entity
 
-    def _get_entity(self, key: str, default: str) -> str:  # noqa: D401
+    def _get_entity(self, key: str, default: str, *, role: str = "read") -> str:  # noqa: D401
         return self._reserve_entity
 
 
@@ -478,7 +478,7 @@ def test_fix1_result_does_not_stamp_effective_ledger() -> None:
     battery._last_mode = None
     battery._last_reason = None
     battery._arbitrage_phase = None
-    battery._get_entity = lambda k, d: d
+    battery._get_entity = lambda k, d, *, role="read": d
     battery._get_state_float = lambda e: None
     battery._get_state_bool = lambda e: None
     # `battery_soc` and `solar_production` are properties on the real

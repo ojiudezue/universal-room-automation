@@ -236,6 +236,17 @@ WRITE_VERIFY_NM_SURFACES: Final = (
     WRITE_VERIFY_SURFACE_STORAGE_MODE,
 )
 
+# H1 (2026-07-13): cloud-first battery writes are now the system's write
+# topology, not a per-user knob. All three battery control surfaces
+# (reserve number, charge_from_grid switch, storage_mode select) route
+# through the configured cloud oracle entities (enphase_ev IQ_* entities)
+# because live evidence on firmware 8.3.5167 shows local Envoy writes are
+# accepted-then-ignored — the hardware follows the Enphase cloud leg. The
+# LOCAL entities remain configured for use as a SECONDARY WITNESS in the
+# reversion sweep (see energy_write_verify.py:_sweep_surface). Not exposed
+# in config flow — operator directive: "rip off the band aid".
+ENERGY_CLOUD_FIRST_WRITES: Final = True
+
 # ============================================================================
 # Inclement-weather detection + TOU/solar-horizon-aware battery hold
 # (Robust Inclement-Weather Reserve cycle — supersedes has_storm_forecast()).

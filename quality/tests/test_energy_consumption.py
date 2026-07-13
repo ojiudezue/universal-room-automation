@@ -707,3 +707,118 @@ class TestFirstBoot:
         if snapshots["production"] is None and current_values["production"] is not None:
             snapshots["production"] = current_values["production"]
         assert snapshots["production"] == 200.0
+
+
+# ============================================================================
+# H2 (2026-07-13) — battery_full_time v2 (current-rate based)
+# ============================================================================
+
+
+class TestBatteryFullTimeH2:
+    """H2 v2: primary path is current-rate ETA, fallback is solar forecast."""
+
+    def _make_predictor(self, hass, battery_power_w=None):
+        return DailyEnergyPredictor(
+            hass,
+            battery_soc_entity=DEFAULT_BATTERY_SOC_ENTITY,
+            battery_capacity_entity=DEFAULT_BATTERY_CAPACITY_ENTITY,
+            battery_power_w_fn=(
+                (lambda: battery_power_w) if battery_power_w is not None else None
+            ),
+        )
+
+    def test_h2_current_rate_primary_when_charging(self):
+        """When battery_power_w > 0 (charging), basis MUST be current_rate
+        and ETA is derived from the observed rate (taper-scaled)."""
+        hass = MockHass()
+        hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "50")
+        hass.set_state(DEFAULT_SOLCAST_REMAINING_ENTITY, "20.0")
+        hass.set_state(DEFAULT_BATTERY_CAPACITY_ENTITY, "15000")
+
+        # Charging at 3500 W = 3.5 kW = AVERAGE_CHARGE_RATE_KW (ratio 1.0).
+        p = self._make_predictor(hass, battery_power_w=3500.0)
+        p._estimate_battery_full_time(datetime(2026, 3, 13, 10, 0))
+
+        assert p._battery_full_time is not None
+        assert p._battery_full_time not in ("already_full", "unlikely_today")
+        attrs = p._battery_full_time_attrs
+        assert attrs["basis"] == "current_rate"
+        assert abs(attrs["current_charge_rate_kw"] - 3.5) < 0.01
+        # Piecewise from 50%: 50→80 (4.5kWh @3.5) + 80→90 (1.5kWh @2.5)
+        # + 90→100 (1.5kWh @1.5) = 1.286 + 0.6 + 1.0 = 2.886h.
+        # ETA 10:00 + 2.886h ≈ 12:53.
+        hour, minute = map(int, p._battery_full_time.split(":"))
+        assert hour == 12
+        assert 50 <= minute <= 55
+
+    def test_h2_solar_forecast_fallback_when_not_charging(self):
+        """When battery_power_w <= 0 (not charging), basis MUST be
+        solar_forecast."""
+        hass = MockHass()
+        hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "50")
+        hass.set_state(DEFAULT_SOLCAST_REMAINING_ENTITY, "20.0")
+        hass.set_state(DEFAULT_BATTERY_CAPACITY_ENTITY, "15000")
+
+        # Discharging → not charging → fallback.
+        p = self._make_predictor(hass, battery_power_w=-500.0)
+        p._predicted_consumption_kwh = 5.0  # keep unlikely at bay
+        p._estimate_battery_full_time(datetime(2026, 3, 13, 10, 0))
+
+        assert p._battery_full_time_attrs["basis"] == "solar_forecast"
+
+    def test_h2_sign_convention_negative_power_is_discharging(self):
+        """Sign convention: NEGATIVE battery_power_w means discharging →
+        MUST fall back to solar_forecast (not current_rate)."""
+        hass = MockHass()
+        hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "50")
+        hass.set_state(DEFAULT_SOLCAST_REMAINING_ENTITY, "40.0")
+        hass.set_state(DEFAULT_BATTERY_CAPACITY_ENTITY, "15000")
+
+        p = self._make_predictor(hass, battery_power_w=-2500.0)
+        p._estimate_battery_full_time(datetime(2026, 3, 13, 10, 0))
+
+        # Basis MUST NOT be current_rate — that would be a sign-inversion bug.
+        assert p._battery_full_time_attrs["basis"] != "current_rate"
+
+    def test_h2_missing_soc_surfaces_reason(self):
+        """When SOC unavailable, attrs.basis='unavailable',
+        attrs.missing_input='soc' (not bare unknown)."""
+        hass = MockHass()
+        hass.set_state(DEFAULT_SOLCAST_REMAINING_ENTITY, "20.0")
+        p = self._make_predictor(hass, battery_power_w=3000.0)
+        p._estimate_battery_full_time(datetime(2026, 3, 13, 10, 0))
+        assert p._battery_full_time is None
+        assert p._battery_full_time_attrs["basis"] == "unavailable"
+        assert p._battery_full_time_attrs["missing_input"] == "soc"
+
+    def test_h2_missing_solcast_surfaces_reason(self):
+        """When solcast unavailable and not charging, attrs.missing_input='solcast'."""
+        hass = MockHass()
+        hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "50")
+        p = self._make_predictor(hass, battery_power_w=None)
+        p._estimate_battery_full_time(datetime(2026, 3, 13, 10, 0))
+        assert p._battery_full_time is None
+        assert p._battery_full_time_attrs["basis"] == "unavailable"
+        assert p._battery_full_time_attrs["missing_input"] == "solcast"
+
+    def test_h2_taper_piecewise_crossing_bands(self):
+        """MUTATION ANCHOR — break the taper piecewise (single flat rate)
+        and this test must fail. Starting at 50% and charging at
+        AVERAGE_CHARGE_RATE_KW, the piecewise integration MUST be strictly
+        larger than the flat model (upper bands are slower)."""
+        hass = MockHass()
+        hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "50")
+        hass.set_state(DEFAULT_SOLCAST_REMAINING_ENTITY, "20.0")
+        hass.set_state(DEFAULT_BATTERY_CAPACITY_ENTITY, "15000")
+
+        p = self._make_predictor(hass, battery_power_w=3500.0)
+        p._estimate_battery_full_time(datetime(2026, 3, 13, 10, 0))
+        piecewise_hours = p._battery_full_time_attrs["hours_to_fill"]
+
+        # Flat model: 7.5 kWh / 3.5 kW ≈ 2.143 h. Piecewise MUST be
+        # strictly larger because the upper bands (>80%) run slower.
+        # Piecewise = 1.286 + 0.6 + 1.0 = 2.886 h.
+        assert piecewise_hours > 2.5
+        assert piecewise_hours > 2.143 + 0.5  # >0.5h taper penalty
+        # And a taper_band label is present.
+        assert p._battery_full_time_attrs["taper_band"] is not None
