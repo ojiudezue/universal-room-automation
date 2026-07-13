@@ -39,6 +39,10 @@ from .energy_const import (
     CONF_ENERGY_BATTERY_POWER_ENTITY,
     CONF_ENERGY_BATTERY_SOC_ENTITY,
     CONF_ENERGY_CHARGE_FROM_GRID_ENTITY,
+    CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+    CONF_ENERGY_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+    CONF_ENERGY_CLOUD_RESERVE_ORACLE_ENTITY,
+    CONF_ENERGY_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
     CONF_ENERGY_CONSTRAINT_COAST_OFFSET,
     CONF_ENERGY_CONSTRAINT_PRECOOL_OFFSET,
     CONF_ENERGY_CONSTRAINT_PREHEAT_OFFSET,
@@ -244,6 +248,16 @@ class EnergyCoordinator(BaseCoordinator):
             ),
             solcast_day_3_entity=ec.get(CONF_ENERGY_SOLCAST_DAY_3_ENTITY),
         )
+        # v5.15.x D1 — Envoy write-verification tripwire. Read-only
+        # (invariant W-6). Back-reference on the strategy so
+        # get_status() surfaces verifier attrs.
+        try:
+            from .energy_write_verify import WriteVerifier
+            self._write_verifier = WriteVerifier(hass, self)
+            self._battery._write_verifier = self._write_verifier
+        except Exception:
+            _LOGGER.debug("WriteVerifier init failed (swallowed)", exc_info=True)
+            self._write_verifier = None
         # E2: Pool, EV, Smart Plugs
         self._pool = PoolOptimizer(hass, pool_speed_entity=pool_speed_entity)
         self._ev = EVChargerController(hass, evse_config=evse_config)
@@ -712,6 +726,17 @@ class EnergyCoordinator(BaseCoordinator):
             CONF_ENERGY_RESERVE_SOC_ENTITY: "reserve_soc_number",
             CONF_ENERGY_GRID_ENABLED_ENTITY: "grid_enabled",
             CONF_ENERGY_CHARGE_FROM_GRID_ENTITY: "charge_from_grid",
+            # v5.15.x — cloud verification oracles (empty → surface's
+            # verification is disabled; logged once at INFO by
+            # WriteVerifier). Fix-up A-LOW-1: use CONF_* imports.
+            CONF_ENERGY_CLOUD_RESERVE_ORACLE_ENTITY: "cloud_reserve_oracle",
+            CONF_ENERGY_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY: (
+                "cloud_charge_from_grid_oracle"
+            ),
+            CONF_ENERGY_CLOUD_STORAGE_MODE_ORACLE_ENTITY: (
+                "cloud_storage_mode_oracle"
+            ),
+            CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY: "battery_soc_cloud",
             CONF_ENERGY_SOLCAST_TODAY_ENTITY: "solcast_today",
             CONF_ENERGY_SOLCAST_REMAINING_ENTITY: "solcast_remaining",
             CONF_ENERGY_SOLCAST_TOMORROW_ENTITY: "solcast_tomorrow",
@@ -1124,6 +1149,14 @@ class EnergyCoordinator(BaseCoordinator):
                     )
                     continue
                 if state.get("paused_by_energy"):
+                    # Fix 3 (A-MED-2 / C-HIGH-2): re-add UNCONDITIONALLY.
+                    # The prior skip-guard left a physically-off device
+                    # with no owner and a dead ensure-on (nothing knew to
+                    # turn it back on). Under Fix 3 the always-on
+                    # `release_all_tou` path (energy.py:~3080) drains the
+                    # set AND issues a compensating turn_on on the FIRST
+                    # tick when the toggle is OFF, restoring restart-
+                    # consistent behavior with in-session toggle-off.
                     self._ev._paused_by_us.add(evse_id)
                 if state.get("excess_solar_active"):
                     self._ev._excess_solar_active.add(evse_id)
@@ -1143,6 +1176,10 @@ class EnergyCoordinator(BaseCoordinator):
                 try:
                     for eid in _json.loads(grid_cap_json):
                         if eid in valid_evse_ids:
+                            # Fix 3 (A-MED-2 / C-HIGH-2): re-add
+                            # UNCONDITIONALLY; always-on
+                            # `release_all_grid_cap` drains + turn_on
+                            # next tick when toggle is OFF.
                             self._ev._paused_by_grid_cap.add(eid)
                 except (ValueError, TypeError):
                     pass
@@ -1165,6 +1202,10 @@ class EnergyCoordinator(BaseCoordinator):
                 try:
                     for eid in _json.loads(fp_json):
                         if eid in valid_evse_ids:
+                            # Fix 3 (A-MED-2 / C-HIGH-2): re-add
+                            # UNCONDITIONALLY; always-on
+                            # `release_all_fill_priority` drains + turn_on
+                            # next tick when toggle is OFF.
                             self._ev._paused_by_fill_priority.add(eid)
                 except (ValueError, TypeError):
                     pass
@@ -2649,6 +2690,26 @@ class EnergyCoordinator(BaseCoordinator):
                 except (TypeError, ValueError):
                     effective = hold_reserve
                 decision["actions"][i] = {**action, "data": {"value": effective}}
+                # D2 (INV-D2-LEDGER): stamp the hold-elevated reserve
+                # into the commanded ledger. `_result` (energy_battery.py
+                # :3562-3564) already stamped the pre-overlay strategy
+                # desired; overwrite with the effective post-max() value
+                # so the write-verification sweep does NOT false-alarm
+                # `write_reverted` during standing holds with deadband
+                # suppressing dispatch (cloud sees `effective`, ledger
+                # must too). Only stamp when the overlay actually raised
+                # the emitted value (byte-identical on no-op path per
+                # INV-D2-DEADBAND / INV-EV-DEADBAND).
+                # reserve_level unit = % SOC (0-100), sign = floor.
+                try:
+                    if int(effective) != int(existing_val):
+                        from homeassistant.util import dt as dt_util
+                        _new = int(max(0, min(100, int(effective))))
+                        if self._battery._last_reserve_level != _new:  # noqa: SLF001
+                            self._battery._last_reserve_level_at = dt_util.utcnow()  # noqa: SLF001
+                        self._battery._last_reserve_level = _new  # noqa: SLF001
+                except (TypeError, ValueError, AttributeError):
+                    pass
                 return decision
 
         # No reserve action yet — add one using configured entity
@@ -2657,6 +2718,25 @@ class EnergyCoordinator(BaseCoordinator):
             "target": reserve_entity,
             "data": {"value": hold_reserve},
         })
+        # D2 (INV-D2-LEDGER): stamp the hold-elevated reserve into the
+        # commanded ledger so `current_park_floor()` sees the value the
+        # hardware will actually see, not the pre-overlay strategy desired.
+        # Without this, the write-verification sweep can raise a false
+        # `write_reverted` when the deadband suppresses dispatch (see
+        # PLANNING_energy_pause_release_hygiene.md D2). Only fires on the
+        # append path — the update-in-place branch above uses `return`
+        # before this point but also stamps via the dispatch tap when the
+        # action actually flushes; here we cover the "no prior reserve
+        # action + hold raised floor" case.
+        # reserve_level unit = % SOC (0-100), sign = floor (minimum).
+        try:
+            from homeassistant.util import dt as dt_util
+            _new = int(max(0, min(100, int(hold_reserve))))
+            if self._battery._last_reserve_level != _new:  # noqa: SLF001
+                self._battery._last_reserve_level_at = dt_util.utcnow()  # noqa: SLF001
+            self._battery._last_reserve_level = _new  # noqa: SLF001
+        except (TypeError, ValueError, AttributeError):
+            pass
         return decision
 
     async def _async_decision_cycle(self, _now=None) -> None:
@@ -2826,6 +2906,16 @@ class EnergyCoordinator(BaseCoordinator):
                     )
                     for action_spec in grid_cap_actions:
                         await self._execute_service_action(action_spec)
+                else:
+                    # D1 (INV-D1-RELEASE): release-only path runs
+                    # unconditionally when the owning toggle is OFF so
+                    # `_paused_by_grid_cap` cannot hold a device beyond
+                    # the tick after grid-cap is disabled. Natural
+                    # re-latch on toggle re-enable — the gated branch
+                    # above re-populates from live inputs on the next
+                    # decision cycle.
+                    for action_spec in self._ev.release_all_grid_cap():
+                        await self._execute_service_action(action_spec)
 
                 # v4.2.17: EV battery drain protection
                 # v4.3.4 fix: pass battery_power_w (unit-normalized to W),
@@ -2924,6 +3014,14 @@ class EnergyCoordinator(BaseCoordinator):
                     await self._check_fill_priority_nm_trip(
                         fill_priority_soc_tick=fill_priority_soc_tick,
                     )
+                else:
+                    # D1 (INV-D1-RELEASE): release-only path for the
+                    # EV fill-priority owner set. Runs unconditionally
+                    # when excess-solar toggle is OFF so a device that
+                    # was fill-priority-paused before the flip drains
+                    # membership within one cycle.
+                    for action_spec in self._ev.release_all_fill_priority():
+                        await self._execute_service_action(action_spec)
 
                 # v4.2.19: EVSE power sensor health check
                 evse_alerts = self._ev.check_power_sensor_health()
@@ -2940,9 +3038,29 @@ class EnergyCoordinator(BaseCoordinator):
                 # v4.7.6 D6.1: gate L1 plug TOU under the same EVSE TOU
                 # Management toggle as L2 EVSEs. L1 plugs are peer "small
                 # EVSE" devices per the v4.7.6 user decision.
+                # D4 (2026-07-13 operator addition): plug determine_actions
+                # now also runs the off_peak ensure-on branch (parity with
+                # EVSE). Force-charge is threaded from EVPool so the plug
+                # tier respects the same admin override.
                 if self._ev_tou_enabled:
-                    plug_actions = self._smart_plugs.determine_actions(period)
+                    _fc_active = self._ev._is_force_charge_active()  # noqa: SLF001
+                    # Fix 6d (A-LOW-1): thread `grid_charge_on` for L1
+                    # parity with EVSE breaker-safety cede. Uses the same
+                    # `grid_charge_intent` computed for the EVSE branch
+                    # above so L1/L2 cede on the exact same signal.
+                    plug_actions = self._smart_plugs.determine_actions(
+                        period,
+                        force_charge_active=_fc_active,
+                        grid_charge_on=bool(grid_charge_intent),
+                    )
                     for action_spec in plug_actions:
+                        await self._execute_service_action(action_spec)
+                else:
+                    # D1 mirror (INV-D1-RELEASE): release-only path for
+                    # the plug TOU owner set. Runs unconditionally when
+                    # the EV TOU toggle is OFF so a plug paused before
+                    # the flip drains membership within one cycle.
+                    for action_spec in self._smart_plugs.release_all_tou():
                         await self._execute_service_action(action_spec)
 
                 # v4.2.21: Smart plug battery drain protection
@@ -2985,6 +3103,12 @@ class EnergyCoordinator(BaseCoordinator):
                         force_charge_active=force_charge_active,
                     )
                     for action_spec in plug_fp_actions:
+                        await self._execute_service_action(action_spec)
+                else:
+                    # D1 mirror (INV-D1-RELEASE): release-only path for
+                    # the plug fill-priority owner set. Runs
+                    # unconditionally when excess-solar toggle is OFF.
+                    for action_spec in self._smart_plugs.release_all_fill_priority():
                         await self._execute_service_action(action_spec)
 
             # E3: Circuit anomaly checks
@@ -3093,6 +3217,17 @@ class EnergyCoordinator(BaseCoordinator):
                 # Serialize DB writes to avoid SQLite contention
                 self.hass.async_create_task(
                     self._periodic_db_writes(decision)
+                )
+
+            # v5.15.x D1.5 — reversion sweep. READ-ONLY (W-6). Detects
+            # shape-(c) silent revert (operator flipped switch in app).
+            try:
+                verifier = getattr(self, "_write_verifier", None)
+                if verifier is not None:
+                    await verifier.reversion_sweep()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "reversion sweep failed (swallowed)", exc_info=True,
                 )
 
             # Notify energy sensors to refresh
@@ -3285,6 +3420,11 @@ class EnergyCoordinator(BaseCoordinator):
         # commanded paused above).
         for action_spec in decision.get("actions", []):
             await self._execute_service_action(action_spec)
+            # v5.15.x D1.3 — write-verification tap. READ-ONLY (W-6).
+            try:
+                await self._tap_write_verifier(action_spec, decision)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("write_verifier tap failed (swallowed)", exc_info=True)
 
         return pause_reason, pause_requested, grid_charge_intent
 
@@ -3329,6 +3469,16 @@ class EnergyCoordinator(BaseCoordinator):
                 period, grid_charge_on=grid_charge_intent,
             )
             for action_spec in ev_actions:
+                await self._execute_service_action(action_spec)
+        else:
+            # D1 (INV-D1-RELEASE): release-only path for `_paused_by_us`.
+            # Runs unconditionally when the EV TOU toggle is OFF so an
+            # EVSE paused before the flip drains membership within one
+            # cycle. Cross-owner deferral inside `release_all_tou`
+            # keeps stronger owners (drain/fill/grid-cap/arbitrage/
+            # load-shed) in charge — TOU release must never override.
+            release_actions = self._ev.release_all_tou()
+            for action_spec in release_actions:
                 await self._execute_service_action(action_spec)
 
         # Non-breaker arbitrage pause (rung-1 redirect) or release:
@@ -4419,6 +4569,100 @@ class EnergyCoordinator(BaseCoordinator):
                 return self._learned_threshold_kw
         return self._load_shedding_threshold_kw
 
+    async def _tap_write_verifier(
+        self, action_spec: Any, decision: dict[str, Any]
+    ) -> None:
+        """v5.15.x D1.3 — post-dispatch tap; schedules a delayed
+        oracle-vs-commanded compare. READ-ONLY (W-6).
+
+        Fix-up A/B-HIGH-2: stamp the commanded ledger HERE using the
+        ACTUAL dispatched value (captures the EVSE-hold ``max()`` raise
+        at energy.py:2663-2678). The prior BatteryStrategy._result()
+        stamping used the desired pre-hold value; verification then
+        compared cloud vs an intent that URA never actually sent.
+
+        Fix-up A-LOW-2: only tap when the action targets the configured
+        battery entity id for that service — filters out unrelated
+        switches/numbers/selects that happen to share the service name.
+        """
+        verifier = getattr(self, "_write_verifier", None)
+        if verifier is None:
+            return
+        try:
+            svc = action_spec.get("service")
+            data = action_spec.get("data") or {}
+            target = action_spec.get("target")
+        except AttributeError:
+            svc = getattr(action_spec, "service", None)
+            data = getattr(action_spec, "data", {}) or {}
+            target = getattr(action_spec, "target", None)
+        if not svc:
+            return
+        try:
+            from homeassistant.util import dt as dt_util
+            _now = dt_util.utcnow()
+        except Exception:  # noqa: BLE001
+            _now = None
+        # Resolve configured entity ids for each surface via the choke
+        # point so operator overrides route correctly (mirrors
+        # _build_entity_map keys).
+        battery = getattr(self, "_battery", None)
+
+        def _cfg(key: str, default: str | None = None) -> str | None:
+            if battery is None:
+                return None
+            try:
+                return battery._get_entity(key, default)  # noqa: SLF001
+            except Exception:  # noqa: BLE001
+                return None
+
+        if svc == "number.set_value":
+            from .energy_const import DEFAULT_RESERVE_SOC_ENTITY
+            reserve_eid = _cfg("reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY)
+            if target and reserve_eid and target != reserve_eid:
+                return
+            value = data.get("value")
+            # Stamp commanded ledger with the ACTUAL dispatched value
+            # (post EVSE-hold max()).
+            if battery is not None and value is not None:
+                try:
+                    _new = int(max(0, min(100, int(value))))
+                    if battery._last_reserve_level != _new:  # noqa: SLF001
+                        battery._last_reserve_level_at = _now  # noqa: SLF001
+                    battery._last_reserve_level = _new  # noqa: SLF001
+                except (TypeError, ValueError):
+                    pass
+            await verifier.schedule("reserve_soc", value, _now)
+        elif svc in ("switch.turn_on", "switch.turn_off"):
+            from .energy_const import DEFAULT_CHARGE_FROM_GRID_ENTITY
+            cfg_eid = _cfg(
+                "charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY,
+            )
+            if target and cfg_eid and target != cfg_eid:
+                return
+            cmd_bool = (svc == "switch.turn_on")
+            if battery is not None:
+                if battery._last_charge_from_grid_command != cmd_bool:  # noqa: SLF001
+                    battery._last_charge_from_grid_command_at = _now  # noqa: SLF001
+                battery._last_charge_from_grid_command = cmd_bool  # noqa: SLF001
+            await verifier.schedule("charge_from_grid", cmd_bool, _now)
+        elif svc == "select.select_option":
+            from .energy_const import DEFAULT_STORAGE_MODE_ENTITY
+            cfg_eid = _cfg("storage_mode", DEFAULT_STORAGE_MODE_ENTITY)
+            if target and cfg_eid and target != cfg_eid:
+                return
+            option = data.get("option")
+            # Fix-up A-HIGH-2 storage_mode gate: only stamp/schedule
+            # when the option was actually appended to actions (i.e. a
+            # real select action ran).
+            if option is None:
+                return
+            if battery is not None:
+                if battery._last_storage_mode_command != option:  # noqa: SLF001
+                    battery._last_storage_mode_command_at = _now  # noqa: SLF001
+                battery._last_storage_mode_command = option  # noqa: SLF001
+            await verifier.schedule("storage_mode", option, _now)
+
     async def _send_nm_alert(
         self,
         title: str,
@@ -5297,6 +5541,17 @@ class EnergyCoordinator(BaseCoordinator):
         # The actual unsub call happens in ``_cancel_listeners`` because
         # the handle is appended to ``self._unsub_listeners`` at setup.
         self._optimizer_intent_unsub = None
+        # v5.15.x fix-up B-HIGH-3 (Bug Class #38) — cancel any pending
+        # WriteVerifier delayed checks so their async_call_later handles
+        # do not fire after the coordinator is gone.
+        try:
+            verifier = getattr(self, "_write_verifier", None)
+            if verifier is not None:
+                verifier.cancel_all()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "write_verifier.cancel_all raised (swallowed)", exc_info=True,
+            )
         self._cancel_listeners()
         _LOGGER.info("Energy Coordinator stopped")
 

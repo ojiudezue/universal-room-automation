@@ -131,6 +131,13 @@ class OccupancySubstrate:
         # to skip the dispatcher round-trip in unit tests / future
         # refactors. Independent of the dispatcher signal — both fire.
         self._local_subscribers: list = []
+        # Presence batch D3: per-room record of the entity_id whose edge
+        # last caused a dispatch. Populated in ``_handle_state_change``
+        # right before dispatch; exposed via ``last_edge_entity_for``
+        # for the binary_sensor ``last_edge_entity`` attr (sibling of
+        # ``last_kind_to_fire`` at binary_sensor.py:~468). Read-only
+        # diagnostic — does NOT gate or change dispatch (invariant I-D3).
+        self._last_edge_entity: Dict[str, str] = {}
         # When False, dispatched signals are SUPPRESSED but ``_raw_state``
         # is still updated. Owning ``PresenceCoordinator`` flips this via
         # ``release_boot_settle()`` once its own boot-settle gate releases.
@@ -663,6 +670,17 @@ class OccupancySubstrate:
             # release_boot_settle() will fan out any True slots at settle.
             return
 
+        # Presence batch D3: per-room diagnostic — record the entity_id
+        # that produced this edge and emit a DEBUG log so a flap
+        # incident can be pinned to the driving sensor in ~5 min instead
+        # of a multi-hour investigation (2026-07-12 Study-A flap).
+        # DEBUG (not INFO) per operator resolution 2026-07-13; log volume
+        # under a fan-noise flap can be substantial.
+        self._last_edge_entity[room_name] = entity_id
+        _LOGGER.debug(
+            "OccupancySubstrate edge: room=%s kind=%s entity=%s new=%s prior=%s",
+            room_name, kind, entity_id, occupied, prior,
+        )
         self._dispatch(room_name, kind, occupied)
 
     def _dispatch(self, room_name: str, kind: str, new_state: bool) -> None:
@@ -714,6 +732,17 @@ class OccupancySubstrate:
     def is_kind_active(self, room_name: str, kind: str) -> bool:
         """Return the current raw bool for (room_name, kind), default False."""
         return bool(self._raw_state.get(room_name, {}).get(kind, False))
+
+    def last_edge_entity_for(self, room_name: str) -> str:
+        """Return the entity_id whose edge last dispatched into this room.
+
+        Presence batch D3: sibling of ``last_kind_to_fire`` on the
+        binary_sensor surface. Empty string when no edge has dispatched
+        yet (boot-settle path only updates ``_raw_state``, not this
+        record — matches operator expectation that the attr names the
+        entity that CAUSED an edge dispatch, not seeded state).
+        """
+        return self._last_edge_entity.get(room_name, "")
 
     def get_room_kinds(self, room_name: str) -> Dict[str, bool]:
         """Return a stable dict with every TIER1_KINDS slot present.

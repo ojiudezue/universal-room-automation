@@ -81,8 +81,18 @@ def _pause_plug_at(sp, plug_id):
 
 
 class TestBatteryDrainReleaseUsesEffectiveFloor:
-    """Mutation-anchored: neutering `reserve_soc + 2` at pool:1028 (EV) OR
-    reverting the effective-floor thread at energy.py:2863-2869 makes this fail.
+    """Mutation-anchored on the POOL helper (`determine_battery_drain_actions`).
+
+    Fix 2 (C-HIGH-1) correction: the prior docstring claimed the EV drain
+    CALL SITE at energy.py:~2863-2869 was anchored here, but mutation
+    testing disproved that (reverting `reserve_soc=_release_floor` to a
+    hardcoded value at the call site left this suite green because these
+    tests drive the pool method directly, bypassing the call site).
+
+    The AUTHORITATIVE call-site anchor for the D3 EV drain call site
+    (energy.py:2992 `reserve_soc=_release_floor`) is
+    `test_ev_drain_call_site_reserve_uses_release_floor` in
+    `test_energy_pause_release_hygiene.py`.
     """
 
     @pytest.mark.parametrize(
@@ -161,8 +171,14 @@ class TestExcellentClassByteIdenticalToPreFix:
 
 
 class TestPlugDrainReleaseParityWithEvse:
-    """Neutering `reserve_soc + 2` at pool:1971 (plug) OR reverting the
-    effective-floor thread at energy.py:2941-2947 makes this fail.
+    """Mutation-anchored on the POOL helper (plug side).
+
+    Fix 2 (C-HIGH-1) correction: the prior docstring claimed the plug
+    call site at energy.py:~2941-2947 was anchored here; mutation testing
+    disproved that. The AUTHORITATIVE plug call-site anchor
+    (energy.py:3100 `reserve_soc=_release_floor`) is
+    `test_plug_drain_call_site_reserve_uses_release_floor` in
+    `test_energy_pause_release_hygiene.py`.
     """
 
     @pytest.mark.parametrize(

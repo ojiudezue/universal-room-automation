@@ -313,24 +313,42 @@ def test_case2b_dead_phone_away_with_camera_ghost_goes_away_via_path_beta():
 # ===========================================================================
 
 def test_case3a_grace_not_elapsed_does_not_force_away():
-    """Path β must NOT fire while grace is still ticking.
+    """Path β grace guard still applies when indoor is blocked.
+
+    Presence-batch D2 update: with an externally-corroborated-empty
+    house (indoor_blocked=False, census=0, unidentified=0, LOST
+    present), D2's immediate-engage predicate intentionally fires AWAY
+    even when grace has not elapsed — that IS the 2026-07-12 flap fix.
+    The original case3a scenario is now covered by
+    ``test_d2_immediate_engage_fires_when_house_externally_empty``.
+
+    To keep the A3 (grace-gate) anchor covered, we exercise the case
+    where an INDOOR zone is occupied: immediate-engage is denied by
+    ``not indoor_blocked`` and the grace guard is the remaining
+    keep-out. Grace-not-elapsed → NO AWAY.
 
     Mutation anchor (A3): if `grace_elapsed_for_lost_away` is dropped
-    from the path-β predicate, this test fails (β fires immediately on
-    a flap).
+    from the path-β outer predicate, this test still fails only when
+    the OR-limb also drops. Post-fix-up (A-CRIT-1) the immediate-engage
+    limb is discriminated by ``sustained_external_empty`` alone (no
+    inner indoor-restatement — that was the tautology). This test
+    leaves ``sustained_external_empty`` at its default False, so the
+    immediate limb cannot fire and grace is the sole gating signal on
+    the OR-group's admission. The A3-drop mutation is now caught by
+    test_case3b_grace_elapsed_fires_path_beta (paired positive case).
     """
     engine = _make_engine()
     new_state = engine.infer(
         census_count=0,
         current_state=HouseState.HOME_DAY,
-        any_zone_occupied=True,            # outdoor camera ghost
+        any_zone_occupied=True,
         now=_afternoon(),
         unidentified_count=0,
         guest_gate_armed=False,
         all_tracked_persons_away=False,
         all_trusted_or_lost_away_persons_away=True,
-        any_indoor_zone_occupied=False,
-        grace_elapsed_for_lost_away=False,   # ← grace NOT elapsed
+        any_indoor_zone_occupied=True,        # ← indoor blocks immediate-engage
+        grace_elapsed_for_lost_away=False,
         lost_away_persons_present=True,
         sleep_exempt_state=False,
     )

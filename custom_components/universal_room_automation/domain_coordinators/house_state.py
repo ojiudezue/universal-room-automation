@@ -62,6 +62,14 @@ VALID_TRANSITIONS: Final[dict[HouseState, set[HouseState]]] = {
     HouseState.HOME_NIGHT: {
         HouseState.SLEEP,
         HouseState.AWAY,
+        # Presence batch D1b: symmetric with HOME_DAY / HOME_EVENING —
+        # infer() can propose GUEST from HOME_NIGHT when the guest-entry
+        # gate arms during the pre-sleep evening window; without this the
+        # proposal was silently rejected by the state machine
+        # (Bug Class #53-adjacent: computed-but-not-consumed). Sleep-hours
+        # suppression of guest ENTRY is preserved by the sleep-branch in
+        # infer() firing SLEEP first from any HOME_* variant.
+        HouseState.GUEST,
     },
     HouseState.SLEEP: {
         HouseState.WAKING,

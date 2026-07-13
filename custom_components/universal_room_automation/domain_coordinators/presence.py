@@ -919,6 +919,19 @@ class StateInferenceEngine:
         grace_elapsed_for_lost_away: bool = False,
         lost_away_persons_present: bool = False,
         sleep_exempt_state: bool = False,
+        # Presence batch fix-up (A-CRIT-1 / B-CRIT-1 / C-HIGH-1):
+        # sustained_external_empty is an INDEPENDENT signal computed in
+        # the caller — True iff the caller has observed N consecutive
+        # ticks where (census_count == 0 AND unidentified_count == 0 AND
+        # the FIX-2b indoor-clear debounce is already satisfied). It is
+        # NOT implied by the outer path-β predicate below (which is a
+        # single-tick check on census/unid/indoor). This is the ONLY
+        # signal the immediate-engage limb may condition on beyond what
+        # the outer clause already requires — otherwise the OR-group
+        # collapses to a tautology and silently deletes the grace and
+        # the indoor-clear debounce. Default False → caller-omitted
+        # means v5.7.0 grace-only behavior (invariant preservation).
+        sustained_external_empty: bool = False,
     ) -> Optional[HouseState]:
         """Infer the appropriate house state.
 
@@ -1027,27 +1040,73 @@ class StateInferenceEngine:
             if any_indoor_zone_occupied is not None
             else any_zone_occupied
         )
+        # Presence batch D2 (fix-up: A-CRIT-1 / B-CRIT-1 / C-HIGH-1):
+        # immediate-engage veto. Bypasses the CONF_LOST_AWAY_GRACE_MIN
+        # grace ONLY when the house is externally corroborated empty for
+        # a SUSTAINED window (N consecutive ticks). The original build
+        # restated census/unid/!indoor here — inside the outer path-β
+        # `if` those are already required, so the OR-limb reduced to
+        # `lost_away_persons_present` and the whole OR-group evaluated
+        # True unconditionally, silently deleting BOTH the 60-min grace
+        # AND the FIX-2b indoor-clear debounce. The correct
+        # discriminator is `sustained_external_empty` — computed in the
+        # caller as N consecutive ticks of (census==0 AND unid==0 AND
+        # _indoor_clear_debounced). N is the same
+        # CONF_LOST_AWAY_INDOOR_CLEAR_TICKS constant FIX-2b uses (default
+        # 3) — consistent semantics with the existing debounce, no new
+        # CONF surface. Because sustained_external_empty carries the
+        # indoor-clear debounce inside it, a single-tick mmWave dropout
+        # CANNOT force AWAY — the same D-HIGH-2 protection FIX-2b
+        # provides on the grace-elapsed limb. Falsifiable invariant
+        # I-D2 preserved.
+        # 2026-07-12 empty-house-flapping incident: for the entire
+        # 63-min empty window every veto was denied by the grace clock,
+        # leaving the state machine to free-oscillate on a noisy
+        # Study-A motion sensor. Sleep exemption inherited from the
+        # existing sleep_exempt_state gate below (unchanged).
+        immediate_engage_empty_house = (
+            sustained_external_empty
+            and lost_away_persons_present
+        )
         if (
             all_trusted_or_lost_away_persons_away
             and unidentified_count == 0
             and census_count == 0
             and not indoor_blocked
-            and (grace_elapsed_for_lost_away or not lost_away_persons_present)
+            and (
+                grace_elapsed_for_lost_away
+                or not lost_away_persons_present
+                or immediate_engage_empty_house
+            )
             and not sleep_exempt_state
         ):
+            # Differentiate the immediate-engage path from the grace-
+            # elapsed path via the veto_path attribute string so future
+            # analytics can distinguish which limb fired. Confidence
+            # stays at 0.95 for parity with path α (operator-resolved
+            # 2026-07-13); differentiation is via the string, not a
+            # weaker confidence.
+            fired_immediate = (
+                immediate_engage_empty_house
+                and not grace_elapsed_for_lost_away
+            )
+            path_label = (
+                "lost_admitted_immediate" if fired_immediate else "lost_admitted"
+            )
             if current_state == HouseState.AWAY:
-                self._veto_path = "lost_admitted"
+                self._veto_path = path_label
                 return None  # Already away
             self._confidence = 0.95
-            self._veto_path = "lost_admitted"
+            self._veto_path = path_label
             _LOGGER.info(
                 "v5.7.0 path β: LOST-admitted AWAY veto fired "
                 "(current=%s, indoor_zone_occupied=%s, grace_elapsed=%s, "
-                "lost_present=%s)",
+                "lost_present=%s, path=%s)",
                 current_state.value,
                 indoor_blocked,
                 grace_elapsed_for_lost_away,
                 lost_away_persons_present,
+                path_label,
             )
             return HouseState.AWAY
 
@@ -1067,6 +1126,23 @@ class StateInferenceEngine:
         # move to HOME_*, then the next inference cycle handles HOME_*→SLEEP).
         if current_state == HouseState.ARRIVING:
             self._confidence = 0.85
+            return self._time_based_home(hour)
+
+        # Presence batch D1: GUEST-exit evaluated BEFORE the sleep-hours
+        # branch so a cleared guest signal is not latched overnight.
+        # 2026-07-11 incident: guest arrived 20:57, gate cleared 23:05,
+        # the state was held in GUEST until 06:05 because the sleep-hours
+        # branch returned first and shadowed the guest-exit check that
+        # used to live further down. Reorder is a no-op outside sleep
+        # hours (guest-exit was already reachable there). Falsifiable
+        # invariant I-D1: for any tick where current_state==GUEST and
+        # unidentified_count==0 and guest_gate_armed==False, infer()
+        # MUST propose a non-GUEST successor regardless of sleep hour.
+        # v4.7.2 D5 semantics preserved: check guest_gate_armed (OR of
+        # both paths) not just unidentified_count so the guest_room path
+        # can hold the state even with unidentified_count==0.
+        if current_state == HouseState.GUEST and unidentified_count == 0 and not guest_gate_armed:
+            self._confidence = 0.75
             return self._time_based_home(hour)
 
         # Sleep hours (don't enter guest mode during sleep)
@@ -1099,13 +1175,8 @@ class StateInferenceEngine:
             if current_state != HouseState.GUEST:
                 self._confidence = 0.8
                 return HouseState.GUEST
-        # Guest mode exit — unidentified gone AND guest_room gate clear.
-        # Exit is immediate (no persistence guard — cheaper to leave than to enter).
-        # v4.7.2 D5: check guest_gate_armed (OR of both paths) not just unidentified_count
-        # so the guest_room path can hold the state even with unidentified_count==0.
-        if current_state == HouseState.GUEST and unidentified_count == 0 and not guest_gate_armed:
-            self._confidence = 0.75
-            return self._time_based_home(hour)
+        # (Guest-mode exit moved above the sleep-hours branch — see
+        # "Presence batch D1" comment earlier in this function.)
 
         # Time-based transitions while home
         time_home = self._time_based_home(hour)
@@ -1280,6 +1351,18 @@ class PresenceCoordinator(BaseCoordinator):
         # `CONF_LOST_AWAY_INDOOR_CLEAR_TICKS` before firing — a single-tick
         # mmWave dropout cannot force AWAY on a present-still resident.
         self._indoor_clear_consecutive_ticks: int = 0
+        # Presence batch fix-up (A-CRIT-1 / B-CRIT-1 / C-HIGH-1):
+        # sustained-external-empty counter. Incremented on each tick
+        # where (census_count == 0 AND unidentified_count == 0 AND
+        # _indoor_clear_debounced). Reset to 0 on any tick that fails
+        # any of the three. Path β's immediate-engage limb requires
+        # this counter to meet CONF_LOST_AWAY_INDOOR_CLEAR_TICKS (same
+        # N as FIX-2b) — a genuinely empty house confirms within ~N
+        # ticks (vs 60-min grace); a single-tick BLE-dropout-while-home
+        # cannot escalate to force-AWAY because the multi-tick census/
+        # unid/indoor-clear conjunction cannot be satisfied by a single
+        # flake. Sibling of `_indoor_clear_consecutive_ticks`.
+        self._external_empty_consecutive_ticks: int = 0
         # v5.7.0 fix-up: cache for the CM options entry (read once per
         # process; refreshed if a new CM appears). Hoisted here so the
         # WS-A3 grace/sleep CONF read in _run_inference doesn't rely on
@@ -5027,6 +5110,27 @@ class PresenceCoordinator(BaseCoordinator):
             self._indoor_clear_consecutive_ticks >= _indoor_clear_ticks_req
         )
 
+        # Presence batch fix-up (A-CRIT-1 / B-CRIT-1 / C-HIGH-1):
+        # sustained-external-empty confirmation for D2 immediate-engage.
+        # Requires N consecutive ticks of (census==0 AND unid==0 AND
+        # _indoor_clear_debounced already satisfied). Reuses the FIX-2b
+        # threshold (CONF_LOST_AWAY_INDOOR_CLEAR_TICKS, default 3) so
+        # the two debounces stay consistent — no new CONF surface.
+        _external_empty_this_tick = (
+            self._census_count == 0
+            and self._unidentified_count == 0
+            and _indoor_clear_debounced
+        )
+        if _external_empty_this_tick:
+            self._external_empty_consecutive_ticks = min(
+                self._external_empty_consecutive_ticks + 1, 10_000
+            )
+        else:
+            self._external_empty_consecutive_ticks = 0
+        _sustained_external_empty = (
+            self._external_empty_consecutive_ticks >= _indoor_clear_ticks_req
+        )
+
         # Sleep exemption: SLEEP / HOME_NIGHT / WAKING are the protected
         # windows where a sleeping resident's phone may be dead for hours.
         # v5.7.0 fix-up FIX-1 (D-HIGH-1): also union with the sleep-HOUR
@@ -5096,6 +5200,9 @@ class PresenceCoordinator(BaseCoordinator):
             grace_elapsed_for_lost_away=_grace_elapsed_with_debounce,
             lost_away_persons_present=bool(lost_away_persons),
             sleep_exempt_state=_sleep_exempt_state,
+            # Presence batch fix-up: independent multi-tick signal for
+            # the D2 immediate-engage limb. See infer() kwarg docstring.
+            sustained_external_empty=_sustained_external_empty,
         )
         # Mirror engine's most-recent veto-path verdict for sensor surface.
         self._veto_path = getattr(self._inference_engine, "_veto_path", "none")
@@ -5275,9 +5382,17 @@ class PresenceCoordinator(BaseCoordinator):
                 # restarts from None.
                 self._guest_exit_quiet_since = None
         else:
-            # Either not in GUEST, or engine did not signal exit — reset timer.
-            if current_state != HouseState.GUEST or new_state == HouseState.GUEST:
-                self._guest_exit_quiet_since = None
+            # Presence batch fix-up (A-MED-1): reset the timer on ANY
+            # tick where the outer exit-tracking condition above is not
+            # satisfied. The prior predicate
+            # ``current_state != GUEST or new_state == GUEST`` missed
+            # the case where the gate re-arms mid-persistence — e.g. a
+            # new SLEEP-proposal or None is returned while still in
+            # GUEST — leaving a stale epoch that would fire a later
+            # exit instantly (no persistence). Clear whenever we are
+            # not actively evaluating an exit for the current GUEST
+            # state.
+            self._guest_exit_quiet_since = None
 
         # v4.7.15.1 D1: Consolidated Pattern A invocation — house_inference
         # is the LAST writer of self._last_veto_decision per cycle

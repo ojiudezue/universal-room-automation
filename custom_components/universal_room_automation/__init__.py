@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.15.0
+# Universal Room Automation vv5.16.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -73,6 +73,80 @@ from .activity_logger import ActivityLogger  # Activity log
 
 _LOGGER = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Zone-prune hotfix D2 — module-level helpers (extracted for real test
+# authority per fix-up "Fix 2"). Lifting `_is_phantom_compound` out of the
+# migration body makes it callable from tests without invoking the whole
+# HA startup path.
+# ---------------------------------------------------------------------------
+def _is_phantom_compound(
+    name: str, existing_zone_names_lower: set[str],
+) -> tuple[bool, list[str]]:
+    """True iff ``name`` is a compound "A + B [+ C ...]" where every part
+    matches an already-existing house zone name (case-insensitive).
+
+    Compound-name construction lives at
+    ``domain_coordinators/hvac_zones.py:297-301``; this predicate is the
+    D2 mirror that refuses to MINT such a name back into a fresh
+    ENTRY_TYPE_ZONE entry (2026-07-12 husk-birth path).
+    """
+    if " + " not in name:
+        return (False, [])
+    parts = [p.strip() for p in name.split(" + ") if p.strip()]
+    if len(parts) < 2:
+        return (False, [])
+    if all(p.lower() in existing_zone_names_lower for p in parts):
+        return (True, parts)
+    return (False, parts)
+
+
+def _live_hvac_display_names(hass: Any) -> set[str]:
+    """Return lowercased display names of live HVAC merged zones.
+
+    Fix-up A-HIGH-1 / B-HIGH-1: production populates the canonical HVAC
+    coordinator via ``CoordinatorManager.coordinators["hvac"]`` (see
+    ``domain_coordinators/optimization.py:346-360`` "CM is authoritative"
+    and ``switch.py:510`` for the fixed pattern). The legacy
+    ``hass.data[DOMAIN]["hvac_coordinator"]`` slot is not populated in
+    prod; keep it as a best-effort fallback only.
+
+    HONEST: on cold-boot migration this lookup is typically EMPTY (the
+    HVAC coordinator has not been created yet), so D2's LOAD-BEARING
+    predicate is P2 (structural compound-of-existing-zones), not P1.
+    P1 exists to catch the case where migration runs on a later reload
+    after HVAC is already up.
+    """
+    names: set[str] = set()
+    try:
+        domain_data = hass.data.get(DOMAIN, {}) or {}
+        hvac = None
+        cm = domain_data.get("coordinator_manager")
+        if cm is not None:
+            coords = getattr(cm, "coordinators", None) or {}
+            hvac = coords.get("hvac")
+        if hvac is None:
+            # Best-effort legacy fallback (empty in prod).
+            hvac = domain_data.get("hvac_coordinator")
+        if hvac is None:
+            return names
+        zm = getattr(hvac, "zone_manager", None) or getattr(
+            hvac, "_zone_manager", None,
+        )
+        if zm is None:
+            return names
+        for _zs in getattr(zm, "zones", {}).values():
+            _dn = getattr(_zs, "zone_name", "") or ""
+            if _dn:
+                names.add(_dn.lower())
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug(
+            "Zone migration: live-HVAC display-name lookup failed",
+            exc_info=True,
+        )
+    return names
+
+
 PLATFORMS: list[Platform] = [
     Platform.SENSOR,
     Platform.BINARY_SENSOR,
@@ -120,18 +194,53 @@ async def _migrate_zone_names_to_entries(hass: HomeAssistant, integration_entry:
         _LOGGER.debug("No zone names found in room entries, skipping migration")
         return 0
     
-    # Collect existing zone entries
+    # Collect existing zone names — BOTH legacy ENTRY_TYPE_ZONE AND
+    # ZM-embedded zones (fix-up A-HIGH-2 / plan Invariant I). The prior
+    # build read ENTRY_TYPE_ZONE only, so a compound whose parts existed
+    # ONLY inside a ZM options ``zones`` dict would fail the P2 predicate
+    # and mint anyway.
     existing_zone_names: set[str] = set()
     for config_entry in hass.config_entries.async_entries(DOMAIN):
-        if config_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE:
+        et = config_entry.data.get(CONF_ENTRY_TYPE)
+        if et == ENTRY_TYPE_ZONE:
             zone_name = config_entry.data.get(CONF_ZONE_NAME, "").strip()
             if zone_name:
                 existing_zone_names.add(zone_name.lower())
-    
+        elif et == ENTRY_TYPE_ZONE_MANAGER:
+            merged = {**config_entry.data, **config_entry.options}
+            for zm_name in (merged.get("zones", {}) or {}).keys():
+                if zm_name:
+                    existing_zone_names.add(zm_name.strip().lower())
+
+    # Zone-prune hotfix D2: mint-guard.
+    #   P1 (live-HVAC): display names of already-derived HVAC merged
+    #       zones, if the HVAC coordinator is up (CM-authoritative;
+    #       fix-up A-HIGH-1 / B-HIGH-1). On cold-boot migration this is
+    #       typically empty — P2 is the load-bearing predicate.
+    #   P2 (structural): compound "A + B [+ C ...]" whose parts all match
+    #       an existing house-zone name (case-insensitive).
+    # Predicate is P1 OR P2 (union).
+    live_hvac_display_names = _live_hvac_display_names(hass)
+
     # Create zone entries for any zone names without entries
     zones_created = 0
     for zone_name, room_entry_ids in zone_names_from_rooms.items():
         if zone_name.lower() not in existing_zone_names:
+            # D2 mint-guard: skip phantom compound / live-HVAC-collision.
+            _is_compound, _parts = _is_phantom_compound(
+                zone_name, existing_zone_names,
+            )
+            _hits_live_hvac = zone_name.lower() in live_hvac_display_names
+            if _is_compound or _hits_live_hvac:
+                _LOGGER.warning(
+                    "Zone migration: refusing to mint phantom zone %r "
+                    "(hits_live_hvac=%s compound_of_existing=%s parts=%s) "
+                    "— linked_rooms=%d. Leaving room CONF_ZONE untouched; "
+                    "operator must clean up the room's zone assignment.",
+                    zone_name, _hits_live_hvac, _is_compound, _parts,
+                    len(room_entry_ids),
+                )
+                continue
             _LOGGER.info("Migrating zone '%s' to config entry (linked to %d rooms)", zone_name, len(room_entry_ids))
             
             # Create the zone entry via config flow

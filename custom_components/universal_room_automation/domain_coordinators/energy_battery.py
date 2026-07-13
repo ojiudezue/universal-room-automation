@@ -242,6 +242,34 @@ class BatteryStrategy:
         # parks, so exposing the emitter's actual last emission is the correct
         # release-floor source. None until the emitter has run once (boot).
         self._last_reserve_level: int | None = None
+        # Fix 1 (A-HIGH-1/B-HIGH-1): the pre-overlay STRATEGY-DESIRED reserve.
+        # Retained as a separate ledger so consumers that need the raw
+        # strategy value (e.g. release-floor auditing, diagnostics) can
+        # read it without racing the overlay writer. `_last_reserve_level`
+        # is the SINGLE-WRITER-PER-TICK effective ledger (post-overlay,
+        # post-max()): written by `_apply_evse_battery_hold` (energy.py)
+        # when the overlay raises the emitted value AND by the dispatch
+        # tap (`_tap_write_verifier`) when a reserve action flushes to HA.
+        # `_result` writes ONLY to `_last_reserve_level_desired`. Without
+        # this split the two writers ping-ponged 20↔60 each tick under a
+        # standing hold with deadband suppressing dispatch → the
+        # write-verify supersession belt fired every tick and the sweep
+        # never verified reserve for the hold's duration.
+        # Unit: % SOC (0-100), semantic: floor (minimum).
+        self._last_reserve_level_desired: int | None = None
+        # v5.15.x — commanded-value ledgers + SOC-fallback state for
+        # write-verification (see PLANNING_envoy_write_verification_and_redundancy.md).
+        self._last_reserve_level_at: Any = None
+        self._last_charge_from_grid_command: bool | None = None
+        self._last_charge_from_grid_command_at: Any = None
+        self._last_storage_mode_command: str | None = None
+        self._last_storage_mode_command_at: Any = None
+        self._soc_lkg: float | None = None
+        self._soc_lkg_at: Any = None
+        self._last_soc_divergence_at: Any = None
+        self._soc_source_last: str = "envoy"
+        self._write_failover_by_surface: dict[str, bool] = {}
+        self._write_verifier: Any = None
         self._solar_classification_mode = solar_classification_mode
         self._custom_solar_thresholds = custom_solar_thresholds
 
@@ -471,15 +499,57 @@ class BatteryStrategy:
             min(MAX_ARBITRAGE_CHARGE_LEAD_TIME_MIN, v),
         )
 
-    def _get_entity(self, key: str, default: str | None = None) -> str | None:
+    def _get_entity(
+        self,
+        key: str,
+        default: str | None = None,
+        *,
+        role: str = "read",
+    ) -> str | None:
         """Get entity ID from config or default.
 
-        v4.3.1: default is now optional (None). Envoy-derived entities have
-        no production default — they MUST come via config (auto-derive seeds
-        them in __init__.py). Non-envoy entities (Solcast, Enpower, Weather)
-        still pass their hardcoded defaults explicitly.
+        v4.3.1: default is now optional (None).
+        v5.15.x D3.1 (dormant): ``role`` kwarg is scaffolding for future
+        cloud write-failover. Backwards compatible — ``role="read"``
+        (default) preserves all existing behavior. When ``role="write"``
+        AND the per-surface failover flag is True, the cloud oracle
+        entity is returned. Ships DORMANT.
         """
+        if role == "write" and self._write_failover_by_surface.get(key):
+            cloud = self._cloud_write_target(key)
+            if cloud is not None:
+                return cloud
         return self._entities.get(key, default)
+
+    def _cloud_write_target(self, key: str) -> str | None:
+        """Coherent cloud write target for a failover surface (W-5)."""
+        try:
+            from .energy_const import (
+                DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+                DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY,
+                DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
+            )
+        except Exception:
+            return None
+        map_ = {
+            "charge_from_grid": (
+                "cloud_charge_from_grid_oracle",
+                DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+            ),
+            "reserve_soc_number": (
+                "cloud_reserve_oracle",
+                DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY,
+            ),
+            "storage_mode": (
+                "cloud_storage_mode_oracle",
+                DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
+            ),
+        }
+        entry = map_.get(key)
+        if entry is None:
+            return None
+        cloud_key, cloud_default = entry
+        return self._entities.get(cloud_key, cloud_default)
 
     def _get_state_float(self, entity_id: str | None) -> float | None:
         """Get numeric state from an entity. None entity_id → None."""
@@ -513,8 +583,177 @@ class BatteryStrategy:
 
     @property
     def battery_soc(self) -> float | None:
-        """Current battery state of charge (%). None if envoy not configured."""
-        return self._get_state_float(self._get_entity("battery_soc"))
+        """Current battery state of charge (%).
+
+        v5.15.x D2 — three-tier resolver: primary Envoy → LKG (<5min) →
+        cloud fallback. None only when all three are unavailable.
+        """
+        from homeassistant.util import dt as dt_util
+        from .energy_const import (
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+            DEFAULT_SOC_LKG_MAX_AGE_S,
+        )
+        primary = self._get_state_float(self._get_entity("battery_soc"))
+        if primary is not None:
+            self._soc_lkg = primary
+            self._soc_lkg_at = dt_util.utcnow()
+            self._soc_source_last = "envoy"
+            try:
+                self._check_soc_source_divergence(primary)
+            except Exception:
+                _LOGGER.debug("divergence check raised (swallowed)", exc_info=True)
+            return primary
+        if self._soc_lkg is not None and self._soc_lkg_at is not None:
+            age = (dt_util.utcnow() - self._soc_lkg_at).total_seconds()
+            if age <= DEFAULT_SOC_LKG_MAX_AGE_S:
+                self._soc_source_last = "lkg"
+                return self._soc_lkg
+        fb_eid = self._get_entity(
+            "battery_soc_cloud", DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        )
+        fallback = self._get_state_float(fb_eid)
+        if fallback is not None:
+            # Fix-up A-HIGH-3 — unit-guard the fallback AT CONSUMPTION.
+            # The divergence check already refuses to alert on non-'%'
+            # units, but the resolver used to return the raw value which
+            # could inject a fractional or W-scale reading straight into
+            # strategy math. Fail-safe: on non-'%' unit or clearly
+            # out-of-range value, return None (gates hold, same as a
+            # dead primary today). Log once per transition into this
+            # state to avoid spam.
+            fb_unit = None
+            try:
+                st = self.hass.states.get(fb_eid) if fb_eid else None
+                if st is not None:
+                    fb_unit = st.attributes.get("unit_of_measurement")
+            except Exception:  # noqa: BLE001
+                fb_unit = None
+            if fb_unit is not None and str(fb_unit).strip() not in ("", "%"):
+                if self._soc_source_last != "fallback_unit_reject":
+                    _LOGGER.warning(
+                        "SOC cloud fallback %s has non-%% unit=%r — "
+                        "refusing to use (fail-safe: soc=None). Fix the "
+                        "wiring before treating this as available.",
+                        fb_eid, fb_unit,
+                    )
+                self._soc_source_last = "fallback_unit_reject"
+                return None
+            if not (0.0 <= fallback <= 100.0):
+                if self._soc_source_last != "fallback_range_reject":
+                    _LOGGER.warning(
+                        "SOC cloud fallback %s value %.3f outside 0-100 — "
+                        "refusing to use (fail-safe: soc=None).",
+                        fb_eid, fallback,
+                    )
+                self._soc_source_last = "fallback_range_reject"
+                return None
+            if self._soc_source_last != "cloud_fallback":
+                _LOGGER.warning(
+                    "SOC primary+LKG unavailable — using cloud fallback %.1f%%",
+                    fallback,
+                )
+            else:
+                _LOGGER.debug(
+                    "SOC cloud fallback still active: %.1f%%", fallback,
+                )
+            self._soc_source_last = "cloud_fallback"
+            return fallback
+        self._soc_source_last = "none"
+        return None
+
+    def _check_soc_source_divergence(self, primary: float) -> None:
+        """Emit soc_source_divergence anomaly (W-4). Never raises.
+
+        Units vigilance: honor cloud fallback's unit_of_measurement.
+        Non-'%' unit OR ~1000x disagreement → WIRING bug, NOT divergence.
+        """
+        from datetime import timedelta
+        from homeassistant.util import dt as dt_util
+        from .energy_const import (
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+            DEFAULT_SOC_DIVERGENCE_THRESHOLD_PCT,
+        )
+        fb_eid = self._get_entity(
+            "battery_soc_cloud", DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        )
+        fallback = self._get_state_float(fb_eid)
+        if fallback is None:
+            return
+        fb_unit = None
+        try:
+            st = self.hass.states.get(fb_eid) if fb_eid else None
+            if st is not None:
+                fb_unit = st.attributes.get("unit_of_measurement")
+        except Exception:
+            fb_unit = None
+        if fb_unit is not None and fb_unit not in ("", "%"):
+            _LOGGER.warning(
+                "SOC WIRING/units mismatch: cloud fallback %s unit=%r; "
+                "suppressing divergence anomaly.",
+                fb_eid, fb_unit,
+            )
+            return
+        if fallback > 0 and primary > 0 and (
+            fallback / primary > 500 or primary / fallback > 500
+        ):
+            _LOGGER.warning(
+                "SOC WIRING/units mismatch: envoy=%.3f cloud=%.3f "
+                "(factor-of-1000); suppressing.",
+                primary, fallback,
+            )
+            return
+        if abs(primary - fallback) <= DEFAULT_SOC_DIVERGENCE_THRESHOLD_PCT:
+            return
+        now = dt_util.utcnow()
+        if (
+            self._last_soc_divergence_at is not None
+            and (now - self._last_soc_divergence_at) < timedelta(hours=1)
+        ):
+            return
+        self._last_soc_divergence_at = now
+        _LOGGER.warning(
+            "SOC divergence: envoy=%.1f cloud=%.1f threshold=%d",
+            primary, fallback, DEFAULT_SOC_DIVERGENCE_THRESHOLD_PCT,
+        )
+        try:
+            from ..const import DOMAIN
+            from .anomaly_event import (
+                AnomalyEvent, AnomalySeverity, AnomalyType, build_context_json,
+            )
+            db = self.hass.data.get(DOMAIN, {}).get("database")
+            if db is None:
+                return
+            payload = build_context_json(
+                source_signal="soc_source_check",
+                extra={
+                    "primary": primary, "fallback": fallback,
+                    "threshold_pct": DEFAULT_SOC_DIVERGENCE_THRESHOLD_PCT,
+                },
+            )
+            evt = AnomalyEvent(
+                coordinator="energy",
+                type="soc_source_divergence",
+                severity=AnomalySeverity.WARNING,
+                anomaly_type=AnomalyType.POINT_IN_TIME,
+                detected_at=now.isoformat(),
+                payload=payload,
+            )
+            # Fix-up A-MED-3 — track the emit task with a discard
+            # done-callback so a failure surfaces at DEBUG and the
+            # untracked-task Bug Class does not apply.
+            _task = self.hass.async_create_task(db.save_anomaly_event(evt))
+            def _discard(t: Any) -> None:  # noqa: E306
+                try:
+                    exc = t.exception()
+                    if exc is not None:
+                        _LOGGER.debug(
+                            "divergence anomaly save failed: %s", exc,
+                        )
+                except Exception:  # noqa: BLE001
+                    pass
+            _task.add_done_callback(_discard)
+        except Exception:
+            _LOGGER.debug("divergence emit failed (swallowed)", exc_info=True)
 
     @property
     def solar_production(self) -> float | None:
@@ -731,15 +970,21 @@ class BatteryStrategy:
 
         EV dead-band fix-up (A-HIGH-1 / B-H3 / D-HIGH-2 convergent finding):
         the parallel `current_offpeak_drain_target()` accessor mirrors only
-        the drain-target fallback path (:3116-3175). The real emitter can
-        park HIGHER via:
+        the drain-target fallback path. The real emitter can park HIGHER via:
           - inclement `partial_hold` clamp `max(drain_target, effective_reserve)`
-            (:3145-3146 / :3165-3166)
           - arbitrage/attain paths pinned to `peak_buffer_target`
-        Sourcing the release floor from `_last_reserve_level` (persisted in
-        `_result()`) captures ALL of those parks, closing the Bug Class #53
-        one-missed-site risk at the release-floor input. Boot fallback: the
-        drain-target accessor; final fallback: static `reserve_soc`.
+          - EVSE-battery-hold overlay `max(existing, hold_soc)`
+
+        Fix 1 (single-writer-per-tick) semantic: reads the EFFECTIVE
+        post-overlay ledger `_last_reserve_level`, which is the value the
+        Enphase hardware is (or will be) commanded to. This is the
+        "what the battery is parking at" truth. The pre-overlay strategy
+        desired is available as `_last_reserve_level_desired` for
+        diagnostics; consumers of the release floor MUST use the effective
+        value because releasing another EV against a lower "desired" floor
+        would defeat the standing hold.
+        Boot fallback: the drain-target accessor; final fallback: static
+        `reserve_soc`.
         """
         if self._last_reserve_level is not None:
             return int(self._last_reserve_level)
@@ -1093,8 +1338,15 @@ class BatteryStrategy:
 
     @property
     def envoy_available(self) -> bool:
-        """Whether the Envoy is responding (SOC and storage mode both readable)."""
-        return self.battery_soc is not None and self.current_storage_mode is not None
+        """Whether the Envoy is responding.
+
+        v5.15.x D2: checks the PRIMARY Envoy SOC directly (not the
+        three-tier resolver) so a healthy cloud fallback does NOT mask
+        a real Envoy outage and prevent the state machine's envoy-
+        unavailable branch from firing.
+        """
+        primary_soc = self._get_state_float(self._get_entity("battery_soc"))
+        return primary_soc is not None and self.current_storage_mode is not None
 
     # ------------------------------------------------------------------
     # v4.5.0 D1: arbitrage four-phase state machine
@@ -2971,9 +3223,15 @@ class BatteryStrategy:
         # Reordering silently breaks: "grid-disconnect wins over a full_hold"
         # / "full_hold short-circuits TOU exactly as the old storm path" /
         # "allow_discharge byte-identical to no-storm path".
-        # NOTE: _apply_evse_battery_hold (energy.py:2453) runs AFTER this
-        # returns and is max()-safe — it can only RAISE the reserve floor,
-        # never lower a full_hold/partial_hold floor (EV audit §2).
+        # NOTE: _apply_evse_battery_hold (energy.py:_apply_evse_battery_hold
+        # ~2678) runs AFTER this returns and is max()-safe — it can only
+        # RAISE the reserve floor, never lower a full_hold/partial_hold
+        # floor (EV audit §2). Fix 1 (A-HIGH-1/B-HIGH-1): the overlay is
+        # the SOLE per-tick writer of `_last_reserve_level` (effective
+        # post-max) alongside the dispatch tap. `_result` writes only the
+        # pre-overlay STRATEGY-DESIRED into `_last_reserve_level_desired`.
+        # This prevents the ping-pong that caused the write-verify sweep
+        # to never verify reserve during standing EVSE holds.
         # ──────────────────────────────────────────────────────────────
 
         # Grid disconnected — emergency backup
@@ -3320,13 +3578,29 @@ class BatteryStrategy:
 
         self._last_mode = mode
         self._last_reason = reason
-        # EV dead-band fix-up: persist the commanded reserve so the release
-        # floor read by `current_park_floor()` matches the emitter's ACTUAL
-        # last park, not a parallel re-derivation. Only overwrite when the
-        # emitter explicitly commanded a reserve_level this tick (some paths
-        # pass None to leave reserve untouched — do not clobber prior).
+        # Fix 1 (A-HIGH-1 = B-HIGH-1): the STRATEGY-DESIRED reserve is
+        # stamped to `_last_reserve_level_desired` ONLY. The single-writer-
+        # per-tick effective ledger `_last_reserve_level(+_at)` is written
+        # by `_apply_evse_battery_hold` (post-max effective) and by the
+        # dispatch tap (`_tap_write_verifier`, actual dispatched value).
+        # Under a standing hold with deadband suppressing dispatch, this
+        # split prevents the 20↔60 ping-pong that permanently invalidated
+        # the write-verify supersession belt (energy_write_verify.py:269)
+        # and sweep window guard (:395). See docstring on
+        # `self._last_reserve_level_desired` (init).
         if reserve_level is not None:
-            self._last_reserve_level = int(max(0, min(100, reserve_level)))
+            _new_res = int(max(0, min(100, reserve_level)))
+            self._last_reserve_level_desired = _new_res
+        # v5.15.x fix-up A/B-HIGH-2 — commanded ledger stamping MOVED to
+        # the dispatch tap in energy.py::_tap_write_verifier so:
+        #   (a) EVSE-hold max() raise at energy.py:2663-2678 is captured
+        #       in the ledger (was: stamped pre-hold desired value);
+        #   (b) charge_from_grid/storage_mode ledgers only advance when
+        #       an action was actually appended + dispatched (was:
+        #       stamped every cycle even with no action → false reversion
+        #       alerts).
+        # Fix 1: `_last_reserve_level` is NO LONGER stamped here — the
+        # overlay + dispatch tap are the sole writers.
         # v4.5.0 D1: keep self._arbitrage_phase synced with the dict.
         # Defaults to "n/a" for any non-arbitrage code path (peak/mid_peak/
         # storm/disconnect), matching state matrix invariants 4 + 6.
@@ -3556,4 +3830,11 @@ class BatteryStrategy:
             "threshold_warning": warning,
             "threshold_position": self._threshold_position(soc, tomorrow_class),
             "next_action_estimate": self._next_action_estimate(soc, tomorrow_class),
+            # v5.15.x diagnostics
+            "soc_source": self._soc_source_last,
+            **(
+                self._write_verifier.get_status_attrs()
+                if self._write_verifier is not None
+                else {}
+            ),
         }

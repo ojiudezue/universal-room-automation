@@ -345,10 +345,15 @@ class TestD6EVTouToggleGatesSmartPlugActions:
         energy_path = os.path.join(_dc_path, "energy.py")
         src = open(energy_path).read()
         # The wrapping should appear immediately before the plug call.
-        idx = src.find("self._smart_plugs.determine_actions(period)")
+        # D4 (2026-07-13): call now threads `force_charge_active=` — match
+        # the call name only, not the full arg list.
+        idx = src.find("self._smart_plugs.determine_actions(")
         assert idx != -1
-        # Walk back 200 chars and verify `_ev_tou_enabled` gate appears
-        slice_ = src[max(0, idx - 250):idx]
+        # Walk back 500 chars and verify `_ev_tou_enabled` gate appears.
+        # Fix-up (energy hygiene fix-up 2026-07-13): my Fix 6d added a
+        # ~200-char inline comment above the plug call to document the
+        # `grid_charge_on` breaker-safety kwarg; widen the search window.
+        slice_ = src[max(0, idx - 500):idx]
         assert "_ev_tou_enabled" in slice_
 
 

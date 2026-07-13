@@ -3548,6 +3548,15 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT,
             DEFAULT_INCLEMENT_CONDITION_CORROBORATION_MODE,
             INCLEMENT_ADVANCED_SECTION,
+            # v5.15.x — Envoy write-verification cloud oracles
+            CONF_ENERGY_CLOUD_RESERVE_ORACLE_ENTITY,
+            CONF_ENERGY_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+            CONF_ENERGY_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
+            CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+            DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY,
+            DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+            DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
         )
         from .const import CONF_OCCUPANCY_WEIGHTED_ENERGY
         from .domain_coordinators.energy_const import (
@@ -3580,6 +3589,28 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             _adv = user_input.pop(INCLEMENT_ADVANCED_SECTION, None)
             if isinstance(_adv, dict):
                 user_input = {**user_input, **_adv}
+            # v5.15.x fix-up C-CRIT-1 — flatten the collapsed
+            # cloud_verification section back to top-level (mirrors the
+            # inclement_advanced pattern). Without this, operator overrides
+            # persist nested under options["cloud_verification"] which
+            # neither _build_entity_map nor WriteVerifier._oracle_entity_for
+            # read — runtime only sees flat energy_* keys.
+            # Unset-vs-empty semantics:
+            #   - key ABSENT from submission → falls to hard-coded default
+            #     via the suggested_value re-populated on re-open
+            #   - key present with value "" (operator explicitly cleared) →
+            #     WriteVerifier treats "" as no oracle configured and
+            #     DISABLES that surface (INFO log once).
+            _cv = user_input.pop("cloud_verification", None)
+            if isinstance(_cv, dict):
+                for _k in (
+                    CONF_ENERGY_CLOUD_RESERVE_ORACLE_ENTITY,
+                    CONF_ENERGY_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+                    CONF_ENERGY_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
+                    CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+                ):
+                    if _k in _cv:
+                        user_input[_k] = _cv[_k]
             # Parse the multiline power-threat-events text into a list.
             _threat = user_input.get(CONF_INCLEMENT_POWER_THREAT_EVENTS)
             if isinstance(_threat, str):
@@ -4304,6 +4335,61 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     default=self._get_current(_field_key, False),
                 )
             ] = selector.BooleanSelector()
+        # v5.15.x — Envoy write-verification cloud oracle overrides.
+        # Optional fields; empty/unset cleanly DISABLES that surface's
+        # verification (logged once at INFO). Grouped as a collapsed
+        # subsection mirroring the inclement_advanced section pattern.
+        _schema_dict[
+            vol.Optional("cloud_verification")
+        ] = section(
+            vol.Schema({
+                vol.Optional(
+                    CONF_ENERGY_CLOUD_RESERVE_ORACLE_ENTITY,
+                    description={
+                        "suggested_value": self._get_current(
+                            CONF_ENERGY_CLOUD_RESERVE_ORACLE_ENTITY,
+                            DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY,
+                        ),
+                    },
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="number")
+                ),
+                vol.Optional(
+                    CONF_ENERGY_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+                    description={
+                        "suggested_value": self._get_current(
+                            CONF_ENERGY_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+                            DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+                        ),
+                    },
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="switch")
+                ),
+                vol.Optional(
+                    CONF_ENERGY_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
+                    description={
+                        "suggested_value": self._get_current(
+                            CONF_ENERGY_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
+                            DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
+                        ),
+                    },
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="select")
+                ),
+                vol.Optional(
+                    CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+                    description={
+                        "suggested_value": self._get_current(
+                            CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+                            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+                        ),
+                    },
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+            }),
+            options={"collapsed": True},
+        )
         data_schema = vol.Schema(_schema_dict)
 
         # v4.2.29: surface envoy validation errors per-field.
@@ -7351,8 +7437,30 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                                 thermostat not yet discovered). Same
                                 caller contract as ``coord_down``.
         """
+        # Fix-up B-HIGH-2 (activate deliberately): the legacy
+        # ``hass.data[DOMAIN]["hvac_coordinator"]`` slot is NOT populated
+        # in prod — canonical lookup is via
+        # ``CoordinatorManager.coordinators["hvac"]`` (see
+        # ``domain_coordinators/optimization.py:346-360``, "CM is
+        # authoritative"; ``switch.py:510`` for the pattern). Before this
+        # fix, every delete resolved (None, "husk") → D3 snapshot was a
+        # live no-op, and a thermostat-carrying delete would abort at R7
+        # (``coord_down``) — which is why the collision never surfaced
+        # via this path in prior deploys. Fixing the lookup ACTIVATES
+        # real zone_id resolution for future deletes (id-keyed purge will
+        # actually run). This is safe now because the D1 guard (post
+        # fix-up Fix 1) protects shared-thermostat zones from mis-prune;
+        # this is the plan's intended end-state.
         try:
-            hvac = self.hass.data.get(DOMAIN, {}).get("hvac_coordinator")
+            domain_data = self.hass.data.get(DOMAIN, {}) or {}
+            hvac = None
+            cm = domain_data.get("coordinator_manager")
+            if cm is not None:
+                coords = getattr(cm, "coordinators", None) or {}
+                hvac = coords.get("hvac")
+            if hvac is None:
+                # Legacy slot fallback (empty in prod; kept for tests).
+                hvac = domain_data.get("hvac_coordinator")
             if hvac is None:
                 return (None, "coord_down" if has_thermostat else "husk")
             zm = getattr(hvac, "zone_manager", None) or getattr(hvac, "_zone_manager", None)
@@ -7608,7 +7716,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 "— serializing", zone_name,
             )
         async with lock:
-            await self._delete_zone_locked(
+            # D3: capture confirm-time zone_id snapshot from the locked
+            # body so the dispatch payload uses the SAME value the
+            # summary logged, not a post-mutation re-resolve.
+            confirm_time_zone_id = await self._delete_zone_locked(
                 zm_entry, zone_name, precomputed,
             )
             # Post-hoc row count sanity (fix-up A-MED-1). Any survivor
@@ -7618,8 +7729,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             try:
                 db = self.hass.data.get(DOMAIN, {}).get("database")
                 if db is not None:
+                    # Fix-up A-MED-2 / B-MED-1: reuse confirm-time snapshot
+                    # rather than re-resolving post-mutation (the ZM entry
+                    # has already been rewritten + reloaded; a second
+                    # resolve is prone to drift and cost a lookup).
                     post = await db.async_count_zone_rows(
-                        zone_name, self._resolve_zone_id_for_delete(zone_name)[0],
+                        zone_name, confirm_time_zone_id,
                     )
                     lingering = sum(post.values())
                     if lingering:
@@ -7633,15 +7748,15 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         # Step 9: dispatch AFTER the lock is released so subscribers can
         # take their own hass.data locks without deadlocking on ours.
+        # D3: use confirm-time snapshot rather than re-resolving.
         try:
-            zone_id_final, _ = self._resolve_zone_id_for_delete(zone_name)
             dispatcher.async_dispatcher_send(
                 self.hass, SIGNAL_ZM_ZONES_UPDATED,
-                {"deleted_zone_name": zone_name, "deleted_zone_id": zone_id_final},
+                {"deleted_zone_name": zone_name, "deleted_zone_id": confirm_time_zone_id},
             )
             _LOGGER.info(
                 "Zone delete signal dispatched: zone=%r zone_id=%r",
-                zone_name, zone_id_final,
+                zone_name, confirm_time_zone_id,
             )
         except Exception:  # noqa: BLE001
             _LOGGER.warning(
@@ -7652,7 +7767,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
     async def _delete_zone_locked(
         self, zm_entry, zone_name: str,
         precomputed: dict[str, Any] | None,
-    ) -> None:
+    ) -> str | None:
         """Body of ``_delete_zone`` executed under ``zm_options_lock``.
 
         Split so the lock scope is obvious and so the tripwire /
@@ -7814,6 +7929,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             zm_entry,
             options={**zm_entry.options, "zones": new_zones},
         )
+
+        # D3: return confirm-time zone_id snapshot for dispatch.
+        return zone_id
 
     def _build_dynamic_preset_schema(
         self, source_data: dict, current_data: dict,
