@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.16.1
+# Universal Room Automation vv5.16.2
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -78,10 +78,11 @@ class UniversalRoomDatabase:
         block, so the worker's persistent connection is closed (releasing any
         WAL lock that would conflict with an exclusive VACUUM). Idempotent.
 
-        New writes submitted via ``_db()`` while the worker is stopped will
-        raise (fail-fast), so callers that must queue across the stop window
-        should use the queue directly — those items stay enqueued and are
-        processed once ``start_write_worker()`` is called again.
+        New writes submitted via ``_db()`` while the worker is stopped no
+        longer raise (v5.16.2): they buffer on ``_write_queue`` silently and
+        execute against the reopened connection once ``start_write_worker()``
+        runs again. Deliberate stop windows (e.g. VACUUM) therefore see
+        writes DEFERRED, not rejected — do not rely on fail-fast semantics.
         """
         if self._write_task is not None and not self._write_task.done():
             self._write_task.cancel()
@@ -235,10 +236,24 @@ class UniversalRoomDatabase:
         v3.22.8: Writes go through a single-worker queue. The worker
         holds one persistent connection and processes writes sequentially.
         v3.22.9: Fail fast if worker is not running (review fix F4).
+
+        v5.16.2 (Tier-1): worker-gap hardening. Review A1 correction: the
+        boot-time producers CANNOT hit this branch (they acquire the DB via
+        hass.data, which is published only AFTER start_write_worker() at
+        __init__.py:~1384-1385). The real trigger is the worker-RESTART
+        window — stop_write_worker()/start_write_worker() re-cycles (e.g.
+        the post-STARTED SPAN re-migration pass), during which
+        _write_task.done() is transiently True while producers hold a live
+        handle. Previously we raised + dropped the row (the observed
+        boot-window ERROR lines). Now we enqueue onto _write_queue as
+        normal; start_write_worker() drains queued items first. The queue
+        is an unbounded asyncio.Queue, so this is lossless; producer-side
+        throttles bound the volume. A DEBUG note is logged.
         """
         if self._write_task is None or self._write_task.done():
-            raise RuntimeError(
-                "DB write worker not running — call start_write_worker() first"
+            _LOGGER.debug(
+                "DB write submitted before worker start — buffering on queue"
+                " (worker will drain on start)"
             )
         loop = asyncio.get_running_loop()
         future: asyncio.Future = loop.create_future()

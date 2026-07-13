@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.16.1
+# Universal Room Automation vv5.16.2
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -8980,6 +8980,21 @@ class EnergyBatteryFullTimeSensor(AggregationEntity, SensorEntity):
         if energy is None:
             return None
         return energy.battery_full_time
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        # v5.16.1 H2 follow-up: surface the predictor's basis/rate/taper
+        # attrs (were computed but never exposed — Bug Class #55).
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        try:
+            return energy.battery_full_time_attrs
+        except Exception:  # noqa: BLE001
+            return {}
 
 
 class EnergyForecastAccuracySensor(AggregationEntity, SensorEntity):
