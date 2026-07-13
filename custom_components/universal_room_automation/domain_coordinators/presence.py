@@ -1027,27 +1027,65 @@ class StateInferenceEngine:
             if any_indoor_zone_occupied is not None
             else any_zone_occupied
         )
+        # Presence batch D2: immediate-engage veto. Bypasses the
+        # CONF_LOST_AWAY_GRACE_MIN grace ONLY when the house is
+        # externally corroborated empty — every non-BLE signal must
+        # agree the house is empty AND at least one LOST-away person
+        # must be present (otherwise path α would already have handled
+        # it). The BLE-dropout-while-home scenario the grace protects
+        # requires at least ONE of {census_count>0, indoor_blocked=True,
+        # unidentified_count>0} to be True, so this predicate cannot
+        # fire in that scenario. Falsifiable invariant I-D2 proof.
+        # 2026-07-12 empty-house-flapping incident: for the entire
+        # 63-min empty window every veto was denied by the grace clock,
+        # leaving the state machine to free-oscillate on a noisy
+        # Study-A motion sensor. Sleep exemption inherited from the
+        # existing sleep_exempt_state gate below (unchanged).
+        immediate_engage_empty_house = (
+            census_count == 0
+            and unidentified_count == 0
+            and not indoor_blocked
+            and lost_away_persons_present
+        )
         if (
             all_trusted_or_lost_away_persons_away
             and unidentified_count == 0
             and census_count == 0
             and not indoor_blocked
-            and (grace_elapsed_for_lost_away or not lost_away_persons_present)
+            and (
+                grace_elapsed_for_lost_away
+                or not lost_away_persons_present
+                or immediate_engage_empty_house
+            )
             and not sleep_exempt_state
         ):
+            # Differentiate the immediate-engage path from the grace-
+            # elapsed path via the veto_path attribute string so future
+            # analytics can distinguish which limb fired. Confidence
+            # stays at 0.95 for parity with path α (operator-resolved
+            # 2026-07-13); differentiation is via the string, not a
+            # weaker confidence.
+            fired_immediate = (
+                immediate_engage_empty_house
+                and not grace_elapsed_for_lost_away
+            )
+            path_label = (
+                "lost_admitted_immediate" if fired_immediate else "lost_admitted"
+            )
             if current_state == HouseState.AWAY:
-                self._veto_path = "lost_admitted"
+                self._veto_path = path_label
                 return None  # Already away
             self._confidence = 0.95
-            self._veto_path = "lost_admitted"
+            self._veto_path = path_label
             _LOGGER.info(
                 "v5.7.0 path β: LOST-admitted AWAY veto fired "
                 "(current=%s, indoor_zone_occupied=%s, grace_elapsed=%s, "
-                "lost_present=%s)",
+                "lost_present=%s, path=%s)",
                 current_state.value,
                 indoor_blocked,
                 grace_elapsed_for_lost_away,
                 lost_away_persons_present,
+                path_label,
             )
             return HouseState.AWAY
 
@@ -1067,6 +1105,23 @@ class StateInferenceEngine:
         # move to HOME_*, then the next inference cycle handles HOME_*→SLEEP).
         if current_state == HouseState.ARRIVING:
             self._confidence = 0.85
+            return self._time_based_home(hour)
+
+        # Presence batch D1: GUEST-exit evaluated BEFORE the sleep-hours
+        # branch so a cleared guest signal is not latched overnight.
+        # 2026-07-11 incident: guest arrived 20:57, gate cleared 23:05,
+        # the state was held in GUEST until 06:05 because the sleep-hours
+        # branch returned first and shadowed the guest-exit check that
+        # used to live further down. Reorder is a no-op outside sleep
+        # hours (guest-exit was already reachable there). Falsifiable
+        # invariant I-D1: for any tick where current_state==GUEST and
+        # unidentified_count==0 and guest_gate_armed==False, infer()
+        # MUST propose a non-GUEST successor regardless of sleep hour.
+        # v4.7.2 D5 semantics preserved: check guest_gate_armed (OR of
+        # both paths) not just unidentified_count so the guest_room path
+        # can hold the state even with unidentified_count==0.
+        if current_state == HouseState.GUEST and unidentified_count == 0 and not guest_gate_armed:
+            self._confidence = 0.75
             return self._time_based_home(hour)
 
         # Sleep hours (don't enter guest mode during sleep)
@@ -1099,13 +1154,8 @@ class StateInferenceEngine:
             if current_state != HouseState.GUEST:
                 self._confidence = 0.8
                 return HouseState.GUEST
-        # Guest mode exit — unidentified gone AND guest_room gate clear.
-        # Exit is immediate (no persistence guard — cheaper to leave than to enter).
-        # v4.7.2 D5: check guest_gate_armed (OR of both paths) not just unidentified_count
-        # so the guest_room path can hold the state even with unidentified_count==0.
-        if current_state == HouseState.GUEST and unidentified_count == 0 and not guest_gate_armed:
-            self._confidence = 0.75
-            return self._time_based_home(hour)
+        # (Guest-mode exit moved above the sleep-hours branch — see
+        # "Presence batch D1" comment earlier in this function.)
 
         # Time-based transitions while home
         time_home = self._time_based_home(hour)

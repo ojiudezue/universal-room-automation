@@ -468,6 +468,23 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
             attrs["last_kind_to_fire"] = _last_kind
             attrs["fan_on"] = _fan_on
             attrs["fan_interference_suspect"] = _suspect
+            # Presence batch D3: sibling attr — the entity_id whose edge
+            # last dispatched into this room's Tier-1 substrate. Empty
+            # string when the substrate isn't ready or no edge has
+            # dispatched. Read-only diagnostic (invariant I-D3).
+            _last_edge_entity = ""
+            try:
+                _substrate = (
+                    getattr(_presence, "_substrate", None)
+                    if _presence is not None else None
+                )
+                if _substrate is not None and _room_name:
+                    _last_edge_entity = _substrate.last_edge_entity_for(
+                        _room_name,
+                    ) or ""
+            except Exception:  # noqa: BLE001 — defensive
+                _last_edge_entity = ""
+            attrs["last_edge_entity"] = _last_edge_entity
             # Fan-noise mitigation D1 (Layer-1 silent gate) attrs.
             # Hold-active = True when the derived `_room_occupied`
             # view for this room is being EXTENDED by the gate (the
@@ -512,6 +529,7 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
             # B-M4 fix-up: TIER1_KINDS imported at module top.
             attrs["tier1_provenance"] = {k: False for k in TIER1_KINDS}
             attrs["last_kind_to_fire"] = ""
+            attrs["last_edge_entity"] = ""
             attrs["fan_on"] = False
             attrs["fan_interference_suspect"] = False
             attrs["fan_interference_hold_active"] = False
