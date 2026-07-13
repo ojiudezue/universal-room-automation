@@ -61,7 +61,8 @@ hypotheses:
     name: mf_sleep_suppress_active
     description: MF sleep-suppress config lands and the coordinator reports the current house state on its device.
     oracle: home_assistant
-    query: { kind: home_assistant.state_attribute, entity: sensor.music_following_health, attribute: current_house_state }
+    query: { kind: home_assistant.state_attribute, entity: sensor.universal_room_automation_music_following_health, attribute: current_house_state }
+    # 2026-07-13: oracle repaired — attribute now emitted (commit d004820f) and entity id corrected; was unevaluable as originally written.
     expected: { condition: "!=", value: "unknown" }
     window: { first_check_after: 10m, confirm_after: 1h, alert_if_violated_after: 24h }
   - id: H3
