@@ -368,6 +368,11 @@ class MusicFollowing:
         failures = transfers - successes
         return {
             "state": self._state,
+            # v5.10.0 H2 repair (2026-07-13): MF's view of the house state was
+            # previously DEBUG-log-only, making the sleep/night gates
+            # unverifiable live (the v5.10.0 acceptance oracle pointed at an
+            # attribute that never existed). Surfaced for Shipwatch/live use.
+            "current_house_state": self._current_house_state or "unknown",
             "active_followers": sorted(self._enabled_persons),
             "last_transfer_from": self._last_transfer_from,
             "last_transfer_to": self._last_transfer_to,
