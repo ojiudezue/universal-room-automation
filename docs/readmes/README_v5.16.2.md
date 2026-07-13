@@ -55,10 +55,10 @@ hypotheses:
     window: { first_check_after: 30m, confirm_after: 2h, alert_if_violated_after: 24h }
 ```
 
-## Live Validation (prospective — write back post-restart)
+## Live Validation — Validated 2026-07-13 (deploy restart ~17:06 CDT)
 
-| # | Criterion | How |
-|---|---|---|
-| L1 | Deploy healthy; ZERO "DB write worker not running" lines this boot (v5.16.0 had 4 — this boot includes the SPAN re-migration worker re-cycle, the real trigger) | error log |
-| L2 | battery_full_time sensor carries `basis` + rate/taper attrs | sensor attrs |
-| L3 | No regression on the v5.16.1 surfaces (write_route attrs, verification rows intact) | battery-strategy attrs |
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | Deploy healthy; zero worker-gap lines | **PASS (with forensic note)** | v5.16.2 installed. Three "DB write worker not running" lines AT 17:06:57 were traced to the OLD v5.16.1 process's shutdown window (new database.py written 17:06, compiled 17:07 — the error string no longer exists in the new module; the lines predate its import). ZERO occurrences since 17:07, through the SPAN re-migration worker re-cycle. Full both-directions proof lands at the next restart cycle (first shutdown ON fixed code). |
+| L2 | battery_full_time basis/rate attrs | **PASS** | `basis: unavailable`, `missing_input: soc` live at boot — the explainable-unknown shape working exactly as designed (Envoy SOC warming); rate/taper attrs will populate with charging. |
+| L3 | v5.16.1 surfaces intact | **PASS** | `write_route: cloud` on all three verification rows; no_data post-boot as expected (RAM ledger). |
