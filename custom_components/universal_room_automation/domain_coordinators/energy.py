@@ -384,6 +384,14 @@ class EnergyCoordinator(BaseCoordinator):
             power_profiles=self._power_profiles,
             room_ids=self._room_ids,
             occupancy_enabled_fn=lambda: self._occupancy_weighted,
+            # H2 (2026-07-13): live battery power (W, +charging/-discharging)
+            # sourced from the BatteryStrategy accessor. Callable lets the
+            # predictor consult the CURRENT rate at estimate-time rather
+            # than a stale snapshot.
+            battery_power_w_fn=lambda: (
+                self._battery.battery_power_w
+                if self._battery is not None else None
+            ),
         )
         self._accuracy = AccuracyTracker()
 
