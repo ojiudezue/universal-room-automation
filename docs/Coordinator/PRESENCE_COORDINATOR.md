@@ -1128,3 +1128,85 @@ class PresencePatternLearner:
 **Document Status:** Design Complete - Pending Answers to Key Questions  
 **Dependencies:** Census (URA 3.5), Entry Sensors, Geofencing  
 **Consumers:** All other coordinators
+
+---
+
+## House Census & Guest Determination
+
+*Added by cycle `census_ble_cancel_unrecognized` (2026-07-13). If you are re-investigating a "phantom guest" complaint, **start here**.*
+
+### 1. Why there are two census paths
+
+The house census answers a deceptively simple question: **how many people are inside the house, and how many of them are strangers?** Its output (the `unidentified_count`) is the primary signal that arms the *guest gate* in `presence.py` — which in turn drives HouseState (`OCCUPIED`, `GUEST`, `AWAY`), NM guest-arrival announcements, HVAC preset selection, and anomaly emissions on census transitions.
+
+Historically, URA has had TWO computation paths in `custom_components/universal_room_automation/camera_census.py`:
+
+- **Raw path** — `_cross_correlate_persons` (line ~1213). The original path. Computes:
+  ```
+  unidentified = max(0, camera_total - |face_recognized ∪ ble_home|)
+  ```
+  This *implicitly* cancels residents whom BLE places at home even if their face wasn't matched in this frame. Simple, correct in aggregate, but not area-aware — a resident in the kitchen cancels a camera hit in the foyer.
+
+- **Enhanced path** — `_apply_enhanced_house_census` (line ~1956), default ON since v3.10.1. Computes `camera_unrecognized` per Frigate camera by asking the camera's own `sensor.*_last_recognized_face` whether a fresh (≤30 min) recognition matched a known resident. Then feeds a hold/decay stabilizer and returns `unidentified_count`.
+
+The enhanced path was a signal-quality upgrade (per-camera face freshness). But **it never consulted BLE**. A resident whose face wasn't recently matched — even one whose phone was actively tracked to the SAME room as the camera — was invisible. In the field this manifested as the guest gate arming 2-4x/day with zero real guests present (observed on 2026-07-12; interior cams involved: playroom x2, master_hallway, staircase, foyer_fisheye, family_room).
+
+The enhanced path had lost a property the raw path had. This cycle restores it *precisely* — per-area — rather than globally, so a resident in the kitchen does not cancel a genuine guest in the foyer.
+
+### 2. Current arithmetic (per-camera, per-area)
+
+Let, for interior camera `C` on this census cycle:
+- `pc` = person_count reported by `sensor.<C>_person_count`
+- `fresh_face` = 1 if `sensor.<C>_last_recognized_face` has a valid recent (`<= CENSUS_FACE_RECOGNITION_WINDOW_SECONDS`) match, else 0
+- `ble_here` = number of tracked residents whose `person_coordinator.data[person]["location"]` slug maps to `C.area_id` via the inverse of `person_coordinator._area_id_to_room`
+
+Contribution formula (implemented in `_get_unrecognized_camera_count`, lines around 1719-1770):
+```
+face_covered      = 1 if fresh_face else 0
+raw_contribution  = max(0, pc - face_covered)             # existing behaviour
+correction        = min(raw_contribution, ble_here)        # NEW (this cycle)
+contribution      = raw_contribution - correction
+```
+
+Per-camera contributions are then routed through `_dedup_by_area` (same-area max, cross-area sum) — the same helper the v5.9.0 fix installed for overcount protection.
+
+#### Multi-person truth table
+
+| pc | fresh_face | ble_here | raw_contrib | correction | final_contrib | Interpretation |
+|---:|:-:|:-:|:-:|:-:|:-:|---|
+| 1 | 0 | 1 | 1 | 1 | **0** | Resident alone, face missed — was FP, now cancelled |
+| 1 | 1 | 1 | 0 | 0 | 0 | Resident, face matched — unchanged |
+| 2 | 0 | 1 | 2 | 1 | **1** | Resident + guest, no faces — guest counted (I1 holds) |
+| 2 | 1 | 1 | 1 | 1 | **0** | Double-cover — see known limitation below |
+| 2 | 0 | 2 | 2 | 2 | 0 | Two residents in room, neither face-matched |
+| 3 | 0 | 1 | 3 | 1 | **2** | 1 resident + 2 guests — both guests counted |
+| 1 | 0 | 0 | 1 | 0 | 1 | Pure guest / no BLE resident in area — DETECTED (I1) |
+| 0 | 0 | any | 0 | 0 | 0 | No detection, no contribution |
+
+#### Hard invariants (see `PLANNING_census_ble_cancel_unrecognized.md` Section 3)
+
+- **I1 — soundness:** a camera-detected person with NO resident BLE correlate in the SAME area still contributes to `unidentified_raw`. A resident in the kitchen NEVER cancels a guest in the foyer. Row 7 above is the load-bearing case.
+- **I2 — completeness:** when at least one resident is BLE-here-in-area, contribution is reduced by exactly `min(raw_contribution, ble_here)`.
+- **I3 — arithmetic bound:** the correction is monotone-reducing — it can only lower `unidentified_raw`, never raise it. LOST/away residents are excluded from `_ble_home_by_area` (they cannot cancel anything). On any exception in the helper, `{}` is returned and no cancellation is applied — the code degrades to the pre-cycle over-arming behavior rather than silently under-detecting guests.
+
+### 3. Interaction with the v4.7.14 AWAY veto
+
+The AWAY-state person-tracker veto (v4.7.14, `presence.py`) fires when **all** tracked persons are away AND `unidentified_count == 0`. This cycle *strengthens* v4.7.14: by removing spurious unidentified contributions from residents-at-home who are still being camera-detected but face-missed, empty-house AWAY convergence gets cleaner — fewer false unidentifieds means the `== 0` gate fires when it should. No regression risk in the reverse direction: `unidentified_count` can only go DOWN (I3), never spuriously up.
+
+### 4. Where the guest gate consumes this
+
+- Guest-gate arming: `custom_components/universal_room_automation/domain_coordinators/presence.py::_guest_gate_armed` (referenced across lines ~912-1046).
+- AWAY veto predicate: same file, lines ~983 and ~1046 — reads `unidentified_count == 0`.
+- HouseState transitions consume `presence._guest_gate_armed`; downstream: HVAC preset, NM announces, anomaly emitter.
+
+### 5. Known limitation — row 4 double-cover
+
+If a camera sees `pc=2`, with a fresh face match for a resident AND that same resident is also BLE-located in the camera's area, the "face covers 1" heuristic AND the BLE cancellation both fire — cancelling two contributions for what is likely the same person. If the second person visible in the frame is a genuine guest, this cycle will miss them at that camera on that cycle.
+
+Real-world frequency is low (all three conditions must coincide: fresh face AND BLE-here AND a co-present guest). Other guest-gate signals (WiFi VLAN diagnostic, cross-camera aggregation, sustained peak-hold) bound the miss window. The operator-resolved decision (2026-07-13) is: **accept as a known limitation; document; revisit if L2/L3 live data shows it manifesting**. A follow-up cycle would sharpen the formula to something like `covered = max(face_covered, ble_here)` on a "same person likely" heuristic — deferred.
+
+### 6. Diagnostic surface
+
+- `sensor.ura_camera_census_house` attribute `ble_cancelled_count` — number of contributions cancelled by BLE correlation on the most recent census cycle. Watch this attribute to observe the fix in action: it should increment as a resident walks under a camera, return to 0 after they leave the area or their face is matched.
+- Existing attributes `camera_unrecognized`, `area_contributions`, `raw_pre_dedup_sum` remain unchanged in shape.
+

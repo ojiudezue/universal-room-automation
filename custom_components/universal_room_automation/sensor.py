@@ -3351,6 +3351,11 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
             attrs["peak_age_minutes"] = result.house.peak_age_minutes
             attrs["face_recognized_persons"] = result.house.face_recognized_persons
             attrs["enhanced_census"] = True
+            # Cycle census_ble_cancel_unrecognized (2026-07-13): per-cycle
+            # count of unrecognized camera contributions cancelled by BLE
+            # area correlation. Zero when no residents were BLE-here-in-area
+            # (or when person_coordinator is unavailable — I3 graceful).
+            attrs["ble_cancelled_count"] = result.house.ble_cancelled_count
         # v5.9.0 D-E observability: same-area dedup contributions + pending
         # sustain-latch + naive-sum diagnostic. Read directly from the
         # PersonCensus instance so the shape lines up with build-time state.
