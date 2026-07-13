@@ -62,8 +62,12 @@ def _make_plug(plug_on=True, plug_id="switch.moes_plug_garage_a"):
     return sp, hass, plug_id
 
 
-def _pause_evse_at(ev, soc):
-    """Force the EVSE into the _paused_by_battery_drain set at given SOC."""
+def _pause_evse_at(ev):
+    """Force the EVSE into the _paused_by_battery_drain set.
+
+    (C-LOW-1: SOC param dropped — was cosmetic and misleading; the set is a
+    flat membership, not a per-SOC snapshot.)
+    """
     ev._paused_by_battery_drain.add("garage_a")
 
 
@@ -114,7 +118,7 @@ class TestBatteryDrainReleaseUsesEffectiveFloor:
         ev, hass = _make_ev()
         # Turn EVSE state to OFF so a release-turn_on can be observed.
         hass.set_state("switch.garage_a", "off")
-        _pause_evse_at(ev, soc)
+        _pause_evse_at(ev)
         effective_floor = max(reserve_static, drain_target)
         actions = ev.determine_battery_drain_actions(
             battery_power_w=+50.0,   # battery not discharging
@@ -122,6 +126,7 @@ class TestBatteryDrainReleaseUsesEffectiveFloor:
             soc_threshold=50,
             reserve_soc=effective_floor,
             solar_replenishing=False,
+            is_offpeak=True,
         )
         released = any(a["service"] == "switch.turn_on" for a in actions)
         assert released == expect_release, (
@@ -137,7 +142,7 @@ class TestExcellentClassByteIdenticalToPreFix:
     def test_excellent_class_byte_identical_to_pre_fix(self):
         ev, hass = _make_ev()
         hass.set_state("switch.garage_a", "off")
-        _pause_evse_at(ev, 12)
+        _pause_evse_at(ev)
         # F = max(10, 10) = 10; SOC = 12 → SOC ≤ F+2 → release
         actions = ev.determine_battery_drain_actions(
             battery_power_w=+50.0,
@@ -145,6 +150,7 @@ class TestExcellentClassByteIdenticalToPreFix:
             soc_threshold=50,
             reserve_soc=10,   # excellent class F
             solar_replenishing=False,
+            is_offpeak=True,
         )
         assert any(a["service"] == "switch.turn_on" for a in actions)
 
@@ -164,6 +170,7 @@ class TestPlugDrainReleaseParityWithEvse:
         [
             (10, 15, 15, True),
             (10, 15, 20, False),
+            (10, 20, 22, True),   # boundary parity with EV — added in fix-up
             (10, 30, 30, True),
             (10, 40, 40, True),
             (10, 40, 45, False),
@@ -182,6 +189,7 @@ class TestPlugDrainReleaseParityWithEvse:
             soc_threshold=50,
             reserve_soc=effective_floor,
             solar_replenishing=False,
+            is_offpeak=True,
         )
         released = any(a["service"] == "switch.turn_on" for a in actions)
         assert released == expect_release
@@ -207,6 +215,7 @@ class TestPlugSocRecoveredPathRespectsSolar:
             soc_threshold=50,
             reserve_soc=10,
             solar_replenishing=False,
+            is_offpeak=True,
         )
         assert not any(a["service"] == "switch.turn_on" for a in actions_no_solar)
         # solar_replenishing=True → RELEASE via soc_recovered.
@@ -217,6 +226,7 @@ class TestPlugSocRecoveredPathRespectsSolar:
             soc_threshold=50,
             reserve_soc=10,
             solar_replenishing=True,
+            is_offpeak=True,
         )
         assert any(a["service"] == "switch.turn_on" for a in actions_solar)
 
@@ -241,7 +251,7 @@ class TestManualOverrideStillCooldownsAfterDeadbandFix:
         # Tick 1: pause
         ev.determine_battery_drain_actions(
             battery_power_w=-500.0, battery_soc=45.0, soc_threshold=50,
-            reserve_soc=15,  # F=15; SOC=45 > F+2=17 → sticky not active
+            reserve_soc=15, is_offpeak=True,  # F=15; SOC=45 > F+2 → sticky not active
         )
         assert "garage_a" in ev._paused_by_battery_drain
         # URA's turn_off propagated → observed
@@ -249,7 +259,7 @@ class TestManualOverrideStillCooldownsAfterDeadbandFix:
         hass.set_state("sensor.garage_a_power_minute_average", "0")
         ev.determine_battery_drain_actions(
             battery_power_w=-500.0, battery_soc=45.0, soc_threshold=50,
-            reserve_soc=15,
+            reserve_soc=15, is_offpeak=True,
         )
         assert ev._observed_off_since_pause.get("garage_a") is True
         # Force grace expiry & user flips on
@@ -258,7 +268,7 @@ class TestManualOverrideStillCooldownsAfterDeadbandFix:
         hass.set_state("sensor.garage_a_power_minute_average", "5000.0")
         ev.determine_battery_drain_actions(
             battery_power_w=-500.0, battery_soc=45.0, soc_threshold=50,
-            reserve_soc=15,
+            reserve_soc=15, is_offpeak=True,
         )
         # Cooldown engaged — intentional re-kill semantics preserved
         assert "garage_a" in ev._battery_drain_cooldown
@@ -284,7 +294,8 @@ class TestNoReflapAtFloorWhenEvPullsBatteryTransient:
             battery_power_w=-500.0,
             battery_soc=15.0,
             soc_threshold=50,
-            reserve_soc=15,   # F=15, SOC=15 → at floor
+            reserve_soc=15,   # F=15, SOC=15 → at floor (inside F±2 band)
+            is_offpeak=True,
         )
         # No turn_off action; not added to _paused_by_battery_drain.
         assert not any(a["service"] == "switch.turn_off" for a in actions)
@@ -297,6 +308,7 @@ class TestNoReflapAtFloorWhenEvPullsBatteryTransient:
             battery_soc=15.0,
             soc_threshold=50,
             reserve_soc=15,
+            is_offpeak=True,
         )
         assert not any(a["service"] == "switch.turn_off" for a in actions)
         assert plug_id not in sp._paused_by_battery_drain
@@ -309,9 +321,175 @@ class TestNoReflapAtFloorWhenEvPullsBatteryTransient:
             battery_soc=45.0,   # well above F+2=17
             soc_threshold=50,
             reserve_soc=15,
+            is_offpeak=True,
         )
         assert any(a["service"] == "switch.turn_off" for a in actions)
         assert "garage_a" in ev._paused_by_battery_drain
+
+    def test_pause_re_arms_below_band_ev(self):
+        """Fix 3: below F−2 the sticky MUST NOT suppress — pause re-arms so a
+        reserve-hold failure cannot silently drain the battery.
+        """
+        ev, hass = _make_ev()
+        actions = ev.determine_battery_drain_actions(
+            battery_power_w=-500.0,
+            battery_soc=12.0,   # F=15, SOC=12 < F−2=13 → outside band
+            soc_threshold=50,
+            reserve_soc=15,
+            is_offpeak=True,
+        )
+        assert any(a["service"] == "switch.turn_off" for a in actions)
+        assert "garage_a" in ev._paused_by_battery_drain
+
+    def test_pause_re_arms_below_band_plug(self):
+        sp, hass, plug_id = _make_plug(plug_on=True)
+        actions = sp.determine_battery_drain_actions(
+            battery_power_w=-500.0,
+            battery_soc=12.0,
+            soc_threshold=50,
+            reserve_soc=15,
+            is_offpeak=True,
+        )
+        assert any(a["service"] == "switch.turn_off" for a in actions)
+        assert plug_id in sp._paused_by_battery_drain
+
+
+class TestOffpeakGating:
+    """Fix 2: sticky and F-substitution only active during off_peak. Outside
+    off_peak the drain pause must remain a hard backstop (reverts to pre-fix
+    semantics).
+    """
+
+    def test_ev_sticky_disabled_outside_offpeak(self):
+        """SOC at floor + discharging + not off_peak → pause MUST engage
+        (no sticky suppression)."""
+        ev, hass = _make_ev()
+        actions = ev.determine_battery_drain_actions(
+            battery_power_w=-500.0,
+            battery_soc=15.0,
+            soc_threshold=50,
+            reserve_soc=15,
+            is_offpeak=False,
+        )
+        assert any(a["service"] == "switch.turn_off" for a in actions)
+        assert "garage_a" in ev._paused_by_battery_drain
+
+    def test_plug_sticky_disabled_outside_offpeak(self):
+        sp, hass, plug_id = _make_plug(plug_on=True)
+        actions = sp.determine_battery_drain_actions(
+            battery_power_w=-500.0,
+            battery_soc=15.0,
+            soc_threshold=50,
+            reserve_soc=15,
+            is_offpeak=False,
+        )
+        assert any(a["service"] == "switch.turn_off" for a in actions)
+        assert plug_id in sp._paused_by_battery_drain
+
+
+class TestComposeReleaseFloor:
+    """Fix 5: mutation-anchored — the call-site composition helper drives the
+    real energy.py path. Neutering the helper (e.g. always returning static
+    reserve) OR neutering the off_peak gate turns these red.
+    """
+
+    def _make_battery(self, static_reserve, park_floor, drain_target):
+        class _B:
+            def __init__(self):
+                self.reserve_soc = static_reserve
+                self._park = park_floor
+                self._drain = drain_target
+            def current_park_floor(self):
+                return self._park
+            def current_offpeak_drain_target(self):
+                return self._drain
+        return _B()
+
+    def test_off_peak_uses_park_floor_over_static(self):
+        from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
+            compose_release_floor as _compose_release_floor,
+        )
+        bat = self._make_battery(static_reserve=10, park_floor=45, drain_target=15)
+        floor, is_offpeak = _compose_release_floor(bat, "off_peak")
+        # partial_hold parks at 45 → F=max(10,45)=45 — the exact leak this fix closes
+        assert floor == 45
+        assert is_offpeak is True
+
+    def test_off_peak_uses_static_when_park_lower(self):
+        from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
+            compose_release_floor as _compose_release_floor,
+        )
+        bat = self._make_battery(static_reserve=25, park_floor=15, drain_target=15)
+        floor, is_offpeak = _compose_release_floor(bat, "off_peak")
+        assert floor == 25
+        assert is_offpeak is True
+
+    def test_off_peak_falls_back_to_drain_target_when_no_park(self):
+        from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
+            compose_release_floor as _compose_release_floor,
+        )
+        bat = self._make_battery(static_reserve=10, park_floor=None, drain_target=30)
+        floor, is_offpeak = _compose_release_floor(bat, "off_peak")
+        assert floor == 30
+        assert is_offpeak is True
+
+    def test_peak_returns_static_reserve_and_not_offpeak(self):
+        from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
+            compose_release_floor as _compose_release_floor,
+        )
+        # Even if the emitter parked high, peak/mid_peak MUST revert to static:
+        # the drain pause is the hard backstop during expensive-grid windows.
+        bat = self._make_battery(static_reserve=10, park_floor=45, drain_target=15)
+        floor, is_offpeak = _compose_release_floor(bat, "peak")
+        assert floor == 10
+        assert is_offpeak is False
+
+    def test_mid_peak_returns_static_reserve_and_not_offpeak(self):
+        from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
+            compose_release_floor as _compose_release_floor,
+        )
+        bat = self._make_battery(static_reserve=10, park_floor=45, drain_target=15)
+        floor, is_offpeak = _compose_release_floor(bat, "mid_peak")
+        assert floor == 10
+        assert is_offpeak is False
+
+
+class TestCurrentParkFloorAccessor:
+    """Fix 1: `current_park_floor` returns the emitter's ACTUAL last park —
+    captures inclement partial_hold + arbitrage/attain parks.
+    """
+
+    def _make_bs(self, last_reserve_level, drain_target=15, static_reserve=10):
+        from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
+            BatteryStrategy,
+        )
+        bs = BatteryStrategy.__new__(BatteryStrategy)
+        bs.hass = MockHass()
+        bs.reserve_soc = static_reserve
+        bs._last_reserve_level = last_reserve_level
+        bs._drain_targets = {
+            "excellent": 10, "good": 15, "moderate": 20,
+            "poor": 30, "very_poor": 30, "unknown": 40,
+        }
+        bs._multi_day_horizon_enabled = False
+        bs.classify_tomorrow_solar = lambda: "good"
+        return bs
+
+    def test_park_floor_returns_last_commanded_reserve(self):
+        """When the emitter parked at 45 (partial_hold), release floor MUST
+        follow — not the drain-target fallback (15)."""
+        bs = self._make_bs(last_reserve_level=45)
+        assert bs.current_park_floor() == 45
+
+    def test_park_floor_falls_back_to_drain_target_pre_first_emit(self):
+        """Pre-first-emit (boot) → fall back to drain-target accessor."""
+        bs = self._make_bs(last_reserve_level=None)
+        assert bs.current_park_floor() == 15  # "good" class
+
+    def test_park_floor_captures_arbitrage_peak_buffer(self):
+        """Arbitrage/attain parks at peak_buffer_target — release must follow."""
+        bs = self._make_bs(last_reserve_level=60)
+        assert bs.current_park_floor() == 60
 
 
 # ---------------------------------------------------------------------------

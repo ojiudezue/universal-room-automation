@@ -2860,26 +2860,25 @@ class EnergyCoordinator(BaseCoordinator):
                     _surplus_pct > DEFAULT_EV_SOLAR_REPLENISH_SURPLUS_PCT
                     or (_bat_pw is not None and _bat_pw > 100)
                 )
-                # EV charge-start dead-band fix D1: thread the effective
-                # release floor F = max(reserve_soc, current_offpeak_drain_target)
-                # into the `reserve_soc` kwarg so the release gate
-                # reconciles with the drain target the battery emitter is
-                # actually parking at (Bug Class #53 one-missed-site closure).
-                _reserve_soc_static = getattr(self._battery, "reserve_soc", None)
-                try:
-                    _drain_target = self._battery.current_offpeak_drain_target()
-                except Exception:  # noqa: BLE001
-                    _drain_target = None
-                if _reserve_soc_static is not None and _drain_target is not None:
-                    _effective_release_floor = max(_reserve_soc_static, _drain_target)
-                else:
-                    _effective_release_floor = _reserve_soc_static
+                # EV charge-start dead-band fix D1 (+ fix-up A/B/D):
+                # Compose the release floor from the battery emitter's
+                # AUTHORITATIVE last commanded reserve — captures inclement
+                # partial_hold + arbitrage/attain parks that a parallel
+                # `current_offpeak_drain_target()` re-derivation is blind to.
+                # And gate the F substitution + release-side sticky on
+                # `off_peak` — outside off_peak the battery legitimately
+                # discharges deep and the drain pause is the only backstop.
+                # `_compose_release_floor` is the single-source composition
+                # helper the mutation-anchored tests drive (Fix 5).
+                from .energy_battery import compose_release_floor as _crf
+                _release_floor, _is_offpeak = _crf(self._battery, period)
                 drain_actions = self._ev.determine_battery_drain_actions(
                     battery_power_w=self._battery.battery_power_w,
                     battery_soc=self._battery.battery_soc,
                     soc_threshold=self._ev_battery_drain_soc,
-                    reserve_soc=_effective_release_floor,
+                    reserve_soc=_release_floor,
                     solar_replenishing=solar_replenishing,
+                    is_offpeak=_is_offpeak,
                 )
                 for action_spec in drain_actions:
                     await self._execute_service_action(action_spec)
@@ -2963,9 +2962,10 @@ class EnergyCoordinator(BaseCoordinator):
                     battery_power_w=self._battery.battery_power_w,
                     battery_soc=self._battery.battery_soc,
                     soc_threshold=self._ev_battery_drain_soc,
-                    reserve_soc=_effective_release_floor,
+                    reserve_soc=_release_floor,
                     force_charge_active=force_charge_active,
                     solar_replenishing=solar_replenishing,
+                    is_offpeak=_is_offpeak,
                 )
                 for action_spec in plug_drain_actions:
                     await self._execute_service_action(action_spec)

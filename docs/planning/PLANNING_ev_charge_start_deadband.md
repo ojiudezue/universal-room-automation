@@ -210,7 +210,15 @@ prefer it when non-None — decide during Pass A which is smaller.
   within one 5-min tick, `switch.turn_on` is dispatched by the same or next
   tick, and the EVSE stays ON for the remainder of off_peak.
 - **Verify:** On `tomorrow_class = excellent` (drain target = 10 = reserve
-  default), behavior is byte-identical to today (reserve+2 = 12 = drain+2).
+  default), release threshold is identical to today (reserve+2 = 12 = drain+2).
+  Note (fix-up B-M3 honesty correction): the release-side sticky introduced by
+  D4 removes a pre-existing 1-tick flap at reserve — so behavior is NOT strictly
+  byte-identical on the pause side in the narrow SOC = reserve ± 2 band. This is
+  the intended stabilizer, not a regression.
+- **Verify (fix-up Fix 2 gating):** All effective-floor + sticky behavior is
+  gated on `tou_period == "off_peak"`. During peak/mid_peak the release
+  threshold reverts to static `reserve_soc + 2` and the sticky is inactive,
+  preserving the drain pause as a hard backstop during expensive-grid windows.
 - **Sensor:** `sensor.ura_battery_strategy` attribute `reserve_soc` unchanged
   (still the static). NEW attribute `current_offpeak_drain_target` (int)
   reflects the value threaded into the release. (Optional — see D5.)
