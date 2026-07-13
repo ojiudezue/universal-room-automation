@@ -128,6 +128,12 @@ class WriteVerifier:
         self._last_reversion_at_by_surface: dict[str, datetime] = {}
         # Once-per-boot INFO log for disabled surfaces (no oracle configured).
         self._disabled_logged: set[str] = set()
+        # Fix-up A/B-HIGH-1 — per-surface pending-check cancel handle.
+        # schedule() cancels prior handle before scheduling; cancel_all()
+        # (Fix-up B-HIGH-3, Bug Class #38) cancels all on teardown.
+        self._pending_by_surface: dict[str, Any] = {}
+        # Fix-up A-MED-1 fallback log throttling.
+        self._last_soc_fallback_state: Optional[str] = None
 
     # ------------------------------------------------------------------
     # Cloud oracle entity id resolution (respects operator overrides)
@@ -201,7 +207,25 @@ class WriteVerifier:
 
         commanded_at = commanded_at or dt_util.utcnow()
 
+        # Fix-up A/B-HIGH-1 — cancel any pending check for this surface
+        # BEFORE scheduling a new one. A stale in-flight check that fires
+        # after a fresh command would compare cloud state against the OLD
+        # commanded value, producing a spurious mismatch. Also captures
+        # the cancel callback (pre-fix-up: discarded → timer leak on
+        # teardown, Bug Class #38).
+        prior = self._pending_by_surface.pop(surface, None)
+        if prior is not None:
+            try:
+                prior()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "WriteVerifier: cancel prior %s handle failed (swallowed)",
+                    surface, exc_info=True,
+                )
+
         async def _delayed(_now: Any = None) -> None:
+            # Clear own handle before running compare (self is complete now).
+            self._pending_by_surface.pop(surface, None)
             try:
                 await self._check(surface, commanded_value, commanded_at)
             except Exception:  # noqa: BLE001
@@ -211,7 +235,11 @@ class WriteVerifier:
                 )
 
         try:
-            async_call_later(self.hass, self._verify_window_s, _delayed)
+            handle = async_call_later(
+                self.hass, self._verify_window_s, _delayed
+            )
+            # Capture cancel callback for supersession + teardown.
+            self._pending_by_surface[surface] = handle
             _LOGGER.debug(
                 "WriteVerifier: scheduled %s verify (commanded=%s) in %ds",
                 surface, commanded_value, self._verify_window_s,
@@ -232,6 +260,23 @@ class WriteVerifier:
         commanded_at: datetime,
     ) -> None:
         """Perform the compare + emit any anomalies. Never actuates (W-6)."""
+        # Fix-up A/B-HIGH-1 belt: even if cancel was raced, early-return
+        # when the commanded ledger has advanced past our commanded_at.
+        try:
+            battery = getattr(self._coord, "_battery", None)
+            if battery is not None:
+                _, ledger_at = self._commanded_ledger(battery, surface)
+                if ledger_at is not None and ledger_at > commanded_at:
+                    _LOGGER.debug(
+                        "WriteVerifier: %s check superseded "
+                        "(ledger=%s > commanded_at=%s)",
+                        surface, ledger_at, commanded_at,
+                    )
+                    return
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "supersession guard raised (swallowed)", exc_info=True,
+            )
         oracle = self._oracle_entity_for(surface)
         if not oracle:
             return
@@ -316,6 +361,7 @@ class WriteVerifier:
                 f"reports {oracle_raw!r} after {self._verify_window_s}s. "
                 "Check the Enpower device link."
             ),
+            alert_type="mismatch",
         )
 
     # ------------------------------------------------------------------
@@ -381,16 +427,26 @@ class WriteVerifier:
             # Successful verified — reset coalesce so a future flip re-fires.
             self._last_reversion_at_by_surface.pop(surface, None)
             return
-        # Coalesce: don't re-fire more than once per verify_window_s.
-        last = self._last_reversion_at_by_surface.get(surface)
-        if last is not None and (now - last) < window:
-            return
-        self._last_reversion_at_by_surface[surface] = now
+        # Fix-up B-MED-2 — emit ONCE per TRANSITION into REVERTED, not
+        # per verify-window tick. DB write-flood history (v5.0.0-v5.2.1
+        # rollback) mandates that a standing-reverted state does not
+        # generate a new anomaly row every 15 min. NM is separately
+        # latched per-day by _maybe_fire_nm; the anomaly bus needs the
+        # tighter guard.
         rec = self._records[surface]
+        was_reverted = (rec.status == STATUS_REVERTED)
         rec.commanded = commanded
         rec.oracle_seen = oracle_raw
         rec.verified_at = now.isoformat()
         rec.status = STATUS_REVERTED
+        # Always keep the coalesce timestamp fresh (for legacy reads).
+        self._last_reversion_at_by_surface[surface] = now
+        if was_reverted:
+            _LOGGER.debug(
+                "WriteVerifier: %s still REVERTED (coalesced, no re-emit)",
+                surface,
+            )
+            return
         self._mismatch_counts.increment(surface)
         await self._emit_anomaly(
             surface,
@@ -410,6 +466,7 @@ class WriteVerifier:
                 "intervening URA command. Someone or something else changed "
                 "it. Check the Enphase app."
             ),
+            alert_type="reverted",
         )
 
     def _commanded_ledger(
@@ -490,7 +547,11 @@ class WriteVerifier:
                     return STATUS_UNIT_MISMATCH, False
                 if not is_percent:
                     return STATUS_UNIT_MISMATCH, False
-                matched = abs(oval_norm - cval) <= 1.0
+                # Fix-up A-HIGH-2 / B-MED-1: align verify tolerance with
+                # the ±2 dispatch deadband. A 1.0-pt tolerance produced a
+                # "1<delta<2" forever-REVERTED band because dispatch would
+                # not re-send (deadband) yet verify would keep failing.
+                matched = abs(oval_norm - cval) <= 2.0
                 return (STATUS_OK if matched else STATUS_MISMATCH, matched)
             if surface == WRITE_VERIFY_SURFACE_CHARGE_FROM_GRID:
                 cbool = bool(commanded)
@@ -543,14 +604,23 @@ class WriteVerifier:
             _LOGGER.debug("_emit_anomaly failed (swallowed)", exc_info=True)
 
     async def _maybe_fire_nm(
-        self, surface: str, title: str, message: str
+        self, surface: str, title: str, message: str,
+        alert_type: str = "mismatch",
     ) -> None:
-        """Fire NM CRITICAL once per surface per calendar day."""
+        """Fire NM CRITICAL once per (surface, alert_type) per calendar day.
+
+        Fix-up B-MED-3: latch is per (surface, alert_type) so that a
+        mismatch alert and a subsequent reversion alert on the SAME
+        surface do not share a latch — they represent distinct operator
+        events and each deserves at most one notification per day.
+        """
         today = dt_util.utcnow().date().isoformat()
-        if self._nm_trip_date_by_surface.get(surface) == today:
+        key = f"{surface}:{alert_type}"
+        if self._nm_trip_date_by_surface.get(key) == today:
             _LOGGER.debug(
-                "WriteVerifier: %s NM alert suppressed (already fired today)",
-                surface,
+                "WriteVerifier: %s/%s NM alert suppressed "
+                "(already fired today)",
+                surface, alert_type,
             )
             return
         try:
@@ -563,9 +633,28 @@ class WriteVerifier:
                     hazard_type="envoy_write_verification",
                     location="battery",
                 )
-            self._nm_trip_date_by_surface[surface] = today
+            self._nm_trip_date_by_surface[key] = today
         except Exception:  # noqa: BLE001
             _LOGGER.debug("NM alert failed (swallowed)", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # Teardown (Fix-up B-HIGH-3, Bug Class #38 — timer leaks)
+    # ------------------------------------------------------------------
+    def cancel_all(self) -> None:
+        """Cancel every pending delayed check. Called from
+        EnergyCoordinator teardown / async_shutdown path so
+        async_call_later handles do not leak past coordinator lifetime.
+        """
+        for surface, handle in list(self._pending_by_surface.items()):
+            try:
+                if handle is not None:
+                    handle()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "WriteVerifier: cancel %s failed (swallowed)",
+                    surface, exc_info=True,
+                )
+        self._pending_by_surface.clear()
 
     # ------------------------------------------------------------------
     # Public accessor consumed by BatteryStrategy.get_status()

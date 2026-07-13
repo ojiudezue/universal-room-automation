@@ -593,16 +593,54 @@ class BatteryStrategy:
             if age <= DEFAULT_SOC_LKG_MAX_AGE_S:
                 self._soc_source_last = "lkg"
                 return self._soc_lkg
-        fallback = self._get_state_float(
-            self._get_entity(
-                "battery_soc_cloud", DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
-            )
+        fb_eid = self._get_entity(
+            "battery_soc_cloud", DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
         )
+        fallback = self._get_state_float(fb_eid)
         if fallback is not None:
-            _LOGGER.warning(
-                "SOC primary+LKG unavailable — using cloud fallback %.1f%%",
-                fallback,
-            )
+            # Fix-up A-HIGH-3 — unit-guard the fallback AT CONSUMPTION.
+            # The divergence check already refuses to alert on non-'%'
+            # units, but the resolver used to return the raw value which
+            # could inject a fractional or W-scale reading straight into
+            # strategy math. Fail-safe: on non-'%' unit or clearly
+            # out-of-range value, return None (gates hold, same as a
+            # dead primary today). Log once per transition into this
+            # state to avoid spam.
+            fb_unit = None
+            try:
+                st = self.hass.states.get(fb_eid) if fb_eid else None
+                if st is not None:
+                    fb_unit = st.attributes.get("unit_of_measurement")
+            except Exception:  # noqa: BLE001
+                fb_unit = None
+            if fb_unit is not None and str(fb_unit).strip() not in ("", "%"):
+                if self._soc_source_last != "fallback_unit_reject":
+                    _LOGGER.warning(
+                        "SOC cloud fallback %s has non-%% unit=%r — "
+                        "refusing to use (fail-safe: soc=None). Fix the "
+                        "wiring before treating this as available.",
+                        fb_eid, fb_unit,
+                    )
+                self._soc_source_last = "fallback_unit_reject"
+                return None
+            if not (0.0 <= fallback <= 100.0):
+                if self._soc_source_last != "fallback_range_reject":
+                    _LOGGER.warning(
+                        "SOC cloud fallback %s value %.3f outside 0-100 — "
+                        "refusing to use (fail-safe: soc=None).",
+                        fb_eid, fallback,
+                    )
+                self._soc_source_last = "fallback_range_reject"
+                return None
+            if self._soc_source_last != "cloud_fallback":
+                _LOGGER.warning(
+                    "SOC primary+LKG unavailable — using cloud fallback %.1f%%",
+                    fallback,
+                )
+            else:
+                _LOGGER.debug(
+                    "SOC cloud fallback still active: %.1f%%", fallback,
+                )
             self._soc_source_last = "cloud_fallback"
             return fallback
         self._soc_source_last = "none"
@@ -685,7 +723,20 @@ class BatteryStrategy:
                 detected_at=now.isoformat(),
                 payload=payload,
             )
-            self.hass.async_create_task(db.save_anomaly_event(evt))
+            # Fix-up A-MED-3 — track the emit task with a discard
+            # done-callback so a failure surfaces at DEBUG and the
+            # untracked-task Bug Class does not apply.
+            _task = self.hass.async_create_task(db.save_anomaly_event(evt))
+            def _discard(t: Any) -> None:  # noqa: E306
+                try:
+                    exc = t.exception()
+                    if exc is not None:
+                        _LOGGER.debug(
+                            "divergence anomaly save failed: %s", exc,
+                        )
+                except Exception:  # noqa: BLE001
+                    pass
+            _task.add_done_callback(_discard)
         except Exception:
             _LOGGER.debug("divergence emit failed (swallowed)", exc_info=True)
 
@@ -3511,19 +3562,16 @@ class BatteryStrategy:
             if self._last_reserve_level != _new_res:
                 self._last_reserve_level_at = dt_util.utcnow()
             self._last_reserve_level = _new_res
-        # v5.15.x D1.2 — commanded ledgers for reversion detection.
-        try:
-            from homeassistant.util import dt as dt_util
-            _now = dt_util.utcnow()
-            if self._last_charge_from_grid_command != bool(charge_from_grid):
-                self._last_charge_from_grid_command_at = _now
-            self._last_charge_from_grid_command = bool(charge_from_grid)
-            if mode is not None and self._last_storage_mode_command != mode:
-                self._last_storage_mode_command_at = _now
-            if mode is not None:
-                self._last_storage_mode_command = mode
-        except Exception:
-            _LOGGER.debug("commanded ledger update failed (swallowed)", exc_info=True)
+        # v5.15.x fix-up A/B-HIGH-2 — commanded ledger stamping MOVED to
+        # the dispatch tap in energy.py::_tap_write_verifier so:
+        #   (a) EVSE-hold max() raise at energy.py:2663-2678 is captured
+        #       in the ledger (was: stamped pre-hold desired value);
+        #   (b) charge_from_grid/storage_mode ledgers only advance when
+        #       an action was actually appended + dispatched (was:
+        #       stamped every cycle even with no action → false reversion
+        #       alerts).
+        # _last_reserve_level continues to be stamped above for the EV
+        # dead-band release-floor consumer at :912-918.
         # v4.5.0 D1: keep self._arbitrage_phase synced with the dict.
         # Defaults to "n/a" for any non-arbitrage code path (peak/mid_peak/
         # storm/disconnect), matching state matrix invariants 4 + 6.

@@ -3589,6 +3589,28 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             _adv = user_input.pop(INCLEMENT_ADVANCED_SECTION, None)
             if isinstance(_adv, dict):
                 user_input = {**user_input, **_adv}
+            # v5.15.x fix-up C-CRIT-1 — flatten the collapsed
+            # cloud_verification section back to top-level (mirrors the
+            # inclement_advanced pattern). Without this, operator overrides
+            # persist nested under options["cloud_verification"] which
+            # neither _build_entity_map nor WriteVerifier._oracle_entity_for
+            # read — runtime only sees flat energy_* keys.
+            # Unset-vs-empty semantics:
+            #   - key ABSENT from submission → falls to hard-coded default
+            #     via the suggested_value re-populated on re-open
+            #   - key present with value "" (operator explicitly cleared) →
+            #     WriteVerifier treats "" as no oracle configured and
+            #     DISABLES that surface (INFO log once).
+            _cv = user_input.pop("cloud_verification", None)
+            if isinstance(_cv, dict):
+                for _k in (
+                    CONF_ENERGY_CLOUD_RESERVE_ORACLE_ENTITY,
+                    CONF_ENERGY_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+                    CONF_ENERGY_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
+                    CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+                ):
+                    if _k in _cv:
+                        user_input[_k] = _cv[_k]
             # Parse the multiline power-threat-events text into a list.
             _threat = user_input.get(CONF_INCLEMENT_POWER_THREAT_EVENTS)
             if isinstance(_threat, str):

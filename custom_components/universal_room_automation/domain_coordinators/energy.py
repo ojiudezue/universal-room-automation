@@ -39,6 +39,10 @@ from .energy_const import (
     CONF_ENERGY_BATTERY_POWER_ENTITY,
     CONF_ENERGY_BATTERY_SOC_ENTITY,
     CONF_ENERGY_CHARGE_FROM_GRID_ENTITY,
+    CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+    CONF_ENERGY_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+    CONF_ENERGY_CLOUD_RESERVE_ORACLE_ENTITY,
+    CONF_ENERGY_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
     CONF_ENERGY_CONSTRAINT_COAST_OFFSET,
     CONF_ENERGY_CONSTRAINT_PRECOOL_OFFSET,
     CONF_ENERGY_CONSTRAINT_PREHEAT_OFFSET,
@@ -724,13 +728,15 @@ class EnergyCoordinator(BaseCoordinator):
             CONF_ENERGY_CHARGE_FROM_GRID_ENTITY: "charge_from_grid",
             # v5.15.x — cloud verification oracles (empty → surface's
             # verification is disabled; logged once at INFO by
-            # WriteVerifier).
-            "energy_cloud_reserve_oracle_entity": "cloud_reserve_oracle",
-            "energy_cloud_charge_from_grid_oracle_entity": (
+            # WriteVerifier). Fix-up A-LOW-1: use CONF_* imports.
+            CONF_ENERGY_CLOUD_RESERVE_ORACLE_ENTITY: "cloud_reserve_oracle",
+            CONF_ENERGY_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY: (
                 "cloud_charge_from_grid_oracle"
             ),
-            "energy_cloud_storage_mode_oracle_entity": "cloud_storage_mode_oracle",
-            "energy_cloud_battery_soc_fallback_entity": "battery_soc_cloud",
+            CONF_ENERGY_CLOUD_STORAGE_MODE_ORACLE_ENTITY: (
+                "cloud_storage_mode_oracle"
+            ),
+            CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY: "battery_soc_cloud",
             CONF_ENERGY_SOLCAST_TODAY_ENTITY: "solcast_today",
             CONF_ENERGY_SOLCAST_REMAINING_ENTITY: "solcast_remaining",
             CONF_ENERGY_SOLCAST_TOMORROW_ENTITY: "solcast_tomorrow",
@@ -4458,26 +4464,95 @@ class EnergyCoordinator(BaseCoordinator):
         self, action_spec: Any, decision: dict[str, Any]
     ) -> None:
         """v5.15.x D1.3 — post-dispatch tap; schedules a delayed
-        oracle-vs-commanded compare. READ-ONLY (W-6)."""
+        oracle-vs-commanded compare. READ-ONLY (W-6).
+
+        Fix-up A/B-HIGH-2: stamp the commanded ledger HERE using the
+        ACTUAL dispatched value (captures the EVSE-hold ``max()`` raise
+        at energy.py:2663-2678). The prior BatteryStrategy._result()
+        stamping used the desired pre-hold value; verification then
+        compared cloud vs an intent that URA never actually sent.
+
+        Fix-up A-LOW-2: only tap when the action targets the configured
+        battery entity id for that service — filters out unrelated
+        switches/numbers/selects that happen to share the service name.
+        """
         verifier = getattr(self, "_write_verifier", None)
         if verifier is None:
             return
         try:
             svc = action_spec.get("service")
             data = action_spec.get("data") or {}
+            target = action_spec.get("target")
         except AttributeError:
             svc = getattr(action_spec, "service", None)
             data = getattr(action_spec, "data", {}) or {}
+            target = getattr(action_spec, "target", None)
         if not svc:
             return
+        try:
+            from homeassistant.util import dt as dt_util
+            _now = dt_util.utcnow()
+        except Exception:  # noqa: BLE001
+            _now = None
+        # Resolve configured entity ids for each surface via the choke
+        # point so operator overrides route correctly (mirrors
+        # _build_entity_map keys).
+        battery = getattr(self, "_battery", None)
+
+        def _cfg(key: str, default: str | None = None) -> str | None:
+            if battery is None:
+                return None
+            try:
+                return battery._get_entity(key, default)  # noqa: SLF001
+            except Exception:  # noqa: BLE001
+                return None
+
         if svc == "number.set_value":
-            await verifier.schedule("reserve_soc", data.get("value"))
-        elif svc == "switch.turn_on":
-            await verifier.schedule("charge_from_grid", True)
-        elif svc == "switch.turn_off":
-            await verifier.schedule("charge_from_grid", False)
+            from .energy_const import DEFAULT_RESERVE_SOC_ENTITY
+            reserve_eid = _cfg("reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY)
+            if target and reserve_eid and target != reserve_eid:
+                return
+            value = data.get("value")
+            # Stamp commanded ledger with the ACTUAL dispatched value
+            # (post EVSE-hold max()).
+            if battery is not None and value is not None:
+                try:
+                    _new = int(max(0, min(100, int(value))))
+                    if battery._last_reserve_level != _new:  # noqa: SLF001
+                        battery._last_reserve_level_at = _now  # noqa: SLF001
+                    battery._last_reserve_level = _new  # noqa: SLF001
+                except (TypeError, ValueError):
+                    pass
+            await verifier.schedule("reserve_soc", value, _now)
+        elif svc in ("switch.turn_on", "switch.turn_off"):
+            from .energy_const import DEFAULT_CHARGE_FROM_GRID_ENTITY
+            cfg_eid = _cfg(
+                "charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY,
+            )
+            if target and cfg_eid and target != cfg_eid:
+                return
+            cmd_bool = (svc == "switch.turn_on")
+            if battery is not None:
+                if battery._last_charge_from_grid_command != cmd_bool:  # noqa: SLF001
+                    battery._last_charge_from_grid_command_at = _now  # noqa: SLF001
+                battery._last_charge_from_grid_command = cmd_bool  # noqa: SLF001
+            await verifier.schedule("charge_from_grid", cmd_bool, _now)
         elif svc == "select.select_option":
-            await verifier.schedule("storage_mode", data.get("option"))
+            from .energy_const import DEFAULT_STORAGE_MODE_ENTITY
+            cfg_eid = _cfg("storage_mode", DEFAULT_STORAGE_MODE_ENTITY)
+            if target and cfg_eid and target != cfg_eid:
+                return
+            option = data.get("option")
+            # Fix-up A-HIGH-2 storage_mode gate: only stamp/schedule
+            # when the option was actually appended to actions (i.e. a
+            # real select action ran).
+            if option is None:
+                return
+            if battery is not None:
+                if battery._last_storage_mode_command != option:  # noqa: SLF001
+                    battery._last_storage_mode_command_at = _now  # noqa: SLF001
+                battery._last_storage_mode_command = option  # noqa: SLF001
+            await verifier.schedule("storage_mode", option, _now)
 
     async def _send_nm_alert(
         self,
@@ -5357,6 +5432,17 @@ class EnergyCoordinator(BaseCoordinator):
         # The actual unsub call happens in ``_cancel_listeners`` because
         # the handle is appended to ``self._unsub_listeners`` at setup.
         self._optimizer_intent_unsub = None
+        # v5.15.x fix-up B-HIGH-3 (Bug Class #38) — cancel any pending
+        # WriteVerifier delayed checks so their async_call_later handles
+        # do not fire after the coordinator is gone.
+        try:
+            verifier = getattr(self, "_write_verifier", None)
+            if verifier is not None:
+                verifier.cancel_all()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "write_verifier.cancel_all raised (swallowed)", exc_info=True,
+            )
         self._cancel_listeners()
         _LOGGER.info("Energy Coordinator stopped")
 
