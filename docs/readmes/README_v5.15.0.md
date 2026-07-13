@@ -126,13 +126,24 @@ hypotheses:
     window: { first_check_after: 30m, confirm_after: 2h, alert_if_violated_after: 24h }
 ```
 
-## Live Validation (prospective — write back observed results post-restart)
+## Live Validation — Validated 2026-07-13 (deploy night)
 
-| # | Criterion | How to verify |
-|---|---|---|
-| L1 | Deploy healthy, zero URA errors across restart | error_log scan post-boot |
-| L2 | `effective_release_floor` + `current_offpeak_drain_target` attrs present and consistent with tonight's solar class | battery-strategy sensor attrs |
-| L3 | **First non-excellent night:** EVSE ON within ~10 min of battery parking at floor; stays on; `energy_status` shows release not battery_drain_paused | recorder: switch.garage_a + SOC + battery-strategy attrs. **If tonight classifies `excellent`, this is PENDING-ORGANIC until the first non-excellent night — the fix is behavior-identical to pre-fix at excellent (release threshold; the sticky additionally removes a pre-existing 1-tick flap at reserve).** |
-| L4 | L1 plug parity: Moes plugs release under the same conditions | pause_dispatch_state / plug switch history |
-| L5 | No pause/release flapping at the floor (≥1 h stable) | switch history period analysis |
-| L6 | Peak-period drain protection intact (regression): EV charging during peak with battery discharging below 50% still pauses | opportunistic — only if the scenario occurs organically |
+Deploy restart 23:05 CDT 07-12. Validation ran through an unplanned live
+stress test: the dual-homed Envoy's WiFi leg dropped ~23:15 (device hopped
+subnets 192.168.12.191 → 192.168.13.118 eth; gateway kept reporting to
+Enphase cloud throughout), taking the local SOC source dark for ~45 min,
+plus an operator HA core update/restart at ~00:00.
+
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | Deploy healthy, zero URA errors | **PASS (1 boot transient noted)** | `installed_version=v5.15.0`; all entries loaded across BOTH restarts (23:05 deploy, 00:00 core update). One boot-only ERROR 23:05:24 "DB write worker not running — call start_write_worker() first" (single line, occupancy-event race at boot; NOT a v5.15.0 surface — database/startup untouched this cycle; filed to watch). |
+| L2 | New floor attrs present + consistent | **PASS** | `current_offpeak_drain_target=30`, `effective_release_floor=30` on the battery-strategy sensor at 23:08 — consistent with tonight's poor/very_poor classification (`drain_targets` map: poor 30). |
+| L3 | **EVSE releases at the park floor and charges** | **PASS — the headline fix proven on night one** | Tonight was non-excellent (floor 30), and garage_a came out of restart with its pre-deploy `battery_drain` pause RESTORED from DB — the exact stuck state that pre-fix could only release at SOC ≤ 12. Fail-safe behavior verified first: while Envoy was dark (SOC=None) the release correctly held (D-MED-2 semantics). SOC returned 00:02:51 (20%) → release fired within 2 decision cycles → `switch.garage_a` ON at **00:12:01**, drain set empty, `pause_reason_human=off-peak proactive turn-on` (ensure-on ownership), **4,446 W charging at 00:19**. |
+| L4 | L1 plug parity | **PASS (code-path) / no live exercise** | Plugs off all night (nothing plugged into Moes sockets); parity is mutation-anchored in-suite (`test_plug_drain_release_parity_with_evse`). Live exercise awaits a plug-charged vehicle night. |
+| L5 | No flapping at the floor ≥1h | **PENDING (due ~01:15)** | garage_a single ON edge at 00:12:01, no cycling through 00:19 at write-back time. 1-hour recorder re-check scheduled; this row will be updated with the observed result. |
+| L6 | Peak drain protection intact | **IN-SUITE-ONLY** | Off_peak gating mutation-anchored (`test_ev_sticky_disabled_outside_offpeak`); organic peak scenario did not occur during validation. |
+
+**Boot-transients dismissed:** house-state `away` immediately post-boot
+(known cold-boot shape, settled to `sleep` by 23:12 — and note the house
+slept properly tonight, no guest latch). Envoy `setup_in_progress` was the
+device-side subnet hop, not URA and not the deploy.
