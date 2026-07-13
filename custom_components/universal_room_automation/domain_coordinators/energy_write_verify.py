@@ -134,6 +134,24 @@ class WriteVerifier:
         self._pending_by_surface: dict[str, Any] = {}
         # Fix-up A-MED-1 fallback log throttling.
         self._last_soc_fallback_state: Optional[str] = None
+        # Review B-H1-1 (2026-07-13) — track the commanded value each
+        # surface's pending check is waiting on. If the SAME value is
+        # re-dispatched (self-heal loop against a persistently uncooperative
+        # cloud leg), we let the existing check mature rather than
+        # cancel+reschedule forever (which starves the 15-min compare).
+        self._pending_commanded_by_surface: dict[str, Any] = {}
+        # Review B-H1-1 — per-surface count of consecutive self-heal
+        # re-dispatches (same value). At N=3 we emit a
+        # write_verification_failed-class anomaly + fire NM (once/day latch)
+        # so the alarm is not maskable by the heal loop even if no check
+        # ever matures.
+        self._self_heal_consecutive: dict[str, int] = {}
+        # Review A-MED-1 = B-H1-2 — per-surface count of consecutive
+        # cycles where the cloud (write) target read unavailable/unknown.
+        # At N=3 we hold, emit a once/day "cloud write leg unavailable"
+        # anomaly + fire NM, and only retry at a 6-cycle backoff.
+        self._unavailable_consecutive: dict[str, int] = {}
+        self._unavailable_backoff_ticks: dict[str, int] = {}
 
     # ------------------------------------------------------------------
     # Cloud oracle entity id resolution (respects operator overrides)
@@ -252,13 +270,114 @@ class WriteVerifier:
 
         commanded_at = commanded_at or dt_util.utcnow()
 
-        # Fix-up A/B-HIGH-1 — cancel any pending check for this surface
-        # BEFORE scheduling a new one. A stale in-flight check that fires
-        # after a fresh command would compare cloud state against the OLD
-        # commanded value, producing a spurious mismatch. Also captures
-        # the cancel callback (pre-fix-up: discarded → timer leak on
-        # teardown, Bug Class #38).
+        # Review A-MED-1 = B-H1-2 (2026-07-13) — unavailable-cloud
+        # re-dispatch loop guard. If the cloud (write) target reads
+        # unavailable/unknown/None, we must NOT re-dispatch every cycle
+        # indefinitely. N-strike (3 consecutive cycles) then hold with a
+        # once-per-day anomaly + NM alert; retry at a 6-cycle backoff.
+        # Applies uniformly to reserve, charge_from_grid, storage_mode.
+        oracle_probe = self._read_oracle_raw(oracle)
+        if oracle_probe is None:
+            n = self._unavailable_consecutive.get(surface, 0) + 1
+            self._unavailable_consecutive[surface] = n
+            backoff = self._unavailable_backoff_ticks.get(surface, 0)
+            if n >= 3:
+                # Backoff: only retry (schedule a check) every 6th cycle
+                # after tripping the N-strike threshold.
+                if backoff <= 0:
+                    self._unavailable_backoff_ticks[surface] = 6
+                    await self._emit_anomaly(
+                        surface,
+                        "cloud_write_leg_unavailable",
+                        {
+                            "commanded": commanded_value,
+                            "consecutive_unavailable": n,
+                        },
+                    )
+                    await self._maybe_fire_nm(
+                        surface,
+                        title=f"Cloud write leg unavailable: {surface}",
+                        message=(
+                            f"URA has attempted to dispatch {surface}="
+                            f"{commanded_value!r} for {n} consecutive cycles "
+                            "but the cloud write leg reads unavailable. "
+                            "Verification is on backoff."
+                        ),
+                        alert_type="cloud_write_leg_unavailable",
+                    )
+                else:
+                    self._unavailable_backoff_ticks[surface] = backoff - 1
+                _LOGGER.debug(
+                    "WriteVerifier: %s cloud target unavailable "
+                    "(consecutive=%d, backoff=%d) — schedule suppressed",
+                    surface, n,
+                    self._unavailable_backoff_ticks[surface],
+                )
+                return
+            _LOGGER.debug(
+                "WriteVerifier: %s cloud target unavailable "
+                "(consecutive=%d) — scheduling anyway (pre-N-strike)",
+                surface, n,
+            )
+        else:
+            # Cloud is healthy — reset counters.
+            self._unavailable_consecutive[surface] = 0
+            self._unavailable_backoff_ticks[surface] = 0
+
+        # Review B-H1-1 (2026-07-13) — supersession starvation fix.
+        # When a pending check exists for THE SAME commanded value, do
+        # NOT cancel+reschedule. The 5-min self-heal loop otherwise
+        # re-dispatches the same command every cycle and starves the
+        # 15-min check forever. Instead: let the existing check mature,
+        # count consecutive self-heals, and at N=3 emit an
+        # unmaskable-by-heal-loop anomaly + NM (once/day). A DIFFERENT
+        # commanded value is a legitimate fresh command and still
+        # supersedes (cancels the stale check).
+        prior_commanded = self._pending_commanded_by_surface.get(surface)
+        prior = self._pending_by_surface.get(surface)
+        if prior is not None and prior_commanded == commanded_value:
+            # Same-value self-heal — count it, maybe raise the alarm,
+            # then return WITHOUT cancelling or rescheduling. The
+            # in-flight check will mature and reset the counter on OK.
+            n = self._self_heal_consecutive.get(surface, 0) + 1
+            self._self_heal_consecutive[surface] = n
+            _LOGGER.debug(
+                "WriteVerifier: %s same-value self-heal "
+                "(commanded=%s, count=%d) — leaving pending check to mature",
+                surface, commanded_value, n,
+            )
+            if n >= 3:
+                await self._emit_anomaly(
+                    surface,
+                    "write_verification_failed",
+                    {
+                        "commanded": commanded_value,
+                        "reason": "self_heal_starvation",
+                        "consecutive_self_heals": n,
+                    },
+                )
+                await self._maybe_fire_nm(
+                    surface,
+                    title=f"Envoy write self-heal loop: {surface}",
+                    message=(
+                        f"URA has re-dispatched {surface}={commanded_value!r} "
+                        f"{n} consecutive cycles without cloud confirmation. "
+                        "The write leg may be silently rejecting writes."
+                    ),
+                    alert_type="self_heal_starvation",
+                )
+            return
+
+        # Fresh command (different value) or no prior — cancel any
+        # pending check for this surface BEFORE scheduling a new one.
+        # A stale in-flight check that fires after a fresh command would
+        # compare cloud state against the OLD commanded value, producing
+        # a spurious mismatch. Also captures the cancel callback
+        # (pre-fix-up: discarded → timer leak on teardown, Bug Class #38).
         prior = self._pending_by_surface.pop(surface, None)
+        self._pending_commanded_by_surface.pop(surface, None)
+        # Reset self-heal counter on a legitimate fresh command.
+        self._self_heal_consecutive[surface] = 0
         if prior is not None:
             try:
                 prior()
@@ -271,6 +390,7 @@ class WriteVerifier:
         async def _delayed(_now: Any = None) -> None:
             # Clear own handle before running compare (self is complete now).
             self._pending_by_surface.pop(surface, None)
+            self._pending_commanded_by_surface.pop(surface, None)
             try:
                 await self._check(surface, commanded_value, commanded_at)
             except Exception:  # noqa: BLE001
@@ -285,6 +405,7 @@ class WriteVerifier:
             )
             # Capture cancel callback for supersession + teardown.
             self._pending_by_surface[surface] = handle
+            self._pending_commanded_by_surface[surface] = commanded_value
             _LOGGER.debug(
                 "WriteVerifier: scheduled %s verify (commanded=%s) in %ds",
                 surface, commanded_value, self._verify_window_s,
@@ -381,6 +502,11 @@ class WriteVerifier:
             return
 
         if status == STATUS_OK or matched:
+            # Reset self-heal + unavailable counters — cloud confirmed
+            # the write (Review B-H1-1 / A-MED-1).
+            self._self_heal_consecutive[surface] = 0
+            self._unavailable_consecutive[surface] = 0
+            self._unavailable_backoff_ticks[surface] = 0
             _LOGGER.info(
                 "WriteVerifier: %s OK (commanded=%s, oracle=%s)",
                 surface, commanded_value, oracle_raw,
@@ -758,6 +884,7 @@ class WriteVerifier:
                     surface, exc_info=True,
                 )
         self._pending_by_surface.clear()
+        self._pending_commanded_by_surface.clear()
 
     # ------------------------------------------------------------------
     # Public accessor consumed by BatteryStrategy.get_status()

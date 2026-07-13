@@ -542,6 +542,16 @@ class BatteryStrategy:
         with the DEFAULT_CLOUD_* constants at config-entry setup so
         cloud-first is effective without operator config; tests that
         stub only the local entity see None → fall back to local.
+
+        Fix-up A-HIGH-2 (2026-07-13): treat explicit-empty (``""``) as
+        falsy — same effect as None. Previously `_get_entity` would
+        return "" as the write target ("" is not None), causing dispatch
+        with no entity_id + per-cycle exceptions. Now a blanked cloud
+        oracle field COHERENTLY DEMOTES the surface's write routing
+        back to the local leg (both writes and command-state reads on
+        that surface). One-time INFO log documents the demotion so
+        operators see it in the log; the config_flow data_description
+        also says blanking reverts routing to local.
         """
         map_ = {
             "charge_from_grid": "cloud_charge_from_grid_oracle",
@@ -551,7 +561,21 @@ class BatteryStrategy:
         cloud_key = map_.get(key)
         if cloud_key is None:
             return None
-        return self._entities.get(cloud_key)
+        cloud = self._entities.get(cloud_key)
+        if not cloud:  # None or "" (explicit disable)
+            # One-time INFO documenting the coherent demotion.
+            if not hasattr(self, "_cloud_demote_logged"):
+                self._cloud_demote_logged: set[str] = set()
+            if key not in self._cloud_demote_logged:
+                _LOGGER.info(
+                    "Battery write routing: cloud oracle for %s is unset — "
+                    "coherently demoting BOTH writes and command-state "
+                    "reads on this surface to the local leg",
+                    key,
+                )
+                self._cloud_demote_logged.add(key)
+            return None
+        return cloud
 
     def _get_state_float(self, entity_id: str | None) -> float | None:
         """Get numeric state from an entity. None entity_id → None."""
@@ -863,10 +887,28 @@ class BatteryStrategy:
 
     @property
     def current_storage_mode(self) -> str | None:
-        """Current Enpower storage mode."""
-        return self._get_state_str(
-            self._get_entity("storage_mode", DEFAULT_STORAGE_MODE_ENTITY)
+        """Current Enpower storage mode.
+
+        Fix-up A-HIGH-1 (2026-07-13): read from the WRITE leg so the
+        command-state read is coherent with what URA is actually driving
+        (W-5). Under cloud-first writes, the cloud select's label
+        vocabulary ("Self-Consumption"/"Savings"/"Full Backup") is
+        normalized to the local vocab via STORAGE_MODE_CLOUD_TO_LOCAL
+        so downstream comparisons (mode != current_mode in `_result`)
+        remain apples-to-apples. Gives storage_mode the same self-heal
+        behavior as cfg (H1 addendum), since the intent-vs-observed
+        divergence is now visible.
+        """
+        from .energy_const import STORAGE_MODE_CLOUD_TO_LOCAL
+        raw = self._get_state_str(
+            self._get_entity(
+                "storage_mode", DEFAULT_STORAGE_MODE_ENTITY, role="write",
+            )
         )
+        if raw is None:
+            return None
+        # Cloud label → local vocab if applicable; passthrough otherwise.
+        return STORAGE_MODE_CLOUD_TO_LOCAL.get(raw, raw)
 
     @property
     def grid_connected(self) -> bool:
@@ -1346,9 +1388,25 @@ class BatteryStrategy:
         three-tier resolver) so a healthy cloud fallback does NOT mask
         a real Envoy outage and prevent the state machine's envoy-
         unavailable branch from firing.
+
+        Fix-up A-HIGH-1 (2026-07-13): despite `current_storage_mode`
+        now reading via role="write" (cloud-first under H1), THIS
+        consumer must KEEP tracking LOCAL Envoy health. We therefore
+        probe the LOCAL storage_mode entity directly here — a cloud
+        select that stays reachable while the local Envoy is dead must
+        NOT falsely report envoy_available=True. The primary SOC
+        (battery_soc) is already a local read (role="read" default) and
+        anchors this correctly; the storage_mode probe below is a
+        belt-and-braces LOCAL check that never inherits the cloud-first
+        redirection.
         """
         primary_soc = self._get_state_float(self._get_entity("battery_soc"))
-        return primary_soc is not None and self.current_storage_mode is not None
+        local_storage_mode = self._get_state_str(
+            self._get_entity(
+                "storage_mode", DEFAULT_STORAGE_MODE_ENTITY, role="read",
+            )
+        )
+        return primary_soc is not None and local_storage_mode is not None
 
     # ------------------------------------------------------------------
     # v4.5.0 D1: arbitrage four-phase state machine
@@ -3633,6 +3691,33 @@ class BatteryStrategy:
                 )
             )
             if current_cfg is True:
+                # Fix-up A-LOW-2 (2026-07-13): OFF-direction symmetry
+                # with the ON-direction self-heal INFO. If local reads
+                # OFF while cloud reads ON, surface the divergence so
+                # the operator can see the OFF-side self-heal in the log.
+                try:
+                    local_eid = self._get_entity(
+                        "charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY,
+                        role="read",
+                    )
+                    local_cfg = self._get_state_bool(local_eid)
+                    cloud_eid = self._get_entity(
+                        "charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY,
+                        role="write",
+                    )
+                    if (
+                        local_cfg is False
+                        and current_cfg is True
+                        and local_eid != cloud_eid
+                    ):
+                        _LOGGER.info(
+                            "H1 self-heal: charge_from_grid intent=off, "
+                            "cloud=%s reads ON, local=%s reads OFF — "
+                            "re-dispatching turn_off to cloud leg",
+                            cloud_eid, local_eid,
+                        )
+                except Exception:  # noqa: BLE001
+                    pass
                 actions.append({
                     "service": "switch.turn_off",
                     "target": self._get_entity(

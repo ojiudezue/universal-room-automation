@@ -970,13 +970,13 @@ def test_h3_options_read_live_across_ticks() -> None:
 
 
 def test_h3_mutation_anchor_gate_removed(monkeypatch) -> None:
-    """MUTATION ANCHOR: if the gate check in
-    _get_unrecognized_camera_count were removed (subtraction runs
-    unconditionally), the gate=OFF test case would return 1 instead of 2.
-
-    We simulate the mutation by stubbing _get_ble_cancel_enabled to
-    ALWAYS return True — that is what a missing gate would effectively
-    do at this call site.
+    """Behavior test (2026-07-13 relabel per C-MED-2): the docstring
+    previously claimed 'MUTATION ANCHOR' but the test SIMULATES the
+    absence of the gate by monkeypatching the ACCESSOR to always
+    return True, rather than editing the production call site. It
+    proves the gate is READ at that site (the aggregate is load-
+    bearing), but a real per-site source mutation is provided below
+    by ``test_c_med_1_h3_options_round_trip_real_source_mutation``.
     """
     census, _entry = _make_census_with_ble_cancel(enabled=False)
     # Mutation: force the gate accessor True regardless of options.

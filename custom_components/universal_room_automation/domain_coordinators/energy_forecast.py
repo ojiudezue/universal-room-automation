@@ -483,6 +483,27 @@ class DailyEnergyPredictor:
                     taper_band = f"<{threshold}"
                 current_soc = threshold
 
+            # Review B-H2-2 (2026-07-13): clamp on hours_to_fill > 24.
+            # A bare HH:MM ETA without a date is misleading when the fill
+            # spans multiple days (e.g. dead-of-winter, degraded system).
+            # Report "unlikely_today" and retain the current rate in
+            # attrs so the operator sees WHY.
+            if hours_to_fill > 24:
+                self._battery_full_time = "unlikely_today"
+                self._battery_full_time_attrs = {
+                    "basis": "current_rate",
+                    "current_charge_rate_kw": round(current_rate_kw, 2),
+                    "taper_band": taper_band,
+                    "current_soc": soc,
+                    "hours_to_fill": round(hours_to_fill, 2),
+                    "reason": "hours_to_fill_exceeds_24",
+                    "taper_note": (
+                        "bands scaled from observed rate; hardware may "
+                        "taper harder near full"
+                    ),
+                    "inputs": "live battery_power_w + soc",
+                }
+                return
             estimated_time = now + timedelta(hours=hours_to_fill)
             self._battery_full_time = estimated_time.strftime("%H:%M")
             self._battery_full_time_attrs = {
@@ -491,6 +512,14 @@ class DailyEnergyPredictor:
                 "taper_band": taper_band,
                 "current_soc": soc,
                 "hours_to_fill": round(hours_to_fill, 2),
+                # Review B-H2-1 (2026-07-13): honest caveat — the piecewise
+                # bands are scaled from the OBSERVED rate; near 100% the
+                # Encharge hardware can taper harder than our model, so
+                # the HH:MM ETA is a best-effort estimate not a guarantee.
+                "taper_note": (
+                    "bands scaled from observed rate; hardware may "
+                    "taper harder near full"
+                ),
                 "inputs": "live battery_power_w + soc",
             }
             return
@@ -544,6 +573,27 @@ class DailyEnergyPredictor:
                 taper_band = f"<{threshold}"
             current_soc = threshold
 
+        # Review B-H2-2 (2026-07-13) — solar_forecast branch symmetry
+        # with the current_rate clamp above.
+        if hours_to_fill > 24:
+            self._battery_full_time = "unlikely_today"
+            self._battery_full_time_attrs = {
+                "basis": "solar_forecast",
+                "net_solar_remaining_kwh": round(net_available_solar, 2),
+                "assumed_consumption_kwh": round(remaining_consumption, 2),
+                "taper_band": taper_band,
+                "current_soc": soc,
+                "current_charge_rate_kw": (
+                    round(current_rate_kw, 2)
+                    if current_rate_kw is not None else None
+                ),
+                "reason": "hours_to_fill_exceeds_24",
+                "taper_note": (
+                    "banded capacity model; hardware may taper harder near full"
+                ),
+                "inputs": "solcast + capacity model (not currently charging)",
+            }
+            return
         estimated_time = now + timedelta(hours=hours_to_fill)
         self._battery_full_time = estimated_time.strftime("%H:%M")
         self._battery_full_time_attrs = {
@@ -555,6 +605,11 @@ class DailyEnergyPredictor:
             "current_charge_rate_kw": (
                 round(current_rate_kw, 2)
                 if current_rate_kw is not None else None
+            ),
+            # Review B-H2-1 (2026-07-13): banded capacity model, near-full
+            # taper may exceed nominal.
+            "taper_note": (
+                "banded capacity model; hardware may taper harder near full"
             ),
             "inputs": "solcast + capacity model (not currently charging)",
         }
