@@ -235,10 +235,21 @@ class UniversalRoomDatabase:
         v3.22.8: Writes go through a single-worker queue. The worker
         holds one persistent connection and processes writes sequentially.
         v3.22.9: Fail fast if worker is not running (review fix F4).
+
+        v5.16.2 (Tier-1): Boot-race hardening. If callers arrive BEFORE
+        start_write_worker() has run (setup-concurrency during HA boot —
+        census snapshots, energy snapshots, environmental data etc. can
+        fire from a coordinator whose entry set up ahead of the parent
+        entry that owns DB init), we no longer raise + drop the row.
+        Instead we enqueue onto _write_queue as normal; start_write_worker()
+        immediately picks up any queued items when it runs. The queue is
+        an unbounded asyncio.Queue, so this is lossless. A DEBUG note is
+        logged in case ordering ever drifts far.
         """
         if self._write_task is None or self._write_task.done():
-            raise RuntimeError(
-                "DB write worker not running — call start_write_worker() first"
+            _LOGGER.debug(
+                "DB write submitted before worker start — buffering on queue"
+                " (worker will drain on start)"
             )
         loop = asyncio.get_running_loop()
         future: asyncio.Future = loop.create_future()
