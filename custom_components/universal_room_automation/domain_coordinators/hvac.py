@@ -69,6 +69,70 @@ from .signals import (
 _LOGGER = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Zone-prune hotfix D1 — module-level helpers (extracted for real test
+# authority per fix-up "Fix 2"). Lifting these out of the handler makes
+# them import-testable WITHOUT the HA runtime, which is what caught the
+# A-CRIT-1 dead-import in the prior build.
+# ---------------------------------------------------------------------------
+def _compute_surviving_thermostats(
+    hass: Any, deleted_name: str,
+) -> tuple[set[str], bool]:
+    """Build the set of thermostat entity_ids still claimed by any surviving
+    house zone — BOTH ZM-embedded zones (`ENTRY_TYPE_ZONE_MANAGER` options
+    ``zones`` dict) AND legacy standalone ``ENTRY_TYPE_ZONE`` entries
+    (fix-up A-HIGH-2 / plan Invariant I).
+
+    Returns ``(set, ok)``. ``ok=False`` signals the caller to SPARE the
+    prune (fix-up A-MED-1) rather than proceed with a partial set.
+    """
+    surviving: set[str] = set()
+    try:
+        # Import from const.py (NOT hvac_const — fix-up A-CRIT-1).
+        from ..const import (
+            CONF_ENTRY_TYPE,
+            CONF_ZONE_NAME,
+            CONF_ZONE_THERMOSTAT,
+            DOMAIN as _DOMAIN,
+            ENTRY_TYPE_ZONE,
+            ENTRY_TYPE_ZONE_MANAGER,
+        )
+        for ce in hass.config_entries.async_entries(_DOMAIN):
+            et = ce.data.get(CONF_ENTRY_TYPE)
+            if et == ENTRY_TYPE_ZONE_MANAGER:
+                merged = {**ce.data, **ce.options}
+                zm_zones = merged.get("zones", {}) or {}
+                for zname_key, zcfg in zm_zones.items():
+                    if zname_key == deleted_name:
+                        continue
+                    therm = (zcfg or {}).get(CONF_ZONE_THERMOSTAT)
+                    if therm:
+                        surviving.add(therm)
+            elif et == ENTRY_TYPE_ZONE:
+                merged = {**ce.data, **ce.options}
+                zname_key = (merged.get(CONF_ZONE_NAME) or "").strip()
+                if zname_key == deleted_name:
+                    continue
+                therm = merged.get(CONF_ZONE_THERMOSTAT)
+                if therm:
+                    surviving.add(therm)
+        return surviving, True
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug(
+            "HVAC prune guard: _compute_surviving_thermostats failed",
+            exc_info=True,
+        )
+        return surviving, False
+
+
+def _thermostat_still_claimed_helper(
+    zs: Any, surviving_thermostats: set[str],
+) -> bool:
+    """True iff the zone-state's climate_entity is in the survivor set."""
+    therm = getattr(zs, "climate_entity", "") or ""
+    return bool(therm) and therm in surviving_thermostats
+
+
 class HVACCoordinator(BaseCoordinator):
     """HVAC Coordinator — zone comfort and cost management.
 
@@ -1716,39 +1780,34 @@ class HVACCoordinator(BaseCoordinator):
         # "Entertainment + Master Suite") would otherwise take the live
         # merged HVAC zone inert until the next restart re-derives it
         # via async_discover_zones (hvac.py:492, setup-only).
-        surviving_thermostats: set[str] = set()
-        try:
-            from ..const import (
-                CONF_ENTRY_TYPE,
-                DOMAIN as _DOMAIN,
-                ENTRY_TYPE_ZONE_MANAGER,
-            )
-            from .hvac_const import CONF_ZONE_THERMOSTAT as _CONF_ZT
-            for ce in self.hass.config_entries.async_entries(_DOMAIN):
-                if ce.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE_MANAGER:
-                    continue
-                merged = {**ce.data, **ce.options}
-                zm_zones = merged.get("zones", {}) or {}
-                for zname_key, zcfg in zm_zones.items():
-                    if zname_key == deleted_name:
-                        continue
-                    therm = (zcfg or {}).get(_CONF_ZT)
-                    if therm:
-                        surviving_thermostats.add(therm)
-        except Exception:  # noqa: BLE001
-            _LOGGER.debug(
-                "HVAC prune guard: surviving-thermostat lookup failed",
-                exc_info=True,
+        # Fix-up A-CRIT-1: correct import path (const, NOT hvac_const);
+        # A-HIGH-2: fold BOTH ZM-embedded AND legacy ENTRY_TYPE_ZONE surfaces
+        # into the survivor set (plan Invariant I); A-MED-1: WARN + spare
+        # (skip prune) on lookup failure instead of DEBUG + proceed.
+        surviving_thermostats, _guard_set_ok = _compute_surviving_thermostats(
+            self.hass, deleted_name,
+        )
+        if not _guard_set_ok:
+            _LOGGER.warning(
+                "HVAC prune guard: surviving-thermostat lookup failed for "
+                "deleted_name=%r — sparing all merged zones from this prune "
+                "(safe default; restart will re-derive via async_discover_zones)",
+                deleted_name,
             )
 
         def _thermostat_still_claimed(zs: Any) -> bool:
-            therm = getattr(zs, "climate_entity", "") or ""
-            return bool(therm) and therm in surviving_thermostats
+            return _thermostat_still_claimed_helper(zs, surviving_thermostats)
 
+        # Fix-up A-LOW-1: hoist pruned_ids + guard_spared_ids to the
+        # handler top so the persisted-store rewrite path cannot
+        # NameError if the in-memory try-block raises early. Also record
+        # spares INLINE (single decision per zone_id) so the persisted
+        # store mirror does not have to recompute _thermostat_still_claimed.
+        pruned_ids: list[str] = []
+        guard_spared_ids: set[str] = set()
         try:
             zm = self._zone_manager
             zones = getattr(zm, "_zones", None) or getattr(zm, "zones", None) or {}
-            pruned_ids: list[str] = []
             try:
                 if deleted_id and deleted_id in zones:
                     zs = zones.get(deleted_id)
@@ -1760,6 +1819,7 @@ class HVACCoordinator(BaseCoordinator):
                             deleted_id, getattr(zs, "zone_name", ""),
                             getattr(zs, "climate_entity", ""), deleted_name,
                         )
+                        guard_spared_ids.add(deleted_id)
                     else:
                         zones.pop(deleted_id, None)
                         pruned_ids.append(deleted_id)
@@ -1782,6 +1842,7 @@ class HVACCoordinator(BaseCoordinator):
                                     getattr(zs, "climate_entity", ""),
                                     deleted_name,
                                 )
+                                guard_spared_ids.add(zid)
                                 continue
                             zones.pop(zid, None)
                             pruned_ids.append(zid)
@@ -1805,20 +1866,14 @@ class HVACCoordinator(BaseCoordinator):
             )
         # 2) Persisted snapshot rewrite (LOAD-BEARING — else restart
         #    resurrects the zone via restore_state_snapshot at line 503).
-        # D1 guard mirror: if in-memory prune was spared for this zone_id,
-        # the persisted store MUST also spare that zone_id.
-        guard_spared_ids: set[str] = set()
+        # D1 guard mirror: `guard_spared_ids` was recorded INLINE above
+        # (fix-up A-LOW-1) — no need to recompute _thermostat_still_claimed.
         try:
-            if deleted_id and deleted_id not in pruned_ids:
-                zones_check = (
-                    getattr(self._zone_manager, "_zones", None)
-                    or getattr(self._zone_manager, "zones", {}) or {}
-                )
-                if _thermostat_still_claimed(zones_check.get(deleted_id)):
-                    guard_spared_ids.add(deleted_id)
+            if guard_spared_ids:
+                for _sid in guard_spared_ids:
                     _LOGGER.info(
                         "HVAC prune guard: sparing zone_state_store row for "
-                        "zone_id=%s (thermostat still claimed)", deleted_id,
+                        "zone_id=%s (thermostat still claimed)", _sid,
                     )
         except Exception:  # noqa: BLE001
             pass

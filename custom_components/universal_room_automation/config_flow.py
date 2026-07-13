@@ -7415,8 +7415,30 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                                 thermostat not yet discovered). Same
                                 caller contract as ``coord_down``.
         """
+        # Fix-up B-HIGH-2 (activate deliberately): the legacy
+        # ``hass.data[DOMAIN]["hvac_coordinator"]`` slot is NOT populated
+        # in prod — canonical lookup is via
+        # ``CoordinatorManager.coordinators["hvac"]`` (see
+        # ``domain_coordinators/optimization.py:346-360``, "CM is
+        # authoritative"; ``switch.py:510`` for the pattern). Before this
+        # fix, every delete resolved (None, "husk") → D3 snapshot was a
+        # live no-op, and a thermostat-carrying delete would abort at R7
+        # (``coord_down``) — which is why the collision never surfaced
+        # via this path in prior deploys. Fixing the lookup ACTIVATES
+        # real zone_id resolution for future deletes (id-keyed purge will
+        # actually run). This is safe now because the D1 guard (post
+        # fix-up Fix 1) protects shared-thermostat zones from mis-prune;
+        # this is the plan's intended end-state.
         try:
-            hvac = self.hass.data.get(DOMAIN, {}).get("hvac_coordinator")
+            domain_data = self.hass.data.get(DOMAIN, {}) or {}
+            hvac = None
+            cm = domain_data.get("coordinator_manager")
+            if cm is not None:
+                coords = getattr(cm, "coordinators", None) or {}
+                hvac = coords.get("hvac")
+            if hvac is None:
+                # Legacy slot fallback (empty in prod; kept for tests).
+                hvac = domain_data.get("hvac_coordinator")
             if hvac is None:
                 return (None, "coord_down" if has_thermostat else "husk")
             zm = getattr(hvac, "zone_manager", None) or getattr(hvac, "_zone_manager", None)
@@ -7685,8 +7707,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             try:
                 db = self.hass.data.get(DOMAIN, {}).get("database")
                 if db is not None:
+                    # Fix-up A-MED-2 / B-MED-1: reuse confirm-time snapshot
+                    # rather than re-resolving post-mutation (the ZM entry
+                    # has already been rewritten + reloaded; a second
+                    # resolve is prone to drift and cost a lookup).
                     post = await db.async_count_zone_rows(
-                        zone_name, self._resolve_zone_id_for_delete(zone_name)[0],
+                        zone_name, confirm_time_zone_id,
                     )
                     lingering = sum(post.values())
                     if lingering:
