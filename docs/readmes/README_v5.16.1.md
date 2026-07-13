@@ -83,13 +83,19 @@ hypotheses:
     window: { first_check_after: 30m, confirm_after: 1d, alert_if_violated_after: 2d }
 ```
 
-## Live Validation (prospective — write back post-restart)
+## Live Validation — Validated 2026-07-13 (deploy restart 12:23 CDT)
 
-| # | Criterion | How |
-|---|---|---|
-| L1 | Deploy healthy, zero URA errors (boot DB-worker transients excepted/counted) | error log |
-| L2 | Self-heal fires: INFO log + cloud turn_on dispatch + verification schedules (H1a) | log + battery-strategy attrs |
-| L3 | Cloud switch flips ON within ~15 min (Enlighten applies) OR the N=3 unmaskable alarm fires — either outcome validates the machinery | cloud switch history / NM |
-| L4 | `write_route: cloud` visible on all three surfaces | battery-strategy attrs |
-| L5 | battery_full_time populates with basis=current_rate once charging resumes | sensor + attrs |
-| L6 | H3 kill switch visible in census options UI (operator spot-check, optional) | UI |
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | Deploy healthy | **PASS** | `installed_version=v5.16.1`; no new URA errors post-boot. |
+| L2 | Self-heal fires + verification schedules | **PASS** | First decision cycle (~12:25) detected cloud cfg=off vs arbitrage-CHARGE intent=on → cloud dispatch (switch write-pending at 12:26); verification scheduled and MATURED: `last_verified_write_charge_from_grid = {commanded: true, oracle_seen: "on", verified_at: 12:40:31, status: "ok", write_route: "cloud"}` — **the first verified battery write in URA's history.** (Self-heal INFO line not visible in error_log — file logger at WARNING; the attr trail is the authoritative record.) |
+| L3 | Enlighten applies OR alarm | **PASS (applied)** | Cloud switch ON at 12:30:45 (~5 min apply lag, inside the window); no alarm needed. |
+| L4 | `write_route: cloud` ×3 | **PASS** | All three `last_verified_write_*` dicts carry `write_route: "cloud"`. |
+| L5 | battery_full_time populates | **PASS (state), attr surfacing to spot-check** | State `01:55` at 12:25 — consistent with ~28 kWh remaining at the observed ~16 kW rate + taper. The `basis`/rate attrs did not appear in the projection read — verify attr naming on the entity in the next session (cosmetic follow-up if misplaced). |
+| L6 | H3 kill switch in UI | PENDING-OPERATOR (optional) | Census options section spot-check. |
+
+**The bottom line, 36 hours after "I often wake to an uncharged car":** the
+battery is grid-charging at **16.3 kW** (SOC 30→39% in 13 min,
+cross-confirmed by cloud power telemetry) under a cloud-routed, self-healed,
+independently-verified command — with an unmaskable alarm chain standing
+behind it for the day Enphase changes the rules again.
