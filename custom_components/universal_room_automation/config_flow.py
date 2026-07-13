@@ -334,6 +334,8 @@ from .const import (
     CONF_ENHANCED_CENSUS,
     CONF_CENSUS_HOLD_INTERIOR,
     CONF_CENSUS_HOLD_EXTERIOR,
+    CONF_CENSUS_BLE_CANCEL_ENABLED,
+    DEFAULT_CENSUS_BLE_CANCEL_ENABLED,
     DEFAULT_CENSUS_HOLD_INTERIOR_MINUTES,
     DEFAULT_CENSUS_HOLD_EXTERIOR_MINUTES,
     CONF_GUEST_VLAN_SSID,
@@ -2915,6 +2917,17 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.NumberSelectorMode.BOX,
                 )
             ),
+            # H3 (2026-07-13): BLE-cancel kill switch. Default True
+            # preserves current behavior; when False the per-area BLE
+            # subtraction (Step 3 in _get_unrecognized_camera_count) is
+            # skipped byte-identically to the pre-BLE-cancel behavior.
+            vol.Optional(
+                CONF_CENSUS_BLE_CANCEL_ENABLED,
+                default=self._get_current(
+                    CONF_CENSUS_BLE_CANCEL_ENABLED,
+                    DEFAULT_CENSUS_BLE_CANCEL_ENABLED,
+                ),
+            ): selector.BooleanSelector(),
             vol.Optional(
                 CONF_CENSUS_HOLD_EXTERIOR,
                 default=self._get_current(

@@ -1410,6 +1410,15 @@ CONF_ENHANCED_CENSUS: Final = "enhanced_census"
 # Hold/decay timing (defaults in seconds, configurable via UI in minutes)
 CONF_CENSUS_HOLD_INTERIOR: Final = "census_hold_interior"
 CONF_CENSUS_HOLD_EXTERIOR: Final = "census_hold_exterior"
+# H3 (2026-07-13): kill switch for BLE-cancel of unrecognized camera
+# detections. Default True (preserves current behavior). When False, the
+# Step-3 per-area subtraction in
+# camera_census._get_unrecognized_camera_count is skipped — resident
+# phones no longer excuse unrecognized camera detections in the same
+# area. Read LIVE per tick via the same options-read pattern as
+# CONF_CENSUS_HOLD_INTERIOR.
+CONF_CENSUS_BLE_CANCEL_ENABLED: Final = "census_ble_cancel_enabled"
+DEFAULT_CENSUS_BLE_CANCEL_ENABLED: Final = True
 # v5.9.0 D-C: interior hold reduced from 15 -> 3 minutes. With v5.9.0 D-B
 # sustain-before-latch removing the thoroughfare-handoff spike source, the
 # hold only needs to survive mmWave still-body gaps (seconds to a few minutes),

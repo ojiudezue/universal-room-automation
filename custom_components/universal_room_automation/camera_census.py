@@ -51,6 +51,8 @@ from .const import (
     CONF_ENHANCED_CENSUS,
     CONF_CENSUS_HOLD_INTERIOR,
     CONF_CENSUS_HOLD_EXTERIOR,
+    CONF_CENSUS_BLE_CANCEL_ENABLED,
+    DEFAULT_CENSUS_BLE_CANCEL_ENABLED,
     DEFAULT_CENSUS_HOLD_INTERIOR_MINUTES,
     DEFAULT_CENSUS_HOLD_EXTERIOR_MINUTES,
     CENSUS_DECAY_STEP_SECONDS,
@@ -1602,6 +1604,27 @@ class PersonCensus:
                 return bool(merged.get(CONF_ENHANCED_CENSUS, True))
         return True
 
+    def _get_ble_cancel_enabled(self) -> bool:
+        """H3 (2026-07-13) — read live BLE-cancel kill switch.
+
+        Follows the same options-read pattern as ``_get_hold_seconds``
+        (below) so a toggle in the integration config flow takes effect
+        on the next census tick without a restart. Default TRUE
+        preserves current behavior (subtraction ACTIVE); when False the
+        Step-3 subtraction in ``_get_unrecognized_camera_count`` is
+        skipped byte-identically to the pre-BLE-cancel path.
+        """
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                merged = {**entry.data, **entry.options}
+                return bool(
+                    merged.get(
+                        CONF_CENSUS_BLE_CANCEL_ENABLED,
+                        DEFAULT_CENSUS_BLE_CANCEL_ENABLED,
+                    )
+                )
+        return DEFAULT_CENSUS_BLE_CANCEL_ENABLED
+
     def _get_hold_seconds(self, zone: str) -> int:
         """Return hold duration in seconds for the given zone."""
         for entry in self.hass.config_entries.async_entries(DOMAIN):
@@ -1913,20 +1936,32 @@ class PersonCensus:
         #        (unassigned_raw) are NEVER cancelled — Fix 4 also
         #        enforces this at the source (_ble_home_by_area drops
         #        unmapped residents rather than bucketing under None).
+        #
+        # H3 (2026-07-13): the entire Step-3 subtraction is gated by the
+        # BLE-cancel kill switch (read LIVE per tick). When OFF, we take
+        # the byte-identical zero-cancellation path — area_raw_max flows
+        # straight through as area_contributions and cancelled_total
+        # stays 0. This matches the pre-BLE-cancel behavior (reviewer-
+        # verified equivalent to the zero-cancellation path).
         cancelled_total = 0
         area_contributions: dict[str, int] = {}
-        for aid, raw_max in area_raw_max.items():
-            ble_here = ble_by_area.get(aid, 0)
-            correction = min(raw_max, ble_here)
-            if correction > 0:
-                cancelled_total += correction
-                _LOGGER.info(
-                    "BLE-cancel: area=%s raw_max=%d ble_here=%d correction=%d contribution=%d",
-                    aid, raw_max, ble_here, correction, raw_max - correction,
-                )
-            final = raw_max - correction
-            if final > 0:
-                area_contributions[aid] = final
+        if not self._get_ble_cancel_enabled():
+            for aid, raw_max in area_raw_max.items():
+                if raw_max > 0:
+                    area_contributions[aid] = raw_max
+        else:
+            for aid, raw_max in area_raw_max.items():
+                ble_here = ble_by_area.get(aid, 0)
+                correction = min(raw_max, ble_here)
+                if correction > 0:
+                    cancelled_total += correction
+                    _LOGGER.info(
+                        "BLE-cancel: area=%s raw_max=%d ble_here=%d correction=%d contribution=%d",
+                        aid, raw_max, ble_here, correction, raw_max - correction,
+                    )
+                final = raw_max - correction
+                if final > 0:
+                    area_contributions[aid] = final
 
         # D3: publish per-cycle diagnostic. On earlier exception the
         # attribute retains its previous value (seeded 0 in __init__) —
