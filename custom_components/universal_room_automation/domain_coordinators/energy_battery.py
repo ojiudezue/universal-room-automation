@@ -143,6 +143,48 @@ def _coerce_int_or_default(value: Any, default: int) -> int:
         return int(default)
 
 
+def compose_release_floor(battery, tou_period):
+    """Compose the (release_floor, is_offpeak) tuple for a battery-drain call.
+
+    EV dead-band fix-up (Fix 5 — extract for test authority; Fix 1 — source
+    from the emitter's actual park; Fix 2 — off_peak gating).
+
+    - **Off_peak** — release floor F = max(static reserve_soc, current park
+      floor). `current_park_floor()` returns the emitter's last commanded
+      reserve (captures inclement partial_hold + arbitrage/attain parks),
+      falling back to the drain-target accessor pre-first-emit, then to the
+      static reserve. This is the single line the mutation-anchored EV/plug
+      call-site tests neuter to prove the composition is load-bearing.
+    - **Not off_peak** — return the STATIC reserve_soc; drain-release semantics
+      revert to pre-fix (release only at static reserve+2). The pool-side
+      release-side sticky is also disabled by `is_offpeak=False`. Rationale:
+      during peak/mid_peak the battery legitimately discharges below F and
+      the drain pause is the only backstop against pulling an EV onto the
+      battery when `_ev_tou_enabled=False`.
+
+    Returns:
+        (release_floor: int | None, is_offpeak: bool)
+    """
+    static_reserve = getattr(battery, "reserve_soc", None)
+    is_offpeak = (tou_period == "off_peak")
+    if not is_offpeak:
+        return (static_reserve, False)
+    try:
+        park = battery.current_park_floor()
+    except Exception:  # noqa: BLE001
+        park = None
+    if park is None:
+        try:
+            park = battery.current_offpeak_drain_target()
+        except Exception:  # noqa: BLE001
+            park = None
+    if static_reserve is not None and park is not None:
+        return (max(int(static_reserve), int(park)), True)
+    if park is not None:
+        return (int(park), True)
+    return (static_reserve, True)
+
+
 class BatteryStrategy:
     """Determines battery mode and actions based on TOU period and system state."""
 
@@ -190,6 +232,16 @@ class BatteryStrategy:
         self._entities = entity_config or {}
         self._last_mode: str | None = None
         self._last_reason: str = ""
+        # EV dead-band fix-up (A-HIGH-1 / B-H3 / D-HIGH-2). Persist the last
+        # commanded reserve_level threaded through `_result()`. This is the
+        # AUTHORITATIVE floor the battery is parking at RIGHT NOW — it captures
+        # inclement partial_hold clamps (max(drain_target, effective_reserve)
+        # at :3145-3146 / :3165-3166) AND arbitrage/attain `peak_buffer_target`
+        # parks. The parallel `current_offpeak_drain_target()` accessor only
+        # mirrors the drain-target fallback path and is BLIND to those higher
+        # parks, so exposing the emitter's actual last emission is the correct
+        # release-floor source. None until the emitter has run once (boot).
+        self._last_reserve_level: int | None = None
         self._solar_classification_mode = solar_classification_mode
         self._custom_solar_thresholds = custom_solar_thresholds
 
@@ -650,6 +702,51 @@ class BatteryStrategy:
     def _get_offpeak_drain_target(self, tomorrow_class: str) -> int:
         """Get the SOC drain target for off-peak based on tomorrow's solar class."""
         return self._drain_targets.get(tomorrow_class, DEFAULT_OFFPEAK_DRAIN_UNKNOWN)
+
+    def current_offpeak_drain_target(self) -> int:
+        """Return today's applicable off-peak drain target.
+
+        EV charge-start dead-band fix: the drain-target used by the emitter at
+        `_get_off_peak_decision` (see :3101-3114) picks the more conservative
+        (higher) target between D+1 and D+2 when `multi_day_horizon_enabled`.
+        This accessor mirrors that selection so the drain-release floor
+        (`max(reserve_soc, current_offpeak_drain_target())`) matches the
+        emitter and the two "floors" (static reserve vs live drain target)
+        are reconciled — Bug Class #53 (one-missed-site) closure at the
+        release-floor input.
+        """
+        tomorrow_class = self.classify_tomorrow_solar()
+        d1_target = self._get_offpeak_drain_target(tomorrow_class)
+        if not self._multi_day_horizon_enabled:
+            return d1_target
+        try:
+            d2_class = self.classify_solar_day_n(2)
+        except Exception:  # noqa: BLE001
+            return d1_target
+        d2_target = self._get_offpeak_drain_target(d2_class)
+        return max(d1_target, d2_target)
+
+    def current_park_floor(self) -> int | None:
+        """Return the floor the battery is actually parking at RIGHT NOW.
+
+        EV dead-band fix-up (A-HIGH-1 / B-H3 / D-HIGH-2 convergent finding):
+        the parallel `current_offpeak_drain_target()` accessor mirrors only
+        the drain-target fallback path (:3116-3175). The real emitter can
+        park HIGHER via:
+          - inclement `partial_hold` clamp `max(drain_target, effective_reserve)`
+            (:3145-3146 / :3165-3166)
+          - arbitrage/attain paths pinned to `peak_buffer_target`
+        Sourcing the release floor from `_last_reserve_level` (persisted in
+        `_result()`) captures ALL of those parks, closing the Bug Class #53
+        one-missed-site risk at the release-floor input. Boot fallback: the
+        drain-target accessor; final fallback: static `reserve_soc`.
+        """
+        if self._last_reserve_level is not None:
+            return int(self._last_reserve_level)
+        try:
+            return int(self.current_offpeak_drain_target())
+        except Exception:  # noqa: BLE001
+            return int(self.reserve_soc) if self.reserve_soc is not None else None
 
     def classify_solar_day_n(self, days_ahead: int) -> str:
         """v4.5.0 D3: classify the solar forecast for `days_ahead` from today.
@@ -3223,6 +3320,13 @@ class BatteryStrategy:
 
         self._last_mode = mode
         self._last_reason = reason
+        # EV dead-band fix-up: persist the commanded reserve so the release
+        # floor read by `current_park_floor()` matches the emitter's ACTUAL
+        # last park, not a parallel re-derivation. Only overwrite when the
+        # emitter explicitly commanded a reserve_level this tick (some paths
+        # pass None to leave reserve untouched — do not clobber prior).
+        if reserve_level is not None:
+            self._last_reserve_level = int(max(0, min(100, reserve_level)))
         # v4.5.0 D1: keep self._arbitrage_phase synced with the dict.
         # Defaults to "n/a" for any non-arbitrage code path (peak/mid_peak/
         # storm/disconnect), matching state matrix invariants 4 + 6.
@@ -3434,6 +3538,21 @@ class BatteryStrategy:
                 "horizon_enabled": self._multi_day_horizon_enabled,
             },
             "drain_targets": dict(self._drain_targets),
+            # EV charge-start dead-band fix D5: expose tonight's applicable
+            # drain target and the effective release floor threaded into
+            # both EV and plug drain-release gates. `drain_targets` above
+            # already surfaces the per-class map; these two answer "which
+            # entry is tonight's" and "what SOC does the EV release at".
+            "current_offpeak_drain_target": self.current_offpeak_drain_target(),
+            # EV dead-band fix-up A-MED-1/A-LOW-2: honest label. This is the
+            # floor the battery is ACTUALLY parking at (last commanded reserve,
+            # captures inclement partial_hold + arbitrage/attain parks), not a
+            # parallel `max(static_reserve, drain_target)` re-derivation.
+            "current_park_floor": self.current_park_floor(),
+            "effective_release_floor": max(
+                int(self.reserve_soc or 0),
+                int(self.current_park_floor() or self.reserve_soc or 0),
+            ),
             "threshold_warning": warning,
             "threshold_position": self._threshold_position(soc, tomorrow_class),
             "next_action_estimate": self._next_action_estimate(soc, tomorrow_class),

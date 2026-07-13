@@ -51,12 +51,17 @@ hypotheses:
     window: { first_check_after: 1h, confirm_after: 24h, alert_if_violated_after: 72h }
 ```
 
-## Live Validation — PROSPECTIVE (post-restart)
+## Live Validation — Validated 2026-07-11
 
-| # | Criterion | Evidence source |
-|---|---|---|
-| L1 | Version installed = v5.13.1 | `update.universal_room_automation_update.installed_version` |
-| L2 | Remaining ~39 friendly-keyed scopes migrate on first boot where `span_panel` states are up | `SELECT scope FROM metric_baselines WHERE coordinator='energy' AND metric='circuit_power' AND scope LIKE 'sensor.%'` returns 0 rows — cross-reference the v5.13.0 pre-deploy snapshot doc (`356040e7`) for the 43-scope pre-migration shape as the denominator |
-| L3 | Sentinel present + informational-only | `metric_baselines` sentinel row present; rewrite branches log DEBUG on subsequent boots (no INFO orphan spam) |
-| L4 | No error storm | `error_log` scan for `universal_room_automation` < 5 lines in 24h |
-| L5 | Write-volume discipline | Sentinel write skipped on no-op boots (log-observable) |
+Resumability shipped correctly — the sentinel is informational-only and per-row rewrite branches run every boot as designed. **But resumability alone did NOT complete the migration.** The root cause was one level deeper: `energy_circuits.py:194` set `_discovered=True` even on a zero-match discovery scan, so the circuit-discovery cache stayed empty and the rewrite branches had nothing to match against on subsequent boots. Superseded-and-completed by **v5.14.1** (post-STARTED re-pass with forced rediscovery).
+
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | Version installed = v5.13.1 | **PASS** | `update.universal_room_automation_update.installed_version = v5.13.1` at deploy tip. |
+| L2 | Sentinel present + informational-only | **PASS** | Sentinel row present; sentinel does NOT gate rewrite branches; verified by v5.14.1 completing the migration on a later boot. |
+| L3 | Rewrite branches run every boot (resumability itself) | **PASS** | Regression pin encodes the "re-add sentinel gate" mutation as RED against a named test; confirmed on-house across boots. |
+| L4 | Write-volume discipline (sentinel write skipped on no-op boots) | **PASS** | Log-observable: sentinel write emits only on first-boot-or-progress boots. |
+| L5 | Remaining ~39 friendly-keyed scopes fully migrated | **FAIL (superseded)** | Scopes remained on old key shape after v5.13.1. Root cause: stale discovery cache (see above). **Fixed by v5.14.1**: post-v5.14.1 boot shows 34 rows `span_nj-*` unique-id-scoped, sample counts intact. |
+| L6 | No error storm | **PASS** | `error_log` scan for `universal_room_automation` = 0 lines across the v5.13.1 boot. |
+
+**Regression pin remains valid.** The v5.13.1 test file continues to guard against re-introducing the sentinel gate; v5.14.1 layers on top without invalidating this contract. Cross-reference `README_v5.13.0.md` for the full saga and `README_v5.14.1.md` for the completing fix.

@@ -879,10 +879,34 @@ class EVChargerController:
         soc_threshold: int,
         reserve_soc: int | None = None,
         solar_replenishing: bool = False,
+        is_offpeak: bool = False,
     ) -> list[dict[str, Any]]:
         """Pause EVSEs draining the home battery. Resume on recovery.
 
         Pauses when: EVSE is charging AND battery is discharging AND SOC < threshold.
+
+        EV dead-band fix-up (Fix 2): `is_offpeak` gates the F substitution
+        and the release-side sticky. When False (peak/mid_peak) the release
+        semantics are pre-fix (release at static reserve+2) and the sticky
+        is disabled — the drain pause must remain a hard backstop against
+        deep discharge during expensive-grid windows.
+
+        EV charge-start dead-band fix: the `reserve_soc` kwarg is repurposed
+        as the **effective release floor** F = max(static reserve_soc,
+        current_offpeak_drain_target()). Threaded by the caller from
+        `BatteryStrategy` so the release gate reconciles with the
+        drain-target the battery emitter is actually parking at. Before
+        this fix, the release used the static reserve (10) while the
+        battery parked at the higher drain target (e.g. 40 for
+        `tomorrow=unknown`) → SOC never dropped low enough to trigger
+        `battery_out_of_capacity` → EV silently starved overnight.
+        Excellent solar (drain_target=10=reserve) is byte-identical.
+
+        Release-side sticky (Operator D4 Option 1): once SOC is at/below the
+        effective release floor F (within ±2% hysteresis), the pause gate
+        does NOT re-engage even if the EV briefly discharges the battery
+        (Enphase hold has ~5-15min lag). Prevents 1-tick oscillation at
+        the floor where the drain rule has nothing left to protect.
 
         v4.7.6 D1: Refined resume gate.
           - `battery_out_of_capacity = battery_ok AND soc <= reserve_soc + 2`
@@ -990,8 +1014,40 @@ class EVChargerController:
             soc_low = (
                 battery_soc is not None and battery_soc < soc_threshold
             )
+            # EV dead-band fix-up (Fix 3): BAND the sticky as F−2 ≤ SOC ≤ F+2
+            # (the plan's ±2 hysteresis, not one-sided). Below F−2 the pause
+            # MUST re-arm — if Enphase reserve-hold ever fails to catch, the
+            # EV could otherwise drain the battery to 0. Fix 2: sticky only
+            # active during off_peak (elsewhere the drain pause is a
+            # hard backstop and must not be suppressed).
+            in_sticky_band = (
+                is_offpeak
+                and battery_soc is not None
+                and reserve_soc is not None
+                and (reserve_soc - 2) <= battery_soc <= (reserve_soc + 2)
+            )
+            if (
+                in_sticky_band
+                and state["charging"]
+                and battery_discharging
+                and soc_low
+                and not getattr(self, "_deadband_sticky_logged", False)
+            ):
+                # Fix 4: once-per-process INFO for band collapse observability.
+                _LOGGER.info(
+                    "EV drain sticky: suppressing re-pause of %s at floor "
+                    "(SOC=%.0f%%, F=%d%%, band=F±2, is_offpeak=True) — "
+                    "reserve hold will land within 5-15 min",
+                    evse_id, battery_soc, reserve_soc,
+                )
+                self._deadband_sticky_logged = True
 
-            if state["charging"] and battery_discharging and soc_low:
+            if (
+                state["charging"]
+                and battery_discharging
+                and soc_low
+                and not in_sticky_band
+            ):
                 # v4.7.6 D1: Idempotent re-pause — re-dispatch every tick.
                 # Mirrors the TOU pattern at lines 319-323.
                 actions.append({
@@ -1868,8 +1924,17 @@ class SmartPlugController:
         reserve_soc: int | None = None,
         force_charge_active: bool = False,
         solar_replenishing: bool = False,
+        is_offpeak: bool = False,
     ) -> list[dict[str, Any]]:
         """Pause smart plugs draining the home battery. Resume on recovery.
+
+        EV charge-start dead-band fix (parity with EV path): `reserve_soc` is
+        the **effective release floor** F = max(static reserve_soc,
+        current_offpeak_drain_target()); `solar_replenishing` gates the
+        high-SOC `soc_recovered` release (pre-existing L1/L2 gap from
+        `energy.py:2941-2947` where the kwarg defaulted to False). Release-side
+        sticky at floor prevents 1-tick oscillation. See the EV docstring
+        for the full rationale.
 
         v4.7.6 D1 mirror: hybrid self_modulates, idempotent re-pause, refined
         battery_out_of_capacity gate, observed-off / grace-window state.
@@ -1946,7 +2011,29 @@ class SmartPlugController:
                     entity_id, observed_off, grace_expired,
                 )
 
-            if is_on and battery_discharging and soc_low:
+            # EV dead-band fix-up (Fix 3): BAND the sticky F−2 ≤ SOC ≤ F+2,
+            # and (Fix 2) only during off_peak. Mirrors the EV path above.
+            in_sticky_band = (
+                is_offpeak
+                and battery_soc is not None
+                and reserve_soc is not None
+                and (reserve_soc - 2) <= battery_soc <= (reserve_soc + 2)
+            )
+            if (
+                in_sticky_band
+                and is_on
+                and battery_discharging
+                and soc_low
+                and not getattr(self, "_deadband_sticky_logged", False)
+            ):
+                _LOGGER.info(
+                    "Smart plug drain sticky: suppressing re-pause of %s at "
+                    "floor (SOC=%.0f%%, F=%d%%, band=F±2, is_offpeak=True)",
+                    entity_id, battery_soc, reserve_soc,
+                )
+                self._deadband_sticky_logged = True
+
+            if is_on and battery_discharging and soc_low and not in_sticky_band:
                 # v4.7.6 D1: idempotent re-pause every tick
                 actions.append({
                     "service": "switch.turn_off",
