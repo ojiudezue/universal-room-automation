@@ -128,10 +128,58 @@ async def _migrate_zone_names_to_entries(hass: HomeAssistant, integration_entry:
             if zone_name:
                 existing_zone_names.add(zone_name.lower())
     
+    # Zone-prune hotfix D2: mint-guard set.
+    # P1 (live-HVAC): display names of already-derived HVAC merged zones,
+    #     if the HVAC coordinator is up.
+    # P2 (structural): compound-name whose " + "-split parts ALL match
+    #     existing house-zone names (case-insensitive).
+    # Predicate is P1 OR P2 (union) so a stale compound CONF_ZONE cannot
+    # mint a phantom house zone that would collide with a live merged
+    # HVAC display name on the next delete (2026-07-12 incident).
+    live_hvac_display_names: set[str] = set()
+    try:
+        hvac_coord = hass.data.get(DOMAIN, {}).get("hvac_coordinator")
+        zm = getattr(hvac_coord, "zone_manager", None) or getattr(
+            hvac_coord, "_zone_manager", None,
+        )
+        if zm is not None:
+            for _zs in getattr(zm, "zones", {}).values():
+                _dn = getattr(_zs, "zone_name", "") or ""
+                if _dn:
+                    live_hvac_display_names.add(_dn.lower())
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug(
+            "Zone migration: live-HVAC display-name lookup failed",
+            exc_info=True,
+        )
+
+    def _is_phantom_compound(name: str) -> tuple[bool, list[str]]:
+        if " + " not in name:
+            return (False, [])
+        parts = [p.strip() for p in name.split(" + ") if p.strip()]
+        if len(parts) < 2:
+            return (False, [])
+        if all(p.lower() in existing_zone_names for p in parts):
+            return (True, parts)
+        return (False, parts)
+
     # Create zone entries for any zone names without entries
     zones_created = 0
     for zone_name, room_entry_ids in zone_names_from_rooms.items():
         if zone_name.lower() not in existing_zone_names:
+            # D2 mint-guard: skip phantom compound / live-HVAC-collision.
+            _is_compound, _parts = _is_phantom_compound(zone_name)
+            _hits_live_hvac = zone_name.lower() in live_hvac_display_names
+            if _is_compound or _hits_live_hvac:
+                _LOGGER.warning(
+                    "Zone migration: refusing to mint phantom zone %r "
+                    "(hits_live_hvac=%s compound_of_existing=%s parts=%s) "
+                    "— linked_rooms=%d. Leaving room CONF_ZONE untouched; "
+                    "operator must clean up the room's zone assignment.",
+                    zone_name, _hits_live_hvac, _is_compound, _parts,
+                    len(room_entry_ids),
+                )
+                continue
             _LOGGER.info("Migrating zone '%s' to config entry (linked to %d rooms)", zone_name, len(room_entry_ids))
             
             # Create the zone entry via config flow

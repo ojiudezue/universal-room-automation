@@ -7608,7 +7608,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 "— serializing", zone_name,
             )
         async with lock:
-            await self._delete_zone_locked(
+            # D3: capture confirm-time zone_id snapshot from the locked
+            # body so the dispatch payload uses the SAME value the
+            # summary logged, not a post-mutation re-resolve.
+            confirm_time_zone_id = await self._delete_zone_locked(
                 zm_entry, zone_name, precomputed,
             )
             # Post-hoc row count sanity (fix-up A-MED-1). Any survivor
@@ -7633,15 +7636,15 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         # Step 9: dispatch AFTER the lock is released so subscribers can
         # take their own hass.data locks without deadlocking on ours.
+        # D3: use confirm-time snapshot rather than re-resolving.
         try:
-            zone_id_final, _ = self._resolve_zone_id_for_delete(zone_name)
             dispatcher.async_dispatcher_send(
                 self.hass, SIGNAL_ZM_ZONES_UPDATED,
-                {"deleted_zone_name": zone_name, "deleted_zone_id": zone_id_final},
+                {"deleted_zone_name": zone_name, "deleted_zone_id": confirm_time_zone_id},
             )
             _LOGGER.info(
                 "Zone delete signal dispatched: zone=%r zone_id=%r",
-                zone_name, zone_id_final,
+                zone_name, confirm_time_zone_id,
             )
         except Exception:  # noqa: BLE001
             _LOGGER.warning(
@@ -7652,7 +7655,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
     async def _delete_zone_locked(
         self, zm_entry, zone_name: str,
         precomputed: dict[str, Any] | None,
-    ) -> None:
+    ) -> str | None:
         """Body of ``_delete_zone`` executed under ``zm_options_lock``.
 
         Split so the lock scope is obvious and so the tripwire /
@@ -7814,6 +7817,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             zm_entry,
             options={**zm_entry.options, "zones": new_zones},
         )
+
+        # D3: return confirm-time zone_id snapshot for dispatch.
+        return zone_id
 
     def _build_dynamic_preset_schema(
         self, source_data: dict, current_data: dict,

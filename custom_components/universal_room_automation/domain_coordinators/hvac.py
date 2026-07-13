@@ -1708,14 +1708,61 @@ class HVACCoordinator(BaseCoordinator):
         # is a defense-in-depth belt so a raced pop cannot crash the
         # dispatcher; the primary correctness contract is the caller-side
         # snapshot.
+        # Zone-prune hotfix D1: build guard set of thermostat entities
+        # still claimed by ANY surviving ENTRY_TYPE_ZONE_MANAGER-embedded
+        # house-zone. A merged HVAC zone whose climate_entity is in this
+        # set MUST NOT be pruned — deleting the husk house zone whose
+        # display name collides with the merged compound name (e.g.
+        # "Entertainment + Master Suite") would otherwise take the live
+        # merged HVAC zone inert until the next restart re-derives it
+        # via async_discover_zones (hvac.py:492, setup-only).
+        surviving_thermostats: set[str] = set()
+        try:
+            from ..const import (
+                CONF_ENTRY_TYPE,
+                DOMAIN as _DOMAIN,
+                ENTRY_TYPE_ZONE_MANAGER,
+            )
+            from .hvac_const import CONF_ZONE_THERMOSTAT as _CONF_ZT
+            for ce in self.hass.config_entries.async_entries(_DOMAIN):
+                if ce.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE_MANAGER:
+                    continue
+                merged = {**ce.data, **ce.options}
+                zm_zones = merged.get("zones", {}) or {}
+                for zname_key, zcfg in zm_zones.items():
+                    if zname_key == deleted_name:
+                        continue
+                    therm = (zcfg or {}).get(_CONF_ZT)
+                    if therm:
+                        surviving_thermostats.add(therm)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "HVAC prune guard: surviving-thermostat lookup failed",
+                exc_info=True,
+            )
+
+        def _thermostat_still_claimed(zs: Any) -> bool:
+            therm = getattr(zs, "climate_entity", "") or ""
+            return bool(therm) and therm in surviving_thermostats
+
         try:
             zm = self._zone_manager
             zones = getattr(zm, "_zones", None) or getattr(zm, "zones", None) or {}
             pruned_ids: list[str] = []
             try:
                 if deleted_id and deleted_id in zones:
-                    zones.pop(deleted_id, None)
-                    pruned_ids.append(deleted_id)
+                    zs = zones.get(deleted_id)
+                    if _thermostat_still_claimed(zs):
+                        _LOGGER.warning(
+                            "HVAC prune guard: skipping merged zone_id=%s "
+                            "(name=%r) because thermostat=%s is still claimed "
+                            "by surviving house zone(s); deleted_name=%r",
+                            deleted_id, getattr(zs, "zone_name", ""),
+                            getattr(zs, "climate_entity", ""), deleted_name,
+                        )
+                    else:
+                        zones.pop(deleted_id, None)
+                        pruned_ids.append(deleted_id)
                 else:
                     # zone_id-unknown path: scan by zone_name.
                     for zid in list(zones.keys()):
@@ -1725,6 +1772,17 @@ class HVACCoordinator(BaseCoordinator):
                             " + " in zname
                             and deleted_name in [p.strip() for p in zname.split(" + ")]
                         ):
+                            if _thermostat_still_claimed(zs):
+                                _LOGGER.warning(
+                                    "HVAC prune guard: skipping merged "
+                                    "zone_id=%s (name=%r) because "
+                                    "thermostat=%s is still claimed by "
+                                    "surviving house zone(s); deleted_name=%r",
+                                    zid, zname,
+                                    getattr(zs, "climate_entity", ""),
+                                    deleted_name,
+                                )
+                                continue
                             zones.pop(zid, None)
                             pruned_ids.append(zid)
             except (KeyError, RuntimeError) as pop_err:  # noqa: BLE001
@@ -1747,6 +1805,24 @@ class HVACCoordinator(BaseCoordinator):
             )
         # 2) Persisted snapshot rewrite (LOAD-BEARING — else restart
         #    resurrects the zone via restore_state_snapshot at line 503).
+        # D1 guard mirror: if in-memory prune was spared for this zone_id,
+        # the persisted store MUST also spare that zone_id.
+        guard_spared_ids: set[str] = set()
+        try:
+            if deleted_id and deleted_id not in pruned_ids:
+                zones_check = (
+                    getattr(self._zone_manager, "_zones", None)
+                    or getattr(self._zone_manager, "zones", {}) or {}
+                )
+                if _thermostat_still_claimed(zones_check.get(deleted_id)):
+                    guard_spared_ids.add(deleted_id)
+                    _LOGGER.info(
+                        "HVAC prune guard: sparing zone_state_store row for "
+                        "zone_id=%s (thermostat still claimed)", deleted_id,
+                    )
+        except Exception:  # noqa: BLE001
+            pass
+
         async def _rewrite_zone_state_store() -> None:
             try:
                 stored = await self._zone_state_store.async_load()
@@ -1766,7 +1842,7 @@ class HVACCoordinator(BaseCoordinator):
                 for zid in list(stored.keys()):
                     if zid == "__person_zone_map":
                         continue
-                    if deleted_id and zid == deleted_id:
+                    if deleted_id and zid == deleted_id and zid not in guard_spared_ids:
                         stored.pop(zid, None)
                         changed = True
                 if changed:
