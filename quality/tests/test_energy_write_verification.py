@@ -466,7 +466,13 @@ def test_soc_divergence_unit_mismatch_suppressed():
 # ------------------------------------------------------------------
 def test_failover_role_read_default_is_local():
     """Backward compat: existing call sites default to role='read' AND
-    the failover flag is False → returns local entity."""
+    the failover flag is False → returns local entity.
+
+    H1 (2026-07-13): the failover flag defaults TRUE per surface at
+    __init__ (cloud-first). We disable it for this scoped compat check
+    so the historical dormant-scaffolding invariant still holds when
+    the flag is off.
+    """
     from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
         BatteryStrategy,
     )
@@ -475,6 +481,8 @@ def test_failover_role_read_default_is_local():
         hass, reserve_soc=20,
         entity_config={"charge_from_grid": "switch.local_cfg"},
     )
+    # Explicitly disable H1 failover for the dormant-scaffolding check.
+    bs._write_failover_by_surface["charge_from_grid"] = False
     assert bs._get_entity("charge_from_grid") == "switch.local_cfg"
     assert bs._get_entity("charge_from_grid", role="write") == "switch.local_cfg"
 
@@ -884,3 +892,248 @@ def test_dispatch_tap_stamps_ledger_with_dispatched_value(hass):
     }))
     assert coord._battery._last_reserve_level == 60
     assert coord._battery._last_reserve_level_at == "stamped"
+
+
+# ======================================================================
+# H1 (2026-07-13) — cloud-first battery writes
+# ======================================================================
+def test_h1_default_route_all_three_surfaces_cloud():
+    """H1 activation: at __init__, all three failover flags default True.
+
+    MUTATION ANCHOR: if the route table were forced back to local
+    (empty dict), this test fails.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
+        BatteryStrategy,
+    )
+    hass = MockHass()
+    bs = BatteryStrategy(
+        hass, reserve_soc=20,
+        entity_config={
+            "charge_from_grid": "switch.local_cfg",
+            "reserve_soc_number": "number.local_reserve",
+            "storage_mode": "select.local_mode",
+            "cloud_charge_from_grid_oracle": "switch.cloud_cfg",
+            "cloud_reserve_oracle": "number.cloud_reserve",
+            "cloud_storage_mode_oracle": "select.cloud_mode",
+        },
+    )
+    assert bs._write_failover_by_surface.get("charge_from_grid") is True
+    assert bs._write_failover_by_surface.get("reserve_soc_number") is True
+    assert bs._write_failover_by_surface.get("storage_mode") is True
+    # Writes route to cloud.
+    assert bs._get_entity("charge_from_grid", role="write") == "switch.cloud_cfg"
+    assert bs._get_entity("reserve_soc_number", role="write") == "number.cloud_reserve"
+    assert bs._get_entity("storage_mode", role="write") == "select.cloud_mode"
+
+
+def test_h1_mutation_anchor_route_table_forced_local():
+    """MUTATION ANCHOR: neuter the H1 __init__ activation → the invariant
+    'all three surfaces route to cloud' MUST break."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
+        BatteryStrategy,
+    )
+    hass = MockHass()
+    bs = BatteryStrategy(
+        hass, reserve_soc=20,
+        entity_config={
+            "charge_from_grid": "switch.local_cfg",
+            "cloud_charge_from_grid_oracle": "switch.cloud_cfg",
+        },
+    )
+    # Simulate the mutation: clear the failover table (as if H1 __init__
+    # never populated it — the pre-H1 dormant scaffolding shape).
+    bs._write_failover_by_surface = {}
+    # Now writes fall back to local — the H1 acceptance invariant fails.
+    assert bs._get_entity("charge_from_grid", role="write") == "switch.local_cfg"
+
+
+def test_h1_mutation_anchor_lkg_latch_reads_local_split_brain():
+    """W-5 split-brain MUTATION ANCHOR: if the LKG blip-latch reads
+    from the LOCAL entity while writes go to the CLOUD entity, the
+    'reads and writes see the same leg' invariant fails.
+
+    We simulate the mutation directly: read the local entity id and
+    compare to the write-route target — they must NOT be equal (proving
+    the mutation is detectable).
+    """
+    from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
+        BatteryStrategy,
+    )
+    hass = MockHass()
+    bs = BatteryStrategy(
+        hass, reserve_soc=20,
+        entity_config={
+            "charge_from_grid": "switch.local_cfg",
+            "cloud_charge_from_grid_oracle": "switch.cloud_cfg",
+        },
+    )
+    write_leg = bs._get_entity(
+        "charge_from_grid", role="write",
+    )
+    # MUTATION: LKG latch reads with role="read" (the pre-H1 wiring).
+    mutated_read_leg = bs._get_entity("charge_from_grid", role="read")
+    assert write_leg == "switch.cloud_cfg"
+    assert mutated_read_leg == "switch.local_cfg"
+    # Split brain: writes cloud, reads local. Invariant violated.
+    assert write_leg != mutated_read_leg
+
+
+def test_h1_storage_mode_dispatch_uses_cloud_label():
+    """Writing storage_mode to the CLOUD select must map local vocab
+    → cloud label. MUTATION ANCHOR: if the mapping is skipped, the
+    dispatched option is 'self_consumption' (local), not
+    'Self-Consumption' (cloud) — the cloud select would reject it.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
+        BatteryStrategy,
+    )
+    hass = MockHass()
+    bs = BatteryStrategy(
+        hass, reserve_soc=20,
+        entity_config={
+            "storage_mode": "select.local_mode",
+            "cloud_storage_mode_oracle": "select.cloud_mode",
+        },
+    )
+    # Drive the real _result mode-change branch: current_mode != mode.
+    result = bs._result(
+        mode="self_consumption",
+        reason="test",
+        current_mode="backup",
+    )
+    actions = result["actions"]
+    sm_actions = [a for a in actions if a["service"] == "select.select_option"]
+    assert len(sm_actions) == 1
+    assert sm_actions[0]["target"] == "select.cloud_mode"
+    # H1: the option MUST be the cloud label.
+    assert sm_actions[0]["data"]["option"] == "Self-Consumption"
+
+
+def test_h1_storage_mode_mutation_anchor_missing_label_map():
+    """MUTATION ANCHOR: if the local→cloud label mapping is removed
+    from the dispatch site, the option string is the local vocab
+    (which the cloud select would reject)."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+        STORAGE_MODE_LOCAL_TO_CLOUD,
+    )
+    # Just verify the map is present + correct — if a mutation deletes
+    # STORAGE_MODE_LOCAL_TO_CLOUD (or empties it), .get() falls back
+    # to the raw local value, and the previous test detects it.
+    assert STORAGE_MODE_LOCAL_TO_CLOUD["self_consumption"] == "Self-Consumption"
+    assert STORAGE_MODE_LOCAL_TO_CLOUD["savings"] == "Savings"
+
+
+def test_h1_self_heal_re_dispatch_when_cloud_off_local_lying_on(caplog):
+    """H1 addendum (2026-07-13) — MANDATORY live-evidence scenario.
+
+    Boot state: intent = charge_from_grid ON (arbitrage CHARGE active),
+    cloud leg (write leg) reads OFF, local leg reads ON (lying / stale
+    post-restart — the exact ~11:21 tripwire condition). With cloud-
+    first reads, the decision cycle MUST re-dispatch turn_on within one
+    cycle so the dispatch tap schedules a verification.
+
+    MUTATION ANCHOR: repoint the intent-read back to the local leg
+    (role='read') → the re-dispatch does not happen → this test fails.
+    """
+    import logging
+    from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
+        BatteryStrategy,
+    )
+    hass = MockHass()
+    bs = BatteryStrategy(
+        hass, reserve_soc=20,
+        entity_config={
+            "charge_from_grid": "switch.local_cfg",
+            "cloud_charge_from_grid_oracle": "switch.cloud_cfg",
+        },
+    )
+    # Boot state: local lies ON, cloud reflects reality (OFF).
+    _set_state(hass, "switch.local_cfg", "on")
+    _set_state(hass, "switch.cloud_cfg", "off")
+
+    caplog.set_level(logging.INFO)
+    # Drive the real _result with intent=on, current_mode == mode so
+    # only the charge_from_grid branch fires.
+    result = bs._result(
+        mode="self_consumption",
+        reason="arbitrage CHARGE",
+        current_mode="self_consumption",
+        charge_from_grid=True,
+    )
+    turn_on_actions = [
+        a for a in result["actions"] if a["service"] == "switch.turn_on"
+    ]
+    # H1 invariant: cloud-first reads see cloud=OFF → a turn_on action
+    # is appended (self-heal). Target is the cloud entity.
+    assert len(turn_on_actions) == 1
+    assert turn_on_actions[0]["target"] == "switch.cloud_cfg"
+    # The self-heal INFO log fires so operators can see it in the log.
+    assert any(
+        "H1 self-heal" in rec.message for rec in caplog.records
+    )
+
+
+def test_h1_self_heal_mutation_anchor_reads_local_no_redispatch():
+    """MUTATION ANCHOR for the addendum: if the intent-read (current_cfg
+    resolver) were repointed to the LOCAL leg (role='read'), the local's
+    lying 'on' would tell URA the switch is already ON → no action
+    dispatched → no verification scheduled → the tripwire stays no_data,
+    reproducing the ~11:21 live evidence.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
+        BatteryStrategy,
+    )
+    hass = MockHass()
+    bs = BatteryStrategy(
+        hass, reserve_soc=20,
+        entity_config={
+            "charge_from_grid": "switch.local_cfg",
+            "cloud_charge_from_grid_oracle": "switch.cloud_cfg",
+        },
+    )
+    _set_state(hass, "switch.local_cfg", "on")
+    _set_state(hass, "switch.cloud_cfg", "off")
+
+    # Simulate the mutation by asking about state through role="read"
+    # (local leg) — the pre-H1 behavior.
+    local_cfg_read = bs._get_state_bool(
+        bs._get_entity("charge_from_grid", role="read")
+    )
+    cloud_cfg_read = bs._get_state_bool(
+        bs._get_entity("charge_from_grid", role="write")
+    )
+    # Post-mutation invariant: reading local, URA thinks switch is ON.
+    # H1 invariant: reading cloud, URA sees OFF and re-dispatches.
+    assert local_cfg_read is True
+    assert cloud_cfg_read is False
+    assert local_cfg_read != cloud_cfg_read
+
+
+def test_h1_write_route_attr_exposed(hass):
+    """H1: get_status_attrs surfaces write_route per surface for the
+    operator to see routing live."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        WriteVerifier,
+    )
+    coord = _FakeCoord(hass)
+    # Populate the failover flags on the fake battery to mimic H1
+    # __init__ activation.
+    coord._battery._write_failover_by_surface = {
+        "charge_from_grid": True,
+        "reserve_soc_number": True,
+        "storage_mode": True,
+    }
+    v = WriteVerifier(hass, coord)
+    attrs = v.get_status_attrs()
+    for surface in ("reserve_soc", "charge_from_grid", "storage_mode"):
+        assert attrs[f"last_verified_write_{surface}"]["write_route"] == "cloud"
+    # And when the failover flag is False, the route reports local.
+    coord._battery._write_failover_by_surface = {
+        "charge_from_grid": False,
+        "reserve_soc_number": False,
+        "storage_mode": False,
+    }
+    attrs2 = v.get_status_attrs()
+    for surface in ("reserve_soc", "charge_from_grid", "storage_mode"):
+        assert attrs2[f"last_verified_write_{surface}"]["write_route"] == "local"

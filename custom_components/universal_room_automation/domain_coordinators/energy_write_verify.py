@@ -176,6 +176,51 @@ class WriteVerifier:
             _LOGGER.debug("oracle entity resolution failed", exc_info=True)
             return None
 
+    def _local_entity_for(self, surface: str) -> Optional[str]:
+        """H1 (2026-07-13) — resolve LOCAL (Envoy/Enpower) entity id for
+        a surface as the SECONDARY WITNESS under cloud-first writes.
+
+        Under cloud-first writes, the cloud oracle reflects the APPLIED
+        state (with lag). The local entity is what the on-house gateway
+        actually shows; when local and cloud disagree beyond the verify
+        window, that's the "gateway didn't hear it" signal — distinct
+        from a cloud-side reversion. Storage_mode is currently excluded
+        (local `select.enpower_*_storage_mode` values may differ in
+        vocabulary; a future fix-up can extend witness coverage).
+        """
+        try:
+            battery = getattr(self._coord, "_battery", None)
+            if battery is None:
+                return None
+            from .energy_const import (
+                DEFAULT_CHARGE_FROM_GRID_ENTITY,
+                DEFAULT_RESERVE_SOC_ENTITY,
+                DEFAULT_STORAGE_MODE_ENTITY,
+            )
+            key_map = {
+                WRITE_VERIFY_SURFACE_RESERVE: (
+                    "reserve_soc_number",
+                    DEFAULT_RESERVE_SOC_ENTITY,
+                ),
+                WRITE_VERIFY_SURFACE_CHARGE_FROM_GRID: (
+                    "charge_from_grid",
+                    DEFAULT_CHARGE_FROM_GRID_ENTITY,
+                ),
+                WRITE_VERIFY_SURFACE_STORAGE_MODE: (
+                    "storage_mode",
+                    DEFAULT_STORAGE_MODE_ENTITY,
+                ),
+            }
+            key, default = key_map.get(surface, (None, None))
+            if key is None:
+                return None
+            # Pass role="read" so the failover flag DOES NOT redirect us
+            # back to the cloud entity — we want the raw local leg here.
+            return battery._get_entity(key, default, role="read")  # noqa: SLF001
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("local entity resolution failed", exc_info=True)
+            return None
+
     # ------------------------------------------------------------------
     # Schedule (called from dispatch tap in energy.py)
     # ------------------------------------------------------------------
@@ -426,6 +471,19 @@ class WriteVerifier:
         if status == STATUS_UNMAPPED or matched:
             # Successful verified — reset coalesce so a future flip re-fires.
             self._last_reversion_at_by_surface.pop(surface, None)
+            # H1 (2026-07-13) — SECONDARY WITNESS. Under cloud-first
+            # writes, cloud is the primary write leg + oracle. The LOCAL
+            # entity is now an independent witness: if cloud shows APPLIED
+            # but local disagrees beyond the verify window, that's the
+            # "gateway didn't hear it" signal (distinct from a real
+            # reversion). Emit an anomaly (never NM-critical) so ops has
+            # a durable record without noise.
+            try:
+                await self._witness_compare(surface, commanded)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "witness compare raised (swallowed)", exc_info=True,
+                )
             return
         # Fix-up B-MED-2 — emit ONCE per TRANSITION into REVERTED, not
         # per verify-window tick. DB write-flood history (v5.0.0-v5.2.1
@@ -467,6 +525,51 @@ class WriteVerifier:
                 "it. Check the Enphase app."
             ),
             alert_type="reverted",
+        )
+
+    async def _witness_compare(self, surface: str, commanded: Any) -> None:
+        """H1 (2026-07-13) — secondary-witness compare (local vs commanded).
+
+        Only meaningful under cloud-first writes: cloud already matched
+        as PRIMARY oracle; if the LOCAL entity disagrees, that's the
+        gateway-didn't-hear-it signal. Emits a distinct anomaly type
+        (``write_local_witness_divergence``), never NM-critical.
+        Reserve + charge_from_grid only — storage_mode witness is
+        deferred pending local-vocab audit (see _local_entity_for).
+        """
+        if surface == WRITE_VERIFY_SURFACE_STORAGE_MODE:
+            return
+        local_eid = self._local_entity_for(surface)
+        if not local_eid:
+            return
+        local_raw = self._read_oracle_raw(local_eid)
+        if local_raw is None:
+            return  # local unavailable — inconclusive, skip silently
+        local_unit = self._read_oracle_unit(local_eid)
+        status, matched = self._compare(
+            surface, commanded, local_raw, local_unit,
+        )
+        if status == STATUS_UNIT_MISMATCH:
+            # Unit mismatch on the LOCAL leg is a separate wiring
+            # concern; not the witness-divergence case. Skip.
+            return
+        if matched or status == STATUS_UNMAPPED:
+            return
+        # Local disagrees with commanded (which cloud already confirmed).
+        # This is the gateway-didn't-hear-it condition.
+        await self._emit_anomaly(
+            surface,
+            "write_local_witness_divergence",
+            {
+                "commanded": commanded,
+                "local_seen": local_raw,
+            },
+        )
+        _LOGGER.info(
+            "WriteVerifier: %s LOCAL WITNESS DIVERGENCE "
+            "(commanded=%s, local=%s) — cloud OK, gateway may not have "
+            "propagated the write yet",
+            surface, commanded, local_raw,
         )
 
     def _commanded_ledger(
@@ -661,13 +764,32 @@ class WriteVerifier:
     # ------------------------------------------------------------------
     def get_status_attrs(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
+        # H1 (2026-07-13): expose write_route per surface so the operator
+        # can SEE which leg (cloud|local) URA is writing to right now.
+        # Surface names in `_write_failover_by_surface` (energy_battery
+        # entity-config keys) differ from WRITE_VERIFY_SURFACE_* names —
+        # map them explicitly.
+        battery = getattr(self._coord, "_battery", None)
+        failover = (
+            getattr(battery, "_write_failover_by_surface", {}) or {}
+        )
+        surface_to_key = {
+            WRITE_VERIFY_SURFACE_RESERVE: "reserve_soc_number",
+            WRITE_VERIFY_SURFACE_CHARGE_FROM_GRID: "charge_from_grid",
+            WRITE_VERIFY_SURFACE_STORAGE_MODE: "storage_mode",
+        }
         for surface in WRITE_VERIFY_NM_SURFACES:
             rec = self._records[surface]
+            route = (
+                "cloud" if failover.get(surface_to_key.get(surface, ""))
+                else "local"
+            )
             out[f"last_verified_write_{surface}"] = {
                 "commanded": rec.commanded,
                 "oracle_seen": rec.oracle_seen,
                 "verified_at": rec.verified_at,
                 "status": rec.status,
+                "write_route": route,
             }
         out["write_mismatch_counts_24h"] = {
             s: self._mismatch_counts.value(s)

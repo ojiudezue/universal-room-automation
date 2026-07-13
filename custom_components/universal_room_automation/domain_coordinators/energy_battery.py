@@ -268,7 +268,19 @@ class BatteryStrategy:
         self._soc_lkg_at: Any = None
         self._last_soc_divergence_at: Any = None
         self._soc_source_last: str = "envoy"
-        self._write_failover_by_surface: dict[str, bool] = {}
+        # H1 (2026-07-13): default ALL THREE battery control surfaces to
+        # cloud-first writes. Keys mirror the _get_entity(role="write")
+        # lookup keys used by `_result`, the EVSE-hold overlay, and the
+        # LKG blip-latch (W-5 coherence: writes AND command-state reads
+        # both consume the cloud leg). Local entities remain configured
+        # for the secondary-witness path in the reversion sweep.
+        from .energy_const import ENERGY_CLOUD_FIRST_WRITES
+        _cloud_first = bool(ENERGY_CLOUD_FIRST_WRITES)
+        self._write_failover_by_surface: dict[str, bool] = {
+            "charge_from_grid": _cloud_first,
+            "reserve_soc_number": _cloud_first,
+            "storage_mode": _cloud_first,
+        }
         self._write_verifier: Any = None
         self._solar_classification_mode = solar_classification_mode
         self._custom_solar_thresholds = custom_solar_thresholds
@@ -522,34 +534,24 @@ class BatteryStrategy:
         return self._entities.get(key, default)
 
     def _cloud_write_target(self, key: str) -> str | None:
-        """Coherent cloud write target for a failover surface (W-5)."""
-        try:
-            from .energy_const import (
-                DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
-                DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY,
-                DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
-            )
-        except Exception:
-            return None
+        """Coherent cloud write target for a failover surface (W-5).
+
+        H1 (2026-07-13): return None when the cloud oracle key is not
+        EXPLICITLY configured in ``_entities``. Live-deployment defaults
+        come from ``_build_entity_map`` which populates the cloud keys
+        with the DEFAULT_CLOUD_* constants at config-entry setup so
+        cloud-first is effective without operator config; tests that
+        stub only the local entity see None → fall back to local.
+        """
         map_ = {
-            "charge_from_grid": (
-                "cloud_charge_from_grid_oracle",
-                DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
-            ),
-            "reserve_soc_number": (
-                "cloud_reserve_oracle",
-                DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY,
-            ),
-            "storage_mode": (
-                "cloud_storage_mode_oracle",
-                DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
-            ),
+            "charge_from_grid": "cloud_charge_from_grid_oracle",
+            "reserve_soc_number": "cloud_reserve_oracle",
+            "storage_mode": "cloud_storage_mode_oracle",
         }
-        entry = map_.get(key)
-        if entry is None:
+        cloud_key = map_.get(key)
+        if cloud_key is None:
             return None
-        cloud_key, cloud_default = entry
-        return self._entities.get(cloud_key, cloud_default)
+        return self._entities.get(cloud_key)
 
     def _get_state_float(self, entity_id: str | None) -> float | None:
         """Get numeric state from an entity. None entity_id → None."""
@@ -2639,8 +2641,12 @@ class BatteryStrategy:
         we trust hardware state more than a stale RAM-only latch.
         """
         # Read the live cfg switch state.
+        # H1 (2026-07-13): command-state read → same leg as writes (W-5).
         cfg = self._get_state_bool(
-            self._get_entity("charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY)
+            self._get_entity(
+                "charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY,
+                role="write",
+            )
         )
         # P3-HIGH-4 (pass-4): cfg unknown/unavailable at boot → DEFER
         # adoption WITHOUT consuming the once-latch. The Enphase cloud
@@ -2982,8 +2988,12 @@ class BatteryStrategy:
             # we only treat cfg=False as drift after we have OBSERVED
             # cfg=True at least once while charging.
             self._attain_charging_ticks += 1
+            # H1 (2026-07-13): command-state read → same leg as writes (W-5).
             cfg = self._get_state_bool(
-                self._get_entity("charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY)
+                self._get_entity(
+                    "charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY,
+                    role="write",
+                )
             )
             if cfg is True:
                 self._attain_cfg_observed_on = True
@@ -3527,25 +3537,44 @@ class BatteryStrategy:
         """
         actions: list[dict[str, Any]] = []
 
+        # H1 (2026-07-13): all three surfaces use role="write" so the
+        # cloud-first routing (default ON) points writes AND the
+        # command-state PRE-READS below at the same leg (W-5 coherence).
+        # storage_mode additionally needs local→cloud LABEL mapping
+        # when the write target is the cloud select.
+        from .energy_const import STORAGE_MODE_LOCAL_TO_CLOUD
+
         # 1. Storage mode — only change if different from current
         if current_mode is not None and mode != current_mode:
+            sm_target = self._get_entity(
+                "storage_mode", DEFAULT_STORAGE_MODE_ENTITY, role="write",
+            )
+            sm_cloud_target = self._cloud_write_target("storage_mode")
+            if sm_target is not None and sm_target == sm_cloud_target:
+                sm_option = STORAGE_MODE_LOCAL_TO_CLOUD.get(mode, mode)
+            else:
+                sm_option = mode
             actions.append({
                 "service": "select.select_option",
-                "target": self._get_entity("storage_mode", DEFAULT_STORAGE_MODE_ENTITY),
-                "data": {"option": mode},
+                "target": sm_target,
+                "data": {"option": sm_option},
             })
 
         # 2. Reserve level — primary control lever
         if reserve_level is not None:
             current_reserve = self._get_state_float(
-                self._get_entity("reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY)
+                self._get_entity(
+                    "reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY,
+                    role="write",
+                )
             )
             target_reserve = max(0, min(100, reserve_level))
             if current_reserve is None or abs(current_reserve - target_reserve) >= 2:
                 actions.append({
                     "service": "number.set_value",
                     "target": self._get_entity(
-                        "reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY
+                        "reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY,
+                        role="write",
                     ),
                     "data": {"value": target_reserve},
                 })
@@ -3553,25 +3582,62 @@ class BatteryStrategy:
         # 3. Charge from grid control
         if charge_from_grid:
             current_cfg = self._get_state_bool(
-                self._get_entity("charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY)
+                self._get_entity(
+                    "charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY,
+                    role="write",
+                )
             )
             if current_cfg is not True:
+                # H1 addendum (2026-07-13): self-heal INFO log. Detect
+                # the case that made the live tripwire go quiet: local
+                # leg reads ON (stale/lying), cloud leg reads OFF, URA's
+                # intent = ON. Under cloud-first reads, we RE-DISPATCH
+                # turn_on to the cloud leg; surface the divergence so
+                # operators see the self-heal happen.
+                try:
+                    local_eid = self._get_entity(
+                        "charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY,
+                        role="read",
+                    )
+                    local_cfg = self._get_state_bool(local_eid)
+                    cloud_eid = self._get_entity(
+                        "charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY,
+                        role="write",
+                    )
+                    if (
+                        local_cfg is True
+                        and current_cfg is False
+                        and local_eid != cloud_eid
+                    ):
+                        _LOGGER.info(
+                            "H1 self-heal: charge_from_grid intent=on, "
+                            "cloud=%s reads OFF, local=%s reads ON — "
+                            "re-dispatching turn_on to cloud leg",
+                            cloud_eid, local_eid,
+                        )
+                except Exception:  # noqa: BLE001
+                    pass
                 actions.append({
                     "service": "switch.turn_on",
                     "target": self._get_entity(
-                        "charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY
+                        "charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY,
+                        role="write",
                     ),
                     "data": {},
                 })
         else:
             current_cfg = self._get_state_bool(
-                self._get_entity("charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY)
+                self._get_entity(
+                    "charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY,
+                    role="write",
+                )
             )
             if current_cfg is True:
                 actions.append({
                     "service": "switch.turn_off",
                     "target": self._get_entity(
-                        "charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY
+                        "charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY,
+                        role="write",
                     ),
                     "data": {},
                 })

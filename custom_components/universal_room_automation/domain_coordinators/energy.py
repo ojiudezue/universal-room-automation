@@ -746,6 +746,30 @@ class EnergyCoordinator(BaseCoordinator):
         for conf_key, strategy_key in key_map.items():
             if conf_key in config:
                 result[strategy_key] = config[conf_key]
+        # H1 (2026-07-13): cloud oracle DEFAULTS. Cloud-first battery
+        # writes are the system's write topology; when the operator has
+        # not explicitly wired a cloud oracle in the Cloud Verification
+        # section, populate the entity map with the well-known
+        # enphase_ev IQ_* entity ids so writes still route to the cloud
+        # leg. Tests that only configure the local entity get None and
+        # naturally fall back to local (the _cloud_write_target contract).
+        from .energy_const import (
+            DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+            DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY,
+            DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
+        )
+        result.setdefault(
+            "cloud_charge_from_grid_oracle",
+            DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+        )
+        result.setdefault(
+            "cloud_reserve_oracle",
+            DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY,
+        )
+        result.setdefault(
+            "cloud_storage_mode_oracle",
+            DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
+        )
         return result
 
     async def async_setup(self) -> None:
@@ -2672,8 +2696,13 @@ class EnergyCoordinator(BaseCoordinator):
 
         # Use the battery strategy's configured reserve entity for reliable matching
         from .energy_const import DEFAULT_RESERVE_SOC_ENTITY
+        # H1 (2026-07-13): the reserve action target is emitted by
+        # `_result` via role="write" (cloud-first). Match on the same leg
+        # so the update-in-place branch actually finds the existing
+        # action; append-new-action branch also emits to the same leg.
         reserve_entity = self._battery._get_entity(
-            "reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY
+            "reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY,
+            role="write",
         )
 
         # Update existing reserve action or add new one. The EVSE hold may
@@ -3347,8 +3376,12 @@ class EnergyCoordinator(BaseCoordinator):
         # the LKG.
         live_grid_charge_on = False
         try:
+            # H1 (2026-07-13): LKG blip-latch is a COMMAND-state read
+            # (does URA think the switch is ON right now?) — resolve to
+            # the same leg the write dispatched to (W-5 coherence).
             eid = self._battery._get_entity(
                 "charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY,
+                role="write",
             )
             if eid:
                 st = self.hass.states.get(eid)
@@ -4612,7 +4645,11 @@ class EnergyCoordinator(BaseCoordinator):
             if battery is None:
                 return None
             try:
-                return battery._get_entity(key, default)  # noqa: SLF001
+                # H1 (2026-07-13): match the dispatched target on the same
+                # leg the write was emitted to (cloud under cloud-first).
+                return battery._get_entity(  # noqa: SLF001
+                    key, default, role="write",
+                )
             except Exception:  # noqa: BLE001
                 return None
 
@@ -4657,11 +4694,19 @@ class EnergyCoordinator(BaseCoordinator):
             # real select action ran).
             if option is None:
                 return
+            # H1 (2026-07-13): under cloud-first writes, the dispatched
+            # option is a cloud LABEL ("Self-Consumption"). Normalize it
+            # back to local vocab for the ledger + verify schedule so
+            # `_compare` (which maps oracle cloud→local) stays coherent.
+            from .energy_const import STORAGE_MODE_CLOUD_TO_LOCAL
+            normalized_option = STORAGE_MODE_CLOUD_TO_LOCAL.get(
+                str(option), option,
+            )
             if battery is not None:
-                if battery._last_storage_mode_command != option:  # noqa: SLF001
+                if battery._last_storage_mode_command != normalized_option:  # noqa: SLF001
                     battery._last_storage_mode_command_at = _now  # noqa: SLF001
-                battery._last_storage_mode_command = option  # noqa: SLF001
-            await verifier.schedule("storage_mode", option, _now)
+                battery._last_storage_mode_command = normalized_option  # noqa: SLF001
+            await verifier.schedule("storage_mode", normalized_option, _now)
 
     async def _send_nm_alert(
         self,
