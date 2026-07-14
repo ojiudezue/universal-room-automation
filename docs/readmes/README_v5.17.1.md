@@ -74,22 +74,22 @@ hypotheses:
     oracle: ha-logs
 ```
 
-## Live Validation (prospective)
+## Live Validation — Validated 2026-07-14 (post-restart, ~12:14 CDT)
 
-- **L1:** Deploy healthy — installed_version v5.17.1, house_state
-  available, zero URA ERROR (known boot transients excluded).
-- **L2 (D2 restore):** Post-restart `battery_strategy` attrs show
-  `arbitrage_chunk_completed: True` restored IF the latch was persisted
-  pre-restart AND the boundary is still ahead. At deploy time
-  (afternoon, boundary already passed) the restore is EXPECTED to
-  correctly DROP the stale latch — that is a PASS for the staleness
-  ladder; document it as such.
-- **L3:** Chunk reset fires at tonight's off_peak entry (recorder check
-  tomorrow via the H2 window).
-- **L4:** No reserve write oscillation post-restart —
-  `write_mismatch_counts` stay 0; no 80↔45 pattern in cloud reserve
-  history.
+| Criterion | Result | Observed evidence |
+|---|---|---|
+| L1 — deploy healthy | **PASS** | HACS `installed_version = v5.17.1` (`pending_update: false`); `sensor.ura_presence_coordinator_presence_house_state` available (`arriving`, last_changed 12:13:30 CDT); zero URA ERROR in system log AND raw error_log (search `universal_room`, 0 hits). No "Envoy unavailable — holding" blind-hold ticks persisted past boot. |
+| L2 — D2 latch restore | **PASS (as-expected)** | `sensor.ura_energy_coordinator_battery_strategy` attrs post-restart: `arbitrage_chunk_completed: False`, `arbitrage_phase: charge`, SOC 67 < target 80. No latch was persisted pre-restart (fix ships the persistence), and no chunk is currently complete, so a False latch is the correct restore outcome — the staleness ladder correctly declines to invent a completed chunk. `last_verified_write_*` attrs carry `restored: true`, proving the D2 restore path executed. |
+| L3 — chunk reset at off_peak entry | **PENDING (by design)** | Fires at tonight's off_peak entry; recorder check tomorrow via the H2 3-day window (Shipwatch). |
+| L4 — no reserve write oscillation | **PASS** | `write_mismatch_counts_24h` = `{reserve_soc: 0, charge_from_grid: 0, storage_mode: 0}`. Cloud reserve history (`number.iq_battery_hacs_battery_reserve`, 6h): 28 → 80 @08:01 → 30 @09:31 (the pre-fix incident itself) and NO further writes post-restart — no 80↔45 pattern. |
 
-Note: **H2 is the REAL acceptance** and can only land on the next
-poor-class arbitrage morning — Shipwatch tracks it over the 3-day
-window.
+Boot-only transients seen and dismissed: none URA-attributable; the
+known Envoy blind-hold transient did not surface as an ERROR.
+
+Note: **H2 is the REAL acceptance** — reserve holding at
+`peak_buffer_target` through a completed chunk until the high-rate
+boundary — and can only land on the next poor-class arbitrage morning.
+Shipwatch tracks it over the 3-day recorder window. Today's live attrs
+already show the corrected posture: `arbitrage_active: true`,
+`peak_buffer_target: 80`, `current_park_floor: 80`,
+`effective_release_floor: 80`, `next_high_rate_transition` 14:00 CDT.

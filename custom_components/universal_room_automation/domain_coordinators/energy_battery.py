@@ -65,6 +65,12 @@ ARBITRAGE_PHASE_NA = "n/a"
 # is OUT of scope for v1 — `attain` must NOT pause EVSE (see energy.py
 # arbitrage_charging gate, which stays `== CHARGE` only).
 ARBITRAGE_PHASE_ATTAIN = "attain"
+# v5.17.2 (Bug Class #55): observability phase surfaced when the off_peak
+# drain-target fallback runs because the arbitrage_solar_attainability
+# ladder benignly closed the gate at rung_0 / rung_1. The prior "n/a" in
+# this case read as "arbitrage broken" — this phase names the ladder's
+# benign close. Actions/reserve emission unchanged; display only.
+ARBITRAGE_PHASE_SOLAR_ATTAIN = "solar_attain"
 
 # Cycle EC/HC reboot pickup: trailing-window length (decision cycles) used
 # to smooth the observed net charge rate for the attainability projection.
@@ -257,6 +263,16 @@ class BatteryStrategy:
         # never verified reserve for the hold's duration.
         # Unit: % SOC (0-100), semantic: floor (minimum).
         self._last_reserve_level_desired: int | None = None
+        # v5.17.2 — sibling DESIRED fields for the other two surfaces so
+        # the write-verify reversion sweep can retire a stale record when
+        # the strategy no longer wants the old commanded value (i.e. the
+        # oracle has converged on the current intent, but the deadband
+        # suppresses a fresh dispatch → no supersession → stale record
+        # re-alarms forever). Written by `_result()` alongside
+        # `_last_reserve_level_desired`; read by
+        # `WriteVerifier._sweep_surface`.
+        self._last_charge_from_grid_desired: bool | None = None
+        self._last_storage_mode_desired: str | None = None
         # v5.15.x — commanded-value ledgers + SOC-fallback state for
         # write-verification (see PLANNING_envoy_write_verification_and_redundancy.md).
         self._last_reserve_level_at: Any = None
@@ -472,6 +488,16 @@ class BatteryStrategy:
         self._arb_last_rung: str | None = None
         self._arb_last_projection_rung0: float | None = None
         self._arb_last_projection_rung1: float | None = None
+        # Bug Class #55 observability (v5.17.2): last gate outcome stamp so
+        # get_status() can answer "why did/didn't the gate open" without
+        # re-running the classifier. Values:
+        #   "disabled"        — arbitrage_enabled False
+        #   "closed_forecast" — forecast gate not open (target_day OK)
+        #   "closed_rung_0"   — forecast open but rung-0 (solar attain)
+        #   "closed_rung_1"   — forecast open but rung-1 (EV redirect)
+        #   "open"            — forecast open AND rung-2 (proceed)
+        # Side-effect-free beyond assignment — display-layer only.
+        self._arb_last_gate_outcome: str | None = None
 
         # Inclement-weather reserve cycle: per-tick cached fused decision.
         # Re-derived once per determine_mode tick (keyed by the tick's `now`);
@@ -1806,6 +1832,7 @@ class BatteryStrategy:
         """
         if not self._arbitrage_enabled:
             self._arbitrage_intent = None
+            self._arb_last_gate_outcome = "disabled"
             return False
         forecast_gate_open = False
         if target_day_class in ("poor", "very_poor"):
@@ -1821,6 +1848,7 @@ class BatteryStrategy:
             self._arb_rung0_latch = False
             self._arb_rung1_latch = False
             self._arbitrage_intent = None
+            self._arb_last_gate_outcome = "closed_forecast"
             return False
 
         # Forecast gate open. Narrow via rung classifier.
@@ -1831,12 +1859,15 @@ class BatteryStrategy:
         rung = self._classify_attain_rung(now, soc, load_w)
         if rung == "rung_0":
             self._arbitrage_intent = None
+            self._arb_last_gate_outcome = "closed_rung_0"
             return False
         if rung == "rung_1":
             self._arbitrage_intent = "redirect"
+            self._arb_last_gate_outcome = "closed_rung_1"
             return False
         # rung_2 — gate opens; existing arbitrage CHARGE path fires.
         self._arbitrage_intent = "breaker"
+        self._arb_last_gate_outcome = "open"
         return True
 
     def _get_arbitrage_phase(
@@ -3660,7 +3691,30 @@ class BatteryStrategy:
         # v4.5.0 also clears the in-memory arbitrage flag so HOLD residue
         # doesn't carry over after the gate closes.
         self._arbitrage_active = False
-        # Keep _arbitrage_phase = "n/a" via _result() default.
+        # Bug Class #55 (v5.17.2): when the arbitrage_solar_attainability
+        # ladder benignly closed the gate (rung_0 solar-attain or rung_1
+        # EV-redirect), surface a truthful phase + reason suffix instead
+        # of the misleading "n/a". Display-layer only — actions and
+        # reserve emission below are byte-identical.
+        _ladder_phase: str | None = None
+        _ladder_suffix: str = ""
+        _gate_outcome = self._arb_last_gate_outcome
+        if _gate_outcome in ("closed_rung_0", "closed_rung_1"):
+            _ladder_phase = ARBITRAGE_PHASE_SOLAR_ATTAIN
+            _proj = self._arb_last_projection_rung0
+            _target = self._peak_buffer_target
+            if _gate_outcome == "closed_rung_0":
+                _ladder_suffix = (
+                    f" (rung_0: solar projected to attain {_proj}% "
+                    f">= target {_target}% by boundary — no grid charge needed)"
+                )
+            else:
+                _proj1 = self._arb_last_projection_rung1
+                _ladder_suffix = (
+                    f" (rung_1: EV pause redirects solar; projected "
+                    f"{_proj1}% >= target {_target}% by boundary — no grid "
+                    f"charge needed)"
+                )
 
         drain_class_for_target = tomorrow_class
         # v4.5.0 D3: when multi_day_horizon enabled AND arbitrage is OFF,
@@ -3690,12 +3744,13 @@ class BatteryStrategy:
             # Above target — drain stored solar (free energy)
             return self._result(
                 BATTERY_MODE_SELF_CONSUMPTION,
-                f"Off-peak drain — SOC {soc}% > target {drain_target}% (tomorrow {tomorrow_class})",
+                f"Off-peak drain — SOC {soc}% > target {drain_target}% (tomorrow {tomorrow_class}){_ladder_suffix}",
                 current_mode,
                 reserve_level=drain_target,
                 season=season,
                 tomorrow_solar_class=tomorrow_class,
                 target_day_class=target_day_class,
+                arbitrage_phase=_ladder_phase,
             )
 
         # At/below target — hold and import cheap grid
@@ -3707,12 +3762,13 @@ class BatteryStrategy:
             hold_reserve = max(hold_reserve, effective_reserve)
         return self._result(
             BATTERY_MODE_SELF_CONSUMPTION,
-            f"Off-peak hold — SOC {soc}% <= target {drain_target}% (tomorrow {tomorrow_class})",
+            f"Off-peak hold — SOC {soc}% <= target {drain_target}% (tomorrow {tomorrow_class}){_ladder_suffix}",
             current_mode,
             reserve_level=hold_reserve,
             season=season,
             tomorrow_solar_class=tomorrow_class,
             target_day_class=target_day_class,
+            arbitrage_phase=_ladder_phase,
         )
 
     def _result(
@@ -3883,6 +3939,17 @@ class BatteryStrategy:
         if reserve_level is not None:
             _new_res = int(max(0, min(100, reserve_level)))
             self._last_reserve_level_desired = _new_res
+        # v5.17.2 — stamp DESIRED for the other two surfaces every tick
+        # regardless of whether an action was appended. This is the SAME
+        # "strategy intent" values `_result` uses when it consults the
+        # live oracle above to decide whether to dispatch (lines above:
+        # `if current_cfg is not True:` / `if mode != current_mode:`);
+        # exposing them as `_last_*_desired` lets the reversion sweep
+        # retire records whose commanded value the strategy no longer
+        # wants (see WriteVerifier._sweep_surface / STATUS_STALE).
+        self._last_charge_from_grid_desired = bool(charge_from_grid)
+        if current_mode is not None:
+            self._last_storage_mode_desired = mode
         # v5.15.x fix-up A/B-HIGH-2 — commanded ledger stamping MOVED to
         # the dispatch tap in energy.py::_tap_write_verifier so:
         #   (a) EVSE-hold max() raise at energy.py:2663-2678 is captured
@@ -4071,6 +4138,15 @@ class BatteryStrategy:
             "arbitrage_target": self._peak_buffer_target,
             "peak_buffer_target": self._peak_buffer_target,
             "arbitrage_phase": self._arbitrage_phase,
+            # Bug Class #55 (v5.17.2): arbitrage rung/intent/projection
+            # observability. Answers "why did/didn't the gate open" without
+            # re-running the classifier. Values are last-tick diagnostic
+            # stamps written by `_gate_is_open` + `_classify_attain_rung`.
+            "arbitrage_rung": self._arb_last_rung,
+            "arbitrage_intent": self._arbitrage_intent,
+            "arbitrage_gate": self._arb_last_gate_outcome,
+            "arb_projection_rung0": self._arb_last_projection_rung0,
+            "arb_projection_rung1": self._arb_last_projection_rung1,
             # Attainability observability (operator-requested): tri-state +
             # entry-projection internals (frozen at entry while latched).
             "attain_state": self._attain_state,

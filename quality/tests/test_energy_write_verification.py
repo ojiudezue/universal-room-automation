@@ -2284,3 +2284,158 @@ def test_rider_fixup_restore_records_non_str_status_normalized_to_no_data(hass):
     # Non-str status coerced to NO_DATA (fields still populated so age
     # renders, but status doesn't poison downstream comparisons).
     assert v._records["reserve_soc"].status == STATUS_NO_DATA
+
+
+# ------------------------------------------------------------------
+# v5.17.2 — STALE retirement (ledger hygiene)
+# ------------------------------------------------------------------
+def _seed_reverted_cfg(hass, coord, v, *, commanded=True, oracle_str="off"):
+    """Helper: seed the sweep-precondition state for a charge_from_grid
+    record that has already tripped as REVERTED (commanded=True long ago,
+    oracle now reads OFF)."""
+    from custom_components.universal_room_automation.domain_coordinators \
+        import energy_write_verify as _wv  # noqa: E402
+    coord._battery._entities["cloud_charge_from_grid_oracle"] = "switch.oracle_cfg"
+    _set_state(hass, "switch.oracle_cfg", oracle_str)
+    coord._battery._last_charge_from_grid_command = commanded
+    coord._battery._last_charge_from_grid_command_at = (
+        _wv.dt_util.utcnow() - timedelta(seconds=3600)
+    )
+
+
+@pytest.mark.asyncio
+async def test_v5172_stale_retirement_frozen_verified_at_no_mismatch(hass):
+    """(a) reverted record + desire==oracle → STALE; verified_at frozen
+    across two further sweeps; no mismatch increment."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        WriteVerifier, STATUS_STALE,
+    )
+    coord = _FakeCoord(hass)
+    v = WriteVerifier(hass, coord, verify_window_s=1)
+    _seed_reverted_cfg(hass, coord, v, commanded=True, oracle_str="off")
+    coord._battery._last_charge_from_grid_desired = False
+    v._emit_anomaly = AsyncMock()
+    v._maybe_fire_nm = AsyncMock()
+    baseline_count = v._mismatch_counts.value("charge_from_grid")
+    await v.reversion_sweep()
+    rec = v._records["charge_from_grid"]
+    assert rec.status == STATUS_STALE
+    frozen_verified_at = rec.verified_at
+    await v.reversion_sweep()
+    await v.reversion_sweep()
+    assert v._records["charge_from_grid"].status == STATUS_STALE
+    assert v._records["charge_from_grid"].verified_at == frozen_verified_at
+    assert v._mismatch_counts.value("charge_from_grid") == baseline_count
+    assert v._emit_anomaly.await_count == 0
+    assert v._maybe_fire_nm.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_v5172_stale_retirement_mutation_removed_branch_reverts(hass, monkeypatch):
+    """MUTATION (a): neuter _current_desire → record must fall through
+    to REVERTED. Proves the retirement branch is load-bearing."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        WriteVerifier, STATUS_REVERTED,
+    )
+    coord = _FakeCoord(hass)
+    v = WriteVerifier(hass, coord, verify_window_s=1)
+    _seed_reverted_cfg(hass, coord, v, commanded=True, oracle_str="off")
+    coord._battery._last_charge_from_grid_desired = False
+    monkeypatch.setattr(
+        v, "_current_desire", lambda battery, surface: None,
+    )
+    v._emit_anomaly = AsyncMock()
+    v._maybe_fire_nm = AsyncMock()
+    await v.reversion_sweep()
+    assert v._records["charge_from_grid"].status == STATUS_REVERTED
+    assert v._emit_anomaly.await_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_v5172_genuine_reversion_preserved_when_desire_still_wants_commanded(hass):
+    """(b) desire STILL wants the commanded value → stays REVERTED."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        WriteVerifier, STATUS_REVERTED,
+    )
+    coord = _FakeCoord(hass)
+    v = WriteVerifier(hass, coord, verify_window_s=1)
+    _seed_reverted_cfg(hass, coord, v, commanded=True, oracle_str="off")
+    coord._battery._last_charge_from_grid_desired = True
+    v._emit_anomaly = AsyncMock()
+    v._maybe_fire_nm = AsyncMock()
+    await v.reversion_sweep()
+    assert v._records["charge_from_grid"].status == STATUS_REVERTED
+    assert v._emit_anomaly.await_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_v5172_mutation_overbroad_retirement_breaks_genuine_reversion(hass, monkeypatch):
+    """MUTATION (b): overbroad retirement (retire regardless of desire)
+    → genuine reversion silenced. Documents the RED path proving the
+    desire-guard is load-bearing."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        WriteVerifier, STATUS_REVERTED,
+    )
+    coord = _FakeCoord(hass)
+    v = WriteVerifier(hass, coord, verify_window_s=1)
+    _seed_reverted_cfg(hass, coord, v, commanded=True, oracle_str="off")
+    coord._battery._last_charge_from_grid_desired = True  # genuine reversion
+    monkeypatch.setattr(
+        v, "_desire_matches_oracle",
+        lambda surface, desire, oracle_raw, oracle_unit: True,
+    )
+    monkeypatch.setattr(
+        v, "_current_desire", lambda battery, surface: "differs-from-commanded",
+    )
+    v._emit_anomaly = AsyncMock()
+    v._maybe_fire_nm = AsyncMock()
+    await v.reversion_sweep()
+    # Under overbroad retirement, the genuine reversion is silenced.
+    assert v._records["charge_from_grid"].status != STATUS_REVERTED
+
+
+@pytest.mark.asyncio
+async def test_v5172_revival_new_schedule_replaces_stale(hass):
+    """(c) after retirement, a new schedule() + matured _check overwrites
+    STALE with a fresh outcome."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        WriteVerifier, STATUS_STALE, STATUS_OK,
+    )
+    coord = _FakeCoord(hass)
+    v = WriteVerifier(hass, coord, verify_window_s=1)
+    _seed_reverted_cfg(hass, coord, v, commanded=True, oracle_str="off")
+    coord._battery._last_charge_from_grid_desired = False
+    v._emit_anomaly = AsyncMock()
+    v._maybe_fire_nm = AsyncMock()
+    await v.reversion_sweep()
+    assert v._records["charge_from_grid"].status == STATUS_STALE
+    await v.schedule("charge_from_grid", True)
+    assert "charge_from_grid" in v._pending_by_surface
+    _set_state(hass, "switch.oracle_cfg", "on")
+    from homeassistant.util import dt as dt_util
+    await v._check("charge_from_grid", True, dt_util.utcnow())
+    assert v._records["charge_from_grid"].status == STATUS_OK
+
+
+def test_v5172_stale_persistence_round_trip(hass):
+    """(d) STATUS_STALE survives dump/restore so a stale record does NOT
+    re-alarm across restart."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        WriteVerifier, STATUS_STALE,
+    )
+    coord = _FakeCoord(hass)
+    v = WriteVerifier(hass, coord)
+    rec = v._records["charge_from_grid"]
+    rec.commanded = True
+    rec.oracle_seen = "off"
+    rec.verified_at = "2026-07-14T12:17:00+00:00"
+    rec.status = STATUS_STALE
+    payload = v.dump_records_for_persist()
+    assert payload["charge_from_grid"]["status"] == STATUS_STALE
+    coord2 = _FakeCoord(hass)
+    v2 = WriteVerifier(hass, coord2)
+    v2.restore_records_from_persist(payload)
+    rec2 = v2._records["charge_from_grid"]
+    assert rec2.status == STATUS_STALE
+    assert rec2.verified_at == "2026-07-14T12:17:00+00:00"
+    assert rec2.restored is True
