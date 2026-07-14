@@ -1,0 +1,63 @@
+{
+  "format_version": "2.1",
+  "entry_id": "028",
+  "author": "ojiudezue",
+  "session_id": "claude_20260712_13_marathon_ev_deadband_cloud_first_wave_dashboards",
+  "timestamp": "2026-07-13T19:30:00Z",
+  "type": "pivot",
+  "weight": "load-bearing",
+  "title": "36h marathon: EV dead-band fix (v5.15.0) → discovery that Enphase's local API silently ignores battery writes → PIVOT to cloud-first control (v5.16.1), write-verification tripwire, five-cycle presence/census/zone wave (v5.16.0), URA 7 dashboard, and the asymmetric control/telemetry topology",
+  "summary": "Opened with 'I often wake to an uncharged car.' Root cause 1: the battery-drain pause's release floor used the STATIC reserve (10%) while the strategy parks the battery at its per-night drain target (15-40%) — the release was unreachable most nights; fixed by sourcing the floor from the emitter's actual commanded park, off_peak-gated (v5.15.0, Tier 3, proven live night one: car charged 4.4kW from 00:12). Root cause 2, the bigger one: during validation we caught Enphase firmware 8.3.x ACCEPTING local charge-from-grid writes and never applying them — the local switch echoed 'on' while the cloud (which the hardware obeys) stayed off. Recorder audit showed control had been silently dead ≥7 days: every arbitrage charge window that week ran solar-only. PIVOT: all battery writes (reserve, mode, charge_from_grid) route through the Enphase cloud HACS integration permanently (v5.16.1 H1), with every command-state read on the same leg (W-5 coherence), a self-heal re-dispatch when cloud disagrees with intent, an UNMASKABLE alarm (N=3 self-heals fire NM even if no verification matures — the first fix-up traded the false alarm for a starved alarm and reviews caught it), and the local entities repurposed as a secondary witness. First verified battery write in URA history landed 12:40:31: self-heal → cloud dispatch → Enlighten applied → status ok → battery grid-charging at 16.3kW. The topology is now deliberately ASYMMETRIC: control = cloud-primary permanently; telemetry = local-primary with a queued failover-map cycle (debounced trip, hysteretic return, auditable auto-built pairing map). Alongside: a five-cycle overnight wave (v5.16.0) fixed the presence guest-latch (guest-exit reordered above the sleep-hours branch — deliberately NOT adding GUEST→SLEEP, real guests should hold the house awake), the empty-house veto gap (sustained-external-empty discriminator after the first build shipped a tautology that all three reviewers independently caught), census false-guests (BLE-cancel per-area design + census_hold 15→3 + kill switch), the zone-delete prune name-collision (with the house-zones≠HVAC-zones architecture pinned: one thermostat-keyed HVAC zone maps to N house zones BY DESIGN), and energy pause hygiene incl. L1 plugs finally getting level-triggered off-peak ensure-on (the operator-coined bug class: 'stops are diligent, starts are lazy — every pause rule needs an every-cycle start evaluation, not just an undo of its own pause'). URA 7 dashboard shipped as a NEW dashboard (v6 preserved): fully dynamic rooms via auto-entities+decluttering templates, write-verification panel, comprehensive controls.",
+  "decisions": [
+    "Battery CONTROL surface = cloud-primary PERMANENTLY (v5.16.1 H1); local = secondary witness + explicit-blank demotion only. No future failover design may re-demote control writes to local.",
+    "Telemetry = local-primary; cloud is the sustained-failure fallback via an invisible auto-built pairing map (queued cycle) with debounced trip, hysteretic return, measured-not-assumed per-pair freshness, diagnostics-platform export, coverage sensor, and continuous cross-validation.",
+    "Every battery write is verified against the cloud oracle within 15 min; reversion sweep + transition-latched anomalies + once/day NM per (surface, alert_type); the alarm cannot be masked by the self-heal loop.",
+    "EV drain-release floor = max(static reserve, emitter's commanded park), off_peak-gated, sticky band F±2 — INV-EV-DEADBAND.",
+    "GUEST→SLEEP transition deliberately NOT added; the fix is evaluation ORDER (guest-exit before sleep-hours branch). Real guests hold the house awake by design.",
+    "House zones and HVAC zones are separate tiers; compound HVAC display names are legitimate merges, never zones to delete.",
+    "Census BLE cancellation is per-area AFTER dedup, registry-area_id-keyed, STALE/LOST-filtered, with a default-ON kill switch in census options.",
+    "Process: parallel builders get worktree isolation (a tree-contention incident silently dropped committed-claimed hunks that would have crashed the census pipeline); builders must EXECUTE claimed mutation anchors (4 false-anchor recurrences in one wave); reviewer cost trial = framings A/B on opus-4-8 (ura-reviewer-std agent), C/D stay on the session model.",
+    "URA 7 = new dashboard, v6 preserved as reference; PWA is a separate carefully-planned commercial project on its own custom WS client (HAKit rejected for slowness — settled May, docs corrected now); milestone order M2 control → M3 auth → M4 observability (M4's prerequisite: URA-side read-only WS commands over anomaly/activity logs — planned).",
+    "No more AI co-author trailers on URA commits (history rewrite offered, not yet authorized)."
+  ],
+  "alternatives_considered": [
+    "Keep local-first writes with cloud fallback-on-failure: rejected — the local API doesn't FAIL, it lies (accepts and ignores); failure-triggered fallback never triggers.",
+    "wolsink enphase_envoy_installer as the local replacement: rejected — it is local (inherits the same write block), force-replaces the core integration, no proven installer-token bypass.",
+    "Adding GUEST→SLEEP to the transition table: rejected — would push sleep actuations (fan holds, vacancy sweeps, presets) onto genuine guests; product decision deferred.",
+    "Global BLE census subtraction (raw-path style): rejected — a resident in the kitchen must not cancel a guest in the foyer; per-area min(area_max, ble_here) after dedup instead.",
+    "home-assistant-js-websocket for the PWA: rejected as a swap (settled decision, owned 576-LoC client works); borrowing subscribe_entities + OAuth patterns instead."
+  ],
+  "implications": [
+    "URA's battery control now depends on Enphase cloud availability; a cloud-operator outage degrades control (writes) while telemetry stays local — the exact inverse of the failure we just survived. The witness/divergence machinery is the early-warning for BOTH directions.",
+    "The write-verification pattern (commanded ledger → delayed oracle compare → reversion sweep → unmaskable alarm) is reusable for any actuator class whose 'accepted' signal is untrustworthy — candidates: cloud EVSEs, cloud thermostats.",
+    "Framing-disjoint review is now empirically load-bearing: 7 CRITICALs + ~28 HIGHs caught post-build in one session, zero shipped, and every CRITICAL was invisible to its builder's green suite. The cost question is now about WHICH model runs which framing, not whether to review.",
+    "The dashboard's dynamic-population approach (auto-entities integration-filter + decluttering templates) means room/zone onboarding requires zero dashboard edits — but it couples the dashboard to URA's entity-naming conventions; renames are now dashboard-breaking changes.",
+    "battery_full_time and similar predictor surfaces now follow the 'compute at the source, surface via explicit entity attrs' rule — Bug Class #55 (computed-but-never-surfaced) recurred twice in one day."
+  ],
+  "follow_up": [
+    "Failover-map cycle (planned; PLANNING_envoy_telemetry_failover_map.md)",
+    "PWA M2 control completion (planned in the PWA repo) then M3 auth, M4 via the observability WS cycle (PLANNING_observability_websocket_surface.md)",
+    "Peak-import cost audit of the dead-cfg week (optional, queued)",
+    "D-HIGH-3 family shipped via hygiene; degraded-arbitrage mode = operator-gated deliverable in the failover plan",
+    "Reviewer cost-trial evaluation after the next wave (first opus datapoint: SHIP verdict, ~81k tokens, caught a real diagnostic misattribution)"
+  ],
+  "refs": {
+    "releases": ["v5.15.0", "v5.16.0", "v5.16.1", "v5.16.2"],
+    "review_docs": [
+      "docs/reviews/code-review/ev_charge_start_deadband_tier3.md",
+      "docs/reviews/code-review/wave2026_07_13_presence_zone_writeverify.md",
+      "docs/reviews/code-review/wave2026_07_13_hygiene_blecancel.md"
+    ],
+    "planning_docs": [
+      "docs/planning/PLANNING_ev_charge_start_deadband.md",
+      "docs/planning/PLANNING_envoy_write_verification_and_redundancy.md",
+      "docs/planning/PLANNING_census_ble_cancel_unrecognized.md",
+      "docs/planning/PLANNING_zone_delete_prune_name_collision.md",
+      "docs/planning/PLANNING_presence_guest_latch_and_veto_gap.md",
+      "docs/planning/PLANNING_energy_pause_release_hygiene.md",
+      "docs/planning/PLANNING_observability_websocket_surface.md"
+    ],
+    "related_entries": ["023", "026", "027"]
+  },
+  "ship_target": "v5.15.0 + v5.16.0 + v5.16.1 + v5.16.2 (all deployed and live-validated 2026-07-12/13); URA 7 dashboard live at /ura-v7"
+}

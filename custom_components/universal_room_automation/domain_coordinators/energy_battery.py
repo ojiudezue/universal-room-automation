@@ -1037,6 +1037,31 @@ class BatteryStrategy:
         except Exception:  # noqa: BLE001
             return int(self.reserve_soc) if self.reserve_soc is not None else None
 
+    def _read_current_commanded_reserve(self) -> int | None:
+        """Read the CLOUD-side commanded reserve (the write-leg oracle).
+
+        Rider (2026-07-13): backs the `current_commanded_reserve` display
+        attr. Uses `_get_entity(role="write")` so this always reads the
+        WRITE LEG — cloud when cloud-first routing is active; local only
+        when the surface has coherently DEMOTED to local writes (explicit
+        blank / failover off), in which case local IS the commanded value
+        (review R-LOW-1 precision: the invariant is same-leg-as-writes,
+        not never-local). None-safe when unavailable/unknown.
+        """
+        try:
+            from .energy_const import DEFAULT_RESERVE_SOC_ENTITY
+            eid = self._get_entity(
+                "reserve_soc_number",
+                DEFAULT_RESERVE_SOC_ENTITY,
+                role="write",
+            )
+            v = self._get_state_float(eid)
+            if v is None:
+                return None
+            return int(round(v))
+        except Exception:  # noqa: BLE001
+            return None
+
     def classify_solar_day_n(self, days_ahead: int) -> str:
         """v4.5.0 D3: classify the solar forecast for `days_ahead` from today.
 
@@ -3974,6 +3999,31 @@ class BatteryStrategy:
             # captures inclement partial_hold + arbitrage/attain parks), not a
             # parallel `max(static_reserve, drain_target)` re-derivation.
             "current_park_floor": self.current_park_floor(),
+            # Rider (2026-07-13): honest attr surface. Live-observed
+            # dissonance — during peak the ledger-first `current_park_floor`
+            # can fall back to the drain-target derivation (e.g. reads 30 =
+            # planned tonight) while the actually-commanded cloud reserve is
+            # 10. Two new attrs make this legible without changing behavior:
+            #   `current_commanded_reserve` — read from the CLOUD reserve
+            #     entity via `_get_entity(role="write")` (the same write
+            #     leg the emitter uses). None-safe when unavailable.
+            #     v5.16.1 rule holds: NEVER source display from the LOCAL
+            #     Enpower reserve number (witness-only, currently divergent
+            #     at 80). role="write" resolves to the cloud oracle when the
+            #     failover flag is set (steady-state deployment); the local
+            #     leg only appears if cloud is unset (already coherently
+            #     demoted, W-5).
+            #   `park_floor_source` — "commanded" iff `current_park_floor`
+            #     took the ledger fast-path (`_last_reserve_level` was not
+            #     None); "planned_fallback" iff it derived from the
+            #     drain-target / static reserve fallback branch.
+            # Consumers `compose_release_floor` and the EV release path are
+            # UNCHANGED — this is attr-surface honesty only.
+            "current_commanded_reserve": self._read_current_commanded_reserve(),
+            "park_floor_source": (
+                "commanded" if self._last_reserve_level is not None
+                else "planned_fallback"
+            ),
             "effective_release_floor": max(
                 int(self.reserve_soc or 0),
                 int(self.current_park_floor() or self.reserve_soc or 0),

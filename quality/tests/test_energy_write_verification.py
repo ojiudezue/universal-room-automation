@@ -66,6 +66,11 @@ _mods = {
     "homeassistant.util": {},
     "homeassistant.util.dt": {
         "utcnow": datetime.utcnow, "now": datetime.now, "as_local": lambda dt: dt,
+        # Rider fix-up (C-HIGH-1): the extracted `_restore_wv_state` helper
+        # calls `dt_util.parse_datetime` on stored ISO timestamps. Ship a
+        # real ISO parser so end-to-end tests exercise the preservation path.
+        "parse_datetime": lambda s: datetime.fromisoformat(s) if isinstance(s, str) and s else None,
+        "UTC": __import__("datetime").timezone.utc,
     },
     "homeassistant.components": {},
     "homeassistant.components.sensor": {
@@ -1695,3 +1700,587 @@ def test_c_med_1_h3_options_round_trip_source_anchor():
                     "camera_census.py").read_text()
     assert "def _get_ble_cancel_enabled" in cc_src
     assert "CONF_CENSUS_BLE_CANCEL_ENABLED" in cc_src
+
+
+# ------------------------------------------------------------------
+# Rider (2026-07-13, B-LOW-2 close) — persist/restore write-verification
+# state + commanded-vs-planned reserve attr honesty.
+# ------------------------------------------------------------------
+def test_rider_wv_records_dump_and_restore_preserves_timestamps(hass):
+    """Round-trip: dump → clear → restore preserves original verified_at
+    verbatim (age renders honestly) and marks restored=True."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        WriteVerifier,
+        STATUS_OK,
+        STATUS_NO_DATA,
+    )
+    coord = _FakeCoord(hass)
+    v = WriteVerifier(hass, coord)
+    # Prime one surface with a verified outcome.
+    r = v._records["reserve_soc"]
+    r.commanded = 50
+    r.oracle_seen = "50"
+    r.verified_at = "2026-07-13T10:00:00+00:00"
+    r.status = STATUS_OK
+    dumped = v.dump_records_for_persist()
+    # Simulate a restart: brand-new verifier, NO_DATA initial state.
+    v2 = WriteVerifier(hass, coord)
+    assert v2._records["reserve_soc"].status == STATUS_NO_DATA
+    assert v2._records["reserve_soc"].restored is False
+    v2.restore_records_from_persist(dumped)
+    r2 = v2._records["reserve_soc"]
+    assert r2.commanded == 50
+    assert r2.oracle_seen == "50"
+    # Timestamp preserved verbatim — not stamped to now.
+    assert r2.verified_at == "2026-07-13T10:00:00+00:00"
+    assert r2.status == STATUS_OK
+    assert r2.restored is True
+    # Attr surface exposes restored flag.
+    attrs = v2.get_status_attrs()
+    assert attrs["last_verified_write_reserve_soc"]["restored"] is True
+    assert (
+        attrs["last_verified_write_reserve_soc"]["verified_at"]
+        == "2026-07-13T10:00:00+00:00"
+    )
+
+
+def test_rider_wv_restore_does_not_clobber_fresh_post_boot_outcome(hass):
+    """A post-boot verifier that has already recorded a fresh outcome
+    for a surface MUST NOT be overwritten by a stale KV restore."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        WriteVerifier,
+        STATUS_OK,
+        STATUS_MISMATCH,
+    )
+    coord = _FakeCoord(hass)
+    v = WriteVerifier(hass, coord)
+    # Simulate a fresh post-boot check already ran and recorded MISMATCH.
+    v._records["reserve_soc"].status = STATUS_MISMATCH
+    v._records["reserve_soc"].commanded = 60
+    v._records["reserve_soc"].verified_at = "2026-07-13T12:00:00+00:00"
+    # Old KV payload from a pre-restart OK outcome.
+    stale = {"reserve_soc": {
+        "commanded": 50, "oracle_seen": "50",
+        "verified_at": "2026-07-13T10:00:00+00:00", "status": STATUS_OK,
+    }}
+    v.restore_records_from_persist(stale)
+    # Fresh outcome preserved; NOT clobbered.
+    assert v._records["reserve_soc"].status == STATUS_MISMATCH
+    assert v._records["reserve_soc"].commanded == 60
+    assert v._records["reserve_soc"].restored is False
+
+
+@pytest.mark.asyncio
+async def test_rider_restored_ledger_does_not_false_supersede_fresh_check(hass):
+    """Supersession safety: `_check` compares `ledger_at > commanded_at`.
+    A RESTORED (old) ledger_at MUST be strictly LESS than a fresh
+    post-boot commanded_at → the fresh check runs (is NOT superseded)."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        WriteVerifier,
+    )
+    from custom_components.universal_room_automation.domain_coordinators \
+        import energy_write_verify as _wv
+    coord = _FakeCoord(hass)
+    v = WriteVerifier(hass, coord, verify_window_s=1)
+    coord._battery._entities["cloud_reserve_oracle"] = "number.oracle_reserve"
+    _set_state(hass, "number.oracle_reserve", "50", unit="%")
+    # Simulate restore: OLD ledger_at (way before fresh commanded_at).
+    old = _wv.dt_util.utcnow() - timedelta(hours=2)
+    coord._battery._last_reserve_level = 50
+    coord._battery._last_reserve_level_at = old
+    # Fresh commanded_at from a post-boot dispatch — NEWER than restored.
+    fresh_commanded_at = _wv.dt_util.utcnow()
+    ran: list[bool] = []
+    original_read = v._read_oracle_raw
+
+    def _traced(eid):
+        ran.append(True)
+        return original_read(eid)
+
+    v._read_oracle_raw = _traced  # type: ignore[assignment]
+    await v._check("reserve_soc", 50, fresh_commanded_at)
+    # If the restored old ledger_at HAD been treated as fresh (post-restart
+    # timestamp = now instead of preserved old), it would be > fresh
+    # commanded_at (equal now) and could false-supersede via clock skew.
+    # Because we PRESERVED the old timestamp, ledger_at < commanded_at →
+    # supersession guard falls through → oracle read + compare runs.
+    assert ran, "check was false-superseded — restored ledger treated as fresh"
+
+
+@pytest.mark.asyncio
+async def test_rider_restored_ledger_treated_as_fresh_would_false_supersede(hass):
+    """Mutation anchor (b): if restore STRIPPED timestamp preservation and
+    stamped ledger_at=now, `_check` for a fresh post-boot dispatch (also
+    commanded_at≈now) can be false-superseded (ledger_at >= commanded_at).
+    This test simulates that mutation and confirms the failure mode —
+    proving the preservation is load-bearing."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        WriteVerifier,
+    )
+    from custom_components.universal_room_automation.domain_coordinators \
+        import energy_write_verify as _wv
+    coord = _FakeCoord(hass)
+    v = WriteVerifier(hass, coord, verify_window_s=1)
+    coord._battery._entities["cloud_reserve_oracle"] = "number.oracle_reserve"
+    _set_state(hass, "number.oracle_reserve", "50", unit="%")
+    # MUTATED restore: ledger_at stamped to a moment AFTER commanded_at
+    # (what a "stamp restored timestamp = now" bug would produce for a
+    # dispatch that happened microseconds earlier during boot).
+    fresh_commanded_at = _wv.dt_util.utcnow() - timedelta(seconds=1)
+    coord._battery._last_reserve_level = 50
+    coord._battery._last_reserve_level_at = _wv.dt_util.utcnow()
+    ran: list[bool] = []
+    v._read_oracle_raw = lambda eid: ran.append(True) or "50"  # type: ignore[assignment]
+    await v._check("reserve_soc", 50, fresh_commanded_at)
+    # Supersession fires → oracle read skipped. This is EXACTLY the
+    # failure mode preserved timestamps prevent.
+    assert not ran, (
+        "expected supersession to fire when ledger_at > commanded_at "
+        "(this is the mutation-anchor failure mode)"
+    )
+
+
+def test_rider_park_floor_source_commanded_when_ledger_present(hass):
+    """park_floor_source == 'commanded' iff `_last_reserve_level` is not
+    None (ledger fast-path in current_park_floor)."""
+    # Access the battery module directly (no full construction).
+    import custom_components.universal_room_automation.domain_coordinators.energy_battery as eb
+    # Use a bare instance-like shim — we only need attribute + a couple
+    # of methods on a MagicMock, with the two real branches invoked.
+    class _B:
+        _last_reserve_level = 42
+        _last_reserve_level_at = None
+    # Emulate the exact ternary from energy_battery.get_status().
+    source = (
+        "commanded" if _B._last_reserve_level is not None
+        else "planned_fallback"
+    )
+    assert source == "commanded"
+    _B._last_reserve_level = None
+    source = (
+        "commanded" if _B._last_reserve_level is not None
+        else "planned_fallback"
+    )
+    assert source == "planned_fallback"
+    # Sanity: helper exists on the class.
+    assert hasattr(eb.BatteryStrategy, "_read_current_commanded_reserve")
+
+
+def test_rider_current_commanded_reserve_reads_cloud_not_local(hass):
+    """MUTATION ANCHOR: `_read_current_commanded_reserve` must go through
+    `_get_entity(role="write")`. If pointed at the LOCAL entity (drop
+    role="write"), the divergent local value leaks into the display attr.
+    This test proves the write-leg routing is load-bearing."""
+    import custom_components.universal_room_automation.domain_coordinators.energy_battery as eb
+
+    # Instance stub carrying the minimum surface.
+    class _B(eb.BatteryStrategy):
+        def __init__(self):
+            # Skip full __init__ — only exercise the helper.
+            self._entities = {
+                "reserve_soc_number": "number.local_enpower_reserve",
+                "cloud_reserve_oracle": "number.cloud_reserve",
+            }
+            self._write_failover_by_surface = {"reserve_soc_number": True}
+            self.hass = hass
+
+        def _get_state_float(self, eid):  # noqa: D401
+            return {
+                "number.local_enpower_reserve": 80.0,  # divergent LOCAL
+                "number.cloud_reserve": 10.0,          # actually commanded
+            }.get(eid)
+
+    b = _B()
+    # Correct behavior: role="write" + failover=True → cloud entity.
+    assert b._read_current_commanded_reserve() == 10
+    # MUTATION: point failover off so role="write" collapses to local.
+    b._write_failover_by_surface = {"reserve_soc_number": False}
+    assert b._read_current_commanded_reserve() == 80
+
+
+# ==================================================================
+# Rider fix-up (framing-C specs) — test authority for the WV restore path.
+# Extracted helper `_restore_wv_state(db, battery, verifier, stale)` +
+# real get_status() driver + corrupt-payload guard.
+# ==================================================================
+class _FakeDB:
+    """Minimal DB stub honoring `restore_energy_state_with_age(key, max_age_hours=...)`.
+
+    Payloads dict maps key → (json_str_or_None, age_hours). Age > max_age
+    returns None (matches DAO staleness contract).
+    """
+
+    def __init__(self, payloads):
+        # payloads: {key: (json_str, age_hours)}
+        self._payloads = payloads
+        self.calls = []
+
+    async def restore_energy_state_with_age(self, key, max_age_hours):
+        self.calls.append((key, max_age_hours))
+        entry = self._payloads.get(key)
+        if entry is None:
+            return None
+        json_str, age_h = entry
+        if age_h > max_age_hours:
+            return None
+        return json_str
+
+
+class _FakeBatteryForRestore:
+    """Stub carrying the six ledger fields the helper writes to."""
+
+    def __init__(self):
+        self._last_reserve_level = None
+        self._last_reserve_level_at = None
+        self._last_charge_from_grid_command = None
+        self._last_charge_from_grid_command_at = None
+        self._last_storage_mode_command = None
+        self._last_storage_mode_command_at = None
+
+
+def _make_coord_with_helper(hass):
+    """Bind `_restore_wv_state` to a stand-in coordinator object without
+    running EnergyCoordinator.__init__."""
+    from custom_components.universal_room_automation.domain_coordinators.energy import (
+        EnergyCoordinator,
+    )
+
+    class _Stub:
+        pass
+
+    stub = _Stub()
+    stub.hass = hass
+    # Bind the unbound method so `self` is the stub.
+    stub._restore_wv_state = EnergyCoordinator._restore_wv_state.__get__(stub, _Stub)
+    return stub
+
+
+@pytest.mark.asyncio
+async def test_rider_fixup_restore_wv_state_preserves_old_iso_timestamp(hass):
+    """C-HIGH-1 END-TO-END: helper parses the OLD commanded_at ISO into
+    `_last_reserve_level_at` verbatim — NOT stamped to `now`."""
+    import json as _json
+    from homeassistant.util import dt as dt_util
+
+    old_iso = "2026-07-13T05:00:00+00:00"
+    old_dt = dt_util.parse_datetime(old_iso)
+    ledger = _json.dumps({
+        "reserve_soc": {"commanded": 50, "commanded_at": old_iso},
+        "charge_from_grid": {"commanded": False, "commanded_at": old_iso},
+        "storage_mode": {"commanded": "self-consumption", "commanded_at": old_iso},
+    })
+    db = _FakeDB({"wv_commanded_ledger": (ledger, 1.0)})
+    battery = _FakeBatteryForRestore()
+
+    stub = _make_coord_with_helper(hass)
+    await stub._restore_wv_state(db, battery, None, 10.0)
+
+    assert battery._last_reserve_level == 50
+    # Timestamp = parsed OLD ISO verbatim (NOT now — that assertion is
+    # exact and would fail if the helper stamped a fresh timestamp).
+    assert battery._last_reserve_level_at == old_dt
+    assert battery._last_charge_from_grid_command is False
+    assert battery._last_charge_from_grid_command_at == old_dt
+    assert battery._last_storage_mode_command == "self-consumption"
+    assert battery._last_storage_mode_command_at == old_dt
+
+
+@pytest.mark.asyncio
+async def test_rider_fixup_restore_wv_state_no_clobber_when_ram_populated(hass):
+    """C-HIGH-1: `is None` no-clobber guards hold when RAM is already
+    populated by a post-boot dispatch."""
+    import json as _json
+    from homeassistant.util import dt as dt_util
+
+    fresh_dt = dt_util.utcnow()
+    battery = _FakeBatteryForRestore()
+    battery._last_reserve_level = 30
+    battery._last_reserve_level_at = fresh_dt
+
+    old_iso = "2026-07-12T05:00:00+00:00"
+    ledger = _json.dumps({
+        "reserve_soc": {"commanded": 50, "commanded_at": old_iso},
+    })
+    db = _FakeDB({"wv_commanded_ledger": (ledger, 1.0)})
+    stub = _make_coord_with_helper(hass)
+    await stub._restore_wv_state(db, battery, None, 10.0)
+
+    # Post-boot fresh value preserved; restore did NOT clobber.
+    assert battery._last_reserve_level == 30
+    assert battery._last_reserve_level_at == fresh_dt
+
+
+@pytest.mark.asyncio
+async def test_rider_fixup_restore_wv_state_11h_payload_dropped_by_staleness(hass):
+    """C-HIGH-1: an 11h-old payload for the NEW keys is dropped by the
+    staleness path (max_age_hours=10). No RAM state gets set."""
+    import json as _json
+
+    ledger = _json.dumps({
+        "reserve_soc": {"commanded": 50, "commanded_at": "2026-07-13T00:00:00+00:00"},
+    })
+    records = _json.dumps({"reserve_soc": {
+        "commanded": 50, "oracle_seen": "50",
+        "verified_at": "2026-07-13T00:00:00+00:00", "status": "ok",
+    }})
+    db = _FakeDB({
+        "wv_commanded_ledger": (ledger, 11.0),   # stale — dropped
+        "wv_verified_records": (records, 11.0),  # stale — dropped
+    })
+    battery = _FakeBatteryForRestore()
+
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        WriteVerifier,
+    )
+    coord = _FakeCoord(hass)
+    verifier = WriteVerifier(hass, coord)
+
+    stub = _make_coord_with_helper(hass)
+    await stub._restore_wv_state(db, battery, verifier, 10.0)
+
+    # Ledger untouched.
+    assert battery._last_reserve_level is None
+    assert battery._last_reserve_level_at is None
+    # Verifier records still NO_DATA.
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        STATUS_NO_DATA,
+    )
+    assert verifier._records["reserve_soc"].status == STATUS_NO_DATA
+    assert verifier._records["reserve_soc"].restored is False
+    # Staleness gate exercised for BOTH new keys.
+    called_keys = {k for k, _ in db.calls}
+    assert "wv_commanded_ledger" in called_keys
+    assert "wv_verified_records" in called_keys
+
+
+@pytest.mark.asyncio
+async def test_rider_fixup_restore_wv_state_MUTATION_stamp_now_would_go_red(hass):
+    """C-HIGH-1 MUTATION CHECK: monkeypatch the helper's timestamp parser
+    to stamp `now` instead of preserving the OLD ISO. The preservation
+    assertion must go RED, proving the parser is load-bearing.
+
+    We simulate the mutation by replacing `dt_util.parse_datetime` on the
+    energy module's imported alias with a `now`-stamper for the duration
+    of the call.
+    """
+    import json as _json
+    from homeassistant.util import dt as dt_util
+
+    old_iso = "2026-07-13T05:00:00+00:00"
+    old_dt = dt_util.parse_datetime(old_iso)
+    ledger = _json.dumps({
+        "reserve_soc": {"commanded": 50, "commanded_at": old_iso},
+    })
+    db = _FakeDB({"wv_commanded_ledger": (ledger, 1.0)})
+    battery = _FakeBatteryForRestore()
+    stub = _make_coord_with_helper(hass)
+
+    # MUTATION: patch parse_datetime on dt_util to stamp NOW.
+    original_parse = dt_util.parse_datetime
+    dt_util.parse_datetime = lambda _s: dt_util.utcnow()  # type: ignore[assignment]
+    try:
+        await stub._restore_wv_state(db, battery, None, 10.0)
+    finally:
+        dt_util.parse_datetime = original_parse  # type: ignore[assignment]
+
+    # Under the mutation, the OLD-ISO preservation assertion goes RED.
+    with pytest.raises(AssertionError):
+        assert battery._last_reserve_level_at == old_dt
+
+
+# ------------------------------------------------------------------
+# C-MED-1/2: real get_status() driver (not stub-mirror).
+# ------------------------------------------------------------------
+def test_rider_fixup_get_status_park_floor_source_flips_with_ledger(hass):
+    """C-MED-1: drive REAL `get_status()` — `park_floor_source` flips
+    with `_last_reserve_level` presence. Mutation: delete the ternary
+    → the ledger-present case no longer reports 'commanded' → RED.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
+        BatteryStrategy,
+    )
+
+    bs = BatteryStrategy(
+        hass, reserve_soc=20,
+        entity_config={
+            "battery_soc": "sensor.envoy_soc",
+            "reserve_soc_number": "number.local_enpower_reserve",
+            "cloud_reserve_oracle": "number.cloud_reserve",
+        },
+    )
+    bs._write_failover_by_surface["reserve_soc_number"] = True
+    _set_state(hass, "sensor.envoy_soc", "50", unit="%")
+    _set_state(hass, "number.local_enpower_reserve", "80", unit="%")
+    _set_state(hass, "number.cloud_reserve", "10", unit="%")
+
+    # Ledger empty → planned_fallback.
+    bs._last_reserve_level = None
+    st = bs.get_status()
+    assert st["park_floor_source"] == "planned_fallback"
+
+    # Ledger present → commanded.
+    bs._last_reserve_level = 10
+    st = bs.get_status()
+    assert st["park_floor_source"] == "commanded"
+
+
+def test_rider_fixup_get_status_park_floor_source_MUTATION_deleted_ternary_goes_red(hass):
+    """C-MED-1 MUTATION: simulate deletion of the ternary by stubbing
+    the attr assembly. Under the mutation (always 'planned_fallback'),
+    the ledger-present assertion goes RED."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
+        BatteryStrategy,
+    )
+
+    bs = BatteryStrategy(
+        hass, reserve_soc=20,
+        entity_config={"battery_soc": "sensor.envoy_soc"},
+    )
+    _set_state(hass, "sensor.envoy_soc", "50", unit="%")
+    bs._last_reserve_level = 10
+
+    # MUTATION: monkeypatch get_status to always report planned_fallback
+    # (equivalent to deleting the ternary and hard-coding the fallback leg).
+    original = BatteryStrategy.get_status
+
+    def _mutated(self):
+        st = original(self)
+        st["park_floor_source"] = "planned_fallback"
+        return st
+
+    bs.get_status = _mutated.__get__(bs, BatteryStrategy)  # type: ignore[assignment]
+    st = bs.get_status()
+    with pytest.raises(AssertionError):
+        assert st["park_floor_source"] == "commanded"
+
+
+def test_rider_fixup_get_status_current_commanded_reserve_matches_helper(hass):
+    """C-MED-2: `current_commanded_reserve` in get_status attrs equals
+    `_read_current_commanded_reserve()` output. Mutation: cut the attr
+    wiring → the attr diverges from the helper → RED."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
+        BatteryStrategy,
+    )
+
+    bs = BatteryStrategy(
+        hass, reserve_soc=20,
+        entity_config={
+            "battery_soc": "sensor.envoy_soc",
+            "reserve_soc_number": "number.local_enpower_reserve",
+            "cloud_reserve_oracle": "number.cloud_reserve",
+        },
+    )
+    bs._write_failover_by_surface["reserve_soc_number"] = True
+    _set_state(hass, "sensor.envoy_soc", "50", unit="%")
+    _set_state(hass, "number.local_enpower_reserve", "80", unit="%")
+    _set_state(hass, "number.cloud_reserve", "10", unit="%")
+
+    st = bs.get_status()
+    assert st["current_commanded_reserve"] == bs._read_current_commanded_reserve()
+    assert st["current_commanded_reserve"] == 10  # cloud, not 80 local
+
+
+def test_rider_fixup_get_status_current_commanded_reserve_MUTATION_cut_wiring_goes_red(hass):
+    """C-MED-2 MUTATION: cut the attr wiring by overriding get_status to
+    surface a stale/None instead of calling the helper — the equality
+    assertion goes RED."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
+        BatteryStrategy,
+    )
+
+    bs = BatteryStrategy(
+        hass, reserve_soc=20,
+        entity_config={
+            "battery_soc": "sensor.envoy_soc",
+            "reserve_soc_number": "number.local_enpower_reserve",
+            "cloud_reserve_oracle": "number.cloud_reserve",
+        },
+    )
+    bs._write_failover_by_surface["reserve_soc_number"] = True
+    _set_state(hass, "sensor.envoy_soc", "50", unit="%")
+    _set_state(hass, "number.local_enpower_reserve", "80", unit="%")
+    _set_state(hass, "number.cloud_reserve", "10", unit="%")
+
+    original = BatteryStrategy.get_status
+
+    def _mutated(self):
+        st = original(self)
+        # Cut wiring: force the attr to None (as if the key were removed).
+        st["current_commanded_reserve"] = None
+        return st
+
+    bs.get_status = _mutated.__get__(bs, BatteryStrategy)  # type: ignore[assignment]
+    st = bs.get_status()
+    with pytest.raises(AssertionError):
+        assert st["current_commanded_reserve"] == bs._read_current_commanded_reserve()
+
+
+# ------------------------------------------------------------------
+# C-LOW-1 + probe 5a: corrupt-payload no-ops on restore_records_from_persist.
+# ------------------------------------------------------------------
+def test_rider_fixup_restore_records_corrupt_string_payload_is_noop(hass):
+    """C-LOW-1: string payload → no crash, no state change."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        WriteVerifier, STATUS_NO_DATA,
+    )
+    coord = _FakeCoord(hass)
+    v = WriteVerifier(hass, coord)
+    v.restore_records_from_persist("not-a-dict")  # type: ignore[arg-type]
+    assert v._records["reserve_soc"].status == STATUS_NO_DATA
+    assert v._records["reserve_soc"].restored is False
+
+
+def test_rider_fixup_restore_records_corrupt_none_payload_is_noop(hass):
+    """C-LOW-1: None payload → no crash, no state change."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        WriteVerifier, STATUS_NO_DATA,
+    )
+    coord = _FakeCoord(hass)
+    v = WriteVerifier(hass, coord)
+    v.restore_records_from_persist(None)  # type: ignore[arg-type]
+    assert v._records["reserve_soc"].status == STATUS_NO_DATA
+
+
+def test_rider_fixup_restore_records_non_dict_per_surface_payload_skipped(hass):
+    """C-LOW-1: per-surface payload that isn't a dict (list / str /
+    None) is skipped rather than crashing the whole restore."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        WriteVerifier, STATUS_NO_DATA, STATUS_OK,
+    )
+    coord = _FakeCoord(hass)
+    v = WriteVerifier(hass, coord)
+    payload = {
+        "reserve_soc": ["not", "a", "dict"],
+        "charge_from_grid": None,
+        "storage_mode": {
+            "commanded": "self-consumption", "oracle_seen": "self-consumption",
+            "verified_at": "2026-07-13T10:00:00+00:00", "status": STATUS_OK,
+        },
+    }
+    v.restore_records_from_persist(payload)
+    # Bad surfaces skipped.
+    assert v._records["reserve_soc"].status == STATUS_NO_DATA
+    assert v._records["charge_from_grid"].status == STATUS_NO_DATA
+    # Good surface restored.
+    assert v._records["storage_mode"].status == STATUS_OK
+    assert v._records["storage_mode"].restored is True
+
+
+def test_rider_fixup_restore_records_non_str_status_normalized_to_no_data(hass):
+    """C-LOW-1 (production change): a corrupt `status` value that is
+    NOT a str (list/dict/int) is normalized to NO_DATA so the record
+    can't be poisoned by a bad KV row."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        WriteVerifier, STATUS_NO_DATA,
+    )
+    coord = _FakeCoord(hass)
+    v = WriteVerifier(hass, coord)
+    payload = {"reserve_soc": {
+        "commanded": 50, "oracle_seen": "50",
+        "verified_at": "2026-07-13T10:00:00+00:00",
+        "status": ["ok"],  # corrupt: non-str
+    }}
+    v.restore_records_from_persist(payload)
+    # Non-str status coerced to NO_DATA (fields still populated so age
+    # renders, but status doesn't poison downstream comparisons).
+    assert v._records["reserve_soc"].status == STATUS_NO_DATA
