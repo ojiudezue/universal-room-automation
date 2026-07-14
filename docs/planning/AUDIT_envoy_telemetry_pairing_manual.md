@@ -126,6 +126,31 @@ able to output at runtime.
 | Delta-only mode or exclude | T8–T12 |
 | Never admit (no analogue) | T5, T6, T7, grid_enabled |
 
+## 6. Phase B0 probe — first run (2026-07-13 ~21:55 CDT, 48h window)
+
+One-shot read-only recorder analysis (`scripts/telemetry_pair_probe.py`,
+run on the HA host over SSH; exits after ~seconds, nothing resident).
+Diffs are in local units (kW / %) at the best-fit lag on a 60s step-hold grid.
+
+| Pair | Local cadence p50/p95 | Cloud cadence p50/p95 | Best lag | diff p50 / p95 | B0 verdict |
+|---|---|---|---|---|---|
+| battery_soc | 162s / 899s | 621s / 2180s | 0s | 0.5 pp / 4.9 pp | **ADMIT** — outage-grade substitute |
+| production_power | 72s / 156s | **916s / 1302s** | 0s | 0.07 kW / 7.2 kW | **ADMIT for slow consumers only** (day-class, trend); p95 blows up during ramps at ~15-min staleness — never for instantaneous math |
+| battery_power | 72s / 198s | 314s / 932s | 0s | 0.55 kW / 6.6 kW | **Sign RESOLVED**: as-is beats sign-flipped (p95 6.6 vs 19.4 kW) → cloud is discharge-positive like the local entity; apply the same flip URA already does. But divergence p95 6.6 kW ⇒ **D3 (drain-gate feed) REJECTED by measurement** — blind-hold is safer than 5-15-min-stale power |
+| net_power | 70s / 98s | 314s / 932s | 120s | **2.74 kW / 12.5 kW** | **NEVER ADMIT** — p50 divergence of 2.7 kW at best lag proves this is a semantic mismatch (suspected EVSE-circuit exclusion, F1), not a polling delay. No lag correction can fix it. |
+
+Cadence takeaway: the cloud HACS *polls* every ~62s but its power values
+refresh only every ~5-15 min upstream (Enlighten granularity). The gap is
+data freshness, not poll rate — polling harder cannot close it.
+
+**Build-scope consequence:** D3 and D4 fall out of scope on measured
+grounds; the failover map ships SOC (+ production for slow consumers) with
+per-consumer staleness gates, plus the auditability substrate. Re-run the
+probe after ~a week (one command, covers sunny/cloudy days + EV sessions)
+as the final pre-build gate; the T4/net-power EVSE-exclusion hypothesis can
+also be confirmed then by comparing divergence during vs outside EV
+charging windows.
+
 The runtime cross-validator (D5.3) must be able to *re-derive every verdict
 in §2 on its own*: unit-factor detection (F5), epoch-offset detection (F3),
 and same-minute magnitude divergence (F1) are its three mandatory checks.
