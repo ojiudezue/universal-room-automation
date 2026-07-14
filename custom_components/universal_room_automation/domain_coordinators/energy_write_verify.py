@@ -77,6 +77,14 @@ class _VerifyRecord:
     oracle_seen: Any = None
     verified_at: Optional[str] = None
     status: str = STATUS_NO_DATA
+    # Rider (2026-07-13, B-LOW-2 close): True iff this record was
+    # rehydrated from KV on restart. Surfaced verbatim in the
+    # `last_verified_write_*` display attr so operators can distinguish
+    # a pre-restart verified outcome from a post-restart fresh one.
+    # Timestamps (`verified_at`) are PRESERVED across restore so age
+    # renders honestly. Cleared as soon as `_check` writes a fresh
+    # outcome to this surface (the RAM record is replaced wholesale).
+    restored: bool = False
 
 
 @dataclass
@@ -869,6 +877,66 @@ class WriteVerifier:
     # ------------------------------------------------------------------
     # Teardown (Fix-up B-HIGH-3, Bug Class #38 — timer leaks)
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Rider (2026-07-13, B-LOW-2 close) — persist/restore _records
+    # ------------------------------------------------------------------
+    def dump_records_for_persist(self) -> dict[str, dict[str, Any]]:
+        """Serialize per-surface `_records` for KV persistence.
+
+        Called from EnergyCoordinator `_save_evse_state` (existing 15-min
+        cadence + teardown — no new timer, Bug Class #19/#42). Preserves
+        `verified_at` VERBATIM so age renders honestly after restore.
+        """
+        out: dict[str, dict[str, Any]] = {}
+        for surface, rec in self._records.items():
+            out[surface] = {
+                "commanded": rec.commanded,
+                "oracle_seen": rec.oracle_seen,
+                "verified_at": rec.verified_at,
+                "status": rec.status,
+            }
+        return out
+
+    def restore_records_from_persist(
+        self, payload: dict[str, Any]
+    ) -> None:
+        """Rehydrate `_records` from KV payload.
+
+        Semantics:
+          - Only surfaces still in NO_DATA state are rehydrated (do NOT
+            clobber a post-boot fresh outcome).
+          - `verified_at` is preserved as-is (original pre-restart ISO).
+          - `restored=True` is set so `get_status_attrs()` surfaces the
+            provenance.
+
+        Supersession safety: restored `verified_at` is display-only.
+        `_check`'s supersession guard compares the COMMANDED ledger
+        (`_last_*_at` on battery), NOT `verified_at`. Restored commanded
+        ledger keeps its OLD timestamp, so a fresh post-boot dispatch
+        (newer commanded_at) cannot be false-superseded by the restored
+        ledger.
+        """
+        if not isinstance(payload, dict):
+            return
+        for surface in WRITE_VERIFY_NM_SURFACES:
+            data = payload.get(surface)
+            if not isinstance(data, dict):
+                continue
+            rec = self._records.get(surface)
+            if rec is None:
+                continue
+            if rec.status != STATUS_NO_DATA:
+                continue
+            rec.commanded = data.get("commanded")
+            rec.oracle_seen = data.get("oracle_seen")
+            rec.verified_at = data.get("verified_at")
+            rec.status = data.get("status") or STATUS_NO_DATA
+            rec.restored = True
+        _LOGGER.info(
+            "Rider: restored WriteVerifier records from KV: %s",
+            {s: self._records[s].status for s in WRITE_VERIFY_NM_SURFACES},
+        )
+
     def cancel_all(self) -> None:
         """Cancel every pending delayed check. Called from
         EnergyCoordinator teardown / async_shutdown path so
@@ -917,6 +985,9 @@ class WriteVerifier:
                 "verified_at": rec.verified_at,
                 "status": rec.status,
                 "write_route": route,
+                # Rider (2026-07-13): honest post-restart flag; see
+                # `_VerifyRecord.restored` docstring.
+                "restored": rec.restored,
             }
         out["write_mismatch_counts_24h"] = {
             s: self._mismatch_counts.value(s)
