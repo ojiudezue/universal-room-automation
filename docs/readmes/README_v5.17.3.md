@@ -52,8 +52,16 @@ hypotheses:
     oracle: carryover
 ```
 
-## Live Validation (prospective)
+## Live Validation — Validated 2026-07-14
 
-- **L1:** `installed_version` == v5.17.3; house_state sane; zero URA ERROR post-restart.
-- **L2:** journal shows "at-boundary TOU tick armed" INFO line with a sane fire time (next boundary; if restarted before 16:00 CDT expect fire=16:00:05).
-- **L3:** if the 16:00 CDT boundary falls within the validation window, confirm the "at-boundary TOU tick: evaluating period=..." fire line lands within seconds of 16:00:05 and a decision cycle ran (battery_strategy refreshed near 16:00); otherwise PENDING (Shipwatch H2 tracks 21:00).
+Deployed + HACS v5.17.3 installed; HA restarted ~18:20 CDT (after the 16:00 boundary, so the 21:00 CDT boundary is the first live exercise).
+
+| Criterion | Result | Observed evidence |
+|---|---|---|
+| L1a installed_version | PASS | `update.universal_room_automation_update` attrs: installed_version=v5.17.3, latest_version=v5.17.3 (read 18:26 CDT) |
+| L1b house_state sane | PASS | `sensor.ura_presence_coordinator_presence_house_state` = `guest`, last_updated 18:24:33 CDT (post-boot) |
+| L1c zero URA ERROR | PASS | error_log ERROR scan post-restart: 0 URA lines; all ERRORs non-URA (laundry template-sensor >255-char state, ESPHome logging_changed jobs, MQTT number range — known boot noise) |
+| L2 "armed" INFO line | PASS (indirect) | Boot-time INFO line suppressed by WARNING-level file logger (known: v4.7.26 memo). Discriminating negative: the arm helper's failure WARNING ("…failed for %s — periodic timer only") is ABSENT from logs → `async_track_point_in_time` registration succeeded. Logger for `domain_coordinators.energy` bumped to INFO at 18:27 CDT so the 21:00 fire + re-arm lines land in the journal. |
+| L3 boundary fire + decision cycle | PENDING | 16:00 CDT boundary passed pre-deploy; 21:00 CDT is outside the validation window. Shipwatch H2 (12h window, log-search oracle) tracks tonight's 21:00:05 fire line. Energy coordinator healthy meanwhile: `sensor.ura_energy_coordinator_battery_strategy` = self_consumption, reason "Peak — battery covers load, solar exports", last_updated 18:26:03 CDT (periodic cycle running). |
+
+Boot transients dismissed: laundry_device_status >255-char ERROR loop (pre-existing template sensor, non-URA), SPAN circuit-anomaly WARNINGs and Envoy cross-check divergence WARNING (established boot/steady-state noise).
