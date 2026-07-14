@@ -1041,11 +1041,12 @@ class BatteryStrategy:
         """Read the CLOUD-side commanded reserve (the write-leg oracle).
 
         Rider (2026-07-13): backs the `current_commanded_reserve` display
-        attr. Uses `_get_entity(role="write")` so this ALWAYS honors the
-        cloud-first write routing when enabled — i.e. we read the same
-        entity the emitter writes to. NEVER sources from the LOCAL Enpower
-        reserve number (v5.16.1 rule; the local leg is witness-only and
-        currently divergent at 80). None-safe when unavailable/unknown.
+        attr. Uses `_get_entity(role="write")` so this always reads the
+        WRITE LEG — cloud when cloud-first routing is active; local only
+        when the surface has coherently DEMOTED to local writes (explicit
+        blank / failover off), in which case local IS the commanded value
+        (review R-LOW-1 precision: the invariant is same-leg-as-writes,
+        not never-local). None-safe when unavailable/unknown.
         """
         try:
             from .energy_const import DEFAULT_RESERVE_SOC_ENTITY
