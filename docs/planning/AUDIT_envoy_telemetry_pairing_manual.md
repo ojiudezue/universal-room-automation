@@ -87,11 +87,23 @@ able to output at runtime.
 ## 4. Findings (ranked)
 
 1. **F1 — T4 net/grid power is the WRONG-pair landmine.** Same-minute
-   readings disagree by ~100× (6.4 kW vs 67 W), most plausibly because the
-   cloud grid figure excludes the EVSE circuit (cloud has a separate
-   `site_evse_charging`) and/or lags. This single finding justifies the
-   whole manual audit and the I-F7 fail-to-`none` invariant: an auto-builder
-   pairing by name+device_class+unit would have admitted it.
+   readings disagree by ~100× (6.4 kW vs 67 W).
+   *(Revised 2026-07-13 late, after operator correction + B0 follow-ups.)*
+   The initial EVSE-exclusion hypothesis is **dead** — the operator has no
+   Enphase EVSE; the Emporia EVSE hangs off SPAN and is undifferentiated
+   load to the Enphase consumption CT. Follow-up measurement eliminated
+   every other benign explanation: no sign flip, no algebraic identity
+   (net, −net, net±battery, cons−prod, |net| — all ≥2.6 kW p50 off), no
+   time-averaging window (5/15/30/60-min trailing averages all leave a
+   ~2 kW p50 residual), no lag (0-30 min swept). The distributions differ
+   in kind: cloud median ~0.07 kW vs local 2.9 kW, cloud max 38.8 kW vs
+   local 16.6 kW (physically implausible) — consistent with the HACS
+   integration deriving "grid power" from misaligned interval-energy
+   deltas rather than a CT reading. Candidate upstream bug worth reporting
+   to the `enphase_ev` project. Verdict NEVER ADMIT is final. This single
+   finding justifies the whole manual audit and the I-F7 fail-to-`none`
+   invariant: an auto-builder pairing by name+device_class+unit would have
+   admitted it.
 2. **F2 — T3 battery power sign convention unverified** (discharge-positive
    local vs signed cloud unknown) and values diverged at sample. D3 must not
    ship until a two-condition paired observation (known charge, known
