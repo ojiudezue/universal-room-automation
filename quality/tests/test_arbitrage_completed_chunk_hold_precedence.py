@@ -359,6 +359,103 @@ class TestCompletedChunkHoldPrecedence:
 
 
 # ==========================================================================
+# v5.17.1 part-3 seam anchors — attain-owner + boundary-dt sub-minute edge
+# ==========================================================================
+
+
+class TestAttainOwnerShortCircuit:
+    """Seam #1 — attain-owner branch (energy_battery.py:3545-3568).
+
+    Precondition: completed chunk + `_attain_state=="holding"` + boundary
+    ahead → routes to `_get_attainability_hold_decision` with phase=='attain'
+    (NOT phase==HOLD, which is the D1 second-owner branch).
+
+    Mutation: neuter the attain-owner condition (make it False). Then this
+    test goes RED — the second short-circuit fires and emits phase==HOLD,
+    or (if BOTH branches are neutered) drain WAIT emits reserve=20.
+    """
+
+    def test_holding_state_routes_to_attain_owner_not_hold_owner(self):
+        strat, hass = _build_strategy(
+            soc=79, solcast_today="10", solcast_tomorrow="10",
+        )
+        _seed_rate(strat, _INCIDENT_ANCHOR, 79.0, 5.0)
+        hass.set_state(_BSOC, "79")
+        # Force the attain-state HOLDING precondition (D-HIGH-1 repro shape).
+        strat._arbitrage_chunk_completed = True
+        strat._arbitrage_active = True
+        strat._attain_state = "holding"
+        strat._attain_reboot_recovered = True  # skip cold-boot defer
+
+        result = strat.determine_mode(
+            "off_peak", "summer", now=_INCIDENT_ANCHOR, ev_load_w=0.0,
+        )
+
+        # Attain-owner branch must have fired → phase 'attain', not 'hold'.
+        # (Mutation-anchored via sentinel edit during part-3: replacing the
+        # branch body with `return self._result(..., "MUTATION #1 sentinel",
+        # reserve_level=20)` flipped phase='n/a' + reason='MUTATION #1 sentinel'
+        # + reserve=20 — proving the branch is reachable in this config.)
+        assert result["arbitrage_phase"] == "attain", (
+            f"Seam #1: attain-owner short-circuit did NOT fire. "
+            f"phase={result.get('arbitrage_phase')!r} "
+            f"reason={result.get('reason')!r}"
+        )
+        # I-AH1 preserved: reserve pinned at target.
+        emitted = _reserve_action_target(result)
+        assert emitted == 80, (
+            f"Seam #1: attain-owner emitted reserve={emitted!r} (expected 80). "
+            f"reason={result.get('reason')!r}"
+        )
+        # Reason must NOT come from the D1 second-owner (which says
+        # 'Arbitrage HOLD — completed chunk, boundary ahead'). Seam #1
+        # routes to `_get_attainability_hold_decision`, whose reason wording
+        # names 'HOLDING' / 'attain' target, not 'Arbitrage HOLD'.
+        assert "Arbitrage HOLD — completed chunk" not in (result.get("reason") or ""), (
+            f"Seam #1: D1 second-owner fired instead of attain-owner. "
+            f"reason={result.get('reason')!r}"
+        )
+
+
+class TestBoundaryDtSubMinuteEdge:
+    """Seam #2 — boundary `_bnd_dt > now` compare (energy_battery.py:3560, 3591).
+
+    Prior gate used `_bnd_mins > 0`, which truncates to 0 in the final
+    sub-minute BEFORE the boundary while period is still off_peak — that
+    tick could drain to the drain_target. The fix compares tz-normalized
+    datetimes.
+
+    Mutation: invert the compare (`_bnd_dt < _now_for_cmp`). Then the
+    boundary-ahead case falls through and emits drain reserve → RED.
+    """
+
+    def test_boundary_40s_ahead_holds_reserve_at_target(self):
+        # Boundary is 14:00; anchor is 13:59:20 → 40 seconds ahead,
+        # `_bnd_mins` would truncate to 0 but `_bnd_dt > now` is True.
+        anchor = datetime(2026, 7, 15, 13, 59, 20)
+        strat, hass = _build_strategy(soc=79, solcast_today="10", solcast_tomorrow="10")
+        _seed_rate(strat, anchor, 79.0, 5.0)
+        hass.set_state(_BSOC, "79")
+        strat._arbitrage_chunk_completed = True
+        strat._arbitrage_active = True
+        # _attain_state != "holding" → route through the D1 (second) owner
+        # which is the one whose boundary compare we're exercising.
+        strat._attain_state = "inactive"
+
+        result = strat.determine_mode(
+            "off_peak", "summer", now=anchor, ev_load_w=0.0,
+        )
+
+        emitted = _reserve_action_target(result)
+        assert emitted == 80, (
+            f"Seam #2: 40-seconds-ahead boundary drained. "
+            f"emitted={emitted!r} phase={result.get('arbitrage_phase')!r} "
+            f"reason={result.get('reason')!r}"
+        )
+        assert result["arbitrage_phase"] == ARBITRAGE_PHASE_HOLD
+
+
+# ==========================================================================
 # Helpers
 # ==========================================================================
 
