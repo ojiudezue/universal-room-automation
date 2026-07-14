@@ -43,6 +43,40 @@ Cloud updated 21:40:41; local 21:40:49.
 | T11 | LIFETIME_NET_EXPORT | `..._lifetime_net_energy_production` [MWh] · 1.41 | `..._site_grid_export` [kWh] · 6 634 | **EPOCH MISMATCH — delta-only** | |
 | T12 | LIFETIME_BATT_CHARGED / _DISCHARGED | `..._lifetime_battery_energy_charged` [MWh] · 3.29 / `..._discharged` · 2.64 | `..._site_battery_charge` [kWh] · 12 902 / `..._site_battery_discharge` · 10 809 | **EPOCH MISMATCH — delta-only** | Also MWh↔kWh factor. |
 
+## 2b. Units & sign conventions per pair — the transform contract
+
+URA-internal canonical conventions (verified in code, not assumed):
+
+- **Battery power:** URA canonical = **positive = charging, negative =
+  discharging**, in **W**. The local entity is discharge-positive, so URA
+  flips the sign on read (`energy_battery.py:811` raw, `:832`
+  `battery_power_w` with kW→W scaling). Any cloud substitute must be
+  transformed INTO this convention, not into the local entity's.
+- **Net/grid power:** URA canonical = **positive = importing** (it reads the
+  local *net consumption* entity as-is; `energy_battery.py:790-795`, unit-safe
+  variant `net_power_w` via `_read_power_w` `:886`).
+- **Unit normalization precedent:** `_read_power_w` / `battery_power_w`
+  already auto-scale kW→W by inspecting `unit_of_measurement` — the map's
+  general normalizer should extend THIS pattern (and `_normalize_percent`
+  for %), not introduce a third.
+
+| Quantity | Local unit · sign (VERIFIED) | Cloud unit · sign | Transform cloud→URA-canonical | Status |
+|---|---|---|---|---|
+| Battery SOC | % · n/a | % · n/a | identity | ✅ verified (30 vs 31.5 live) |
+| Reserve SOC | % · n/a | *(blank metadata)* · n/a | identity; do not require unit equality | ✅ value-verified (30 ↔ 30.0) |
+| Production power | kW · always ≥0 | W · always ≥0 (assumed) | ÷1000→kW or ×1 in W-canon; ≥0 assert | ⚠ factor verified at 0/0 only — re-verify midday nonzero |
+| Battery power | kW · **discharge-positive** (URA flips to charge-positive W) | W · sign convention **UNKNOWN** (2007 W observed while battery likely discharging → *suggests* discharge-positive, single sample) | ×(±1)·scale — **blocked on sign proof** | ❌ requires paired obs: one known charge, one known discharge |
+| Net/grid power | kW · **import-positive** | W · sign convention UNKNOWN + suspected EVSE-circuit exclusion (F1) | undefined until semantics settled | ❌ blocked (worst pair, see T4) |
+| House consumption power | kW · ≥0 | — | n/a | no analogue |
+| Lifetime energies | MWh · monotonic | kWh · monotonic, different epoch | ×1000 + epoch offset; **delta-only** | ⚠ delta-mode only |
+| Today energy | kWh · resets **UTC midnight** | — (site total, not today) | n/a | no analogue + F4 |
+
+Auto-builder admission rule derived from this table: a pair is admissible
+only when (unit factor) AND (sign map) AND (epoch/boundary semantics) are
+all three explicitly known — name + device_class similarity alone admits
+nothing. T3/T4's row status is exactly what the cross-validator must be
+able to output at runtime.
+
 ## 3. Health / meta pairs (the probes themselves)
 
 | Role | Local | Cloud | Verdict |
