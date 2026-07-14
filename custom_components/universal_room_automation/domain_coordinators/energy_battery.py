@@ -3523,21 +3523,72 @@ class BatteryStrategy:
         #   - no CHARGE re-entry (chunk lock stands; charge_from_grid=False).
         #   - inclement `partial_hold` floor via `_floor_reserve` — may
         #     only RAISE reserve above target.
+        # v5.17.1 fix-up (D-HIGH-1): close the seam where rung_2 re-opens
+        # the gate (e.g. `_observed_net_charge_rate_per_hour() is None`,
+        # cold-boot, or solar collapse), phase-2 WAIT of
+        # `_get_arbitrage_decision` fires and emits `reserve_soc` :2064 —
+        # draining the completed chunk. TWO short-circuits, each with
+        # explicit ownership; both run BEFORE `_gate_is_open` so no
+        # reachable off_peak path can fall into phase-2 WAIT with a
+        # completed chunk + boundary ahead.
+        #
+        # Precedence (documented):
+        #   1. Attain-state "holding" owner: routes to
+        #      `_get_attainability_hold_decision` (phase="attain"). Preserves
+        #      the v5.5.3 attain machinery's ownership; test authority is
+        #      `test_attainability_branch.py`.
+        #   2. Otherwise (attain inactive / charging / never-entered), the
+        #      D1 completed-chunk owner: emits phase=HOLD via
+        #      `_floor_reserve(peak_buffer_target, ...)`. Test authority is
+        #      `test_arbitrage_completed_chunk_hold_precedence.py`.
+        # Only ONE fires per tick (return-on-match); no contradiction.
         if (
             self._arbitrage_enabled
             and self._peak_buffer_target is not None
             and self._arbitrage_chunk_completed
-            # D3 item 5 (plan): when the v5.5.3 attain state machine owns
-            # the "holding" latch, defer to its `_get_attainability_hold_decision`
-            # — it also emits HOLD-at-target, exposes phase="attain" for
-            # observability, and MUST keep that ownership. Two hold paths
-            # cannot both fire / contradict.
+            and self._attain_state == "holding"
+        ):
+            _bnd_dt_a, _, _ = self._attain_target_boundary(now, "off_peak")
+            _now_for_cmp = now
+            if _bnd_dt_a is not None and getattr(_bnd_dt_a, "tzinfo", None) is not None:
+                if getattr(_now_for_cmp, "tzinfo", None) is None:
+                    try:
+                        from homeassistant.util import dt as _dt_util
+                        _now_for_cmp = _now_for_cmp.replace(tzinfo=_dt_util.UTC)
+                    except Exception:  # noqa: BLE001
+                        pass
+            if _bnd_dt_a is not None and _bnd_dt_a > _now_for_cmp:
+                return self._get_attainability_hold_decision(
+                    soc=soc, now=now,
+                    target_day_class=target_day_class,
+                    tomorrow_class=tomorrow_class,
+                    current_mode=current_mode, season=season,
+                    effective_reserve=effective_reserve,
+                    hold_depth=decision.hold_depth,
+                )
+        if (
+            self._arbitrage_enabled
+            and self._peak_buffer_target is not None
+            and self._arbitrage_chunk_completed
             and self._attain_state != "holding"
         ):
             _bnd_dt, _bnd_period, _bnd_mins = self._attain_target_boundary(
                 now, "off_peak",
             )
-            if _bnd_mins is not None and _bnd_mins > 0:
+            # A-MED-1 / C-HIGH-1 fix-up: gate on boundary datetime ahead
+            # (`_bnd_dt > now`) — the prior `_bnd_mins > 0` check skipped
+            # the final sub-minute before the boundary while period was
+            # still off_peak, allowing one tick to emit drain reserve.
+            _now_for_cmp = now
+            if _bnd_dt is not None and getattr(_bnd_dt, "tzinfo", None) is not None:
+                # Normalize `now` to tz-aware for the comparison.
+                if getattr(_now_for_cmp, "tzinfo", None) is None:
+                    try:
+                        from homeassistant.util import dt as _dt_util
+                        _now_for_cmp = _now_for_cmp.replace(tzinfo=_dt_util.UTC)
+                    except Exception:  # noqa: BLE001
+                        pass
+            if _bnd_dt is not None and _bnd_dt > _now_for_cmp:
                 self._arbitrage_active = True
                 self._arbitrage_phase = ARBITRAGE_PHASE_HOLD
                 floored = self._floor_reserve(
@@ -3552,7 +3603,7 @@ class BatteryStrategy:
                 return self._result(
                     BATTERY_MODE_SELF_CONSUMPTION,
                     f"Arbitrage HOLD — completed chunk, boundary ahead "
-                    f"(reserve locked at {self._peak_buffer_target}%; "
+                    f"(reserve locked at {floored}%; "
                     f"SOC {soc}%; target_day={target_day_class}){suffix}",
                     current_mode,
                     charge_from_grid=False,

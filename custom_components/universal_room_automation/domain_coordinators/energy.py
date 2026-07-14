@@ -284,6 +284,8 @@ class EnergyCoordinator(BaseCoordinator):
         )
         self._evse_battery_hold_active: bool = False
         self._evse_hold_soc: int | None = None  # Captured SOC at start of EVSE hold
+        # v5.17.1 fix-up (B-MED-1): edge-detect completion for eager persist
+        self._last_arbitrage_chunk_completed: bool = False
 
         # v4.0.18: EV grid import cap
         self._grid_import_cap_enabled: bool = ec.get(
@@ -3025,7 +3027,29 @@ class EnergyCoordinator(BaseCoordinator):
                     pass
                 return decision
 
-        # No reserve action yet — add one using configured entity
+        # No reserve action yet — add one using configured entity.
+        # v5.17.1 fix-up (D-HIGH-2): the append path used the raw
+        # `_evse_hold_soc` captured once at hold entry. Under a standing
+        # strategy hold (e.g. arbitrage completed-chunk HOLD at 80) with
+        # the `_result` 2% deadband suppressing the strategy's own reserve
+        # action, this overlay could append `set_value(hold_soc)` — for
+        # example 45 — while hardware carried 80, producing 80↔45
+        # oscillation. Mirror the update-in-place `max()` semantics:
+        # clamp `hold_reserve` UP to the strategy-desired reserve for this
+        # tick (`_last_reserve_level_desired`, which `_result` populates
+        # BEFORE the deadband decision — see energy_battery.py :3834).
+        # Never lowers the EVSE hold; only raises it to preserve the
+        # standing strategy protection. Also covered by the inclement-
+        # floor path via the strategy floor pre-baked into desired.
+        # reserve_level unit = % SOC (0-100), sign = floor (minimum).
+        try:
+            _desired = getattr(
+                self._battery, "_last_reserve_level_desired", None,
+            )
+            if _desired is not None:
+                hold_reserve = max(int(hold_reserve), int(_desired))
+        except (TypeError, ValueError, AttributeError):
+            pass
         decision["actions"].append({
             "service": "number.set_value",
             "target": reserve_entity,
@@ -3135,6 +3159,33 @@ class EnergyCoordinator(BaseCoordinator):
 
             # Add EVSE hold status to decision for sensor visibility
             decision["evse_battery_hold"] = self._evse_battery_hold_active
+
+            # v5.17.1 fix-up (B-MED-1): eager-persist the arbitrage chunk
+            # latch on the CHARGE→HOLD transition. Without this, a reboot
+            # in the window between the completion tick and the next
+            # 15-min periodic save loses the latch → resurrects the
+            # 2026-07-14 incident on restart. Cheap: single KV write,
+            # only fires on the transition edge (not per-tick), reuses
+            # `_save_evse_state` which already carries the latch payload.
+            try:
+                _completed_now = bool(
+                    getattr(self._battery, "_arbitrage_chunk_completed", False)
+                )
+                _last_completed = getattr(
+                    self, "_last_arbitrage_chunk_completed", False,
+                )
+                if _completed_now and not _last_completed:
+                    self.hass.async_create_task(self._save_evse_state())
+                    _LOGGER.info(
+                        "Arbitrage chunk completed — eager latch persist "
+                        "scheduled (reboot-safe HOLD on restart)"
+                    )
+                self._last_arbitrage_chunk_completed = _completed_now
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "eager latch persist scheduling failed (swallowed)",
+                    exc_info=True,
+                )
 
             self._last_battery_decision = decision
 
