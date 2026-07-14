@@ -18,6 +18,12 @@ from homeassistant.helpers.dispatcher import (
     async_dispatcher_send,
 )
 from homeassistant.helpers.event import async_track_time_interval
+try:
+    # v5.17.3 D1 — optional import so bootstrap-stubbed test modules that
+    # predate the at-boundary listener stay green.
+    from homeassistant.helpers.event import async_track_point_in_time
+except ImportError:  # pragma: no cover — test-only fallback
+    async_track_point_in_time = None  # type: ignore[assignment]
 
 from .base import (
     BaseCoordinator,
@@ -84,6 +90,7 @@ from .energy_const import (
     DEFAULT_CONSTRAINT_PREHEAT_OFFSET,
     DEFAULT_CONSTRAINT_SHED_OFFSET,
     DEFAULT_DECISION_INTERVAL_MINUTES,
+    TOU_BOUNDARY_TICK_DELAY_S,
     DEFAULT_EXCESS_SOLAR_KWH_THRESHOLD,
     DEFAULT_GRID_IMPORT_CAP_HYSTERESIS_KW,
     DEFAULT_GRID_IMPORT_CAP_KW,
@@ -459,6 +466,22 @@ class EnergyCoordinator(BaseCoordinator):
         self._last_load_shed_bundle_str: str | None = None
 
         self._decision_timer_unsub = None
+        # v5.17.3 D1: point-in-time listener for at-boundary TOU tick.
+        # A periodic tick at 5min interval lags a TOU transition by up to
+        # 5 minutes. This handle fires ONE extra `_async_decision_cycle`
+        # at (next_boundary + TOU_BOUNDARY_TICK_DELAY_S) — real wall clock,
+        # no synthetic-clock override — so the cycle evaluates the just-
+        # started period exactly like a periodic tick would. Then re-arms.
+        # Cancelled in `async_teardown`; stored separately from the periodic
+        # timer so we don't accidentally double-unsub.
+        self._tou_boundary_unsub = None
+        # Re-entrancy guard: the boundary tick may fire while a periodic
+        # tick is already running. Concurrent runs would race the shared
+        # `_last_battery_decision` / `_last_reserve_level_desired` stamps.
+        # Coordinator has no pre-existing cycle lock; add a cheap async-safe
+        # in-flight flag (single-threaded event loop → bool assignment is
+        # atomic). See `_async_decision_cycle` docstring.
+        self._cycle_in_flight: bool = False
 
         # Observation mode: sensors compute, no actions executed
         self._observation_mode: bool = False
@@ -834,6 +857,12 @@ class EnergyCoordinator(BaseCoordinator):
                 self._on_optimizer_intent,
             )
             self._unsub_listeners.append(self._optimizer_intent_unsub)
+
+        # v5.17.3 D1: arm the TOU boundary-aligned point-in-time listener.
+        # Must be armed BEFORE the initial evaluation so a boundary that
+        # happens to be imminent still fires at wall-clock, not periodic
+        # cadence.
+        self._arm_tou_boundary_listener()
 
         # Run initial evaluation
         await self._async_decision_cycle()
@@ -3046,8 +3075,20 @@ class EnergyCoordinator(BaseCoordinator):
             _desired = getattr(
                 self._battery, "_last_reserve_level_desired", None,
             )
-            if _desired is not None:
-                hold_reserve = max(int(hold_reserve), int(_desired))
+            # v5.17.3 D3 (Tier-3 D-MED-1): on boot HOLD-CURRENT paths
+            # (BatteryStrategy hold-current bypass), `_last_reserve_level_desired`
+            # is None because `_result` is bypassed. Without a fallback,
+            # this append could set a sub-hold reserve (e.g. 45) while
+            # hardware carries a strategy-restored 80 → oscillation. Fall
+            # back to the commanded ledger `_last_reserve_level`, which
+            # `_restore_wv_state` restores from KV at boot (energy.py:1381)
+            # so the ledger IS populated even before `_result` fires.
+            _ledger = getattr(
+                self._battery, "_last_reserve_level", None,
+            )
+            _clamp_ref = _desired if _desired is not None else _ledger
+            if _clamp_ref is not None:
+                hold_reserve = max(int(hold_reserve), int(_clamp_ref))
         except (TypeError, ValueError, AttributeError):
             pass
         decision["actions"].append({
@@ -3076,11 +3117,172 @@ class EnergyCoordinator(BaseCoordinator):
             pass
         return decision
 
-    async def _async_decision_cycle(self, _now=None) -> None:
-        """Run the periodic decision cycle (every N minutes)."""
-        if not self._enabled:
+    @callback
+    def _arm_tou_boundary_listener(self) -> None:
+        """v5.17.3 D1: arm at-boundary point-in-time listener.
+
+        Fires ONE extra ``_async_decision_cycle`` at
+        ``(next_boundary + TOU_BOUNDARY_TICK_DELAY_S)`` — real wall clock,
+        NO now-override. The cycle evaluates the actual just-started
+        period exactly like a periodic tick would; the +5s guard rides
+        past the second-of-boundary edge so `get_current_period` reliably
+        reports the new period. This boundary tick IS the first post-
+        transition tick — it consumes `tou_transition_into` naturally, so
+        the following periodic tick sees no edge.
+
+        KILL SWITCH: if ``TOU_BOUNDARY_TICK_DELAY_S < 0`` this function
+        returns EARLY without registering any listener — the feature is
+        cleanly disabled with zero live code paths touched.
+
+        Cancels any existing handle first so re-arm from the periodic
+        path is idempotent (never double-fires at the same boundary).
+        Reads the next boundary via
+        ``TOURateEngine.get_next_period_change_dt`` (energy_tou.py). If
+        no boundary is found within the lookahead window (pathological,
+        e.g. flat-rate schedule) we simply do not arm and rely on the
+        periodic timer.
+
+        The callback `_on_tou_boundary` awaits one `_async_decision_cycle`
+        and re-arms via this helper (chained self-healing arm). Re-arm
+        computes the NEXT boundary from the post-transition wall clock,
+        which naturally advances past the just-consumed one — no tight
+        re-fire loop.
+        """
+        # KILL SWITCH — negative delay disables the feature entirely.
+        if TOU_BOUNDARY_TICK_DELAY_S < 0:
+            return
+        # Runtime absence of helper (test bootstraps that predate v5.17.3):
+        # silently no-op so those tests stay green.
+        if async_track_point_in_time is None:
             return
 
+        # Cancel any existing arm (idempotent re-arm).
+        if self._tou_boundary_unsub is not None:
+            try:
+                self._tou_boundary_unsub()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("prior TOU boundary unsub raised", exc_info=True)
+            self._tou_boundary_unsub = None
+
+        try:
+            from datetime import timedelta as _td
+            from homeassistant.util import dt as dt_util
+            next_boundary = self._tou.get_next_period_change_dt()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "get_next_period_change_dt raised — boundary listener not armed",
+                exc_info=True,
+            )
+            return
+        if next_boundary is None:
+            _LOGGER.debug(
+                "No TOU boundary found within lookahead — periodic timer only"
+            )
+            return
+
+        fire_at = next_boundary + _td(seconds=int(TOU_BOUNDARY_TICK_DELAY_S))
+        # If the fire time is already in the past (arm invoked mid-tick
+        # by a periodic self-heal race), skip — the next periodic tick or
+        # next re-arm will pick up the following boundary. Prevents HA
+        # raising for a past point-in-time.
+        try:
+            now_local = dt_util.now()
+            if fire_at <= now_local:
+                _LOGGER.debug(
+                    "boundary fire time %s already in the past (now=%s) "
+                    "— skipping this boundary",
+                    fire_at, now_local,
+                )
+                return
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            self._tou_boundary_unsub = async_track_point_in_time(
+                self.hass, self._on_tou_boundary, fire_at,
+            )
+            _LOGGER.info(
+                "at-boundary TOU tick armed: fire=%s boundary=%s delay=%ss",
+                fire_at.isoformat(),
+                next_boundary.isoformat(),
+                int(TOU_BOUNDARY_TICK_DELAY_S),
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "async_track_point_in_time failed for %s — periodic timer only",
+                fire_at,
+                exc_info=True,
+            )
+            self._tou_boundary_unsub = None
+
+    async def _on_tou_boundary(self, _now) -> None:
+        """Fire one at-boundary decision cycle (real wall clock), then re-arm.
+
+        Real `dt_util.now()` — no synthetic clock. The +5s delay applied
+        at arm-time already carries us past the boundary edge, so
+        `get_current_period()` returns the NEW period.
+
+        Re-arm happens in `finally` so a raised decision cycle can't
+        leave the boundary listener dead (self-healing). Concurrency
+        with the periodic tick is handled by the `_cycle_in_flight` guard
+        inside `_async_decision_cycle`.
+        """
+        try:
+            try:
+                _LOGGER.info(
+                    "at-boundary TOU tick: evaluating period=%s (real clock, +%ss)",
+                    self._tou.get_current_period(),
+                    int(TOU_BOUNDARY_TICK_DELAY_S),
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            await self._async_decision_cycle()
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "at-boundary TOU decision cycle raised (swallowed)",
+                exc_info=True,
+            )
+        finally:
+            # Clear old handle — this one has fired.
+            self._tou_boundary_unsub = None
+            self._arm_tou_boundary_listener()
+
+    async def _async_decision_cycle(self, _now=None) -> None:
+        """Run the decision cycle (periodic OR at-boundary tick).
+
+        v5.17.3 D1: also invoked once per TOU boundary via
+        `_on_tou_boundary`. The `_cycle_in_flight` guard prevents the
+        boundary tick and the periodic tick from running concurrently
+        and racing shared strategy stamps (`_last_reserve_level_desired`,
+        `_last_battery_decision`). The guard is a bool (event-loop is
+        single-threaded, no asyncio.Lock needed): read-then-set is atomic
+        because there's no `await` between them.
+        """
+        if not self._enabled:
+            return
+        if self._cycle_in_flight:
+            _LOGGER.debug(
+                "decision cycle already in flight — skipping re-entrant tick"
+            )
+            return
+        self._cycle_in_flight = True
+        try:
+            await self._decision_cycle_body()
+        finally:
+            self._cycle_in_flight = False
+            # v5.17.3 D1: self-heal the boundary listener from the periodic
+            # path too — if a prior `_arm_tou_boundary_listener` failed
+            # (transient exception, HA not-yet-running edge), each periodic
+            # tick tries again. Cheap: the arm helper is idempotent and
+            # no-ops when a valid handle is already stored or when the
+            # kill-switch constant is negative.
+            if (
+                self._tou_boundary_unsub is None
+                and TOU_BOUNDARY_TICK_DELAY_S >= 0
+            ):
+                self._arm_tou_boundary_listener()
+
+    async def _decision_cycle_body(self) -> None:
+        """Actual decision-cycle body (extracted for re-entrancy guard)."""
         self._maybe_reset_daily()
 
         try:
@@ -3088,7 +3290,10 @@ class EnergyCoordinator(BaseCoordinator):
             period = self._tou.get_current_period()
             season = self._tou.get_season()
 
-            # Check for period transition
+            # Check for period transition. v5.17.3 D1: when the at-boundary
+            # tick fires (+5s after transition) THIS is the first tick that
+            # sees the new period, so `_last_period` advances here and the
+            # subsequent periodic tick sees no edge — no double-consume.
             new_period = self._tou.check_period_transition()
             if new_period:
                 self._tou_transition_count += 1
@@ -3179,6 +3384,19 @@ class EnergyCoordinator(BaseCoordinator):
                     _LOGGER.info(
                         "Arbitrage chunk completed — eager latch persist "
                         "scheduled (reboot-safe HOLD on restart)"
+                    )
+                # v5.17.3 D2 (Tier-3 D-MED-2): mirror the eager-persist on the
+                # TRUE→FALSE edge (chunk reset — normally fires from
+                # `BatteryStrategy.reset_arbitrage_chunk` on TOU transition
+                # INTO off_peak, energy_battery.py:2703). Without this, a
+                # restart ≤15min after off_peak entry restores a stale
+                # `completed=True` latch and would HOLD the fresh chunk
+                # instead of charging. Same cheap KV write, edge-only.
+                elif _last_completed and not _completed_now:
+                    self.hass.async_create_task(self._save_evse_state())
+                    _LOGGER.info(
+                        "Arbitrage chunk reset — eager latch-clear persist "
+                        "scheduled (fresh chunk safe on restart)"
                     )
                 self._last_arbitrage_chunk_completed = _completed_now
             except Exception:  # noqa: BLE001
@@ -5902,6 +6120,17 @@ class EnergyCoordinator(BaseCoordinator):
         if self._decision_timer_unsub is not None:
             self._decision_timer_unsub()
             self._decision_timer_unsub = None
+        # v5.17.3 D1: cancel the anticipatory TOU-boundary listener too.
+        # Stored separately from `_unsub_listeners` (mirrors the periodic
+        # timer pattern) so re-setup after teardown can re-arm cleanly.
+        if self._tou_boundary_unsub is not None:
+            try:
+                self._tou_boundary_unsub()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "TOU boundary unsub raised (swallowed)", exc_info=True,
+                )
+            self._tou_boundary_unsub = None
         # Save peak import history so it survives restarts
         if self._peak_import_history:
             await self._save_peak_import_history()

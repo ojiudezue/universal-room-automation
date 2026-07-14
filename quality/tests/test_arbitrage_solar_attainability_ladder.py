@@ -59,6 +59,7 @@ _mods = {
     "homeassistant.helpers.event": {
         "async_track_state_change_event": lambda *a, **k: (lambda: None),
         "async_track_time_interval": lambda *a, **k: (lambda: None),
+        "async_track_point_in_time": lambda *a, **k: (lambda: None),
         "async_call_later": lambda *a, **k: (lambda: None),
     },
     "homeassistant.helpers.dispatcher": {
@@ -95,6 +96,20 @@ for name, attrs in _mods.items():
         sys.modules.setdefault(name, _mock_module(name, **attrs))
     else:
         sys.modules.setdefault(name, attrs)
+# Ensure `homeassistant.helpers.event` carries symbols the coordinator
+# imports even if a sibling test bootstrapped the module first
+# (`setdefault` above is a no-op in that case). v5.17.3 D1 added
+# async_track_point_in_time to the coordinator's import list.
+_evmod = sys.modules.get("homeassistant.helpers.event")
+if _evmod is not None:
+    for _sym, _stub in (
+        ("async_track_state_change_event", lambda *a, **k: (lambda: None)),
+        ("async_track_time_interval", lambda *a, **k: (lambda: None)),
+        ("async_track_point_in_time", lambda *a, **k: (lambda: None)),
+        ("async_call_later", lambda *a, **k: (lambda: None)),
+    ):
+        if not hasattr(_evmod, _sym):
+            setattr(_evmod, _sym, _stub)
 sys.modules.setdefault("aiosqlite", MagicMock())
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))

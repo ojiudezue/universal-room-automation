@@ -109,6 +109,19 @@ SOLAR_DAY_THRESHOLDS: Final = {
 DEFAULT_RESERVE_SOC: Final = 10  # v4.3.0 D3: was 20; lowered to give arbitrage maneuvering room
 DEFAULT_STORM_CHARGE_THRESHOLD: Final = 90
 DEFAULT_DECISION_INTERVAL_MINUTES: Final = 5
+
+# v5.17.3 D1: at-boundary TOU decision-tick delay.
+# Fires one extra `_async_decision_cycle` at (next_boundary + DELAY),
+# real wall clock. The tick evaluates the actual just-started period
+# exactly like a periodic tick — no synthetic-clock override anywhere.
+# The +5s guard rides past the second-of-boundary edge so
+# `get_current_period` reliably reports the new period.
+#
+# KILL SWITCH: setting this to a NEGATIVE value CLEANLY DISABLES the
+# at-boundary tick — `_arm_tou_boundary_listener` returns early, no
+# `async_track_point_in_time` is registered, no boundary code path runs.
+# Fall back to the periodic timer only.
+TOU_BOUNDARY_TICK_DELAY_S: Final = 5
 DEFAULT_BILL_CYCLE_START_DAY: Final = 23
 
 # Battery storage mode values (Enphase Enpower)

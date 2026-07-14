@@ -961,7 +961,12 @@ class TestFillPrioritySocTickSnapshot:
             src = f.read()
         idx = src.find("async def _async_decision_cycle")
         assert idx > 0, "tick function must exist"
-        end = src.find("\n    async def ", idx + 1)
+        # v5.17.3 D1: the actuation block moved into `_decision_cycle_body`
+        # (thin re-entrancy guard shell wraps it). Scan through the end of
+        # that follow-up function too.
+        body_idx = src.find("async def _decision_cycle_body", idx + 1)
+        end_search_from = body_idx + 1 if body_idx > 0 else idx + 1
+        end = src.find("\n    async def ", end_search_from)
         if end < 0:
             end = len(src)
         slice_ = src[idx:end]
