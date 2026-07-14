@@ -78,6 +78,15 @@ from .entity import UniversalRoomEntity
 _LOGGER = logging.getLogger(__name__)
 
 
+# G1: per-room control-list attrs helper lives in a HA-import-free
+# module so it can be unit-tested without stubbing homeassistant.
+# It reads the six actuator-driving CONF lists via
+# `coordinator._get_config` — the SAME options-first-with-data-fallback
+# read path `coordinator.py:820-840` uses for actuation — so the
+# emitted attrs cannot diverge from the actuator's ground truth.
+from .binary_sensor_control_attrs import build_control_attrs as _build_control_attrs
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -603,6 +612,19 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
         except Exception:
             # B-M4 fix-up: TIER1_KINDS imported at module top.
             attrs["substrate_kinds"] = {k: False for k in TIER1_KINDS}
+        # G1: per-room control-list attrs — read-only projection of the
+        # actuator-driving CONF lists via `coordinator._get_config` so
+        # the PWA (and any consumer) reads the same truth URA actuates on.
+        # See `_build_control_attrs` at module top for per-key defaults.
+        try:
+            attrs.update(_build_control_attrs(self.coordinator))
+        except Exception:  # noqa: BLE001 — never let G1 blank the whole dict
+            attrs.setdefault("control_lights", [])
+            attrs.setdefault("control_night_lights", [])
+            attrs.setdefault("control_fans", [])
+            attrs.setdefault("control_humidity_fans", [])
+            attrs.setdefault("control_covers", [])
+            attrs.setdefault("control_climate_entity", None)
         return attrs
 
 
