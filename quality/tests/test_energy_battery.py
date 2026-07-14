@@ -1669,8 +1669,18 @@ class TestV4502GridImportGuard:
 
     def test_guard_no_flap_within_chunk(self):
         """Plan acceptance: one-shot abort, no oscillation. Once aborted,
-        subsequent ticks within the same chunk stay in WAIT even if
-        net_power drops back below threshold."""
+        subsequent ticks within the same chunk MUST NOT re-enter CHARGE.
+
+        v5.17.1 (I-AH1) update: after the guard-abort sets
+        `_arbitrage_chunk_completed=True`, the completed-chunk HOLD
+        short-circuit takes over — reserve locks at peak_buffer_target
+        with `charge_from_grid=False` (no grid CHARGE re-entry). This is
+        the desired behavior for the guard-abort case: any partial
+        CHARGE progress is preserved instead of released to drain-target.
+        The old WAIT semantics also emitted no CHARGE, but at
+        reserve=reserve_soc (the safety floor) — leaking any partial
+        charge on subsequent poor-day forecasts.
+        """
         h = _BatteryHarness(
             soc=15, solcast_today="20", solcast_tomorrow="20",
             arbitrage_enabled=True, with_tou_engine=True,
@@ -1679,18 +1689,26 @@ class TestV4502GridImportGuard:
         # Two consecutive over-cap ticks → guard locks the chunk
         h.strategy.determine_mode("off_peak", "summer", now=_SUMMER_INSIDE_WINDOW)
         r1 = h.strategy.determine_mode("off_peak", "summer", now=_SUMMER_INSIDE_WINDOW)
+        # Guard-abort tick: `_get_arbitrage_phase` returns WAIT while
+        # setting `_arbitrage_chunk_completed=True` internally. The D1
+        # short-circuit only sees the latch on the NEXT tick.
         assert r1["arbitrage_phase"] == ARBITRAGE_PHASE_WAIT
         assert h.strategy._arbitrage_chunk_completed is True
-        # Now grid import drops below threshold — would the guard re-allow CHARGE?
+        # Now grid import drops below threshold — chunk still locked.
         h.hass.set_state(
             DEFAULT_NET_POWER_ENTITY, "5000",  # 5 kW, well under guard
             attributes={"unit_of_measurement": "W"},
         )
-        # Next tick — chunk still locked → stay in WAIT
         r2 = h.strategy.determine_mode("off_peak", "summer", now=_SUMMER_INSIDE_WINDOW)
-        assert r2["arbitrage_phase"] == ARBITRAGE_PHASE_WAIT, (
-            "chunk lock must hold across guard-abort even if conditions ease"
+        # v5.17.1 (I-AH1): the completed-chunk HOLD short-circuit now
+        # owns this state. No CHARGE re-entry.
+        assert r2["arbitrage_phase"] == ARBITRAGE_PHASE_HOLD, (
+            "chunk lock must hold across guard-abort — completed-chunk "
+            "HOLD (I-AH1) preserves any partial CHARGE progress"
         )
+        assert not any(
+            a.get("service") == "switch.turn_on" for a in r2.get("actions", [])
+        ), "chunk lock must hold across guard-abort — no CHARGE re-entry"
 
     def test_guard_does_not_fire_when_envoy_unavailable(self):
         """If net_power_w is None (envoy blip), guard returns False — let

@@ -3499,6 +3499,71 @@ class BatteryStrategy:
         tomorrow_class = self.classify_tomorrow_solar()
         target_day_class = self._classify_target_day(now)
 
+        # v5.17.1 D1 — Completed-chunk HOLD precedence (invariant I-AH1).
+        # Live regression 2026-07-14: an 08:00 CHARGE brought SOC to
+        # `peak_buffer_target` and set `_arbitrage_chunk_completed=True`;
+        # by 09:31 the SOC had dipped 1% below target, `_classify_attain_rung`
+        # returned rung_0 (projection ≥ entry_band with fresh solar),
+        # `_gate_is_open` returned False, `_get_arbitrage_phase` returned
+        # "n/a", and the drain-target fallback below emitted reserve=30 —
+        # draining the purchased chunk hours before the boundary.
+        #
+        # Fix: when a chunk has already completed AND the target boundary
+        # is still ahead, short-circuit to the arbitrage HOLD emission
+        # BEFORE consulting the gate/rung ladder. HOLD's phase-rule 1
+        # ("SOC ≥ target → HOLD") is otherwise unreachable when the rung
+        # ladder closes the gate on a chunk that has already CHARGED to
+        # target. The rung ladder remains authoritative for the
+        # not-yet-charged path (`_arbitrage_chunk_completed=False`).
+        #
+        # Requires: arbitrage_enabled + peak_buffer_target set + boundary
+        # AHEAD (mins > 0 from `_attain_target_boundary`). Preserves:
+        #   - pre-window WAIT (chunk NOT completed → this predicate False,
+        #     existing drain/WAIT path unchanged, byte-identical).
+        #   - no CHARGE re-entry (chunk lock stands; charge_from_grid=False).
+        #   - inclement `partial_hold` floor via `_floor_reserve` — may
+        #     only RAISE reserve above target.
+        if (
+            self._arbitrage_enabled
+            and self._peak_buffer_target is not None
+            and self._arbitrage_chunk_completed
+            # D3 item 5 (plan): when the v5.5.3 attain state machine owns
+            # the "holding" latch, defer to its `_get_attainability_hold_decision`
+            # — it also emits HOLD-at-target, exposes phase="attain" for
+            # observability, and MUST keep that ownership. Two hold paths
+            # cannot both fire / contradict.
+            and self._attain_state != "holding"
+        ):
+            _bnd_dt, _bnd_period, _bnd_mins = self._attain_target_boundary(
+                now, "off_peak",
+            )
+            if _bnd_mins is not None and _bnd_mins > 0:
+                self._arbitrage_active = True
+                self._arbitrage_phase = ARBITRAGE_PHASE_HOLD
+                floored = self._floor_reserve(
+                    self._peak_buffer_target,
+                    effective_reserve,
+                    decision.hold_depth,
+                )
+                suffix = (
+                    " (partial_hold floor)"
+                    if floored != self._peak_buffer_target else ""
+                )
+                return self._result(
+                    BATTERY_MODE_SELF_CONSUMPTION,
+                    f"Arbitrage HOLD — completed chunk, boundary ahead "
+                    f"(reserve locked at {self._peak_buffer_target}%; "
+                    f"SOC {soc}%; target_day={target_day_class}){suffix}",
+                    current_mode,
+                    charge_from_grid=False,
+                    reserve_level=floored,
+                    season=season,
+                    tomorrow_solar_class=tomorrow_class,
+                    arbitrage_active=True,
+                    arbitrage_phase=ARBITRAGE_PHASE_HOLD,
+                    target_day_class=target_day_class,
+                )
+
         # v4.5.0 D1: arbitrage path overrides drain-target path when the
         # gate is open (arbitrage_enabled AND target_day in poor/very_poor,
         # extended via D3 multi_day if enabled). The new path is a four-
