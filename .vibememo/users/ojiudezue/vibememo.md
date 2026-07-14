@@ -112,3 +112,5 @@ Humidity/exhaust fans decoupled to always room-owned (one owner, invariant I1), 
 - Jaya bedroom occupancy was fixed (BLE room-mapping + zigbee mmwave) but now FLAPS on jittery Bermuda area placement — tune Bermuda vs add an occupancy debounce?
 - Is the per-cycle write-VOLUME gate from the OC incident [021] now a standing review item, or still ad-hoc? It only fires when a reviewer thinks to ask.
 - Model tiering [022, 024]: with the Opus-4.8 reviewer now exceeding the 4.7 builder, is the reviewer reliably the strongest link — and should the builder move up too?
+
+**Update 2026-07-13 late [029]:** The failover-map open questions above are ANSWERED — by a 10-minute recorder probe, not a build. D3/D4 rejected on measured staleness; battery-power sign resolved passively; cloud grid-power exposed as a broken derivation (never admit). Operator coined the two disciplines now in CLAUDE.md: **Measure Before You Build** (probe-first gate for empirically-scoped cycles) and **hand-build the fixture before automating**. Week-window probe re-run due 2026-07-20 = final go/no-go on the slimmed map (SOC + slow-production + auditability substrate).

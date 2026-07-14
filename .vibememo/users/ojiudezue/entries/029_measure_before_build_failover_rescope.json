@@ -1,0 +1,40 @@
+{
+  "format_version": "2.1",
+  "entry_id": "029",
+  "author": "ojiudezue",
+  "session_id": "claude_20260713_14_dashboards_rider_deploy_failover_b0",
+  "timestamp": "2026-07-14T03:30:00Z",
+  "type": "counseling",
+  "weight": "critical",
+  "title": "Measure Before You Build: a 10-minute read-only recorder probe rescoped the failover-map cycle before a single line was built — D3/D4 rejected by data, a sign convention resolved passively, and a broken cloud entity exposed",
+  "summary": "The Envoy telemetry failover-map plan was fully written (7 falsifiable invariants, Tier 2-DB/3 framings) when the operator made two moves the assistant should have made: (1) 'do a manual pairing audit first — by hand before code does it a thousand times' and (2) 'how can we monitor these gaps — to understand them — before building?' The hand audit compared LIVE values on every candidate local↔cloud pair and immediately found a landmine: cloud 'grid power' disagreed with local by ~100x at the same minute. A one-shot read-only probe over 48h of recorder history (scripts/telemetry_pair_probe.py, runs via SSH, exits in seconds, nothing resident) then settled every open question the plan had deferred to runtime instrumentation: cloud polls every ~62s but its power VALUES refresh only every 5-15 min upstream (data freshness, not poll rate — polling harder is pointless); battery-power sign convention resolved passively (as-is p95 6.6kW vs sign-flipped 19.4kW — cloud is discharge-positive, no live experiment needed); D3 (cloud battery power feeding the drain-gate) and D4 (degraded arbitrage) REJECTED on measured staleness — blind-hold is safer than 5-15-min-stale power; and net/grid power proved to be a semantic mismatch no transform can fix (all algebraic identities >=2.6kW p50 off, all averaging windows ~2kW off, distribution differs in kind: cloud median 0.07kW vs local 2.9kW, cloud max 38.8kW vs local 16.6kW — likely the enphase_ev integration deriving it from misaligned interval-energy deltas; candidate upstream bug). An initial EVSE-exclusion hypothesis was killed by the operator (no Enphase EVSE; the Emporia hangs off SPAN, undifferentiated to the Enphase CT) — a reminder that hypotheses about hardware topology need the operator in the loop. The failure mode being counseled: the plan SAID 'measured, not assumed' but placed the measurement INSIDE the build as a runtime p95 estimator, when 48h of answer was already sitting in the recorder. Now codified in CLAUDE.md ('Measure Before You Build' + trigger checklist) and memory. Same session: v5.16.3 persistence rider deployed+validated (framing-C FIX-FIRST resolved with executed mutations); URA 7 Rooms tab rebuilt on the Reddit room_summary+bubble-popup pattern (38 faces zone-clustered, 8-section auto-populating popups, Catppuccin Mocha, integration-filter instead of labels); URA 7 Energy 'entity not found' pinned to an apexcharts yaxis_id key bug and fixed.",
+  "decisions": [
+    "MEASURE BEFORE YOU BUILD (CLAUDE.md-codified): when a cycle's value depends on empirical properties of external data, the first deliverable is a one-shot read-only probe over existing history; its report is the per-deliverable go/no-go gate. Probe output is SCOPE, not telemetry.",
+    "Hand-build the fixture before automating (operator-coined): construct any mapping/classification once by hand against live values and commit it (AUDIT_envoy_telemetry_pairing_manual.md) as the acceptance fixture the automation is diffed against.",
+    "Failover map rescoped by measurement: SOC admits (0.5pp median error — outage-grade), production admits for slow consumers only, battery power sign-known but staleness-rejected for the drain-gate, net/grid power NEVER admits (semantic mismatch, no transform rescues it).",
+    "Pair admission rule: unit factor AND sign map AND epoch/boundary semantics must ALL be explicitly known — name+device_class similarity admits nothing.",
+    "Week-later probe re-run (2026-07-20, reminder set + pickup-memo backup) is the final pre-build gate; it also splits net-power divergence by EV-charging windows to characterize the suspected upstream bug."
+  ],
+  "alternatives_considered": [
+    "Build the map with a runtime rolling-p95 staleness estimator and let it learn the gaps in production: rejected — the recorder already held the answer, and shipping D3/D4 first would have fed 5-15-min-stale power to cost/safety decisions during outages.",
+    "Treat the 100x net-power divergence as a polling delay and lag-compensate: rejected by measurement — best-fit-lag and averaging sweeps leave a ~2kW median residual; the quantities differ in kind.",
+    "EVSE-circuit-exclusion explanation for the divergence: killed by operator hardware knowledge, then confirmed dead by distribution analysis."
+  ],
+  "implications": [
+    "Planning docs now have a reviewable gap if they propose runtime instrumentation to learn what an offline probe could answer today — reviewers check against the CLAUDE.md trigger checklist.",
+    "The probe script is reusable for any local-vs-cloud or sensor-vs-sensor freshness/divergence question (SPAN vs Envoy, Emporia vs SPAN, future integrations).",
+    "The enphase_ev grid-power entity should not be displayed as 'grid power' anywhere (URA dashboards clean; PWA prototypes must be checked at M2) and warrants an upstream bug report with the probe output as repro.",
+    "Envoy *_today counters roll at UTC midnight (F4, found incidentally) — any URA consumer assuming local-midnight is ~5h wrong; follow-up grep queued."
+  ],
+  "refs": {
+    "docs": [
+      "docs/planning/AUDIT_envoy_telemetry_pairing_manual.md",
+      "scripts/telemetry_pair_probe.py",
+      "CLAUDE.md (Measure Before You Build section)"
+    ],
+    "commits": ["8ea4c147", "edc1a426", "629ebb88", "30a8436a", "4f6873e5"],
+    "related_entries": ["028"]
+  },
+  "confidence": "high",
+  "revisit_trigger": "If the 2026-07-20 week-window probe re-run contradicts the 48h verdicts (e.g. cloud freshness improves, or SOC divergence widens), re-open D3/D4 scoping before dismissing them permanently."
+}
