@@ -1293,77 +1293,18 @@ class EnergyCoordinator(BaseCoordinator):
                         fc_iso,
                     )
             # Rider (2026-07-13, B-LOW-2 close): restore write-verification
-            # RAM state. Reuses the SAME 10h staleness guard already applied
-            # to the EVSE KV reads. Preserves ORIGINAL ISO timestamps
+            # RAM state. Extracted to `_restore_wv_state` for test authority
+            # (framing-C C-HIGH-1). Preserves ORIGINAL ISO timestamps
             # (`_last_*_at`, `verified_at`) so age renders honestly and,
             # crucially, so `_check`'s `ledger_at > commanded_at` supersession
             # comparison sees the OLD (restored) ledger_at as strictly less
             # than any FRESH post-boot commanded_at — restored ledger CANNOT
             # false-supersede a fresh check.
-            try:
-                ledger_json = await db.restore_energy_state_with_age(
-                    "wv_commanded_ledger", max_age_hours=STALE_MAX_AGE_HOURS,
-                )
-                if ledger_json:
-                    try:
-                        battery = getattr(self, "_battery", None)
-                    except Exception:  # noqa: BLE001
-                        battery = None
-                    if battery is not None:
-                        payload = _json.loads(ledger_json)
-
-                        def _parse(x):
-                            if not x:
-                                return None
-                            try:
-                                dt = dt_util.parse_datetime(x)
-                                if dt is not None and dt.tzinfo is None:
-                                    dt = dt.replace(tzinfo=dt_util.UTC)
-                                return dt
-                            except (ValueError, TypeError):
-                                return None
-
-                        # Only populate if RAM is still None (do not clobber
-                        # any command already emitted post-boot).
-                        r = payload.get("reserve_soc") or {}
-                        if battery._last_reserve_level is None and r.get("commanded") is not None:  # noqa: SLF001
-                            battery._last_reserve_level = r.get("commanded")  # noqa: SLF001
-                            battery._last_reserve_level_at = _parse(r.get("commanded_at"))  # noqa: SLF001
-                        c = payload.get("charge_from_grid") or {}
-                        if battery._last_charge_from_grid_command is None and c.get("commanded") is not None:  # noqa: SLF001
-                            battery._last_charge_from_grid_command = c.get("commanded")  # noqa: SLF001
-                            battery._last_charge_from_grid_command_at = _parse(c.get("commanded_at"))  # noqa: SLF001
-                        s = payload.get("storage_mode") or {}
-                        if battery._last_storage_mode_command is None and s.get("commanded") is not None:  # noqa: SLF001
-                            battery._last_storage_mode_command = s.get("commanded")  # noqa: SLF001
-                            battery._last_storage_mode_command_at = _parse(s.get("commanded_at"))  # noqa: SLF001
-                        _LOGGER.info(
-                            "Rider: restored write-verification commanded "
-                            "ledger from KV (reserve=%s@%s, cfg=%s@%s, "
-                            "storage=%s@%s)",
-                            battery._last_reserve_level,  # noqa: SLF001
-                            battery._last_reserve_level_at,  # noqa: SLF001
-                            battery._last_charge_from_grid_command,  # noqa: SLF001
-                            battery._last_charge_from_grid_command_at,  # noqa: SLF001
-                            battery._last_storage_mode_command,  # noqa: SLF001
-                            battery._last_storage_mode_command_at,  # noqa: SLF001
-                        )
-                rec_json = await db.restore_energy_state_with_age(
-                    "wv_verified_records", max_age_hours=STALE_MAX_AGE_HOURS,
-                )
-                verifier = getattr(self, "_write_verifier", None)
-                if rec_json and verifier is not None:
-                    try:
-                        verifier.restore_records_from_persist(_json.loads(rec_json))
-                    except Exception:  # noqa: BLE001
-                        _LOGGER.debug(
-                            "wv verifier restore raised (swallowed)",
-                            exc_info=True,
-                        )
-            except Exception:  # noqa: BLE001
-                _LOGGER.debug(
-                    "wv persist restore failed (swallowed)", exc_info=True,
-                )
+            battery = getattr(self, "_battery", None)
+            verifier = getattr(self, "_write_verifier", None)
+            await self._restore_wv_state(
+                db, battery, verifier, STALE_MAX_AGE_HOURS,
+            )
             if (
                 states
                 or self._ev._paused_by_grid_cap
@@ -1390,6 +1331,87 @@ class EnergyCoordinator(BaseCoordinator):
                 )
         except Exception as e:
             _LOGGER.warning("Could not restore EVSE state from DB: %s", e)
+
+    async def _restore_wv_state(
+        self,
+        db,
+        battery,
+        verifier,
+        stale_max_age_hours: float,
+    ) -> None:
+        """Restore write-verification RAM state from KV (extracted for test
+        authority — framing-C C-HIGH-1).
+
+        Byte-identical to the pre-extraction inline block:
+          - Preserves ORIGINAL ISO timestamps on the commanded ledger
+            (`_last_*_at`) so `_check`'s `ledger_at > commanded_at`
+            supersession guard treats restored ledger as strictly older
+            than any fresh post-boot commanded_at.
+          - Only populates battery ledger fields still `None` (no clobber
+            of any command already emitted post-boot).
+          - Delegates verifier `_records` rehydration to
+            `WriteVerifier.restore_records_from_persist`, which itself
+            refuses to clobber a fresh post-boot outcome (NO_DATA guard).
+          - Uses the same 10h staleness gate applied to sibling EVSE keys.
+        """
+        import json as _json
+        from homeassistant.util import dt as dt_util
+        try:
+            ledger_json = await db.restore_energy_state_with_age(
+                "wv_commanded_ledger", max_age_hours=stale_max_age_hours,
+            )
+            if ledger_json and battery is not None:
+                payload = _json.loads(ledger_json)
+
+                def _parse(x):
+                    if not x:
+                        return None
+                    try:
+                        dt = dt_util.parse_datetime(x)
+                        if dt is not None and dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=dt_util.UTC)
+                        return dt
+                    except (ValueError, TypeError):
+                        return None
+
+                r = payload.get("reserve_soc") or {}
+                if battery._last_reserve_level is None and r.get("commanded") is not None:  # noqa: SLF001
+                    battery._last_reserve_level = r.get("commanded")  # noqa: SLF001
+                    battery._last_reserve_level_at = _parse(r.get("commanded_at"))  # noqa: SLF001
+                c = payload.get("charge_from_grid") or {}
+                if battery._last_charge_from_grid_command is None and c.get("commanded") is not None:  # noqa: SLF001
+                    battery._last_charge_from_grid_command = c.get("commanded")  # noqa: SLF001
+                    battery._last_charge_from_grid_command_at = _parse(c.get("commanded_at"))  # noqa: SLF001
+                s = payload.get("storage_mode") or {}
+                if battery._last_storage_mode_command is None and s.get("commanded") is not None:  # noqa: SLF001
+                    battery._last_storage_mode_command = s.get("commanded")  # noqa: SLF001
+                    battery._last_storage_mode_command_at = _parse(s.get("commanded_at"))  # noqa: SLF001
+                _LOGGER.info(
+                    "Rider: restored write-verification commanded "
+                    "ledger from KV (reserve=%s@%s, cfg=%s@%s, "
+                    "storage=%s@%s)",
+                    battery._last_reserve_level,  # noqa: SLF001
+                    battery._last_reserve_level_at,  # noqa: SLF001
+                    battery._last_charge_from_grid_command,  # noqa: SLF001
+                    battery._last_charge_from_grid_command_at,  # noqa: SLF001
+                    battery._last_storage_mode_command,  # noqa: SLF001
+                    battery._last_storage_mode_command_at,  # noqa: SLF001
+                )
+            rec_json = await db.restore_energy_state_with_age(
+                "wv_verified_records", max_age_hours=stale_max_age_hours,
+            )
+            if rec_json and verifier is not None:
+                try:
+                    verifier.restore_records_from_persist(_json.loads(rec_json))
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "wv verifier restore raised (swallowed)",
+                        exc_info=True,
+                    )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "wv persist restore failed (swallowed)", exc_info=True,
+            )
 
     async def _save_evse_state(self) -> None:
         """Persist EVSE state to DB for restart recovery.

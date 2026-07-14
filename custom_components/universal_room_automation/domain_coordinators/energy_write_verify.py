@@ -930,7 +930,11 @@ class WriteVerifier:
             rec.commanded = data.get("commanded")
             rec.oracle_seen = data.get("oracle_seen")
             rec.verified_at = data.get("verified_at")
-            rec.status = data.get("status") or STATUS_NO_DATA
+            # Rider fix-up C-LOW-1: normalize `status` — a corrupt KV
+            # payload where `status` is not a str (list/dict/int) must
+            # not poison the record. Coerce non-str to NO_DATA.
+            raw_status = data.get("status")
+            rec.status = raw_status if isinstance(raw_status, str) and raw_status else STATUS_NO_DATA
             rec.restored = True
         _LOGGER.info(
             "Rider: restored WriteVerifier records from KV: %s",
