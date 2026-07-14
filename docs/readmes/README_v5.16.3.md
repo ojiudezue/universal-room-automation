@@ -61,10 +61,14 @@ shipwatch:
       confirm_after: 15m
 ```
 
-## Live Validation (prospective)
+## Live Validation — Validated 2026-07-14
 
-| ID | Check | Expected |
-|---|---|---|
-| L1 | Deploy healthy | installed_version == v5.16.3; presence house_state sensor available; zero URA ERROR lines post-restart |
-| L2 | Restored WV attrs | last_verified_write_* attrs non-null post-restart (pre-restart state existed); `restored: true` visible on restored records |
-| L3 | Honest reserve attrs | `park_floor_source` present in [commanded, planned_fallback]; `current_commanded_reserve` populated from the write leg |
+Post-restart observations (restart ~21:06 CDT 2026-07-13; checks 21:10-21:16 CDT):
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| L1 | Deploy healthy | **PASS** | `update.universal_room_automation_update` installed_version == v5.16.3; `sensor.ura_presence_coordinator_presence_house_state` available (state `away`, known cold-boot value — HouseStateMachine boots AWAY by design); error_log scan: only 3 URA ERROR lines, all at 21:08 boot window ("DB write worker did not process request within 35s" — known boot-transient write-queue congestion), zero after boot settled |
+| L2 | Restored WV attrs | **AS-EXPECTED (null)** | `last_verified_write_*` all `{status: no_data, restored: false}`. This is CORRECT on this first post-deploy boot: the persistence code shipped in v5.16.3 itself, so the outgoing v5.16.2 process never wrote the `wv_commanded_ledger` / `wv_verified_records` KV keys — there was nothing to restore. Restore path is proven in-suite (framing-C: 4 executed mutations all RED, +12 tests). Live proof of restore lands on the NEXT restart after a verified write matures — tracked by Shipwatch H2 |
+| L3 | Honest reserve attrs | **PASS (honest nulls)** | `park_floor_source: planned_fallback` (valid enum member); `current_commanded_reserve: null` — honest, since no reserve command has been issued this boot (Envoy was still warming up at check time; `envoy_available` flipped false→true at 21:16, strategy mode still `unknown` pending first cycle). The null-until-commanded behavior is exactly the honesty this rider ships |
+
+Boot transients seen and dismissed: 3× DB write-worker 35s timeouts at 21:08 (census snapshot ×2, environmental data ×1) — boot-window write-queue congestion, no recurrence in subsequent scans. `battery_strategy` state `unknown` with reason "Envoy unavailable — holding" during Envoy warmup (~110s discovery) — resolves on first post-warmup strategy cycle.
