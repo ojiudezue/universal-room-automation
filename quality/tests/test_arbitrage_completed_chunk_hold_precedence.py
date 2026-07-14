@@ -183,6 +183,44 @@ _NETP = "sensor.test_envoy_net_power"
 _INCIDENT_ANCHOR = datetime(2026, 7, 15, 9, 31)
 
 
+class _FrozenClock:
+    """Context manager that pins `homeassistant.util.dt` to a frozen anchor.
+
+    Some helpers deep in the battery strategy read `dt_util.now()` /
+    `dt_util.utcnow()` for month/date derivations (e.g. per-month solar
+    percentile thresholds in `classify_solar_day` automatic mode; the
+    `parsed_bnd <= now_utc` boundary compare inside restore). Even
+    though the anchor tests pass `now` into `determine_mode`, any
+    such deep helper picks up REAL wall-clock — which changes what
+    "today" and "target day" mean and can flip the decision.
+
+    Pinning shields the tests from wall-clock coupling. Anchors that
+    conditionally exercise wall-clock month roll-over are covered by
+    dedicated tests elsewhere; here we just want deterministic seam
+    verification.
+    """
+
+    def __init__(self, frozen: datetime):
+        self._frozen = frozen
+        self._orig_now = None
+        self._orig_utcnow = None
+
+    def __enter__(self):
+        import homeassistant.util.dt as _dt_util
+        self._orig_now = getattr(_dt_util, "now", None)
+        self._orig_utcnow = getattr(_dt_util, "utcnow", None)
+        _dt_util.now = lambda: self._frozen
+        _dt_util.utcnow = lambda: self._frozen
+        return self
+
+    def __exit__(self, *exc):
+        import homeassistant.util.dt as _dt_util
+        if self._orig_now is not None:
+            _dt_util.now = self._orig_now
+        if self._orig_utcnow is not None:
+            _dt_util.utcnow = self._orig_utcnow
+
+
 def _build_strategy(
     *,
     soc: float,
@@ -280,9 +318,10 @@ class TestCompletedChunkHoldPrecedence:
         strat._arbitrage_chunk_completed = True
         strat._arbitrage_active = True
 
-        result = strat.determine_mode(
-            "off_peak", "summer", now=_INCIDENT_ANCHOR, ev_load_w=0.0,
-        )
+        with _FrozenClock(_INCIDENT_ANCHOR):
+            result = strat.determine_mode(
+                "off_peak", "summer", now=_INCIDENT_ANCHOR, ev_load_w=0.0,
+            )
 
         # I-AH1: reserve must be at target, not drained to 30.
         emitted = _reserve_action_target(result)
@@ -320,9 +359,10 @@ class TestCompletedChunkHoldPrecedence:
         # Chunk NOT completed (fresh chunk).
         assert strat._arbitrage_chunk_completed is False
 
-        result = strat.determine_mode(
-            "off_peak", "summer", now=anchor, ev_load_w=0.0,
-        )
+        with _FrozenClock(anchor):
+            result = strat.determine_mode(
+                "off_peak", "summer", now=anchor, ev_load_w=0.0,
+            )
         # Existing behavior: with gate open but window not yet open →
         # arbitrage WAIT (or NA if rung fires). D1 must not have
         # short-circuited to HOLD (chunk not completed).
@@ -348,9 +388,10 @@ class TestCompletedChunkHoldPrecedence:
         # path.
         _seed_rate(strat, _INCIDENT_ANCHOR, 79.0, 5.0)
         hass.set_state(_BSOC, "79")
-        result = strat.determine_mode(
-            "off_peak", "summer", now=_INCIDENT_ANCHOR, ev_load_w=0.0,
-        )
+        with _FrozenClock(_INCIDENT_ANCHOR):
+            result = strat.determine_mode(
+                "off_peak", "summer", now=_INCIDENT_ANCHOR, ev_load_w=0.0,
+            )
         # No completed-chunk HOLD short-circuit. Real behavior here:
         # SOC 79 < target 80, rung_0 fires closing the gate → falls
         # to drain path. That's the LEGITIMATE not-yet-charged path
@@ -387,9 +428,10 @@ class TestAttainOwnerShortCircuit:
         strat._attain_state = "holding"
         strat._attain_reboot_recovered = True  # skip cold-boot defer
 
-        result = strat.determine_mode(
-            "off_peak", "summer", now=_INCIDENT_ANCHOR, ev_load_w=0.0,
-        )
+        with _FrozenClock(_INCIDENT_ANCHOR):
+            result = strat.determine_mode(
+                "off_peak", "summer", now=_INCIDENT_ANCHOR, ev_load_w=0.0,
+            )
 
         # Attain-owner branch must have fired → phase 'attain', not 'hold'.
         # (Mutation-anchored via sentinel edit during part-3: replacing the
@@ -442,9 +484,10 @@ class TestBoundaryDtSubMinuteEdge:
         # which is the one whose boundary compare we're exercising.
         strat._attain_state = "inactive"
 
-        result = strat.determine_mode(
-            "off_peak", "summer", now=anchor, ev_load_w=0.0,
-        )
+        with _FrozenClock(anchor):
+            result = strat.determine_mode(
+                "off_peak", "summer", now=anchor, ev_load_w=0.0,
+            )
 
         emitted = _reserve_action_target(result)
         assert emitted == 80, (
