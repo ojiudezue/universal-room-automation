@@ -217,16 +217,55 @@ class TestQueryAnomalies:
         """
         db = _make_db(str(tmp_path))
         _run(_init_db(db))
-        # Seed with severity='3' rows explicitly so we can prove mapping.
+        # Seed with severity rows explicitly so we can prove mapping.
         _seed_anomalies(db.db_file, 5)  # severities cycle '0'..'4'
-        # 'critical' in the mapping table above → '3'.
+        # v5.17.0 review fix A1/A2: canonical enum lives at
+        # domain_coordinators.anomaly_event.AnomalySeverity; 'critical' → 4.
         expected_num = WS_ANOMALY_SEVERITY_NAME_TO_NUMBER["critical"]
-        assert expected_num == "3"
+        assert expected_num == "4"
         result = _run(db.query_anomalies(severity="critical", limit=50))
-        # Every returned row must have severity == '3'.
+        # Every returned row must have severity == '4'.
         assert result["rows"], "name-mapped filter returned nothing"
         for r in result["rows"]:
-            assert r["severity"] == "3"
+            assert r["severity"] == "4"
+
+
+class TestSeverityMapMatchesEnum:
+    """v5.17.0 review fixes A1+A2 — the const map MUST equal the map
+    derived from ``domain_coordinators.anomaly_event.AnomalySeverity``.
+
+    Mutation anchor: const.WS_ANOMALY_SEVERITY_NAME_TO_NUMBER. Re-break
+    any single entry (e.g. change 'critical' back to '3') → this test
+    goes RED. Executed in the build report.
+    """
+
+    def test_map_derived_from_enum_equals_const(self):
+        # Import the enum module by file to bypass the package
+        # __init__.py which eagerly imports occupancy_substrate (needs
+        # real homeassistant.helpers.event). Path via importlib.util.
+        import importlib.util
+        enum_path = os.path.join(
+            os.path.dirname(__file__), "..", "..",
+            "custom_components", "universal_room_automation",
+            "domain_coordinators", "anomaly_event.py",
+        )
+        spec = importlib.util.spec_from_file_location(
+            "_ura_anomaly_event_probe", enum_path
+        )
+        assert spec is not None and spec.loader is not None
+        mod = importlib.util.module_from_spec(spec)
+        import sys as _sys
+        _sys.modules[spec.name] = mod
+        spec.loader.exec_module(mod)
+        AnomalySeverity = mod.AnomalySeverity
+        from custom_components.universal_room_automation.const import (
+            WS_ANOMALY_SEVERITY_NAME_TO_NUMBER,
+        )
+        expected = {sev.name.lower(): str(sev.value) for sev in AnomalySeverity}
+        assert WS_ANOMALY_SEVERITY_NAME_TO_NUMBER == expected, (
+            f"const map drifted from AnomalySeverity enum: "
+            f"const={WS_ANOMALY_SEVERITY_NAME_TO_NUMBER} expected={expected}"
+        )
 
     def test_cursor_pagination_no_overlap_no_gap(self, tmp_path):
         """Mutation anchor: ``id < ?`` cursor clause in query_anomalies.
@@ -379,6 +418,218 @@ class TestWSRegistrationGuard:
 
 
 # --------------------------------------------------------------------------
+# Tests — subscribe handler (B-H1 loop marshal, B-H2 importance,
+# B-H3 stream discrimination)
+# --------------------------------------------------------------------------
+
+class _FakeConn:
+    def __init__(self):
+        self.sent: list = []
+        self.subscriptions: dict = {}
+        self.results: list = []
+
+    def send_message(self, msg):
+        self.sent.append(msg)
+
+    def send_result(self, msg_id, payload=None):
+        self.results.append((msg_id, payload))
+
+    def send_error(self, msg_id, code, message):
+        self.results.append((msg_id, "error", code, message))
+
+
+def _install_fake_ws_module():
+    """Install a minimal ``homeassistant.components.websocket_api`` fake
+    that supplies the decorators + helpers websocket_api.py imports.
+
+    Idempotent — safe to call from multiple tests.
+    """
+    import sys
+    if "homeassistant.components.websocket_api" in sys.modules:
+        # If it's already installed and has our marker, reuse.
+        mod = sys.modules["homeassistant.components.websocket_api"]
+        if getattr(mod, "_URA_TEST_FAKE", False):
+            return mod
+
+    class _Schema:
+        def extend(self, spec):
+            return self
+
+    class _ActiveConnection:  # marker type only
+        pass
+
+    def _identity(fn=None, **_kw):
+        # Support both @decorator and @decorator(schema) usage.
+        if fn is None or not callable(fn):
+            def _wrap(inner):
+                return inner
+            return _wrap
+        return fn
+
+    def websocket_command(schema):
+        def _wrap(fn):
+            return fn
+        return _wrap
+
+    def async_response(fn):
+        return fn
+
+    def event_message(msg_id, payload):
+        return {"id": msg_id, "type": "event", "event": payload}
+
+    def async_register_command(hass, handler):
+        return None
+
+    mod = types.ModuleType("homeassistant.components.websocket_api")
+    mod.BASE_COMMAND_MESSAGE_SCHEMA = _Schema()
+    mod.ActiveConnection = _ActiveConnection
+    mod.websocket_command = websocket_command
+    mod.async_response = async_response
+    mod.event_message = event_message
+    mod.async_register_command = async_register_command
+    mod._URA_TEST_FAKE = True
+    sys.modules["homeassistant.components.websocket_api"] = mod
+    # voluptuous is a real dep for HA — but not required at import time for
+    # our tests because the schemas are only USED by HA's dispatcher. The
+    # module-level ``import voluptuous as vol`` must succeed though.
+    try:
+        import voluptuous  # noqa: F401
+    except Exception:
+        vol_mod = types.ModuleType("voluptuous")
+        def _passthrough(*a, **kw):
+            return a[0] if a else None
+        class _All:
+            def __init__(self, *a, **kw): pass
+        class _Range:
+            def __init__(self, *a, **kw): pass
+        class _In:
+            def __init__(self, *a, **kw): pass
+        vol_mod.Required = _passthrough
+        vol_mod.Optional = _passthrough
+        vol_mod.All = _All
+        vol_mod.Range = _Range
+        vol_mod.In = _In
+        sys.modules["voluptuous"] = vol_mod
+    return mod
+
+
+class TestSubscribeHandler:
+    """B-H1 / B-H2 / B-H3 — behavioral tests on _handle_subscribe."""
+
+    def _load_ws(self):
+        _install_fake_ws_module()
+        import sys
+        import importlib
+        # Stub the domain_coordinators package so its __init__.py (eager
+        # occupancy_substrate import) is NOT executed. Then hand-install
+        # domain_coordinators.signals with the one symbol websocket_api
+        # actually uses.
+        pkg_name = "custom_components.universal_room_automation.domain_coordinators"
+        if pkg_name not in sys.modules:
+            pkg = types.ModuleType(pkg_name)
+            pkg.__path__ = [os.path.join(
+                os.path.dirname(__file__), "..", "..",
+                "custom_components", "universal_room_automation",
+                "domain_coordinators",
+            )]
+            sys.modules[pkg_name] = pkg
+        sig_name = pkg_name + ".signals"
+        if sig_name not in sys.modules:
+            sig = types.ModuleType(sig_name)
+            sig.SIGNAL_ACTIVITY_LOGGED = "ura_activity_logged"
+            sys.modules[sig_name] = sig
+        # Fresh import each time so _WS_REGISTERED / callbacks are clean.
+        ws_name = "custom_components.universal_room_automation.websocket_api"
+        if ws_name in sys.modules:
+            del sys.modules[ws_name]
+        ws = importlib.import_module(ws_name)
+        return ws
+
+    def _invoke_subscribe(self, ws, min_importance=None, streams=None,
+                          coordinator=None):
+        hass = MagicMock()
+        hass.add_job = MagicMock()
+        # Capture the dispatcher callback registered.
+        captured = {}
+        def _fake_connect(_hass, _signal, cb):
+            captured["cb"] = cb
+            return lambda: None
+        # Patch in the fake dispatcher connect for this call.
+        ws.async_dispatcher_connect = _fake_connect  # type: ignore[assignment]
+        conn = _FakeConn()
+        msg = {"id": 42}
+        if streams is not None:
+            msg["streams"] = streams
+        if coordinator is not None:
+            msg["coordinator"] = coordinator
+        if min_importance is not None:
+            msg["min_importance"] = min_importance
+        ws._handle_subscribe(hass, conn, msg)
+        return hass, conn, captured["cb"]
+
+    def test_callback_defers_via_add_job_not_direct_send(self):
+        """B-H1 mutation anchor: replace ``hass.add_job(_send_on_loop, payload)``
+        with a direct ``connection.send_message(event_message(...))`` call
+        → this test fails because hass.add_job is never called and
+        connection.sent gets a message from the callback thread."""
+        ws = self._load_ws()
+        hass, conn, cb = self._invoke_subscribe(ws)
+        # Fire the dispatcher callback with an activity-shaped payload.
+        cb({"action": "state_change", "coordinator": "presence",
+            "importance": "info"})
+        # Direct send MUST NOT have happened — payload must be marshalled
+        # to the loop via hass.add_job.
+        assert conn.sent == [], (
+            "callback sent synchronously; must route through hass.add_job"
+        )
+        assert hass.add_job.called, "hass.add_job was not invoked"
+
+    def test_stream_discriminate_anomaly_vs_activity(self):
+        """B-H3 mutation anchor: replace the ``is_anomaly`` branch with a
+        single ``if ...activity... not in streams and ...anomalies... not
+        in streams: return`` OR-gate → both payloads route to a
+        subscriber that requested only ``anomalies`` and this test fails.
+        """
+        ws = self._load_ws()
+        hass, conn, cb = self._invoke_subscribe(ws, streams=["anomalies"])
+        # Activity payload: must be dropped.
+        cb({"action": "state_change", "importance": "info"})
+        # Anomaly payload: must be forwarded.
+        cb({"action": "anomaly", "importance": "warning"})
+        # add_job called exactly once — only the anomaly payload survived.
+        assert hass.add_job.call_count == 1, (
+            f"expected 1 forwarded event, got {hass.add_job.call_count}"
+        )
+
+    def test_min_importance_filter_below_floor_dropped(self):
+        """B-H2 mutation anchor: neuter the comparison (e.g. replace
+        ``imp_ord < min_importance_ord`` with ``False``) → the debug
+        payload is forwarded and this test fails.
+        """
+        ws = self._load_ws()
+        hass, conn, cb = self._invoke_subscribe(ws, min_importance="warning")
+        # Below floor — must be dropped.
+        cb({"action": "state_change", "importance": "info"})
+        assert hass.add_job.call_count == 0
+        # At floor — must pass.
+        cb({"action": "state_change", "importance": "warning"})
+        assert hass.add_job.call_count == 1
+        # Above floor — must pass.
+        cb({"action": "state_change", "importance": "critical"})
+        assert hass.add_job.call_count == 2
+
+    def test_min_importance_missing_field_dropped(self):
+        """B-H2 companion: unknown / missing importance is treated as
+        below floor — the current dead branch (severity read) would
+        forward every event; we must not.
+        """
+        ws = self._load_ws()
+        hass, conn, cb = self._invoke_subscribe(ws, min_importance="info")
+        cb({"action": "state_change"})  # no importance field
+        assert hass.add_job.call_count == 0
+
+
+# --------------------------------------------------------------------------
 # Mutation table (documentation)
 # --------------------------------------------------------------------------
 # Executed mutations against production source for this cycle:
@@ -387,6 +638,10 @@ class TestWSRegistrationGuard:
 # |----------------------------------------------------------|--------------------|--------|
 # | database.py: neuter cap → page_size = requested_limit    | test_hard_cap_...  | red    |
 # | database.py: hard-code sev_val = severity                | test_severity_...  | red    |
+# | const.py: "critical": "4" → "3"                          | test_map_derived_..| red    |
+# | websocket_api.py: hass.add_job(...) → _send_on_loop(...)  | test_callback_...  | red    |
+# | websocket_api.py: replace is_anomaly branch w/ OR-gate    | test_stream_...    | red    |
+# | websocket_api.py: `imp_ord < floor` → `False`             | test_min_importance| red    |
 #
 # See build report at the end of the cycle for the actual pytest output
 # during each mutation run.

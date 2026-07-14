@@ -2164,12 +2164,19 @@ WS_COMMAND_SUBSCRIBE: Final = "ura/logs/subscribe"
 # severity is stored on anomaly_log as numeric strings '0'..'4'
 # (B0 probe finding #4). Accept BOTH numeric strings and human name aliases
 # at the WS boundary; DAO maps names -> numbers before SQL.
+#
+# v5.17.0 review fixes A1+A2 — canonical enum lives at
+# ``domain_coordinators.anomaly_event.AnomalySeverity`` (INFO=0, WARNING=1,
+# ADVISORY=2, ALERT=3, CRITICAL=4). The prior mapping used error/fatal
+# which are NOT URA severities and shifted CRITICAL to '3' (should be '4').
+# A test in test_websocket_api.py imports the enum and asserts this map
+# equals the derived-from-enum map — any drift is a red test.
 WS_ANOMALY_SEVERITY_NAME_TO_NUMBER: Final = {
     "info": "0",
     "warning": "1",
-    "error": "2",
-    "critical": "3",
-    "fatal": "4",
+    "advisory": "2",
+    "alert": "3",
+    "critical": "4",
 }
 WS_ANOMALY_SEVERITY_NUMBERS: Final = ("0", "1", "2", "3", "4")
 

@@ -42,6 +42,18 @@ from .const import (
     WS_COMMAND_SUBSCRIBE,
     WS_MAX_PAGE_SIZE,
 )
+
+# v5.17.0 review fix B-H2: subscribe channel filters on `importance`, not
+# `severity` — the sole emit site (activity_logger.py:120-129) puts
+# ``importance`` on the payload; ``severity`` is never populated. Ordinal
+# comparison map is explicit here so the semantics are self-documenting.
+_IMPORTANCE_ORDINAL: dict[str, int] = {
+    "debug": 0,
+    "info": 1,
+    "notable": 2,
+    "warning": 3,
+    "critical": 4,
+}
 from .domain_coordinators.signals import SIGNAL_ACTIVITY_LOGGED
 
 _LOGGER = logging.getLogger(__name__)
@@ -100,9 +112,12 @@ _SUBSCRIBE_SCHEMA = websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend({
     vol.Required("type"): WS_COMMAND_SUBSCRIBE,
     vol.Optional("streams"): vol.All(list, [vol.In(("anomalies", "activity"))]),
     vol.Optional("coordinator"): str,
-    vol.Optional("min_severity"): vol.In(WS_ANOMALY_SEVERITY_NUMBERS + tuple(
-        WS_ANOMALY_SEVERITY_NAME_TO_NUMBER.keys()
-    )),
+    # v5.17.0 review fix B-H2: the payload emitted through
+    # SIGNAL_ACTIVITY_LOGGED carries ``importance`` (name-valued), not
+    # ``severity``. Filter param renamed to ``min_importance`` for
+    # surface honesty. Live anomaly-severity filtering is NOT available on
+    # this channel today (see docs — future work note).
+    vol.Optional("min_importance"): vol.In(tuple(_IMPORTANCE_ORDINAL.keys())),
 })
 
 
@@ -140,8 +155,10 @@ async def _handle_anomalies(
         connection.send_error(msg["id"], "invalid_format", str(exc))
         return
     except Exception as exc:  # pragma: no cover
+        # v5.17.0 review fix A5: do not leak exception str to the client.
+        # Full traceback stays in the server log via _LOGGER.exception.
         _LOGGER.exception("ura/logs/anomalies handler failed: %s", exc)
-        connection.send_error(msg["id"], "unknown_error", str(exc))
+        connection.send_error(msg["id"], "unknown_error", "internal error")
         return
     connection.send_result(msg["id"], result)
 
@@ -174,8 +191,9 @@ async def _handle_activity(
         connection.send_error(msg["id"], "invalid_format", str(exc))
         return
     except Exception as exc:  # pragma: no cover
+        # v5.17.0 review fix A5: do not leak exception str to the client.
         _LOGGER.exception("ura/logs/activity handler failed: %s", exc)
-        connection.send_error(msg["id"], "unknown_error", str(exc))
+        connection.send_error(msg["id"], "unknown_error", "internal error")
         return
     connection.send_result(msg["id"], result)
 
@@ -197,37 +215,72 @@ def _handle_subscribe(
     """
     streams = set(msg.get("streams") or ("anomalies", "activity"))
     coord_filter = msg.get("coordinator")
-    min_sev = msg.get("min_severity")
-    # Map name → number so we can compare numerically against stored value.
-    min_sev_num: str | None = None
-    if min_sev is not None:
-        min_sev_num = WS_ANOMALY_SEVERITY_NAME_TO_NUMBER.get(min_sev, min_sev)
+    # v5.17.0 review fix B-H2: filter on importance ordinal, not severity.
+    min_importance = msg.get("min_importance")
+    min_importance_ord: int | None = (
+        _IMPORTANCE_ORDINAL[min_importance] if min_importance is not None else None
+    )
 
     msg_id = msg["id"]
 
-    @callback
+    # v5.17.0 review fix B-L2: first push failure per subscription is a
+    # WARNING (so it surfaces); subsequent failures downgrade to debug so a
+    # broken client doesn't spam the log.
+    push_failed_once: dict[str, bool] = {"seen": False}
+
+    def _send_on_loop(payload: Any) -> None:
+        # Loop-affine: connection.send_message MUST be called on the event
+        # loop. See websocket precedent at sensor.py:12660 (v4.6.3.2 fix).
+        try:
+            connection.send_message(
+                websocket_api.event_message(msg_id, {"event": payload})
+            )
+        except Exception as exc:  # pragma: no cover
+            if not push_failed_once["seen"]:
+                push_failed_once["seen"] = True
+                _LOGGER.warning(
+                    "ura/logs/subscribe push failed (first, msg_id=%s): %s",
+                    msg_id, exc,
+                )
+            else:
+                _LOGGER.debug("ura/logs/subscribe push failed: %s", exc)
+
     def _on_activity(payload: Any) -> None:
+        # Dispatcher callbacks can fire on a sync worker thread (see
+        # activity_logger emit path + sensor.py:12648-12665 precedent).
+        # send_message is loop-affine → marshal via hass.add_job which is
+        # thread-safe from either the loop or a worker thread.
         try:
             if not isinstance(payload, dict):
                 return
-            # Route by stream. The dispatched dict is an activity-log row;
-            # anomalies flow through the same signal today (single bridge).
-            if "activity" not in streams and "anomalies" not in streams:
+            # v5.17.0 review fix B-H3: discriminate the two streams. The
+            # emit site tags anomaly rows with ``action == "anomaly"``
+            # (activity_logger callers set it); everything else is activity.
+            is_anomaly = payload.get("action") == "anomaly"
+            if is_anomaly and "anomalies" not in streams:
+                return
+            if (not is_anomaly) and "activity" not in streams:
                 return
             if coord_filter is not None:
                 coord = payload.get("coordinator") or payload.get("coordinator_id")
                 if coord != coord_filter:
                     return
-            if min_sev_num is not None:
-                sev = payload.get("severity")
-                if isinstance(sev, str) and sev.isdigit() and min_sev_num.isdigit():
-                    if int(sev) < int(min_sev_num):
-                        return
-            connection.send_message(
-                websocket_api.event_message(msg_id, {"event": payload})
-            )
+            if min_importance_ord is not None:
+                imp = payload.get("importance")
+                imp_ord = _IMPORTANCE_ORDINAL.get(imp) if isinstance(imp, str) else None
+                # Unknown / missing importance is treated as below floor —
+                # keeps the filter honest rather than defaulting to pass.
+                if imp_ord is None or imp_ord < min_importance_ord:
+                    return
+            hass.add_job(_send_on_loop, payload)
         except Exception as exc:  # pragma: no cover
-            _LOGGER.debug("ura/logs/subscribe push failed: %s", exc)
+            if not push_failed_once["seen"]:
+                push_failed_once["seen"] = True
+                _LOGGER.warning(
+                    "ura/logs/subscribe filter failed (first): %s", exc
+                )
+            else:
+                _LOGGER.debug("ura/logs/subscribe filter failed: %s", exc)
 
     unsub = async_dispatcher_connect(hass, SIGNAL_ACTIVITY_LOGGED, _on_activity)
 
@@ -254,9 +307,21 @@ def async_register_ws_commands(hass: HomeAssistant) -> None:
     global _WS_REGISTERED
     if _WS_REGISTERED:
         return
-    websocket_api.async_register_command(hass, _handle_anomalies)
-    websocket_api.async_register_command(hass, _handle_activity)
-    websocket_api.async_register_command(hass, _handle_subscribe)
+    # v5.17.0 review fix B-M1: register per-command with idempotent skip so
+    # a mid-sequence failure on a retry doesn't blow up on
+    # already-registered names. _WS_REGISTERED only latches on full success
+    # so a partial-failure state is recoverable by a subsequent call.
+    for handler in (_handle_anomalies, _handle_activity, _handle_subscribe):
+        try:
+            websocket_api.async_register_command(hass, handler)
+        except ValueError as exc:
+            # HA raises ValueError on duplicate registration. Treat as
+            # already-registered and continue — the target end-state is
+            # "all three present"; a duplicate means we already have it.
+            _LOGGER.debug(
+                "WS command %s already registered (skipping): %s",
+                getattr(handler, "__name__", handler), exc,
+            )
     _WS_REGISTERED = True
     _LOGGER.info(
         "URA observability WS commands registered: %s, %s, %s",

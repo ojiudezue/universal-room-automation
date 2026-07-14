@@ -29,6 +29,9 @@ page).
 }
 ```
 
+Note: `capped` is set by the DAO layer and reflects direct-DAO consumers.
+WS clients see the same envelope end-to-end.
+
 ---
 
 ## severity mapping (anomaly_log)
@@ -38,13 +41,15 @@ page).
 value or a human name alias; the DAO maps names → numbers at the
 boundary before SQL execution.
 
+Canonical enum: `domain_coordinators.anomaly_event.AnomalySeverity`.
+
 | name       | number |
 |------------|--------|
 | `info`     | `'0'`  |
 | `warning`  | `'1'`  |
-| `error`    | `'2'`  |
-| `critical` | `'3'`  |
-| `fatal`    | `'4'`  |
+| `advisory` | `'2'`  |
+| `alert`    | `'3'`  |
+| `critical` | `'4'`  |
 
 `ura_activity_log.importance` is stored as **names**
 (`info` / `notable` / `warning` / `critical` / `debug`) and is filtered
@@ -134,9 +139,18 @@ polling, no per-event DB re-query, no writes.
   "type": "ura/logs/subscribe",
   "streams":      ["anomalies","activity"], // optional; default both
   "coordinator":  "presence",               // optional server-side filter
-  "min_severity": "warning"                 // optional; name or '0'..'4'
+  "min_importance": "warning"               // optional; debug|info|notable|warning|critical
 }
 ```
+
+Streams are discriminated by `payload.action == "anomaly"` → anomalies
+stream, else activity stream.
+
+**Not yet available on this channel:** filtering by anomaly-severity.
+The dispatcher payload carries only `importance` (activity-log field); it
+does not carry the persisted anomaly `severity`. `min_importance`
+approximates severity for the anomaly stream but does not equal it.
+Enrichment of the emit payload with `severity` is future work.
 
 Server first responds with `{ "id": N, "type": "result", "success": true }`.
 Subsequent events are pushed as

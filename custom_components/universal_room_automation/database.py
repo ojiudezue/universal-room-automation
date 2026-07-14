@@ -5334,6 +5334,18 @@ class UniversalRoomDatabase:
                 projected = WS_ANOMALY_COLUMNS
         else:
             projected = WS_ANOMALY_COLUMNS
+
+        # v5.17.0 review fix A3: intersect against the LIVE table columns
+        # so ALTER-added columns (anomaly_type, correlation_id, recovery_at,
+        # person_id, room_id, entity_id) don't trip an OperationalError on
+        # an un-migrated DB. Cheap PRAGMA once per query.
+        try:
+            async with self._db_read() as _pdb:
+                pcur = await _pdb.execute("PRAGMA table_info(anomaly_log)")
+                live_cols = {row[1] for row in await pcur.fetchall()}
+        except Exception as exc:
+            raise ValueError(f"anomaly_log unavailable: {exc}") from exc
+        projected = tuple(c for c in projected if c in live_cols) or ("id",)
         col_sql = ", ".join(projected)
 
         # Filter binding — parameterized only. Column names are literals.
@@ -5386,6 +5398,12 @@ class UniversalRoomDatabase:
                 cur = await db.execute(sql, tuple(params))
                 rows = await cur.fetchall()
                 row_dicts = [dict(r) for r in rows]
+        except aiosqlite.OperationalError as e:
+            # v5.17.0 review fix A3: don't swallow schema/operational
+            # errors into an empty success — surface them so an empty feed
+            # is diagnosable at the WS boundary.
+            _LOGGER.warning("query_anomalies operational error: %s", e)
+            raise ValueError(f"query_anomalies operational error: {e}") from e
         except Exception as e:
             _LOGGER.warning("query_anomalies failed: %s", e)
             return {"rows": [], "next_cursor": None, "page_size": page_size, "capped": capped}
