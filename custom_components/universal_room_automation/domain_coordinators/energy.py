@@ -284,6 +284,8 @@ class EnergyCoordinator(BaseCoordinator):
         )
         self._evse_battery_hold_active: bool = False
         self._evse_hold_soc: int | None = None  # Captured SOC at start of EVSE hold
+        # v5.17.1 fix-up (B-MED-1): edge-detect completion for eager persist
+        self._last_arbitrage_chunk_completed: bool = False
 
         # v4.0.18: EV grid import cap
         self._grid_import_cap_enabled: bool = ec.get(
@@ -1408,6 +1410,90 @@ class EnergyCoordinator(BaseCoordinator):
                         "wv verifier restore raised (swallowed)",
                         exc_info=True,
                     )
+            # v5.17.1 D2 — restore the arbitrage completed-chunk latch
+            # under a boundary-identity staleness check. The plan:
+            #   - If persisted boundary datetime has already PASSED
+            #     (`boundary_iso <= now`) → DROP the restore. The chunk
+            #     it belonged to is over.
+            #   - If the current window differs from the persisted one
+            #     (e.g. we crossed off_peak entry and `reset_arbitrage_chunk`
+            #     already ran, or the schedule changed) → DROP.
+            #   - Otherwise repopulate `_arbitrage_chunk_completed=True`
+            #     so the first post-boot off_peak tick takes the D1 HOLD
+            #     short-circuit rather than draining to the target.
+            # Refuses to clobber a FRESH `_arbitrage_chunk_completed=True`
+            # already set by a live tick between restart and restore
+            # (mirrors wv "restored ≤ fresh" precedence).
+            try:
+                latch_json = await db.restore_energy_state_with_age(
+                    "arbitrage_chunk_latch",
+                    max_age_hours=stale_max_age_hours,
+                )
+                if latch_json and battery is not None:
+                    latch_payload = _json.loads(latch_json)
+                    completed = bool(latch_payload.get("completed"))
+                    boundary_iso = latch_payload.get("boundary_iso")
+                    stale = False
+                    if not completed:
+                        stale = True
+                    else:
+                        parsed_bnd = (
+                            dt_util.parse_datetime(boundary_iso)
+                            if boundary_iso else None
+                        )
+                        if parsed_bnd is None:
+                            stale = True
+                        else:
+                            if parsed_bnd.tzinfo is None:
+                                parsed_bnd = parsed_bnd.replace(tzinfo=dt_util.UTC)
+                            now_utc = dt_util.utcnow()
+                            if parsed_bnd <= now_utc:
+                                stale = True
+                            else:
+                                # Boundary-identity: current live boundary
+                                # must match persisted within one hour
+                                # (rate table is hour-granular).
+                                try:
+                                    _live_dt, _, _ = battery._attain_target_boundary(  # noqa: SLF001
+                                        dt_util.now(), "off_peak",
+                                    )
+                                except Exception:  # noqa: BLE001
+                                    _live_dt = None
+                                if _live_dt is not None:
+                                    if _live_dt.tzinfo is None:
+                                        _live_dt = _live_dt.replace(
+                                            tzinfo=dt_util.UTC,
+                                        )
+                                    delta = abs(
+                                        (parsed_bnd - _live_dt).total_seconds()
+                                    )
+                                    if delta > 3600:
+                                        stale = True
+                    if stale:
+                        _LOGGER.info(
+                            "Rider: arbitrage chunk latch NOT restored "
+                            "(stale/passed boundary=%s completed=%s)",
+                            boundary_iso, completed,
+                        )
+                    elif battery._arbitrage_chunk_completed:  # noqa: SLF001
+                        _LOGGER.debug(
+                            "Rider: arbitrage chunk latch — fresh live "
+                            "value already set; skipping restore clobber",
+                        )
+                    else:
+                        battery._arbitrage_chunk_completed = True  # noqa: SLF001
+                        battery._arbitrage_active = True  # noqa: SLF001
+                        _LOGGER.info(
+                            "Rider: restored arbitrage chunk latch "
+                            "(completed=True boundary=%s) — first "
+                            "off_peak tick will HOLD at target",
+                            boundary_iso,
+                        )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "arbitrage chunk latch restore raised (swallowed)",
+                    exc_info=True,
+                )
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
                 "wv persist restore failed (swallowed)", exc_info=True,
@@ -1545,6 +1631,48 @@ class EnergyCoordinator(BaseCoordinator):
             except Exception:  # noqa: BLE001
                 _LOGGER.debug(
                     "wv persist save failed (swallowed)", exc_info=True,
+                )
+            # v5.17.1 D2 — persist arbitrage completed-chunk latch + the
+            # window identity (boundary_dt) so a restart mid-hold does
+            # NOT re-trigger the 2026-07-14 incident (rung_0 closes gate
+            # on reboot, drain fallback releases the buffer). Payload:
+            #   {"completed": bool, "boundary_iso": "<tz-aware ISO>"}
+            # Restore side drops the latch when the persisted boundary
+            # has passed (staleness = boundary-identity mismatch), so a
+            # `reset_arbitrage_chunk` firing before restore cannot be
+            # undone. Follows the existing rider conventions:
+            # no new timer, tz-aware ISO (Bug Class #21), 10h age gate
+            # via `restore_energy_state_with_age`.
+            try:
+                from homeassistant.util import dt as dt_util
+                battery = getattr(self, "_battery", None)
+                if battery is not None:
+                    boundary_iso: str | None = None
+                    if getattr(battery, "_arbitrage_chunk_completed", False):
+                        try:
+                            _bnd_dt, _, _mins = battery._attain_target_boundary(  # noqa: SLF001
+                                dt_util.now(), "off_peak",
+                            )
+                            if _bnd_dt is not None:
+                                if _bnd_dt.tzinfo is None:
+                                    _bnd_dt = _bnd_dt.replace(tzinfo=dt_util.UTC)
+                                boundary_iso = _bnd_dt.isoformat()
+                        except Exception:  # noqa: BLE001
+                            boundary_iso = None
+                    latch_payload = {
+                        "completed": bool(
+                            getattr(battery, "_arbitrage_chunk_completed", False)
+                        ),
+                        "boundary_iso": boundary_iso,
+                    }
+                    await db.save_energy_state(
+                        "arbitrage_chunk_latch",
+                        _json.dumps(latch_payload),
+                    )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "arbitrage chunk latch persist save failed (swallowed)",
+                    exc_info=True,
                 )
         except Exception as e:
             _LOGGER.warning("Could not save EVSE state to DB: %s", e)
@@ -2899,7 +3027,29 @@ class EnergyCoordinator(BaseCoordinator):
                     pass
                 return decision
 
-        # No reserve action yet — add one using configured entity
+        # No reserve action yet — add one using configured entity.
+        # v5.17.1 fix-up (D-HIGH-2): the append path used the raw
+        # `_evse_hold_soc` captured once at hold entry. Under a standing
+        # strategy hold (e.g. arbitrage completed-chunk HOLD at 80) with
+        # the `_result` 2% deadband suppressing the strategy's own reserve
+        # action, this overlay could append `set_value(hold_soc)` — for
+        # example 45 — while hardware carried 80, producing 80↔45
+        # oscillation. Mirror the update-in-place `max()` semantics:
+        # clamp `hold_reserve` UP to the strategy-desired reserve for this
+        # tick (`_last_reserve_level_desired`, which `_result` populates
+        # BEFORE the deadband decision — see energy_battery.py :3834).
+        # Never lowers the EVSE hold; only raises it to preserve the
+        # standing strategy protection. Also covered by the inclement-
+        # floor path via the strategy floor pre-baked into desired.
+        # reserve_level unit = % SOC (0-100), sign = floor (minimum).
+        try:
+            _desired = getattr(
+                self._battery, "_last_reserve_level_desired", None,
+            )
+            if _desired is not None:
+                hold_reserve = max(int(hold_reserve), int(_desired))
+        except (TypeError, ValueError, AttributeError):
+            pass
         decision["actions"].append({
             "service": "number.set_value",
             "target": reserve_entity,
@@ -3009,6 +3159,33 @@ class EnergyCoordinator(BaseCoordinator):
 
             # Add EVSE hold status to decision for sensor visibility
             decision["evse_battery_hold"] = self._evse_battery_hold_active
+
+            # v5.17.1 fix-up (B-MED-1): eager-persist the arbitrage chunk
+            # latch on the CHARGE→HOLD transition. Without this, a reboot
+            # in the window between the completion tick and the next
+            # 15-min periodic save loses the latch → resurrects the
+            # 2026-07-14 incident on restart. Cheap: single KV write,
+            # only fires on the transition edge (not per-tick), reuses
+            # `_save_evse_state` which already carries the latch payload.
+            try:
+                _completed_now = bool(
+                    getattr(self._battery, "_arbitrage_chunk_completed", False)
+                )
+                _last_completed = getattr(
+                    self, "_last_arbitrage_chunk_completed", False,
+                )
+                if _completed_now and not _last_completed:
+                    self.hass.async_create_task(self._save_evse_state())
+                    _LOGGER.info(
+                        "Arbitrage chunk completed — eager latch persist "
+                        "scheduled (reboot-safe HOLD on restart)"
+                    )
+                self._last_arbitrage_chunk_completed = _completed_now
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "eager latch persist scheduling failed (swallowed)",
+                    exc_info=True,
+                )
 
             self._last_battery_decision = decision
 

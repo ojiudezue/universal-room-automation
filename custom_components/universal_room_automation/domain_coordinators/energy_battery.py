@@ -3499,6 +3499,122 @@ class BatteryStrategy:
         tomorrow_class = self.classify_tomorrow_solar()
         target_day_class = self._classify_target_day(now)
 
+        # v5.17.1 D1 — Completed-chunk HOLD precedence (invariant I-AH1).
+        # Live regression 2026-07-14: an 08:00 CHARGE brought SOC to
+        # `peak_buffer_target` and set `_arbitrage_chunk_completed=True`;
+        # by 09:31 the SOC had dipped 1% below target, `_classify_attain_rung`
+        # returned rung_0 (projection ≥ entry_band with fresh solar),
+        # `_gate_is_open` returned False, `_get_arbitrage_phase` returned
+        # "n/a", and the drain-target fallback below emitted reserve=30 —
+        # draining the purchased chunk hours before the boundary.
+        #
+        # Fix: when a chunk has already completed AND the target boundary
+        # is still ahead, short-circuit to the arbitrage HOLD emission
+        # BEFORE consulting the gate/rung ladder. HOLD's phase-rule 1
+        # ("SOC ≥ target → HOLD") is otherwise unreachable when the rung
+        # ladder closes the gate on a chunk that has already CHARGED to
+        # target. The rung ladder remains authoritative for the
+        # not-yet-charged path (`_arbitrage_chunk_completed=False`).
+        #
+        # Requires: arbitrage_enabled + peak_buffer_target set + boundary
+        # AHEAD (mins > 0 from `_attain_target_boundary`). Preserves:
+        #   - pre-window WAIT (chunk NOT completed → this predicate False,
+        #     existing drain/WAIT path unchanged, byte-identical).
+        #   - no CHARGE re-entry (chunk lock stands; charge_from_grid=False).
+        #   - inclement `partial_hold` floor via `_floor_reserve` — may
+        #     only RAISE reserve above target.
+        # v5.17.1 fix-up (D-HIGH-1): close the seam where rung_2 re-opens
+        # the gate (e.g. `_observed_net_charge_rate_per_hour() is None`,
+        # cold-boot, or solar collapse), phase-2 WAIT of
+        # `_get_arbitrage_decision` fires and emits `reserve_soc` :2064 —
+        # draining the completed chunk. TWO short-circuits, each with
+        # explicit ownership; both run BEFORE `_gate_is_open` so no
+        # reachable off_peak path can fall into phase-2 WAIT with a
+        # completed chunk + boundary ahead.
+        #
+        # Precedence (documented):
+        #   1. Attain-state "holding" owner: routes to
+        #      `_get_attainability_hold_decision` (phase="attain"). Preserves
+        #      the v5.5.3 attain machinery's ownership; test authority is
+        #      `test_attainability_branch.py`.
+        #   2. Otherwise (attain inactive / charging / never-entered), the
+        #      D1 completed-chunk owner: emits phase=HOLD via
+        #      `_floor_reserve(peak_buffer_target, ...)`. Test authority is
+        #      `test_arbitrage_completed_chunk_hold_precedence.py`.
+        # Only ONE fires per tick (return-on-match); no contradiction.
+        if (
+            self._arbitrage_enabled
+            and self._peak_buffer_target is not None
+            and self._arbitrage_chunk_completed
+            and self._attain_state == "holding"
+        ):
+            _bnd_dt_a, _, _ = self._attain_target_boundary(now, "off_peak")
+            _now_for_cmp = now
+            if _bnd_dt_a is not None and getattr(_bnd_dt_a, "tzinfo", None) is not None:
+                if getattr(_now_for_cmp, "tzinfo", None) is None:
+                    try:
+                        from homeassistant.util import dt as _dt_util
+                        _now_for_cmp = _now_for_cmp.replace(tzinfo=_dt_util.UTC)
+                    except Exception:  # noqa: BLE001
+                        pass
+            if _bnd_dt_a is not None and _bnd_dt_a > _now_for_cmp:
+                return self._get_attainability_hold_decision(
+                    soc=soc, now=now,
+                    target_day_class=target_day_class,
+                    tomorrow_class=tomorrow_class,
+                    current_mode=current_mode, season=season,
+                    effective_reserve=effective_reserve,
+                    hold_depth=decision.hold_depth,
+                )
+        if (
+            self._arbitrage_enabled
+            and self._peak_buffer_target is not None
+            and self._arbitrage_chunk_completed
+            and self._attain_state != "holding"
+        ):
+            _bnd_dt, _bnd_period, _bnd_mins = self._attain_target_boundary(
+                now, "off_peak",
+            )
+            # A-MED-1 / C-HIGH-1 fix-up: gate on boundary datetime ahead
+            # (`_bnd_dt > now`) — the prior `_bnd_mins > 0` check skipped
+            # the final sub-minute before the boundary while period was
+            # still off_peak, allowing one tick to emit drain reserve.
+            _now_for_cmp = now
+            if _bnd_dt is not None and getattr(_bnd_dt, "tzinfo", None) is not None:
+                # Normalize `now` to tz-aware for the comparison.
+                if getattr(_now_for_cmp, "tzinfo", None) is None:
+                    try:
+                        from homeassistant.util import dt as _dt_util
+                        _now_for_cmp = _now_for_cmp.replace(tzinfo=_dt_util.UTC)
+                    except Exception:  # noqa: BLE001
+                        pass
+            if _bnd_dt is not None and _bnd_dt > _now_for_cmp:
+                self._arbitrage_active = True
+                self._arbitrage_phase = ARBITRAGE_PHASE_HOLD
+                floored = self._floor_reserve(
+                    self._peak_buffer_target,
+                    effective_reserve,
+                    decision.hold_depth,
+                )
+                suffix = (
+                    " (partial_hold floor)"
+                    if floored != self._peak_buffer_target else ""
+                )
+                return self._result(
+                    BATTERY_MODE_SELF_CONSUMPTION,
+                    f"Arbitrage HOLD — completed chunk, boundary ahead "
+                    f"(reserve locked at {floored}%; "
+                    f"SOC {soc}%; target_day={target_day_class}){suffix}",
+                    current_mode,
+                    charge_from_grid=False,
+                    reserve_level=floored,
+                    season=season,
+                    tomorrow_solar_class=tomorrow_class,
+                    arbitrage_active=True,
+                    arbitrage_phase=ARBITRAGE_PHASE_HOLD,
+                    target_day_class=target_day_class,
+                )
+
         # v4.5.0 D1: arbitrage path overrides drain-target path when the
         # gate is open (arbitrage_enabled AND target_day in poor/very_poor,
         # extended via D3 multi_day if enabled). The new path is a four-

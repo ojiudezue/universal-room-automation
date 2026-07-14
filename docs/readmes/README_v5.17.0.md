@@ -50,10 +50,16 @@ hypotheses:
     check: binary_sensor.study_a_occupied attribute control_lights is a non-empty list within 1h of restart
 ```
 
-## Live Validation (prospective)
+## Live Validation — Validated 2026-07-14
 
-- **L1:** Deploy healthy — HACS installed v5.17.0, config valid, restart clean, house_state sensor available.
-- **L2:** WS registration INFO line present in HA log (`websocket_api` / `ura/logs`); no WS-related errors.
-- **L3:** G1 38-room attribute diff vs Appendix A fixture — per-row PASS/FAIL; AV Closet canary MUST show the Shelly switch.
-- **L4 (bonus, v5.16.3 rider):** `sensor.ura_energy_coordinator_battery_strategy` attrs `last_verified_write_*` show `restored: true` post-restart **if** a pre-restart verified write existed (report honestly either way).
-- **L5:** Full WS functional smoke (actually issuing the WS commands) — **DEFERRED**: requires a long-lived access token the operator has not provided. Registration-line + log-scan evidence only for this release; functional smoke rides the PWA integration cycle.
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Deploy healthy | **PASS** | HACS `installed_version == v5.17.0`, `pending_update: false`; config check `valid`; restart clean ~00:39-00:41 CDT; `sensor.ura_presence_coordinator_presence_house_state` available (`arriving`, last_changed 00:41:41 CDT post-boot). Zero URA ERROR lines in journal + system_log post-restart. |
+| L2 | WS registration line + no WS errors | **PARTIAL (as-expected)** | The registration line is INFO and the HA logger runs at WARNING (journal carries zero INFO lines; `home-assistant.log` no longer written — HAOS journal only), so the line is **unobservable at current log level**. Negative evidence clean: zero `ura/logs` / websocket errors from URA in journal (`grep websocket` matched only an unrelated `unifi_access` disconnect). Registration correctness is proven in-suite; functional proof deferred to L5. |
+| L3 | G1 38-room attr diff vs Appendix A | **PASS 38/38, FAIL 0** | Bulk `ha_get_state` on all 38 `*_occupied` sensors; all six `control_*` attrs field-identical to the fixture (lists exact incl. order; `control_climate_entity` string-or-null exact). **AV Closet canary PASS**: `control_lights == ["switch.switch_shelly1pmgen3_wifi_avcloset"]` (the Shelly relay, not the friendly-named light). Three fixture-title slugs differ from live entity ids (resolved via ha_search, attrs match): Master Bath Toilet → `binary_sensor.master_toilet_master_toilet_occupied`, Media → `binary_sensor.media_room_occupied`, Upstairs Guestroom → `binary_sensor.upstairs_guest_bedroom_occupied`. |
+| L4 | v5.16.3 rider: write-verify restore | **PASS** | `last_verified_write_reserve_soc = {commanded: 30, oracle_seen: "30.0", verified_at: 2026-07-14T02:41:16Z (pre-restart), status: ok, write_route: cloud, restored: true}` — a pre-restart verified write survived restart with `restored: true`. `charge_from_grid` / `storage_mode` show `status: no_data, restored: true` (no prior write — honest empty restore). `write_mismatch_counts_24h` all 0. |
+| L5 | Full WS functional smoke | **DEFERRED (as planned)** | Requires a long-lived access token the operator has not provided. Rides the PWA integration cycle. |
+
+Boot-window transients observed and dismissed (known classes, not regressions): per-room "All N sensors unavailable — holding occupancy state for 60s", SPAN implausible-delta baseline resets, HVAC boot-settle TIMEOUT release after 60s, coverage-rating negative-delta post-restart INCOMPLETE, Bermuda fallback-to-polling. No "Envoy unavailable — holding" regression treatment needed (off_peak blind-hold guard known-safe).
+
+**Note:** D2 operator options-edit round-trip (one room, live attr refresh without restart) not exercised this session — operator-driven; tracked in the G1 plan's completion checklist.
