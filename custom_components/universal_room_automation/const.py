@@ -2142,3 +2142,50 @@ ROUTINE_FORECAST_MODEL_ID: Final = "house_state_log_freq_v1"
 # When the gap exceeds this constant we still bump the cell count
 # (the transition is real) but discard the dwell sample.
 ROUTINE_FORECAST_MAX_DWELL_SECONDS: Final = 43200  # 12h
+
+
+# ---------------------------------------------------------------------------
+# v5.17.0 — Observability WebSocket surface
+# ---------------------------------------------------------------------------
+#
+# Read-only WS commands over anomaly_log / ura_activity_log tables. Feeds the
+# PWA M4 alerts + activity feeds. Zero writes; server-side cap; parameterized
+# only. See docs/websocket_api.md.
+#
+# Default page size (50) chosen after live B0 probe: at cap 200 the anomaly
+# payload was 148 KB per response; 50 keeps the default under 40 KB while the
+# cap remains available for callers that explicitly request it.
+WS_MAX_PAGE_SIZE: Final = 200
+WS_DEFAULT_PAGE_SIZE: Final = 50
+WS_COMMAND_ANOMALIES: Final = "ura/logs/anomalies"
+WS_COMMAND_ACTIVITY: Final = "ura/logs/activity"
+WS_COMMAND_SUBSCRIBE: Final = "ura/logs/subscribe"
+
+# severity is stored on anomaly_log as numeric strings '0'..'4'
+# (B0 probe finding #4). Accept BOTH numeric strings and human name aliases
+# at the WS boundary; DAO maps names -> numbers before SQL.
+WS_ANOMALY_SEVERITY_NAME_TO_NUMBER: Final = {
+    "info": "0",
+    "warning": "1",
+    "error": "2",
+    "critical": "3",
+    "fatal": "4",
+}
+WS_ANOMALY_SEVERITY_NUMBERS: Final = ("0", "1", "2", "3", "4")
+
+# activity_log importance is name-valued (B0 probe finding #4) — filter as-is.
+WS_ACTIVITY_IMPORTANCE_VALUES: Final = ("debug", "info", "notable", "warning", "critical")
+
+# Allowlisted projection columns per table (B0 probe finding #2).
+WS_ANOMALY_COLUMNS: Final = (
+    "id", "timestamp", "coordinator_id", "scope", "metric_name",
+    "observed_value", "expected_mean", "expected_std", "z_score",
+    "severity", "sample_size", "house_state", "context_json",
+    "resolved", "resolution_notes", "anomaly_type",
+    "correlation_id", "recovery_at", "person_id", "room_id", "entity_id",
+)
+WS_ACTIVITY_COLUMNS: Final = (
+    "id", "timestamp", "coordinator", "action", "room", "zone",
+    "importance", "description", "details_json", "entity_id",
+)
+

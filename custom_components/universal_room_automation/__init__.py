@@ -1404,6 +1404,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         activity_logger = ActivityLogger(hass)
                         hass.data[DOMAIN]["activity_logger"] = activity_logger
 
+                        # v5.17.0 — Observability WS surface. Registration
+                        # is process-global and idempotent (guarded by
+                        # ``_WS_REGISTERED`` inside the module). Safe to
+                        # call from any entry setup; second call is a
+                        # no-op. See planning doc §5.
+                        try:
+                            from .websocket_api import async_register_ws_commands
+                            async_register_ws_commands(hass)
+                        except Exception as ws_err:
+                            _LOGGER.warning(
+                                "URA observability WS commands registration failed: %s",
+                                ws_err,
+                            )
+
                         # Prune stale activity log entries on startup
                         try:
                             await database.prune_activity_log()
