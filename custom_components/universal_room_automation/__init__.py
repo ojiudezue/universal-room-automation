@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.16.3
+# Universal Room Automation vv5.17.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1403,6 +1403,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         # Activity logger — initialized immediately after DB
                         activity_logger = ActivityLogger(hass)
                         hass.data[DOMAIN]["activity_logger"] = activity_logger
+
+                        # v5.17.0 — Observability WS surface. Registration
+                        # is process-global and idempotent (guarded by
+                        # ``_WS_REGISTERED`` inside the module). Safe to
+                        # call from any entry setup; second call is a
+                        # no-op. See planning doc §5.
+                        try:
+                            from .websocket_api import async_register_ws_commands
+                            async_register_ws_commands(hass)
+                        except Exception as ws_err:
+                            _LOGGER.warning(
+                                "URA observability WS commands registration failed: %s",
+                                ws_err,
+                            )
 
                         # Prune stale activity log entries on startup
                         try:

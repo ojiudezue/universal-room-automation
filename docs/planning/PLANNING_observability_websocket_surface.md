@@ -269,3 +269,30 @@ HA `websocket_api.async_register_command(hass, handler)` is **process-global** �
 3. **`anomaly_type` filter values.** Do we want a `vol.In([...])` whitelist of anomaly types (safer, but couples this cycle to the current enum) or free-string (looser, but tolerates future emitter additions)? Plan currently says free-string.
 4. **Admin-only or user-level?** Plan recommends user-level (household PWA users are typically not admin). Confirm.
 5. **Non-integration entries (zone / coordinator-manager).** Guard flag ensures single registration regardless of which entry sets up first. OK to leave the trigger site in `async_setup_entry` rather than adding an `async_setup(hass, config)`?
+
+---
+
+## B0 probe — live-DB measurement (2026-07-13 ~22:25 CDT, read-only)
+
+Per CLAUDE.md "Measure Before You Build". Findings that BIND the build:
+
+1. **Latency: non-issue.** All planned query shapes ≤1 ms at cap 200 on the
+   live DB (anomaly_log 30,211 rows / 268 per day; ura_activity_log 19,578
+   rows / 2,050 per day). query_only + cap stands.
+2. **Payload: anomaly page at cap 200 = 148 KB** (22 columns/row). Bind:
+   default `limit` = 50 (cap stays 200), and D1 gains an optional
+   `columns` projection list validated against the allowlisted column set.
+   Activity page at 200 = 70 KB — acceptable as planned.
+3. **Real schema differs from the plan's assumptions:** the coordinator
+   column on anomaly_log is `coordinator_id` (not `coordinator`), and the
+   table has 22 columns (incl. correlation_id, recovery_at, person_id,
+   room_id, entity_id). Deprecated `event_class` still present — remains
+   excluded from the response.
+4. **severity is stored as numeric strings '0'..'4'**, not names
+   ('warning' matches 0 rows). Bind: the WS filter accepts BOTH the
+   numeric enum and name aliases, and the DAO maps names→numbers at the
+   boundary; the doc (D4) states the mapping. activity `importance` IS
+   name-valued (info/notable/critical) — filter as-is.
+5. **anomaly_log ids start at 257,481** (pruning has run) — cursor
+   semantics (`id < cursor`) unaffected, but any test fixture assuming
+   id≈1 is wrong; tests must derive cursors from inserted rows.

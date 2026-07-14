@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.16.3
+# Universal Room Automation vv5.17.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.16.3"
+VERSION: Final = "v5.17.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -2142,3 +2142,57 @@ ROUTINE_FORECAST_MODEL_ID: Final = "house_state_log_freq_v1"
 # When the gap exceeds this constant we still bump the cell count
 # (the transition is real) but discard the dwell sample.
 ROUTINE_FORECAST_MAX_DWELL_SECONDS: Final = 43200  # 12h
+
+
+# ---------------------------------------------------------------------------
+# v5.17.0 — Observability WebSocket surface
+# ---------------------------------------------------------------------------
+#
+# Read-only WS commands over anomaly_log / ura_activity_log tables. Feeds the
+# PWA M4 alerts + activity feeds. Zero writes; server-side cap; parameterized
+# only. See docs/websocket_api.md.
+#
+# Default page size (50) chosen after live B0 probe: at cap 200 the anomaly
+# payload was 148 KB per response; 50 keeps the default under 40 KB while the
+# cap remains available for callers that explicitly request it.
+WS_MAX_PAGE_SIZE: Final = 200
+WS_DEFAULT_PAGE_SIZE: Final = 50
+WS_COMMAND_ANOMALIES: Final = "ura/logs/anomalies"
+WS_COMMAND_ACTIVITY: Final = "ura/logs/activity"
+WS_COMMAND_SUBSCRIBE: Final = "ura/logs/subscribe"
+
+# severity is stored on anomaly_log as numeric strings '0'..'4'
+# (B0 probe finding #4). Accept BOTH numeric strings and human name aliases
+# at the WS boundary; DAO maps names -> numbers before SQL.
+#
+# v5.17.0 review fixes A1+A2 — canonical enum lives at
+# ``domain_coordinators.anomaly_event.AnomalySeverity`` (INFO=0, WARNING=1,
+# ADVISORY=2, ALERT=3, CRITICAL=4). The prior mapping used error/fatal
+# which are NOT URA severities and shifted CRITICAL to '3' (should be '4').
+# A test in test_websocket_api.py imports the enum and asserts this map
+# equals the derived-from-enum map — any drift is a red test.
+WS_ANOMALY_SEVERITY_NAME_TO_NUMBER: Final = {
+    "info": "0",
+    "warning": "1",
+    "advisory": "2",
+    "alert": "3",
+    "critical": "4",
+}
+WS_ANOMALY_SEVERITY_NUMBERS: Final = ("0", "1", "2", "3", "4")
+
+# activity_log importance is name-valued (B0 probe finding #4) — filter as-is.
+WS_ACTIVITY_IMPORTANCE_VALUES: Final = ("debug", "info", "notable", "warning", "critical")
+
+# Allowlisted projection columns per table (B0 probe finding #2).
+WS_ANOMALY_COLUMNS: Final = (
+    "id", "timestamp", "coordinator_id", "scope", "metric_name",
+    "observed_value", "expected_mean", "expected_std", "z_score",
+    "severity", "sample_size", "house_state", "context_json",
+    "resolved", "resolution_notes", "anomaly_type",
+    "correlation_id", "recovery_at", "person_id", "room_id", "entity_id",
+)
+WS_ACTIVITY_COLUMNS: Final = (
+    "id", "timestamp", "coordinator", "action", "room", "zone",
+    "importance", "description", "details_json", "entity_id",
+)
+

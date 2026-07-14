@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.16.3
+# Universal Room Automation vv5.17.0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -5274,6 +5274,249 @@ class UniversalRoomDatabase:
                 "get_recent_optimization_findings failed: %s", e,
             )
             return []
+
+    # ====================================================================
+    # v5.17.0 — Observability WebSocket read DAOs (anomaly_log, ura_activity_log)
+    # ====================================================================
+    #
+    # Read-only, parameterized-only, server-side row cap. Consumed by
+    # ``websocket_api.py``. Never route these through ``_db()``.
+    # Column names are hard-coded allowlists; user-supplied values are
+    # bound with ``?`` placeholders only.
+
+    async def query_anomalies(
+        self,
+        *,
+        since: str | None = None,
+        until: str | None = None,
+        coordinator_id: str | None = None,
+        severity: str | None = None,
+        anomaly_type: str | None = None,
+        resolved: bool | None = None,
+        cursor: int | None = None,
+        limit: int = 50,
+        columns: list[str] | tuple[str, ...] | None = None,
+    ) -> dict:
+        """v5.17.0 — filtered + cursor-paginated read of ``anomaly_log``.
+
+        Returns a dict envelope: ``{rows, next_cursor, page_size, capped}``.
+
+        Discipline (falsifiable invariant §1 of the planning doc):
+          * Uses ``_db_read()`` — PRAGMA query_only=ON hard-fails writes.
+          * All filters are bound with ``?`` placeholders; column names are
+            hard-coded (allowlist).
+          * ``limit`` is clamped to ``WS_MAX_PAGE_SIZE`` server-side BEFORE
+            SQL execution; the client-supplied value cannot bypass the cap.
+          * Cursor is the numeric ``id`` of the last row returned by the
+            prior page; we filter with ``id < :cursor`` and order by
+            ``id DESC``.
+
+        ``severity`` accepts either the numeric strings '0'..'4' (raw
+        storage) or the name aliases mapped by
+        ``WS_ANOMALY_SEVERITY_NAME_TO_NUMBER`` (B0 probe finding #4).
+        """
+        from .const import (
+            WS_ANOMALY_COLUMNS,
+            WS_ANOMALY_SEVERITY_NAME_TO_NUMBER,
+            WS_ANOMALY_SEVERITY_NUMBERS,
+            WS_MAX_PAGE_SIZE,
+        )
+
+        # Server-side cap wins — reviewer B invariant probe.
+        requested_limit = int(limit) if isinstance(limit, int) and limit > 0 else 50
+        page_size = min(requested_limit, WS_MAX_PAGE_SIZE)
+        capped = requested_limit > WS_MAX_PAGE_SIZE
+
+        # Column projection (allowlisted).
+        if columns:
+            projected = tuple(c for c in columns if c in WS_ANOMALY_COLUMNS)
+            if not projected:
+                projected = WS_ANOMALY_COLUMNS
+        else:
+            projected = WS_ANOMALY_COLUMNS
+
+        # v5.17.0 review fix A3: intersect against the LIVE table columns
+        # so ALTER-added columns (anomaly_type, correlation_id, recovery_at,
+        # person_id, room_id, entity_id) don't trip an OperationalError on
+        # an un-migrated DB. Cheap PRAGMA once per query.
+        try:
+            async with self._db_read() as _pdb:
+                pcur = await _pdb.execute("PRAGMA table_info(anomaly_log)")
+                live_cols = {row[1] for row in await pcur.fetchall()}
+        except Exception as exc:
+            raise ValueError(f"anomaly_log unavailable: {exc}") from exc
+        projected = tuple(c for c in projected if c in live_cols) or ("id",)
+        col_sql = ", ".join(projected)
+
+        # Filter binding — parameterized only. Column names are literals.
+        clauses: list[str] = []
+        params: list = []
+        if since is not None:
+            try:
+                datetime.fromisoformat(since)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"invalid since: {exc}")
+            clauses.append("timestamp >= ?")
+            params.append(since)
+        if until is not None:
+            try:
+                datetime.fromisoformat(until)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"invalid until: {exc}")
+            clauses.append("timestamp < ?")
+            params.append(until)
+        if coordinator_id is not None:
+            clauses.append("coordinator_id = ?")
+            params.append(coordinator_id)
+        if severity is not None:
+            # Name -> number mapping at the DAO boundary (B0 finding #4).
+            sev_val = WS_ANOMALY_SEVERITY_NAME_TO_NUMBER.get(severity, severity)
+            if sev_val not in WS_ANOMALY_SEVERITY_NUMBERS:
+                raise ValueError(f"invalid severity: {severity!r}")
+            clauses.append("severity = ?")
+            params.append(sev_val)
+        if anomaly_type is not None:
+            clauses.append("anomaly_type = ?")
+            params.append(anomaly_type)
+        if resolved is not None:
+            clauses.append("resolved = ?")
+            params.append(1 if resolved else 0)
+        if cursor is not None:
+            clauses.append("id < ?")
+            params.append(int(cursor))
+
+        where_sql = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        sql = (
+            f"SELECT {col_sql} FROM anomaly_log "
+            f"{where_sql} ORDER BY id DESC LIMIT ?"
+        )
+        params.append(page_size)
+
+        try:
+            async with self._db_read() as db:
+                db.row_factory = aiosqlite.Row
+                cur = await db.execute(sql, tuple(params))
+                rows = await cur.fetchall()
+                row_dicts = [dict(r) for r in rows]
+        except aiosqlite.OperationalError as e:
+            # v5.17.0 review fix A3: don't swallow schema/operational
+            # errors into an empty success — surface them so an empty feed
+            # is diagnosable at the WS boundary.
+            _LOGGER.warning("query_anomalies operational error: %s", e)
+            raise ValueError(f"query_anomalies operational error: {e}") from e
+        except Exception as e:
+            _LOGGER.warning("query_anomalies failed: %s", e)
+            return {"rows": [], "next_cursor": None, "page_size": page_size, "capped": capped}
+
+        next_cursor = None
+        if row_dicts and "id" in row_dicts[-1]:
+            # id DESC means the smallest id in the page is at the end.
+            next_cursor = row_dicts[-1]["id"]
+        return {
+            "rows": row_dicts,
+            "next_cursor": next_cursor,
+            "page_size": page_size,
+            "capped": capped,
+        }
+
+    async def query_activities(
+        self,
+        *,
+        since: str | None = None,
+        until: str | None = None,
+        coordinator: str | None = None,
+        room: str | None = None,
+        zone: str | None = None,
+        importance: str | None = None,
+        cursor: int | None = None,
+        limit: int = 50,
+        columns: list[str] | tuple[str, ...] | None = None,
+    ) -> dict:
+        """v5.17.0 — filtered + cursor-paginated read of ``ura_activity_log``.
+
+        Mirrors ``query_anomalies`` discipline: ``_db_read``-only,
+        parameterized filters, server-side cap, allowlisted column
+        projection. importance is name-valued (B0 probe finding #4) so it
+        is filtered as-is against the storage strings.
+        """
+        from .const import (
+            WS_ACTIVITY_COLUMNS,
+            WS_ACTIVITY_IMPORTANCE_VALUES,
+            WS_MAX_PAGE_SIZE,
+        )
+
+        requested_limit = int(limit) if isinstance(limit, int) and limit > 0 else 50
+        page_size = min(requested_limit, WS_MAX_PAGE_SIZE)
+        capped = requested_limit > WS_MAX_PAGE_SIZE
+
+        if columns:
+            projected = tuple(c for c in columns if c in WS_ACTIVITY_COLUMNS)
+            if not projected:
+                projected = WS_ACTIVITY_COLUMNS
+        else:
+            projected = WS_ACTIVITY_COLUMNS
+        col_sql = ", ".join(projected)
+
+        clauses: list[str] = []
+        params: list = []
+        if since is not None:
+            try:
+                datetime.fromisoformat(since)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"invalid since: {exc}")
+            clauses.append("timestamp >= ?")
+            params.append(since)
+        if until is not None:
+            try:
+                datetime.fromisoformat(until)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"invalid until: {exc}")
+            clauses.append("timestamp < ?")
+            params.append(until)
+        if coordinator is not None:
+            clauses.append("coordinator = ?")
+            params.append(coordinator)
+        if room is not None:
+            clauses.append("room = ?")
+            params.append(room)
+        if zone is not None:
+            clauses.append("zone = ?")
+            params.append(zone)
+        if importance is not None:
+            if importance not in WS_ACTIVITY_IMPORTANCE_VALUES:
+                raise ValueError(f"invalid importance: {importance!r}")
+            clauses.append("importance = ?")
+            params.append(importance)
+        if cursor is not None:
+            clauses.append("id < ?")
+            params.append(int(cursor))
+
+        where_sql = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        sql = (
+            f"SELECT {col_sql} FROM ura_activity_log "
+            f"{where_sql} ORDER BY id DESC LIMIT ?"
+        )
+        params.append(page_size)
+
+        try:
+            async with self._db_read() as db:
+                db.row_factory = aiosqlite.Row
+                cur = await db.execute(sql, tuple(params))
+                rows = await cur.fetchall()
+                row_dicts = [dict(r) for r in rows]
+        except Exception as e:
+            _LOGGER.warning("query_activities failed: %s", e)
+            return {"rows": [], "next_cursor": None, "page_size": page_size, "capped": capped}
+
+        next_cursor = None
+        if row_dicts and "id" in row_dicts[-1]:
+            next_cursor = row_dicts[-1]["id"]
+        return {
+            "rows": row_dicts,
+            "next_cursor": next_cursor,
+            "page_size": page_size,
+            "capped": capped,
+        }
 
     # ====================================================================
     # v5.11.0 D2 — Optimizer shadow-accuracy sample DAOs.
