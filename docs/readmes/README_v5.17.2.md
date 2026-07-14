@@ -69,8 +69,20 @@ hypotheses:
     oracle: ha-logs
 ```
 
-## Live Validation (prospective — to be replaced post-restart)
+## Live Validation — Validated 2026-07-14 (post-restart ~13:41 CDT)
 
-- **L1:** HACS `installed_version = v5.17.2`; house_state sensor available; zero URA ERROR post-restart.
-- **L2:** `arbitrage_gate` / `arbitrage_rung` attrs present with sane values; if the gate is rung-closed, phase reads `solar_attain` with the explanatory reason.
-- **L3:** ~35 min post-restart, `last_verified_write_charge_from_grid` shows status `"stale"` with frozen `verified_at`; re-read 5 min later shows `verified_at` UNCHANGED (proves the freeze). If still `"reverted"` at 40 min, check whether a decision tick has run and report with timestamps.
+| Criterion | Result | Observed evidence |
+|---|---|---|
+| L1 — deploy healthy | **PASS** | HACS `installed_version = v5.17.2` (`pending_update: false`); `sensor.ura_presence_coordinator_presence_house_state` available (`guest`, last_changed 14:01:59 CDT). URA ERROR scan: only 2 lines, both `13:39:38 Failed to log census snapshot: DB write worker did not process request within 35s` — the known shutdown/boot DB-worker transient, pre-dating the new boot; zero post-boot URA ERRORs. |
+| L2 — rung/gate attrs | **PASS (attrs present; values benign-null by design)** | `sensor.ura_energy_coordinator_battery_strategy` now carries `arbitrage_rung`, `arbitrage_intent`, `arbitrage_gate`, `arb_projection_rung0/1` (all `null` at read time) with `arbitrage_phase: discharge`. Null is correct here: `_gate_is_open` is only consulted on the **off_peak branch** (`energy_battery.py:1894`, `:3655`), and the house is in mid_peak/discharge ("Mid-peak (summer) — holding charge for peak"). The gate/rung enum values (and any `solar_attain` phase) first populate at tonight's off_peak entry. `solar_attain` could not be live-exercised today (gate not rung-closed); proven in-suite (`test_arbitrage_rung_gate_observability.py`). |
+| L3 — stale retirement + freeze | **PASS** | `last_verified_write_charge_from_grid` = `{commanded: true, oracle_seen: "off", status: "stale", verified_at: 2026-07-14T18:47:02.958260Z, restored: true}`. The zombie record retired on the first post-boot sweep after the first decision tick (13:47 CDT, ~6 min after restart — faster than the documented ~15-30 min worst case). Freeze proven by two spaced reads: 14:04:59 CDT and 14:15:59 CDT both show **identical** `verified_at` — spanning at least one 15-min sweep with no re-alarm. `write_mismatch_counts_24h` = `{reserve_soc: 0, charge_from_grid: 0, storage_mode: 0}` — the stale record no longer counts as a mismatch. |
+
+Boot-only transients seen and dismissed: the census-snapshot DB-worker
+timeout pair at shutdown (known transient, called out pre-deploy); no
+Envoy blind-hold ERRORs persisted past boot.
+
+Note on H2: the acceptance claim as written ("arbitrage_gate in
+open/closed_rung_0/…/disabled within 1h") is stricter than the code's
+actual behavior — the gate outcome only populates on off_peak decision
+ticks. Attr *presence* validated live; the enum value lands at tonight's
+off_peak entry and is covered by Shipwatch's recorder window.

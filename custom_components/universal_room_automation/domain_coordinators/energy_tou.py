@@ -244,6 +244,39 @@ class TOURateEngine:
 
         return {"next_period": "off_peak", "hours_until": 24, "transition_hour": 0}
 
+    def get_next_period_change_dt(
+        self,
+        now: datetime | None = None,
+        lookahead_hours: int = 36,
+    ) -> datetime | None:
+        """Return the wall-clock datetime of the next ANY-period change.
+
+        v5.17.3 D1: TOU-boundary-aligned decision tick uses this to arm a
+        point-in-time listener so a decision runs exactly at each period
+        boundary (avoiding 0-5min lag from the periodic tick).
+
+        Walks forward at hour granularity starting from the top of the next
+        hour and returns the first datetime whose period differs from the
+        current period. Season/month/midnight-safe because
+        ``get_current_period`` re-derives from the wall-clock month+hour on
+        every call. Returns None only if no transition is found within the
+        lookahead window (pathological — extended flat-rate schedule).
+
+        Unlike ``get_next_high_rate_transition`` this returns ANY transition
+        (peak↔mid_peak↔off_peak) and unlike ``get_next_transition`` it
+        returns a real datetime (not just an offset in hours).
+        """
+        if now is None:
+            now = dt_util.now()
+        current_period = self.get_current_period(now)
+        cursor = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+        end = cursor + timedelta(hours=int(lookahead_hours))
+        while cursor <= end:
+            if self.get_current_period(cursor) != current_period:
+                return cursor
+            cursor += timedelta(hours=1)
+        return None
+
     def peak_ahead_before_offpeak(
         self,
         now: datetime | None = None,
