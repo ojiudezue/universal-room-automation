@@ -276,6 +276,76 @@ class TestD1ArmAndFire:
         assert body_calls == []
 
 
+class TestD1ReviewLows:
+    """v5.17.3 review LOWs — exception-clears-flag + delay==0 contract."""
+
+    def test_exception_in_body_clears_cycle_in_flight(self, monkeypatch):
+        """B3: if `_decision_cycle_body` raises, the finally-clause still
+        clears `_cycle_in_flight` so the next tick isn't permanently locked out.
+        """
+        from custom_components.universal_room_automation.domain_coordinators import (
+            energy as em,
+        )
+
+        stub = MagicMock()
+        stub._enabled = True
+        stub._cycle_in_flight = False
+        stub._tou_boundary_unsub = None
+
+        async def _boom():
+            raise RuntimeError("boom")
+
+        stub._decision_cycle_body = _boom
+
+        # Prevent the finally-branch self-heal re-arm from touching real HA.
+        monkeypatch.setattr(em, "TOU_BOUNDARY_TICK_DELAY_S", -1)  # kill switch
+
+        with pytest.raises(RuntimeError):
+            asyncio.get_event_loop().run_until_complete(
+                em.EnergyCoordinator._async_decision_cycle(stub)
+            )
+
+        assert stub._cycle_in_flight is False, (
+            "finally must clear _cycle_in_flight even on body exception"
+        )
+
+    def test_delay_zero_arms_at_boundary_exactly(self, monkeypatch):
+        """A1: TOU_BOUNDARY_TICK_DELAY_S == 0 → arm at fire_at == boundary
+        exactly (and does NOT disable — kill switch is < 0, not <= 0)."""
+        from custom_components.universal_room_automation.domain_coordinators import (
+            energy as em,
+        )
+
+        monkeypatch.setattr(em, "TOU_BOUNDARY_TICK_DELAY_S", 0)
+        registered = []
+
+        def _spy_track(hass, cb, when):
+            registered.append((cb, when))
+            return lambda: None
+
+        monkeypatch.setattr(em, "async_track_point_in_time", _spy_track)
+
+        boundary = datetime.now() + timedelta(minutes=30)
+
+        class _TouStub:
+            def get_next_period_change_dt(self):
+                return boundary
+
+        stub = MagicMock()
+        stub._tou = _TouStub()
+        stub._tou_boundary_unsub = None
+        stub._arm_tou_boundary_listener = (
+            em.EnergyCoordinator._arm_tou_boundary_listener.__get__(stub)
+        )
+        stub._arm_tou_boundary_listener()
+
+        assert len(registered) == 1, "delay==0 must NOT disable — feature stays armed"
+        _cb, when = registered[0]
+        assert when == boundary, (
+            f"delay==0 must fire AT boundary exactly, got {when} vs {boundary}"
+        )
+
+
 class TestD1MutationRearmRemoved:
     """MUTATION D1-M1: strip re-arm in `_on_tou_boundary.finally` → RED."""
 

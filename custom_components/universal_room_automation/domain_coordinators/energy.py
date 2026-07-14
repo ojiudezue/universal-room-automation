@@ -25,6 +25,12 @@ try:
 except ImportError:  # pragma: no cover — test-only fallback
     async_track_point_in_time = None  # type: ignore[assignment]
 
+# v5.17.3 review B1 — one-shot WARNING on runtime absence of
+# async_track_point_in_time (would indicate a real HA API change,
+# not just a test-bootstrap stub). Module-level flag so we log once
+# per process regardless of how many arm attempts happen.
+_ATP_ABSENCE_WARNED: bool = False
+
 from .base import (
     BaseCoordinator,
     CoordinatorAction,
@@ -3152,8 +3158,16 @@ class EnergyCoordinator(BaseCoordinator):
         if TOU_BOUNDARY_TICK_DELAY_S < 0:
             return
         # Runtime absence of helper (test bootstraps that predate v5.17.3):
-        # silently no-op so those tests stay green.
+        # silently no-op so those tests stay green. In production this would
+        # indicate an HA API change — warn ONCE per process, then stay quiet.
         if async_track_point_in_time is None:
+            global _ATP_ABSENCE_WARNED
+            if not _ATP_ABSENCE_WARNED:
+                _ATP_ABSENCE_WARNED = True
+                _LOGGER.warning(
+                    "TOU boundary tick unavailable: async_track_point_in_time "
+                    "missing (HA API change?) — feature disabled"
+                )
             return
 
         # Cancel any existing arm (idempotent re-arm).
