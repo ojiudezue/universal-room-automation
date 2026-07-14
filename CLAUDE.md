@@ -273,3 +273,36 @@ Rules:
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
 
 **2026-05-30 revision:** the prior rule "ALWAYS read graphify-out/GRAPH_REPORT.md before reading any source files" was based on an assumption that the report would carry semantic content. It carries community navigation only. The rule was being ignored anyway because it wasn't producing useful context. Replaced with the targeted-use rules above.
+
+## Measure Before You Build — MANDATORY for empirically-gated cycles
+
+**Operator-coined 2026-07-13 (failover-map B0).** If a cycle's value or
+scope depends on empirical properties of external data — latency,
+freshness, cadence, divergence, sign conventions, noise floors, failure
+rates — the FIRST deliverable is a cheap, one-shot, read-only measurement
+probe over data that already exists (usually the HA recorder DB via
+`ssh ha "python3 -" < script.py`), NOT a design that instruments itself
+at runtime. The probe's report goes in the planning/audit doc and acts as
+the go/no-go gate on each empirically-gated deliverable.
+
+Why: the failover-map plan pinned "measured, not assumed" freshness — but
+as a runtime feature INSIDE the build. A 10-minute recorder probe run
+BEFORE building rejected the two highest-risk deliverables (D3 stale-power
+drain-gate feed, D4 degraded arbitrage) on measured grounds, resolved a
+sign convention passively (no live experiment), and exposed a broken cloud
+entity (`enphase_ev` grid power, distribution-level mismatch) that a
+name/unit-based auto-pairer would have admitted. A Tier-3 build of
+unbuildable deliverables was avoided for ~10 minutes of scripting.
+
+Corollary (same session, same operator): **hand-build the fixture before
+automating.** When code will construct a mapping/classification N times,
+construct it BY HAND once first, against live values, and commit the table
+(e.g. `docs/planning/AUDIT_envoy_telemetry_pairing_manual.md`). The manual
+artifact becomes the acceptance fixture the automation is diffed against.
+
+Trigger checklist (any yes → probe first, plan second):
+- Does a deliverable consume data whose freshness/accuracy is assumed?
+- Would the design change if a latency/divergence number were 10× worse?
+- Is there ≥24h of relevant history already in the recorder / DB / logs?
+- Is the plan proposing runtime instrumentation to learn something a
+  one-shot offline script could answer today?
