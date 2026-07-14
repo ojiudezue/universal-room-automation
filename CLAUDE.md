@@ -306,3 +306,36 @@ Trigger checklist (any yes → probe first, plan second):
 - Is there ≥24h of relevant history already in the recorder / DB / logs?
 - Is the plan proposing runtime instrumentation to learn something a
   one-shot offline script could answer today?
+
+## Marginal-Benefit Decomposition — pushback duty on enhancement requests
+
+**Operator-coined 2026-07-14 (anticipatory-TOU-tick reversal).** When any
+enhancement is proposed — BY THE OPERATOR OR BY YOU — do this decomposition
+BEFORE speccing or building, and surface it as pushback when it fails:
+
+1. **Decompose the benefit:** how much does the SIMPLEST version capture?
+   (The plain at-boundary tick eliminated the 0-5-min lag — the large
+   component; the anticipatory variant's MARGIN was only the ~1-2-min
+   acceptance latency: single-digit dollars/season.)
+2. **Price the marginal risk in ingredients, not intentions:** does the
+   fancier version introduce a categorically risky ingredient — synthetic
+   time, a new writer to a shared primitive, cross-coordinator state, a
+   rare-fire code path (hard to observe organically), config combinatorics?
+   Containment machinery (kill switches, clock contracts, extra reviews)
+   is EVIDENCE of the risk, not a discount on it.
+3. **Compare margins, not totals.** If the marginal benefit over the simple
+   version doesn't clearly pay for the marginal ingredient risk + the
+   elevated review cost + the rare-event debugging surface, recommend the
+   simple version and SAY SO — before the elaborate spec exists. An
+   elaborate spec that was fun to write is a sunk-cost trap for everyone
+   downstream.
+4. **Park the fancy design, don't delete it:** record it (planning doc or
+   review record) with the evidence trigger that would justify revisiting
+   ("if boundary-lag data shows real cost, revisit anticipation").
+
+The operator explicitly WANTS this pushback ("pause to consider this" should
+come from you first). An operator idea is a hypothesis to decompose, not a
+spec to elaborate — same posture as "we have X" claims under Institutional
+Context First. History: the two worst recent bug families (rung-gate seam,
+wall-clock-coupled tests) both lived at state-machine × time seams — the
+exact ingredient the reverted variant would have added for pennies.
