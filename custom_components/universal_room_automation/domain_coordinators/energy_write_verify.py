@@ -45,6 +45,14 @@ STATUS_INCONCLUSIVE = "inconclusive"
 STATUS_UNMAPPED = "unmapped"
 STATUS_NO_DATA = "no_data"
 STATUS_UNIT_MISMATCH = "unit_mismatch"
+# v5.17.2 — a record retires to STALE when the strategy's CURRENT desire
+# for the surface equals the oracle-observed value (i.e. the old command
+# is no longer wanted; state has converged on the new intent). A stale
+# record's `verified_at` is FROZEN at retirement time and it is NEVER
+# re-checked, re-stamped, or counted toward mismatch/self-heal counters.
+# A fresh schedule() on the same surface replaces the record wholesale
+# and revives it normally.
+STATUS_STALE = "stale"
 
 
 def _normalize_percent(
@@ -566,6 +574,19 @@ class WriteVerifier:
             _LOGGER.debug("reversion_sweep raised (swallowed)", exc_info=True)
 
     async def _sweep_surface(self, battery: Any, surface: str) -> None:
+        # v5.17.2 — a STALE record has been retired: strategy's current
+        # desire equals oracle, so the old command is no longer wanted.
+        # Skip entirely — no re-read, no re-stamp, no mismatch increment,
+        # no NM. The record revives only when schedule() fires (fresh
+        # dispatch), which replaces the record wholesale.
+        rec = self._records.get(surface)
+        if rec is not None and rec.status == STATUS_STALE:
+            _LOGGER.debug(
+                "WriteVerifier: %s sweep skipped (record is STALE, "
+                "verified_at frozen at %s)",
+                surface, rec.verified_at,
+            )
+            return
         commanded, commanded_at = self._commanded_ledger(battery, surface)
         if commanded is None or commanded_at is None:
             return
@@ -619,6 +640,41 @@ class WriteVerifier:
                     "witness compare raised (swallowed)", exc_info=True,
                 )
             return
+        # v5.17.2 — STALE-RETIREMENT branch. Before treating a divergence
+        # as a genuine reversion, ask: does the STRATEGY still want the
+        # commanded value? If the current desire matches the oracle
+        # (state has converged on the new intent) AND differs from the
+        # stale commanded value, the old command is no longer wanted →
+        # retire the record as STATUS_STALE, freeze verified_at, and
+        # STOP re-checking / re-stamping / incrementing mismatch.
+        # `_current_desire` reuses the SAME `_last_*_desired` fields
+        # written by `_result()` at energy_battery.py:3929-3945 (the
+        # canonical "strategy intent" ledger — desired reserve was
+        # already used for the reserve-sweep's supersession belt).
+        desire = self._current_desire(battery, surface)
+        if desire is not None and desire != commanded:
+            desire_matches_oracle = self._desire_matches_oracle(
+                surface, desire, oracle_raw, oracle_unit,
+            )
+            if desire_matches_oracle:
+                rec = self._records[surface]
+                # Freeze verified_at at retirement (do NOT re-stamp on
+                # subsequent sweeps — the STALE-fast-path at the top of
+                # _sweep_surface returns before we get here).
+                if rec.status != STATUS_STALE:
+                    rec.commanded = commanded
+                    rec.oracle_seen = oracle_raw
+                    rec.verified_at = now.isoformat()
+                    rec.status = STATUS_STALE
+                # Clear coalesce so a genuine future flip can re-fire
+                # cleanly on the fresh (superseding) record.
+                self._last_reversion_at_by_surface.pop(surface, None)
+                _LOGGER.info(
+                    "WriteVerifier: %s RETIRED as STALE "
+                    "(commanded=%s no longer desired; desire=%s == oracle=%s)",
+                    surface, commanded, desire, oracle_raw,
+                )
+                return
         # Fix-up B-MED-2 — emit ONCE per TRANSITION into REVERTED, not
         # per verify-window tick. DB write-flood history (v5.0.0-v5.2.1
         # rollback) mandates that a standing-reverted state does not
@@ -705,6 +761,40 @@ class WriteVerifier:
             "propagated the write yet",
             surface, commanded, local_raw,
         )
+
+    def _current_desire(self, battery: Any, surface: str) -> Any:
+        """v5.17.2 — read the strategy's CURRENT desire for a surface.
+
+        Reuses the SAME `_last_*_desired` fields written each tick by
+        `energy_battery.py::_result()` (see stamp block ~line 3929-3945).
+        This is the ledger `_result` already consults when it asks the
+        oracle "should I dispatch?" — reusing it here (rather than a
+        second, drift-prone source) is the invariant the operator called
+        out. Returns None if the strategy has not stamped a desire yet
+        (early boot).
+        """
+        if surface == WRITE_VERIFY_SURFACE_RESERVE:
+            return getattr(battery, "_last_reserve_level_desired", None)
+        if surface == WRITE_VERIFY_SURFACE_CHARGE_FROM_GRID:
+            return getattr(battery, "_last_charge_from_grid_desired", None)
+        if surface == WRITE_VERIFY_SURFACE_STORAGE_MODE:
+            return getattr(battery, "_last_storage_mode_desired", None)
+        return None
+
+    def _desire_matches_oracle(
+        self,
+        surface: str,
+        desire: Any,
+        oracle_raw: Any,
+        oracle_unit: Optional[str],
+    ) -> bool:
+        """True iff the strategy's current desire matches the oracle
+        (via the SAME `_compare` used everywhere else — no second
+        comparison rule)."""
+        status, matched = self._compare(
+            surface, desire, oracle_raw, oracle_unit,
+        )
+        return bool(matched) and status == STATUS_OK
 
     def _commanded_ledger(
         self, battery: Any, surface: str

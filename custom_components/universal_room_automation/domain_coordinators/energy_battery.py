@@ -263,6 +263,16 @@ class BatteryStrategy:
         # never verified reserve for the hold's duration.
         # Unit: % SOC (0-100), semantic: floor (minimum).
         self._last_reserve_level_desired: int | None = None
+        # v5.17.2 — sibling DESIRED fields for the other two surfaces so
+        # the write-verify reversion sweep can retire a stale record when
+        # the strategy no longer wants the old commanded value (i.e. the
+        # oracle has converged on the current intent, but the deadband
+        # suppresses a fresh dispatch → no supersession → stale record
+        # re-alarms forever). Written by `_result()` alongside
+        # `_last_reserve_level_desired`; read by
+        # `WriteVerifier._sweep_surface`.
+        self._last_charge_from_grid_desired: bool | None = None
+        self._last_storage_mode_desired: str | None = None
         # v5.15.x — commanded-value ledgers + SOC-fallback state for
         # write-verification (see PLANNING_envoy_write_verification_and_redundancy.md).
         self._last_reserve_level_at: Any = None
@@ -3929,6 +3939,17 @@ class BatteryStrategy:
         if reserve_level is not None:
             _new_res = int(max(0, min(100, reserve_level)))
             self._last_reserve_level_desired = _new_res
+        # v5.17.2 — stamp DESIRED for the other two surfaces every tick
+        # regardless of whether an action was appended. This is the SAME
+        # "strategy intent" values `_result` uses when it consults the
+        # live oracle above to decide whether to dispatch (lines above:
+        # `if current_cfg is not True:` / `if mode != current_mode:`);
+        # exposing them as `_last_*_desired` lets the reversion sweep
+        # retire records whose commanded value the strategy no longer
+        # wants (see WriteVerifier._sweep_surface / STATUS_STALE).
+        self._last_charge_from_grid_desired = bool(charge_from_grid)
+        if current_mode is not None:
+            self._last_storage_mode_desired = mode
         # v5.15.x fix-up A/B-HIGH-2 — commanded ledger stamping MOVED to
         # the dispatch tap in energy.py::_tap_write_verifier so:
         #   (a) EVSE-hold max() raise at energy.py:2663-2678 is captured
