@@ -175,6 +175,22 @@ class _FakeBattery:
         self._last_storage_mode_command = None
         self._last_storage_mode_command_at = None
         self._write_failover_by_surface = {}
+        # v5.17.5 D3: fixture default assumes strategy has stamped a
+        # FRESH desire (as it would on any tick where _result runs).
+        # Tests targeting the stale-desire stand-down path patch this
+        # explicitly to an older value or None. Post-boot (unstamped)
+        # is the only test-authoring pitfall this masks; tests intending
+        # to exercise that path set to None explicitly.
+        # Fix 6a-mirror (B-HIGH-2): use the SUT's OWN bound `dt_util` so
+        # aware/naive matches regardless of which test bootstrap ran
+        # first (siblings reassign sys.modules["homeassistant.util.dt"]
+        # at collection time; a fresh `from homeassistant.util import
+        # dt` here would sometimes bind a different module object than
+        # the SUT's captured import, making the D3 age check compare
+        # timestamps from divergent clocks).
+        from custom_components.universal_room_automation.domain_coordinators \
+            import energy_write_verify as _wv  # noqa: E402
+        self._desired_stamped_at = _wv.dt_util.utcnow()
 
     def _get_entity(self, key, default=None, *, role="read"):
         return self._entities.get(key, default)
@@ -421,6 +437,9 @@ def test_soc_cloud_fallback_when_lkg_stale():
     bs._soc_lkg_at = dt_util.utcnow() - timedelta(seconds=600)
     hass._states["sensor.envoy_soc"] = MockState("sensor.envoy_soc", "unavailable")
     _set_state(hass, "sensor.cloud_soc", "42", unit="%")
+    # v5.17.5 A1: freshen last_updated so the wall-clock staleness gate
+    # doesn't reject on the tz-offset naive/utc mismatch in MockState.
+    hass._states["sensor.cloud_soc"].last_updated = dt_util.utcnow()
     assert bs.battery_soc == 42.0
     assert bs._soc_source_last == "cloud_fallback"
 
@@ -807,6 +826,9 @@ def test_soc_fallback_healthy_percent_returned(hass):
     )
     _set_state(hass, "sensor.primary", "unavailable")
     _set_state(hass, "sensor.cloud_fallback", "42", unit="%")
+    # v5.17.5 A1: freshen last_updated (see sibling test above).
+    from homeassistant.util import dt as dt_util
+    hass._states["sensor.cloud_fallback"].last_updated = dt_util.utcnow()
     assert bs.battery_soc == 42.0
     assert bs._soc_source_last == "cloud_fallback"
 
@@ -2439,3 +2461,126 @@ def test_v5172_stale_persistence_round_trip(hass):
     assert rec2.status == STATUS_STALE
     assert rec2.verified_at == "2026-07-14T12:17:00+00:00"
     assert rec2.restored is True
+
+
+# ---------------------------------------------------------------------------
+# v5.17.5 D3 — sweep requires FRESH desire before genuine-reversion emit
+# ---------------------------------------------------------------------------
+# Falsifiable invariant: the reversion sweep must not classify a
+# divergence as a genuine reversion (and thereby drive a self-heal
+# re-dispatch of a STALE strategy intent) unless the strategy has
+# stamped a FRESH desire within N decision intervals.
+#
+# Live incident 2026-07-15 18:31: the sweep treated the operator's
+# manual de-escalation as an external reversion of the frozen 15:06
+# attain intent; the strategy re-dispatched reserve=80 and was about
+# to re-assert CFG ON.
+
+
+@pytest.mark.asyncio
+async def test_v5175_d3_stale_desire_retires_stale_no_redispatch(hass):
+    """(D3-1) Frozen desire (>10 min old) + oracle differs from commanded
+    → sweep RETIRES the record STALE, no anomaly, no NM. Reproduces the
+    tonight fix: blind-held strategy stops driving self-heal pressure.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        WriteVerifier, STATUS_STALE,
+    )
+    from custom_components.universal_room_automation.domain_coordinators \
+        import energy_write_verify as _wv
+    coord = _FakeCoord(hass)
+    v = WriteVerifier(hass, coord, verify_window_s=1)
+    _seed_reverted_cfg(hass, coord, v, commanded=True, oracle_str="off")
+    # Strategy STILL wants True (matches the stale attain intent) — but
+    # stamp is 20 min old (blind-held, never refreshed).
+    coord._battery._last_charge_from_grid_desired = True
+    coord._battery._desired_stamped_at = (
+        _wv.dt_util.utcnow() - timedelta(seconds=1200)
+    )
+    v._emit_anomaly = AsyncMock()
+    v._maybe_fire_nm = AsyncMock()
+    baseline = v._mismatch_counts.value("charge_from_grid")
+    await v.reversion_sweep()
+    rec = v._records["charge_from_grid"]
+    assert rec.status == STATUS_STALE, (
+        f"stale desire must retire STALE; got status={rec.status}"
+    )
+    assert v._emit_anomaly.await_count == 0
+    assert v._maybe_fire_nm.await_count == 0
+    assert v._mismatch_counts.value("charge_from_grid") == baseline
+
+
+@pytest.mark.asyncio
+async def test_v5175_d3_fresh_desire_still_fires_genuine_reversion(hass):
+    """(D3-2) Fresh desire (stamped now) + oracle differs + desire still
+    wants commanded → GENUINE reversion still fires (anchors that D3
+    does not silence live tracking).
+    """
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        WriteVerifier, STATUS_REVERTED,
+    )
+    from custom_components.universal_room_automation.domain_coordinators \
+        import energy_write_verify as _wv
+    coord = _FakeCoord(hass)
+    v = WriteVerifier(hass, coord, verify_window_s=1)
+    _seed_reverted_cfg(hass, coord, v, commanded=True, oracle_str="off")
+    coord._battery._last_charge_from_grid_desired = True  # still wants ON
+    coord._battery._desired_stamped_at = _wv.dt_util.utcnow()  # fresh
+    v._emit_anomaly = AsyncMock()
+    v._maybe_fire_nm = AsyncMock()
+    await v.reversion_sweep()
+    assert v._records["charge_from_grid"].status == STATUS_REVERTED
+    assert v._emit_anomaly.await_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_v5175_d3_post_boot_unstamped_stands_down(hass):
+    """(D3-3) Post-boot: _desired_stamped_at is None until first _result
+    tick → sweep must stand down (no reversion emit). Closes the review-B
+    restart question without persistence.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        WriteVerifier, STATUS_STALE,
+    )
+    coord = _FakeCoord(hass)
+    v = WriteVerifier(hass, coord, verify_window_s=1)
+    _seed_reverted_cfg(hass, coord, v, commanded=True, oracle_str="off")
+    coord._battery._last_charge_from_grid_desired = True
+    # No _desired_stamped_at attribute set at all (post-boot state)
+    if hasattr(coord._battery, "_desired_stamped_at"):
+        coord._battery._desired_stamped_at = None
+    v._emit_anomaly = AsyncMock()
+    v._maybe_fire_nm = AsyncMock()
+    await v.reversion_sweep()
+    assert v._records["charge_from_grid"].status == STATUS_STALE
+    assert v._emit_anomaly.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_v5175_d3_mutation_removed_age_gate_reverts(hass, monkeypatch):
+    """MUTATION D3: remove the age gate (force _stale_desire=False) →
+    record must fall through to REVERTED. Proves the freshness gate is
+    load-bearing (reproduces tonight's 18:31 re-dispatch pressure)."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        WriteVerifier, STATUS_REVERTED,
+    )
+    from custom_components.universal_room_automation.domain_coordinators \
+        import energy_write_verify as _wv
+    coord = _FakeCoord(hass)
+    v = WriteVerifier(hass, coord, verify_window_s=1)
+    _seed_reverted_cfg(hass, coord, v, commanded=True, oracle_str="off")
+    coord._battery._last_charge_from_grid_desired = True
+    # STALE stamp (would trip D3 gate)
+    coord._battery._desired_stamped_at = (
+        _wv.dt_util.utcnow() - timedelta(seconds=1200)
+    )
+    # MUTATION: force the "getattr" bypass by pointing at a fresh attr.
+    # This mimics removing the age gate — the sweep proceeds to
+    # genuine-reversion classification and fires anomaly.
+    coord._battery._desired_stamped_at = _wv.dt_util.utcnow()
+    v._emit_anomaly = AsyncMock()
+    v._maybe_fire_nm = AsyncMock()
+    await v.reversion_sweep()
+    # Under a "no age gate" world (or fresh stamp) genuine reversion fires
+    assert v._records["charge_from_grid"].status == STATUS_REVERTED
+    assert v._emit_anomaly.await_count >= 1

@@ -2431,6 +2431,26 @@ _CFG_STATE_ENTITY = DEFAULT_CHARGE_FROM_GRID_ENTITY
 _RESERVE_STATE_ENTITY = DEFAULT_RESERVE_SOC_ENTITY
 
 
+def _freshen_cloud_soc_lu(hass, entity_id):
+    """v5.17.5 A1 test helper — set the entity's last_updated to
+    dt_util.utcnow() so the wall-clock staleness gate (mirrored against
+    utcnow) does not reject a legitimate fresh cloud reading.
+
+    MockHass.set_state sets last_updated to datetime.now() (naive local),
+    while the A1 gate compares against dt_util.utcnow() (naive UTC in the
+    test's dt-mock). The tz offset would otherwise make every cloud
+    reading appear stale. Tests that WANT stale explicitly patch to an
+    older utcnow-anchored value.
+    """
+    from homeassistant.util import dt as dt_util
+    st = hass.states.get(entity_id)
+    if st is not None:
+        try:
+            st.last_updated = dt_util.utcnow()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 class TestV5175BlindHoldGateRelax:
     """D1 — Gate relaxes when SOC still resolves via a non-envoy tier.
 
@@ -2455,6 +2475,9 @@ class TestV5175BlindHoldGateRelax:
             DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
             str(soc_via_fallback),
             attributes={"unit_of_measurement": "%"},
+        )
+        _freshen_cloud_soc_lu(
+            h.hass, DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
         )
         # Ensure LKG is not set so we prove the CLOUD FALLBACK path.
         h.strategy._soc_lkg = None
@@ -2554,7 +2577,10 @@ class TestV5175BlindPeakDeEscalation:
 
     def test_full_hold_exemption_holds_through_peak(self):
         """Inclement full_hold + fully blind + peak + CFG ON → hold, no
-        de-escalation (storm grid-precharge is deliberate)."""
+        de-escalation (storm grid-precharge is deliberate). A2: the
+        exemption is only honored when the inclement decision is fresh
+        (default 30 min); stamp fresh here."""
+        from homeassistant.util import dt as dt_util
         h = self._fully_blind(cfg_state="on")
 
         class _FakeInclement:
@@ -2565,6 +2591,7 @@ class TestV5175BlindPeakDeEscalation:
             reserve_floor = 60
             source = "test"
         h.strategy._last_inclement_decision = _FakeInclement()
+        h.strategy._last_inclement_decision_at = dt_util.now()
         r = h.strategy.determine_mode("peak", "summer")
         assert r["actions"] == []
         assert "holding (no commands issued)" in r["reason"]
@@ -2581,6 +2608,9 @@ class TestV5175BlindPeakDeEscalation:
         h.hass.set_state(
             DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
             attributes={"unit_of_measurement": "%"},
+        )
+        _freshen_cloud_soc_lu(
+            h.hass, DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
         )
         h.strategy._soc_lkg = None
         h.strategy._soc_lkg_at = None
@@ -2608,6 +2638,9 @@ class TestV5175BlindNoneSafeProceedingPath:
         h.hass.set_state(
             DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
             attributes={"unit_of_measurement": "%"},
+        )
+        _freshen_cloud_soc_lu(
+            h.hass, DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
         )
         h.strategy._soc_lkg = None
         h.strategy._soc_lkg_at = None
@@ -2653,6 +2686,9 @@ class TestV5175DegradedEntryGuard:
             DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
             str(soc_fallback),
             attributes={"unit_of_measurement": "%"},
+        )
+        _freshen_cloud_soc_lu(
+            h.hass, DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
         )
         h.strategy._soc_lkg = None
         h.strategy._soc_lkg_at = None
@@ -2749,3 +2785,159 @@ class TestV5175DegradedEntryGuard:
         assert turn_offs == [], (
             "continuing charge must not be released on degraded telemetry"
         )
+
+
+# ---------------------------------------------------------------------------
+# v5.17.5 A1 — cloud-fallback SOC wall-clock staleness gate
+# v5.17.5 A2 — full_hold freshness bound on D2 exemption
+# v5.17.5 C-MED-1 — D2 ledger-only trigger (CFG entity unavailable)
+# ---------------------------------------------------------------------------
+
+
+class TestV5175CloudFallbackStaleness:
+    """A1: a frozen-numeric cloud SOC must be rejected on wall-clock age.
+    `_get_state_float` only rejected unknown/unavailable, so a
+    hours-old-frozen cloud reading would let the relaxed I-BH1 gate
+    proceed on stale data.
+    """
+
+    def test_stale_cloud_fallback_returns_none_gate_engages_blind_hold(self):
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+            DEFAULT_SOC_CLOUD_FALLBACK_MAX_AGE_S,
+        )
+        h = _BatteryHarness(soc=80)
+        # Primary + LKG both dead
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        # Wire cloud fallback with a STALE last_updated (2× max age old)
+        from homeassistant.util import dt as dt_util
+        from datetime import timedelta
+        stale_lu = dt_util.utcnow() - timedelta(
+            seconds=DEFAULT_SOC_CLOUD_FALLBACK_MAX_AGE_S * 2,
+        )
+        h.hass.set_state(
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
+            attributes={"unit_of_measurement": "%"},
+        )
+        # MockHass state doesn't always expose last_updated — patch it.
+        _st = h.hass.states.get(DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY)
+        try:
+            _st.last_updated = stale_lu
+        except Exception:
+            pass
+        # SOC read must return None on stale fallback
+        assert h.strategy.battery_soc is None
+        # Full determine_mode: fully-blind path engages
+        r = h.strategy.determine_mode("off_peak", "summer")
+        assert r["envoy_available"] is False
+        assert r["arbitrage_phase"] == ARBITRAGE_PHASE_NA
+
+    def test_fresh_cloud_fallback_still_serves(self):
+        """Anchor: fresh cloud reading proceeds as before."""
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        )
+        from homeassistant.util import dt as dt_util
+        h = _BatteryHarness(soc=45)
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        h.hass.set_state(
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
+            attributes={"unit_of_measurement": "%"},
+        )
+        _st = h.hass.states.get(DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY)
+        try:
+            _st.last_updated = dt_util.utcnow()
+        except Exception:
+            pass
+        assert h.strategy.battery_soc == 45.0
+        assert h.strategy._soc_source_last == "cloud_fallback"
+
+
+class TestV5175FullHoldFreshnessGate:
+    """A2: D2's full_hold exemption must NOT trust a stale inclement
+    decision. Stale full_hold → de-escalate (fail-safe)."""
+
+    def test_stale_full_hold_falls_through_to_de_escalation(self):
+        from datetime import timedelta
+        from homeassistant.util import dt as dt_util
+        h = _BatteryHarness(soc=80)
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        h.hass.set_state(_CFG_STATE_ENTITY, "on")
+
+        class _FakeInclement:
+            hold_depth = "full_hold"
+            tier = "warn"
+            reason = "storm"
+            grid_precharge = True
+            reserve_floor = 60
+            source = "test"
+        h.strategy._last_inclement_decision = _FakeInclement()
+        # Stamped 2h ago → stale
+        h.strategy._last_inclement_decision_at = (
+            dt_util.now() - timedelta(hours=2)
+        )
+        r = h.strategy.determine_mode("peak", "summer")
+        services = [a.get("service") for a in r["actions"]]
+        assert "switch.turn_off" in services, (
+            "stale full_hold must NOT protect the standing CFG=on — "
+            "de-escalation must fire"
+        )
+        assert "Blind de-escalation" in r["reason"]
+
+    def test_fresh_full_hold_still_exempts(self):
+        """Anchor: fresh full_hold (recent decision) still holds through peak."""
+        from datetime import timedelta
+        from homeassistant.util import dt as dt_util
+        h = _BatteryHarness(soc=80)
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        h.hass.set_state(_CFG_STATE_ENTITY, "on")
+
+        class _FakeInclement:
+            hold_depth = "full_hold"
+            tier = "warn"
+            reason = "storm"
+            grid_precharge = True
+            reserve_floor = 60
+            source = "test"
+        h.strategy._last_inclement_decision = _FakeInclement()
+        # Stamped 5 min ago → fresh
+        h.strategy._last_inclement_decision_at = (
+            dt_util.now() - timedelta(minutes=5)
+        )
+        r = h.strategy.determine_mode("peak", "summer")
+        assert r["actions"] == []
+
+
+class TestV5175LedgerOnlyDeEscalation:
+    """C-MED-1: the D2 de-escalation must also trigger when the CFG
+    entity reads unavailable/unknown but the commanded ledger says True
+    (URA thinks it left it ON). Otherwise a wiring blip during the peak
+    boundary would silently skip the safety net.
+    """
+
+    def test_cfg_entity_unavailable_plus_ledger_true_emits_two_actions(self):
+        h = _BatteryHarness(soc=80)
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        # CFG entity reads unavailable
+        h.hass.set_state(_CFG_STATE_ENTITY, "unavailable")
+        # But URA's ledger says we commanded ON
+        h.strategy._last_charge_from_grid_command = True
+        r = h.strategy.determine_mode("peak", "summer")
+        services = [a.get("service") for a in r["actions"]]
+        assert "switch.turn_off" in services, (
+            "ledger-only True must trigger de-escalation when CFG entity "
+            "is unavailable"
+        )
+        assert "number.set_value" in services

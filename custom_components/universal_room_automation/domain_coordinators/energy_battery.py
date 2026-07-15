@@ -273,6 +273,11 @@ class BatteryStrategy:
         # `WriteVerifier._sweep_surface`.
         self._last_charge_from_grid_desired: bool | None = None
         self._last_storage_mode_desired: str | None = None
+        # v5.17.5 D3 — shared monotonic timestamp; written by _result()
+        # whenever the desired-* fields are stamped. None post-boot until
+        # first _result run; WriteVerifier treats None as "desire not yet
+        # sighted → stand down".
+        self._desired_stamped_at: Any = None
         # v5.15.x — commanded-value ledgers + SOC-fallback state for
         # write-verification (see PLANNING_envoy_write_verification_and_redundancy.md).
         self._last_reserve_level_at: Any = None
@@ -644,6 +649,7 @@ class BatteryStrategy:
         from .energy_const import (
             DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
             DEFAULT_SOC_LKG_MAX_AGE_S,
+            DEFAULT_SOC_CLOUD_FALLBACK_MAX_AGE_S,
         )
         primary = self._get_state_float(self._get_entity("battery_soc"))
         if primary is not None:
@@ -699,6 +705,35 @@ class BatteryStrategy:
                     )
                 self._soc_source_last = "fallback_range_reject"
                 return None
+            # v5.17.5 A1 — wall-clock staleness gate. `_get_state_float`
+            # only rejects unknown/unavailable; a stale-but-numeric cloud
+            # SOC (Enphase cloud stopped updating hours ago, entity state
+            # frozen at last observed value) would otherwise be accepted
+            # and the relaxed I-BH1 gate would PROCEED on hours-old data.
+            # Reject when the entity's last_updated is older than
+            # DEFAULT_SOC_CLOUD_FALLBACK_MAX_AGE_S (~2 cloud update
+            # intervals). Fully-blind (SOC None on all tiers) branch +
+            # D2 de-escalation then covers.
+            try:
+                st = self.hass.states.get(fb_eid) if fb_eid else None
+                lu = getattr(st, "last_updated", None) if st is not None else None
+                if lu is not None:
+                    age = (dt_util.utcnow() - lu).total_seconds()
+                    if age > DEFAULT_SOC_CLOUD_FALLBACK_MAX_AGE_S:
+                        if self._soc_source_last != "fallback_stale_reject":
+                            _LOGGER.warning(
+                                "SOC cloud fallback %s stale (age=%.0fs > "
+                                "%ds) — refusing to use (fail-safe: "
+                                "soc=None).",
+                                fb_eid, age,
+                                DEFAULT_SOC_CLOUD_FALLBACK_MAX_AGE_S,
+                            )
+                        self._soc_source_last = "fallback_stale_reject"
+                        return None
+            except Exception:  # noqa: BLE001
+                # Best-effort — if last_updated is unreadable, fall
+                # through and let unit + range checks decide.
+                pass
             if self._soc_source_last != "cloud_fallback":
                 _LOGGER.warning(
                     "SOC primary+LKG unavailable — using cloud fallback %.1f%%",
@@ -3509,8 +3544,27 @@ class BatteryStrategy:
             de_escalate_actions: list[dict[str, Any]] = []
             de_escalate_reason: str | None = None
             _inc = self._last_inclement_decision
+            # v5.17.5 A2 — bound the full_hold exemption on the inclement
+            # decision's freshness. A STALE full_hold would wrongly exempt
+            # de-escalation. Stale threshold = 30 min (inclement decisions
+            # tick per determine_mode call; if the last one is >30 min old,
+            # the state machine has probably been blind-held itself). Safe
+            # default: on stale/absent decision, fall through to
+            # de-escalation (the operator-ratified fail-safe).
+            _inc_at = self._last_inclement_decision_at
+            _inc_fresh = False
+            if _inc is not None and _inc_at is not None:
+                try:
+                    from homeassistant.util import dt as dt_util
+                    # `_last_inclement_decision_at` is stamped with the
+                    # caller's `now` (local via dt_util.now()); compare
+                    # against dt_util.now() to keep tz-awareness aligned.
+                    _age = (dt_util.now() - _inc_at).total_seconds()
+                    _inc_fresh = _age <= 1800  # 30 min
+                except Exception:  # noqa: BLE001
+                    _inc_fresh = False
             _inc_full_hold = (
-                _inc is not None
+                _inc_fresh
                 and getattr(_inc, "hold_depth", None) == "full_hold"
             )
             _is_peak_or_into_peak = (
@@ -4253,6 +4307,20 @@ class BatteryStrategy:
         self._last_charge_from_grid_desired = bool(charge_from_grid)
         if current_mode is not None:
             self._last_storage_mode_desired = mode
+        # v5.17.5 D3 — stamp a shared monotonic timestamp EVERY time
+        # `_result` writes the desired-* ledger. WriteVerifier's sweep
+        # will refuse to classify a divergence as a GENUINE reversion
+        # (and thereby drive a self-heal re-dispatch) when this stamp is
+        # older than N decision intervals. Blind-hold branches that
+        # RETURN before reaching `_result` will leave this stamp
+        # unchanged → sweep sees a stale desire → stands down. This
+        # closes the loop that fought the operator's manual de-escalation
+        # at 18:31 on 2026-07-15. Does NOT need to persist across boot:
+        # post-boot desire is legitimately unstamped until the first
+        # sighted tick, so the sweep's own stand-down covers the boot
+        # transient.
+        from homeassistant.util import dt as dt_util
+        self._desired_stamped_at = dt_util.utcnow()
         # v5.15.x fix-up A/B-HIGH-2 — commanded ledger stamping MOVED to
         # the dispatch tap in energy.py::_tap_write_verifier so:
         #   (a) EVSE-hold max() raise at energy.py:2663-2678 is captured
