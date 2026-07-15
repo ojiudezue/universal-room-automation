@@ -3309,10 +3309,61 @@ class BatteryStrategy:
 
         soc = self.battery_soc
         current_mode = self.current_storage_mode
+        # v5.17.5 — capture the resolver source AT the read above so any
+        # downstream logging / degraded-mode suffix uses the SAME tier the
+        # `soc` value came from (envoy | lkg | cloud_fallback | none).
+        soc_source_at_read = self._soc_source_last
+        envoy_avail = self.envoy_available
 
-        # Envoy offline — do NOT issue commands when blind.
-        # Hold whatever state the system is in until we can read it again.
-        if not self.envoy_available:
+        # ── v5.17.5 blind-hold gate relax (I-BH1) ─────────────────────────
+        # Falsifiable invariant: "While telemetry-blind, URA must never
+        # CONTINUE an active grid import into a higher-rate period; and
+        # blind-hold may engage only when NO fresh SOC exists on ANY
+        # resolver tier."
+        #
+        # Prior gate (`if not self.envoy_available:`) froze whatever state
+        # was in place, including an ACTIVE mid_peak grid-import decision
+        # from the D1b attain machinery, all the way into the peak boundary.
+        # Live incident 2026-07-15: Envoy went telemetry-blind at 14:26;
+        # attain had legitimately set reserve=80 + charge_from_grid=ON at
+        # 15:06 (mid_peak catch-up); the 16:00 peak boundary hit while the
+        # blind-hold guard held the import ACTIVE. Two facts made the
+        # freeze unnecessary:
+        #   (a) SOC was being served via the 3-tier resolver's cloud
+        #       fallback (soc_source=cloud_fallback) the whole time — the
+        #       `battery_soc` property (see :636-714) returns primary →
+        #       LKG (≤5min) → cloud fallback in that order;
+        #   (b) control writes go to the CLOUD leg under v5.16.1 H1 — a
+        #       blind Envoy cannot block them (see `_result` :3803+).
+        #
+        # Relaxed gate: proceed with the normal decision path WHEN a
+        # non-envoy SOC tier resolved. This is the risk center of the
+        # change — every downstream consumer of solar_production /
+        # net_power in the proceeding path was audited for None-safety:
+        #   * `solar_production` / `net_power` / `battery_power` (props at
+        #     :811, :816, :824) — appear only in `_result`'s and
+        #     `get_status`'s output dicts (:4011, :4147); dict emission
+        #     tolerates None natively.
+        #   * `_effective_import_kw` (:1561) — returns None on `net_power_w
+        #     is None`; caller `_grid_import_guard_triggered` (:1569) treats
+        #     None as "no trip"; arbitrage entry (:3207) also None-safe
+        #     (`if snap is not None`).
+        #   * `_observed_net_charge_rate_per_hour` (:2171) — returns None on
+        #     cold-boot / degenerate window; callers already `if rate is
+        #     not None`.
+        #   * `classify_solar_day` (:1140) — reads Solcast, independent of
+        #     Envoy telemetry.
+        #   * `current_storage_mode` (:915) — reads write leg (cloud under
+        #     H1); returns None safely.
+        #   * peak / mid_peak / off_peak branches (:3433, :3454, :3556) —
+        #     all use `soc is not None` guards.
+        # Verdict: no additional None-safety fixes required in the
+        # proceeding path.
+        #
+        # When the gate DOES engage (fully blind: envoy down AND SOC None
+        # on all tiers), the D2 de-escalation safety net below handles a
+        # standing grid-import into peak.
+        if not envoy_avail and soc is None:
             _LOGGER.warning(
                 "Envoy unavailable (SOC=%s, mode=%s) — holding current state",
                 soc, current_mode,
@@ -3331,12 +3382,83 @@ class BatteryStrategy:
             # user. Now: reason matches phase. Discovered live during v4.5.0
             # post-deploy validation when an Envoy blip co-occurred with the
             # battery breaker tripping.
-            self._last_reason = "Envoy unavailable — holding (no commands issued)"
+
+            # ── v5.17.5 D2 blind peak de-escalation ─────────────────────
+            # Even fully blind, we MUST NEVER continue an active grid
+            # import into peak. Inclement `full_hold` (storm grid-precharge
+            # is deliberate) is exempt — read the last inclement decision
+            # so we don't fight a legitimate pre-storm charge. In the
+            # absence of a stored inclement state, we default to
+            # de-escalation (safer than importing through blind peak).
+            de_escalate_actions: list[dict[str, Any]] = []
+            de_escalate_reason: str | None = None
+            _inc = self._last_inclement_decision
+            _inc_full_hold = (
+                _inc is not None
+                and getattr(_inc, "hold_depth", None) == "full_hold"
+            )
+            _is_peak_or_into_peak = (
+                tou_period == "peak" or tou_transition_into == "peak"
+            )
+            if _is_peak_or_into_peak and not _inc_full_hold:
+                # Read CFG from the cloud (write-leg) entity + the
+                # commanded ledger. Either being True (or unknown-but-
+                # recently-commanded-on) triggers the two-action emit.
+                _cfg_write_eid = self._get_entity(
+                    "charge_from_grid",
+                    DEFAULT_CHARGE_FROM_GRID_ENTITY,
+                    role="write",
+                )
+                _cfg_live = self._get_state_bool(_cfg_write_eid)
+                _cfg_last_cmd = self._last_charge_from_grid_command
+                _cfg_currently_on = (
+                    _cfg_live is True or _cfg_last_cmd is True
+                )
+                if _cfg_currently_on:
+                    de_escalate_actions = [
+                        {
+                            "service": "switch.turn_off",
+                            "target": _cfg_write_eid,
+                            "data": {},
+                        },
+                        {
+                            "service": "number.set_value",
+                            "target": self._get_entity(
+                                "reserve_soc_number",
+                                DEFAULT_RESERVE_SOC_ENTITY,
+                                role="write",
+                            ),
+                            "data": {"value": max(
+                                0, min(100, int(self.reserve_soc))
+                            )},
+                        },
+                    ]
+                    de_escalate_reason = (
+                        "Blind de-escalation — never import through peak "
+                        f"blind (reserve→{int(self.reserve_soc)}, "
+                        "charge_from_grid→off)"
+                    )
+                    _LOGGER.warning(
+                        "Blind de-escalation ENGAGED: envoy down + SOC "
+                        "unresolved + %s + charge_from_grid ON — emitting "
+                        "turn_off + reserve=%d",
+                        (
+                            "peak" if tou_period == "peak"
+                            else "transition→peak"
+                        ),
+                        int(self.reserve_soc),
+                    )
+            reason = (
+                de_escalate_reason
+                if de_escalate_reason is not None
+                else "Envoy unavailable — holding (no commands issued)"
+            )
+            self._last_reason = reason
             self._last_mode = current_mode or "unknown"
             return {
                 "mode": current_mode or "unknown",
-                "reason": "Envoy unavailable — holding (no commands issued)",
-                "actions": [],
+                "reason": reason,
+                "actions": de_escalate_actions,
                 "soc": soc,
                 "solar_production": self.solar_production,
                 "net_power": self.net_power,
@@ -3350,7 +3472,24 @@ class BatteryStrategy:
                 "arbitrage_phase": ARBITRAGE_PHASE_NA,
                 "target_day_class": "unknown",
                 "reserve_soc": self.reserve_soc,
+                "charge_from_grid": False,
             }
+
+        # Envoy telemetry-blind but SOC resolved via fallback tier —
+        # proceed with the normal decision path. The reason line at each
+        # emission below is not the right place to inject the degraded-
+        # telemetry suffix (there are many); instead we stamp a flag the
+        # emission sites read at the end. Simpler: append the suffix to
+        # `_last_reason` after we get a result. Handled via a post-hoc
+        # wrap below.
+        self._degraded_telemetry_source = None
+        if not envoy_avail:
+            self._degraded_telemetry_source = soc_source_at_read
+            _LOGGER.info(
+                "Envoy telemetry-blind but SOC resolved via %s=%.1f%% — "
+                "proceeding with normal decision path (degraded telemetry)",
+                soc_source_at_read, soc,
+            )
 
         # ── v4.5.0 D5 precedence chain — DO NOT REORDER ───────────────
         # The arbitrage phase machine (in the off_peak branch below) is
@@ -3819,6 +3958,14 @@ class BatteryStrategy:
         Mode changes happen first, then reserve adjustment, then charge_from_grid.
         60-90s buffer built into decision cycle (5min interval) accommodates Enphase latency.
         """
+        # v5.17.5 I-BH1 — when the caller is proceeding on non-envoy SOC
+        # (degraded telemetry), annotate the reason so the state is
+        # visible on the strategy sensor. Set by `determine_mode` on the
+        # relaxed-gate branch; cleared on entry there (implicit — attr
+        # only exists while set). Safe if unset.
+        _dts = getattr(self, "_degraded_telemetry_source", None)
+        if _dts:
+            reason = f"{reason} (degraded telemetry: {_dts})"
         actions: list[dict[str, Any]] = []
 
         # H1 (2026-07-13): all three surfaces use role="write" so the
@@ -4012,7 +4159,13 @@ class BatteryStrategy:
             "net_power": self.net_power,
             "solar_day_class": self.classify_solar_day(),
             "tomorrow_solar_class": tomorrow_solar_class,
-            "envoy_available": True,
+            # v5.17.5 I-BH1: reflect ACTUAL envoy availability so downstream
+            # consumers (sensor attrs, tests) can distinguish "proceeded on
+            # fallback tier" from "envoy healthy". The degraded telemetry
+            # suffix in `reason` remains the primary human-visible signal.
+            "envoy_available": bool(
+                getattr(self, "_degraded_telemetry_source", None) is None
+            ),
             "season": season,
             "arbitrage_active": arbitrage_active,
             "arbitrage_enabled": self._arbitrage_enabled,

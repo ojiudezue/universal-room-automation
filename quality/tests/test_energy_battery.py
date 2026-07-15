@@ -510,12 +510,19 @@ class TestEnvoyUnavailable:
         assert result["season"] == "shoulder"
 
     def test_envoy_unavailable_holds_state(self):
+        # v5.17.5 I-BH1: storage_mode unavailable (envoy telemetry-blind)
+        # but primary SOC still resolves → gate falls through, normal
+        # decision proceeds with a degraded-telemetry suffix on reason.
+        # The envoy_available flag in the output is still False (there is
+        # a real Envoy outage on the local leg); we no longer freeze
+        # state when SOC is available on any resolver tier.
         h = _BatteryHarness(soc=80)
         h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
         result = h.strategy.determine_mode("off_peak", "winter")
         assert result["envoy_available"] is False
-        assert result["actions"] == []
         assert result["season"] == "winter"
+        # Reason carries the degraded-telemetry suffix.
+        assert "degraded telemetry" in (result.get("reason") or "")
 
 
 # ── v3.11.0 Phase A: Off-peak SOC-conditional drain ───────────────────────
@@ -858,8 +865,16 @@ class TestArbitrage:
         # Activate arbitrage (CHARGE phase inside window)
         h.strategy.determine_mode("off_peak", "summer", now=_SUMMER_INSIDE_WINDOW)
         assert h.strategy._arbitrage_active is True
-        # Envoy goes unavailable
+        # Envoy goes unavailable — v5.17.5 I-BH1: to exercise the
+        # blind-hold reset path (this test's original intent — cosmetic
+        # state sync when the blind branch fires), also invalidate the
+        # LKG so `battery_soc` returns None on all resolver tiers.
+        # Otherwise the relaxed gate (envoy blind + SOC None) is skipped
+        # and the decision cycle proceeds normally, which is the intended
+        # v5.17.5 behavior for the fallback-SOC case.
         h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
         result = h.strategy.determine_mode(
             "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
         )
@@ -2014,8 +2029,15 @@ class TestV4501EnvoyUnavailableLastReasonSync:
         )
         assert "CHARGE" in r1["reason"]
         assert "CHARGE" in (h.strategy._last_reason or "")
-        # Tick 2: envoy goes unavailable
+        # Tick 2: envoy goes unavailable — v5.17.5 I-BH1: to exercise the
+        # blind-hold branch (this test's original intent — reason sync on
+        # the blind-hold early-return path), invalidate the LKG too so
+        # `battery_soc` returns None on all resolver tiers. Otherwise
+        # LKG resolves at wall-clock age ~0s and the relaxed gate
+        # (envoy blind + SOC None) is skipped.
         h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
         r2 = h.strategy.determine_mode(
             "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
         )
@@ -2378,3 +2400,223 @@ class TestMultiDayMatrix:
             assert result["arbitrage_phase"] == ARBITRAGE_PHASE_NA, (
                 f"gate should be closed for d1={d1}, d2={d2}, phase={result['arbitrage_phase']}"
             )
+
+
+# ---------------------------------------------------------------------------
+# v5.17.5 — blind-hold gate on SOC-none, not envoy-flag (I-BH1)
+# ---------------------------------------------------------------------------
+#
+# Falsifiable invariant I-BH1:
+#   "While telemetry-blind, URA must never CONTINUE an active grid import
+#    into a higher-rate period; and blind-hold may engage only when NO
+#    fresh SOC exists on ANY resolver tier."
+#
+# The prior gate (`if not self.envoy_available:`) froze whatever state was
+# in place (including an active mid_peak → peak grid-import decision) any
+# time the local Envoy went telemetry-blind, even when the 3-tier SOC
+# resolver was serving from LKG or cloud fallback and control writes were
+# going to the cloud leg. Live incident 2026-07-15 froze reserve=80 +
+# charge_from_grid=ON into peak; operator intervened manually.
+#
+# Fix:
+#   D1 — Relax the gate to trigger only when envoy is unavailable AND
+#        `self.battery_soc` is None (all resolver tiers exhausted).
+#   D2 — Inside the narrower blind branch, add a de-escalation safety net:
+#        on peak (or transition into peak) with charge_from_grid still ON,
+#        emit `switch.turn_off` + `number.set_value(static reserve_soc)`.
+#        Inclement full_hold exempt (grid-precharge is deliberate).
+# ---------------------------------------------------------------------------
+
+_CFG_STATE_ENTITY = DEFAULT_CHARGE_FROM_GRID_ENTITY
+_RESERVE_STATE_ENTITY = DEFAULT_RESERVE_SOC_ENTITY
+
+
+class TestV5175BlindHoldGateRelax:
+    """D1 — Gate relaxes when SOC still resolves via a non-envoy tier.
+
+    Reproduces the 2026-07-15 incident: envoy telemetry-blind at peak
+    while cloud-fallback SOC is available and charge_from_grid=ON. The
+    peak branch must run and emit charge_from_grid=off.
+    """
+
+    def _make_blind_but_soc_resolvable(self, soc_via_fallback=45.0):
+        """Envoy telemetry-blind (primary + storage_mode unavailable) but
+        the cloud fallback SOC resolves.
+        """
+        h = _BatteryHarness(soc=45)  # primed
+        # Force primary Envoy telemetry-blind.
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
+        # Wire the cloud fallback SOC entity (default entity id).
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        )
+        h.hass.set_state(
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+            str(soc_via_fallback),
+            attributes={"unit_of_measurement": "%"},
+        )
+        # Ensure LKG is not set so we prove the CLOUD FALLBACK path.
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        return h
+
+    def test_gate_falls_through_on_cloud_fallback_soc_at_peak(self):
+        """envoy blind + cloud SOC + peak + CFG ON → normal peak
+        discharge (CFG off, reserve → effective_reserve)."""
+        h = self._make_blind_but_soc_resolvable(soc_via_fallback=45.0)
+        # Simulate the incident: CFG is ON from a prior tick.
+        h.hass.set_state(_CFG_STATE_ENTITY, "on")
+        r = h.strategy.determine_mode("peak", "summer")
+        # NOT the blind-hold reason
+        assert "holding (no commands issued)" not in (r["reason"] or "")
+        # Normal peak reason
+        assert "Peak" in (r["reason"] or "")
+        # Degraded telemetry suffix present
+        assert "degraded telemetry" in (r["reason"] or "")
+        # The `_result` path emits switch.turn_off when CFG is currently on
+        # and the decision is charge_from_grid=False.
+        cfg_offs = [
+            a for a in r["actions"]
+            if a.get("service") == "switch.turn_off"
+        ]
+        assert cfg_offs, (
+            "peak decision on relaxed gate must emit turn_off for CFG"
+        )
+
+    def test_fully_blind_still_enters_blind_hold(self):
+        """SOC None on all tiers → blind-hold branch fires (unchanged
+        behavior for the fully-blind case, modulo D2 de-escalation)."""
+        h = _BatteryHarness(soc=80)
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        # No cloud fallback wired.
+        r = h.strategy.determine_mode("off_peak", "summer")
+        assert r["envoy_available"] is False
+        assert r["arbitrage_phase"] == ARBITRAGE_PHASE_NA
+
+
+class TestV5175BlindPeakDeEscalation:
+    """D2 — On the (now-narrower) fully-blind branch, never freeze an
+    active grid import into peak. Emit charge_from_grid=off + static
+    reserve when peak (or into-peak) + CFG ON.
+    """
+
+    def _fully_blind(self, cfg_state="on"):
+        h = _BatteryHarness(soc=80)
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        h.hass.set_state(_CFG_STATE_ENTITY, cfg_state)
+        return h
+
+    def test_fully_blind_peak_with_cfg_on_emits_two_actions(self):
+        h = self._fully_blind(cfg_state="on")
+        r = h.strategy.determine_mode("peak", "summer")
+        assert r["envoy_available"] is False
+        # Two actions: CFG off + reserve=static
+        services = [a.get("service") for a in r["actions"]]
+        assert "switch.turn_off" in services
+        assert "number.set_value" in services
+        # Static reserve is used
+        set_val = [
+            a for a in r["actions"]
+            if a.get("service") == "number.set_value"
+        ][0]
+        assert set_val["data"]["value"] == h.strategy.reserve_soc
+        assert "Blind de-escalation" in r["reason"]
+
+    def test_fully_blind_transition_into_peak_with_cfg_on(self):
+        """tou_transition_into='peak' is treated the same as tou_period='peak'."""
+        h = self._fully_blind(cfg_state="on")
+        r = h.strategy.determine_mode(
+            "mid_peak", "summer", tou_transition_into="peak",
+        )
+        services = [a.get("service") for a in r["actions"]]
+        assert "switch.turn_off" in services
+        assert "number.set_value" in services
+
+    def test_fully_blind_off_peak_no_de_escalation(self):
+        """Off-peak while fully blind + CFG on → hold, no actions."""
+        h = self._fully_blind(cfg_state="on")
+        r = h.strategy.determine_mode("off_peak", "summer")
+        assert r["actions"] == []
+        assert "holding (no commands issued)" in r["reason"]
+
+    def test_fully_blind_peak_cfg_already_off_is_idempotent(self):
+        h = self._fully_blind(cfg_state="off")
+        # No prior command ledger either.
+        h.strategy._last_charge_from_grid_command = None
+        r = h.strategy.determine_mode("peak", "summer")
+        assert r["actions"] == []
+        assert "holding (no commands issued)" in r["reason"]
+
+    def test_full_hold_exemption_holds_through_peak(self):
+        """Inclement full_hold + fully blind + peak + CFG ON → hold, no
+        de-escalation (storm grid-precharge is deliberate)."""
+        h = self._fully_blind(cfg_state="on")
+
+        class _FakeInclement:
+            hold_depth = "full_hold"
+            tier = "warn"
+            reason = "storm"
+            grid_precharge = True
+            reserve_floor = 60
+            source = "test"
+        h.strategy._last_inclement_decision = _FakeInclement()
+        r = h.strategy.determine_mode("peak", "summer")
+        assert r["actions"] == []
+        assert "holding (no commands issued)" in r["reason"]
+
+    def test_degraded_reason_suffix_on_fallback(self):
+        """Reason carries `(degraded telemetry: cloud_fallback)` when a
+        non-envoy tier serves SOC."""
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        )
+        h = _BatteryHarness(soc=45)
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
+        h.hass.set_state(
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
+            attributes={"unit_of_measurement": "%"},
+        )
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        r = h.strategy.determine_mode("peak", "summer")
+        assert "degraded telemetry: cloud_fallback" in (r["reason"] or "")
+
+
+class TestV5175BlindNoneSafeProceedingPath:
+    """D1 audit anchor — with fallback SOC + envoy blind, missing
+    solar_production / net_power / battery_power do NOT crash the
+    proceeding path. Reproduces the 2026-07-15 incident shape end-to-end.
+    """
+
+    def test_none_solar_and_net_power_do_not_crash(self):
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        )
+        h = _BatteryHarness(soc=45)
+        # All primary Envoy sensors down; only cloud fallback SOC works.
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
+        h.hass.set_state(DEFAULT_SOLAR_PRODUCTION_ENTITY, "unavailable")
+        h.hass.set_state(DEFAULT_NET_POWER_ENTITY, "unavailable")
+        h.hass.set_state(DEFAULT_BATTERY_POWER_ENTITY, "unavailable")
+        h.hass.set_state(
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
+            attributes={"unit_of_measurement": "%"},
+        )
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        # Peak decision on relaxed gate. Does NOT crash.
+        r = h.strategy.determine_mode("peak", "summer")
+        # Reason is a normal peak reason (not blind-hold) with degraded
+        # telemetry suffix.
+        assert "holding (no commands issued)" not in (r["reason"] or "")
+        assert "degraded telemetry" in (r["reason"] or "")
+        # Dict tolerates None power sensors
+        assert r["solar_production"] is None
+        assert r["net_power"] is None
