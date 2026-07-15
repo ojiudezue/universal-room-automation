@@ -2004,6 +2004,42 @@ class BatteryStrategy:
             # Under the cap (or net unavailable) → reset the streak so an
             # earlier transient trip can't carry over into a later window.
             self._arbitrage_guard_consecutive_trips = 0
+            # v5.17.5 B-CRIT-1/B-CRIT-2: refuse FRESH CHARGE entry under
+            # degraded telemetry. "Fresh" == charge_from_grid is NOT
+            # already ON at the write leg (already-flowing charges may
+            # continue — releasing mid-charge causes symmetric harm).
+            # Fall to WAIT so the chunk lock isn't set (retry next off_peak
+            # once telemetry recovers).
+            if self._degraded_entry_refused("arbitrage_charge_entry"):
+                try:
+                    _cfg_live = self._get_state_bool(
+                        self._get_entity(
+                            "charge_from_grid",
+                            DEFAULT_CHARGE_FROM_GRID_ENTITY,
+                            role="write",
+                        )
+                    )
+                except Exception:  # noqa: BLE001
+                    _cfg_live = None
+                # Not-already-ON (False, None, unknown) → refuse.
+                if _cfg_live is not True:
+                    return ARBITRAGE_PHASE_WAIT
+            if self._breaker_guard_fail_closed_on_blind(
+                "arbitrage_charge_entry",
+            ):
+                # Fail-closed on the breaker read.
+                try:
+                    _cfg_live = self._get_state_bool(
+                        self._get_entity(
+                            "charge_from_grid",
+                            DEFAULT_CHARGE_FROM_GRID_ENTITY,
+                            role="write",
+                        )
+                    )
+                except Exception:  # noqa: BLE001
+                    _cfg_live = None
+                if _cfg_live is not True:
+                    return ARBITRAGE_PHASE_WAIT
             return ARBITRAGE_PHASE_CHARGE
 
         # Phase 5 — window not open yet. Battery serves loads naturally.
@@ -2128,6 +2164,76 @@ class BatteryStrategy:
             arbitrage_phase=phase,
             target_day_class=target_day_class,
         )
+
+    # ── v5.17.5 B-CRIT-1: degraded-telemetry entry refusal ─────────────
+    # Continuing an already-latched charge on fallback SOC is defensible
+    # (the physical import is already flowing; releasing mid-charge causes
+    # the same problem in the opposite direction). Starting a FRESH grid
+    # import on degraded telemetry is not — the entry predicate ran
+    # without an authoritative live-net_power_w reading and the breaker
+    # guard cannot fail closed. Callers gate the INACTIVE→charging
+    # transition (attain) and the fresh CHARGE emission (off_peak
+    # arbitrage) on this predicate.
+    def _degraded_entry_refused(self, context: str) -> bool:
+        """True iff a FRESH charge-from-grid entry must be refused because
+        Envoy telemetry is degraded. Never raises. Logs once per context
+        transition into refused so operators see the block.
+        """
+        if getattr(self, "_degraded_telemetry_source", None) is None:
+            return False
+        # Log-once-per-context via a small guard set.
+        try:
+            logged = self.__dict__.setdefault(
+                "_degraded_entry_refused_logged", set()
+            )
+            key = f"{context}:{self._degraded_telemetry_source}"
+            if key not in logged:
+                _LOGGER.info(
+                    "Degraded-telemetry entry REFUSED (%s): SOC source=%s "
+                    "— fresh grid-charge entry blocked; already-latched "
+                    "charges may continue",
+                    context, self._degraded_telemetry_source,
+                )
+                logged.add(key)
+        except Exception:  # noqa: BLE001
+            pass
+        return True
+
+    # ── v5.17.5 B-CRIT-2: breaker fail-closed on blind telemetry ───────
+    # `_effective_import_kw` returns None when `net_power_w is None`.
+    # Under the old envoy-blind branch (pre-v5.17.5) this was safe
+    # because the upstream guard held every decision. Under the relaxed
+    # gate on fallback SOC, a None snap at an entry site means "we cannot
+    # measure the panel draw" — for a FRESH charge entry with a ~20 kW
+    # target pull this MUST fail closed. Mirrors the LKG blip-latch at
+    # energy.py:3958 (`_last_known_grid_charge_on`): treat "cannot read"
+    # as "assume trip" when charge intent is fresh.
+    def _breaker_guard_fail_closed_on_blind(self, context: str) -> bool:
+        """True iff a fresh charge entry must abort because the breaker
+        guard cannot read live net power. Only relevant on degraded
+        telemetry (blind envoy + fallback SOC).
+        """
+        if getattr(self, "_degraded_telemetry_source", None) is None:
+            return False
+        snap = self._effective_import_kw()
+        if snap is not None:
+            return False
+        try:
+            logged = self.__dict__.setdefault(
+                "_breaker_blind_logged", set()
+            )
+            if context not in logged:
+                _LOGGER.warning(
+                    "Breaker guard FAIL-CLOSED (%s): net_power_w "
+                    "unreadable while telemetry-blind — refusing fresh "
+                    "grid-charge entry (would pull ~20 kW with no live "
+                    "panel reading)",
+                    context,
+                )
+                logged.add(context)
+        except Exception:  # noqa: BLE001
+            pass
+        return True
 
     # ── Tri-state attain phase compatibility shim ──────────────────────────
     # Historically callers/tests poked `strat._attain_active = True` to
@@ -3202,6 +3308,16 @@ class BatteryStrategy:
         )
         if not should_attain:
             return None
+        # v5.17.5 B-CRIT-1: refuse FRESH attain entry on degraded
+        # telemetry. Already-latched charges (state=="charging"/"holding"
+        # above) are not re-checked here because they short-circuited
+        # earlier in this method.
+        if self._degraded_entry_refused("attain_entry"):
+            return None
+        # v5.17.5 B-CRIT-2: fail closed if the breaker guard cannot read
+        # live net power on degraded telemetry.
+        if self._breaker_guard_fail_closed_on_blind("attain_entry"):
+            return None
         # Guard precedence on entry.
         snap = self._effective_import_kw()
         if snap is not None and snap[0] > self._arbitrage_grid_import_guard_kw:
@@ -3492,10 +3608,21 @@ class BatteryStrategy:
             )
 
         # ── v4.5.0 D5 precedence chain — DO NOT REORDER ───────────────
-        # The arbitrage phase machine (in the off_peak branch below) is
-        # gated on grid_connected + envoy_available. These short-circuits
-        # MUST run before the off_peak branch:
-        #   1. envoy_unavailable → hold state, no commands
+        # v5.17.5 B-HIGH-1 REVISION: the precedence chain no longer holds
+        # the WHOLE tick on `not self.envoy_available`. Under the relaxed
+        # gate (I-BH1), envoy-blind + SOC resolvable via LKG/cloud
+        # fallback proceeds to the branches below with `envoy_available`
+        # marked False in the return dict and a `(degraded telemetry:
+        # <src>)` suffix on `reason`. Fresh grid-charge ENTRY (attain
+        # INACTIVE→charging; off_peak arbitrage CHARGE from non-charging
+        # cfg) is blocked at the entry sites via
+        # `_degraded_entry_refused` + `_breaker_guard_fail_closed_on_blind`.
+        # Already-latched charges may continue (releasing mid-charge
+        # causes symmetric harm). The FULLY blind branch (envoy down AND
+        # SOC None) still short-circuits and additionally emits the
+        # peak-de-escalation two-action set when CFG is ON at the peak
+        # boundary. Order still matters:
+        #   1. envoy_unavailable AND soc None → hold + peak de-escalation
         #   2. grid_disconnected → BACKUP mode (wins over ANY inclement hold)
         #   3. inclement hold-depth ladder (supersedes the old binary
         #      storm branch):

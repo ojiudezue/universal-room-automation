@@ -2620,3 +2620,132 @@ class TestV5175BlindNoneSafeProceedingPath:
         # Dict tolerates None power sensors
         assert r["solar_production"] is None
         assert r["net_power"] is None
+
+
+# ---------------------------------------------------------------------------
+# v5.17.5 B-CRIT-1 / B-CRIT-2 — degraded-telemetry entry guard +
+# breaker fail-closed. Fresh grid-charge ENTRY refused on fallback SOC.
+# ---------------------------------------------------------------------------
+
+
+class TestV5175DegradedEntryGuard:
+    """Envoy telemetry-blind + cloud fallback SOC → attain / arbitrage
+    MUST NOT start a fresh grid import (B-CRIT-1). Continuing an already-
+    latched charge is defensible; STARTING blind is never. Breaker guard
+    fails closed under blind telemetry (B-CRIT-2).
+    """
+
+    def _make_blind_fallback(self, soc_fallback=15.0, arbitrage=True):
+        h = _BatteryHarness(
+            soc=15,
+            solcast_today="20", solcast_tomorrow="20",
+            arbitrage_enabled=arbitrage, with_tou_engine=True,
+        )
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        )
+        # Envoy telemetry blind.
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
+        # net_power blind too — anchors B-CRIT-2 fail-closed path.
+        h.hass.set_state(DEFAULT_NET_POWER_ENTITY, "unavailable")
+        h.hass.set_state(
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+            str(soc_fallback),
+            attributes={"unit_of_measurement": "%"},
+        )
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        return h
+
+    def test_attain_entry_refused_on_degraded_telemetry(self):
+        """Mid_peak with attain eligibility + blind envoy + cloud SOC →
+        no charge_from_grid turn_on emitted. Attain state stays inactive.
+        """
+        h = self._make_blind_fallback()
+        # Force attain-eligibility bypass of predicate internals: seed
+        # samples so `_observed_net_charge_rate_per_hour` isn't None.
+        h.strategy._attain_soc_history = [
+            (datetime(2026, 7, 15, 15, 0), 43.0),
+            (datetime(2026, 7, 15, 15, 5), 45.0),
+        ]
+        r = h.strategy.determine_mode(
+            "mid_peak", "summer", now=datetime(2026, 7, 15, 15, 30),
+        )
+        # No switch.turn_on for CFG
+        turn_ons = [
+            a for a in r["actions"]
+            if a.get("service") == "switch.turn_on"
+        ]
+        assert turn_ons == [], (
+            "attain fresh entry must not emit CFG turn_on on blind "
+            f"telemetry; got {r['actions']}"
+        )
+        # Attain never latched.
+        assert h.strategy._attain_state == "inactive"
+
+    def test_off_peak_arbitrage_charge_entry_refused_on_degraded_telemetry(self):
+        """Off_peak arbitrage-eligible (window open) + blind envoy + cloud
+        SOC + charge_from_grid CURRENTLY OFF → fall to WAIT (fresh entry
+        blocked). Anchors the phase-3 CHARGE emission gate.
+        """
+        h = self._make_blind_fallback()
+        # Ensure CFG reads OFF (fresh entry, not continuing).
+        h.hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
+        # Inside a summer overnight charge window.
+        r = h.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        # No fresh CHARGE — no switch.turn_on emitted.
+        turn_ons = [
+            a for a in r["actions"]
+            if a.get("service") == "switch.turn_on"
+        ]
+        assert turn_ons == [], (
+            "off_peak fresh arbitrage CHARGE must not emit CFG turn_on "
+            f"on blind telemetry; got {r['actions']}"
+        )
+
+    def test_arbitrage_charge_entry_refused_when_net_power_readable_isolates_B_CRIT_1(self):
+        """B-CRIT-1 isolation: envoy SOC blind + cloud fallback + CFG off
+        + net_power STILL READABLE (breaker guard cannot fire on None) →
+        entry-refused guard alone must block the fresh CHARGE.
+        """
+        h = self._make_blind_fallback()
+        # Restore net_power so B-CRIT-2 breaker fail-closed is not the
+        # thing catching this — isolates the B-CRIT-1 gate.
+        h.hass.set_state(
+            DEFAULT_NET_POWER_ENTITY, "-500",
+            attributes={"unit_of_measurement": "W"},
+        )
+        h.hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
+        r = h.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        turn_ons = [
+            a for a in r["actions"]
+            if a.get("service") == "switch.turn_on"
+        ]
+        assert turn_ons == [], (
+            "B-CRIT-1 alone must block fresh arbitrage CHARGE entry on "
+            "degraded telemetry even when net_power is readable"
+        )
+
+    def test_continuing_charge_allowed_on_degraded_telemetry(self):
+        """Anchor: an ALREADY-latched (CFG already ON) off_peak charge
+        may continue on degraded telemetry — releasing mid-charge is
+        symmetric harm. Emits no new turn_on (idempotent) but does NOT
+        emit turn_off either.
+        """
+        h = self._make_blind_fallback()
+        h.hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
+        r = h.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        turn_offs = [
+            a for a in r["actions"]
+            if a.get("service") == "switch.turn_off"
+        ]
+        assert turn_offs == [], (
+            "continuing charge must not be released on degraded telemetry"
+        )
