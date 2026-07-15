@@ -1697,9 +1697,36 @@ class BatteryStrategy:
         target = float(self._peak_buffer_target)
         entry_band = target + ARB_LADDER_ENTRY_HYSTERESIS_PCT
         exit_band = target - ARB_LADDER_EXIT_HYSTERESIS_PCT
-        hours = mins / 60.0
 
-        projected_rung0 = soc + (rate + solar_surplus) * hours
+        # v5.17.4 — Bound the rate-extrapolation horizon to SOLAR-CAPABLE
+        # time remaining. The observed K-tick net-charge `rate` (which
+        # already includes daytime solar contribution) linearly extrapolated
+        # across the FULL 17h overnight boundary produced live artifacts
+        # like arb_projection_rung0 = 836.3% and risked spurious rung-0/1
+        # gate-closures near window-open on marginal days. Rung 0/1 are
+        # SOLAR-attain predicates by construction — grid charging is a
+        # separate windowed action gated inside the arbitrage path — so
+        # bound to remaining solar hours (today's sunset). `solar_surplus`
+        # is already solar-window-aware via `_expected_solar_surplus_pct`
+        # slicing, so it uses the unbounded `hours` term below.
+        try:
+            _sr_today, sunset_today = self._daylight_bounds(now)
+        except Exception:  # noqa: BLE001
+            sunset_today = None
+        if sunset_today is not None and sunset_today > now:
+            solar_mins_remaining = max(
+                0.0, (sunset_today - now).total_seconds() / 60.0,
+            )
+        else:
+            solar_mins_remaining = 0.0
+        effective_rate_mins = min(float(mins), solar_mins_remaining)
+        rate_hours = effective_rate_mins / 60.0
+
+        # Rate term uses solar-bounded horizon; surplus term is already a
+        # daylight-window-sliced %SOC total (see `_expected_solar_surplus_pct`).
+        raw_projected_rung0 = soc + rate * rate_hours + solar_surplus
+        # Display clamp: SOC physically cannot exceed 100%.
+        projected_rung0 = max(0.0, min(100.0, raw_projected_rung0))
         self._arb_last_projection_rung0 = round(projected_rung0, 1)
 
         # CRITICAL ordering: when rung-1 is latched, the COUNTERFACTUAL
@@ -1724,7 +1751,8 @@ class BatteryStrategy:
             assumed_ev_pct = getattr(
                 self, "_arb_last_ev_load_pct_per_h", 0.0,
             ) or 0.0
-            counterfactual_projected = soc + (rate - assumed_ev_pct + solar_surplus) * hours
+            raw_counterfactual = soc + (rate - assumed_ev_pct) * rate_hours + solar_surplus
+            counterfactual_projected = max(0.0, min(100.0, raw_counterfactual))
             self._arb_last_projection_rung1 = round(counterfactual_projected, 1)
             if counterfactual_projected >= entry_band:
                 # Counterfactual passes (i.e. even with EVs back on, rung-0
@@ -1793,7 +1821,8 @@ class BatteryStrategy:
             self._arb_rung_cache_rung = "rung_2"
             return "rung_2"
 
-        projected_rung1_entry = soc + (rate + ev_load_pct_per_h + solar_surplus) * hours
+        raw_rung1_entry = soc + (rate + ev_load_pct_per_h) * rate_hours + solar_surplus
+        projected_rung1_entry = max(0.0, min(100.0, raw_rung1_entry))
         self._arb_last_projection_rung1 = round(projected_rung1_entry, 1)
         if projected_rung1_entry >= entry_band:
             self._arb_rung1_latch = True

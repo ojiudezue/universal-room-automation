@@ -430,23 +430,27 @@ class TestHysteresisAndNoFlap:
     def test_rung_0_latch_no_flap_around_target(self):
         """Rung-0 latched; rate dips slightly → latch holds inside band.
 
-        Entry: proj_r0 = 60 + (5 + ~3)*5 = 100 ≥ 83 → latched.
-        Held: rate drops to 4 → proj = 60+(4+3)*5 = 95 — still > exit
-        band 77. Latch must hold (hysteresis).
+        v5.17.4: projection math corrected to match the attain path
+        (`soc + rate*rate_hours + solar_surplus`, solar_surplus is a
+        %SOC total, not a per-hour term; rate horizon bounded to
+        remaining solar hours). Numeric expectations retuned but the
+        hysteresis assertion is unchanged: latched with strong rate,
+        slight rate dip must NOT release the latch (must clear exit
+        band).
         """
         strat, hass = _build_strategy(soc=60, solcast_today="10")
-        next_soc = _seed_rate(strat, _ANCHOR, 60.0, 5.0)
+        next_soc = _seed_rate(strat, _ANCHOR, 60.0, 15.0)
         hass.set_state(_BSOC, f"{next_soc:.4f}")
         r = strat._classify_attain_rung(_ANCHOR, soc=next_soc, ev_load_w=0.0)
         assert r == "rung_0"
         assert strat._arb_rung0_latch is True
-        # Slightly worse rate — projection still in [exit_band, ∞), so
-        # latch holds.
+        # Slightly worse observed rate — projection still ≥ exit band, so
+        # latch holds. Values scaled to the corrected math (see docstring).
         strat._attain_soc_history.clear()
-        _seed_rate(strat, _ANCHOR + timedelta(minutes=5), next_soc, 4.0)
+        _seed_rate(strat, _ANCHOR + timedelta(minutes=5), next_soc, 12.0)
         r2 = strat._classify_attain_rung(
             _ANCHOR + timedelta(minutes=5),
-            soc=next_soc + 4.0 * 5 / 60,
+            soc=next_soc + 12.0 * 5 / 60,
             ev_load_w=0.0,
         )
         assert r2 == "rung_0", "latch must hold inside hysteresis band"
@@ -1606,3 +1610,86 @@ class TestRung1ReleaseClearsAssumedLoad:
         assert r == "rung_0"
         # Cleared (not stale).
         assert strat._arb_last_ev_load_pct_per_h == 0.0
+
+
+# ==========================================================================
+# v5.17.4 — Solar-bounded rate horizon + display clamp
+# ==========================================================================
+
+
+class TestV5174RungProjectionSolarHorizon:
+    """Acceptance for v5.17.4: bound rate-extrapolation to solar hours +
+    clamp display to [0,100]. Live finding 2026-07-14 21:04 read
+    arb_projection_rung0=836.3% — rate*17h across the overnight boundary.
+
+    Mutation authority:
+      MUT1: `effective_rate_mins = float(mins)` (drop solar bound) →
+        nighttime test (a) fails: projection ≥100 uncapped-raw but even
+        clamped, gate re-opens differently vs the bounded expectation.
+      MUT2: drop the clamp → display test (c) fails.
+    """
+
+    def test_a_nighttime_projection_bounded_by_no_solar_hours(self):
+        """At 22:00 local (past 20:30 sunset), solar_mins_remaining=0 so
+        the rate term contributes 0. Projection collapses to
+        `soc + solar_surplus` (which is 0 for tomorrow's window from
+        22:00 with no daylight overlap tonight but tomorrow's forecast
+        applies only after sunrise → 0 for a short off_peak boundary).
+        Under the OLD math (5%/h * ~17h + solar) this projected 800%+.
+        """
+        strat, hass = _build_strategy(soc=60, solcast_today="10")
+        # 22:00 local — after 20:30 sunset. Boundary math still resolves
+        # to next off_peak→high-rate transition.
+        night = datetime(2026, 7, 15, 22, 0)
+        next_soc = _seed_rate(strat, night, 60.0, 5.0)
+        hass.set_state(_BSOC, f"{next_soc:.4f}")
+        strat._classify_attain_rung(night, soc=next_soc, ev_load_w=0.0)
+        proj = strat._arb_last_projection_rung0
+        # Bounded: rate term = 5%/h * 0h = 0 → proj ≈ soc + small surplus.
+        # Old buggy math would produce something like 60 + 5*17 + 45*17 = ~910
+        # → clamped display to 100 but semantically wrong. Bounded proj
+        # must be well under 100 and never exceed soc + a small margin.
+        assert proj is not None
+        assert proj <= 100.0, "projection must be clamped to 100"
+        assert proj < next_soc + 25.0, (
+            f"nighttime projection {proj} inflated — rate horizon not "
+            f"bounded to solar-capable time"
+        )
+
+    def test_b_daytime_short_window_projection_uses_full_rate_horizon(self):
+        """Daytime at 09:00 with boundary at 14:00 (5h). Solar hours
+        remaining until 20:30 = 11.5h >> boundary → rate horizon =
+        min(5h, 11.5h) = 5h (unbounded — full boundary). Projection
+        matches attain-path shape: soc + rate*5 + solar_surplus.
+        """
+        strat, hass = _build_strategy(soc=40, solcast_today="10")
+        # _ANCHOR is 09:00; boundary math returns 14:00 mid_peak (5h out).
+        next_soc = _seed_rate(strat, _ANCHOR, 40.0, 6.0)
+        hass.set_state(_BSOC, f"{next_soc:.4f}")
+        strat._classify_attain_rung(_ANCHOR, soc=next_soc, ev_load_w=0.0)
+        proj = strat._arb_last_projection_rung0
+        # Rate over the 5h window contributes ≈ observed_rate * 5 (plus
+        # small solar_surplus total). Solar bound MUST NOT truncate here:
+        # bounded == unbounded for daytime short windows.
+        rate = strat._observed_net_charge_rate_per_hour()
+        assert rate is not None
+        expected_lower = next_soc + rate * 5.0  # solar_surplus ≥ 0
+        assert proj is not None
+        assert proj + 0.1 >= min(100.0, expected_lower), (
+            f"daytime projection {proj} truncated (expected≥{expected_lower})"
+        )
+
+    def test_c_display_projection_clamped_to_100(self):
+        """Extreme rate + long horizon → uncapped raw would exceed 100.
+        Display clamp must land the stamped value at ≤100.
+        """
+        strat, hass = _build_strategy(soc=40, solcast_today="10")
+        # Very high seeded rate; bounded horizon (5h to 14:00) still
+        # projects far above 100 → clamp must engage. Start soc must
+        # remain < target (80) after seed roll-in.
+        next_soc = _seed_rate(strat, _ANCHOR, 40.0, 100.0)
+        hass.set_state(_BSOC, f"{next_soc:.4f}")
+        strat._classify_attain_rung(_ANCHOR, soc=next_soc, ev_load_w=0.0)
+        proj = strat._arb_last_projection_rung0
+        assert proj is not None
+        assert 0.0 <= proj <= 100.0, f"proj {proj} not clamped to [0,100]"
