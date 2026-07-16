@@ -5,6 +5,12 @@
 **Status:** Design Complete  
 **Last Updated:** 2026-01-24
 
+> **Operator note (2026-07-16):** this is a historical design spec. For
+> the operator manual (current through v5.18.0 — what the HC does,
+> knob entities #46/#48/#49/#50/#51, what to watch, how to intervene,
+> and the house-zones-vs-HVAC-zones architecture note) see
+> [`HVAC_COORDINATOR_MANUAL.md`](HVAC_COORDINATOR_MANUAL.md).
+
 ---
 
 ## TABLE OF CONTENTS

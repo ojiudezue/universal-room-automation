@@ -1,6 +1,11 @@
 # Energy Coordinator Design - URA v3.6.0
 ## Comprehensive Specification for Whole-House Energy Intelligence
 
+> **Operator note (2026-07-16):** this is a historical design spec. For
+> the operator manual (current through v5.18.0 — what the EC does, what
+> knobs exist and where, what to watch, how to intervene) see
+> [`ENERGY_COORDINATOR_MANUAL.md`](ENERGY_COORDINATOR_MANUAL.md).
+
 **Version:** 2.3 (Updated with Pentair VSF speed control)  
 **Status:** Design Phase - Ready for Implementation  
 **Created:** January 23, 2026  
