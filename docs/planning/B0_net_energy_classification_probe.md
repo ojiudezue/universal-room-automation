@@ -171,3 +171,5 @@ All model fits in-sample; n=361 with a missing deep-winter 2026.
 - **R7 added to the repair chain: projection unification** (one primitive for ladder/attain/reason — previously slate item 2) — sequenced **R1 → R7 → R2** so net-awareness plugs into a single owner. Formalized here to prevent horizon loss.
 - R5 (Enlighten re-export for deep winter): operator-confirmed not urgent; target before first winter validation of the recalibrated estimator (~Oct).
 - R4 root-cause investigation ordered (no symptom-patching) — see forensic below/linked.
+
+- R5 CLOSED 2026-07-16: full-span daily Enlighten exports saved to data/enphase/ (incl. deep winter). 15-min power series added jic.
