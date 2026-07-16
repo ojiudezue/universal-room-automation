@@ -1129,3 +1129,16 @@ def validate_envoy_config(
         "degraded_reason": degraded_reason,
         "entity_registry_known": True,
     }
+
+
+# ============================================================================
+# R7 — Projection Singleton (Numbers Get Knobs: module-constant rung)
+# ============================================================================
+# Kill-switch for the unified `EnergyProjector.project_soc_at_boundary`
+# primitive. When TRUE, every SOC-at-boundary projection site (rung 0/1,
+# attain entry, attain hold-current) routes through the primitive. When
+# FALSE, sites fall back to inline arithmetic (one-release fallback path
+# per PLANNING_net_energy_program_R1_R7_R2.md R7 §Kill-switch). This is a
+# code-review-governed knob (never operator-tuned), so it lives here rather
+# than options-flow or an entity.
+R7_USE_UNIFIED_PROJECTOR: Final[bool] = True

@@ -45,9 +45,11 @@ from .energy_const import (
     DEFAULT_WEATHER_ENTITY,
     MAX_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
     MIN_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
+    R7_USE_UNIFIED_PROJECTOR,
     SOLAR_DAY_THRESHOLDS,
     SOLAR_MONTHLY_THRESHOLDS,
 )
+from .energy_projector import EnergyProjector
 
 # v4.5.0 D1: arbitrage phase names. Single source of truth — used by the
 # state matrix routing in determine_mode(), the sensor `arbitrage_phase`
@@ -1759,9 +1761,35 @@ class BatteryStrategy:
 
         # Rate term uses solar-bounded horizon; surplus term is already a
         # daylight-window-sliced %SOC total (see `_expected_solar_surplus_pct`).
-        raw_projected_rung0 = soc + rate * rate_hours + solar_surplus
-        # Display clamp: SOC physically cannot exceed 100%.
-        projected_rung0 = max(0.0, min(100.0, raw_projected_rung0))
+        # R7 (unified projector): singleton primitive owns the additive-surplus
+        # shape + display clamp. Kill-switch fallback preserves pre-R7
+        # arithmetic byte-identical for one release.
+        if R7_USE_UNIFIED_PROJECTOR:
+            _proj_rung0 = EnergyProjector.project_soc_at_boundary(
+                soc=soc,
+                rate_pct_per_h=rate,
+                mins=mins,
+                solar_surplus_pct=solar_surplus,
+                source="rung0",
+                bound_to_solar_horizon=True,
+                now=now,
+                sunset_dt=sunset_today,
+                extra_rate_pct_per_h=0.0,
+            )
+            raw_projected_rung0 = (
+                _proj_rung0.raw_soc_pct
+                if _proj_rung0.raw_soc_pct is not None
+                else soc + rate * rate_hours + solar_surplus  # R7-SINGLETON-EXEMPT: primitive-None defensive rescue
+            )
+            projected_rung0 = (
+                _proj_rung0.soc_pct
+                if _proj_rung0.soc_pct is not None
+                else max(0.0, min(100.0, raw_projected_rung0))
+            )
+        else:
+            raw_projected_rung0 = soc + rate * rate_hours + solar_surplus  # R7-SINGLETON-EXEMPT: kill-switch fallback (R7_USE_UNIFIED_PROJECTOR=False)
+            # Display clamp: SOC physically cannot exceed 100%.
+            projected_rung0 = max(0.0, min(100.0, raw_projected_rung0))
         self._arb_last_projection_rung0 = round(projected_rung0, 1)
 
         # CRITICAL ordering: when rung-1 is latched, the COUNTERFACTUAL
@@ -1786,8 +1814,33 @@ class BatteryStrategy:
             assumed_ev_pct = getattr(
                 self, "_arb_last_ev_load_pct_per_h", 0.0,
             ) or 0.0
-            raw_counterfactual = soc + (rate - assumed_ev_pct) * rate_hours + solar_surplus
-            counterfactual_projected = max(0.0, min(100.0, raw_counterfactual))
+            # R7 (unified projector): rung-1 counterfactual — "if EVs came
+            # back on" reduces the effective rate by `assumed_ev_pct`.
+            if R7_USE_UNIFIED_PROJECTOR:
+                _proj_cf = EnergyProjector.project_soc_at_boundary(
+                    soc=soc,
+                    rate_pct_per_h=rate,
+                    mins=mins,
+                    solar_surplus_pct=solar_surplus,
+                    source="rung1_counterfactual",
+                    bound_to_solar_horizon=True,
+                    now=now,
+                    sunset_dt=sunset_today,
+                    extra_rate_pct_per_h=-assumed_ev_pct,
+                )
+                raw_counterfactual = (
+                    _proj_cf.raw_soc_pct
+                    if _proj_cf.raw_soc_pct is not None
+                    else soc + (rate - assumed_ev_pct) * rate_hours + solar_surplus  # R7-SINGLETON-EXEMPT: primitive-None defensive rescue
+                )
+                counterfactual_projected = (
+                    _proj_cf.soc_pct
+                    if _proj_cf.soc_pct is not None
+                    else max(0.0, min(100.0, raw_counterfactual))
+                )
+            else:
+                raw_counterfactual = soc + (rate - assumed_ev_pct) * rate_hours + solar_surplus  # R7-SINGLETON-EXEMPT: kill-switch fallback
+                counterfactual_projected = max(0.0, min(100.0, raw_counterfactual))
             self._arb_last_projection_rung1 = round(counterfactual_projected, 1)
             if counterfactual_projected >= entry_band:
                 # Counterfactual passes (i.e. even with EVs back on, rung-0
@@ -1856,8 +1909,33 @@ class BatteryStrategy:
             self._arb_rung_cache_rung = "rung_2"
             return "rung_2"
 
-        raw_rung1_entry = soc + (rate + ev_load_pct_per_h) * rate_hours + solar_surplus
-        projected_rung1_entry = max(0.0, min(100.0, raw_rung1_entry))
+        # R7 (unified projector): rung-1 ENTRY — "if we paused EVs" adds
+        # `ev_load_pct_per_h` back into the effective rate.
+        if R7_USE_UNIFIED_PROJECTOR:
+            _proj_r1e = EnergyProjector.project_soc_at_boundary(
+                soc=soc,
+                rate_pct_per_h=rate,
+                mins=mins,
+                solar_surplus_pct=solar_surplus,
+                source="rung1_entry",
+                bound_to_solar_horizon=True,
+                now=now,
+                sunset_dt=sunset_today,
+                extra_rate_pct_per_h=ev_load_pct_per_h,
+            )
+            raw_rung1_entry = (
+                _proj_r1e.raw_soc_pct
+                if _proj_r1e.raw_soc_pct is not None
+                else soc + (rate + ev_load_pct_per_h) * rate_hours + solar_surplus  # R7-SINGLETON-EXEMPT: primitive-None defensive rescue
+            )
+            projected_rung1_entry = (
+                _proj_r1e.soc_pct
+                if _proj_r1e.soc_pct is not None
+                else max(0.0, min(100.0, raw_rung1_entry))
+            )
+        else:
+            raw_rung1_entry = soc + (rate + ev_load_pct_per_h) * rate_hours + solar_surplus  # R7-SINGLETON-EXEMPT: kill-switch fallback
+            projected_rung1_entry = max(0.0, min(100.0, raw_rung1_entry))
         self._arb_last_projection_rung1 = round(projected_rung1_entry, 1)
         if projected_rung1_entry >= entry_band:
             self._arb_rung1_latch = True
@@ -2764,7 +2842,29 @@ class BatteryStrategy:
         # expected-solar-surplus term. Stale/unavailable Solcast → surplus
         # collapses to 0 (fail toward charging).
         solar_surplus = self._expected_solar_surplus_pct(now, mins)
-        projected = soc + (mins / 60.0) * rate + solar_surplus
+        # R7 (unified projector): attain-entry projection. NOT solar-bounded
+        # — attain runs in a TOU-boundary context (extrapolate over full
+        # `mins`). Preserves the pre-R7 shape byte-identical.
+        if R7_USE_UNIFIED_PROJECTOR:
+            _proj_att = EnergyProjector.project_soc_at_boundary(
+                soc=soc,
+                rate_pct_per_h=rate,
+                mins=mins,
+                solar_surplus_pct=solar_surplus,
+                source="attain_entry",
+                bound_to_solar_horizon=False,
+            )
+            # Attain-entry historically publishes the RAW (un-clamped)
+            # projection to `_attain_projected_soc` — the clamp is a rung
+            # display artifact from v5.17.4 and never applied here.
+            # Preserve that (byte-identical no-op path).
+            projected = (
+                _proj_att.raw_soc_pct
+                if _proj_att.raw_soc_pct is not None
+                else soc + (mins / 60.0) * rate + solar_surplus  # R7-SINGLETON-EXEMPT: primitive-None defensive rescue
+            )
+        else:
+            projected = soc + (mins / 60.0) * rate + solar_surplus  # R7-SINGLETON-EXEMPT: kill-switch fallback
         self._attain_projected_soc = round(projected, 1)
         self._attain_solar_term_pct = round(solar_surplus, 1)
         if projected < self._peak_buffer_target:
@@ -3438,10 +3538,24 @@ class BatteryStrategy:
                 "mid_peak→peak coverage" if tou_period == "mid_peak" else None
             )
             solar_surplus = self._expected_solar_surplus_pct(now, mins)
-            projected = (
-                soc + (mins / 60.0) * rate + solar_surplus
-                if soc is not None and rate is not None else None
-            )
+            # R7 (unified projector): attain hold-current projection.
+            # Same shape as attain-entry (not solar-bounded). Preserves
+            # the `None` fall-through when soc or rate is None.
+            if R7_USE_UNIFIED_PROJECTOR:
+                _proj_hc = EnergyProjector.project_soc_at_boundary(
+                    soc=soc,
+                    rate_pct_per_h=rate,
+                    mins=mins,
+                    solar_surplus_pct=solar_surplus,
+                    source="attain_hold_current",
+                    bound_to_solar_horizon=False,
+                )
+                projected = _proj_hc.raw_soc_pct  # None when blind
+            else:
+                projected = (
+                    soc + (mins / 60.0) * rate + solar_surplus  # R7-SINGLETON-EXEMPT: kill-switch fallback
+                    if soc is not None and rate is not None else None
+                )
             return self._get_attainability_decision(
                 soc=soc, now=now,
                 target_day_class=target_day_class,
