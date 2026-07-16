@@ -2273,30 +2273,78 @@ class BatteryStrategy:
             pass
         return True
 
-    # ── v5.17.5 fix-up 4 D-HIGH-2 STUB (disabled, awaits operator) ─────
+    # ── v5.17.6 D-HIGH-2 EXEMPT-BOUNDED (operator-ratified) ────────────
     # Framing-D leak L2: an inclement full_hold + grid_precharge + soc <
     # threshold branch (energy_battery.py:3767+) STARTS a fresh grid
-    # import under degraded telemetry. This is DIFFERENT from L1/L3
-    # (arbitrage/attain) — a storm precharge is intentional insurance,
-    # and refusing it blind trades one risk (blind ~20 kW pull) for
-    # another (unpowered ride-through of the storm the operator was
-    # preparing for). Operator must decide the trade-off.
+    # import under degraded telemetry. Operator-ratified semantics
+    # (2026-07-15): a storm precharge IS allowed while degraded,
+    # bounded by (a) the full_hold decision being fresh (≤30 min — the
+    # A2 window; note this gates the DECISION OBJECT which re-derives
+    # every 5-min cycle, so it never blocks a living storm hold, only
+    # a cached corpse) and (b) at least fallback SOC resolvable
+    # (never fully blind — battery_soc is not None).
     #
-    # Wiring plan when the operator ratifies the guard: enable by
-    # adding, immediately before the precharge `return self._result(...)`
-    # at energy_battery.py:3772+, a single-line call
-    #   ``if self._precharge_refused_on_blind(decision, soc): return ...``
-    # that routes to the "hold via backup" branch that already follows
-    # the precharge return (line 3781). Semantics are then symmetric
-    # with the L1/L3 fixes: fresh grid-charge entry refused while
-    # blind, existing precharge (CFG already ON) may continue.
-    def _precharge_refused_on_blind(self, decision: Any, soc: float | None) -> bool:
-        """STUB — always False. See D-HIGH-2 comment above for how to
-        enable. No call-site currently invokes this helper; framing-D's
-        L2 repro remains open pending operator decision on the
-        storm-precharge vs blind-write trade-off.
+    # Refuse the precharge START only when:
+    #   degraded  AND  (full_hold decision stale >30min OR soc is None)
+    # Allowed-degraded path: append the safety-over-cost reason suffix
+    # in the caller. Existing precharge (CFG already ON) untouched.
+    # Post-restart nuance: an unstamped restored full_hold refuses for
+    # the first tick until evaluate_inclement re-affirms (~5 min); the
+    # refusal reason must say "awaiting fresh storm evaluation".
+    #
+    # I-BH2 (v5.17.5 blind-hold total contract) is now EXEMPTED for the
+    # bounded storm-precharge case above: fresh grid-charge entries
+    # remain refused while degraded EXCEPT the inclement full_hold
+    # precharge with a fresh decision + resolvable SOC. See review
+    # record v5.17.5 (D-HIGH-2 pending → ratified) for context.
+    def _precharge_refused_on_blind(
+        self, decision: Any, soc: float | None
+    ) -> tuple[bool, str | None]:
+        """Return (refused, awaiting_reason).
+
+        Refused iff degraded telemetry AND (full_hold decision is stale
+        >30 min OR SOC is fully blind). When decision has never been
+        stamped (post-restart restored full_hold), refuse with an
+        "awaiting fresh storm evaluation" reason until evaluate_inclement
+        re-affirms. When allowed under bounded-degraded exemption,
+        returns (False, None) and the caller appends the safety-over-cost
+        suffix on the ALLOWED path.
         """
-        return False
+        # Not degraded → no refusal, no reason.
+        if getattr(self, "_degraded_telemetry_source", None) is None:
+            return (False, None)
+        # Fully blind: SOC unresolvable → always refuse. Reason plain.
+        if soc is None:
+            try:
+                logged = self.__dict__.setdefault(
+                    "_precharge_blind_logged", set()
+                )
+                if "soc_none" not in logged:
+                    _LOGGER.warning(
+                        "Storm precharge REFUSED: SOC unresolvable "
+                        "(fully blind) — safety-over-cost cannot be "
+                        "sized without any SOC signal",
+                    )
+                    logged.add("soc_none")
+            except Exception:  # noqa: BLE001
+                pass
+            return (True, None)
+        # Freshness of the full_hold decision — parallels the A2
+        # de-escalation exemption gate (~line 3614).
+        _inc_at = getattr(self, "_last_inclement_decision_at", None)
+        if _inc_at is None:
+            # Restored-from-persistence full_hold with no stamp yet —
+            # await one fresh evaluate_inclement pass.
+            return (True, "awaiting fresh storm evaluation")
+        try:
+            from homeassistant.util import dt as dt_util
+            _age = (dt_util.now() - _inc_at).total_seconds()
+        except Exception:  # noqa: BLE001
+            _age = None
+        if _age is None or _age > 1800:
+            return (True, "awaiting fresh storm evaluation")
+        # Bounded-degraded exemption: allow the precharge.
+        return (False, None)
 
     # ── Tri-state attain phase compatibility shim ──────────────────────────
     # Historically callers/tests poked `strat._attain_active = True` to
@@ -3794,6 +3842,59 @@ class BatteryStrategy:
                 and soc is not None
                 and soc < DEFAULT_STORM_CHARGE_THRESHOLD
             ):
+                # v5.17.6 D-HIGH-2 exempt-bounded: refuse the FRESH
+                # precharge entry only when degraded telemetry is
+                # unbounded (stale full_hold decision >30 min or SOC
+                # fully blind). Bounded-degraded path (fresh decision
+                # + resolvable SOC) proceeds with a safety-over-cost
+                # suffix on the reason. I-BH2 exemption documented on
+                # `_precharge_refused_on_blind`.
+                _pref_refused, _await_reason = self._precharge_refused_on_blind(
+                    decision, soc
+                )
+                if _pref_refused:
+                    _reason = (
+                        f"Inclement ({decision.reason}) — precharge "
+                        f"refused ({_await_reason}) — holding via backup "
+                        f"(SOC {soc}%)"
+                        if _await_reason
+                        else (
+                            f"Inclement ({decision.reason}) — precharge "
+                            f"refused (degraded telemetry) — holding via "
+                            f"backup (SOC {soc}%)"
+                        )
+                    )
+                    return self._result(
+                        BATTERY_MODE_BACKUP,
+                        _reason,
+                        current_mode,
+                        reserve_level=decision.reserve_floor,
+                        season=season,
+                    )
+                # Allowed path — annotate degraded exemption when in
+                # effect. Suppress the standard `_result` degraded
+                # suffix for this single call so the reason line stays
+                # readable; safety-over-cost suffix subsumes it.
+                _dts_saved = getattr(self, "_degraded_telemetry_source", None)
+                if _dts_saved is not None:
+                    _reason = (
+                        f"Inclement ({decision.reason}) — pre-charging "
+                        f"(SOC {soc}%) (storm precharge — safety over "
+                        f"cost, degraded telemetry)"
+                    )
+                    self._degraded_telemetry_source = None
+                    try:
+                        _res = self._result(
+                            BATTERY_MODE_SELF_CONSUMPTION,
+                            _reason,
+                            current_mode,
+                            charge_from_grid=True,
+                            reserve_level=decision.reserve_floor,
+                            season=season,
+                        )
+                    finally:
+                        self._degraded_telemetry_source = _dts_saved
+                    return _res
                 return self._result(
                     BATTERY_MODE_SELF_CONSUMPTION,
                     f"Inclement ({decision.reason}) — pre-charging (SOC {soc}%)",
