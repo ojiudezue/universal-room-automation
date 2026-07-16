@@ -35,7 +35,20 @@ mirror, not a new gate.
 
 Numbers Get Knobs: the kill-switch constant `R7_USE_UNIFIED_PROJECTOR`
 lives in `energy_const.py` at the module-constant rung (code-review-only
-governance — not operator-tunable).
+governance — not operator-tunable). The kill-switch rollback still
+requires this module to import successfully; the module is intentionally
+pure-stdlib (``dataclasses``, ``datetime``, ``typing``) so import
+failure is not a plausible operational mode, but callers gated by
+``if R7_USE_UNIFIED_PROJECTOR:`` will still hit the fallback branch
+without needing this module at all — the flag is checked BEFORE the
+primitive is invoked.
+
+Out-of-family: ``energy_forecast.py::battery_full_time`` is a deliberate
+SOC-trajectory model (observability-only, "when will the battery fill?")
+that answers a DIFFERENT question than the boundary projection this
+primitive owns. It is NOT to be forced through this primitive — its
+trajectory shape (integration to a target level, not extrapolation at
+boundary T) is distinct.
 """
 
 from __future__ import annotations
@@ -121,8 +134,17 @@ class EnergyProjector:
         Args:
             soc: Current SOC in %. None → blind fail-closed.
             rate_pct_per_h: Observed net charge rate in %/h. None → blind.
-            mins: Minutes to boundary (T - now). None or ≤0 → zero-horizon
-                result (raw = soc + surplus).
+            mins: Minutes to boundary (T - now). None → zero-horizon
+                result (raw = soc + surplus). **Divergence from pre-R7:**
+                the pre-R7 inline sites all had a caller-side pre-guard
+                that returned before the arithmetic line when `mins is
+                None` (e.g. the attain sites short-circuit via the
+                `if mins is None or mins <= 0:` guard at
+                energy_battery.py:2832). Callers MUST retain that
+                pre-guard; passing mins=None here yields a defined
+                zero-horizon result rather than fail-loud, which is a
+                belt-and-braces mirror of the caller-side guard, not a
+                new gate.
             solar_surplus_pct: Pre-computed expected solar surplus %SOC
                 over the caller's solar window. Owned by call site.
             source: Diagnostic string for the ProjectionResult.
