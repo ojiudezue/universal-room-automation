@@ -1984,6 +1984,39 @@ class BatteryStrategy:
                         now.isoformat(timespec="minutes") if hasattr(now, "isoformat") else now,
                     )
                     return ARBITRAGE_PHASE_WAIT
+            # ── v5.17.5 fix-up 4 D-HIGH-1: HOIST degraded-telemetry
+            # entry guards ABOVE the entire grid-import guard block.
+            # Framing-D leak L1: the grid-import guard's trip-1/2 grace
+            # path (below at :return ARBITRAGE_PHASE_CHARGE) fires
+            # BEFORE the B-CRIT-1/B-CRIT-2 checks that used to live at
+            # the tail of this branch (below the "reset streak" line).
+            # Repro: degraded + net 13 kW above 12 kW cap + CFG off →
+            # trip=1 → grace ticks → CHARGE returned → fresh turn_on
+            # emitted without _degraded_entry_refused ever running.
+            # Hoisting closes the leak: fresh CHARGE entry under degraded
+            # telemetry is refused BEFORE the grid-import guard has any
+            # chance to short-circuit to CHARGE. Already-flowing charges
+            # (write-leg CFG live-reads True) may continue — releasing
+            # mid-charge is symmetric harm, matching the base-commit
+            # semantics.
+            if (
+                self._degraded_entry_refused("arbitrage_charge_entry")
+                or self._breaker_guard_fail_closed_on_blind(
+                    "arbitrage_charge_entry",
+                )
+            ):
+                try:
+                    _cfg_live = self._get_state_bool(
+                        self._get_entity(
+                            "charge_from_grid",
+                            DEFAULT_CHARGE_FROM_GRID_ENTITY,
+                            role="write",
+                        )
+                    )
+                except Exception:  # noqa: BLE001
+                    _cfg_live = None
+                if _cfg_live is not True:
+                    return ARBITRAGE_PHASE_WAIT
             # Defensive guard: if non-battery grid import (house + EV draw)
             # exceeds the configured cap, abort the chunk. Protects against
             # undersized breakers tripping under hardware peak draw the
@@ -2038,43 +2071,13 @@ class BatteryStrategy:
                 return ARBITRAGE_PHASE_WAIT
             # Under the cap (or net unavailable) → reset the streak so an
             # earlier transient trip can't carry over into a later window.
+            # v5.17.5 fix-up 4 D-HIGH-1: the previous B-CRIT-1/B-CRIT-2
+            # guards that lived HERE have been HOISTED above the entire
+            # grid-import guard block (see comment before `snap =
+            # self._effective_import_kw()` above). No degraded/breaker
+            # check needed here — any degraded fresh-entry attempt was
+            # already refused before we reached this code.
             self._arbitrage_guard_consecutive_trips = 0
-            # v5.17.5 B-CRIT-1/B-CRIT-2: refuse FRESH CHARGE entry under
-            # degraded telemetry. "Fresh" == charge_from_grid is NOT
-            # already ON at the write leg (already-flowing charges may
-            # continue — releasing mid-charge causes symmetric harm).
-            # Fall to WAIT so the chunk lock isn't set (retry next off_peak
-            # once telemetry recovers).
-            if self._degraded_entry_refused("arbitrage_charge_entry"):
-                try:
-                    _cfg_live = self._get_state_bool(
-                        self._get_entity(
-                            "charge_from_grid",
-                            DEFAULT_CHARGE_FROM_GRID_ENTITY,
-                            role="write",
-                        )
-                    )
-                except Exception:  # noqa: BLE001
-                    _cfg_live = None
-                # Not-already-ON (False, None, unknown) → refuse.
-                if _cfg_live is not True:
-                    return ARBITRAGE_PHASE_WAIT
-            if self._breaker_guard_fail_closed_on_blind(
-                "arbitrage_charge_entry",
-            ):
-                # Fail-closed on the breaker read.
-                try:
-                    _cfg_live = self._get_state_bool(
-                        self._get_entity(
-                            "charge_from_grid",
-                            DEFAULT_CHARGE_FROM_GRID_ENTITY,
-                            role="write",
-                        )
-                    )
-                except Exception:  # noqa: BLE001
-                    _cfg_live = None
-                if _cfg_live is not True:
-                    return ARBITRAGE_PHASE_WAIT
             return ARBITRAGE_PHASE_CHARGE
 
         # Phase 5 — window not open yet. Battery serves loads naturally.
@@ -2269,6 +2272,31 @@ class BatteryStrategy:
         except Exception:  # noqa: BLE001
             pass
         return True
+
+    # ── v5.17.5 fix-up 4 D-HIGH-2 STUB (disabled, awaits operator) ─────
+    # Framing-D leak L2: an inclement full_hold + grid_precharge + soc <
+    # threshold branch (energy_battery.py:3767+) STARTS a fresh grid
+    # import under degraded telemetry. This is DIFFERENT from L1/L3
+    # (arbitrage/attain) — a storm precharge is intentional insurance,
+    # and refusing it blind trades one risk (blind ~20 kW pull) for
+    # another (unpowered ride-through of the storm the operator was
+    # preparing for). Operator must decide the trade-off.
+    #
+    # Wiring plan when the operator ratifies the guard: enable by
+    # adding, immediately before the precharge `return self._result(...)`
+    # at energy_battery.py:3772+, a single-line call
+    #   ``if self._precharge_refused_on_blind(decision, soc): return ...``
+    # that routes to the "hold via backup" branch that already follows
+    # the precharge return (line 3781). Semantics are then symmetric
+    # with the L1/L3 fixes: fresh grid-charge entry refused while
+    # blind, existing precharge (CFG already ON) may continue.
+    def _precharge_refused_on_blind(self, decision: Any, soc: float | None) -> bool:
+        """STUB — always False. See D-HIGH-2 comment above for how to
+        enable. No call-site currently invokes this helper; framing-D's
+        L2 repro remains open pending operator decision on the
+        storm-precharge vs blind-write trade-off.
+        """
+        return False
 
     # ── Tri-state attain phase compatibility shim ──────────────────────────
     # Historically callers/tests poked `strat._attain_active = True` to
@@ -3230,6 +3258,45 @@ class BatteryStrategy:
                 )
             # Guard re-check while charging.
             snap = self._effective_import_kw()
+            # v5.17.5 fix-up 4 D-MED-1: treat snap=None (net_power
+            # unreadable) as FAIL-CLOSED while telemetry is degraded.
+            # Mirrors the LKG blip-latch pattern at energy.py:3958
+            # (`_last_known_grid_charge_on`) — cannot-read becomes
+            # assume-trip when charge intent is active. Under healthy
+            # telemetry, snap=None keeps the pre-existing behavior
+            # (streak reset, keep CHARGE) since a single Envoy blip
+            # inside a legitimate charge should not abort.
+            if (
+                snap is None
+                and getattr(self, "_degraded_telemetry_source", None)
+                is not None
+            ):
+                try:
+                    logged = self.__dict__.setdefault(
+                        "_attain_blind_guard_logged", set()
+                    )
+                    key = self._degraded_telemetry_source
+                    if key not in logged:
+                        _LOGGER.warning(
+                            "Attainability continuation FAIL-CLOSED: "
+                            "net_power_w unreadable while telemetry-blind "
+                            "(soc_source=%s) — releasing latch to HOLD "
+                            "(refusing to keep CHARGE without a live "
+                            "panel reading)",
+                            key,
+                        )
+                        logged.add(key)
+                except Exception:  # noqa: BLE001
+                    pass
+                self._attain_state = "holding"
+                return self._get_attainability_hold_decision(
+                    soc=soc, now=now,
+                    target_day_class=target_day_class,
+                    tomorrow_class=tomorrow_class,
+                    current_mode=current_mode, season=season,
+                    effective_reserve=effective_reserve,
+                    hold_depth=hold_depth,
+                )
             if snap is not None and snap[0] > self._arbitrage_grid_import_guard_kw:
                 effective_kw, net_kw, batt_charge_kw = snap
                 self._arbitrage_guard_consecutive_trips += 1
@@ -4199,6 +4266,33 @@ class BatteryStrategy:
                     role="write",
                 )
             )
+            # v5.17.5 fix-up 4 D-MED-1: while telemetry is degraded, DO
+            # NOT re-dispatch turn_on to a physically-OFF switch. The
+            # latched attain CHARGING continuation path (energy_battery.py
+            # :_run_attain_branch → _get_attainability_decision → _result)
+            # otherwise fires the ON-direction self-heal blind (no live
+            # net-power reading to size the panel draw) — framing-D
+            # repro L3. If hardware still reads ON we let the maintain
+            # path continue (releasing mid-charge = symmetric harm);
+            # otherwise defer to the sighted path or operator ownership.
+            _dts = getattr(self, "_degraded_telemetry_source", None)
+            if _dts is not None and current_cfg is not True:
+                try:
+                    logged = self.__dict__.setdefault(
+                        "_on_heal_suppressed_logged", set()
+                    )
+                    if _dts not in logged:
+                        _LOGGER.warning(
+                            "CFG ON-heal SUPPRESSED while degraded "
+                            "(soc_source=%s, current_cfg=%s) — refusing "
+                            "to re-dispatch turn_on blind; sighted path "
+                            "or operator will own restart",
+                            _dts, current_cfg,
+                        )
+                        logged.add(_dts)
+                except Exception:  # noqa: BLE001
+                    pass
+                current_cfg = True  # short-circuit the append below
             if current_cfg is not True:
                 # H1 addendum (2026-07-13): self-heal INFO log. Detect
                 # the case that made the live tripwire go quiet: local
