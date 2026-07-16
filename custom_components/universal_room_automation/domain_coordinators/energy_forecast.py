@@ -16,9 +16,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from .energy_const import (
+    CONF_R1_ESTIMATOR_SHADOW_ONLY,
+    CONSUMPTION_REGRESSION_V1,
     DEFAULT_SOLCAST_REMAINING_ENTITY,
     DEFAULT_SOLCAST_TODAY_ENTITY,
     DEFAULT_WEATHER_ENTITY,
+    PRED_CONSUMPTION_SOURCE_DOW_LEGACY,
+    PRED_CONSUMPTION_SOURCE_FALLBACK,
+    PRED_CONSUMPTION_SOURCE_V1_REGRESSION,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -94,6 +99,17 @@ class DailyEnergyPredictor:
         self._predicted_net_kwh: float | None = None
         self._predicted_grid_import_kwh: float | None = None
         self._battery_full_time: str | None = None
+
+        # R1: source marker for `energy_daily.predicted_consumption_source`.
+        # One of PRED_CONSUMPTION_SOURCE_{V1_REGRESSION,DOW_LEGACY,FALLBACK}.
+        # ``_predicted_consumption_kwh`` above is the CONSUMED value; while the
+        # shadow gate is on (CONF_R1_ESTIMATOR_SHADOW_ONLY), the consumed value
+        # stays on the legacy path and the v1 number is stashed alongside as
+        # shadow-only so R2's future consumer gate (I-NE5) can gate on it.
+        self._predicted_consumption_source: str | None = None
+        self._shadow_predicted_consumption_kwh: float | None = None
+        self._shadow_predicted_base_kwh: float | None = None
+        self._shadow_predicted_ev_kwh: float | None = None
 
         # Historical baselines (day_of_week -> consumption kWh list)
         self._consumption_history: dict[int, deque] = {
@@ -236,35 +252,79 @@ class DailyEnergyPredictor:
             self._predicted_net_kwh or 0,
         )
 
-    def _estimate_consumption(self, now: datetime, temp: float | None) -> float:
-        """Estimate daily consumption using regression or fallback bands.
+    # -----------------------------------------------------------------
+    # R1 v1 estimator — reviewed constants + EV term (season + HDD/CDD)
+    # -----------------------------------------------------------------
+    def _compute_v1(
+        self, now: datetime, temp: float | None
+    ) -> tuple[float | None, float | None, float, str]:
+        """Return (total_kwh, base_kwh, ev_kwh, source).
 
-        If we have 30+ days of temp-consumption paired data (regression loaded),
-        use: base + coeff * |temp - 72|. Otherwise fall back to temp bands.
+        Returns (None, None, 0.0, FALLBACK) when temp is missing — the v1 arm
+        requires temp; the caller decides fallback semantics.
         """
-        # Historical baseline
+        if temp is None:
+            return None, None, 0.0, PRED_CONSUMPTION_SOURCE_FALLBACK
+
+        c = CONSUMPTION_REGRESSION_V1
+        cdd = max(temp - c["cdd_base_f"], 0.0)
+        hdd = max(c["hdd_base_f"] - temp, 0.0)
+        m = now.month
+        if m in (12, 1, 2):
+            season_dummy = c["season_winter"]
+        elif m in (3, 4, 5):
+            season_dummy = c["season_spring"]
+        elif m in (6, 7, 8):
+            season_dummy = c["season_summer"]
+        else:
+            season_dummy = c["season_fall"]
+
+        base_kwh = (
+            c["base"]
+            + c["cdd_coeff"] * cdd
+            + c["hdd_coeff"] * hdd
+            + season_dummy
+        )
+
+        # EV term — single reviewed constant, gated by ev_era_start date.
+        # Parsimony per operator directive 2026-07-16: no per-session /
+        # plan-aware modeling in R1. Richer term is R8-era.
+        ev_era = datetime.strptime(c["ev_era_start"], "%Y-%m-%d").date()
+        ev_kwh = c["ev_term_kwh"] if now.date() >= ev_era else 0.0
+
+        total = base_kwh + ev_kwh
+        return total, base_kwh, ev_kwh, PRED_CONSUMPTION_SOURCE_V1_REGRESSION
+
+    # -----------------------------------------------------------------
+    # Legacy estimator (shadow-phase fallback ONLY).
+    # -----------------------------------------------------------------
+    # When CONF_R1_ESTIMATOR_SHADOW_ONLY flips False (R2 prerequisite), this
+    # arm becomes unreachable and can be removed in a follow-on cycle. Per
+    # B0 §E day-of-week carries R²=0.01 — deliberately kept only as the
+    # rollback path (I-NE6: rollback is a constant flip, no code revert).
+    def _compute_legacy(
+        self, now: datetime, temp: float | None
+    ) -> tuple[float, str]:
         dow = now.weekday()
         history = list(self._consumption_history[dow])
         if history:
             baseline = sum(history) / len(history)
+            source = PRED_CONSUMPTION_SOURCE_DOW_LEGACY
         else:
-            baseline = 45.0  # Default estimate: 45 kWh/day (large home with AC/pool)
+            baseline = 45.0  # legacy default (large home w/ AC/pool)
+            source = PRED_CONSUMPTION_SOURCE_FALLBACK
 
-        # Temperature adjustment
         if (
             self._temp_regression_base is not None
             and self._temp_regression_coeff is not None
             and temp is not None
         ):
-            # Learned regression: consumption = base + coeff * |temp - 72|
             regression_estimate = (
                 self._temp_regression_base
                 + self._temp_regression_coeff * abs(temp - COMFORT_MIDPOINT_F)
             )
-            # Blend with day-of-week baseline (70% regression, 30% dow)
             adjusted = regression_estimate * 0.7 + baseline * 0.3
         else:
-            # Fallback: fixed multiplier bands
             temp_adjustment = 1.0
             if temp is not None:
                 if temp > 95:
@@ -280,6 +340,58 @@ class DailyEnergyPredictor:
                 else:
                     temp_adjustment = 0.9
             adjusted = baseline * temp_adjustment
+        return adjusted, source
+
+    def _estimate_consumption(self, now: datetime, temp: float | None) -> float:
+        """Estimate daily consumption.
+
+        R1 (2026-07-16): computes BOTH the v1 regression arm and the legacy
+        DOW arm; publishes whichever the shadow gate selects. Shadow ON =
+        legacy is consumed, v1 is stashed as shadow-only (I-NE5). Shadow OFF
+        = v1 is consumed and legacy is unreachable except as a fallback when
+        v1 has no temperature.
+        """
+        # 1. v1 arm — always compute so shadow scoring has a number.
+        v1_total, v1_base, v1_ev, v1_source = self._compute_v1(now, temp)
+
+        # 2. Legacy arm — computed while shadow gate is on OR when v1 has no
+        #    temp signal (fallback).
+        legacy_needed = CONF_R1_ESTIMATOR_SHADOW_ONLY or v1_total is None
+        legacy_val: float | None = None
+        legacy_source = PRED_CONSUMPTION_SOURCE_FALLBACK
+        if legacy_needed:
+            legacy_val, legacy_source = self._compute_legacy(now, temp)
+
+        # 3. Decide which is CONSUMED.
+        if CONF_R1_ESTIMATOR_SHADOW_ONLY:
+            adjusted = legacy_val if legacy_val is not None else 45.0
+            source = legacy_source
+        else:
+            if v1_total is not None:
+                adjusted = v1_total
+                source = v1_source
+            else:
+                adjusted = legacy_val if legacy_val is not None else 45.0
+                source = legacy_source
+
+        # 4. Stash shadow-only components for observability.
+        self._shadow_predicted_consumption_kwh = (
+            round(v1_total, 2) if v1_total is not None else None
+        )
+        self._shadow_predicted_base_kwh = (
+            round(v1_base, 2) if v1_base is not None else None
+        )
+        self._shadow_predicted_ev_kwh = round(v1_ev, 2)
+
+        if CONF_R1_ESTIMATOR_SHADOW_ONLY and v1_total is not None:
+            _LOGGER.info(
+                "R1 shadow: v1=%.1f kWh (base=%.1f, ev=%.1f) — CONSUMED "
+                "path stays legacy=%.1f (source=%s)",
+                v1_total, v1_base, v1_ev, adjusted, legacy_source,
+            )
+
+        # 5. Publish source marker for DAO write.
+        self._predicted_consumption_source = source
 
         # v4.1.1 B4 L2: Occupancy-weighted blending (gated by toggle, off by default)
         bayesian = self._get_bayesian() if self._get_bayesian else None
@@ -666,6 +778,15 @@ class DailyEnergyPredictor:
             # taper band, missing_input on unavailable, …).
             "battery_full_time_attrs": dict(self._battery_full_time_attrs),
             "adjustment_factor": round(self._adjustment_factor, 3),
+            # R1 (2026-07-16): source marker + shadow v1 components.
+            # source describes which arm produced predicted_consumption_kwh.
+            # shadow_* fields carry the v1 arm's number even when the shadow
+            # gate keeps the legacy path as the consumed value — enables
+            # R2's future consumer gate (I-NE5) + nightly self-scoring.
+            "predicted_consumption_source": self._predicted_consumption_source,
+            "shadow_predicted_consumption_kwh": self._shadow_predicted_consumption_kwh,
+            "shadow_predicted_base_kwh": self._shadow_predicted_base_kwh,
+            "shadow_predicted_ev_kwh": self._shadow_predicted_ev_kwh,
         }
 
 

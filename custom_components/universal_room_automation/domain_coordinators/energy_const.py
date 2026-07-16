@@ -103,6 +103,73 @@ SOLAR_DAY_THRESHOLDS: Final = {
 }
 
 # ============================================================================
+# R1 — Consumption regression (season + HDD/CDD, EV-decomposed) — v1
+# ============================================================================
+# Reviewed constants derived offline by
+# `scripts/energy/fit_consumption_regression.py` (deterministic pure-OLS fit;
+# reviewer re-runs the script and gets byte-identical values). See B0 probe
+# (docs/planning/B0_net_energy_classification_probe.md §E) and the R1 planning
+# doc (docs/planning/PLANNING_net_energy_program_R1_R7_R2.md) for full context.
+#
+# Structure — parsimony per operator directive 2026-07-16:
+#     predicted_consumption(d, temp) = base_regression(d, temp)
+#                                    + (ev_term_kwh if d >= ev_era_start else 0)
+# The base regression is fit on 2025-only (EV-free by operator statement); the
+# EV term is a single reviewed constant (mean of positive 2026 base-residual).
+# A per-session / plan-aware EV term is deferred to R8.
+#
+# The `predicted_consumption_source` marker written to `energy_daily` tags each
+# row with which arm produced the number (`v1_regression` / `dow_legacy` /
+# `fallback`) — R2's future consumer gate refuses to widen unless the source is
+# `v1_regression`.
+#
+# ----------------------------------------------------------------------------
+# Numbers Get Knobs — rung placement:
+#   - rung-1 (reviewed const, changing requires re-fit + review):
+#       CONSUMPTION_REGRESSION_V1, EV_ERA_START_DATE, EV_TERM_KWH_PER_DAY.
+#   - rung-2 (module const, no UI): CONF_R1_ESTIMATOR_SHADOW_ONLY default
+#       (True on ship; flipped as R2 prereq after 14-day shadow proves out).
+#   - rung-3 candidates flagged for operator (NOT created):
+#       - Shadow-mode toggle as a Switch entity — pending operator decision.
+#       - Rolling shadow-window length as a Number entity.
+# ----------------------------------------------------------------------------
+CONSUMPTION_REGRESSION_V1: Final[dict] = {
+    "base":               92.4181,   # intercept kWh (winter baseline, 2025 EV-free fit)
+    "cdd_coeff":          2.1976,    # kWh per cooling-degree-day (base 65°F)
+    "hdd_coeff":          0.4981,    # kWh per heating-degree-day (base 65°F)
+    "season_spring":      5.7807,
+    "season_summer":      18.3129,
+    "season_fall":        2.0104,
+    "season_winter":      0.0,       # baseline (dummy encoding)
+    "hdd_base_f":         65.0,
+    "cdd_base_f":         65.0,
+    "ev_term_kwh":        18.5788,   # constant kWh/day added when today >= ev_era_start
+    "ev_era_start":       "2026-03-01",
+    "fit_date":           "2026-07-16",
+    "train_span":         "2025-02-25..2025-12-31",   # 2025 only (EV-free)
+    "holdout_span":       "2026-05-01..2026-07-15",
+    "n_train":            271,
+    "n_ev_era_for_term":  69,
+    "n_holdout":          57,
+    "train_mae_kwh":      16.82,
+    "train_r2":           0.4149,
+    "holdout_mae_kwh":    16.06,     # combined base + EV_TERM (invariant: ≤ 20)
+    "holdout_r2":         0.3668,
+    "holdout_mae_base_only_kwh": 23.67,
+}
+
+# rung-2: shadow-mode gate. True = new v1 estimator computes + logs alongside
+# the legacy DOW+fallback estimator, but the CONSUMED (published) value stays
+# on the legacy path. Flipped False as R2 prerequisite after the 14-day
+# shadow report clears the operator checkpoint. Not exposed as a CONF/UI in R1.
+CONF_R1_ESTIMATOR_SHADOW_ONLY: Final[bool] = True
+
+# Source markers written to `energy_daily.predicted_consumption_source`.
+PRED_CONSUMPTION_SOURCE_V1_REGRESSION: Final[str] = "v1_regression"
+PRED_CONSUMPTION_SOURCE_DOW_LEGACY:    Final[str] = "dow_legacy"
+PRED_CONSUMPTION_SOURCE_FALLBACK:      Final[str] = "fallback"
+
+# ============================================================================
 # Battery Strategy Defaults
 # ============================================================================
 

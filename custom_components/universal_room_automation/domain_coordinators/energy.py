@@ -2226,12 +2226,16 @@ class EnergyCoordinator(BaseCoordinator):
             accuracy_result = None
             predicted_consumption = None
 
+            # R1 (2026-07-16): stash source marker for the DAO write below.
+            predicted_source: str | None = None
+
             if actual_kwh is not None:
                 self._predictor.record_actual_consumption(actual_kwh)
 
                 # Evaluate yesterday's forecast accuracy
                 forecast = self._predictor._get_current_prediction()
                 predicted_consumption = forecast.get("predicted_consumption_kwh")
+                predicted_source = forecast.get("predicted_consumption_source")
                 accuracy_result = self._accuracy.evaluate_accuracy(
                     predicted_consumption, actual_kwh, self._last_reset_date
                 )
@@ -2273,6 +2277,7 @@ class EnergyCoordinator(BaseCoordinator):
                         prediction_error_pct=error_pct,
                         adjustment_factor=adj_factor,
                         avg_temperature=avg_temp,
+                        predicted_consumption_source=predicted_source,
                     )
                 )
 
@@ -2315,6 +2320,7 @@ class EnergyCoordinator(BaseCoordinator):
         prediction_error_pct: float | None = None,
         adjustment_factor: float | None = None,
         avg_temperature: float | None = None,
+        predicted_consumption_source: str | None = None,
     ) -> None:
         """Save yesterday's billing totals to energy_daily table."""
         db = self.hass.data.get("universal_room_automation", {}).get("database")
@@ -2334,6 +2340,7 @@ class EnergyCoordinator(BaseCoordinator):
                 avg_temperature=avg_temperature,
                 prediction_error_pct=prediction_error_pct,
                 adjustment_factor=adjustment_factor,
+                predicted_consumption_source=predicted_consumption_source,
             )
             _LOGGER.info(
                 "Saved daily energy snapshot for %s: import=%.1f export=%.1f cost=$%.2f",
