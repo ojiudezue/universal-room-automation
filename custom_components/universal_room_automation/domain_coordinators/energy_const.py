@@ -132,6 +132,11 @@ SOLAR_DAY_THRESHOLDS: Final = {
 #   - rung-3 candidates flagged for operator (NOT created):
 #       - Shadow-mode toggle as a Switch entity — pending operator decision.
 #       - Rolling shadow-window length as a Number entity.
+#
+# D-MED-1 (R2-flip prerequisite): before flipping CONF_R1_ESTIMATOR_SHADOW_ONLY
+# off, reset/exempt _adjustment_factor (legacy-trained multiplier) for the v1
+# path — see review record (Tier-3 R1 review D-MED-1). The legacy adjustment
+# was fit against the DOW baseline and would silently rescale the v1 output.
 # ----------------------------------------------------------------------------
 CONSUMPTION_REGRESSION_V1: Final[dict] = {
     "base":               92.4181,   # intercept kWh (winter baseline, 2025 EV-free fit)

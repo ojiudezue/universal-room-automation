@@ -335,3 +335,264 @@ def test_fit_script_reproducible():
     assert round(r["ev_term_kwh_per_day"], 4) == c["ev_term_kwh"]
 
     assert r["holdout_mae_combined"] <= mod.HOLDOUT_MAE_INVARIANT_KWH
+
+
+# ============================================================================
+# Test F — parity: production _compute_v1 == test-local _predict (C-1 HIGH)
+# ============================================================================
+#
+# Review C-1 (HIGH): the v1 backtest was self-referentially anchored — the
+# test used its own `_predict()` reimplementation to prove the production
+# arithmetic was fit-conformant, without ever asserting that production
+# `_compute_v1` produces the same number. A mutation to the runtime
+# formula that preserved the test-local `_predict` would slip through.
+#
+# This test anchors the two independent implementations across all four
+# seasons AND a pre/post EV-era pair, at hot (95°F) and cold (35°F) temps
+# so both CDD and HDD paths are exercised.
+
+_PARITY_CASES = [
+    # (date, temp_f, note)
+    (dt.date(2026, 1, 15), 35.0, "winter cold — HDD path pre-EV"),
+    (dt.date(2026, 4, 15), 55.0, "spring mild"),
+    (dt.date(2026, 7, 15), 95.0, "summer hot — CDD path post-EV"),
+    (dt.date(2026, 10, 15), 50.0, "fall mild"),
+    # EV-era boundary pair
+    (dt.date(2026, 2, 28), 40.0, "pre EV-era (2026-03-01)"),
+    (dt.date(2026, 3, 2), 40.0, "post EV-era (2026-03-01)"),
+]
+
+
+@pytest.mark.parametrize("d,temp,label", _PARITY_CASES)
+def test_compute_v1_matches_local_predict(d, temp, label):
+    """Production `_compute_v1(now, temp)[0]` MUST equal the test-local
+    independent `_predict(d, temp)` at every case.
+
+    Any drift means the runtime arithmetic diverged from the baked
+    constants + spec formula. Kills mutations M7 (double-EV) and M8
+    (season-dummy collapse to all-summer).
+    """
+    p = _make_predictor()
+    now = dt.datetime.combine(d, dt.time(12, 0))
+    total, base, ev, src = p._compute_v1(now, temp)
+    expected = _predict(d, temp)
+    assert total == pytest.approx(expected, abs=1e-6), (
+        f"[{label}] production _compute_v1={total} != local _predict={expected}"
+    )
+    assert src == PRED_CONSUMPTION_SOURCE_V1_REGRESSION
+
+
+def test_backtest_calls_production_compute_v1():
+    """Sibling of test_consumption_regression_backtest — runs a handful of
+    holdout days through production `_compute_v1` (not the test-local
+    `_predict`) and asserts the R1 MAE invariant still holds.
+
+    Per Review A A-1: the fit-conformance backtest above uses the test-local
+    reimplementation; this sibling drives production code so the same MAE
+    ≤ 20 kWh invariant is anchored to the runtime path.
+    """
+    cons = _load_consumption()
+    temp = _load_temp()
+
+    holdout_start = dt.date(2026, 5, 1)
+    holdout_end = dt.date(2026, 7, 15)
+
+    p = _make_predictor()
+    errors: list[float] = []
+    for d, actual in sorted(cons.items()):
+        if not (holdout_start <= d <= holdout_end):
+            continue
+        if _in_outage(d) or d in _NEGATIVE_DAYS or actual <= 0:
+            continue
+        t = temp.get(d)
+        if t is None:
+            continue
+        now = dt.datetime.combine(d, dt.time(12, 0))
+        total, _base, _ev, _src = p._compute_v1(now, t)
+        errors.append(abs(actual - total))
+
+    assert errors, "no holdout days evaluated — check CSV paths"
+    mae = sum(errors) / len(errors)
+    assert mae <= 20.0, (
+        f"production _compute_v1 holdout MAE {mae:.2f} kWh exceeds R1 invariant"
+    )
+
+
+# ============================================================================
+# Test G — DAO round-trip: predicted_consumption_source column write (C-2 HIGH)
+# ============================================================================
+#
+# Review C-2 (HIGH): a silent NULL on `energy_daily.predicted_consumption_source`
+# would break the R2 consumer gate (which refuses to widen unless source is
+# `v1_regression`). This test drives production `log_energy_daily` against a
+# real sqlite database built from production DDL (extracted from database.py
+# source, per conftest_db authority pattern — never hand-copied) and asserts
+# the source marker round-trips.
+#
+# Kills mutation M11 (database.py:3751 writes None instead of the marker).
+
+import asyncio  # noqa: E402
+import re as _re  # noqa: E402
+import sqlite3 as _sqlite3  # noqa: E402
+import tempfile  # noqa: E402
+from contextlib import asynccontextmanager  # noqa: E402
+from pathlib import Path as _Path  # noqa: E402
+
+
+def _extract_energy_daily_ddl() -> list[str]:
+    """Extract the energy_daily CREATE TABLE + ALTER TABLE ADD COLUMN
+    statements from production database.py source. Authority pattern —
+    schema is NEVER hand-copied (conftest_db.py protocol).
+    """
+    src_path = (
+        _Path(__file__).parent.parent.parent
+        / "custom_components"
+        / "universal_room_automation"
+        / "database.py"
+    )
+    src = src_path.read_text()
+
+    stmts: list[str] = []
+    # CREATE TABLE — grab from the triple-quoted literal.
+    m = _re.search(
+        r'"""(CREATE TABLE IF NOT EXISTS energy_daily\b.*?)"""',
+        src,
+        _re.DOTALL,
+    )
+    assert m, "energy_daily CREATE TABLE not found in database.py"
+    stmts.append(m.group(1).strip())
+
+    # ALTER TABLE ADD COLUMN — the R1 migration adds
+    # predicted_consumption_source (and 4 sibling columns) via a tuple list.
+    # Match the tuple list following the PRAGMA table_info(energy_daily) block.
+    tuple_block = _re.search(
+        r"PRAGMA table_info\(energy_daily\).*?for col, col_type in \[(.*?)\]",
+        src,
+        _re.DOTALL,
+    )
+    assert tuple_block, "energy_daily migration tuple list not found"
+    for cm in _re.finditer(
+        r'\(\s*"(\w+)"\s*,\s*"(\w+)"\s*\)', tuple_block.group(1)
+    ):
+        col, col_type = cm.group(1), cm.group(2)
+        stmts.append(f"ALTER TABLE energy_daily ADD COLUMN {col} {col_type}")
+    return stmts
+
+
+@asynccontextmanager
+async def _fake_db_ctx(conn):
+    """Fake URADatabase._db context — yields an aiosqlite connection."""
+    yield conn
+
+
+def _run_async(coro):
+    """Run a coroutine on a fresh loop (older test harness — asyncio strict)."""
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
+def _build_energy_daily_db() -> str:
+    """Create a temp sqlite DB with the production energy_daily schema."""
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp.close()
+    conn = _sqlite3.connect(tmp.name)
+    for stmt in _extract_energy_daily_ddl():
+        try:
+            conn.execute(stmt)
+        except _sqlite3.OperationalError as exc:
+            if "duplicate column name" in str(exc).lower():
+                continue
+            raise
+    conn.commit()
+    conn.close()
+    return tmp.name
+
+
+def _call_dao_write(db_path: str, **kwargs) -> None:
+    """Invoke production `log_energy_daily.__func__` against a fake self
+    whose `_db()` yields an aiosqlite connection to `db_path`."""
+    import aiosqlite
+
+    from custom_components.universal_room_automation.database import (
+        UniversalRoomDatabase,
+    )
+
+    async def _run():
+        async with aiosqlite.connect(db_path) as db:
+            fake_self = MagicMock()
+            fake_self._db = lambda: _fake_db_ctx(db)
+            await UniversalRoomDatabase.log_energy_daily(fake_self, **kwargs)
+
+    _run_async(_run())
+
+
+def test_log_energy_daily_writes_source_marker():
+    """C-2: passing predicted_consumption_source through log_energy_daily
+    round-trips to the row as the exact string value.
+    """
+    db_path = _build_energy_daily_db()
+    marker = PRED_CONSUMPTION_SOURCE_V1_REGRESSION
+    _call_dao_write(
+        db_path,
+        date_str="2026-07-15",
+        import_kwh=10.0,
+        export_kwh=5.0,
+        import_cost=1.5,
+        export_credit=0.5,
+        net_cost=1.0,
+        consumption_kwh=42.0,
+        solar_production_kwh=20.0,
+        predicted_consumption_kwh=40.0,
+        avg_temperature=82.0,
+        prediction_error_pct=5.0,
+        adjustment_factor=1.0,
+        predicted_consumption_source=marker,
+    )
+
+    conn = _sqlite3.connect(db_path)
+    conn.row_factory = _sqlite3.Row
+    row = conn.execute(
+        "SELECT predicted_consumption_source FROM energy_daily WHERE date=?",
+        ("2026-07-15",),
+    ).fetchone()
+    conn.close()
+
+    assert row is not None, "row not written"
+    assert row["predicted_consumption_source"] == marker, (
+        f"expected source marker {marker!r}, got "
+        f"{row['predicted_consumption_source']!r}"
+    )
+
+
+def test_log_energy_daily_omitted_source_writes_null():
+    """C-2 corollary: omitting predicted_consumption_source (legacy caller
+    shape) writes NULL — the DAO signature MUST NOT crash when the field is
+    absent (default=None). Kwarg default preserves backward-compat.
+    """
+    db_path = _build_energy_daily_db()
+    _call_dao_write(
+        db_path,
+        date_str="2026-07-14",
+        import_kwh=8.0,
+        export_kwh=3.0,
+        import_cost=1.0,
+        export_credit=0.3,
+        net_cost=0.7,
+    )
+
+    conn = _sqlite3.connect(db_path)
+    conn.row_factory = _sqlite3.Row
+    row = conn.execute(
+        "SELECT predicted_consumption_source FROM energy_daily WHERE date=?",
+        ("2026-07-14",),
+    ).fetchone()
+    conn.close()
+
+    assert row is not None, "legacy-shape row not written"
+    assert row["predicted_consumption_source"] is None, (
+        "legacy-shape (no source kwarg) must leave column NULL, got "
+        f"{row['predicted_consumption_source']!r}"
+    )
