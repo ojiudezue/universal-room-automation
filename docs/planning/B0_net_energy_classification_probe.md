@@ -166,3 +166,8 @@ In-sample fits on 342 days with temp (mean cons 125.3, sd 34.7 kWh/d):
 does not persist the forecast; `arbitrage_cycles` / `energy_daily` don't store solar class —
 worth adding a class column when the cycle ships, so the next probe measures the real gate).
 All model fits in-sample; n=361 with a missing deep-winter 2026.
+
+## Addendum (operator review, 2026-07-16)
+- **R7 added to the repair chain: projection unification** (one primitive for ladder/attain/reason — previously slate item 2) — sequenced **R1 → R7 → R2** so net-awareness plugs into a single owner. Formalized here to prevent horizon loss.
+- R5 (Enlighten re-export for deep winter): operator-confirmed not urgent; target before first winter validation of the recalibrated estimator (~Oct).
+- R4 root-cause investigation ordered (no symptom-patching) — see forensic below/linked.
