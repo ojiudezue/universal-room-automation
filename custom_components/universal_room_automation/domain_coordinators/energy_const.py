@@ -230,6 +230,14 @@ DEFAULT_WRITE_VERIFY_WINDOW_S: Final = 900
 MIN_WRITE_VERIFY_WINDOW_S: Final = 300
 MAX_WRITE_VERIFY_WINDOW_S: Final = 1800
 DEFAULT_SOC_LKG_MAX_AGE_S: Final = 300
+# v5.17.5 A1 — wall-clock staleness gate for the cloud-fallback SOC tier.
+# Mirrors DEFAULT_SOC_LKG_MAX_AGE_S but sized for cloud freshness: the
+# Enphase cloud sensor updates every ~5 min, so we accept up to 2 update
+# intervals (600s) before treating the reading as stale. A frozen-stale
+# cloud SOC number (unknown/unavailable was the ONLY prior reject path,
+# missing the "value hasn't changed in hours" case) would otherwise let
+# the relaxed gate PROCEED on hours-old data.
+DEFAULT_SOC_CLOUD_FALLBACK_MAX_AGE_S: Final = 600
 DEFAULT_SOC_DIVERGENCE_THRESHOLD_PCT: Final = 3
 STORAGE_MODE_LOCAL_TO_CLOUD: Final = {
     "self_consumption": "Self-Consumption",

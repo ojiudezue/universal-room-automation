@@ -510,12 +510,19 @@ class TestEnvoyUnavailable:
         assert result["season"] == "shoulder"
 
     def test_envoy_unavailable_holds_state(self):
+        # v5.17.5 I-BH1: storage_mode unavailable (envoy telemetry-blind)
+        # but primary SOC still resolves → gate falls through, normal
+        # decision proceeds with a degraded-telemetry suffix on reason.
+        # The envoy_available flag in the output is still False (there is
+        # a real Envoy outage on the local leg); we no longer freeze
+        # state when SOC is available on any resolver tier.
         h = _BatteryHarness(soc=80)
         h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
         result = h.strategy.determine_mode("off_peak", "winter")
         assert result["envoy_available"] is False
-        assert result["actions"] == []
         assert result["season"] == "winter"
+        # Reason carries the degraded-telemetry suffix.
+        assert "degraded telemetry" in (result.get("reason") or "")
 
 
 # ── v3.11.0 Phase A: Off-peak SOC-conditional drain ───────────────────────
@@ -858,8 +865,16 @@ class TestArbitrage:
         # Activate arbitrage (CHARGE phase inside window)
         h.strategy.determine_mode("off_peak", "summer", now=_SUMMER_INSIDE_WINDOW)
         assert h.strategy._arbitrage_active is True
-        # Envoy goes unavailable
+        # Envoy goes unavailable — v5.17.5 I-BH1: to exercise the
+        # blind-hold reset path (this test's original intent — cosmetic
+        # state sync when the blind branch fires), also invalidate the
+        # LKG so `battery_soc` returns None on all resolver tiers.
+        # Otherwise the relaxed gate (envoy blind + SOC None) is skipped
+        # and the decision cycle proceeds normally, which is the intended
+        # v5.17.5 behavior for the fallback-SOC case.
         h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
         result = h.strategy.determine_mode(
             "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
         )
@@ -2014,8 +2029,15 @@ class TestV4501EnvoyUnavailableLastReasonSync:
         )
         assert "CHARGE" in r1["reason"]
         assert "CHARGE" in (h.strategy._last_reason or "")
-        # Tick 2: envoy goes unavailable
+        # Tick 2: envoy goes unavailable — v5.17.5 I-BH1: to exercise the
+        # blind-hold branch (this test's original intent — reason sync on
+        # the blind-hold early-return path), invalidate the LKG too so
+        # `battery_soc` returns None on all resolver tiers. Otherwise
+        # LKG resolves at wall-clock age ~0s and the relaxed gate
+        # (envoy blind + SOC None) is skipped.
         h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
         r2 = h.strategy.determine_mode(
             "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
         )
@@ -2378,3 +2400,826 @@ class TestMultiDayMatrix:
             assert result["arbitrage_phase"] == ARBITRAGE_PHASE_NA, (
                 f"gate should be closed for d1={d1}, d2={d2}, phase={result['arbitrage_phase']}"
             )
+
+
+# ---------------------------------------------------------------------------
+# v5.17.5 — blind-hold gate on SOC-none, not envoy-flag (I-BH1)
+# ---------------------------------------------------------------------------
+#
+# Falsifiable invariant I-BH1:
+#   "While telemetry-blind, URA must never CONTINUE an active grid import
+#    into a higher-rate period; and blind-hold may engage only when NO
+#    fresh SOC exists on ANY resolver tier."
+#
+# The prior gate (`if not self.envoy_available:`) froze whatever state was
+# in place (including an active mid_peak → peak grid-import decision) any
+# time the local Envoy went telemetry-blind, even when the 3-tier SOC
+# resolver was serving from LKG or cloud fallback and control writes were
+# going to the cloud leg. Live incident 2026-07-15 froze reserve=80 +
+# charge_from_grid=ON into peak; operator intervened manually.
+#
+# Fix:
+#   D1 — Relax the gate to trigger only when envoy is unavailable AND
+#        `self.battery_soc` is None (all resolver tiers exhausted).
+#   D2 — Inside the narrower blind branch, add a de-escalation safety net:
+#        on peak (or transition into peak) with charge_from_grid still ON,
+#        emit `switch.turn_off` + `number.set_value(static reserve_soc)`.
+#        Inclement full_hold exempt (grid-precharge is deliberate).
+# ---------------------------------------------------------------------------
+
+_CFG_STATE_ENTITY = DEFAULT_CHARGE_FROM_GRID_ENTITY
+_RESERVE_STATE_ENTITY = DEFAULT_RESERVE_SOC_ENTITY
+
+
+def _freshen_cloud_soc_lu(hass, entity_id):
+    """v5.17.5 A1 test helper — set the entity's last_updated to
+    dt_util.utcnow() so the wall-clock staleness gate (mirrored against
+    utcnow) does not reject a legitimate fresh cloud reading.
+
+    MockHass.set_state sets last_updated to datetime.now() (naive local),
+    while the A1 gate compares against dt_util.utcnow() (naive UTC in the
+    test's dt-mock). The tz offset would otherwise make every cloud
+    reading appear stale. Tests that WANT stale explicitly patch to an
+    older utcnow-anchored value.
+    """
+    from homeassistant.util import dt as dt_util
+    st = hass.states.get(entity_id)
+    if st is not None:
+        try:
+            st.last_updated = dt_util.utcnow()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+class TestV5175BlindHoldGateRelax:
+    """D1 — Gate relaxes when SOC still resolves via a non-envoy tier.
+
+    Reproduces the 2026-07-15 incident: envoy telemetry-blind at peak
+    while cloud-fallback SOC is available and charge_from_grid=ON. The
+    peak branch must run and emit charge_from_grid=off.
+    """
+
+    def _make_blind_but_soc_resolvable(self, soc_via_fallback=45.0):
+        """Envoy telemetry-blind (primary + storage_mode unavailable) but
+        the cloud fallback SOC resolves.
+        """
+        h = _BatteryHarness(soc=45)  # primed
+        # Force primary Envoy telemetry-blind.
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
+        # Wire the cloud fallback SOC entity (default entity id).
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        )
+        h.hass.set_state(
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+            str(soc_via_fallback),
+            attributes={"unit_of_measurement": "%"},
+        )
+        _freshen_cloud_soc_lu(
+            h.hass, DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        )
+        # Ensure LKG is not set so we prove the CLOUD FALLBACK path.
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        return h
+
+    def test_gate_falls_through_on_cloud_fallback_soc_at_peak(self):
+        """envoy blind + cloud SOC + peak + CFG ON → normal peak
+        discharge (CFG off, reserve → effective_reserve)."""
+        h = self._make_blind_but_soc_resolvable(soc_via_fallback=45.0)
+        # Simulate the incident: CFG is ON from a prior tick.
+        h.hass.set_state(_CFG_STATE_ENTITY, "on")
+        r = h.strategy.determine_mode("peak", "summer")
+        # NOT the blind-hold reason
+        assert "holding (no commands issued)" not in (r["reason"] or "")
+        # Normal peak reason
+        assert "Peak" in (r["reason"] or "")
+        # Degraded telemetry suffix present
+        assert "degraded telemetry" in (r["reason"] or "")
+        # The `_result` path emits switch.turn_off when CFG is currently on
+        # and the decision is charge_from_grid=False.
+        cfg_offs = [
+            a for a in r["actions"]
+            if a.get("service") == "switch.turn_off"
+        ]
+        assert cfg_offs, (
+            "peak decision on relaxed gate must emit turn_off for CFG"
+        )
+
+    def test_fully_blind_still_enters_blind_hold(self):
+        """SOC None on all tiers → blind-hold branch fires (unchanged
+        behavior for the fully-blind case, modulo D2 de-escalation)."""
+        h = _BatteryHarness(soc=80)
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        # No cloud fallback wired.
+        r = h.strategy.determine_mode("off_peak", "summer")
+        assert r["envoy_available"] is False
+        assert r["arbitrage_phase"] == ARBITRAGE_PHASE_NA
+
+
+class TestV5175BlindPeakDeEscalation:
+    """D2 — On the (now-narrower) fully-blind branch, never freeze an
+    active grid import into peak. Emit charge_from_grid=off + static
+    reserve when peak (or into-peak) + CFG ON.
+    """
+
+    def _fully_blind(self, cfg_state="on"):
+        h = _BatteryHarness(soc=80)
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        h.hass.set_state(_CFG_STATE_ENTITY, cfg_state)
+        return h
+
+    def test_fully_blind_peak_with_cfg_on_emits_two_actions(self):
+        h = self._fully_blind(cfg_state="on")
+        r = h.strategy.determine_mode("peak", "summer")
+        assert r["envoy_available"] is False
+        # Two actions: CFG off + reserve=static
+        services = [a.get("service") for a in r["actions"]]
+        assert "switch.turn_off" in services
+        assert "number.set_value" in services
+        # Static reserve is used
+        set_val = [
+            a for a in r["actions"]
+            if a.get("service") == "number.set_value"
+        ][0]
+        assert set_val["data"]["value"] == h.strategy.reserve_soc
+        assert "Blind de-escalation" in r["reason"]
+
+    def test_fully_blind_transition_into_peak_with_cfg_on(self):
+        """tou_transition_into='peak' is treated the same as tou_period='peak'."""
+        h = self._fully_blind(cfg_state="on")
+        r = h.strategy.determine_mode(
+            "mid_peak", "summer", tou_transition_into="peak",
+        )
+        services = [a.get("service") for a in r["actions"]]
+        assert "switch.turn_off" in services
+        assert "number.set_value" in services
+
+    def test_fully_blind_off_peak_no_de_escalation(self):
+        """Off-peak while fully blind + CFG on → hold, no actions."""
+        h = self._fully_blind(cfg_state="on")
+        r = h.strategy.determine_mode("off_peak", "summer")
+        assert r["actions"] == []
+        assert "holding (no commands issued)" in r["reason"]
+
+    def test_fully_blind_peak_cfg_already_off_is_idempotent(self):
+        h = self._fully_blind(cfg_state="off")
+        # No prior command ledger either.
+        h.strategy._last_charge_from_grid_command = None
+        r = h.strategy.determine_mode("peak", "summer")
+        assert r["actions"] == []
+        assert "holding (no commands issued)" in r["reason"]
+
+    def test_full_hold_exemption_holds_through_peak(self):
+        """Inclement full_hold + fully blind + peak + CFG ON → hold, no
+        de-escalation (storm grid-precharge is deliberate). A2: the
+        exemption is only honored when the inclement decision is fresh
+        (default 30 min); stamp fresh here."""
+        from homeassistant.util import dt as dt_util
+        h = self._fully_blind(cfg_state="on")
+
+        class _FakeInclement:
+            hold_depth = "full_hold"
+            tier = "warn"
+            reason = "storm"
+            grid_precharge = True
+            reserve_floor = 60
+            source = "test"
+        h.strategy._last_inclement_decision = _FakeInclement()
+        h.strategy._last_inclement_decision_at = dt_util.now()
+        r = h.strategy.determine_mode("peak", "summer")
+        assert r["actions"] == []
+        assert "holding (no commands issued)" in r["reason"]
+
+    def test_degraded_reason_suffix_on_fallback(self):
+        """Reason carries `(degraded telemetry: cloud_fallback)` when a
+        non-envoy tier serves SOC."""
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        )
+        h = _BatteryHarness(soc=45)
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
+        h.hass.set_state(
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
+            attributes={"unit_of_measurement": "%"},
+        )
+        _freshen_cloud_soc_lu(
+            h.hass, DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        )
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        r = h.strategy.determine_mode("peak", "summer")
+        assert "degraded telemetry: cloud_fallback" in (r["reason"] or "")
+
+
+class TestV5175BlindNoneSafeProceedingPath:
+    """D1 audit anchor — with fallback SOC + envoy blind, missing
+    solar_production / net_power / battery_power do NOT crash the
+    proceeding path. Reproduces the 2026-07-15 incident shape end-to-end.
+    """
+
+    def test_none_solar_and_net_power_do_not_crash(self):
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        )
+        h = _BatteryHarness(soc=45)
+        # All primary Envoy sensors down; only cloud fallback SOC works.
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
+        h.hass.set_state(DEFAULT_SOLAR_PRODUCTION_ENTITY, "unavailable")
+        h.hass.set_state(DEFAULT_NET_POWER_ENTITY, "unavailable")
+        h.hass.set_state(DEFAULT_BATTERY_POWER_ENTITY, "unavailable")
+        h.hass.set_state(
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
+            attributes={"unit_of_measurement": "%"},
+        )
+        _freshen_cloud_soc_lu(
+            h.hass, DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        )
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        # Peak decision on relaxed gate. Does NOT crash.
+        r = h.strategy.determine_mode("peak", "summer")
+        # Reason is a normal peak reason (not blind-hold) with degraded
+        # telemetry suffix.
+        assert "holding (no commands issued)" not in (r["reason"] or "")
+        assert "degraded telemetry" in (r["reason"] or "")
+        # Dict tolerates None power sensors
+        assert r["solar_production"] is None
+        assert r["net_power"] is None
+
+
+# ---------------------------------------------------------------------------
+# v5.17.5 B-CRIT-1 / B-CRIT-2 — degraded-telemetry entry guard +
+# breaker fail-closed. Fresh grid-charge ENTRY refused on fallback SOC.
+# ---------------------------------------------------------------------------
+
+
+class TestV5175DegradedEntryGuard:
+    """Envoy telemetry-blind + cloud fallback SOC → attain / arbitrage
+    MUST NOT start a fresh grid import (B-CRIT-1). Continuing an already-
+    latched charge is defensible; STARTING blind is never. Breaker guard
+    fails closed under blind telemetry (B-CRIT-2).
+    """
+
+    def _make_blind_fallback(self, soc_fallback=15.0, arbitrage=True):
+        h = _BatteryHarness(
+            soc=15,
+            solcast_today="20", solcast_tomorrow="20",
+            arbitrage_enabled=arbitrage, with_tou_engine=True,
+        )
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        )
+        # Envoy telemetry blind.
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
+        # net_power blind too — anchors B-CRIT-2 fail-closed path.
+        h.hass.set_state(DEFAULT_NET_POWER_ENTITY, "unavailable")
+        h.hass.set_state(
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+            str(soc_fallback),
+            attributes={"unit_of_measurement": "%"},
+        )
+        _freshen_cloud_soc_lu(
+            h.hass, DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        )
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        return h
+
+    def test_attain_entry_refused_on_degraded_telemetry(self):
+        """Mid_peak with attain eligibility + blind envoy + cloud SOC →
+        no charge_from_grid turn_on emitted. Attain state stays inactive.
+        """
+        h = self._make_blind_fallback()
+        # Force attain-eligibility bypass of predicate internals: seed
+        # samples so `_observed_net_charge_rate_per_hour` isn't None.
+        h.strategy._attain_soc_history = [
+            (datetime(2026, 7, 15, 15, 0), 43.0),
+            (datetime(2026, 7, 15, 15, 5), 45.0),
+        ]
+        r = h.strategy.determine_mode(
+            "mid_peak", "summer", now=datetime(2026, 7, 15, 15, 30),
+        )
+        # No switch.turn_on for CFG
+        turn_ons = [
+            a for a in r["actions"]
+            if a.get("service") == "switch.turn_on"
+        ]
+        assert turn_ons == [], (
+            "attain fresh entry must not emit CFG turn_on on blind "
+            f"telemetry; got {r['actions']}"
+        )
+        # Attain never latched.
+        assert h.strategy._attain_state == "inactive"
+
+    def test_off_peak_arbitrage_charge_entry_refused_on_degraded_telemetry(self):
+        """Off_peak arbitrage-eligible (window open) + blind envoy + cloud
+        SOC + charge_from_grid CURRENTLY OFF → fall to WAIT (fresh entry
+        blocked). Anchors the phase-3 CHARGE emission gate.
+        """
+        h = self._make_blind_fallback()
+        # Ensure CFG reads OFF (fresh entry, not continuing).
+        h.hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
+        # Inside a summer overnight charge window.
+        r = h.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        # No fresh CHARGE — no switch.turn_on emitted.
+        turn_ons = [
+            a for a in r["actions"]
+            if a.get("service") == "switch.turn_on"
+        ]
+        assert turn_ons == [], (
+            "off_peak fresh arbitrage CHARGE must not emit CFG turn_on "
+            f"on blind telemetry; got {r['actions']}"
+        )
+
+    def test_arbitrage_charge_entry_refused_when_net_power_readable_isolates_B_CRIT_1(self):
+        """B-CRIT-1 isolation: envoy SOC blind + cloud fallback + CFG off
+        + net_power STILL READABLE (breaker guard cannot fire on None) →
+        entry-refused guard alone must block the fresh CHARGE.
+        """
+        h = self._make_blind_fallback()
+        # Restore net_power so B-CRIT-2 breaker fail-closed is not the
+        # thing catching this — isolates the B-CRIT-1 gate.
+        h.hass.set_state(
+            DEFAULT_NET_POWER_ENTITY, "-500",
+            attributes={"unit_of_measurement": "W"},
+        )
+        h.hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
+        r = h.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        turn_ons = [
+            a for a in r["actions"]
+            if a.get("service") == "switch.turn_on"
+        ]
+        assert turn_ons == [], (
+            "B-CRIT-1 alone must block fresh arbitrage CHARGE entry on "
+            "degraded telemetry even when net_power is readable"
+        )
+
+    def test_continuing_charge_allowed_on_degraded_telemetry(self):
+        """Anchor: an ALREADY-latched (CFG already ON) off_peak charge
+        may continue on degraded telemetry — releasing mid-charge is
+        symmetric harm. Emits no new turn_on (idempotent) but does NOT
+        emit turn_off either.
+        """
+        h = self._make_blind_fallback()
+        h.hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
+        r = h.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        turn_offs = [
+            a for a in r["actions"]
+            if a.get("service") == "switch.turn_off"
+        ]
+        assert turn_offs == [], (
+            "continuing charge must not be released on degraded telemetry"
+        )
+
+
+# ---------------------------------------------------------------------------
+# v5.17.5 A1 — cloud-fallback SOC wall-clock staleness gate
+# v5.17.5 A2 — full_hold freshness bound on D2 exemption
+# v5.17.5 C-MED-1 — D2 ledger-only trigger (CFG entity unavailable)
+# ---------------------------------------------------------------------------
+
+
+class TestV5175CloudFallbackStaleness:
+    """A1: a frozen-numeric cloud SOC must be rejected on wall-clock age.
+    `_get_state_float` only rejected unknown/unavailable, so a
+    hours-old-frozen cloud reading would let the relaxed I-BH1 gate
+    proceed on stale data.
+    """
+
+    def test_stale_cloud_fallback_returns_none_gate_engages_blind_hold(self):
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+            DEFAULT_SOC_CLOUD_FALLBACK_MAX_AGE_S,
+        )
+        h = _BatteryHarness(soc=80)
+        # Primary + LKG both dead
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        # Wire cloud fallback with a STALE last_updated (2× max age old)
+        from homeassistant.util import dt as dt_util
+        from datetime import timedelta
+        stale_lu = dt_util.utcnow() - timedelta(
+            seconds=DEFAULT_SOC_CLOUD_FALLBACK_MAX_AGE_S * 2,
+        )
+        h.hass.set_state(
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
+            attributes={"unit_of_measurement": "%"},
+        )
+        # MockHass state doesn't always expose last_updated — patch it.
+        _st = h.hass.states.get(DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY)
+        try:
+            _st.last_updated = stale_lu
+        except Exception:
+            pass
+        # SOC read must return None on stale fallback
+        assert h.strategy.battery_soc is None
+        # Full determine_mode: fully-blind path engages
+        r = h.strategy.determine_mode("off_peak", "summer")
+        assert r["envoy_available"] is False
+        assert r["arbitrage_phase"] == ARBITRAGE_PHASE_NA
+
+    def test_fresh_cloud_fallback_still_serves(self):
+        """Anchor: fresh cloud reading proceeds as before."""
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        )
+        from homeassistant.util import dt as dt_util
+        h = _BatteryHarness(soc=45)
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        h.hass.set_state(
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
+            attributes={"unit_of_measurement": "%"},
+        )
+        _st = h.hass.states.get(DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY)
+        try:
+            _st.last_updated = dt_util.utcnow()
+        except Exception:
+            pass
+        assert h.strategy.battery_soc == 45.0
+        assert h.strategy._soc_source_last == "cloud_fallback"
+
+
+class TestV5175FullHoldFreshnessGate:
+    """A2: D2's full_hold exemption must NOT trust a stale inclement
+    decision. Stale full_hold → de-escalate (fail-safe)."""
+
+    def test_stale_full_hold_falls_through_to_de_escalation(self):
+        from datetime import timedelta
+        from homeassistant.util import dt as dt_util
+        h = _BatteryHarness(soc=80)
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        h.hass.set_state(_CFG_STATE_ENTITY, "on")
+
+        class _FakeInclement:
+            hold_depth = "full_hold"
+            tier = "warn"
+            reason = "storm"
+            grid_precharge = True
+            reserve_floor = 60
+            source = "test"
+        h.strategy._last_inclement_decision = _FakeInclement()
+        # Stamped 2h ago → stale
+        h.strategy._last_inclement_decision_at = (
+            dt_util.now() - timedelta(hours=2)
+        )
+        r = h.strategy.determine_mode("peak", "summer")
+        services = [a.get("service") for a in r["actions"]]
+        assert "switch.turn_off" in services, (
+            "stale full_hold must NOT protect the standing CFG=on — "
+            "de-escalation must fire"
+        )
+        assert "Blind de-escalation" in r["reason"]
+
+    def test_fresh_full_hold_still_exempts(self):
+        """Anchor: fresh full_hold (recent decision) still holds through peak."""
+        from datetime import timedelta
+        from homeassistant.util import dt as dt_util
+        h = _BatteryHarness(soc=80)
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        h.hass.set_state(_CFG_STATE_ENTITY, "on")
+
+        class _FakeInclement:
+            hold_depth = "full_hold"
+            tier = "warn"
+            reason = "storm"
+            grid_precharge = True
+            reserve_floor = 60
+            source = "test"
+        h.strategy._last_inclement_decision = _FakeInclement()
+        # Stamped 5 min ago → fresh
+        h.strategy._last_inclement_decision_at = (
+            dt_util.now() - timedelta(minutes=5)
+        )
+        r = h.strategy.determine_mode("peak", "summer")
+        assert r["actions"] == []
+
+
+class TestV5175LedgerOnlyDeEscalation:
+    """C-MED-1: the D2 de-escalation must also trigger when the CFG
+    entity reads unavailable/unknown but the commanded ledger says True
+    (URA thinks it left it ON). Otherwise a wiring blip during the peak
+    boundary would silently skip the safety net.
+    """
+
+    def test_cfg_entity_unavailable_plus_ledger_true_emits_two_actions(self):
+        h = _BatteryHarness(soc=80)
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        # CFG entity reads unavailable
+        h.hass.set_state(_CFG_STATE_ENTITY, "unavailable")
+        # But URA's ledger says we commanded ON
+        h.strategy._last_charge_from_grid_command = True
+        r = h.strategy.determine_mode("peak", "summer")
+        services = [a.get("service") for a in r["actions"]]
+        assert "switch.turn_off" in services, (
+            "ledger-only True must trigger de-escalation when CFG entity "
+            "is unavailable"
+        )
+        assert "number.set_value" in services
+
+
+# ---------------------------------------------------------------------------
+# v5.17.5 fix-up 4 — framing-D leaks D-HIGH-1 + D-MED-1
+# ---------------------------------------------------------------------------
+# D-HIGH-1: import-guard trip-1/2 GRACE tick returns ARBITRAGE_PHASE_CHARGE
+# BEFORE the B-CRIT-1/B-CRIT-2 guards run → fresh CFG turn_on emitted on
+# degraded telemetry when net_power is above the cap but under N trips.
+# Fix: HOIST the degraded/breaker guards ABOVE the entire import-guard
+# block so no CHARGE return can precede them.
+#
+# D-MED-1: latched-CHARGING continuation calls _result with
+# charge_from_grid=True; if hardware reads OFF and telemetry is degraded,
+# the ON-direction self-heal at _result re-dispatches turn_on blind. Fix:
+# suppress the ON-heal on charge_from_grid while degraded when hardware
+# reads OFF; also make the continuation import-guard treat snap=None
+# WHILE DEGRADED as fail-closed (release latch to HOLD).
+
+
+class TestV5175FixUp4DHigh1GraceTickHoist:
+    """D-HIGH-1: HOISTED guards must catch the grace-tick path."""
+
+    def _make_degraded_with_net(self, net_w="13000"):
+        h = _BatteryHarness(
+            soc=15, solcast_today="20", solcast_tomorrow="20",
+            arbitrage_enabled=True, with_tou_engine=True,
+        )
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
+        # net_power READABLE and above the 12 kW cap → trip=1 without hoist
+        h.hass.set_state(
+            DEFAULT_NET_POWER_ENTITY, net_w,
+            attributes={"unit_of_measurement": "W"},
+        )
+        h.strategy._arbitrage_grid_import_guard_kw = 12.0
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        )
+        h.hass.set_state(
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "15",
+            attributes={"unit_of_measurement": "%"},
+        )
+        _freshen_cloud_soc_lu(
+            h.hass, DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        )
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        h.hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
+        return h
+
+    def test_grace_tick_no_fresh_turn_on_under_degraded_telemetry(self):
+        """Reproduces framing-D L1 repro. Degraded + net 13 kW > 12 kW
+        cap (trip=1, under N=3) + CFG off + off_peak window open.
+        Pre-hoist behavior: PHASE_CHARGE returned via grace path → _result
+        called with charge_from_grid=True.
+        Post-hoist: phase WAIT (guards refused before grid-import block
+        ran), no turn_on. Assertion targets the PHASE + the dict
+        `charge_from_grid` (not just actions) so the D-MED-1 ON-heal
+        suppression at _result cannot mask an un-hoisted grace-tick.
+        """
+        h = self._make_degraded_with_net(net_w="13000")
+        r = h.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        # Post-hoist: guard block never reached → no charge intent set
+        assert r["charge_from_grid"] is False, (
+            "D-HIGH-1 LEAK: grace-tick set charge_from_grid=True in the "
+            "returned dict despite degraded telemetry"
+        )
+        assert r["arbitrage_phase"] != ARBITRAGE_PHASE_CHARGE, (
+            f"D-HIGH-1 LEAK: grace-tick returned CHARGE phase; got "
+            f"{r['arbitrage_phase']}"
+        )
+        turn_ons = [
+            a for a in r["actions"]
+            if a.get("service") == "switch.turn_on"
+        ]
+        assert turn_ons == [], (
+            f"D-HIGH-1 LEAK: turn_on emitted; got {turn_ons}"
+        )
+
+    def test_grace_tick_healthy_telemetry_still_charges(self):
+        """Anchor: healthy telemetry + trip-1 grace → CHARGE proceeds
+        (byte-identical to pre-fix behavior — the hoist only refuses
+        under degraded telemetry).
+        """
+        h = _BatteryHarness(
+            soc=15, solcast_today="20", solcast_tomorrow="20",
+            arbitrage_enabled=True, with_tou_engine=True,
+        )
+        # net_power over cap → trip=1
+        h.hass.set_state(
+            DEFAULT_NET_POWER_ENTITY, "13000",
+            attributes={"unit_of_measurement": "W"},
+        )
+        h.strategy._arbitrage_grid_import_guard_kw = 12.0
+        r = h.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        turn_ons = [
+            a for a in r["actions"]
+            if a.get("service") == "switch.turn_on"
+        ]
+        assert len(turn_ons) == 1, (
+            "healthy grace-tick anchor: CHARGE must still emit turn_on"
+        )
+
+
+class TestV5175FixUp4DMed1OnHealSuppression:
+    """D-MED-1: while degraded + hardware CFG OFF, _result must NOT emit
+    turn_on. Sighted path or operator owns restart. Also: latched
+    CHARGING continuation import-guard fails closed on snap=None while
+    degraded.
+    """
+
+    def test_continuation_guard_releases_latch_to_hold_when_snap_none_degraded(self):
+        """D-MED-1 half B: latched CHARGING + degraded + net_power blind
+        (snap=None) → attain releases latch to HOLD (charge_from_grid=
+        False in the emitted dict), no turn_on in actions.
+        MUTATION-anchored: neuter the fail-closed continuation guard →
+        the ON-heal suppression at _result catches the turn_on instead
+        but the RELEASED-TO-HOLD state won't happen — attain_state stays
+        'charging' and charge_from_grid=True in the dict.
+        """
+        from datetime import datetime
+        h = _BatteryHarness(
+            soc=45, solcast_today="20", solcast_tomorrow="20",
+            arbitrage_enabled=True, with_tou_engine=True,
+        )
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
+        h.hass.set_state(DEFAULT_NET_POWER_ENTITY, "unavailable")
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        )
+        h.hass.set_state(
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
+            attributes={"unit_of_measurement": "%"},
+        )
+        _freshen_cloud_soc_lu(
+            h.hass, DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        )
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        h.hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
+        s = h.strategy
+        s._attain_reboot_recovered = True
+        s._attain_state = "charging"
+        s._attain_cfg_observed_on = False
+        s._peak_buffer_target = 80
+        s._attain_soc_history = [
+            (datetime(2026, 7, 15, 14, 50), 43.0),
+            (datetime(2026, 7, 15, 15, 0), 45.0),
+        ]
+        r = s.determine_mode(
+            "mid_peak", "summer", now=datetime(2026, 7, 15, 15, 5),
+        )
+        # Fail-closed continuation guard released latch to HOLD
+        assert s._attain_state == "holding", (
+            f"D-MED-1 continuation guard did not release latch; "
+            f"state={s._attain_state}"
+        )
+        assert r["charge_from_grid"] is False
+        turn_ons = [
+            a for a in r["actions"]
+            if a.get("service") == "switch.turn_on"
+        ]
+        assert turn_ons == [], (
+            f"D-MED-1 LEAK: blind ON-heal fired; got turn_ons={turn_ons}"
+        )
+
+    def test_on_heal_suppressed_when_degraded_at_result_direct(self):
+        """D-MED-1 half A ISOLATED: call _result directly with
+        charge_from_grid=True while _degraded_telemetry_source is set
+        and CFG reads OFF → NO turn_on emitted (ON-heal suppressed).
+        MUTATION: neuter the suppression block → turn_on fires.
+        """
+        h = _BatteryHarness(soc=45)
+        # Force degraded flag directly (bypasses determine_mode gate)
+        h.strategy._degraded_telemetry_source = "cloud_fallback"
+        h.hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
+        r = h.strategy._result(
+            BATTERY_MODE_SELF_CONSUMPTION,
+            "test attain continuation",
+            "self_consumption",
+            charge_from_grid=True,
+            reserve_level=80,
+            season="summer",
+        )
+        turn_ons = [
+            a for a in r["actions"]
+            if a.get("service") == "switch.turn_on"
+        ]
+        assert turn_ons == [], (
+            f"D-MED-1 half A LEAK: ON-heal fired blind; got {turn_ons}"
+        )
+
+    def test_latched_charging_degraded_cfg_off_no_redispatch(self):
+        """Reproduces framing-D L3 repro. Latched attain CHARGING +
+        degraded + CFG physically OFF + net_power blind → no turn_on
+        re-dispatched blind.
+        """
+        from datetime import datetime
+        h = _BatteryHarness(
+            soc=45, solcast_today="20", solcast_tomorrow="20",
+            arbitrage_enabled=True, with_tou_engine=True,
+        )
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
+        h.hass.set_state(DEFAULT_NET_POWER_ENTITY, "unavailable")
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        )
+        h.hass.set_state(
+            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
+            attributes={"unit_of_measurement": "%"},
+        )
+        _freshen_cloud_soc_lu(
+            h.hass, DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        )
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        h.hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
+        s = h.strategy
+        s._attain_reboot_recovered = True
+        s._attain_state = "charging"
+        s._attain_cfg_observed_on = False
+        s._peak_buffer_target = 80
+        s._attain_soc_history = [
+            (datetime(2026, 7, 15, 14, 50), 43.0),
+            (datetime(2026, 7, 15, 15, 0), 45.0),
+        ]
+        r = s.determine_mode(
+            "mid_peak", "summer", now=datetime(2026, 7, 15, 15, 5),
+        )
+        turn_ons = [
+            a for a in r["actions"]
+            if a.get("service") == "switch.turn_on"
+        ]
+        assert turn_ons == [], (
+            f"D-MED-1 LEAK: blind ON-heal fired; got turn_ons={turn_ons}"
+        )
+
+    def test_healthy_telemetry_on_heal_still_dispatches(self):
+        """Anchor: envoy healthy, CFG externally flipped OFF while
+        strategy wants ON → sighted self-heal STILL re-dispatches
+        turn_on (unchanged behavior)."""
+        h = _BatteryHarness(soc=15)  # envoy healthy — no degraded flag
+        # Force _result via a direct call: mock CFG=off, ask for
+        # charge_from_grid=True, verify turn_on emitted.
+        h.hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
+        r = h.strategy._result(
+            BATTERY_MODE_SELF_CONSUMPTION,
+            "healthy sighted heal anchor",
+            "self_consumption",
+            charge_from_grid=True,
+            reserve_level=80,
+            season="summer",
+        )
+        turn_ons = [
+            a for a in r["actions"]
+            if a.get("service") == "switch.turn_on"
+        ]
+        assert len(turn_ons) == 1, (
+            "healthy on-heal anchor: sighted turn_on must still fire"
+        )
+
+
+class TestV5175FixUp4DHigh2Stub:
+    """D-HIGH-2: stub helper exists and returns False (disabled).
+    Documents the operator-decision holdout without changing behavior.
+    """
+
+    def test_precharge_refused_on_blind_stub_returns_false(self):
+        h = _BatteryHarness(soc=40)
+        # Fake decision object mirroring InclementDecision shape
+        class _Dec:
+            hold_depth = "full_hold"
+            grid_precharge = True
+            reserve_floor = 100
+            reason = "test storm"
+        assert h.strategy._precharge_refused_on_blind(_Dec(), 40.0) is False

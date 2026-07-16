@@ -675,6 +675,54 @@ class WriteVerifier:
                     surface, commanded, desire, oracle_raw,
                 )
                 return
+        # ── v5.17.5 D3 — freshness gate before genuine-reversion ──────
+        # Before treating this divergence as a GENUINE reversion (which
+        # stamps REVERTED, emits an anomaly, and fires NM — pressure that
+        # ultimately drives self-heal re-dispatches from the strategy),
+        # check the STAMP AGE of the strategy's desired-* ledger. If the
+        # strategy has NOT stamped a fresh desire within N decision
+        # intervals (blind-hold branches RETURN before reaching
+        # `_result`, so the stamp goes stale), the "desire" we read via
+        # `_current_desire` is at best stale intent and cannot be
+        # authoritative for classifying the operator's manual change as
+        # a "reversion". Retire the record as STALE and stand down —
+        # exactly like the v5.17.2 desire-matches-oracle path — no
+        # anomaly, no NM, no re-dispatch pressure.
+        #
+        # Live incident 2026-07-15 18:31: the reversion sweep treated the
+        # operator's manual de-escalation (reserve 10, CFG off) as an
+        # external reversion of the frozen 15:06 attain intent (reserve
+        # 80, CFG on) that determine_mode had been blind-held from
+        # updating. NM fired and the strategy re-dispatched reserve=80.
+        # The operator had to disable the whole EnergyCoordinator.
+        #
+        # Threshold: 2× decision interval (= 600s at the default 5-min
+        # cadence). Does NOT require persistence — post-boot the stamp
+        # is None until the first _result run; None → treat as stale →
+        # stand down, closing review-B's restart question.
+        _dsa = getattr(battery, "_desired_stamped_at", None)
+        _stale_desire = True
+        if _dsa is not None:
+            try:
+                _age = (dt_util.utcnow() - _dsa).total_seconds()
+                _stale_desire = _age > 600
+            except Exception:  # noqa: BLE001
+                _stale_desire = True
+        if _stale_desire:
+            rec = self._records[surface]
+            if rec.status != STATUS_STALE:
+                rec.commanded = commanded
+                rec.oracle_seen = oracle_raw
+                rec.verified_at = now.isoformat()
+                rec.status = STATUS_STALE
+            self._last_reversion_at_by_surface.pop(surface, None)
+            _LOGGER.info(
+                "WriteVerifier: %s sweep — desire stale (blind?) — "
+                "standing down (desired_stamped_at=%s, commanded=%s, "
+                "oracle=%s)",
+                surface, _dsa, commanded, oracle_raw,
+            )
+            return
         # Fix-up B-MED-2 — emit ONCE per TRANSITION into REVERTED, not
         # per verify-window tick. DB write-flood history (v5.0.0-v5.2.1
         # rollback) mandates that a standing-reverted state does not
