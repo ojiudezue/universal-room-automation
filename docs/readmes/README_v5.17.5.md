@@ -97,15 +97,32 @@ hypotheses:
     window: 3d
 ```
 
-## Live Validation (prospective — write back post-restart)
+## Live Validation — Validated 2026-07-15
 
-- **L1:** HACS `installed_version = v5.17.5`; zero URA ERROR post-restart.
-- **L2:** energy coordinator still DISABLED post-restart (switch restored off).
-- **L3:** with coordinator disabled, NO reserve/CFG writes for 10 min; manual
-  10/off state untouched (recorder check).
-- **L4:** re-enable coordinator (operator-sanctioned), wait 2-3 decision
-  cycles: (a) intent re-derived from scratch (reason populated; no blind
-  freeze if Envoy back, or degraded-suffix on fallback); (b) sweep does NOT
-  re-dispatch stale 80/ON — post-boot desire unstamped → stands down; any
-  write within 10 min must come from a fresh decision (evening off_peak →
-  drain-target park ~30, NOT 80); (c) write-verify records transition sanely.
+Deployed + HACS v5.17.5 installed; HA restarted 19:24–19:26 CDT. Cloud legs
+watched: `number.iq_battery_hacs_battery_reserve` +
+`switch.iq_battery_hacs_charge_battery_from_grid`.
+
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | Version + zero URA ERROR | **PASS** | HACS `installed_version = v5.17.5`; only URA-module ERROR post-restart = 2× "Failed to log census snapshot: DB write worker did not process request within 35s" at 19:25:22 — during the restart shutdown flush (DB worker stopping), not steady state |
+| L2 | Coordinator still DISABLED post-restart | **PASS** | `switch.ura_energy_coordinator_enabled = off`, restored 19:26:17 |
+| L3 | No URA reserve/CFG writes for 10 min while disabled | **PASS (with cloud-truth finding)** | Zero service calls in the window. Reserve entity DID flip 10→80.0 at 19:32:21, but with **no service-call context** — it was the Enphase integration's first post-boot cloud poll reading back cloud truth. The operator's 18:36 manual "10" had never landed at Enphase cloud (18:21 WriteVerifier: `reserve_soc REVERTED (commanded=80, oracle=10.0)`); the 80 is residue of the pre-fix 18:31 sweep fight, cloud-side. CFG restored `off` at 19:28:08 (poll) |
+| L4a | Re-enable → intent re-derived from scratch | **PASS** | Coordinator ON 19:38:49 (operator-sanctioned). First sighted cycle 19:40:52: mode `self_consumption`, reason "Peak — battery covers load, solar exports **(degraded telemetry: cloud_fallback)**", SOC 66.6 via cloud fallback, `envoy_available: false` — decided on degraded telemetry, no blind freeze (I-BH1 relax path live) |
+| L4b | Sweep does NOT re-dispatch stale 80/ON | **PASS** | No 80/ON write anywhere post-boot. Reserve went 80→**10.0 at 19:40:33** — again no service-call context: oracle/poll readback coincident with URA's first sighted cycle (CFG verify tick 00:40:33.939Z), i.e. cloud settled to the operator's delayed 10, URA read it, wrote nothing. `last_verified_write_reserve_soc` still the restored pre-boot record (`restored: true`); `write_mismatch_counts_24h` all 0. CFG stayed `off` the entire window. Post-boot desire stand-down held (I-D3) |
+| L4c | Write-verify transitions sanely | **PASS** | Restored ledger records verified against live oracle without dispatching: CFG record `commanded: true / oracle_seen: off / status: stale / restored: true` (00:40:33Z) — correctly classified stale rather than re-asserted (the exact 18:31 failure shape, now standing down) |
+| Bonus | A1 cloud-SOC staleness gate live | **OBSERVED** | By 19:52 the cloud SOC aged out → `soc_source: fallback_stale_reject`, `soc: null`, reason "Envoy unavailable — holding (no commands issued)" — blind-hold engaged ONLY once no tier had fresh SOC, with reserve 10 / CFG off (nothing active frozen). Both halves of I-BH1 exercised live within 15 min |
+
+No drain-target write was expected or seen in the window: TOU period was
+**peak** (next boundary `mid_peak_starts` +60 min), so the sighted decision was
+peak discharge at floor 10 — consistent, not the stale 80.
+
+Boot transients seen and dismissed: pre-existing `homeassistant.core` "Unable
+to remove unknown job listener" lines at 19:38:49 fired by the entry reload on
+re-enable (also present at 18:34 pre-deploy under v5.17.4 — not new to this
+build; listener-cleanup noise, tracked separately).
+
+**Operator note:** the Enphase cloud reserve carried 80 (not the manual 10)
+from 18:31 until ~19:40 — the manual de-escalation had silently not stuck
+cloud-side. It now reads 10 with CFG off; battery matches the intended manual
+state, and URA's fresh decisions agree with it.

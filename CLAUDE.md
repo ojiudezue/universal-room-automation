@@ -339,3 +339,27 @@ spec to elaborate — same posture as "we have X" claims under Institutional
 Context First. History: the two worst recent bug families (rung-gate seam,
 wall-clock-coupled tests) both lived at state-machine × time seams — the
 exact ingredient the reverted variant would have added for pennies.
+
+## Numbers Get Knobs — placement ladder (operator-coined 2026-07-16)
+
+Any behavioral number (threshold, duration, window, gate value) gets a
+NAMED CONFIGURABLE, never an inline literal. Then choose its home by how
+it should be governed:
+
+1. **Module constant** (energy_const.py etc.) — tunable only via reviewed
+   code change. For numbers whose change should REQUIRE review: safety
+   bounds, protocol windows, fitted-model coefficients (e.g.
+   CONSUMPTION_REGRESSION_V1 — a knob here would invite untracked drift
+   from the reproducible fit).
+2. **Config/options flow** — operator-settable, persistent, infrequent.
+   For per-deployment structure (entities, modes, feature enables).
+3. **Number/Select/Switch entity** — live-tunable, dashboard-exposed,
+   persisted via the Number-persistence machinery. For policy the operator
+   legitimately tunes by observation (drain targets, lead times,
+   buffer targets — the arbitrage_charge_lead_time 360→180 change was a
+   pure entity-knob turn, zero code).
+
+Rule of thumb: how often would the operator legitimately turn it, and
+should turning it require review? Every new number in a plan/build states
+its knob name AND its rung, with one line of why. Kill-switch semantics
+(a value that disables the feature) documented on the knob itself.

@@ -3210,11 +3210,11 @@ class TestV5175FixUp4DMed1OnHealSuppression:
 
 
 class TestV5175FixUp4DHigh2Stub:
-    """D-HIGH-2: stub helper exists and returns False (disabled).
-    Documents the operator-decision holdout without changing behavior.
+    """v5.17.6 D-HIGH-2 exempt-bounded: helper returns (refused, reason).
+    When NOT degraded, returns (False, None) — healthy anchor.
     """
 
-    def test_precharge_refused_on_blind_stub_returns_false(self):
+    def test_precharge_refused_on_blind_healthy_returns_not_refused(self):
         h = _BatteryHarness(soc=40)
         # Fake decision object mirroring InclementDecision shape
         class _Dec:
@@ -3222,4 +3222,7 @@ class TestV5175FixUp4DHigh2Stub:
             grid_precharge = True
             reserve_floor = 100
             reason = "test storm"
-        assert h.strategy._precharge_refused_on_blind(_Dec(), 40.0) is False
+        h.strategy._degraded_telemetry_source = None
+        refused, reason = h.strategy._precharge_refused_on_blind(_Dec(), 40.0)
+        assert refused is False
+        assert reason is None

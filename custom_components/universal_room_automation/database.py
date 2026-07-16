@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.17.5
+# Universal Room Automation vv5.18.0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -1372,6 +1372,9 @@ class UniversalRoomDatabase:
                     _LOGGER.warning("room_transitions migration failed: %s", e)
 
                 # v3.7.12: Add accuracy + temperature columns to energy_daily
+                # R1 (2026-07-16): + predicted_consumption_source (source marker
+                # for which estimator arm produced predicted_consumption_kwh).
+                # Additive migration only.
                 try:
                     cursor = await db.execute("PRAGMA table_info(energy_daily)")
                     ed_columns = {row[1] for row in await cursor.fetchall()}
@@ -1380,6 +1383,7 @@ class UniversalRoomDatabase:
                         ("avg_temperature", "REAL"),
                         ("prediction_error_pct", "REAL"),
                         ("adjustment_factor", "REAL"),
+                        ("predicted_consumption_source", "TEXT"),
                     ]:
                         if col not in ed_columns:
                             await db.execute(
@@ -3720,8 +3724,15 @@ class UniversalRoomDatabase:
         avg_temperature: float | None = None,
         prediction_error_pct: float | None = None,
         adjustment_factor: float | None = None,
+        predicted_consumption_source: str | None = None,
     ) -> None:
-        """Save daily energy snapshot. Uses INSERT OR REPLACE for idempotency."""
+        """Save daily energy snapshot. Uses INSERT OR REPLACE for idempotency.
+
+        R1 (2026-07-16): ``predicted_consumption_source`` marks which
+        estimator arm produced ``predicted_consumption_kwh``:
+        ``v1_regression`` / ``dow_legacy`` / ``fallback`` (const strings in
+        ``energy_const.PRED_CONSUMPTION_SOURCE_*``).
+        """
         try:
             async with self._db() as db:
                 await db.execute("""
@@ -3729,13 +3740,15 @@ class UniversalRoomDatabase:
                     (date, import_kwh, export_kwh, import_cost, export_credit,
                      net_cost, consumption_kwh, solar_production_kwh,
                      predicted_consumption_kwh, avg_temperature,
-                     prediction_error_pct, adjustment_factor)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     prediction_error_pct, adjustment_factor,
+                     predicted_consumption_source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     date_str, import_kwh, export_kwh, import_cost,
                     export_credit, net_cost, consumption_kwh,
                     solar_production_kwh, predicted_consumption_kwh,
                     avg_temperature, prediction_error_pct, adjustment_factor,
+                    predicted_consumption_source,
                 ))
                 await db.commit()
         except Exception as e:

@@ -463,6 +463,110 @@ def _make_controller():
     return EVChargerController(hass, evse_config=evse_config)
 
 
+# ---------------------------------------------------------------------------
+# v5.17.6 D-HIGH-2 exempt-bounded storm precharge while degraded
+# ---------------------------------------------------------------------------
+
+
+class _DecStub:
+    """Minimal decision stub for _precharge_refused_on_blind."""
+
+    def __init__(self, hold_depth="full_hold", grid_precharge=True,
+                 reserve_floor=80, reason="warn_full_hold"):
+        self.hold_depth = hold_depth
+        self.grid_precharge = grid_precharge
+        self.reserve_floor = reserve_floor
+        self.reason = reason
+
+
+def _prime_full_hold_fresh(strat, now):
+    """Stamp a fresh full_hold decision so _precharge_refused_on_blind
+    treats the decision as fresh (≤30 min old). Reads dt_util.now()
+    from the same import path the helper uses so cross-file mocks of
+    `homeassistant.util.dt` don't skew the delta.
+    """
+    from homeassistant.util import dt as _dt_util
+    try:
+        _n = _dt_util.now()
+        # Some cross-suite mocks replace `now` with a MagicMock — fall
+        # back to real wall-clock in that case.
+        _ = (_n - _n).total_seconds()  # sanity: must be subtractable
+    except Exception:  # noqa: BLE001
+        from datetime import datetime as _dt
+        _n = _dt.now()
+    strat._last_inclement_decision = _DecStub()
+    strat._last_inclement_decision_at = _n
+
+
+def test_precharge_helper_healthy_returns_not_refused():
+    """Anchor — healthy telemetry: helper never refuses."""
+    strat, _ = _make_battery(soc=45)
+    _prime_full_hold_fresh(strat, _NOW)
+    # Not degraded → source unset.
+    strat._degraded_telemetry_source = None
+    refused, reason = strat._precharge_refused_on_blind(_DecStub(), 45.0)
+    assert refused is False
+    assert reason is None
+
+
+def test_precharge_helper_degraded_fresh_full_hold_allowed_bounded():
+    """(1) Degraded + fresh full_hold + fallback SOC → NOT refused
+    (bounded exemption).
+    MUTATION target: over-broad refusal (refuse whenever degraded) →
+    this test flips RED.
+    """
+    strat, _ = _make_battery(soc=45)
+    _prime_full_hold_fresh(strat, _NOW)
+    strat._degraded_telemetry_source = "cloud_fallback"
+    refused, reason = strat._precharge_refused_on_blind(_DecStub(), 45.0)
+    assert refused is False, (
+        "D-HIGH-2 exempt-bounded LEAK: degraded + fresh full_hold + "
+        "resolvable SOC must ALLOW the precharge start"
+    )
+    assert reason is None
+
+
+def test_precharge_helper_degraded_stale_full_hold_refused_awaiting():
+    """(2) Degraded + STALE full_hold → refused w/ awaiting-fresh reason.
+    MUTATION target: remove staleness check → this test flips RED.
+    """
+    from datetime import timedelta
+    strat, _ = _make_battery(soc=45)
+    # Stamp the decision 45 min ago (>30 min staleness threshold).
+    _prime_full_hold_fresh(strat, _NOW - timedelta(minutes=45))
+    strat._degraded_telemetry_source = "cloud_fallback"
+    # dt_util.now() in tests returns real now; make _last_inclement_decision_at
+    # far enough in the past that any dt_util.now() - _inc_at > 30 min.
+    from datetime import datetime as _dt
+    strat._last_inclement_decision_at = _dt.now() - timedelta(minutes=45)
+    refused, reason = strat._precharge_refused_on_blind(_DecStub(), 45.0)
+    assert refused is True
+    assert reason == "awaiting fresh storm evaluation"
+
+
+def test_precharge_helper_degraded_unstamped_full_hold_refused_awaiting():
+    """(2b) Post-restart: restored full_hold with no timestamp yet →
+    refused with awaiting-fresh reason until evaluate_inclement re-affirms.
+    """
+    strat, _ = _make_battery(soc=45)
+    strat._last_inclement_decision = _DecStub()
+    strat._last_inclement_decision_at = None  # unstamped restored state
+    strat._degraded_telemetry_source = "cloud_fallback"
+    refused, reason = strat._precharge_refused_on_blind(_DecStub(), 45.0)
+    assert refused is True
+    assert reason == "awaiting fresh storm evaluation"
+
+
+def test_precharge_helper_fully_blind_soc_none_refused():
+    """(3) Fully blind (SOC None) → refused; plain (no awaiting reason)."""
+    strat, _ = _make_battery(soc=45)
+    _prime_full_hold_fresh(strat, _NOW)
+    strat._degraded_telemetry_source = "cloud_fallback"
+    refused, reason = strat._precharge_refused_on_blind(_DecStub(), None)
+    assert refused is True
+    assert reason is None  # plain refusal — no awaiting suffix
+
+
 def test_inclement_hold_releases_paused_by_arbitrage_within_one_tick():
     ctrl = _make_controller()
     # Prime: an arbitrage-paused EV.
