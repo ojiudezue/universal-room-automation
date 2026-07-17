@@ -367,3 +367,15 @@ Caveat: replay uses SOC sampled at 21:00 nightly, not the true plug-in edge per 
 | P4 | >5% transition misses 03:00 → raise margin | **PASS (0/7 miss) — margin 60 min stands** |
 
 **Standing caveat for the operator go/no-go:** every verdict above rests on 7 mid-July nights and 4 uncensored charge sessions from one car. The plan's own P1-P4 spec asked for 90 days; the recorder cannot provide it and the Enphase CSVs lack the resolution. Recommend: accept these as provisional defaults, and re-run this probe script (kept reproducible above) on a longer window before the Tier-3 review cycle, or at minimum before winter changes the P2 prior.
+
+## Operator naming ratification (2026-07-17)
+
+User-facing name: **"Battery-Aware EV Charging"** (operator-chosen over
+"Battery-First"; "drain precedence" rejected as mechanism-name leakage per
+copy doctrine). Switch entity friendly name "Battery-Aware EV Charging";
+state sensor friendly name "EV Charging Plan" (states: holding / waiting
+for battery drain / charging / deadline start). Internal `dp_*` code names
+stay technical (DPM precedent). Rename executes in the post-review fix-up
+(B2c) alongside the review findings. Retirement trigger recorded: after a
+clean shakedown period, demote the enable switch to a reviewed constant
+and audit the five tuning Numbers for the same demotion if untouched.
