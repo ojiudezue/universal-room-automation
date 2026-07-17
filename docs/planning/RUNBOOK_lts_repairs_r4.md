@@ -257,3 +257,19 @@ consumption record regardless of repairs — decide between fixing the Envoy
 consumption CT source or importing Enlighten dailies as the dashboard truth.
 
 No writes were executed by this probe.
+
+## R4d EXECUTED 2026-07-17 ~11:00 CDT
+Three `recorder/adjust_sum_statistics` payloads applied (−8,453.186 @06-12,
+−12,092.115 @07-02, −4,294,298.130 @07-17 06:00 — the THIRD uint32 spike,
+landed post-R4a). Verified: 0 poisoned rows; final sum 515.785 kWh (exact
+prediction). Reversible by opposite-sign re-application.
+
+## OPEN DISPOSITION (operator): dead-accumulator statistic
+The probe proved `sensor.envoy_482543015950_energy_consumption_today`
+records ~3.6% of real consumption (496 vs 13,927 kWh over 94 clean days) —
+the statistic is garbage independent of the uint32 spikes, and spikes now
+recur (~monthly + one today). Options: (a) exclude the entity from recorder
+statistics until upstream fixes (kills the poisoning surface; Energy
+dashboard consumption should use SPAN or the enphase_ev cloud site-energy
+flows instead); (b) keep + re-repair on each spike (manual toil);
+(c) wait for core #176707. Recommendation: (a).
