@@ -915,7 +915,11 @@ ECArbitrageSwitch = _ec_switch_factory(
 # restart-safe restore identical to ECGridImportCapSwitch etc.
 ECDrainPrecedenceEnableSwitch = _ec_switch_factory(
     "_dp_enabled", "drain_precedence_enable",
-    "Drain Precedence Enable", "mdi:battery-arrow-down", default=False,
+    # B2c-2 item 6 rename (operator ratification 2026-07-17, planning
+    # doc §373): user-facing name is "Battery-Aware EV Charging"; internal
+    # attr / unique_id / class name stay technical (`drain_precedence` /
+    # `_dp_enabled` — DPM naming precedent).
+    "Battery-Aware EV Charging", "mdi:battery-arrow-down", default=False,
 )
 
 # v4.7.2.1: Replaced bespoke OccupancyWeightedPredictionSwitch class with a

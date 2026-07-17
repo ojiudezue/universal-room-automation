@@ -364,11 +364,14 @@ def test_interaction_second_plug_in_eval_stays_transition():
     assert d.transition is True
 
 
-def test_interaction_kv_round_trip_preserves_transition_after_restart():
-    """Plan §135: HA restart mid-transition must restore TRANSITIONED
-    state IF must-start-by is still in the future. Session A's
-    restore_from_blob already enforces this; here we prove it survives
-    a round-trip of a carrier that B2a's tick would have produced."""
+def test_interaction_kv_round_trip_transitioned_always_coerced_to_hold_only():
+    """B2c-2 item 2 MED — updated contract. The pre-fix behavior restored
+    TRANSITIONED-with-future-deadline as TRANSITIONED. That path is
+    retired: the paused-EVSE id set is NOT persisted with the carrier,
+    so restoring TRANSITIONED would leave `_paused_by_dp` empty and the
+    reversion sweep would be a no-op — a pointless state. Restore now
+    always coerces TRANSITIONED / MUST_START_FORCED to fresh HOLD_ONLY;
+    the next decision tick re-arms from live signals."""
     clock = _FrozenClock(datetime(2026, 7, 15, 22, 0, tzinfo=timezone.utc))
     carrier = DrainPrecedenceState()
     inputs = _mk_inputs(now=clock.now())
@@ -383,14 +386,15 @@ def test_interaction_kv_round_trip_preserves_transition_after_restart():
     assert carrier.state == DPState.TRANSITIONED
     assert carrier.must_start_by_dt is not None
 
-    # Round-trip via KV and restore under a clock that is BEFORE
-    # must_start_by — must survive.
     raw = serialize_for_kv(carrier)
+
+    # Restore under a clock BEFORE must_start_by → still coerced.
     later_clock = _FrozenClock(datetime(2026, 7, 16, 1, 0, tzinfo=timezone.utc))
     restored = restore_from_blob(raw, now_provider=later_clock.now)
-    assert restored.state == DPState.TRANSITIONED
+    assert restored.state == DPState.HOLD_ONLY
+    assert restored.must_start_by_dt is None
 
-    # Round-trip under a clock AFTER must_start_by → INV-DP2 rejects.
+    # Restore under a clock AFTER must_start_by → same result (HOLD_ONLY).
     expired_clock = _FrozenClock(datetime(2026, 7, 16, 4, 0, tzinfo=timezone.utc))
     rejected = restore_from_blob(raw, now_provider=expired_clock.now)
     assert rejected.state == DPState.HOLD_ONLY

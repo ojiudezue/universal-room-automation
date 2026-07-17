@@ -265,11 +265,36 @@ def test_is_dp_enabled_reads_coordinator_attr_when_provided():
     assert is_dp_enabled(fake) is False
 
 
-def test_is_dp_enabled_falls_back_to_module_const_without_coord():
+def test_is_dp_enabled_ships_off_by_default_no_coordinator():
+    """B2c-2 item 3 (Review C): the ship-OFF default is exercised through
+    the production default-resolution path — with no coordinator seed and
+    no operator toggle, the feature MUST be off. The pre-fix version of
+    this test re-read `_ec_const.CONF_DP_ENABLE` and compared it to
+    `is_dp_enabled(None)` (which internally re-reads the same constant)
+    — a tautology that would have passed even if the constant were
+    silently flipped to True. Anchor the invariant to the concrete
+    ship-OFF contract (hard `False`) instead of the constant it reads."""
     is_dp_enabled = _dp_mod.is_dp_enabled
-    # Default in module const is False; passing no coordinator should
-    # return that value.
-    assert is_dp_enabled(None) == bool(_ec_const.CONF_DP_ENABLE)
+    assert is_dp_enabled(None) is False, (
+        "Battery-Aware EV Charging must ship OFF by default"
+    )
+    # And a coordinator that hasn't seen an operator toggle (attr is
+    # missing) resolves via the same default path.
+
+    class _NoOptToggle:
+        pass
+
+    assert is_dp_enabled(_NoOptToggle()) is False
+
+
+def test_dp_ship_default_constant_is_false():
+    """Guard the module-level constant against silent flip to True.
+    Separated from the behavioral test above so a constant flip is
+    detected as a constant flip, not as behavior drift."""
+    assert _ec_const.CONF_DP_ENABLE is False, (
+        "CONF_DP_ENABLE must remain False (ship-OFF); a flip must go "
+        "through a reviewed cycle."
+    )
 
 
 # ==========================================================================
@@ -327,10 +352,38 @@ def test_dp_restore_branch_uses_kv_key_and_restore_helper():
     assert "restore_energy_state_with_age" in body
 
 
-def test_dp_kv_round_trip_via_real_serializer_and_restore():
-    """End-to-end integration: serialize a carrier via production
-    serialize_for_kv, feed it back through restore_from_blob, and confirm
-    the carrier state survives with must_start_by_dt intact."""
+def test_dp_kv_round_trip_hold_pre_eval_survives():
+    """End-to-end integration: HOLD_PRE_EVAL is idle waiting state and
+    survives restore round-trip; the next tick re-arms eval from live
+    signals. Post-B2c-2 (item 2 MED): TRANSITIONED / MUST_START_FORCED
+    are NO LONGER restorable (paused set isn't persisted, so resurrection
+    would leave a pointless state); a dedicated test below pins that
+    contract."""
+    from datetime import datetime, timedelta, timezone
+
+    DPState = _dp_mod.DPState
+    DrainPrecedenceState = _dp_mod.DrainPrecedenceState
+    restore_from_blob = _dp_mod.restore_from_blob
+    serialize_for_kv = _dp_mod.serialize_for_kv
+
+    now = datetime(2026, 1, 1, 22, 0, tzinfo=timezone.utc)
+    carrier = DrainPrecedenceState(
+        state=DPState.HOLD_PRE_EVAL,
+        since=now - timedelta(minutes=1),
+        hold_started_at=now - timedelta(minutes=1),
+    )
+    raw = serialize_for_kv(carrier)
+    restored = restore_from_blob(raw, now_provider=lambda: now)
+    assert restored.state == DPState.HOLD_PRE_EVAL
+    assert restored.hold_started_at == carrier.hold_started_at
+
+
+def test_dp_kv_round_trip_transitioned_coerced_to_hold_only():
+    """B2c-2 item 2 MED: a serialized TRANSITIONED carrier — even with
+    a future must_start_by_dt — is coerced to fresh HOLD_ONLY on restore.
+    The paused-EVSE id set is not persisted, so resurrection would leave
+    the carrier stuck in TRANSITIONED with an empty paused set (reversion
+    no-op). The next decision tick re-arms from live signals."""
     from datetime import datetime, timedelta, timezone
 
     DPState = _dp_mod.DPState
@@ -341,16 +394,16 @@ def test_dp_kv_round_trip_via_real_serializer_and_restore():
     now = datetime(2026, 1, 1, 22, 0, tzinfo=timezone.utc)
     carrier = DrainPrecedenceState(
         state=DPState.TRANSITIONED,
-        since=now - timedelta(minutes=15),
-        hold_started_at=now - timedelta(minutes=45),
         transitioned_at=now - timedelta(minutes=15),
-        must_start_by_dt=now + timedelta(hours=4),
-        last_eval_at=now - timedelta(minutes=15),
+        must_start_by_dt=now + timedelta(hours=4),  # still future
     )
     raw = serialize_for_kv(carrier)
     restored = restore_from_blob(raw, now_provider=lambda: now)
-    assert restored.state == DPState.TRANSITIONED
-    assert restored.must_start_by_dt == carrier.must_start_by_dt
+    assert restored.state == DPState.HOLD_ONLY, (
+        "TRANSITIONED must always coerce to HOLD_ONLY on restore "
+        "(paused set not persisted → no functional resurrection)"
+    )
+    assert restored.must_start_by_dt is None
 
 
 def test_dp_kv_round_trip_expired_must_start_by_rejected():

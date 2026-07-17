@@ -7263,7 +7263,11 @@ class EnergyDrainPrecedenceStateSensor(AggregationEntity, SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_energy_drain_precedence_state"
-        self._attr_name = "Drain Precedence State"
+        # B2c-2 item 6 rename (operator ratification 2026-07-17, planning
+        # doc §373): user-facing name is "EV Charging Plan"; unique_id
+        # stays technical (`drain_precedence_state`) so entity history +
+        # dashboard references survive the rename.
+        self._attr_name = "EV Charging Plan"
         self._attr_device_info = _energy_device_info()
 
     def _get_carrier(self):

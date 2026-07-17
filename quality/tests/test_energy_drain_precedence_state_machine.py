@@ -280,9 +280,13 @@ def test_restore_unparseable_returns_hold_only():
     assert got.state == DPState.HOLD_ONLY
 
 
-def test_restore_transitioned_within_deadline_accepted():
-    """A TRANSITIONED blob whose must_start_by_dt is still in the future
-    AND transitioned_at is within DP_TRANSITION_MAX_DURATION_H is restored."""
+def test_restore_transitioned_within_deadline_coerced_to_hold_only():
+    """B2c-2 item 2 MED — updated contract. Even a TRANSITIONED blob
+    whose must_start_by_dt is in the future is coerced to fresh HOLD_ONLY
+    on restore: the paused-EVSE id set is not persisted alongside the
+    carrier, so resurrecting the state would leave `_paused_by_dp` empty
+    on the coordinator side and the reversion sweep would be a no-op.
+    The next decision tick re-arms from live signals."""
     now = _tz_now(hour=1)  # 01:00 UTC
     carrier = DrainPrecedenceState(
         state=DPState.TRANSITIONED,
@@ -293,8 +297,9 @@ def test_restore_transitioned_within_deadline_accepted():
     raw = serialize_for_kv(carrier)
     clock = _FrozenClock(now)
     restored = restore_from_blob(raw, now_provider=clock)
-    assert restored.state == DPState.TRANSITIONED
-    assert restored.must_start_by_dt == carrier.must_start_by_dt
+    assert restored.state == DPState.HOLD_ONLY
+    assert restored.must_start_by_dt is None
+    assert restored.transitioned_at is None
 
 
 def test_restore_transitioned_past_must_start_by_rejected():

@@ -320,33 +320,27 @@ def restore_from_blob(
         _LOGGER.warning("drain-precedence KV rejected: %s → fresh HOLD_ONLY", exc)
         return DrainPrecedenceState()
 
+    # B2c-2 item 2 (MEDIUM): TRANSITIONED / MUST_START_FORCED are NEVER
+    # restored as-such. The paused-EVSE id set is NOT persisted with the
+    # carrier — a restored TRANSITIONED state would leave `_paused_by_dp`
+    # empty on the coordinator side, so the reversion sweep would be a
+    # no-op and the state would be pointlessly stuck. Rather than resurrect
+    # half-actuated state (INV-DP1/INV-DP2 hazard), we always coerce these
+    # states to fresh HOLD_ONLY on boot; the next decision tick re-arms
+    # from live signals (charging + kill-switch), which is authoritative.
+    #
+    # The prior expired-deadline / age-guard branches were the correct
+    # rejections when the restored-as-TRANSITIONED path was live; with
+    # that path retired they are dead code. `_save_evse_state` may still
+    # WRITE a TRANSITIONED blob (single-writer state machine on the write
+    # side is authoritative); the READ side collapses it.
     if carrier.state in (DPState.TRANSITIONED, DPState.MUST_START_FORCED):
-        now = now_provider()
-        # INV-DP2 guard: expired must-start-by deadline.
-        if carrier.must_start_by_dt is None:
-            _LOGGER.info(
-                "drain-precedence restore: %s without must_start_by_dt → "
-                "rejecting transition, fresh HOLD_ONLY",
-                carrier.state.value,
-            )
-            return DrainPrecedenceState()
-        if carrier.must_start_by_dt <= now:
-            _LOGGER.info(
-                "drain-precedence restore: must_start_by_dt %s already passed "
-                "at restore-now %s → rejecting transition, fresh HOLD_ONLY",
-                carrier.must_start_by_dt.isoformat(), now.isoformat(),
-            )
-            return DrainPrecedenceState()
-        # INV-DP1 belt-and-suspenders bound: transitioned longer than max.
-        if carrier.transitioned_at is not None:
-            age_h = (now - carrier.transitioned_at).total_seconds() / 3600.0
-            if age_h > DP_TRANSITION_MAX_DURATION_H:
-                _LOGGER.info(
-                    "drain-precedence restore: transitioned age %.2fh exceeds "
-                    "DP_TRANSITION_MAX_DURATION_H=%.2f → rejecting, fresh HOLD_ONLY",
-                    age_h, DP_TRANSITION_MAX_DURATION_H,
-                )
-                return DrainPrecedenceState()
+        _LOGGER.info(
+            "drain-precedence restore: %s not restorable "
+            "(paused set not persisted) → fresh HOLD_ONLY; next tick re-arms",
+            carrier.state.value,
+        )
+        return DrainPrecedenceState()
 
     return carrier
 

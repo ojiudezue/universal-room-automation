@@ -490,23 +490,35 @@ def _pinned_local_naive_now():
 
 def test_must_start_by_arm_skipped_when_fire_at_in_past():
     """Past fire-at is skipped — HA raises on past point-in-time arms,
-    KV-restore + decision-tick backstop handles the missed deadline."""
+    KV-restore + decision-tick backstop handles the missed deadline.
+
+    B2c-2 item 5 (Review A HIGH — test hygiene): production
+    `_arm_dp_must_start_by_timer` reads `dt_util.now()` to compare
+    against `fire_at`. The pre-fix test derived both `fire_at` and
+    the reference `now` from real `datetime.now()` — that's wall-clock
+    coupled (Bug Class #13/#21) and drifts across timezone / DST /
+    sibling-test leakage. Inject a frozen local-naive `now` into
+    `homeassistant.util.dt` for the duration of the arm call, following
+    the sibling `_pinned_local_naive_now` pattern used elsewhere in
+    the DP suite (v5.17.1 _FrozenClock lesson)."""
+    import sys as _sys
     coord, _, _ = _make_coord()
     fake = _FakeATP()
     _extracted_ns["async_track_point_in_time"] = fake
-    # Belt-and-suspenders vs cross-test mutation of homeassistant.util.dt.now
-    # (some sibling test files replace it with utcnow, which drifts by TZ
-    # offset and can flip local-vs-utc naive comparisons). Use the shared
-    # per-test isolation context manager — restores to the pinned baseline
-    # rather than a snapshot taken after a sibling may have leaked.
+    _dt_mod = _sys.modules["homeassistant.util.dt"]
+    _saved_now = _dt_mod.now
+    # Frozen anchor — a fixed, tz-naive local datetime unrelated to
+    # wall clock. `fire_at` is derived from THIS anchor so the guard
+    # comparison in `_arm_dp_must_start_by_timer` uses the same clock.
+    _FROZEN = datetime(2026, 1, 1, 12, 0, 0)
+    _dt_mod.now = lambda: _FROZEN
     try:
-        with _pinned_local_naive_now():
-            # 48h in the past — well outside any plausible TZ offset (max ±14h).
-            past = datetime.now() - timedelta(hours=48)
-            coord._arm_dp_must_start_by_timer(past)
-            assert len(fake.calls) == 0
-            assert coord._dp_must_start_unsub is None
+        past = _FROZEN - timedelta(hours=48)
+        coord._arm_dp_must_start_by_timer(past)
+        assert len(fake.calls) == 0
+        assert coord._dp_must_start_unsub is None
     finally:
+        _dt_mod.now = _saved_now
         _extracted_ns["async_track_point_in_time"] = None
 
 

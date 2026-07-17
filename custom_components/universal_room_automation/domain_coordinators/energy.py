@@ -3148,6 +3148,44 @@ class EnergyCoordinator(BaseCoordinator):
                 return True
         return False
 
+    def _dp_needed_kwh_plugged(self) -> float:
+        """Sum needed_kwh only over currently-plugged-in EVSEs.
+
+        B2c-2 fix-up (item 1 — MEDIUM): the pre-fix `needed_kwh` summed
+        BOTH per-EVSE knobs unconditionally, so a ~100 kWh worst-case
+        total made the transition's `fits before must-start-by` check
+        nearly never true when only one car was plugged in.
+
+        Membership predicate mirrors the transition-entry scan at
+        `_dp_decision_tick` (charging=True) plus the DP-owned paused set
+        (`_paused_by_dp`), so a car that has just been paused by an
+        earlier tick still contributes its needed_kwh until the state
+        machine leaves TRANSITIONED. Cars not plugged in contribute 0.
+        """
+        # Fixed keying today: two named knobs matching the well-known
+        # EVSE ids in DEFAULT_EVSE_ENTITIES (energy_pool.py:163-176).
+        _per_id = {
+            "garage_a": float(getattr(self, "_dp_needed_kwh_garage_a", 0.0)),
+            "garage_b": float(getattr(self, "_dp_needed_kwh_garage_b", 0.0)),
+        }
+        total = 0.0
+        for evse_id in self._ev._evse:  # noqa: SLF001
+            need = _per_id.get(evse_id)
+            if not need:
+                continue
+            try:
+                plugged = (
+                    evse_id in self._ev._paused_by_dp  # noqa: SLF001
+                    or self._ev._get_evse_state(evse_id).get(  # noqa: SLF001
+                        "charging", False,
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                plugged = False
+            if plugged:
+                total += need
+        return total
+
     def _dp_house_load_kw(self, ev_load_w: float | None) -> float:
         """Resolve live house-load (kW) for the drain-precedence tick.
 
@@ -3273,9 +3311,9 @@ class EnergyCoordinator(BaseCoordinator):
             drain_target_soc=int(self._ev_battery_drain_soc),
             any_evse_charging=self._is_any_evse_charging(),
             charger_rate_kw=float((ev_load_w or 0.0) / 1000.0),
-            needed_kwh=float(
-                self._dp_needed_kwh_garage_a + self._dp_needed_kwh_garage_b
-            ),
+            # B2c-2 item 1: per-plugged-car sum. Cars not plugged in do
+            # not contribute their worst-case need to the fits check.
+            needed_kwh=self._dp_needed_kwh_plugged(),
             # ---- item 2: live house-load ----
             house_load_kw=self._dp_house_load_kw(ev_load_w),
             now=_now_dp,

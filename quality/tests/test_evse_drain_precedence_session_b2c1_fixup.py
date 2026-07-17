@@ -216,6 +216,7 @@ _extracted = _extract_named(
         "_arm_dp_must_start_by_timer",
         "_is_any_evse_charging",
         "_dp_house_load_kw",
+        "_dp_needed_kwh_plugged",
         "_dp_decision_tick",
         "_get_state_float",
     },
@@ -327,6 +328,7 @@ for _name in (
     "_arm_dp_must_start_by_timer",
     "_is_any_evse_charging",
     "_dp_house_load_kw",
+    "_dp_needed_kwh_plugged",
     "_dp_decision_tick",
     "_get_state_float",
 ):
