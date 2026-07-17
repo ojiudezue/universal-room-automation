@@ -543,25 +543,93 @@ def test_blind_signal_negative_case_envoy_ok():
 
 
 def test_kill_switch_hoist_releases_pause_mid_window():
-    """Mid-window flip-OFF of DP: `_paused_by_dp` must clear + carrier →
-    HOLD_ONLY same tick, regardless of TOU period."""
+    """Mid-window flip-OFF of DP: carrier is FORCED to HOLD_ONLY same
+    tick, must-start-by timer cancelled, save fires.
+
+    B2c-3 H-2 STICKY interaction: when the flip lands in a non-off_peak
+    period, `_apply_dp_reversion` DEFERS the turn_on (TOU gate) and
+    KEEPS the DP claim sticky. The kill-switch hoist still normalizes
+    the carrier state to HOLD_ONLY, but the pause set + "dp" owner
+    persist so a later tick retries once TOU returns to off_peak.
+    Pre-B2c-3 (eager-discard) stranded the car off through peak — the
+    operator's 05:02 mid_peak scenario."""
     coord, ev, _, tou = _make_coord(dp_enabled=True)
     # Arm a fake TRANSITIONED window.
     ev._paused_by_dp.add("garage_a")
+    ev._claim_pause_dispatch_owner("garage_a", "dp")
     coord._dp_decision_soc = 30
     coord._dp_carrier.state = DPState.TRANSITIONED
-    # Flip kill switch OFF.
+    # Flip kill switch OFF, move OUT of off_peak.
     coord.dp_enabled = False
-    # And move OUT of off_peak — flip-off must still clean up.
     tou._period = "peak"
     try:
         coord._dp_decision_tick({"soc": 60}, "peak", ev_load_w=0.0)
     except _DPSkip:
         pass
-    assert "garage_a" not in ev._paused_by_dp, "kill-switch must release pause"
+    # Carrier normalized + save fired (kill-switch hoist responsibility).
     assert coord._dp_carrier.state == DPState.HOLD_ONLY
-    assert coord._dp_decision_soc is None
     assert coord._save_calls >= 1
+    # H-2 STICKY: TOU=peak keeps the DP claim + decision_soc pinned so
+    # INV-DP3 stays honored and the retry driver has state to close on.
+    assert "garage_a" in ev._paused_by_dp, (
+        "sticky: kill-switch flip in peak must keep DP claim (retry driver)"
+    )
+    assert coord._dp_decision_soc == 30, (
+        "sticky: floor must remain pinned while a member is sticky"
+    )
+    owners = ev._dispatch_owners.get("garage_a", set())
+    assert "dp" in owners, "sticky: 'dp' owner claim must persist"
+
+
+def test_kill_switch_hoist_completes_release_on_offpeak_return():
+    """Follow-on tick after `test_kill_switch_hoist_releases_pause_mid_window`:
+    once TOU returns to off_peak, the sticky retry driver drains the set
+    and dispatches turn_on. Anchors the H-2 retry-driver end-to-end."""
+    coord, ev, _, tou = _make_coord(dp_enabled=False)
+    # Prime sticky-carried state from the peak-defer step.
+    ev._paused_by_dp.add("garage_a")
+    ev._claim_pause_dispatch_owner("garage_a", "dp")
+    coord._dp_decision_soc = 30
+    coord._dp_carrier.state = DPState.HOLD_ONLY
+    tou._period = "off_peak"
+    coord.hass.set_state("switch.garage_a", "off")
+    try:
+        coord._dp_decision_tick({"soc": 60}, "off_peak", ev_load_w=0.0)
+    except _DPSkip:
+        pass
+    # Sticky drained — turn_on dispatched via kill-switch hoist's
+    # reversion call (dp_enabled=False path exercises the hoist branch;
+    # note the retry-driver branch also runs when dp_enabled=True + a
+    # residual set exists — covered by the H-1 orphan test below).
+    assert "garage_a" not in ev._paused_by_dp, (
+        "off_peak return must drain sticky set"
+    )
+    assert coord._dp_decision_soc is None
+
+
+def test_h2_sticky_orphan_hold_only_retry_dispatches_turn_on_switch_on_path():
+    """B2c-3 H-2 retry driver (switch-ON path). The H-1 restart-orphan
+    case: dp_enabled=True, carrier coerced to HOLD_ONLY by
+    `restore_from_blob`, `_paused_by_dp` restored non-empty. The
+    HOLD_ONLY orphan-cleanup call in `_dp_decision_tick` must call
+    `_apply_dp_reversion`, which dispatches turn_on when off_peak +
+    no peer holds. FAILS if the retry driver is removed."""
+    coord, ev, _, _ = _make_coord(dp_enabled=True, period="off_peak")
+    # Simulate post-restart restore.
+    ev._paused_by_dp.add("garage_a")
+    ev._claim_pause_dispatch_owner("garage_a", "dp")
+    coord._dp_decision_soc = None  # cleared by carrier coercion
+    coord._dp_carrier.state = DPState.HOLD_ONLY
+    coord.hass.set_state("switch.garage_a", "off")
+    try:
+        coord._dp_decision_tick({"soc": 60}, "off_peak", ev_load_w=0.0)
+    except _DPSkip:
+        pass
+    assert "garage_a" not in ev._paused_by_dp, (
+        "HOLD_ONLY orphan retry must drain restored DP set"
+    )
+    owners = ev._dispatch_owners.get("garage_a", set())
+    assert "dp" not in owners, "orphan retry must drop 'dp' owner"
 
 
 # ==========================================================================

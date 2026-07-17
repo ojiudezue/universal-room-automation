@@ -1387,6 +1387,34 @@ class EnergyCoordinator(BaseCoordinator):
                             self._ev._paused_by_arbitrage.add(eid)
                 except (ValueError, TypeError):
                     pass
+            # B2c-3 H-1: Restore DP pause set + reinstall "dp" dispatch
+            # owner claim on every restored id so the sticky reversion
+            # retry in `_dp_decision_tick` has an owner to release.
+            # `restore_from_blob` (energy_drain_precedence.py:323-343,
+            # B2c-2) coerces the carrier to HOLD_ONLY on boot even when
+            # a future must_start_by_dt was persisted; without a restored
+            # `_paused_by_dp`, the HOLD_ONLY orphan retry would find
+            # nothing to release → INV-DP2 breach. The 10h staleness
+            # gate mirrors the sibling pause-set restores (grid_cap/
+            # battery_drain/fill_priority/arbitrage all use the same
+            # STALE_MAX_AGE_HOURS bound — defense in depth; the next
+            # decision cycle re-evaluates the DP state machine anyway).
+            dp_json = await db.restore_energy_state_with_age(
+                "evse_dp_paused", max_age_hours=STALE_MAX_AGE_HOURS,
+            )
+            if dp_json:
+                try:
+                    for eid in _json.loads(dp_json):
+                        if eid in valid_evse_ids:
+                            self._ev._paused_by_dp.add(eid)
+                            # Reinstall "dp" owner (sibling to fresh
+                            # `_apply_dp_transition` claim path at
+                            # energy.py:3750). Without this, the sticky
+                            # reversion retry would release nothing (owner
+                            # set already empty post-restart).
+                            self._ev._claim_pause_dispatch_owner(eid, "dp")
+                except (ValueError, TypeError):
+                    pass
             # v<next> WS1 D1.3: Restore proactive off-peak hold intent-state
             holds_json = await db.restore_energy_state_with_age(
                 "evse_proactive_offpeak_holds", max_age_hours=STALE_MAX_AGE_HOURS,
@@ -1468,13 +1496,14 @@ class EnergyCoordinator(BaseCoordinator):
                 or self._ev._paused_by_battery_drain
                 or self._ev._paused_by_fill_priority
                 or self._ev._paused_by_arbitrage
+                or self._ev._paused_by_dp
                 or self._ev._proactive_offpeak_holds
                 or self._ev._force_charge_until is not None
             ):
                 _LOGGER.info(
                     "Restored EVSE state: paused=%s, excess_solar=%s, "
                     "grid_cap=%s, battery_drain=%s, fill_priority=%s, "
-                    "arbitrage=%s, proactive_offpeak_holds=%s, "
+                    "arbitrage=%s, dp=%s, proactive_offpeak_holds=%s, "
                     "force_charge_until=%s",
                     list(self._ev._paused_by_us),
                     list(self._ev._excess_solar_active),
@@ -1482,6 +1511,7 @@ class EnergyCoordinator(BaseCoordinator):
                     list(self._ev._paused_by_battery_drain),
                     list(self._ev._paused_by_fill_priority),
                     list(self._ev._paused_by_arbitrage),
+                    list(self._ev._paused_by_dp),
                     list(self._ev._proactive_offpeak_holds),
                     self._ev._force_charge_until.isoformat()
                     if self._ev._force_charge_until else None,
@@ -1698,6 +1728,18 @@ class EnergyCoordinator(BaseCoordinator):
             await db.save_energy_state(
                 "evse_arbitrage_paused",
                 _json.dumps(list(self._ev._paused_by_arbitrage)),
+            )
+            # B2c-3 H-1: DP pause set. Sibling to grid_cap/battery_drain/
+            # fill_priority/arbitrage — every other pause owner survives
+            # restart; DP was the outlier. Without this KV, a restart
+            # mid-TRANSITIONED left the EVSE physically OFF with no
+            # owner and no reversion driver (INV-DP2 breach). Restored
+            # in `_restore_evse_state`; the HOLD_ONLY orphan retry in
+            # `_dp_decision_tick` then dispatches turn_on once TOU +
+            # peers permit.
+            await db.save_energy_state(
+                "evse_dp_paused",
+                _json.dumps(list(self._ev._paused_by_dp)),
             )
             # v<next> WS1 D1.3: proactive off-peak hold intent-state
             await db.save_energy_state(
@@ -3161,6 +3203,20 @@ class EnergyCoordinator(BaseCoordinator):
         (`_paused_by_dp`), so a car that has just been paused by an
         earlier tick still contributes its needed_kwh until the state
         machine leaves TRANSITIONED. Cars not plugged in contribute 0.
+
+        B2c-3 M-1 (accepted gap): a plugged car that is idle under car-
+        side scheduling (not drawing power AND not DP-paused) contributes
+        0 kWh here and can auto-start mid-window. `_get_evse_state`
+        (energy_pool.py:293) exposes only `is_on`, `power`, `status`,
+        `charging`, `power_source` — none of which is a reliable
+        plugged/connected signal across the EVSE integrations we
+        support (Emporia W, Tesla Wall Connector, Wallbox; the `status`
+        attribute string is manufacturer-specific and not verified).
+        Widening the predicate on an invented / unverified attribute
+        would risk `_dp_get_state`-style shape drift; INV-DP2 liveness
+        (must_start_by fire) is the accepted backstop for this shape,
+        forcing the car ON at the deadline regardless of the missed
+        contribution here.
         """
         # Fixed keying today: two named knobs matching the well-known
         # EVSE ids in DEFAULT_EVSE_ENTITIES (energy_pool.py:163-176).
@@ -3281,6 +3337,26 @@ class EnergyCoordinator(BaseCoordinator):
                     self._dp_must_start_unsub = None
                 self._dp_carrier.state = _DPState.HOLD_ONLY
                 self.hass.async_create_task(self._save_evse_state())
+
+        # ---- B2c-3 H-2: sticky retry driver (HOLD_ONLY orphan) ----
+        # After H-2 made `_apply_dp_reversion` sticky on peer/TOU
+        # deferral, we need a driver that re-fires reversion each cycle
+        # until the set drains. The kill-switch hoist above covers the
+        # switch-OFF path; this covers switch-ON restart-orphan cleanup
+        # (H-1 restore path leaves a non-empty `_paused_by_dp` with a
+        # HOLD_ONLY carrier from `restore_from_blob`'s coercion) AND
+        # the normal TRANSITIONED→HOLD_ONLY retry when the initial
+        # reversion deferred. Runs BEFORE the night-window gate: the
+        # TOU-defer inside reversion will keep sticky during peak,
+        # and off_peak returns will drain cleanly. Gate on `_dp_on`
+        # so a disabled switch doesn't compete with the hoist above
+        # (the hoist already handled it via _has_dp_state).
+        if (
+            _dp_on
+            and self._dp_carrier.state == _DPState.HOLD_ONLY
+            and self._ev._paused_by_dp  # noqa: SLF001
+        ):
+            self._apply_dp_reversion(tou_period=period)
 
         # ---- item 6: night-window gate ----
         if not _dp_on or self._tou.get_current_period() != "off_peak":
@@ -3789,27 +3865,37 @@ class EnergyCoordinator(BaseCoordinator):
         Called by the decision-cycle wiring when `_dp_maybe_tick` drives
         the carrier from TRANSITIONED → HOLD_ONLY (charge complete OR
         floor released OR kill switch flipped). Symmetric with
-        arbitrage-release in energy_pool.py:1507-1556:
-            - Discard EVSE(s) from `_paused_by_dp` + drop "dp" dispatch
-              owner. Actual `switch.turn_on` dispatch is refused if a
-              STRONGER pause owner still claims the EVSE OR TOU is not
-              off_peak (mirrors the arbitrage-release deferral).
-            - Clear `_dp_decision_soc` so the next
-              `_apply_evse_battery_hold` tick composes only strategy +
-              hold contributors (INV-DP3: max() collapses cleanly).
-            - Cancel the must-start-by timer (window over → deadline
-              no longer meaningful).
-        Cites v5.15.0 release-at-floor F + sticky machinery pattern —
-        the "resume only if peer owners permit" is the same guard.
+        arbitrage-release in energy_pool.py:1507-1556 (see v5.15.0
+        sticky release-at-floor F machinery — mirrored here):
+
+            - STICKY deferral: on peer-owner conflict OR non-off_peak
+              TOU, KEEP `_paused_by_dp` membership AND the "dp" dispatch
+              claim so a later decision tick can retry. Only on
+              successful dispatch (or EVSE already on) do we discard
+              the id + drop the "dp" owner.
+            - `_dp_decision_soc` is cleared only when the pause set is
+              fully drained. INV-DP3 max()-composition thus keeps the
+              floor pinned for any deferred member; when the last id
+              releases, the floor collapses cleanly.
+            - Cancel the must-start-by timer regardless (state machine
+              has already exited TRANSITIONED — the deadline is moot).
+
+        B2c-3 fix-up (H-2): the pre-fix loop discarded membership + drop
+        the "dp" owner BEFORE the peer/TOU check, so a deferred member
+        was stranded with no owner and no retry driver (kill-switch flip
+        during mid_peak → car off through peak). Sticky mirrors the
+        v5.15.0 pattern; retry driver lives in `_dp_decision_tick` (the
+        kill-switch hoist + a new HOLD_ONLY orphan-cleanup call), keyed
+        off `_has_dp_state` / `_paused_by_dp` truthiness — both of
+        which stay armed while any sticky member remains.
         """
         # Cancel the must-start-by timer first so a race between clean
         # reversion and the deadline can't fire release twice.
         self._cancel_dp_must_start_by_timer()
         for evse_id in list(self._ev._paused_by_dp):  # noqa: SLF001
-            self._ev._paused_by_dp.discard(evse_id)  # noqa: SLF001
-            self._ev._release_pause_dispatch_owner(evse_id, "dp")  # noqa: SLF001
-            # Resume-guard: refuse turn-on if a peer still claims the
-            # EVSE OR TOU is non-off_peak (arbitrage-release parity).
+            # H-2 STICKY: check defer conditions BEFORE mutating
+            # membership/owner. Peer-owner OR non-off_peak TOU defer
+            # keeps the DP claim so the next tick retries.
             if (
                 evse_id in self._ev._paused_by_arbitrage  # noqa: SLF001
                 or evse_id in self._ev._paused_by_battery_drain  # noqa: SLF001
@@ -3820,13 +3906,14 @@ class EnergyCoordinator(BaseCoordinator):
             ):
                 _LOGGER.info(
                     "drain-precedence release: %s — peer owner still holds, "
-                    "leaving paused",
+                    "keeping DP claim (sticky)",
                     evse_id,
                 )
                 continue
             if tou_period is not None and tou_period != "off_peak":
                 _LOGGER.info(
-                    "drain-precedence release: %s — TOU=%s, leaving paused",
+                    "drain-precedence release: %s — TOU=%s, keeping DP claim "
+                    "(sticky)",
                     evse_id, tou_period,
                 )
                 continue
@@ -3834,8 +3921,15 @@ class EnergyCoordinator(BaseCoordinator):
                 self._ev._evse.get(evse_id, {}).get("switch", "")  # noqa: SLF001
             )
             if not switch_entity:
+                # No switch configured — drop the claim; nothing to
+                # dispatch and no retry can help.
+                self._ev._paused_by_dp.discard(evse_id)  # noqa: SLF001
+                self._ev._release_pause_dispatch_owner(evse_id, "dp")  # noqa: SLF001
                 continue
             state = self._ev._get_evse_state(evse_id)  # noqa: SLF001
+            # About to release cleanly (dispatch turn_on OR already on).
+            self._ev._paused_by_dp.discard(evse_id)  # noqa: SLF001
+            self._ev._release_pause_dispatch_owner(evse_id, "dp")  # noqa: SLF001
             if not state.get("is_on"):
                 self.hass.async_create_task(
                     self.hass.services.async_call(
@@ -3848,7 +3942,11 @@ class EnergyCoordinator(BaseCoordinator):
                     "drain-precedence: resumed EVSE %s (clean reversion)",
                     evse_id,
                 )
-        self._dp_decision_soc = None
+        # H-2: only collapse the composed floor when the set is fully
+        # drained. A deferred sticky member must continue to pin the
+        # DP floor into `_apply_evse_battery_hold`'s max() (INV-DP3).
+        if not self._ev._paused_by_dp:  # noqa: SLF001
+            self._dp_decision_soc = None
 
     def _apply_dp_must_start_release(self, tou_period: str | None = None) -> None:
         """Must-start-by fire (INV-DP2 car-charge liveness).
@@ -3866,8 +3964,10 @@ class EnergyCoordinator(BaseCoordinator):
         """
         self._cancel_dp_must_start_by_timer()
         for evse_id in list(self._ev._paused_by_dp):  # noqa: SLF001
-            self._ev._paused_by_dp.discard(evse_id)  # noqa: SLF001
-            self._ev._release_pause_dispatch_owner(evse_id, "dp")  # noqa: SLF001
+            # H-2 STICKY parity: safety/cost peer defer keeps the DP
+            # claim so a later tick can retry the forced ON once the
+            # peer clears. INV-DP2 liveness still trumps TOU here — we
+            # do NOT gate on TOU period.
             if (
                 evse_id in self._ev._paused_by_grid_cap  # noqa: SLF001
                 or evse_id in self._ev._paused_by_load_shed  # noqa: SLF001
@@ -3875,7 +3975,7 @@ class EnergyCoordinator(BaseCoordinator):
             ):
                 _LOGGER.info(
                     "drain-precedence must-start-by fire: %s — safety/cost "
-                    "owner holds, leaving paused",
+                    "owner holds, keeping DP claim (sticky)",
                     evse_id,
                 )
                 continue
@@ -3883,8 +3983,13 @@ class EnergyCoordinator(BaseCoordinator):
                 self._ev._evse.get(evse_id, {}).get("switch", "")  # noqa: SLF001
             )
             if not switch_entity:
+                # No switch — drop claim; nothing dispatch can do.
+                self._ev._paused_by_dp.discard(evse_id)  # noqa: SLF001
+                self._ev._release_pause_dispatch_owner(evse_id, "dp")  # noqa: SLF001
                 continue
             state = self._ev._get_evse_state(evse_id)  # noqa: SLF001
+            self._ev._paused_by_dp.discard(evse_id)  # noqa: SLF001
+            self._ev._release_pause_dispatch_owner(evse_id, "dp")  # noqa: SLF001
             if not state.get("is_on"):
                 self.hass.async_create_task(
                     self.hass.services.async_call(
@@ -3898,7 +4003,9 @@ class EnergyCoordinator(BaseCoordinator):
                     "(deadline reached)",
                     evse_id,
                 )
-        self._dp_decision_soc = None
+        # Sticky-safe floor collapse (INV-DP3 parity with reversion).
+        if not self._ev._paused_by_dp:  # noqa: SLF001
+            self._dp_decision_soc = None
 
     def _cancel_dp_must_start_by_timer(self) -> None:
         """Idempotent cancel of the must-start-by point-in-time listener."""

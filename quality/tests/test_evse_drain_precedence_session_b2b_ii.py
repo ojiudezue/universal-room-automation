@@ -550,11 +550,16 @@ def test_must_start_release_defers_when_safety_owner_holds():
     ev._claim_pause_dispatch_owner("garage_a", "dp")
     coord.hass.set_state("switch.garage_a", "off")
     coord._apply_dp_must_start_release(tou_period="off_peak")
-    # DP set is cleared (release fired), but the EVSE stays off — the
-    # peer owner keeps it paused.
-    assert "garage_a" not in ev._paused_by_dp
+    # B2c-3 H-2 STICKY: safety/cost owner defer KEEPS DP claim so a
+    # later tick retries once the peer clears. Pre-B2c-3 was eager-
+    # discard (stranded off with no owner).
+    assert "garage_a" in ev._paused_by_dp, (
+        "sticky: safety-owner defer must keep DP claim for retry"
+    )
     # grid-cap owner untouched.
     assert "garage_a" in ev._paused_by_grid_cap
+    owners = ev._dispatch_owners.get("garage_a", set())
+    assert "dp" in owners, "sticky: safety defer must keep 'dp' owner"
 
 
 # ==========================================================================
@@ -616,26 +621,37 @@ def test_reversion_sweep_clears_dp_state_and_ensures_on():
 
 
 def test_reversion_defers_ensure_on_when_tou_not_off_peak():
-    """Reversion still clears the DP set + owner but leaves EV off when
-    TOU is non-off_peak (arbitrage-release parity)."""
+    """B2c-3 H-2 STICKY: reversion under non-off_peak TOU KEEPS the DP
+    set membership + "dp" dispatch owner so a later tick can retry once
+    TOU returns to off_peak. Pre-B2c-3 this was eager-discard (stranded
+    the EVSE off with no owner → INV-DP2 breach on kill-switch flips)."""
     coord, ev, _ = _make_coord()
     ev._paused_by_dp.add("garage_a")
     ev._claim_pause_dispatch_owner("garage_a", "dp")
     coord.hass.set_state("switch.garage_a", "off")
     coord._apply_dp_reversion(tou_period="peak")
-    assert "garage_a" not in ev._paused_by_dp
+    assert "garage_a" in ev._paused_by_dp, (
+        "sticky: TOU-deferred reversion must keep DP claim for retry"
+    )
+    owners = ev._dispatch_owners.get("garage_a", set())
+    assert "dp" in owners, "sticky: TOU defer must keep 'dp' owner claim"
 
 
 def test_reversion_defers_when_peer_owner_holds():
-    """Peer owner (fill_priority) still claims → clear DP but leave off."""
+    """B2c-3 H-2 STICKY: peer-owner defer KEEPS DP membership + "dp"
+    owner. Pre-B2c-3 discarded eagerly."""
     coord, ev, _ = _make_coord()
     ev._paused_by_dp.add("garage_a")
     ev._paused_by_fill_priority.add("garage_a")
     ev._claim_pause_dispatch_owner("garage_a", "dp")
     coord.hass.set_state("switch.garage_a", "off")
     coord._apply_dp_reversion(tou_period="off_peak")
-    assert "garage_a" not in ev._paused_by_dp
+    assert "garage_a" in ev._paused_by_dp, (
+        "sticky: peer-owner defer must keep DP claim"
+    )
     assert "garage_a" in ev._paused_by_fill_priority
+    owners = ev._dispatch_owners.get("garage_a", set())
+    assert "dp" in owners
 
 
 # ==========================================================================
