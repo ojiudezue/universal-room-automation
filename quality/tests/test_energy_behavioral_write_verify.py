@@ -296,6 +296,170 @@ async def test_conduct_partial_hold_exempt(hass):
 
 
 @pytest.mark.asyncio
+async def test_conduct_below_inclement_floor_fires(hass):
+    """D2-MED-1 (review D re-pass): the inclement partial_hold exception
+    is NARROW — it only exempts while SOC is >= (inclement_reserve_floor
+    - deadband). Below that, hardware is violating even the inclement
+    floor and the alarm SHOULD fire.
+
+    Repro: inclement partial_hold with floor=30, deadband=4, so the
+    exempt band is SOC >= 26. Set SOC=20 → below the exempt band → the
+    trigger tick advances and the anomaly fires.
+    """
+    coord = _Coord(hass)
+    bat = coord._battery
+    v = ewv.WriteVerifier(hass, coord)
+    bat._last_reserve_level = 80
+    bat._last_reserve_level_desired = 80
+    bat._last_reserve_level_at = (
+        ewv.dt_util.utcnow() - timedelta(seconds=2000)
+    )
+    bat._soc = 20.0  # < 30 - 4 = 26 → below inclement floor
+    bat._power_w = -3000.0
+    bat._last_inclement_decision = _FakeInclementDecision(
+        hold_depth="partial_hold", reserve_floor=30,
+    )
+
+    emitted: list[str] = []
+    async def _fake_emit(surface, type_str, extra):
+        emitted.append(type_str)
+    v._emit_anomaly = _fake_emit  # type: ignore
+    async def _fake_nm(*a, **k):
+        pass
+    v._maybe_fire_nm = _fake_nm  # type: ignore
+
+    for _ in range(CONF_CONDUCT_N_TICKS + 1):
+        await v._conduct_check_reserve(bat)
+    assert emitted == ["hardware_noncompliance"], (
+        f"Below-inclement-floor SOC must fire alarm; got {emitted!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_conduct_grid_witness_unavailable_abstains(hass):
+    """D2-MED-2 (review D re-pass): when the grid witness (Enpower
+    `_grid_enabled`) is unresolvable/unavailable/unknown, the whole
+    conduct check ABSTAINS for that tick — no counting, no firing.
+
+    B0 showed the witness flaps with the Envoy; a false NM during a
+    real outage is worse than a delayed detection.
+    """
+    coord = _Coord(hass)
+    bat = coord._battery
+    v = ewv.WriteVerifier(hass, coord)
+
+    # Wire `_get_entity("grid_enabled", ...)` to a known entity id,
+    # but leave that entity id UNAVAILABLE in the state map.
+    GRID_EID = "switch.enpower_grid_enabled"
+    orig = bat._get_entity
+    def _wrap(key, default=None, *, role="read"):
+        if key == "grid_enabled":
+            return GRID_EID
+        return orig(key, default, role=role)
+    bat._get_entity = _wrap
+    _set(hass, GRID_EID, "unavailable", unit=None)
+
+    bat._last_reserve_level = 15
+    bat._last_reserve_level_desired = 15
+    bat._last_reserve_level_at = (
+        ewv.dt_util.utcnow() - timedelta(seconds=2000)
+    )
+    bat._soc = 5.0   # deep below floor
+    bat._power_w = -2500.0  # discharging
+
+    emitted: list[str] = []
+    async def _fake_emit(surface, type_str, extra):
+        emitted.append(type_str)
+    v._emit_anomaly = _fake_emit  # type: ignore
+
+    for _ in range(CONF_CONDUCT_N_TICKS + 2):
+        await v._conduct_check_reserve(bat)
+    assert emitted == [], (
+        "Grid witness unavailable must ABSTAIN (no false alarm during "
+        "possible real outage)."
+    )
+    assert v._conduct_last_abstain_reason[SURFACE] == (
+        "grid_witness_unavailable"
+    )
+    # Counter is NOT reset by an abstain — persists across the tick so a
+    # genuine episode is not erased by a flap.
+    assert v._conduct_consec.get(SURFACE, 0) == 0  # never advanced
+
+
+@pytest.mark.asyncio
+async def test_evse_overlay_honors_standdown_gate(hass):
+    """D2-HIGH-1 (review D re-pass): `_apply_evse_battery_hold` MUST
+    honor the write-verifier stand-down gate in BOTH branches
+    (update-in-place + append). When a hard stand-down is pinned on the
+    hold value, the overlay emits NO reserve action for the tick. When
+    the effective value differs from the pinned value, normal dispatch
+    resumes.
+
+    MUTATION ANCHOR: neutering the gate (removing the `_standdown_hold`
+    check on either branch) makes THIS test RED.
+    """
+    from custom_components.universal_room_automation.domain_coordinators import (  # noqa: E501
+        energy as energy_mod,
+    )
+
+    coord = _Coord(hass)
+    bat = coord._battery
+    v = ewv.WriteVerifier(hass, coord)
+    coord._write_verifier = v
+    coord._evse_hold_soc = 60
+    reserve_entity = "number.enpower_reserve"
+    bat._entities["reserve_soc_number"] = reserve_entity
+
+    # Pin a stand-down at value 60 on the reserve surface.
+    v._pending_standdown_at[SURFACE] = ewv.dt_util.utcnow()
+    v._pending_standdown_value[SURFACE] = 60
+
+    # --- Append branch: no prior reserve action.
+    decision = {"reason": "off_peak drain", "actions": [], "soc": 65}
+    out = energy_mod.EnergyCoordinator._apply_evse_battery_hold(coord, decision)
+    reserve_actions = [
+        a for a in out["actions"]
+        if a.get("target") == reserve_entity
+    ]
+    assert reserve_actions == [], (
+        "Append branch must emit NO reserve action while stand-down "
+        "pinned on hold value."
+    )
+
+    # --- Update-in-place branch: prior action at 30 → max(30,60)=60 == pinned.
+    decision = {
+        "reason": "off_peak drain",
+        "actions": [
+            {"service": "number.set_value",
+             "target": reserve_entity, "data": {"value": 30}},
+        ],
+        "soc": 65,
+    }
+    out = energy_mod.EnergyCoordinator._apply_evse_battery_hold(coord, decision)
+    reserve_actions = [
+        a for a in out["actions"]
+        if a.get("target") == reserve_entity
+    ]
+    assert reserve_actions == [], (
+        "Update-in-place branch must drop reserve action when effective "
+        "value equals pinned stand-down value."
+    )
+
+    # --- Resume when the pinned value differs: pin at a DIFFERENT value.
+    v._pending_standdown_value[SURFACE] = 45  # pinned != hold_reserve=60
+    decision = {"reason": "off_peak drain", "actions": [], "soc": 65}
+    out = energy_mod.EnergyCoordinator._apply_evse_battery_hold(coord, decision)
+    reserve_actions = [
+        a for a in out["actions"]
+        if a.get("target") == reserve_entity
+    ]
+    assert reserve_actions and reserve_actions[0]["data"]["value"] == 60, (
+        "When pinned value differs from hold value, overlay must resume "
+        "emitting the reserve action normally."
+    )
+
+
+@pytest.mark.asyncio
 async def test_conduct_blind_abstains(hass):
     """SOC None (blind) → abstain, no anomaly, counter not advanced."""
     coord = _Coord(hass)

@@ -819,6 +819,21 @@ class WriteVerifier:
             )
             return
         self._mismatch_counts.increment(surface)
+        # D2-LOW-1 (review D re-pass): while a pending episode is armed
+        # on this surface, the more-specific `pending_write_stuck` /
+        # `pending_write_standdown` alarm owns the divergence; suppress
+        # the overlapping `write_reverted` emission + NM so one
+        # divergence yields the pending ladder's alarms only. The
+        # separate `write_verification_failed` (t+15m) is left as-is per
+        # spec (distinct meaning). Record status remains REVERTED above
+        # so state is honest; only the alarm surface is coordinated.
+        if self.is_pending_episode_active(surface):
+            _LOGGER.debug(
+                "WriteVerifier: %s write_reverted emit suppressed "
+                "(pending episode active)",
+                surface,
+            )
+            return
         await self._emit_anomaly(
             surface,
             "write_reverted",
@@ -1448,6 +1463,16 @@ class WriteVerifier:
     #     returning None; caller does NOT invent a witness.
     # ------------------------------------------------------------------
     def _grid_outage_active(self, battery: Any) -> Optional[bool]:
+        """Return True (outage), False (grid up), or None.
+
+        None has TWO distinct meanings:
+          * Witness NOT configured / not resolvable — caller falls
+            through (no exception, no abstain — same as pre-D2-MED-2).
+          * Witness CONFIGURED but currently unavailable/unknown —
+            caller ABSTAINS the conduct check for the tick (D2-MED-2).
+
+        We distinguish via `_grid_witness_state` (see caller).
+        """
         try:
             from .energy_const import DEFAULT_GRID_ENABLED_ENTITY
             eid = None
@@ -1456,8 +1481,6 @@ class WriteVerifier:
                     "grid_enabled", DEFAULT_GRID_ENABLED_ENTITY, role="read",
                 )
             except TypeError:
-                # Older `_get_entity` signature without role kw — try
-                # without it. Never raises past this into the sweep.
                 eid = battery._get_entity(  # noqa: SLF001
                     "grid_enabled", DEFAULT_GRID_ENABLED_ENTITY,
                 )
@@ -1471,6 +1494,38 @@ class WriteVerifier:
             return str(st.state).lower() == "off"
         except Exception:  # noqa: BLE001
             return None
+
+    def _grid_witness_configured_but_stale(self, battery: Any) -> bool:
+        """True iff the grid-enabled entity is configured (via
+        `_get_entity`) but its live state is unresolvable / unavailable
+        / unknown. Used to distinguish "operator hasn't wired one" (no
+        abstain) from "witness flapping" (abstain).
+        """
+        try:
+            from .energy_const import DEFAULT_GRID_ENABLED_ENTITY
+            try:
+                eid = battery._get_entity(  # noqa: SLF001
+                    "grid_enabled", DEFAULT_GRID_ENABLED_ENTITY, role="read",
+                )
+            except TypeError:
+                eid = battery._get_entity(  # noqa: SLF001
+                    "grid_enabled", DEFAULT_GRID_ENABLED_ENTITY,
+                )
+            except Exception:  # noqa: BLE001
+                return False
+            if not eid:
+                return False
+            st = self.hass.states.get(eid)
+            # "State missing entirely" (st is None) is treated as
+            # NOT configured — could be a stale entity id / operator
+            # default that was never provisioned. Only actual flapping
+            # (state exists and reads unavailable/unknown) triggers
+            # abstain per D2-MED-2 (that's the B0-measured failure mode).
+            if st is not None and st.state in ("unavailable", "unknown"):
+                return True
+            return False
+        except Exception:  # noqa: BLE001
+            return False
 
     def _desire_stamp_fresh(self, battery: Any) -> bool:
         """True if `_desired_stamped_at` is fresh (< 2× decision
@@ -1514,19 +1569,39 @@ class WriteVerifier:
         effective = self._effective_reserve_desired(battery)
         if effective is not None and effective < int(commanded_floor):
             return "explicit_drain_desire_lower"
-        # (e) inclement partial_hold is a legit lower floor. Reads the
+        # (e) inclement partial_hold is a legit lower floor — but only
+        # WHILE SOC is at or above (inclement_reserve_floor - deadband).
+        # Below that, hardware is violating even the inclement floor and
+        # the alarm SHOULD fire (D2-MED-1, review D re-pass). Reads the
         # REAL InclementDecision.hold_depth == "partial_hold" from
         # `battery._last_inclement_decision` (inclement.py:493) —
         # NOT the invented `_inclement_partial_hold_active` attribute.
-        if self._inclement_partial_hold_floor(battery) is not None:
-            return "inclement_partial_hold"
+        inc_floor = self._inclement_partial_hold_floor(battery)
+        if inc_floor is not None:
+            soc_now = self._read_soc_via_resolver(battery)
+            if soc_now is None or soc_now >= (
+                int(inc_floor) - CONF_CONDUCT_SOC_DEADBAND_PCT
+            ):
+                return "inclement_partial_hold"
+            # SOC below the inclement floor - deadband → do NOT exempt.
+            # Fall through so the trigger check can fire.
         # (f) grid outage — Enpower `_grid_enabled` == "off". Backup
         # discharge below the commanded reserve is expected during an
-        # outage. If the witness is unresolvable or reads unavailable,
-        # we ABSTAIN (return None here); we do NOT invent a witness.
+        # outage. Witness semantics (D2-MED-2, review D re-pass):
+        #   * True → grid down → exempt.
+        #   * False → grid up → no exception (fall through).
+        #   * None + entity CONFIGURED but state unavailable/unknown →
+        #     ABSTAIN (caller returns without counting).
+        #   * None + entity NOT configured → operator hasn't wired one;
+        #     do not abstain (fall through) — preserves prior behavior
+        #     for deployments without an Enpower witness.
         outage = self._grid_outage_active(battery)
         if outage is True:
             return "grid_outage"
+        if outage is None and self._grid_witness_configured_but_stale(
+            battery,
+        ):
+            return "grid_witness_unavailable"
         return None
 
     async def _conduct_check_reserve(self, battery: Any) -> None:
@@ -1569,6 +1644,18 @@ class WriteVerifier:
         exception_reason = self._legal_conduct_exception(
             battery, commanded_floor, commanded_at, now,
         )
+        if exception_reason == "grid_witness_unavailable":
+            # D2-MED-2 (review D re-pass): grid witness flapping is
+            # measured behavior on this Envoy (B0). Rather than falling
+            # through to the alarm-permissive path (previous behavior)
+            # OR treating this as a legal exception that RESETS the
+            # counter (would mask a real drift), ABSTAIN — do not count,
+            # do not fire, do not reset. Counter state persists across
+            # the abstain so a genuine episode is not erased by a flap.
+            self._conduct_last_abstain_reason[surface] = (
+                "grid_witness_unavailable"
+            )
+            return
         if exception_reason is not None:
             # Legal state — episode closes (if any) and counter resets.
             if self._conduct_consec.get(surface, 0) > 0:

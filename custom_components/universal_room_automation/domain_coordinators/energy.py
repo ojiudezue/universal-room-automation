@@ -3033,6 +3033,37 @@ class EnergyCoordinator(BaseCoordinator):
             role="write",
         )
 
+        # v5.19.0 fix-up 2 (Review D re-pass, D2-HIGH-1) — stand-down gate.
+        # `_result` guards its normal dispatch leg via
+        # `WriteVerifier.is_standdown_active_for_value` (energy_battery.py
+        # :4519-4536). The overlay re-emits the reserve unconditionally
+        # in BOTH branches (update-in-place + append), bypassing that
+        # gate — a hard stand-down pinned on `hold_reserve` would then be
+        # re-broken every tick from the overlay side. Read the verifier
+        # None-safe (boot/tests may have wv=None) and, when the gate is
+        # active on the exact hold value, emit NO reserve action from the
+        # overlay for this tick. Semantics per operator directive: if the
+        # effective desire or hold_reserve changes vs the pinned value,
+        # the gate flips False → dispatch resumes.
+        _wv_overlay = getattr(self, "_write_verifier", None)
+
+        def _standdown_pinned_on(value: int) -> bool:
+            """None-safe check: True iff hard stand-down is pinned on
+            `value` for the reserve surface. Boot/tests may have
+            verifier=None → returns False (gate off).
+            """
+            if _wv_overlay is None:
+                return False
+            try:
+                from .energy_write_verify import (  # noqa: PLC0415
+                    WRITE_VERIFY_SURFACE_RESERVE,
+                )
+                return bool(_wv_overlay.is_standdown_active_for_value(
+                    WRITE_VERIFY_SURFACE_RESERVE, int(value),
+                ))
+            except Exception:  # noqa: BLE001
+                return False
+
         # Update existing reserve action or add new one. The EVSE hold may
         # only RAISE the reserve floor, never lower it: an existing reserve
         # action already carries the floor that the battery strategy decided
@@ -3046,6 +3077,22 @@ class EnergyCoordinator(BaseCoordinator):
                     effective = max(int(existing_val), int(hold_reserve))
                 except (TypeError, ValueError):
                     effective = hold_reserve
+                # D2-HIGH-1 gate: if stand-down is pinned on the
+                # effective value being emitted, drop the reserve action
+                # from this overlay tick (mirrors `_result` stand-down
+                # skip). If effective differs from the pinned value,
+                # the gate returns False → normal resume.
+                if _standdown_pinned_on(int(effective)):
+                    _LOGGER.debug(
+                        "EVSE overlay: reserve action SKIPPED "
+                        "(stand-down active for value=%d)",
+                        int(hold_reserve),
+                    )
+                    decision["actions"] = [
+                        a for j, a in enumerate(decision["actions"])
+                        if j != i
+                    ]
+                    return decision
                 decision["actions"][i] = {**action, "data": {"value": effective}}
                 # D2 (INV-D2-LEDGER): stamp the hold-elevated reserve
                 # into the commanded ledger. `_result` (energy_battery.py
@@ -3104,6 +3151,18 @@ class EnergyCoordinator(BaseCoordinator):
                 hold_reserve = max(int(hold_reserve), int(_clamp_ref))
         except (TypeError, ValueError, AttributeError):
             pass
+        # D2-HIGH-1 gate: skip append when stand-down pinned on the
+        # POST-clamp emitted value. Ledger stamp below is likewise
+        # skipped so we don't advance `_last_reserve_level_at` on a
+        # no-emit tick. Re-check against the post-clamp `hold_reserve`
+        # (may have been raised by the desired-clamp above).
+        if _standdown_pinned_on(int(hold_reserve)):
+            _LOGGER.debug(
+                "EVSE overlay: reserve append SKIPPED "
+                "(stand-down active for value=%d)",
+                int(hold_reserve),
+            )
+            return decision
         decision["actions"].append({
             "service": "number.set_value",
             "target": reserve_entity,

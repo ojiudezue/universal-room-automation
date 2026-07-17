@@ -4840,9 +4840,12 @@ class BatteryStrategy:
           the SAME entity choke point (`_get_entity(..., role="write")`)
           the normal emission uses. Does NOT bypass the single-writer.
         * Stamps the commanded ledger (`_last_reserve_level`,
-          `_last_reserve_level_at`) so `WriteVerifier._commanded_ledger`
-          sees the fresh anchor and the next watchdog tick starts a new
-          episode window.
+          `_last_reserve_level_at`) with the re-dispatched value.
+          `_last_reserve_level_at` is advanced ONLY when the value
+          differs from the prior ledger value (same-value retries do
+          NOT anchor a new episode window — the pending watchdog's
+          `commanded_at` anchor is unchanged so the current episode
+          continues through the ladder). See the guard at step (5).
         * Persistence: RAM-only. A restart wipes the retry state; this
           is intentional (see planning doc §Non-goals — no new
           persistence).
