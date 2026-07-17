@@ -709,3 +709,147 @@ Invariant addition: **a retry's payload is always byte-equal to the live
 strategy desire at dispatch time** — falsifiable by Review D (construct a
 boundary-straddling ladder; assert cancel, not replay). Mutation anchor
 required on the re-derivation read (Review C).
+
+## B0 probe reports (2026-07-17)
+
+Read-only probes against the live recorder DB (`/config/home-assistant_v2.db`,
+sqlite ro URI over `ssh ha`). Recorder window: 2026-07-10 04:12 → 2026-07-17
+08:34 (~7.2 days). All timestamps host-local.
+
+### Probe methodology + a load-bearing surface correction
+
+Three step-function series were reconstructed from recorder history:
+
+- **SOC:** `sensor.envoy_482543015950_battery` (1942 samples)
+- **Discharge:** `sensor.envoy_482543015950_current_battery_discharge`, kW,
+  **negative = charging, positive = discharging** (confirmed: −15.9 kW during
+  the 07-15 11:00 full-rate charge ramp) (6549 samples)
+- **Hardware-enforced reserve:** `sensor.envoy_482543015950_reserve_battery_level`
+  (967 samples)
+
+**Correction found by the probe:** `number.enpower_482348004678_reserve_battery_level`
+is NOT a usable commanded-reserve ledger. It flaps to `None`/unavailable dozens
+of times per day and holds stale values for hours (it read 80 across whole days
+while the actual write surface moved 10↔80 repeatedly). The authoritative
+commanded ledger in recorder terms is **`number.iq_battery_hacs_battery_reserve`**
+(the HACS cloud write surface URA drives), which the hardware-enforced sensor
+tracks within ~41 s at median. A first-pass episode scan keyed on the enpower
+number produced 27 spurious "below-floor" episodes; keyed on the iq_hacs
+ledger it produced 7. **Build implication: D1's commanded-floor witness must be
+URA's own `_last_reserve_level` desire ledger (as planned), never the enpower
+number entity.**
+
+### B0-D1 report — conduct-threshold probe
+
+Episode scan: every SOC sample where `SOC < commanded_reserve` (iq_hacs
+ledger) AND `discharge > 0.5 kW`, grouped with 15-min gap tolerance.
+**Full 7-day episode table (this is every episode; nothing filtered):**
+
+| # | Window (local) | Dur | Recorder ticks | cmd | hw-enforced | min SOC | Max depth (pp) | Max dis (kW) | Classification |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 07-11 09:57→10:15 | 18 m | 2 | 20 | 10 | 10 | 10 | 1.38 | SUSPICIOUS — stuck-write divergence (cmd 20 written 07-10 17:38 took **20.7 h** to apply; hw held 10) |
+| 2 | 07-11 10:41 | 1 tick | 1 | 20 | 10 | 13 | 7 | 3.78 | Same stuck-write window; blip |
+| 3 | 07-11 13:08→13:58 | 50 m | 13 | 20 | 10 | 10 | 10 | 6.87 | SUSPICIOUS — same stuck-write window; sustained drain to hw floor 10 while URA wanted 20 |
+| 4 | 07-13 14:34→14:45 | 10 m | 3 | 87 | 80 | 84 | 3 | 5.72 | LEGITIMATE — attain-target sawtooth (cmd raised 87 at 14:20, apply in flight; within verify window) |
+| 5 | **07-15 12:28→13:51** | **56 m** | **15** | **80** | **50** | **66** | **14** | **7.83** | **THE 07-15 INCIDENT** — cmd 80, hw silently knocked to 50 at 12:26, battery discharged 83→66 |
+| 6 | 07-15 21:06 | 1 tick | 1 | 77 | 30 | 76 | 1 | 6.40 | LEGITIMATE blip — evening revert-fight transition tick |
+| 7 | 07-16 08:56 | 1 tick | 1 | 12 | 10 | 11 | 1 | 1.71 | LEGITIMATE blip — drain-to-target sawtooth boundary (SOC 11 vs cmd 12) |
+
+**Clean legitimate baseline confirmed:** last night's off_peak drain
+(07-17 00:05 cmd → 10; SOC 60 → ~11 by 04:23, discharge up to 6.5 kW)
+produces **zero episodes** — because URA lowers the commanded reserve *before*
+draining, SOC never sits below the commanded floor during a legitimate drain.
+Same for every peak serving-house drain in the window. Legitimate drains are
+excluded **by construction**, not by threshold tuning.
+
+**07-15 incident anatomy (per-sample detail pulled):** 11:03–12:25 full-rate
+charge (−15.9 kW) to 83 % with cmd=hw=80; at **12:28 hw-enforced reserve
+dropped 80→50 with no URA write** (the cloud-side knock); discharge flipped
+positive (2.3–7.8 kW) and SOC fell 83→66 over 83 min; operator intervened
+14:01 (cmd 66). The local hw-enforced sensor told the truth the whole time —
+it is a valid second witness alongside conduct.
+
+**Recommended threshold triple (gate deliverable):**
+
+| Knob | Recommended | Evidence |
+|---|---|---|
+| `CONF_CONDUCT_N_TICKS` | **3** consecutive 5-min decision ticks (15 min) | Incident spans 56 min ≈ 11 decision ticks — flags with huge margin. All legitimate blips (#2, #6, #7) are single recorder ticks. |
+| `CONF_CONDUCT_DISCHARGE_EPSILON_W` | **500 W** | Incident sustained 2.3–7.8 kW. No legitimate episode sits above 500 W for 3 ticks at depth. (Plan's 100 W default is safe too, but 500 W adds margin against CT noise; either passes.) |
+| `CONF_CONDUCT_SOC_DEADBAND_PCT` | **4 pp** | Incident depth reached 14 pp within ~25 min. Excludes the attain sawtooth (#4, 3 pp) and the 1-pp blips (#6, #7) even without the N-gate. Plan's 2 pp default would rely on the verify-window exception to exclude #4 — 4 pp makes exclusion double-covered. |
+
+With `(N=3, ε=500 W, deadband=4 pp)` + the within-verify-window exception:
+incident #5 **flags**; episodes #4, #6, #7 (and both blips) **do not**;
+episodes #1/#3 also flag — correctly, since they are the same failure family
+(hardware enforcing a lower floor than commanded for ~20 h), i.e. true
+positives that D2's divergence watchdog would have caught first. Zero false
+positives on legitimate drains across the full 7-day window.
+
+**B0-D1 GATE: PASS.** A separating triple exists with margin on every axis.
+
+### B0-D2 report — apply-lag distribution + pending-surface investigation
+
+**(a) Apply lag.** For each value-change on `number.iq_battery_hacs_battery_reserve`
+(76 commands in 7 days), time until `sensor.envoy_482543015950_reserve_battery_level`
+matched within ±2:
+
+| Statistic | Value |
+|---|---|
+| Matched | 66 / 76 (10 superseded by a newer command before apply — mostly the 07-15 evening revert-fight and 5-min sawtooth writes) |
+| p50 | **41 s** |
+| p90 | **461 s (~7.7 min)** |
+| p95 | ~50 min |
+| max | 74,569 s (20.7 h — the 07-10 17:38 write; the incident-family stuck write behind episodes #1–#3) |
+
+Slow-tail detail (>10 min): 07-10 17:38 (20.7 h), 07-12 22:59 (63 m),
+07-14 23:20 (24 m), 07-15 14:11 (54 m), 07-15 19:40 (45 m), 07-16 17:15 (49 m).
+Local-telemetry gaps noted: the hw-enforced sensor flaps `unavailable`
+regularly (sibling of the enpower-number flap) and had a visible outage
+07-15 ~14:14–15:05; per-tick reads must treat `None` as abstain (already in
+D1 exception #7).
+
+**(b) Pending surfaces post-v4.0.0 — inference-only CONFIRMED.** Exhaustive
+`states_meta` sweep (`%pending%`, `%enphase%`, `%envoy%`, `%iq_battery%`,
+`%enpower%`) plus latest-state attribute dumps of the oracle entities:
+
+- Only pending-named entity in all of HA: `button.iq_gateway_hacs_cancel_pending_profile_change`
+  (state `unknown`, zero attributes — a write surface, not a readable pending
+  state).
+- `sensor.envoy_*_reserve_battery_level`, `number.iq_battery_hacs_battery_reserve`,
+  `number.enpower_*_reserve_battery_level`, `select.enpower_*_storage_mode`:
+  **no attributes at all** beyond friendly-name boilerplate.
+- `sensor.iq_battery_hacs_battery_mode` attrs: mode_raw, shutdown levels,
+  VLS support — no pending fields. `sensor.iq_battery_hacs_battery_overall_status`:
+  per-battery health only.
+- No `battery_pending_*` / `profile_pending` fields exist as subscribable HA
+  state anywhere. The 07-16 health-dump artifact is diagnostic-dump-only.
+  **Ratified decision #3 (inference-only from URA's own desired-vs-observed
+  divergence age) is confirmed as the only option.**
+
+**(c) Retry-ladder recommendation.** Plan candidates 15/30/60 min vs measured
+lag: p90 = 7.7 min, so a 15-min first trigger waits ~2× p90 — no retry ever
+races a normally-applying write. The p95 tail (~50 min) means attempt #2
+(30 min) and occasionally #3 (60 min) may fire on rare slow-applies that would
+have self-resolved; this is acceptable because the retry payload is
+byte-identical to the live desire (idempotent) — and note the 20.7-h stuck
+write proves the non-self-resolving class is real and worth attempt #3 +
+stand-down. **Recommend keeping 15 / 30 / 60 min as planned**, with the
+episode-superseded rule already ratified (desire moved → cancel ladder):
+the 10 superseded commands in the window show desire-moves during ladders
+will be common, so the cancel path is mainline, not edge-case.
+
+**B0-D2 GATE: PASS.** Ladder spacing (15 min) ≥ ~2× measured apply-lag p90
+(7.7 min).
+
+### Build-impacting probe conclusions (summary)
+
+1. Commanded-floor witness = URA's internal desire ledger; the enpower number
+   entity is disqualified as any kind of oracle (stale + flapping).
+2. The local `sensor.envoy_*_reserve_battery_level` is an honest hardware
+   witness (it exposed both the 07-15 knock-to-50 and the 07-10 20.7-h stuck
+   apply) — D2's divergence check gets its observed leg here, and its
+   `unavailable` flaps mandate the abstain path.
+3. Legitimate drains never present as below-commanded-floor episodes; the
+   legal-exception list carries almost no live load (narrow ratification #2
+   stands cheaply).
+4. Pending state is not subscribable; inference-only D2 confirmed.
+5. Thresholds: N=3 ticks, ε=500 W, deadband=4 pp; ladder 15/30/60 min.
