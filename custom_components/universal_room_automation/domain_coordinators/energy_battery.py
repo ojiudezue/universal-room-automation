@@ -453,6 +453,12 @@ class BatteryStrategy:
         # means these freeze at entry-time values while latched.
         self._attain_projected_soc: float | None = None
         self._attain_solar_term_pct: float | None = None
+        # R7.1 (I-NE3 mirrors-decision): horizon minutes used for the
+        # projection the decision CONSUMED, mirrored from the same
+        # `ProjectionResult.horizon_min` field. Published alongside
+        # `_attain_projected_soc` so the reason string + sensor attr
+        # cannot drift from the value the decision actually acted on.
+        self._attain_projection_horizon_min: float | None = None
         # First-decision-tick reboot adoption guard — clears once we have
         # run reboot recovery exactly once.
         self._attain_reboot_recovered: bool = False
@@ -1787,6 +1793,7 @@ class BatteryStrategy:
                 else max(0.0, min(100.0, raw_projected_rung0))
             )
         else:
+            # R7.2: delete fallbacks
             raw_projected_rung0 = soc + rate * rate_hours + solar_surplus  # R7-SINGLETON-EXEMPT: kill-switch fallback (R7_USE_UNIFIED_PROJECTOR=False)
             # Display clamp: SOC physically cannot exceed 100%.
             projected_rung0 = max(0.0, min(100.0, raw_projected_rung0))
@@ -1839,6 +1846,7 @@ class BatteryStrategy:
                     else max(0.0, min(100.0, raw_counterfactual))
                 )
             else:
+                # R7.2: delete fallbacks
                 raw_counterfactual = soc + (rate - assumed_ev_pct) * rate_hours + solar_surplus  # R7-SINGLETON-EXEMPT: kill-switch fallback
                 counterfactual_projected = max(0.0, min(100.0, raw_counterfactual))
             self._arb_last_projection_rung1 = round(counterfactual_projected, 1)
@@ -1934,6 +1942,7 @@ class BatteryStrategy:
                 else max(0.0, min(100.0, raw_rung1_entry))
             )
         else:
+            # R7.2: delete fallbacks
             raw_rung1_entry = soc + (rate + ev_load_pct_per_h) * rate_hours + solar_surplus  # R7-SINGLETON-EXEMPT: kill-switch fallback
             projected_rung1_entry = max(0.0, min(100.0, raw_rung1_entry))
         self._arb_last_projection_rung1 = round(projected_rung1_entry, 1)
@@ -2863,8 +2872,13 @@ class BatteryStrategy:
                 if _proj_att.raw_soc_pct is not None
                 else soc + (mins / 60.0) * rate + solar_surplus  # R7-SINGLETON-EXEMPT: primitive-None defensive rescue
             )
+            # R7.1 (I-NE3): mirror horizon from the SAME primitive call the
+            # decision will consume. Cannot diverge from `projected` above.
+            self._attain_projection_horizon_min = _proj_att.horizon_min
         else:
+            # R7.2: delete fallbacks
             projected = soc + (mins / 60.0) * rate + solar_surplus  # R7-SINGLETON-EXEMPT: kill-switch fallback
+            self._attain_projection_horizon_min = float(mins)
         self._attain_projected_soc = round(projected, 1)
         self._attain_solar_term_pct = round(solar_surplus, 1)
         if projected < self._peak_buffer_target:
@@ -2916,12 +2930,22 @@ class BatteryStrategy:
         proj_str = f"{projected:.0f}%" if projected is not None else "?"
         rate_str = f"{rate:+.1f}%/h" if rate is not None else "?"
         mins_str = f"{mins} min" if mins is not None else "?"
+        # R7.1 (I-NE3 mirrors-decision): horizon minutes come from the SAME
+        # ProjectionResult the caller consumed (stored in
+        # `_attain_projection_horizon_min` immediately before this call).
+        # Reason string cites the primitive-provided horizon so the sensor
+        # narrative cannot drift from the value baked into `projected`.
+        horizon_val = self._attain_projection_horizon_min
+        horizon_str = (
+            f"{horizon_val:.0f} min" if horizon_val is not None else "?"
+        )
         reason = (
             f"Peak-buffer attainability{stage} — projected SOC "
             f"{proj_str} < target {self._peak_buffer_target}% "
             f"at {boundary_str} (observed net rate "
             f"{rate_str} over {ATTAIN_RATE_WINDOW_TICKS} ticks, "
-            f"{mins_str} remaining; solar consumed by house/EV loads)"
+            f"{mins_str} remaining; projection horizon {horizon_str}; "
+            f"solar consumed by house/EV loads)"
         )
         floored = self._floor_reserve(
             self._peak_buffer_target, effective_reserve, hold_depth,
@@ -3551,11 +3575,25 @@ class BatteryStrategy:
                     bound_to_solar_horizon=False,
                 )
                 projected = _proj_hc.raw_soc_pct  # None when blind
+                # R7.1 (I-NE3): update stored observability from the SAME
+                # ProjectionResult the decision consumes. Prior to R7.1 this
+                # site left `_attain_projected_soc` frozen at the entry-time
+                # value (stale-text class — e.g. "153% < 80%" surviving on
+                # the sensor long after the decision moved on).
+                if projected is not None:
+                    self._attain_projected_soc = round(projected, 1)
+                    self._attain_solar_term_pct = round(solar_surplus, 1)
+                self._attain_projection_horizon_min = _proj_hc.horizon_min
             else:
+                # R7.2: delete fallbacks
                 projected = (
                     soc + (mins / 60.0) * rate + solar_surplus  # R7-SINGLETON-EXEMPT: kill-switch fallback
                     if soc is not None and rate is not None else None
                 )
+                if projected is not None:
+                    self._attain_projected_soc = round(projected, 1)
+                    self._attain_solar_term_pct = round(solar_surplus, 1)
+                self._attain_projection_horizon_min = float(mins)
             return self._get_attainability_decision(
                 soc=soc, now=now,
                 target_day_class=target_day_class,
@@ -4838,6 +4876,9 @@ class BatteryStrategy:
             "attain_state": self._attain_state,
             "attain_projected_soc_at_boundary": self._attain_projected_soc,
             "attain_solar_term_pct": self._attain_solar_term_pct,
+            # R7.1 (I-NE3): projection horizon (minutes) mirrored from the
+            # same ProjectionResult that produced `attain_projected_...`.
+            "attain_projection_horizon_min": self._attain_projection_horizon_min,
             "arbitrage_chunk_completed": self._arbitrage_chunk_completed,
             "arbitrage_charge_lead_time_min": self._arbitrage_charge_lead_time_min,
             # v4.5.0.2 grid-import guard surfaces.

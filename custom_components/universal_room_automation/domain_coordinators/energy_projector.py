@@ -134,17 +134,17 @@ class EnergyProjector:
         Args:
             soc: Current SOC in %. None → blind fail-closed.
             rate_pct_per_h: Observed net charge rate in %/h. None → blind.
-            mins: Minutes to boundary (T - now). None → zero-horizon
-                result (raw = soc + surplus). **Divergence from pre-R7:**
-                the pre-R7 inline sites all had a caller-side pre-guard
-                that returned before the arithmetic line when `mins is
-                None` (e.g. the attain sites short-circuit via the
-                `if mins is None or mins <= 0:` guard at
-                energy_battery.py:2832). Callers MUST retain that
-                pre-guard; passing mins=None here yields a defined
-                zero-horizon result rather than fail-loud, which is a
-                belt-and-braces mirror of the caller-side guard, not a
-                new gate.
+            mins: Minutes to boundary (T - now). None → blind fail-closed
+                (R7.1 A-LOW-1). Matches pre-R7 posture: the inline
+                projections at every call site would have raised
+                TypeError on None arithmetic; the R7 primitive originally
+                silently returned zero-horizon, losing the fail-loud
+                signal. R7.1 restores fail-closed. All existing callers
+                already pre-guard mins (attain sites via `if mins is
+                None or mins <= 0:` at energy_battery.py:2832; rung sites
+                via `_ladder_time_to_boundary` returning early on None),
+                so this is a no-op on sighted paths and only affects
+                future callers that forget to pre-guard.
             solar_surplus_pct: Pre-computed expected solar surplus %SOC
                 over the caller's solar window. Owned by call site.
             source: Diagnostic string for the ProjectionResult.
@@ -161,7 +161,15 @@ class EnergyProjector:
             ProjectionResult. When blind, soc_pct/raw_soc_pct are None
             and blind=True; callers MUST handle this fail-closed.
         """
-        if soc is None or rate_pct_per_h is None:
+        # A-LOW-1 (R7.1): `mins=None` is fail-closed — matches pre-R7
+        # posture where all 5 call sites' inline expressions would have
+        # raised TypeError on None arithmetic. All current callers already
+        # pre-guard mins (attain sites via `if mins is None or mins <= 0:`;
+        # rung sites via `_ladder_time_to_boundary` returning early on None),
+        # so this is a no-op on sighted paths. Kept BELOW soc/rate blind
+        # so blind observability still tags rate_pct_per_h from the caller
+        # when soc is missing but rate isn't (unchanged from R7 shape).
+        if soc is None or rate_pct_per_h is None or mins is None:
             return ProjectionResult(
                 soc_pct=None,
                 raw_soc_pct=None,
@@ -174,9 +182,7 @@ class EnergyProjector:
 
         effective_rate = float(rate_pct_per_h) + float(extra_rate_pct_per_h)
 
-        if mins is None:
-            rate_mins = 0.0
-        elif bound_to_solar_horizon:
+        if bound_to_solar_horizon:
             if sunset_dt is not None and now is not None and sunset_dt > now:
                 solar_mins_remaining = max(
                     0.0, (sunset_dt - now).total_seconds() / 60.0,
