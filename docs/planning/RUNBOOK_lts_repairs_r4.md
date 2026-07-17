@@ -178,3 +178,82 @@ NOT cleanly spurious; offsetting under-accumulation likely exists elsewhere
 Enlighten/SPAN data for those days (Measure Before You Build). Dashboard
 impact bounded to those two days' readings. Candidate probe: diff HA daily
 deltas vs data/enphase site consumption CSV per day across the window.
+
+## R4d probe report (2026-07-17)
+
+Read-only probe (ssh ha, sqlite3 `-readonly`): dumped all 1,976 LTS rows for
+metadata_id 5651 (`sensor.envoy_482543015950_energy_consumption_today`) from
+2026-04-10 onward; computed per-local-day (America/Chicago) consumption as the
+sum of hourly `sum` deltas; diffed against ground truth
+`data/enphase/site_energy_consumption_daily_2025-02-24_to_2026-07-15.csv`
+over the live-serial window 2026-04-11 → 2026-07-15 (96 days).
+
+### Verdict: "something else" — chronic near-total under-accumulation, not offsetting dropouts
+
+The R4d hypothesis ("bakes partially offset by Envoy dropout flatlines
+elsewhere") is REFUTED in its implied shape. The sensor is not a working
+accumulator with occasional flatlines — it is a chronically dead accumulator
+with occasional life:
+
+- **Every single ordinary day under-reads.** HA daily delta is 0–45 kWh on
+  all 94 non-bake days (median ≈ 0.0) vs Enlighten 30–231 kWh/day. Total
+  real accumulation outside the two bake days: **~496 kWh vs Enlighten
+  13,927 kWh** (96.4% missing). The "~219 kWh/day plausible" window average
+  noted at discovery was an artifact of the bakes, not evidence of health.
+- **Window totals:** HA 20,975.0 kWh vs Enlighten 13,927.1 kWh → net drift
+  **+7,047.9 kWh** at window end.
+- **The 2026-06-12 bake (+8,453.186, start_ts UTC 2026-06-12T05:00:00) is a
+  near-exact accidental catch-up:** cumulative HA-vs-Enlighten drift the hour
+  before was −7,700.3; the bake swings it to +594.8. Consistent with a
+  counter-reset echo baking in a lifetime-counter value that itself tracks
+  true consumption — coincidence of mechanism, not a correction.
+- **The 2026-07-02 bake (+12,092.115, start_ts UTC 2026-07-02T08:00:00,
+  state 0.0) over-corrects massively:** drift −2,796.9 before → +9,265.7
+  after, decaying to +7,047.9 by 07-15 as daily under-reads continue.
+- **NEW CRITICAL: a third, fresh uint32-class bake landed TODAY, post-R4a:**
+  2026-07-17 06:00 CDT (start_ts UTC 2026-07-17T11:00:00), state
+  4,294,298.13, delta **+4,294,298.130 kWh** — the same 2^32-Wh echo class
+  R4a repaired on 2026-05-31. Current final `sum` = 4,315,359.216. The
+  upstream emitter is still live; R4a-class repairs will keep being needed
+  until R4b (firmware/source) closes it.
+
+### Condensed discrepancy table (HA − Enlighten, kWh)
+
+| Segment | Days | HA total | Enlighten | Diff | Character |
+|---|---|---|---|---|---|
+| 04-11 → 06-11 | 62 | 335.9 | 8,036.2 | −7,700.3 | flat/dead sensor, steady −124/day drift |
+| 06-12 (bake 1) | 1 | 8,473.0 | 177.9 | +8,295.1 | echo; nets prior drift to +594.8 |
+| 06-13 → 07-01 | 19 | 100.5 | 3,492.3 | −3,391.7 | dead again |
+| 07-02 (bake 2) | 1 | 12,092.1 | 29.4 | +12,062.7 | echo; drift → +9,265.7 |
+| 07-03 → 07-15 | 13 | 24.0 | 2,241.9 | −2,217.8 | dead again; window-end drift +7,047.9 |
+
+### Recommendation
+
+**Do NOT attempt to make HA daily deltas match Enlighten via adjust_sum.**
+The defect is a chronically non-accumulating sensor, not two bad rows;
+matching Enlighten "within noise" would require ~90 per-day adjustments —
+that is a statistics *backfill/import* of the Enlighten CSV (separate,
+measurement-gated cycle), not a surgical repair, and it would still leave
+garbage hourly structure underneath.
+
+**DO surgically remove all three echoes** so the series honestly reflects
+what the sensor measured (~516 kWh) and the energy dashboard loses its two
+absurd 8.4k/12.1k daily bars (and today's 4.29M one). Exact payloads
+(WS `recorder/adjust_sum_statistics`, adjustment_unit_of_measurement kWh,
+statistic_id `sensor.envoy_482543015950_energy_consumption_today` for all):
+
+1. start_time `2026-06-12T05:00:00+00:00`, adjustment **−8453.186**
+2. start_time `2026-07-02T08:00:00+00:00`, adjustment **−12092.115**
+3. start_time `2026-07-17T11:00:00+00:00`, adjustment **−4294298.130**
+   (NEW uint32 echo — same class and procedure as executed R4a)
+
+Expected post-adjust final sum ≈ **515.785 kWh** (4,315,359.216 − the three).
+Acceptance: no |hourly delta| > 100 kWh remains in the window; final sum
+within ±0.01 of prediction. Backup before execution per runbook step 1.
+
+**Escalations:** (a) R4b root-cause is now urgent — the echo recurred today;
+(b) the 96%-missing accumulation means this statistic is unusable as a
+consumption record regardless of repairs — decide between fixing the Envoy
+consumption CT source or importing Enlighten dailies as the dashboard truth.
+
+No writes were executed by this probe.
