@@ -449,8 +449,9 @@ class BatteryStrategy:
         self._attain_state: str = "inactive"
         # Observability (operator-requested pre-deploy): last computed entry
         # projection internals, surfaced via get_status() so "why did/didn't
-        # attain fire" is answerable from the dashboard. Entry-only predicate
-        # means these freeze at entry-time values while latched.
+        # attain fire" is answerable from the dashboard. Since R7.1 the
+        # hold-current site refreshes these every tick while latched (NOT
+        # entry-frozen), mirroring the decision's own projection.
         self._attain_projected_soc: float | None = None
         self._attain_solar_term_pct: float | None = None
         # R7.1 (I-NE3 mirrors-decision): horizon minutes used for the
@@ -3583,7 +3584,11 @@ class BatteryStrategy:
                 if projected is not None:
                     self._attain_projected_soc = round(projected, 1)
                     self._attain_solar_term_pct = round(solar_surplus, 1)
-                self._attain_projection_horizon_min = _proj_hc.horizon_min
+                    self._attain_projection_horizon_min = _proj_hc.horizon_min
+                else:
+                    # Blind (soc=None): "?" projection must not sit beside a
+                    # concrete horizon — blank the mirror symmetrically.
+                    self._attain_projection_horizon_min = None
             else:
                 # R7.2: delete fallbacks
                 projected = (
