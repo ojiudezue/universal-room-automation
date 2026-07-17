@@ -264,19 +264,19 @@ class EnergyCoordinator(BaseCoordinator):
         # v5.15.x D1 — Envoy write-verification tripwire. Read-only
         # (invariant W-6). Back-reference on the strategy so
         # get_status() surfaces verifier attrs.
+        # v5.20.0 D2 fix-up (D-CRIT-1 + re-pass D-MED-2): install real
+        # coordinator backref on the battery strategy so D2's
+        # `_fire_d2_nm` can locate `_send_nm_alert`. The class had NO
+        # `_coord` / `coordinator` attribute; the initial build getattr'd
+        # invented attrs and NM was a production no-op. Installed OUTSIDE
+        # the WriteVerifier try-block so an unrelated write-verify import
+        # failure cannot silently kill the D2 NM path again. Test wiring:
+        # assign `strat._coord = fake_coord` directly.
+        self._battery._coord = self
         try:
             from .energy_write_verify import WriteVerifier
             self._write_verifier = WriteVerifier(hass, self)
             self._battery._write_verifier = self._write_verifier
-            # v5.20.0 D2 fix-up (D-CRIT-1): install real coordinator
-            # backref on the battery strategy so D2's `_fire_d2_nm` can
-            # locate `_send_nm_alert`. The class had NO `_coord` /
-            # `coordinator` attribute; the initial build getattr'd
-            # invented attrs and NM was a production no-op. This backref
-            # is the SAME shape write-verify already uses (see
-            # WriteVerifier(self)._coord above). Test wiring: assign
-            # `strat._coord = fake_coord` directly.
-            self._battery._coord = self
         except Exception:
             _LOGGER.debug("WriteVerifier init failed (swallowed)", exc_info=True)
             self._write_verifier = None
