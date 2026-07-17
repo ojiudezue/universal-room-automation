@@ -50,16 +50,18 @@ N+1th site (EVSE overlay bypassing stand-down) → fix-up 2 → SHIP. 22 finding
 orchestrator re-executed 2 personally. New bug-class candidates:
 invented-attribute getattr; pre-vs-post-overlay ledger split.
 
-## Live Validation (prospective — replace with Validated table post-restart)
-- **Live:** clean restart, zero URA ERRORs referencing write_verify/
-  force_redispatch/conduct.
-- **Live:** `command_trail` attr populates on
-  `sensor.ura_energy_coordinator_battery_strategy` with three legs + ages;
-  hold_owner shows "evse_battery_hold" during tonight's charge if car plugs in.
-- **Live:** conduct + watchdog SILENT through a clean day (no false NM) —
-  false-positive-freedom is the headline acceptance.
-- **Live:** attain_reason carries "projection horizon N min" once the ladder
-  runs (tomorrow ~11:00 window).
-- **Organic (unbounded):** next Enphase wedge (3 occurred this week) exercises
-  ladder attempt 1+ — NM shows pending_write_stuck with attempt number.
-- R1 shadow marker check rides tonight's rollover (48h criterion, separate).
+## Live Validation — Validated 2026-07-17 (restart 10:00 CDT)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Clean restart, zero URA ERRORs | PASS | error_log filtered ERROR → 0 lines at 10:12 |
+| D3 command_trail populates | PASS | 10:10: commanded 10 (hold_owner=strategy, live_desire 10, fresh) / hardware_enforced 61 (age 272s) / cloud_oracle 10.0 (age 420s) — three legs + ages, exactly the 07-16 confusion answered in one attr |
+| Boot fail-safe posture | PASS | 10:02 (pre-first-tick): all structures present, abstaining (desire_stamp_fresh=false, zero counts) |
+| Conduct check false-positive-free | PASS (so far) | SOC 14 above commanded floor 10 while discharging 2 kW serving house → correctly silent, consecutive_ticks=0 |
+| **D2 watchdog exercises ORGANICALLY** | **PASS — live wedge caught in first 10 min** | Real divergence: commanded 10 @ 09:00, hardware witness stuck at 61 (last night's hold value), cloud accepted 10 — the exact 07-15 "echo yes / hardware no" shape. Watchdog armed (divergence_age 4023s), **attempt 1 fired 10:07:59** with re-derived fresh desire. 4th Enphase wedge this week — the organic acceptance criterion fired on day one. |
+| Ladder progression / stand-down | WATCHING | Attempts 2/3 due at 30/60-min divergence marks if hardware stays wedged; NM page at stand-down. |
+| attain_reason horizon (R7.1) | PENDING | First ladder run ~11:00 charge window. |
+| R1 shadow marker | separate | Rides tonight's rollover (48h criterion 07-18). |
+
+Boot-only transients dismissed: strategy sensor `unknown` pre-first-tick
+(pre-existing pattern).
