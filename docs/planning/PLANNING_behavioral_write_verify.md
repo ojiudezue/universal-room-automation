@@ -692,3 +692,20 @@ Should we get more aggressive till that threshold?" Ratified design:
   (~2-4h, knob) → ONE fresh probe attempt.
 - **Knobs**: attempt count, spacing ladder, cool-off — all rung-1 reviewed
   constants (retry policy vs an external API is not dashboard-tunable).
+
+## D2 retry freshness constraint (operator, 2026-07-17 ~00:25)
+
+**"Re-commands only if consistent with the energy situation NOW — never issue
+stale commands."** Each ladder attempt RE-DERIVES desire from live strategy
+state at fire time; it never replays the detection-time ledger value:
+- current desire == diverged value → retry proceeds;
+- current desire moved (boundary, hold release, class change) → pending
+  retry CANCELLED (not re-aimed — normal emission already carries the new
+  desire); ladder resets; a newly diverged command starts its own ladder
+  at attempt 1;
+- no fresh desire (blind-hold / coordinator disabled) → no retry (I-D3:
+  blind = no commands, retries included).
+Invariant addition: **a retry's payload is always byte-equal to the live
+strategy desire at dispatch time** — falsifiable by Review D (construct a
+boundary-straddling ladder; assert cancel, not replay). Mutation anchor
+required on the re-derivation read (Review C).
