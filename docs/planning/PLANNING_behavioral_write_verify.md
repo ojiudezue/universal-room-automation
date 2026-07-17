@@ -660,3 +660,35 @@ after tracing the full commanding trail:
   so the commanding trail is legible without recorder archaeology.
 - Incidents #1 (07-15 below-floor discharge) and the app-vs-API divergence
   stand unmodified as D1 motivation.
+
+## OPERATOR RATIFICATION (2026-07-17 ~00:15)
+
+All four judgment calls decided per orchestrator recommendation:
+1. D1 anomaly severity = ALERT/HIGH (not CRITICAL — money leak, not safety).
+2. Legal below-floor exceptions = NARROW (only explicitly-commanded drain states).
+3. D2 stuck-write detection = INFERENCE-ONLY (desired-vs-observed divergence age
+   from URA's own ledger; do not trust enphase_ev pending_* fields).
+4. Re-dispatch surface = dedicated narrow `force_redispatch(surface)` entrypoint.
+
+## D2 retry policy (operator-designed 2026-07-17: bounded escalation + hard stand-down)
+
+Operator question: "when do we stop re-commanding if the cloud does not obey?
+Should we get more aggressive till that threshold?" Ratified design:
+
+- **Escalating ladder, 3 attempts max**, spaced ≥ Enphase's observed apply lag
+  (~5-15 min; B0 probe pins exact numbers). Candidate divergence-age triggers:
+  15m / 30m / 60m. Same-value re-dispatch is idempotent (no out-of-order
+  hazard); evidence: 07-16 revert-fight won by repetition. No sub-apply-lag
+  aggression — pure noise + rate-limit spend.
+- **Alarm escalates with attempts**: #2 → HIGH anomaly; #3 → final, pages
+  operator.
+- **HARD STAND-DOWN after attempt 3**: 3 well-spaced identical commands
+  ignored = non-transient failure; further fighting is the 18:31 sweep shape
+  aimed at the cloud. On stand-down: surface marked `non-compliant` in the
+  D3 trail, URA stops commanding THAT surface, NM alert states explicitly
+  that URA has deliberately let go (silence never masquerades as control).
+- **Resume on any of**: observed converges to desired; operator manually
+  changes the value (fresh desire restarts the machine); cool-off expiry
+  (~2-4h, knob) → ONE fresh probe attempt.
+- **Knobs**: attempt count, spacing ladder, cool-off — all rung-1 reviewed
+  constants (retry policy vs an external API is not dashboard-tunable).
