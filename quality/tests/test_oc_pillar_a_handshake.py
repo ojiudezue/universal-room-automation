@@ -252,6 +252,33 @@ async def test_energy_honor_acks_benign_light_intent():
 
 
 @pytest.mark.asyncio
+async def test_energy_coordinator_installs_battery_backref_at_init():
+    """Anchor the PRODUCTION install site: `self._battery._coord = self`.
+
+    Read-side D2 tests wire `strat._coord = fake_coord` directly, which
+    pins only the read path. If a refactor drops the install line at
+    energy.py:279, the D2 NM path dies silently (D-CRIT-1 class).
+    This test drives the REAL EnergyCoordinator init so the install line
+    executes; asserts the backref is present and identity-equal to the
+    coordinator.
+
+    Mutation: neuter `self._battery._coord = self` at energy.py:279 →
+    this test FAILS (attribute absent or not identity-equal).
+    """
+    coord = _make_energy_coord()
+    assert hasattr(coord, "_battery")
+    battery = coord._battery
+    assert hasattr(battery, "_coord"), (
+        "backref install site missing: battery has no `_coord` — the "
+        "D2 NM path would be a silent no-op"
+    )
+    assert battery._coord is coord, (
+        "backref must be identity-equal to the coordinator; got "
+        f"{battery._coord!r}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_energy_honor_vetoes_evse_offpeak():
     coord = _make_energy_coord(tou_period="off_peak")
     # The EnergyCoordinator's EVChargerController defaults to garage_a /
