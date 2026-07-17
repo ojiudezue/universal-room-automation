@@ -273,3 +273,17 @@ statistics until upstream fixes (kills the poisoning surface; Energy
 dashboard consumption should use SPAN or the enphase_ev cloud site-energy
 flows instead); (b) keep + re-repair on each spike (manual toil);
 (c) wait for core #176707. Recommendation: (a).
+
+## DISPOSITION DECIDED + EXECUTED 2026-07-17 (option a)
+Operator ratified option (a). `sensor.envoy_482543015950_energy_consumption_today`
+excluded from recorder via `configuration.yaml` (`recorder.exclude.entities`),
+applied over SSH as root with backup `configuration.yaml.bak_20260717_recorder_exclude`;
+`homeassistant.check_config` passed. Takes effect at the NEXT HA restart (the
+pending combined v5.20.0 deploy restart) — no standalone restart performed.
+Pre-checks: Energy dashboard prefs do NOT reference the entity (grid/solar/battery
+use lifetime_* stats); URA reads it only via live `hass.states.get`
+(energy.py:2559, `_crosscheck_consumption`) — unaffected by recorder exclusion.
+FOLLOW-UP (backlog): `_crosscheck_consumption` cross-checks lifetime delta against
+this dead accumulator (~3.6% of real) — the comparison itself is against garbage
+and should be re-pointed or retired in a future hygiene cycle.
+Reversal: remove the exclude block (backup retained) + restart.
