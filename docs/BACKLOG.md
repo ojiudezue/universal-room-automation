@@ -8,6 +8,33 @@ but keep it **near the top of next-work**. Plan filed + gate cleared:
 ENTER BUILD; Tier 2-DB; ~30-50h: D2 subentries + D3a/b/c cleanup). Do NOT start without
 explicit operator sign-off — core work goes first.
 
+## Presence pair (v5.16.0) — post-ship dispositions (2026-07-16)
+
+Live 3-day verification of the guest-latch + veto-gap fixes (shipped v5.16.0,
+2026-07-13; review record `wave2026_07_13_presence_zone_writeverify.md` §Cycle 1):
+
+1. **L4 guest-latch: CLOSED — organic PASS 2026-07-16.** `guest` armed 19:19,
+   resolved cleanly to `sleep` at 22:00. Written back into README_v5.16.0
+   Validated table. Invariant I-D1 held all 3 nights.
+2. **L5 veto path: LEAVE PENDING-ORGANIC** (operator disposition 2026-07-16).
+   No qualifying full-family departure in 3 days; no counter-evidence. Close
+   in the README ledger when the next real empty-house window fires
+   `veto_path=lost_admitted_immediate` without a flap cycle. Note: ambiguous
+   away/arriving burst 07-14 19:51-23:17 (15 cycles incl. 3 sleep→away) —
+   not recurred; re-open as Bug Class #48 candidate ONLY if it repeats.
+3. **False guest ARMING (4-6×/day from Frigate unidentified): ROUTE TO the
+   camera-signal-context investigation** (operator disposition 2026-07-16) —
+   `docs/planning/INVESTIGATION_camera_signal_context_sensitivity_protect_vs_frigate.md`
+   + per-room `CONF_DISABLE_CAMERA_PRESENCE` opt-out. NOT a new presence
+   cycle: v5.16.0 fixed the latch (armed states now resolve in ~20-90 min);
+   the arming source lives in camera policy. Candidate L6 rolling counter
+   (false-arm rate/day) belongs to that investigation's acceptance criteria.
+4. QUALITY_CONTEXT candidate from this cycle still unfiled: **"Guard conjunct
+   restated from enclosing scope"** (the A-CRIT-1 class, sibling of #53) —
+   fold into the next QUALITY_CONTEXT housekeeping pass along with
+   "self-referential test anchor" and "cosmetic enforcement guard" (both
+   coined 2026-07-16, R1/R7 reviews).
+
 ## Shipwatch `home_assistant` adapter — IMPLEMENT (sibling repo) + URA README migration (2026-06-28)
 
 URA is currently **PAUSED** in Shipwatch (`~/.shipwatch/projects.yaml` → `ura: enabled: false`): its READMEs use old un-namespaced `ha_*` query kinds + prose acceptance, which the new Shipwatch adapter registry rejects (`parse_error`). Worse, the Shipwatch `home_assistant` adapter is a **STUB** — `~/Code/shipwatch/src/shipwatch/oracle/adapters/home_assistant.py:46` raises `NotImplementedError("HA adapter migration pending (Reviewer B)")` — so even correctly-formatted hypotheses resolve to `error`/`pending`, never `confirmed`/`violated`. To make Shipwatch actually evaluate URA post-deploy:

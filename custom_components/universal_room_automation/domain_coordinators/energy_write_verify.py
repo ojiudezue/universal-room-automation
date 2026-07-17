@@ -24,6 +24,16 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
 from .energy_const import (
+    CONF_CONDUCT_DISCHARGE_EPSILON_W,
+    CONF_CONDUCT_ENABLED,
+    CONF_CONDUCT_N_TICKS,
+    CONF_CONDUCT_SOC_DEADBAND_PCT,
+    CONF_PENDING_ATTEMPT_1_AGE_S,
+    CONF_PENDING_ATTEMPT_2_AGE_S,
+    CONF_PENDING_ATTEMPT_3_AGE_S,
+    CONF_PENDING_MAX_ATTEMPTS,
+    CONF_PENDING_STANDDOWN_COOLOFF_S,
+    CONF_PENDING_WATCHDOG_ENABLED,
     DEFAULT_WRITE_VERIFY_WINDOW_S,
     STORAGE_MODE_CLOUD_TO_LOCAL,
     WRITE_VERIFY_NM_SURFACES,
@@ -168,6 +178,40 @@ class WriteVerifier:
         # anomaly + fire NM, and only retry at a 6-cycle backoff.
         self._unavailable_consecutive: dict[str, int] = {}
         self._unavailable_backoff_ticks: dict[str, int] = {}
+
+        # ─── v5.19.0 behavioral write-verify state ────────────────────
+        # D1 CONDUCT — reserve-surface only. Consecutive-tick counter,
+        # episode start, last evaluation reason (populated for
+        # observability), and a per-episode alarm latch so a single
+        # standing episode = exactly one anomaly + one NM per day.
+        self._conduct_consec: dict[str, int] = {}
+        self._conduct_episode_started_at: dict[str, Optional[datetime]] = {}
+        self._conduct_last_soc: dict[str, Optional[float]] = {}
+        self._conduct_last_discharge_w: dict[str, Optional[float]] = {}
+        self._conduct_last_commanded: dict[str, Any] = {}
+        self._conduct_last_abstain_reason: dict[str, Optional[str]] = {}
+        self._conduct_alarm_latched_at: dict[str, Optional[datetime]] = {}
+        # D2 PENDING watchdog — per-surface episode state. `commanded_at`
+        # is the anchor: a new commanded_at value opens a fresh episode
+        # and resets attempts. `attempts_fired` grows 0→3; at 3 with
+        # divergence still standing we HARD STAND-DOWN and pin
+        # `standdown_at`; resumes on convergence, fresh commanded_at, or
+        # cool-off expiry (then one fresh probe attempt).
+        self._pending_episode_at: dict[str, Optional[datetime]] = {}
+        self._pending_attempts_fired: dict[str, int] = {}
+        self._pending_last_attempt_at: dict[str, Optional[datetime]] = {}
+        self._pending_standdown_at: dict[str, Optional[datetime]] = {}
+        self._pending_cooloff_probe_fired: dict[str, bool] = {}
+        self._pending_last_divergence_age_s: dict[str, Optional[float]] = {}
+        self._pending_last_oracle: dict[str, Any] = {}
+        # Fix-up ROOT 2 (D-HIGH-3) — value at hard stand-down. Used by:
+        #   (a) `is_standdown_active_for_value` — the normal `_result`
+        #       dispatch leg skips same-value re-dispatch of a stuck
+        #       surface (auto-resume when effective desire changes).
+        #   (b) `is_pending_episode_active` — during a pending episode the
+        #       overlapping `self_heal_starvation` alarm is suppressed so
+        #       the more-specific alarm owns the surface.
+        self._pending_standdown_value: dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     # Cloud oracle entity id resolution (respects operator overrides)
@@ -363,25 +407,38 @@ class WriteVerifier:
                 surface, commanded_value, n,
             )
             if n >= 3:
-                await self._emit_anomaly(
-                    surface,
-                    "write_verification_failed",
-                    {
-                        "commanded": commanded_value,
-                        "reason": "self_heal_starvation",
-                        "consecutive_self_heals": n,
-                    },
-                )
-                await self._maybe_fire_nm(
-                    surface,
-                    title=f"Envoy write self-heal loop: {surface}",
-                    message=(
-                        f"URA has re-dispatched {surface}={commanded_value!r} "
-                        f"{n} consecutive cycles without cloud confirmation. "
-                        "The write leg may be silently rejecting writes."
-                    ),
-                    alert_type="self_heal_starvation",
-                )
+                # Root 2 (b) — alarm coordination. During an active
+                # pending episode (attempt fired OR stand-down pinned)
+                # for this surface, the more-specific
+                # `pending_write_stuck` / `pending_write_standdown` alarm
+                # owns the surface; suppress the overlapping
+                # `self_heal_starvation` emit so we do not double-fire.
+                if self.is_pending_episode_active(surface):
+                    _LOGGER.debug(
+                        "WriteVerifier: %s self_heal_starvation "
+                        "suppressed (pending episode active)",
+                        surface,
+                    )
+                else:
+                    await self._emit_anomaly(
+                        surface,
+                        "write_verification_failed",
+                        {
+                            "commanded": commanded_value,
+                            "reason": "self_heal_starvation",
+                            "consecutive_self_heals": n,
+                        },
+                    )
+                    await self._maybe_fire_nm(
+                        surface,
+                        title=f"Envoy write self-heal loop: {surface}",
+                        message=(
+                            f"URA has re-dispatched {surface}={commanded_value!r} "
+                            f"{n} consecutive cycles without cloud confirmation. "
+                            "The write leg may be silently rejecting writes."
+                        ),
+                        alert_type="self_heal_starvation",
+                    )
             return
 
         # Fresh command (different value) or no prior — cancel any
@@ -570,6 +627,24 @@ class WriteVerifier:
                 return
             for surface in WRITE_VERIFY_NM_SURFACES:
                 await self._sweep_surface(battery, surface)
+            # v5.19.0 — behavioral tripwires on the reserve surface only.
+            # D1 conduct: SOC below floor + discharging + no exception.
+            # D2 pending: divergence age past attempt-triggered ladder.
+            # Both are RESERVE-SURFACE ONLY today: they read the SOC
+            # resolver and the local hardware-enforced reserve sensor
+            # (a semantic that only maps to the reserve surface).
+            try:
+                await self._conduct_check_reserve(battery)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "conduct check raised (swallowed)", exc_info=True,
+                )
+            try:
+                await self._pending_watchdog_reserve(battery)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "pending watchdog raised (swallowed)", exc_info=True,
+                )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("reversion_sweep raised (swallowed)", exc_info=True)
 
@@ -744,6 +819,21 @@ class WriteVerifier:
             )
             return
         self._mismatch_counts.increment(surface)
+        # D2-LOW-1 (review D re-pass): while a pending episode is armed
+        # on this surface, the more-specific `pending_write_stuck` /
+        # `pending_write_standdown` alarm owns the divergence; suppress
+        # the overlapping `write_reverted` emission + NM so one
+        # divergence yields the pending ladder's alarms only. The
+        # separate `write_verification_failed` (t+15m) is left as-is per
+        # spec (distinct meaning). Record status remains REVERTED above
+        # so state is honest; only the alarm surface is coordinated.
+        if self.is_pending_episode_active(surface):
+            _LOGGER.debug(
+                "WriteVerifier: %s write_reverted emit suppressed "
+                "(pending episode active)",
+                surface,
+            )
+            return
         await self._emit_anomaly(
             surface,
             "write_reverted",
@@ -950,7 +1040,24 @@ class WriteVerifier:
     async def _emit_anomaly(
         self, surface: str, type_str: str, extra: dict[str, Any]
     ) -> None:
-        """Emit AnomalyEvent via existing bus. Never raises."""
+        """Emit AnomalyEvent via existing bus. Never raises.
+
+        Fix-up D-MED-4 / C-M10 — severity plumbing. The persisted
+        `severity` was hardcoded WARNING while callers threaded a
+        `severity_class` string ("ALERT"/"HIGH"/"CRITICAL") in `extra`.
+        Analytics grouped by severity therefore saw every conduct /
+        pending emit as WARNING, defeating the ratified escalation.
+
+        Mapping (per ratification #1: conduct = ALERT, not CRITICAL —
+        money leak, not safety):
+          * "ALERT"    → AnomalySeverity.ALERT
+          * "HIGH"     → AnomalySeverity.ALERT   (attempt #2 rung; the
+                          enum has no HIGH bucket — ALERT is the correct
+                          rung above ADVISORY and below CRITICAL per
+                          anomaly_event.py:46-68)
+          * "CRITICAL" → AnomalySeverity.CRITICAL (attempt #3 / final)
+          * missing/other → WARNING (unchanged default).
+        """
         try:
             from ..const import DOMAIN  # noqa: PLC0415
             from .anomaly_event import (  # noqa: PLC0415
@@ -963,10 +1070,17 @@ class WriteVerifier:
                 source_signal="write_verify",
                 extra={"surface": surface, **extra},
             )
+            sev_class = str(extra.get("severity_class", "")).upper()
+            if sev_class == "CRITICAL":
+                severity = AnomalySeverity.CRITICAL
+            elif sev_class in ("ALERT", "HIGH"):
+                severity = AnomalySeverity.ALERT
+            else:
+                severity = AnomalySeverity.WARNING
             event = AnomalyEvent(
                 coordinator="energy",
                 type=type_str,
-                severity=AnomalySeverity.WARNING,
+                severity=severity,
                 anomaly_type=AnomalyType.POINT_IN_TIME,
                 detected_at=dt_util.utcnow().isoformat(),
                 payload=payload,
@@ -1096,6 +1210,790 @@ class WriteVerifier:
         self._pending_by_surface.clear()
         self._pending_commanded_by_surface.clear()
 
+    # ==================================================================
+    # v5.19.0 — Behavioral write-verify (D1 conduct + D2 pending)
+    # ==================================================================
+    #
+    # Invariant I-BWV (Behavioral Write-Verify), from planning doc:
+    #   1. Conduct: for surface `reserve_soc`, if commanded floor F is
+    #      standing and for N consecutive ticks SOC < F−deadband AND
+    #      battery is discharging faster than ε AND no legal exception
+    #      holds, then EXACTLY ONE hardware_noncompliance anomaly per
+    #      standing episode, ≤1 NM/(surface,alert_type)/day.
+    #   2. Pending: if commanded=V and (observed=oracle) diverges for
+    #      age > attempt-N threshold, fire ≤3 escalating retries
+    #      (each RE-DERIVING live desire at fire-time — I-D3 preserved),
+    #      then HARD STAND-DOWN on attempt 3.
+    #   3. Never fight the operator: no retry when `_desired_stamped_at`
+    #      is stale, when record is STATUS_STALE, or when live desire
+    #      moved from the diverged commanded value.
+    #
+    # Legal below-floor exceptions (D1 only; RATIFIED NARROW per operator
+    # decision #2 2026-07-17). Ordered by cheapness:
+    #   a. within initial verify window (rounded to _verify_window_s)
+    #   b. STATUS_STALE record (desire moved; not authoritative)
+    #   c. `_desired_stamped_at` stale (blind-hold branch — I-D3)
+    #   d. explicitly-commanded drain: current strategy desire for the
+    #      reserve surface is LOWER than the historical commanded floor
+    #      we are auditing (i.e. URA has since lowered the floor; the
+    #      hardware is legitimately catching up to the new lower value).
+    #   e. inclement partial_hold_reserve_floor active: legit lower floor
+    #      applied by inclement machinery (v5.5.3 lesson).
+    #
+    # Per B0-D1: legitimate drains never present as below-floor episodes
+    # by construction (URA lowers the floor before draining), so this
+    # exception list carries almost no live load — narrow (d)+(e) is
+    # sufficient and does not swallow real defects.
+    # ------------------------------------------------------------------
+
+    def _local_reserve_witness_state(
+        self, battery: Any
+    ) -> tuple[Optional[float], Optional[str]]:
+        """Read the local hardware-enforced reserve sensor state + unit.
+
+        Per B0-D2, `sensor.envoy_*_reserve_battery_level` is the honest
+        hardware witness (its `unavailable` flaps mandate the abstain
+        path). Returns (float|None, unit_str|None).
+        """
+        eid = self._local_entity_for(WRITE_VERIFY_SURFACE_RESERVE)
+        if not eid:
+            return None, None
+        try:
+            st = self.hass.states.get(eid)
+            if st is None or st.state in ("unavailable", "unknown", None):
+                return None, None
+            unit = st.attributes.get("unit_of_measurement")
+            return float(st.state), unit
+        except (TypeError, ValueError, AttributeError):
+            return None, None
+
+    def _read_soc_via_resolver(self, battery: Any) -> Optional[float]:
+        """Route SOC read through the 3-tier resolver (energy_battery
+        battery_soc property). Abstain on None.
+        """
+        try:
+            return battery.battery_soc  # type: ignore[no-any-return]
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _read_battery_power_w(self, battery: Any) -> Optional[float]:
+        """Read signed battery power in W.
+
+        CONVENTION (see energy_battery.py:868-908): POSITIVE = charging,
+        NEGATIVE = discharging. The B0 probe report (planning doc) refers
+        to the raw sensor which uses positive=discharging; the property
+        `battery_power_w` NEGATES that. Consumers of this method
+        (discharge tests) must treat `< -ε` as "discharging faster than ε".
+        """
+        try:
+            return battery.battery_power_w  # type: ignore[no-any-return]
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _reserve_desire(self, battery: Any) -> Optional[int]:
+        d = self._current_desire(battery, WRITE_VERIFY_SURFACE_RESERVE)
+        try:
+            return int(d) if d is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    # ------------------------------------------------------------------
+    # ROOT 1 — Effective post-overlay desired reserve.
+    #
+    # `_last_reserve_level_desired` on BatteryStrategy is the PRE-overlay
+    # value (strategy tick output). The EVSE-hold overlay at
+    # `energy.py:_apply_evse_battery_hold` raises the *commanded* value
+    # via `max(existing, evse_hold_soc)` and stamps the ledger; the tap
+    # at `energy.py:5240-5244` re-stamps `_last_reserve_level` with the
+    # actually-dispatched value. Neither writes back to
+    # `_last_reserve_level_desired`. Consequences the fix addresses:
+    #   * Conduct exception (d) exempts every tick during a standing
+    #     EVSE hold if it uses PRE-overlay desire (battery could drain
+    #     into car unalarmed).
+    #   * Watchdog cancel-on-move check would clobber an active hold if
+    #     it compared commanded ledger against PRE-overlay desire.
+    #   * `force_redispatch` would push PRE-overlay value 15 while the
+    #     hardware needs the hold-raised 61 — reserving into the car.
+    #
+    # `_effective_reserve_desired` = max(PRE-overlay strategy desire,
+    #   active EVSE hold value if `_evse_battery_hold_active`,
+    #   inclement partial_hold reserve_floor if that decision is
+    #   partial_hold). It IS the value the system actually wants on
+    #   hardware right now.
+    # ------------------------------------------------------------------
+    def _energy_coord(self) -> Any:
+        """Return the energy coordinator (owner of EVSE-hold overlay
+        state). None if not wired (test fixtures)."""
+        return self._coord
+
+    def _evse_hold_state(self) -> tuple[bool, Optional[int]]:
+        """(active, hold_soc) reading the ENERGY COORDINATOR overlay
+        state — the real writer of the max()-raise. Falls back to
+        (False, None) if the coord doesn't expose the fields (test)."""
+        coord = self._energy_coord()
+        try:
+            active = bool(getattr(coord, "_evse_battery_hold_active", False))
+            hold_soc = getattr(coord, "_evse_hold_soc", None)
+            if hold_soc is not None:
+                try:
+                    hold_soc = int(hold_soc)
+                except (TypeError, ValueError):
+                    hold_soc = None
+            return active, hold_soc
+        except Exception:  # noqa: BLE001
+            return False, None
+
+    def _inclement_partial_hold_floor(self, battery: Any) -> Optional[int]:
+        """If the LIVE inclement decision is a partial_hold, return its
+        `reserve_floor` (the floor URA is legitimately enforcing lower
+        than a static commanded value). Else None.
+
+        Reads the REAL state `battery._last_inclement_decision` (an
+        `InclementDecision` from inclement.py:493, `hold_depth` in
+        {'allow_discharge','partial_hold','full_hold'}). Does NOT invent
+        an attribute — `_inclement_partial_hold_active` did not exist on
+        BatteryStrategy and was replaced with this read.
+        """
+        try:
+            dec = getattr(battery, "_last_inclement_decision", None)
+            if dec is None:
+                return None
+            if getattr(dec, "hold_depth", None) != "partial_hold":
+                return None
+            floor = getattr(dec, "reserve_floor", None)
+            if floor is None:
+                return None
+            return int(floor)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _effective_reserve_desired(self, battery: Any) -> Optional[int]:
+        """Post-overlay effective reserve — value the system wants on
+        hardware right now. Returns None if strategy desire is unstamped.
+        """
+        raw = getattr(battery, "_last_reserve_level_desired", None)
+        if raw is None:
+            return None
+        try:
+            eff = int(raw)
+        except (TypeError, ValueError):
+            return None
+        hold_active, hold_soc = self._evse_hold_state()
+        if hold_active and hold_soc is not None:
+            eff = max(eff, hold_soc)
+        inc_floor = self._inclement_partial_hold_floor(battery)
+        if inc_floor is not None:
+            eff = max(eff, inc_floor)
+        return int(max(0, min(100, eff)))
+
+    def _resolve_hold_owner(self, battery: Any) -> str:
+        """Report which subsystem OWNS the current reserve floor.
+        Derived from real state; no invented attribute reads.
+        Priority: evse hold > inclement partial/full > arbitrage phase
+        > strategy default.
+        """
+        active, _hold_soc = self._evse_hold_state()
+        if active:
+            return "evse_battery_hold"
+        try:
+            dec = getattr(battery, "_last_inclement_decision", None)
+            depth = getattr(dec, "hold_depth", None) if dec is not None else None
+            if depth in ("partial_hold", "full_hold"):
+                return "inclement"
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            phase = getattr(battery, "_arbitrage_phase", None)
+            if phase and phase != "n/a":
+                return f"arbitrage_{phase}"
+        except Exception:  # noqa: BLE001
+            pass
+        return "strategy"
+
+    # ------------------------------------------------------------------
+    # ROOT 2 — Stand-down public accessors (consumed by BatteryStrategy
+    # normal dispatch leg + self-heal alarm).
+    # ------------------------------------------------------------------
+    def is_standdown_active_for_value(
+        self, surface: str, value: Any,
+    ) -> bool:
+        """True iff a HARD STAND-DOWN is active for `surface` at the
+        non-compliant `value`. The normal `_result` dispatch leg reads
+        this to SKIP same-value re-dispatch of the stuck surface — any
+        change in effective desire cancels stand-down (value no longer
+        matches) and the append proceeds normally, matching the ratified
+        resume conditions (see D2 retry policy).
+        """
+        sd = self._pending_standdown_at.get(surface)
+        if sd is None:
+            return False
+        sv = self._pending_standdown_value.get(surface)
+        if sv is None:
+            return False
+        try:
+            return int(sv) == int(value)
+        except (TypeError, ValueError):
+            return sv == value
+
+    def is_pending_episode_active(self, surface: str) -> bool:
+        """True while a pending episode is armed (attempts fired > 0 or
+        a stand-down is pinned). Consumed by the schedule() self-heal
+        starvation alarm to suppress the overlapping emit for this
+        surface — the more-specific `pending_write_stuck` /
+        `pending_write_standdown` alarms own the surface once armed.
+        """
+        if self._pending_attempts_fired.get(surface, 0) > 0:
+            return True
+        if self._pending_standdown_at.get(surface) is not None:
+            return True
+        return False
+
+    # ------------------------------------------------------------------
+    # ROOT D-MED-3 — Grid outage witness.
+    #
+    # Enphase's `switch.enpower_*_grid_enabled` reflects grid presence
+    # (state == "off" during a genuine outage). Configured via
+    # `DEFAULT_GRID_ENABLED_ENTITY` (energy_const.py:223), resolvable
+    # via BatteryStrategy `_get_entity("grid_enabled", default)` when the
+    # operator has wired it. Behavior:
+    #   * If witness reads "off" → grid outage active; conduct exempted
+    #     (backup discharge below floor is legit).
+    #   * If witness reads "on"  → grid up; no exception.
+    #   * If witness unresolvable / unavailable / unknown → ABSTAIN by
+    #     returning None; caller does NOT invent a witness.
+    # ------------------------------------------------------------------
+    def _grid_outage_active(self, battery: Any) -> Optional[bool]:
+        """Return True (outage), False (grid up), or None.
+
+        None has TWO distinct meanings:
+          * Witness NOT configured / not resolvable — caller falls
+            through (no exception, no abstain — same as pre-D2-MED-2).
+          * Witness CONFIGURED but currently unavailable/unknown —
+            caller ABSTAINS the conduct check for the tick (D2-MED-2).
+
+        We distinguish via `_grid_witness_state` (see caller).
+        """
+        try:
+            from .energy_const import DEFAULT_GRID_ENABLED_ENTITY
+            eid = None
+            try:
+                eid = battery._get_entity(  # noqa: SLF001
+                    "grid_enabled", DEFAULT_GRID_ENABLED_ENTITY, role="read",
+                )
+            except TypeError:
+                eid = battery._get_entity(  # noqa: SLF001
+                    "grid_enabled", DEFAULT_GRID_ENABLED_ENTITY,
+                )
+            except Exception:  # noqa: BLE001
+                eid = None
+            if not eid:
+                return None
+            st = self.hass.states.get(eid)
+            if st is None or st.state in ("unavailable", "unknown", None):
+                return None
+            return str(st.state).lower() == "off"
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _grid_witness_configured_but_stale(self, battery: Any) -> bool:
+        """True iff the grid-enabled entity is configured (via
+        `_get_entity`) but its live state is unresolvable / unavailable
+        / unknown. Used to distinguish "operator hasn't wired one" (no
+        abstain) from "witness flapping" (abstain).
+        """
+        try:
+            from .energy_const import DEFAULT_GRID_ENABLED_ENTITY
+            try:
+                eid = battery._get_entity(  # noqa: SLF001
+                    "grid_enabled", DEFAULT_GRID_ENABLED_ENTITY, role="read",
+                )
+            except TypeError:
+                eid = battery._get_entity(  # noqa: SLF001
+                    "grid_enabled", DEFAULT_GRID_ENABLED_ENTITY,
+                )
+            except Exception:  # noqa: BLE001
+                return False
+            if not eid:
+                return False
+            st = self.hass.states.get(eid)
+            # "State missing entirely" (st is None) is treated as
+            # NOT configured — could be a stale entity id / operator
+            # default that was never provisioned. Only actual flapping
+            # (state exists and reads unavailable/unknown) triggers
+            # abstain per D2-MED-2 (that's the B0-measured failure mode).
+            if st is not None and st.state in ("unavailable", "unknown"):
+                return True
+            return False
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _desire_stamp_fresh(self, battery: Any) -> bool:
+        """True if `_desired_stamped_at` is fresh (< 2× decision
+        interval = 600s — same threshold as v5.17.5 D3 gate).
+        """
+        _dsa = getattr(battery, "_desired_stamped_at", None)
+        if _dsa is None:
+            return False
+        try:
+            return (dt_util.utcnow() - _dsa).total_seconds() <= 600
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _legal_conduct_exception(
+        self,
+        battery: Any,
+        commanded_floor: int,
+        commanded_at: datetime,
+        now: datetime,
+    ) -> Optional[str]:
+        """Return a short reason string if a legal exception holds,
+        else None. Narrow per operator decision #2.
+        """
+        # (a) within initial verify window
+        if (now - commanded_at).total_seconds() < self._verify_window_s:
+            return "within_verify_window"
+        # (b) STATUS_STALE record — desire has retired.
+        rec = self._records.get(WRITE_VERIFY_SURFACE_RESERVE)
+        if rec is not None and rec.status == STATUS_STALE:
+            return "record_stale"
+        # (c) blind-hold — desire not fresh; no authoritative floor.
+        if not self._desire_stamp_fresh(battery):
+            return "desire_stale"
+        # (d) explicitly-commanded lower drain: EFFECTIVE post-overlay
+        # desire (Root 1 fix) is below the historical commanded floor.
+        # Hardware is catching up to a legit lower target. Using the
+        # PRE-overlay desire here would exempt every tick during an EVSE
+        # hold — the hold RAISES commanded above pre-overlay desire, so
+        # pre-overlay < commanded_floor is trivially true and the battery
+        # could drain into the car unalarmed.
+        effective = self._effective_reserve_desired(battery)
+        if effective is not None and effective < int(commanded_floor):
+            return "explicit_drain_desire_lower"
+        # (e) inclement partial_hold is a legit lower floor — but only
+        # WHILE SOC is at or above (inclement_reserve_floor - deadband).
+        # Below that, hardware is violating even the inclement floor and
+        # the alarm SHOULD fire (D2-MED-1, review D re-pass). Reads the
+        # REAL InclementDecision.hold_depth == "partial_hold" from
+        # `battery._last_inclement_decision` (inclement.py:493) —
+        # NOT the invented `_inclement_partial_hold_active` attribute.
+        inc_floor = self._inclement_partial_hold_floor(battery)
+        if inc_floor is not None:
+            soc_now = self._read_soc_via_resolver(battery)
+            if soc_now is None or soc_now >= (
+                int(inc_floor) - CONF_CONDUCT_SOC_DEADBAND_PCT
+            ):
+                return "inclement_partial_hold"
+            # SOC below the inclement floor - deadband → do NOT exempt.
+            # Fall through so the trigger check can fire.
+        # (f) grid outage — Enpower `_grid_enabled` == "off". Backup
+        # discharge below the commanded reserve is expected during an
+        # outage. Witness semantics (D2-MED-2, review D re-pass):
+        #   * True → grid down → exempt.
+        #   * False → grid up → no exception (fall through).
+        #   * None + entity CONFIGURED but state unavailable/unknown →
+        #     ABSTAIN (caller returns without counting).
+        #   * None + entity NOT configured → operator hasn't wired one;
+        #     do not abstain (fall through) — preserves prior behavior
+        #     for deployments without an Enpower witness.
+        outage = self._grid_outage_active(battery)
+        if outage is True:
+            return "grid_outage"
+        if outage is None and self._grid_witness_configured_but_stale(
+            battery,
+        ):
+            return "grid_witness_unavailable"
+        return None
+
+    async def _conduct_check_reserve(self, battery: Any) -> None:
+        """D1 — reserve-surface conduct check (detect-only, W-6 preserved).
+
+        Sequence:
+          1. Read commanded ledger; return if no floor.
+          2. Read SOC via 3-tier resolver + battery_power_w. Abstain on
+             None (increment nothing, do not fire).
+          3. Legal-exception check (narrow list). If any holds → RESET
+             the consecutive-tick counter to 0 and clear episode.
+          4. Trigger test: `soc < commanded - deadband` AND
+             `battery_power_w < -epsilon` (discharging faster than ε).
+          5. On trigger: increment counter; at N emit ONCE per episode.
+        """
+        if not CONF_CONDUCT_ENABLED:
+            return
+        surface = WRITE_VERIFY_SURFACE_RESERVE
+        commanded, commanded_at = self._commanded_ledger(battery, surface)
+        if commanded is None or commanded_at is None:
+            self._conduct_last_abstain_reason[surface] = "no_commanded"
+            return
+        try:
+            commanded_floor = int(commanded)
+        except (TypeError, ValueError):
+            self._conduct_last_abstain_reason[surface] = "no_commanded"
+            return
+        now = dt_util.utcnow()
+        soc = self._read_soc_via_resolver(battery)
+        power_w = self._read_battery_power_w(battery)
+        self._conduct_last_soc[surface] = soc
+        self._conduct_last_discharge_w[surface] = power_w
+        self._conduct_last_commanded[surface] = commanded_floor
+        if soc is None:
+            self._conduct_last_abstain_reason[surface] = "soc_blind"
+            return
+        if power_w is None:
+            self._conduct_last_abstain_reason[surface] = "power_none"
+            return
+        exception_reason = self._legal_conduct_exception(
+            battery, commanded_floor, commanded_at, now,
+        )
+        if exception_reason == "grid_witness_unavailable":
+            # D2-MED-2 (review D re-pass): grid witness flapping is
+            # measured behavior on this Envoy (B0). Rather than falling
+            # through to the alarm-permissive path (previous behavior)
+            # OR treating this as a legal exception that RESETS the
+            # counter (would mask a real drift), ABSTAIN — do not count,
+            # do not fire, do not reset. Counter state persists across
+            # the abstain so a genuine episode is not erased by a flap.
+            self._conduct_last_abstain_reason[surface] = (
+                "grid_witness_unavailable"
+            )
+            return
+        if exception_reason is not None:
+            # Legal state — episode closes (if any) and counter resets.
+            if self._conduct_consec.get(surface, 0) > 0:
+                _LOGGER.debug(
+                    "WriteVerifier: %s conduct RESET (exception=%s)",
+                    surface, exception_reason,
+                )
+            self._conduct_consec[surface] = 0
+            self._conduct_episode_started_at[surface] = None
+            self._conduct_alarm_latched_at[surface] = None
+            self._conduct_last_abstain_reason[surface] = exception_reason
+            return
+        below_floor = (
+            soc < (commanded_floor - CONF_CONDUCT_SOC_DEADBAND_PCT)
+        )
+        # POWER SIGN: battery_power_w is POSITIVE=charging.
+        # "Discharging faster than epsilon" → power_w < -epsilon.
+        discharging = power_w < -float(CONF_CONDUCT_DISCHARGE_EPSILON_W)
+        if not (below_floor and discharging):
+            if self._conduct_consec.get(surface, 0) > 0:
+                _LOGGER.debug(
+                    "WriteVerifier: %s conduct counter reset "
+                    "(soc=%.1f floor=%d power_w=%.0f)",
+                    surface, soc, commanded_floor, power_w,
+                )
+            self._conduct_consec[surface] = 0
+            self._conduct_episode_started_at[surface] = None
+            self._conduct_alarm_latched_at[surface] = None
+            self._conduct_last_abstain_reason[surface] = None
+            return
+        # Trigger tick.
+        prev = self._conduct_consec.get(surface, 0)
+        n = prev + 1
+        self._conduct_consec[surface] = n
+        if prev == 0:
+            self._conduct_episode_started_at[surface] = now
+        self._conduct_last_abstain_reason[surface] = None
+        _LOGGER.debug(
+            "WriteVerifier: %s conduct tick %d/%d "
+            "(soc=%.1f floor=%d power_w=%.0f)",
+            surface, n, CONF_CONDUCT_N_TICKS, soc, commanded_floor, power_w,
+        )
+        if n < CONF_CONDUCT_N_TICKS:
+            return
+        # Per-episode alarm latch — one anomaly + one NM per standing
+        # episode. Latch clears when the episode ends (counter reset).
+        if self._conduct_alarm_latched_at.get(surface) is not None:
+            return
+        self._conduct_alarm_latched_at[surface] = now
+        _LOGGER.warning(
+            "WriteVerifier: %s HARDWARE NONCOMPLIANCE — "
+            "commanded_floor=%d, soc=%.1f, discharging=%.0f W for %d ticks",
+            surface, commanded_floor, soc, power_w, n,
+        )
+        await self._emit_anomaly(
+            surface,
+            "hardware_noncompliance",
+            {
+                "commanded_floor": commanded_floor,
+                "soc_observed": soc,
+                "discharge_w_observed": power_w,
+                "consecutive_ticks": n,
+                "severity_class": "ALERT",
+            },
+        )
+        await self._maybe_fire_nm(
+            surface,
+            title=f"Battery below floor while discharging: {surface}",
+            message=(
+                f"URA commanded reserve floor {commanded_floor}% but SOC "
+                f"is {soc:.1f}% and battery is discharging at "
+                f"{-power_w:.0f} W for {n} consecutive ticks with no "
+                "legal exception. Hardware may not be enforcing the "
+                "commanded floor."
+            ),
+            alert_type="hardware_noncompliance",
+        )
+
+    # ------------------------------------------------------------------
+    # D2 pending-write watchdog + bounded-escalation retry ladder
+    # ------------------------------------------------------------------
+    def _pending_attempt_threshold_s(self, attempts_fired: int) -> int:
+        """Divergence-age threshold for the NEXT attempt.
+
+        attempts_fired = 0 → 900s (attempt #1 fires at 15m)
+        attempts_fired = 1 → 1800s (attempt #2 fires at 30m)
+        attempts_fired = 2 → 3600s (attempt #3 fires at 60m)
+        """
+        if attempts_fired == 0:
+            return int(CONF_PENDING_ATTEMPT_1_AGE_S)
+        if attempts_fired == 1:
+            return int(CONF_PENDING_ATTEMPT_2_AGE_S)
+        return int(CONF_PENDING_ATTEMPT_3_AGE_S)
+
+    def _reset_pending_episode(self, surface: str) -> None:
+        self._pending_episode_at[surface] = None
+        self._pending_attempts_fired[surface] = 0
+        self._pending_last_attempt_at[surface] = None
+        self._pending_standdown_at[surface] = None
+        self._pending_standdown_value.pop(surface, None)
+        self._pending_cooloff_probe_fired[surface] = False
+        self._pending_last_divergence_age_s[surface] = None
+
+    async def _pending_watchdog_reserve(self, battery: Any) -> None:
+        """D2 — pending-write watchdog on the reserve surface.
+
+        Inference-only per operator ratification #3 (2026-07-17): the
+        Enphase integration does NOT expose pending fields as HA state
+        (B0-D2b confirmed). Divergence-age between URA's commanded
+        ledger and the local hardware-enforced sensor drives detection.
+        """
+        if not CONF_PENDING_WATCHDOG_ENABLED:
+            return
+        surface = WRITE_VERIFY_SURFACE_RESERVE
+        commanded, commanded_at = self._commanded_ledger(battery, surface)
+        if commanded is None or commanded_at is None:
+            return
+        # STATUS_STALE — desire has retired, do not treat as stuck.
+        rec = self._records.get(surface)
+        if rec is not None and rec.status == STATUS_STALE:
+            self._reset_pending_episode(surface)
+            return
+        # Read hardware witness. Abstain (do NOT increment attempts) on
+        # unavailable per operator directive — sensor flaps are common.
+        hw_value, hw_unit = self._local_reserve_witness_state(battery)
+        if hw_value is None:
+            _LOGGER.debug(
+                "WriteVerifier: %s pending watchdog abstain "
+                "(hardware witness unavailable)",
+                surface,
+            )
+            return
+        # Convergence check via the same _compare (percent-normalized).
+        status, matched = self._compare(surface, commanded, hw_value, hw_unit)
+        if matched and status == STATUS_OK:
+            # Converged — close episode + clear stand-down.
+            if (
+                self._pending_episode_at.get(surface) is not None
+                or self._pending_standdown_at.get(surface) is not None
+            ):
+                _LOGGER.info(
+                    "WriteVerifier: %s pending watchdog — CONVERGED "
+                    "(hw=%.1f == cmd=%s); resetting episode",
+                    surface, hw_value, commanded,
+                )
+            self._reset_pending_episode(surface)
+            self._pending_last_oracle[surface] = hw_value
+            return
+        # Diverged. Episode anchored to commanded_at — a fresh
+        # commanded_at value opens a new episode (attempts reset).
+        prev_episode_at = self._pending_episode_at.get(surface)
+        if prev_episode_at is None or prev_episode_at != commanded_at:
+            self._reset_pending_episode(surface)
+            self._pending_episode_at[surface] = commanded_at
+        now = dt_util.utcnow()
+        divergence_age_s = (now - commanded_at).total_seconds()
+        self._pending_last_divergence_age_s[surface] = divergence_age_s
+        self._pending_last_oracle[surface] = hw_value
+        # If we already HARD STOOD DOWN on this episode, allow ONE
+        # cool-off probe attempt (fresh command); after that, silent.
+        standdown_at = self._pending_standdown_at.get(surface)
+        if standdown_at is not None:
+            cooloff_probe_fired = self._pending_cooloff_probe_fired.get(
+                surface, False,
+            )
+            if cooloff_probe_fired:
+                return
+            age = (now - standdown_at).total_seconds()
+            if age < float(CONF_PENDING_STANDDOWN_COOLOFF_S):
+                return
+            # Fire ONE cool-off probe attempt — re-derives desire.
+            await self._pending_fire_retry(
+                battery, surface, attempt_index_note="cooloff_probe",
+            )
+            self._pending_cooloff_probe_fired[surface] = True
+            return
+        attempts_fired = self._pending_attempts_fired.get(surface, 0)
+        # Check whether the age threshold for the next attempt is met.
+        threshold = self._pending_attempt_threshold_s(attempts_fired)
+        if divergence_age_s < threshold:
+            return
+        # Fix-up A-LOW-1 / C-M6b — LADDER SPACING gate. Without this, a
+        # divergence pre-aged past ATTEMPT_3_AGE (e.g. post-restart) would
+        # fire attempts 1/2/3 on three consecutive decision ticks. Enforce
+        # ≥ ATTEMPT_1_AGE_S between attempts so ladder spacing matches
+        # measured Enphase apply-lag (B0-D2 p90 = 7.7 min < 15 min).
+        last_att = self._pending_last_attempt_at.get(surface)
+        if last_att is not None:
+            since_last = (now - last_att).total_seconds()
+            if since_last < float(CONF_PENDING_ATTEMPT_1_AGE_S):
+                _LOGGER.debug(
+                    "WriteVerifier: %s pending watchdog — spacing gate "
+                    "(since_last=%.0fs < %ds); attempt deferred",
+                    surface, since_last, int(CONF_PENDING_ATTEMPT_1_AGE_S),
+                )
+                return
+        # ─── LOAD-BEARING SEAM: freshness + desire re-derivation ──────
+        # Ratified freshness constraint (2026-07-17):
+        #   "Re-commands only if consistent with the energy situation
+        #    NOW — never issue stale commands."
+        # Each ladder attempt re-derives desire from live strategy state
+        # at fire time; it never replays detection-time ledger value.
+        if not self._desire_stamp_fresh(battery):
+            # Blind — I-D3 forbids retries.
+            _LOGGER.info(
+                "WriteVerifier: %s pending watchdog — desire stale "
+                "(blind) — retry suppressed (I-D3)",
+                surface,
+            )
+            return
+        # Root 1 fix — cancel-on-move compares against the EFFECTIVE
+        # post-overlay desire, not the pre-overlay strategy desire. A
+        # cool-off probe or ladder tick during an active EVSE hold must
+        # continue to command the hold-raised value (e.g. 61), not the
+        # pre-overlay strategy value (e.g. 15) — the latter would clobber
+        # the hold and drain into the car.
+        effective = self._effective_reserve_desired(battery)
+        if effective is None:
+            return
+        try:
+            _cmd_int = int(commanded)
+        except (TypeError, ValueError):
+            _cmd_int = None
+        if _cmd_int is None or effective != _cmd_int:
+            _LOGGER.info(
+                "WriteVerifier: %s pending watchdog — effective desire "
+                "moved (commanded=%s, effective=%s); ladder CANCELLED",
+                surface, commanded, effective,
+            )
+            self._reset_pending_episode(surface)
+            return
+        # Attempt number about to fire (1-indexed).
+        attempt_no = attempts_fired + 1
+        # Emit + optional NM per plan escalation:
+        #   #1 → ALERT anomaly + NM once/day
+        #   #2 → HIGH anomaly (still ALERT class in NM latch key)
+        #   #3 → FINAL — pages operator; hard stand-down set below.
+        severity_class = "ALERT"
+        if attempt_no == 2:
+            severity_class = "HIGH"
+        elif attempt_no == 3:
+            severity_class = "CRITICAL"
+        await self._emit_anomaly(
+            surface,
+            "pending_write_stuck",
+            {
+                "commanded": commanded,
+                "oracle_seen": hw_value,
+                "divergence_age_s": divergence_age_s,
+                "attempt": attempt_no,
+                "severity_class": severity_class,
+                "hw_witness": "envoy_reserve_battery_level",
+            },
+        )
+        await self._maybe_fire_nm(
+            surface,
+            title=(
+                f"Pending write stuck (attempt {attempt_no}"
+                f"/{CONF_PENDING_MAX_ATTEMPTS}): {surface}"
+            ),
+            message=(
+                f"URA commanded {surface}={commanded!r} but hardware "
+                f"reports {hw_value!r} after {int(divergence_age_s)}s. "
+                f"Re-dispatching (attempt {attempt_no})."
+            ),
+            alert_type=(
+                "pending_write_stuck"
+                if attempt_no < CONF_PENDING_MAX_ATTEMPTS
+                else "pending_write_stuck_final"
+            ),
+        )
+        # Fire the retry — via BatteryStrategy.force_redispatch, which
+        # re-derives desire at fire time (already re-derived above,
+        # but force_redispatch re-checks for us — belt+suspenders).
+        await self._pending_fire_retry(
+            battery, surface, attempt_index_note=f"attempt_{attempt_no}",
+        )
+        self._pending_attempts_fired[surface] = attempt_no
+        self._pending_last_attempt_at[surface] = now
+        # HARD STAND-DOWN after final attempt.
+        if attempt_no >= int(CONF_PENDING_MAX_ATTEMPTS):
+            self._pending_standdown_at[surface] = now
+            # Root 2 — capture the non-compliant value so the normal
+            # dispatch leg can gate same-value re-dispatch.
+            self._pending_standdown_value[surface] = commanded
+            _LOGGER.warning(
+                "WriteVerifier: %s pending watchdog — HARD STAND-DOWN "
+                "after %d attempts; surface marked non-compliant. "
+                "URA will stop commanding this surface until convergence, "
+                "fresh operator-driven desire change, or cool-off "
+                "expiry (%.0fh).",
+                surface, attempt_no,
+                float(CONF_PENDING_STANDDOWN_COOLOFF_S) / 3600.0,
+            )
+            await self._maybe_fire_nm(
+                surface,
+                title=f"URA STAND-DOWN: {surface} non-compliant",
+                message=(
+                    f"After {attempt_no} identical retries spaced by "
+                    "Enphase apply-lag, hardware still diverges. URA "
+                    "has deliberately stopped commanding this surface. "
+                    "Investigate manually."
+                ),
+                alert_type="pending_write_standdown",
+            )
+
+    async def _pending_fire_retry(
+        self,
+        battery: Any,
+        surface: str,
+        attempt_index_note: str,
+    ) -> None:
+        """Fire ONE re-dispatch via BatteryStrategy.force_redispatch.
+
+        The strategy re-checks freshness + re-derives live desire at
+        fire time (belt + suspenders vs the check we did above); if any
+        precondition fails the call is a no-op with a DEBUG log.
+        """
+        try:
+            fn = getattr(battery, "force_redispatch", None)
+            if fn is None:
+                _LOGGER.debug(
+                    "WriteVerifier: %s force_redispatch missing on "
+                    "BatteryStrategy — retry skipped (%s)",
+                    surface, attempt_index_note,
+                )
+                return
+            _LOGGER.info(
+                "WriteVerifier: %s pending watchdog — firing retry (%s)",
+                surface, attempt_index_note,
+            )
+            await fn(surface)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "WriteVerifier: force_redispatch raised (swallowed)",
+                exc_info=True,
+            )
+
     # ------------------------------------------------------------------
     # Public accessor consumed by BatteryStrategy.get_status()
     # ------------------------------------------------------------------
@@ -1134,5 +2032,153 @@ class WriteVerifier:
         out["write_mismatch_counts_24h"] = {
             s: self._mismatch_counts.value(s)
             for s in WRITE_VERIFY_NM_SURFACES
+        }
+        # ─── v5.19.0 D3 observability attrs ───────────────────────────
+        # D1 hardware_noncompliance state (reserve surface only today).
+        surface = WRITE_VERIFY_SURFACE_RESERVE
+        latched = self._conduct_alarm_latched_at.get(surface)
+        started = self._conduct_episode_started_at.get(surface)
+        commanded_floor = self._conduct_last_commanded.get(surface)
+        out["hardware_noncompliance_state"] = {
+            surface: {
+                "active": latched is not None,
+                "consecutive_ticks": self._conduct_consec.get(surface, 0),
+                "soc_observed": self._conduct_last_soc.get(surface),
+                "commanded_floor": commanded_floor,
+                "discharge_w_observed": (
+                    self._conduct_last_discharge_w.get(surface)
+                ),
+                "episode_started_at": (
+                    started.isoformat() if started is not None else None
+                ),
+                "alarm_latched_at": (
+                    latched.isoformat() if latched is not None else None
+                ),
+                "abstain_reason": (
+                    self._conduct_last_abstain_reason.get(surface)
+                ),
+            },
+        }
+        # D2 pending_write_stuck state.
+        ep_at = self._pending_episode_at.get(surface)
+        sd_at = self._pending_standdown_at.get(surface)
+        last_att = self._pending_last_attempt_at.get(surface)
+        # Read the CURRENT desire so operators can see live desire vs
+        # ledger-commanded at the moment attrs render.
+        try:
+            _live_desire = self._reserve_desire(
+                getattr(self._coord, "_battery", None)
+            )
+        except Exception:  # noqa: BLE001
+            _live_desire = None
+        # A-NIT-1: explicit None passthrough — `_commanded_ledger`
+        # tolerates a None battery (its getattr calls return None); the
+        # prior `or self` fallback would mask real "battery not wired"
+        # states by dispatching getattrs against WriteVerifier itself.
+        _bat_for_ledger = getattr(self._coord, "_battery", None)
+        commanded_ledger, commanded_at = self._commanded_ledger(
+            _bat_for_ledger, surface,
+        )
+        out["pending_write_stuck_state"] = {
+            surface: {
+                "active": ep_at is not None,
+                "commanded_at": (
+                    commanded_at.isoformat()
+                    if commanded_at is not None else None
+                ),
+                "commanded_value": commanded_ledger,
+                "oracle_value": self._pending_last_oracle.get(surface),
+                "divergence_age_s": (
+                    self._pending_last_divergence_age_s.get(surface)
+                ),
+                "attempts_fired": self._pending_attempts_fired.get(surface, 0),
+                "last_attempt_at": (
+                    last_att.isoformat() if last_att is not None else None
+                ),
+                "standdown_at": (
+                    sd_at.isoformat() if sd_at is not None else None
+                ),
+                "cooloff_probe_fired": (
+                    self._pending_cooloff_probe_fired.get(surface, False)
+                ),
+                "live_desire": _live_desire,
+                "desire_stamp_fresh": (
+                    self._desire_stamp_fresh(_bat_for_ledger)
+                    if _bat_for_ledger is not None else False
+                ),
+            },
+        }
+        # D3 three-way command_trail (from operator confusion 2026-07-16):
+        # commanded (URA desire ledger) / hardware-enforced / cloud-oracle
+        # each with age. Only reserve today.
+        battery_obj = getattr(self._coord, "_battery", None)
+        hw_val, _hw_unit = (
+            self._local_reserve_witness_state(battery_obj)
+            if battery_obj is not None else (None, None)
+        )
+        cloud_eid = self._oracle_entity_for(surface)
+        cloud_val = self._read_oracle_raw(cloud_eid) if cloud_eid else None
+        cloud_age_s: Optional[float] = None
+        hw_age_s: Optional[float] = None
+        try:
+            if cloud_eid:
+                st = self.hass.states.get(cloud_eid)
+                if st is not None and getattr(st, "last_updated", None):
+                    cloud_age_s = (
+                        dt_util.utcnow() - st.last_updated
+                    ).total_seconds()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            hw_eid = self._local_entity_for(surface)
+            if hw_eid:
+                st = self.hass.states.get(hw_eid)
+                if st is not None and getattr(st, "last_updated", None):
+                    hw_age_s = (
+                        dt_util.utcnow() - st.last_updated
+                    ).total_seconds()
+        except Exception:  # noqa: BLE001
+            pass
+        commanded_age_s: Optional[float] = None
+        if commanded_at is not None:
+            try:
+                commanded_age_s = (
+                    dt_util.utcnow() - commanded_at
+                ).total_seconds()
+            except Exception:  # noqa: BLE001
+                commanded_age_s = None
+        out["command_trail"] = {
+            surface: {
+                "commanded": {
+                    "value": commanded_ledger,
+                    "age_s": commanded_age_s,
+                    # B-HIGH-1 / D-MED-1 fix — derive hold_owner from
+                    # REAL state (evse-hold overlay flag, live inclement
+                    # decision, arbitrage phase) rather than reading the
+                    # invented `_reserve_hold_owner` attribute that never
+                    # existed on BatteryStrategy.
+                    "hold_owner": (
+                        self._resolve_hold_owner(battery_obj)
+                        if battery_obj is not None else None
+                    ),
+                    "live_desire": _live_desire,
+                    # Root 1 — expose the EFFECTIVE post-overlay desire
+                    # alongside pre-overlay live_desire so the operator
+                    # can see which value hardware is actually being
+                    # asked for during a hold.
+                    "effective_desired": (
+                        self._effective_reserve_desired(battery_obj)
+                        if battery_obj is not None else None
+                    ),
+                },
+                "hardware_enforced": {
+                    "value": hw_val,
+                    "age_s": hw_age_s,
+                },
+                "cloud_oracle": {
+                    "value": cloud_val,
+                    "age_s": cloud_age_s,
+                },
+            },
         }
         return out

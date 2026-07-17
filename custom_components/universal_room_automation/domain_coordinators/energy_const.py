@@ -329,6 +329,57 @@ WRITE_VERIFY_NM_SURFACES: Final = (
     WRITE_VERIFY_SURFACE_STORAGE_MODE,
 )
 
+# ============================================================================
+# Behavioral write-verify (v5.19.0 — Tier 3)
+# ------------------------------------------------------------------
+# Two behavioral tripwires on top of the echo-verify surface:
+#   D1 CONDUCT — reserve floor commanded but SOC below floor AND battery
+#                actively discharging for N consecutive ticks under NO
+#                explicitly-commanded-drain state → anomaly + NM.
+#   D2 PENDING — divergence between commanded and hardware-observed
+#                oracle age past pending-timeout → anomaly + bounded-
+#                escalation retry ladder (15/30/60 min, max 3 attempts)
+#                with hard stand-down after attempt 3.
+#
+# All knobs are rung-1 module constants per Numbers Get Knobs:
+#   safety bounds + retry policy against an external API are NOT
+#   dashboard-tunable. Change requires reviewed code change.
+# Values are seated per the 2026-07-17 B0 probe report in
+# `docs/planning/PLANNING_behavioral_write_verify.md`.
+# ============================================================================
+
+# --- D1 conduct thresholds ------------------------------------------
+# 15-min steady deviation before alarming (3 × 5-min decision ticks).
+# B0-D1: incident #5 lasted 56 min (11 ticks); all legit blips = 1 tick.
+CONF_CONDUCT_N_TICKS: Final = 3
+# W. Discharge magnitude threshold. B0-D1: legit discharges never sit
+# above 500 W for 3 ticks at depth; incident #5 sustained 2.3-7.8 kW.
+# NOTE on sign: `BatteryStrategy.battery_power_w` is NEGATED at read
+# (positive=charging, negative=discharging — energy_battery.py:868-908).
+# The conduct check compares `battery_power_w < -CONF_CONDUCT_DISCHARGE_EPSILON_W`.
+CONF_CONDUCT_DISCHARGE_EPSILON_W: Final = 500
+# pp. B0-D1: incident depth reached 14 pp; attain sawtooth peaked at 3 pp.
+CONF_CONDUCT_SOC_DEADBAND_PCT: Final = 4
+# Kill switch (still rung-1 — a false-positive here fires an ALERT NM;
+# operator can disable in code if a live incident of that class occurs).
+CONF_CONDUCT_ENABLED: Final = True
+
+# --- D2 pending / retry-ladder --------------------------------------
+# Divergence age (s) before attempt #1. B0-D2: apply-lag p90 = 461 s
+# (~7.7 min); 15 min waits ~2× p90 so no retry ever races a normal apply.
+CONF_PENDING_ATTEMPT_1_AGE_S: Final = 900
+# Attempt #2 spacing (30 min from commanded).
+CONF_PENDING_ATTEMPT_2_AGE_S: Final = 1800
+# Attempt #3 spacing (60 min from commanded).
+CONF_PENDING_ATTEMPT_3_AGE_S: Final = 3600
+# Hard cap. Change requires review — increasing this reopens the
+# incident-#2 shape (self-heal-vs-operator loop).
+CONF_PENDING_MAX_ATTEMPTS: Final = 3
+# Post-stand-down cool-off before a single fresh probe attempt (s).
+CONF_PENDING_STANDDOWN_COOLOFF_S: Final = 10800  # 3h — mid of ratified 2-4h.
+# Kill switch — disables detection AND retry ladder together.
+CONF_PENDING_WATCHDOG_ENABLED: Final = True
+
 # H1 (2026-07-13): cloud-first battery writes are now the system's write
 # topology, not a per-user knob. All three battery control surfaces
 # (reserve number, charge_from_grid switch, storage_mode select) route

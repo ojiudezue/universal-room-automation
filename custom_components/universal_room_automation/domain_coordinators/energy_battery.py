@@ -449,10 +449,17 @@ class BatteryStrategy:
         self._attain_state: str = "inactive"
         # Observability (operator-requested pre-deploy): last computed entry
         # projection internals, surfaced via get_status() so "why did/didn't
-        # attain fire" is answerable from the dashboard. Entry-only predicate
-        # means these freeze at entry-time values while latched.
+        # attain fire" is answerable from the dashboard. Since R7.1 the
+        # hold-current site refreshes these every tick while latched (NOT
+        # entry-frozen), mirroring the decision's own projection.
         self._attain_projected_soc: float | None = None
         self._attain_solar_term_pct: float | None = None
+        # R7.1 (I-NE3 mirrors-decision): horizon minutes used for the
+        # projection the decision CONSUMED, mirrored from the same
+        # `ProjectionResult.horizon_min` field. Published alongside
+        # `_attain_projected_soc` so the reason string + sensor attr
+        # cannot drift from the value the decision actually acted on.
+        self._attain_projection_horizon_min: float | None = None
         # First-decision-tick reboot adoption guard — clears once we have
         # run reboot recovery exactly once.
         self._attain_reboot_recovered: bool = False
@@ -1787,6 +1794,7 @@ class BatteryStrategy:
                 else max(0.0, min(100.0, raw_projected_rung0))
             )
         else:
+            # R7.2: delete fallbacks
             raw_projected_rung0 = soc + rate * rate_hours + solar_surplus  # R7-SINGLETON-EXEMPT: kill-switch fallback (R7_USE_UNIFIED_PROJECTOR=False)
             # Display clamp: SOC physically cannot exceed 100%.
             projected_rung0 = max(0.0, min(100.0, raw_projected_rung0))
@@ -1839,6 +1847,7 @@ class BatteryStrategy:
                     else max(0.0, min(100.0, raw_counterfactual))
                 )
             else:
+                # R7.2: delete fallbacks
                 raw_counterfactual = soc + (rate - assumed_ev_pct) * rate_hours + solar_surplus  # R7-SINGLETON-EXEMPT: kill-switch fallback
                 counterfactual_projected = max(0.0, min(100.0, raw_counterfactual))
             self._arb_last_projection_rung1 = round(counterfactual_projected, 1)
@@ -1934,6 +1943,7 @@ class BatteryStrategy:
                 else max(0.0, min(100.0, raw_rung1_entry))
             )
         else:
+            # R7.2: delete fallbacks
             raw_rung1_entry = soc + (rate + ev_load_pct_per_h) * rate_hours + solar_surplus  # R7-SINGLETON-EXEMPT: kill-switch fallback
             projected_rung1_entry = max(0.0, min(100.0, raw_rung1_entry))
         self._arb_last_projection_rung1 = round(projected_rung1_entry, 1)
@@ -2863,8 +2873,13 @@ class BatteryStrategy:
                 if _proj_att.raw_soc_pct is not None
                 else soc + (mins / 60.0) * rate + solar_surplus  # R7-SINGLETON-EXEMPT: primitive-None defensive rescue
             )
+            # R7.1 (I-NE3): mirror horizon from the SAME primitive call the
+            # decision will consume. Cannot diverge from `projected` above.
+            self._attain_projection_horizon_min = _proj_att.horizon_min
         else:
+            # R7.2: delete fallbacks
             projected = soc + (mins / 60.0) * rate + solar_surplus  # R7-SINGLETON-EXEMPT: kill-switch fallback
+            self._attain_projection_horizon_min = float(mins)
         self._attain_projected_soc = round(projected, 1)
         self._attain_solar_term_pct = round(solar_surplus, 1)
         if projected < self._peak_buffer_target:
@@ -2916,12 +2931,22 @@ class BatteryStrategy:
         proj_str = f"{projected:.0f}%" if projected is not None else "?"
         rate_str = f"{rate:+.1f}%/h" if rate is not None else "?"
         mins_str = f"{mins} min" if mins is not None else "?"
+        # R7.1 (I-NE3 mirrors-decision): horizon minutes come from the SAME
+        # ProjectionResult the caller consumed (stored in
+        # `_attain_projection_horizon_min` immediately before this call).
+        # Reason string cites the primitive-provided horizon so the sensor
+        # narrative cannot drift from the value baked into `projected`.
+        horizon_val = self._attain_projection_horizon_min
+        horizon_str = (
+            f"{horizon_val:.0f} min" if horizon_val is not None else "?"
+        )
         reason = (
             f"Peak-buffer attainability{stage} — projected SOC "
             f"{proj_str} < target {self._peak_buffer_target}% "
             f"at {boundary_str} (observed net rate "
             f"{rate_str} over {ATTAIN_RATE_WINDOW_TICKS} ticks, "
-            f"{mins_str} remaining; solar consumed by house/EV loads)"
+            f"{mins_str} remaining; projection horizon {horizon_str}; "
+            f"solar consumed by house/EV loads)"
         )
         floored = self._floor_reserve(
             self._peak_buffer_target, effective_reserve, hold_depth,
@@ -3551,11 +3576,29 @@ class BatteryStrategy:
                     bound_to_solar_horizon=False,
                 )
                 projected = _proj_hc.raw_soc_pct  # None when blind
+                # R7.1 (I-NE3): update stored observability from the SAME
+                # ProjectionResult the decision consumes. Prior to R7.1 this
+                # site left `_attain_projected_soc` frozen at the entry-time
+                # value (stale-text class — e.g. "153% < 80%" surviving on
+                # the sensor long after the decision moved on).
+                if projected is not None:
+                    self._attain_projected_soc = round(projected, 1)
+                    self._attain_solar_term_pct = round(solar_surplus, 1)
+                    self._attain_projection_horizon_min = _proj_hc.horizon_min
+                else:
+                    # Blind (soc=None): "?" projection must not sit beside a
+                    # concrete horizon — blank the mirror symmetrically.
+                    self._attain_projection_horizon_min = None
             else:
+                # R7.2: delete fallbacks
                 projected = (
                     soc + (mins / 60.0) * rate + solar_surplus  # R7-SINGLETON-EXEMPT: kill-switch fallback
                     if soc is not None and rate is not None else None
                 )
+                if projected is not None:
+                    self._attain_projected_soc = round(projected, 1)
+                    self._attain_solar_term_pct = round(solar_surplus, 1)
+                self._attain_projection_horizon_min = float(mins)
             return self._get_attainability_decision(
                 soc=soc, now=now,
                 target_day_class=target_day_class,
@@ -4463,7 +4506,38 @@ class BatteryStrategy:
                 )
             )
             target_reserve = max(0, min(100, reserve_level))
-            if current_reserve is None or abs(current_reserve - target_reserve) >= 2:
+            # Root 2 (a) — HARD STAND-DOWN honesty. During a stand-down
+            # on the reserve surface at `target_reserve` (== the stuck
+            # non-compliant value), the normal 5-min dispatch tick MUST
+            # NOT keep re-dispatching the same value. That would be
+            # exactly the fight the stand-down was declared to prevent.
+            # Any change in effective desire → target_reserve differs
+            # from `_pending_standdown_value` → skip does not trigger →
+            # the append proceeds normally = automatic resume. Reads via
+            # the WriteVerifier public accessor so stand-down state
+            # lives in one place.
+            _wv = getattr(self, "_write_verifier", None)
+            _standdown_skip = False
+            if _wv is not None:
+                try:
+                    from .energy_write_verify import (  # noqa: PLC0415
+                        WRITE_VERIFY_SURFACE_RESERVE,
+                    )
+                    if _wv.is_standdown_active_for_value(
+                        WRITE_VERIFY_SURFACE_RESERVE, target_reserve,
+                    ):
+                        _standdown_skip = True
+                        _LOGGER.debug(
+                            "_result: reserve dispatch SKIPPED "
+                            "(stand-down active for value=%d)",
+                            target_reserve,
+                        )
+                except Exception:  # noqa: BLE001
+                    _standdown_skip = False
+            if not _standdown_skip and (
+                current_reserve is None
+                or abs(current_reserve - target_reserve) >= 2
+            ):
                 actions.append({
                     "service": "number.set_value",
                     "target": self._get_entity(
@@ -4752,6 +4826,138 @@ class BatteryStrategy:
             return f"drain to {drain}% during off-peak (tomorrow={tomorrow_class})"
         return "hold at current SOC"
 
+    async def force_redispatch(self, surface: str) -> None:
+        """v5.19.0 D2 — narrow re-dispatch entrypoint for the pending
+        watchdog.
+
+        Contract (Tier 3, ratified 2026-07-17):
+
+        * Re-derives the LIVE strategy desire at fire time; NEVER replays
+          a stale detection-time value (retry freshness constraint).
+        * Requires `_desired_stamped_at` fresh (< 600s). Stale desire =
+          blind = no commands (I-D3).
+        * Dispatches ONE service call through the HA service bus using
+          the SAME entity choke point (`_get_entity(..., role="write")`)
+          the normal emission uses. Does NOT bypass the single-writer.
+        * Stamps the commanded ledger (`_last_reserve_level`,
+          `_last_reserve_level_at`) with the re-dispatched value.
+          `_last_reserve_level_at` is advanced ONLY when the value
+          differs from the prior ledger value (same-value retries do
+          NOT anchor a new episode window — the pending watchdog's
+          `commanded_at` anchor is unchanged so the current episode
+          continues through the ladder). See the guard at step (5).
+        * Persistence: RAM-only. A restart wipes the retry state; this
+          is intentional (see planning doc §Non-goals — no new
+          persistence).
+
+        Surface support: `reserve_soc` today. Other surfaces intentionally
+        no-op (would need `charge_from_grid` / `storage_mode` retry
+        semantics designed; scope-limited per plan Non-goals).
+        """
+        from homeassistant.util import dt as dt_util
+        from .energy_const import DEFAULT_RESERVE_SOC_ENTITY
+        from .energy_write_verify import WRITE_VERIFY_SURFACE_RESERVE
+        if surface != WRITE_VERIFY_SURFACE_RESERVE:
+            _LOGGER.debug(
+                "force_redispatch: surface %s not supported today", surface,
+            )
+            return
+        # (1) freshness re-check — belt+suspenders vs the caller's own
+        # check. A retry MUST NOT run while blind.
+        _dsa = getattr(self, "_desired_stamped_at", None)
+        if _dsa is None:
+            _LOGGER.info(
+                "force_redispatch(%s): desire never stamped — no-op "
+                "(I-D3 blind)",
+                surface,
+            )
+            return
+        try:
+            _age = (dt_util.utcnow() - _dsa).total_seconds()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "force_redispatch: desire stamp compare failed", exc_info=True,
+            )
+            return
+        if _age > 600:
+            _LOGGER.info(
+                "force_redispatch(%s): desire stale (age=%.0fs > 600s) "
+                "— no-op (I-D3 blind)",
+                surface, _age,
+            )
+            return
+        # (2) re-derive LIVE desire at fire time. NEVER capture upstream.
+        # Root 1 fix (D-HIGH-1) — use EFFECTIVE post-overlay desire when
+        # the write-verifier is wired. `_last_reserve_level_desired` is
+        # the PRE-overlay strategy value; during an active EVSE hold the
+        # hardware needs the post-overlay max()-raised value (e.g. 61)
+        # instead of the strategy pre-overlay (e.g. 15). Re-dispatching
+        # the pre-overlay value would clobber the hold and drain the
+        # battery into the car. Fall back to pre-overlay only when the
+        # verifier is not yet wired (early boot / test).
+        live_desire = None
+        wv = getattr(self, "_write_verifier", None)
+        if wv is not None:
+            try:
+                live_desire = wv._effective_reserve_desired(self)  # noqa: SLF001
+            except Exception:  # noqa: BLE001
+                live_desire = None
+        if live_desire is None:
+            live_desire = getattr(self, "_last_reserve_level_desired", None)
+        if live_desire is None:
+            _LOGGER.info(
+                "force_redispatch(%s): no live desire — no-op", surface,
+            )
+            return
+        try:
+            live_desire = int(max(0, min(100, int(live_desire))))
+        except (TypeError, ValueError):
+            _LOGGER.debug(
+                "force_redispatch: desire not coercible to int (%r)",
+                live_desire,
+            )
+            return
+        # (3) resolve the write target via the same choke point as
+        # `_result`. role="write" respects the H1 cloud-first routing.
+        target = self._get_entity(
+            "reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY, role="write",
+        )
+        if not target:
+            _LOGGER.debug(
+                "force_redispatch(%s): no write target resolved", surface,
+            )
+            return
+        # (4) dispatch through the HA service bus. Best-effort — a raise
+        # here MUST NOT crash the sweep.
+        try:
+            await self.hass.services.async_call(
+                "number", "set_value",
+                {"entity_id": target, "value": live_desire},
+                blocking=True,
+            )
+            _LOGGER.info(
+                "force_redispatch(%s): re-dispatched value=%d to %s",
+                surface, live_desire, target,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "force_redispatch(%s): service call failed", surface,
+                exc_info=True,
+            )
+            return
+        # (5) stamp commanded ledger with the re-dispatched value so the
+        # sweep sees a fresh commanded_at anchor. Mirrors the stamping
+        # in _tap_write_verifier (energy.py:5236-5245).
+        try:
+            _now = dt_util.utcnow()
+            if self._last_reserve_level != live_desire:
+                self._last_reserve_level_at = _now
+            self._last_reserve_level = live_desire
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "force_redispatch: ledger stamp failed", exc_info=True,
+            )
+
     def get_status(self) -> dict[str, Any]:
         """Return current battery strategy status for sensor.
 
@@ -4838,6 +5044,9 @@ class BatteryStrategy:
             "attain_state": self._attain_state,
             "attain_projected_soc_at_boundary": self._attain_projected_soc,
             "attain_solar_term_pct": self._attain_solar_term_pct,
+            # R7.1 (I-NE3): projection horizon (minutes) mirrored from the
+            # same ProjectionResult that produced `attain_projected_...`.
+            "attain_projection_horizon_min": self._attain_projection_horizon_min,
             "arbitrage_chunk_completed": self._arbitrage_chunk_completed,
             "arbitrage_charge_lead_time_min": self._arbitrage_charge_lead_time_min,
             # v4.5.0.2 grid-import guard surfaces.

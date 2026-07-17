@@ -54,19 +54,23 @@ attain wiring (2 HIGH, fixed). 18 mutations executed RED across both cycles;
 orchestrator independently re-executed one mutation per cycle (both RED,
 restores byte-identical).
 
-## Live Validation (prospective — to be replaced with Validated table post-restart)
-- **Live:** HA restarts clean; all 40 rooms set up; zero URA ERROR logs
-  referencing `energy_projector`, `energy_forecast`, or `predicted_consumption`.
-- **Live:** `sensor.ura_energy_coordinator_battery_strategy` still carries
-  rung/attain projection attrs (`arb_projection_rung0/1`,
-  `attain_projected_soc_at_boundary`) with plausible (≤100 display) values.
-- **Live (R1 shadow):** within 48h, at least one `energy_daily` row has
-  `predicted_consumption_source` NOT NULL (expected `legacy_dow` while shadow
-  on, `v1_regression` in the shadow attrs).
-- **Live (v5.17.6):** no storm precharge expected (no alert active); code-path
-  dormant — criterion is absence of regression in inclement attrs on
-  `sensor.ura_energy_coordinator_battery_strategy`.
-- **Live (R7):** first arbitrage/attain tick post-restart produces a decision
-  with reason string carrying a projection value — confirms primitive wired.
-- **14-day shadow clock starts at this deploy** for R1; R2 build is gated on
-  the observed shadow MAE.
+## Live Validation — Validated 2026-07-16 (restart 17:10 CDT)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Clean restart, zero URA ERRORs | PASS | error_log filtered `universal_room_automation` level=ERROR → 0 lines at 17:16 (6 min post-boot). All boot WARNINGs known-transient classes (sensor-unavailable holds, camera census warm-up). |
+| No `energy_projector`/`energy_forecast` errors | PASS | Zero log hits for either module. |
+| Battery strategy sensor live with sane attrs | PASS | `sensor.ura_energy_coordinator_battery_strategy` updated 17:13: `target_day_class=good`, `peak_buffer_target=80`. Projection attrs null — as-expected during PEAK (ladder only runs in charge windows; identical pre-R7). Populated-projection check deferred to tomorrow's ~11:00 window (Shipwatch H2). |
+| Peak hold behavior intact (I-AH1/freeze family) | PASS | Reserve 79 vs Envoy SOC 83 at 17:13 — freeze-at-SOC tracking through peak, same behavior as pre-deploy trace. |
+| v5.17.5 degraded-decide exercised organically | PASS (bonus) | Boot log 17:10:52: "SOC primary+LKG unavailable — using cloud fallback 85.5%" — degraded tick decided normally while Envoy warmed up; no blind freeze. |
+| v5.17.6 storm precharge | as-expected (dormant) | No active NWS alert; inclement attrs present (`inclement_reserve_floor=10`), no regression. Code path awaits a real storm window. |
+| R1 shadow marker in `energy_daily` | PENDING (by design) | Row written at daily rollover; NOT-NULL `predicted_consumption_source` check due within 48h (2026-07-18). |
+
+Boot-only transients dismissed: strategy sensor state `unknown` for first
+minutes while attrs populate (pre-existing pattern); Envoy entity
+registry-known-no-state warning (device recovering; EC degraded gracefully
+per design).
+
+**14-day R1 shadow clock started 2026-07-16.** R2 build gated on observed
+shadow MAE + the 48h marker check + D-MED-1 (`_adjustment_factor` reset)
+prerequisite.
