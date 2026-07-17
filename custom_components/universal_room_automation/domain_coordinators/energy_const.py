@@ -330,6 +330,42 @@ WRITE_VERIFY_NM_SURFACES: Final = (
 )
 
 # ============================================================================
+# Cloud-reliance hardening (v5.20.0 — Tier 3 elevated)
+# ------------------------------------------------------------------
+# D2 read-side telemetry divergence + tier-disagreement observability. Sits
+# ABOVE the read-side SOC resolver (energy_battery.py:battery_soc, ~:650-758)
+# but STRICTLY BENEATH the write-verify surface (energy_write_verify.py — that
+# cycle owns command_trail / pending / conduct; this cycle owns SOC READ
+# witness divergence and cloud settings-lag freshness).
+#
+# All knobs are rung-1 MODULE CONSTANTS per Numbers Get Knobs ladder:
+# every one is a safety trade-off / anti-flap / alert cadence. None is a
+# policy the operator legitimately tunes by observation. Change requires
+# reviewed code change. Kill-switch: setting CONF_CLOUD_LAG_ALERT_S = 0
+# disables cloud-lag NM alerting (attribute still populated for
+# observability). Divergence detection is disabled by
+# CONF_SOC_DIVERGENCE_THRESHOLD_PP = 0 (attribute cleared, no NM).
+#
+# NOTE (naming): CONF_ prefix per operator spec, mirrors CONF_CONDUCT_* in
+# the behavioral-write-verify surface. These are NOT config-flow fields —
+# they are module constants. The prefix is a name-collision anchor for
+# audits.
+#
+# DISTINCTNESS from write-verify: write-verify already exposes reserve /
+# storage_mode / charge_from_grid oracle command_trail on the battery
+# strategy sensor. This cycle adds a NEW attribute namespace
+# `soc_resolution` (dict) documenting the SOC READ side: which resolver
+# tier served this tick, per-tier values + ages, cloud-vs-local pp
+# divergence, and cloud settings-write freshness. No key overlap.
+# ============================================================================
+CONF_SOC_DIVERGENCE_THRESHOLD_PP: Final = 10  # planner default
+CONF_SOC_DIVERGENCE_DWELL_MIN: Final = 5      # planner default, anti-flap
+CONF_SOC_DIVERGENCE_HYSTERESIS_PP: Final = 2  # planner default
+CONF_CLOUD_LAG_ALERT_S: Final = 1800          # planner default (30 min).
+                                              # Kill-switch: 0 disables NM.
+CONF_CLOUD_LAG_DWELL_MIN: Final = 5           # planner default, anti-flap
+
+# ============================================================================
 # Behavioral write-verify (v5.19.0 — Tier 3)
 # ------------------------------------------------------------------
 # Two behavioral tripwires on top of the echo-verify surface:
