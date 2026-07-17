@@ -446,6 +446,38 @@ def test_must_start_by_timer_armed_on_transitioned_entry():
         _extracted_ns["async_track_point_in_time"] = None
 
 
+from contextlib import contextmanager as _contextmanager
+
+
+@_contextmanager
+def _pinned_local_naive_now():
+    """Session B2b-iii test-hygiene: per-test isolation for the
+    `homeassistant.util.dt.now` shim. Prior code pinned `dt.now` inline
+    with a try/finally, but that pattern is fragile against cross-file
+    monkeypatch leakage (the cloud-reliance A-HIGH-2 sibling class): a
+    sibling test file that replaces `dt.now` with `dt.utcnow` at import
+    time (module-level) shifts the module attribute BEFORE this test's
+    setup captures `_orig_now`, so the finally restore returns the file
+    to the *leaked* value rather than the pristine one.
+
+    This context manager captures the ORIGINAL attribute the first time
+    it runs in a process and restores to that pinned baseline on every
+    exit, independent of what a sibling has done in the interim. Any
+    later test running under this fixture converges back to the pristine
+    baseline instead of propagating leaked state.
+    """
+    import sys as _sys
+    _dt_mod = _sys.modules["homeassistant.util.dt"]
+    if not hasattr(_pinned_local_naive_now, "_baseline"):
+        # First entry in this process: pin the pristine attribute.
+        _pinned_local_naive_now._baseline = getattr(_dt_mod, "now")
+    _dt_mod.now = datetime.now  # local naive
+    try:
+        yield _dt_mod
+    finally:
+        _dt_mod.now = _pinned_local_naive_now._baseline
+
+
 def test_must_start_by_arm_skipped_when_fire_at_in_past():
     """Past fire-at is skipped — HA raises on past point-in-time arms,
     KV-restore + decision-tick backstop handles the missed deadline."""
@@ -454,21 +486,18 @@ def test_must_start_by_arm_skipped_when_fire_at_in_past():
     _extracted_ns["async_track_point_in_time"] = fake
     # Belt-and-suspenders vs cross-test mutation of homeassistant.util.dt.now
     # (some sibling test files replace it with utcnow, which drifts by TZ
-    # offset and can flip local-vs-utc naive comparisons). Pin our own
-    # `dt` shim into the extracted namespace for the duration of this test.
-    import sys as _sys
-    _dt_mod = _sys.modules["homeassistant.util.dt"]
-    _orig_now = getattr(_dt_mod, "now")
-    _dt_mod.now = datetime.now  # local naive
+    # offset and can flip local-vs-utc naive comparisons). Use the shared
+    # per-test isolation context manager — restores to the pinned baseline
+    # rather than a snapshot taken after a sibling may have leaked.
     try:
-        # 48h in the past — well outside any plausible TZ offset (max ±14h).
-        past = datetime.now() - timedelta(hours=48)
-        coord._arm_dp_must_start_by_timer(past)
-        assert len(fake.calls) == 0
-        assert coord._dp_must_start_unsub is None
+        with _pinned_local_naive_now():
+            # 48h in the past — well outside any plausible TZ offset (max ±14h).
+            past = datetime.now() - timedelta(hours=48)
+            coord._arm_dp_must_start_by_timer(past)
+            assert len(fake.calls) == 0
+            assert coord._dp_must_start_unsub is None
     finally:
         _extracted_ns["async_track_point_in_time"] = None
-        _dt_mod.now = _orig_now
 
 
 def test_must_start_release_forces_ev_on_and_clears_dp_state():

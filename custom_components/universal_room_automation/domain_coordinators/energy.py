@@ -3136,6 +3136,74 @@ class EnergyCoordinator(BaseCoordinator):
 
         Uses the SOC captured at hold start to prevent ratchet-down effect
         where each cycle locks to progressively lower SOC.
+
+        ------------------------------------------------------------------
+        RESERVE COMPOSITION — single authoritative reference
+        ------------------------------------------------------------------
+        The reserve % emitted through the reserve action is the max() over
+        every contributor below. All units are % SOC (0-100); each sign is
+        a FLOOR (minimum acceptable reserve). max() preserves the strongest
+        protection; no contributor may demote another.
+
+        Contributors, in precedence order (matches Session B2b-iii
+        `WriteVerifier._resolve_hold_owner` at
+        energy_write_verify.py:1389-1418 and the effective-desired
+        composition at :1418-1451):
+
+          1. Strategy base + folds (`decision["actions"][*].data.value`,
+             AKA `existing_val` in the update-in-place leg). Composed on
+             the strategy side before this overlay runs:
+               * reserve_soc knob                (energy_battery.py:4407)
+               * inclement partial_hold clamp    (energy_battery.py:4451-4453)
+               * inclement full_hold             (energy_battery.py:4428)
+               * arbitrage / attain floor        (energy_battery.py:4439,4447)
+             All folded into `reserve_floor` and emitted by
+             `_result` (energy_battery.py:3562-3564).
+          2. EVSE hold overlay (`hold_reserve` — captured at hold entry,
+             stored in `self._evse_hold_soc`; set/cleared by the
+             hold-active caller in `_result` energy.py:3546 + evaluate
+             path energy.py:4498-4505). Clamped UP to
+             `_last_reserve_level_desired` (or ledger fallback on boot
+             HOLD-CURRENT paths) in the append leg to avoid oscillation
+             under strategy holds (energy.py:3290-3309, v5.17.1 D-HIGH-2
+             / v5.17.3 D-MED-1).
+          3. DP-owned drain floor (`_dp_decision_soc` — energy.py:370;
+             stamped by `_apply_dp_transition` :3444 when the DP state
+             machine enters TRANSITIONED, cleared by `_apply_dp_reversion`
+             :3515 / `_apply_dp_must_start_release` :3565). Folded into
+             BOTH branches:
+               * update-in-place leg   (energy.py:3224-3231, INV-DP3)
+               * append leg            (energy.py:3320-3325, INV-DP3 parity)
+             INV-DP3 is monotonic max() supremacy — the fit-supremacy
+             invariant guarantees the transition floor cannot be demoted
+             for the duration of TRANSITIONED.
+          4. Stand-down gate (D2-HIGH-1). Applied AFTER the max()
+             composition on the post-fold effective value. If a hard
+             stand-down is pinned on that value for the reserve surface
+             (`WriteVerifier.is_standdown_active_for_value` at
+             energy_write_verify.py:1417-1436), the overlay emits NO
+             reserve action for this tick — mirrors `_result`'s
+             stand-down skip so the overlay side cannot re-break a
+             pinned surface. Any change in effective desire cancels the
+             gate (pinned value no longer matches) and dispatch resumes.
+             Update-in-place leg: energy.py:3241-3251. Append leg:
+             energy.py:3331-3337.
+          5. Deadband suppression (`_result` responsibility, not this
+             overlay's). `_result` deadband (energy_battery.py :3834+
+             — INV-D2-DEADBAND / INV-EV-DEADBAND) suppresses dispatch
+             within ±2%; the ledger-stamp at :3268-3270 / :3357-3359
+             keeps the commanded ledger in sync with the effective
+             post-max() value so the write-verification sweep does not
+             false-alarm `write_reverted` during standing holds.
+
+        Downstream, the write-verifier's `_effective_reserve_desired`
+        (energy_write_verify.py :1418-1451) recomposes the same contributor
+        set on the READ side so the pending watchdog + reversion sweep
+        treat DP-elevated / hold-elevated / inclement-elevated reserves as
+        the desired value, not as wedges. Any new floor added to this
+        method MUST also be added to `_effective_reserve_desired` — the
+        two composers must stay in lock-step (INV-DP5 mirror invariant).
+        ------------------------------------------------------------------
         """
         # Use captured SOC from hold start, fall back to current SOC
         hold_reserve = self._evse_hold_soc
@@ -4494,6 +4562,18 @@ class EnergyCoordinator(BaseCoordinator):
         decision = self._battery.determine_mode(period, season, now=dt_util.now())
 
         # C1 fix: Apply EVSE battery hold in evaluate path too (not just timer path)
+        #
+        # Session B2b-iii call-site audit — this second `_apply_evse_battery_hold`
+        # call site (`_evaluate_battery`) is NOT diagnostic-only. It is
+        # invoked from `evaluate()` on TOU-period transitions (energy.py:1118)
+        # and its output feeds `CoordinatorAction`s dispatched to hardware
+        # (energy.py:4519-4529 below). Symmetric DP wiring is inherent:
+        # `_apply_evse_battery_hold` reads `self._dp_decision_soc` internally
+        # in BOTH the update-in-place leg (energy.py:3224) and the append leg
+        # (energy.py:3320), so any DP-elevated floor is composed here for
+        # free — no additional wiring required. Evidence of consumption:
+        # `evaluate()` returns actions to `CoordinatorManager._run_all_evaluations`
+        # which dispatches them via the standard action pipeline.
         if self._is_any_evse_charging():
             if not self._evse_battery_hold_active:
                 soc = decision.get("soc")
