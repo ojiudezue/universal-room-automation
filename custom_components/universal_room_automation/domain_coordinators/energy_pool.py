@@ -776,6 +776,14 @@ class EVChargerController:
                     or evse_id in self._paused_by_grid_cap
                     or evse_id in self._paused_by_arbitrage
                     or evse_id in self._paused_by_load_shed
+                    # Session B2b-ii: `_paused_by_dp` is a peer of the
+                    # other stronger owners here. Excess-solar turn-on
+                    # must NOT re-enable an EVSE the drain-precedence
+                    # state machine holds paused (draining the house
+                    # battery down to the drain target so night charging
+                    # runs off-peak). Symmetric with the carry-over guard
+                    # in the off_peak ensure-on branch (B2b-i).
+                    or evse_id in self._paused_by_dp
                 ):
                     _LOGGER.debug(
                         "Excess solar: %s held by stronger pause reason — skipping",
