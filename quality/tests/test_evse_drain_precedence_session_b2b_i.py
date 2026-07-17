@@ -545,18 +545,30 @@ def test_force_charge_preempts_dp_pause_release():
     hass = _build_hass()
     ev = _build_ev(hass)
     ev._paused_by_dp.add("garage_a")
-    # Arm force-charge: 1 hour into future. `dt_util.utcnow` is mocked
-    # to naive `datetime.utcnow`, so use a matching naive datetime.
+    # B2c-1 fix-up item 7 (HIGH test-hygiene): use a FROZEN injected clock
+    # rather than naive `datetime.utcnow()` — the underlying comparison
+    # is `_force_charge_until > dt_util.utcnow()`, so a live naive-utc
+    # read is race-prone if the process pauses between assignment and
+    # `determine_actions`. Pin `dt_util.utcnow` to a fixed moment and
+    # restore in a finally.
     from datetime import timedelta as _td
-    ev._force_charge_until = datetime.utcnow() + _td(hours=1)
-    # Peak branch: force-charge active → continues past pause;
-    # `_paused_by_dp` is NOT touched (DP owns its set exclusively).
-    _ = ev.determine_actions("peak", grid_charge_on=False)
-    assert "garage_a" in ev._paused_by_dp, (
-        "force-charge branch must NOT strip DP ownership; force-charge is "
-        "a window override, not a set owner. If the DP set was cleared here "
-        "the release path became racy."
-    )
+    import sys as _sys
+    _dt_mod = _sys.modules["homeassistant.util.dt"]
+    _orig_utcnow = getattr(_dt_mod, "utcnow")
+    _pinned = datetime(2026, 7, 17, 2, 0, 0)
+    _dt_mod.utcnow = lambda: _pinned
+    try:
+        ev._force_charge_until = _pinned + _td(hours=1)
+        # Peak branch: force-charge active → continues past pause;
+        # `_paused_by_dp` is NOT touched (DP owns its set exclusively).
+        _ = ev.determine_actions("peak", grid_charge_on=False)
+        assert "garage_a" in ev._paused_by_dp, (
+            "force-charge branch must NOT strip DP ownership; force-charge is "
+            "a window override, not a set owner. If the DP set was cleared here "
+            "the release path became racy."
+        )
+    finally:
+        _dt_mod.utcnow = _orig_utcnow
 
 
 # ==========================================================================

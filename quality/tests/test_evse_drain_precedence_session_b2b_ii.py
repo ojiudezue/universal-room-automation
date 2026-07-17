@@ -430,20 +430,30 @@ def test_must_start_by_timer_armed_on_transitioned_entry():
     coord, _, _ = _make_coord()
     fake = _FakeATP()
     _extracted_ns["async_track_point_in_time"] = fake
+    # B2c-1 fix-up item 7 (HIGH test-hygiene): frozen/injected clock w/
+    # teardown — was naive `datetime.now()` reads which drift across
+    # cross-file `dt.now` monkeypatch leakage. Pin to a fixed moment for
+    # the duration of the test and restore in the finally.
+    import sys as _sys
+    _dt_mod = _sys.modules["homeassistant.util.dt"]
+    _orig_now = getattr(_dt_mod, "now")
+    _pinned = datetime(2026, 7, 17, 2, 0, 0)
+    _dt_mod.now = lambda: _pinned
     try:
-        fire_at = datetime.now() + timedelta(hours=3)
+        fire_at = _pinned + timedelta(hours=3)
         coord._arm_dp_must_start_by_timer(fire_at)
         assert len(fake.calls) == 1, (
             f"expected exactly one async_track_point_in_time call, got {fake.calls}"
         )
         assert coord._dp_must_start_unsub is not None
         # Idempotent re-arm cancels prior handle.
-        fire_at2 = datetime.now() + timedelta(hours=4)
+        fire_at2 = _pinned + timedelta(hours=4)
         coord._arm_dp_must_start_by_timer(fire_at2)
         assert fake.cancels == 1
         assert len(fake.calls) == 2
     finally:
         _extracted_ns["async_track_point_in_time"] = None
+        _dt_mod.now = _orig_now
 
 
 from contextlib import contextmanager as _contextmanager

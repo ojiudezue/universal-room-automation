@@ -126,6 +126,14 @@ from .signals import (
 _LOGGER = logging.getLogger(__name__)
 
 
+class _DPSkip(Exception):
+    """B2c-1 fix-up item 6: sentinel used inside the DP tick try/except to
+    short-circuit out of the DP-eval branch when the night-window gate
+    (off_peak-only) is closed. Distinct from generic Exception so the
+    broad `except Exception` swallow doesn't emit a spurious debug log
+    on the (frequent) gate-closed path."""
+
+
 class EnergyCoordinator(BaseCoordinator):
     """Energy domain coordinator — TOU awareness, battery optimization, solar forecasting.
 
@@ -3140,6 +3148,219 @@ class EnergyCoordinator(BaseCoordinator):
                 return True
         return False
 
+    def _dp_house_load_kw(self, ev_load_w: float | None) -> float:
+        """Resolve live house-load (kW) for the drain-precedence tick.
+
+        B2c-1 fix-up (item 2 — CRITICAL, was 0.0 stub).
+
+        Two independent readings, honoring
+        `CONF_DP_HOUSE_LOAD_SOURCE` selector values:
+            * "live_span" — SPAN mains (r1 + r2) in W, minus EVSE draw.
+            * "r1_base"   — R1 fitted-model daily prediction / 24h.
+            * "max_span_r1" (default) — max of the two.
+
+        Both readings are None-safe (missing / stale entity returns None).
+        If BOTH are unavailable, returns 0.0 — the caller feeds this into
+        `TransitionInputs.house_load_kw`, and `_dp_maybe_tick` treats a
+        non-positive value as MISSING_INPUTS → abstain (no state change).
+        """
+        # (a) Live SPAN mains — sum r1 + r2 (W), subtract EVSE draw.
+        span_r1 = self._get_state_float("sensor.span_panel_current_power")
+        span_r2 = self._get_state_float("sensor.span_panel_current_power_2")
+        live_kw: float | None = None
+        if span_r1 is not None or span_r2 is not None:
+            total_w = (span_r1 or 0.0) + (span_r2 or 0.0)
+            total_w -= float(ev_load_w or 0.0)
+            live_kw = max(0.0, total_w / 1000.0)
+
+        # (b) R1 fitted-model base: predicted daily consumption / 24h.
+        base_kw: float | None = None
+        try:
+            forecast = self._predictor._get_current_prediction()  # noqa: SLF001
+            pc = forecast.get("predicted_consumption_kwh")
+            if pc is not None:
+                base_kw = float(pc) / 24.0
+        except Exception:  # noqa: BLE001
+            base_kw = None
+
+        src = getattr(self, "_dp_house_load_source", "max_span_r1")
+        if src == "live_span":
+            return float(live_kw) if live_kw is not None else 0.0
+        if src == "r1_base":
+            return float(base_kw) if base_kw is not None else 0.0
+        # "max_span_r1" default
+        candidates = [v for v in (live_kw, base_kw) if v is not None]
+        return float(max(candidates)) if candidates else 0.0
+
+    def _dp_decision_tick(
+        self, decision: dict[str, Any], period: str, ev_load_w: float | None,
+    ) -> None:
+        """Drain-precedence per-cycle tick body (B2c-1 fix-up extraction).
+
+        Moved out of `_decision_cycle_impl` so tests can drive the exact
+        block bytes end-to-end. Callers wrap this in `try/except _DPSkip`
+        (night-gate short-circuit) + generic `except Exception` (defensive
+        swallow).
+
+        Fix-up items landed here:
+            1. CRITICAL — paused-aware exit predicate (was `not
+               _is_any_evse_charging` → flapped false the same tick DP
+               dispatched turn_off).
+            2. CRITICAL — live `house_load_kw` (was 0.0 stub).
+            3. HIGH     — real fully-blind signal (was invented attr).
+            4. HIGH     — second plug-in re-scan (car B claimed +1 tick).
+            5. HIGH     — kill-switch hoist BEFORE night gate (mid-window
+               flip-off releases pause + reverts carrier same-tick,
+               daytime or not).
+            6. HIGH     — night-window gate (off_peak only) via
+               `_tou.get_current_period()` — never hardcode hours.
+        """
+        from homeassistant.util import dt as dt_util  # local for tests
+        from .energy_drain_precedence import (
+            is_dp_enabled as _dp_is_enabled,
+            _dp_maybe_tick as _dp_tick,
+            TransitionInputs as _DPInputs,
+            compute_must_start_by as _dp_compute_must_start_by,
+            DPState as _DPState,
+        )
+
+        # ---- item 5: kill-switch hoist (runs unconditionally FIRST) ----
+        _dp_on = _dp_is_enabled(self)
+        if not _dp_on:
+            _has_dp_state = (
+                bool(self._ev._paused_by_dp)  # noqa: SLF001
+                or self._dp_decision_soc is not None
+                or self._dp_carrier.state != _DPState.HOLD_ONLY
+            )
+            if _has_dp_state:
+                self._apply_dp_reversion(tou_period=period)
+                _unsub = getattr(self, "_dp_must_start_unsub", None)
+                if _unsub is not None:
+                    try:
+                        _unsub()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    self._dp_must_start_unsub = None
+                self._dp_carrier.state = _DPState.HOLD_ONLY
+                self.hass.async_create_task(self._save_evse_state())
+
+        # ---- item 6: night-window gate ----
+        if not _dp_on or self._tou.get_current_period() != "off_peak":
+            raise _DPSkip()
+
+        _prev_dp_state = self._dp_carrier.state
+        _now_dp = dt_util.now()
+        _soc = decision.get("soc")
+
+        # ---- item 3: real fully-blind signal ----
+        try:
+            _env_ok = bool(self._battery.envoy_available)
+        except Exception:  # noqa: BLE001
+            _env_ok = True
+        try:
+            _bat_soc = self._battery.battery_soc
+        except Exception:  # noqa: BLE001
+            _bat_soc = None
+
+        _dp_inputs = _DPInputs(
+            dp_enabled=True,
+            is_blind_hold=bool((not _env_ok) and _bat_soc is None),
+            force_charge_active=(
+                self._ev._force_charge_until is not None  # noqa: SLF001
+                and self._ev._force_charge_until > _now_dp  # noqa: SLF001
+            ),
+            soc=int(_soc) if _soc is not None else None,
+            drain_target_soc=int(self._ev_battery_drain_soc),
+            any_evse_charging=self._is_any_evse_charging(),
+            charger_rate_kw=float((ev_load_w or 0.0) / 1000.0),
+            needed_kwh=float(
+                self._dp_needed_kwh_garage_a + self._dp_needed_kwh_garage_b
+            ),
+            # ---- item 2: live house-load ----
+            house_load_kw=self._dp_house_load_kw(ev_load_w),
+            now=_now_dp,
+            must_start_by_dt=_dp_compute_must_start_by(
+                _now_dp,
+                minutes_past_midnight=self._dp_must_start_by_min,
+            ),
+            margin_min=int(self._dp_margin_min),
+            eval_delay_min=int(self._dp_eval_delay_min),
+        )
+
+        def _persist_dp(_c):
+            self.hass.async_create_task(self._save_evse_state())
+
+        _dp_tick(
+            self._dp_carrier, _dp_inputs,
+            now_provider=dt_util.now,
+            persister=_persist_dp,
+        )
+
+        # Fresh entry to TRANSITIONED: actuate + arm must-start-by timer.
+        if (
+            _prev_dp_state != _DPState.TRANSITIONED
+            and self._dp_carrier.state == _DPState.TRANSITIONED
+        ):
+            _pause_ids = [
+                eid for eid in self._ev._evse  # noqa: SLF001
+                if self._ev._get_evse_state(eid).get("charging", False)  # noqa: SLF001
+            ]
+
+            class _DPAct:
+                transition = True
+                drain_target_soc = int(self._ev_battery_drain_soc)
+                evse_ids_to_pause = _pause_ids
+            self._apply_dp_transition(_DPAct())
+            if self._dp_carrier.must_start_by_dt is not None:
+                self._arm_dp_must_start_by_timer(
+                    self._dp_carrier.must_start_by_dt,
+                )
+
+        # ---- item 4: second-plug-in re-scan while TRANSITIONED ----
+        if self._dp_carrier.state == _DPState.TRANSITIONED:
+            _fresh = [
+                eid for eid in self._ev._evse  # noqa: SLF001
+                if self._ev._get_evse_state(eid).get("charging", False)  # noqa: SLF001
+                and eid not in self._ev._paused_by_dp  # noqa: SLF001
+            ]
+            if _fresh:
+                class _DPActRescan:
+                    transition = True
+                    drain_target_soc = int(self._ev_battery_drain_soc)
+                    evse_ids_to_pause = _fresh
+                self._apply_dp_transition(_DPActRescan())
+
+        # State-machine-driven revert edge (future-proof; primary paths
+        # are the paused-aware exit below + must-start-by fire callback).
+        if (
+            _prev_dp_state == _DPState.TRANSITIONED
+            and self._dp_carrier.state == _DPState.HOLD_ONLY
+        ):
+            self._apply_dp_reversion(tou_period=period)
+
+        # ---- item 1: paused-aware exit predicate ----
+        _revert = False
+        if self._dp_carrier.state == _DPState.TRANSITIONED:
+            _drain = int(self._ev_battery_drain_soc)
+            if _soc is not None and int(_soc) <= _drain:
+                _revert = True
+        if self._dp_carrier.state == _DPState.MUST_START_FORCED:
+            _revert = True
+        if (
+            self._dp_carrier.state == _DPState.TRANSITIONED
+            and not self._ev._paused_by_dp  # noqa: SLF001
+            and not self._is_any_evse_charging()
+        ):
+            _revert = True
+        if _revert and self._dp_carrier.state == _DPState.TRANSITIONED:
+            from .energy_drain_precedence import try_transition as _dp_try
+            _dp_try(
+                self._dp_carrier, _DPState.HOLD_ONLY,
+                now_provider=dt_util.now,
+            )
+            self._apply_dp_reversion(tou_period=period)
+            self.hass.async_create_task(self._save_evse_state())
+
     def _apply_evse_battery_hold(self, decision: dict[str, Any]) -> dict[str, Any]:
         """Override battery reserve to captured SOC when EVSEs are charging.
 
@@ -4000,100 +4221,9 @@ class EnergyCoordinator(BaseCoordinator):
             # must-start-by fire are handled by the timer callback + the
             # charging-stopped branch below.
             try:
-                from .energy_drain_precedence import (
-                    is_dp_enabled as _dp_is_enabled,
-                    _dp_maybe_tick as _dp_tick,
-                    TransitionInputs as _DPInputs,
-                    compute_must_start_by as _dp_compute_must_start_by,
-                    DPState as _DPState,
-                )
-                if _dp_is_enabled(self):
-                    _prev_dp_state = self._dp_carrier.state
-                    _now_dp = dt_util.now()
-                    _soc = decision.get("soc")
-                    _dp_inputs = _DPInputs(
-                        dp_enabled=True,
-                        is_blind_hold=bool(
-                            getattr(self._battery, "_is_blind_hold_active", False)
-                        ),
-                        force_charge_active=(
-                            self._ev._force_charge_until is not None  # noqa: SLF001
-                            and self._ev._force_charge_until > _now_dp  # noqa: SLF001
-                        ),
-                        soc=int(_soc) if _soc is not None else None,
-                        drain_target_soc=int(self._ev_battery_drain_soc),
-                        any_evse_charging=self._is_any_evse_charging(),
-                        charger_rate_kw=float(
-                            (ev_load_w or 0.0) / 1000.0
-                        ),
-                        needed_kwh=float(
-                            self._dp_needed_kwh_garage_a
-                            + self._dp_needed_kwh_garage_b
-                        ),
-                        house_load_kw=0.0,  # B2b-iii wires live source
-                        now=_now_dp,
-                        must_start_by_dt=_dp_compute_must_start_by(
-                            _now_dp,
-                            minutes_past_midnight=self._dp_must_start_by_min,
-                        ),
-                        margin_min=int(self._dp_margin_min),
-                        eval_delay_min=int(self._dp_eval_delay_min),
-                    )
-
-                    def _persist_dp(_c):
-                        self.hass.async_create_task(self._save_evse_state())
-
-                    _dp_decision = _dp_tick(
-                        self._dp_carrier, _dp_inputs,
-                        now_provider=dt_util.now,
-                        persister=_persist_dp,
-                    )
-                    # Edge: HOLD_PRE_EVAL/EVAL_TRANSITION → TRANSITIONED
-                    # (fresh entry): actuate + arm must-start-by timer.
-                    if (
-                        _prev_dp_state != _DPState.TRANSITIONED
-                        and self._dp_carrier.state == _DPState.TRANSITIONED
-                    ):
-                        _pause_ids = [
-                            eid for eid in self._ev._evse  # noqa: SLF001
-                            if self._ev._get_evse_state(eid).get("charging", False)  # noqa: SLF001
-                        ]
-
-                        class _DPAct:
-                            transition = True
-                            drain_target_soc = int(self._ev_battery_drain_soc)
-                            evse_ids_to_pause = _pause_ids
-                        self._apply_dp_transition(_DPAct())
-                        if self._dp_carrier.must_start_by_dt is not None:
-                            self._arm_dp_must_start_by_timer(
-                                self._dp_carrier.must_start_by_dt,
-                            )
-                    # Edge: TRANSITIONED → HOLD_ONLY (clean reversion,
-                    # e.g. charging stopped): release pause + turn EVSEs
-                    # back on if TOU/peer state allow. `_dp_maybe_tick`
-                    # itself does NOT drive TRANSITIONED → HOLD_ONLY
-                    # (B2a docstring reserves that for B2b actuation) —
-                    # so this edge here is future-proofing; the primary
-                    # reversion path is the "charging-stopped" branch
-                    # below plus the must-start-by fire callback.
-                    if (
-                        _prev_dp_state == _DPState.TRANSITIONED
-                        and self._dp_carrier.state == _DPState.HOLD_ONLY
-                    ):
-                        self._apply_dp_reversion(tou_period=period)
-                    # Charging-stopped while TRANSITIONED: drive carrier
-                    # back to HOLD_ONLY + fire reversion sweep.
-                    if (
-                        self._dp_carrier.state == _DPState.TRANSITIONED
-                        and not self._is_any_evse_charging()
-                    ):
-                        from .energy_drain_precedence import try_transition as _dp_try
-                        _dp_try(
-                            self._dp_carrier, _DPState.HOLD_ONLY,
-                            now_provider=dt_util.now,
-                        )
-                        self._apply_dp_reversion(tou_period=period)
-                        self.hass.async_create_task(self._save_evse_state())
+                self._dp_decision_tick(decision, period, ev_load_w)
+            except _DPSkip:
+                pass
             except Exception:  # noqa: BLE001
                 _LOGGER.debug(
                     "drain-precedence tick raised (swallowed)", exc_info=True,
