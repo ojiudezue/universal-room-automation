@@ -4795,6 +4795,119 @@ class BatteryStrategy:
             return f"drain to {drain}% during off-peak (tomorrow={tomorrow_class})"
         return "hold at current SOC"
 
+    async def force_redispatch(self, surface: str) -> None:
+        """v5.19.0 D2 — narrow re-dispatch entrypoint for the pending
+        watchdog.
+
+        Contract (Tier 3, ratified 2026-07-17):
+
+        * Re-derives the LIVE strategy desire at fire time; NEVER replays
+          a stale detection-time value (retry freshness constraint).
+        * Requires `_desired_stamped_at` fresh (< 600s). Stale desire =
+          blind = no commands (I-D3).
+        * Dispatches ONE service call through the HA service bus using
+          the SAME entity choke point (`_get_entity(..., role="write")`)
+          the normal emission uses. Does NOT bypass the single-writer.
+        * Stamps the commanded ledger (`_last_reserve_level`,
+          `_last_reserve_level_at`) so `WriteVerifier._commanded_ledger`
+          sees the fresh anchor and the next watchdog tick starts a new
+          episode window.
+        * Persistence: RAM-only. A restart wipes the retry state; this
+          is intentional (see planning doc §Non-goals — no new
+          persistence).
+
+        Surface support: `reserve_soc` today. Other surfaces intentionally
+        no-op (would need `charge_from_grid` / `storage_mode` retry
+        semantics designed; scope-limited per plan Non-goals).
+        """
+        from homeassistant.util import dt as dt_util
+        from .energy_const import DEFAULT_RESERVE_SOC_ENTITY
+        from .energy_write_verify import WRITE_VERIFY_SURFACE_RESERVE
+        if surface != WRITE_VERIFY_SURFACE_RESERVE:
+            _LOGGER.debug(
+                "force_redispatch: surface %s not supported today", surface,
+            )
+            return
+        # (1) freshness re-check — belt+suspenders vs the caller's own
+        # check. A retry MUST NOT run while blind.
+        _dsa = getattr(self, "_desired_stamped_at", None)
+        if _dsa is None:
+            _LOGGER.info(
+                "force_redispatch(%s): desire never stamped — no-op "
+                "(I-D3 blind)",
+                surface,
+            )
+            return
+        try:
+            _age = (dt_util.utcnow() - _dsa).total_seconds()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "force_redispatch: desire stamp compare failed", exc_info=True,
+            )
+            return
+        if _age > 600:
+            _LOGGER.info(
+                "force_redispatch(%s): desire stale (age=%.0fs > 600s) "
+                "— no-op (I-D3 blind)",
+                surface, _age,
+            )
+            return
+        # (2) re-derive LIVE desire at fire time. NEVER capture upstream.
+        live_desire = getattr(self, "_last_reserve_level_desired", None)
+        if live_desire is None:
+            _LOGGER.info(
+                "force_redispatch(%s): no live desire — no-op", surface,
+            )
+            return
+        try:
+            live_desire = int(max(0, min(100, int(live_desire))))
+        except (TypeError, ValueError):
+            _LOGGER.debug(
+                "force_redispatch: desire not coercible to int (%r)",
+                live_desire,
+            )
+            return
+        # (3) resolve the write target via the same choke point as
+        # `_result`. role="write" respects the H1 cloud-first routing.
+        target = self._get_entity(
+            "reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY, role="write",
+        )
+        if not target:
+            _LOGGER.debug(
+                "force_redispatch(%s): no write target resolved", surface,
+            )
+            return
+        # (4) dispatch through the HA service bus. Best-effort — a raise
+        # here MUST NOT crash the sweep.
+        try:
+            await self.hass.services.async_call(
+                "number", "set_value",
+                {"entity_id": target, "value": live_desire},
+                blocking=True,
+            )
+            _LOGGER.info(
+                "force_redispatch(%s): re-dispatched value=%d to %s",
+                surface, live_desire, target,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "force_redispatch(%s): service call failed", surface,
+                exc_info=True,
+            )
+            return
+        # (5) stamp commanded ledger with the re-dispatched value so the
+        # sweep sees a fresh commanded_at anchor. Mirrors the stamping
+        # in _tap_write_verifier (energy.py:5236-5245).
+        try:
+            _now = dt_util.utcnow()
+            if self._last_reserve_level != live_desire:
+                self._last_reserve_level_at = _now
+            self._last_reserve_level = live_desire
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "force_redispatch: ledger stamp failed", exc_info=True,
+            )
+
     def get_status(self) -> dict[str, Any]:
         """Return current battery strategy status for sensor.
 
