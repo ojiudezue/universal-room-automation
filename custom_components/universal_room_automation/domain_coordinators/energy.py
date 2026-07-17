@@ -360,6 +360,14 @@ class EnergyCoordinator(BaseCoordinator):
         # sensor + KV persist/restore mount this instance directly.
         from .energy_drain_precedence import DrainPrecedenceState
         self._dp_carrier: DrainPrecedenceState = DrainPrecedenceState()
+        # Session B2b-i: DP-owned decision-SOC field, distinct from
+        # `_evse_hold_soc` (which the EVSE-hold overlay uses). When
+        # `_apply_dp_transition` claims a DP pause and requires the reserve
+        # floor to include `drain_target`, this field carries the drain
+        # target %; the update-in-place leg of `_apply_evse_battery_hold`
+        # reads it and folds it into the max()-composition (INV-DP3 fit
+        # supremacy). None outside an active DP TRANSITIONED window.
+        self._dp_decision_soc: int | None = None
 
         # v4.0.18: EV grid import cap
         self._grid_import_cap_enabled: bool = ec.get(
@@ -3181,8 +3189,37 @@ class EnergyCoordinator(BaseCoordinator):
         for i, action in enumerate(decision["actions"]):
             if action.get("target", "") == reserve_entity:
                 existing_val = action.get("data", {}).get("value", hold_reserve)
+                # Session B2b-i INV-DP3 (fit-supremacy) composition — the
+                # update-in-place leg is the single reserve-write site that
+                # every strategy floor already flows through:
+                #   - `existing_val` carries the BatteryStrategy-composed
+                #     inclement_partial_hold + arbitrage/attain floor
+                #     (energy_battery.py:4407,4428,4439,4447 all write via
+                #     `decision.reserve_floor`; `reserve_floor` itself is
+                #     the max of reserve_soc + inclement partial_hold clamp
+                #     at energy_battery.py:4451-4453).
+                #   - `hold_reserve` is the EVSE-hold captured SOC
+                #     (energy.py:299 `_evse_hold_soc`, appended by the
+                #     hold-active caller in `_result` at energy.py:3546).
+                #   - `_dp_decision_soc` is the DP-owned drain-target %
+                #     stamped by `_apply_dp_transition` (energy.py init
+                #     ~line 363) when the drain-precedence state machine
+                #     enters TRANSITIONED and requires the reserve floor to
+                #     include the drain target (INV-DP3 — the composition
+                #     must be monotonic max(), never demote).
+                # Each contributor is a % SOC (0-100); sign = floor
+                # (minimum reserve level). max() preserves the strongest
+                # protection across all four sources.
+                _dp_soc = getattr(self, "_dp_decision_soc", None)
                 try:
-                    effective = max(int(existing_val), int(hold_reserve))
+                    if _dp_soc is not None:
+                        effective = max(
+                            int(existing_val),
+                            int(hold_reserve),
+                            int(_dp_soc),
+                        )
+                    else:
+                        effective = max(int(existing_val), int(hold_reserve))
                 except (TypeError, ValueError):
                     effective = hold_reserve
                 # D2-HIGH-1 gate: if stand-down is pinned on the
@@ -3296,6 +3333,88 @@ class EnergyCoordinator(BaseCoordinator):
         except (TypeError, ValueError, AttributeError):
             pass
         return decision
+
+    def _apply_dp_transition(self, decision: Any) -> None:
+        """EVSE drain-precedence actuation entry-point (Session B2b-i).
+
+        Called by B2b-ii from the decision-cycle wiring when the DP state
+        machine enters TRANSITIONED with a fitting eval and requires an
+        EVSE pause + composed reserve floor write. This method does NOT
+        run the state machine itself (`_dp_maybe_tick` in
+        energy_drain_precedence.py owns that); it performs the SIDE
+        EFFECTS the state edge implies:
+            1. Claim any currently-charging EVSE into
+               `EVChargerController._paused_by_dp` and dispatch
+               `switch.turn_off` (via the existing `_claim_pause_dispatch_owner`
+               reference-counted owner "dp") — mirrors the v5.3.9
+               arbitrage-pause pattern.
+            2. Stamp `_dp_decision_soc` with the drain target %; the
+               update-in-place leg of `_apply_evse_battery_hold` folds
+               this into the max()-composition on the NEXT decision cycle
+               (INV-DP3 — never demote a floor). The write itself flows
+               through `_apply_evse_battery_hold` on the standard reserve
+               action leg, so v5.19.0 stand-down gate + INV-DP5
+               `_desired_stamped_at` / `_last_reserve_level` stamps ride
+               that path unchanged (byte-identical no-op on non-DP ticks).
+
+        Not yet wired into the decision cycle — B2b-ii adds the call site.
+        Tests invoke this method directly with a synthetic decision
+        carrying `drain_target_soc` + the list of EVSE ids to pause.
+
+        `decision`: TransitionDecision from `evaluate_dp_transition` plus
+        the outer coordinator's extension attributes. Duck-typed here
+        because B2b-ii will settle the exact shape. Required attrs:
+            - `transition` (bool) — must be True to actuate
+            - `drain_target_soc` (int %) — value stamped into `_dp_decision_soc`
+            - `evse_ids_to_pause` (Iterable[str]) — pause targets
+        """
+        try:
+            if not getattr(decision, "transition", False):
+                return
+            drain_soc = int(getattr(decision, "drain_target_soc", 0) or 0)
+            evse_ids = list(getattr(decision, "evse_ids_to_pause", []) or [])
+        except (TypeError, ValueError):
+            _LOGGER.warning(
+                "drain-precedence: _apply_dp_transition rejected malformed "
+                "decision %r", decision,
+            )
+            return
+
+        # (1) Pause the EVSEs into `_paused_by_dp` + claim dispatch owner
+        # "dp". `_ev` is the EVChargerController (energy.py:276).
+        for evse_id in evse_ids:
+            self._ev._paused_by_dp.add(evse_id)  # noqa: SLF001
+            self._ev._claim_pause_dispatch_owner(evse_id, "dp")  # noqa: SLF001
+            switch_entity = (
+                self._ev._evse.get(evse_id, {}).get("switch", "")  # noqa: SLF001
+            )
+            if not switch_entity:
+                continue
+            state = self._ev._get_evse_state(evse_id)  # noqa: SLF001
+            if state.get("is_on"):
+                # Best-effort dispatch — B2b-ii will decide whether this
+                # rides the coordinator's action queue instead. For the
+                # slice we honor the pause via direct service call so
+                # tests can observe the intent side-effect.
+                self.hass.async_create_task(
+                    self.hass.services.async_call(
+                        "switch", "turn_off",
+                        {"entity_id": switch_entity},
+                        blocking=False,
+                    )
+                )
+                _LOGGER.info(
+                    "drain-precedence: paused EVSE %s (target=%d%%)",
+                    evse_id, drain_soc,
+                )
+
+        # (2) Stamp the DP-owned decision SOC. INV-DP3 fit supremacy: the
+        # next `_apply_evse_battery_hold` tick folds this into the
+        # existing max() so the reserve floor cannot demote below
+        # drain_target for the duration of the TRANSITIONED window.
+        # Cleared by B2b-ii's reversion path when the state machine exits
+        # TRANSITIONED.
+        self._dp_decision_soc = drain_soc
 
     @callback
     def _arm_tou_boundary_listener(self) -> None:
