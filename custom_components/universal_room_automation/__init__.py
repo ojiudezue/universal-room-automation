@@ -4412,6 +4412,14 @@ from .domain_coordinators.energy_const import (
     CONF_ENERGY_EV_BATTERY_DRAIN_SOC as _CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
     CONF_ENERGY_FILL_PRIORITY_SOC as _CONF_ENERGY_FILL_PRIORITY_SOC,
     CONF_ENERGY_EXCESS_SOLAR_SOC as _CONF_ENERGY_EXCESS_SOLAR_SOC,
+    # Session B1 — EVSE Drain-Precedence CM options keys.
+    CONF_ENERGY_DP_ENABLE as _CONF_ENERGY_DP_ENABLE,
+    CONF_ENERGY_DP_EVAL_DELAY_MIN as _CONF_ENERGY_DP_EVAL_DELAY_MIN,
+    CONF_ENERGY_DP_MARGIN_MIN as _CONF_ENERGY_DP_MARGIN_MIN,
+    CONF_ENERGY_DP_MUST_START_BY_MIN as _CONF_ENERGY_DP_MUST_START_BY_MIN,
+    CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A as _CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A,
+    CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B as _CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B,
+    CONF_ENERGY_DP_HOUSE_LOAD_SOURCE as _CONF_ENERGY_DP_HOUSE_LOAD_SOURCE,
 )
 from .const import (
     # Part 2 — Bayesian + fan-interference + routine family
@@ -4481,6 +4489,13 @@ _EC_SETTER_DISPATCH: dict[str, tuple[str, type]] = {
     _CONF_ENERGY_EV_BATTERY_DRAIN_SOC:             ("set_ev_battery_drain_soc",       int),
     _CONF_ENERGY_FILL_PRIORITY_SOC:                ("set_fill_priority_soc",          int),
     _CONF_ENERGY_EXCESS_SOLAR_SOC:                 ("set_excess_solar_soc",           int),
+    # Session B1 — EVSE Drain-Precedence Number + Select entities.
+    _CONF_ENERGY_DP_EVAL_DELAY_MIN:                ("set_dp_eval_delay_min",          int),
+    _CONF_ENERGY_DP_MARGIN_MIN:                    ("set_dp_margin_min",              int),
+    _CONF_ENERGY_DP_MUST_START_BY_MIN:             ("set_dp_must_start_by_min",       int),
+    _CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A:           ("set_dp_needed_kwh_garage_a",     float),
+    _CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B:           ("set_dp_needed_kwh_garage_b",     float),
+    _CONF_ENERGY_DP_HOUSE_LOAD_SOURCE:             ("set_dp_house_load_source",       str),
 }
 
 # Off-peak drain takes (quality, value) — special-cased below.
@@ -4539,6 +4554,12 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     # v4.7.35 fix-up (B-B2) — deny-list read fresh on every chokepoint
     # invocation; no live-attr push needed.
     _CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
+    # Session B1 — EVSE Drain-Precedence master switch key. The Switch
+    # entity (`ECDrainPrecedenceEnableSwitch`) is the sole write path
+    # (RestoreEntity + factory `setattr`); no live-attr push needed on
+    # the options-listener path. Flows through `_apply_in_place` as a
+    # no-op so the snapshot advances.
+    _CONF_ENERGY_DP_ENABLE,
 })
 
 OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
@@ -4600,6 +4621,16 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     # MusicFollowing.update_gate_config() without a CM reload.
     _CONF_MF_SLEEP_SUPPRESS,
     _CONF_MF_NIGHT_SUPPRESS_MODE,
+    # Session B1 — EVSE Drain-Precedence knob keys (Switch + 5 Numbers +
+    # Select). Numbers + Select route through `_EC_SETTER_DISPATCH` above;
+    # the Switch key is a NO_LIVE_ATTR no-op (entity is sole write path).
+    _CONF_ENERGY_DP_ENABLE,
+    _CONF_ENERGY_DP_EVAL_DELAY_MIN,
+    _CONF_ENERGY_DP_MARGIN_MIN,
+    _CONF_ENERGY_DP_MUST_START_BY_MIN,
+    _CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A,
+    _CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B,
+    _CONF_ENERGY_DP_HOUSE_LOAD_SOURCE,
 })
 
 

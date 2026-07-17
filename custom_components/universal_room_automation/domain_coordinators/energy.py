@@ -309,6 +309,75 @@ class EnergyCoordinator(BaseCoordinator):
         # v5.17.1 fix-up (B-MED-1): edge-detect completion for eager persist
         self._last_arbitrage_chunk_completed: bool = False
 
+        # =================================================================
+        # EVSE Drain-Precedence (Session B1) — knob storage + carrier.
+        # ---------------------------------------------------------------
+        # Entity setters (`set_dp_*` below) push values into these attrs
+        # BEFORE `async_update_entry` writeback (matches OffPeakDrainNumber /
+        # PeakBufferTargetNumber pattern at number.py:710+). On first boot
+        # `ec.get(...)` reads the merged `{**entry.data, **entry.options}`
+        # dict — falls back to the module-const defaults from
+        # `energy_const.py` (`CONF_DP_*`). Runtime readers wired by
+        # Session B2 read these attrs, not the module constants.
+        #
+        # `_dp_carrier` is the DrainPrecedenceState instance shared with
+        # the state machine module + observability sensor + KV persist /
+        # restore paths (_save_evse_state / _restore_evse_state below).
+        # =================================================================
+        from .energy_const import (
+            CONF_ENERGY_DP_ENABLE,
+            CONF_ENERGY_DP_EVAL_DELAY_MIN,
+            CONF_ENERGY_DP_MARGIN_MIN,
+            CONF_ENERGY_DP_MUST_START_BY_MIN,
+            CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A,
+            CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B,
+            CONF_ENERGY_DP_HOUSE_LOAD_SOURCE,
+            CONF_DP_ENABLE as _DP_ENABLE_DEFAULT,
+            CONF_DP_EVAL_DELAY_MIN as _DP_EVAL_DELAY_DEFAULT,
+            CONF_DP_MARGIN_MIN as _DP_MARGIN_DEFAULT,
+            CONF_DP_MUST_START_BY_MIN_PAST_MIDNIGHT as _DP_MUST_START_BY_DEFAULT,
+            CONF_DP_NEEDED_KWH_GARAGE_A as _DP_NEEDED_A_DEFAULT,
+            CONF_DP_NEEDED_KWH_GARAGE_B_FALLBACK as _DP_NEEDED_B_DEFAULT,
+            CONF_DP_HOUSE_LOAD_SOURCE as _DP_LOAD_SRC_DEFAULT,
+            DP_HOUSE_LOAD_SOURCES as _DP_LOAD_SRC_VALID,
+        )
+        self._dp_enabled: bool = bool(ec.get(
+            CONF_ENERGY_DP_ENABLE, _DP_ENABLE_DEFAULT
+        ))
+        self._dp_eval_delay_min: int = int(ec.get(
+            CONF_ENERGY_DP_EVAL_DELAY_MIN, _DP_EVAL_DELAY_DEFAULT
+        ))
+        self._dp_margin_min: int = int(ec.get(
+            CONF_ENERGY_DP_MARGIN_MIN, _DP_MARGIN_DEFAULT
+        ))
+        self._dp_must_start_by_min: int = int(ec.get(
+            CONF_ENERGY_DP_MUST_START_BY_MIN, _DP_MUST_START_BY_DEFAULT
+        ))
+        self._dp_needed_kwh_garage_a: float = float(ec.get(
+            CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A, _DP_NEEDED_A_DEFAULT
+        ))
+        self._dp_needed_kwh_garage_b: float = float(ec.get(
+            CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B, _DP_NEEDED_B_DEFAULT
+        ))
+        _load_src = ec.get(
+            CONF_ENERGY_DP_HOUSE_LOAD_SOURCE, _DP_LOAD_SRC_DEFAULT
+        )
+        if _load_src not in _DP_LOAD_SRC_VALID:
+            _load_src = _DP_LOAD_SRC_DEFAULT
+        self._dp_house_load_source: str = str(_load_src)
+        # Carrier — Session B2 mutates via try_transition(); observability
+        # sensor + KV persist/restore mount this instance directly.
+        from .energy_drain_precedence import DrainPrecedenceState
+        self._dp_carrier: DrainPrecedenceState = DrainPrecedenceState()
+        # Session B2b-i: DP-owned decision-SOC field, distinct from
+        # `_evse_hold_soc` (which the EVSE-hold overlay uses). When
+        # `_apply_dp_transition` claims a DP pause and requires the reserve
+        # floor to include `drain_target`, this field carries the drain
+        # target %; the update-in-place leg of `_apply_evse_battery_hold`
+        # reads it and folds it into the max()-composition (INV-DP3 fit
+        # supremacy). None outside an active DP TRANSITIONED window.
+        self._dp_decision_soc: int | None = None
+
         # v4.0.18: EV grid import cap
         self._grid_import_cap_enabled: bool = ec.get(
             CONF_ENERGY_GRID_IMPORT_CAP_ENABLED, False)
@@ -490,6 +559,17 @@ class EnergyCoordinator(BaseCoordinator):
         # Cancelled in `async_teardown`; stored separately from the periodic
         # timer so we don't accidentally double-unsub.
         self._tou_boundary_unsub = None
+        # Session B2b-ii: drain-precedence must-start-by fire timer.
+        # Set by `_arm_dp_must_start_by_timer` when the state machine
+        # enters TRANSITIONED with a live `_dp_carrier.must_start_by_dt`;
+        # fires `_on_dp_must_start_by` at the deadline which routes to
+        # `_apply_dp_must_start_release` (releases the DP pause + turns
+        # EVSEs back on if TOU/grid state allow). Cancellable via
+        # `_cancel_dp_must_start_by_timer` on clean reversion or state
+        # exit; KV-resurrectable through `restore_from_blob`'s expiry
+        # guard (a re-armed timer past the KV `must_start_by_dt` will be
+        # rejected by the guard and re-fire on the next decision tick).
+        self._dp_must_start_unsub = None
         # Re-entrancy guard: the boundary tick may fire while a periodic
         # tick is already running. Concurrent runs would race the shared
         # `_last_battery_decision` / `_last_reserve_level_desired` stamps.
@@ -1351,6 +1431,29 @@ class EnergyCoordinator(BaseCoordinator):
             await self._restore_wv_state(
                 db, battery, verifier, STALE_MAX_AGE_HOURS,
             )
+            # Session B1 — drain-precedence carrier restore.
+            # `restore_from_blob(raw, now_provider=dt_util.now)` enforces
+            # INV-DP2 (expired must_start_by → fresh HOLD_ONLY) and the
+            # `DP_TRANSITION_MAX_DURATION_H` age gate on TRANSITIONED
+            # rows. On any parse error / stale row / missing blob we fall
+            # back to a fresh HOLD_ONLY carrier (initialized in __init__).
+            try:
+                from .energy_drain_precedence import (
+                    DP_KV_KEY as _DP_KV_KEY,
+                    restore_from_blob as _dp_restore,
+                )
+                dp_raw = await db.restore_energy_state_with_age(
+                    _DP_KV_KEY, max_age_hours=STALE_MAX_AGE_HOURS,
+                )
+                if dp_raw:
+                    self._dp_carrier = _dp_restore(
+                        dp_raw, now_provider=dt_util.now,
+                    )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "drain-precedence carrier restore failed (swallowed)",
+                    exc_info=True,
+                )
             if (
                 states
                 or self._ev._paused_by_grid_cap
@@ -1716,6 +1819,30 @@ class EnergyCoordinator(BaseCoordinator):
             except Exception:  # noqa: BLE001
                 _LOGGER.debug(
                     "arbitrage chunk latch persist save failed (swallowed)",
+                    exc_info=True,
+                )
+            # Session B1 — drain-precedence carrier persist.
+            # Mirrors the arbitrage-latch pattern above: single JSON blob
+            # under `DP_KV_KEY` in `energy_state`. Restore side is
+            # `_restore_evse_state` → `restore_from_blob`, which enforces
+            # INV-DP2 must-start-by expiry and the
+            # `DP_TRANSITION_MAX_DURATION_H` age gate on the persisted
+            # transitioned state. `serialize_for_kv` returns a compact JSON
+            # string. Best-effort — swallow to match sibling latches.
+            try:
+                from .energy_drain_precedence import (
+                    DP_KV_KEY as _DP_KV_KEY,
+                    serialize_for_kv as _dp_serialize,
+                )
+                carrier = getattr(self, "_dp_carrier", None)
+                if carrier is not None:
+                    await db.save_energy_state(
+                        _DP_KV_KEY,
+                        _dp_serialize(carrier),
+                    )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "drain-precedence carrier persist save failed (swallowed)",
                     exc_info=True,
                 )
         except Exception as e:
@@ -3018,6 +3145,74 @@ class EnergyCoordinator(BaseCoordinator):
 
         Uses the SOC captured at hold start to prevent ratchet-down effect
         where each cycle locks to progressively lower SOC.
+
+        ------------------------------------------------------------------
+        RESERVE COMPOSITION — single authoritative reference
+        ------------------------------------------------------------------
+        The reserve % emitted through the reserve action is the max() over
+        every contributor below. All units are % SOC (0-100); each sign is
+        a FLOOR (minimum acceptable reserve). max() preserves the strongest
+        protection; no contributor may demote another.
+
+        Contributors, in precedence order (matches Session B2b-iii
+        `WriteVerifier._resolve_hold_owner` at
+        energy_write_verify.py:1389-1418 and the effective-desired
+        composition at :1418-1451):
+
+          1. Strategy base + folds (`decision["actions"][*].data.value`,
+             AKA `existing_val` in the update-in-place leg). Composed on
+             the strategy side before this overlay runs:
+               * reserve_soc knob                (energy_battery.py:4407)
+               * inclement partial_hold clamp    (energy_battery.py:4451-4453)
+               * inclement full_hold             (energy_battery.py:4428)
+               * arbitrage / attain floor        (energy_battery.py:4439,4447)
+             All folded into `reserve_floor` and emitted by
+             `_result` (energy_battery.py:3562-3564).
+          2. EVSE hold overlay (`hold_reserve` — captured at hold entry,
+             stored in `self._evse_hold_soc`; set/cleared by the
+             hold-active caller in `_result` energy.py:3546 + evaluate
+             path energy.py:4498-4505). Clamped UP to
+             `_last_reserve_level_desired` (or ledger fallback on boot
+             HOLD-CURRENT paths) in the append leg to avoid oscillation
+             under strategy holds (energy.py:3290-3309, v5.17.1 D-HIGH-2
+             / v5.17.3 D-MED-1).
+          3. DP-owned drain floor (`_dp_decision_soc` — energy.py:370;
+             stamped by `_apply_dp_transition` :3444 when the DP state
+             machine enters TRANSITIONED, cleared by `_apply_dp_reversion`
+             :3515 / `_apply_dp_must_start_release` :3565). Folded into
+             BOTH branches:
+               * update-in-place leg   (energy.py:3224-3231, INV-DP3)
+               * append leg            (energy.py:3320-3325, INV-DP3 parity)
+             INV-DP3 is monotonic max() supremacy — the fit-supremacy
+             invariant guarantees the transition floor cannot be demoted
+             for the duration of TRANSITIONED.
+          4. Stand-down gate (D2-HIGH-1). Applied AFTER the max()
+             composition on the post-fold effective value. If a hard
+             stand-down is pinned on that value for the reserve surface
+             (`WriteVerifier.is_standdown_active_for_value` at
+             energy_write_verify.py:1417-1436), the overlay emits NO
+             reserve action for this tick — mirrors `_result`'s
+             stand-down skip so the overlay side cannot re-break a
+             pinned surface. Any change in effective desire cancels the
+             gate (pinned value no longer matches) and dispatch resumes.
+             Update-in-place leg: energy.py:3241-3251. Append leg:
+             energy.py:3331-3337.
+          5. Deadband suppression (`_result` responsibility, not this
+             overlay's). `_result` deadband (energy_battery.py :3834+
+             — INV-D2-DEADBAND / INV-EV-DEADBAND) suppresses dispatch
+             within ±2%; the ledger-stamp at :3268-3270 / :3357-3359
+             keeps the commanded ledger in sync with the effective
+             post-max() value so the write-verification sweep does not
+             false-alarm `write_reverted` during standing holds.
+
+        Downstream, the write-verifier's `_effective_reserve_desired`
+        (energy_write_verify.py :1418-1451) recomposes the same contributor
+        set on the READ side so the pending watchdog + reversion sweep
+        treat DP-elevated / hold-elevated / inclement-elevated reserves as
+        the desired value, not as wedges. Any new floor added to this
+        method MUST also be added to `_effective_reserve_desired` — the
+        two composers must stay in lock-step (INV-DP5 mirror invariant).
+        ------------------------------------------------------------------
         """
         # Use captured SOC from hold start, fall back to current SOC
         hold_reserve = self._evse_hold_soc
@@ -3082,8 +3277,37 @@ class EnergyCoordinator(BaseCoordinator):
         for i, action in enumerate(decision["actions"]):
             if action.get("target", "") == reserve_entity:
                 existing_val = action.get("data", {}).get("value", hold_reserve)
+                # Session B2b-i INV-DP3 (fit-supremacy) composition — the
+                # update-in-place leg is the single reserve-write site that
+                # every strategy floor already flows through:
+                #   - `existing_val` carries the BatteryStrategy-composed
+                #     inclement_partial_hold + arbitrage/attain floor
+                #     (energy_battery.py:4407,4428,4439,4447 all write via
+                #     `decision.reserve_floor`; `reserve_floor` itself is
+                #     the max of reserve_soc + inclement partial_hold clamp
+                #     at energy_battery.py:4451-4453).
+                #   - `hold_reserve` is the EVSE-hold captured SOC
+                #     (energy.py:299 `_evse_hold_soc`, appended by the
+                #     hold-active caller in `_result` at energy.py:3546).
+                #   - `_dp_decision_soc` is the DP-owned drain-target %
+                #     stamped by `_apply_dp_transition` (energy.py init
+                #     ~line 363) when the drain-precedence state machine
+                #     enters TRANSITIONED and requires the reserve floor to
+                #     include the drain target (INV-DP3 — the composition
+                #     must be monotonic max(), never demote).
+                # Each contributor is a % SOC (0-100); sign = floor
+                # (minimum reserve level). max() preserves the strongest
+                # protection across all four sources.
+                _dp_soc = getattr(self, "_dp_decision_soc", None)
                 try:
-                    effective = max(int(existing_val), int(hold_reserve))
+                    if _dp_soc is not None:
+                        effective = max(
+                            int(existing_val),
+                            int(hold_reserve),
+                            int(_dp_soc),
+                        )
+                    else:
+                        effective = max(int(existing_val), int(hold_reserve))
                 except (TypeError, ValueError):
                     effective = hold_reserve
                 # D2-HIGH-1 gate: if stand-down is pinned on the
@@ -3160,6 +3384,22 @@ class EnergyCoordinator(BaseCoordinator):
                 hold_reserve = max(int(hold_reserve), int(_clamp_ref))
         except (TypeError, ValueError, AttributeError):
             pass
+        # Session B2b-ii INV-DP3 (append-leg composition parity). The
+        # update-in-place leg above folds `_dp_decision_soc` into its
+        # max()-composition; the no-prior-reserve-action branch must do
+        # the SAME so a cycle with no strategy reserve action still emits
+        # the composed DP floor. Each contributor is a % SOC (0-100),
+        # sign = floor (minimum reserve level). max() preserves the
+        # strongest protection. Emitted through the standard reserve
+        # action leg → v5.19.0 stand-down gate (re-checked below on the
+        # post-fold value) and INV-DP5 `_last_reserve_level` stamp ride
+        # this path unchanged.
+        _dp_soc_append = getattr(self, "_dp_decision_soc", None)
+        try:
+            if _dp_soc_append is not None:
+                hold_reserve = max(int(hold_reserve), int(_dp_soc_append))
+        except (TypeError, ValueError):
+            pass
         # D2-HIGH-1 gate: skip append when stand-down pinned on the
         # POST-clamp emitted value. Ledger stamp below is likewise
         # skipped so we don't advance `_last_reserve_level_at` on a
@@ -3197,6 +3437,302 @@ class EnergyCoordinator(BaseCoordinator):
         except (TypeError, ValueError, AttributeError):
             pass
         return decision
+
+    def _apply_dp_transition(self, decision: Any) -> None:
+        """EVSE drain-precedence actuation entry-point (Session B2b-i).
+
+        Called by B2b-ii from the decision-cycle wiring when the DP state
+        machine enters TRANSITIONED with a fitting eval and requires an
+        EVSE pause + composed reserve floor write. This method does NOT
+        run the state machine itself (`_dp_maybe_tick` in
+        energy_drain_precedence.py owns that); it performs the SIDE
+        EFFECTS the state edge implies:
+            1. Claim any currently-charging EVSE into
+               `EVChargerController._paused_by_dp` and dispatch
+               `switch.turn_off` (via the existing `_claim_pause_dispatch_owner`
+               reference-counted owner "dp") — mirrors the v5.3.9
+               arbitrage-pause pattern.
+            2. Stamp `_dp_decision_soc` with the drain target %; the
+               update-in-place leg of `_apply_evse_battery_hold` folds
+               this into the max()-composition on the NEXT decision cycle
+               (INV-DP3 — never demote a floor). The write itself flows
+               through `_apply_evse_battery_hold` on the standard reserve
+               action leg, so v5.19.0 stand-down gate + INV-DP5
+               `_desired_stamped_at` / `_last_reserve_level` stamps ride
+               that path unchanged (byte-identical no-op on non-DP ticks).
+
+        Not yet wired into the decision cycle — B2b-ii adds the call site.
+        Tests invoke this method directly with a synthetic decision
+        carrying `drain_target_soc` + the list of EVSE ids to pause.
+
+        `decision`: TransitionDecision from `evaluate_dp_transition` plus
+        the outer coordinator's extension attributes. Duck-typed here
+        because B2b-ii will settle the exact shape. Required attrs:
+            - `transition` (bool) — must be True to actuate
+            - `drain_target_soc` (int %) — value stamped into `_dp_decision_soc`
+            - `evse_ids_to_pause` (Iterable[str]) — pause targets
+        """
+        try:
+            if not getattr(decision, "transition", False):
+                return
+            drain_soc = int(getattr(decision, "drain_target_soc", 0) or 0)
+            evse_ids = list(getattr(decision, "evse_ids_to_pause", []) or [])
+        except (TypeError, ValueError):
+            _LOGGER.warning(
+                "drain-precedence: _apply_dp_transition rejected malformed "
+                "decision %r", decision,
+            )
+            return
+
+        # (1) Pause the EVSEs into `_paused_by_dp` + claim dispatch owner
+        # "dp". `_ev` is the EVChargerController (energy.py:276).
+        for evse_id in evse_ids:
+            self._ev._paused_by_dp.add(evse_id)  # noqa: SLF001
+            self._ev._claim_pause_dispatch_owner(evse_id, "dp")  # noqa: SLF001
+            switch_entity = (
+                self._ev._evse.get(evse_id, {}).get("switch", "")  # noqa: SLF001
+            )
+            if not switch_entity:
+                continue
+            state = self._ev._get_evse_state(evse_id)  # noqa: SLF001
+            if state.get("is_on"):
+                # Best-effort dispatch — B2b-ii will decide whether this
+                # rides the coordinator's action queue instead. For the
+                # slice we honor the pause via direct service call so
+                # tests can observe the intent side-effect.
+                self.hass.async_create_task(
+                    self.hass.services.async_call(
+                        "switch", "turn_off",
+                        {"entity_id": switch_entity},
+                        blocking=False,
+                    )
+                )
+                _LOGGER.info(
+                    "drain-precedence: paused EVSE %s (target=%d%%)",
+                    evse_id, drain_soc,
+                )
+
+        # (2) Stamp the DP-owned decision SOC. INV-DP3 fit supremacy: the
+        # next `_apply_evse_battery_hold` tick folds this into the
+        # existing max() so the reserve floor cannot demote below
+        # drain_target for the duration of the TRANSITIONED window.
+        # Cleared by B2b-ii's reversion path when the state machine exits
+        # TRANSITIONED.
+        self._dp_decision_soc = drain_soc
+
+    # ------------------------------------------------------------------
+    # Session B2b-ii — reversion + must-start-by fire
+    # ------------------------------------------------------------------
+
+    def _apply_dp_reversion(self, tou_period: str | None = None) -> None:
+        """Clean reversion of the DP TRANSITIONED window.
+
+        Called by the decision-cycle wiring when `_dp_maybe_tick` drives
+        the carrier from TRANSITIONED → HOLD_ONLY (charge complete OR
+        floor released OR kill switch flipped). Symmetric with
+        arbitrage-release in energy_pool.py:1507-1556:
+            - Discard EVSE(s) from `_paused_by_dp` + drop "dp" dispatch
+              owner. Actual `switch.turn_on` dispatch is refused if a
+              STRONGER pause owner still claims the EVSE OR TOU is not
+              off_peak (mirrors the arbitrage-release deferral).
+            - Clear `_dp_decision_soc` so the next
+              `_apply_evse_battery_hold` tick composes only strategy +
+              hold contributors (INV-DP3: max() collapses cleanly).
+            - Cancel the must-start-by timer (window over → deadline
+              no longer meaningful).
+        Cites v5.15.0 release-at-floor F + sticky machinery pattern —
+        the "resume only if peer owners permit" is the same guard.
+        """
+        # Cancel the must-start-by timer first so a race between clean
+        # reversion and the deadline can't fire release twice.
+        self._cancel_dp_must_start_by_timer()
+        for evse_id in list(self._ev._paused_by_dp):  # noqa: SLF001
+            self._ev._paused_by_dp.discard(evse_id)  # noqa: SLF001
+            self._ev._release_pause_dispatch_owner(evse_id, "dp")  # noqa: SLF001
+            # Resume-guard: refuse turn-on if a peer still claims the
+            # EVSE OR TOU is non-off_peak (arbitrage-release parity).
+            if (
+                evse_id in self._ev._paused_by_arbitrage  # noqa: SLF001
+                or evse_id in self._ev._paused_by_battery_drain  # noqa: SLF001
+                or evse_id in self._ev._paused_by_fill_priority  # noqa: SLF001
+                or evse_id in self._ev._paused_by_grid_cap  # noqa: SLF001
+                or evse_id in self._ev._paused_by_load_shed  # noqa: SLF001
+                or evse_id in self._ev._paused_by_us  # noqa: SLF001
+            ):
+                _LOGGER.info(
+                    "drain-precedence release: %s — peer owner still holds, "
+                    "leaving paused",
+                    evse_id,
+                )
+                continue
+            if tou_period is not None and tou_period != "off_peak":
+                _LOGGER.info(
+                    "drain-precedence release: %s — TOU=%s, leaving paused",
+                    evse_id, tou_period,
+                )
+                continue
+            switch_entity = (
+                self._ev._evse.get(evse_id, {}).get("switch", "")  # noqa: SLF001
+            )
+            if not switch_entity:
+                continue
+            state = self._ev._get_evse_state(evse_id)  # noqa: SLF001
+            if not state.get("is_on"):
+                self.hass.async_create_task(
+                    self.hass.services.async_call(
+                        "switch", "turn_on",
+                        {"entity_id": switch_entity},
+                        blocking=False,
+                    )
+                )
+                _LOGGER.info(
+                    "drain-precedence: resumed EVSE %s (clean reversion)",
+                    evse_id,
+                )
+        self._dp_decision_soc = None
+
+    def _apply_dp_must_start_release(self, tou_period: str | None = None) -> None:
+        """Must-start-by fire (INV-DP2 car-charge liveness).
+
+        Called when the state machine reaches MUST_START_FORCED
+        (deadline hit while still TRANSITIONED). Behavior is the same
+        SHAPE as `_apply_dp_reversion` — release the DP pause + turn
+        EVSEs back on — but the RATIONALE is different (must-start-by
+        overrides drain-target arithmetic). We still honor STRONGER
+        owner claims (a live grid-cap / load-shed / fill-priority hold
+        outranks DP even at must-start-by; those owners are safety /
+        cost holds that shouldn't be blown through by DP-liveness), but
+        we do NOT defer on TOU period: INV-DP2 states the car MUST
+        start by the deadline regardless of TOU.
+        """
+        self._cancel_dp_must_start_by_timer()
+        for evse_id in list(self._ev._paused_by_dp):  # noqa: SLF001
+            self._ev._paused_by_dp.discard(evse_id)  # noqa: SLF001
+            self._ev._release_pause_dispatch_owner(evse_id, "dp")  # noqa: SLF001
+            if (
+                evse_id in self._ev._paused_by_grid_cap  # noqa: SLF001
+                or evse_id in self._ev._paused_by_load_shed  # noqa: SLF001
+                or evse_id in self._ev._paused_by_fill_priority  # noqa: SLF001
+            ):
+                _LOGGER.info(
+                    "drain-precedence must-start-by fire: %s — safety/cost "
+                    "owner holds, leaving paused",
+                    evse_id,
+                )
+                continue
+            switch_entity = (
+                self._ev._evse.get(evse_id, {}).get("switch", "")  # noqa: SLF001
+            )
+            if not switch_entity:
+                continue
+            state = self._ev._get_evse_state(evse_id)  # noqa: SLF001
+            if not state.get("is_on"):
+                self.hass.async_create_task(
+                    self.hass.services.async_call(
+                        "switch", "turn_on",
+                        {"entity_id": switch_entity},
+                        blocking=False,
+                    )
+                )
+                _LOGGER.info(
+                    "drain-precedence must-start-by fire: forced EVSE %s ON "
+                    "(deadline reached)",
+                    evse_id,
+                )
+        self._dp_decision_soc = None
+
+    def _cancel_dp_must_start_by_timer(self) -> None:
+        """Idempotent cancel of the must-start-by point-in-time listener."""
+        unsub = getattr(self, "_dp_must_start_unsub", None)
+        if unsub is not None:
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "drain-precedence must-start-by unsub raised (swallowed)",
+                    exc_info=True,
+                )
+            self._dp_must_start_unsub = None
+
+    def _arm_dp_must_start_by_timer(self, fire_at) -> None:
+        """Arm the must-start-by point-in-time fire (INV-DP2 liveness).
+
+        Chained pattern lifted from `_arm_tou_boundary_listener`:
+            - idempotent re-arm (cancel any prior handle first),
+            - swallow `async_track_point_in_time` absence in test bootstraps,
+            - skip fires already-in-past (KV-restore path may restore a
+              deadline that's already elapsed → handled by the eval on the
+              next tick),
+            - callback `_on_dp_must_start_by` runs `_apply_dp_must_start_release`
+              and does NOT re-arm (fires once per TRANSITIONED window;
+              cleaned up by reversion or must-start-fire itself).
+
+        KV-resurrection: `restore_from_blob` (energy_drain_precedence.py:
+        333) already rejects expired deadlines on boot, so a stored
+        `must_start_by_dt` that's still in the future can be handed to
+        this arm helper straight from the restored carrier.
+        """
+        if async_track_point_in_time is None:
+            return
+        self._cancel_dp_must_start_by_timer()
+        try:
+            from homeassistant.util import dt as dt_util
+            now_local = dt_util.now()
+            if fire_at <= now_local:
+                _LOGGER.debug(
+                    "drain-precedence must-start-by fire %s already in the past "
+                    "(now=%s) — not arming; next decision tick will handle",
+                    fire_at, now_local,
+                )
+                return
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            self._dp_must_start_unsub = async_track_point_in_time(
+                self.hass, self._on_dp_must_start_by, fire_at,
+            )
+            _LOGGER.info(
+                "drain-precedence: must-start-by fire armed at %s",
+                fire_at.isoformat() if hasattr(fire_at, "isoformat") else fire_at,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "drain-precedence: async_track_point_in_time failed for %s "
+                "— must-start-by fire not armed (decision cycle backstop)",
+                fire_at, exc_info=True,
+            )
+            self._dp_must_start_unsub = None
+
+    async def _on_dp_must_start_by(self, _now) -> None:
+        """Point-in-time callback: drive MUST_START_FORCED + release."""
+        # Clear handle first — this fire is one-shot.
+        self._dp_must_start_unsub = None
+        try:
+            from .energy_drain_precedence import DPState, try_transition
+            from homeassistant.util import dt as dt_util
+            carrier = getattr(self, "_dp_carrier", None)
+            if carrier is not None and carrier.state == DPState.TRANSITIONED:
+                try_transition(
+                    carrier, DPState.MUST_START_FORCED, now_provider=dt_util.now,
+                )
+            tou_period = None
+            try:
+                tou_period = self._tou.get_current_period()
+            except Exception:  # noqa: BLE001
+                pass
+            self._apply_dp_must_start_release(tou_period=tou_period)
+            # Drive carrier to HOLD_ONLY after release fires so a
+            # subsequent tick sees a clean idle state.
+            if carrier is not None and carrier.state == DPState.MUST_START_FORCED:
+                try_transition(
+                    carrier, DPState.HOLD_ONLY, now_provider=dt_util.now,
+                )
+            self.hass.async_create_task(self._save_evse_state())
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "drain-precedence must-start-by fire callback raised (swallowed)",
+                exc_info=True,
+            )
 
     @callback
     def _arm_tou_boundary_listener(self) -> None:
@@ -3453,6 +3989,115 @@ class EnergyCoordinator(BaseCoordinator):
 
             # Add EVSE hold status to decision for sensor visibility
             decision["evse_battery_hold"] = self._evse_battery_hold_active
+
+            # Session B2b-ii — drain-precedence state machine + actuation.
+            # Guarded by `is_dp_enabled(self)` per plan §127-135; when
+            # disabled the ENTIRE block is skipped byte-identical to
+            # pre-slice (mutation test (c) — disabled-silent). The tick
+            # driver mutates the carrier + returns a decision; on the
+            # HOLD_ONLY → HOLD_PRE_EVAL / HOLD_PRE_EVAL → TRANSITIONED
+            # edges we call the sibling actuation methods. Reversion +
+            # must-start-by fire are handled by the timer callback + the
+            # charging-stopped branch below.
+            try:
+                from .energy_drain_precedence import (
+                    is_dp_enabled as _dp_is_enabled,
+                    _dp_maybe_tick as _dp_tick,
+                    TransitionInputs as _DPInputs,
+                    compute_must_start_by as _dp_compute_must_start_by,
+                    DPState as _DPState,
+                )
+                if _dp_is_enabled(self):
+                    _prev_dp_state = self._dp_carrier.state
+                    _now_dp = dt_util.now()
+                    _soc = decision.get("soc")
+                    _dp_inputs = _DPInputs(
+                        dp_enabled=True,
+                        is_blind_hold=bool(
+                            getattr(self._battery, "_is_blind_hold_active", False)
+                        ),
+                        force_charge_active=(
+                            self._ev._force_charge_until is not None  # noqa: SLF001
+                            and self._ev._force_charge_until > _now_dp  # noqa: SLF001
+                        ),
+                        soc=int(_soc) if _soc is not None else None,
+                        drain_target_soc=int(self._ev_battery_drain_soc),
+                        any_evse_charging=self._is_any_evse_charging(),
+                        charger_rate_kw=float(
+                            (ev_load_w or 0.0) / 1000.0
+                        ),
+                        needed_kwh=float(
+                            self._dp_needed_kwh_garage_a
+                            + self._dp_needed_kwh_garage_b
+                        ),
+                        house_load_kw=0.0,  # B2b-iii wires live source
+                        now=_now_dp,
+                        must_start_by_dt=_dp_compute_must_start_by(
+                            _now_dp,
+                            minutes_past_midnight=self._dp_must_start_by_min,
+                        ),
+                        margin_min=int(self._dp_margin_min),
+                        eval_delay_min=int(self._dp_eval_delay_min),
+                    )
+
+                    def _persist_dp(_c):
+                        self.hass.async_create_task(self._save_evse_state())
+
+                    _dp_decision = _dp_tick(
+                        self._dp_carrier, _dp_inputs,
+                        now_provider=dt_util.now,
+                        persister=_persist_dp,
+                    )
+                    # Edge: HOLD_PRE_EVAL/EVAL_TRANSITION → TRANSITIONED
+                    # (fresh entry): actuate + arm must-start-by timer.
+                    if (
+                        _prev_dp_state != _DPState.TRANSITIONED
+                        and self._dp_carrier.state == _DPState.TRANSITIONED
+                    ):
+                        _pause_ids = [
+                            eid for eid in self._ev._evse  # noqa: SLF001
+                            if self._ev._get_evse_state(eid).get("charging", False)  # noqa: SLF001
+                        ]
+
+                        class _DPAct:
+                            transition = True
+                            drain_target_soc = int(self._ev_battery_drain_soc)
+                            evse_ids_to_pause = _pause_ids
+                        self._apply_dp_transition(_DPAct())
+                        if self._dp_carrier.must_start_by_dt is not None:
+                            self._arm_dp_must_start_by_timer(
+                                self._dp_carrier.must_start_by_dt,
+                            )
+                    # Edge: TRANSITIONED → HOLD_ONLY (clean reversion,
+                    # e.g. charging stopped): release pause + turn EVSEs
+                    # back on if TOU/peer state allow. `_dp_maybe_tick`
+                    # itself does NOT drive TRANSITIONED → HOLD_ONLY
+                    # (B2a docstring reserves that for B2b actuation) —
+                    # so this edge here is future-proofing; the primary
+                    # reversion path is the "charging-stopped" branch
+                    # below plus the must-start-by fire callback.
+                    if (
+                        _prev_dp_state == _DPState.TRANSITIONED
+                        and self._dp_carrier.state == _DPState.HOLD_ONLY
+                    ):
+                        self._apply_dp_reversion(tou_period=period)
+                    # Charging-stopped while TRANSITIONED: drive carrier
+                    # back to HOLD_ONLY + fire reversion sweep.
+                    if (
+                        self._dp_carrier.state == _DPState.TRANSITIONED
+                        and not self._is_any_evse_charging()
+                    ):
+                        from .energy_drain_precedence import try_transition as _dp_try
+                        _dp_try(
+                            self._dp_carrier, _DPState.HOLD_ONLY,
+                            now_provider=dt_util.now,
+                        )
+                        self._apply_dp_reversion(tou_period=period)
+                        self.hass.async_create_task(self._save_evse_state())
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "drain-precedence tick raised (swallowed)", exc_info=True,
+                )
 
             # v5.17.1 fix-up (B-MED-1): eager-persist the arbitrage chunk
             # latch on the CHARGE→HOLD transition. Without this, a reboot
@@ -3926,6 +4571,18 @@ class EnergyCoordinator(BaseCoordinator):
         decision = self._battery.determine_mode(period, season, now=dt_util.now())
 
         # C1 fix: Apply EVSE battery hold in evaluate path too (not just timer path)
+        #
+        # Session B2b-iii call-site audit — this second `_apply_evse_battery_hold`
+        # call site (`_evaluate_battery`) is NOT diagnostic-only. It is
+        # invoked from `evaluate()` on TOU-period transitions (energy.py:1118)
+        # and its output feeds `CoordinatorAction`s dispatched to hardware
+        # (energy.py:4519-4529 below). Symmetric DP wiring is inherent:
+        # `_apply_evse_battery_hold` reads `self._dp_decision_soc` internally
+        # in BOTH the update-in-place leg (energy.py:3224) and the append leg
+        # (energy.py:3320), so any DP-elevated floor is composed here for
+        # free — no additional wiring required. Evidence of consumption:
+        # `evaluate()` returns actions to `CoordinatorManager._run_all_evaluations`
+        # which dispatches them via the standard action pipeline.
         if self._is_any_evse_charging():
             if not self._evse_battery_hold_active:
                 soc = decision.get("soc")
@@ -6474,6 +7131,88 @@ class EnergyCoordinator(BaseCoordinator):
         """
         self._excess_solar_soc = int(value)
         _LOGGER.info("EV excess-solar SOC threshold set to %d%%", int(value))
+
+    # ------------------------------------------------------------------
+    # EVSE Drain-Precedence setters (Session B1) — knob entity → coord
+    # ------------------------------------------------------------------
+    # Called by the Switch / Number / Select entities BEFORE their
+    # `async_update_entry` writeback, so the next decision tick reads
+    # the fresh value even if the CM options-update listener is still in
+    # flight. Runtime readers (wired by Session B2) will read these attrs
+    # via `is_dp_enabled()` etc.
+    @property
+    def dp_enabled(self) -> bool:
+        return self._dp_enabled
+
+    def set_dp_enabled(self, value: bool) -> None:
+        self._dp_enabled = bool(value)
+        _LOGGER.info("Drain-precedence enabled=%s", bool(value))
+
+    @property
+    def dp_eval_delay_min(self) -> int:
+        return self._dp_eval_delay_min
+
+    def set_dp_eval_delay_min(self, value: int) -> None:
+        self._dp_eval_delay_min = int(value)
+        _LOGGER.info("Drain-precedence eval delay set to %d min", int(value))
+
+    @property
+    def dp_margin_min(self) -> int:
+        return self._dp_margin_min
+
+    def set_dp_margin_min(self, value: int) -> None:
+        self._dp_margin_min = int(value)
+        _LOGGER.info("Drain-precedence margin set to %d min", int(value))
+
+    @property
+    def dp_must_start_by_min(self) -> int:
+        return self._dp_must_start_by_min
+
+    def set_dp_must_start_by_min(self, value: int) -> None:
+        self._dp_must_start_by_min = int(value)
+        _LOGGER.info(
+            "Drain-precedence must-start-by set to %d min past midnight",
+            int(value),
+        )
+
+    @property
+    def dp_needed_kwh_garage_a(self) -> float:
+        return self._dp_needed_kwh_garage_a
+
+    def set_dp_needed_kwh_garage_a(self, value: float) -> None:
+        self._dp_needed_kwh_garage_a = float(value)
+        _LOGGER.info(
+            "Drain-precedence needed_kwh (garage A) set to %.2f kWh", float(value)
+        )
+
+    @property
+    def dp_needed_kwh_garage_b(self) -> float:
+        return self._dp_needed_kwh_garage_b
+
+    def set_dp_needed_kwh_garage_b(self, value: float) -> None:
+        self._dp_needed_kwh_garage_b = float(value)
+        _LOGGER.info(
+            "Drain-precedence needed_kwh (garage B) set to %.2f kWh", float(value)
+        )
+
+    @property
+    def dp_house_load_source(self) -> str:
+        return self._dp_house_load_source
+
+    def set_dp_house_load_source(self, value: str) -> None:
+        from .energy_const import (
+            DP_HOUSE_LOAD_SOURCES,
+            CONF_DP_HOUSE_LOAD_SOURCE as _DEFAULT,
+        )
+        v = str(value)
+        if v not in DP_HOUSE_LOAD_SOURCES:
+            _LOGGER.warning(
+                "Drain-precedence house_load_source %r not in %s — coerced to %s",
+                v, list(DP_HOUSE_LOAD_SOURCES), _DEFAULT,
+            )
+            v = _DEFAULT
+        self._dp_house_load_source = v
+        _LOGGER.info("Drain-precedence house_load_source set to %s", v)
 
     async def _check_fill_priority_nm_trip(
         self,

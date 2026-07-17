@@ -103,6 +103,9 @@ async def async_setup_entry(
             # Operator-configurable per-cycle setpoint offset (default -2°F).
             EnergyPreCoolOffsetNumber(hass, entry),
         ]
+        # Session B1 — 5 EVSE drain-precedence knob Numbers on EC device.
+        for cls in _build_dp_numbers():
+            entities.append(cls(hass, entry))
         # v4.5.10: 7 HVAC tunable Number entities on the HVAC Coordinator device.
         # Each is a runtime slider; form values seed install-time only,
         # then RestoreEntity-backed slider is the source of truth.
@@ -2919,5 +2922,227 @@ class EnergyPreCoolOffsetNumber(NumberEntity):
         _LOGGER.info(
             "Energy Saver Pre-Cool Offset set to %.2f°F", clamped,
         )
+
+
+# =========================================================================
+# Session B1 — EVSE Drain-Precedence Number entities (plan §68-84).
+# -------------------------------------------------------------------------
+# All five mirror the OffPeakDrainNumber pattern (number.py:710+):
+#   - `entry.options` is the SOLE source of truth (NO RestoreEntity).
+#   - Constructor seeds from `{**entry.data, **entry.options}` with the
+#     module-const default as fallback.
+#   - `async_set_native_value` pushes to the coordinator setter BEFORE
+#     writing back to `entry.options` (so the next decision tick sees
+#     the fresh value even if the CM options listener is still in flight).
+#   - `async_added_to_hass` seed-pushes into the EC on first availability.
+#   - Deferred-retry on `SIGNAL_ENERGY_ENTITIES_UPDATE` (mirrors the
+#     PeakBufferTargetNumber cross-entry race fix at number.py:914+) for
+#     cases where EC is not yet registered at first add.
+# =========================================================================
+
+
+def _dp_number_factory(
+    conf_key: str,
+    setter_name: str,
+    getter_attr: str,
+    default_value: float,
+    min_val: float,
+    max_val: float,
+    step: float,
+    unit: str | None,
+    name: str,
+    icon: str,
+    unique_suffix: str,
+    is_int: bool,
+):
+    """Factory for the 5 DP Number entities. Byte-identical pattern to
+    OffPeakDrainNumber except the entry.options key + coordinator setter
+    are parametrized. Kept as a factory rather than 5 near-identical
+    classes to keep the surface small; the coordinator setter is the
+    per-knob authority for clamping + logging.
+    """
+
+    class _DPNumber(NumberEntity):
+        _attr_has_entity_name = True
+        _attr_icon = icon
+        _attr_native_step = step
+        _attr_native_unit_of_measurement = unit
+        _attr_mode = NumberMode.BOX
+        _attr_entity_category = EntityCategory.CONFIG
+
+        def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+            from homeassistant.helpers.device_registry import DeviceInfo
+            from .const import VERSION
+            self.hass = hass
+            self._entry = entry
+            self._attr_unique_id = f"{DOMAIN}_energy_{unique_suffix}"
+            self._attr_name = name
+            self._attr_native_min_value = min_val
+            self._attr_native_max_value = max_val
+            self._attr_device_info = DeviceInfo(
+                identifiers={(DOMAIN, "energy_coordinator")},
+                name="URA: Energy Coordinator",
+                manufacturer="Universal Room Automation",
+                model="Energy Coordinator",
+                sw_version=VERSION,
+                via_device=(DOMAIN, "coordinator_manager"),
+            )
+            config = {**entry.data, **entry.options}
+            raw = config.get(conf_key, default_value)
+            self._value = int(raw) if is_int else float(raw)
+
+        def _get_energy(self):
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            return manager.coordinators.get("energy") if manager else None
+
+        @property
+        def native_value(self) -> float:
+            return self._value
+
+        @property
+        def available(self) -> bool:
+            return self._get_energy() is not None
+
+        def _push_to_coordinator(self) -> bool:
+            energy = self._get_energy()
+            if energy is None:
+                return False
+            try:
+                getattr(energy, setter_name)(self._value)
+                return True
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "DP number seed-push failed (%s)", conf_key, exc_info=True,
+                )
+                return False
+
+        async def async_added_to_hass(self) -> None:
+            await super().async_added_to_hass()
+            if self._push_to_coordinator():
+                return
+            # Deferred retry on cross-entry init race (mirrors
+            # PeakBufferTargetNumber pattern at number.py:914+).
+            from homeassistant.helpers.dispatcher import async_dispatcher_connect
+            from .domain_coordinators.signals import (
+                SIGNAL_ENERGY_ENTITIES_UPDATE,
+            )
+            unsub_holder: list = []
+
+            @callback
+            def _on_energy_tick(*_args, **_kwargs):
+                if self._push_to_coordinator() and unsub_holder:
+                    unsub_holder[0]()
+                    _LOGGER.debug(
+                        "DP number %s pushed to EC after deferred ready",
+                        conf_key,
+                    )
+
+            unsub_holder.append(
+                async_dispatcher_connect(
+                    self.hass, SIGNAL_ENERGY_ENTITIES_UPDATE, _on_energy_tick,
+                )
+            )
+            self.async_on_remove(unsub_holder[0])
+
+        async def async_set_native_value(self, value: float) -> None:
+            self._value = int(value) if is_int else float(value)
+            energy = self._get_energy()
+            if energy is not None:
+                try:
+                    getattr(energy, setter_name)(self._value)
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "DP number setter %s raised", setter_name,
+                        exc_info=True,
+                    )
+            try:
+                self.hass.config_entries.async_update_entry(
+                    self._entry,
+                    options={**self._entry.options, conf_key: self._value},
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "DP number %s options-writeback failed", conf_key,
+                    exc_info=True,
+                )
+            self.async_write_ha_state()
+            _LOGGER.info("DP number %s set to %s", conf_key, self._value)
+
+    _DPNumber.__name__ = f"DP{unique_suffix.title().replace('_', '')}Number"
+    _DPNumber.__qualname__ = _DPNumber.__name__
+    return _DPNumber
+
+
+def _build_dp_numbers():
+    """Build the 5 DP Number entity classes with defaults from energy_const."""
+    from .domain_coordinators.energy_const import (
+        CONF_ENERGY_DP_EVAL_DELAY_MIN,
+        CONF_ENERGY_DP_MARGIN_MIN,
+        CONF_ENERGY_DP_MUST_START_BY_MIN,
+        CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A,
+        CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B,
+        CONF_DP_EVAL_DELAY_MIN as _EVAL_DEFAULT,
+        CONF_DP_MARGIN_MIN as _MARGIN_DEFAULT,
+        CONF_DP_MUST_START_BY_MIN_PAST_MIDNIGHT as _MUST_START_DEFAULT,
+        CONF_DP_NEEDED_KWH_GARAGE_A as _KWH_A_DEFAULT,
+        CONF_DP_NEEDED_KWH_GARAGE_B_FALLBACK as _KWH_B_DEFAULT,
+    )
+    return [
+        _dp_number_factory(
+            conf_key=CONF_ENERGY_DP_EVAL_DELAY_MIN,
+            setter_name="set_dp_eval_delay_min",
+            getter_attr="dp_eval_delay_min",
+            default_value=_EVAL_DEFAULT,
+            min_val=1, max_val=60, step=1, unit="min",
+            name="DP Eval Delay",
+            icon="mdi:timer-outline",
+            unique_suffix="dp_eval_delay_min",
+            is_int=True,
+        ),
+        _dp_number_factory(
+            conf_key=CONF_ENERGY_DP_MARGIN_MIN,
+            setter_name="set_dp_margin_min",
+            getter_attr="dp_margin_min",
+            default_value=_MARGIN_DEFAULT,
+            min_val=0, max_val=240, step=5, unit="min",
+            name="DP Safety Margin",
+            icon="mdi:timer-sand",
+            unique_suffix="dp_margin_min",
+            is_int=True,
+        ),
+        _dp_number_factory(
+            conf_key=CONF_ENERGY_DP_MUST_START_BY_MIN,
+            setter_name="set_dp_must_start_by_min",
+            getter_attr="dp_must_start_by_min",
+            default_value=_MUST_START_DEFAULT,
+            min_val=0, max_val=24 * 60 - 1, step=15, unit="min",
+            name="DP Must Start By (min past midnight)",
+            icon="mdi:clock-time-three-outline",
+            unique_suffix="dp_must_start_by_min",
+            is_int=True,
+        ),
+        _dp_number_factory(
+            conf_key=CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A,
+            setter_name="set_dp_needed_kwh_garage_a",
+            getter_attr="dp_needed_kwh_garage_a",
+            default_value=_KWH_A_DEFAULT,
+            min_val=1.0, max_val=120.0, step=0.5, unit="kWh",
+            name="DP Needed kWh (Garage A)",
+            icon="mdi:ev-station",
+            unique_suffix="dp_needed_kwh_garage_a",
+            is_int=False,
+        ),
+        _dp_number_factory(
+            conf_key=CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B,
+            setter_name="set_dp_needed_kwh_garage_b",
+            getter_attr="dp_needed_kwh_garage_b",
+            default_value=_KWH_B_DEFAULT,
+            min_val=1.0, max_val=150.0, step=0.5, unit="kWh",
+            name="DP Needed kWh (Garage B)",
+            icon="mdi:ev-station",
+            unique_suffix="dp_needed_kwh_garage_b",
+            is_int=False,
+        ),
+    ]
 
 
