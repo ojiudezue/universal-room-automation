@@ -4506,7 +4506,38 @@ class BatteryStrategy:
                 )
             )
             target_reserve = max(0, min(100, reserve_level))
-            if current_reserve is None or abs(current_reserve - target_reserve) >= 2:
+            # Root 2 (a) — HARD STAND-DOWN honesty. During a stand-down
+            # on the reserve surface at `target_reserve` (== the stuck
+            # non-compliant value), the normal 5-min dispatch tick MUST
+            # NOT keep re-dispatching the same value. That would be
+            # exactly the fight the stand-down was declared to prevent.
+            # Any change in effective desire → target_reserve differs
+            # from `_pending_standdown_value` → skip does not trigger →
+            # the append proceeds normally = automatic resume. Reads via
+            # the WriteVerifier public accessor so stand-down state
+            # lives in one place.
+            _wv = getattr(self, "_write_verifier", None)
+            _standdown_skip = False
+            if _wv is not None:
+                try:
+                    from .energy_write_verify import (  # noqa: PLC0415
+                        WRITE_VERIFY_SURFACE_RESERVE,
+                    )
+                    if _wv.is_standdown_active_for_value(
+                        WRITE_VERIFY_SURFACE_RESERVE, target_reserve,
+                    ):
+                        _standdown_skip = True
+                        _LOGGER.debug(
+                            "_result: reserve dispatch SKIPPED "
+                            "(stand-down active for value=%d)",
+                            target_reserve,
+                        )
+                except Exception:  # noqa: BLE001
+                    _standdown_skip = False
+            if not _standdown_skip and (
+                current_reserve is None
+                or abs(current_reserve - target_reserve) >= 2
+            ):
                 actions.append({
                     "service": "number.set_value",
                     "target": self._get_entity(
@@ -4853,7 +4884,23 @@ class BatteryStrategy:
             )
             return
         # (2) re-derive LIVE desire at fire time. NEVER capture upstream.
-        live_desire = getattr(self, "_last_reserve_level_desired", None)
+        # Root 1 fix (D-HIGH-1) — use EFFECTIVE post-overlay desire when
+        # the write-verifier is wired. `_last_reserve_level_desired` is
+        # the PRE-overlay strategy value; during an active EVSE hold the
+        # hardware needs the post-overlay max()-raised value (e.g. 61)
+        # instead of the strategy pre-overlay (e.g. 15). Re-dispatching
+        # the pre-overlay value would clobber the hold and drain the
+        # battery into the car. Fall back to pre-overlay only when the
+        # verifier is not yet wired (early boot / test).
+        live_desire = None
+        wv = getattr(self, "_write_verifier", None)
+        if wv is not None:
+            try:
+                live_desire = wv._effective_reserve_desired(self)  # noqa: SLF001
+            except Exception:  # noqa: BLE001
+                live_desire = None
+        if live_desire is None:
+            live_desire = getattr(self, "_last_reserve_level_desired", None)
         if live_desire is None:
             _LOGGER.info(
                 "force_redispatch(%s): no live desire — no-op", surface,

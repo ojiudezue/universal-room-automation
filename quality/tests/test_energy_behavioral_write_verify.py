@@ -87,6 +87,12 @@ class _BatStub:
         self._inclement_partial_hold_active = False
         # For force_redispatch tests:
         self._redispatch_calls: list[int] = []
+        # Real InclementDecision (v5.19.0 fix-up B-HIGH-1) — set by
+        # tests that exercise the inclement partial_hold exception.
+        self._last_inclement_decision = None
+        # v4.5.0 arbitrage phase (used by hold_owner resolver — kept
+        # None-safe in tests).
+        self._arbitrage_phase = "n/a"
 
     def _get_entity(self, key, default=None, *, role="read"):
         # Reserve number always resolves; local vs cloud path uses same
@@ -110,9 +116,25 @@ class _Coord:
         self.hass = hass
         self._battery = _BatStub(hass)
         self.nm_calls: list[dict] = []
+        # EVSE-hold overlay state lives on the ENERGY COORDINATOR
+        # (`_evse_battery_hold_active` / `_evse_hold_soc` — energy.py
+        # :298-299). The write-verifier reads them via `_evse_hold_state`
+        # to compute effective post-overlay reserve desired (Root 1).
+        self._evse_battery_hold_active = False
+        self._evse_hold_soc: Optional[int] = None
 
     async def _send_nm_alert(self, **kw):
         self.nm_calls.append(kw)
+
+
+class _FakeInclementDecision:
+    """Minimal stand-in for inclement.InclementDecision that carries
+    only the fields the write-verifier reads (`hold_depth`,
+    `reserve_floor`). Not @frozen so tests can mutate in place.
+    """
+    def __init__(self, hold_depth: str, reserve_floor: int = 50):
+        self.hold_depth = hold_depth
+        self.reserve_floor = reserve_floor
 
 
 @pytest.fixture
@@ -250,7 +272,16 @@ async def test_conduct_partial_hold_exempt(hass):
     )
     bat._soc = 40.0
     bat._power_w = -3000.0
-    bat._inclement_partial_hold_active = True
+    # v5.19.0 fix-up B-HIGH-1/2: read the REAL InclementDecision, not the
+    # invented `_inclement_partial_hold_active` attribute. Test now sets
+    # the actual decision object with hold_depth == "partial_hold". Under
+    # the previous (broken) code this test was green because the
+    # invented attribute was truthy; under the fix, the exception path
+    # only fires when `_last_inclement_decision.hold_depth ==
+    # "partial_hold"`.
+    bat._last_inclement_decision = _FakeInclementDecision(
+        hold_depth="partial_hold", reserve_floor=30,
+    )
 
     emitted: list[str] = []
     async def _fake_emit(surface, type_str, extra):
@@ -585,10 +616,34 @@ async def test_mutation_anchor_ladder_attempt_cap_removed(hass):
         retries.append(surface)
     bat.force_redispatch = _fake_redispatch  # type: ignore[attr-defined]
 
-    _prime_divergence(hass, bat, 10, 63, CONF_PENDING_ATTEMPT_3_AGE_S + 60)
-    # First three attempts fire; the third sets standdown.
-    for _ in range(5):
+    real_utcnow = ewv.dt_util.utcnow
+    t0 = real_utcnow()
+    _install_local_witness(bat, hass, 63)
+    bat._last_reserve_level = 10
+    bat._last_reserve_level_desired = 10
+    bat._last_reserve_level_at = t0 - timedelta(
+        seconds=CONF_PENDING_ATTEMPT_3_AGE_S + 60
+    )
+    bat._desired_stamped_at = t0
+    def _clock(offset_s):
+        ewv.dt_util.utcnow = lambda: t0 + timedelta(seconds=offset_s)
+        bat._desired_stamped_at = t0 + timedelta(seconds=offset_s)
+    try:
+        # v5.19.0 fix-up A-LOW-1 (ladder spacing): attempts must be
+        # spaced by ≥ ATTEMPT_1_AGE_S in addition to absolute age.
+        _clock(0)
         await v._pending_watchdog_reserve(bat)
+        _clock(int(CONF_PENDING_ATTEMPT_1_AGE_S) + 30)
+        await v._pending_watchdog_reserve(bat)
+        _clock(2 * int(CONF_PENDING_ATTEMPT_1_AGE_S) + 60)
+        await v._pending_watchdog_reserve(bat)
+        # Further ticks past standdown — no more retries.
+        _clock(3 * int(CONF_PENDING_ATTEMPT_1_AGE_S) + 90)
+        await v._pending_watchdog_reserve(bat)
+        _clock(4 * int(CONF_PENDING_ATTEMPT_1_AGE_S) + 120)
+        await v._pending_watchdog_reserve(bat)
+    finally:
+        ewv.dt_util.utcnow = real_utcnow
     # With cap enforced: attempts_fired capped at MAX_ATTEMPTS.
     assert v._pending_attempts_fired[SURFACE] == CONF_PENDING_MAX_ATTEMPTS
     assert v._pending_standdown_at[SURFACE] is not None
@@ -638,26 +693,44 @@ async def test_mutation_anchor_standdown_skipped(hass):
         retries.append(surface)
     bat.force_redispatch = _fake_redispatch  # type: ignore[attr-defined]
 
-    _prime_divergence(hass, bat, 10, 63, CONF_PENDING_ATTEMPT_3_AGE_S + 60)
-    # Drive to hard stand-down.
-    for _ in range(5):
-        await v._pending_watchdog_reserve(bat)
-    assert len(retries) == CONF_PENDING_MAX_ATTEMPTS
-    # Age the standdown so it stays under cool-off; more ticks → no retry.
-    for _ in range(10):
-        await v._pending_watchdog_reserve(bat)
-    assert len(retries) == CONF_PENDING_MAX_ATTEMPTS
-    # Now advance standdown past cool-off — ONE cool-off probe fires.
-    v._pending_standdown_at[SURFACE] = (
-        ewv.dt_util.utcnow()
-        - timedelta(seconds=CONF_PENDING_STANDDOWN_COOLOFF_S + 60)
+    real_utcnow = ewv.dt_util.utcnow
+    t0 = real_utcnow()
+    _install_local_witness(bat, hass, 63)
+    bat._last_reserve_level = 10
+    bat._last_reserve_level_desired = 10
+    bat._last_reserve_level_at = t0 - timedelta(
+        seconds=CONF_PENDING_ATTEMPT_3_AGE_S + 60
     )
-    await v._pending_watchdog_reserve(bat)
-    assert len(retries) == CONF_PENDING_MAX_ATTEMPTS + 1
-    # And that probe latches: no further retries during this stand-down.
-    await v._pending_watchdog_reserve(bat)
-    await v._pending_watchdog_reserve(bat)
-    assert len(retries) == CONF_PENDING_MAX_ATTEMPTS + 1
+    bat._desired_stamped_at = t0
+    def _clock(offset_s):
+        ewv.dt_util.utcnow = lambda: t0 + timedelta(seconds=offset_s)
+        bat._desired_stamped_at = t0 + timedelta(seconds=offset_s)
+    try:
+        _clock(0)
+        await v._pending_watchdog_reserve(bat)
+        _clock(int(CONF_PENDING_ATTEMPT_1_AGE_S) + 30)
+        await v._pending_watchdog_reserve(bat)
+        _clock(2 * int(CONF_PENDING_ATTEMPT_1_AGE_S) + 60)
+        await v._pending_watchdog_reserve(bat)
+        assert len(retries) == CONF_PENDING_MAX_ATTEMPTS
+        # More ticks — still under cool-off. No further retries.
+        _clock(3 * int(CONF_PENDING_ATTEMPT_1_AGE_S) + 90)
+        await v._pending_watchdog_reserve(bat)
+        _clock(4 * int(CONF_PENDING_ATTEMPT_1_AGE_S) + 120)
+        await v._pending_watchdog_reserve(bat)
+        assert len(retries) == CONF_PENDING_MAX_ATTEMPTS
+        # Now advance standdown past cool-off — ONE cool-off probe fires.
+        v._pending_standdown_at[SURFACE] = (
+            ewv.dt_util.utcnow()
+            - timedelta(seconds=CONF_PENDING_STANDDOWN_COOLOFF_S + 60)
+        )
+        await v._pending_watchdog_reserve(bat)
+        assert len(retries) == CONF_PENDING_MAX_ATTEMPTS + 1
+        await v._pending_watchdog_reserve(bat)
+        await v._pending_watchdog_reserve(bat)
+        assert len(retries) == CONF_PENDING_MAX_ATTEMPTS + 1
+    finally:
+        ewv.dt_util.utcnow = real_utcnow
 
 
 @pytest.mark.asyncio
@@ -815,3 +888,477 @@ async def test_force_redispatch_unsupported_surface_noop(hass):
     await BatteryStrategy.force_redispatch(bat, "charge_from_grid")
     await BatteryStrategy.force_redispatch(bat, "storage_mode")
     assert calls == []
+
+
+# ==================================================================
+# ROOT 1 anchors — effective post-overlay desire (D-HIGH-1 / D-HIGH-2)
+# ==================================================================
+@pytest.mark.asyncio
+async def test_conduct_uses_effective_desire_under_evse_hold(hass):
+    """MUTATION ANCHOR (Root 1, D-HIGH-1):
+
+    Scenario: strategy pre-overlay desire = 15 (would drain to 15),
+    but an EVSE-hold overlay is active with hold_soc = 61, so the
+    EFFECTIVE reserve URA is enforcing is 61. Commanded ledger = 61
+    (post-overlay stamp). SOC = 45, discharging.
+
+    Under FIX (uses `_effective_reserve_desired`): effective (61) is
+    NOT below commanded_floor (61) → exception (d) does NOT fire →
+    hardware_noncompliance emits. This is the whole point of the fix:
+    a battery draining into the car unalarmed while URA thinks it is
+    frozen at 61 must trigger.
+
+    Under MUTATION (revert to `_reserve_desire` / pre-overlay): 15 <
+    61 → exception (d) fires → no alarm. Mutating the fix would let
+    the D-HIGH-1 leak return.
+    """
+    coord = _Coord(hass)
+    bat = coord._battery
+    v = ewv.WriteVerifier(hass, coord)
+    bat._last_reserve_level = 61  # post-overlay stamp
+    bat._last_reserve_level_desired = 15  # PRE-overlay strategy desire
+    bat._last_reserve_level_at = (
+        ewv.dt_util.utcnow() - timedelta(seconds=2000)
+    )
+    # EVSE hold active with hold_soc = 61 — the reason commanded is 61.
+    coord._evse_battery_hold_active = True
+    coord._evse_hold_soc = 61
+    bat._soc = 45.0
+    bat._power_w = -3000.0
+
+    emitted: list[str] = []
+    async def _fake_emit(surface, type_str, extra):
+        emitted.append(type_str)
+    v._emit_anomaly = _fake_emit  # type: ignore
+
+    for _ in range(CONF_CONDUCT_N_TICKS):
+        await v._conduct_check_reserve(bat)
+    assert emitted == ["hardware_noncompliance"], (
+        "Effective post-overlay desire (61) equals commanded_floor (61) "
+        "so exception (d) must NOT fire; pre-overlay use would break this."
+    )
+
+
+@pytest.mark.asyncio
+async def test_watchdog_uses_effective_desire_under_evse_hold(hass):
+    """MUTATION ANCHOR (Root 1, D-HIGH-2):
+
+    Watchdog cancel-on-move must compare commanded ledger against the
+    EFFECTIVE post-overlay desire — not the pre-overlay strategy value.
+    Otherwise a legitimate standing HOLD (commanded=61 via EVSE hold,
+    strategy pre-overlay=15) would be classified as "desire moved"
+    → ladder cancels → the stuck-hold-write scenario never fires. The
+    07-16 fixture (commanded=61 held stuck) becomes unreachable.
+    """
+    coord = _Coord(hass)
+    bat = coord._battery
+    v = ewv.WriteVerifier(hass, coord)
+    # hw 30 vs cmd 61: divergence > 2% deadband.
+    _install_local_witness(bat, hass, 30)
+    bat._last_reserve_level = 61
+    bat._last_reserve_level_desired = 15  # PRE-overlay
+    bat._last_reserve_level_at = (
+        ewv.dt_util.utcnow()
+        - timedelta(seconds=CONF_PENDING_ATTEMPT_1_AGE_S + 60)
+    )
+    coord._evse_battery_hold_active = True
+    coord._evse_hold_soc = 61
+
+    retries: list[str] = []
+    async def _fake_redispatch(surface):
+        retries.append(surface)
+    bat.force_redispatch = _fake_redispatch  # type: ignore[attr-defined]
+    emitted: list[str] = []
+    async def _fake_emit(surface, type_str, extra):
+        emitted.append(type_str)
+    v._emit_anomaly = _fake_emit  # type: ignore
+
+    await v._pending_watchdog_reserve(bat)
+    assert retries == ["reserve_soc"], (
+        "Effective desire under hold == commanded ledger; ladder must "
+        "proceed. Using pre-overlay would cancel the ladder here."
+    )
+    assert emitted == ["pending_write_stuck"]
+
+
+# ==================================================================
+# ROOT 2 anchor — stand-down honesty (D-HIGH-3)
+# ==================================================================
+@pytest.mark.asyncio
+async def test_standdown_gates_normal_dispatch_same_value(hass):
+    """MUTATION ANCHOR (Root 2, D-HIGH-3):
+
+    After a hard stand-down at value V, `is_standdown_active_for_value`
+    returns True for V (so the normal `_result` dispatch leg skips
+    re-dispatch of V) and False for any other value (auto-resume when
+    effective desire changes).
+    """
+    coord = _Coord(hass)
+    bat = coord._battery
+    v = ewv.WriteVerifier(hass, coord)
+    retries: list[str] = []
+    async def _fake_redispatch(surface):
+        retries.append(surface)
+    bat.force_redispatch = _fake_redispatch  # type: ignore[attr-defined]
+
+    real_utcnow = ewv.dt_util.utcnow
+    t0 = real_utcnow()
+    _install_local_witness(bat, hass, 63)
+    bat._last_reserve_level = 10
+    bat._last_reserve_level_desired = 10
+    bat._last_reserve_level_at = t0 - timedelta(
+        seconds=CONF_PENDING_ATTEMPT_3_AGE_S + 60
+    )
+    bat._desired_stamped_at = t0
+    def _clock(offset_s):
+        ewv.dt_util.utcnow = lambda: t0 + timedelta(seconds=offset_s)
+        bat._desired_stamped_at = t0 + timedelta(seconds=offset_s)
+    try:
+        _clock(0)
+        await v._pending_watchdog_reserve(bat)
+        _clock(int(CONF_PENDING_ATTEMPT_1_AGE_S) + 30)
+        await v._pending_watchdog_reserve(bat)
+        _clock(2 * int(CONF_PENDING_ATTEMPT_1_AGE_S) + 60)
+        await v._pending_watchdog_reserve(bat)
+    finally:
+        ewv.dt_util.utcnow = real_utcnow
+    assert v._pending_standdown_at[SURFACE] is not None
+    assert v._pending_standdown_value[SURFACE] == 10
+
+    # Same value → gate active (dispatch would skip).
+    assert v.is_standdown_active_for_value(SURFACE, 10) is True
+    # Different value (effective desire moved) → gate NOT active,
+    # dispatch proceeds — automatic resume matches ratified conditions.
+    assert v.is_standdown_active_for_value(SURFACE, 40) is False
+
+
+@pytest.mark.asyncio
+async def test_self_heal_alarm_suppressed_during_pending_episode(hass):
+    """ROOT 2 (b): during an active pending episode, the overlapping
+    `write_verification_failed` self_heal_starvation alarm on the same
+    surface is suppressed — the more-specific `pending_write_stuck`
+    alarm owns the surface. Prevents dual alarms for one divergence.
+    """
+    coord = _Coord(hass)
+    bat = coord._battery
+    v = ewv.WriteVerifier(hass, coord)
+
+    emitted: list[str] = []
+    async def _fake_emit(surface, type_str, extra):
+        emitted.append(type_str)
+    v._emit_anomaly = _fake_emit  # type: ignore
+    # Fire an attempt so the pending episode is armed.
+    v._pending_attempts_fired[SURFACE] = 1
+    v._pending_episode_at[SURFACE] = ewv.dt_util.utcnow()
+
+    # Simulate the self-heal loop: same-value schedule called 3x. Under
+    # `is_pending_episode_active` the emit is suppressed.
+    _install_local_witness(bat, hass, 63)  # ensure oracle-probe returns a value
+    # Wire a cloud oracle so schedule() proceeds past the 'no oracle' return.
+    _install_cloud_oracle(bat, hass, 63)
+    for _ in range(3):
+        await v.schedule(SURFACE, 10)
+    # `write_verification_failed` (self-heal-starvation flavor) MUST NOT
+    # be in `emitted` — the pending episode owns the alarm.
+    assert "write_verification_failed" not in emitted
+
+
+# ==================================================================
+# D-MED-3 — grid outage exception (narrow, witness-driven)
+# ==================================================================
+@pytest.mark.asyncio
+async def test_conduct_grid_outage_exempts(hass):
+    """When `switch.enpower_*_grid_enabled` reads 'off', conduct exempts
+    (backup discharge below floor is expected during a grid outage).
+    """
+    coord = _Coord(hass)
+    bat = coord._battery
+    v = ewv.WriteVerifier(hass, coord)
+
+    # Wire `_get_entity("grid_enabled", ...)` to a known entity id.
+    GRID_EID = "switch.enpower_grid_enabled"
+    orig = bat._get_entity
+    def _wrap(key, default=None, *, role="read"):
+        if key == "grid_enabled":
+            return GRID_EID
+        return orig(key, default, role=role)
+    bat._get_entity = _wrap
+    _set(hass, GRID_EID, "off", unit=None)
+
+    bat._last_reserve_level = 60
+    bat._last_reserve_level_desired = 60
+    bat._last_reserve_level_at = (
+        ewv.dt_util.utcnow() - timedelta(seconds=2000)
+    )
+    bat._soc = 40.0
+    bat._power_w = -2500.0
+
+    emitted: list[str] = []
+    async def _fake_emit(surface, type_str, extra):
+        emitted.append(type_str)
+    v._emit_anomaly = _fake_emit  # type: ignore
+    for _ in range(CONF_CONDUCT_N_TICKS + 2):
+        await v._conduct_check_reserve(bat)
+    assert emitted == []
+    assert v._conduct_last_abstain_reason[SURFACE] == "grid_outage"
+
+
+# ==================================================================
+# A-LOW-1 / C-M6b — ladder inter-attempt spacing
+# ==================================================================
+@pytest.mark.asyncio
+async def test_ladder_spacing_prevents_consecutive_tick_burst(hass):
+    """MUTATION ANCHOR (A-LOW-1 / C-M6b):
+
+    Pre-aged divergence (post-restart shape) — commanded_at already past
+    ATTEMPT_3_AGE. Under NO spacing gate, three consecutive decision
+    ticks would fire attempts 1/2/3 back-to-back. Under the fix, attempt
+    N+1 requires `now - last_attempt_at >= ATTEMPT_1_AGE_S` in addition
+    to absolute age. So on three consecutive ticks: attempt 1 fires, the
+    next two return early (spacing not yet met).
+
+    C's spec: after attempt 1, tick at ATTEMPT_2_AGE-60 → still 1 retry.
+    """
+    coord = _Coord(hass)
+    bat = coord._battery
+    v = ewv.WriteVerifier(hass, coord)
+    retries: list[str] = []
+    async def _fake_redispatch(surface):
+        retries.append(surface)
+    bat.force_redispatch = _fake_redispatch  # type: ignore[attr-defined]
+
+    real_utcnow = ewv.dt_util.utcnow
+    t0 = real_utcnow()
+    # Pre-aged: divergence already at ATTEMPT_3_AGE.
+    _install_local_witness(bat, hass, 63)
+    bat._last_reserve_level = 10
+    bat._last_reserve_level_desired = 10
+    bat._last_reserve_level_at = t0 - timedelta(
+        seconds=CONF_PENDING_ATTEMPT_3_AGE_S + 60
+    )
+    bat._desired_stamped_at = t0
+
+    def _clock(offset_s):
+        ewv.dt_util.utcnow = lambda: t0 + timedelta(seconds=offset_s)
+        bat._desired_stamped_at = t0 + timedelta(seconds=offset_s)
+    try:
+        # Tick 1 (t=0): attempt 1 fires.
+        _clock(0)
+        await v._pending_watchdog_reserve(bat)
+        assert len(retries) == 1
+        # Tick 2 shortly after (t = ATTEMPT_1_AGE - 60): spacing NOT met.
+        _clock(int(CONF_PENDING_ATTEMPT_1_AGE_S) - 60)
+        await v._pending_watchdog_reserve(bat)
+        assert len(retries) == 1, (
+            "Spacing gate must block a second consecutive-tick retry."
+        )
+        # Tick 3 (t = ATTEMPT_1_AGE + 30): spacing met, attempt 2 fires.
+        _clock(int(CONF_PENDING_ATTEMPT_1_AGE_S) + 30)
+        await v._pending_watchdog_reserve(bat)
+        assert len(retries) == 2
+    finally:
+        ewv.dt_util.utcnow = real_utcnow
+
+
+# ==================================================================
+# D-MED-4 / C-M10 — severity plumbing
+# ==================================================================
+@pytest.mark.asyncio
+async def test_severity_plumbing_per_attempt(hass):
+    """MUTATION ANCHOR (D-MED-4 / C-M10):
+
+    Ratified severity: attempt #1 → ALERT, #2 → ALERT (HIGH string
+    maps to ALERT enum — the enum has no HIGH bucket), #3 → CRITICAL.
+    conduct → ALERT (NOT CRITICAL, per ratification #1 — money leak).
+
+    Assert BOTH the payload `severity_class` string AND the real
+    `AnomalySeverity` enum passed to the emitter. A test that only
+    checked the string would let a mutation of the mapping ship a
+    silent regression.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.anomaly_event import (  # noqa: E501
+        AnomalySeverity,
+    )
+
+    coord = _Coord(hass)
+    bat = coord._battery
+    v = ewv.WriteVerifier(hass, coord)
+    retries: list[str] = []
+    async def _fake_redispatch(surface):
+        retries.append(surface)
+    bat.force_redispatch = _fake_redispatch  # type: ignore[attr-defined]
+
+    # Capture full AnomalyEvent via a fake database.
+    saved: list = []
+    class _FakeDB:
+        async def save_anomaly_event(self, ev):
+            saved.append(ev)
+    hass.data["universal_room_automation"]["database"] = _FakeDB()
+
+    real_utcnow = ewv.dt_util.utcnow
+    t0 = real_utcnow()
+    _install_local_witness(bat, hass, 63)
+    bat._last_reserve_level = 10
+    bat._last_reserve_level_desired = 10
+    bat._last_reserve_level_at = t0 - timedelta(seconds=60)
+    bat._desired_stamped_at = t0
+
+    def _clock(offset_s):
+        ewv.dt_util.utcnow = lambda: t0 + timedelta(seconds=offset_s)
+        bat._desired_stamped_at = t0 + timedelta(seconds=offset_s)
+    try:
+        _clock(CONF_PENDING_ATTEMPT_1_AGE_S)
+        await v._pending_watchdog_reserve(bat)
+        _clock(CONF_PENDING_ATTEMPT_2_AGE_S)
+        await v._pending_watchdog_reserve(bat)
+        _clock(CONF_PENDING_ATTEMPT_3_AGE_S)
+        await v._pending_watchdog_reserve(bat)
+    finally:
+        ewv.dt_util.utcnow = real_utcnow
+
+    # Three pending_write_stuck emits captured.
+    pw = [ev for ev in saved if ev.type == "pending_write_stuck"]
+    assert len(pw) == 3
+    # payload is a dict (build_context_json returns dict); extra keys
+    # live under payload["extra"].
+    def _extract_sev_class(payload):
+        return (payload.get("extra") or {}).get("severity_class")
+    sev_classes = [_extract_sev_class(ev.payload) for ev in pw]
+    assert sev_classes == ["ALERT", "HIGH", "CRITICAL"]
+    # Real AnomalySeverity enum per attempt:
+    assert pw[0].severity == AnomalySeverity.ALERT
+    assert pw[1].severity == AnomalySeverity.ALERT  # HIGH → ALERT bucket
+    assert pw[2].severity == AnomalySeverity.CRITICAL
+
+    # Conduct — must be ALERT (NOT CRITICAL).
+    saved.clear()
+    coord2 = _Coord(hass)
+    bat2 = coord2._battery
+    v2 = ewv.WriteVerifier(hass, coord2)
+    bat2._last_reserve_level = 15
+    bat2._last_reserve_level_desired = 15
+    bat2._last_reserve_level_at = (
+        ewv.dt_util.utcnow() - timedelta(seconds=2000)
+    )
+    bat2._soc = 5.0
+    bat2._power_w = -2000.0
+    for _ in range(CONF_CONDUCT_N_TICKS):
+        await v2._conduct_check_reserve(bat2)
+    hn = [ev for ev in saved if ev.type == "hardware_noncompliance"]
+    assert len(hn) == 1
+    assert hn[0].severity == AnomalySeverity.ALERT
+
+
+# ==================================================================
+# C-M8 — command_trail truthfulness
+# ==================================================================
+@pytest.mark.asyncio
+async def test_command_trail_reports_three_distinct_witnesses(hass):
+    """C-M8: the `command_trail` D3 attr must NOT collapse or lie —
+    each of ledger / hardware-enforced / cloud-oracle must report its
+    own value.
+    """
+    coord = _Coord(hass)
+    bat = coord._battery
+    v = ewv.WriteVerifier(hass, coord)
+    # Distinct values: ledger=10, hw=63, cloud=50.
+    _install_local_witness(bat, hass, 63)
+    _install_cloud_oracle(bat, hass, 50)
+    bat._last_reserve_level = 10
+    bat._last_reserve_level_desired = 10
+    bat._last_reserve_level_at = ewv.dt_util.utcnow()
+
+    attrs = v.get_status_attrs()
+    trail = attrs["command_trail"][SURFACE]
+    assert trail["commanded"]["value"] == 10
+    assert int(float(trail["hardware_enforced"]["value"])) == 63
+    assert trail["cloud_oracle"]["value"] in ("50", 50)
+    # All three distinct → not a lie.
+    assert (
+        trail["commanded"]["value"]
+        != trail["hardware_enforced"]["value"]
+        != trail["cloud_oracle"]["value"]
+    )
+
+
+# ==================================================================
+# C-M11 — kill-switch OFF stops emits/retries under violating fixture
+# ==================================================================
+@pytest.mark.asyncio
+async def test_conduct_kill_switch_disabled_no_emits(hass, monkeypatch):
+    """C-M11: when `CONF_CONDUCT_ENABLED` is monkeypatched False,
+    a fixture that would normally trigger the alarm produces ZERO
+    emits and leaves the tick counter at 0.
+    """
+    monkeypatch.setattr(ewv, "CONF_CONDUCT_ENABLED", False)
+    coord = _Coord(hass)
+    bat = coord._battery
+    v = ewv.WriteVerifier(hass, coord)
+    bat._last_reserve_level = 15
+    bat._last_reserve_level_desired = 15
+    bat._last_reserve_level_at = (
+        ewv.dt_util.utcnow() - timedelta(seconds=2000)
+    )
+    bat._soc = 5.0
+    bat._power_w = -2000.0
+    emitted: list[str] = []
+    async def _fake_emit(surface, type_str, extra):
+        emitted.append(type_str)
+    v._emit_anomaly = _fake_emit  # type: ignore
+    for _ in range(CONF_CONDUCT_N_TICKS + 3):
+        await v._conduct_check_reserve(bat)
+    assert emitted == []
+    assert v._conduct_consec.get(SURFACE, 0) == 0
+
+
+@pytest.mark.asyncio
+async def test_pending_watchdog_kill_switch_disabled_no_retries(hass, monkeypatch):
+    """C-M11: `CONF_PENDING_WATCHDOG_ENABLED` False → zero retries and
+    zero anomaly emits even under a divergence past ATTEMPT_3_AGE.
+    """
+    monkeypatch.setattr(ewv, "CONF_PENDING_WATCHDOG_ENABLED", False)
+    coord = _Coord(hass)
+    bat = coord._battery
+    v = ewv.WriteVerifier(hass, coord)
+    retries: list[str] = []
+    async def _fake_redispatch(surface):
+        retries.append(surface)
+    bat.force_redispatch = _fake_redispatch  # type: ignore[attr-defined]
+    emitted: list[str] = []
+    async def _fake_emit(surface, type_str, extra):
+        emitted.append(type_str)
+    v._emit_anomaly = _fake_emit  # type: ignore
+    _prime_divergence(hass, bat, 10, 63, CONF_PENDING_ATTEMPT_3_AGE_S + 60)
+    for _ in range(5):
+        await v._pending_watchdog_reserve(bat)
+    assert retries == []
+    assert emitted == []
+
+
+# ==================================================================
+# C-M12 — power-blind abstain
+# ==================================================================
+@pytest.mark.asyncio
+async def test_conduct_power_none_abstains(hass):
+    """C-M12: `battery_power_w` None (power sensor blind) → abstain,
+    zero emits, counter not advanced. Distinct from soc-blind path.
+    """
+    coord = _Coord(hass)
+    bat = coord._battery
+    v = ewv.WriteVerifier(hass, coord)
+    bat._last_reserve_level = 15
+    bat._last_reserve_level_desired = 15
+    bat._last_reserve_level_at = (
+        ewv.dt_util.utcnow() - timedelta(seconds=2000)
+    )
+    bat._soc = 5.0
+    bat._power_w = None
+    emitted: list[str] = []
+    async def _fake_emit(surface, type_str, extra):
+        emitted.append(type_str)
+    v._emit_anomaly = _fake_emit  # type: ignore
+    for _ in range(CONF_CONDUCT_N_TICKS + 2):
+        await v._conduct_check_reserve(bat)
+    assert emitted == []
+    assert v._conduct_consec.get(SURFACE, 0) == 0
+    assert v._conduct_last_abstain_reason[SURFACE] == "power_none"
