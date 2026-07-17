@@ -252,7 +252,12 @@ class TestD2HvacDynamicPresetSwitch:
         # After D2, async_setup_entry must wire HVACDynamicPresetSwitch,
         # not ECDynamicPresetSwitch for this slot.
         idx = switch_src.find("async def async_setup_entry(")
-        body = switch_src[idx:idx + 5000]
+        # Window widened from 5000 → 6000 (Session B1 EVSE drain-precedence
+        # added ECDrainPrecedenceEnableSwitch to CM setup_entry, pushing
+        # HVACDynamicPresetSwitch out of the original 5000-char slice by
+        # ~34 chars). The invariant is presence-in-setup_entry, not
+        # location within a fixed character window.
+        body = switch_src[idx:idx + 6000]
         assert "HVACDynamicPresetSwitch" in body, (
             "async_setup_entry must instantiate HVACDynamicPresetSwitch "
             "(not the old ECDynamicPresetSwitch factory call)"

@@ -60,6 +60,8 @@ async def async_setup_entry(
             # v5.7.1: Energy Saver Pre-Cool Scope (EC device).
             # Three options: occupied_only / whole_house / auto_pv_tiered.
             EnergyPreCoolScopeSelect(hass, entry),
+            # Session B1 — EVSE drain-precedence house-load source select.
+            DrainPrecedenceHouseLoadSourceSelect(hass, entry),
         ]
         async_add_entities(entities)
         return
@@ -788,3 +790,93 @@ class EnergyPreCoolScopeSelect(SelectEntity):
             )
         self.async_write_ha_state()
         _LOGGER.info("Energy Saver Pre-Cool Scope set to: %s", option)
+
+
+class DrainPrecedenceHouseLoadSourceSelect(SelectEntity):
+    """Select entity for EVSE Drain-Precedence house-load source (plan §80).
+
+    Options: "max_span_r1" | "live_span" | "r1_base". Ratification §257
+    picks `max_span_r1` (conservative blend) as ship default; the others
+    are opt-in for probe re-runs. `entry.options` is the sole source of
+    truth (mirrors EnergyPreCoolScopeSelect above — no RestoreEntity).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:home-lightning-bolt-outline"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.entity import EntityCategory
+        from .domain_coordinators.energy_const import (
+            CONF_ENERGY_DP_HOUSE_LOAD_SOURCE,
+            CONF_DP_HOUSE_LOAD_SOURCE as _DEFAULT,
+            DP_HOUSE_LOAD_SOURCES,
+        )
+        self.hass = hass
+        self._entry = entry
+        self._conf_key = CONF_ENERGY_DP_HOUSE_LOAD_SOURCE
+        self._default = _DEFAULT
+        self._valid = tuple(DP_HOUSE_LOAD_SOURCES)
+        self._attr_options = list(DP_HOUSE_LOAD_SOURCES)
+        self._attr_entity_category = EntityCategory.CONFIG
+        self._attr_unique_id = f"{DOMAIN}_energy_dp_house_load_source"
+        self._attr_name = "DP House Load Source"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "energy_coordinator")},
+            name="URA: Energy Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Energy Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        merged = {**entry.data, **entry.options}
+        raw = merged.get(self._conf_key, self._default)
+        if raw not in self._valid:
+            raw = self._default
+        self._current = raw
+
+    def _get_energy(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        return manager.coordinators.get("energy") if manager else None
+
+    @property
+    def current_option(self) -> str:
+        return self._current
+
+    @property
+    def available(self) -> bool:
+        return self._get_energy() is not None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        energy = self._get_energy()
+        if energy is not None:
+            try:
+                energy.set_dp_house_load_source(self._current)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "DP House Load Source: seed-push deferred",
+                )
+
+    async def async_select_option(self, option: str) -> None:
+        if option not in self._valid:
+            option = self._default
+        self._current = option
+        energy = self._get_energy()
+        if energy is not None:
+            try:
+                energy.set_dp_house_load_source(option)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "DP House Load Source: setter raised", exc_info=True,
+                )
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={**self._entry.options, self._conf_key: option},
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "DP House Load Source: options-writeback failed", exc_info=True,
+            )
+        self.async_write_ha_state()
+        _LOGGER.info("DP House Load Source set to: %s", option)

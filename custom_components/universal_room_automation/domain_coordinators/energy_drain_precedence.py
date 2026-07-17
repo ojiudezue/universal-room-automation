@@ -357,10 +357,16 @@ def serialize_for_kv(carrier: DrainPrecedenceState) -> str:
 # ==========================================================================
 
 
-def is_dp_enabled() -> bool:
+def is_dp_enabled(coordinator: Any = None) -> bool:
     """Master kill-switch reader.
 
-    Session A: reads the module constant. Session B swaps this for a
-    Switch entity reader once the entity surface exists.
+    Session B1: if a coordinator is passed, read its `dp_enabled` attr
+    (backed by `entry.options[CONF_ENERGY_DP_ENABLE]` via the Switch
+    entity). Falls back to the module constant when no coordinator is
+    supplied (state-machine unit tests, first-boot before entities exist).
     """
+    if coordinator is not None:
+        val = getattr(coordinator, "dp_enabled", None)
+        if val is not None:
+            return bool(val)
     return bool(CONF_DP_ENABLE)

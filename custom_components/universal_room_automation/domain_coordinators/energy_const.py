@@ -1334,3 +1334,25 @@ DP_NIGHT_WINDOW_END_HOUR: Final[int] = 6
 # Rung-1 (module const, wire-format contract). Single JSON blob under this
 # key in the `energy_state` KV table. Change requires migration.
 DP_KV_KEY: Final[str] = "drain_precedence_state_v1"
+
+# ============================================================================
+# Session B1 — CONF OPTION KEYS for entity persistence (plan §68-84).
+# ------------------------------------------------------------------
+# The `CONF_DP_*` constants above are default VALUES (bool/int/float/str)
+# consumed directly by the state machine in `energy_drain_precedence.py`.
+# The `CONF_ENERGY_DP_*` string keys BELOW are the persisted-config keys
+# used by the Switch/Number/Select entities and CM options-writeback:
+# they live in `entry.options` as the sole source of truth (mirrors the
+# OffPeakDrainNumber / PeakBufferTargetNumber pattern at number.py:710+).
+# On restart the entity constructor re-seeds `self._value` from
+# `{**entry.data, **entry.options}` under these keys; the state-machine
+# defaults above are the first-boot fallback.
+# ============================================================================
+
+CONF_ENERGY_DP_ENABLE: Final[str] = "energy_dp_enable"
+CONF_ENERGY_DP_EVAL_DELAY_MIN: Final[str] = "energy_dp_eval_delay_min"
+CONF_ENERGY_DP_MARGIN_MIN: Final[str] = "energy_dp_margin_min"
+CONF_ENERGY_DP_MUST_START_BY_MIN: Final[str] = "energy_dp_must_start_by_min"
+CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A: Final[str] = "energy_dp_needed_kwh_garage_a"
+CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B: Final[str] = "energy_dp_needed_kwh_garage_b"
+CONF_ENERGY_DP_HOUSE_LOAD_SOURCE: Final[str] = "energy_dp_house_load_source"

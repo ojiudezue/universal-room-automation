@@ -120,6 +120,17 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     # through MusicFollowing.update_gate_config() without a CM reload.
     _extract_conf(CONST_SRC, "CONF_MF_SLEEP_SUPPRESS"),
     _extract_conf(CONST_SRC, "CONF_MF_NIGHT_SUPPRESS_MODE"),
+    # Session B1 — EVSE Drain-Precedence entity-owned CM options keys
+    # (Switch: enable; Numbers: eval_delay/margin/must_start_by/needed_kwh_a/b;
+    # Select: house_load_source). Edits push through EC setters without
+    # a full CM reload. String values live in energy_const.py.
+    "energy_dp_enable",
+    "energy_dp_eval_delay_min",
+    "energy_dp_margin_min",
+    "energy_dp_must_start_by_min",
+    "energy_dp_needed_kwh_garage_a",
+    "energy_dp_needed_kwh_garage_b",
+    "energy_dp_house_load_source",
 }
 
 
@@ -158,9 +169,11 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     """Headline number: Cycle 1's 5 + 10 EC/Bayesian + 4 Routine +
     14 HVAC tunables + 4 D5 + 6 v4.7.34 Optimizer + 4 v4.7.35 LLM +
     1 v4.7.35 fix-up (safety deny-list) + 1 OC Pillar B
-    (pending-escalation) + 2 v5.10.0 D2 (MF sleep + night) = 51 keys."""
+    (pending-escalation) + 2 v5.10.0 D2 (MF sleep + night)
+    + 7 Session B1 (EVSE drain-precedence: 1 Switch + 5 Numbers + 1 Select)
+    = 58 keys."""
     ns = _load_init_dispatch_namespace()
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 51
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 58
 
 
 # ---------------------------------------------------------------------------
@@ -267,6 +280,14 @@ def _load_init_dispatch_namespace() -> dict:
         # Zone Delete Flow fix-up R2 — CONF_ZONE in _ROOM_SUPPRESS_KEYS.
         "CONF_ZONE":                              "zone",
         "ENTRY_TYPE_ROOM":                        "room",
+        # Session B1 — EVSE Drain-Precedence CM options keys.
+        "_CONF_ENERGY_DP_ENABLE":                 "energy_dp_enable",
+        "_CONF_ENERGY_DP_EVAL_DELAY_MIN":         "energy_dp_eval_delay_min",
+        "_CONF_ENERGY_DP_MARGIN_MIN":             "energy_dp_margin_min",
+        "_CONF_ENERGY_DP_MUST_START_BY_MIN":      "energy_dp_must_start_by_min",
+        "_CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A":    "energy_dp_needed_kwh_garage_a",
+        "_CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B":    "energy_dp_needed_kwh_garage_b",
+        "_CONF_ENERGY_DP_HOUSE_LOAD_SOURCE":      "energy_dp_house_load_source",
     }
     mod = ast.Module(body=body, type_ignores=[])
     code = compile(mod, str(PKG / "__init__.py"), "exec")

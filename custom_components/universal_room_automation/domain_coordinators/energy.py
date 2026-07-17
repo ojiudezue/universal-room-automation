@@ -300,6 +300,67 @@ class EnergyCoordinator(BaseCoordinator):
         # v5.17.1 fix-up (B-MED-1): edge-detect completion for eager persist
         self._last_arbitrage_chunk_completed: bool = False
 
+        # =================================================================
+        # EVSE Drain-Precedence (Session B1) — knob storage + carrier.
+        # ---------------------------------------------------------------
+        # Entity setters (`set_dp_*` below) push values into these attrs
+        # BEFORE `async_update_entry` writeback (matches OffPeakDrainNumber /
+        # PeakBufferTargetNumber pattern at number.py:710+). On first boot
+        # `ec.get(...)` reads the merged `{**entry.data, **entry.options}`
+        # dict — falls back to the module-const defaults from
+        # `energy_const.py` (`CONF_DP_*`). Runtime readers wired by
+        # Session B2 read these attrs, not the module constants.
+        #
+        # `_dp_carrier` is the DrainPrecedenceState instance shared with
+        # the state machine module + observability sensor + KV persist /
+        # restore paths (_save_evse_state / _restore_evse_state below).
+        # =================================================================
+        from .energy_const import (
+            CONF_ENERGY_DP_ENABLE,
+            CONF_ENERGY_DP_EVAL_DELAY_MIN,
+            CONF_ENERGY_DP_MARGIN_MIN,
+            CONF_ENERGY_DP_MUST_START_BY_MIN,
+            CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A,
+            CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B,
+            CONF_ENERGY_DP_HOUSE_LOAD_SOURCE,
+            CONF_DP_ENABLE as _DP_ENABLE_DEFAULT,
+            CONF_DP_EVAL_DELAY_MIN as _DP_EVAL_DELAY_DEFAULT,
+            CONF_DP_MARGIN_MIN as _DP_MARGIN_DEFAULT,
+            CONF_DP_MUST_START_BY_MIN_PAST_MIDNIGHT as _DP_MUST_START_BY_DEFAULT,
+            CONF_DP_NEEDED_KWH_GARAGE_A as _DP_NEEDED_A_DEFAULT,
+            CONF_DP_NEEDED_KWH_GARAGE_B_FALLBACK as _DP_NEEDED_B_DEFAULT,
+            CONF_DP_HOUSE_LOAD_SOURCE as _DP_LOAD_SRC_DEFAULT,
+            DP_HOUSE_LOAD_SOURCES as _DP_LOAD_SRC_VALID,
+        )
+        self._dp_enabled: bool = bool(ec.get(
+            CONF_ENERGY_DP_ENABLE, _DP_ENABLE_DEFAULT
+        ))
+        self._dp_eval_delay_min: int = int(ec.get(
+            CONF_ENERGY_DP_EVAL_DELAY_MIN, _DP_EVAL_DELAY_DEFAULT
+        ))
+        self._dp_margin_min: int = int(ec.get(
+            CONF_ENERGY_DP_MARGIN_MIN, _DP_MARGIN_DEFAULT
+        ))
+        self._dp_must_start_by_min: int = int(ec.get(
+            CONF_ENERGY_DP_MUST_START_BY_MIN, _DP_MUST_START_BY_DEFAULT
+        ))
+        self._dp_needed_kwh_garage_a: float = float(ec.get(
+            CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A, _DP_NEEDED_A_DEFAULT
+        ))
+        self._dp_needed_kwh_garage_b: float = float(ec.get(
+            CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B, _DP_NEEDED_B_DEFAULT
+        ))
+        _load_src = ec.get(
+            CONF_ENERGY_DP_HOUSE_LOAD_SOURCE, _DP_LOAD_SRC_DEFAULT
+        )
+        if _load_src not in _DP_LOAD_SRC_VALID:
+            _load_src = _DP_LOAD_SRC_DEFAULT
+        self._dp_house_load_source: str = str(_load_src)
+        # Carrier — Session B2 mutates via try_transition(); observability
+        # sensor + KV persist/restore mount this instance directly.
+        from .energy_drain_precedence import DrainPrecedenceState
+        self._dp_carrier: DrainPrecedenceState = DrainPrecedenceState()
+
         # v4.0.18: EV grid import cap
         self._grid_import_cap_enabled: bool = ec.get(
             CONF_ENERGY_GRID_IMPORT_CAP_ENABLED, False)
@@ -1342,6 +1403,29 @@ class EnergyCoordinator(BaseCoordinator):
             await self._restore_wv_state(
                 db, battery, verifier, STALE_MAX_AGE_HOURS,
             )
+            # Session B1 — drain-precedence carrier restore.
+            # `restore_from_blob(raw, now_provider=dt_util.now)` enforces
+            # INV-DP2 (expired must_start_by → fresh HOLD_ONLY) and the
+            # `DP_TRANSITION_MAX_DURATION_H` age gate on TRANSITIONED
+            # rows. On any parse error / stale row / missing blob we fall
+            # back to a fresh HOLD_ONLY carrier (initialized in __init__).
+            try:
+                from .energy_drain_precedence import (
+                    DP_KV_KEY as _DP_KV_KEY,
+                    restore_from_blob as _dp_restore,
+                )
+                dp_raw = await db.restore_energy_state_with_age(
+                    _DP_KV_KEY, max_age_hours=STALE_MAX_AGE_HOURS,
+                )
+                if dp_raw:
+                    self._dp_carrier = _dp_restore(
+                        dp_raw, now_provider=dt_util.now,
+                    )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "drain-precedence carrier restore failed (swallowed)",
+                    exc_info=True,
+                )
             if (
                 states
                 or self._ev._paused_by_grid_cap
@@ -1707,6 +1791,30 @@ class EnergyCoordinator(BaseCoordinator):
             except Exception:  # noqa: BLE001
                 _LOGGER.debug(
                     "arbitrage chunk latch persist save failed (swallowed)",
+                    exc_info=True,
+                )
+            # Session B1 — drain-precedence carrier persist.
+            # Mirrors the arbitrage-latch pattern above: single JSON blob
+            # under `DP_KV_KEY` in `energy_state`. Restore side is
+            # `_restore_evse_state` → `restore_from_blob`, which enforces
+            # INV-DP2 must-start-by expiry and the
+            # `DP_TRANSITION_MAX_DURATION_H` age gate on the persisted
+            # transitioned state. `serialize_for_kv` returns a compact JSON
+            # string. Best-effort — swallow to match sibling latches.
+            try:
+                from .energy_drain_precedence import (
+                    DP_KV_KEY as _DP_KV_KEY,
+                    serialize_for_kv as _dp_serialize,
+                )
+                carrier = getattr(self, "_dp_carrier", None)
+                if carrier is not None:
+                    await db.save_energy_state(
+                        _DP_KV_KEY,
+                        _dp_serialize(carrier),
+                    )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "drain-precedence carrier persist save failed (swallowed)",
                     exc_info=True,
                 )
         except Exception as e:
@@ -6465,6 +6573,88 @@ class EnergyCoordinator(BaseCoordinator):
         """
         self._excess_solar_soc = int(value)
         _LOGGER.info("EV excess-solar SOC threshold set to %d%%", int(value))
+
+    # ------------------------------------------------------------------
+    # EVSE Drain-Precedence setters (Session B1) — knob entity → coord
+    # ------------------------------------------------------------------
+    # Called by the Switch / Number / Select entities BEFORE their
+    # `async_update_entry` writeback, so the next decision tick reads
+    # the fresh value even if the CM options-update listener is still in
+    # flight. Runtime readers (wired by Session B2) will read these attrs
+    # via `is_dp_enabled()` etc.
+    @property
+    def dp_enabled(self) -> bool:
+        return self._dp_enabled
+
+    def set_dp_enabled(self, value: bool) -> None:
+        self._dp_enabled = bool(value)
+        _LOGGER.info("Drain-precedence enabled=%s", bool(value))
+
+    @property
+    def dp_eval_delay_min(self) -> int:
+        return self._dp_eval_delay_min
+
+    def set_dp_eval_delay_min(self, value: int) -> None:
+        self._dp_eval_delay_min = int(value)
+        _LOGGER.info("Drain-precedence eval delay set to %d min", int(value))
+
+    @property
+    def dp_margin_min(self) -> int:
+        return self._dp_margin_min
+
+    def set_dp_margin_min(self, value: int) -> None:
+        self._dp_margin_min = int(value)
+        _LOGGER.info("Drain-precedence margin set to %d min", int(value))
+
+    @property
+    def dp_must_start_by_min(self) -> int:
+        return self._dp_must_start_by_min
+
+    def set_dp_must_start_by_min(self, value: int) -> None:
+        self._dp_must_start_by_min = int(value)
+        _LOGGER.info(
+            "Drain-precedence must-start-by set to %d min past midnight",
+            int(value),
+        )
+
+    @property
+    def dp_needed_kwh_garage_a(self) -> float:
+        return self._dp_needed_kwh_garage_a
+
+    def set_dp_needed_kwh_garage_a(self, value: float) -> None:
+        self._dp_needed_kwh_garage_a = float(value)
+        _LOGGER.info(
+            "Drain-precedence needed_kwh (garage A) set to %.2f kWh", float(value)
+        )
+
+    @property
+    def dp_needed_kwh_garage_b(self) -> float:
+        return self._dp_needed_kwh_garage_b
+
+    def set_dp_needed_kwh_garage_b(self, value: float) -> None:
+        self._dp_needed_kwh_garage_b = float(value)
+        _LOGGER.info(
+            "Drain-precedence needed_kwh (garage B) set to %.2f kWh", float(value)
+        )
+
+    @property
+    def dp_house_load_source(self) -> str:
+        return self._dp_house_load_source
+
+    def set_dp_house_load_source(self, value: str) -> None:
+        from .energy_const import (
+            DP_HOUSE_LOAD_SOURCES,
+            CONF_DP_HOUSE_LOAD_SOURCE as _DEFAULT,
+        )
+        v = str(value)
+        if v not in DP_HOUSE_LOAD_SOURCES:
+            _LOGGER.warning(
+                "Drain-precedence house_load_source %r not in %s — coerced to %s",
+                v, list(DP_HOUSE_LOAD_SOURCES), _DEFAULT,
+            )
+            v = _DEFAULT
+        self._dp_house_load_source = v
+        _LOGGER.info("Drain-precedence house_load_source set to %s", v)
 
     async def _check_fill_priority_nm_trip(
         self,

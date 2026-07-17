@@ -234,6 +234,14 @@ def _load_init_listener_helpers():
         "CONF_ZONE":                              "zone",
         # ENTRY_TYPE_ROOM (C-HIGH-3 path in _async_update_listener).
         "ENTRY_TYPE_ROOM":                        "room",
+        # Session B1 — EVSE Drain-Precedence CM options keys.
+        "_CONF_ENERGY_DP_ENABLE":                 "energy_dp_enable",
+        "_CONF_ENERGY_DP_EVAL_DELAY_MIN":         "energy_dp_eval_delay_min",
+        "_CONF_ENERGY_DP_MARGIN_MIN":             "energy_dp_margin_min",
+        "_CONF_ENERGY_DP_MUST_START_BY_MIN":      "energy_dp_must_start_by_min",
+        "_CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A":    "energy_dp_needed_kwh_garage_a",
+        "_CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B":    "energy_dp_needed_kwh_garage_b",
+        "_CONF_ENERGY_DP_HOUSE_LOAD_SOURCE":      "energy_dp_house_load_source",
         # Typing — frozenset[str] subscript requires Python 3.9+; ok.
     }
     # Wrap kept nodes in a Module and compile.
