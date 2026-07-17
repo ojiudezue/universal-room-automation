@@ -142,3 +142,39 @@ adjustment with the opposite sign.
 - Scripts default to dry-run with a read-only (`mode=ro`) connection;
   `--execute` requires typed confirmation.
 - Never blanket-delete statistics for the LIVE serial (482543015950).
+
+## EXECUTED 2026-07-17 00:05–01:10 CDT (orchestrator, operator-authorized)
+
+- **Backup:** HA native `backup/generate` with `include_database: true` →
+  backup_id **a9c52726**, 10.3 GB, database_included verified. (File-level
+  `.backup` via ssh blocked — ssh user has no /config write; runbook step 1
+  amended accordingly.)
+- **R4a (live serial only, per sequencing insight):** executed via WS —
+  command name is **`recorder/adjust_sum_statistics`** (NOT
+  `recorder/adjust_sum` as drafted). Single call: statistic
+  `sensor.envoy_482543015950_energy_consumption_today`, start
+  2026-05-31T05:00:00+00:00, adjustment −4,294,629.126 kWh.
+  Verification: poisoned LTS rows 0 ✓; final sum **21,061.086** (predicted
+  ~21,061) ✓; **short-term poisoned rows 0 ✓ — the drafted caveat is
+  RESOLVED: adjust_sum_statistics fixes statistics_short_term too.**
+- **R4c:** executed via WS `recorder/clear_statistics` with the dry-run
+  script's registry-checked 53 statistic_ids (guard-rail: 0 live-serial ids;
+  the 5 serial-prefixed survivors are registry-LIVE cost/compensation
+  entities, correctly kept). Verification: dead-serial meta 0 ✓, orphan
+  rows 0 ✓, live-serial LTS intact (1,974 rows) ✓.
+- **R4a dead serials:** SKIPPED per step-4 sequencing (R4c purged them wholesale).
+- **R4b:** still pending operator firmware-string confirm + post.
+
+### R4d follow-up (NEW, discovered post-R4a — measurement-gated, do NOT hot-fix)
+
+Two residual sum-bakes on the live serial, different class from uint32
+(counter-reset echo flavor, both on incident dates):
+- 2026-06-12 00:00 — delta +8,453.2 kWh (state 7.713; Envoy boot incident day)
+- 2026-07-02 03:00 — delta +12,092.1 kWh (state 0.0)
+Removing both would leave ~523 kWh over the 96-day window (~5 kWh/day —
+impossible), while keeping them reads ~219 kWh/day (plausible) — so they are
+NOT cleanly spurious; offsetting under-accumulation likely exists elsewhere
+(Envoy dropout flatlines). Sizing requires cross-reference against
+Enlighten/SPAN data for those days (Measure Before You Build). Dashboard
+impact bounded to those two days' readings. Candidate probe: diff HA daily
+deltas vs data/enphase site consumption CSV per day across the window.
