@@ -42,8 +42,12 @@ import logging
 from .energy_const import (
     CONF_DP_ENABLE,
     CONF_DP_EVAL_DELAY_MIN,
+    CONF_DP_MARGIN_MIN,
     CONF_DP_MUST_START_BY_MIN_PAST_MIDNIGHT,
+    DP_CAPACITY_KWH_PER_SOC_PP,
     DP_KV_KEY,
+    DP_L1_RATE_THRESHOLD_KW,
+    DP_NIGHT_WINDOW_END_HOUR,
     DP_TRANSITION_MAX_DURATION_H,
 )
 
@@ -370,3 +374,411 @@ def is_dp_enabled(coordinator: Any = None) -> bool:
         if val is not None:
             return bool(val)
     return bool(CONF_DP_ENABLE)
+
+
+# ==========================================================================
+# Session B2a — pure eval + tick driver (NO actuation)
+# --------------------------------------------------------------------------
+# This session lands the decision math + the state-machine driver that
+# updates the carrier and requests a KV persist. Actuation (paused_by_dp,
+# reserve floor composition, must-start-by fire, write-verify extension)
+# is Session B2b per the split. Tests here exercise the PURE surfaces
+# only — no HA imports, no coordinator, no dispatcher.
+#
+# Design contracts:
+#   - Every input is passed in explicitly via TransitionInputs. No hidden
+#     reads (Bug Class #7 — stale data source resistance).
+#   - Every decision returns a TransitionDecision carrying reason + snapshot.
+#     Reason strings are stable identifiers callers can match on.
+#   - The clock is passed via `now_provider: Callable[[], datetime]`.
+#     NEVER wall-clock-couple (v5.17.1 _FrozenClock lesson).
+#   - `_dp_maybe_tick` is the sole state-machine entry point. It NEVER
+#     mutates external state; it mutates the carrier + calls the optional
+#     persister callback when the carrier state edge fires.
+# ==========================================================================
+
+
+# Stable decision reason codes (tests match on these).
+DP_REASON_KILL_SWITCH_OFF = "kill_switch_off"
+DP_REASON_BLIND_HOLD = "blind_hold"
+DP_REASON_FORCE_CHARGE_ACTIVE = "force_charge_active"
+DP_REASON_L1_ONLY = "l1_only"
+DP_REASON_NO_CHARGING_EVSE = "no_charging_evse"
+DP_REASON_MISSING_SOC = "missing_soc"
+DP_REASON_MISSING_INPUTS = "missing_inputs"
+DP_REASON_ALREADY_BELOW_TARGET = "already_below_target"
+DP_REASON_DOES_NOT_FIT = "does_not_fit"
+DP_REASON_FITS = "fits"
+
+
+@dataclass(frozen=True)
+class TransitionInputs:
+    """All inputs the eval needs. Callers build this from live readers.
+
+    Every field is required except optionals used only for observability
+    or diagnostic reason routing. The eval performs NO hidden reads — this
+    is the sole source of truth for the decision.
+    """
+
+    # Kill-switch + mode gates
+    dp_enabled: bool
+    is_blind_hold: bool
+    force_charge_active: bool
+
+    # Battery state
+    soc: Optional[int]  # % (0-100); None → MISSING_SOC hold
+    drain_target_soc: int  # % floor to drain toward (max()-composed by actuation)
+
+    # Charger state
+    any_evse_charging: bool
+    charger_rate_kw: float  # highest available rate across charging EVSEs
+    needed_kwh: float  # projected car energy need
+
+    # House-load model
+    house_load_kw: float  # per CONF_DP_HOUSE_LOAD_SOURCE resolution
+
+    # Time
+    now: datetime  # tz-aware
+    must_start_by_dt: datetime  # tz-aware; from compute_must_start_by
+
+    # Knobs
+    margin_min: int  # safety margin in minutes
+    eval_delay_min: int  # HOLD_PRE_EVAL wait before firing
+
+    # Optional constants override (tests / probe replay); defaults from module
+    capacity_kwh_per_soc_pp: float = DP_CAPACITY_KWH_PER_SOC_PP
+    l1_rate_threshold_kw: float = DP_L1_RATE_THRESHOLD_KW
+
+    def to_snapshot(self) -> dict[str, Any]:
+        """JSON-safe input snapshot for carrier.last_eval_snapshot."""
+        return {
+            "dp_enabled": bool(self.dp_enabled),
+            "is_blind_hold": bool(self.is_blind_hold),
+            "force_charge_active": bool(self.force_charge_active),
+            "soc": self.soc,
+            "drain_target_soc": int(self.drain_target_soc),
+            "any_evse_charging": bool(self.any_evse_charging),
+            "charger_rate_kw": float(self.charger_rate_kw),
+            "needed_kwh": float(self.needed_kwh),
+            "house_load_kw": float(self.house_load_kw),
+            "now": self.now.isoformat(),
+            "must_start_by_dt": self.must_start_by_dt.isoformat(),
+            "margin_min": int(self.margin_min),
+            "eval_delay_min": int(self.eval_delay_min),
+        }
+
+
+@dataclass(frozen=True)
+class TransitionDecision:
+    """Pure eval output. Contains the transition verdict plus the numbers
+    that justify it — those numbers ride the observability snapshot and
+    the info-log line so every decision is auditable post-fact.
+    """
+
+    transition: bool
+    reason: str
+    drain_hours: Optional[float]
+    charge_hours: Optional[float]
+    margin_hours: float
+    hours_until_must_start_by: Optional[float]
+    computed_start_dt: Optional[datetime]
+    computed_finish_dt: Optional[datetime]
+
+    def to_snapshot(self) -> dict[str, Any]:
+        """JSON-safe decision snapshot for carrier.last_eval_snapshot."""
+        return {
+            "transition": bool(self.transition),
+            "reason": self.reason,
+            "drain_hours": self.drain_hours,
+            "charge_hours": self.charge_hours,
+            "margin_hours": self.margin_hours,
+            "hours_until_must_start_by": self.hours_until_must_start_by,
+            "computed_start_dt": (
+                self.computed_start_dt.isoformat()
+                if self.computed_start_dt else None
+            ),
+            "computed_finish_dt": (
+                self.computed_finish_dt.isoformat()
+                if self.computed_finish_dt else None
+            ),
+        }
+
+
+def _no_fit(reason: str, inputs: TransitionInputs) -> TransitionDecision:
+    """Build a HOLD decision with the margin_hours attribution intact."""
+    margin_h = float(inputs.margin_min) / 60.0
+    return TransitionDecision(
+        transition=False,
+        reason=reason,
+        drain_hours=None,
+        charge_hours=None,
+        margin_hours=margin_h,
+        hours_until_must_start_by=None,
+        computed_start_dt=None,
+        computed_finish_dt=None,
+    )
+
+
+def evaluate_dp_transition(inputs: TransitionInputs) -> TransitionDecision:
+    """Pure eval: does the hold-then-drain-then-charge plan fit tonight?
+
+    Gate order (top-first — earlier gates cannot be masked by later math):
+        1. INV-DP4 — blind-hold: no fresh SOC → hold stands unconditionally.
+        2. Kill switch: dp_enabled False → hold.
+        3. Force-charge yield: A-H1 force-charge wins unconditionally.
+        4. No charging EVSE: nothing to plan against → hold.
+        5. Missing SOC: cannot compute drain time → hold.
+        6. L1-only: 16h L1 vs 9h night — never fits, per P4 (§345 of plan).
+        7. Already at/below drain target: nothing to drain → hold.
+        8. Arithmetic fits check.
+
+    Returns a TransitionDecision with the numbers that justify it.
+    """
+    # (1) INV-DP4 blind-hold gate — TOP. Ratification #5: on the FIRST
+    # sighted tick after blind-hold exit, an immediate one-shot re-eval
+    # is legal (this function is called from _dp_maybe_tick which the
+    # caller invokes on the fresh-sight tick). This function ONLY refuses
+    # while is_blind_hold is TRUE.
+    if inputs.is_blind_hold:
+        return _no_fit(DP_REASON_BLIND_HOLD, inputs)
+
+    # (2) Kill switch.
+    if not inputs.dp_enabled:
+        return _no_fit(DP_REASON_KILL_SWITCH_OFF, inputs)
+
+    # (3) Force-charge yield (plan §127, interaction matrix row 1). A-H1
+    # force-charge in energy_pool.py wins unconditionally; our eval must
+    # yield rather than pause an EVSE force-charge wants running.
+    if inputs.force_charge_active:
+        return _no_fit(DP_REASON_FORCE_CHARGE_ACTIVE, inputs)
+
+    # (4) No charging EVSE — nothing to plan against.
+    if not inputs.any_evse_charging:
+        return _no_fit(DP_REASON_NO_CHARGING_EVSE, inputs)
+
+    # (5) Missing SOC — cannot compute drain_hours.
+    if inputs.soc is None:
+        return _no_fit(DP_REASON_MISSING_SOC, inputs)
+
+    # (6) L1-only auto-hold (P4 verdict §345). Explicit branch, not an
+    # emergent arithmetic outcome, per plan.
+    if inputs.charger_rate_kw <= inputs.l1_rate_threshold_kw:
+        return _no_fit(DP_REASON_L1_ONLY, inputs)
+
+    # (7) Sanity: already at/below drain target. Nothing to drain toward.
+    if int(inputs.soc) <= int(inputs.drain_target_soc):
+        return _no_fit(DP_REASON_ALREADY_BELOW_TARGET, inputs)
+
+    # (8) Arithmetic. Guard divide-by-zero-ish house_load / charger_rate.
+    if inputs.house_load_kw <= 0.0 or inputs.charger_rate_kw <= 0.0 or inputs.needed_kwh <= 0.0:
+        return _no_fit(DP_REASON_MISSING_INPUTS, inputs)
+
+    drain_soc_pp = int(inputs.soc) - int(inputs.drain_target_soc)
+    drain_energy_kwh = drain_soc_pp * float(inputs.capacity_kwh_per_soc_pp)
+    drain_hours = drain_energy_kwh / float(inputs.house_load_kw)
+    charge_hours = float(inputs.needed_kwh) / float(inputs.charger_rate_kw)
+    margin_hours = float(inputs.margin_min) / 60.0
+
+    hours_until_must_start_by = (
+        (inputs.must_start_by_dt - inputs.now).total_seconds() / 3600.0
+    )
+
+    # The plan (§162-166) states: fits iff (drain + charge + margin) <=
+    # night_hours_remaining AND charge_start <= must_start_by. When the
+    # must_start_by deadline is the binding constraint, we require the
+    # DRAIN portion + margin to fit before must_start_by (so the CHARGE
+    # portion begins at or before must_start_by and finishes at
+    # must_start_by + charge_hours). P4 replay confirms this framing on
+    # all 7 nights (§334-346).
+    # Plan §332-346: computed_start = now + drain_hours (margin is applied
+    # to the FIT check, not to the computed start time — matches the P4
+    # counterfactual table exactly). Finish = start + charge_hours.
+    computed_start_dt = inputs.now + timedelta(hours=drain_hours)
+    computed_finish_dt = computed_start_dt + timedelta(hours=charge_hours)
+
+    # Primary fit test: drain + margin must complete by must_start_by, and
+    # charge_hours must fit before end-of-night (default 06:00 next day).
+    # We compute end_of_night from must_start_by's date at
+    # DP_NIGHT_WINDOW_END_HOUR to avoid coupling to a distinct "night"
+    # object — the must-start-by machinery already carries the correct
+    # day-boundary semantics via compute_must_start_by().
+    end_of_night = inputs.must_start_by_dt.replace(
+        hour=DP_NIGHT_WINDOW_END_HOUR, minute=0, second=0, microsecond=0,
+    )
+    # If must_start_by hour is >= end_of_night hour on the same day, the
+    # end_of_night wraps to the next day.
+    if end_of_night <= inputs.must_start_by_dt:
+        end_of_night = end_of_night + timedelta(days=1)
+
+    # Fit test (plan §162-166):
+    #   (drain + charge + margin) ≤ hours_until_end_of_night AND
+    #   charge_start ≤ must_start_by
+    # Margin is a safety cushion on the TOTAL night arithmetic, not an
+    # offset on the charge-start clock.
+    hours_until_end_of_night = (
+        (end_of_night - inputs.now).total_seconds() / 3600.0
+    )
+    total_hours = drain_hours + charge_hours + margin_hours
+    fits = (
+        computed_start_dt <= inputs.must_start_by_dt
+        and total_hours <= hours_until_end_of_night
+    )
+
+    if not fits:
+        return TransitionDecision(
+            transition=False,
+            reason=DP_REASON_DOES_NOT_FIT,
+            drain_hours=drain_hours,
+            charge_hours=charge_hours,
+            margin_hours=margin_hours,
+            hours_until_must_start_by=hours_until_must_start_by,
+            computed_start_dt=computed_start_dt,
+            computed_finish_dt=computed_finish_dt,
+        )
+
+    return TransitionDecision(
+        transition=True,
+        reason=DP_REASON_FITS,
+        drain_hours=drain_hours,
+        charge_hours=charge_hours,
+        margin_hours=margin_hours,
+        hours_until_must_start_by=hours_until_must_start_by,
+        computed_start_dt=computed_start_dt,
+        computed_finish_dt=computed_finish_dt,
+    )
+
+
+# ==========================================================================
+# State-machine tick driver
+# ==========================================================================
+
+
+def _snapshot_eval(
+    inputs: TransitionInputs, decision: TransitionDecision,
+) -> dict[str, Any]:
+    """Combined input+decision blob for carrier.last_eval_snapshot."""
+    return {
+        "inputs": inputs.to_snapshot(),
+        "decision": decision.to_snapshot(),
+    }
+
+
+def _dp_maybe_tick(
+    carrier: DrainPrecedenceState,
+    inputs: TransitionInputs,
+    *,
+    now_provider: Callable[[], datetime],
+    persister: Optional[Callable[[DrainPrecedenceState], None]] = None,
+) -> TransitionDecision:
+    """State-machine tick driver — NO actuation.
+
+    Called from the coordinator's decision cycle. Drives:
+        HOLD_ONLY → HOLD_PRE_EVAL   when any_evse_charging & dp_enabled
+        HOLD_PRE_EVAL → EVAL_TRANSITION   after eval_delay_min
+        EVAL_TRANSITION → TRANSITIONED   iff eval says fits
+        EVAL_TRANSITION → HOLD_ONLY      iff eval says no
+        TRANSITIONED → HOLD_ONLY         when EVSE stops charging (Session
+                                          B2b will add reversion + must-
+                                          start-forced edges via a
+                                          dedicated reversion path).
+        HOLD_PRE_EVAL → HOLD_ONLY        when EVSE stops charging OR
+                                          kill-switch flips off.
+
+    Returns the eval decision if an eval was actually run this tick,
+    otherwise returns a synthetic HOLD decision carrying the entry reason.
+    The carrier is mutated in place; the optional `persister` is invoked
+    on ANY state edge (self-loops do not persist to avoid write-flood).
+    """
+    now = now_provider()
+    prev_state = carrier.state
+
+    # Master gate — kill switch or no EVSE charging → drive back to HOLD_ONLY
+    # from any pre-transition state. Do NOT collapse TRANSITIONED here;
+    # B2b's actuation path is authoritative for exiting TRANSITIONED
+    # (reversion sweep + must-start-by fire).
+    if (not inputs.dp_enabled) or (not inputs.any_evse_charging):
+        if carrier.state in (DPState.HOLD_ONLY, DPState.HOLD_PRE_EVAL):
+            if carrier.state != DPState.HOLD_ONLY:
+                try_transition(
+                    carrier, DPState.HOLD_ONLY, now_provider=now_provider,
+                )
+                if persister is not None and carrier.state != prev_state:
+                    persister(carrier)
+            return _no_fit(
+                DP_REASON_KILL_SWITCH_OFF if not inputs.dp_enabled
+                else DP_REASON_NO_CHARGING_EVSE,
+                inputs,
+            )
+
+    # From HOLD_ONLY → HOLD_PRE_EVAL when armed (charging + enabled).
+    if carrier.state == DPState.HOLD_ONLY:
+        if inputs.dp_enabled and inputs.any_evse_charging:
+            try_transition(
+                carrier, DPState.HOLD_PRE_EVAL, now_provider=now_provider,
+            )
+            if persister is not None:
+                persister(carrier)
+        return _no_fit(DP_REASON_NO_CHARGING_EVSE, inputs)
+
+    # From HOLD_PRE_EVAL → EVAL_TRANSITION when eval_delay elapsed OR
+    # blind-hold JUST exited (ratification #5: one-shot immediate re-eval).
+    # We do NOT track a blind-hold edge here — the caller passes fresh
+    # inputs each tick; the eval itself gates on is_blind_hold.
+    if carrier.state == DPState.HOLD_PRE_EVAL:
+        # Belt-and-suspenders: hold_started_at should be set by the
+        # HOLD_ONLY → HOLD_PRE_EVAL edge; if it isn't (test poking the
+        # carrier directly), treat now as the hold start.
+        hold_started = carrier.hold_started_at or now
+        elapsed_min = (now - hold_started).total_seconds() / 60.0
+        if elapsed_min < float(inputs.eval_delay_min):
+            # Still waiting — hold stands. Reason is diagnostic; caller
+            # can also inspect carrier.state to distinguish.
+            return _no_fit("waiting_eval_delay", inputs)
+        # Move into the one-shot EVAL_TRANSITION state.
+        try_transition(
+            carrier, DPState.EVAL_TRANSITION, now_provider=now_provider,
+        )
+        if persister is not None:
+            persister(carrier)
+
+    # From EVAL_TRANSITION: fire eval; TRANSITIONED on fit, HOLD_ONLY on
+    # no-fit. Snapshot goes into carrier.last_eval_snapshot regardless.
+    if carrier.state == DPState.EVAL_TRANSITION:
+        decision = evaluate_dp_transition(inputs)
+        carrier.last_eval_at = now
+        carrier.last_eval_snapshot = _snapshot_eval(inputs, decision)
+        _LOGGER.info(
+            "drain-precedence eval: transition=%s reason=%s "
+            "drain_h=%s charge_h=%s margin_h=%.2f start=%s finish=%s",
+            decision.transition,
+            decision.reason,
+            (f"{decision.drain_hours:.2f}"
+             if decision.drain_hours is not None else "None"),
+            (f"{decision.charge_hours:.2f}"
+             if decision.charge_hours is not None else "None"),
+            decision.margin_hours,
+            (decision.computed_start_dt.isoformat()
+             if decision.computed_start_dt else "None"),
+            (decision.computed_finish_dt.isoformat()
+             if decision.computed_finish_dt else "None"),
+        )
+        if decision.transition:
+            # Stamp the must-start-by deadline for INV-DP2 restart guard.
+            carrier.must_start_by_dt = inputs.must_start_by_dt
+            try_transition(
+                carrier, DPState.TRANSITIONED, now_provider=now_provider,
+            )
+        else:
+            try_transition(
+                carrier, DPState.HOLD_ONLY, now_provider=now_provider,
+            )
+        if persister is not None:
+            persister(carrier)
+        return decision
+
+    # In TRANSITIONED: B2a records nothing but the tick — actuation +
+    # reversion is B2b. Return a synthetic hold "already transitioned"
+    # decision so callers can log; carrier state is authoritative.
+    return _no_fit("already_transitioned", inputs)
+
+
