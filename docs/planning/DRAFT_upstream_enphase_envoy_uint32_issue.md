@@ -2,9 +2,7 @@
 
 > Status: DRAFT ONLY — do NOT post until the operator reviews. R4b of the
 > LTS-repair chain (see `RUNBOOK_lts_repairs_r4.md`).
-> Firmware version below is stated from local context (Envoy metered,
-> firmware 8.3.x); CONFIRM the exact firmware string from the Envoy local UI
-> or Enlighten before posting.
+> Firmware strings CONFIRMED 2026-07-17 from the HA device registry (per-serial, below).
 
 ---
 
@@ -43,7 +41,7 @@ by 4,294,629 and stays there for every subsequent row (897 rows and
 counting).
 
 Four different Envoy serials (hardware swaps) all exhibit it, across
-firmware in the 8.3.x line — it is a device/firmware artifact, not a
+three firmware builds in the 8.3 line (8.3.5167, 8.3.5286, 8.3.5289) — it is a device/firmware artifact, not a
 one-off. Notably the **lifetime** (MWh-scaled) statistics from the same
 device are clean; only the "today" Wh-scaled consumption endpoint produces
 the uint32-max readings.
@@ -71,7 +69,7 @@ surgery.
 - Hardware: Envoy metered w/ consumption CTs + Enpower/IQ batteries;
   4 serials over the install's life (RMA swaps): 202442014493,
   202504003374, 202428004328, 482543015950 (current)
-- Firmware: 8.3.x (exact string to confirm before posting)
+- Firmware (per serial, from HA device registry): 202442014493 + 202504003374 = 8.3.5167; 202428004328 = 8.3.5286; 482543015950 (current) = 8.3.5289
 
 ## Diagnostics
 
