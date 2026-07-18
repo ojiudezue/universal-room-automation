@@ -1804,45 +1804,73 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                         room_name
                     )
 
-                    # ble_extend_not_create (2026-07-17): BLE evidence may
-                    # EXTEND a motion-confirmed occupancy but NEVER CREATE
-                    # one — for any room, direct or shared scanner. A
-                    # cold room (no recent physical motion) whose BLE
-                    # flaps in/out from Bermuda noise must not strobe
+                    # ble_extend_not_create (2026-07-17, fix-up B-HIGH-1):
+                    # BLE may EXTEND a motion-confirmed occupancy but NEVER
+                    # CREATE one — for any room, direct or shared scanner.
+                    # A cold room (no recent motion, chain broken) whose
+                    # BLE flaps in/out from Bermuda noise must not strobe
                     # entry actions (Master Bathroom 21:16-21:47 incident).
                     #
-                    # Predicate: `_last_motion_time` present AND age within
-                    # BLE_MOTION_CONFIRM_MULTIPLIER x occupancy_timeout.
-                    # CRITICAL ORDERING: this predicate MUST be evaluated
-                    # BEFORE the `_last_motion_time` seeding below —
-                    # otherwise BLE would self-confirm on the next tick
-                    # (predicate reads what BLE just wrote). The seeding
-                    # is deliberately kept inside the admitted branch.
+                    # Two-leg admission (invariant (b) chain formulation):
+                    #   (a) CHAIN — the room was OCCUPIED on the previous
+                    #       update cycle. `self._last_occupied_state` is
+                    #       only mutated LATE in _async_update_data
+                    #       (:2274 / :2280 / :2302 / :2329 / :2471), well
+                    #       AFTER this block, so here it reflects prev-
+                    #       tick state. A still-body BLE hold extends
+                    #       INDEFINITELY through this leg — bounded only
+                    #       by the pre-existing 4-hour failsafe at :1760,
+                    #       exactly as pre-fix Tier-2 behavior.
+                    #   (b) MOTION — real motion within
+                    #       BLE_MOTION_CONFIRM_MULTIPLIER x occupancy_timeout;
+                    #       covers the handoff tick where motion just
+                    #       timed out but _last_occupied_state hasn't
+                    #       rolled over yet.
+                    # Either leg admits; MULTIPLIER > 0 gates BOTH legs
+                    # (kill switch — MULT=0 disables BLE hold entirely
+                    # per the constant's documented semantics). Negative
+                    # motion_age (NTP jump / manual clock set) fails
+                    # leg (b); leg (a) is independent of motion_time.
+                    #
+                    # CRITICAL ORDERING: this predicate runs BEFORE the
+                    # `_last_motion_time` seeding below — otherwise BLE
+                    # would self-confirm the motion leg on the next tick.
                     ble_allowed = False
-                    if (
-                        BLE_MOTION_CONFIRM_MULTIPLIER > 0
-                        and self._last_motion_time
-                    ):
-                        motion_age = (
-                            now - self._last_motion_time
-                        ).total_seconds()
-                        # Reject negative motion_age (clock skew defense —
-                        # mirrors failsafe pattern at :1730).
-                        if (
-                            0 <= motion_age
-                            < self._occupancy_timeout
-                            * BLE_MOTION_CONFIRM_MULTIPLIER
-                        ):
-                            ble_allowed = True
+                    if BLE_MOTION_CONFIRM_MULTIPLIER > 0:
+                        chain_unbroken = self._last_occupied_state
+                        motion_leg = False
+                        if self._last_motion_time:
+                            motion_age = (
+                                now - self._last_motion_time
+                            ).total_seconds()
+                            # Reject negative motion_age (clock skew
+                            # defense — mirrors failsafe pattern at :1730).
+                            if (
+                                0 <= motion_age
+                                < self._occupancy_timeout
+                                * BLE_MOTION_CONFIRM_MULTIPLIER
+                            ):
+                                motion_leg = True
+                        ble_allowed = chain_unbroken or motion_leg
 
                     if ble_allowed:
                         data[STATE_OCCUPIED] = True
                         data[STATE_OCCUPANCY_SOURCE] = "ble"
                         data[STATE_BLE_PERSONS] = list(ble_persons)
                         data[STATE_TIMEOUT_REMAINING] = self._occupancy_timeout
-                        # NOTE: seeding lives INSIDE `if ble_allowed:` by
-                        # design — see the ORDERING note above. Do not
-                        # hoist this above the predicate.
+                        # Seed `_last_motion_time` if unset. Fix-up
+                        # B-LOW-1: this line was dead pre-chain-leg (the
+                        # old predicate required truthy _last_motion_time
+                        # to admit). With the CHAIN leg it is now
+                        # REACHABLE — a room can enter BLE hold with
+                        # _last_motion_time=None (e.g. restart mid-hold
+                        # while _last_occupied_state is truthy). Keeping
+                        # the seed here means the motion leg can hold
+                        # over one BLE tick if the chain later breaks;
+                        # both legs remain gated by MULT>0 kill switch.
+                        # MUST remain BELOW the predicate — hoisting it
+                        # above lets the motion leg self-confirm on the
+                        # next tick (mutation anchor M2).
                         if not self._last_motion_time:
                             self._last_motion_time = now
                         # Ensure failsafe timer tracks BLE-held occupancy

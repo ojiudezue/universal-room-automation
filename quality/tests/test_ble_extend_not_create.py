@@ -479,9 +479,166 @@ def test_camera_block_unchanged_by_this_cycle():
     # the test fails LOUDLY — the operator can then decide whether
     # the co-edit was intentional (update the digest) or accidental.
     digest = hashlib.sha256(cam_block.encode("utf-8")).hexdigest()
-    # Baseline computed from the block after this cycle's edit.
-    _BASELINE_CAMERA_BLOCK_SHA256 = digest  # first-run recording
-    assert digest == _BASELINE_CAMERA_BLOCK_SHA256
+    # Baseline FROZEN 2026-07-17 during the ble_extend_not_create fix-up
+    # (Reviewer C-CRIT-1: replace the tautological first-run recording
+    # with a hard-coded literal). If this cycle intentionally edits the
+    # v3.5.1 camera block, RE-FREEZE this hex deliberately after
+    # inspecting the diff; a silent co-edit will fail loudly here.
+    _BASELINE_CAMERA_BLOCK_SHA256 = (
+        "2e80de19f48a2477d8fb1dfab253b82c670a419e9c22b0dd5cd7d902780b7e0b"
+    )
+    assert digest == _BASELINE_CAMERA_BLOCK_SHA256, (
+        f"Camera block SHA changed: expected "
+        f"{_BASELINE_CAMERA_BLOCK_SHA256}, got {digest}. If the co-edit "
+        f"was intentional, update the frozen hex above; otherwise revert."
+    )
+
+
+# ==========================================================================
+# B-MED-1 — Sleep-hold pin: chain-unbroken room extends indefinitely
+#          past the motion-leg window
+# ==========================================================================
+
+
+def test_sleep_hold_pin_chain_extends_past_motion_window():
+    """Direct-BLE room, motion_age = 2 x occupancy_timeout + 1s (past
+    the motion-leg window), but `_last_occupied_state=True` (chain
+    unbroken from prior tick). The chain leg must ADMIT — this is the
+    sleep-hold invariant (b): a legitimately-held room is BLE-held
+    indefinitely, bounded only by the 4-hour failsafe."""
+    hass = make_hass()
+    room = "Master Bedroom"
+    now = datetime(2026, 7, 17, 22, 30, 0)
+    timeout = 60
+    coord = _FakeSelf(
+        hass,
+        occupancy_timeout=timeout,
+        # motion_age = 2*timeout + 1 = 121s -> motion leg REJECTS
+        last_motion_time=now - timedelta(seconds=timeout * 2 + 1),
+    )
+    coord._last_occupied_state = True  # chain unbroken (prev tick)
+    pc = _make_person_coord({room: ["oji"]}, direct_ble_rooms={room})
+    _seed_hass(hass, pc)
+
+    data = {STATE_OCCUPIED: False}
+    _run_ble_block(coord, data, now, room)
+
+    assert data.get(STATE_OCCUPIED) is True, (
+        "chain leg must admit BLE hold indefinitely when prev-tick "
+        "occupied — sleep-hold invariant (b) violated"
+    )
+    assert data.get(STATE_OCCUPANCY_SOURCE) == "ble"
+
+
+def test_sleep_hold_chain_broken_rejects_with_stale_motion():
+    """Companion to the sleep-hold pin: chain BROKEN
+    (`_last_occupied_state=False`) with the SAME stale motion age must
+    REJECT. Guarantees a cold room (Bermuda flap) still fails after the
+    chain leg is added."""
+    hass = make_hass()
+    room = "Master Bedroom"
+    now = datetime(2026, 7, 17, 22, 30, 0)
+    timeout = 60
+    coord = _FakeSelf(
+        hass,
+        occupancy_timeout=timeout,
+        last_motion_time=now - timedelta(seconds=timeout * 2 + 1),
+    )
+    # coord._last_occupied_state defaults False -> chain broken
+    pc = _make_person_coord({room: ["oji"]}, direct_ble_rooms={room})
+    _seed_hass(hass, pc)
+
+    data = {STATE_OCCUPIED: False}
+    _run_ble_block(coord, data, now, room)
+
+    assert data.get(STATE_OCCUPIED) is False, (
+        "cold room (chain broken + stale motion) must REJECT even with "
+        "BLE person present — invariant (a) 'never CREATE' violated"
+    )
+    assert data.get(STATE_OCCUPANCY_SOURCE) != "ble"
+
+
+# ==========================================================================
+# B-MED-2 — 5-tick chain scenario: motion-confirm -> chain-extend x3
+#          -> BLE departs -> exit
+#
+# Harness gap note: the extracted-block harness only runs the BLE block
+# region, not the full `_async_update_data` cycle that mutates
+# `_last_occupied_state` (line ~2274). A true two-tick integration test
+# would need to construct a full `UniversalRoomCoordinator` with
+# platform + registry + entry plumbing, which the current fixtures
+# (make_hass, MagicMock person_coord) do not provide. Rather than
+# fabricate that plumbing, we simulate the state-carrying edge
+# explicitly here: after each tick, mirror the prod update at :2274 /
+# :2280 by copying `data[STATE_OCCUPIED]` into
+# `coord._last_occupied_state`. This preserves the invariant we care
+# about (chain propagation across ticks) while keeping the test on the
+# same authority surface as T1-T7.
+# ==========================================================================
+
+
+def test_five_tick_chain_motion_confirm_then_chain_extend_then_exit():
+    hass = make_hass()
+    room = "Master Bedroom"
+    timeout = 60
+    t0 = datetime(2026, 7, 17, 22, 0, 0)
+    coord = _FakeSelf(
+        hass,
+        occupancy_timeout=timeout,
+        # Tick 1 will have fresh motion within the window.
+        last_motion_time=t0 - timedelta(seconds=30),
+    )
+    persons = {room: ["oji"]}
+    pc = _make_person_coord(persons, direct_ble_rooms={room})
+    _seed_hass(hass, pc)
+
+    # Tick 1: fresh motion + BLE -> motion-leg admits.
+    data1 = {STATE_OCCUPIED: False}
+    _run_ble_block(coord, data1, t0, room)
+    assert data1[STATE_OCCUPIED] is True
+    assert data1[STATE_OCCUPANCY_SOURCE] == "ble"
+    # Mirror prod _last_occupied_state update (:2274).
+    coord._last_occupied_state = data1[STATE_OCCUPIED]
+
+    # Ticks 2, 3, 4: motion is now well past the 120s window, but chain
+    # is unbroken from tick 1 -> chain-leg admits indefinitely.
+    for i, secs_from_t0 in enumerate(
+        [timeout * 3, timeout * 5, timeout * 10], start=2
+    ):
+        now = t0 + timedelta(seconds=secs_from_t0)
+        data = {STATE_OCCUPIED: False}
+        _run_ble_block(coord, data, now, room)
+        assert data[STATE_OCCUPIED] is True, (
+            f"tick {i}: chain leg failed to extend BLE hold at "
+            f"motion_age={secs_from_t0 + 30}s"
+        )
+        assert data[STATE_OCCUPANCY_SOURCE] == "ble"
+        coord._last_occupied_state = data[STATE_OCCUPIED]
+
+    # Tick 5: BLE person departs. Block sees ble_persons=[] -> the
+    # `if ble_persons:` branch is skipped, occupancy stays False, and
+    # the outer cycle would fire exit. Mirror the prod update.
+    persons[room] = []
+    now = t0 + timedelta(seconds=timeout * 12)
+    data5 = {STATE_OCCUPIED: False}
+    _run_ble_block(coord, data5, now, room)
+    assert data5.get(STATE_OCCUPIED) is False, (
+        "tick 5 (BLE departs): block must not re-admit; occupancy "
+        "should exit once ble_persons is empty"
+    )
+    assert data5.get(STATE_OCCUPANCY_SOURCE) != "ble"
+    coord._last_occupied_state = bool(data5.get(STATE_OCCUPIED))
+
+    # Tick 6: chain is now broken, motion is ancient. Even if BLE
+    # returns, the block must REJECT (would be a fresh create).
+    persons[room] = ["oji"]
+    now = t0 + timedelta(seconds=timeout * 13)
+    data6 = {STATE_OCCUPIED: False}
+    _run_ble_block(coord, data6, now, room)
+    assert data6.get(STATE_OCCUPIED) is False, (
+        "post-exit BLE flap must not CREATE occupancy — chain broken, "
+        "motion stale"
+    )
 
 
 # ==========================================================================
@@ -548,15 +705,30 @@ def _mutate_and_expect_red(swap_from: str, swap_to: str, test_name: str):
 
 
 def test_MUTATION_m1_direct_ble_bypass_restored_makes_masterbath_fixture_red():
-    """Restore the pre-fix `ble_allowed = direct_ble` bypass line at
-    :1808. The Master Bathroom fixture (T1) must FAIL under mutation:
-    Tier-1 room admits BLE unconditionally -> occupancy flips True."""
+    """Restore the pre-fix Tier-1 bypass by ORing `direct_ble` into the
+    two-leg admission. This reproduces the pre-fix behavior where a
+    direct-BLE room admits BLE unconditionally. The Master Bathroom
+    fixture (T1) must FAIL under mutation."""
     _mutate_and_expect_red(
-        swap_from="ble_allowed = False\n                    if (\n                        BLE_MOTION_CONFIRM_MULTIPLIER > 0\n                        and self._last_motion_time\n                    ):",
-        swap_to="ble_allowed = direct_ble\n                    if (\n                        BLE_MOTION_CONFIRM_MULTIPLIER > 0\n                        and self._last_motion_time\n                    ):",
+        swap_from="ble_allowed = chain_unbroken or motion_leg",
+        swap_to="ble_allowed = chain_unbroken or motion_leg or direct_ble",
         test_name=(
             "test_masterbath_2026_07_17_repro_ble_flap_never_creates_occupancy"
         ),
+    )
+
+
+def test_MUTATION_m3_chain_leg_removed_makes_sleep_hold_test_red():
+    """Remove the CHAIN leg by forcing chain_unbroken=False. The
+    still-body sleep-hold test (motion_age past window + prev-tick
+    occupied) must FAIL — without the chain leg, the motion leg alone
+    would bound BLE holds to 2 x occupancy_timeout, contradicting
+    invariant (b) that a legitimately-held room extends indefinitely
+    (bounded only by the 4-hour failsafe)."""
+    _mutate_and_expect_red(
+        swap_from="chain_unbroken = self._last_occupied_state",
+        swap_to="chain_unbroken = False",
+        test_name="test_sleep_hold_pin_chain_extends_past_motion_window",
     )
 
 
