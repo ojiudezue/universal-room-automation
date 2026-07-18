@@ -285,7 +285,13 @@ class FanRecheckManager:
         }
 
     def get_aggregate_counters(self) -> dict[str, Any]:
-        """Cross-room totals for a presence-level diagnostics surface."""
+        """Cross-room totals for a presence-level diagnostics surface.
+
+        Reserved for the follow-up presence-level diagnostics surface —
+        the 2026-07-18 fan-recheck observability analysis memo (section 9)
+        consumes this. Not wired to any live sensor yet by design;
+        intentionally kept as a manager-level helper. (Review L2.)
+        """
         total_evals = sum(self._eval_counts.values())
         agg: dict[str, int] = defaultdict(int)
         for room_map in self._veto_counts.values():
@@ -659,6 +665,7 @@ class FanRecheckManager:
                 )
             except Exception:  # noqa: BLE001
                 paused_duration_s = None
+        cancel_driven = bool(getattr(ctx, "_cancel_driven", False))
         self._schedule_activity(
             action="fan_recheck_outcome",
             room_name=ctx.room_name,
@@ -669,8 +676,16 @@ class FanRecheckManager:
                 "forced": forced,
                 "ble_ladder_layer": ctx.ble_ladder_layer,
                 "paused_duration_s": paused_duration_s,
+                # Review L1: true when this outcome row is the tail of a
+                # PAUSED-path cancel (motion/L1 mid-flight). Analytics join
+                # on this to dedupe the cancel+outcome pair as ONE terminal
+                # event.
+                "cancel_driven": cancel_driven,
             },
         )
+        # Reset the marker so the next arm/outcome cycle doesn't inherit it.
+        if cancel_driven:
+            ctx._cancel_driven = False
         ctx.snapshot = None
         await self._enter_cooldown(ctx)
 
@@ -751,10 +766,19 @@ class FanRecheckManager:
                 self._cancel_and_restore_async(ctx, OUTCOME_OCCUPIED_CONFIRMED)
 
     def _cancel_and_restore_async(self, ctx: _RoomCtx, outcome: str) -> None:
+        # NOTE (review L1 2026-07-18): PAUSED-path cancellations produce TWO
+        # ura_activity_log rows — a `fan_recheck_cancel` (fired at the cancel
+        # site) followed by a `fan_recheck_outcome` from `_restore`. This is
+        # intentional (the outcome row carries the real paused-duration and
+        # fan-restore evidence). Analytics dedupe terminal events by joining
+        # on `details_json.cancel_driven == True` in the outcome row — the
+        # marker is set on ctx here and propagated by `_restore`. ARMED-path
+        # cancels go straight to cooldown (no outcome row, one cancel row).
         self._cancel_timer(ctx)
         if ctx.state == STATE_ARMED:
             self.hass.async_create_task(self._enter_cooldown(ctx))
         else:
+            ctx._cancel_driven = True  # consumed by _restore's outcome row
             self.hass.async_create_task(self._restore(ctx, outcome=outcome))
 
     def _still_armed_eligible(self, ctx: _RoomCtx, room_coord: Any) -> bool:

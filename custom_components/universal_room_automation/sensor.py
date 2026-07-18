@@ -13994,6 +13994,19 @@ class RoomFanRecheckStateSensor(UniversalRoomEntity, SensorEntity):
 
     _attr_icon = "mdi:fan-clock"
     _attr_entity_registry_enabled_default = False
+    # Review H1 (2026-07-18): the two observability counters
+    # ``fan_recheck_eval_count`` + ``fan_recheck_veto_counts`` are strictly
+    # monotonic (they only increment) and would create one recorder state
+    # row per coordinator update once the sensor is enabled during the
+    # 2-4 week data harvest. Exclude them from recorder history via HA's
+    # per-entity ``_unrecorded_attributes`` frozenset — verified at
+    # ``homeassistant/helpers/entity.py:518`` in the installed HA source
+    # (v.venv-ha, python3.13 site-packages). Live attrs still visible;
+    # only the recorder skips them.
+    _unrecorded_attributes = frozenset({
+        "fan_recheck_eval_count",
+        "fan_recheck_veto_counts",
+    })
 
     def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
         super().__init__(

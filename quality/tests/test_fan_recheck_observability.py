@@ -287,6 +287,84 @@ async def test_vetoed_tick_writes_zero_activity_rows():
 
 
 @pytest.mark.asyncio
+async def test_cancel_driven_marker_on_paused_path_outcome_row():
+    """Review L1: PAUSED-path cancels emit BOTH a cancel row AND an outcome
+    row. The outcome row carries ``details.cancel_driven=True`` so
+    analytics can join the pair as one terminal event.
+    """
+    mod, hass, mgr, rc, fc, pc, db = _build_world()
+    hass.config_entries = _FakeConfigEntries(
+        [hass._fan_recheck_cm_entry, rc.entry]
+    )
+    hass.data["universal_room_automation"][rc.entry.entry_id] = rc
+    spy = _install_spy(hass)
+    await mgr.async_setup()
+    mgr.on_room_tick(rc)
+    await _drain_tasks(hass)
+    ctx = mgr._rooms["exercise"]
+    # Force into PAUSED state so the cancel path routes through _restore.
+    await mgr._enter_paused(ctx, rc)
+    # Motion mid-flight -> _cancel_and_restore_async -> ctx._cancel_driven=True
+    rc.data["motion_detected"] = True
+    mgr.on_room_tick(rc)
+    await _drain_tasks(hass)
+    cancel_rows = [
+        c for c in spy.calls if c.get("action") == "fan_recheck_cancel"
+    ]
+    outcome_rows = [
+        c for c in spy.calls if c.get("action") == "fan_recheck_outcome"
+    ]
+    assert len(cancel_rows) == 1, "one cancel row"
+    assert len(outcome_rows) == 1, "one outcome row (PAUSED tail)"
+    assert outcome_rows[0]["details"]["cancel_driven"] is True
+
+
+@pytest.mark.asyncio
+async def test_normal_outcome_row_has_cancel_driven_false():
+    """A clean pause->window->outcome sequence has cancel_driven=False."""
+    mod, hass, mgr, rc, fc, pc, db = _build_world()
+    hass.config_entries = _FakeConfigEntries(
+        [hass._fan_recheck_cm_entry, rc.entry]
+    )
+    hass.data["universal_room_automation"][rc.entry.entry_id] = rc
+    spy = _install_spy(hass)
+    await mgr.async_setup()
+    mgr.on_room_tick(rc)
+    await _drain_tasks(hass)
+    ctx = mgr._rooms["exercise"]
+    await mgr._enter_paused(ctx, rc)
+    await mgr._on_pause_window_done(ctx, datetime.now(timezone.utc))
+    await _drain_tasks(hass)
+    outcome_rows = [
+        c for c in spy.calls if c.get("action") == "fan_recheck_outcome"
+    ]
+    assert len(outcome_rows) == 1
+    assert outcome_rows[0]["details"]["cancel_driven"] is False
+
+
+def test_room_fan_recheck_state_sensor_declares_unrecorded_attributes():
+    """Review H1: monotonic observability attrs must be excluded from the
+    recorder history. Verified HA mechanism is the ``_unrecorded_attributes``
+    class frozenset on ``homeassistant.helpers.entity.Entity`` (source:
+    ``homeassistant/helpers/entity.py:518`` in the installed HA venv).
+    Grep-level assertion so we don't need to import the whole HA sensor
+    module inside the stubbed loader environment.
+    """
+    from pathlib import Path
+    src = Path(
+        "custom_components/universal_room_automation/sensor.py"
+    ).read_text(encoding="utf-8")
+    # Locate the class body.
+    class_start = src.find("class RoomFanRecheckStateSensor(")
+    assert class_start >= 0
+    # Look only in the first ~60 lines after the class header.
+    body = src[class_start: class_start + 3000]
+    assert "_unrecorded_attributes = frozenset({" in body
+    assert '"fan_recheck_eval_count"' in body
+    assert '"fan_recheck_veto_counts"' in body
+
+
+@pytest.mark.asyncio
 async def test_aggregate_counters_sum_across_rooms():
     mod, hass, mgr, rc, fc, pc, db = _build_world(master_enabled=False)
     await mgr.async_setup()
