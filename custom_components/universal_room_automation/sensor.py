@@ -14021,6 +14021,14 @@ class RoomFanRecheckStateSensor(UniversalRoomEntity, SensorEntity):
             "fan_recheck_last_attempt_iso": attrs.get(
                 "fan_recheck_last_attempt_iso",
             ),
+            # Observability (RAM-only, since-boot). Durable events live in
+            # ura_activity_log rows (fan_recheck_arm/outcome/cancel).
+            "fan_recheck_eval_count": attrs.get(
+                "fan_recheck_eval_count", 0,
+            ),
+            "fan_recheck_veto_counts": attrs.get(
+                "fan_recheck_veto_counts", {},
+            ),
         }
 
 
