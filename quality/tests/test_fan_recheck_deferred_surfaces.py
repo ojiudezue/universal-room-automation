@@ -434,6 +434,10 @@ async def test_force_restore_routes_to_fan_recheck_manager():
         "fan_recheck_last_outcome": None,
         "fan_recheck_last_attempt_iso": None,
         "fan_recheck_ble_ladder_layer": "none",
+        # Observability counters (RAM-only, since-boot) added by the
+        # fan-recheck-observability cycle. Empty for an unknown room.
+        "fan_recheck_eval_count": 0,
+        "fan_recheck_veto_counts": {},
     }
 
 

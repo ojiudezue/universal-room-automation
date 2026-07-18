@@ -37,9 +37,13 @@ found/fixed; 9 reviewer mutations + 2 orchestrator mutations all conclusive).
 project) loads at this restart — expect its config-flow discovery card IF the
 StealthTech hub is BLE-reachable via the ESPHome proxies; no URA interaction.
 
-## Live Validation (prospective — write back post-restart)
-- **Live:** cold Master Bathroom Bermuda flap ⇒ ZERO `occupancy_entry source=ble` → `light_turn_on` rows in ura_activity_log (compare: 7+ strobe cycles on 07-17 21:16-21:47).
-- **Live:** Master Bedroom still-body night hold intact through tonight (no mid-sleep vacate while phone present).
-- **Live:** one shared-scanner (Tier-2) room watched for phone-left-behind over-hold (new indefinite chain for Tier-2).
-- **Live:** zero URA ERROR lines; all rooms load; BAEC (v5.21.0, switch ON) unaffected — EV Charging Plan sensor still ticking.
-- **Suite:** cycle tests 17/17; full suite within 36F/14E pre-existing envelope.
+## Validated 2026-07-18 ~00:50 CDT (post-restart)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Cold-flap zero-actuation | **PASS — ORGANICALLY VALIDATED 2026-07-18 03:17-03:21** | Bermuda flapped `iphone_oji_area` Master Bathroom ↔ Oji Vanity ↔ Master Bedroom **12× in 4 minutes** (heavier jitter than the original incident) while the operator was in the adjacent toilet. Bath switches: zero actuations (off since boot 00:47). Activity log: every Master Bathroom entry `source: motion` only; zero `source: ble` rows. Same trigger geometry that produced 7 strobe cycles pre-fix produced nothing. HVAC pre-arrival BLE rows present and correct (separate subsystem, by design). |
+| Still-body sleep hold intact | PENDING (organic, tonight) | House entered `home_night`; the chain-leg hold proves itself through the sleep period. Sleep-hold pin test + M3 mutation anchor are the in-suite authority. |
+| Tier-2 over-hold watch | OPEN (multi-day) | Watch one shared-scanner room for phone-left-behind over-hold; `PersonPhoneLeftBehindSensor` is the mitigation. |
+| Regression | PASS | Zero URA ERROR entries (all boot errors non-URA: Shelly reconnects, pyenphase teardown, unifiprotect media source, laundry >255 template, MQTT number range). House state live (`home_night`, 0.7). BAEC switch ON, EV Charging Plan `hold_only` — v5.21.0 undisturbed. |
+| Rider: Lovesac first load | PASS-load / discovery pending | Component loaded with zero error lines. No discovery card — hub not currently advertising to the proxies (Lovesac app likely holding the single BLE slot, or out of proxy range). Couch probe session is the discriminator; manual-address config-flow entry is the fallback. |
+| Suite | PASS | Cycle tests 17/17; full suite within the 36F/14E pre-existing envelope at deploy time. |
