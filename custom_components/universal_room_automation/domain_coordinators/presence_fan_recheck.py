@@ -121,6 +121,62 @@ class FanRecheckManager:
         self._presence = presence_coord
         self._rooms: dict[str, _RoomCtx] = {}
         self._setup_done: bool = False
+        # Observability: RAM-only counters. Durable event history lives in
+        # ura_activity_log (fan_recheck_arm / fan_recheck_outcome /
+        # fan_recheck_cancel rows). Counters reset at boot; that's the point
+        # — they gauge live gate pressure since restart. Denominator is the
+        # eval counter, numerators are per-veto-reason counters.
+        self._eval_counts: dict[str, int] = defaultdict(int)
+        self._veto_counts: dict[str, dict[str, int]] = defaultdict(
+            lambda: defaultdict(int)
+        )
+
+    # ---- observability helpers --------------------------------------------
+
+    def _veto(self, room_name: str, reason: str) -> bool:
+        """Increment a per-room veto counter. Returns False for chaining."""
+        self._veto_counts[room_name][reason] += 1
+        return False
+
+    async def _log_activity(
+        self,
+        action: str,
+        room_name: str,
+        description: str,
+        details: dict[str, Any] | None = None,
+        importance: str = "info",
+    ) -> None:
+        """Fire one durable ura_activity_log row. Never raises."""
+        try:
+            activity_logger = self.hass.data.get(DOMAIN, {}).get(
+                "activity_logger"
+            )
+            if not activity_logger:
+                return
+            await activity_logger.log(
+                coordinator="room",
+                action=action,
+                description=description,
+                room=room_name,
+                importance=importance,
+                details=details,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("fan_recheck activity_log failed", exc_info=True)
+
+    def _schedule_activity(
+        self,
+        action: str,
+        room_name: str,
+        description: str,
+        details: dict[str, Any] | None = None,
+        importance: str = "info",
+    ) -> None:
+        self.hass.async_create_task(
+            self._log_activity(
+                action, room_name, description, details, importance,
+            ),
+        )
 
     # ---- public API --------------------------------------------------------
 
@@ -177,6 +233,7 @@ class FanRecheckManager:
             self._evaluate_cancellation_during_tick(ctx, room_coord)
             return
 
+        self._eval_counts[room_name] += 1
         if not self._is_eligible(ctx, room_coord):
             return
 
@@ -203,12 +260,18 @@ class FanRecheckManager:
 
     def get_room_attrs(self, room_name: str) -> dict[str, Any]:
         ctx = self._rooms.get(room_name)
+        # RAM-only observability counters (since-boot). Durable event log
+        # lives in ura_activity_log; these are for live gauging.
+        vetoes = dict(self._veto_counts.get(room_name, {}))
+        evals = int(self._eval_counts.get(room_name, 0))
         if ctx is None:
             return {
                 "fan_recheck_state": STATE_IDLE,
                 "fan_recheck_last_outcome": None,
                 "fan_recheck_last_attempt_iso": None,
                 "fan_recheck_ble_ladder_layer": LAYER_NONE,
+                "fan_recheck_eval_count": evals,
+                "fan_recheck_veto_counts": vetoes,
             }
         return {
             "fan_recheck_state": ctx.state,
@@ -217,6 +280,29 @@ class FanRecheckManager:
                 ctx.last_attempt_at.isoformat() if ctx.last_attempt_at else None
             ),
             "fan_recheck_ble_ladder_layer": ctx.ble_ladder_layer,
+            "fan_recheck_eval_count": evals,
+            "fan_recheck_veto_counts": vetoes,
+        }
+
+    def get_aggregate_counters(self) -> dict[str, Any]:
+        """Cross-room totals for a presence-level diagnostics surface.
+
+        Reserved for the follow-up presence-level diagnostics surface —
+        the 2026-07-18 fan-recheck observability analysis memo (section 9)
+        consumes this. Not wired to any live sensor yet by design;
+        intentionally kept as a manager-level helper. (Review L2.)
+        """
+        total_evals = sum(self._eval_counts.values())
+        agg: dict[str, int] = defaultdict(int)
+        for room_map in self._veto_counts.values():
+            for reason, n in room_map.items():
+                agg[reason] += n
+        return {
+            "fan_recheck_eval_count_total": total_evals,
+            "fan_recheck_veto_counts_total": dict(agg),
+            "fan_recheck_rooms_tracked": len(
+                set(self._eval_counts) | set(self._veto_counts)
+            ),
         }
 
     # ---- internals: eligibility -------------------------------------------
@@ -233,14 +319,14 @@ class FanRecheckManager:
         # Master + per-room kill switches.
         master_enabled = self._master_enabled()
         if not master_enabled:
-            return False
+            return self._veto(room_name, "master_off")
         if not merged.get(
             CONF_ROOM_FAN_RECHECK_ENABLED, DEFAULT_ROOM_FAN_RECHECK_ENABLED,
         ):
-            return False
+            return self._veto(room_name, "room_disabled")
         # D5: operator fan-control disabled = forbidden zone for us.
         if merged.get(CONF_FAN_CONTROL_ENABLED) is False:
-            return False
+            return self._veto(room_name, "fan_control_off")
 
         # Sleep gate: never pause a fan while the house is asleep.
         # hvac_fans (v4.7.13) deliberately holds bedroom fans ON through sleep
@@ -257,11 +343,11 @@ class FanRecheckManager:
         # §D-MODE2 and project_v4_7_22_fan_recheck_mode2_live.md.
         house_state = getattr(self._presence, "house_state", "")
         if house_state == HouseState.SLEEP:
-            return False
+            return self._veto(room_name, "sleep_state")
 
         data = getattr(room_coord, "data", None) or {}
         if not data.get("occupied"):
-            return False
+            return self._veto(room_name, "not_occupied")
 
         # Condition 2: mmwave-sole AND for N consecutive ticks.
         ticks_required = int(
@@ -274,9 +360,9 @@ class FanRecheckManager:
         if hasattr(room_coord, "recent_occupancy_sources"):
             recent = list(room_coord.recent_occupancy_sources())
         if len(recent) < ticks_required:
-            return False
+            return self._veto(room_name, "mmwave_history_short")
         if any(s != "mmwave" for s in recent[-ticks_required:]):
-            return False
+            return self._veto(room_name, "not_mmwave_sole")
 
         # Condition 3: at least one fan entity AND one is ON.
         fans = merged.get(CONF_FANS) or []
@@ -284,19 +370,19 @@ class FanRecheckManager:
             fans = [fans]
         fans = [f for f in fans if f]
         if not fans:
-            return False
+            return self._veto(room_name, "no_fan_configured")
         if not any(self._is_entity_on(f) for f in fans):
-            return False
+            return self._veto(room_name, "no_fan_on")
 
         # Condition 7: boot-settle gate.
         if not getattr(self._presence, "_boot_settle_done", True):
-            return False
+            return self._veto(room_name, "boot_settle")
 
         # Conditions 8 + 9: EgressManager pause + manual_off_cooldown_until
         # are evaluated by FanController itself; we mirror condition 9 here
         # so we don't even try to schedule a pause for a recently-killed fan.
         if self._fan_in_manual_cooldown(room_name):
-            return False
+            return self._veto(room_name, "manual_off_cooldown")
 
         # Condition 5: rate limit.
         max_per_hour = int(
@@ -309,12 +395,12 @@ class FanRecheckManager:
             now = dt_util.now()
             self._prune_attempts(ctx, now)
             if len(ctx.attempts) >= max_per_hour:
-                return False
+                return self._veto(room_name, "rate_cap")
 
         # Condition 4: BLE-tier drop-authorization gate (D1.5).
         person_coord = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
         if person_coord is None:
-            return False
+            return self._veto(room_name, "no_person_coord")
 
         # L1 veto applies in EVERY tier.
         l1_persons = trustworthy_persons_in_room(
@@ -322,7 +408,7 @@ class FanRecheckManager:
         )
         if l1_persons:
             ctx.ble_ladder_layer = LAYER_L1
-            return False
+            return self._veto(room_name, "ble_l1")
 
         # Tier classification.
         try:
@@ -357,16 +443,16 @@ class FanRecheckManager:
             ):
                 if room_type in HIGH_STILL_RISK_ROOM_TYPES:
                     ctx.ble_ladder_layer = LAYER_NONE
-                    return False
+                    return self._veto(room_name, "high_still_risk")
                 ctx.ble_ladder_layer = LAYER_L2
                 return True
             ctx.ble_ladder_layer = LAYER_NONE
-            return False
+            return self._veto(room_name, "ble_l2")
 
         # Tier-2 / Tier-0: positive L2 in adjacent rooms is an UNCONDITIONAL veto.
         if l2_hit_adj:
             ctx.ble_ladder_layer = LAYER_L2
-            return False
+            return self._veto(room_name, "ble_l2")
 
         # D1.5 high-still-risk guard also applies on the Tier-0/2 path.
         # With CONF_FAN_RECHECK_TRUST_SENSORS_OK defaulting True (v4.7.x),
@@ -375,7 +461,7 @@ class FanRecheckManager:
         # Tier-1 L2 guard's semantics here. (C1 fix.)
         if room_type in HIGH_STILL_RISK_ROOM_TYPES:
             ctx.ble_ladder_layer = LAYER_NONE
-            return False
+            return self._veto(room_name, "high_still_risk")
 
         # Sensors-only authorize gate.
         if not merged.get(
@@ -383,7 +469,7 @@ class FanRecheckManager:
             DEFAULT_FAN_RECHECK_TRUST_SENSORS_OK,
         ):
             ctx.ble_ladder_layer = LAYER_NONE
-            return False
+            return self._veto(room_name, "trust_sensors_off")
 
         ctx.ble_ladder_layer = LAYER_NONE
         return True
@@ -410,6 +496,16 @@ class FanRecheckManager:
             "FanRecheck %s: armed (layer=%s, arm_delay=%ds)",
             ctx.room_name, ctx.ble_ladder_layer, arm_delay,
         )
+        self._schedule_activity(
+            action="fan_recheck_arm",
+            room_name=ctx.room_name,
+            description=f"Fan-recheck armed (layer={ctx.ble_ladder_layer})",
+            details={
+                "room": ctx.room_name,
+                "ble_ladder_layer": ctx.ble_ladder_layer,
+                "arm_delay_s": arm_delay,
+            },
+        )
 
         async def _on_arm_expiry(_now):
             ctx.timer_unsub = None
@@ -420,10 +516,32 @@ class FanRecheckManager:
     async def _on_arm_expired(self, ctx: _RoomCtx) -> None:
         room_coord = self._room_coord_for(ctx.room_name)
         if room_coord is None:
+            self._schedule_activity(
+                action="fan_recheck_cancel",
+                room_name=ctx.room_name,
+                description="Fan-recheck arm expired (room coord missing)",
+                details={
+                    "room": ctx.room_name,
+                    "reason": "arm_expired_no_room_coord",
+                    "state_at_cancel": ctx.state,
+                    "ble_ladder_layer": ctx.ble_ladder_layer,
+                },
+            )
             await self._enter_cooldown(ctx)
             return
         # Cancellation re-evaluation: if conditions no longer hold, abandon.
         if not self._still_armed_eligible(ctx, room_coord):
+            self._schedule_activity(
+                action="fan_recheck_cancel",
+                room_name=ctx.room_name,
+                description="Fan-recheck arm expired (preconditions cleared)",
+                details={
+                    "room": ctx.room_name,
+                    "reason": "arm_expired_ineligible",
+                    "state_at_cancel": ctx.state,
+                    "ble_ladder_layer": ctx.ble_ladder_layer,
+                },
+            )
             await self._enter_cooldown(ctx)
             return
         await self._enter_paused(ctx, room_coord)
@@ -538,6 +656,36 @@ class FanRecheckManager:
             "FanRecheck %s: outcome=%s (forced=%s)",
             ctx.room_name, outcome, forced,
         )
+        # Durable observability event: one row per completed recheck.
+        paused_duration_s: Optional[int] = None
+        if ctx.last_attempt_at is not None and ctx.state_entered_at is not None:
+            try:
+                paused_duration_s = int(
+                    (ctx.state_entered_at - ctx.last_attempt_at).total_seconds()
+                )
+            except Exception:  # noqa: BLE001
+                paused_duration_s = None
+        cancel_driven = bool(getattr(ctx, "_cancel_driven", False))
+        self._schedule_activity(
+            action="fan_recheck_outcome",
+            room_name=ctx.room_name,
+            description=f"Fan-recheck outcome: {outcome}",
+            details={
+                "room": ctx.room_name,
+                "outcome": outcome,
+                "forced": forced,
+                "ble_ladder_layer": ctx.ble_ladder_layer,
+                "paused_duration_s": paused_duration_s,
+                # Review L1: true when this outcome row is the tail of a
+                # PAUSED-path cancel (motion/L1 mid-flight). Analytics join
+                # on this to dedupe the cancel+outcome pair as ONE terminal
+                # event.
+                "cancel_driven": cancel_driven,
+            },
+        )
+        # Reset the marker so the next arm/outcome cycle doesn't inherit it.
+        if cancel_driven:
+            ctx._cancel_driven = False
         ctx.snapshot = None
         await self._enter_cooldown(ctx)
 
@@ -580,6 +728,17 @@ class FanRecheckManager:
                 "FanRecheck %s: motion detected mid-flight — cancelling",
                 ctx.room_name,
             )
+            self._schedule_activity(
+                action="fan_recheck_cancel",
+                room_name=ctx.room_name,
+                description="Fan-recheck cancelled (motion mid-flight)",
+                details={
+                    "room": ctx.room_name,
+                    "reason": "motion",
+                    "state_at_cancel": ctx.state,
+                    "ble_ladder_layer": ctx.ble_ladder_layer,
+                },
+            )
             self._cancel_and_restore_async(ctx, OUTCOME_OCCUPIED_CONFIRMED)
             return
         person_coord = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
@@ -593,13 +752,33 @@ class FanRecheckManager:
                     "FanRecheck %s: L1 fired mid-flight — cancelling",
                     ctx.room_name,
                 )
+                self._schedule_activity(
+                    action="fan_recheck_cancel",
+                    room_name=ctx.room_name,
+                    description="Fan-recheck cancelled (L1 mid-flight)",
+                    details={
+                        "room": ctx.room_name,
+                        "reason": "ble_l1",
+                        "state_at_cancel": ctx.state,
+                        "ble_ladder_layer": ctx.ble_ladder_layer,
+                    },
+                )
                 self._cancel_and_restore_async(ctx, OUTCOME_OCCUPIED_CONFIRMED)
 
     def _cancel_and_restore_async(self, ctx: _RoomCtx, outcome: str) -> None:
+        # NOTE (review L1 2026-07-18): PAUSED-path cancellations produce TWO
+        # ura_activity_log rows — a `fan_recheck_cancel` (fired at the cancel
+        # site) followed by a `fan_recheck_outcome` from `_restore`. This is
+        # intentional (the outcome row carries the real paused-duration and
+        # fan-restore evidence). Analytics dedupe terminal events by joining
+        # on `details_json.cancel_driven == True` in the outcome row — the
+        # marker is set on ctx here and propagated by `_restore`. ARMED-path
+        # cancels go straight to cooldown (no outcome row, one cancel row).
         self._cancel_timer(ctx)
         if ctx.state == STATE_ARMED:
             self.hass.async_create_task(self._enter_cooldown(ctx))
         else:
+            ctx._cancel_driven = True  # consumed by _restore's outcome row
             self.hass.async_create_task(self._restore(ctx, outcome=outcome))
 
     def _still_armed_eligible(self, ctx: _RoomCtx, room_coord: Any) -> bool:
