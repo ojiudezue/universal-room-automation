@@ -135,13 +135,16 @@ Retire (from the device page; keep persisted key + coordinator setter path intac
 - `dp_house_load_source` Select
 
 **Retirement mechanism (design decision):** disable-by-default via `entity_registry_enabled_default = False` PLUS `EntityCategory.DIAGNOSTIC` demotion — NOT registry delete. Rationale:
+
+> **v5.21.0 fix-up (B-MED-1) — registry-semantics correction.** `entity_registry_enabled_default = False` only affects NEW registrations. The 4 already-live Numbers + Select on the operator's house stay ENABLED across upgrade (though they DO move to Diagnostics via the category change, per the v4.7.24 precedent). The "live slim-down" for existing entities is executed at deploy-time by the orchestrator via a one-shot MCP-driven entity-registry disable pass — reversible, operator-visible, NOT performed by this cycle's code. Fresh installs (post-upgrade) get the disable default automatically. No registry migration is attempted in code (Bug Class #46 avoided).
 - Delete is destructive; if the operator re-enables the flag later, unique_id path is preserved by disable-by-default → zero-friction return.
 - v4.7.22 orphan cleanup precedent applied to entities that had never been shipped; these have shipped in b48addf0, and Bug Class #46 (entity migration safety) counsels against destructive removal when disable suffices.
 - Options flow is now the primary write path; entities become hidden diagnostics that dashboard operators can opt into.
 - Kill-switch retirement trigger from `PLANNING_evse_drain_precedence.md:379-381` explicitly plans a future demotion of the Switch too — retire-by-disable matches that pattern.
 
 **Acceptance:**
-- **Verify:** the 4 Numbers + Select do not appear on the URA: Energy Coordinator device page after upgrade (disabled by default).
+- **Verify (fresh install):** the 4 Numbers + Select do not appear on the URA: Energy Coordinator device page (disabled by default via `entity_registry_enabled_default = False`).
+- **Verify (live upgrade):** on the operator's existing house, the 4 Numbers + Select remain enabled across upgrade (registry semantics: the default flag only applies to NEW registrations). The live slim-down is executed at deploy-time by the orchestrator via a one-shot MCP-driven entity-registry disable pass; this is reversible and operator-visible — NOT done by code.
 - **Verify:** re-enabling a retired entity from the entity registry restores the pre-retirement behavior (round-trip parity retained).
 - **Sensor:** no orphan entity ids reported by any sensor-health / actuator-visibility surface after upgrade.
 - **Test:** entity registry migration test — an existing config entry with the 5 pre-retirement entities enabled upgrades cleanly; on fresh install the 5 entities are registered disabled; on operator re-enable, values still write through to `entry.options` and coordinator setters.

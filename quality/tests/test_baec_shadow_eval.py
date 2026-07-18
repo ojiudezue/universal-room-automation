@@ -74,6 +74,10 @@ def test_switch_off_off_peak_publishes_shadow_attrs_no_actuation():
     # INV-BAEC-SHADOW: NO actuation-side effects.
     assert car.state == DPState.HOLD_ONLY
     assert len(ev._paused_by_dp) == 0
+    # v5.21.0 fix-up (MED-C2): no drain-floor mutation on switch-OFF path.
+    assert coord._dp_decision_soc is None
+    # v5.21.0 fix-up (HIGH-C1): zero KV writes across the switch-OFF tick.
+    assert coord._save_calls == 0
 
 
 def test_switch_off_outside_off_peak_marks_shadow_not_applicable():
@@ -120,6 +124,10 @@ def test_switch_off_blind_hold_marks_shadow_not_applicable():
     assert car.shadow_reason == "blind_hold"
     assert car.state == DPState.HOLD_ONLY
     assert len(ev._paused_by_dp) == 0
+    # v5.21.0 fix-up (HIGH-C1 + MED-C2): blind-hold tick — zero KV writes,
+    # zero drain-floor mutation.
+    assert coord._save_calls == 0
+    assert coord._dp_decision_soc is None
 
 
 def test_switch_on_does_not_populate_shadow_attrs():

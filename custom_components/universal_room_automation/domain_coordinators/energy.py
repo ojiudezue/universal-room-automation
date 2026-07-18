@@ -373,6 +373,36 @@ class EnergyCoordinator(BaseCoordinator):
         if _load_src not in _DP_LOAD_SRC_VALID:
             _load_src = _DP_LOAD_SRC_DEFAULT
         self._dp_house_load_source: str = str(_load_src)
+
+        # v5.21.0 fix-up (SECOND OPERATOR ADDITION 2026-07-17) — three D2
+        # detection knobs promoted from rung-1 module constants to rung-2
+        # options. Seed from entry.options with the module constants as
+        # defaults; live-apply via `_EC_SETTER_DISPATCH` (`set_soc_divergence_*`
+        # / `set_cloud_lag_alert_s`). Read sites in `energy_battery.py`
+        # (`_evaluate_soc_divergence`, `_evaluate_cloud_settings_lag`)
+        # prefer these attrs on `self._battery`, falling back to the
+        # constants when the attr is missing.
+        from .energy_const import (
+            CONF_SOC_DIVERGENCE_THRESHOLD_PP as _SOC_DIV_TH_DEFAULT,
+            CONF_SOC_DIVERGENCE_DWELL_MIN as _SOC_DIV_DWELL_DEFAULT,
+            CONF_CLOUD_LAG_ALERT_S as _CLOUD_LAG_ALERT_DEFAULT,
+            CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP as _K_SOC_DIV_TH,
+            CONF_ENERGY_SOC_DIVERGENCE_DWELL_MIN as _K_SOC_DIV_DWELL,
+            CONF_ENERGY_CLOUD_LAG_ALERT_S as _K_CLOUD_LAG_ALERT,
+        )
+        try:
+            self._battery._soc_divergence_threshold_pp = int(ec.get(
+                _K_SOC_DIV_TH, _SOC_DIV_TH_DEFAULT,
+            ))
+            self._battery._soc_divergence_dwell_min = int(ec.get(
+                _K_SOC_DIV_DWELL, _SOC_DIV_DWELL_DEFAULT,
+            ))
+            self._battery._cloud_lag_alert_s = int(ec.get(
+                _K_CLOUD_LAG_ALERT, _CLOUD_LAG_ALERT_DEFAULT,
+            ))
+        except Exception:  # noqa: BLE001 — defensive; battery is post-constructed
+            _LOGGER.debug("D2-knob seed onto _battery failed", exc_info=True)
+
         # Carrier — Session B2 mutates via try_transition(); observability
         # sensor + KV persist/restore mount this instance directly.
         from .energy_drain_precedence import DrainPrecedenceState
@@ -3495,7 +3525,11 @@ class EnergyCoordinator(BaseCoordinator):
         # existing `_DPSkip` raise. The gate below IS the single caller-
         # side early-return C's mutation anchor neuters — remove the
         # `raise _DPSkip()` and actuation resumes on the switch-OFF side.
-        if not _dp_on or self._tou.get_current_period() != "off_peak":
+        # v5.21.0 fix-up (B-LOW-1): gate solely on `not _dp_on` so the
+        # switch-ON daytime path does NOT publish `not_applicable` churn
+        # every tick. The helper's internal gates handle the off_peak /
+        # blind_hold / no-charging cases when the switch IS off.
+        if not _dp_on:
             try:
                 self._run_dp_shadow_eval(
                     decision=decision, ev_load_w=ev_load_w, period=period,
@@ -7632,6 +7666,44 @@ class EnergyCoordinator(BaseCoordinator):
             v = _DEFAULT
         self._dp_house_load_source = v
         _LOGGER.info("Drain-precedence house_load_source set to %s", v)
+
+    # ------------------------------------------------------------------
+    # v5.21.0 fix-up (SECOND OPERATOR ADDITION 2026-07-17) — D2 detection
+    # knobs (rung-2 setters). All three preserve kill-switch semantics
+    # documented in energy_const.py:344-347 (threshold 0 = detection off;
+    # lag 0 = alert off, attribute still populated).
+    # ------------------------------------------------------------------
+    @property
+    def soc_divergence_threshold_pp(self) -> int:
+        return getattr(self._battery, "_soc_divergence_threshold_pp", 0)
+
+    def set_soc_divergence_threshold_pp(self, value: int) -> None:
+        v = max(0, int(value))
+        self._battery._soc_divergence_threshold_pp = v
+        _LOGGER.info(
+            "D2 SOC-divergence threshold set to %d pp (0 = detection off)", v,
+        )
+
+    @property
+    def soc_divergence_dwell_min(self) -> int:
+        return getattr(self._battery, "_soc_divergence_dwell_min", 0)
+
+    def set_soc_divergence_dwell_min(self, value: int) -> None:
+        v = max(0, int(value))
+        self._battery._soc_divergence_dwell_min = v
+        _LOGGER.info("D2 SOC-divergence dwell set to %d min", v)
+
+    @property
+    def cloud_lag_alert_s(self) -> int:
+        return getattr(self._battery, "_cloud_lag_alert_s", 0)
+
+    def set_cloud_lag_alert_s(self, value: int) -> None:
+        v = max(0, int(value))
+        self._battery._cloud_lag_alert_s = v
+        _LOGGER.info(
+            "D2 cloud settings-lag alert set to %ds (0 = alert off, attr still populated)",
+            v,
+        )
 
     async def _check_fill_priority_nm_trip(
         self,

@@ -365,6 +365,22 @@ CONF_CLOUD_LAG_ALERT_S: Final = 1800          # planner default (30 min).
                                               # Kill-switch: 0 disables NM.
 CONF_CLOUD_LAG_DWELL_MIN: Final = 5           # planner default, anti-flap
 
+# ----------------------------------------------------------------------------
+# v5.21.0 fix-up (SECOND OPERATOR ADDITION 2026-07-17) — rung-1 → rung-2
+# promotion: three of the D2 detection knobs above are now operator-settable
+# via the config-flow `cloud_verification` section. The MODULE constants
+# above remain the DEFAULTS (kill-switch semantics preserved: threshold 0 =
+# detection off; lag 0 = alert off, attribute still populated). The keys
+# follow the sibling `energy_cloud_*` naming convention already used by the
+# cloud-verification oracle entity keys.
+#
+# NOT promoted: HYSTERESIS_PP + CLOUD_LAG_DWELL_MIN (both anti-flap safety
+# bounds — leave as reviewed-code-change constants per the placement ladder).
+# ----------------------------------------------------------------------------
+CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP: Final = "energy_soc_divergence_threshold_pp"
+CONF_ENERGY_SOC_DIVERGENCE_DWELL_MIN: Final = "energy_soc_divergence_dwell_min"
+CONF_ENERGY_CLOUD_LAG_ALERT_S: Final = "energy_cloud_lag_alert_s"
+
 # ============================================================================
 # Behavioral write-verify (v5.19.0 — Tier 3)
 # ------------------------------------------------------------------

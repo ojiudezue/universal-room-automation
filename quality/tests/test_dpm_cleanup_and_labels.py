@@ -468,7 +468,18 @@ _ALLOWED_REMOVED_KEYS = frozenset(
         "sections": ("sleep_section",),
     }.items()
     for field in fields
-)
+) | frozenset({
+    # v5.21.0 fix-up (operator scope change 2026-07-17): standalone
+    # coordinator_baec step retired; content folded into the
+    # coordinator_energy step as `baec` + `baec_advanced` sibling
+    # sections (see options.step.coordinator_energy.sections.baec* in
+    # the CURRENT strings.json — no content lost).
+    "options.step.coordinator_baec.data.energy_dp_enable",
+    "options.step.coordinator_baec.data.energy_dp_must_start_by_min",
+    "options.step.coordinator_baec.data_description.energy_dp_enable",
+    "options.step.coordinator_baec.data_description.energy_dp_must_start_by_min",
+    "options.step.coordinator_baec.sections.baec_advanced",
+})
 
 
 class TestNoKeyRenameGuard:
