@@ -36,16 +36,12 @@ From this restart, veto counters and event rows accumulate:
 - **~4 weeks (ideally spanning a travel week):** `veto_high_still_risk_type`
   × whole-house-BLE-absence windows decides the Tier-3 (b)+(i) evaluation.
 
-## Live Validation (prospective — write back post-restart)
-- **Live:** `sensor.<room>_fan_recheck_state` attrs show `fan_recheck_eval_count`
-  incrementing and `fan_recheck_veto_counts` populating for an eligible room
-  (enable one room's sensor to check; it is disabled-by-default).
-- **Live:** zero `fan_recheck_*` rows in ura_activity_log absent a real
-  arm/outcome/cancel (write discipline holds in production).
-- **Live (rider):** Lovesac v0.2 entities appear (input select + sensor,
-  audio capability, firmware versions, control link, sync button); input
-  sensor agrees with media_player source.
-- **Regression:** zero URA ERROR lines; BAEC + BLE extend-not-create
-  (v5.21.0/v5.22.0) undisturbed; fan-recheck state machine behavior
-  unchanged (no new arms attributable to the instrumentation).
-- **Suite:** recheck filter 86/1; full suite within pre-existing envelope.
+## Validated 2026-07-18 ~04:30 CDT (post-restart)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Write discipline in production | PASS | `SELECT COUNT(*) FROM ura_activity_log WHERE action LIKE 'fan_recheck%'` = **0** with the house live and rooms ticking — vetoed evaluations write nothing, exactly as the 50-tick spy test promised. |
+| Veto counters visible | DEFERRED to next restart | `sensor.living_room_living_room_fan_recheck_state` registry-enabled (was integration-disabled-by-default), but integration-disabled entities materialize only on entry reload/restart; not worth churning a live room at 04:30 for a diagnostic. Counters are boot-relative RAM, so nothing is lost. Check attrs after the next natural restart. |
+| Rider: Lovesac v0.2 | **PASS, richly** | All new entities live under the media_room device: input sensor + select AGREE ("HDMI-ARC"), sound_mode "Movies", audio capability "Dolby Digital 5.1 / PLII (ARC only)", **real firmware over the wire: MCU 1.71 / DSP 1.68 / EQ 1.23**, control_link ON, last_contact 09:28Z, layout_raw=5 covering_raw=1 arm_type=4 (first enum-corpus data), sync button present. Operator's earlier EQ changes (treble 16, balance 59) survived the restart. |
+| Regression | PASS | Zero URA ERROR entries; house `home_night`; BAEC switch ON; v5.21.0/v5.22.0 surfaces undisturbed; no fan-recheck arms attributable to instrumentation (0 rows). |
+| Suite | PASS | Recheck filter 86/1 at merge; full suite 36F/14E pre-existing envelope at deploy. |
