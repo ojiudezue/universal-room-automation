@@ -372,6 +372,9 @@ class TestOccupancyWeightedSwitchPersistenceRoundTrip:
         )
         sig_mod = _types.ModuleType(sig_mod_name)
         sig_mod.SIGNAL_ENERGY_COORDINATOR_READY = "ura_ec_ready"
+        # v5.21.0 fix-up (B-HIGH-1): factory now also subscribes to
+        # SIGNAL_ENERGY_ENTITIES_UPDATE for options-flow live-refresh.
+        sig_mod.SIGNAL_ENERGY_ENTITIES_UPDATE = "ura_energy_entities_update"
         sys.modules[sig_mod_name] = sig_mod
 
         switch_path = "custom_components/universal_room_automation/switch.py"

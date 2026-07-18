@@ -815,6 +815,15 @@ class TestRestorePoisoningGuards:
             "SIGNAL_ENERGY_COORDINATOR_READY = "
             "'ura_signal_energy_coordinator_ready'",
         )
+        # v5.21.0 fix-up (B-HIGH-1): factory added a second relative
+        # signals import; rewrite it inline too so the extracted body
+        # has no relative imports at exec time.
+        rewritten = rewritten.replace(
+            "from .domain_coordinators.signals import "
+            "SIGNAL_ENERGY_ENTITIES_UPDATE",
+            "SIGNAL_ENERGY_ENTITIES_UPDATE = "
+            "'ura_energy_entities_update'",
+        )
         rewritten = rewritten.replace(
             "from homeassistant.helpers.dispatcher import "
             "async_dispatcher_connect",
@@ -923,6 +932,11 @@ class TestRestorePoisoningGuards:
                 # Referenced by async_dispatcher_connect in both extracted
                 # bodies; the dispatcher is stubbed to a no-op lambda so
                 # this only needs to be a present attribute.
+                pass
+
+            def _handle_entities_update(self, *_args, **_kwargs):
+                # v5.21.0 fix-up (B-HIGH-1): factory added a second
+                # dispatcher subscription; extracted body references it.
                 pass
 
             def _retry_restore(self, _now=None):

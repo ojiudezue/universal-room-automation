@@ -31,15 +31,22 @@ verification; 2 CRIT + 7 HIGH found/fixed
 - `sensor.ura_energy_drain_precedence_state` — friendly name "EV Charging Plan"; DP state + attrs.
 - 7 DP knob Number entities (drain target, eval delay, lead times, etc. — see B1 commit f517a120).
 
-## Live Validation (prospective — replace with Validated table post-restart)
-- **Live (D2):** `soc_resolution` attribute populates with tier + source ages within one decision cycle of restart.
-- **Live (D2):** divergence detector SILENT through a clean day; zero D2 NM alerts absent a real cloud-vs-local split; next real ≥25-pp split fires exactly one WARNING NM/day.
-- **Live (BA-EVC):** kill switch entity exists, state OFF after restart; flipping ON+OFF produces no actuation while no transition is active.
-- **Live (BA-EVC):** `sensor.ura_energy_drain_precedence_state` = `hold_only`; no `drain-precedence:` actuation lines in log while switch OFF.
-- **Live (BA-EVC):** no reserve-floor change attributable to DP while OFF (battery_strategy attrs unchanged vs pre-deploy).
-- **Live (recorder exclusion):** post-restart, `sensor.envoy_482543015950_energy_consumption_today` produces NO new rows in `statistics_short_term`/`statistics`; live state still updates.
-- **Live (regression):** zero URA ERROR lines post-restart; all 40 rooms set up; write-verify watchdog (v5.19.0) still stamping.
-- **Suite:** EVSE filter 312 passed / 3 skipped; full-suite failures within pre-existing baseline set.
+## Validated 2026-07-17 (post-restart, ~5-10 min after boot; HA up in ~80s)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| D2: `soc_resolution` populates with tier + ages | **PASS — organically exercised day zero** | `sensor.ura_energy_coordinator_battery_strategy` attr `soc_resolution` = `{tier: cloud_fallback, cloud_soc: 99.3, cloud_soc_age_s: 90.1, cloud_settings_lag_s: 99.9, divergence_active: false}`. Local Envoy entry is in `setup_retry` (device unreachable — the known flaky termination, NOT v5.20.0), so the fallback path ran for real at first boot instead of the happy path. |
+| D2: divergence detector silent absent a real split | PASS (boot window) | `divergence_active: false`; zero D2 NM alerts. Full clean-day + one-WARNING-per-real-split criteria remain organic (need Envoy back + a real split). |
+| BA-EVC: kill switch exists, OFF | PASS | `switch.ura_energy_coordinator_battery_aware_ev_charging` = `off` (registry-confirmed friendly name "Battery-Aware EV Charging"). |
+| BA-EVC: state sensor dormant | PASS | `sensor.ura_energy_coordinator_ev_charging_plan` = `hold_only` (note: entity_id derives from the friendly name via has_entity_name — README's earlier `drain_precedence_state` id was the unique_id, not the entity_id). Zero `drain-precedence:` lines in error_log. |
+| BA-EVC: no DP reserve-floor contribution while OFF | PASS | `battery_strategy` = `self_consumption`, `inclement_reserve_floor: 10`, no DP attrs present. |
+| Recorder exclusion: no new statistics rows | PASS-provisional | Latest `statistics_short_term` row for the excluded entity is 548 min old (predates deploy — Envoy has been down ~9h, so exclusion vs entity-absence are not yet distinguishable). Definitive proof when the Envoy recovers: live state updates while statistics stay frozen. Check then. |
+| Regression: zero URA errors | PASS | system_log ERROR × `universal_room_automation` = 0 entries; presence house_state live (`home_evening`, confidence 0.85). |
+| Suite | PASS | EVSE filter 312/3; full suite 36F/14E = pre-existing baseline exactly. |
+
+Boot transients seen and dismissed: none URA-attributable. Open live item carried
+forward: Envoy `setup_retry` (physical re-termination on the operator's list);
+`enphase_ev` cloud entry `loaded` — which is precisely why D2 has data.
 
 ## Not done / deferred (plan accounting)
 - D2-M1 accepted gap: plugged-idle car invisible to needed_kwh (no trustworthy plugged

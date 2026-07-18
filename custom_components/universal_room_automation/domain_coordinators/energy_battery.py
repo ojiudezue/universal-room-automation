@@ -1164,7 +1164,13 @@ class BatteryStrategy:
         )
         if now is None:
             now = dt_util.utcnow()
-        threshold = CONF_SOC_DIVERGENCE_THRESHOLD_PP
+        # v5.21.0 fix-up (SECOND OPERATOR ADDITION 2026-07-17) — prefer
+        # options-backed instance attr (rung-2), fall back to the rung-1
+        # module constant. Kill-switch: threshold <= 0 disables detection.
+        threshold = getattr(
+            self, "_soc_divergence_threshold_pp",
+            CONF_SOC_DIVERGENCE_THRESHOLD_PP,
+        )
         if threshold <= 0:
             # Fix-up B-LOW-1: kill-switch also clears active alert.
             self._d2_soc_div_above_first_at = None
@@ -1198,7 +1204,12 @@ class BatteryStrategy:
             return
         delta = abs(primary_soc - cloud_soc)
         self._d2_soc_div_last_delta = round(delta, 3)
-        dwell = timedelta(minutes=CONF_SOC_DIVERGENCE_DWELL_MIN)
+        # v5.21.0 fix-up — options-backed dwell (rung-2), fall back to
+        # rung-1 constant.
+        _dwell_min = getattr(
+            self, "_soc_divergence_dwell_min", CONF_SOC_DIVERGENCE_DWELL_MIN,
+        )
+        dwell = timedelta(minutes=_dwell_min)
         clear_below = threshold - CONF_SOC_DIVERGENCE_HYSTERESIS_PP
         if delta > threshold:
             # Reset the opposite timer (D-HIGH-1: no regime carryover).
@@ -1224,7 +1235,7 @@ class BatteryStrategy:
                     message=(
                         f"Cloud SOC {cloud_soc:.1f}% vs local Envoy SOC "
                         f"{primary_soc:.1f}% (delta={delta:.1f} pp) for "
-                        f">{CONF_SOC_DIVERGENCE_DWELL_MIN} min. Threshold "
+                        f">{_dwell_min} min. Threshold "
                         f"{threshold} pp. Cloud/local witness disagreement."
                     ),
                     hazard_type="soc_source_divergence_d2",
@@ -1277,7 +1288,14 @@ class BatteryStrategy:
         self._d2_cloud_lag_last_age_s = (
             None if max_age is None else round(max_age, 1)
         )
-        if CONF_CLOUD_LAG_ALERT_S <= 0:
+        # v5.21.0 fix-up (SECOND OPERATOR ADDITION 2026-07-17) — prefer
+        # options-backed alert-s (rung-2); fall back to rung-1 constant.
+        # Kill-switch semantics preserved: <= 0 disables NM (attribute still
+        # populated by the max-age write above).
+        _lag_alert_s = getattr(
+            self, "_cloud_lag_alert_s", CONF_CLOUD_LAG_ALERT_S,
+        )
+        if _lag_alert_s <= 0:
             # Kill-switch: reset timers, clear active (feature disabled
             # must not silently latch).
             self._d2_cloud_lag_above_first_at = None
@@ -1289,7 +1307,7 @@ class BatteryStrategy:
             self._d2_cloud_lag_below_first_at = None
             return
         dwell = timedelta(minutes=CONF_CLOUD_LAG_DWELL_MIN)
-        if max_age > CONF_CLOUD_LAG_ALERT_S:
+        if max_age > _lag_alert_s:
             self._d2_cloud_lag_below_first_at = None
             if self._d2_cloud_lag_above_first_at is None:
                 self._d2_cloud_lag_above_first_at = now
@@ -1301,7 +1319,7 @@ class BatteryStrategy:
                     _LOGGER.info(
                         "D2 cloud settings-lag CONFIRMED after %s: max_age="
                         "%.0fs > %ds",
-                        elapsed, max_age, CONF_CLOUD_LAG_ALERT_S,
+                        elapsed, max_age, _lag_alert_s,
                     )
                 # Per-tick fire; date latch dedups (D-MED-1).
                 self._fire_d2_nm(
@@ -1309,7 +1327,7 @@ class BatteryStrategy:
                     title="Enphase cloud settings lag",
                     message=(
                         f"Cloud oracle settings entities have not updated "
-                        f"in {max_age:.0f}s (>{CONF_CLOUD_LAG_ALERT_S}s). "
+                        f"in {max_age:.0f}s (>{_lag_alert_s}s). "
                         f"Battery command echo may be stale."
                     ),
                     hazard_type="cloud_settings_lag_d2",

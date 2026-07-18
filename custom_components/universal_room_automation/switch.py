@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.20.0
+# Universal Room Automation vv5.21.0
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -706,6 +706,24 @@ def _ec_switch_factory(
                 )
             )
 
+            # v5.21.0 fix-up (B-HIGH-1): subscribe to SIGNAL_ENERGY_ENTITIES_UPDATE
+            # so options-flow writes that route through `_EC_SETTER_DISPATCH`
+            # (e.g. `_CONF_ENERGY_DP_ENABLE`) can push a state refresh here.
+            # `is_on` reads live from the coordinator attr, so calling
+            # `async_write_ha_state()` immediately reflects the new value —
+            # no attribute mirror required. Bug Class #38: unsub tracked via
+            # `async_on_remove`. Kept as a separate single-line import so the
+            # test_envoy_boot_decoupling extractor's string-replace anchor for
+            # `SIGNAL_ENERGY_COORDINATOR_READY` above stays a byte match.
+            from .domain_coordinators.signals import SIGNAL_ENERGY_ENTITIES_UPDATE
+            self.async_on_remove(
+                async_dispatcher_connect(
+                    self.hass,
+                    SIGNAL_ENERGY_ENTITIES_UPDATE,
+                    self._handle_entities_update,
+                )
+            )
+
             # Register for dynamic restore-accounting (C7). Safe-noop if
             # EC not yet present; _handle_ec_ready re-attempts.
             self._register_for_restore_accounting()
@@ -789,6 +807,17 @@ def _ec_switch_factory(
                     self.hass, self._RETRY_DELAYS_S[0], self._retry_restore
                 )
             )
+
+        @callback
+        def _handle_entities_update(self, *_args, **_kwargs) -> None:
+            """v5.21.0 (B-HIGH-1): refresh entity state after an EC-setter
+            options-flow write. `is_on` reads the live coord attr; this
+            just tells HA to re-poll it. Safe no-op if entity isn't
+            fully added yet (`hass` present + platform assigned).
+            """
+            if self.hass is None or getattr(self, "platform", None) is None:
+                return
+            self.async_write_ha_state()
 
         @callback
         def _handle_ec_ready(self) -> None:
