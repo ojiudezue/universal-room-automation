@@ -505,6 +505,7 @@
           "coordinator_notifications_cooldowns": "⏱️ Cooldowns",
           "coordinator_toggles": "⚙️ Enable/Disable Coordinators",
           "coordinator_optimization": "🤖 Optimizer",
+          "coordinator_baec": "🔋 Battery-Aware EV Charging",
           "signal_responses": "Signal Responses",
           "basic_setup": "🚪 Basic Setup",
           "sensors": "📡 Sensors",
@@ -1258,6 +1259,37 @@
               "optimizer_llm_triage_entity": "Optional cheaper backend used to triage which findings deserve a primary call. Leave empty to skip triage.",
               "optimizer_llm_system_prompt": "Free-form prompt prepended to every LLM call. Use for house-specific guardrails (e.g. 'never touch the nursery').",
               "optimizer_llm_max_invocations_per_24h": "Hard daily ceiling on premium LLM calls. Survives restart (seeded from the DB). Default: 24."
+            }
+          }
+        }
+      },
+      "coordinator_baec": {
+        "title": "🔋 Battery-Aware EV Charging",
+        "description": "Let the home battery drain to its overnight target BEFORE the car starts charging on nights when both fit. The switch is the master kill switch. The rest of the knobs live under the collapsed Advanced section — the defaults are safe.",
+        "data": {
+          "energy_dp_enable": "Battery-Aware EV Charging",
+          "energy_dp_must_start_by_min": "Latest charge start (minutes past midnight)"
+        },
+        "data_description": {
+          "energy_dp_enable": "Let the battery drain to its overnight target BEFORE the car starts charging on nights when both fit.",
+          "energy_dp_must_start_by_min": "Car charging always begins by this time, even if the battery hasn't finished draining. Enter minutes past midnight (180 = 03:00)."
+        },
+        "sections": {
+          "baec_advanced": {
+            "name": "Advanced (rarely change)",
+            "data": {
+              "energy_dp_eval_delay_min": "Decision delay (minutes)",
+              "energy_dp_margin_min": "Charging time buffer (minutes)",
+              "energy_dp_needed_kwh_garage_a": "Typical charge needed — Garage A (kWh)",
+              "energy_dp_needed_kwh_garage_b": "Typical charge needed — Garage B (kWh)",
+              "energy_dp_house_load_source": "Overnight house load estimate"
+            },
+            "data_description": {
+              "energy_dp_eval_delay_min": "How long to watch after the battery starts holding before deciding whether to let it drain first.",
+              "energy_dp_margin_min": "Extra minutes added to the car-charging estimate, so the car always finishes before morning.",
+              "energy_dp_needed_kwh_garage_a": "How much energy the car in Garage A usually needs; used to judge whether drain-then-charge fits in the night.",
+              "energy_dp_needed_kwh_garage_b": "How much energy the car in Garage B usually needs. Falls back to a worst-case estimate when no history is available.",
+              "energy_dp_house_load_source": "Which reading is used to predict how fast the battery will drain overnight. Safe blend is the recommended default; the other options are for probing."
             }
           }
         }

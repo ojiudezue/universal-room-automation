@@ -2954,6 +2954,8 @@ def _dp_number_factory(
     icon: str,
     unique_suffix: str,
     is_int: bool,
+    enabled_default: bool = True,
+    diagnostic: bool = False,
 ):
     """Factory for the 5 DP Number entities. Byte-identical pattern to
     OffPeakDrainNumber except the entry.options key + coordinator setter
@@ -2968,7 +2970,15 @@ def _dp_number_factory(
         _attr_native_step = step
         _attr_native_unit_of_measurement = unit
         _attr_mode = NumberMode.BOX
-        _attr_entity_category = EntityCategory.CONFIG
+        # v5.21.0 BAEC control-surface consolidation: retired knobs demote
+        # to DIAGNOSTIC + disabled-by-default; options-flow is the primary
+        # write path. Kill switch + must-start-by (highest observation)
+        # remain enabled CONFIG-category. Bug Class #46 avoidance: disable
+        # (not delete) preserves round-trip on re-enable.
+        _attr_entity_category = (
+            EntityCategory.DIAGNOSTIC if diagnostic else EntityCategory.CONFIG
+        )
+        _attr_entity_registry_enabled_default = enabled_default
 
         def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
             from homeassistant.helpers.device_registry import DeviceInfo
@@ -3094,10 +3104,12 @@ def _build_dp_numbers():
             getter_attr="dp_eval_delay_min",
             default_value=_EVAL_DEFAULT,
             min_val=1, max_val=60, step=1, unit="min",
-            name="DP Eval Delay",
+            name="Decision delay",
             icon="mdi:timer-outline",
             unique_suffix="dp_eval_delay_min",
             is_int=True,
+            enabled_default=False,
+            diagnostic=True,
         ),
         _dp_number_factory(
             conf_key=CONF_ENERGY_DP_MARGIN_MIN,
@@ -3105,10 +3117,12 @@ def _build_dp_numbers():
             getter_attr="dp_margin_min",
             default_value=_MARGIN_DEFAULT,
             min_val=0, max_val=240, step=5, unit="min",
-            name="DP Safety Margin",
+            name="Charging time buffer",
             icon="mdi:timer-sand",
             unique_suffix="dp_margin_min",
             is_int=True,
+            enabled_default=False,
+            diagnostic=True,
         ),
         _dp_number_factory(
             conf_key=CONF_ENERGY_DP_MUST_START_BY_MIN,
@@ -3116,7 +3130,7 @@ def _build_dp_numbers():
             getter_attr="dp_must_start_by_min",
             default_value=_MUST_START_DEFAULT,
             min_val=0, max_val=24 * 60 - 1, step=15, unit="min",
-            name="DP Must Start By (min past midnight)",
+            name="Latest charge start",
             icon="mdi:clock-time-three-outline",
             unique_suffix="dp_must_start_by_min",
             is_int=True,
@@ -3127,10 +3141,12 @@ def _build_dp_numbers():
             getter_attr="dp_needed_kwh_garage_a",
             default_value=_KWH_A_DEFAULT,
             min_val=1.0, max_val=120.0, step=0.5, unit="kWh",
-            name="DP Needed kWh (Garage A)",
+            name="Typical charge needed — Garage A",
             icon="mdi:ev-station",
             unique_suffix="dp_needed_kwh_garage_a",
             is_int=False,
+            enabled_default=False,
+            diagnostic=True,
         ),
         _dp_number_factory(
             conf_key=CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B,
@@ -3138,10 +3154,12 @@ def _build_dp_numbers():
             getter_attr="dp_needed_kwh_garage_b",
             default_value=_KWH_B_DEFAULT,
             min_val=1.0, max_val=150.0, step=0.5, unit="kWh",
-            name="DP Needed kWh (Garage B)",
+            name="Typical charge needed — Garage B",
             icon="mdi:ev-station",
             unique_suffix="dp_needed_kwh_garage_b",
             is_int=False,
+            enabled_default=False,
+            diagnostic=True,
         ),
     ]
 

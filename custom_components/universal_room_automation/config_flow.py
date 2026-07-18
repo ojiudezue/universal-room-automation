@@ -2590,6 +2590,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     "signal_responses",
                     # v4.7.34 Phase 1 D7: Optimization Coordinator options section
                     "coordinator_optimization",
+                    # v5.21.0: Battery-Aware EV Charging (drain-precedence)
+                    "coordinator_baec",
                 ],
             )
         elif entry_type == ENTRY_TYPE_ZONE:
@@ -6423,6 +6425,162 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="coordinator_optimization",
+            data_schema=data_schema,
+        )
+
+    # =========================================================================
+    # v5.21.0: Battery-Aware EV Charging (BAEC) options section
+    # -------------------------------------------------------------------------
+    # Mirrors `async_step_coordinator_optimization` shape: enable + latest
+    # charge-start at top level, four tuning knobs + house-load estimate in a
+    # collapsed "baec_advanced" sub-section. Flatten back BEFORE persist so
+    # the coordinator + entities see the same flat `CONF_ENERGY_DP_*` keys
+    # they see today via the entity write path (mirrors the DPM/EC precedent
+    # at config_flow.py:6232-6240). Reload-suppression is already wired
+    # for all 7 keys at __init__.py:4624-4633 (v5.20.0 shipped that plumbing);
+    # no allowlist change here.
+    # =========================================================================
+
+    async def async_step_coordinator_baec(self, user_input=None):
+        """Configure Battery-Aware EV Charging (BAEC / drain-precedence).
+
+        Top-level fields:
+            - CONF_ENERGY_DP_ENABLE (kill switch)
+            - CONF_ENERGY_DP_MUST_START_BY_MIN (highest-observation knob)
+
+        Collapsed sub-section `baec_advanced` (default collapsed):
+            - CONF_ENERGY_DP_EVAL_DELAY_MIN
+            - CONF_ENERGY_DP_MARGIN_MIN
+            - CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A
+            - CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B
+            - CONF_ENERGY_DP_HOUSE_LOAD_SOURCE (house-load estimate source)
+        """
+        from .domain_coordinators.energy_const import (
+            CONF_ENERGY_DP_ENABLE,
+            CONF_ENERGY_DP_EVAL_DELAY_MIN,
+            CONF_ENERGY_DP_MARGIN_MIN,
+            CONF_ENERGY_DP_MUST_START_BY_MIN,
+            CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A,
+            CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B,
+            CONF_ENERGY_DP_HOUSE_LOAD_SOURCE,
+            CONF_DP_ENABLE as _EN_DEFAULT,
+            CONF_DP_EVAL_DELAY_MIN as _EVAL_DEFAULT,
+            CONF_DP_MARGIN_MIN as _MARGIN_DEFAULT,
+            CONF_DP_MUST_START_BY_MIN_PAST_MIDNIGHT as _MUST_DEFAULT,
+            CONF_DP_NEEDED_KWH_GARAGE_A as _KWH_A_DEFAULT,
+            CONF_DP_NEEDED_KWH_GARAGE_B_FALLBACK as _KWH_B_DEFAULT,
+            CONF_DP_HOUSE_LOAD_SOURCE as _HLS_DEFAULT,
+            DP_HOUSE_LOAD_SOURCES,
+        )
+
+        if user_input is not None:
+            # Flatten the "baec_advanced" collapsed section before persist so
+            # the coordinator + entity setter path see the same top-level
+            # `energy_dp_*` keys they write today.
+            flat = dict(user_input)
+            adv = flat.pop("baec_advanced", None)
+            if isinstance(adv, dict):
+                flat = {**flat, **adv}
+            merged_options = {**self._config_entry.options, **flat}
+            return self.async_create_entry(title="", data=merged_options)
+
+        house_load_options = [
+            {"value": "max_span_r1",
+             "label": "Safe blend (recommended)"},
+            {"value": "live_span",
+             "label": "Live meter only"},
+            {"value": "r1_base",
+             "label": "Modelled baseline only"},
+        ]
+
+        advanced_schema = vol.Schema({
+            vol.Optional(
+                CONF_ENERGY_DP_EVAL_DELAY_MIN,
+                default=self._get_current(
+                    CONF_ENERGY_DP_EVAL_DELAY_MIN, _EVAL_DEFAULT,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=60, step=1,
+                    unit_of_measurement="min",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_ENERGY_DP_MARGIN_MIN,
+                default=self._get_current(
+                    CONF_ENERGY_DP_MARGIN_MIN, _MARGIN_DEFAULT,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=240, step=5,
+                    unit_of_measurement="min",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A,
+                default=self._get_current(
+                    CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A, _KWH_A_DEFAULT,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=120, step=0.5,
+                    unit_of_measurement="kWh",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B,
+                default=self._get_current(
+                    CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B, _KWH_B_DEFAULT,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=150, step=0.5,
+                    unit_of_measurement="kWh",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_ENERGY_DP_HOUSE_LOAD_SOURCE,
+                default=self._get_current(
+                    CONF_ENERGY_DP_HOUSE_LOAD_SOURCE, _HLS_DEFAULT,
+                ),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=house_load_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+        })
+
+        data_schema = vol.Schema({
+            vol.Optional(
+                CONF_ENERGY_DP_ENABLE,
+                default=self._get_current(
+                    CONF_ENERGY_DP_ENABLE, _EN_DEFAULT,
+                ),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_ENERGY_DP_MUST_START_BY_MIN,
+                default=self._get_current(
+                    CONF_ENERGY_DP_MUST_START_BY_MIN, _MUST_DEFAULT,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=24 * 60 - 1, step=15,
+                    unit_of_measurement="min",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional("baec_advanced"): _ha_section(
+                advanced_schema, {"collapsed": True},
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="coordinator_baec",
             data_schema=data_schema,
         )
 
