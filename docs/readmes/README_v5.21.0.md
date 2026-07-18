@@ -36,7 +36,12 @@ OFF; operator-facing names throughout. Review record:
 | Device slim-down (one-shot registry disable) | PASS | 4 Numbers + Select set `disabled_by: user` (reversible in UI). Switch + `number...dp_must_start_by_min_past_midnight` (Latest charge start, 180) remain enabled. |
 | D2 knobs | PASS-as-designed | Not yet in options (written only on first operator save; module constants serve as defaults — verified in .storage). Pre-existing `weather_divergence_threshold_f: 3.0` untouched (sibling-preservation held on a real save). |
 | Regression | PASS | Zero URA ERROR entries post-restart; house_state live (`home_evening`); all 41 URA entries `loaded`. |
-| Carried from v5.20.0 | PENDING | Recorder-exclusion definitive proof + D2 happy-path tier still gated on Envoy recovery (`setup_retry`, physical re-termination on operator list). |
+| Carried from v5.20.0 | **CLOSED 2026-07-17 ~21:20 (Envoy re-terminated by operator)** | Recorder exclusion PROVEN: entity live-updating since 20:36 while newest statistics row is 666 min old — states flow, statistics frozen. D2 happy path VALIDATED: `soc_resolution` tier `primary_envoy` (envoy 53 / cloud 56.2, divergence 3.2pp inactive) AND cloud-lag leg organically fired (`cloud_settings_lag_active: true` @ 2776s). |
+
+**Addendum 2026-07-17 ~20:47: operator ACTIVATED BAEC** (switch ON).
+First armed hold observed at 21:13 (`hold_only`, off_peak); first real
+eval expected after the 10-min Decision delay. Shadow attrs frozen at
+their last OFF-mode values, as designed.
 
 Boot transients: none URA-attributable observed.
 

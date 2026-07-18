@@ -1,0 +1,47 @@
+{
+  "format_version": "2.1",
+  "entry_id": "030",
+  "author": "ojiudezue",
+  "session_id": "claude_20260717_evse_dp_reviews_fixup_hard_stop",
+  "timestamp": "2026-07-17T23:30:00Z",
+  "type": "decision",
+  "weight": "critical",
+  "title": "Battery-Aware EV Charging: four framing-disjoint Tier-3 reviews all FIX-FIRST (2 CRIT in the actuation lifecycle, invariant core sound), naming ratified, fix-up 1/2 landed before a hard stop",
+  "summary": "The EVSE drain-precedence cycle (A→B1→B2a→B2b-i/ii/iii, merged 57d92fea) went through four parallel framing-disjoint Tier-3 reviews. All four returned FIX-FIRST, and the defect pattern was diagnostic: the invariant CORE survived falsification (INV-DP3 floor-composition supremacy, INV-DP4 eval gate order, INV-DP5 write-verify integration; all 17 builder mutation anchors held under re-execution) while every CRIT/HIGH concentrated in the ACTUATION LIFECYCLE — enter/exit/membership/window. CRIT-1 (B and D independently): reversion-oscillation — the transition reverts when charging stops, but DP pausing the car IS what stops charging, so pause→revert→un-pause→re-pause loops every tick (the v5.15.0 flap shape reborn). CRIT-2 (D): a second car plugged in mid-transition is never paused — the L2 auto-activates, nothing re-scans, battery drains into car B all window (INV-DP1 money breach, contradicts the ratified both-released-at-floor). HIGHs: blind-hold gate read an attribute that does not exist (invented-attribute class, now THREE cycles running), house_load_kw stubbed at 0.0 (lost in a slice-seam hand-off: B2b-ii marked it 'B2b-iii wires this' but it never made B2b-iii's work order — orchestrator brief error, owned), kill-switch-off mid-transition strands the pause (the gate stops the tick that would clean up), NO night-window gate at all (every P4 validation assumed 21:00; the code never did — a 9am plug-in could release the reserve through peak), and a new test wall-clock-coupled naively (the exact class our own doctrine forbids). C's finds: the ships-OFF default was pinned only by a tautological test, and the TRANSITIONED edge never proved real EVSE ids get paused. Fix-up 1/2 (all CRIT+HIGH: paused-aware exit discriminator, live house_load, real blind signal, charging-set re-scan while TRANSITIONED, kill-switch hoist, night gate, 793-line anchor test file) committed 8f2bfc9e, 291 cycle tests green. Session ended in a HARD STOP mid-flow; resumed next session from git as ground truth (pickup memo was a day stale — still said 'B2b-i in flight'). Fix-up 2/2 (MEDs + C/A test-authority + rename) dispatched on resume.",
+  "decisions": [
+    "Naming ratified by operator (commit c27df04c): switch friendly name = 'Battery-Aware EV Charging' — operator chose Aware over First because 'first' implies a fixed priority while 'aware' describes what it does (the eval weighs battery state and decides). Sensor stays 'EV Charging Plan'; internals stay technical (dp_*), per the DPM no-internal-mechanics-exposed precedent. Kill-switch retirement trigger documented on the knob.",
+    "Reversion discriminator redefined: revert on car-stopped-while-POWERED, not on not-charging — the exit condition must be blind to the pause DP itself issued.",
+    "Charging-set membership is live, not latched: re-scan while TRANSITIONED so a mid-transition plug-in gets paused (INV-DP1 holds for late joiners).",
+    "Kill-switch OFF must revert, not freeze: cleanup runs even when the feature gate is off and even outside the night window (gate-ordering hoist).",
+    "Ship order unchanged: fix-up 2/2 → mandated D re-pass on the NEW exit surface (a fix creates a new reversion surface to enumerate) → orchestrator independent mutation verification → review record → combined deploy checkpoint with cloud-reliance D2. CONF_DP_ENABLE ships OFF regardless.",
+    "Process: slice hand-off briefs must explicitly carry forward every 'next slice wires X' marker — the house_load stub fell through exactly that seam, and the drop was the orchestrator's brief, not the builder."
+  ],
+  "alternatives_considered": [
+    "'Battery-First EV Charging': rejected by operator — implies fixed priority rather than an evaluation.",
+    "Two reviews instead of four: would have shipped CRIT-2 — only D's completeness enumeration found the second-plug-in breach; B/C did not. Tier-3's fourth framing paid again (same shape as v5.5.3 D-HIGH-1).",
+    "Treating the merged feature as deployable since it ships switch-OFF: rejected — doubly-dormant code whose actuation path has never run is not review-complete, and the review record must reflect reality."
+  ],
+  "implications": [
+    "The defect concentration (sound invariant core, broken actuation lifecycle) validates the build split: pure-eval slices verified clean; every bug lived in the wiring seams between anchored sites. Future cycles should anchor the SEAMS, not just the sites.",
+    "Invented-attribute getattr is now a three-cycle recurring class and must land in QUALITY_CONTEXT with the tautological-test-anchor sibling (queued housekeeping pass).",
+    "The v5.20.0 README must carry acceptance criteria for BOTH queued cycles (cloud-reliance D2 + Battery-Aware) since they restart together.",
+    "Pickup memos go stale within hours on high-velocity days — they are a starting point; git log + review artifacts are ground truth on resume (operator-directed 2026-07-17)."
+  ],
+  "refs": {
+    "docs": [
+      "docs/planning/PLANNING_evse_drain_precedence.md",
+      "docs/reviews/code-review/cloud_reliance_d2_tier3.md"
+    ],
+    "commits": [
+      "57d92fea",
+      "c27df04c",
+      "8f2bfc9e"
+    ],
+    "related_entries": [
+      "028",
+      "029"
+    ]
+  },
+  "confidence": "high",
+  "revisit_trigger": "If D's re-pass on the new paused-aware exit surface finds another reversion leak, or live validation shows the night-window gate or re-scan misbehaving on first organic transition, re-open the actuation-lifecycle design before widening CONF_DP_ENABLE."
+}

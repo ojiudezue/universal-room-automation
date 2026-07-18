@@ -99,6 +99,33 @@ On days where forecast says peak-hour need > solar refill, the EC will:
   (default 95%; number entity — see §3), surplus solar routes to the L2
   EVSEs before it exports. Verified firing 2026-07-16 14:00.
 
+### 2.4a Battery-Aware EV Charging (v5.20.0/v5.21.0, ACTIVATED 2026-07-17)
+
+The hold-then-eval night transition. When a car is plugged in at off-peak
+with the home battery still high, the EC no longer just holds the battery
+for the car — it *decides*:
+
+1. **Hold** (state `hold_only`): battery holds; after the **Decision
+   delay** (default 10 min) it evaluates.
+2. **Evaluate**: does "let the battery drain to its target, THEN charge
+   the car" fit before **Latest charge start** (default 03:00), given
+   the overnight house load estimate, charger rate (L1 auto-holds — a
+   16 h charge never fits), and **Typical charge needed** per plugged
+   car? A **Charging time buffer** (default 60 min) pads the estimate.
+3. **Transition** (`transitioned`): pause the EVSE(s) (owner `dp`), pin
+   the composed reserve floor at the drain target (max()-composition —
+   can only raise), let the battery serve the house.
+4. **Release**: at floor (sticky, peer/TOU-aware — a deferred release
+   keeps the claim and retries) or unconditionally at Latest charge
+   start (liveness INV-DP2). Kill-switch OFF mid-flight reverts cleanly.
+   Restart mid-transition drops to `hold_only` and orphan-cleans.
+
+**Shadow mode:** while the switch is OFF, the eval still runs and
+publishes `shadow_decision` / `shadow_reason` / `shadow_last_eval_snapshot`
+on the EV Charging Plan sensor — what it *would* have done, zero
+actuation (mutation-enforced invariant). Use this to build confidence
+before enabling; it's how the feature earned activation on 2026-07-17.
+
 ### 2.5 Blind-hold contract (v5.17.5)
 
 Battery telemetry can degrade — local Envoy API stops answering, or
@@ -157,6 +184,8 @@ turning it should require code review.
 | `number.ura_energy_coordinator_excess_solar_soc` | 95% | SOC at which surplus solar routes to L2 EVSEs before exporting. |
 | `number.ura_energy_coordinator_fill_priority_soc` | (< excess) | Companion pause-until threshold; must be below `excess_solar_soc`. |
 | Battery drain targets per solar class | (per-class) | Per-class Numbers set how low the EC will allow the battery to drift off-peak on `excellent / good / moderate / poor / very_poor` days. Legitimate operator tuning based on observation. |
+| `switch.ura_energy_coordinator_battery_aware_ev_charging` | ON (since 2026-07-17) | BAEC master switch. OFF = shadow mode (observability only). Mirrors the options-flow toggle live, both directions. |
+| `number.ura_energy_coordinator_dp_must_start_by_min_past_midnight` ("Latest charge start") | 180 (03:00) | Car charging always begins by this time regardless of battery drain progress. The only BAEC number left on the device page — the 4 advanced ones (Decision delay, Charging time buffer, Typical charge needed A/B) plus Overnight house load estimate are registry-disabled (re-enable in UI) and live in the options flow instead. |
 
 ### 3.2 Options flow (per-deployment structure — infrequent changes)
 
@@ -166,6 +195,17 @@ turning it should require code review.
 - EVSE switch and power-monitor entity IDs.
 - Pool VSF and circuit entity IDs.
 - Solcast forecast entity IDs.
+- **Battery-Aware EV Charging section (v5.21.0):** enable toggle +
+  Latest charge start, with a collapsed "Advanced (rarely change)"
+  apron for Decision delay, Charging time buffer, Typical charge
+  needed — Garage A/B, and Overnight house load estimate. Saves apply
+  LIVE (no reload); the enable toggle and the device switch stay in
+  sync both directions.
+- **Cloud-verification section — D2 detection knobs (v5.21.0,
+  promoted from constants):** Battery level disagreement alert
+  (pp, default 10, **0 = detection off**), Disagreement confirmation
+  time (min, default 5), Cloud update delay alert (s, **0 = alert
+  off**, delay still shown on the sensor).
 
 ### 3.3 Reviewed constants (change requires code review)
 
@@ -231,6 +271,22 @@ Other sensors:
   v1 estimator or the legacy day-of-week baseline drove today (v5.18.0
   SHADOW mode marker).
 
+**`sensor.ura_energy_coordinator_ev_charging_plan`** (v5.20.0) — the
+BAEC state machine: `hold_only` → `hold_pre_eval` → `eval_transition` →
+`transitioned` → (`must_start_forced`). Attributes: `since`,
+`must_start_by_dt`, `last_eval_at`, `last_eval_snapshot` (the arithmetic
+behind the latest decision — first place to look when asking "why
+did/didn't it transition"), and in shadow mode the `shadow_*` mirrors.
+The sibling EVSE status sensor reports `dp_paused` as a distinct pause
+reason.
+
+**`soc_resolution`** (attr on battery_strategy, v5.20.0) — which SOC
+source is driving (`primary_envoy` / `cloud_fallback` / lkg), per-source
+values + ages, `divergence_pp`/`divergence_active`, and
+`cloud_settings_lag_s`/`_active`. Both detection legs validated live
+2026-07-17 (Envoy dropout → cloud_fallback; cloud lag 2777s → lag
+alert active).
+
 ### 4.1 Observability WebSocket (v5.17.0)
 
 Read-only HA WebSocket API (`docs/websocket_api.md`) surfaces anomaly
@@ -292,12 +348,21 @@ raise it to prioritize battery top-off.
 
 ### 5.6 Kill switches
 
+- **Battery-Aware EV Charging:** flip
+  `switch.ura_energy_coordinator_battery_aware_ev_charging` OFF (or the
+  options-flow toggle — both apply live). Mid-transition OFF reverts
+  cleanly: sticky release un-pauses the car once TOU/peers permit, the
+  reserve floor collapses when the pause set drains. Feature falls back
+  to shadow mode, not silence.
+- **D2 divergence detection:** set "Battery level disagreement alert"
+  to 0 in the cloud-verification section (detection off, attr cleared);
+  "Cloud update delay alert" 0 = alert off, delay still displayed.
 - Disable the at-boundary tick: set `TOU_BOUNDARY_TICK_DELAY_S < 0`
   in `energy_const.py`.
 - Disable the unified projector: set `R7_USE_UNIFIED_PROJECTOR = False`
   in `energy_const.py`.
-- Both require code change + reload; they exist for revert-if-broken,
-  not for routine tuning.
+- The last two require code change + reload; they exist for
+  revert-if-broken, not for routine tuning.
 
 ---
 
@@ -314,4 +379,8 @@ raise it to prioritize battery top-off.
 | v5.17.4 | Rung projection solar-horizon bound; [0,100] display clamp (836% artifact fix). |
 | v5.17.5 | Blind-hold total contract: true blind = freeze, degraded = decide normally with suffix, peak blind de-escalation, sweep stand-down, breaker guard fails closed. |
 | v5.17.6 | Storm precharge exempted from blind freeze (bounded by 30-min SOC freshness). |
+| v5.18.0 | R1 consumption-estimator shadow; R7 unified projector; storm-precharge bound. |
+| v5.19.0 | Behavioral write-verify: conduct check + pending watchdog + command_trail (caught a real wedge day one). |
+| v5.20.0 | Cloud-reliance D2 (soc_resolution tiers, divergence + cloud-lag detection) + Battery-Aware EV Charging shipped dormant (Tier-3: 2 CRIT + 7 HIGH found/fixed pre-deploy). Dead-accumulator recorder exclusion. |
+| v5.21.0 | BAEC control surface: options-flow section (live-apply both directions), cognitive-simplicity renames, device slim-down, shadow eval, D2 detection knobs promoted to options. **BAEC ACTIVATED by operator 2026-07-17 ~20:47.** |
 | v5.18.0 | R1 consumption estimator v1 in SHADOW (regression + EV term; 14-day observation; `predicted_consumption_source` marker). R7 projection unification (single `EnergyProjector`; kill switch; no behavior change). |

@@ -1,0 +1,48 @@
+{
+  "format_version": "2.1",
+  "entry_id": "031",
+  "author": "ojiudezue",
+  "session_id": "claude_20260717_evse_dp_reviews_fixup_hard_stop",
+  "timestamp": "2026-07-18T02:45:00Z",
+  "type": "milestone",
+  "weight": "critical",
+  "title": "v5.20.0 + v5.21.0 shipped and validated same day; BAEC ACTIVATED by operator; D2 both-legs and recorder exclusion proven live; BAEC folded into Energy step with D2 knobs promoted",
+  "summary": "Double release day. v5.20.0 (cloud-reliance D2 + Battery-Aware EV Charging dormant + dead-accumulator recorder exclusion) deployed ~20:00 and validated with a gift: the local Envoy booted into setup_retry, so D2's cloud_fallback tier was exercised organically on first boot instead of the happy path. v5.21.0 (BAEC control surface) followed ~20:30 after 3 framing-disjoint reviews + a focused re-pass caught 2 HIGH (options enable toggle persisted-but-never-applied with three-way flow/switch/behavior desync; unenforced zero-KV-write shadow invariant leg found by mutation execution). Mid-cycle the operator redirected placement twice, both verified against prior art: BAEC folded INTO the coordinator_energy step as sections (the inclement/cloud_verification pattern — the orchestrator's earlier 'would need form→menu conversion' claim was wrong, the sectioned-form pattern already existed), and the three D2 detection constants were promoted rung-1→rung-2 into the cloud_verification section with behavior-register labels (Battery level disagreement alert / Disagreement confirmation time / Cloud update delay alert, 0=off semantics preserved at the same code branches). Live validation drove the REAL options flow via API: enable=true flipped the physical switch at 20:35:44 with no reload, false flipped it back — B-HIGH-1 proven dead on the running house. Device slim-down executed as a one-shot registry disable (HA only honors enabled_default at first registration — reviewer B verified this against HA semantics, correcting the plan's acceptance criteria). Then the operator re-terminated the Envoy and ACTIVATED BAEC (~20:47): recorder exclusion proven definitively (live state updating while newest statistics row stayed 666 min old), D2 primary_envoy tier live with divergence 3.2pp correctly inactive AND the cloud-lag leg organically firing (2776s lag, alert active). First armed BAEC hold observed 21:13; first real transition eval is the remaining organic watch. EC manual (ENERGY_COORDINATOR_MANUAL.md) updated: new §2.4a BAEC, knob tables, kill switches, sensor watch-list, version history through v5.21.0.",
+  "decisions": [
+    "BAEC lives inside the ⚡ Energy options step as visible baec + collapsed baec_advanced sections — NOT a top-level CM menu item (operator overrode the orchestrator's keep-as-built recommendation; the standalone step was built then retired within the same cycle).",
+    "D2 detection thresholds are operator knobs now (rung 2, cloud_verification section) with kill semantics on the labels; constants remain the defaults.",
+    "Live-house entity retirement = one-shot MCP registry disable (reversible, operator-visible), never a code-side registry migration.",
+    "BAEC ACTIVATED 2026-07-17 ~20:47 by operator after shadow-mode evidence and full validation — no longer ships-OFF-dormant.",
+    "Shadow mode is the standard pre-activation pattern for actuating features (L1-Shadow lineage: optimizer → BAEC)."
+  ],
+  "alternatives_considered": [
+    "Keep BAEC as a top-level CM menu item (optimizer precedent): operator rejected — energy features belong in the Energy section; the sectioned-form prior art made the fold cheap.",
+    "Registry-delete the retired entities: rejected (Bug Class #46); disable-by-default + one-shot disable preserves reversibility.",
+    "Leave D2 thresholds as constants: rejected by operator — deliberate ladder move with explicit labels; the promotion migrated every read site with a kill-semantics test driving the real detection code."
+  ],
+  "implications": [
+    "BAEC is live actuating tonight: the first organic transition (pause → drain → release/must-start) is the remaining validation; watch sensor.ura_energy_coordinator_ev_charging_plan last_eval_snapshot.",
+    "The uint32 statistics-poisoning surface is closed permanently; core#176707 remains open upstream but no longer hurts us.",
+    "Orchestrator lesson recorded: before claiming a UI restructure is expensive, grep the existing step for the pattern — the sectioned-form prior art existed and the operator knew it ('Institutional Context First' applies to MY claims too).",
+    "New QUALITY_CONTEXT candidates from the day: asserted-but-untested invariant leg; slice-seam hand-off drop; docstring-claimed-parity-not-implemented; factory-switch options-writeback divergence (L1 backlog)."
+  ],
+  "refs": {
+    "docs": [
+      "docs/readmes/README_v5.20.0.md",
+      "docs/readmes/README_v5.21.0.md",
+      "docs/reviews/code-review/v5_21_0_baec_control_surface.md",
+      "docs/Coordinator/ENERGY_COORDINATOR_MANUAL.md"
+    ],
+    "commits": [
+      "e32e57bd",
+      "93202df2",
+      "955e89b4",
+      "d0bea8be"
+    ],
+    "related_entries": [
+      "030"
+    ]
+  },
+  "confidence": "high",
+  "revisit_trigger": "If the first organic BAEC transition misbehaves (oscillation, stranded pause, floor not released at target), flip the switch OFF (falls back to shadow, reverts cleanly) and re-open the actuation-lifecycle review before re-enabling."
+}
