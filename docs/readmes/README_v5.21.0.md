@@ -26,14 +26,19 @@ OFF; operator-facing names throughout. Review record:
    disabled-by-default for new installs; live house slimmed via one-shot
    registry disable at deploy (reversible in the UI).
 
-## Live Validation (prospective — write back post-restart)
-- **Live:** ⚡ Energy options step opens; BAEC section + Advanced apron render; save round-trips (spot: set Decision delay 11 → coordinator attr `dp_eval_delay_min` 11 without reload; revert to 10).
-- **Live:** toggling enable in the options flow flips `switch...battery_aware_ev_charging` state without restart (then revert OFF).
-- **Live:** `ev_charging_plan` sensor shows `shadow_*` attrs populated within one decision cycle during off_peak (or `not_applicable/outside_night_window` during day); switch stays OFF; zero `drain-precedence:` actuation lines.
-- **Live:** cloud_verification section shows the 3 new knobs at defaults 10/5/(lag default); `soc_resolution` attr unaffected.
-- **Live:** one-shot registry disable executed for the 4 Numbers + Select; device page shows only the switch + Latest charge start (+ diagnostic entities hidden).
-- **Live (carried from v5.20.0):** recorder-exclusion definitive proof + D2 happy-path tier once Envoy recovers.
-- **Regression:** zero URA ERROR post-restart; inclement + cloud oracle options unchanged in `.storage` before/after a BAEC-section save.
+## Validated 2026-07-17 ~20:36 CDT (post-restart)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Options-flow round-trip + enable live-apply (B-HIGH-1) | **PASS both directions** | Drove the real CM options flow via API: save `baec.energy_dp_enable=true` → `switch...battery_aware_ev_charging` flipped `on` at 20:35:44 with NO reload (entry stayed `loaded`); save `false` → `off` at 20:35:53. `.storage` shows `energy_dp_enable: False`, `energy_dp_must_start_by_min: 180.0` persisted flat (no section residue). |
+| Shadow eval live | PASS | `sensor.ura_energy_coordinator_ev_charging_plan` = `hold_only` with `shadow_decision: not_applicable`, `shadow_reason: outside_night_window`, `shadow_last_eval_at: 20:33:31` — correct for 20:33 (off_peak starts 21:00). Zero `drain-precedence:` actuation lines. First real shadow arithmetic visible after 21:00 tonight (organic). |
+| Renames live | PASS | Registry `original_name` confirms: Decision delay · Charging time buffer · Typical charge needed — Garage A/B · Overnight house load estimate. Switch friendly name Battery-Aware EV Charging; sensor EV Charging Plan. |
+| Device slim-down (one-shot registry disable) | PASS | 4 Numbers + Select set `disabled_by: user` (reversible in UI). Switch + `number...dp_must_start_by_min_past_midnight` (Latest charge start, 180) remain enabled. |
+| D2 knobs | PASS-as-designed | Not yet in options (written only on first operator save; module constants serve as defaults — verified in .storage). Pre-existing `weather_divergence_threshold_f: 3.0` untouched (sibling-preservation held on a real save). |
+| Regression | PASS | Zero URA ERROR entries post-restart; house_state live (`home_evening`); all 41 URA entries `loaded`. |
+| Carried from v5.20.0 | PENDING | Recorder-exclusion definitive proof + D2 happy-path tier still gated on Envoy recovery (`setup_retry`, physical re-termination on operator list). |
+
+Boot transients: none URA-attributable observed.
 
 ## Deferred / accounted
 - L1 backlog: factory-switch toggles don't persist to options (pre-existing, all EC switches) — unify writeback or ratify boot authority.
