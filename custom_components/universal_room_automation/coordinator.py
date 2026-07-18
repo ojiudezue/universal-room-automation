@@ -26,6 +26,7 @@ from homeassistant.util import dt as dt_util
 from homeassistant.helpers import entity_registry as er
 
 from .const import (
+    BLE_MOTION_CONFIRM_MULTIPLIER,
     DOMAIN,
     SCAN_INTERVAL_OCCUPANCY,
     CONF_MOTION_SENSORS,
@@ -1803,12 +1804,35 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                         room_name
                     )
 
-                    # Tier 2 rooms need recent motion to confirm BLE placement.
-                    # "Recent" = motion within 2x occupancy timeout.
-                    ble_allowed = direct_ble
-                    if not direct_ble and self._last_motion_time:
-                        motion_age = (now - self._last_motion_time).total_seconds()
-                        if motion_age < self._occupancy_timeout * 2:
+                    # ble_extend_not_create (2026-07-17): BLE evidence may
+                    # EXTEND a motion-confirmed occupancy but NEVER CREATE
+                    # one — for any room, direct or shared scanner. A
+                    # cold room (no recent physical motion) whose BLE
+                    # flaps in/out from Bermuda noise must not strobe
+                    # entry actions (Master Bathroom 21:16-21:47 incident).
+                    #
+                    # Predicate: `_last_motion_time` present AND age within
+                    # BLE_MOTION_CONFIRM_MULTIPLIER x occupancy_timeout.
+                    # CRITICAL ORDERING: this predicate MUST be evaluated
+                    # BEFORE the `_last_motion_time` seeding below —
+                    # otherwise BLE would self-confirm on the next tick
+                    # (predicate reads what BLE just wrote). The seeding
+                    # is deliberately kept inside the admitted branch.
+                    ble_allowed = False
+                    if (
+                        BLE_MOTION_CONFIRM_MULTIPLIER > 0
+                        and self._last_motion_time
+                    ):
+                        motion_age = (
+                            now - self._last_motion_time
+                        ).total_seconds()
+                        # Reject negative motion_age (clock skew defense —
+                        # mirrors failsafe pattern at :1730).
+                        if (
+                            0 <= motion_age
+                            < self._occupancy_timeout
+                            * BLE_MOTION_CONFIRM_MULTIPLIER
+                        ):
                             ble_allowed = True
 
                     if ble_allowed:
@@ -1816,6 +1840,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                         data[STATE_OCCUPANCY_SOURCE] = "ble"
                         data[STATE_BLE_PERSONS] = list(ble_persons)
                         data[STATE_TIMEOUT_REMAINING] = self._occupancy_timeout
+                        # NOTE: seeding lives INSIDE `if ble_allowed:` by
+                        # design — see the ORDERING note above. Do not
+                        # hoist this above the predicate.
                         if not self._last_motion_time:
                             self._last_motion_time = now
                         # Ensure failsafe timer tracks BLE-held occupancy
