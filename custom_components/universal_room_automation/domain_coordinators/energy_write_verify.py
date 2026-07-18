@@ -1367,9 +1367,54 @@ class WriteVerifier:
         except Exception:  # noqa: BLE001
             return None
 
+    def _dp_transition_floor(self) -> Optional[int]:
+        """DP-owned drain-target % (`_dp_decision_soc`) when the DP state
+        machine is in TRANSITIONED. Composed into effective desired reserve
+        so watchdog + sweep treat the DP-elevated floor as desired, not as
+        a wedge. Resolves the energy coordinator the same way
+        `_evse_hold_state` does. Returns None outside TRANSITIONED or when
+        DP is not wired.
+
+        Bound to production state:
+          * carrier: `EnergyCoordinator._dp_carrier` (energy.py:362)
+          * floor:   `EnergyCoordinator._dp_decision_soc` (energy.py:370)
+        Kept in lock-step with the composition legs in
+        `_apply_evse_battery_hold` (energy.py:3224, 3320) — the same
+        floor a hold-active tick would compose into the emitted value.
+        """
+        coord = self._energy_coord()
+        if coord is None:
+            return None
+        try:
+            carrier = getattr(coord, "_dp_carrier", None)
+            if carrier is None:
+                return None
+            # State-scoped read: only fold DP floor while TRANSITIONED.
+            # Reversion clears both carrier.state and `_dp_decision_soc`
+            # (energy.py:3515), so outside TRANSITIONED the floor is None
+            # anyway — but the state gate is the semantic contract.
+            from .energy_drain_precedence import DPState  # noqa: PLC0415
+            if getattr(carrier, "state", None) != DPState.TRANSITIONED:
+                return None
+            dp_soc = getattr(coord, "_dp_decision_soc", None)
+            if dp_soc is None:
+                return None
+            return int(dp_soc)
+        except Exception:  # noqa: BLE001
+            return None
+
     def _effective_reserve_desired(self, battery: Any) -> Optional[int]:
         """Post-overlay effective reserve — value the system wants on
         hardware right now. Returns None if strategy desire is unstamped.
+
+        Composition (max() over all floors, matching the emit-side
+        composition in `_apply_evse_battery_hold`):
+          * pre-overlay strategy desire (`_last_reserve_level_desired`)
+          * EVSE hold overlay (`_evse_hold_soc` when
+            `_evse_battery_hold_active`)
+          * inclement partial_hold reserve_floor
+          * DP-owned drain floor (`_dp_decision_soc` when the DP carrier
+            is TRANSITIONED)
         """
         raw = getattr(battery, "_last_reserve_level_desired", None)
         if raw is None:
@@ -1384,14 +1429,24 @@ class WriteVerifier:
         inc_floor = self._inclement_partial_hold_floor(battery)
         if inc_floor is not None:
             eff = max(eff, inc_floor)
+        dp_floor = self._dp_transition_floor()
+        if dp_floor is not None:
+            eff = max(eff, dp_floor)
         return int(max(0, min(100, eff)))
 
     def _resolve_hold_owner(self, battery: Any) -> str:
         """Report which subsystem OWNS the current reserve floor.
         Derived from real state; no invented attribute reads.
-        Priority: evse hold > inclement partial/full > arbitrage phase
-        > strategy default.
+        Priority: dp transition > evse hold > inclement partial/full >
+        arbitrage phase > strategy default. DP outranks the EVSE hold
+        overlay because a TRANSITIONED DP window owns the pause and
+        raises the composed floor via `_dp_decision_soc` (energy.py:3224,
+        3320); the hold overlay is the strategy-side wrapper that
+        composes DP into its max().
         """
+        dp_floor = self._dp_transition_floor()
+        if dp_floor is not None:
+            return "dp_transition"
         active, _hold_soc = self._evse_hold_state()
         if active:
             return "evse_battery_hold"

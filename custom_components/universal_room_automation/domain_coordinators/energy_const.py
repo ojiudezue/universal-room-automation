@@ -330,6 +330,42 @@ WRITE_VERIFY_NM_SURFACES: Final = (
 )
 
 # ============================================================================
+# Cloud-reliance hardening (v5.20.0 — Tier 3 elevated)
+# ------------------------------------------------------------------
+# D2 read-side telemetry divergence + tier-disagreement observability. Sits
+# ABOVE the read-side SOC resolver (energy_battery.py:battery_soc, ~:650-758)
+# but STRICTLY BENEATH the write-verify surface (energy_write_verify.py — that
+# cycle owns command_trail / pending / conduct; this cycle owns SOC READ
+# witness divergence and cloud settings-lag freshness).
+#
+# All knobs are rung-1 MODULE CONSTANTS per Numbers Get Knobs ladder:
+# every one is a safety trade-off / anti-flap / alert cadence. None is a
+# policy the operator legitimately tunes by observation. Change requires
+# reviewed code change. Kill-switch: setting CONF_CLOUD_LAG_ALERT_S = 0
+# disables cloud-lag NM alerting (attribute still populated for
+# observability). Divergence detection is disabled by
+# CONF_SOC_DIVERGENCE_THRESHOLD_PP = 0 (attribute cleared, no NM).
+#
+# NOTE (naming): CONF_ prefix per operator spec, mirrors CONF_CONDUCT_* in
+# the behavioral-write-verify surface. These are NOT config-flow fields —
+# they are module constants. The prefix is a name-collision anchor for
+# audits.
+#
+# DISTINCTNESS from write-verify: write-verify already exposes reserve /
+# storage_mode / charge_from_grid oracle command_trail on the battery
+# strategy sensor. This cycle adds a NEW attribute namespace
+# `soc_resolution` (dict) documenting the SOC READ side: which resolver
+# tier served this tick, per-tier values + ages, cloud-vs-local pp
+# divergence, and cloud settings-write freshness. No key overlap.
+# ============================================================================
+CONF_SOC_DIVERGENCE_THRESHOLD_PP: Final = 10  # planner default
+CONF_SOC_DIVERGENCE_DWELL_MIN: Final = 5      # planner default, anti-flap
+CONF_SOC_DIVERGENCE_HYSTERESIS_PP: Final = 2  # planner default
+CONF_CLOUD_LAG_ALERT_S: Final = 1800          # planner default (30 min).
+                                              # Kill-switch: 0 disables NM.
+CONF_CLOUD_LAG_DWELL_MIN: Final = 5           # planner default, anti-flap
+
+# ============================================================================
 # Behavioral write-verify (v5.19.0 — Tier 3)
 # ------------------------------------------------------------------
 # Two behavioral tripwires on top of the echo-verify surface:
@@ -1193,3 +1229,130 @@ def validate_envoy_config(
 # code-review-governed knob (never operator-tuned), so it lives here rather
 # than options-flow or an entity.
 R7_USE_UNIFIED_PROJECTOR: Final[bool] = True
+
+# ============================================================================
+# EVSE Drain-Precedence (Tier 3 — hold-then-eval)
+# ------------------------------------------------------------------
+# Session-A skeleton: knobs + state machine + KV persist/restore + observability.
+# Session B wires actuation, evaluation, and read sites into the tick loop.
+#
+# Numbers Get Knobs rung placement (operator rule 2026-07-16):
+#   All CONF_DP_* below are rung-1 MODULE CONSTANTS for this session.
+#   The plan (§68-84) proposes eventual promotion of SEVERAL of these
+#   to Number/Switch/Select entities (`CONF_DP_ENABLE` → Switch,
+#   `CONF_DP_EVAL_DELAY_MIN` / `CONF_DP_MARGIN_MIN` /
+#   `CONF_DP_MUST_START_BY` / `CONF_DP_NEEDED_KWH_FALLBACK` → Number,
+#   `CONF_DP_HOUSE_LOAD_SOURCE` → Select) — but the operator ratifications
+#   at §246-264 ratify DEFAULT VALUES only, not entity promotion. Promotion
+#   is deferred to Session B (which wires the entity surface + persistence).
+#
+#   Rungs annotated per constant. `KILL:` documents kill-switch semantics.
+# ============================================================================
+
+# --- Master kill switch ---------------------------------------------
+# Rung-1 (module constant this session; plan §74 promotes to Switch in
+# Session B). False → hold-only, today's behavior; state machine stays in
+# HOLD_ONLY and the eval path is never entered.
+# KILL: CONF_DP_ENABLE = False disables all transition eval + actuation.
+CONF_DP_ENABLE: Final[bool] = False
+
+# --- Eval timing ----------------------------------------------------
+# Rung-1 (module const; Session B → Number entity). Minimum minutes hold
+# must be active before an eval fires. Un-probed (no hold-flap data in
+# probe window); Bug Class #48 conservatism → 10 min default.
+CONF_DP_EVAL_DELAY_MIN: Final[int] = 10
+
+# --- Safety margin --------------------------------------------------
+# Rung-1 (module const; Session B → Number entity). Margin (minutes) added
+# to drain_hours + charge_hours before the "fits before must-start-by"
+# check. P4 replay showed 0/7 miss at 60 min with worst-case headroom
+# 1.75 h → 60 min default.
+CONF_DP_MARGIN_MIN: Final[int] = 60
+
+# --- Must-start-by --------------------------------------------------
+# Rung-1 (module const; Session B → Number entity, minutes-past-midnight).
+# Operator ratification §255-256: 03:00 (L1 chargers are slow; more
+# conservative than the 04:00 candidate). Stored as minutes past midnight
+# so Session B's Number entity is a simple int surface.
+CONF_DP_MUST_START_BY_MIN_PAST_MIDNIGHT: Final[int] = 3 * 60  # 03:00
+
+# --- House-load source ---------------------------------------------
+# Rung-1 (module const; Session B → Select entity). Ratification §257:
+# max(live SPAN, R1 base prediction) — conservative blend. String enum:
+# "max_span_r1" | "live_span" | "r1_base". Only max_span_r1 is ratified
+# for ship; the others are opt-in for probe re-runs.
+CONF_DP_HOUSE_LOAD_SOURCE: Final[str] = "max_span_r1"
+DP_HOUSE_LOAD_SOURCES: Final = ("max_span_r1", "live_span", "r1_base")
+
+# --- Needed-kWh priors ---------------------------------------------
+# Rung-1 (module const; Session B → Number entity). garage_a-only prior;
+# probe P3 car-stop p90 = 22.3 kWh (n=4) → 25 kWh rounded up. Session B
+# will surface per-EVSE knobs.
+CONF_DP_NEEDED_KWH_GARAGE_A: Final[float] = 25.0
+
+# Rung-1 (module const; Session B → Number entity). Worst-case fallback
+# when car SOC is unknown or car has no session history (garage_b). Set to
+# full EV battery capacity minus 10% buffer — operator specifies concrete
+# vehicle capacity via CONF once entity surface arrives; module default is
+# a conservative 75 kWh (large EV worst-case).
+CONF_DP_NEEDED_KWH_GARAGE_B_FALLBACK: Final[float] = 75.0
+
+# --- L1 charger auto-hold threshold --------------------------------
+# Rung-1 (module const; safety threshold, requires review). If the only
+# connected charger is L1 (rate <= this kW), the eval MUST return HOLD
+# immediately per P4 verdict (16 h L1 charge can never fit a 9 h night).
+# 3.0 kW cleanly separates L1 (~1.4 kW) from L2 (~7.6 kW).
+DP_L1_RATE_THRESHOLD_KW: Final[float] = 3.0
+DP_CHARGER_RATE_L1_KW: Final[float] = 1.4
+DP_CHARGER_RATE_L2_KW: Final[float] = 11.5
+
+# --- Physical / model constants ------------------------------------
+# Rung-1 (module const, physical property — change requires review).
+# 40,000 Wh / 100 pp = 0.40 kWh per SOC percentage point (probe confirmed
+# via sensor.envoy_482543015950_battery_capacity).
+DP_CAPACITY_KWH_PER_SOC_PP: Final[float] = 0.40
+
+# Rung-1 (module const, safety bound for INV-DP1 slack — change requires
+# review). Tolerance kW above measured house load during the transitioned
+# window before the reversion sweep flags "over-discharge".
+DP_HOUSE_LOAD_TOLERANCE_KW: Final[float] = 1.0
+
+# Rung-1 (module const, safety bound — change requires review). Caps how
+# long a transition can hold the paused-EVSE + released-reserve state
+# before force-releasing to CHARGING (must-start-by acts as the primary
+# guard; this is the belt-and-suspenders bound).
+DP_TRANSITION_MAX_DURATION_H: Final[float] = 8.0
+
+# --- Night window --------------------------------------------------
+# Rung-1 (module const). Night window used for the "fits before must-start-by"
+# arithmetic: 21:00 → 06:00 = 9 h. Reviewed constant; probe derived.
+DP_NIGHT_WINDOW_HOURS: Final[float] = 9.0
+DP_NIGHT_WINDOW_START_HOUR: Final[int] = 21
+DP_NIGHT_WINDOW_END_HOUR: Final[int] = 6
+
+# --- KV persistence key --------------------------------------------
+# Rung-1 (module const, wire-format contract). Single JSON blob under this
+# key in the `energy_state` KV table. Change requires migration.
+DP_KV_KEY: Final[str] = "drain_precedence_state_v1"
+
+# ============================================================================
+# Session B1 — CONF OPTION KEYS for entity persistence (plan §68-84).
+# ------------------------------------------------------------------
+# The `CONF_DP_*` constants above are default VALUES (bool/int/float/str)
+# consumed directly by the state machine in `energy_drain_precedence.py`.
+# The `CONF_ENERGY_DP_*` string keys BELOW are the persisted-config keys
+# used by the Switch/Number/Select entities and CM options-writeback:
+# they live in `entry.options` as the sole source of truth (mirrors the
+# OffPeakDrainNumber / PeakBufferTargetNumber pattern at number.py:710+).
+# On restart the entity constructor re-seeds `self._value` from
+# `{**entry.data, **entry.options}` under these keys; the state-machine
+# defaults above are the first-boot fallback.
+# ============================================================================
+
+CONF_ENERGY_DP_ENABLE: Final[str] = "energy_dp_enable"
+CONF_ENERGY_DP_EVAL_DELAY_MIN: Final[str] = "energy_dp_eval_delay_min"
+CONF_ENERGY_DP_MARGIN_MIN: Final[str] = "energy_dp_margin_min"
+CONF_ENERGY_DP_MUST_START_BY_MIN: Final[str] = "energy_dp_must_start_by_min"
+CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A: Final[str] = "energy_dp_needed_kwh_garage_a"
+CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B: Final[str] = "energy_dp_needed_kwh_garage_b"
+CONF_ENERGY_DP_HOUSE_LOAD_SOURCE: Final[str] = "energy_dp_house_load_source"

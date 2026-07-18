@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.19.0
+# Universal Room Automation vv5.20.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -228,6 +228,8 @@ async def async_setup_entry(
             EnergyTOURateSensor(hass, entry),
             EnergyTOUSeasonSensor(hass, entry),
             EnergyBatteryStrategySensor(hass, entry),
+            # Session B1 — EVSE drain-precedence state machine observability.
+            EnergyDrainPrecedenceStateSensor(hass, entry),
             # v5.5.1 D6: dedicated inclement-weather observability entity
             InclementStateSensor(hass, entry),
             EnergySolarDayClassSensor(hass, entry),
@@ -7239,6 +7241,63 @@ class InclementStateSensor(AggregationEntity, SensorEntity):
             "inclement_reason": status.get("inclement_reason"),
             "inclement_solar_horizon": status.get("inclement_solar_horizon"),
         }
+
+
+class EnergyDrainPrecedenceStateSensor(AggregationEntity, SensorEntity):
+    """EVSE Drain-Precedence state machine observability (Session B1).
+
+    Entity: sensor.ura_energy_drain_precedence_state
+    Device: URA: Energy Coordinator
+
+    State value: the current `DPState` (`hold_only` / `hold_pre_eval` /
+    `eval_transition` / `transitioned` / `must_start_forced`). Attributes
+    mount `DrainPrecedenceState.to_attrs()` verbatim (state, since,
+    hold_started_at, transitioned_at, must_start_by_dt, last_eval_at,
+    last_eval_snapshot) so operators + reviewers can watch the machine
+    in real time. Session B2 populates last_eval_snapshot on each eval.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:state-machine"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_drain_precedence_state"
+        # B2c-2 item 6 rename (operator ratification 2026-07-17, planning
+        # doc §373): user-facing name is "EV Charging Plan"; unique_id
+        # stays technical (`drain_precedence_state`) so entity history +
+        # dashboard references survive the rename.
+        self._attr_name = "EV Charging Plan"
+        self._attr_device_info = _energy_device_info()
+
+    def _get_carrier(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        return getattr(energy, "_dp_carrier", None)
+
+    @property
+    def native_value(self) -> str:
+        carrier = self._get_carrier()
+        if carrier is None:
+            return "unknown"
+        try:
+            return carrier.state.value
+        except Exception:  # noqa: BLE001
+            return "unknown"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        carrier = self._get_carrier()
+        if carrier is None:
+            return {}
+        try:
+            return dict(carrier.to_attrs())
+        except Exception:  # noqa: BLE001
+            return {}
 
 
 class EnergySolarDayClassSensor(AggregationEntity, SensorEntity):

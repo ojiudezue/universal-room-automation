@@ -197,6 +197,18 @@ class EVChargerController:
         self._excess_solar_active: set[str] = set()
         self._paused_by_grid_cap: set[str] = set()
         self._paused_by_battery_drain: set[str] = set()
+        # EVSE drain-precedence (Session B2b-i): dedicated pause-owner set,
+        # peer of `_paused_by_battery_drain` / `_paused_by_arbitrage` /
+        # `_paused_by_load_shed`. Mirrors the v5.3.9 pattern of one set per
+        # owner (Bug Class #46 — collision-by-set-overload). Populated by
+        # `EnergyCoordinator._apply_dp_transition` when the drain-precedence
+        # state machine enters TRANSITIONED and requires an EVSE pause; the
+        # carry-over guard in `determine_actions` (~:558) treats it as a
+        # peer of the existing battery-protection owners (never pre-empted
+        # by TOU ensure-on). Owner tag "dp" is claimed via
+        # `_claim_pause_dispatch_owner` at the actuation entry-point. Pruned
+        # in `_prune_removed_evses` alongside sibling sets.
+        self._paused_by_dp: set[str] = set()
         # v4.5.0 D4: compound-load protection — pause EVSEs while arbitrage
         # is grid-charging. Solo battery 20 kW (~83A) is within main breaker;
         # battery + EV (7.4 kW) + house base (~5 kW) ≈ 134A is the panel-
@@ -418,6 +430,8 @@ class EVChargerController:
             self._paused_by_fill_priority,
             # v<next> WS2 D1.3: prune proactive off-peak holds for removed EVSEs.
             self._proactive_offpeak_holds,
+            # EVSE drain-precedence (B2b-i): mirror sibling owners.
+            self._paused_by_dp,
         ):
             for evse_id in list(tracking_set):
                 if evse_id not in known:
@@ -561,6 +575,11 @@ class EVChargerController:
                     or evse_id in self._paused_by_grid_cap
                     or evse_id in self._paused_by_arbitrage
                     or evse_id in self._paused_by_load_shed
+                    # EVSE drain-precedence (B2b-i): peer battery-protection
+                    # owner. Force-charge is the sole authoritative override
+                    # per plan §127 (interaction matrix row 1); TOU ensure-on
+                    # must NEVER release a DP pause.
+                    or evse_id in self._paused_by_dp
                 ):
                     # load-shedding-correctness D1: load-shed is now a
                     # peer pause-owner — its carry-over wins over TOU
@@ -757,6 +776,14 @@ class EVChargerController:
                     or evse_id in self._paused_by_grid_cap
                     or evse_id in self._paused_by_arbitrage
                     or evse_id in self._paused_by_load_shed
+                    # Session B2b-ii: `_paused_by_dp` is a peer of the
+                    # other stronger owners here. Excess-solar turn-on
+                    # must NOT re-enable an EVSE the drain-precedence
+                    # state machine holds paused (draining the house
+                    # battery down to the drain target so night charging
+                    # runs off-peak). Symmetric with the carry-over guard
+                    # in the off_peak ensure-on branch (B2b-i).
+                    or evse_id in self._paused_by_dp
                 ):
                     _LOGGER.debug(
                         "Excess solar: %s held by stronger pause reason — skipping",
@@ -1721,6 +1748,15 @@ class EVChargerController:
                 return ("grid_capped", "grid import cap")
             if evse_id in self._paused_by_arbitrage:
                 return ("arbitrage_paused", "arbitrage compound-load protection")
+            # EVSE drain-precedence (B2b-i): peer classification, positioned
+            # above the TOU/charging/idle fallbacks and below the higher-
+            # authority owners already listed. Force-charge is not a set
+            # (window state); when active it PREVENTS DP from claiming here.
+            if evse_id in self._paused_by_dp:
+                return (
+                    "dp_paused",
+                    "drain-precedence transition (paused)",
+                )
             if evse_id in self._paused_by_us:
                 return ("paused", "TOU peak/mid-peak pause")
             if evse_id in self._excess_solar_active:

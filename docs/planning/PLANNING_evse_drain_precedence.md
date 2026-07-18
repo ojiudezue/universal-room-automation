@@ -262,3 +262,120 @@ At close of cycle, explicitly document:
    manual-override/cooldown machinery handles it; no new state.
 5. **Blind-exit re-eval = immediate one-shot** on first sighted tick (eval is
    read-only decision math; actuation still routes through guarded paths).
+
+## Probe reports P1-P4 (2026-07-17)
+
+**Method:** one-shot read-only probes against the HA recorder (`sqlite3 'file:/config/home-assistant_v2.db?mode=ro'` via `ssh ha "python3 -"`). Probe script: session scratchpad `dp_probe.py`.
+
+**HONEST WINDOW LIMITATION — 7 nights, not 90 days.** The recorder retains 2026-07-10 09:15 → 2026-07-17 (≈7.3 days). The Enphase CSVs at `data/enphase/` are *daily site-level energy totals only* (no SOC, no per-circuit/EVSE breakdown, no intraday resolution), so none of P1-P4 could be extended to 90 days from them. Everything below is a 7-night mid-July sample: no seasonal coverage (winter overnight load, HVAC heating, holiday guests all unmeasured), and n is small everywhere. Gate verdicts are directional, not final; re-run the probes after the recorder accumulates more history or before winter.
+
+**Data sources used:** SOC = `sensor.envoy_482543015950_battery` (1512 numeric rows; currently flapping `unavailable` — the Enphase-cloud-reliance dependency in this plan's sequencing is real). EVSE power = `sensor.garage_a_power_minute_average` / `sensor.garage_b_power_minute_average`. House load = `sensor.span_panel_current_power` + `sensor.span_panel_current_power_2` (both W, two panels) minus EVSE draw. Pause/switch-off classification = `sensor.ura_energy_coordinator_ev_charging_status` attribute history (1789 rows): entry into any `paused_by_*` list OR `is_on` true→false within ±10 min of session end ⇒ **switch-stop (censored)**; otherwise power ramped to ~0 with switch still enabled ⇒ **car-stop (uncensored)**. Battery capacity = `sensor.envoy_482543015950_battery_capacity` = 40,000 Wh → **0.40 kWh per SOC percentage point** (matches the ratified ×0.4 assumption). L1 moes sockets (`switch.smartplug_moes_wifi_garagealeftfront_socket_1/2`) were OFF for the whole window — zero L1 sessions observed.
+
+### P1 — SOC at plug-in edges
+
+| car | plug-in (local) | SOC % | evening? |
+|---|---|---|---|
+| garage_a | 07-10 21:57 | 36 | Y |
+| garage_a | 07-11 02:01 | 10 | |
+| garage_a | 07-11 07:28 | 9 | |
+| garage_a | 07-12 02:01 | 20 | |
+| garage_a | 07-12 15:32 | 96 | |
+| garage_a | 07-12 21:04 | 48 | Y |
+| garage_a | 07-13 00:12 | 20 | Y |
+| garage_a | 07-14 23:17 | 38 | Y |
+| garage_a | 07-15 21:01 | 78 | Y |
+| garage_a | 07-16 08:22 | 15 | |
+| garage_a | 07-16 21:01 | 66 | Y |
+
+Evening plug-ins (17:00–02:00) with SOC data: 6; with SOC > 40: **3 of 6 (50%)**.
+**GATE VERDICT: PASS — do NOT park.** 50% ≫ the 10% park threshold. Even on a 6-event sample the binomial lower bound comfortably clears 10%. The transition heuristic would have real work to do most weeks.
+Note: `garage_b` recorded **zero** charge sessions in the window (`garage_b_power_minute_average` flat ~0). All plug-in edges are garage_a.
+
+### P2 — Overnight house load 21:00–06:00 (SPAN total minus EVSE)
+
+| night of | avg kW | hourly kW 21→05 |
+|---|---|---|
+| 07-10 | 6.55 | 4.7 9.9 8.7 7.2 6.3 6.3 5.8 5.2 4.9 |
+| 07-11 | 4.76 | 8.0 5.9 4.5 4.4 4.1 4.3 3.8 4.0 3.7 |
+| 07-12 | 7.40 | 8.9 6.9 6.1 7.7 9.2 7.9 7.1 6.9 6.1 |
+| 07-13 | 6.91 | 6.6 8.6 8.9 8.2 6.7 5.7 6.2 5.6 5.7 |
+| 07-14 | 4.65 | 3.2 4.4 6.5 5.5 5.9 4.5 4.2 3.9 3.7 |
+| 07-15 | 5.91 | 6.8 9.7 7.4 6.7 5.8 5.3 3.8 3.9 3.8 |
+| 07-16 | 5.15 | 7.2 8.1 5.6 4.9 4.4 4.1 4.0 4.0 4.0 |
+
+Nightly-average distribution (n=7): **p25 = 4.96, p50 = 5.91, p75 = 6.73 kW**.
+Hourly medians: 21h 6.8 · 22h 8.1 · 23h 6.5 · 00h 6.7 · 01h 5.9 · 02h 5.3 · 03h 4.2 · 04h 4.0 · 05h 4.0 kW — clear monotone slump after 01:00 (not bimodal in this sample; no state input needed yet, but 7 July nights cannot rule out a guest/empty mode split).
+**Sizing note:** this is peak-AC July load. Using p50 = 5.9 kW in drain_hours is conservative-fast (drain completes sooner than predicted on shoulder-season nights → later real drain end is the risk direction; margin absorbs it).
+
+### P3 — Charge-session kWh with end-cause classification
+
+| car | start | end | kWh | peak kW | end cause |
+|---|---|---|---|---|---|
+| garage_a | 07-10 21:57 | 07-10 23:15 | 4.2 | 3.3 | switch-stop |
+| garage_a | 07-11 02:01 | 07-11 03:54 | 6.1 | 3.3 | switch-stop |
+| garage_a | 07-11 07:28 | 07-11 07:59 | 4.7 | 11.3 | switch-stop |
+| garage_a | 07-12 02:01 | 07-12 03:03 | 2.3 | 2.3 | switch-stop |
+| garage_a | 07-12 15:32 | 07-12 16:08 | 1.7 | 8.2 | switch-stop |
+| garage_a | 07-12 21:04 | 07-12 21:10 | 0.4 | 4.5 | switch-stop |
+| garage_a | 07-13 00:12 | 07-13 04:52 | 20.6 | 4.5 | **car-stop** |
+| garage_a | 07-14 23:17 | 07-15 01:52 | 22.0 | 11.4 | **car-stop** |
+| garage_a | 07-15 21:01 | 07-16 02:47 | 17.0 | 3.3 | switch-stop |
+| garage_a | 07-16 08:22 | 07-16 10:38 | 6.1 | 3.3 | **car-stop** |
+| garage_a | 07-16 21:01 | 07-16 23:12 | 22.5 | 11.6 | **car-stop** |
+
+The censoring split validates the operator's ratification point: 7 of 11 sessions were URA-switch-terminated (censored lower bounds), and naive pooling would have dragged p50 to ~6 kWh. Car-stopped (uncensored) only, garage_a: n=4 → kWh {6.1, 20.6, 22.0, 22.5}; **p50 = 21.3, p90 = 22.3 kWh**. garage_b: **no sessions → no per-car prior; worst-case fallback is the only defensible default for car B.**
+**GATE VERDICT:** p90 (~22 kWh) ≪ full EV battery — a shorter default than worst-case is justified for garage_a. **Recommended `CONF_DP_NEEDED_KWH` default = 25 kWh** (p90 rounded up for n=4 humility); `CONF_DP_NEEDED_KWH_FALLBACK` (car SOC unknown / garage_b) stays worst-case per plan.
+Caveat: n=4 uncensored observations; ±10-min coincidence classification could misclassify a car that happens to finish inside a pause window (none observed, but unprovable at this n).
+
+### P4 — Counterfactual replay (ratified eval rule)
+
+Inputs: drain_target = 15, cap = 0.40 kWh/pp, house_load = P2 p50 = 5.91 kW, needed = P3 p90 = 22.3 kWh, rate L2 = 11.5 kW / L1 = 1.4 kW, margin = 1.0 h, night = 21:00→06:00 (9 h), must-start-by 03:00.
+
+| night | SOC@21:00 | drain_h | charge_h L2/L1 | fits (L2)? | charge start | miss 03:00? |
+|---|---|---|---|---|---|---|
+| 07-10 | 42 | 1.8 | 1.9 / 16.0 | Y | 22:49 | no |
+| 07-11 | 30 | 1.0 | 1.9 / 16.0 | Y | 22:00 | no |
+| 07-12 | 51 | 2.4 | 1.9 / 16.0 | Y | 23:26 | no |
+| 07-13 | 41 | 1.8 | 1.9 / 16.0 | Y | 22:45 | no |
+| 07-14 | 59 | 3.0 | 1.9 / 16.0 | Y | 23:58 | no |
+| 07-15 | 78 | 4.3 | 1.9 / 16.0 | Y | 01:15 | no |
+| 07-16 | 67 | 3.5 | 1.9 / 16.0 | Y | 00:31 | no |
+
+**7/7 nights transition on L2; 0 missed must-start-by (0% ≤ 5% gate) → GATE VERDICT: PASS at margin = 1.0 h; no margin raise required on this sample.** Worst case (07-15, SOC 78) started 01:15 — 1.75 h before the 03:00 deadline; re-computed at P2-p25 load (slower drain, 4.96 kW) it starts 02:05, still clearing 03:00. Morning-full: with 22.3 kWh at 11.5 kW every transitioned night finishes ≥ 2 h before 06:00.
+**L1 never fits** (16 h charge alone > 9 h night): the transition eval must treat L1-only-connected as an automatic HOLD (or must-start-immediately) — drain-then-charge is an L2-only play. This should be an explicit branch, not an emergent arithmetic outcome.
+Caveat: replay uses SOC sampled at 21:00 nightly, not the true plug-in edge per night, and constant p50 load rather than realized per-night load; 7 July nights with high SOC bias the "would-transition" rate up.
+
+### Recommended knob defaults (from probes)
+
+| Knob | Recommended default | Basis |
+|---|---|---|
+| `CONF_DP_EVAL_DELAY_MIN` | 10 min | Un-probed (no hold-flap data in window); Bug Class #48 conservatism |
+| `CONF_DP_MARGIN_MIN` | 60 min | P4: 0% miss at 1.0 h; worst-case headroom 1.75 h |
+| `CONF_DP_MUST_START_BY` | 03:00 (ratified) | P4 confirms feasible: all starts ≤ 01:15 |
+| `CONF_DP_HOUSE_LOAD_SOURCE` | `max(live SPAN, R1 base)` (ratified) | P2: unimodal, monotone slump; p50 5.9 kW (July — seasonal re-probe required) |
+| `CONF_DP_NEEDED_KWH` (garage_a) | 25 kWh | P3 car-stop p90 = 22.3, n=4, rounded up |
+| `CONF_DP_NEEDED_KWH_FALLBACK` | worst-case (full EV battery − 10%) | P3: garage_b has zero uncensored observations |
+| L1 branch | automatic HOLD (never transition) | P4: 16 h L1 charge can never fit a 9 h night |
+
+### Gate verdict summary
+
+| Probe | Gate | Verdict |
+|---|---|---|
+| P1 | <10% evening plug-ins SOC>40 → park | **PASS (50%) — proceed, do not park** |
+| P2 | sizes drain_hours + margin | p50 = 5.91 kW (July only); no bimodality at n=7 |
+| P3 | p99≈full → worst-case only | p90 = 22.3 kWh ≪ full → 25 kWh default OK for garage_a; worst-case for garage_b |
+| P4 | >5% transition misses 03:00 → raise margin | **PASS (0/7 miss) — margin 60 min stands** |
+
+**Standing caveat for the operator go/no-go:** every verdict above rests on 7 mid-July nights and 4 uncensored charge sessions from one car. The plan's own P1-P4 spec asked for 90 days; the recorder cannot provide it and the Enphase CSVs lack the resolution. Recommend: accept these as provisional defaults, and re-run this probe script (kept reproducible above) on a longer window before the Tier-3 review cycle, or at minimum before winter changes the P2 prior.
+
+## Operator naming ratification (2026-07-17)
+
+User-facing name: **"Battery-Aware EV Charging"** (operator-chosen over
+"Battery-First"; "drain precedence" rejected as mechanism-name leakage per
+copy doctrine). Switch entity friendly name "Battery-Aware EV Charging";
+state sensor friendly name "EV Charging Plan" (states: holding / waiting
+for battery drain / charging / deadline start). Internal `dp_*` code names
+stay technical (DPM precedent). Rename executes in the post-review fix-up
+(B2c) alongside the review findings. Retirement trigger recorded: after a
+clean shakedown period, demote the enable switch to a reviewed constant
+and audit the five tuning Numbers for the same demotion if untouched.

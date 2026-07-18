@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.19.0
+# Universal Room Automation vv5.20.0
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -240,6 +240,7 @@ async def async_setup_entry(
             ECLoadSheddingSwitch(hass, entry),
             ECExcessSolarSwitch(hass, entry),
             ECArbitrageSwitch(hass, entry),
+            ECDrainPrecedenceEnableSwitch(hass, entry),  # Session B1
             ECEvTouSwitch(hass, entry),
             # v5.7.1 — Energy Saver Pre-Cool master toggle (EC device).
             # Replaces the retired ECSolarBankingSwitch; gates the unified
@@ -904,6 +905,21 @@ ECExcessSolarSwitch = ECEVSESolarAwareSwitch
 ECArbitrageSwitch = _ec_switch_factory(
     "arbitrage_enabled", "arbitrage",
     "Grid Arbitrage", "mdi:battery-charging-wireless", default=False,
+)
+
+# Session B1 — EVSE Drain-Precedence master kill switch.
+# Attr `_dp_enabled` on EnergyCoordinator (seeded from
+# `CONF_ENERGY_DP_ENABLE` in entry.options; default False = today's
+# behavior, KILL: false disables all transition eval + actuation per
+# plan §74). Factory RestoreEntity/timer/signal machinery gives us
+# restart-safe restore identical to ECGridImportCapSwitch etc.
+ECDrainPrecedenceEnableSwitch = _ec_switch_factory(
+    "_dp_enabled", "drain_precedence_enable",
+    # B2c-2 item 6 rename (operator ratification 2026-07-17, planning
+    # doc §373): user-facing name is "Battery-Aware EV Charging"; internal
+    # attr / unique_id / class name stay technical (`drain_precedence` /
+    # `_dp_enabled` — DPM naming precedent).
+    "Battery-Aware EV Charging", "mdi:battery-arrow-down", default=False,
 )
 
 # v4.7.2.1: Replaced bespoke OccupancyWeightedPredictionSwitch class with a

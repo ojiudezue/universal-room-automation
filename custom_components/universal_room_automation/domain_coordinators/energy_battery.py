@@ -291,6 +291,39 @@ class BatteryStrategy:
         self._soc_lkg_at: Any = None
         self._last_soc_divergence_at: Any = None
         self._soc_source_last: str = "envoy"
+        # v5.20.0 D2 — read-side telemetry divergence + tier-disagreement +
+        # cloud settings-lag. State machine variables: dwell start-times
+        # (None = idle), active-alert booleans, last observed values, and
+        # per-day NM latch dates (mirrors WriteVerifier._nm_trip_date_by_surface
+        # per-day-per-key pattern). D2 does NOT alter any control decision;
+        # it OBSERVES the SOC read side and cloud settings freshness.
+        # Fix-up D-HIGH-1: SEPARATE above/below dwell timers per detector.
+        # The initial build shared one `first_at` across the fire and
+        # clear branches — during normal SOC convergence (envoy briefly
+        # dips below cloud, then back above threshold), the shared timer
+        # would carry over from the below branch and instant-fire on the
+        # next above tick (and symmetrically instant-clear from a
+        # transient above during an outage recovery). Splitting the
+        # timers isolates each regime.
+        self._d2_soc_div_above_first_at: Any = None
+        self._d2_soc_div_below_first_at: Any = None
+        self._d2_soc_div_active: bool = False
+        self._d2_soc_div_last_delta: float | None = None
+        self._d2_soc_div_nm_date: str | None = None
+        self._d2_cloud_lag_above_first_at: Any = None
+        self._d2_cloud_lag_below_first_at: Any = None
+        self._d2_cloud_lag_active: bool = False
+        self._d2_cloud_lag_last_age_s: float | None = None
+        self._d2_cloud_lag_nm_date: str | None = None
+        # Tier-disagreement observability — last-tick snapshot for the
+        # `soc_resolution` attribute. Populated by `_evaluate_soc_resolution`.
+        self._d2_resolver_tier: str | None = None
+        self._d2_tier_disagreement_pp: float | None = None
+        self._d2_cloud_soc_age_s: float | None = None
+        self._d2_primary_soc: float | None = None
+        self._d2_cloud_soc: float | None = None
+        self._d2_lkg_soc: float | None = None
+        self._d2_lkg_age_s: float | None = None
         # H1 (2026-07-13): default ALL THREE battery control surfaces to
         # cloud-first writes. Keys mirror the _get_entity(role="write")
         # lookup keys used by `_result`, the EVSE-hold overlay, and the
@@ -850,6 +883,476 @@ class BatteryStrategy:
             _task.add_done_callback(_discard)
         except Exception:
             _LOGGER.debug("divergence emit failed (swallowed)", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # v5.20.0 D2 — cloud-reliance READ-SIDE observability & telemetry-
+    # divergence detection. Distinct from the older W-4 divergence at
+    # `_check_soc_source_divergence` (which fires from the primary-Envoy
+    # branch of the resolver with a fixed 3-pp threshold + 1h dedup and
+    # is coupled to the LKG-stamping side-effect). D2 is called ONCE PER
+    # `get_status` RENDER (sensor refresh, hvac_predict, diagnostics —
+    # possibly multiple invocations per decision interval; fix-up B-HIGH-1
+    # docstring correction). Dwell timers are wall-clock-anchored, so
+    # multiple ticks per minute do NOT accelerate the fire — elapsed is
+    # measured against the injected `now` (fix-up A-HIGH-2 + A-MED-1).
+    # Uses the operator-configured 10-pp + 5-min-dwell + 2-pp-hysteresis
+    # policy; NM is per-day latched (fix-up D-MED-1 — the detector calls
+    # `_fire_d2_nm` on EVERY confirmed tick, and the date latch dedups to
+    # once/day; standing multi-day divergence re-alerts daily). Divergence
+    # ABSTAINS (resets dwell only, preserves active state per B-MED-2)
+    # when either side is stale/unavailable OR when the cloud SOC age
+    # exceeds DEFAULT_SOC_CLOUD_FALLBACK_MAX_AGE_S (fix-up D-HIGH-2 =
+    # A-HIGH-1 — one freshness contract with the resolver), OR when this
+    # tick's `_soc_source_last` != "envoy" (tier-consistency: only
+    # evaluate against what the resolver actually served). Cloud
+    # settings-lag is a separate detector with its own dwell + latch.
+    # ------------------------------------------------------------------
+    def _read_cloud_soc_snapshot(
+        self, now: Any = None,
+    ) -> tuple[float | None, float | None]:
+        """Read the cloud SOC value + its state-age (seconds).
+
+        Returns (value_pct_or_None, age_s_or_None). Abstains on
+        unavailable/unknown/non-'%' unit. Age is computed from the
+        entity's `last_updated` against the injected `now` (fix-up
+        A-HIGH-2: single time snapshot per evaluator). Never raises.
+        """
+        from homeassistant.util import dt as dt_util
+        from .energy_const import DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY
+        if now is None:
+            now = dt_util.utcnow()
+        eid = self._get_entity(
+            "battery_soc_cloud", DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        )
+        if not eid:
+            return None, None
+        try:
+            state = self.hass.states.get(eid)
+        except Exception:  # noqa: BLE001
+            return None, None
+        if state is None or state.state in ("unknown", "unavailable"):
+            return None, None
+        try:
+            value = float(state.state)
+        except (ValueError, TypeError):
+            return None, None
+        try:
+            uom = state.attributes.get("unit_of_measurement")
+        except Exception:  # noqa: BLE001
+            uom = None
+        if uom is not None and str(uom).strip() not in ("", "%"):
+            return None, None
+        if not (0.0 <= value <= 100.0):
+            return None, None
+        age_s: float | None = None
+        try:
+            lu = getattr(state, "last_updated", None)
+            if lu is not None:
+                # Fix-up A-MED-1: clamp negative ages to 0 (clock skew /
+                # near-simultaneous timestamps must not present as
+                # "future" freshness).
+                age_s = max(0.0, (now - lu).total_seconds())
+        except Exception:  # noqa: BLE001
+            age_s = None
+        return value, age_s
+
+    def _read_cloud_settings_max_age_s(self, now: Any = None) -> float | None:
+        """Return max(now - last_updated) across the three cloud oracle
+        settings entities (reserve, storage_mode, charge_from_grid).
+
+        Reads DIRECTLY from the configured cloud-oracle entities
+        (`cloud_reserve_oracle` / `cloud_charge_from_grid_oracle` /
+        `cloud_storage_mode_oracle`) with the DEFAULT_CLOUD_* constants
+        as fallback — the same pattern the divergence detector uses for
+        the cloud SOC entity. Does NOT go through `_get_entity(role=
+        "write")` because that path returns the LOCAL entity when the
+        per-surface failover flag is False (or the cloud oracle key is
+        unset), which would silently make this attribute report LOCAL
+        Enpower staleness while claiming to observe the cloud.
+
+        Any entity that resolves but is unavailable contributes None
+        (skipped from the max). Returns None only when NO cloud oracle
+        entity is readable. Never raises.
+        """
+        from homeassistant.util import dt as dt_util
+        from .energy_const import (
+            DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY,
+            DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+            DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
+        )
+        if now is None:
+            now = dt_util.utcnow()
+        keys_defaults = (
+            ("cloud_reserve_oracle", DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY),
+            ("cloud_charge_from_grid_oracle",
+             DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY),
+            ("cloud_storage_mode_oracle",
+             DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY),
+        )
+        ages: list[float] = []
+        for key, default in keys_defaults:
+            eid = self._get_entity(key, default)
+            if not eid:
+                continue
+            try:
+                state = self.hass.states.get(eid)
+            except Exception:  # noqa: BLE001
+                continue
+            if state is None or state.state in ("unknown", "unavailable"):
+                continue
+            try:
+                lu = getattr(state, "last_updated", None)
+                if lu is None:
+                    continue
+                # Fix-up A-MED-1: clamp negative.
+                ages.append(max(0.0, (now - lu).total_seconds()))
+            except Exception:  # noqa: BLE001
+                continue
+        if not ages:
+            return None
+        return max(ages)
+
+    def _fire_d2_nm(
+        self,
+        latch_attr: str,
+        title: str,
+        message: str,
+        hazard_type: str,
+    ) -> None:
+        """Fire NM once per calendar day per (latch_attr) key.
+
+        Latch stored on self as `latch_attr` (ISO date string). Mirrors
+        WriteVerifier._maybe_fire_nm per-day-per-key policy. Never
+        raises. No-op if the strategy has no coordinator with
+        `_send_nm_alert` (unit-test path).
+
+        Fix-up D-CRIT-1: `_coord` is a real backref installed by
+        `EnergyCoordinator.__init__` immediately after the write-verifier
+        wiring (energy.py:270 region), NOT an invented attribute. The
+        previous getattr(self, "_coord", None) or getattr(self,
+        "coordinator", None) was a production no-op — BatteryStrategy
+        had NEITHER attribute and the send call never happened.
+        """
+        from homeassistant.util import dt as dt_util
+        today = dt_util.utcnow().date().isoformat()
+        if getattr(self, latch_attr, None) == today:
+            return
+        coord = getattr(self, "_coord", None)
+        send = getattr(coord, "_send_nm_alert", None) if coord is not None else None
+        # Latch the date BEFORE dispatch so a missing NM or a raising
+        # dispatch (e.g. MockHass with no async_create_task) does not
+        # turn a per-day latch into a per-tick retry storm. The latch
+        # semantically means "we tried once today".
+        setattr(self, latch_attr, today)
+        if send is None:
+            return
+        try:
+            self.hass.async_create_task(
+                send(
+                    title=title,
+                    message=message,
+                    severity="warning",
+                    hazard_type=hazard_type,
+                    location="battery",
+                )
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("D2 NM fire failed (swallowed)", exc_info=True)
+
+    def _evaluate_soc_resolution(
+        self, primary_soc: float | None, now: Any = None,
+    ) -> None:
+        """Populate `_d2_*` observability state for the SOC read side.
+
+        Called once per tick from `get_status`. Records:
+          - which tier resolved this tick (`_soc_source_last` mapped);
+          - the primary/LKG/cloud values + ages that were AVAILABLE this
+            tick (regardless of which tier actually served);
+          - the max pairwise pp gap between the available tiers;
+          - the cloud SOC age.
+
+        This is READ-SIDE observability. It does NOT alter the
+        resolver's tier choice. Never raises.
+        """
+        from homeassistant.util import dt as dt_util
+        if now is None:
+            now = dt_util.utcnow()
+        # Map internal `_soc_source_last` to the planner's names.
+        tier_map = {
+            "envoy": "primary_envoy",
+            "lkg": "lkg",
+            "cloud_fallback": "cloud_fallback",
+            "none": None,
+            "fallback_unit_reject": None,
+            "fallback_range_reject": None,
+            "fallback_stale_reject": None,
+        }
+        self._d2_resolver_tier = tier_map.get(self._soc_source_last)
+        self._d2_primary_soc = primary_soc if primary_soc is not None else None
+        # LKG snapshot
+        lkg_val: float | None = None
+        lkg_age: float | None = None
+        if self._soc_lkg is not None and self._soc_lkg_at is not None:
+            try:
+                lkg_val = float(self._soc_lkg)
+                lkg_age = max(0.0, (now - self._soc_lkg_at).total_seconds())
+            except Exception:  # noqa: BLE001
+                lkg_val = None
+                lkg_age = None
+        self._d2_lkg_soc = lkg_val
+        self._d2_lkg_age_s = lkg_age
+        # Cloud snapshot (abstains on staleness/unit issues per snapshot rules).
+        cloud_val, cloud_age = self._read_cloud_soc_snapshot(now=now)
+        self._d2_cloud_soc = cloud_val
+        self._d2_cloud_soc_age_s = cloud_age
+        # Pairwise max pp gap over non-None tier values.
+        vals = [v for v in (primary_soc, lkg_val, cloud_val) if v is not None]
+        if len(vals) >= 2:
+            self._d2_tier_disagreement_pp = round(max(vals) - min(vals), 3)
+        else:
+            self._d2_tier_disagreement_pp = None
+
+    def _evaluate_soc_divergence(
+        self, primary_soc: float | None, now: Any = None,
+    ) -> None:
+        """D2 SOC cloud-vs-local divergence detector.
+
+        Fires an NM WARNING when BOTH primary Envoy SOC and cloud SOC
+        are FRESH AND their absolute pp delta exceeds
+        `CONF_SOC_DIVERGENCE_THRESHOLD_PP` for continuous dwell of
+        `CONF_SOC_DIVERGENCE_DWELL_MIN` minutes. Clears (alert_active =
+        False) when delta drops below (threshold - hysteresis_pp) for
+        the same dwell. Fires `_fire_d2_nm` on every confirmed tick;
+        the per-day date latch dedups to once/day (fix-up D-MED-1 —
+        standing multi-day divergence re-alerts daily; matches
+        WriteVerifier._maybe_fire_nm shape).
+
+        ABSTAIN semantics (fix-up B-MED-2, D-HIGH-2, tier-consistency):
+        both dwell timers reset AND `_d2_soc_div_active` is preserved
+        (blind != resolved) when ANY of:
+          - primary_soc is None (envoy dropout),
+          - cloud snapshot is None (unit reject / OOR / entity dead),
+          - cloud snapshot age > DEFAULT_SOC_CLOUD_FALLBACK_MAX_AGE_S
+            (one freshness contract with the resolver — reused constant),
+          - this tick's `_soc_source_last` != "envoy" (tier-consistency:
+            only compare cloud against a resolver output the decision
+            loop actually saw at the primary tier).
+
+        Fix-up D-HIGH-1: separate above/below dwell timers. During
+        normal convergence a shared timer seeded by the clear branch
+        would instant-fire on the recovery transient (and symmetrically).
+
+        Fix-up B-MED-1: re-reads the cloud snapshot itself against the
+        same `now` so it does not depend on instance-var write
+        ordering from `_evaluate_soc_resolution`.
+
+        Fix-up B-LOW-1: kill-switch (threshold <= 0) also clears any
+        currently-active alert (feature disabled ≠ silently latched
+        active).
+
+        `now` (fix-up A-HIGH-2): single time snapshot per call; caller
+        may pass to guarantee all three D2 evaluators share the same
+        wall-clock. Never raises.
+        """
+        from datetime import timedelta
+        from homeassistant.util import dt as dt_util
+        from .energy_const import (
+            CONF_SOC_DIVERGENCE_THRESHOLD_PP,
+            CONF_SOC_DIVERGENCE_DWELL_MIN,
+            CONF_SOC_DIVERGENCE_HYSTERESIS_PP,
+            DEFAULT_SOC_CLOUD_FALLBACK_MAX_AGE_S,
+        )
+        if now is None:
+            now = dt_util.utcnow()
+        threshold = CONF_SOC_DIVERGENCE_THRESHOLD_PP
+        if threshold <= 0:
+            # Fix-up B-LOW-1: kill-switch also clears active alert.
+            self._d2_soc_div_above_first_at = None
+            self._d2_soc_div_below_first_at = None
+            self._d2_soc_div_last_delta = None
+            self._d2_soc_div_active = False
+            return
+        # Fix-up B-MED-1: re-read cloud snapshot ourselves (do NOT depend
+        # on _evaluate_soc_resolution ordering).
+        cloud_soc, cloud_age = self._read_cloud_soc_snapshot(now=now)
+        # Tier-consistency (D reviewer recommendation): only evaluate
+        # divergence when the resolver actually served primary this tick.
+        tier_ok = self._soc_source_last == "envoy"
+        # Cloud freshness gate (D-HIGH-2 = A-HIGH-1): reuse one freshness
+        # contract with the resolver.
+        cloud_fresh = (
+            cloud_age is not None
+            and cloud_age <= DEFAULT_SOC_CLOUD_FALLBACK_MAX_AGE_S
+        )
+        if (
+            primary_soc is None
+            or cloud_soc is None
+            or not cloud_fresh
+            or not tier_ok
+        ):
+            # Fix-up B-MED-2: reset dwell but PRESERVE active — blind or
+            # tier-off is NOT resolution.
+            self._d2_soc_div_above_first_at = None
+            self._d2_soc_div_below_first_at = None
+            self._d2_soc_div_last_delta = None
+            return
+        delta = abs(primary_soc - cloud_soc)
+        self._d2_soc_div_last_delta = round(delta, 3)
+        dwell = timedelta(minutes=CONF_SOC_DIVERGENCE_DWELL_MIN)
+        clear_below = threshold - CONF_SOC_DIVERGENCE_HYSTERESIS_PP
+        if delta > threshold:
+            # Reset the opposite timer (D-HIGH-1: no regime carryover).
+            self._d2_soc_div_below_first_at = None
+            if self._d2_soc_div_above_first_at is None:
+                self._d2_soc_div_above_first_at = now
+                return
+            elapsed = now - self._d2_soc_div_above_first_at
+            if elapsed >= dwell:
+                if not self._d2_soc_div_active:
+                    self._d2_soc_div_active = True
+                    _LOGGER.info(
+                        "D2 SOC divergence CONFIRMED after %s: |primary=%.1f "
+                        "- cloud=%.1f| = %.1f pp > %d pp",
+                        elapsed, primary_soc, cloud_soc, delta, threshold,
+                    )
+                # Fix-up D-MED-1: fire on EVERY confirmed tick; date
+                # latch inside `_fire_d2_nm` dedups to once/day. Standing
+                # multi-day divergence then re-alerts daily.
+                self._fire_d2_nm(
+                    latch_attr="_d2_soc_div_nm_date",
+                    title="Battery SOC cloud/local divergence",
+                    message=(
+                        f"Cloud SOC {cloud_soc:.1f}% vs local Envoy SOC "
+                        f"{primary_soc:.1f}% (delta={delta:.1f} pp) for "
+                        f">{CONF_SOC_DIVERGENCE_DWELL_MIN} min. Threshold "
+                        f"{threshold} pp. Cloud/local witness disagreement."
+                    ),
+                    hazard_type="soc_source_divergence_d2",
+                )
+        elif delta < clear_below:
+            self._d2_soc_div_above_first_at = None
+            if self._d2_soc_div_below_first_at is None:
+                self._d2_soc_div_below_first_at = now
+                return
+            elapsed = now - self._d2_soc_div_below_first_at
+            if elapsed >= dwell and self._d2_soc_div_active:
+                self._d2_soc_div_active = False
+                self._d2_soc_div_below_first_at = None
+                _LOGGER.info(
+                    "D2 SOC divergence CLEARED after %s (delta=%.1f pp < "
+                    "%.1f pp)", elapsed, delta, clear_below,
+                )
+        else:
+            # Hysteresis band — neither arm nor clear. Zero both timers
+            # so a subsequent regime transition starts fresh.
+            self._d2_soc_div_above_first_at = None
+            self._d2_soc_div_below_first_at = None
+
+    def _evaluate_cloud_settings_lag(self, now: Any = None) -> None:
+        """D2 cloud settings-lag freshness detector.
+
+        Fires NM WARNING when the max age across the three cloud oracle
+        write-target entities exceeds `CONF_CLOUD_LAG_ALERT_S` for a
+        continuous `CONF_CLOUD_LAG_DWELL_MIN` dwell. Clears when max
+        age returns below the alert threshold for the same dwell.
+        Per-day date latch on `_d2_cloud_lag_nm_date` dedups NM to
+        once/day; standing multi-day lag re-alerts daily (fix-up
+        D-MED-1).
+
+        Fix-up D-HIGH-1: split above/below dwell timers to avoid
+        regime-carryover instant-fire / instant-clear.
+
+        Kill-switch: CONF_CLOUD_LAG_ALERT_S == 0 disables NM (attribute
+        still populated so the observer sees the raw age). Never raises.
+        """
+        from datetime import timedelta
+        from homeassistant.util import dt as dt_util
+        from .energy_const import (
+            CONF_CLOUD_LAG_ALERT_S,
+            CONF_CLOUD_LAG_DWELL_MIN,
+        )
+        if now is None:
+            now = dt_util.utcnow()
+        max_age = self._read_cloud_settings_max_age_s(now=now)
+        self._d2_cloud_lag_last_age_s = (
+            None if max_age is None else round(max_age, 1)
+        )
+        if CONF_CLOUD_LAG_ALERT_S <= 0:
+            # Kill-switch: reset timers, clear active (feature disabled
+            # must not silently latch).
+            self._d2_cloud_lag_above_first_at = None
+            self._d2_cloud_lag_below_first_at = None
+            self._d2_cloud_lag_active = False
+            return
+        if max_age is None:
+            self._d2_cloud_lag_above_first_at = None
+            self._d2_cloud_lag_below_first_at = None
+            return
+        dwell = timedelta(minutes=CONF_CLOUD_LAG_DWELL_MIN)
+        if max_age > CONF_CLOUD_LAG_ALERT_S:
+            self._d2_cloud_lag_below_first_at = None
+            if self._d2_cloud_lag_above_first_at is None:
+                self._d2_cloud_lag_above_first_at = now
+                return
+            elapsed = now - self._d2_cloud_lag_above_first_at
+            if elapsed >= dwell:
+                if not self._d2_cloud_lag_active:
+                    self._d2_cloud_lag_active = True
+                    _LOGGER.info(
+                        "D2 cloud settings-lag CONFIRMED after %s: max_age="
+                        "%.0fs > %ds",
+                        elapsed, max_age, CONF_CLOUD_LAG_ALERT_S,
+                    )
+                # Per-tick fire; date latch dedups (D-MED-1).
+                self._fire_d2_nm(
+                    latch_attr="_d2_cloud_lag_nm_date",
+                    title="Enphase cloud settings lag",
+                    message=(
+                        f"Cloud oracle settings entities have not updated "
+                        f"in {max_age:.0f}s (>{CONF_CLOUD_LAG_ALERT_S}s). "
+                        f"Battery command echo may be stale."
+                    ),
+                    hazard_type="cloud_settings_lag_d2",
+                )
+        else:
+            self._d2_cloud_lag_above_first_at = None
+            if self._d2_cloud_lag_below_first_at is None:
+                self._d2_cloud_lag_below_first_at = now
+                return
+            elapsed = now - self._d2_cloud_lag_below_first_at
+            if elapsed >= dwell and self._d2_cloud_lag_active:
+                self._d2_cloud_lag_active = False
+                self._d2_cloud_lag_below_first_at = None
+                _LOGGER.info(
+                    "D2 cloud settings-lag CLEARED after %s (max_age=%.0fs)",
+                    elapsed, max_age,
+                )
+
+    def _soc_resolution_attrs(self) -> dict[str, Any]:
+        """Return the `soc_resolution` attribute block for `get_status`.
+
+        Distinct namespace from write-verify's command_trail (which owns
+        the WRITE side); this block is READ-side only.
+        """
+        return {
+            "tier": self._d2_resolver_tier,
+            "tier_disagreement_pp": self._d2_tier_disagreement_pp,
+            "primary_envoy_soc": self._d2_primary_soc,
+            "lkg_soc": self._d2_lkg_soc,
+            "lkg_age_s": (
+                None if self._d2_lkg_age_s is None
+                else round(self._d2_lkg_age_s, 1)
+            ),
+            "cloud_soc": self._d2_cloud_soc,
+            "cloud_soc_age_s": (
+                None if self._d2_cloud_soc_age_s is None
+                else round(self._d2_cloud_soc_age_s, 1)
+            ),
+            "divergence_pp": self._d2_soc_div_last_delta,
+            "divergence_active": self._d2_soc_div_active,
+            "cloud_settings_lag_s": self._d2_cloud_lag_last_age_s,
+            "cloud_settings_lag_active": self._d2_cloud_lag_active,
+        }
 
     @property
     def solar_production(self) -> float | None:
@@ -4977,6 +5480,28 @@ class BatteryStrategy:
             peak_buffer_target=self._peak_buffer_target,
         )
         soc = self.battery_soc
+        # v5.20.0 D2 — evaluate READ-side observability once per
+        # `get_status` render (fix-up B-HIGH-1: this method is called by
+        # the strategy sensor, hvac_predict, and diagnostics — possibly
+        # multiple times per decision interval; dwell timers are
+        # wall-clock-anchored against `now` so multi-render ticks do NOT
+        # accelerate confirmation). `soc` above already ran the 3-tier
+        # resolver AND stamped `_soc_source_last`. Snapshot the primary
+        # Envoy value directly so it never depends on the resolver's
+        # tier choice; divergence evaluator ADDITIONALLY gates on
+        # `_soc_source_last == "envoy"` (tier-consistency). Fix-up
+        # A-HIGH-2: pass ONE `now` to all three evaluators so every read
+        # + age computation shares the same wall-clock snapshot.
+        try:
+            now_tick = dt_util.utcnow()
+            primary_snapshot = self._get_state_float(
+                self._get_entity("battery_soc")
+            )
+            self._evaluate_soc_resolution(primary_snapshot, now=now_tick)
+            self._evaluate_soc_divergence(primary_snapshot, now=now_tick)
+            self._evaluate_cloud_settings_lag(now=now_tick)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("D2 evaluate failed (swallowed)", exc_info=True)
         tomorrow_class = self.classify_tomorrow_solar()
         now = dt_util.now()
         target_day_class = self._classify_target_day(now)
@@ -5120,6 +5645,9 @@ class BatteryStrategy:
             "next_action_estimate": self._next_action_estimate(soc, tomorrow_class),
             # v5.15.x diagnostics
             "soc_source": self._soc_source_last,
+            # v5.20.0 D2 — SOC read-side observability. Distinct
+            # namespace from write-verify's command_trail.
+            "soc_resolution": self._soc_resolution_attrs(),
             **(
                 self._write_verifier.get_status_attrs()
                 if self._write_verifier is not None
