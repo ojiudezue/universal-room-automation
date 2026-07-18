@@ -131,6 +131,10 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     "energy_dp_needed_kwh_garage_a",
     "energy_dp_needed_kwh_garage_b",
     "energy_dp_house_load_source",
+    # v5.21.0 fix-up (SECOND OPERATOR ADDITION 2026-07-17) — D2 knobs.
+    "energy_soc_divergence_threshold_pp",
+    "energy_soc_divergence_dwell_min",
+    "energy_cloud_lag_alert_s",
 }
 
 
@@ -173,7 +177,9 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     + 7 Session B1 (EVSE drain-precedence: 1 Switch + 5 Numbers + 1 Select)
     = 58 keys."""
     ns = _load_init_dispatch_namespace()
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 58
+    # v5.21.0 fix-up (SECOND OPERATOR ADDITION 2026-07-17) — +3 D2 knobs
+    # promoted to rung-2.
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 61
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +294,10 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A":    "energy_dp_needed_kwh_garage_a",
         "_CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B":    "energy_dp_needed_kwh_garage_b",
         "_CONF_ENERGY_DP_HOUSE_LOAD_SOURCE":      "energy_dp_house_load_source",
+        # v5.21.0 fix-up (SECOND OPERATOR ADDITION 2026-07-17) — D2 knobs.
+        "_CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP": "energy_soc_divergence_threshold_pp",
+        "_CONF_ENERGY_SOC_DIVERGENCE_DWELL_MIN":    "energy_soc_divergence_dwell_min",
+        "_CONF_ENERGY_CLOUD_LAG_ALERT_S":           "energy_cloud_lag_alert_s",
     }
     mod = ast.Module(body=body, type_ignores=[])
     code = compile(mod, str(PKG / "__init__.py"), "exec")

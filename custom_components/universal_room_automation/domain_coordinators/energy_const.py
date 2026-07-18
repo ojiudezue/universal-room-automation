@@ -365,6 +365,22 @@ CONF_CLOUD_LAG_ALERT_S: Final = 1800          # planner default (30 min).
                                               # Kill-switch: 0 disables NM.
 CONF_CLOUD_LAG_DWELL_MIN: Final = 5           # planner default, anti-flap
 
+# ----------------------------------------------------------------------------
+# v5.21.0 fix-up (SECOND OPERATOR ADDITION 2026-07-17) — rung-1 → rung-2
+# promotion: three of the D2 detection knobs above are now operator-settable
+# via the config-flow `cloud_verification` section. The MODULE constants
+# above remain the DEFAULTS (kill-switch semantics preserved: threshold 0 =
+# detection off; lag 0 = alert off, attribute still populated). The keys
+# follow the sibling `energy_cloud_*` naming convention already used by the
+# cloud-verification oracle entity keys.
+#
+# NOT promoted: HYSTERESIS_PP + CLOUD_LAG_DWELL_MIN (both anti-flap safety
+# bounds — leave as reviewed-code-change constants per the placement ladder).
+# ----------------------------------------------------------------------------
+CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP: Final = "energy_soc_divergence_threshold_pp"
+CONF_ENERGY_SOC_DIVERGENCE_DWELL_MIN: Final = "energy_soc_divergence_dwell_min"
+CONF_ENERGY_CLOUD_LAG_ALERT_S: Final = "energy_cloud_lag_alert_s"
+
 # ============================================================================
 # Behavioral write-verify (v5.19.0 — Tier 3)
 # ------------------------------------------------------------------
@@ -1356,3 +1372,12 @@ CONF_ENERGY_DP_MUST_START_BY_MIN: Final[str] = "energy_dp_must_start_by_min"
 CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A: Final[str] = "energy_dp_needed_kwh_garage_a"
 CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B: Final[str] = "energy_dp_needed_kwh_garage_b"
 CONF_ENERGY_DP_HOUSE_LOAD_SOURCE: Final[str] = "energy_dp_house_load_source"
+
+# v5.21.0 D4 — BAEC shadow-eval INFO-log rate-limit interval (seconds).
+# Rung-1 module constant (safety bound; log-volume incident risk mitigation
+# — the v5.2.x DB write-flood family taught us untuned per-tick logs saturate
+# quickly). 300s ≈ 5 min: dense enough to see edges (plug-in, drain-target
+# crossing, wake) without carpeting the log during a quiescent overnight
+# window. Not operator-tunable by design — turning this up hides evidence,
+# turning it down burns disk. Kill: not exposed as a knob.
+DP_SHADOW_LOG_RATE_LIMIT_S: Final[int] = 300

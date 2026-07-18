@@ -4414,6 +4414,11 @@ from .domain_coordinators.energy_const import (
     CONF_ENERGY_EXCESS_SOLAR_SOC as _CONF_ENERGY_EXCESS_SOLAR_SOC,
     # Session B1 — EVSE Drain-Precedence CM options keys.
     CONF_ENERGY_DP_ENABLE as _CONF_ENERGY_DP_ENABLE,
+    # v5.21.0 fix-up (SECOND OPERATOR ADDITION 2026-07-17) — D2 detection
+    # knobs promoted rung-1 → rung-2 (options-settable).
+    CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP as _CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP,
+    CONF_ENERGY_SOC_DIVERGENCE_DWELL_MIN as _CONF_ENERGY_SOC_DIVERGENCE_DWELL_MIN,
+    CONF_ENERGY_CLOUD_LAG_ALERT_S as _CONF_ENERGY_CLOUD_LAG_ALERT_S,
     CONF_ENERGY_DP_EVAL_DELAY_MIN as _CONF_ENERGY_DP_EVAL_DELAY_MIN,
     CONF_ENERGY_DP_MARGIN_MIN as _CONF_ENERGY_DP_MARGIN_MIN,
     CONF_ENERGY_DP_MUST_START_BY_MIN as _CONF_ENERGY_DP_MUST_START_BY_MIN,
@@ -4490,12 +4495,22 @@ _EC_SETTER_DISPATCH: dict[str, tuple[str, type]] = {
     _CONF_ENERGY_FILL_PRIORITY_SOC:                ("set_fill_priority_soc",          int),
     _CONF_ENERGY_EXCESS_SOLAR_SOC:                 ("set_excess_solar_soc",           int),
     # Session B1 — EVSE Drain-Precedence Number + Select entities.
+    # v5.21.0 fix-up (B-HIGH-1): route DP-enable through the setter so the
+    # options-flow toggle applies live (coord attr updated + switch entity
+    # state refreshed via SIGNAL_ENERGY_ENTITIES_UPDATE dispatch below).
+    _CONF_ENERGY_DP_ENABLE:                        ("set_dp_enabled",                 bool),
     _CONF_ENERGY_DP_EVAL_DELAY_MIN:                ("set_dp_eval_delay_min",          int),
     _CONF_ENERGY_DP_MARGIN_MIN:                    ("set_dp_margin_min",              int),
     _CONF_ENERGY_DP_MUST_START_BY_MIN:             ("set_dp_must_start_by_min",       int),
     _CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A:           ("set_dp_needed_kwh_garage_a",     float),
     _CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B:           ("set_dp_needed_kwh_garage_b",     float),
     _CONF_ENERGY_DP_HOUSE_LOAD_SOURCE:             ("set_dp_house_load_source",       str),
+    # v5.21.0 fix-up (SECOND OPERATOR ADDITION 2026-07-17) — D2 detection
+    # knobs. Kill-switch semantics preserved by the setters (threshold 0 =
+    # detection off; lag 0 = alert off, attribute still populated).
+    _CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP:      ("set_soc_divergence_threshold_pp", int),
+    _CONF_ENERGY_SOC_DIVERGENCE_DWELL_MIN:         ("set_soc_divergence_dwell_min",    int),
+    _CONF_ENERGY_CLOUD_LAG_ALERT_S:                ("set_cloud_lag_alert_s",           int),
 }
 
 # Off-peak drain takes (quality, value) — special-cased below.
@@ -4554,12 +4569,15 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     # v4.7.35 fix-up (B-B2) — deny-list read fresh on every chokepoint
     # invocation; no live-attr push needed.
     _CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
-    # Session B1 — EVSE Drain-Precedence master switch key. The Switch
-    # entity (`ECDrainPrecedenceEnableSwitch`) is the sole write path
-    # (RestoreEntity + factory `setattr`); no live-attr push needed on
-    # the options-listener path. Flows through `_apply_in_place` as a
-    # no-op so the snapshot advances.
-    _CONF_ENERGY_DP_ENABLE,
+    # v5.21.0 fix-up (B-HIGH-1): `_CONF_ENERGY_DP_ENABLE` used to live
+    # here on the (incorrect) rationale that the switch entity is the
+    # sole write path. The BAEC config-flow step (v5.21.0 D1) is a
+    # SECOND ratified write path — persisting via options without
+    # applying to the coord left the switch stale. Moved into
+    # `_EC_SETTER_DISPATCH` above; the setter updates `_dp_enabled`
+    # and we dispatch SIGNAL_ENERGY_ENTITIES_UPDATE below so the
+    # switch entity's `is_on` (a live property reading the coord attr)
+    # re-renders.
 })
 
 OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
@@ -4631,6 +4649,11 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     _CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A,
     _CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B,
     _CONF_ENERGY_DP_HOUSE_LOAD_SOURCE,
+    # v5.21.0 fix-up (SECOND OPERATOR ADDITION 2026-07-17) — D2 detection
+    # knobs. Live-apply via `_EC_SETTER_DISPATCH`; no CM reload.
+    _CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP,
+    _CONF_ENERGY_SOC_DIVERGENCE_DWELL_MIN,
+    _CONF_ENERGY_CLOUD_LAG_ALERT_S,
 })
 
 
@@ -4898,6 +4921,26 @@ def _apply_in_place(
                 continue
             setter(cast_fn(new_options[key]))
             applied.add(key)
+            # v5.21.0 fix-up (B-HIGH-1): DP-enable is the only setter where
+            # a switch entity mirrors the coord attr live. Ping the shared
+            # EC entities signal so `_ec_switch_factory` subscribers call
+            # `async_write_ha_state()` — HA re-reads `is_on` (live prop on
+            # coord attr) and emits a state_changed event. Number/select
+            # entities that also subscribe re-render harmlessly (their
+            # `_value` is unchanged; display staleness precedent A3 stands).
+            if key == _CONF_ENERGY_DP_ENABLE:
+                try:
+                    from homeassistant.helpers.dispatcher import (
+                        async_dispatcher_send,
+                    )
+                    from .domain_coordinators.signals import (
+                        SIGNAL_ENERGY_ENTITIES_UPDATE,
+                    )
+                    async_dispatcher_send(hass, SIGNAL_ENERGY_ENTITIES_UPDATE)
+                except Exception:  # noqa: BLE001 — best-effort push
+                    _LOGGER.debug(
+                        "EC entity refresh dispatch failed", exc_info=True,
+                    )
         except (AttributeError, KeyError, ValueError, TypeError) as err:
             _LOGGER.warning(
                 "CM in-place apply: EC setter %s failed key=%s value=%r: %s",

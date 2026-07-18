@@ -126,6 +126,16 @@ class DrainPrecedenceState:
     last_eval_at: Optional[datetime] = None
     last_eval_snapshot: dict[str, Any] = field(default_factory=dict)
 
+    # v5.21.0 D4 — Shadow-eval observability (kill switch OFF path only).
+    # In-memory ONLY (never persisted to KV): the whole point of shadow is
+    # to add zero DB writes per tick. Sensor.to_attrs() surfaces these as
+    # `shadow_*` attrs. INV-BAEC-SHADOW forbids these ever influencing
+    # state / actuation / reserve floor.
+    shadow_decision: Optional[str] = None
+    shadow_reason: Optional[str] = None
+    shadow_last_eval_at: Optional[datetime] = None
+    shadow_last_eval_snapshot: dict[str, Any] = field(default_factory=dict)
+
     # ---- serialization -------------------------------------------------
     def to_dict(self) -> dict[str, Any]:
         """Serialize for KV persistence (JSON-safe)."""
@@ -200,6 +210,12 @@ class DrainPrecedenceState:
             "must_start_by_dt": _iso(self.must_start_by_dt),
             "last_eval_at": _iso(self.last_eval_at),
             "last_eval_snapshot": dict(self.last_eval_snapshot or {}),
+            # v5.21.0 D4 shadow observability. Present regardless of
+            # switch state (None when no shadow eval has run yet).
+            "shadow_decision": self.shadow_decision,
+            "shadow_reason": self.shadow_reason,
+            "shadow_last_eval_at": _iso(self.shadow_last_eval_at),
+            "shadow_last_eval_snapshot": dict(self.shadow_last_eval_snapshot or {}),
         }
 
 

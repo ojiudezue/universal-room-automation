@@ -817,9 +817,14 @@ class DrainPrecedenceHouseLoadSourceSelect(SelectEntity):
         self._default = _DEFAULT
         self._valid = tuple(DP_HOUSE_LOAD_SOURCES)
         self._attr_options = list(DP_HOUSE_LOAD_SOURCES)
-        self._attr_entity_category = EntityCategory.CONFIG
+        # v5.21.0 BAEC control-surface consolidation: retire from device
+        # page (options-flow is primary write path); demote to DIAGNOSTIC
+        # + disabled-by-default. Bug Class #46 avoidance: disable, not
+        # delete; re-enabling restores round-trip.
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
+        self._attr_entity_registry_enabled_default = False
         self._attr_unique_id = f"{DOMAIN}_energy_dp_house_load_source"
-        self._attr_name = "DP House Load Source"
+        self._attr_name = "Overnight house load estimate"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "energy_coordinator")},
             name="URA: Energy Coordinator",
