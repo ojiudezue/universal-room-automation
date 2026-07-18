@@ -1815,12 +1815,17 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     #   (a) CHAIN — the room was OCCUPIED on the previous
                     #       update cycle. `self._last_occupied_state` is
                     #       only mutated LATE in _async_update_data
-                    #       (:2274 / :2280 / :2302 / :2329 / :2471), well
+                    #       (late-half update sites; grep _last_occupied_state — line anchors drift), well
                     #       AFTER this block, so here it reflects prev-
                     #       tick state. A still-body BLE hold extends
-                    #       INDEFINITELY through this leg — bounded only
-                    #       by the pre-existing 4-hour failsafe at :1760,
-                    #       exactly as pre-fix Tier-2 behavior.
+                    #       INDEFINITELY through this leg while the BLE
+                    #       person keeps being reported present. NOTE
+                    #       (B re-look 2026-07-17): the 4-hour failsafe
+                    #       does NOT bound BLE-sustained occupancy — it
+                    #       requires occupied=True at its check point,
+                    #       where BLE ticks are still False (pre-existing
+                    #       for Tier-1; forgotten-phone mitigation lives
+                    #       in PersonPhoneLeftBehindSensor, not here).
                     #   (b) MOTION — real motion within
                     #       BLE_MOTION_CONFIRM_MULTIPLIER x occupancy_timeout;
                     #       covers the handoff tick where motion just
