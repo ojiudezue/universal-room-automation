@@ -1356,3 +1356,12 @@ CONF_ENERGY_DP_MUST_START_BY_MIN: Final[str] = "energy_dp_must_start_by_min"
 CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A: Final[str] = "energy_dp_needed_kwh_garage_a"
 CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B: Final[str] = "energy_dp_needed_kwh_garage_b"
 CONF_ENERGY_DP_HOUSE_LOAD_SOURCE: Final[str] = "energy_dp_house_load_source"
+
+# v5.21.0 D4 — BAEC shadow-eval INFO-log rate-limit interval (seconds).
+# Rung-1 module constant (safety bound; log-volume incident risk mitigation
+# — the v5.2.x DB write-flood family taught us untuned per-tick logs saturate
+# quickly). 300s ≈ 5 min: dense enough to see edges (plug-in, drain-target
+# crossing, wake) without carpeting the log during a quiescent overnight
+# window. Not operator-tunable by design — turning this up hides evidence,
+# turning it down burns disk. Kill: not exposed as a knob.
+DP_SHADOW_LOG_RATE_LIMIT_S: Final[int] = 300

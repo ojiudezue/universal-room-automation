@@ -3286,6 +3286,137 @@ class EnergyCoordinator(BaseCoordinator):
         candidates = [v for v in (live_kw, base_kw) if v is not None]
         return float(max(candidates)) if candidates else 0.0
 
+    def _run_dp_shadow_eval(
+        self,
+        *,
+        decision: dict[str, Any],
+        ev_load_w: float | None,
+        period: str,
+    ) -> None:
+        """v5.21.0 D4 — Shadow eval (kill switch OFF path).
+
+        Runs the SAME `evaluate_dp_transition` pure function used by the
+        enabled path, but publishes its verdict ONLY as `shadow_*` attrs
+        on the DP carrier — NO state mutation, NO reserve write, NO EVSE
+        pause, NO `_paused_by_dp` addition, NO KV persist, NO ledger
+        stamp. INV-BAEC-SHADOW guarantees the caller-side gate (before the
+        `_DPSkip` raise) is the single point that prevents actuation.
+
+        Publishes:
+            shadow_decision   ∈ {would_transition, would_hold, not_applicable}
+            shadow_reason     — reason code from the pure eval
+            shadow_last_eval_at
+            shadow_last_eval_snapshot  — {inputs: ..., decision: ...}
+
+        Not-applicable is emitted when the eval CANNOT sensibly run this
+        tick (blind_hold, no charging EVSE, outside night window).
+        Would-hold when the arithmetic says "does not fit". Would-transition
+        when it fits.
+        """
+        from homeassistant.util import dt as dt_util  # local for tests
+        from .energy_drain_precedence import (
+            evaluate_dp_transition as _dp_evaluate,
+            TransitionInputs as _DPInputs,
+            compute_must_start_by as _dp_compute_must_start_by,
+            DP_REASON_BLIND_HOLD,
+            DP_REASON_NO_CHARGING_EVSE,
+            DP_REASON_MISSING_SOC,
+            DP_REASON_MISSING_INPUTS,
+            DP_REASON_FORCE_CHARGE_ACTIVE,
+        )
+        from .energy_const import DP_SHADOW_LOG_RATE_LIMIT_S
+
+        now = dt_util.now()
+
+        # Outside off_peak window → nothing sensible to shadow.
+        if period != "off_peak":
+            self._dp_carrier.shadow_decision = "not_applicable"
+            self._dp_carrier.shadow_reason = "outside_night_window"
+            self._dp_carrier.shadow_last_eval_at = now
+            self._dp_carrier.shadow_last_eval_snapshot = {}
+            return
+
+        _soc = decision.get("soc")
+        try:
+            _env_ok_sh = bool(self._battery.envoy_available)
+        except Exception:  # noqa: BLE001
+            _env_ok_sh = True
+        try:
+            _bat_soc_sh = self._battery.battery_soc
+        except Exception:  # noqa: BLE001
+            _bat_soc_sh = None
+        # Textually distinct from the DP tick's identical expression so the
+        # C-mutation anchor at test_MUTATION_item3_blind_signal remains
+        # uniquely bound to the DP tick site (the load-bearing one for
+        # actuation).
+        _shadow_blind = bool((not _env_ok_sh) and _bat_soc_sh is None)
+
+        inputs = _DPInputs(
+            # Bypass the in-eval kill-switch branch — the OUTER gate is the
+            # authority. The shadow's whole point is to answer "what would
+            # the enabled path decide right now?".
+            dp_enabled=True,
+            is_blind_hold=_shadow_blind,
+            force_charge_active=(
+                self._ev._force_charge_until is not None  # noqa: SLF001
+                and self._ev._force_charge_until > now  # noqa: SLF001
+            ),
+            soc=int(_soc) if _soc is not None else None,
+            drain_target_soc=int(self._ev_battery_drain_soc),
+            any_evse_charging=self._is_any_evse_charging(),
+            charger_rate_kw=float((ev_load_w or 0.0) / 1000.0),
+            needed_kwh=self._dp_needed_kwh_plugged(),
+            house_load_kw=self._dp_house_load_kw(ev_load_w),
+            now=now,
+            must_start_by_dt=_dp_compute_must_start_by(
+                now,
+                minutes_past_midnight=self._dp_must_start_by_min,
+            ),
+            margin_min=int(self._dp_margin_min),
+            eval_delay_min=int(self._dp_eval_delay_min),
+        )
+
+        dec = _dp_evaluate(inputs)
+
+        # Reason → shadow_decision categorization.
+        _na_reasons = {
+            DP_REASON_BLIND_HOLD,
+            DP_REASON_NO_CHARGING_EVSE,
+            DP_REASON_MISSING_SOC,
+            DP_REASON_MISSING_INPUTS,
+            DP_REASON_FORCE_CHARGE_ACTIVE,
+        }
+        if dec.reason in _na_reasons:
+            verdict = "not_applicable"
+        elif dec.transition:
+            verdict = "would_transition"
+        else:
+            verdict = "would_hold"
+
+        # Publish attrs (in-memory only; sensor picks them up via to_attrs).
+        self._dp_carrier.shadow_decision = verdict
+        self._dp_carrier.shadow_reason = dec.reason
+        self._dp_carrier.shadow_last_eval_at = now
+        self._dp_carrier.shadow_last_eval_snapshot = {
+            "inputs": inputs.to_snapshot(),
+            "decision": dec.to_snapshot(),
+        }
+
+        # Rate-limited INFO log (5-min default; log-volume safety bound).
+        last_log = getattr(self, "_dp_last_shadow_log_at", None)
+        should_log = (
+            last_log is None
+            or (now - last_log).total_seconds() >= DP_SHADOW_LOG_RATE_LIMIT_S
+        )
+        if should_log:
+            _LOGGER.info(
+                "BAEC shadow eval: verdict=%s reason=%s soc=%s "
+                "drain_target=%s charging=%s",
+                verdict, dec.reason, inputs.soc,
+                inputs.drain_target_soc, inputs.any_evse_charging,
+            )
+            self._dp_last_shadow_log_at = now
+
     def _dp_decision_tick(
         self, decision: dict[str, Any], period: str, ev_load_w: float | None,
     ) -> None:
@@ -3358,6 +3489,19 @@ class EnergyCoordinator(BaseCoordinator):
         ):
             self._apply_dp_reversion(tou_period=period)
 
+        # v5.21.0 D4 — SHADOW-EVAL side-effect-free eval on the OFF-side of
+        # the night-window gate. INV-BAEC-SHADOW: publish observability
+        # attrs + rate-limited INFO log, then FALL THROUGH into the
+        # existing `_DPSkip` raise. The gate below IS the single caller-
+        # side early-return C's mutation anchor neuters — remove the
+        # `raise _DPSkip()` and actuation resumes on the switch-OFF side.
+        if not _dp_on or self._tou.get_current_period() != "off_peak":
+            try:
+                self._run_dp_shadow_eval(
+                    decision=decision, ev_load_w=ev_load_w, period=period,
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("DP shadow eval raised", exc_info=True)
         # ---- item 6: night-window gate ----
         if not _dp_on or self._tou.get_current_period() != "off_peak":
             raise _DPSkip()
