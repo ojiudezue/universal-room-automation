@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.21.0
+# Universal Room Automation vv5.22.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.21.0"
+VERSION: Final = "v5.22.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -361,6 +361,18 @@ DEFAULT_DISABLE_CAMERA_PRESENCE: Final = False
 # 0.3 for noisier shared scanners. Not exposed via options flow in
 # v4.7.16; see PLANNING_v4.7.16 §2 D3 rationale.
 BLE_TIER_2_WEIGHT: Final = 0.6
+
+# ble_extend_not_create (2026-07-17): Universal recent-motion confirmation
+# multiplier for the room-tier BLE-extends-occupancy predicate at
+# coordinator.py :1808. BLE evidence may only EXTEND an existing motion-
+# confirmed occupancy — never CREATE it — so admission requires
+# `_last_motion_time` within (multiplier x occupancy_timeout).
+#
+# Rung: module constant (Numbers Get Knobs rung 1). Safety/trust bound
+# on a truth-source-elevation predicate; not operator-tuned per-deployment.
+# Kill semantics: setting to 0 disables the BLE hold path entirely
+# (predicate always false → BLE can neither create nor extend).
+BLE_MOTION_CONFIRM_MULTIPLIER: Final = 2
 
 # v4.7.16 D3 (post-review B MEDIUM #1): kill switch for the per-room
 # weighted veto block in _run_inference. Default ON because D3 is the
