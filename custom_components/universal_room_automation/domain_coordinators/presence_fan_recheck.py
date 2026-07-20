@@ -211,7 +211,14 @@ class FanRecheckManager:
         """
         for ctx in list(self._rooms.values()):
             self._cancel_timer(ctx)
-            if ctx.state in (STATE_ARMED, STATE_PAUSED, STATE_RESTORING):
+            # M-1 (review): PAUSED is NOT terminal at shutdown — a fresh
+            # PAUSED state rehydrates and RESUMES on reboot, so emitting a
+            # cancel here would double-terminate the cycle and bumping
+            # last_attempt_at would corrupt the resumed cycle's
+            # paused_duration_s. Only ARMED/RESTORING (which rehydrate to
+            # idle) get the terminal row. Stale-PAUSED gets its terminal
+            # from the rehydrate path instead.
+            if ctx.state in (STATE_ARMED, STATE_RESTORING):
                 ctx.last_attempt_at = dt_util.now()
                 self._schedule_activity(
                     action="fan_recheck_cancel",

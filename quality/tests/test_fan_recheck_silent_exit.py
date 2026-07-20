@@ -106,7 +106,7 @@ async def test_shutdown_while_armed_emits_terminal_and_bumps_ts():
 
 
 @pytest.mark.asyncio
-async def test_shutdown_while_paused_emits_terminal():
+async def test_shutdown_while_paused_emits_nothing_and_resumes_later():
     mod, hass, mgr, rc, fc, pc, db = _build_world()
     hass.config_entries = _FakeConfigEntries(
         [hass._fan_recheck_cm_entry, rc.entry]
@@ -121,9 +121,13 @@ async def test_shutdown_while_paused_emits_terminal():
     spy.calls.clear()  # drop the arm row; focus on shutdown
     await mgr.shutdown()
     await _drain_tasks(hass)
+    # M-1 (review): PAUSED is NOT terminal at shutdown — it rehydrates and
+    # resumes (or gets its terminal from the rehydrate path if stale).
+    # Shutdown must emit NOTHING for a PAUSED room and must not bump
+    # last_attempt_at (paused_duration_s integrity on resume).
     terminal = _terminal_rows(spy)
-    assert len(terminal) == 1
-    assert terminal[0]["details"]["reason"] == "shutdown_in_paused"
+    assert len(terminal) == 0
+    assert ctx.last_attempt_at is None or ctx.last_attempt_at == ctx.state_entered_at
 
 
 # ---------------------------------------------------------------------------
