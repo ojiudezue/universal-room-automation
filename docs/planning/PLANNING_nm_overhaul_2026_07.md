@@ -14,6 +14,7 @@
 
 **Pipeline preconditions (safety):**
 1. Per-person channel targets (`CONF_NM_PERSON_PUSHOVER_KEY`, `CONF_NM_PERSON_IMESSAGE_HANDLE`, `CONF_NM_PERSON_WHATSAPP_PHONE`) **remain blank across all of Cycles A and B** and are only populated after Cycle C's dry-run/audit UX ships and validates. Belt to the suspenders of the B0 minimal dry-run gate.
+1b. **Post-upgrade live-channel test authorization (operator, 2026-07-20):** transport pipes pre-validated this date (BlueBubbles iMessage + WhatsApp to +14258299520, notify.madronehapushover — all delivered). Filling these targets is authorized ONLY as part of post-Cycle-C autonomous validation: a small, clearly-labeled test send per channel (iMessage first — operator primary), then the live handover. Not before.
 2. The minimal dry-run gate (`CONF_NM_DRY_RUN`) ships in **Cycle B** (B0), not Cycle C, because Cycle B's live validation fires synthetic CRITICALs through the real send path — safe only with an in-code short-circuit at every `hass.services.async_call` site in the emit path. Cycle C builds the full routing/audit UX on top.
 
 **Minimal-deferral rule:** Any deliverable deferred requires a written justification and forward-tracking home in the cycle's plan-completion accounting. Silent drops prohibited.
