@@ -154,8 +154,11 @@ Tier-3 adoption rationale (revision 10): marginal cost of a fourth adversarial-c
 ### A4. Humidity ladder + outdoor exclusion + swing trigger
 - Extend `_sensor_room_types` (`safety.py:1605`) with `outdoor`; safety-ladder excludes `outdoor`.
 - Normal ladder 70/80/90 → 78/85/92; 78 rung log-only.
-- Swing trigger reusing fan-spike EMA (`const.py:631`); ΔRH >X%/Y-min emits MEDIUM even below ceiling.
-- **Acceptance:** patio (mean 77%) 0 pages 7-day; synthetic 20%/10-min indoor spike still emits.
+- Swing trigger reusing fan-spike EMA (`const.py:631`); ΔRH ≥ delta over the **full 30-min window** (rate detector requires `MIN_WINDOW_SECONDS=1800`) emits MEDIUM even below ceiling. Fixup L2 wording: detector semantics are full-window (up-to-30-min acceptance latency), not "any 10-min sub-window" — no detector change; wording corrected.
+- **Fix-up H1:** outdoor exclusion is derived at discovery from the zone's `CONF_ZONE_IS_OUTDOOR` flag (`const.py:72`, shipped v5.7.0) via `_outdoor_zone_names_snapshot()`. `_sensor_room_types[eid]` is set to `"outdoor"` for sensors in outdoor-flagged zones; no new `CONF_ROOM_TYPE` dropdown option (which would have been the second-source-of-truth).
+- **Fix-up H2:** swing is gated to `room_type == "normal"` only. Bathrooms/basements are excluded so routine showers (50→85% RH) do NOT page. Swing exists to catch indoor moisture events in general-purpose rooms, matching the ladder-scoping intent.
+- **Fix-up B-MED-1 / M2:** swing owns its own `_humidity_swing_fired` one-shot set. Prior code shared `_humidity_hazard_fired` with the sustained ladder, which (a) allowed a swing MEDIUM to mask a subsequent sustained HIGH (severity demotion; QC #21) and (b) got instantly discarded by the sustained else-branch when the value was in `[swing_floor, low)`. Fix: separate set; sustained HIGH can still fire even after a swing MEDIUM already fired this episode.
+- **Acceptance:** patio (mean 77%) 0 pages 7-day; synthetic 20% delta over 30-min indoor swing still emits.
 
 ### A5. CO2 + TVOC ladders + misclassified sensor removal
 - **CO2 provenance (revision 4):** 2026-07-20 audit — Study A p50=871 / p90=1200 / max=1713 ppm. `CO2_LOG_ONLY_CEILING_PPM=1200` = p90 of normal occupied range.
@@ -169,7 +172,10 @@ Tier-3 adoption rationale (revision 10): marginal cost of a fourth adversarial-c
 - **Acceptance:** 7-day pages ≤ 1 (baseline 3/wk); synthetic `last_reported` freeze still fires.
 
 ### A7. Preserved-signal regression fixture
-- Fixture list (water leak, Envoy write-verify CRIT, AC Reset FAILED, Envoy Offline); synthetic emit each; each reaches `async_notify` at pre-cycle severity.
+- **In-suite (behavioral + source-anchored):**
+  - Source-anchored regex tripwires (cheap, catch stray edits): AC Reset FAILED / Envoy Offline / write-verify CRITICAL / water-leak WATER_LEAK mapping / A5 blocklist not capturing signals — `quality/tests/test_nm_cycle_a_preserved_signals.py`.
+  - **Fix-up M1 / B-LOW-2:** behavioral emit-path legs added — water-leak drives `_handle_binary_hazard → _respond_to_hazard` and asserts a `NotificationAction` at Severity.HIGH reaches the action boundary; write-verify drives `_maybe_fire_nm` through a stubbed `_send_nm_alert` and asserts `severity="critical"` at the call boundary. See `quality/tests/test_safety_coordinator.py::TestNMCycleAA7Behavioral`.
+- **Live-only (cannot be proven in-suite):** AC Reset FAILED and Envoy Offline emits gate on real HVAC / Envoy conditions and observe live NM `notification_log`; live validation drives synthetic events on the running instance.
 
 ### A Acceptance (cycle-level)
 - **Live/MCP:** Drive each of 7 noise classes; assert `notification_log` matches A1-A6 targets.
@@ -298,3 +304,16 @@ Empty at plan open. Cycles populate on close.
 | 8 | Dedup-key intent `{event_type}:{location}` (not per-person) deliberately preserved per 2026-05-30 audit body | Institutional context, dedicated subsection |
 | 9 | Cross-coordinator ripple for A2 (optimizer) and A6 (energy_battery) cross-posted | New "Cross-coordinator ripple" section; A2 + A6 pointer lines |
 | 10 | **Decision:** Cycle C elevated to Tier 3 with 4th adversarial-completeness pass on dry-run zero-outbound invariant | Tier classification row C; Cycle C pipeline gate; C-level acceptance operator checkpoint |
+
+---
+
+## Review-ratified behaviors (fix-up notes, 2026-07-20)
+
+Cycle A's two framing-disjoint reviews returned FIX-FIRST. The fixes above resolve the CRITICAL/HIGH/MED findings. The following LOW-severity findings and design questions were **ratified as intended behavior** — no code change — but are recorded here so future reviewers do not re-litigate them.
+
+- **L1 / dedup semantics.** The v4.6.9 rolling-24h + boot-reset lock on the anomaly-event dedup is intended. The 24h window preserves per-day audit rates; the boot reset preserves observability after restart. Not touched by Cycle A.
+- **B-LOW-1 / knob-lookup cost.** `nm_cycle_a_knob(...)` intentionally does NOT cache — options edits are infrequent, CM dict lookup is O(1), and caching would require reload-suppression wiring that lands in Cycle A-2 (config-flow update-listener with cache invalidation). Any per-call cost concerns are deferred to Cycle A-2's listener cache.
+- **B-LOW-3 / A6 last_reported live-window validation.** A6's `last_reported` freshness check derives its window from measured recorder cadence (see AUDIT_envoy_telemetry_pairing_manual). Live post-deploy validation confirms the window on the running instance; no additional in-suite check is added because the window's justification lives in the audit fixture, not the code.
+- **L3 / A2 empty allowlist by design.** The A2 optimizer allowlist starts empty. Any coordinator/hazard pair not on the allowlist is routed to digest (never to a live channel). This is the safe default and matches Cycle A's noise-reduction posture — additions require explicit operator opt-in via CoordinatorManager options.
+- **L4 / enum-vs-str caution for A-2.** When Cycle A-2 introduces config-flow UI for the A2 allowlist, entries persist as `str` values. Any coordinator code comparing entries against an internal `Enum` MUST coerce (either compare `.value` or normalize on load). Called out here as a hazard for the A-2 builder.
+

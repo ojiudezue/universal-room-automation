@@ -1433,3 +1433,219 @@ class TestReviewerFixes:
         assert Severity.LOW in dedup.SUPPRESSION_WINDOWS
         # String keys should NOT be present
         assert "critical" not in dedup.SUPPRESSION_WINDOWS
+
+
+# ============================================================================
+# NM Cycle A fix-up: outdoor exclusion + swing gating + swing/sustained dedup
+# ============================================================================
+
+
+def _make_entry(entry_type: str, data: dict, options=None):
+    """Build a MagicMock config entry with data/options duck-typed for URA."""
+    entry = MagicMock()
+    entry.data = {"entry_type": entry_type, **data}
+    entry.options = options or {}
+    return entry
+
+
+class TestNMCycleAFixups:
+    """Behavioral tests locking in the NM Cycle A review fix-ups."""
+
+    def test_h1_outdoor_zone_marks_humidity_sensor_outdoor_and_suppresses_hazard(self):
+        """H1: humidity sensor in outdoor-flagged zone gets `outdoor` room_type
+        via discovery, and _handle_humidity emits zero hazards at 85%.
+        Drives the REAL discovery/classification path — not direct dict assign.
+        """
+        hass = make_hass()
+        # Zone Manager entry with Patio flagged outdoor.
+        zm = _make_entry(
+            "zone_manager",
+            data={},
+            options={"zones": {"Patio": {"zone_is_outdoor": True}}},
+        )
+        # Room entry: Patio room with a humidity sensor, zone = "Patio".
+        room = _make_entry(
+            "room",
+            data={
+                "room_name": "Patio",
+                "zone": "Patio",
+                "room_type": "generic",
+                "humidity_sensor": "sensor.patio_hum",
+            },
+        )
+        hass.config_entries.async_entries.return_value = [zm, room]
+
+        coord = SafetyCoordinator(hass)
+        coord._discover_sensors()
+
+        assert coord._sensor_room_types.get("sensor.patio_hum") == "outdoor", (
+            "H1: humidity sensor in outdoor-flagged zone must be classified outdoor"
+        )
+
+        # Even sustained-past-window with high value must emit nothing.
+        now = datetime.utcnow()
+        coord._humidity_above_since["sensor.patio_hum"] = now - timedelta(hours=8)
+        hazards = coord._handle_humidity("sensor.patio_hum", 85.0, now)
+        high = [h for h in hazards if h.type == HazardType.HIGH_HUMIDITY]
+        assert len(high) == 0, "H1: outdoor humidity must never emit HIGH_HUMIDITY"
+
+    def _seed_swing_rate(self, coord, entity_id, now, start_pct, end_pct):
+        """Feed the rate detector two readings 30 min apart so get_rate returns delta."""
+        coord._rate_detector.record(entity_id, now - timedelta(minutes=31), start_pct)
+        coord._rate_detector.record(entity_id, now, end_pct)
+
+    def _force_rate(self, coord, rate_value):
+        """Stub RateOfChangeDetector.get_rate to return a fixed rate for this coord."""
+        coord._rate_detector.get_rate = lambda entity_id, now=None: rate_value
+
+    def test_h2_bathroom_swing_emits_nothing(self):
+        """H2: swing block must NOT fire for bathrooms.
+        Shower 50→85 in 30 min in a bathroom should emit zero hazards.
+        """
+        coord, _ = TestSafetyCoordinator()._make_coordinator()
+        coord._sensor_locations["sensor.bath_hum"] = "Master Bath"
+        coord._sensor_room_types["sensor.bath_hum"] = "bathroom"
+        now = datetime.utcnow()
+        self._seed_swing_rate(coord, "sensor.bath_hum", now, 50.0, 85.0)
+        # 85% in bathroom is BELOW low(80)? actually 85 == medium boundary,
+        # but sustained_above_since is not preset, so ladder cannot fire this
+        # tick either. Assert the swing block does NOT emit anything.
+        hazards = coord._handle_humidity("sensor.bath_hum", 85.0, now)
+        high = [h for h in hazards if h.type == HazardType.HIGH_HUMIDITY]
+        assert len(high) == 0, "H2: bathroom swing must emit no HIGH_HUMIDITY"
+
+    def test_b_med_1_swing_medium_does_not_mask_sustained_high(self):
+        """B-MED-1 / M2(a): swing MEDIUM at 61 must not lock the episode —
+        a subsequent sustained HIGH at 93 must still fire.
+        """
+        coord, _ = TestSafetyCoordinator()._make_coordinator()
+        coord._sensor_locations["sensor.n_hum"] = "Living Room"
+        coord._sensor_room_types["sensor.n_hum"] = "normal"
+        now = datetime.utcnow()
+
+        # Trigger swing: force rate above default delta (20), value at 61 (>=floor 60, <high 92).
+        self._force_rate(coord, 45.0)
+        h1 = coord._handle_humidity("sensor.n_hum", 61.0, now)
+        med_swing = [h for h in h1 if h.type == HazardType.HIGH_HUMIDITY
+                     and h.severity == Severity.MEDIUM]
+        assert len(med_swing) == 1, "swing MEDIUM must fire on 40→61 normal swing"
+
+        # Now simulate sustained HIGH: preset above_since past 2hr window, value 93.
+        later = now + timedelta(hours=3)
+        coord._humidity_above_since["sensor.n_hum"] = later - timedelta(hours=3)
+        h2 = coord._handle_humidity("sensor.n_hum", 93.0, later)
+        high = [h for h in h2 if h.type == HazardType.HIGH_HUMIDITY
+                and h.severity == Severity.HIGH]
+        assert len(high) == 1, (
+            "M2(a): sustained HIGH must fire even after a prior swing MEDIUM "
+            "(swing must not mask severity escalation)"
+        )
+
+    def test_b_med_1_swing_no_reemit_in_low_band(self):
+        """B-MED-1 / M2(b): swing must not re-emit each tick while value stays
+        in [swing_floor, low) — the sustained else-branch's flag discard must
+        not defeat swing dedup.
+        """
+        coord, _ = TestSafetyCoordinator()._make_coordinator()
+        coord._sensor_locations["sensor.n_hum"] = "Study"
+        coord._sensor_room_types["sensor.n_hum"] = "normal"
+        now = datetime.utcnow()
+
+        # First tick: force rate above delta, value 65 in [floor 60, low 78).
+        self._force_rate(coord, 25.0)
+        h1 = coord._handle_humidity("sensor.n_hum", 65.0, now)
+        assert len([h for h in h1 if h.severity == Severity.MEDIUM]) == 1
+
+        # Second tick shortly later: rate still elevated, value still in
+        # [floor, low). Dedup must suppress a second emit.
+        later = now + timedelta(minutes=1)
+        h2 = coord._handle_humidity("sensor.n_hum", 66.0, later)
+        assert len([h for h in h2 if h.type == HazardType.HIGH_HUMIDITY]) == 0, (
+            "swing must not re-emit while value remains in [swing_floor, low)"
+        )
+
+
+# ============================================================================
+# NM Cycle A A7 behavioral emit-path tests (M1 / B-LOW-2)
+# ============================================================================
+
+
+class TestNMCycleAA7Behavioral:
+    """Drive real emit paths for preserved-signal CRITICAL classes.
+
+    Complements the source-anchored regex tests in
+    test_nm_cycle_a_preserved_signals.py by exercising the actual code and
+    asserting the NotificationAction / _send_nm_alert boundary with the
+    pre-cycle severity.
+    """
+
+    def test_water_leak_notification_action_is_high(self):
+        """WATER_LEAK binary_hazard → NotificationAction with Severity.HIGH."""
+        import asyncio
+        from custom_components.universal_room_automation.domain_coordinators.base import (
+            NotificationAction,
+        )
+
+        coord, _ = TestSafetyCoordinator()._make_coordinator()
+        coord._sensor_locations["binary_sensor.utility_leak"] = "Utility"
+        coord._binary_sensors["binary_sensor.utility_leak"] = HazardType.WATER_LEAK
+
+        hazard = coord._handle_binary_hazard(
+            "binary_sensor.utility_leak", "on", HazardType.WATER_LEAK
+        )
+        assert hazard is not None and hazard.severity == Severity.HIGH
+
+        # Force a fresh dedup verdict — test-order pollution of other module
+        # state can otherwise cause `should_alert` to return False mid-suite.
+        coord._deduplicator._last_alert.clear()
+        coord._deduplicator.should_alert = lambda hz, now=None: True
+
+        actions = asyncio.get_event_loop().run_until_complete(
+            coord._respond_to_hazard(hazard)
+        )
+        # Class identity is unstable across the full-suite run (submodule
+        # reload elsewhere can rebind base.NotificationAction). Match by
+        # class name instead of isinstance().
+        notif = [a for a in actions if type(a).__name__ == "NotificationAction"]
+        assert len(notif) >= 1, (
+            f"water leak must produce a NotificationAction; got {[type(a).__name__ for a in actions]}"
+        )
+        assert notif[0].severity.name == "HIGH", (
+            f"water leak notification severity drifted from HIGH, got {notif[0].severity!r}"
+        )
+
+    def test_write_verify_critical_reaches_send_nm_alert(self):
+        """energy_write_verify._maybe_fire_nm must call _send_nm_alert with severity='critical'."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock as _MM
+
+        # Import inside the test so the mocked homeassistant surface is in place.
+        from custom_components.universal_room_automation.domain_coordinators import (
+            energy_write_verify as ewv,
+        )
+
+        fake_coord = _MM()
+        fake_coord._send_nm_alert = AsyncMock()
+        # WriteVerifier expects hass attr for utcnow/date; provide a bare MagicMock.
+        wv = ewv.__dict__.get("WriteVerifier")
+        assert wv is not None, "WriteVerifier class not found in energy_write_verify"
+
+        # Construct a minimal instance without invoking __init__ side effects.
+        inst = wv.__new__(wv)
+        inst._coord = fake_coord
+        inst.hass = _MM()
+        inst._nm_trip_date_by_surface = {}
+
+        asyncio.get_event_loop().run_until_complete(
+            inst._maybe_fire_nm(
+                surface="battery_reserve",
+                title="Write-verify failed",
+                message="test",
+                alert_type="mismatch",
+            )
+        )
+        fake_coord._send_nm_alert.assert_awaited_once()
+        _, kwargs = fake_coord._send_nm_alert.call_args
+        assert kwargs.get("severity") == "critical", (
+            "write-verify NM emit severity drifted from 'critical'"
+        )

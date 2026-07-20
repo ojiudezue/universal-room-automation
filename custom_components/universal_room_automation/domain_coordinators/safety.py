@@ -665,6 +665,11 @@ class SafetyCoordinator(BaseCoordinator):
         # v3.6.0-c2.6: Track whether we already fired a hazard for this sustained period
         # Prevents repeated hazard creation on every state change after window expires
         self._humidity_hazard_fired: set[str] = set()  # entity_ids with active fired hazard
+        # NM Cycle A fix-up B-MED-1 / M2: swing has its OWN one-shot set so a
+        # swing MEDIUM cannot mask a subsequent sustained HIGH on the same
+        # entity, and the sustained else-branch's flag-discard cannot defeat
+        # swing dedup while value is in [swing_floor, low).
+        self._humidity_swing_fired: set[str] = set()
 
         # v3.6.0.8: Unit cache for temperature normalization
         self._sensor_units: dict[str, str] = {}  # entity_id -> unit_of_measurement
@@ -897,6 +902,51 @@ class SafetyCoordinator(BaseCoordinator):
         except Exception:
             _LOGGER.debug("Could not build room mappings", exc_info=True)
 
+    def _outdoor_zone_names_snapshot(self) -> set[str]:
+        """NM Cycle A H1 / B-HIGH-1: snapshot of zone_names flagged outdoor.
+
+        Mirrors PresenceCoordinator._outdoor_zone_names_snapshot
+        (presence.py:1508). Reads both legacy ENTRY_TYPE_ZONE entries and
+        modern Zone Manager `zones` dict. Fails OPEN (empty set) on any
+        registry / shape error — safety-humidity treats every room as
+        indoor, which is the pre-fix behavior (no regression).
+        """
+        outdoor: set[str] = set()
+        try:
+            from ..const import (
+                CONF_ENTRY_TYPE,
+                CONF_ZONE_IS_OUTDOOR,
+                CONF_ZONE_NAME,
+                DEFAULT_ZONE_IS_OUTDOOR,
+                ENTRY_TYPE_ZONE,
+                ENTRY_TYPE_ZONE_MANAGER,
+            )
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                etype = entry.data.get(CONF_ENTRY_TYPE)
+                if etype == ENTRY_TYPE_ZONE:
+                    merged = {**entry.data, **entry.options}
+                    if merged.get(CONF_ZONE_IS_OUTDOOR, DEFAULT_ZONE_IS_OUTDOOR):
+                        zname = merged.get(CONF_ZONE_NAME) or merged.get("zone_name")
+                        if zname:
+                            outdoor.add(zname)
+                elif etype == ENTRY_TYPE_ZONE_MANAGER:
+                    merged = {**entry.data, **entry.options}
+                    zones = merged.get("zones") or {}
+                    if isinstance(zones, dict):
+                        for zname, zcfg in zones.items():
+                            if not isinstance(zcfg, dict):
+                                continue
+                            if zcfg.get(CONF_ZONE_IS_OUTDOOR, DEFAULT_ZONE_IS_OUTDOOR):
+                                outdoor.add(zname)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "Safety H1: outdoor zone snapshot failed — treating all "
+                "rooms as indoor (fail-open)",
+                exc_info=True,
+            )
+            return set()
+        return outdoor
+
     def _discover_sensors(self) -> None:
         """Discover safety sensors from URA room configs + SC global config.
 
@@ -951,6 +1001,15 @@ class SafetyCoordinator(BaseCoordinator):
         seen_entity_ids: set[str] = set(blocklist)
         room_count = 0
 
+        # NM Cycle A fix-up H1 / B-HIGH-1: derive outdoor classification from
+        # the zone's CONF_ZONE_IS_OUTDOOR flag (const.py:72, shipped v5.7.0).
+        # The prior `room_type == "outdoor"` early-return in _handle_humidity
+        # was dead: CONF_ROOM_TYPE's config-flow SelectSelector has no
+        # "outdoor" option, so `_sensor_room_types[eid]` could never hold
+        # that value. This mirrors PresenceCoordinator._outdoor_zone_names_snapshot
+        # (presence.py:1508) — same authority, no new operator surface.
+        outdoor_zone_names = self._outdoor_zone_names_snapshot()
+
         # ── Source 1: URA room-configured sensors ──
         for config_entry in self.hass.config_entries.async_entries(DOMAIN):
             if config_entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
@@ -960,6 +1019,11 @@ class SafetyCoordinator(BaseCoordinator):
             room_type = merged.get(CONF_ROOM_TYPE, "generic")
             if not room_name:
                 continue
+            # H1: override to "outdoor" for rooms whose zone is flagged outdoor.
+            from ..const import CONF_ZONE as _CONF_ZONE
+            room_zone = merged.get(_CONF_ZONE) or ""
+            if room_zone and room_zone in outdoor_zone_names:
+                room_type = "outdoor"
 
             # Temperature sensor — configured by user for this room
             temp_id = merged.get(CONF_TEMPERATURE_SENSOR)
@@ -1491,8 +1555,10 @@ class SafetyCoordinator(BaseCoordinator):
                 DEFAULT_CO2_LOG_ONLY_CEILING_PPM,
             ))
             # Substitute the LOW threshold with the operator-tunable ceiling.
-            # If value is below MEDIUM (1500) but above co2_low, it's log-only.
-            if value < 1500.0 and value >= co2_low:
+            # If value is below MEDIUM but above co2_low, it's log-only.
+            # Fix-up L5: read MEDIUM from NUMERIC_THRESHOLDS (single source of truth).
+            co2_medium = NUMERIC_THRESHOLDS[HazardType.HIGH_CO2][Severity.MEDIUM]
+            if value < co2_medium and value >= co2_low:
                 location = self._sensor_locations.get(entity_id, "unknown")
                 _LOGGER.info(
                     "CO2 log-only rung: %s at %s ppm (below MEDIUM 1500)",
@@ -1748,6 +1814,21 @@ class SafetyCoordinator(BaseCoordinator):
         # NM Cycle A A4: swing trigger — fast-rise below the sustained ceiling
         # still emits MEDIUM. Consumes the existing rate detector's 30-min
         # humidity rate (no new EMA state). Kill-switch: delta<=0 disables.
+        #
+        # Fix-up H2 (HIGH): swing is gated to room_type "normal" ONLY. In
+        # bathrooms a 50→85% shower is routine (not a moisture hazard) and
+        # was pager-fodder every shower (Bug Class #21-adjacent — severity
+        # miscall by scope). Basements are excluded too — their "low" band
+        # starts at 65, so a swing landing at ~70 is inside their normal
+        # ladder handled by the sustained window. Swing exists to catch
+        # indoor-moisture events in general-purpose rooms.
+        #
+        # Fix-up B-MED-1 / M2: swing uses its OWN one-shot set
+        # (`_humidity_swing_fired`). Prior code shared `_humidity_hazard_fired`
+        # with the sustained ladder, which (a) let a swing MEDIUM mask a
+        # subsequent sustained HIGH (severity demotion; QC #21) and (b) got
+        # instantly discarded by the sustained else-branch when value was in
+        # [swing_floor, low) — defeating swing dedup.
         try:
             from ..const import (
                 CONF_HUMIDITY_SWING_DELTA_PCT,
@@ -1764,12 +1845,14 @@ class SafetyCoordinator(BaseCoordinator):
                 self.hass, CONF_HUMIDITY_SWING_MIN_ABS_PCT,
                 DEFAULT_HUMIDITY_SWING_MIN_ABS_PCT,
             ))
-            if swing_delta > 0 and value >= swing_floor:
+            # Fix-up H2: swing applies to the "normal" ladder only.
+            swing_room_type_ok = room_type not in ("bathroom", "basement", "outdoor")
+            if swing_room_type_ok and swing_delta > 0 and value >= swing_floor:
                 rate = self._rate_detector.get_rate(entity_id, now)
                 # rate is delta over the 30-min window (already per-30-min)
                 if (rate is not None
                         and rate >= swing_delta
-                        and entity_id not in self._humidity_hazard_fired
+                        and entity_id not in self._humidity_swing_fired
                         and value < thresholds["high"]):
                     hazards.append(
                         Hazard(
@@ -1787,8 +1870,13 @@ class SafetyCoordinator(BaseCoordinator):
                             ),
                         )
                     )
-                    # Mark fired so the sustained-window path doesn't double-emit.
-                    self._humidity_hazard_fired.add(entity_id)
+                    # Mark swing-fired (own set — leaves sustained ladder untouched).
+                    self._humidity_swing_fired.add(entity_id)
+            # Fix-up B-MED-1: clear swing-fired once value has decayed below
+            # the swing floor (episode reset). Independent of the sustained
+            # ladder's `_humidity_hazard_fired` clear (which uses `low`).
+            if value < swing_floor:
+                self._humidity_swing_fired.discard(entity_id)
         except Exception:  # noqa: BLE001
             _LOGGER.debug("humidity swing check failed", exc_info=True)
 
@@ -2347,6 +2435,7 @@ class SafetyCoordinator(BaseCoordinator):
         self._leak_start_times.clear()
         self._active_leak_sensors.clear()
         self._humidity_hazard_fired.clear()
+        self._humidity_swing_fired.clear()
         # v3.6.0.3: Push entity updates on hazard clear
         self._notify_entity_update()
 
@@ -2702,5 +2791,6 @@ class SafetyCoordinator(BaseCoordinator):
         self._leak_start_times.clear()
         self._active_leak_sensors.clear()
         self._humidity_hazard_fired.clear()
+        self._humidity_swing_fired.clear()
         self._sensor_units.clear()
         _LOGGER.info("Safety Coordinator torn down")
