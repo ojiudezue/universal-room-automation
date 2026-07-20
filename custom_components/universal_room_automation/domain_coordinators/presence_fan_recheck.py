@@ -201,9 +201,38 @@ class FanRecheckManager:
         )
 
     async def shutdown(self) -> None:
-        """Cancel per-room timers + persist final state."""
+        """Cancel per-room timers + persist final state.
+
+        Emits a terminal ``fan_recheck_cancel`` row for any room still in
+        an in-flight state (ARMED / PAUSED / RESTORING) so the activity
+        log carries a definitive tail for every armed cycle. Bumps
+        ``last_attempt_at`` on the state row too so post-restart readers
+        see the shutdown as the last attempt.
+        """
         for ctx in list(self._rooms.values()):
             self._cancel_timer(ctx)
+            # M-1 (review): PAUSED is NOT terminal at shutdown — a fresh
+            # PAUSED state rehydrates and RESUMES on reboot, so emitting a
+            # cancel here would double-terminate the cycle and bumping
+            # last_attempt_at would corrupt the resumed cycle's
+            # paused_duration_s. Only ARMED/RESTORING (which rehydrate to
+            # idle) get the terminal row. Stale-PAUSED gets its terminal
+            # from the rehydrate path instead.
+            if ctx.state in (STATE_ARMED, STATE_RESTORING):
+                ctx.last_attempt_at = dt_util.now()
+                self._schedule_activity(
+                    action="fan_recheck_cancel",
+                    room_name=ctx.room_name,
+                    description=(
+                        f"Fan-recheck cancelled (shutdown in {ctx.state})"
+                    ),
+                    details={
+                        "room": ctx.room_name,
+                        "reason": f"shutdown_in_{ctx.state}",
+                        "state_at_cancel": ctx.state,
+                        "ble_ladder_layer": ctx.ble_ladder_layer,
+                    },
+                )
             await self._persist(ctx)
         _LOGGER.info("FanRecheck: shutdown — %d rooms persisted", len(self._rooms))
 
@@ -516,6 +545,9 @@ class FanRecheckManager:
     async def _on_arm_expired(self, ctx: _RoomCtx) -> None:
         room_coord = self._room_coord_for(ctx.room_name)
         if room_coord is None:
+            # Terminal for the armed cycle — stamp last_attempt_at so state
+            # row + activity log agree on "this was the last attempt".
+            ctx.last_attempt_at = dt_util.now()
             self._schedule_activity(
                 action="fan_recheck_cancel",
                 room_name=ctx.room_name,
@@ -531,6 +563,7 @@ class FanRecheckManager:
             return
         # Cancellation re-evaluation: if conditions no longer hold, abandon.
         if not self._still_armed_eligible(ctx, room_coord):
+            ctx.last_attempt_at = dt_util.now()
             self._schedule_activity(
                 action="fan_recheck_cancel",
                 room_name=ctx.room_name,
@@ -581,6 +614,25 @@ class FanRecheckManager:
             _LOGGER.info(
                 "FanRecheck %s: no managed fan in FanController — abandoning",
                 ctx.room_name,
+            )
+            # A3 silent-exit fix: this was the terminal transition out of
+            # ARMED for this cycle (arm-expired path reached _enter_paused
+            # then bailed because FanController had no managed row). Emit a
+            # terminal cancel row + bump last_attempt_at so the state row
+            # + activity log both reflect the attempt.
+            ctx.last_attempt_at = dt_util.now()
+            self._schedule_activity(
+                action="fan_recheck_cancel",
+                room_name=ctx.room_name,
+                description=(
+                    "Fan-recheck cancelled (no managed fan in FanController)"
+                ),
+                details={
+                    "room": ctx.room_name,
+                    "reason": "no_managed_fan",
+                    "state_at_cancel": ctx.state,
+                    "ble_ladder_layer": ctx.ble_ladder_layer,
+                },
             )
             await self._enter_cooldown(ctx)
             return
@@ -776,6 +828,10 @@ class FanRecheckManager:
         # cancels go straight to cooldown (no outcome row, one cancel row).
         self._cancel_timer(ctx)
         if ctx.state == STATE_ARMED:
+            # ARMED-path cancels emit the cancel row at the call site (motion
+            # / L1); bump last_attempt_at here so the state row's timestamp
+            # reflects the terminal attempt (no PAUSED tail will bump it).
+            ctx.last_attempt_at = dt_util.now()
             self.hass.async_create_task(self._enter_cooldown(ctx))
         else:
             ctx._cancel_driven = True  # consumed by _restore's outcome row
@@ -1110,6 +1166,20 @@ class FanRecheckManager:
                 "FanRecheck %s: rehydrate paused state too old — idle",
                 room_name,
             )
+            ctx.last_attempt_at = now
+            self._schedule_activity(
+                action="fan_recheck_cancel",
+                room_name=room_name,
+                description=(
+                    "Fan-recheck cancelled (rehydrate stale PAUSED)"
+                ),
+                details={
+                    "room": room_name,
+                    "reason": "rehydrate_stale_paused",
+                    "state_at_cancel": STATE_PAUSED,
+                    "ble_ladder_layer": ctx.ble_ladder_layer,
+                },
+            )
             ctx.state = STATE_IDLE
             ctx.snapshot = None
             return
@@ -1117,6 +1187,20 @@ class FanRecheckManager:
             _LOGGER.info(
                 "FanRecheck %s: rehydrate restoring -> idle (restore skipped)",
                 room_name,
+            )
+            ctx.last_attempt_at = now
+            self._schedule_activity(
+                action="fan_recheck_cancel",
+                room_name=room_name,
+                description=(
+                    "Fan-recheck cancelled (rehydrate mid-RESTORING)"
+                ),
+                details={
+                    "room": room_name,
+                    "reason": "rehydrate_restoring",
+                    "state_at_cancel": STATE_RESTORING,
+                    "ble_ladder_layer": ctx.ble_ladder_layer,
+                },
             )
             ctx.state = STATE_IDLE
             ctx.snapshot = None
@@ -1136,6 +1220,20 @@ class FanRecheckManager:
                 ctx.state = STATE_IDLE
             return
         if state == STATE_ARMED:
+            ctx.last_attempt_at = now
+            self._schedule_activity(
+                action="fan_recheck_cancel",
+                room_name=room_name,
+                description=(
+                    "Fan-recheck cancelled (rehydrate ARMED)"
+                ),
+                details={
+                    "room": room_name,
+                    "reason": "rehydrate_armed",
+                    "state_at_cancel": STATE_ARMED,
+                    "ble_ladder_layer": ctx.ble_ladder_layer,
+                },
+            )
             ctx.state = STATE_IDLE
             return
         ctx.state = STATE_IDLE
