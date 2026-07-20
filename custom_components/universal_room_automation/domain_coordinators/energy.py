@@ -1520,6 +1520,23 @@ class EnergyCoordinator(BaseCoordinator):
                     "drain-precedence carrier restore failed (swallowed)",
                     exc_info=True,
                 )
+            # B-M1 (fix-up): restore-reconcile for the yield-mid-yield
+            # torn-restart shape. Two sibling defects the KV restore
+            # cannot self-heal:
+            #   (a) Torn write — yield mutated `_paused_by_dp` and
+            #       `_excess_solar_active` (in RAM) but crashed BEFORE
+            #       `_save_evse_state` flushed both. Restore may bring
+            #       an id back in `_paused_by_dp` WITHOUT the excess
+            #       claim; peak arrives; only `_excess_solar_active`
+            #       members get turned off by the off-conditions branch
+            #       → the physically-charging car sails through peak.
+            #   (b) Double-membership torn shape — a partial flush left
+            #       an id in BOTH sets. Excess wins by design (the yield
+            #       intent is fresher); drop the DP membership + "dp"
+            #       owner so ownership isn't ambiguous.
+            # Runs synchronously post-restore so subsequent decision
+            # ticks observe the reconciled state.
+            self._reconcile_dp_excess_on_restore()
             if (
                 states
                 or self._ev._paused_by_grid_cap
@@ -4185,6 +4202,118 @@ class EnergyCoordinator(BaseCoordinator):
         if not self._ev._paused_by_dp:  # noqa: SLF001
             self._dp_decision_soc = None
 
+    def _post_excess_solar_bookkeeping(self, pre_dp_set: set) -> None:
+        """Post-yield bookkeeping — persist + A-HIGH-1 orphan-floor collapse.
+
+        Called from the excess-solar caller after
+        `determine_excess_solar_actions` returns. Two responsibilities:
+
+        1. **H-1 persistence** — if the yield mutated `_paused_by_dp`
+           (an excess-solar claim of a sticky orphan), schedule a
+           `_save_evse_state` so a restart mid-yield does not resurrect
+           the yielded EVSE from stale KV.
+
+        2. **A-HIGH-1 orphan-floor collapse** — if the yield DRAINED
+           the DP set (last sticky member just claimed by excess),
+           mirror `_apply_dp_reversion`'s tail (:4126-4127 + :4072):
+           collapse the composed DP floor (`_dp_decision_soc` → None)
+           and cancel the must-start-by timer. The sticky retry driver
+           in `_dp_decision_tick` (:~3518) is gated on a NON-empty
+           `_paused_by_dp` AND the kill-switch hoist requires `not
+           _dp_on`; neither runs after a yield-to-excess-solar drain,
+           so nothing else will clear the pinned floor → DP reserve
+           stays high into evening peak, blocking battery arbitrage /
+           attain paths (money loss).
+        """
+        if pre_dp_set != self._ev._paused_by_dp:  # noqa: SLF001
+            self.hass.async_create_task(self._save_evse_state())
+            if not self._ev._paused_by_dp:  # noqa: SLF001
+                self._dp_decision_soc = None
+                self._cancel_dp_must_start_by_timer()
+
+    def _reconcile_dp_excess_on_restore(self) -> None:
+        """B-M1 fix-up: restore-reconcile for torn mid-yield restart shapes.
+
+        Called from `_restore_evse_state` immediately after the DP
+        carrier + pause-set restore complete. Two shapes to handle:
+
+        1. **Double membership** — id in BOTH `_paused_by_dp` AND
+           `_excess_solar_active`. Excess wins (the yield-intent is
+           fresher than the DP-hold-intent by construction). Drop the
+           DP membership + "dp" dispatch owner; log INFO.
+
+        2. **DP-only orphan of a yield** — id in `_paused_by_dp` AND
+           NOT in `_excess_solar_active` AND carrier is HOLD_ONLY AND
+           the physical switch is ON. This is the classic torn write
+           (yield discarded DP, added excess, crashed before flush;
+           only the DP row survived to the KV). Honor the DP-pause
+           intent — command switch OFF. The next decision tick may
+           legitimately re-yield if excess conditions still hold, but
+           the peak/off-conditions branches (which only iterate
+           `_excess_solar_active`) cannot rescue this shape.
+
+        TRANSITIONED / MUST_START_FORCED post-restore are left alone —
+        the sticky retry driver + must-start-by timer will handle
+        those; only HOLD_ONLY is the "yield territory" shape.
+        """
+        try:
+            dp_state_val = None
+            try:
+                dp_state_val = self._dp_carrier.state.value
+            except Exception:  # noqa: BLE001
+                dp_state_val = None
+            for eid in list(self._ev._paused_by_dp):  # noqa: SLF001
+                # Shape (1): torn double-membership.
+                if eid in self._ev._excess_solar_active:  # noqa: SLF001
+                    self._ev._paused_by_dp.discard(eid)  # noqa: SLF001
+                    self._ev._release_pause_dispatch_owner(  # noqa: SLF001
+                        eid, "dp",
+                    )
+                    _LOGGER.info(
+                        "restore-reconcile: %s in both _paused_by_dp AND "
+                        "_excess_solar_active — excess wins, dropping DP "
+                        "membership + owner",
+                        eid,
+                    )
+                    continue
+                # Shape (2): DP-only orphan + HOLD_ONLY + physically ON.
+                if dp_state_val != "hold_only":
+                    continue
+                switch_entity = (
+                    self._ev._evse.get(eid, {}).get("switch", "")  # noqa: SLF001
+                )
+                if not switch_entity:
+                    continue
+                try:
+                    state = self._ev._get_evse_state(eid)  # noqa: SLF001
+                except Exception:  # noqa: BLE001
+                    continue
+                if not state.get("is_on"):
+                    continue
+                _LOGGER.info(
+                    "restore-reconcile: %s DP-paused (HOLD_ONLY) but "
+                    "physically ON with no excess claim — commanding OFF "
+                    "to honor DP-pause intent (torn-restart shape)",
+                    eid,
+                )
+                try:
+                    self.hass.async_create_task(
+                        self.hass.services.async_call(
+                            "switch", "turn_off",
+                            {"entity_id": switch_entity},
+                            blocking=False,
+                        )
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "restore-reconcile turn_off dispatch failed for %s",
+                        eid, exc_info=True,
+                    )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "restore-reconcile raised (swallowed)", exc_info=True,
+            )
+
     def _cancel_dp_must_start_by_timer(self) -> None:
         """Idempotent cancel of the must-start-by point-in-time listener."""
         unsub = getattr(self, "_dp_must_start_unsub", None)
@@ -4677,12 +4806,11 @@ class EnergyCoordinator(BaseCoordinator):
                     )
                     for action_spec in excess_actions:
                         await self._execute_service_action(action_spec)
-                    # H-1 persistence pattern: if the yield mutated the
-                    # DP pause set (excess-solar claimed a sticky orphan),
-                    # persist immediately so a restart mid-yield does not
-                    # resurrect the yielded EVSE from stale KV.
-                    if _pre_dp_set != self._ev._paused_by_dp:  # noqa: SLF001
-                        self.hass.async_create_task(self._save_evse_state())
+                    # Post-yield bookkeeping (persist + orphan-floor
+                    # collapse). Extracted so a bind-holder test can
+                    # drive it against the REAL production source
+                    # (framing C — test authority).
+                    self._post_excess_solar_bookkeeping(_pre_dp_set)
 
                 # v4.0.18: EV grid import cap
                 if self._grid_import_cap_enabled:

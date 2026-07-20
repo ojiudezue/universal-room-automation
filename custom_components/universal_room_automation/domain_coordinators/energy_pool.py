@@ -290,6 +290,33 @@ class EVChargerController:
         # v4.7.6 D1 #9: Prune stale entries on init (idempotent on cold boot).
         self._prune_removed_evses()
 
+    def _stronger_peer_holds(self, evse_id: str) -> bool:
+        """C-b8 (fix-up): shared strong-peer guard.
+
+        Returns True iff `evse_id` is currently held by ANY of the five
+        battery-protection / safety / arbitrage peer owners:
+        `_paused_by_battery_drain`, `_paused_by_fill_priority`,
+        `_paused_by_grid_cap`, `_paused_by_arbitrage`,
+        `_paused_by_load_shed`. These outrank BOTH the TOU ensure-on
+        proactive-turn-on path AND the excess-solar claim path (safer
+        long-term than dual mutation tests — one helper, one truth).
+
+        NOTE: `_paused_by_dp` is INTENTIONALLY excluded here. The two
+        callers have different DP semantics:
+          - TOU ensure-on adds `or evse_id in self._paused_by_dp` inline
+            (DP always outranks proactive off-peak turn-on).
+          - Excess-solar treats `_paused_by_dp` as *conditionally*
+            yieldable (INV-YIELD-1 HOLD_ONLY-only claim); the DP check
+            lives at that site.
+        """
+        return (
+            evse_id in self._paused_by_battery_drain
+            or evse_id in self._paused_by_fill_priority
+            or evse_id in self._paused_by_grid_cap
+            or evse_id in self._paused_by_arbitrage
+            or evse_id in self._paused_by_load_shed
+        )
+
     def _get_evse_state(self, evse_id: str) -> dict[str, Any]:
         """Get current state of an EVSE.
 
@@ -570,11 +597,10 @@ class EVChargerController:
                 # bookkeeping and clear any stale proactive-hold claim so
                 # the guard rule keeps the EVSE off.
                 if (
-                    evse_id in self._paused_by_battery_drain
-                    or evse_id in self._paused_by_fill_priority
-                    or evse_id in self._paused_by_grid_cap
-                    or evse_id in self._paused_by_arbitrage
-                    or evse_id in self._paused_by_load_shed
+                    # C-b8 (fix-up): shared five-peer guard extracted to
+                    # `_stronger_peer_holds`; the DP check stays inline
+                    # (proactive TOU turn-on ALWAYS defers to DP).
+                    self._stronger_peer_holds(evse_id)
                     # EVSE drain-precedence (B2b-i): peer battery-protection
                     # owner. Force-charge is the sole authoritative override
                     # per plan §127 (interaction matrix row 1); TOU ensure-on
@@ -790,13 +816,11 @@ class EVChargerController:
                 # (drain, fill-priority, grid-cap, arbitrage). TOU/`_paused_by_us`
                 # is the only pause set that excess-solar legitimately claims
                 # against (battery-full + solar-surplus is the design override).
-                if (
-                    evse_id in self._paused_by_battery_drain
-                    or evse_id in self._paused_by_fill_priority
-                    or evse_id in self._paused_by_grid_cap
-                    or evse_id in self._paused_by_arbitrage
-                    or evse_id in self._paused_by_load_shed
-                ):
+                if self._stronger_peer_holds(evse_id):
+                    # C-b8 (fix-up): shared five-peer guard. The DP
+                    # sticky-yield check (INV-YIELD-1/2) lives BELOW —
+                    # it is not a "stronger peer", it is a conditional
+                    # yield target.
                     _LOGGER.debug(
                         "Excess solar: %s held by stronger pause reason — skipping",
                         evse_id,

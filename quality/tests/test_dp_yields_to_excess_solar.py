@@ -653,6 +653,342 @@ def test_MUTATION_M2_remove_yield_entirely_makes_garage_a_fixture_red():
     )
 
 
+# ==========================================================================
+# Fix-up: A-HIGH-1 orphan reserve-floor collapse + timer cancel
+# ==========================================================================
+
+
+def _bind_holder(hass, ev):
+    """Bind post-yield/reconcile helpers from the REAL EnergyCoordinator
+    source to a SimpleNamespace holder (pattern mirrors
+    `_bind_persistence_methods` in test_ev_offpeak_proactive.py). Lets
+    us drive the tested block against the actual production method
+    without constructing the full coordinator."""
+    from custom_components.universal_room_automation.domain_coordinators import (
+        energy as _energy_mod,
+    )
+    holder = types.SimpleNamespace(
+        hass=hass,
+        _ev=ev,
+        _dp_decision_soc=None,
+        _dp_must_start_unsub=None,
+        _dp_carrier=types.SimpleNamespace(
+            state=types.SimpleNamespace(value="hold_only"),
+        ),
+    )
+
+    async def _save_stub():
+        return None
+    holder._save_evse_state = _save_stub
+    holder._post_excess_solar_bookkeeping = (
+        _energy_mod.EnergyCoordinator._post_excess_solar_bookkeeping.__get__(
+            holder, type(holder),
+        )
+    )
+    holder._cancel_dp_must_start_by_timer = (
+        _energy_mod.EnergyCoordinator._cancel_dp_must_start_by_timer.__get__(
+            holder, type(holder),
+        )
+    )
+    holder._reconcile_dp_excess_on_restore = (
+        _energy_mod.EnergyCoordinator._reconcile_dp_excess_on_restore.__get__(
+            holder, type(holder),
+        )
+    )
+    return holder
+
+
+def test_AHIGH1_yield_last_dp_member_clears_decision_soc_and_cancels_timer():
+    """A-HIGH-1: when the yield DRAINS `_paused_by_dp` (last member
+    claimed by excess-solar), the composed DP floor
+    `_dp_decision_soc` MUST be cleared and any armed must-start-by
+    timer MUST be cancelled. Otherwise the reserve floor pins into
+    evening peak (money loss)."""
+    hass = _build_hass()
+    ev = _build_ev(hass)
+    _stage_dp_sticky(ev, "garage_a")
+    holder = _bind_holder(hass, ev)
+    holder._dp_decision_soc = 40  # simulated stamped drain target
+    _timer_cancelled = {"n": 0}
+
+    def _unsub():
+        _timer_cancelled["n"] += 1
+    holder._dp_must_start_unsub = _unsub
+
+    pre_dp_set = set(ev._paused_by_dp)
+    ev.determine_excess_solar_actions(
+        soc=99.0, remaining_forecast_kwh=10.0, tou_period="mid_peak",
+        soc_threshold=95, kwh_threshold=5.0,
+        dp_carrier_state=DPState.HOLD_ONLY.value,
+    )
+    holder._post_excess_solar_bookkeeping(pre_dp_set)
+
+    assert holder._dp_decision_soc is None, (
+        "A-HIGH-1: orphan reserve floor left stamped"
+    )
+    assert _timer_cancelled["n"] == 1, (
+        "A-HIGH-1: must-start-by timer not cancelled"
+    )
+    assert holder._dp_must_start_unsub is None
+
+
+def test_AHIGH1_yield_non_empty_dp_set_leaves_decision_soc_intact():
+    """Sibling assertion: if the yield claims ONE of two DP members
+    (set still non-empty post-yield), the composed floor MUST stay
+    stamped — INV-DP3 max()-composition still needs it for the
+    remaining sticky member."""
+    hass = _build_hass()
+    ev = _build_ev(hass, second=True)
+    _stage_dp_sticky(ev, "garage_a")
+    _stage_dp_sticky(ev, "garage_b")
+    holder = _bind_holder(hass, ev)
+    holder._dp_decision_soc = 40
+
+    pre_dp_set = set(ev._paused_by_dp)
+    ev.determine_excess_solar_actions(
+        soc=99.0, remaining_forecast_kwh=10.0, tou_period="mid_peak",
+        soc_threshold=95, kwh_threshold=5.0,
+        dp_carrier_state=DPState.HOLD_ONLY.value,
+    )
+    holder._post_excess_solar_bookkeeping(pre_dp_set)
+
+    # Both garages yielded — set is now empty → collapse fires.
+    # (verified in AHIGH1 above). Here we assert the NEGATIVE control:
+    # if we manually re-add one back BEFORE bookkeeping, the collapse
+    # must NOT fire.
+    hass2 = _build_hass()
+    ev2 = _build_ev(hass2, second=True)
+    _stage_dp_sticky(ev2, "garage_a")
+    _stage_dp_sticky(ev2, "garage_b")
+    holder2 = _bind_holder(hass2, ev2)
+    holder2._dp_decision_soc = 40
+    pre2 = set(ev2._paused_by_dp)
+    # Yield only garage_a by pinning garage_b behind a stronger owner.
+    ev2._paused_by_grid_cap.add("garage_b")
+    ev2.determine_excess_solar_actions(
+        soc=99.0, remaining_forecast_kwh=10.0, tou_period="mid_peak",
+        soc_threshold=95, kwh_threshold=5.0,
+        dp_carrier_state=DPState.HOLD_ONLY.value,
+    )
+    holder2._post_excess_solar_bookkeeping(pre2)
+    assert "garage_b" in ev2._paused_by_dp
+    assert holder2._dp_decision_soc == 40, (
+        "reserve floor collapsed while sticky member remained"
+    )
+
+
+# ==========================================================================
+# Fix-up: B-M1 restore-reconcile for torn mid-yield restart shapes
+# ==========================================================================
+
+
+def test_BM1_restore_reconcile_dponly_orphan_hold_only_commands_turn_off():
+    """B-M1 shape (2): DP-only orphan + HOLD_ONLY + physically ON ⇒
+    reconciler commands switch OFF to honor DP-pause intent (torn
+    restart resurrected DP membership but excess claim didn't survive
+    the flush; peak arrives and only `_excess_solar_active` members
+    get turned off → car sails through peak without this fix)."""
+    hass = _build_hass()
+    ev = _build_ev(hass)
+    # Simulate the resurrected DP membership without excess claim.
+    ev._paused_by_dp.add("garage_a")
+    ev._claim_pause_dispatch_owner("garage_a", "dp")
+    hass.set_state("switch.garage_a", "on")
+    holder = _bind_holder(hass, ev)  # dp_carrier.state.value = hold_only
+    _turn_off_calls = {"n": 0}
+
+    async def _svc(domain, service, data, blocking=False):
+        if service == "turn_off" and data.get("entity_id") == "switch.garage_a":
+            _turn_off_calls["n"] += 1
+    hass.services.async_call = _svc
+
+    holder._reconcile_dp_excess_on_restore()
+    assert _turn_off_calls["n"] == 1, (
+        "B-M1: DP-only HOLD_ONLY orphan not commanded off"
+    )
+
+
+def test_BM1_restore_reconcile_double_membership_excess_wins():
+    """B-M1 shape (1): torn double-membership (id in both
+    `_paused_by_dp` AND `_excess_solar_active`) ⇒ excess wins, DP
+    membership + owner dropped."""
+    hass = _build_hass()
+    ev = _build_ev(hass)
+    ev._paused_by_dp.add("garage_a")
+    ev._claim_pause_dispatch_owner("garage_a", "dp")
+    ev._excess_solar_active.add("garage_a")
+    hass.set_state("switch.garage_a", "on")
+    holder = _bind_holder(hass, ev)
+
+    holder._reconcile_dp_excess_on_restore()
+    assert "garage_a" not in ev._paused_by_dp
+    assert "garage_a" in ev._excess_solar_active
+    owners = ev._dispatch_owners.get("garage_a", set())
+    assert "dp" not in owners
+
+
+def test_BM1_restore_reconcile_transitioned_dp_left_alone():
+    """B-M1 restraint: TRANSITIONED post-restore is NOT the reconciler's
+    territory — the sticky retry driver + must-start-by timer handle
+    that. Reconciler only acts under HOLD_ONLY."""
+    hass = _build_hass()
+    ev = _build_ev(hass)
+    ev._paused_by_dp.add("garage_a")
+    ev._claim_pause_dispatch_owner("garage_a", "dp")
+    hass.set_state("switch.garage_a", "on")
+    holder = _bind_holder(hass, ev)
+    holder._dp_carrier.state.value = "transitioned"
+    _turn_off_calls = {"n": 0}
+
+    async def _svc(domain, service, data, blocking=False):
+        if service == "turn_off":
+            _turn_off_calls["n"] += 1
+    hass.services.async_call = _svc
+
+    holder._reconcile_dp_excess_on_restore()
+    assert _turn_off_calls["n"] == 0
+    assert "garage_a" in ev._paused_by_dp
+
+
+# ==========================================================================
+# Fix-up: C-b5 already-on yield branch + C-b7 persistence authority
+# ==========================================================================
+
+
+def test_Cb5_already_on_yield_branch_claims_from_dp_without_new_turn_on():
+    """C-b5: sticky DP + HOLD_ONLY + switch ALREADY ON ⇒ ownership
+    handed to excess (added to `_excess_solar_active`, dropped from
+    `_paused_by_dp`, "dp" owner released), NO turn_on dispatched."""
+    hass = _build_hass()
+    ev = _build_ev(hass)
+    _stage_dp_sticky(ev, "garage_a")
+    hass.set_state("switch.garage_a", "on")  # already ON pre-tick
+    actions = ev.determine_excess_solar_actions(
+        soc=99.0, remaining_forecast_kwh=10.0, tou_period="mid_peak",
+        soc_threshold=95, kwh_threshold=5.0,
+        dp_carrier_state=DPState.HOLD_ONLY.value,
+    )
+    assert "garage_a" in ev._excess_solar_active
+    assert "garage_a" not in ev._paused_by_dp
+    assert "dp" not in ev._dispatch_owners.get("garage_a", set())
+    turn_ons = [
+        a for a in actions
+        if a.get("service") == "switch.turn_on"
+        and a.get("target") == "switch.garage_a"
+    ]
+    assert turn_ons == [], (
+        f"C-b5: unexpected turn_on for already-on switch: {actions}"
+    )
+
+
+def test_Cb7_yielding_tick_schedules_save_evse_state():
+    """C-b7: post-yield bookkeeping MUST schedule `_save_evse_state`
+    when the DP set was mutated. Persist authority — a yield that
+    isn't flushed cannot survive a restart."""
+    hass = _build_hass()
+    ev = _build_ev(hass)
+    _stage_dp_sticky(ev, "garage_a")
+    holder = _bind_holder(hass, ev)
+    _save_calls = {"n": 0}
+
+    async def _save_stub():
+        _save_calls["n"] += 1
+    holder._save_evse_state = _save_stub
+
+    pre = set(ev._paused_by_dp)
+    ev.determine_excess_solar_actions(
+        soc=99.0, remaining_forecast_kwh=10.0, tou_period="mid_peak",
+        soc_threshold=95, kwh_threshold=5.0,
+        dp_carrier_state=DPState.HOLD_ONLY.value,
+    )
+    holder._post_excess_solar_bookkeeping(pre)
+    assert _save_calls["n"] == 1
+
+
+def test_Cb7_non_yielding_tick_does_not_schedule_save():
+    """C-b7: non-yielding tick (DP set unchanged) MUST NOT schedule a
+    save — avoid write-queue amplification from every excess-solar
+    tick."""
+    hass = _build_hass()
+    ev = _build_ev(hass)
+    # No DP membership at all — nothing to yield, set unchanged.
+    holder = _bind_holder(hass, ev)
+    _save_calls = {"n": 0}
+
+    async def _save_stub():
+        _save_calls["n"] += 1
+    holder._save_evse_state = _save_stub
+
+    pre = set(ev._paused_by_dp)
+    ev.determine_excess_solar_actions(
+        soc=99.0, remaining_forecast_kwh=10.0, tou_period="mid_peak",
+        soc_threshold=95, kwh_threshold=5.0,
+        dp_carrier_state=DPState.HOLD_ONLY.value,
+    )
+    holder._post_excess_solar_bookkeeping(pre)
+    assert _save_calls["n"] == 0
+
+
+# ==========================================================================
+# Fix-up: C-b8 shared strong-peer helper mutation authority
+# ==========================================================================
+
+
+def test_Cb8_stronger_peer_helper_covers_five_owners():
+    """C-b8: `_stronger_peer_holds` returns True for any of the five
+    peer sets (drain, fill_priority, grid_cap, arbitrage, load_shed),
+    False otherwise. DP is INTENTIONALLY excluded."""
+    hass = _build_hass()
+    ev = _build_ev(hass)
+    assert ev._stronger_peer_holds("garage_a") is False
+    ev._paused_by_dp.add("garage_a")
+    assert ev._stronger_peer_holds("garage_a") is False, (
+        "DP must be excluded from the shared helper (yield-conditional)"
+    )
+    for peer in (
+        "_paused_by_battery_drain",
+        "_paused_by_fill_priority",
+        "_paused_by_grid_cap",
+        "_paused_by_arbitrage",
+        "_paused_by_load_shed",
+    ):
+        hass2 = _build_hass()
+        ev2 = _build_ev(hass2)
+        getattr(ev2, peer).add("garage_a")
+        assert ev2._stronger_peer_holds("garage_a") is True, peer
+
+
+def test_MUTATION_M4_remove_orphan_floor_clear_makes_AHIGH1_red():
+    """M4 (A-HIGH-1 anchor): drop the `_dp_decision_soc = None` clear
+    from the post-yield bookkeeping ⇒ the AHIGH1 test goes RED."""
+    _POOL_SRC_ENERGY = Path(_dc_path) / "energy.py"
+    original = _POOL_SRC_ENERGY.read_text(encoding="utf-8")
+    swap_from = (
+        "if not self._ev._paused_by_dp:  # noqa: SLF001\n"
+        "                self._dp_decision_soc = None\n"
+        "                self._cancel_dp_must_start_by_timer()"
+    )
+    swap_to = (
+        "if not self._ev._paused_by_dp:  # noqa: SLF001\n"
+        "                pass"
+    )
+    assert swap_from in original, "M4 anchor missing"
+    mutated = original.replace(swap_from, swap_to, 1)
+    _POOL_SRC_ENERGY.write_text(mutated, encoding="utf-8")
+    try:
+        _clear_pycache()
+        result = _run_test_in_subprocess(
+            "test_AHIGH1_yield_last_dp_member_clears_decision_soc_and_cancels_timer"
+        )
+        assert result.returncode != 0, (
+            f"expected test to fail under M4 mutation; got "
+            f"returncode={result.returncode}\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+        )
+    finally:
+        _POOL_SRC_ENERGY.write_text(original, encoding="utf-8")
+        _clear_pycache()
+
+
 def test_MUTATION_M3_break_owner_handoff_makes_ownerless_gap_test_red():
     """M3: drop `_paused_by_dp` membership WITHOUT releasing the "dp"
     dispatch owner. The ownerless-gap test asserts "dp" is gone
