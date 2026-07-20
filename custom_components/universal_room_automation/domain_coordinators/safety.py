@@ -1815,17 +1815,22 @@ class SafetyCoordinator(BaseCoordinator):
                         severity = Severity.MEDIUM
                         severity_key = "medium"
                     else:
-                        # NM Cycle A A4: below MEDIUM rung = log-only.
-                        # 78% for 2h is a housekeeping observation, not a
-                        # hazard. Skip Hazard emission; mark fired so the
-                        # sustained-window doesn't retrigger.
-                        _LOGGER.info(
-                            "Humidity log-only rung: %s at %s%% sustained "
-                            "%.1fh (below MEDIUM %s%%)",
-                            location, value, elapsed_hours,
-                            thresholds["medium"],
-                        )
-                        return hazards
+                        # NM Cycle A A4: below MEDIUM = log-only for the
+                        # "normal" room ladder only. Bathroom/basement keep
+                        # firing LOW-severity hazards at their "low" rungs
+                        # (untouched by A4). Sentinel: reaches here only for
+                        # the room-type branches that DON'T explicitly set
+                        # `thresholds` from HUMIDITY_THRESHOLDS (i.e. normal).
+                        if room_type not in ("bathroom", "basement"):
+                            _LOGGER.info(
+                                "Humidity log-only rung: %s at %s%% sustained "
+                                "%.1fh (below MEDIUM %s%%)",
+                                location, value, elapsed_hours,
+                                thresholds["medium"],
+                            )
+                            return hazards
+                        severity = Severity.LOW
+                        severity_key = "low"
 
                     hazards.append(
                         Hazard(

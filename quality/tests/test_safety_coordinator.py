@@ -683,7 +683,11 @@ class TestSafetyCoordinator:
         assert overheat_hazards[0].severity == Severity.HIGH
 
     def test_humidity_normal_room_thresholds(self):
-        """Normal room humidity thresholds should fire after sustained window (2hr)."""
+        """Normal room humidity thresholds should fire after sustained window (2hr).
+
+        NM Cycle A A4: normal ladder is now 78/85/92 (defaults). 78 rung is
+        log-only (returns no hazard). MEDIUM fires 85-92; HIGH fires >=92.
+        """
         coord, _ = self._make_coordinator()
         coord._sensor_locations["sensor.hum"] = "Bedroom"
         coord._sensor_room_types["sensor.hum"] = "normal"
@@ -692,9 +696,8 @@ class TestSafetyCoordinator:
         # Pre-set sustained tracking to 3 hours ago (past the 2hr window)
         coord._humidity_above_since["sensor.hum"] = now - timedelta(hours=3)
 
-        # v3.6.0-c2.6: thresholds raised — normal LOW=70, MEDIUM=80, HIGH=90
-        # Above 90% = HIGH severity
-        hazards = coord._handle_humidity("sensor.hum", 92.0, now)
+        # Above 92% = HIGH severity (A4 new default)
+        hazards = coord._handle_humidity("sensor.hum", 93.0, now)
         high_hum = [h for h in hazards if h.type == HazardType.HIGH_HUMIDITY]
         assert len(high_hum) >= 1
         assert high_hum[0].severity == Severity.HIGH
@@ -702,11 +705,17 @@ class TestSafetyCoordinator:
         # Reset one-shot firing for next test value
         coord._humidity_hazard_fired.discard("sensor.hum")
 
-        # 80-90% = MEDIUM
-        hazards = coord._handle_humidity("sensor.hum", 82.0, now)
+        # 85-92% = MEDIUM (A4 new default)
+        hazards = coord._handle_humidity("sensor.hum", 87.0, now)
         med_hum = [h for h in hazards if h.type == HazardType.HIGH_HUMIDITY]
         assert len(med_hum) >= 1
         assert med_hum[0].severity == Severity.MEDIUM
+
+        # NM Cycle A A4: 78-85% is now LOG-ONLY (no hazard emitted).
+        coord._humidity_hazard_fired.discard("sensor.hum")
+        hazards = coord._handle_humidity("sensor.hum", 80.0, now)
+        low_hum = [h for h in hazards if h.type == HazardType.HIGH_HUMIDITY]
+        assert len(low_hum) == 0, "A4: 78-85% normal must be log-only"
 
     def test_humidity_bathroom_thresholds(self):
         """Bathroom humidity thresholds should use higher ranges after 4hr sustained window.
@@ -776,24 +785,42 @@ class TestSafetyCoordinator:
         assert low_hum[0].severity == Severity.LOW
 
     def test_tvoc_detection(self):
-        """High TVOC should trigger hazard."""
+        """TVOC above MEDIUM only fires after sustained window (A5).
+
+        NM Cycle A A5: TVOC now sustained-30-min-above-500 OR absolute>=1500.
+        First reading above MEDIUM starts the clock; hazard only after
+        sustained window.
+        """
         coord, _ = self._make_coordinator()
         coord._sensor_locations["sensor.tvoc"] = "Office"
 
+        # First above-MEDIUM reading — starts clock, returns None (not sustained).
+        hazard = coord._handle_numeric_hazard(
+            "sensor.tvoc", 600.0, HazardType.HIGH_TVOC
+        )
+        assert hazard is None, "A5: first above-MEDIUM TVOC must start sustained window"
+
+        # Pre-age the tracker past the sustained window; next call fires HIGH.
+        coord._tvoc_above_since["sensor.tvoc"] = (
+            datetime.utcnow() - timedelta(minutes=45)
+        )
         hazard = coord._handle_numeric_hazard(
             "sensor.tvoc", 600.0, HazardType.HIGH_TVOC
         )
         assert hazard is not None
         assert hazard.type == HazardType.HIGH_TVOC
+        # 600 hits MEDIUM band once sustained fall-through occurs; the
+        # classifier maps by NUMERIC_THRESHOLDS (MEDIUM=500).
         assert hazard.severity == Severity.MEDIUM
 
     def test_tvoc_high(self):
-        """Very high TVOC should trigger HIGH severity."""
+        """TVOC at absolute-HIGH threshold (1500, A5) fires immediately."""
         coord, _ = self._make_coordinator()
         coord._sensor_locations["sensor.tvoc"] = "Office"
 
+        # A5: absolute HIGH is 1500 — value above it bypasses sustained gate.
         hazard = coord._handle_numeric_hazard(
-            "sensor.tvoc", 1200.0, HazardType.HIGH_TVOC
+            "sensor.tvoc", 1500.0, HazardType.HIGH_TVOC
         )
         assert hazard is not None
         assert hazard.severity == Severity.HIGH
@@ -1041,11 +1068,11 @@ class TestRoomTypeHumidityThresholds:
     """Tests for room-type-aware humidity thresholds."""
 
     def test_normal_room_thresholds(self):
-        """Normal room thresholds should be 70/80/90 (v3.6.0-c2.6: raised)."""
+        """Normal room thresholds are 78/85/92 (NM Cycle A A4 defaults)."""
         thresholds = HUMIDITY_THRESHOLDS["normal"]
-        assert thresholds["low"] == 70.0
-        assert thresholds["medium"] == 80.0
-        assert thresholds["high"] == 90.0
+        assert thresholds["low"] == 78.0
+        assert thresholds["medium"] == 85.0
+        assert thresholds["high"] == 92.0
         assert thresholds["window_hours"] == 2.0
 
     def test_bathroom_thresholds(self):
@@ -1139,7 +1166,8 @@ class TestNumericThresholds:
         co2 = NUMERIC_THRESHOLDS[HazardType.HIGH_CO2]
         assert co2[Severity.HIGH] == 2500.0
         assert co2[Severity.MEDIUM] == 1500.0
-        assert co2[Severity.LOW] == 1000.0
+        # NM Cycle A A5: LOW raised to 1200 (Study A p90) and now log-only.
+        assert co2[Severity.LOW] == 1200.0
 
     def test_freeze_risk_thresholds_exist(self):
         """Freeze risk thresholds should cover HIGH/MEDIUM/LOW."""
@@ -1348,9 +1376,9 @@ class TestReviewerFixes:
         assert "sensor.hum" in coord._humidity_above_since
 
     def test_humidity_fires_after_sustained_window(self):
-        """Humidity above threshold should fire AFTER sustained window elapses.
+        """Humidity above MEDIUM threshold fires AFTER sustained window elapses.
 
-        v3.6.0-c2.6: Normal thresholds raised — 82% is now MEDIUM (80-90 range).
+        NM Cycle A A4: normal ladder is 78/85/92 — MEDIUM band is 85-92.
         """
         hass = make_hass()
         coord = SafetyCoordinator(hass)
@@ -1358,11 +1386,11 @@ class TestReviewerFixes:
         coord._sensor_room_types["sensor.hum"] = "normal"
         now = datetime.utcnow()
 
-        # Start tracking
-        coord._handle_humidity("sensor.hum", 82.0, now)
+        # Start tracking (above MEDIUM 85)
+        coord._handle_humidity("sensor.hum", 87.0, now)
         # 2.5 hours later — past the 2hr window
         later = now + timedelta(hours=2, minutes=30)
-        hazards = coord._handle_humidity("sensor.hum", 82.0, later)
+        hazards = coord._handle_humidity("sensor.hum", 87.0, later)
         high_hum = [h for h in hazards if h.type == HazardType.HIGH_HUMIDITY]
         assert len(high_hum) >= 1
         assert high_hum[0].severity == Severity.MEDIUM
