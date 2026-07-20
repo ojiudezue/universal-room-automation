@@ -4655,13 +4655,34 @@ class EnergyCoordinator(BaseCoordinator):
                     remaining = self._battery.solcast_remaining
                     # v4.7.6.1 D1: read tick-snapshot, not live attr — same
                     # race-mitigation pattern as fill_priority_soc_tick.
+                    # Sticky-DP yield: pass the DP carrier state so
+                    # `determine_excess_solar_actions` can distinguish a
+                    # deferred-reversion orphan (HOLD_ONLY sticky in
+                    # `_paused_by_dp`) from an active BAEC transition.
+                    # See docs/planning/PLANNING_dp_sticky_yields_to_excess_solar.md.
+                    # Sent as `.value` (plain str) to keep energy_pool
+                    # free of a DP-module import — mirrors how `period`
+                    # is threaded.
+                    _dp_state_val = None
+                    try:
+                        _dp_state_val = self._dp_carrier.state.value
+                    except Exception:  # noqa: BLE001
+                        _dp_state_val = None
+                    _pre_dp_set = set(self._ev._paused_by_dp)  # noqa: SLF001
                     excess_actions = self._ev.determine_excess_solar_actions(
                         soc, remaining, period,
                         soc_threshold=excess_solar_soc_tick,
                         kwh_threshold=self._excess_solar_kwh,
+                        dp_carrier_state=_dp_state_val,
                     )
                     for action_spec in excess_actions:
                         await self._execute_service_action(action_spec)
+                    # H-1 persistence pattern: if the yield mutated the
+                    # DP pause set (excess-solar claimed a sticky orphan),
+                    # persist immediately so a restart mid-yield does not
+                    # resurrect the yielded EVSE from stale KV.
+                    if _pre_dp_set != self._ev._paused_by_dp:  # noqa: SLF001
+                        self.hass.async_create_task(self._save_evse_state())
 
                 # v4.0.18: EV grid import cap
                 if self._grid_import_cap_enabled:
