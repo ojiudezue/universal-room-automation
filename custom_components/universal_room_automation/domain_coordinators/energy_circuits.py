@@ -15,8 +15,12 @@ from .coordinator_diagnostics import MetricBaseline
 
 _LOGGER = logging.getLogger(__name__)
 
-# How long a circuit must be at zero to trigger tripped breaker alert (seconds)
-TRIPPED_BREAKER_THRESHOLD_SECONDS = 300
+# How long a circuit must be at zero to trigger tripped breaker alert (seconds).
+# NM Cycle A (2026-07-20): 300 → 900 (module default). Runtime value is
+# read from CoordinatorManager options via nm_cycle_a_knob(); this constant
+# is now the fallback default. Rung-2 promotion of the actual config field
+# lands in Cycle A-2.
+TRIPPED_BREAKER_THRESHOLD_SECONDS = 900  # legacy alias — see DEFAULT_TRIPPED_BREAKER_ZERO_WINDOW_S
 # Minimum recent power for a circuit to be considered "normally loaded"
 NORMALLY_LOADED_THRESHOLD_W = 5.0
 # Minimum cumulative energy (Wh) a circuit must have delivered before tripped alerts fire.
@@ -326,10 +330,22 @@ class SPANCircuitMonitor:
                     and circuit.cumulative_energy_wh >= MINIMUM_LOADED_ENERGY_WH):
                 if circuit.zero_since is None:
                     circuit.zero_since = now
-                elif (
-                    not circuit.alerted
-                    and (now - circuit.zero_since) > TRIPPED_BREAKER_THRESHOLD_SECONDS
-                ):
+                elif not circuit.alerted:
+                    # NM Cycle A A1: rung-2-ready knob (default 900s).
+                    from ..const import (
+                        CONF_TRIPPED_BREAKER_ZERO_WINDOW_S,
+                        DEFAULT_TRIPPED_BREAKER_ZERO_WINDOW_S,
+                    )
+                    from ._nm_cycle_a import nm_cycle_a_knob
+                    window_s = nm_cycle_a_knob(
+                        self.hass,
+                        CONF_TRIPPED_BREAKER_ZERO_WINDOW_S,
+                        DEFAULT_TRIPPED_BREAKER_ZERO_WINDOW_S,
+                    )
+                    if (now - circuit.zero_since) <= window_s:
+                        # not yet — record and continue
+                        circuit.last_power = power
+                        continue
                     anomaly = {
                         "type": "tripped_breaker",
                         "circuit": circuit.friendly_name,
