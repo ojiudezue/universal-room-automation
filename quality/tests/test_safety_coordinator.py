@@ -1490,9 +1490,19 @@ class TestNMCycleAFixups:
         assert len(high) == 0, "H1: outdoor humidity must never emit HIGH_HUMIDITY"
 
     def _seed_swing_rate(self, coord, entity_id, now, start_pct, end_pct):
-        """Feed the rate detector two readings 30 min apart so get_rate returns delta."""
-        coord._rate_detector.record(entity_id, now - timedelta(minutes=31), start_pct)
+        """Feed the rate detector two readings exactly one full window apart.
+
+        WINDOW_MINUTES=30: a reading older than now-30min falls OUTSIDE the
+        window and get_rate returns None (the original 31-min seed made the
+        H2 test tautological — it passed with the room-type gate removed).
+        Seed at exactly the window boundary so the pair spans
+        MIN_WINDOW_SECONDS and get_rate returns the real delta.
+        """
+        coord._rate_detector.record(entity_id, now - timedelta(minutes=30), start_pct)
         coord._rate_detector.record(entity_id, now, end_pct)
+        assert coord._rate_detector.get_rate(entity_id, now) is not None, (
+            "fixture self-check: seeded readings must produce a rate"
+        )
 
     def _force_rate(self, coord, rate_value):
         """Stub RateOfChangeDetector.get_rate to return a fixed rate for this coord."""
