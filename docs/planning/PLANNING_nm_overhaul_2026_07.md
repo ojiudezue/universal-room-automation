@@ -17,6 +17,8 @@
 1b. **Post-upgrade live-channel test authorization (operator, 2026-07-20):** transport pipes pre-validated this date (BlueBubbles iMessage + WhatsApp to +14258299520, notify.madronehapushover — all delivered). Filling these targets is authorized ONLY as part of post-Cycle-C autonomous validation: a small, clearly-labeled test send per channel (iMessage first — operator primary), then the live handover. Not before.
 2. The minimal dry-run gate (`CONF_NM_DRY_RUN`) ships in **Cycle B** (B0), not Cycle C, because Cycle B's live validation fires synthetic CRITICALs through the real send path — safe only with an in-code short-circuit at every `hass.services.async_call` site in the emit path. Cycle C builds the full routing/audit UX on top.
 
+**Product-surface directive (operator, 2026-07-20):** *"We need reasonable volume reduction knobs. This is meant to be opened to more people."* NM noise thresholds are PRODUCT SURFACE for other households, not house-tuned constants: severity ladders (humidity/CO2/TVOC), the breaker zero-window + severity, and the sensor-exclusion blocklist contents are rung-2 options-flow knobs with this house's data-fitted values as documented defaults. Rung 1 is reserved for structural mechanisms only. Cycle B's per-recipient token-bucket capacities (rung 3) are the top-level volume governor for multi-household use.
+
 **Minimal-deferral rule:** Any deliverable deferred requires a written justification and forward-tracking home in the cycle's plan-completion accounting. Silent drops prohibited.
 
 **Live-exercise posture:** NM in de-facto observe mode (`CONF_NM_ENABLED=true` + blank per-person targets). Combined with the B0 dry-run gate, two independent safety layers during the pipeline.
