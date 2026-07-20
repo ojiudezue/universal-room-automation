@@ -174,10 +174,17 @@ NUMERIC_THRESHOLDS: dict[str, dict[Severity, float]] = {
     HazardType.HIGH_CO2: {
         Severity.HIGH: 2500.0,
         Severity.MEDIUM: 1500.0,
-        Severity.LOW: 1000.0,
+        # NM Cycle A A5: LOW is now LOG-ONLY (see _handle_numeric_hazard).
+        # Default 1200 = 2026-07-20 Study A CO2 p90; runtime override via
+        # CONF_CO2_LOG_ONLY_CEILING_PPM.
+        Severity.LOW: 1200.0,
     },
     HazardType.HIGH_TVOC: {
-        Severity.HIGH: 1000.0,
+        # NM Cycle A A5: HIGH raised to 1500 (above observed Master Bath
+        # max=1244). MEDIUM/LOW unchanged — MEDIUM is now the sustained-
+        # window rung (30-min above 500 → HIGH). Absolute 1500 fires
+        # immediately.
+        Severity.HIGH: 1500.0,
         Severity.MEDIUM: 500.0,
         Severity.LOW: 250.0,
     },
@@ -195,11 +202,20 @@ NUMERIC_THRESHOLDS: dict[str, dict[Severity, float]] = {
 
 # Room-type humidity thresholds
 # {room_type: {"low": threshold, "medium": threshold, "high": threshold, "window_hours": hours}}
+# NM Cycle A A4: "normal" values are DEFAULTS — runtime lookup via
+# _resolve_humidity_thresholds() honors CoordinatorManager options overrides
+# (CONF_HUMIDITY_NORMAL_*_PCT). The "low" rung is now LOG-ONLY: crossing
+# it starts the sustained-window clock but does NOT emit an NM hazard.
+# Hazard emission requires reaching MEDIUM or HIGH ceilings sustained.
 HUMIDITY_THRESHOLDS: dict[str, dict[str, float]] = {
-    # v3.6.0-c2.6: raised normal/basement thresholds to reduce false positives
-    "normal": {"low": 70.0, "medium": 80.0, "high": 90.0, "window_hours": 2.0},
+    # A4 defaults 78/85/92 fitted to 2026-07-20 audit — see const.py DEFAULT_HUMIDITY_NORMAL_*
+    "normal": {"low": 78.0, "medium": 85.0, "high": 92.0, "window_hours": 2.0},
     "bathroom": {"low": 80.0, "medium": 85.0, "high": 90.0, "window_hours": 4.0},
     "basement": {"low": 65.0, "medium": 75.0, "high": 85.0, "window_hours": 2.0},
+    # A4: outdoor rooms (patios, decks, screened porches) never emit humidity
+    # hazards — outdoor RH tracks weather, not indoor moisture management.
+    # Sentinel entry consulted by _handle_humidity for a fast early-return.
+    "outdoor": {"low": 200.0, "medium": 200.0, "high": 200.0, "window_hours": 999.0},
 }
 
 # Low humidity thresholds (universal)
@@ -644,6 +660,8 @@ class SafetyCoordinator(BaseCoordinator):
 
         # Sustained humidity tracking: entity_id -> first_above_threshold_time
         self._humidity_above_since: dict[str, datetime] = {}
+        # NM Cycle A A5: sustained TVOC tracking (mirrors humidity mechanism).
+        self._tvoc_above_since: dict[str, datetime] = {}
         # v3.6.0-c2.6: Track whether we already fired a hazard for this sustained period
         # Prevents repeated hazard creation on every state change after window expires
         self._humidity_hazard_fired: set[str] = set()  # entity_ids with active fired hazard
@@ -905,7 +923,32 @@ class SafetyCoordinator(BaseCoordinator):
             CONF_GLOBAL_HUMIDITY_SENSORS, ENTRY_TYPE_COORDINATOR_MANAGER,
         )
 
-        seen_entity_ids: set[str] = set()
+        # NM Cycle A A5: safety-discovery blocklist. Mechanism is rung-1;
+        # contents are rung-2-ready (CONF_SAFETY_DISCOVERY_BLOCKLIST) so
+        # other households can exclude their own oddball sensors without a
+        # code change. Applied uniformly to both room-config and global-
+        # config discovery paths below.
+        from ..const import (
+            CONF_SAFETY_DISCOVERY_BLOCKLIST,
+            DEFAULT_SAFETY_DISCOVERY_BLOCKLIST,
+        )
+        from ._nm_cycle_a import nm_cycle_a_knob
+        blocklist_seq = nm_cycle_a_knob(
+            self.hass,
+            CONF_SAFETY_DISCOVERY_BLOCKLIST,
+            DEFAULT_SAFETY_DISCOVERY_BLOCKLIST,
+        )
+        blocklist: set[str] = set(blocklist_seq) if blocklist_seq else set()
+        if blocklist:
+            _LOGGER.info(
+                "Safety discovery: blocklist active (%d entries): %s",
+                len(blocklist), sorted(blocklist),
+            )
+        # Pre-seed `seen_entity_ids` with the blocklist so ALL downstream
+        # discovery loops skip them uniformly (both `if temp_id not in
+        # seen_entity_ids` and the global-loop `if entity_id in
+        # seen_entity_ids: continue` short-circuits).
+        seen_entity_ids: set[str] = set(blocklist)
         room_count = 0
 
         # ── Source 1: URA room-configured sensors ──
@@ -1435,6 +1478,65 @@ class SafetyCoordinator(BaseCoordinator):
         hazard_type: HazardType,
     ) -> Hazard | None:
         """Handle a numeric sensor exceeding thresholds."""
+        # NM Cycle A A5: CO2 LOW is log-only (occupied-room noise floor).
+        # Runtime knob CONF_CO2_LOG_ONLY_CEILING_PPM adjusts the LOW ceiling.
+        if hazard_type == HazardType.HIGH_CO2:
+            from ..const import (
+                CONF_CO2_LOG_ONLY_CEILING_PPM,
+                DEFAULT_CO2_LOG_ONLY_CEILING_PPM,
+            )
+            from ._nm_cycle_a import nm_cycle_a_knob
+            co2_low = float(nm_cycle_a_knob(
+                self.hass, CONF_CO2_LOG_ONLY_CEILING_PPM,
+                DEFAULT_CO2_LOG_ONLY_CEILING_PPM,
+            ))
+            # Substitute the LOW threshold with the operator-tunable ceiling.
+            # If value is below MEDIUM (1500) but above co2_low, it's log-only.
+            if value < 1500.0 and value >= co2_low:
+                location = self._sensor_locations.get(entity_id, "unknown")
+                _LOGGER.info(
+                    "CO2 log-only rung: %s at %s ppm (below MEDIUM 1500)",
+                    location, value,
+                )
+                # Clear any stale LOW hazard so a resolved bump doesn't linger.
+                key = f"{hazard_type}:{location}"
+                self._active_hazards.pop(key, None)
+                return None
+        # NM Cycle A A5: TVOC sustained-30min-or-1500 gating.
+        if hazard_type == HazardType.HIGH_TVOC:
+            from ..const import (
+                CONF_TVOC_ABSOLUTE_HIGH_PPB,
+                CONF_TVOC_SUSTAINED_S,
+                DEFAULT_TVOC_ABSOLUTE_HIGH_PPB,
+                DEFAULT_TVOC_SUSTAINED_S,
+            )
+            from ._nm_cycle_a import nm_cycle_a_knob
+            abs_high = float(nm_cycle_a_knob(
+                self.hass, CONF_TVOC_ABSOLUTE_HIGH_PPB,
+                DEFAULT_TVOC_ABSOLUTE_HIGH_PPB,
+            ))
+            sustained_s = float(nm_cycle_a_knob(
+                self.hass, CONF_TVOC_SUSTAINED_S,
+                DEFAULT_TVOC_SUSTAINED_S,
+            ))
+            medium_thresh = NUMERIC_THRESHOLDS[HazardType.HIGH_TVOC][Severity.MEDIUM]
+            now_ts = dt_util.utcnow()
+            # Absolute HIGH bypass — immediate fire.
+            if value >= abs_high:
+                pass  # fall through to normal severity classification
+            elif value >= medium_thresh:
+                # Start / continue sustained-above-MEDIUM tracking.
+                first_at = self._tvoc_above_since.get(entity_id)
+                if first_at is None:
+                    self._tvoc_above_since[entity_id] = now_ts
+                    return None  # hold — not yet sustained
+                elapsed = (now_ts - first_at).total_seconds()
+                if elapsed < sustained_s:
+                    return None  # still within grace window
+                # Sustained — proceed as HIGH severity.
+            else:
+                # Below MEDIUM — clear sustained tracker.
+                self._tvoc_above_since.pop(entity_id, None)
         severity = self._classify_severity(hazard_type, value)
         if severity is None:
             # Below all thresholds — clear any active hazard
@@ -1604,13 +1706,91 @@ class SafetyCoordinator(BaseCoordinator):
         location = self._sensor_locations.get(entity_id, "unknown")
         room_type = self._sensor_room_types.get(entity_id, "normal")
 
+        # NM Cycle A A4: outdoor rooms are excluded from humidity ladder —
+        # patio/deck RH tracks weather and firing indoor-moisture hazards
+        # against outdoor sensors is pure noise (77% patio p50 was pre-A4
+        # baseline). Discovery-time classification via CONF_ROOM_TYPE.
+        if room_type == "outdoor":
+            return hazards
+
         # Determine effective room type for thresholds
         if room_type == "bathroom":
             thresholds = HUMIDITY_THRESHOLDS["bathroom"]
         elif room_type == "basement":
             thresholds = HUMIDITY_THRESHOLDS["basement"]
         else:
-            thresholds = HUMIDITY_THRESHOLDS["normal"]
+            # NM Cycle A A4: honor operator overrides for the "normal" ladder.
+            from ..const import (
+                CONF_HUMIDITY_NORMAL_LOG_ONLY_PCT,
+                CONF_HUMIDITY_NORMAL_MEDIUM_PCT,
+                CONF_HUMIDITY_NORMAL_HIGH_PCT,
+                DEFAULT_HUMIDITY_NORMAL_LOG_ONLY_PCT,
+                DEFAULT_HUMIDITY_NORMAL_MEDIUM_PCT,
+                DEFAULT_HUMIDITY_NORMAL_HIGH_PCT,
+            )
+            from ._nm_cycle_a import nm_cycle_a_knob
+            thresholds = {
+                "low": float(nm_cycle_a_knob(
+                    self.hass, CONF_HUMIDITY_NORMAL_LOG_ONLY_PCT,
+                    DEFAULT_HUMIDITY_NORMAL_LOG_ONLY_PCT,
+                )),
+                "medium": float(nm_cycle_a_knob(
+                    self.hass, CONF_HUMIDITY_NORMAL_MEDIUM_PCT,
+                    DEFAULT_HUMIDITY_NORMAL_MEDIUM_PCT,
+                )),
+                "high": float(nm_cycle_a_knob(
+                    self.hass, CONF_HUMIDITY_NORMAL_HIGH_PCT,
+                    DEFAULT_HUMIDITY_NORMAL_HIGH_PCT,
+                )),
+                "window_hours": HUMIDITY_THRESHOLDS["normal"]["window_hours"],
+            }
+
+        # NM Cycle A A4: swing trigger — fast-rise below the sustained ceiling
+        # still emits MEDIUM. Consumes the existing rate detector's 30-min
+        # humidity rate (no new EMA state). Kill-switch: delta<=0 disables.
+        try:
+            from ..const import (
+                CONF_HUMIDITY_SWING_DELTA_PCT,
+                CONF_HUMIDITY_SWING_MIN_ABS_PCT,
+                DEFAULT_HUMIDITY_SWING_DELTA_PCT,
+                DEFAULT_HUMIDITY_SWING_MIN_ABS_PCT,
+            )
+            from ._nm_cycle_a import nm_cycle_a_knob
+            swing_delta = float(nm_cycle_a_knob(
+                self.hass, CONF_HUMIDITY_SWING_DELTA_PCT,
+                DEFAULT_HUMIDITY_SWING_DELTA_PCT,
+            ))
+            swing_floor = float(nm_cycle_a_knob(
+                self.hass, CONF_HUMIDITY_SWING_MIN_ABS_PCT,
+                DEFAULT_HUMIDITY_SWING_MIN_ABS_PCT,
+            ))
+            if swing_delta > 0 and value >= swing_floor:
+                rate = self._rate_detector.get_rate(entity_id, now)
+                # rate is delta over the 30-min window (already per-30-min)
+                if (rate is not None
+                        and rate >= swing_delta
+                        and entity_id not in self._humidity_hazard_fired
+                        and value < thresholds["high"]):
+                    hazards.append(
+                        Hazard(
+                            type=HazardType.HIGH_HUMIDITY,
+                            severity=Severity.MEDIUM,
+                            confidence=0.70,
+                            location=location,
+                            sensor_id=entity_id,
+                            value=value,
+                            threshold=swing_delta,
+                            detected_at=now,
+                            message=(
+                                f"Humidity swing in {location}: "
+                                f"+{rate:.0f}pp/30min (now {value}%)"
+                            ),
+                        )
+                    )
+                    # Mark fired so the sustained-window path doesn't double-emit.
+                    self._humidity_hazard_fired.add(entity_id)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("humidity swing check failed", exc_info=True)
 
         # High humidity check with sustained window enforcement
         if value >= thresholds["low"]:
@@ -1635,8 +1815,17 @@ class SafetyCoordinator(BaseCoordinator):
                         severity = Severity.MEDIUM
                         severity_key = "medium"
                     else:
-                        severity = Severity.LOW
-                        severity_key = "low"
+                        # NM Cycle A A4: below MEDIUM rung = log-only.
+                        # 78% for 2h is a housekeeping observation, not a
+                        # hazard. Skip Hazard emission; mark fired so the
+                        # sustained-window doesn't retrigger.
+                        _LOGGER.info(
+                            "Humidity log-only rung: %s at %s%% sustained "
+                            "%.1fh (below MEDIUM %s%%)",
+                            location, value, elapsed_hours,
+                            thresholds["medium"],
+                        )
+                        return hazards
 
                     hazards.append(
                         Hazard(
