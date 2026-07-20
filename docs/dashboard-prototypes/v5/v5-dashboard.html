@@ -1,0 +1,567 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>URA &middot; Dashboard V &mdash; Full Tab Set</title>
+<style>
+  :root{
+    --bg:#141312; --tile:#1d1c1a; --tile-hi:#282623; --line:#33302c;
+    --txt:#f0eeea; --txt2:#a8a49c; --txt3:#6f6b64;
+    --ember:#ff7a59; --honey:#ffb547; --sage:#8fbf8f; --sky:#8fb8c9; --alert:#ff5c4d;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html{font-feature-settings:"kern" 1;text-rendering:optimizeLegibility}
+  body{
+    background:var(--bg);color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
+    max-width:480px;margin:0 auto;min-height:100vh;
+    padding:env(safe-area-inset-top) 0 calc(84px + env(safe-area-inset-bottom));
+  }
+  .num{font-variant-numeric:tabular-nums}
+
+  /* greeting = personalization + attention headline */
+  .greet{padding:20px 20px 4px}
+  .greet .row{display:flex;align-items:center;gap:9px}
+  .orb{width:13px;height:13px;border-radius:50%;background:var(--sage);box-shadow:0 0 0 5px rgba(143,191,143,.14)}
+  .greet .st{font-size:12px;font-weight:650;letter-spacing:0.08em;color:var(--txt3)}
+  .greet .st b{color:var(--txt2)}
+  .greet h1{font-size:23px;font-weight:750;letter-spacing:-0.02em;line-height:1.2;margin-top:10px;text-wrap:balance}
+  .greet h1 .warn{color:var(--ember)}
+  .greet h1 .good{color:var(--sage)}
+
+  /* people tier */
+  .people{display:flex;gap:8px;overflow-x:auto;padding:14px 16px 2px;scrollbar-width:none}
+  .people::-webkit-scrollbar{display:none}
+  .p{flex:none;display:flex;align-items:center;gap:9px;
+    background:var(--tile);border-radius:24px;padding:7px 14px 7px 7px;min-height:48px;
+    border:1px solid transparent;cursor:pointer}
+  .p .av{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;
+    font-size:14px;font-weight:750;color:#141312}
+  .p .who{display:flex;flex-direction:column}
+  .p .nm{font-size:13.5px;font-weight:700;line-height:1.1}
+  .p .loc{font-size:11px;color:var(--txt2)}
+  .p.home{border-color:rgba(143,191,143,.35)}
+  .p.away{opacity:.55}
+  .p.away .av{background:var(--tile-hi);color:var(--txt3)}
+
+  /* tiles */
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;padding:0 14px}
+  .tier-label{font-size:10px;font-weight:650;color:var(--txt3);text-transform:uppercase;letter-spacing:0.12em;padding:14px 20px 6px}
+  .t{background:var(--tile);border-radius:16px;cursor:pointer;display:flex;flex-direction:column;
+    justify-content:center;align-items:center;gap:4px;min-height:74px;padding:10px 4px;text-align:center;
+    transition:transform .1s;border:1px solid transparent}
+  .t:active{transform:scale(.96)}
+  .t .v{font-size:22px;font-weight:750;letter-spacing:-0.02em;line-height:1}
+  .t .v small{font-size:12px;font-weight:600;color:var(--txt2)}
+  .t .k{font-size:9.5px;color:var(--txt3);text-transform:uppercase;letter-spacing:0.07em}
+  .t.hot .v{color:var(--honey)}
+  .t.ok .v{color:var(--sage)}
+  .t.cool .v{color:var(--sky)}
+  .t.bad .v{color:var(--alert)}
+  .t .v.calm{font-size:14.5px;padding-top:3px}
+  .t.w{grid-column:span 2;flex-direction:row;justify-content:space-between;padding:12px 15px;text-align:left;gap:10px}
+  .t.w .tx{display:flex;flex-direction:column;gap:3px;min-width:0}
+  .t.w .h{font-size:13.5px;font-weight:700;line-height:1.15}
+  .t.w .s{font-size:11px;color:var(--txt3)}
+  .t.w .n{font-size:16px;font-weight:750;white-space:nowrap}
+  .t.attn{grid-column:span 4;background:linear-gradient(120deg,#33231a,#2a1c15);border-color:#4a2f1f;
+    flex-direction:row;justify-content:space-between;padding:12px 16px;text-align:left;min-height:62px}
+  .t.attn .go{color:var(--ember);font-size:13px;font-weight:750;white-space:nowrap}
+  .t.z{grid-column:span 2;aspect-ratio:1.6;align-items:flex-start;justify-content:space-between;padding:13px 15px;text-align:left}
+  .t.z.occ{border-color:rgba(255,122,89,.5)}
+  .t.z .top{display:flex;justify-content:space-between;width:100%;align-items:baseline}
+  .t.z .zn{font-size:15.5px;font-weight:750}
+  .t.z .oc{font-size:12.5px;font-weight:750;color:var(--ember)}
+  .t.z .mid{font-size:24px;font-weight:750;letter-spacing:-0.02em}
+  .t.z .mid small{font-size:12px;font-weight:550;color:var(--txt2)}
+  .t.z .st{font-size:10.5px;color:var(--txt2);line-height:1.3}
+  .t.z .st b{color:var(--honey);font-weight:650}
+
+  /* room cards (Rooms tab) */
+  .t.room{grid-column:span 2;min-height:64px;flex-direction:row;justify-content:space-between;
+    padding:11px 13px;text-align:left;gap:8px}
+  .t.room.occ{border-color:rgba(255,122,89,.5)}
+  .t.room .rl{display:flex;flex-direction:column;gap:3px;min-width:0}
+  .t.room .rn{font-size:13px;font-weight:700;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .t.room .rs{font-size:10.5px;color:var(--txt3)}
+  .t.room .rs b{color:var(--honey);font-weight:650}
+  .t.room .rr{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+  .t.room .rt{font-size:15px;font-weight:750;white-space:nowrap}
+  .t.room .rt small{font-size:10.5px;font-weight:550;color:var(--txt2)}
+  .t.room .glyphs{font-size:11px;letter-spacing:0.14em;color:var(--txt3);white-space:nowrap}
+  .t.room .glyphs .on{color:var(--honey)}
+  .t.room .glyphs .fan{color:var(--sky)}
+
+  /* rows (Safety / System lists) */
+  .t.li{grid-column:span 4;min-height:52px;flex-direction:row;justify-content:space-between;
+    padding:11px 15px;text-align:left;gap:10px}
+  .t.li .tx{display:flex;flex-direction:column;gap:2px;min-width:0}
+  .t.li .h{font-size:13px;font-weight:700;line-height:1.2}
+  .t.li .s{font-size:11px;color:var(--txt3)}
+  .t.li .n{font-size:12.5px;font-weight:750;white-space:nowrap}
+  .st-ok{color:var(--sage)} .st-warn{color:var(--honey)} .st-bad{color:var(--alert)} .st-dim{color:var(--txt3)} .st-cool{color:var(--sky)}
+
+  /* meters */
+  .meter{width:100%;height:5px;border-radius:3px;background:var(--tile-hi);overflow:hidden;margin-top:6px}
+  .meter i{display:block;height:100%;border-radius:3px;background:var(--sage)}
+
+  /* nav */
+  nav{position:fixed;left:0;right:0;bottom:0;max-width:480px;margin:0 auto;
+    background:rgba(24,23,21,.95);backdrop-filter:blur(16px);border-top:1px solid var(--line);
+    display:flex;padding:8px 0 calc(6px + env(safe-area-inset-bottom));z-index:20}
+  nav a{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;
+    color:var(--txt3);text-decoration:none;min-height:44px;justify-content:center;position:relative;cursor:pointer}
+  nav a.sel{color:var(--ember)}
+  nav .g{font-size:20px;line-height:1}
+  .badge{position:absolute;top:2px;right:calc(50% - 18px);
+    min-width:16px;height:16px;border-radius:8px;background:var(--alert);color:#fff;
+    font-size:10px;font-weight:750;display:grid;place-items:center;padding:0 4px}
+
+  main section{display:none}
+  main section.sel{display:block}
+
+  /* desktop: nav becomes a top bar, column widens, grids gain columns */
+  @media (min-width:900px){
+    body{max-width:1060px;padding:64px 24px 40px}
+    nav{top:0;bottom:auto;max-width:none;border-top:none;border-bottom:1px solid var(--line);
+      padding:6px 0;flex-direction:row;justify-content:center;gap:6px}
+    nav a{flex:none;flex-direction:row;gap:7px;font-size:12.5px;font-weight:650;padding:6px 16px;border-radius:20px}
+    nav a.sel{background:var(--tile)}
+    nav .g{font-size:15px}
+    .badge{position:static;margin-left:2px}
+    .greet h1{font-size:27px}
+    .grid{grid-template-columns:repeat(8,1fr)}
+    .t.attn{grid-column:span 8}
+    .t.li{grid-column:span 4}
+    .t.z{aspect-ratio:auto;min-height:118px}
+    .people{flex-wrap:wrap;overflow:visible}
+  }
+  @media (prefers-reduced-motion: reduce){*{transition:none !important}}
+</style>
+</head>
+<body>
+
+<main id="main"></main>
+
+<nav id="nav"></nav>
+
+<script>
+"use strict";
+/* ============================================================
+   URA placeholder data — single object so live wiring later is
+   mechanical (each leaf maps to an entity/attribute read).
+   Design prototype only; nothing is wired.
+   ============================================================ */
+const URA = {
+  meta: {
+    uraVersion: "5.19.0", haVersion: "2026.7.2",
+    houseState: "HOME", sleepEta: "~10:40",
+    greetName: "Oji",
+    headline: { pre: "Hi Oji — ", warn: "something’s up in the Receiving Room.", post: " Otherwise a calm evening." }
+  },
+
+  people: [
+    { name: "Oji",    initial: "O", home: true,  loc: "Study A · 2 h", color: "var(--honey)" },
+    { name: "Ezinne", initial: "E", home: true,  loc: "Living Room",        color: "var(--sage)"  },
+    { name: "Jaya",   initial: "J", home: false, loc: "away · 3:40 pm" },
+    { name: "Ziri",   initial: "Z", home: false, loc: "away · school"  }
+  ],
+
+  attention: [
+    { title: "Receiving Room — lit & empty", sub: "2 lamps · 41 min · ~9¢/h", action: "Lights off →" }
+  ],
+
+  house: { batteryPct: 80, gridKw: -0.4, lightsOn: 6, toPeakEnd: "1:18" },
+
+  coordinators: { energy: "hold 80", hvac: "4 zones", safety: "clear", security: "armed" },
+
+  nowNext: [
+    { h: "Covering peak from battery",       s: "nothing drawn from grid",  n: "$1.85",  cls: "st-ok"  },
+    { h: "Pre-cooling Master Suite",         s: "for 10 pm bedtime",        n: "→21.5°", cls: "st-cool" },
+    { h: "9 PM — battery releases",     s: "peak ends",                n: "80→30%", cls: "" },
+    { h: "10:40 — house expects SLEEP", s: "fans steady · lights down", n: "est.", cls: "st-dim" }
+  ],
+
+  homeZones: [
+    { name: "Entertainment", occ: 2, mid: "22.4°", midSmall: " · 51%", st: "<b>2 of 3 lit</b> · fan on" },
+    { name: "Master Suite",  occ: 1, mid: "22.1°", midSmall: " → 21.5°", st: "pre-cooling · <b>1 lit</b>" },
+    { name: "Back Hallway",  occ: 0, mid: "23.2°", midSmall: "", st: "kitchen quiet · lights off in 4 min" },
+    { name: "Upstairs",      occ: 0, mid: "22.6°", midSmall: "", st: "dark · resting since 3 pm" }
+  ],
+
+  /* Rooms tab: 40 rooms, zone-grouped. light/fan/climate: "on" | "off" | null (room has none) */
+  roomZones: [
+    { zone: "Master Suite", rooms: [
+      { name: "Master Bedroom",  occ: true,  temp: 22.1, hum: 48, light: "off", fan: "on",  note: "pre-cooling to 21.5°" },
+      { name: "Master Bathroom", occ: false, temp: 22.8, hum: 55, light: "off", fan: "off", note: "exhaust idle" },
+      { name: "Master Closet",   occ: false, temp: 22.4, hum: 47, light: "off", fan: null,  note: "" },
+      { name: "Study A",         occ: true,  temp: 22.9, hum: 46, light: "on",  fan: "on",  note: "Oji · 2 h" },
+      { name: "Study B",         occ: false, temp: 23.1, hum: 45, light: "off", fan: "off", note: "" }
+    ]},
+    { zone: "Entertainment", rooms: [
+      { name: "Living Room",    occ: true,  temp: 22.4, hum: 51, light: "on",  fan: "on",  note: "Ezinne · TV on" },
+      { name: "Media Room",     occ: true,  temp: 22.6, hum: 52, light: "on",  fan: "off", note: "dimmed 30%" },
+      { name: "Playroom",       occ: false, temp: 22.9, hum: 50, light: "off", fan: "off", note: "" },
+      { name: "Receiving Room", occ: false, temp: 23.0, hum: 49, light: "on",  fan: null,  note: "lit & empty · 41 min" },
+      { name: "Bar",            occ: false, temp: 22.7, hum: 50, light: "off", fan: null,  note: "" },
+      { name: "Sunroom",        occ: false, temp: 24.1, hum: 53, light: "off", fan: "off", note: "warm · blinds down" }
+    ]},
+    { zone: "Back Hallway", rooms: [
+      { name: "Kitchen",      occ: false, temp: 23.4, hum: 52, light: "off", fan: "off", note: "quiet since 7:30" },
+      { name: "Pantry",       occ: false, temp: 23.0, hum: 50, light: "off", fan: null,  note: "" },
+      { name: "Dining Room",  occ: false, temp: 23.1, hum: 51, light: "off", fan: null,  note: "" },
+      { name: "Back Hallway", occ: false, temp: 23.2, hum: 50, light: "on",  fan: null,  note: "lights off in 4 min" },
+      { name: "Mudroom",      occ: false, temp: 23.6, hum: 54, light: "off", fan: null,  note: "" },
+      { name: "AV Closet",    occ: false, temp: 25.2, hum: 44, light: "off", fan: "on",  note: "vent fan · rack 25°" }
+    ]},
+    { zone: "Upstairs", rooms: [
+      { name: "Upstairs Hall", occ: false, temp: 22.6, hum: 49, light: "off", fan: null,  note: "dark since 3 pm" },
+      { name: "Bedroom 2",     occ: false, temp: 22.5, hum: 48, light: "off", fan: "off", note: "" },
+      { name: "Bedroom 3",     occ: false, temp: 22.7, hum: 48, light: "off", fan: "off", note: "" },
+      { name: "Bedroom 4",     occ: false, temp: 22.8, hum: 47, light: "off", fan: "off", note: "" },
+      { name: "Bathroom 2",    occ: false, temp: 22.9, hum: 53, light: "off", fan: "off", note: "" },
+      { name: "Bathroom 3",    occ: false, temp: 22.8, hum: 52, light: "off", fan: "off", note: "" },
+      { name: "Exercise Room", occ: false, temp: 22.2, hum: 46, light: "off", fan: "off", note: "" },
+      { name: "Loft",          occ: false, temp: 23.0, hum: 47, light: "off", fan: "off", note: "" }
+    ]},
+    { zone: "Front of House", rooms: [
+      { name: "Foyer",         occ: false, temp: 23.0, hum: 50, light: "off", fan: null, note: "" },
+      { name: "Front Hallway", occ: false, temp: 23.1, hum: 50, light: "off", fan: null, note: "" },
+      { name: "Powder Room",   occ: false, temp: 23.2, hum: 51, light: "off", fan: "off", note: "" },
+      { name: "Coat Closet",   occ: false, temp: 22.9, hum: 49, light: "off", fan: null, note: "" },
+      { name: "Front Porch",   occ: false, temp: 27.3, hum: 61, light: "off", fan: null, note: "dusk lights at 8:31" },
+      { name: "Garage",        occ: false, temp: 26.8, hum: 58, light: "off", fan: null, note: "EV plugged in" }
+    ]},
+    { zone: "Guest Wing", rooms: [
+      { name: "Guest Bedroom",  occ: false, temp: 22.7, hum: 49, light: "off", fan: "off", note: "" },
+      { name: "Guest Bathroom", occ: false, temp: 22.9, hum: 52, light: "off", fan: "off", note: "" },
+      { name: "Guest Sitting",  occ: false, temp: 22.8, hum: 49, light: "off", fan: "off", note: "" },
+      { name: "Guest Closet",   occ: false, temp: 22.6, hum: 48, light: "off", fan: null,  note: "" }
+    ]},
+    { zone: "Utility & Outdoors", rooms: [
+      { name: "Laundry",        occ: false, temp: 23.8, hum: 56, light: "off", fan: null, note: "" },
+      { name: "Utility Room",   occ: false, temp: 24.2, hum: 51, light: "off", fan: null, note: "" },
+      { name: "Server Closet",  occ: false, temp: 25.6, hum: 43, light: "off", fan: "on", note: "vent fan" },
+      { name: "Back Porch",     occ: false, temp: 27.1, hum: 60, light: "off", fan: "off", note: "" },
+      { name: "Pool Equipment", occ: false, temp: 27.9, hum: 62, light: "off", fan: null, note: "pump off-peak sched" }
+    ]}
+  ],
+
+  energy: {
+    battery: { socPct: 80, strategy: "self_consumption", mode: "hold", reserveFloor: 30, kw: -2.1, note: "holding 80% through peak · releases 9 pm" },
+    tou: { period: "on_peak", until: "9:00 pm", rate: "48¢/kWh", next: "off_peak · 12¢" },
+    solar: { kw: 0.6, todayKwh: 41.2, note: "evening tail" },
+    grid: { kw: -0.4, todayKwh: 3.1, note: "exporting slightly" },
+    houseLoad: { kw: 2.3 },
+    evse: { plan: "hold_only", state: "paused", evSocPct: 62, note: "waits for off_peak · must-start-by 1:10 am" },
+    baec: { state: "night_gate", blind: false, note: "battery-aware EV charging · kill switch off" },
+    savedToday: "$4.12"
+  },
+
+  climate: {
+    systemMode: "cool", houseTarget: 22.5,
+    zones: [
+      { name: "Master Suite Zone 1",  preset: "pre-cool", temp: 22.1, target: 21.5, hum: 48, hvac: "cooling", note: "for 10 pm bedtime" },
+      { name: "Entertainment Zone 2", preset: "home",     temp: 22.4, target: 22.5, hum: 51, hvac: "idle",    note: "at setpoint" },
+      { name: "Back of House Zone 3", preset: "eco",      temp: 23.2, target: 24.0, hum: 51, hvac: "idle",    note: "vacant · coasting" },
+      { name: "Upstairs Zone 4",      preset: "away",     temp: 22.6, target: 25.0, hum: 49, hvac: "off",     note: "resting since 3 pm" }
+    ],
+    extremes: { warmest: "Pool Equipment · 27.9°", coolest: "Master Bedroom · 22.1°", humid: "Pool Equipment · 62%" }
+  },
+
+  safety: {
+    hazards: [
+      { h: "Smoke & CO", s: "14 detectors · all reporting", n: "clear", cls: "st-ok" },
+      { h: "Water leak", s: "6 sensors · laundry, baths, utility", n: "dry", cls: "st-ok" },
+      { h: "Weather",    s: "NWS feed · no active alerts", n: "quiet", cls: "st-ok" }
+    ],
+    doors: [
+      { h: "Front Door",   s: "locked · closed 6:12 pm", n: "locked", cls: "st-ok" },
+      { h: "Back Door",    s: "locked · closed 7:48 pm", n: "locked", cls: "st-ok" },
+      { h: "Garage Door",  s: "closed · EV inside",      n: "closed", cls: "st-ok" },
+      { h: "Sunroom Slider", s: "unlocked · closed",     n: "unlocked", cls: "st-warn" }
+    ],
+    cameras: [
+      { h: "Driveway",   s: "person events feed presence · motion ignored", n: "idle", cls: "st-dim" },
+      { h: "Back Yard",  s: "person events only",  n: "idle", cls: "st-dim" },
+      { h: "Playroom",   s: "camera presence disabled for this room", n: "opt-out", cls: "st-dim" },
+      { h: "Front Porch", s: "last person event 5:56 pm · delivery", n: "1 today", cls: "st-cool" }
+    ],
+    security: { armState: "armed_home", note: "auto-arms AWAY when last person leaves" }
+  },
+
+  system: {
+    coordinators: [
+      { h: "Presence",    s: "40 rooms · substrate healthy · 0 flaps this hour", n: "ok", cls: "st-ok" },
+      { h: "Energy",      s: "hold 80 · TOU on_peak · write-verify clean",       n: "ok", cls: "st-ok" },
+      { h: "HVAC",        s: "4 zones · 1 pre-cooling",                              n: "ok", cls: "st-ok" },
+      { h: "Safety",      s: "all channels reporting",                                    n: "ok", cls: "st-ok" },
+      { h: "Security",    s: "armed_home · 4 locks tracked",                         n: "ok", cls: "st-ok" },
+      { h: "Diagnostics", s: "1 open finding · Receiving Room lit & empty",          n: "1",  cls: "st-warn" }
+    ],
+    fanRecheck: [
+      { h: "Master Bedroom fan recheck", s: "Mode 2 · armed · 0 pauses today", n: "0", cls: "st-dim" },
+      { h: "Living Room fan recheck",    s: "Mode 2 · 1 pause · recheck kept occupied", n: "1", cls: "st-ok" }
+    ],
+    writeVerify: [
+      { h: "Battery reserve write-verify", s: "last verify 8:05 pm · wrote 80 · read 80", n: "match", cls: "st-ok" },
+      { h: "EVSE drain-precedence floor",  s: "DP floor 30 · verified after last cycle",      n: "match", cls: "st-ok" }
+    ],
+    db: { queueDepth: 0, rowsToday: 1184, note: "write queue idle" },
+    versions: [
+      { h: "URA",           s: "custom integration", n: "v5.19.0", cls: "" },
+      { h: "Home Assistant", s: "core",              n: "2026.7.2", cls: "" },
+      { h: "Last restart",  s: "deploy v5.19.0",     n: "3 d ago",  cls: "st-dim" }
+    ]
+  }
+};
+
+/* ============================================================
+   Rendering
+   ============================================================ */
+const TABS = [
+  { id: "home",    label: "Home",    glyph: "⌂" },
+  { id: "rooms",   label: "Rooms",   glyph: "☖" },
+  { id: "energy",  label: "Energy",  glyph: "⚡︎" },
+  { id: "climate", label: "Climate", glyph: "❄︎" },
+  { id: "safety",  label: "Safety",  glyph: "◉" },
+  { id: "system",  label: "System",  glyph: "≡" }
+];
+
+function el(html) { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content; }
+function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;"); }
+
+function greet(stateLine, h1html) {
+  return '<div class="greet"><div class="row"><span class="orb"></span>' +
+    '<span class="st">' + stateLine + '</span></div><h1>' + h1html + '</h1></div>';
+}
+function tierLabel(t) { return '<div class="tier-label">' + t + '</div>'; }
+function liRow(r) {
+  return '<div class="t li"><div class="tx"><div class="h">' + r.h + '</div>' +
+    '<div class="s num">' + r.s + '</div></div><span class="n num ' + (r.cls || "") + '">' + r.n + '</span></div>';
+}
+function wideTile(r) {
+  return '<div class="t w"><div class="tx"><div class="h">' + r.h + '</div><div class="s">' + r.s + '</div></div>' +
+    '<div class="n ' + (r.cls || "") + '">' + r.n + '</div></div>';
+}
+
+/* ---------- Home (faithful to the approved People artifact) ---------- */
+function renderHome() {
+  const m = URA.meta, hl = m.headline;
+  let h = greet(
+    "HOME · <b class=\"num\">SLEEP " + m.sleepEta + "</b>",
+    esc(hl.pre) + '<span class="warn">' + esc(hl.warn) + "</span>" + esc(hl.post)
+  );
+
+  h += '<div class="people">';
+  for (const p of URA.people) {
+    h += '<div class="p ' + (p.home ? "home" : "away") + '"><div class="av"' +
+      (p.color ? ' style="background:' + p.color + '"' : "") + ">" + p.initial + "</div>" +
+      '<div class="who"><span class="nm">' + esc(p.name) + '</span><span class="loc">' + p.loc + "</span></div></div>";
+  }
+  h += "</div>";
+
+  h += '<div class="grid" style="padding-top:12px">';
+  for (const a of URA.attention) {
+    h += '<div class="t attn"><div class="tx"><div class="h">' + a.title + '</div>' +
+      '<div class="s num">' + a.sub + '</div></div><span class="go">' + a.action + "</span></div>";
+  }
+  h += "</div>";
+
+  h += tierLabel("House");
+  h += '<div class="grid num">' +
+    '<div class="t ok"><div class="v">' + URA.house.batteryPct + "<small>%</small></div><div class=\"k\">Battery</div></div>" +
+    '<div class="t"><div class="v">' + (URA.house.gridKw < 0 ? "−" + Math.abs(URA.house.gridKw) : URA.house.gridKw) + "<small>kW</small></div><div class=\"k\">Grid</div></div>" +
+    '<div class="t hot"><div class="v">' + URA.house.lightsOn + '</div><div class="k">Lights on</div></div>' +
+    '<div class="t"><div class="v">' + URA.house.toPeakEnd + '</div><div class="k">To peak end</div></div></div>';
+
+  h += tierLabel("Coordinators");
+  const c = URA.coordinators;
+  h += '<div class="grid num">' +
+    '<div class="t ok"><div class="v calm">' + c.energy + '</div><div class="k">Energy</div></div>' +
+    '<div class="t"><div class="v calm">' + c.hvac + '</div><div class="k">HVAC</div></div>' +
+    '<div class="t ok"><div class="v calm">' + c.safety + '</div><div class="k">Safety</div></div>' +
+    '<div class="t ok"><div class="v calm">' + c.security + '</div><div class="k">Security</div></div></div>';
+
+  h += tierLabel("Now · Next");
+  h += '<div class="grid num">' + URA.nowNext.map(wideTile).join("") + "</div>";
+
+  h += tierLabel("Zones");
+  h += '<div class="grid num">';
+  for (const z of URA.homeZones) {
+    h += '<div class="t z' + (z.occ ? " occ" : "") + '"><div class="top"><span class="zn">' + esc(z.name) + "</span>" +
+      (z.occ ? '<span class="oc num">●' + z.occ + "</span>" : '<span class="oc" style="color:var(--txt3)">—</span>') +
+      '</div><div class="mid">' + z.mid + "<small>" + z.midSmall + '</small></div><div class="st">' + z.st + "</div></div>";
+  }
+  h += "</div>";
+  return h;
+}
+
+/* ---------- Rooms ---------- */
+function roomGlyphs(r) {
+  let g = "";
+  if (r.light !== null) g += '<span class="' + (r.light === "on" ? "on" : "") + '">○</span> ';
+  if (r.fan !== null)   g += '<span class="' + (r.fan === "on" ? "fan" : "") + '">✤</span> ';
+  return g ? '<span class="glyphs">' + g.trim() + "</span>" : "";
+}
+function renderRooms() {
+  const total = URA.roomZones.reduce((n, z) => n + z.rooms.length, 0);
+  const occ = URA.roomZones.reduce((n, z) => n + z.rooms.filter(r => r.occ).length, 0);
+  const lit = URA.roomZones.reduce((n, z) => n + z.rooms.filter(r => r.light === "on").length, 0);
+  let h = greet(
+    "ROOMS · <b class=\"num\">" + total + " TRACKED</b>",
+    '<span class="num">' + occ + "</span> occupied · <span class=\"num\">" + lit + "</span> lit · the rest are resting."
+  );
+  for (const z of URA.roomZones) {
+    const zo = z.rooms.filter(r => r.occ).length;
+    h += tierLabel(esc(z.zone) + (zo ? " · " + zo + " occupied" : ""));
+    h += '<div class="grid num">';
+    for (const r of z.rooms) {
+      const bits = [];
+      if (r.occ) bits.push("<b>occupied</b>");
+      if (r.note) bits.push(r.note);
+      if (!bits.length) bits.push(r.light === "on" ? "<b>lit</b>" : "quiet");
+      h += '<div class="t room' + (r.occ ? " occ" : "") + '"><div class="rl"><div class="rn">' + esc(r.name) + "</div>" +
+        '<div class="rs">' + bits.join(" · ") + '</div></div><div class="rr">' +
+        '<span class="rt">' + r.temp.toFixed(1) + "°<small> · " + r.hum + "%</small></span>" +
+        roomGlyphs(r) + "</div></div>";
+    }
+    h += "</div>";
+  }
+  return h;
+}
+
+/* ---------- Energy ---------- */
+function renderEnergy() {
+  const e = URA.energy;
+  let h = greet(
+    "ENERGY · <b class=\"num\">" + e.tou.period.toUpperCase() + " · " + e.tou.rate + "</b>",
+    'Battery is <span class="good">carrying the peak</span> · grid untouched · ' +
+    '<span class="num">' + e.savedToday + "</span> saved today."
+  );
+
+  h += tierLabel("Flow now");
+  h += '<div class="grid num">' +
+    '<div class="t ok"><div class="v">' + e.battery.socPct + '<small>%</small></div><div class="k">Battery</div></div>' +
+    '<div class="t cool"><div class="v">' + e.solar.kw.toFixed(1) + '<small>kW</small></div><div class="k">Solar</div></div>' +
+    '<div class="t"><div class="v">−' + Math.abs(e.grid.kw).toFixed(1) + '<small>kW</small></div><div class="k">Grid</div></div>' +
+    '<div class="t"><div class="v">' + e.houseLoad.kw.toFixed(1) + '<small>kW</small></div><div class="k">House</div></div></div>';
+
+  h += tierLabel("Battery strategy");
+  h += '<div class="grid num">' + wideTile({ h: "Strategy · " + e.battery.strategy, s: e.battery.note, n: e.battery.mode + " " + e.battery.socPct, cls: "st-ok" }) +
+    wideTile({ h: "Reserve floor", s: "will not discharge below this", n: e.battery.reserveFloor + "%", cls: "st-cool" }) + "</div>";
+  h += '<div class="grid"><div class="t attn" style="background:var(--tile);border-color:transparent;min-height:0">' +
+    '<div class="tx" style="width:100%"><div class="s" style="color:var(--txt3)">State of charge · floor at ' + e.battery.reserveFloor + '%</div>' +
+    '<div class="meter"><i style="width:' + e.battery.socPct + '%"></i></div></div></div></div>';
+
+  h += tierLabel("Time of use");
+  h += '<div class="grid num">' +
+    wideTile({ h: "on_peak until " + e.tou.until, s: "then " + e.tou.next, n: e.tou.rate, cls: "st-warn" }) +
+    wideTile({ h: "Solar today", s: e.solar.note, n: e.solar.todayKwh.toFixed(1) + " kWh", cls: "st-cool" }) + "</div>";
+
+  h += tierLabel("EV charging");
+  h += '<div class="grid num">' +
+    wideTile({ h: "EV Charging Plan · " + e.evse.plan, s: e.evse.note, n: e.evse.state, cls: "st-warn" }) +
+    wideTile({ h: "Battery-aware gate · " + e.baec.state, s: e.baec.note, n: "EV " + e.evse.evSocPct + "%", cls: "st-dim" }) + "</div>";
+  return h;
+}
+
+/* ---------- Climate ---------- */
+function renderClimate() {
+  const c = URA.climate;
+  let h = greet(
+    "CLIMATE · <b class=\"num\">" + c.systemMode.toUpperCase() + " · →" + c.houseTarget + "°</b>",
+    'One zone is <span class="good">pre-cooling for bedtime</span>; the others are settled.'
+  );
+  h += tierLabel("HVAC zones");
+  h += '<div class="grid num">';
+  for (const z of c.zones) {
+    const active = z.hvac === "cooling" || z.hvac === "heating";
+    h += '<div class="t z' + (active ? " occ" : "") + '"><div class="top"><span class="zn">' + esc(z.name) + "</span>" +
+      '<span class="oc" style="color:' + (active ? "var(--sky)" : "var(--txt3)") + '">' + z.preset + "</span></div>" +
+      '<div class="mid">' + z.temp.toFixed(1) + "°<small> → " + z.target.toFixed(1) + "° · " + z.hum + "%</small></div>" +
+      '<div class="st">' + z.hvac + " · " + z.note + "</div></div>";
+  }
+  h += "</div>";
+
+  h += tierLabel("Room extremes");
+  h += '<div class="grid num">' +
+    wideTile({ h: "Warmest room", s: "watch list for pre-cool", n: c.extremes.warmest, cls: "st-warn" }) +
+    wideTile({ h: "Coolest room", s: "pre-cool underway", n: c.extremes.coolest, cls: "st-cool" }) +
+    wideTile({ h: "Most humid", s: "outdoor-adjacent", n: c.extremes.humid, cls: "st-dim" }) +
+    wideTile({ h: "Presets in play", s: "pre-cool · home · eco · away", n: "4", cls: "" }) + "</div>";
+  return h;
+}
+
+/* ---------- Safety ---------- */
+function renderSafety() {
+  const s = URA.safety;
+  let h = greet(
+    "SAFETY · <b class=\"num\">" + s.security.armState.toUpperCase() + "</b>",
+    'All hazard channels are <span class="good">clear</span>. One slider is unlocked.'
+  );
+  h += tierLabel("Hazards");
+  h += '<div class="grid">' + s.hazards.map(liRow).join("") + "</div>";
+  h += tierLabel("Doors & locks");
+  h += '<div class="grid">' + s.doors.map(liRow).join("") + "</div>";
+  h += tierLabel("Camera presence");
+  h += '<div class="grid">' + s.cameras.map(liRow).join("") + "</div>";
+  h += tierLabel("Security");
+  h += '<div class="grid">' + liRow({ h: "House alarm", s: s.security.note, n: s.security.armState, cls: "st-ok" }) + "</div>";
+  return h;
+}
+
+/* ---------- System ---------- */
+function renderSystem() {
+  const s = URA.system;
+  let h = greet(
+    "SYSTEM · <b class=\"num\">URA v" + URA.meta.uraVersion + "</b>",
+    'All six coordinators are <span class="good">healthy</span> · one open finding.'
+  );
+  h += tierLabel("Coordinators");
+  h += '<div class="grid">' + s.coordinators.map(liRow).join("") + "</div>";
+  h += tierLabel("Fan recheck");
+  h += '<div class="grid">' + s.fanRecheck.map(liRow).join("") + "</div>";
+  h += tierLabel("Write-verify");
+  h += '<div class="grid">' + s.writeVerify.map(liRow).join("") + "</div>";
+  h += tierLabel("Database");
+  h += '<div class="grid num">' +
+    '<div class="t ok"><div class="v">' + s.db.queueDepth + '</div><div class="k">Write queue</div></div>' +
+    '<div class="t"><div class="v">' + s.db.rowsToday.toLocaleString() + '</div><div class="k">Rows today</div></div>' +
+    '<div class="t w" style="grid-column:span 2"><div class="tx"><div class="h">Write path</div>' +
+    '<div class="s">' + s.db.note + '</div></div><div class="n st-ok">idle</div></div></div>';
+  h += tierLabel("Versions");
+  h += '<div class="grid">' + s.versions.map(liRow).join("") + "</div>";
+  return h;
+}
+
+/* ---------- shell ---------- */
+const RENDER = { home: renderHome, rooms: renderRooms, energy: renderEnergy, climate: renderClimate, safety: renderSafety, system: renderSystem };
+
+function boot() {
+  const main = document.getElementById("main");
+  const nav = document.getElementById("nav");
+  for (const t of TABS) {
+    const sec = document.createElement("section");
+    sec.id = "tab-" + t.id;
+    sec.appendChild(el(RENDER[t.id]()));
+    main.appendChild(sec);
+    const a = document.createElement("a");
+    a.dataset.tab = t.id;
+    a.innerHTML = '<span class="g">' + t.glyph + "</span>" + t.label +
+      (t.id === "home" && URA.attention.length ? '<span class="badge num">' + URA.attention.length + "</span>" : "");
+    a.addEventListener("click", ev => { ev.preventDefault(); select(t.id); });
+    nav.appendChild(a);
+  }
+  select("home");
+}
+function select(id) {
+  for (const sec of document.querySelectorAll("main section")) sec.classList.toggle("sel", sec.id === "tab-" + id);
+  for (const a of document.querySelectorAll("nav a")) a.classList.toggle("sel", a.dataset.tab === id);
+  window.scrollTo(0, 0);
+}
+boot();
+</script>
+</body>
+</html>
