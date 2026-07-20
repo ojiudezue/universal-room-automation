@@ -1001,7 +1001,16 @@ class BatteryStrategy:
             if state is None or state.state in ("unknown", "unavailable"):
                 continue
             try:
-                lu = getattr(state, "last_updated", None)
+                # NM Cycle A A6 (2026-07-20): prefer `last_reported` over
+                # `last_updated`. `last_updated` only advances when state or
+                # attributes change — a cloud oracle repeatedly reporting the
+                # SAME value shows fresh polling but stale `last_updated`,
+                # triggering false cloud-lag NM pages. `last_reported` (HA
+                # core 2024.8+) advances on every report even if unchanged.
+                # Fall back to `last_updated` on older HA cores.
+                lu = getattr(state, "last_reported", None)
+                if lu is None:
+                    lu = getattr(state, "last_updated", None)
                 if lu is None:
                     continue
                 # Fix-up A-MED-1: clamp negative.
