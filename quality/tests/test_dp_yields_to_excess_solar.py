@@ -1005,3 +1005,54 @@ def test_MUTATION_M3_break_owner_handoff_makes_ownerless_gap_test_red():
         ),
         test_name="test_atomic_handoff_no_ownerless_gap",
     )
+
+
+# ==========================================================================
+# Fix-up 2: D2-MED-1 — restore-reconcile persists its mutation
+# ==========================================================================
+
+def test_D2MED1_reconcile_shape1_mutation_schedules_save():
+    """D2-MED-1: shape (1) double-membership drop mutates RAM state, so
+    the reconciler MUST schedule `_save_evse_state` — otherwise the
+    persisted `evse_dp_paused` KV outlives the membership and a second
+    restart recreates the torn shape."""
+    hass = _build_hass()
+    ev = _build_ev(hass)
+    ev._paused_by_dp.add("garage_a")
+    ev._claim_pause_dispatch_owner("garage_a", "dp")
+    ev._excess_solar_active.add("garage_a")
+    hass.set_state("switch.garage_a", "on")
+    holder = _bind_holder(hass, ev)
+    _save_calls = {"n": 0}
+
+    async def _save_stub():
+        _save_calls["n"] += 1
+    holder._save_evse_state = _save_stub
+
+    holder._reconcile_dp_excess_on_restore()
+    assert "garage_a" not in ev._paused_by_dp
+    assert _save_calls["n"] == 1, (
+        "D2-MED-1: reconcile mutated membership but did not persist"
+    )
+
+
+def test_D2MED1_reconcile_no_mutation_no_save():
+    """D2-MED-1 restraint: a reconcile pass that mutates nothing
+    (TRANSITIONED carrier — not the reconciler's territory) MUST NOT
+    schedule a save."""
+    hass = _build_hass()
+    ev = _build_ev(hass)
+    ev._paused_by_dp.add("garage_a")
+    ev._claim_pause_dispatch_owner("garage_a", "dp")
+    hass.set_state("switch.garage_a", "on")
+    holder = _bind_holder(hass, ev)
+    holder._dp_carrier.state.value = "transitioned"
+    _save_calls = {"n": 0}
+
+    async def _save_stub():
+        _save_calls["n"] += 1
+    holder._save_evse_state = _save_stub
+
+    holder._reconcile_dp_excess_on_restore()
+    assert "garage_a" in ev._paused_by_dp
+    assert _save_calls["n"] == 0

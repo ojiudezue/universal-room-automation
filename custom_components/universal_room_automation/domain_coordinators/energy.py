@@ -4262,6 +4262,7 @@ class EnergyCoordinator(BaseCoordinator):
                 dp_state_val = self._dp_carrier.state.value
             except Exception:  # noqa: BLE001
                 dp_state_val = None
+            _mutated = False
             for eid in list(self._ev._paused_by_dp):  # noqa: SLF001
                 # Shape (1): torn double-membership.
                 if eid in self._ev._excess_solar_active:  # noqa: SLF001
@@ -4269,6 +4270,7 @@ class EnergyCoordinator(BaseCoordinator):
                     self._ev._release_pause_dispatch_owner(  # noqa: SLF001
                         eid, "dp",
                     )
+                    _mutated = True
                     _LOGGER.info(
                         "restore-reconcile: %s in both _paused_by_dp AND "
                         "_excess_solar_active — excess wins, dropping DP "
@@ -4309,6 +4311,11 @@ class EnergyCoordinator(BaseCoordinator):
                         "restore-reconcile turn_off dispatch failed for %s",
                         eid, exc_info=True,
                     )
+            # D2-MED-1: persist the reconciled membership so the
+            # evse_dp_paused KV cannot outlive it across a second
+            # restart (shape-1 drop is RAM-only without this).
+            if _mutated:
+                self.hass.async_create_task(self._save_evse_state())
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
                 "restore-reconcile raised (swallowed)", exc_info=True,
