@@ -4056,6 +4056,19 @@ class OptimizationCoordinator(BaseCoordinator):
     async def _notify_if_severe(self, finding: OptimizationFinding) -> None:
         if finding.severity not in ("critical", "high"):
             return
+        # NM Cycle A (2026-07-20) A2: HIGH findings route to the daily
+        # digest by default; only allowlisted dimensions still page NM.
+        # CRITICAL always pages. Digest wiring already lives in NM via
+        # `_build_optimizer_digest_section` → `opt.format_digest_section()`.
+        if finding.severity == "high":
+            from ..const import OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS
+            dim = getattr(finding, "dimension", None)
+            if dim not in OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS:
+                _LOGGER.info(
+                    "Optimizer: HIGH finding (dimension=%s) deferred to "
+                    "daily digest (not in NM allowlist)", dim,
+                )
+                return
         nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
         if nm is None:
             return

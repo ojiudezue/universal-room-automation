@@ -4904,13 +4904,33 @@ class EnergyCoordinator(BaseCoordinator):
                         f"(z={anomaly.get('z_score', 0):.1f}, "
                         f"baseline={anomaly.get('baseline_mean', 0):.0f}W)"
                     )
-                await self._send_nm_alert(
-                    title=title,
-                    message=msg,
-                    severity=sev,
-                    hazard_type="circuit_anomaly",
-                    location=anomaly.get("circuit", ""),
+                # NM Cycle A (2026-07-20) A1: route tripped_breaker to
+                # anomaly-event stream only (see _emit_circuit_anomaly_event
+                # below); skip NM page unless operator explicitly re-enables.
+                # Non-tripped_breaker (z-score) anomalies still page at MEDIUM.
+                from ..const import (
+                    CONF_TRIPPED_BREAKER_ROUTE_NM,
+                    DEFAULT_TRIPPED_BREAKER_ROUTE_NM,
                 )
+                from ._nm_cycle_a import nm_cycle_a_knob
+                route_nm = nm_cycle_a_knob(
+                    self.hass,
+                    CONF_TRIPPED_BREAKER_ROUTE_NM,
+                    DEFAULT_TRIPPED_BREAKER_ROUTE_NM,
+                )
+                if anomaly_type != "tripped_breaker" or route_nm:
+                    await self._send_nm_alert(
+                        title=title,
+                        message=msg,
+                        severity=sev,
+                        hazard_type="circuit_anomaly",
+                        location=anomaly.get("circuit", ""),
+                    )
+                else:
+                    _LOGGER.info(
+                        "Tripped breaker (NM-suppressed, anomaly-event only): %s",
+                        msg,
+                    )
                 # v4.6.3 D4/D11/D12: Emit canonical AnomalyEvent for circuit
                 # anomalies alongside existing SIGNAL_SAFETY_HAZARD dispatch.
                 await self._emit_circuit_anomaly_event(anomaly)
