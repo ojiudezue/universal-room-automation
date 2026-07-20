@@ -486,3 +486,48 @@ checkpoint BEFORE deploy.
   checkpoint before deploy). Money-path invariant on a shared pause-
   owner primitive with multi-fix-up history in the same surface.
 - **New knobs:** zero.
+
+## Reconciliation audit adjudication (2026-07-20, orchestrator)
+
+A pre-ship tri-mechanism reconciliation audit (excess-solar x TOU x
+BAEC, operator-mandated) flagged D1 HIGH: "the sticky-DP yield has no
+reachable scenario because the HOLD_ONLY orphan retry
+(energy.py:3532-3537) drains the sticky set earlier in the same tick."
+
+**Adjudicated REFUTED by orchestrator source verification:**
+- `_apply_dp_reversion` sticky-defers whenever
+  `tou_period != "off_peak"` (energy.py:4108) — the retry driver calls
+  reversion but reversion cannot drain the set during mid_peak.
+- Excess-solar forbids activation only during `"peak"`
+  (energy_pool.py:773); its conditions (SOC>=95, forecast>=5kWh) are
+  the high-solar midday state, which falls in mid_peak.
+- Concrete legal repro: night drain completes, reversion TOU-defers at
+  mid_peak entry leaving a HOLD_ONLY orphan; 12:00 mid_peak, SOC 100,
+  remaining forecast 20kWh. Retry -> reversion -> defer (set retained).
+  Only the yield path can lawfully start the EVSE. This is the
+  observed Garage B incident that motivated the cycle.
+- The audit's counter-scenario used the off_peak morning window, where
+  the retry legitimately wins and the yield being a no-op there is
+  correct, not dead.
+
+Answer to "what does this buy over the orphan retry": the retry can
+never release during mid_peak by design; the yield is the only lawful
+mid_peak escape for a sticky orphan under excess solar.
+
+### Audit follow-ups accepted (pre-existing, non-blocking)
+- **D2 MED:** force-charge does not release `_paused_by_dp` on a live
+  TRANSITIONED carrier — override only enforced at the eval gate.
+  Follow-up cycle.
+- **D3 LOW / S5:** extend `validate_threshold_ladder`
+  (energy_const.py:980) with cross-checks for
+  fill_priority_soc < excess_solar_soc, ev_battery_drain_soc vs
+  excess_solar_soc, DP drain targets vs inclement floor,
+  must_start_by past end-of-night.
+- **D4 LOW:** `_apply_dp_must_start_release` (energy.py:4166-4176)
+  does not defer on `_paused_by_battery_drain` (INV-DP2 corner).
+- **S1:** fold the two DP-internals-leaking sites (energy_pool.py:820
+  + 842) into `EVChargerController.can_yield_dp()`.
+- **S3 ratified:** do NOT collapse the owner sets into a single
+  priority function — separable ownership is what lets
+  framing-disjoint reviews catch distinct leaks (v5.5.3 D-HIGH-1
+  precedent). Complexity is load-bearing.
