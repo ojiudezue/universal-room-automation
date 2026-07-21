@@ -800,6 +800,54 @@ class TestFixupAuditRowAndDryRunGuards:
         assert nm._send_whatsapp.await_count == 0  # matrix denies
         assert nm._send_imessage.await_count == 1
 
+    def test_c1_per_person_intersection_two_person_asymmetric_mute(self):
+        """Orchestrator verification 2026-07-20: the PER-PERSON router
+        intersection site in async_notify's fan-out loop. A single-person
+        fixture cannot prove it — the union-level intersection in
+        `_gate_channels_for_notify` already blocks a channel every
+        recipient has muted, leaving the per-person site dead code in
+        that scenario. Two persons with an asymmetric mute make the
+        per-person site load-bearing: companion must fire EXACTLY ONCE
+        (for the unmuted person only). Kills the mutation
+        `_router_allowed = set(NM_CHANNELS_KNOWN)` in async_notify,
+        which this fixture proved GREEN against the single-person test.
+        Fixture self-check: asserts the channel gate is open (union
+        non-empty) so the per-person layer is the only thing standing.
+        """
+        hass = _make_hass()
+        oji = _base_person(pid="person.oji")
+        ezinne = _base_person(pid="person.ezinne", **{
+            CONF_NM_PERSON_PUSHOVER_KEY: "pk_ez",
+            CONF_NM_PERSON_COMPANION_SERVICE: "notify.ez_phone",
+        })
+        cfg = _cfg_all_channels(**{
+            CONF_NM_PERSONS: [oji, ezinne],
+            CONF_NM_QUIET_USE_HOUSE_STATE: False,
+        })
+        nm = NotificationManager(hass, cfg)
+        nm._is_quiet_hours = MagicMock(return_value=False)
+        _run(nm.async_mute_person_channel("person.oji", "companion", 30))
+        # Fixture self-check: union gate must remain open for companion
+        # (ezinne is unmuted) — otherwise this test degenerates into the
+        # single-person shape and stops proving the per-person site.
+        gate = nm._gate_channels_for_notify(
+            [oji, ezinne], Severity.HIGH, "peak_overshoot", "safety"
+        )
+        assert gate.get("companion", False), (
+            "fixture self-check failed: union gate closed for companion; "
+            "per-person intersection site would be unexercised"
+        )
+        nm._send_pushover = AsyncMock()
+        nm._send_companion = AsyncMock()
+        nm._send_whatsapp = AsyncMock()
+        nm._send_imessage = AsyncMock()
+        _run(nm.async_notify("safety", Severity.HIGH, "T", "M", hazard_type="peak_overshoot"))
+        # companion: exactly once (ezinne only — oji muted at the
+        # per-person layer while the union gate stays open).
+        assert nm._send_companion.await_count == 1
+        # both persons get pushover (unmuted everywhere).
+        assert nm._send_pushover.await_count == 2
+
     def test_c2_audit_row_written_per_recipient_with_route_reason(self):
         """C-2: audit rows carry route_reason + matrix_branch +
         bucket_outcome; O(persons) rows per notify. Kills a mutation
