@@ -3094,6 +3094,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "acknowledge_notification",
             "test_notification",
             "test_inbound",
+            # NM Cycle C fix-up (2026-07-20, D5/B-MED-2): register
+            # symmetric unload for `nm_mute_person_channel` so entry
+            # unload cleans it up (matches its now-central registration
+            # in `_async_register_notification_services`).
+            "nm_mute_person_channel",
         ):
             # default-arg binding pins _service_name into each lambda's
             # closure so the loop variable doesn't capture-by-reference
@@ -4365,6 +4370,36 @@ async def _async_register_notification_services(hass: HomeAssistant) -> None:
                 vol.Optional("channel", default="companion"): vol.In([
                     "companion", "whatsapp", "pushover", "imessage",
                 ]),
+            }),
+        )
+
+    # NM Cycle C fix-up (2026-07-20, D5): register `nm_mute_person_channel`
+    # centrally so entry unload's `async_on_unload(async_remove...)` loop
+    # covers it symmetrically. NM's own async_setup ALSO tries to
+    # register; `has_service` guards make both paths idempotent.
+    from .const import SERVICE_NM_MUTE_PERSON_CHANNEL as _SVC_NM_MUTE
+
+    async def handle_mute_person_channel(call):
+        """Handle nm_mute_person_channel service call."""
+        nm = hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            _LOGGER.warning("NM not available for mute_person_channel")
+            return
+        await nm.async_mute_person_channel(
+            person_id=call.data.get("person_id"),
+            channel=call.data.get("channel"),
+            duration_minutes=call.data.get("duration_minutes"),
+        )
+
+    if not hass.services.has_service(DOMAIN, _SVC_NM_MUTE):
+        hass.services.async_register(
+            DOMAIN,
+            _SVC_NM_MUTE,
+            handle_mute_person_channel,
+            schema=vol.Schema({
+                vol.Required("person_id"): str,
+                vol.Required("channel"): str,
+                vol.Optional("duration_minutes"): vol.Any(int, None),
             }),
         )
 

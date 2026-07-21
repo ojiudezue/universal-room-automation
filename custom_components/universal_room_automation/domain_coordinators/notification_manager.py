@@ -349,11 +349,18 @@ class NotificationManager:
         # pruned on restore. Consulted BEFORE the routing matrix so a mute
         # neuters any routing decision short of the DND-bypass safety floor.
         self._person_channel_mutes: dict[tuple[str, str], datetime] = {}
-        # C1: idempotency latch — the legacy → matrix migration runs once per
-        # process. Persisted only in memory; a re-run at next boot is a no-op
-        # because `_migrate_legacy_severity_to_matrix` only writes into a
-        # per-person dict that already carries the correct shape.
-        self._matrix_migration_done: bool = False
+        # C1 (fix-up 2026-07-20, D4/B-MED-1): coordinator-owned materialized
+        # matrix. Legacy → matrix materialization writes HERE, never into
+        # `entry.data / entry.options / person_cfg` (which would silently
+        # freeze operator-driven changes to legacy severity thresholds).
+        # `_materialized_matrix[person_id][SEV_KEY][channel] = bool`.
+        # Rebuilt in `_refresh_config` whenever the relevant legacy keys
+        # or persons list changes (cheap hash-diff). Kill switch = clear
+        # the dict; next `_route_for_recipient` re-materializes.
+        self._materialized_matrix: dict[str, dict[str, dict[str, bool]]] = {}
+        # Hash of the legacy-shape inputs used to build the last
+        # materialization — used by `_refresh_config` to detect drift.
+        self._materialized_matrix_key: tuple | None = None
 
     # =========================================================================
     # NM Cycle B B0: dry-run gate + write helper
@@ -1064,12 +1071,27 @@ class NotificationManager:
         #   (hard safety floor — see `_recipient_bypasses_dnd`).
         # * Per-recipient DND-bypass is evaluated per-person inside the
         #   fan-out loop below; here we only decide the GLOBAL emit.
-        if self._is_quiet_hours() and not self._recipient_bypasses_dnd(
-            None, hazard_type, severity,
-        ):
-            _LOGGER.debug("Notification suppressed during quiet hours: %s", title)
-            self._quiet_suppressions += 1
-            return
+        # NM Cycle C fix-up (2026-07-20, D3/B-HIGH-1): the global gate
+        # must suppress only if BOTH the global default set fails AND no
+        # configured recipient's per-recipient bypass set contains this
+        # severity. Otherwise widened per-recipient bypass sets below
+        # CRITICAL become unreachable (early-return kills the entire
+        # per-person loop). Life-safety floor unchanged.
+        if self._is_quiet_hours():
+            global_bypass = self._recipient_bypasses_dnd(
+                None, hazard_type, severity,
+            )
+            any_recipient_bypass = False
+            if not global_bypass:
+                for _pcfg in self._config.get(CONF_NM_PERSONS, []) or []:
+                    _pid = _pcfg.get(CONF_NM_PERSON_ENTITY, "")
+                    if self._recipient_bypasses_dnd(_pid, hazard_type, severity):
+                        any_recipient_bypass = True
+                        break
+            if not global_bypass and not any_recipient_bypass:
+                _LOGGER.debug("Notification suppressed during quiet hours: %s", title)
+                self._quiet_suppressions += 1
+                return
 
         # C4b: Silence check — suppress non-CRITICAL when silenced
         if (
@@ -1198,6 +1220,13 @@ class NotificationManager:
             _matrix_branch = self._route_branch_label(
                 person_cfg, hazard_type, severity,
             )
+            # D-LOW: compute once per recipient decision — not
+            # recomputed later inside the audit row.
+            _dnd_bypass_applied = (
+                self._is_quiet_hours() and self._recipient_bypasses_dnd(
+                    person_id, hazard_type, severity,
+                )
+            )
 
             # Pushover
             if _channel_gate.get("pushover", False) and "pushover" in _router_allowed:
@@ -1304,11 +1333,7 @@ class NotificationManager:
                         else "matrix_default" if _matrix_branch == "matrix_default"
                         else "legacy_fallback"
                     ),
-                    dnd_bypass_applied=(
-                        self._is_quiet_hours() and self._recipient_bypasses_dnd(
-                            person_id, hazard_type, severity,
-                        )
-                    ),
+                    dnd_bypass_applied=_dnd_bypass_applied,
                     bucket_outcome=("accepted" if per_person_fired else "no_channel_fired"),
                     matrix_branch=_matrix_branch,
                     delivered=1 if per_person_fired else 0,
@@ -1711,6 +1736,11 @@ class NotificationManager:
 
             cycle = 0
             while True:
+                # NM Cycle C fix-up (2026-07-20, D7): re-check dry-run
+                # each loop iteration so toggling ON mid-pattern stops
+                # emission promptly (was pinned to the state at entry).
+                if self._dry_run_active:
+                    return
                 if effect == "flash":
                     if cycle % 2 == 0:
                         svc_data = {"entity_id": entities, "brightness": 255}
@@ -1843,18 +1873,44 @@ class NotificationManager:
         _LOGGER.info("Repeating CRITICAL alert: %s", data.get("title"))
 
         # Re-send to all qualifying channels
-        # NM Cycle B fix-up (2026-07-20, C-HIGH-2): hoist bucket-take to
-        # ONE take per channel per repeat tick (same rationale as
-        # async_notify). Life-safety CRITICAL bypasses the bucket so
-        # smoke/CO/etc. still repeat under storm.
+        # NM Cycle C fix-up (2026-07-20, D1/D2 CRITICAL): rebuild the
+        # per-person fan-out to mirror `async_notify`. Prior code
+        # referenced `_router_allowed` (never defined here) → NameError
+        # on first repeat tick with companion/whatsapp/imessage
+        # configured, killing the repeat chain (life-safety regression).
+        # Pushover branch had no router gate at all — matrix / override
+        # / mute / DND all bypassed on repeats.
+        #
+        # LIFE-SAFETY EXCEPTION (documented ruling): for hazards in
+        # NM_LIFE_SAFETY_HAZARDS mutes+DND are SKIPPED so smoke/CO/etc.
+        # continue paging (parallels DND safety floor). Non-life-safety
+        # repeats HONOR per-recipient mutes/DND so a MED-during-episode
+        # mute halts repeats for that channel.
         persons = self._config.get(CONF_NM_PERSONS, [])
         _hz = data.get("hazard_type")
         _coord_id = data.get("coordinator_id", "unknown")
+        life_safety_hazard = str(_hz or "").lower() in NM_LIFE_SAFETY_HAZARDS
+        # Ensure materialized matrix is fresh for the legacy-fallback path.
+        self._migrate_legacy_severity_to_matrix()
         _channel_gate = self._gate_channels_for_notify(
             persons, Severity.CRITICAL, _hz, _coord_id,
         )
         for person_cfg in persons:
-            if _channel_gate.get("pushover", False):
+            person_id = person_cfg.get(CONF_NM_PERSON_ENTITY, "")
+            # Per-recipient DND veto — life-safety hazards bypass via
+            # `_recipient_bypasses_dnd`'s safety floor. Non-life-safety
+            # repeats respect the recipient's DND-bypass set.
+            if self._is_quiet_hours() and not self._recipient_bypasses_dnd(
+                person_id, _hz, Severity.CRITICAL,
+            ):
+                continue
+            # Per-recipient router — same intersection semantics as
+            # async_notify. `_route_for_recipient` handles the
+            # mute-skip-on-life-safety exception internally.
+            _router_allowed = self._route_for_recipient(
+                person_id, _hz, Severity.CRITICAL,
+            )
+            if _channel_gate.get("pushover", False) and "pushover" in _router_allowed:
                 key = person_cfg.get(CONF_NM_PERSON_PUSHOVER_KEY, "")
                 device = person_cfg.get(CONF_NM_PERSON_PUSHOVER_DEVICE, "")
                 if key:
@@ -1876,6 +1932,9 @@ class NotificationManager:
                 handle = person_cfg.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "")
                 if handle:
                     await self._send_imessage(data["title"], data["message"], handle)
+        # `life_safety_hazard` is retained for readers; DND/mute skips
+        # happen inside `_recipient_bypasses_dnd` and `_route_for_recipient`.
+        _ = life_safety_hazard
 
         # TTS repeat
         if self._channel_ready("tts", Severity.CRITICAL, _hz):
@@ -2520,6 +2579,15 @@ class NotificationManager:
                 # calls set_dry_run_active() directly and wins if both set.
                 if CONF_NM_DRY_RUN in new_config:
                     self._dry_run_active = bool(new_config[CONF_NM_DRY_RUN])
+                # D4/B-MED-1: re-materialize if the legacy inputs changed.
+                # Cheap tuple-hash — no persistence side effects.
+                try:
+                    self._migrate_legacy_severity_to_matrix()
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "NM materialized-matrix rebuild failed on refresh",
+                        exc_info=True,
+                    )
                 return
 
     # =========================================================================
@@ -2631,8 +2699,14 @@ class NotificationManager:
             "imessage":  CONF_NM_PERSON_IMESSAGE_HANDLE,
         }
         result: dict[str, bool] = {ch: False for ch in channels}
+        # NM Cycle C fix-up (2026-07-20, B-HIGH-2): only burn a token
+        # for channels with ≥1 actual receiving recipient POST-mute /
+        # matrix / DND intersection. Prior code burned on
+        # configured+immediate alone, so a fully-muted channel or a
+        # channel excluded by every recipient's routing matrix would
+        # still drain a token per notification.
         for ch in channels:
-            any_immediate = False
+            any_receiving = False
             for person_cfg in persons:
                 delivery_pref = person_cfg.get(
                     CONF_NM_PERSON_DELIVERY_PREF, NM_DELIVERY_IMMEDIATE,
@@ -2645,9 +2719,21 @@ class NotificationManager:
                     continue
                 if not person_cfg.get(handle_keys[ch], ""):
                     continue
-                any_immediate = True
+                _pid = person_cfg.get(CONF_NM_PERSON_ENTITY, "")
+                # Per-recipient DND — life-safety floor inside helper.
+                if self._is_quiet_hours() and not self._recipient_bypasses_dnd(
+                    _pid, hazard_type, severity,
+                ):
+                    continue
+                # Per-recipient router intersection (mute + matrix +
+                # override + life-safety exception). If this channel
+                # would not fire for any recipient, don't burn a token.
+                allowed = self._route_for_recipient(_pid, hazard_type, severity)
+                if ch not in allowed:
+                    continue
+                any_receiving = True
                 break
-            if not any_immediate:
+            if not any_receiving:
                 continue
             # Channel qualifies by severity threshold? (non-consuming)
             if not self._channel_qualifies(ch, severity):
@@ -2736,6 +2822,18 @@ class NotificationManager:
             _LOGGER.warning(
                 "NM mute: unknown channel=%s (known=%s)",
                 channel, sorted(NM_CHANNELS_KNOWN),
+            )
+            return
+        # NM Cycle C fix-up (2026-07-20, D6/B-LOW-2): tts and lights are
+        # RECIPIENT-LESS global channels; muting them per-person is a
+        # silent no-op (the per-person mute layer only applies to
+        # per-recipient sends). Reject with an explicit error so the
+        # operator can pick the right knob (global severity gate).
+        if channel in ("tts", "lights"):
+            _LOGGER.error(
+                "NM mute: channel=%r is a global channel and cannot be "
+                "muted per-person (use severity gate or Alert Lights entity)",
+                channel,
             )
             return
         if duration_minutes is None:
@@ -2846,11 +2944,31 @@ class NotificationManager:
         candidate_channels: tuple[str, ...] = tuple(sorted(NM_CHANNELS_KNOWN))
         person_cfg = self._get_person_cfg(recipient_id)
 
-        # D. Legacy fallback — the byte-identical oracle path.
-        legacy: set[str] = {
-            ch for ch in candidate_channels
-            if self._channel_qualifies(ch, severity)
-        }
+        # Life-safety exception (fix-up ruling 2026-07-20): for
+        # NM_LIFE_SAFETY_HAZARDS, mutes and per-recipient DND do NOT
+        # suppress messaging channels on initial or repeat sends. An
+        # explicit hazard-override / matrix still applies (operator
+        # intent is authoritative routing, not a snooze). This mirrors
+        # `_recipient_bypasses_dnd`'s safety floor.
+        life_safety = str(hazard_type or "").lower() in NM_LIFE_SAFETY_HAZARDS
+
+        # D. Legacy fallback — the byte-identical oracle path. For legacy
+        # (no matrix/override) *materialized* matrix lookup: prefer the
+        # coordinator-owned materialization over person_cfg so live
+        # options changes take effect (see `_materialized_matrix`).
+        materialized = self._materialized_matrix.get(recipient_id or "")
+        if materialized is not None:
+            sev_key = severity.name.upper()
+            per_sev = materialized.get(sev_key) or {}
+            legacy: set[str] = {
+                ch for ch, allowed in per_sev.items()
+                if ch in NM_CHANNELS_KNOWN and bool(allowed)
+            }
+        else:
+            legacy = {
+                ch for ch in candidate_channels
+                if self._channel_qualifies(ch, severity)
+            }
 
         # If recipient not resolved (e.g., TTS/lights global emit),
         # skip mute + matrix + override layers. Backcompat path only.
@@ -2858,10 +2976,14 @@ class NotificationManager:
             return legacy
 
         # A. Mute — exclude explicitly muted channels from the final set.
-        muted_channels = {
-            ch for ch in candidate_channels
-            if self._mute_active(recipient_id, ch)
-        }
+        # Life-safety hazards skip mutes entirely.
+        if life_safety:
+            muted_channels: set[str] = set()
+        else:
+            muted_channels = {
+                ch for ch in candidate_channels
+                if self._mute_active(recipient_id, ch)
+            }
 
         # B. Hazard override wins over 2D matrix if both are set.
         hazard_overrides = person_cfg.get(CONF_NM_PERSON_HAZARD_OVERRIDES) or {}
@@ -2905,12 +3027,17 @@ class NotificationManager:
         hazard_type: str | None,
         severity: Severity,
     ) -> str:
-        """Return audit-log label naming which router layer decided.
+        """Thin wrapper — single source of truth is `_route_for_recipient`.
 
-        Values: `hazard_override`, `matrix_default`, `legacy_fallback`.
-        Used for `matrix_branch` in the audit row so operators can
-        distinguish which policy branch fired at read time.
+        A-MED-1 fix-up: prior duplicate logic drifted from the router.
+        Now delegates via a routing decision to guarantee the audit row
+        matches the actual routing branch. Missing-severity rows in a
+        partial matrix still count as `matrix_default` (documented
+        semantics: an explicit matrix, even sparse, is authoritative;
+        the missing rows resolve via the router's legacy fallback but
+        are still labelled matrix-branch for operator visibility).
         """
+        pid = person_cfg.get(CONF_NM_PERSON_ENTITY, "") if person_cfg else ""
         overrides = person_cfg.get(CONF_NM_PERSON_HAZARD_OVERRIDES) or {}
         haz_key = (hazard_type or "").lower()
         sev_key = severity.name.upper()
@@ -2919,41 +3046,109 @@ class NotificationManager:
             if isinstance(per_haz, dict) and isinstance(per_haz.get(sev_key), dict):
                 return "hazard_override"
         matrix = person_cfg.get(CONF_NM_PERSON_ROUTING_MATRIX) or {}
-        if isinstance(matrix, dict) and matrix.get(sev_key):
+        # Empty-matrix-row (partial matrix, missing this severity) is
+        # still labelled matrix-branch — the presence of ANY matrix is
+        # operator intent (A-MED-2 documented semantics).
+        if isinstance(matrix, dict) and matrix:
             return "matrix_default"
+        _ = pid  # reserved for future audit hooks
         return "legacy_fallback"
 
-    def _migrate_legacy_severity_to_matrix(self) -> None:
-        """C1: one-shot idempotent migration of legacy severity gates.
+    def _legacy_matrix_key(self) -> tuple:
+        """Cheap hash of the inputs that decide legacy-fallback semantics.
 
-        For each person WITHOUT an explicit `CONF_NM_PERSON_ROUTING_MATRIX`,
-        materialize a matrix that reproduces the legacy `_channel_qualifies`
-        decision for every `(severity, channel)` tuple. Byte-identical by
-        construction: the matrix is BUILT from the same call that the
-        legacy router uses.
-
-        NOT persisted to `entry.options` this cycle — the migration lives
-        in-memory. Options-flow authoring of an explicit matrix in a
-        later deploy overwrites it naturally. This keeps C1 additive:
-        rollback = no options changed.
+        Rebuilt whenever severity thresholds / enabled channels / persons
+        list changes — the coordinator-owned matrix must follow live
+        options changes (fix-up D4/B-MED-1 — kill the process-lifetime
+        latch that froze routing to the boot-time snapshot).
         """
-        if self._matrix_migration_done:
+        from ..const import (
+            CONF_NM_PUSHOVER_ENABLED, CONF_NM_PUSHOVER_SEVERITY,
+            CONF_NM_COMPANION_ENABLED, CONF_NM_COMPANION_SEVERITY,
+            CONF_NM_WHATSAPP_ENABLED, CONF_NM_WHATSAPP_SEVERITY,
+            CONF_NM_IMESSAGE_ENABLED, CONF_NM_IMESSAGE_SEVERITY,
+            CONF_NM_TTS_ENABLED, CONF_NM_TTS_SEVERITY,
+            CONF_NM_LIGHTS_ENABLED, CONF_NM_LIGHTS_SEVERITY,
+        )
+        cfg = self._config
+        persons = cfg.get(CONF_NM_PERSONS, []) or []
+        person_ids = tuple(
+            p.get(CONF_NM_PERSON_ENTITY, "") for p in persons
+        )
+        return (
+            bool(cfg.get(CONF_NM_PUSHOVER_ENABLED, False)),
+            str(cfg.get(CONF_NM_PUSHOVER_SEVERITY, "")),
+            bool(cfg.get(CONF_NM_COMPANION_ENABLED, False)),
+            str(cfg.get(CONF_NM_COMPANION_SEVERITY, "")),
+            bool(cfg.get(CONF_NM_WHATSAPP_ENABLED, False)),
+            str(cfg.get(CONF_NM_WHATSAPP_SEVERITY, "")),
+            bool(cfg.get(CONF_NM_IMESSAGE_ENABLED, False)),
+            str(cfg.get(CONF_NM_IMESSAGE_SEVERITY, "")),
+            bool(cfg.get(CONF_NM_TTS_ENABLED, False)),
+            str(cfg.get(CONF_NM_TTS_SEVERITY, "")),
+            bool(cfg.get(CONF_NM_LIGHTS_ENABLED, False)),
+            str(cfg.get(CONF_NM_LIGHTS_SEVERITY, "")),
+            person_ids,
+        )
+
+    def _migrate_legacy_severity_to_matrix(self) -> None:
+        """Materialize legacy severity gates into a coord-owned matrix.
+
+        Fix-up ruling (2026-07-20, D4/B-MED-1): does NOT mutate
+        `person_cfg` (which is aliased into `entry.data/options` and
+        would silently freeze routing against live options changes).
+        Instead, writes into `self._materialized_matrix` keyed by
+        person_id.
+
+        Idempotent + change-detecting: recomputes only when the hash of
+        the legacy inputs (`_legacy_matrix_key`) changed since the last
+        run. Kill switch = clearing `self._materialized_matrix` forces
+        a rebuild on next call.
+
+        Migration self-check (C-5): after build, asserts each person's
+        matrix is non-empty and covers all 4 severities × all
+        NM_CHANNELS_KNOWN. Missing keys log at WARNING (safety-visible
+        breakage of the byte-identical backcompat guarantee).
+        """
+        key = self._legacy_matrix_key()
+        if key == self._materialized_matrix_key and self._materialized_matrix:
             return
         persons = self._config.get(CONF_NM_PERSONS, []) or []
+        new_materialized: dict[str, dict[str, dict[str, bool]]] = {}
+        expected_channels = frozenset(NM_CHANNELS_KNOWN)
+        expected_severities = ("LOW", "MEDIUM", "HIGH", "CRITICAL")
         for person_cfg in persons:
+            pid = person_cfg.get(CONF_NM_PERSON_ENTITY, "")
+            if not pid:
+                continue
             if person_cfg.get(CONF_NM_PERSON_ROUTING_MATRIX):
-                continue  # explicit matrix — leave alone
+                # Explicit operator-authored matrix — never overwrite
+                # (per-person router already consults person_cfg first).
+                continue
             matrix: dict[str, dict[str, bool]] = {}
             for sev in (Severity.LOW, Severity.MEDIUM, Severity.HIGH, Severity.CRITICAL):
                 per_sev: dict[str, bool] = {}
                 for ch in sorted(NM_CHANNELS_KNOWN):
                     per_sev[ch] = self._channel_qualifies(ch, sev)
                 matrix[sev.name.upper()] = per_sev
-            person_cfg[CONF_NM_PERSON_ROUTING_MATRIX] = matrix
-        self._matrix_migration_done = True
+            # C-5 self-check.
+            missing_sev = [s for s in expected_severities if s not in matrix]
+            missing_ch = [
+                (s, ch) for s in expected_severities
+                for ch in expected_channels
+                if ch not in (matrix.get(s) or {})
+            ]
+            if missing_sev or missing_ch:
+                _LOGGER.warning(
+                    "NM materialized-matrix self-check FAILED for %s "
+                    "(missing_sev=%s missing_ch=%s) — backcompat may be broken",
+                    pid, missing_sev, missing_ch[:6],
+                )
+            new_materialized[pid] = matrix
+        self._materialized_matrix = new_materialized
+        self._materialized_matrix_key = key
         _LOGGER.info(
-            "NM Cycle C: legacy → matrix migration complete (persons=%d)",
-            len(persons),
+            "NM Cycle C: matrix materialized (persons=%d)", len(new_materialized),
         )
 
     async def _emit_audit_row(

@@ -153,13 +153,52 @@ class TestCINV1Backcompat:
             )
 
     def test_migration_idempotent(self):
+        # Fix-up 2026-07-20 (D4/B-MED-1): migration writes to a
+        # coordinator-owned dict, NEVER to `person_cfg` (aliased into
+        # entry.data/options). Recomputes only if the hash of legacy
+        # inputs changed.
+        hass = _make_hass()
+        nm = NotificationManager(hass, _cfg_all_channels())
+        # Snapshot person_cfg BEFORE — assert unchanged post-migration.
+        before = dict(nm._config[CONF_NM_PERSONS][0])
+        nm._migrate_legacy_severity_to_matrix()
+        after = dict(nm._config[CONF_NM_PERSONS][0])
+        assert before == after, "migration must NOT mutate person_cfg"
+        # Materialized matrix populated + stable across second call.
+        first = {k: dict(v) for k, v in nm._materialized_matrix.items()}
+        nm._migrate_legacy_severity_to_matrix()
+        second = {k: dict(v) for k, v in nm._materialized_matrix.items()}
+        assert first == second
+
+    def test_migration_re_materializes_on_live_config_change(self):
+        """D4/B-MED-1: legal severity-lowering must take effect on next
+        notify. Prior code froze routing to the boot snapshot via a
+        process-lifetime latch.
+        """
+        from custom_components.universal_room_automation.const import (
+            CONF_NM_PUSHOVER_SEVERITY,
+        )
+        hass = _make_hass()
+        nm = NotificationManager(hass, _cfg_all_channels(**{
+            CONF_NM_PUSHOVER_SEVERITY: "HIGH",
+        }))
+        nm._migrate_legacy_severity_to_matrix()
+        # At HIGH threshold, MEDIUM should not fire pushover.
+        assert nm._materialized_matrix["person.oji"]["MEDIUM"]["pushover"] is False
+        # Simulate a live options change lowering the threshold to LOW.
+        nm._config[CONF_NM_PUSHOVER_SEVERITY] = "LOW"
+        nm._migrate_legacy_severity_to_matrix()
+        assert nm._materialized_matrix["person.oji"]["MEDIUM"]["pushover"] is True
+
+    def test_migration_self_check_full_coverage(self):
+        """C-5: materialized matrix has 4 severities × all NM_CHANNELS_KNOWN."""
         hass = _make_hass()
         nm = NotificationManager(hass, _cfg_all_channels())
         nm._migrate_legacy_severity_to_matrix()
-        first_matrix = dict(nm._config[CONF_NM_PERSONS][0][CONF_NM_PERSON_ROUTING_MATRIX])
-        nm._migrate_legacy_severity_to_matrix()  # second call → no-op
-        second_matrix = nm._config[CONF_NM_PERSONS][0][CONF_NM_PERSON_ROUTING_MATRIX]
-        assert first_matrix == second_matrix
+        m = nm._materialized_matrix["person.oji"]
+        assert set(m.keys()) == {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
+        for sev_map in m.values():
+            assert set(sev_map.keys()) == set(NM_CHANNELS_KNOWN)
 
 
 # =========================================================================
@@ -292,10 +331,13 @@ class TestC4MuteShortcut:
         assert SERVICE_NM_MUTE_PERSON_CHANNEL == "nm_mute_person_channel"
 
     def test_mute_suppresses_target_channel_only(self):
+        # NM Cycle C fix-up (2026-07-20): life-safety hazards SKIP mute
+        # per operator-ratified safety exception. Use a non-life-safety
+        # hazard to exercise the mute layer.
         hass = _make_hass()
         nm = NotificationManager(hass, _cfg_all_channels())
         _run(nm.async_mute_person_channel("person.oji", "pushover", 15))
-        allowed = nm._route_for_recipient("person.oji", "water_leak", Severity.HIGH)
+        allowed = nm._route_for_recipient("person.oji", "peak_overshoot", Severity.HIGH)
         assert "pushover" not in allowed
         assert "companion" in allowed
         assert "whatsapp" in allowed
@@ -516,6 +558,280 @@ class TestOptionsSuppressKeyMembership:
 # Mutation-anchor documentation (read by Review C for audit)
 # =========================================================================
 
+# =========================================================================
+# NM Cycle C fix-up (2026-07-20) — Tier-3 review findings
+# =========================================================================
+
+
+class TestFixupRepeatPathRouterIntersection:
+    """D1/D2 CRITICAL: `_repeat_alert` NameError + missing router gate on
+    pushover. Rebuilds per-recipient intersection consistently across all
+    4 messaging channels. Life-safety exception: mutes + DND SKIPPED for
+    NM_LIFE_SAFETY_HAZARDS on repeats.
+    """
+
+    def test_repeat_alert_no_nameerror_with_companion_configured(self):
+        """The exact CRITICAL bug: companion configured → repeat used
+        undefined `_router_allowed` → NameError → repeat chain dies.
+        """
+        hass = _make_hass()
+        person = _base_person()  # has companion, whatsapp, imessage
+        cfg = _cfg_all_channels(**{CONF_NM_PERSONS: [person]})
+        nm = NotificationManager(hass, cfg)
+        nm._active_alert_data = {
+            "coordinator_id": "safety",
+            "title": "Fire!",
+            "message": "Fire!",
+            "hazard_type": "fire",
+        }
+        from custom_components.universal_room_automation.domain_coordinators.notification_manager import AlertState
+        nm._alert_state = AlertState.REPEATING
+        # Stub send helpers to observe calls without touching transports.
+        nm._send_pushover = AsyncMock()
+        nm._send_companion = AsyncMock()
+        nm._send_whatsapp = AsyncMock()
+        nm._send_imessage = AsyncMock()
+        nm._send_tts = AsyncMock()
+        nm._schedule_repeat = MagicMock()
+        _run(nm._repeat_alert())
+        # All 4 messaging channels invoked (life-safety fire hazard).
+        assert nm._send_pushover.await_count == 1
+        assert nm._send_companion.await_count == 1
+        assert nm._send_whatsapp.await_count == 1
+        assert nm._send_imessage.await_count == 1
+
+    def test_repeat_alert_non_life_safety_mute_stops_channel(self):
+        """Non-life-safety repeats HONOR mutes for that channel."""
+        hass = _make_hass()
+        person = _base_person()
+        cfg = _cfg_all_channels(**{CONF_NM_PERSONS: [person]})
+        nm = NotificationManager(hass, cfg)
+        # Mute pushover before the repeat fires.
+        _run(nm.async_mute_person_channel("person.oji", "pushover", 30))
+        nm._active_alert_data = {
+            "coordinator_id": "energy",
+            "title": "Overshoot",
+            "message": "kWh spike",
+            "hazard_type": "peak_overshoot",  # NOT life-safety
+        }
+        from custom_components.universal_room_automation.domain_coordinators.notification_manager import AlertState
+        nm._alert_state = AlertState.REPEATING
+        nm._send_pushover = AsyncMock()
+        nm._send_companion = AsyncMock()
+        nm._send_whatsapp = AsyncMock()
+        nm._send_imessage = AsyncMock()
+        nm._send_tts = AsyncMock()
+        nm._schedule_repeat = MagicMock()
+        _run(nm._repeat_alert())
+        assert nm._send_pushover.await_count == 0  # muted
+        assert nm._send_companion.await_count == 1
+        assert nm._send_whatsapp.await_count == 1
+        assert nm._send_imessage.await_count == 1
+
+    def test_repeat_alert_life_safety_ignores_mute(self):
+        """Life-safety repeats bypass mute for messaging channels."""
+        hass = _make_hass()
+        person = _base_person()
+        cfg = _cfg_all_channels(**{CONF_NM_PERSONS: [person]})
+        nm = NotificationManager(hass, cfg)
+        _run(nm.async_mute_person_channel("person.oji", "pushover", 30))
+        nm._active_alert_data = {
+            "coordinator_id": "safety",
+            "title": "Smoke!",
+            "message": "Smoke!",
+            "hazard_type": "smoke",  # LIFE-SAFETY
+        }
+        from custom_components.universal_room_automation.domain_coordinators.notification_manager import AlertState
+        nm._alert_state = AlertState.REPEATING
+        nm._send_pushover = AsyncMock()
+        nm._send_companion = AsyncMock()
+        nm._send_whatsapp = AsyncMock()
+        nm._send_imessage = AsyncMock()
+        nm._send_tts = AsyncMock()
+        nm._schedule_repeat = MagicMock()
+        _run(nm._repeat_alert())
+        # Mute skipped for life-safety.
+        assert nm._send_pushover.await_count == 1
+
+
+class TestFixupGlobalDNDUnion:
+    """D3/B-HIGH-1: global quiet-hours gate must union with per-recipient
+    bypass sets. C3 acceptance case = MEDIUM + recipient bypass
+    {LOW, MEDIUM, CRITICAL} in quiet hours → fires for that recipient only.
+    """
+
+    def test_medium_in_quiet_hours_with_widened_recipient_bypass(self):
+        hass = _make_hass()
+        person = _base_person(**{
+            CONF_NM_PERSON_DND_BYPASS_SEVERITIES: ("LOW", "MEDIUM", "CRITICAL"),
+        })
+        cfg = _cfg_all_channels(**{
+            CONF_NM_PERSONS: [person],
+            CONF_NM_QUIET_USE_HOUSE_STATE: False,
+            CONF_NM_QUIET_MANUAL_START: "00:00",
+            CONF_NM_QUIET_MANUAL_END: "23:59",
+        })
+        nm = NotificationManager(hass, cfg)
+        # Force quiet-hours = True.
+        nm._is_quiet_hours = MagicMock(return_value=True)
+        nm._send_pushover = AsyncMock()
+        _run(nm.async_notify("safety", Severity.MEDIUM, "T", "M"))
+        # Global gate would have suppressed pre-fix; now unioned.
+        assert nm._send_pushover.await_count == 1
+
+    def test_medium_in_quiet_hours_no_widened_bypass_still_suppresses(self):
+        hass = _make_hass()
+        nm = NotificationManager(hass, _cfg_all_channels(**{
+            CONF_NM_QUIET_USE_HOUSE_STATE: False,
+        }))
+        nm._is_quiet_hours = MagicMock(return_value=True)
+        nm._send_pushover = AsyncMock()
+        _run(nm.async_notify("safety", Severity.MEDIUM, "T", "M"))
+        assert nm._send_pushover.await_count == 0
+
+
+class TestFixupMuteRejectsGlobalChannels:
+    """D6/B-LOW-2: tts and lights are recipient-less globals; muting
+    them per-person must be rejected with an error.
+    """
+
+    def test_mute_tts_rejected(self):
+        hass = _make_hass()
+        nm = NotificationManager(hass, _cfg_all_channels())
+        _run(nm.async_mute_person_channel("person.oji", "tts", 30))
+        assert ("person.oji", "tts") not in nm._person_channel_mutes
+
+    def test_mute_lights_rejected(self):
+        hass = _make_hass()
+        nm = NotificationManager(hass, _cfg_all_channels())
+        _run(nm.async_mute_person_channel("person.oji", "lights", 30))
+        assert ("person.oji", "lights") not in nm._person_channel_mutes
+
+
+class TestFixupBurnOnlyOnReceivingChannel:
+    """B-HIGH-2: token burn happens only when ≥1 recipient actually
+    receives the channel (post-mute/matrix/DND intersection).
+    Fully-muted channel + repeat notify → zero tokens burned.
+    """
+
+    def test_fully_muted_channel_no_token_burn(self):
+        hass = _make_hass()
+        nm = NotificationManager(hass, _cfg_all_channels())
+        # Mute all four messaging channels for the sole recipient.
+        for ch in ("pushover", "companion", "whatsapp", "imessage"):
+            _run(nm.async_mute_person_channel("person.oji", ch, 30))
+        capacity_before = dict(nm._bucket_tokens)
+        gate = nm._gate_channels_for_notify(
+            nm._config[CONF_NM_PERSONS], Severity.MEDIUM, "peak_overshoot", "energy",
+        )
+        assert all(v is False for v in gate.values())
+        # No token was drawn (bucket_take never invoked).
+        capacity_after = dict(nm._bucket_tokens)
+        assert capacity_before == capacity_after
+
+
+class TestFixupAuditRowAndDryRunGuards:
+    """C-1 / C-2 / C-3 / C-4 anchors."""
+
+    def test_c3_alert_lights_dryrun_guards_task_creation(self):
+        """Kill the `if self._dry_run_active: return` guard at
+        `_trigger_alert_lights` → `hass.async_create_task` gets a call
+        under dry-run. Fixture self-check first (tautology guard #9):
+        confirm the harness returns None so any accidental call would
+        register as call_count > 0.
+        """
+        from custom_components.universal_room_automation.const import CONF_NM_ALERT_LIGHTS
+        hass = _make_hass()
+        # Fixture self-check.
+        assert hass.async_create_task.return_value is None
+        cfg = _cfg_all_channels(**{
+            CONF_NM_ALERT_LIGHTS: ["light.hall"],
+            CONF_NM_DRY_RUN: True,
+        })
+        nm = NotificationManager(hass, cfg)
+        # `_log_dry_run` writes a row via NM's own DB helper — stub it.
+        nm._log_dry_run = AsyncMock()
+        hass.async_create_task.reset_mock()
+        _run(nm._trigger_alert_lights("fire", Severity.CRITICAL))
+        assert hass.async_create_task.call_count == 0
+        assert nm._log_dry_run.await_count == 1
+
+    def test_c4_ack_announce_dryrun_guard(self):
+        from custom_components.universal_room_automation.const import CONF_NM_TTS_SPEAKERS
+        hass = _make_hass()
+        cfg = _cfg_all_channels(**{
+            CONF_NM_TTS_SPEAKERS: ["media_player.kitchen"],
+            CONF_NM_DRY_RUN: True,
+        })
+        nm = NotificationManager(hass, cfg)
+        nm._log_dry_run = AsyncMock()
+        hass.services.async_call.reset_mock()
+        _run(nm._announce_ack("Test", "fire", "Kitchen"))
+        assert hass.services.async_call.await_count == 0
+        assert nm._log_dry_run.await_count == 1
+
+    def test_c1_end_to_end_matrix_and_mute_honored_at_send_sites(self):
+        """End-to-end async_notify with matrix denying whatsapp + mute on
+        companion → only pushover/imessage fire. Kills a mutation setting
+        `_router_allowed = full set` (would fire all four).
+        """
+        hass = _make_hass()
+        person = _base_person(**{
+            CONF_NM_PERSON_ROUTING_MATRIX: {
+                "HIGH": {"pushover": True, "companion": True,
+                         "whatsapp": False, "imessage": True,
+                         "tts": False, "lights": False},
+            },
+        })
+        cfg = _cfg_all_channels(**{
+            CONF_NM_PERSONS: [person],
+            CONF_NM_QUIET_USE_HOUSE_STATE: False,
+        })
+        nm = NotificationManager(hass, cfg)
+        nm._is_quiet_hours = MagicMock(return_value=False)
+        _run(nm.async_mute_person_channel("person.oji", "companion", 30))
+        nm._send_pushover = AsyncMock()
+        nm._send_companion = AsyncMock()
+        nm._send_whatsapp = AsyncMock()
+        nm._send_imessage = AsyncMock()
+        _run(nm.async_notify("safety", Severity.HIGH, "T", "M", hazard_type="peak_overshoot"))
+        assert nm._send_pushover.await_count == 1
+        assert nm._send_companion.await_count == 0  # muted
+        assert nm._send_whatsapp.await_count == 0  # matrix denies
+        assert nm._send_imessage.await_count == 1
+
+    def test_c2_audit_row_written_per_recipient_with_route_reason(self):
+        """C-2: audit rows carry route_reason + matrix_branch +
+        bucket_outcome; O(persons) rows per notify. Kills a mutation
+        that neuters `_emit_audit_row` to a no-op.
+        """
+        hass = _make_hass()
+        person = _base_person()
+        cfg = _cfg_all_channels(**{
+            CONF_NM_PERSONS: [person],
+            CONF_NM_QUIET_USE_HOUSE_STATE: False,
+        })
+        nm = NotificationManager(hass, cfg)
+        nm._is_quiet_hours = MagicMock(return_value=False)
+        # Provide a fake database that captures audit calls.
+        captured = []
+
+        async def _cap(**kwargs):
+            captured.append(kwargs)
+        nm._emit_audit_row = _cap
+        # And a minimal fake DB so the audit branch is reached.
+        fake_db = MagicMock()
+        fake_db.log_notification = AsyncMock()
+        hass.data[__import__("custom_components.universal_room_automation.const", fromlist=["DOMAIN"]).DOMAIN]["database"] = fake_db
+        nm._send_pushover = AsyncMock()
+        _run(nm.async_notify("safety", Severity.MEDIUM, "T", "M"))
+        assert len(captured) == 1  # O(persons) — one recipient
+        row = captured[0]
+        assert row["route_reason"] in ("matrix_default", "hazard_override", "legacy_fallback")
+        assert row["matrix_branch"] in ("matrix_default", "hazard_override", "legacy_fallback", "dnd")
+        assert row["bucket_outcome"] in ("accepted", "no_channel_fired", "quiet_hours_suppressed")
+
+
 MUTATION_ANCHORS = {
     # (test → production site whose bypass makes the test fail)
     "TestCINV1Backcompat.test_router_backcompat_full_fixture": (
@@ -543,5 +859,64 @@ MUTATION_ANCHORS = {
         "__init__.py::_NM_C_KEYS splat into _NO_LIVE_ATTR_KEYS AND "
         "OPTIONS_RELOAD_SUPPRESS_KEYS — trap that fired B-B1 (v5.26.0) "
         "and A-2 fix (v5.25.0)"
+    ),
+    # NM Cycle C fix-up (2026-07-20) — Tier-3 review anchors added.
+    "TestFixupRepeatPathRouterIntersection.test_repeat_alert_no_nameerror_with_companion_configured": (
+        "notification_manager.py::_repeat_alert — per-recipient loop's "
+        "`_router_allowed = self._route_for_recipient(...)` call. Bypass "
+        "the assignment (or set to empty set) → all 4 channel awaits go "
+        "to zero. Prior code referenced undefined `_router_allowed` on "
+        "pushover/companion/whatsapp/imessage → NameError."
+    ),
+    "TestFixupRepeatPathRouterIntersection.test_repeat_alert_non_life_safety_mute_stops_channel": (
+        "notification_manager.py::_route_for_recipient — the "
+        "`legacy - muted_channels` / `override - muted_channels` "
+        "subtraction (Layer A mute). Bypass → muted channel still fires."
+    ),
+    "TestFixupRepeatPathRouterIntersection.test_repeat_alert_life_safety_ignores_mute": (
+        "notification_manager.py::_route_for_recipient — the "
+        "`if life_safety: muted_channels = set()` branch. Bypass → "
+        "life-safety hazards honor mute (safety regression)."
+    ),
+    "TestFixupGlobalDNDUnion.test_medium_in_quiet_hours_with_widened_recipient_bypass": (
+        "notification_manager.py::async_notify — the global-quiet-hours "
+        "union check (`any_recipient_bypass` loop). Bypass by reverting "
+        "to `not self._recipient_bypasses_dnd(None,...): return`."
+    ),
+    "TestFixupMuteRejectsGlobalChannels.test_mute_tts_rejected": (
+        "notification_manager.py::async_mute_person_channel — the "
+        "`if channel in ('tts','lights'): return` guard."
+    ),
+    "TestFixupBurnOnlyOnReceivingChannel.test_fully_muted_channel_no_token_burn": (
+        "notification_manager.py::_gate_channels_for_notify — the "
+        "`any_receiving` router+mute intersection loop. Bypass → tokens "
+        "burn on fully-muted channels."
+    ),
+    "TestFixupAuditRowAndDryRunGuards.test_c3_alert_lights_dryrun_guards_task_creation": (
+        "notification_manager.py::_trigger_alert_lights — the "
+        "`if self._dry_run_active: return` guard. Fixture self-check "
+        "asserts hass.async_create_task.return_value is None."
+    ),
+    "TestFixupAuditRowAndDryRunGuards.test_c4_ack_announce_dryrun_guard": (
+        "notification_manager.py::_announce_ack — the "
+        "`if self._dry_run_active: return` guard."
+    ),
+    "TestFixupAuditRowAndDryRunGuards.test_c1_end_to_end_matrix_and_mute_honored_at_send_sites": (
+        "notification_manager.py::async_notify — per-channel "
+        "`_channel_gate.get(ch, False) and ch in _router_allowed` "
+        "intersection at all 4 messaging sites."
+    ),
+    "TestFixupAuditRowAndDryRunGuards.test_c2_audit_row_written_per_recipient_with_route_reason": (
+        "notification_manager.py::async_notify — the "
+        "`await self._emit_audit_row(...)` per-recipient call."
+    ),
+    "TestCINV1Backcompat.test_migration_re_materializes_on_live_config_change": (
+        "notification_manager.py::_migrate_legacy_severity_to_matrix — "
+        "the `_legacy_matrix_key` change-detection. Freezing to the "
+        "boot-time snapshot fails this test."
+    ),
+    "TestCINV1Backcompat.test_migration_self_check_full_coverage": (
+        "notification_manager.py::_migrate_legacy_severity_to_matrix — "
+        "the 4×N materialization loop (C-5 self-check)."
     ),
 }
