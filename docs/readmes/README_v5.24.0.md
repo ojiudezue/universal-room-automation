@@ -47,17 +47,23 @@ Per `docs/planning/PLANNING_dp_sticky_yields_to_excess_solar.md`. Charter:
   cycle). DP-yield adds `test_dp_yields_to_excess_solar.py` (1058 lines,
   all green).
 
-## Live Validation (prospective — write back observed results post-restart)
+## Live Validation — Validated 2026-07-20 (restart 19:34 CDT)
 
-| # | Criterion | How to check |
-|---|---|---|
-| L1 | NM quieting: `sensor.ura_notification_manager` `notifications_today ≤ 6` over 24h; optimizer rows only in digest window | live sensor + `notification_log` |
-| L2 | A7 preserved signals intact: AC Reset FAILED / Envoy Offline emits gate on real conditions (live-only; cannot be proven in-suite) | recorder / notification_log over subsequent days |
-| L3 | A4 outdoor exclusion + quieted humidity thresholds produce no outdoor-humidity NM rows | recorder query post-deploy |
-| L4 | DP-yield: next high-solar day with battery ≥95% while an EVSE carries deferred DP pause (`pause_reason_human` = "drain-precedence transition (paused)", `_dp_carrier.state = HOLD_ONLY`) → transitions to "excess solar (charging)" within one decision cycle; `switch.turn_on` in HA logs; EV draws PV | entity attributes + timestamps, recorded here per write-back rule |
-| L5 | No URA ERROR logs attributable to either cycle post-restart | log scan |
-| L6 | House state sensor available; all coordinators emitting post-restart | `sensor.ura_presence_coordinator_presence_house_state` |
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | NM quieting: notifications_today ≤ 6 over 24h; optimizer rows only in digest window | PENDING-24H | Boot log shows `notification_manager` "Messaging suppressed — all outbound notifications halted" (observe mode, blank targets, as designed). 24h count check due 2026-07-21 evening. |
+| L2 | A7 preserved signals gate on real conditions | PENDING-ORGANIC | Live-only by design (plan §A7); tripwire + behavioral tests green in-suite. Watch notification_log on next real HVAC/Envoy event. |
+| L3 | No outdoor-humidity NM rows post-deploy | PENDING-24H | Recorder query due with L1. |
+| L4 | DP-yield: HOLD_ONLY DP-carrier EVSE yields to excess-solar claim within one cycle | PENDING-ORGANIC | Trigger: high-solar day, battery ≥95%, EVSE with `pause_reason_human` = "drain-precedence transition (paused)". At validation time SOC=88, no DP carrier active (`evse_paused_by_arbitrage=[]`). Record observation window here when it fires. |
+| L5 | No URA ERROR logs post-restart | PASS | `error_log` level=ERROR search=universal_room_automation → 0 lines at T+4min and T+9min. Boot-transient WARNINGs only (sensor-unavailable holds, camera census, Envoy warm-up blind de-escalation — all known classes). |
+| L6 | House state + coordinators live | PASS | `sensor.ura_presence_coordinator_presence_house_state`: away (boot) → arriving → `home_evening` conf 0.85 by 19:37:45. EC resolved `self_consumption` at 19:41:15 (SOC 88 via envoy primary, arbitrage phase discharge, write-verify surface healthy, `inclement_reserve_floor=10`). Installed manifest confirmed `v5.24.0` on live mount. |
 
-L4 is organic (requires a real high-solar day + deferred DP pause); if not
-exercised at validation time, mark pending-organic with the trigger
-condition, per the v5.5.0 precedent.
+Boot-only transients seen and dismissed: Envoy unavailable at URA start →
+blind de-escalation ENGAGED (v5.17.5 behavior, correct), released once
+Envoy resolved (~19:38). Pre-existing, NOT this deploy:
+`pending_write_stuck_state.reserve_soc` cloud-oracle divergence (oracle 61
+vs commanded 10) began 21:02 UTC pre-restart — known Enphase-side
+reserve-reporting divergence.
+
+L1/L3 (24h) and L2/L4 (organic) remain open per the v5.5.0
+pending-organic precedent; cycle closes on L5/L6 with those tracked.
