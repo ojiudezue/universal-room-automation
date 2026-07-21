@@ -126,6 +126,59 @@ on the EV Charging Plan sensor — what it *would* have done, zero
 actuation (mutation-enforced invariant). Use this to build confidence
 before enabling; it's how the feature earned activation on 2026-07-17.
 
+### 2.4b EVSE precedence — who can start/stop a charger, in enforced order
+
+Ratified 2026-07-20 by the tri-mechanism reconciliation audit
+(excess-solar x TOU x BAEC) run before the DP-yield ship. This is the
+code-enforced order, not aspiration; sites cited from that audit.
+Unified objective each row serves: **grid** = avoid expensive grid
+energy, **solar** = use excess solar, **battery** = don't
+unnecessarily drain house storage.
+
+| # | Owner / claim | Serves | Where enforced |
+|---|---|---|---|
+| 1 | Manual URA kill-switch re-pause (`_paused_by_us`, peak/mid-peak) | grid | energy_pool.py ~:540-568 |
+| 2 | Force-Charge admin override (`_force_charge_until`) | operator escape | energy_pool.py ~:551-556, :703-724 |
+| 3 | Breaker safety (grid-charge-on pause) | hardware + battery | energy_pool.py ~:627-646 |
+| 4 | Grid-import cap (`_paused_by_grid_cap`) | grid | peer group A |
+| 5 | Load shed (`_paused_by_load_shed`) | grid | peer group A |
+| 6 | Arbitrage (`_paused_by_arbitrage`) | battery | peer group A |
+| 7 | EV battery-drain guard (`_paused_by_battery_drain`) | battery | peer group A |
+| 8 | Fill priority (`_paused_by_fill_priority`, SOC < 80) | battery | peer group A |
+| 9 | BAEC drain-precedence (`_paused_by_dp`) | battery (deliberate transition) | energy.py `_apply_dp_transition` / `_apply_dp_reversion` |
+| 10 | Excess-solar claim (`_excess_solar_active`, SOC>=95 + forecast>=5kWh, never peak) | solar | energy_pool.py `determine_excess_solar_actions` |
+| 11 | Off-peak ensure-on (`_proactive_offpeak_holds`) | grid (cheap window) | energy_pool.py ~:569-681 |
+| 12 | Peak/mid-peak idempotent OFF | grid | energy_pool.py ~:557-568 |
+
+**BAEC is two-tier:** an ACTIVE carrier state (`transitioned`,
+`must_start_forced`, `hold_pre_eval`, `eval_transition`) is a full
+peer — nothing below it may claim the EVSE, including excess-solar (a
+mid-drain solar spike must not collapse the reserve the drain is
+building). A `hold_only` **sticky orphan** (deferred reversion) is
+yieldable to excess-solar only — the DP-yield cycle. This yield is
+the *only lawful mid-peak escape* for a sticky orphan: the orphan
+retry driver calls reversion each tick, but reversion TOU-defers on
+anything that isn't off_peak, so on a high-solar mid-peak afternoon
+with a full battery, without the yield the car would sit paused all
+day (the observed Garage B incident).
+
+**Audit conclusions of record:**
+- No reachable state refuses cheap solar while permitting expensive
+  grid charging.
+- No path drains the home battery into a car outside BAEC's
+  deliberate transition window (the captured-SOC hold pins reserve
+  under every owner, excess-solar included).
+- Owner sets stay SEPARATE by design — collapsing them into one
+  priority function was evaluated and rejected (separable ownership
+  is what lets framing-disjoint reviews catch distinct leaks;
+  v5.5.3 D-HIGH-1 precedent).
+- Known accepted follow-ups: force-charge does not release a live
+  `transitioned` carrier (MED); no runtime clamp yet between
+  `fill_priority_soc` / `excess_solar_soc` / drain targets
+  (ladder-validator extension queued); must-start-by does not defer
+  on `_paused_by_battery_drain` (corner); excess-solar lacks a
+  release-only path when its toggle is off (backlog).
+
 ### 2.5 Blind-hold contract (v5.17.5)
 
 Battery telemetry can degrade — local Envoy API stops answering, or

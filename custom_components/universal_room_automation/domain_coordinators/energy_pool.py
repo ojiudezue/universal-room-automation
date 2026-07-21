@@ -290,6 +290,33 @@ class EVChargerController:
         # v4.7.6 D1 #9: Prune stale entries on init (idempotent on cold boot).
         self._prune_removed_evses()
 
+    def _stronger_peer_holds(self, evse_id: str) -> bool:
+        """C-b8 (fix-up): shared strong-peer guard.
+
+        Returns True iff `evse_id` is currently held by ANY of the five
+        battery-protection / safety / arbitrage peer owners:
+        `_paused_by_battery_drain`, `_paused_by_fill_priority`,
+        `_paused_by_grid_cap`, `_paused_by_arbitrage`,
+        `_paused_by_load_shed`. These outrank BOTH the TOU ensure-on
+        proactive-turn-on path AND the excess-solar claim path (safer
+        long-term than dual mutation tests — one helper, one truth).
+
+        NOTE: `_paused_by_dp` is INTENTIONALLY excluded here. The two
+        callers have different DP semantics:
+          - TOU ensure-on adds `or evse_id in self._paused_by_dp` inline
+            (DP always outranks proactive off-peak turn-on).
+          - Excess-solar treats `_paused_by_dp` as *conditionally*
+            yieldable (INV-YIELD-1 HOLD_ONLY-only claim); the DP check
+            lives at that site.
+        """
+        return (
+            evse_id in self._paused_by_battery_drain
+            or evse_id in self._paused_by_fill_priority
+            or evse_id in self._paused_by_grid_cap
+            or evse_id in self._paused_by_arbitrage
+            or evse_id in self._paused_by_load_shed
+        )
+
     def _get_evse_state(self, evse_id: str) -> dict[str, Any]:
         """Get current state of an EVSE.
 
@@ -570,11 +597,10 @@ class EVChargerController:
                 # bookkeeping and clear any stale proactive-hold claim so
                 # the guard rule keeps the EVSE off.
                 if (
-                    evse_id in self._paused_by_battery_drain
-                    or evse_id in self._paused_by_fill_priority
-                    or evse_id in self._paused_by_grid_cap
-                    or evse_id in self._paused_by_arbitrage
-                    or evse_id in self._paused_by_load_shed
+                    # C-b8 (fix-up): shared five-peer guard extracted to
+                    # `_stronger_peer_holds`; the DP check stays inline
+                    # (proactive TOU turn-on ALWAYS defers to DP).
+                    self._stronger_peer_holds(evse_id)
                     # EVSE drain-precedence (B2b-i): peer battery-protection
                     # owner. Force-charge is the sole authoritative override
                     # per plan §127 (interaction matrix row 1); TOU ensure-on
@@ -715,11 +741,31 @@ class EVChargerController:
         tou_period: str,
         soc_threshold: int = 95,
         kwh_threshold: float = 5.0,
+        dp_carrier_state: str | None = None,
     ) -> list[dict[str, Any]]:
         """Determine whether to turn on EVSEs for excess solar charging.
 
         Only during off-peak or mid-peak (never peak — battery needed).
         Conditions to activate: SOC >= threshold AND remaining forecast >= kwh threshold.
+
+        `dp_carrier_state` is the value of `EnergyCoordinator._dp_carrier.state`
+        (a `DPState` StrEnum value, so its `.value` matches the strings
+        "hold_only" / "transitioned" / "must_start_forced" / etc.). The
+        caller passes it as a plain string to keep this module free of a
+        DP-module import (mirrors how `tou_period` / `soc` / `remaining`
+        are already threaded in from the energy coordinator, NOT read
+        via cross-module attribute).
+
+        Sticky-DP yield (INV-YIELD-1 / INV-YIELD-2 — see
+        docs/planning/PLANNING_dp_sticky_yields_to_excess_solar.md):
+        an EVSE in `_paused_by_dp` is claimable by excess-solar IFF
+        `dp_carrier_state == "hold_only"` (deferred-reversion orphan,
+        no active BAEC transition). TRANSITIONED / MUST_START_FORCED /
+        HOLD_PRE_EVAL / EVAL_TRANSITION never yield: an active drain
+        transition MUST NOT be short-circuited by a mid-drain solar
+        spike (would collapse the reserve the drain was engineered to
+        build). When `dp_carrier_state is None` we conservatively refuse
+        the yield (treat as not-HOLD_ONLY).
         """
         actions: list[dict[str, Any]] = []
 
@@ -770,30 +816,56 @@ class EVChargerController:
                 # (drain, fill-priority, grid-cap, arbitrage). TOU/`_paused_by_us`
                 # is the only pause set that excess-solar legitimately claims
                 # against (battery-full + solar-surplus is the design override).
-                if (
-                    evse_id in self._paused_by_battery_drain
-                    or evse_id in self._paused_by_fill_priority
-                    or evse_id in self._paused_by_grid_cap
-                    or evse_id in self._paused_by_arbitrage
-                    or evse_id in self._paused_by_load_shed
-                    # Session B2b-ii: `_paused_by_dp` is a peer of the
-                    # other stronger owners here. Excess-solar turn-on
-                    # must NOT re-enable an EVSE the drain-precedence
-                    # state machine holds paused (draining the house
-                    # battery down to the drain target so night charging
-                    # runs off-peak). Symmetric with the carry-over guard
-                    # in the off_peak ensure-on branch (B2b-i).
-                    or evse_id in self._paused_by_dp
-                ):
+                if self._stronger_peer_holds(evse_id):
+                    # C-b8 (fix-up): shared five-peer guard. The DP
+                    # sticky-yield check (INV-YIELD-1/2) lives BELOW —
+                    # it is not a "stronger peer", it is a conditional
+                    # yield target.
                     _LOGGER.debug(
                         "Excess solar: %s held by stronger pause reason — skipping",
                         evse_id,
+                    )
+                    continue
+                # Session B2b-ii peer-skip, refined by the sticky-DP
+                # yield (INV-YIELD-1/2). `_paused_by_dp` retains membership
+                # under the sticky-defer branch of `_apply_dp_reversion`
+                # even after the DP carrier collapses to HOLD_ONLY (no
+                # active transition, waiting on non-off_peak TOU). In
+                # that deferred-orphan case, excess-solar legitimately
+                # claims the EVSE. TRANSITIONED / MUST_START_FORCED (and
+                # the transitional HOLD_PRE_EVAL / EVAL_TRANSITION) remain
+                # strictly protected — draining the house battery to the
+                # drain target so night charging runs off-peak MUST NOT
+                # be short-circuited by a mid-drain solar spike. See
+                # docs/planning/PLANNING_dp_sticky_yields_to_excess_solar.md.
+                _dp_yield_ok = (
+                    evse_id in self._paused_by_dp
+                    and dp_carrier_state == "hold_only"
+                )
+                if evse_id in self._paused_by_dp and not _dp_yield_ok:
+                    _LOGGER.debug(
+                        "Excess solar: %s held by stronger pause reason — skipping "
+                        "(dp_carrier=%s)",
+                        evse_id, dp_carrier_state,
                     )
                     continue
                 # Claim EVSE from TOU pause if needed
                 was_tou_paused = evse_id in self._paused_by_us
                 if was_tou_paused:
                     self._paused_by_us.discard(evse_id)
+                # INV-YIELD-1 atomic ownership handoff: mirror the
+                # `_paused_by_us` claim above but drop the "dp" owner
+                # instead. Runs BEFORE the dispatch append so there is
+                # no ownerless gap — the four mutations (discard set,
+                # release "dp" owner, add to _excess_solar_active,
+                # append turn_on) happen synchronously (no await) so
+                # no concurrent tick observes the EVSE with neither
+                # owner nor claim. Persists on the next _save_evse_state
+                # tick alongside the rest of the ownership blob.
+                _yielded_from_dp = _dp_yield_ok
+                if _yielded_from_dp:
+                    self._paused_by_dp.discard(evse_id)
+                    self._release_pause_dispatch_owner(evse_id, "dp")
                 state = self._get_evse_state(evse_id)
                 if not state["is_on"]:
                     actions.append({
@@ -802,16 +874,33 @@ class EVChargerController:
                         "data": {},
                     })
                     self._excess_solar_active.add(evse_id)
-                    _LOGGER.info(
-                        "Excess solar: turning on %s (SOC=%.0f%%, remaining=%.1f kWh%s)",
-                        evse_id, soc, remaining_forecast_kwh,
-                        ", overriding TOU pause" if was_tou_paused else "",
-                    )
+                    if _yielded_from_dp:
+                        _LOGGER.info(
+                            "excess solar: claimed %s from deferred DP hold "
+                            "(dp_carrier=HOLD_ONLY, SOC=%.0f, remaining=%.1f kWh)",
+                            evse_id, soc, remaining_forecast_kwh,
+                        )
+                    else:
+                        _LOGGER.info(
+                            "Excess solar: turning on %s (SOC=%.0f%%, remaining=%.1f kWh%s)",
+                            evse_id, soc, remaining_forecast_kwh,
+                            ", overriding TOU pause" if was_tou_paused else "",
+                        )
                 elif was_tou_paused:
                     # EVSE already on — just claim it
                     self._excess_solar_active.add(evse_id)
                     _LOGGER.info(
                         "Excess solar: claiming %s from TOU pause (already on)", evse_id,
+                    )
+                elif _yielded_from_dp:
+                    # EVSE already on but we just took ownership from DP —
+                    # complete the handoff by claiming into excess_solar
+                    # so the ownership blob isn't left owner-less.
+                    self._excess_solar_active.add(evse_id)
+                    _LOGGER.info(
+                        "excess solar: claimed %s from deferred DP hold "
+                        "(already on, dp_carrier=HOLD_ONLY)",
+                        evse_id,
                     )
         else:
             # Conditions no longer met — turn off only what we turned on

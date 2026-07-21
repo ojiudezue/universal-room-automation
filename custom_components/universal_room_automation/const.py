@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.23.0
+# Universal Room Automation vv5.24.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.23.0"
+VERSION: Final = "v5.24.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1865,6 +1865,91 @@ OPTIMIZER_DIGEST_TOP_N: Final = 5
 # unchanged "away+unlocked" / "20+ overrides" advisory doesn't re-page every
 # cycle, short enough that a re-emergence after resolution still alerts.
 OPTIMIZER_NOTIFY_DEDUP_CYCLES: Final = 12
+
+# NM Cycle A (2026-07-20) A2 — Optimizer HIGH/CRIT paging allowlist.
+# Provenance: 2026-07-20 would-have-sent audit — optimizer findings dominated
+# the noise floor with unactionable "you might tweak X" pages that belonged
+# in the daily digest, not on the phone. Empty by default: nothing pages
+# until an operator can name a specific dimension + concrete on-phone action.
+# CRITICAL findings still page. All HIGH otherwise flows to
+# `optimization_daily_digest` (wired via `_build_optimizer_digest_section`).
+# Rung: module constant (policy decision — flipping this reintroduces noise).
+OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS: Final = frozenset()
+
+# ================================================================
+# NM Cycle A (2026-07-20) — noise-reduction knobs.
+# Values below are DEFAULTS fitted to the reference deployment's
+# 2026-07-20 would-have-sent audit distributions. Other households
+# will have different noise floors; CONF_* names are reserved for
+# rung-2 promotion (options flow) planned as Cycle A-2. Until A-2
+# ships the config-flow UI + reload-suppression + live-apply
+# setters, coordinators call `_nm_cycle_a_knob(hass, CONF_X,
+# DEFAULT_X)` (in domain_coordinators/_nm_cycle_a.py) which reads
+# any operator override from the CoordinatorManager options dict
+# and falls back to the DEFAULT_*.
+# ================================================================
+
+# --- A1: Tripped-breaker window + route ---
+# Behavior: "Wait this long at zero watts before flagging a possible
+# tripped breaker." Longer = fewer false pages on compressors / kettles.
+CONF_TRIPPED_BREAKER_ZERO_WINDOW_S: Final = "nm_a1_tripped_breaker_zero_window_s"
+DEFAULT_TRIPPED_BREAKER_ZERO_WINDOW_S: Final = 900  # 5→15 min per audit
+# Behavior: "Send a push notification for tripped breakers." Off by default
+# — the anomaly still shows on the anomalies dashboard. Turn on for
+# investigations, back off once resolved.
+CONF_TRIPPED_BREAKER_ROUTE_NM: Final = "nm_a1_tripped_breaker_route_nm"
+DEFAULT_TRIPPED_BREAKER_ROUTE_NM: Final = False
+
+# --- A3: Lock-unavailable per-entity dedup ---
+# Behavior: "Don't repeat the same lock-offline warning more often than this."
+# 0 disables dedup (every sweep re-pages — pre-A3 behavior).
+CONF_LOCK_UNAVAILABLE_DEDUP_S: Final = "nm_a3_lock_unavailable_dedup_s"
+DEFAULT_LOCK_UNAVAILABLE_DEDUP_S: Final = 86400  # 1/day/lock
+
+# --- A4: Humidity ladder (indoor "normal" rooms) ---
+# Behavior: "Below the first value nothing is logged. Above the first value
+# we start a two-hour clock. If humidity stays above the second value for
+# the whole two hours you get a notice; above the third value it's urgent."
+# Fitted to indoor summer p95 + mold-risk research.
+CONF_HUMIDITY_NORMAL_LOG_ONLY_PCT: Final = "nm_a4_humidity_log_only_pct"
+CONF_HUMIDITY_NORMAL_MEDIUM_PCT: Final = "nm_a4_humidity_medium_pct"
+CONF_HUMIDITY_NORMAL_HIGH_PCT: Final = "nm_a4_humidity_high_pct"
+DEFAULT_HUMIDITY_NORMAL_LOG_ONLY_PCT: Final = 78
+DEFAULT_HUMIDITY_NORMAL_MEDIUM_PCT: Final = 85
+DEFAULT_HUMIDITY_NORMAL_HIGH_PCT: Final = 92
+
+# Swing trigger — reuses the fan-spike EMA delta-pp concept (see const.py
+# line 631 neighborhood). Consumes the rate-of-change detector's existing
+# 30-min humidity rate (safety.py RateOfChangeDetector) — no new EMA state.
+# Behavior: "Even before it hits the sustained ceiling, warn on a fast
+# jump like a bathroom flood." Kill-switch: swing delta = 0 disables.
+CONF_HUMIDITY_SWING_DELTA_PCT: Final = "nm_a4_humidity_swing_delta_pct"
+CONF_HUMIDITY_SWING_MIN_ABS_PCT: Final = "nm_a4_humidity_swing_min_abs_pct"
+DEFAULT_HUMIDITY_SWING_DELTA_PCT: Final = 20
+DEFAULT_HUMIDITY_SWING_MIN_ABS_PCT: Final = 60
+
+# --- A5: CO2 + TVOC ---
+# CO2 provenance: 2026-07-20 Study A p50=871, p90=1200, max=1713 ppm.
+# Behavior: "Below this level we don't page you about CO2 — the room is
+# in the normal occupied range." Fitted to this house's p90.
+CONF_CO2_LOG_ONLY_CEILING_PPM: Final = "nm_a5_co2_log_only_ppm"
+DEFAULT_CO2_LOG_ONLY_CEILING_PPM: Final = 1200
+# TVOC provenance: Master Bath p50=36, p90=145, p99=994, max=1244 ppb.
+# Behavior: "Instant-alert on a truly extreme value, OR alert if the
+# room stays elevated for this long." Fitted above observed max.
+CONF_TVOC_ABSOLUTE_HIGH_PPB: Final = "nm_a5_tvoc_absolute_high_ppb"
+CONF_TVOC_SUSTAINED_S: Final = "nm_a5_tvoc_sustained_s"
+DEFAULT_TVOC_ABSOLUTE_HIGH_PPB: Final = 1500
+DEFAULT_TVOC_SUSTAINED_S: Final = 1800
+
+# Discovery blocklist — mechanism is rung-1 (structural), *contents* land in
+# options flow (entity-selector list) in Cycle A-2 so other households can
+# exclude their own oddball sensors. Reference deployment's two entries:
+CONF_SAFETY_DISCOVERY_BLOCKLIST: Final = "nm_a5_safety_discovery_blocklist"
+DEFAULT_SAFETY_DISCOVERY_BLOCKLIST: Final = (
+    "sensor.test_kidde_co2_level",           # test rig — not a real Kidde
+    "sensor.dimmer_internal_temperature",    # LED die temp, not room temp
+)
 # v4.7.36 fix-up (A6): occupancy-accuracy disagreement must persist this many
 # seconds before firing (motion-on/occupancy-off is transient at sensor wake).
 OPTIMIZER_OCCUPANCY_ACCURACY_GATE_SECONDS: Final = 120

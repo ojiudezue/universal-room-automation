@@ -525,6 +525,8 @@ class SecurityCoordinator(BaseCoordinator):
 
         # Lock sweep results (persisted for sensor exposure)
         self._last_lock_sweep: dict[str, Any] = {}
+        # NM Cycle A A3: per-entity unavailability dedup (unix ts of last emit).
+        self._lock_unavailable_last_notified: dict[str, float] = {}
 
         # Sub-components
         self._sanction_checker = SanctionChecker(hass)
@@ -1293,15 +1295,47 @@ class SecurityCoordinator(BaseCoordinator):
                 len(unavailable),
                 ", ".join(unavailable),
             )
-            actions.append(
-                NotificationAction(
-                    coordinator_id=self.COORDINATOR_ID,
-                    severity=Severity.MEDIUM,
-                    message=f"Lock check: {len(unavailable)} device(s) offline: {', '.join(unavailable)}",
-                    channels=["security"],
-                    description="Lock check unavailable device notification",
-                )
+            # NM Cycle A A3: per-entity dedup (default 1/day/lock). An
+            # entity is included in the notification payload only if it
+            # hasn't been notified within the dedup window; the full list
+            # remains in _last_lock_sweep["unavailable"] for dashboards.
+            from ..const import (
+                CONF_LOCK_UNAVAILABLE_DEDUP_S,
+                DEFAULT_LOCK_UNAVAILABLE_DEDUP_S,
             )
+            from ._nm_cycle_a import nm_cycle_a_knob
+            import time as _time
+            dedup_s = nm_cycle_a_knob(
+                self.hass,
+                CONF_LOCK_UNAVAILABLE_DEDUP_S,
+                DEFAULT_LOCK_UNAVAILABLE_DEDUP_S,
+            )
+            now_ts = _time.time()
+            to_notify: list[str] = []
+            for eid in unavailable:
+                last = self._lock_unavailable_last_notified.get(eid, 0.0)
+                if dedup_s <= 0 or (now_ts - last) >= dedup_s:
+                    to_notify.append(eid)
+                    self._lock_unavailable_last_notified[eid] = now_ts
+            if to_notify:
+                actions.append(
+                    NotificationAction(
+                        coordinator_id=self.COORDINATOR_ID,
+                        severity=Severity.MEDIUM,
+                        message=(
+                            f"Lock check: {len(to_notify)} device(s) offline: "
+                            f"{', '.join(to_notify)}"
+                        ),
+                        channels=["security"],
+                        description="Lock check unavailable device notification",
+                    )
+                )
+            else:
+                _LOGGER.info(
+                    "Lock-unavailable NM suppressed by A3 dedup "
+                    "(%d entities within %ds window)",
+                    len(unavailable), int(dedup_s),
+                )
 
         if unlocked:
             _LOGGER.info(
