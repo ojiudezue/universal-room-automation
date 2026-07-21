@@ -41,14 +41,25 @@ default-path equivalence tests in `test_nm_cycle_a2_knob_surface.py`.
   listener-flush removal, suppress-splat removal, L4 coercion strip, gate
   bypass — each fails exactly one named test.
 
-## Live Validation (prospective — write back observed results post-restart)
+## Live Validation — Validated 2026-07-20 (restart, boot 20:42 CDT)
 
-| # | Criterion | How to check |
-|---|---|---|
-| L1 | CM entry loads; options step reachable; no URA ERROR logs post-restart | log scan + UI |
-| L2 | NM knob defaults active: no behavior change vs v5.24.0 (notification_log shape unchanged over 24h) | recorder |
-| L3 | Options save of a knob (e.g. lock dedup) does NOT reload the CM entry (sibling-entity last_changed invariant) and takes effect next tick | live edit + entity check |
-| L4 | Optimizer HIGH findings defer to digest (allowlist empty) | notification_log |
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | CM loads; no URA ERROR logs post-restart | PASS | Zero URA ERROR lines after the 20:42:55 boot across 9+ min of runtime. House state `away → arriving → home_evening` by 20:43:55; EC `self_consumption` at 20:42:25. All coordinators emitting. |
+| L2 | Defaults active, no behavior change vs v5.24.0 | PENDING-24H | notification_log shape check due 2026-07-21 evening (rides the same 24h window as v5.24.0's L1/L3). |
+| L3 | Knob options save applies without CM reload, next tick | PENDING-OPERATOR | Needs a UI options save; verify via sibling-entity last_changed invariant when first exercised. |
+| L4 | Optimizer HIGH defers to digest (empty allowlist) | PENDING-ORGANIC | Awaits next optimizer HIGH finding. |
 
-L3 is operator-exercised (needs a UI options save); if not exercised at
-validation time, mark pending-operator.
+Boot-only transients seen and dismissed: five `DB write worker did not
+process request within 35s` errors at 20:37–20:39, all BEFORE the new
+instance's 20:42 boot — old-instance shutdown-phase stall (write queue
+cannot drain during teardown). Zero recurrence in steady state; not the
+write-flood signature (no per-cycle growth, no watchdog).
+
+**Deploy incident (process, not code):** the initial v5.25.0 release was
+cut codeless — deploy.sh ran while HEAD was on `build/nm-cycle-a2`
+(second occurrence of the deploy-from-feature-branch trap; v5.8.0 was
+the first). Recovered in place: recovery merge 934f4e3c → PR #435 →
+tag v5.25.0 force-moved to master tip e8a091ab; installed tree verified
+to contain A-2 code (grep of live mount) BEFORE restart. Follow-up filed:
+deploy.sh should refuse to run when HEAD ≠ develop.

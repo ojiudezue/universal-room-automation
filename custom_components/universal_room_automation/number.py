@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.25.0
+# Universal Room Automation vv5.26.0
 # Build: 2026-01-02
 # File: number.py
 #
@@ -32,6 +32,11 @@ from .const import (
     COMFORT_HUMIDITY_MAX,
     DEFAULT_OCCUPANCY_TIMEOUT,
     VERSION,
+    # NM Cycle B B3 — token-bucket knobs.
+    CONF_NM_BUCKET_CAPACITY,
+    CONF_NM_BUCKET_REFILL_PER_MIN,
+    NM_BUCKET_CAPACITY_DEFAULT,
+    NM_BUCKET_REFILL_PER_MIN_DEFAULT,
 )
 from .coordinator import UniversalRoomCoordinator
 from .entity import UniversalRoomEntity
@@ -102,6 +107,12 @@ async def async_setup_entry(
             # v5.7.1: Energy Saver Pre-Cool Offset (EC device).
             # Operator-configurable per-cycle setpoint offset (default -2°F).
             EnergyPreCoolOffsetNumber(hass, entry),
+            # NM Cycle B (2026-07-20) B3 — per-channel token-bucket knobs.
+            # Two rung-3 Numbers on the NM device: capacity (burst budget)
+            # + refill rate (tokens/min). One pair governs all 6 channels
+            # symmetrically. Per-channel overrides are a Cycle C surface.
+            NMBucketCapacityNumber(hass, entry),
+            NMBucketRefillPerMinNumber(hass, entry),
         ]
         # Session B1 — 5 EVSE drain-precedence knob Numbers on EC device.
         for cls in _build_dp_numbers():
@@ -3164,3 +3175,150 @@ def _build_dp_numbers():
     ]
 
 
+
+
+# =============================================================================
+# NM Cycle B (2026-07-20) B3 — Per-channel token-bucket knobs.
+# Numbers-Get-Knobs rung 3: operator legitimately tunes paging-fatigue vs
+# storm-tolerance by observation; live-tunable + persisted via options
+# write-back (URA Mirror Pattern — matches ArbitrageChargeLeadTimeNumber).
+# =============================================================================
+
+
+class _NMDeviceInfoMixin:
+    @staticmethod
+    def _nm_device_info():
+        from homeassistant.helpers.device_registry import DeviceInfo
+        return DeviceInfo(
+            identifiers={(DOMAIN, "notification_manager")},
+            name="URA: Notification Manager",
+            manufacturer="Universal Room Automation",
+            model="Notification Manager",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+
+class NMBucketCapacityNumber(NumberEntity, _NMDeviceInfoMixin):
+    """Per-channel token-bucket capacity (burst budget).
+
+    Higher = tolerate a bigger burst before overflow queueing; lower =
+    aggressive paging-fatigue guard.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:bucket"
+    _attr_native_step = 1
+    _attr_native_min_value = 1
+    _attr_native_max_value = 100
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_nm_bucket_capacity"
+        self._attr_name = "Rate-Limit Bucket Capacity"
+        self._attr_device_info = self._nm_device_info()
+        cfg = {**entry.data, **entry.options}
+        self._value = int(cfg.get(CONF_NM_BUCKET_CAPACITY, NM_BUCKET_CAPACITY_DEFAULT))
+
+    def _get_nm(self):
+        return self.hass.data.get(DOMAIN, {}).get("notification_manager")
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    @property
+    def available(self) -> bool:
+        return self._get_nm() is not None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        nm = self._get_nm()
+        if nm is not None:
+            nm.set_bucket_capacity(float(self._value))
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._value = int(value)
+        nm = self._get_nm()
+        if nm is not None:
+            nm.set_bucket_capacity(float(self._value))
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={**self._entry.options, CONF_NM_BUCKET_CAPACITY: int(value)},
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("NMBucketCapacity options-writeback failed", exc_info=True)
+        self.async_write_ha_state()
+        _LOGGER.info("NM bucket capacity set to %d", int(value))
+
+
+class NMBucketRefillPerMinNumber(NumberEntity, _NMDeviceInfoMixin):
+    """Per-channel token-bucket refill rate (tokens/minute).
+
+    NM Cycle B fix-up (2026-07-20, C-MED-1) — kill-switch semantics:
+    setting this to ``0`` disables refill entirely. Non-life-safety
+    sends will STOP as soon as each channel's initial bucket drains
+    (no new tokens will ever be granted). Life-safety CRITICAL hazards
+    (smoke / fire / carbon_monoxide / water_leak / flooding / intruder /
+    freeze_risk) BYPASS the bucket and are unaffected — safety paging
+    keeps firing at the 30 s life-safety cadence regardless of this
+    setting. Use ``0`` as an emergency mute for non-life-safety
+    notifications only.
+    """
+    # (End of class docstring — attribute definitions follow.)
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:water"
+    _attr_native_step = 0.5
+    _attr_native_min_value = 0.0
+    _attr_native_max_value = 60.0
+    _attr_native_unit_of_measurement = "tokens/min"
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_nm_bucket_refill_per_min"
+        self._attr_name = "Rate-Limit Refill Rate"
+        self._attr_device_info = self._nm_device_info()
+        cfg = {**entry.data, **entry.options}
+        self._value = float(cfg.get(
+            CONF_NM_BUCKET_REFILL_PER_MIN, NM_BUCKET_REFILL_PER_MIN_DEFAULT,
+        ))
+
+    def _get_nm(self):
+        return self.hass.data.get(DOMAIN, {}).get("notification_manager")
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    @property
+    def available(self) -> bool:
+        return self._get_nm() is not None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        nm = self._get_nm()
+        if nm is not None:
+            nm.set_bucket_refill_per_min(self._value)
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._value = float(value)
+        nm = self._get_nm()
+        if nm is not None:
+            nm.set_bucket_refill_per_min(self._value)
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={**self._entry.options, CONF_NM_BUCKET_REFILL_PER_MIN: float(value)},
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("NMBucketRefill options-writeback failed", exc_info=True)
+        self.async_write_ha_state()
+        _LOGGER.info("NM bucket refill set to %.2f tokens/min", float(value))

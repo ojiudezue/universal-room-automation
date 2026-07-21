@@ -263,6 +263,10 @@ def _load_init_listener_helpers():
         "_CONF_TVOC_SUSTAINED_S":                   "nm_a5_tvoc_sustained_s",
         "_CONF_SAFETY_DISCOVERY_BLOCKLIST":         "nm_a5_safety_discovery_blocklist",
         "_CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS": "nm_a2_optimizer_high_allowlist_dimensions",
+        # NM Cycle B fix-up (2026-07-20, B-B1) — dry-run + token-bucket keys.
+        "_CONF_NM_DRY_RUN":                            "nm_dry_run",
+        "_CONF_NM_BUCKET_CAPACITY":                    "nm_bucket_capacity",
+        "_CONF_NM_BUCKET_REFILL_PER_MIN":              "nm_bucket_refill_per_min",
         # Typing — frozenset[str] subscript requires Python 3.9+; ok.
     }
     # C-MED-2 fix-up (2026-07-20): self-check every hand-typed _CONF_* alias

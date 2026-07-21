@@ -25,6 +25,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 COMPONENT_DIR="$REPO_DIR/custom_components/universal_room_automation"
 
+# Guard: deploys MUST run from develop. deploy.sh commits to current HEAD but
+# pushes/PRs/releases develop — running from a feature branch cuts a CODELESS
+# release (v5.8.0 2026-07-05, v5.25.0 2026-07-20). Merge to develop first.
+CURRENT_BRANCH="$(git -C "$REPO_DIR" branch --show-current)"
+if [[ "$CURRENT_BRANCH" != "develop" ]]; then
+  echo "ERROR: deploy.sh must run from 'develop' (current: '$CURRENT_BRANCH')." >&2
+  echo "The version-stamp commit would land on '$CURRENT_BRANCH' while the PR/release" >&2
+  echo "ships develop — a codeless release. Merge your branch into develop, then re-run." >&2
+  exit 1
+fi
+
 step() {
   echo ""
   echo "==> $1"
