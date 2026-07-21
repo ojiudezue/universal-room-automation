@@ -1453,6 +1453,22 @@ class UniversalRoomDatabase:
                 except Exception as e:
                     _LOGGER.warning("anomaly_log v4.6.1 migration failed: %s", e)
 
+                # NM Cycle B (2026-07-20) B0: additive `dry_run` column on
+                # `notification_log`. Existing rows default 0 (real send).
+                # Never removes columns, safe to re-run.
+                try:
+                    cursor = await db.execute("PRAGMA table_info(notification_log)")
+                    nl_columns = {row[1] for row in await cursor.fetchall()}
+                    if "dry_run" not in nl_columns:
+                        await db.execute(
+                            "ALTER TABLE notification_log "
+                            "ADD COLUMN dry_run INTEGER DEFAULT 0"
+                        )
+                        await db.commit()
+                        _LOGGER.info("Added dry_run column to notification_log (NM Cycle B B0)")
+                except Exception as e:
+                    _LOGGER.warning("notification_log dry_run migration failed: %s", e)
+
                 # v4.6.1 D1 (review fix F3): backfill old TEXT severity values
                 # to numeric-string equivalents matching the unified IntEnum.
                 # v4.6.6 (Review A H1): `'critical' → '4'` (was → '2' pre-
@@ -3458,19 +3474,25 @@ class UniversalRoomDatabase:
         person_id: str | None = None,
         channel: str | None = None,
         delivered: int = 1,
+        dry_run: int = 0,
     ) -> int | None:
-        """Log a notification to the database. Returns the row ID."""
+        """Log a notification to the database. Returns the row ID.
+
+        NM Cycle B B0: ``dry_run=1`` marks a would-have-sent row written by
+        the minimal dry-run gate. Real sends stay ``dry_run=0`` — existing
+        readers unaffected (default preserves prior behavior).
+        """
         try:
             async with self._db() as db:
                 cursor = await db.execute("""
                     INSERT INTO notification_log
                     (timestamp, coordinator_id, severity, title, message,
-                     hazard_type, location, person_id, channel, delivered)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     hazard_type, location, person_id, channel, delivered, dry_run)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     dt_util.utcnow().isoformat(),
                     coordinator_id, severity, title, message,
-                    hazard_type, location, person_id, channel, delivered,
+                    hazard_type, location, person_id, channel, delivered, dry_run,
                 ))
                 await db.commit()
                 return cursor.lastrowid

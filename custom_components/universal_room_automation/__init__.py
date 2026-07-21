@@ -4499,6 +4499,13 @@ from .const import (
     CONF_TVOC_SUSTAINED_S as _CONF_TVOC_SUSTAINED_S,
     CONF_SAFETY_DISCOVERY_BLOCKLIST as _CONF_SAFETY_DISCOVERY_BLOCKLIST,
     CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS as _CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS,
+    # NM Cycle B fix-up (2026-07-20, B-B1): dry-run + token-bucket
+    # entity-owned CM options keys must reload-suppress + no-live-attr
+    # (Number/Switch entities call setters directly; NM re-reads options
+    # via _refresh_config on any options-update).
+    CONF_NM_DRY_RUN as _CONF_NM_DRY_RUN,
+    CONF_NM_BUCKET_CAPACITY as _CONF_NM_BUCKET_CAPACITY,
+    CONF_NM_BUCKET_REFILL_PER_MIN as _CONF_NM_BUCKET_REFILL_PER_MIN,
 )
 
 # NM Cycle A-2 — the 13 CONF keys (12 Cycle-A + 1 optimizer allowlist)
@@ -4644,6 +4651,12 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     # which reads entry.options fresh on every call (module-level
     # cache flushed by the update-listener). No live-attr push needed.
     *_NM_A2_KEYS,
+    # NM Cycle B fix-up (2026-07-20, B-B1): dry-run + token-bucket keys.
+    # Numbers/Switch call NM setters directly; NM re-reads via
+    # `_refresh_config` — no live-attr push needed here.
+    _CONF_NM_DRY_RUN,
+    _CONF_NM_BUCKET_CAPACITY,
+    _CONF_NM_BUCKET_REFILL_PER_MIN,
 })
 
 OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
@@ -4724,6 +4737,11 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     # Consumed via `nm_cycle_a_knob(...)`; cache invalidated by the
     # update listener; no live-attr push, no reload.
     *_NM_A2_KEYS,
+    # NM Cycle B fix-up (2026-07-20, B-B1): dry-run + token-bucket keys.
+    # Entity is the sole write path; must not trigger a CM reload on toggle.
+    _CONF_NM_DRY_RUN,
+    _CONF_NM_BUCKET_CAPACITY,
+    _CONF_NM_BUCKET_REFILL_PER_MIN,
 })
 
 

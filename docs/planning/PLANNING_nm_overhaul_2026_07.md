@@ -225,7 +225,7 @@ Tier-3 adoption rationale (revision 10): marginal cost of a fourth adversarial-c
 ### B Acceptance (cycle-level)
 - **Live/MCP:** Fire synthetic smoke CRITICAL with `CONF_NM_DRY_RUN=true`; `notification_log` shows dry-run rows at 30 s cadence until safe-word ack via MCP-driven webhook; assert **zero real `hass.services.async_call` to notification services** (HA log capture).
 - **Live/MCP:** Fire synthetic non-life-safety CRITICAL (`test_synth`); 300 s cadence observed.
-- **Live/MCP:** Storm test — 20 MEDIUM in 5 s; `overflow_queue_depth` non-zero, drains at refill.
+- **Live/MCP:** Storm test — 20 MEDIUM in 5 s; `overflow_dropped_total` increments; drops are COUNTED not replayed (Cycle B ships honest DROP COUNTER semantics — see fix-up ruling C-HIGH-1 / B-B5 below). Real drain deferred to Cycle C (routing rework changes payload shape; drain needs per-payload capture + staleness re-validation).
 - **Live/MCP:** Mid-episode HA restart; ack registry replays; no duplicate.
 - **Sensor:** `sensor.ura_notification_manager` gains `dry_run_active`, `overflow_queue_depth`, `bucket_capacity_remaining_per_channel`, `active_ack_registry_size`.
 - **Live:** README write-back records observed cadence per subtype, bucket behavior, and write-volume comparison (revision 6).
@@ -289,7 +289,10 @@ Tier-3 adoption rationale (revision 10): marginal cost of a fourth adversarial-c
 
 ## Deferred-work register
 
-Empty at plan open. Cycles populate on close.
+- **Cycle B fix-up (2026-07-20) — real overflow drain deferred to Cycle C.** Cycle B ships honest DROP COUNTER semantics (`overflow_dropped_total` + `overflow_recent_drops` ring). A correct drain requires per-payload capture + staleness re-validation on refill AND the Cycle C per-recipient routing rework will change the queued payload shape anyway — implementing drain here would ship a footgun with stale replays. Ruling: C-HIGH-1 / B-B5.
+- **Cycle B fix-up (2026-07-20) — B-B6 / C-LOW-1 wall-clock refill source.** `_bucket_refill()` uses `dt_util.utcnow()` (subject to clock skew / DST); switch to monotonic source once the token-bucket has organic-validation exposure.
+- **Cycle B fix-up (2026-07-20) — C-LOW-2 `_boot_settle_seen` never cleared.** The set grows unbounded over the boot-settle window (60 s) — small in practice but should be cleared on window close. Trivial follow-up.
+- **Cycle B fix-up (2026-07-20, A-MED-2 open question) — `overheat` and `high_co2` CRITICAL cadence.** These emitted CRITICAL hazards are intentionally NOT life-safety-cadenced this cycle (300 s cadence, paging-fatigue tradeoff). **Operator to ratify or amend before Cycle C ships.** If ratified as life-safety, add both tokens to `NM_LIFE_SAFETY_HAZARDS` (they already appear in `HazardType`). If amended in the other direction, document the non-life-safety framing for the future dashboard copy.
 
 ---
 
