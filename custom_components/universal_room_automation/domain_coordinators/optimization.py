@@ -4060,15 +4060,22 @@ class OptimizationCoordinator(BaseCoordinator):
         # digest by default; only allowlisted dimensions still page NM.
         # CRITICAL always pages. Digest wiring already lives in NM via
         # `_build_optimizer_digest_section` → `opt.format_digest_section()`.
-        if finding.severity == "high":
-            from ..const import OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS
-            dim = getattr(finding, "dimension", None)
-            if dim not in OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS:
-                _LOGGER.info(
-                    "Optimizer: HIGH finding (dimension=%s) deferred to "
-                    "daily digest (not in NM allowlist)", dim,
-                )
-                return
+        # NM Cycle A-2 fix-up (C-HIGH-2 / C-HIGH-3, 2026-07-20): defer
+        # gate extracted into ``_nm_cycle_a.should_defer_high_to_digest``
+        # for mutation-anchored behavioral testing. Semantics are
+        # byte-identical: HIGH findings whose dimension isn't in the
+        # CM-options allowlist defer to digest; CRITICAL always pages.
+        # Read-side normalization (case + Enum-value unwrap) also lives
+        # in the helper so a persisted lowercase allowlist matches an
+        # Enum-valued finding.dimension. See CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS.
+        from ._nm_cycle_a import should_defer_high_to_digest
+        if should_defer_high_to_digest(self.hass, finding):
+            _LOGGER.info(
+                "Optimizer: HIGH finding (dimension=%s) deferred to "
+                "daily digest (not in NM allowlist)",
+                getattr(finding, "dimension", None),
+            )
+            return
         nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
         if nm is None:
             return

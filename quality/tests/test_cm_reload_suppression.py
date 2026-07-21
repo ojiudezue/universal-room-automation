@@ -145,6 +145,9 @@ def _load_init_listener_helpers():
         "_EC_SETTER_DISPATCH",
         "_OFFPEAK_DRAIN_QUALITY",
         "_NO_LIVE_ATTR_KEYS",
+        # NM Cycle A-2 (2026-07-20) — knob-key bundle spliced into both
+        # _NO_LIVE_ATTR_KEYS and OPTIONS_RELOAD_SUPPRESS_KEYS via `*_NM_A2_KEYS`.
+        "_NM_A2_KEYS",
     }
     body = []
     for node in tree.body:
@@ -246,13 +249,76 @@ def _load_init_listener_helpers():
         "_CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP": "energy_soc_divergence_threshold_pp",
         "_CONF_ENERGY_SOC_DIVERGENCE_DWELL_MIN":    "energy_soc_divergence_dwell_min",
         "_CONF_ENERGY_CLOUD_LAG_ALERT_S":           "energy_cloud_lag_alert_s",
+        # NM Cycle A-2 (2026-07-20) — 12 Cycle-A knobs + optimizer allowlist.
+        "_CONF_TRIPPED_BREAKER_ZERO_WINDOW_S":      "nm_a1_tripped_breaker_zero_window_s",
+        "_CONF_TRIPPED_BREAKER_ROUTE_NM":           "nm_a1_tripped_breaker_route_nm",
+        "_CONF_LOCK_UNAVAILABLE_DEDUP_S":           "nm_a3_lock_unavailable_dedup_s",
+        "_CONF_HUMIDITY_NORMAL_LOG_ONLY_PCT":       "nm_a4_humidity_log_only_pct",
+        "_CONF_HUMIDITY_NORMAL_MEDIUM_PCT":         "nm_a4_humidity_medium_pct",
+        "_CONF_HUMIDITY_NORMAL_HIGH_PCT":           "nm_a4_humidity_high_pct",
+        "_CONF_HUMIDITY_SWING_DELTA_PCT":           "nm_a4_humidity_swing_delta_pct",
+        "_CONF_HUMIDITY_SWING_MIN_ABS_PCT":         "nm_a4_humidity_swing_min_abs_pct",
+        "_CONF_CO2_LOG_ONLY_CEILING_PPM":           "nm_a5_co2_log_only_ppm",
+        "_CONF_TVOC_ABSOLUTE_HIGH_PPB":             "nm_a5_tvoc_absolute_high_ppb",
+        "_CONF_TVOC_SUSTAINED_S":                   "nm_a5_tvoc_sustained_s",
+        "_CONF_SAFETY_DISCOVERY_BLOCKLIST":         "nm_a5_safety_discovery_blocklist",
+        "_CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS": "nm_a2_optimizer_high_allowlist_dimensions",
         # Typing — frozenset[str] subscript requires Python 3.9+; ok.
     }
+    # C-MED-2 fix-up (2026-07-20): self-check every hand-typed _CONF_* alias
+    # in `ns` against the ACTUAL const value from the const source files. If
+    # a real const is renamed (e.g. `mf_night_suppress_mode` →
+    # `mf_night_suppress_mode_v2`), the test would previously stay
+    # tautologically green because it exec'd against its own hand-typed
+    # mirror. Now a rename fails this loader with a clear diagnostic.
+    _verify_hand_typed_conf_literals(ns)
     # Wrap kept nodes in a Module and compile.
     mod = ast.Module(body=body, type_ignores=[])
     code = compile(mod, str(PKG / "__init__.py"), "exec")
     exec(code, ns)
     return ns
+
+
+def _verify_hand_typed_conf_literals(ns: dict) -> None:
+    """Assert every ``_CONF_*`` key in ``ns`` matches the const source of truth.
+
+    Walks all const files (const.py, domain_coordinators/*_const.py) and
+    extracts ``CONF_X: Final = "..."`` / ``CONF_X = "..."`` string values.
+    Any mismatch aborts with a diagnostic naming both sides.
+    """
+    import re as _re
+    from pathlib import Path as _Path
+    _PKG = _Path(__file__).resolve().parents[2] / "custom_components" / "universal_room_automation"
+    sources = [_PKG / "const.py"]
+    dc = _PKG / "domain_coordinators"
+    if dc.exists():
+        sources.extend(sorted(dc.glob("*_const.py")))
+    canonical: dict[str, str] = {}
+    _pat = _re.compile(
+        r"^(CONF_[A-Z0-9_]+)\s*(?::\s*Final(?:\[[^\]]+\])?)?\s*=\s*\"([^\"]+)\"",
+        _re.MULTILINE,
+    )
+    for src in sources:
+        text = src.read_text(encoding="utf-8")
+        for m in _pat.finditer(text):
+            canonical.setdefault(m.group(1), m.group(2))
+    mismatches: list[str] = []
+    for alias, hand_value in list(ns.items()):
+        if not alias.startswith("_CONF_"):
+            continue
+        real_name = alias.lstrip("_")  # "_CONF_X" -> "CONF_X"
+        if real_name not in canonical:
+            # Not every ns alias is guaranteed to exist in const sources
+            # (some helper stubs are legitimately test-scoped) — skip.
+            continue
+        if canonical[real_name] != hand_value:
+            mismatches.append(
+                f"{alias}: hand={hand_value!r} vs const={canonical[real_name]!r}"
+            )
+    assert not mismatches, (
+        "C-MED-2: hand-typed conf-key literals drifted from const source of "
+        "truth:\n  " + "\n  ".join(mismatches)
+    )
 
 
 @pytest.fixture(scope="module")

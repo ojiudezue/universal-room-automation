@@ -135,7 +135,86 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     "energy_soc_divergence_threshold_pp",
     "energy_soc_divergence_dwell_min",
     "energy_cloud_lag_alert_s",
+    # NM Cycle A-2 (2026-07-20) — 12 Cycle-A knobs + optimizer allowlist.
+    "nm_a1_tripped_breaker_zero_window_s",
+    "nm_a1_tripped_breaker_route_nm",
+    "nm_a3_lock_unavailable_dedup_s",
+    "nm_a4_humidity_log_only_pct",
+    "nm_a4_humidity_medium_pct",
+    "nm_a4_humidity_high_pct",
+    "nm_a4_humidity_swing_delta_pct",
+    "nm_a4_humidity_swing_min_abs_pct",
+    "nm_a5_co2_log_only_ppm",
+    "nm_a5_tvoc_absolute_high_ppb",
+    "nm_a5_tvoc_sustained_s",
+    "nm_a5_safety_discovery_blocklist",
+    "nm_a2_optimizer_high_allowlist_dimensions",
 }
+
+
+# C-MED-2 fix-up (2026-07-20): self-check every hand-typed string literal in
+# EXPECTED_SUPPRESS_KEYS against the const source of truth. If a real CONF is
+# renamed and its literal drifts, this would previously stay tautologically
+# green because the same hand-typed value was also used in `_apply_in_place`
+# fake dispatch. Now a rename fails this module import with a diagnostic.
+def _verify_hand_typed_conf_literals() -> None:
+    _pat = re.compile(
+        r"^(CONF_[A-Z0-9_]+)\s*(?::\s*Final(?:\[[^\]]+\])?)?\s*=\s*\(?\s*\"([^\"]+)\"",
+        re.MULTILINE,
+    )
+    canonical: dict[str, str] = {}
+    for text in (CONST_SRC, HVAC_CONST_SRC, ENERGY_CONST_SRC):
+        for m in _pat.finditer(text):
+            canonical.setdefault(m.group(1), m.group(2))
+    hand_typed_values = {
+        # 7 EVSE Drain-Precedence keys.
+        "energy_dp_enable": "CONF_ENERGY_DP_ENABLE",
+        "energy_dp_eval_delay_min": "CONF_ENERGY_DP_EVAL_DELAY_MIN",
+        "energy_dp_margin_min": "CONF_ENERGY_DP_MARGIN_MIN",
+        "energy_dp_must_start_by_min": "CONF_ENERGY_DP_MUST_START_BY_MIN",
+        "energy_dp_needed_kwh_garage_a": "CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A",
+        "energy_dp_needed_kwh_garage_b": "CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B",
+        "energy_dp_house_load_source": "CONF_ENERGY_DP_HOUSE_LOAD_SOURCE",
+        # v5.21.0 D2 knobs.
+        "energy_soc_divergence_threshold_pp": "CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP",
+        "energy_soc_divergence_dwell_min": "CONF_ENERGY_SOC_DIVERGENCE_DWELL_MIN",
+        "energy_cloud_lag_alert_s": "CONF_ENERGY_CLOUD_LAG_ALERT_S",
+        # Bayesian.
+        "bayesian_cell_staleness_days": "CONF_BAYESIAN_CELL_STALENESS_DAYS",
+        # NM Cycle A-2 (12 knobs + optimizer allowlist).
+        "nm_a1_tripped_breaker_zero_window_s": "CONF_TRIPPED_BREAKER_ZERO_WINDOW_S",
+        "nm_a1_tripped_breaker_route_nm": "CONF_TRIPPED_BREAKER_ROUTE_NM",
+        "nm_a3_lock_unavailable_dedup_s": "CONF_LOCK_UNAVAILABLE_DEDUP_S",
+        "nm_a4_humidity_log_only_pct": "CONF_HUMIDITY_NORMAL_LOG_ONLY_PCT",
+        "nm_a4_humidity_medium_pct": "CONF_HUMIDITY_NORMAL_MEDIUM_PCT",
+        "nm_a4_humidity_high_pct": "CONF_HUMIDITY_NORMAL_HIGH_PCT",
+        "nm_a4_humidity_swing_delta_pct": "CONF_HUMIDITY_SWING_DELTA_PCT",
+        "nm_a4_humidity_swing_min_abs_pct": "CONF_HUMIDITY_SWING_MIN_ABS_PCT",
+        "nm_a5_co2_log_only_ppm": "CONF_CO2_LOG_ONLY_CEILING_PPM",
+        "nm_a5_tvoc_absolute_high_ppb": "CONF_TVOC_ABSOLUTE_HIGH_PPB",
+        "nm_a5_tvoc_sustained_s": "CONF_TVOC_SUSTAINED_S",
+        "nm_a5_safety_discovery_blocklist": "CONF_SAFETY_DISCOVERY_BLOCKLIST",
+        "nm_a2_optimizer_high_allowlist_dimensions":
+            "CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS",
+    }
+    mismatches: list[str] = []
+    for hand_value, conf_name in hand_typed_values.items():
+        if conf_name not in canonical:
+            mismatches.append(
+                f"{conf_name}: not found in any const source (rename?)"
+            )
+            continue
+        if canonical[conf_name] != hand_value:
+            mismatches.append(
+                f"{conf_name}: hand={hand_value!r} vs const={canonical[conf_name]!r}"
+            )
+    assert not mismatches, (
+        "C-MED-2: hand-typed conf-key literals drifted from const source of "
+        "truth:\n  " + "\n  ".join(mismatches)
+    )
+
+
+_verify_hand_typed_conf_literals()
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +258,8 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     ns = _load_init_dispatch_namespace()
     # v5.21.0 fix-up (SECOND OPERATOR ADDITION 2026-07-17) — +3 D2 knobs
     # promoted to rung-2.
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 61
+    # NM Cycle A-2 (2026-07-20) — +13 A knobs (12 Cycle-A + 1 optimizer allowlist).
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 74
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +278,9 @@ def _load_init_dispatch_namespace() -> dict:
         "_EC_SETTER_DISPATCH",
         "_OFFPEAK_DRAIN_QUALITY",
         "_NO_LIVE_ATTR_KEYS",
+        # NM Cycle A-2 (2026-07-20) — knob-key bundle spliced into both
+        # _NO_LIVE_ATTR_KEYS and OPTIONS_RELOAD_SUPPRESS_KEYS via `*_NM_A2_KEYS`.
+        "_NM_A2_KEYS",
     }
     keep_funcs = {
         "_seed_cm_last_applied_options",
@@ -298,6 +381,20 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP": "energy_soc_divergence_threshold_pp",
         "_CONF_ENERGY_SOC_DIVERGENCE_DWELL_MIN":    "energy_soc_divergence_dwell_min",
         "_CONF_ENERGY_CLOUD_LAG_ALERT_S":           "energy_cloud_lag_alert_s",
+        # NM Cycle A-2 (2026-07-20) — 12 Cycle-A knobs + optimizer allowlist.
+        "_CONF_TRIPPED_BREAKER_ZERO_WINDOW_S":      "nm_a1_tripped_breaker_zero_window_s",
+        "_CONF_TRIPPED_BREAKER_ROUTE_NM":           "nm_a1_tripped_breaker_route_nm",
+        "_CONF_LOCK_UNAVAILABLE_DEDUP_S":           "nm_a3_lock_unavailable_dedup_s",
+        "_CONF_HUMIDITY_NORMAL_LOG_ONLY_PCT":       "nm_a4_humidity_log_only_pct",
+        "_CONF_HUMIDITY_NORMAL_MEDIUM_PCT":         "nm_a4_humidity_medium_pct",
+        "_CONF_HUMIDITY_NORMAL_HIGH_PCT":           "nm_a4_humidity_high_pct",
+        "_CONF_HUMIDITY_SWING_DELTA_PCT":           "nm_a4_humidity_swing_delta_pct",
+        "_CONF_HUMIDITY_SWING_MIN_ABS_PCT":         "nm_a4_humidity_swing_min_abs_pct",
+        "_CONF_CO2_LOG_ONLY_CEILING_PPM":           "nm_a5_co2_log_only_ppm",
+        "_CONF_TVOC_ABSOLUTE_HIGH_PPB":             "nm_a5_tvoc_absolute_high_ppb",
+        "_CONF_TVOC_SUSTAINED_S":                   "nm_a5_tvoc_sustained_s",
+        "_CONF_SAFETY_DISCOVERY_BLOCKLIST":         "nm_a5_safety_discovery_blocklist",
+        "_CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS": "nm_a2_optimizer_high_allowlist_dimensions",
     }
     mod = ast.Module(body=body, type_ignores=[])
     code = compile(mod, str(PKG / "__init__.py"), "exec")
