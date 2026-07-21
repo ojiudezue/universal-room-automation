@@ -52,37 +52,58 @@ def _load_nm_cycle_a():
     Reuses `_cbcf._build_ha_modules()` to stub `homeassistant.core` so
     the helper's `from homeassistant.core import HomeAssistant` resolves.
     Loads const + _nm_cycle_a from source under a fake package name.
+
+    C-HIGH-1 (2026-07-20 fix-up): SNAPSHOT-AND-RESTORE sys.modules for the
+    `homeassistant.*` stub install. Previously the stubs were pushed via
+    `sys.modules.setdefault(...)` and NEVER restored — that leaked a
+    MagicMock `homeassistant.util.dt.utcnow` into `test_safety_coordinator.py`
+    (which uses `sys.modules.setdefault`, so its own `datetime.utcnow`
+    binding was silently skipped), breaking three safety tests when both
+    modules ran in the same pytest invocation. The loaded `_nm_cycle_a`
+    module holds its `HomeAssistant` reference in its globals; no runtime
+    sys.modules lookup, so removal after load is safe.
     """
     pkg_name = "_nm_cycle_a_test_pkg"
     if f"{pkg_name}._nm" in sys.modules:
         return sys.modules[f"{pkg_name}._nm"]
 
-    # Stub HA modules that _nm_cycle_a needs (persistent — this test module
-    # is imported once per pytest session).
     ha_modules = _cbcf._build_ha_modules()
-    for name, mod in ha_modules.items():
-        sys.modules.setdefault(name, mod)
+    saved: dict[str, ModuleType | None] = {
+        name: sys.modules.get(name) for name in ha_modules
+    }
+    try:
+        for name, mod in ha_modules.items():
+            sys.modules[name] = mod
 
-    pkg = ModuleType(pkg_name)
-    pkg.__path__ = [str(CC)]
-    sys.modules[pkg_name] = pkg
+        pkg = ModuleType(pkg_name)
+        pkg.__path__ = [str(CC)]
+        sys.modules[pkg_name] = pkg
 
-    const_spec = importlib.util.spec_from_file_location(
-        f"{pkg_name}.const",
-        CC / "const.py",
-    )
-    const_mod = importlib.util.module_from_spec(const_spec)
-    sys.modules[f"{pkg_name}.const"] = const_mod
-    const_spec.loader.exec_module(const_mod)  # type: ignore[union-attr]
+        const_spec = importlib.util.spec_from_file_location(
+            f"{pkg_name}.const",
+            CC / "const.py",
+        )
+        const_mod = importlib.util.module_from_spec(const_spec)
+        sys.modules[f"{pkg_name}.const"] = const_mod
+        const_spec.loader.exec_module(const_mod)  # type: ignore[union-attr]
 
-    src = (CC / "domain_coordinators" / "_nm_cycle_a.py").read_text(encoding="utf-8")
-    src = src.replace("from ..const import", f"from {pkg_name}.const import")
-    mod_name = f"{pkg_name}._nm"
-    mod = ModuleType(mod_name)
-    mod.__file__ = str(CC / "domain_coordinators" / "_nm_cycle_a.py")
-    exec(compile(src, mod.__file__, "exec"), mod.__dict__)
-    sys.modules[mod_name] = mod
-    return mod
+        src = (CC / "domain_coordinators" / "_nm_cycle_a.py").read_text(encoding="utf-8")
+        src = src.replace("from ..const import", f"from {pkg_name}.const import")
+        mod_name = f"{pkg_name}._nm"
+        mod = ModuleType(mod_name)
+        mod.__file__ = str(CC / "domain_coordinators" / "_nm_cycle_a.py")
+        exec(compile(src, mod.__file__, "exec"), mod.__dict__)
+        sys.modules[mod_name] = mod
+        return mod
+    finally:
+        # Restore ONLY the homeassistant.* keys — keep our fake test-package
+        # (`_nm_cycle_a_test_pkg.*`) loaded so callers can use the returned
+        # module without re-executing this loader.
+        for name, prev in saved.items():
+            if prev is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = prev
 
 
 _nm = _load_nm_cycle_a()
@@ -329,43 +350,136 @@ def test_optimizer_allowlist_empty_by_default_tuple_default():
     assert _const.DEFAULT_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS == ()
 
 
-def test_optimizer_allowlist_l4_normalization_shapes():
-    """Coercion identical to the consumer's code path."""
-
-    class _DimEnum:  # stand-in for str-Enum
-        def __init__(self, val): self.value = val
-
-    def normalize(dim, allowlist_raw):
-        allowlist = frozenset(str(x).lower() for x in (allowlist_raw or ()))
-        dim_val = getattr(dim, "value", dim)
-        dim_str = str(dim_val).lower() if dim_val is not None else ""
-        return dim_str in allowlist
-
-    allow = ["comfort"]
-    assert normalize(_DimEnum("comfort"), allow) is True
-    assert normalize("comfort", allow) is True
-    assert normalize("COMFORT", allow) is True
-    assert normalize(None, allow) is False
-    # Stringified Enum artifact is a known-unsafe upstream shape A-2 does not
-    # synthesize; documented as expected non-match.
-    assert normalize("OptimizationDimension.COMFORT", allow) is False
+# C-HIGH-2 fix-up (2026-07-20): behavioral test drives the REAL
+# production path `_nm.high_finding_allowlisted` — no hand-copied
+# normalization. Mutation `strip .lower() / strip getattr(dim,"value")`
+# on the helper flunks the case + Enum-value assertions below.
 
 
-def test_optimizer_consumer_wired_to_nm_cycle_a_knob():
-    """Mutation-anchored: optimization._notify_if_severe HIGH branch reads
-    the allowlist via `nm_cycle_a_knob(...)`. Removing wiring flunks this.
+class _EnumLikeDim:
+    """Stand-in for `OptimizationDimension.COMFORT`.
+
+    ``.value`` holds the canonical lowercased string; ``__str__`` returns
+    the qualified enum repr to force the read-side to unwrap ``.value``
+    (bare `str(dim)` would produce the wrong stringification).
+    """
+    def __init__(self, val):
+        self.value = val
+    def __str__(self):
+        return f"OptimizationDimension.{self.value.upper()}"
+
+
+class _FindingStub:
+    def __init__(self, severity, dimension):
+        self.severity = severity
+        self.dimension = dimension
+
+
+def test_high_finding_allowlisted_normalizes_case_and_enum_value():
+    """C-HIGH-2 (behavioral): drives `_nm.high_finding_allowlisted` end-to-end.
+
+    Mutation ``strip .lower()`` on either side → uppercase persisted
+    allowlist vs lowercased Enum-.value diverges → helper returns False →
+    the first assertion below flunks.
+
+    Mutation ``remove getattr(dim, "value", dim)`` → ``str(_EnumLikeDim)`` is
+    ``"OptimizationDimension.COMFORT"`` (via ``__str__``), not ``"comfort"``
+    → the second assertion below flunks.
+    """
+    # (a) Uppercase persisted allowlist + lowercased-Enum-.value dim → matches.
+    hass, _e = _make_hass_with_cm(
+        {_const.CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS: ["COMFORT"]},
+    )
+    _nm.invalidate_knob_cache()
+    assert _nm.high_finding_allowlisted(
+        hass, _FindingStub("high", _EnumLikeDim("comfort"))
+    ) is True, (
+        "case-normalization broken: uppercase persisted allowlist entry must "
+        "match lowercased Enum-.value dimension"
+    )
+    # (b) Lowercase allowlist + Enum-like dim whose __str__ != .value → matches.
+    hass2, _e2 = _make_hass_with_cm(
+        {_const.CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS: ["comfort"]},
+    )
+    _nm.invalidate_knob_cache()
+    assert _nm.high_finding_allowlisted(
+        hass2, _FindingStub("high", _EnumLikeDim("comfort"))
+    ) is True, (
+        ".value unwrap broken: str(_EnumLikeDim) == "
+        "'OptimizationDimension.COMFORT' would not match allowlist entry "
+        "'comfort' without getattr(dim, 'value', dim)"
+    )
+    # (c) Non-allowlisted dimension → False (locks the negative branch).
+    _nm.invalidate_knob_cache()
+    assert _nm.high_finding_allowlisted(
+        hass2, _FindingStub("high", _EnumLikeDim("safety"))
+    ) is False
+    # (d) None dimension → False.
+    _nm.invalidate_knob_cache()
+    assert _nm.high_finding_allowlisted(
+        hass2, _FindingStub("high", None)
+    ) is False
+
+
+def test_should_defer_high_to_digest_both_branches():
+    """C-HIGH-3 (behavioral): the defer helper covers BOTH gate branches.
+
+    * Non-allowlisted HIGH finding → defer (helper returns True).
+    * Allowlisted HIGH finding    → PAGE (helper returns False).
+    * CRITICAL finding             → NEVER defer (severity gate).
+
+    Mutation ``if False and ...`` (bypass) on the caller is caught by the
+    source-anchored consumer wiring test below (asserts the caller invokes
+    `should_defer_high_to_digest` and `return`s on True).
+    """
+    hass, _e = _make_hass_with_cm(
+        {_const.CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS: ["comfort"]},
+    )
+    _nm.invalidate_knob_cache()
+    # Non-allowlisted HIGH → defer.
+    assert _nm.should_defer_high_to_digest(
+        hass, _FindingStub("high", "security_posture")
+    ) is True
+    # Allowlisted HIGH → page (do NOT defer).
+    _nm.invalidate_knob_cache()
+    assert _nm.should_defer_high_to_digest(
+        hass, _FindingStub("high", "comfort")
+    ) is False
+    # CRITICAL — never defer even if not allowlisted.
+    _nm.invalidate_knob_cache()
+    assert _nm.should_defer_high_to_digest(
+        hass, _FindingStub("critical", "security_posture")
+    ) is False
+
+
+def test_optimizer_consumer_wired_to_should_defer_helper():
+    """Mutation-anchored: `_notify_if_severe` MUST invoke
+    `should_defer_high_to_digest(...)` and `return` on truthy.
+
+    Mutation `if False and should_defer_high_to_digest(...)` — the string
+    " and " inside the `if` disqualifies the assertion below (we require the
+    call to be the sole predicate of an `if ...:` line). Removing the
+    `return` after the log line also flunks (asserts `return` sits
+    inside the branch).
     """
     src = (CC / "domain_coordinators" / "optimization.py").read_text(encoding="utf-8")
     idx = src.find("async def _notify_if_severe")
     assert idx != -1
     body = src[idx: idx + 3000]
-    assert "nm_cycle_a_knob" in body
-    assert "CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS" in body
-    # The deprecated bare-frozenset import must NOT be in this method's body.
-    assert "from ..const import OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS" not in body, (
-        "consumer must not import the deprecated bare frozenset alias — "
-        "operator overrides would be bypassed"
+    # Import present.
+    assert "from ._nm_cycle_a import should_defer_high_to_digest" in body
+    # Gate is exactly `if should_defer_high_to_digest(self.hass, finding):`
+    # (no trailing conjunction that would bypass the helper's return value).
+    assert "if should_defer_high_to_digest(self.hass, finding):" in body, (
+        "gate must be a bare `if should_defer_high_to_digest(...):` — any "
+        "extra conjunction (`and`/`or`) would let a mutation bypass the helper"
     )
+    # `return` follows the log inside the branch.
+    gate_start = body.find("if should_defer_high_to_digest(self.hass, finding):")
+    branch = body[gate_start: gate_start + 500]
+    assert "return" in branch, "defer branch must `return`"
+    # The deprecated bare-frozenset import must NOT reappear.
+    assert "from ..const import OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS" not in body
 
 
 # ---------------------------------------------------------------------------
@@ -385,7 +499,7 @@ def test_volume_step_defaults_wired_via_const_source():
     """
     src = (CC / "config_flow.py").read_text(encoding="utf-8")
     idx = src.find("async def async_step_coordinator_notifications_volume")
-    body = src[idx: idx + 12000]
+    body = src[idx: idx + 20000]
     conf_defaults = [
         ("CONF_TRIPPED_BREAKER_ZERO_WINDOW_S", "DEFAULT_TRIPPED_BREAKER_ZERO_WINDOW_S"),
         ("CONF_TRIPPED_BREAKER_ROUTE_NM", "DEFAULT_TRIPPED_BREAKER_ROUTE_NM"),
@@ -438,6 +552,105 @@ async def test_volume_step_roundtrip_persists_and_normalizes_allowlist():
     assert saved[_const.CONF_LOCK_UNAVAILABLE_DEDUP_S] == 3600
     assert saved[_const.CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS] == ["comfort", "safety"]
     assert saved[_const.CONF_SAFETY_DISCOVERY_BLOCKLIST] == ["sensor.foo", "sensor.bar"]
+
+
+@pytest.mark.asyncio
+async def test_volume_step_rejects_inverted_humidity_ladder():
+    """A2 fix-up (2026-07-20): save-time validation blocks a non-monotonic
+    humidity ladder (low > medium OR medium > high). Form re-renders with
+    an `errors["base"]` code — NOT persisted.
+    """
+    flow = _make_options_flow(
+        data={_const.CONF_ENTRY_TYPE: _const.ENTRY_TYPE_COORDINATOR_MANAGER},
+        options={},
+    )
+    # Inverted: medium (90) > high (80).
+    user_input = {
+        _const.CONF_HUMIDITY_NORMAL_LOG_ONLY_PCT: 70,
+        _const.CONF_HUMIDITY_NORMAL_MEDIUM_PCT: 90,
+        _const.CONF_HUMIDITY_NORMAL_HIGH_PCT: 80,
+    }
+    with _StubHAContext():
+        result = await flow.async_step_coordinator_notifications_volume(
+            user_input=user_input,
+        )
+    assert result["type"] == "form", (
+        "inverted ladder must re-render the form, not persist"
+    )
+    assert result.get("errors"), "errors dict must be populated"
+    assert result["errors"].get("base") == "nm_a4_humidity_ladder_not_monotonic"
+
+
+@pytest.mark.asyncio
+async def test_volume_step_open_and_save_untouched_persists_no_defaults():
+    """C-MED-1 fix-up (2026-07-20): submitting all fields at DEFAULT_*
+    (i.e. the shape of `async_show_form` re-rendered with no user edits)
+    MUST NOT persist any of the 13 A-2 keys — future const retunes need
+    to reach deployments.
+
+    Mutation: skip the DEFAULT drop → this test flunks because the
+    resulting `saved` dict gains every A-2 key.
+    """
+    flow = _make_options_flow(
+        data={_const.CONF_ENTRY_TYPE: _const.ENTRY_TYPE_COORDINATOR_MANAGER},
+        options={},
+    )
+    # Simulate "open form + save without touching" — every field submitted
+    # equals its DEFAULT_*.
+    default_input = {
+        _const.CONF_TRIPPED_BREAKER_ZERO_WINDOW_S: float(_const.DEFAULT_TRIPPED_BREAKER_ZERO_WINDOW_S),
+        _const.CONF_TRIPPED_BREAKER_ROUTE_NM: _const.DEFAULT_TRIPPED_BREAKER_ROUTE_NM,
+        _const.CONF_LOCK_UNAVAILABLE_DEDUP_S: float(_const.DEFAULT_LOCK_UNAVAILABLE_DEDUP_S),
+        _const.CONF_HUMIDITY_NORMAL_LOG_ONLY_PCT: float(_const.DEFAULT_HUMIDITY_NORMAL_LOG_ONLY_PCT),
+        _const.CONF_HUMIDITY_NORMAL_MEDIUM_PCT: float(_const.DEFAULT_HUMIDITY_NORMAL_MEDIUM_PCT),
+        _const.CONF_HUMIDITY_NORMAL_HIGH_PCT: float(_const.DEFAULT_HUMIDITY_NORMAL_HIGH_PCT),
+        _const.CONF_HUMIDITY_SWING_DELTA_PCT: float(_const.DEFAULT_HUMIDITY_SWING_DELTA_PCT),
+        _const.CONF_HUMIDITY_SWING_MIN_ABS_PCT: float(_const.DEFAULT_HUMIDITY_SWING_MIN_ABS_PCT),
+        _const.CONF_CO2_LOG_ONLY_CEILING_PPM: float(_const.DEFAULT_CO2_LOG_ONLY_CEILING_PPM),
+        _const.CONF_TVOC_ABSOLUTE_HIGH_PPB: float(_const.DEFAULT_TVOC_ABSOLUTE_HIGH_PPB),
+        _const.CONF_TVOC_SUSTAINED_S: float(_const.DEFAULT_TVOC_SUSTAINED_S),
+        _const.CONF_SAFETY_DISCOVERY_BLOCKLIST: list(_const.DEFAULT_SAFETY_DISCOVERY_BLOCKLIST),
+        _const.CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS:
+            list(_const.DEFAULT_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS),
+    }
+    with _StubHAContext():
+        result = await flow.async_step_coordinator_notifications_volume(
+            user_input=default_input,
+        )
+    assert result["type"] == "create_entry"
+    saved = result["data"]
+    a2_keys = set(default_input.keys())
+    persisted_a2 = a2_keys & saved.keys()
+    assert not persisted_a2, (
+        "no A-2 keys should be persisted when every submitted value equals "
+        f"its DEFAULT_*; got: {sorted(persisted_a2)}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_volume_step_reset_to_default_removes_previously_persisted_key():
+    """C-MED-1 fix-up: a key that WAS persisted, then re-submitted at its
+    DEFAULT_*, MUST be REMOVED from options (not kept at the default value).
+    """
+    # Pre-seed options with a non-default humidity medium.
+    flow = _make_options_flow(
+        data={_const.CONF_ENTRY_TYPE: _const.ENTRY_TYPE_COORDINATOR_MANAGER},
+        options={_const.CONF_HUMIDITY_NORMAL_MEDIUM_PCT: 80},
+    )
+    # Now user re-submits medium = default (85) — expect key removed.
+    user_input = {
+        _const.CONF_HUMIDITY_NORMAL_MEDIUM_PCT:
+            float(_const.DEFAULT_HUMIDITY_NORMAL_MEDIUM_PCT),
+    }
+    with _StubHAContext():
+        result = await flow.async_step_coordinator_notifications_volume(
+            user_input=user_input,
+        )
+    assert result["type"] == "create_entry"
+    saved = result["data"]
+    assert _const.CONF_HUMIDITY_NORMAL_MEDIUM_PCT not in saved, (
+        "reset-to-default MUST remove the previously-persisted key"
+    )
 
 
 @pytest.mark.asyncio

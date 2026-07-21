@@ -3276,6 +3276,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if entry_type == ENTRY_TYPE_COORDINATOR_MANAGER:
         _LOGGER.info("Setting up Coordinator Manager entry")
 
+        # NM Cycle A-2 fix-up (B1, 2026-07-20): flush the process-wide
+        # NM knob cache at CM setup. Restart / config-entry reload paths
+        # rebuild `entry.options`; a stale cache from the previous
+        # incarnation would otherwise silently shadow the new values
+        # until the first options-update listener fire.
+        try:
+            from .domain_coordinators._nm_cycle_a import invalidate_knob_cache
+            invalidate_knob_cache()
+        except Exception:  # noqa: BLE001 — defensive
+            _LOGGER.warning(
+                "NM Cycle A-2: invalidate_knob_cache at CM setup raised (non-fatal)",
+                exc_info=True,
+            )
+
         # Register Coordinator Manager device under THIS config entry
         from homeassistant.helpers import device_registry as dr
         dev_reg = dr.async_get(hass)
@@ -3887,6 +3901,17 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # v3.6.0: Handle Coordinator Manager entry unload
     if entry_type == ENTRY_TYPE_COORDINATOR_MANAGER:
+        # NM Cycle A-2 fix-up (B1, 2026-07-20): flush the process-wide
+        # NM knob cache on CM unload so a subsequent reload can't read
+        # stale values before the setup-path flush lands.
+        try:
+            from .domain_coordinators._nm_cycle_a import invalidate_knob_cache
+            invalidate_knob_cache()
+        except Exception:  # noqa: BLE001 — defensive
+            _LOGGER.warning(
+                "NM Cycle A-2: invalidate_knob_cache at CM unload raised (non-fatal)",
+                exc_info=True,
+            )
         cm_platforms = list(INTEGRATION_PLATFORMS) + [Platform.NUMBER]
         # B-MED-1 (Review B): clear the CM last-applied-options snapshot
         # BEFORE async_unload_platforms so a listener fire during platform
@@ -5214,7 +5239,10 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
             from .domain_coordinators._nm_cycle_a import invalidate_knob_cache
             invalidate_knob_cache()
         except Exception:  # noqa: BLE001 — defensive; never block the listener
-            _LOGGER.debug(
+            # C-LOW-2 fix-up (2026-07-20): raise to WARNING so a repeatedly
+            # failing cache flush is visible in the log (was DEBUG, silent
+            # in default log config).
+            _LOGGER.warning(
                 "NM Cycle A-2: invalidate_knob_cache raised (non-fatal)",
                 exc_info=True,
             )

@@ -6330,22 +6330,92 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             OPTIMIZER_DIMENSIONS_ALL,
         )
 
+        # NM Cycle A-2 fix-up (A2, 2026-07-20): the humidity ladder must
+        # remain monotonic (log_only <= medium <= high). A miskey (e.g.
+        # medium=90, high=80) silently inverts the escalation logic in
+        # safety.py. Enforce on save with a form re-render + errors dict.
+        # NM Cycle A-2 fix-up (C-MED-1, 2026-07-20): drop any submitted
+        # key whose value equals its DEFAULT_* (numeric-compared for
+        # NumberSelector floats). This keeps unchanged fields OUT of the
+        # persisted options so future const retunes reach deployments
+        # (the "open form + save" gesture no longer freezes defaults).
+        # Fields previously persisted then reset-to-default are REMOVED.
+        _DEFAULTS = {
+            CONF_TRIPPED_BREAKER_ZERO_WINDOW_S: DEFAULT_TRIPPED_BREAKER_ZERO_WINDOW_S,
+            CONF_TRIPPED_BREAKER_ROUTE_NM: DEFAULT_TRIPPED_BREAKER_ROUTE_NM,
+            CONF_LOCK_UNAVAILABLE_DEDUP_S: DEFAULT_LOCK_UNAVAILABLE_DEDUP_S,
+            CONF_HUMIDITY_NORMAL_LOG_ONLY_PCT: DEFAULT_HUMIDITY_NORMAL_LOG_ONLY_PCT,
+            CONF_HUMIDITY_NORMAL_MEDIUM_PCT: DEFAULT_HUMIDITY_NORMAL_MEDIUM_PCT,
+            CONF_HUMIDITY_NORMAL_HIGH_PCT: DEFAULT_HUMIDITY_NORMAL_HIGH_PCT,
+            CONF_HUMIDITY_SWING_DELTA_PCT: DEFAULT_HUMIDITY_SWING_DELTA_PCT,
+            CONF_HUMIDITY_SWING_MIN_ABS_PCT: DEFAULT_HUMIDITY_SWING_MIN_ABS_PCT,
+            CONF_CO2_LOG_ONLY_CEILING_PPM: DEFAULT_CO2_LOG_ONLY_CEILING_PPM,
+            CONF_TVOC_ABSOLUTE_HIGH_PPB: DEFAULT_TVOC_ABSOLUTE_HIGH_PPB,
+            CONF_TVOC_SUSTAINED_S: DEFAULT_TVOC_SUSTAINED_S,
+            CONF_SAFETY_DISCOVERY_BLOCKLIST: list(DEFAULT_SAFETY_DISCOVERY_BLOCKLIST),
+            CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS:
+                list(DEFAULT_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS),
+        }
+
+        def _equals_default(key, submitted):
+            expected = _DEFAULTS[key]
+            # Numeric compare handles NumberSelector's float(85.0) == int(85).
+            if isinstance(expected, (int, float)) and not isinstance(expected, bool):
+                try:
+                    return float(submitted) == float(expected)
+                except (TypeError, ValueError):
+                    return False
+            if isinstance(expected, (list, tuple)):
+                # Order-independent compare for both allowlist + blocklist.
+                try:
+                    return sorted(submitted) == sorted(expected)
+                except TypeError:
+                    return list(submitted) == list(expected)
+            return submitted == expected
+
+        errors: dict[str, str] = {}
         if user_input is not None:
-            # L4 mitigation on the save side: coerce the allowlist to a
-            # list[str] of lowercased dimension values, so what we persist
-            # matches what the consumer normalizes on the read side.
-            merged = {**self._config_entry.options, **user_input}
-            raw_allow = merged.get(CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS, [])
+            # (a) Coerce allowlist to lowercased list[str] BEFORE the equality
+            # check so persisted lowercase never re-persists after a reopen.
+            raw_allow = user_input.get(CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS)
             if isinstance(raw_allow, (list, tuple, set, frozenset)):
-                merged[CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS] = [
+                user_input[CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS] = [
                     str(x).lower() for x in raw_allow
                 ]
-            # Blocklist may come back as list[str] entity_ids — leave shape,
-            # `nm_cycle_a_knob` handles tuple/list/frozenset coercion at read.
-            raw_block = merged.get(CONF_SAFETY_DISCOVERY_BLOCKLIST)
-            if raw_block is None:
-                merged[CONF_SAFETY_DISCOVERY_BLOCKLIST] = []
-            return self.async_create_entry(title="", data=merged)
+            if user_input.get(CONF_SAFETY_DISCOVERY_BLOCKLIST) is None:
+                user_input[CONF_SAFETY_DISCOVERY_BLOCKLIST] = []
+
+            # (b) Humidity ladder monotonicity (A2 fix-up).
+            def _hget(k):
+                if k in user_input:
+                    try:
+                        return float(user_input[k])
+                    except (TypeError, ValueError):
+                        return None
+                return float(_DEFAULTS[k])
+            low = _hget(CONF_HUMIDITY_NORMAL_LOG_ONLY_PCT)
+            med = _hget(CONF_HUMIDITY_NORMAL_MEDIUM_PCT)
+            high = _hget(CONF_HUMIDITY_NORMAL_HIGH_PCT)
+            if (low is not None and med is not None and high is not None
+                    and not (low <= med <= high)):
+                errors["base"] = "nm_a4_humidity_ladder_not_monotonic"
+
+            if errors:
+                # Re-render below with the submitted values re-defaulted.
+                pass
+            else:
+                # (c) Drop keys whose value equals DEFAULT_*. This runs against
+                # the (potentially normalized) `user_input`, so a re-opened form
+                # saved untouched leaves the persisted-options gain at zero.
+                new_opts = dict(self._config_entry.options)
+                for key in _DEFAULTS:
+                    if key in user_input and _equals_default(key, user_input[key]):
+                        # Remove previously-persisted value that has been
+                        # reset to default; do NOT re-persist.
+                        new_opts.pop(key, None)
+                    elif key in user_input:
+                        new_opts[key] = user_input[key]
+                return self.async_create_entry(title="", data=new_opts)
 
         allowlist_options = [
             {"value": v, "label": v} for v in OPTIMIZER_DIMENSIONS_ALL
@@ -6500,7 +6570,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     list(DEFAULT_SAFETY_DISCOVERY_BLOCKLIST),
                 ) or []),
             ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor", multiple=True)
+                # A3 fix-up (2026-07-20): safety discovery is not sensor-only
+                # (breaker `binary_sensor`s, leak binaries, etc.) — accept both.
+                selector.EntitySelectorConfig(
+                    domain=["sensor", "binary_sensor"], multiple=True,
+                )
             ),
             # --- A2: optimizer HIGH allowlist (empty by design) ---
             vol.Optional(
@@ -6521,6 +6595,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="coordinator_notifications_volume",
             data_schema=data_schema,
+            errors=errors or None,
         )
 
     async def async_step_coordinator_toggles(self, user_input=None):

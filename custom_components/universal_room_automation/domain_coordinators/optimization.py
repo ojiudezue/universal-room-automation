@@ -4060,34 +4060,22 @@ class OptimizationCoordinator(BaseCoordinator):
         # digest by default; only allowlisted dimensions still page NM.
         # CRITICAL always pages. Digest wiring already lives in NM via
         # `_build_optimizer_digest_section` → `opt.format_digest_section()`.
-        if finding.severity == "high":
-            # NM Cycle A-2: allowlist promoted rung-1 → rung-2 (CM options).
-            # L4 hazard mitigation: allowlist entries persist as str via
-            # SelectSelector; `finding.dimension` may arrive as Enum, str,
-            # None, or a stringified Enum. Normalize BOTH sides to a
-            # lowercased str before the membership test.
-            from ..const import (
-                CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS,
-                DEFAULT_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS,
+        # NM Cycle A-2 fix-up (C-HIGH-2 / C-HIGH-3, 2026-07-20): defer
+        # gate extracted into ``_nm_cycle_a.should_defer_high_to_digest``
+        # for mutation-anchored behavioral testing. Semantics are
+        # byte-identical: HIGH findings whose dimension isn't in the
+        # CM-options allowlist defer to digest; CRITICAL always pages.
+        # Read-side normalization (case + Enum-value unwrap) also lives
+        # in the helper so a persisted lowercase allowlist matches an
+        # Enum-valued finding.dimension. See CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS.
+        from ._nm_cycle_a import should_defer_high_to_digest
+        if should_defer_high_to_digest(self.hass, finding):
+            _LOGGER.info(
+                "Optimizer: HIGH finding (dimension=%s) deferred to "
+                "daily digest (not in NM allowlist)",
+                getattr(finding, "dimension", None),
             )
-            from ._nm_cycle_a import nm_cycle_a_knob
-            allowlist_raw = nm_cycle_a_knob(
-                self.hass,
-                CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS,
-                DEFAULT_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS,
-            )
-            allowlist = frozenset(
-                str(x).lower() for x in (allowlist_raw or ())
-            )
-            dim = getattr(finding, "dimension", None)
-            dim_val = getattr(dim, "value", dim)
-            dim_str = str(dim_val).lower() if dim_val is not None else ""
-            if dim_str not in allowlist:
-                _LOGGER.info(
-                    "Optimizer: HIGH finding (dimension=%s) deferred to "
-                    "daily digest (not in NM allowlist)", dim,
-                )
-                return
+            return
         nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
         if nm is None:
             return

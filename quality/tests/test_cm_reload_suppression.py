@@ -265,11 +265,60 @@ def _load_init_listener_helpers():
         "_CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS": "nm_a2_optimizer_high_allowlist_dimensions",
         # Typing — frozenset[str] subscript requires Python 3.9+; ok.
     }
+    # C-MED-2 fix-up (2026-07-20): self-check every hand-typed _CONF_* alias
+    # in `ns` against the ACTUAL const value from the const source files. If
+    # a real const is renamed (e.g. `mf_night_suppress_mode` →
+    # `mf_night_suppress_mode_v2`), the test would previously stay
+    # tautologically green because it exec'd against its own hand-typed
+    # mirror. Now a rename fails this loader with a clear diagnostic.
+    _verify_hand_typed_conf_literals(ns)
     # Wrap kept nodes in a Module and compile.
     mod = ast.Module(body=body, type_ignores=[])
     code = compile(mod, str(PKG / "__init__.py"), "exec")
     exec(code, ns)
     return ns
+
+
+def _verify_hand_typed_conf_literals(ns: dict) -> None:
+    """Assert every ``_CONF_*`` key in ``ns`` matches the const source of truth.
+
+    Walks all const files (const.py, domain_coordinators/*_const.py) and
+    extracts ``CONF_X: Final = "..."`` / ``CONF_X = "..."`` string values.
+    Any mismatch aborts with a diagnostic naming both sides.
+    """
+    import re as _re
+    from pathlib import Path as _Path
+    _PKG = _Path(__file__).resolve().parents[2] / "custom_components" / "universal_room_automation"
+    sources = [_PKG / "const.py"]
+    dc = _PKG / "domain_coordinators"
+    if dc.exists():
+        sources.extend(sorted(dc.glob("*_const.py")))
+    canonical: dict[str, str] = {}
+    _pat = _re.compile(
+        r"^(CONF_[A-Z0-9_]+)\s*(?::\s*Final(?:\[[^\]]+\])?)?\s*=\s*\"([^\"]+)\"",
+        _re.MULTILINE,
+    )
+    for src in sources:
+        text = src.read_text(encoding="utf-8")
+        for m in _pat.finditer(text):
+            canonical.setdefault(m.group(1), m.group(2))
+    mismatches: list[str] = []
+    for alias, hand_value in list(ns.items()):
+        if not alias.startswith("_CONF_"):
+            continue
+        real_name = alias.lstrip("_")  # "_CONF_X" -> "CONF_X"
+        if real_name not in canonical:
+            # Not every ns alias is guaranteed to exist in const sources
+            # (some helper stubs are legitimately test-scoped) — skip.
+            continue
+        if canonical[real_name] != hand_value:
+            mismatches.append(
+                f"{alias}: hand={hand_value!r} vs const={canonical[real_name]!r}"
+            )
+    assert not mismatches, (
+        "C-MED-2: hand-typed conf-key literals drifted from const source of "
+        "truth:\n  " + "\n  ".join(mismatches)
+    )
 
 
 @pytest.fixture(scope="module")

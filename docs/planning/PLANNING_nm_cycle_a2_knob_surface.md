@@ -237,6 +237,13 @@ Prospective candidates (to be evaluated at close, NOT built in A-2):
 - Per-key cache invalidation (vs. total-flush) — only if profiling shows the total-flush is measurable relative to safety tick cost. Currently anticipated NOT needed.
 - Number-entity (rung-3) promotion for any specific knob that operator observation reveals gets tuned frequently — not anticipated for noise thresholds.
 
+### Ratified deferred items (from A-2 fix-up 2026-07-20 — three Tier 2-DB reviews)
+
+- **A1 live-re-read follow-up.** `CONF_SAFETY_DISCOVERY_BLOCKLIST` is read only at safety discovery/setup (`safety.py:865`). Live edits do NOT take effect until the next CM entry reload/restart. Ruling: keep the key in `OPTIONS_RELOAD_SUPPRESS_KEYS` (a CM reload would risk the known event-loop-stall / watchdog hazard — see CLAUDE.md "parent-reload watchdog"). Field description already marked "applies after restart/reload" in the options flow. **D2 next-tick semantics claim exempts this knob** — it is a restart-scoped setting. If a cheap periodic subscription-refresh path emerges in safety later, wire the blocklist to re-read there.
+- **B2 cache keyed by (hass, conf_key).** Deferred; single-CM-per-HA assumption is documented in `_nm_cycle_a.py` module docstring ("Cache-key assumption"). Revisit if a multi-CM future emerges.
+- **B3 exception-path caches default.** Currently `nm_cycle_a_knob`'s `except` branch stores the `default` in the cache — until the next `invalidate_knob_cache()` the mis-typed override is masked. Acceptable: cache is total-flushed on every CM options-update, and mis-typed overrides only occur on operator error. Revisit if user reports "I fixed the value but it's still wrong."
+- **C-LOW-1 cosmetic float formatting** in log lines — cosmetic only, no behavior impact.
+
 ---
 
 ## Plan-completion accounting (fill at cycle close)

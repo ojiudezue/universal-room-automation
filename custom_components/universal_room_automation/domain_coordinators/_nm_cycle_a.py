@@ -14,6 +14,12 @@ Cache design (A-2, B-LOW-1 resolution):
     (operator ruling 2026-07-20). Keeps the correctness proof trivial.
   - Never raises. A mis-typed override falls back to the default with a
     DEBUG log; the cache stores the coerced default in that case.
+
+Cache-key assumption (A-2 fix-up 2026-07-20, deferred item B2):
+  - The cache is keyed by conf_key only — NOT by hass instance. This is
+    safe under the operator's SINGLE-CoordinatorManager deployment model
+    (one URA install per HA). If a multi-CM future emerges, the cache
+    must be re-keyed by ``(hass, conf_key)``.
 """
 
 from __future__ import annotations
@@ -115,3 +121,62 @@ def nm_cycle_a_knob(hass: HomeAssistant, conf_key: str, default: T) -> T:
         value = default
     _KNOB_CACHE[conf_key] = value
     return value  # type: ignore[return-value]
+
+
+# ---------------------------------------------------------------------------
+# NM Cycle A-2 fix-up (C-HIGH-2 / C-HIGH-3, 2026-07-20)
+# ---------------------------------------------------------------------------
+#
+# The optimizer HIGH-defer allowlist gate lives in
+# ``optimization.py::_notify_if_severe``. Two behavioral properties need
+# mutation-anchored coverage:
+#
+#   * Case + Enum-value normalization (C-HIGH-2). The read side must lower
+#     BOTH the allowlist entries and the finding's ``dimension`` (unwrapping
+#     ``.value`` if it's an Enum), so a persisted lowercase allowlist matches
+#     an Enum-valued dimension.
+#   * The defer gate itself (C-HIGH-3): a HIGH finding whose dimension is
+#     NOT in the allowlist must be deferred (helper returns True); a HIGH
+#     finding whose dimension IS in the allowlist must page NM (helper
+#     returns False).
+#
+# Extracting the two helpers into this module makes both behaviors
+# testable directly against the production path — no need to construct
+# an OptimizationCoordinator instance in tests.
+
+
+def high_finding_allowlisted(hass: HomeAssistant, finding: Any) -> bool:
+    """Return True if the finding's ``dimension`` is in the CM-options NM allowlist.
+
+    Both sides are normalized to lowercased strings; the finding's
+    ``dimension`` may be an Enum (``.value`` is unwrapped), a str, or None.
+    None-dimension is treated as "not allowlisted" (empty string never
+    matches a non-empty allowlist entry).
+    """
+    from ..const import (
+        CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS,
+        DEFAULT_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS,
+    )
+    allowlist_raw = nm_cycle_a_knob(
+        hass,
+        CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS,
+        DEFAULT_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS,
+    )
+    allowlist = frozenset(str(x).lower() for x in (allowlist_raw or ()))
+    dim = getattr(finding, "dimension", None)
+    dim_val = getattr(dim, "value", dim)
+    dim_str = str(dim_val).lower() if dim_val is not None else ""
+    return dim_str in allowlist
+
+
+def should_defer_high_to_digest(hass: HomeAssistant, finding: Any) -> bool:
+    """Return True iff the caller should DEFER this finding to the daily digest.
+
+    A finding is deferred iff its severity is ``"high"`` AND its
+    ``dimension`` is not in the allowlist. CRITICAL findings are never
+    deferred here (caller keeps them on the immediate-page path).
+    """
+    severity = getattr(finding, "severity", None)
+    if severity != "high":
+        return False
+    return not high_finding_allowlisted(hass, finding)
