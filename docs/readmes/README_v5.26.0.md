@@ -54,7 +54,7 @@ Write-volume regression tests: sensor reads and idle ticks produce 0 DB rows.
 | L3 | New NM diagnostics attrs | PASS | `sensor.ura_notification_manager_notification_diagnostics`: dry_run_active false, all 6 channel buckets at 10, overflow_dropped_total 0, active_ack_registry_size 0. |
 | L4 | Bucket Number turn does not reload CM | PENDING-OPERATOR | Exercise via UI; sibling last_changed invariant. |
 | L5 | notification_log migration | PASS | `dry_run` column present (INTEGER DEFAULT 0, col 14) via live DB read; table intact (0 rows — consistent with observe mode + Cycle A quieting). |
-| L6 | 24h notification shape unchanged | PENDING-24H | Due 2026-07-21 evening with the v5.24/v5.25 checks. |
+| L6 | 24h notification shape unchanged | PASS | Validated 2026-07-21 ~17:45 CDT: notification_log = 0 rows in trailing 26h (live DB query; target ≤6) — zero outdoor-humidity rows, zero optimizer rows outside digest. notifications_today sensor = 0. Zero URA ERROR lines in log. Machinery confirmed dark (observe mode). |
 
 Non-this-deploy observation logged during validation: single pre-restart
 ERROR at 21:02 — `Energy: failed to execute switch.turn_on on

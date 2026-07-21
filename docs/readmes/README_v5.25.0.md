@@ -46,7 +46,7 @@ default-path equivalence tests in `test_nm_cycle_a2_knob_surface.py`.
 | # | Criterion | Result | Observed evidence |
 |---|---|---|---|
 | L1 | CM loads; no URA ERROR logs post-restart | PASS | Zero URA ERROR lines after the 20:42:55 boot across 9+ min of runtime. House state `away → arriving → home_evening` by 20:43:55; EC `self_consumption` at 20:42:25. All coordinators emitting. |
-| L2 | Defaults active, no behavior change vs v5.24.0 | PENDING-24H | notification_log shape check due 2026-07-21 evening (rides the same 24h window as v5.24.0's L1/L3). |
+| L2 | Defaults active, no behavior change vs v5.24.0 | PASS | Validated 2026-07-21 ~17:45 CDT: notification_log = 0 rows in trailing 26h (live DB query; target ≤6) — zero outdoor-humidity rows, zero optimizer rows outside digest. notifications_today sensor = 0. Zero URA ERROR lines in log. |
 | L3 | Knob options save applies without CM reload, next tick | PENDING-OPERATOR | Needs a UI options save; verify via sibling-entity last_changed invariant when first exercised. |
 | L4 | Optimizer HIGH defers to digest (empty allowlist) | PENDING-ORGANIC | Awaits next optimizer HIGH finding. |
 

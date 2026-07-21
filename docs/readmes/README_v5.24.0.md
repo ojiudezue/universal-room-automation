@@ -51,9 +51,9 @@ Per `docs/planning/PLANNING_dp_sticky_yields_to_excess_solar.md`. Charter:
 
 | # | Criterion | Result | Observed evidence |
 |---|---|---|---|
-| L1 | NM quieting: notifications_today ≤ 6 over 24h; optimizer rows only in digest window | PENDING-24H | Boot log shows `notification_manager` "Messaging suppressed — all outbound notifications halted" (observe mode, blank targets, as designed). 24h count check due 2026-07-21 evening. |
+| L1 | NM quieting: notifications_today ≤ 6 over 24h; optimizer rows only in digest window | PASS | Validated 2026-07-21 ~17:45 CDT: notification_log = 0 rows in trailing 26h (live DB query; target ≤6) — zero outdoor-humidity rows, zero optimizer rows outside digest. notifications_today sensor = 0. Zero URA ERROR lines in log. |
 | L2 | A7 preserved signals gate on real conditions | PENDING-ORGANIC | Live-only by design (plan §A7); tripwire + behavioral tests green in-suite. Watch notification_log on next real HVAC/Envoy event. |
-| L3 | No outdoor-humidity NM rows post-deploy | PENDING-24H | Recorder query due with L1. |
+| L3 | No outdoor-humidity NM rows post-deploy | PASS | Same 26h DB query: zero rows of any kind, hence zero outdoor-humidity rows. |
 | L4 | DP-yield: HOLD_ONLY DP-carrier EVSE yields to excess-solar claim within one cycle | PENDING-ORGANIC | Trigger: high-solar day, battery ≥95%, EVSE with `pause_reason_human` = "drain-precedence transition (paused)". At validation time SOC=88, no DP carrier active (`evse_paused_by_arbitrage=[]`). Record observation window here when it fires. |
 | L5 | No URA ERROR logs post-restart | PASS | `error_log` level=ERROR search=universal_room_automation → 0 lines at T+4min and T+9min. Boot-transient WARNINGs only (sensor-unavailable holds, camera census, Envoy warm-up blind de-escalation — all known classes). |
 | L6 | House state + coordinators live | PASS | `sensor.ura_presence_coordinator_presence_house_state`: away (boot) → arriving → `home_evening` conf 0.85 by 19:37:45. EC resolved `self_consumption` at 19:41:15 (SOC 88 via envoy primary, arbitrage phase discharge, write-verify surface healthy, `inclement_reserve_floor=10`). Installed manifest confirmed `v5.24.0` on live mount. |
