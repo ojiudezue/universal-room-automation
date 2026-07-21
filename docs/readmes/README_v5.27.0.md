@@ -48,15 +48,15 @@ baseline (36+14); 46 cycle tests; 20+ mutation anchors each killed by a
 named test (orchestrator re-ran 4 personally, incl. one that exposed a
 masked site and gained its own test).
 
-## Live Validation (prospective — write back observed results post-restart)
+## Live Validation — Validated 2026-07-21 (restart, boot 18:31 CDT)
 
-| # | Criterion | How to check |
-|---|---|---|
-| L1 | Clean boot, no URA ERROR logs, house state + EC resolve | log scan + sensors |
-| L2 | New surfaces exist: mute service registered, per-person mute buttons, mute-duration Number, audit columns in notification_log | entity registry + DB PRAGMA + services list |
-| L3 | Legacy routing unchanged: notification_log stays at ~0 rows/day (observe mode; quieting shape holds) | DB query next 24h |
-| L4 | Dry-run sweep (Phase 1 per plan): with dry_run ON, synthetic notify produces dry_run=1 rows and zero transport calls | operator-triggered or next organic event under dry-run |
-| L5 | Audit rows appear with route_reason=legacy_fallback on first real/dry-run notification | DB query |
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | Clean boot, no URA ERROR logs, house state + EC resolve | PASS | Zero URA ERROR lines post-boot (checked T+4 and T+8 min). House state `home_evening` by 18:34:29; EC resolved `self_consumption` at 18:38:29 (normal warm-up). |
+| L2 | New surfaces exist | PASS | Service `universal_room_automation.nm_mute_person_channel` registered (verified via services list, duration-0-clears semantics in description); `number.ura_notification_manager_mute_default_duration` = 60.0; NM diagnostics `healthy`; live DB `PRAGMA table_info(notification_log)` shows all 5 audit columns (15 recipient_id, 16 route_reason, 17 dnd_bypass_applied, 18 bucket_outcome, 19 matrix_branch). Mute BUTTONS: zero live — CORRECT-BY-DESIGN (button.py:98 skips persons with no configured primary channel; observe mode = blank targets). Buttons materialize when Phase 2 configures a recipient. |
+| L3 | Legacy routing unchanged (0 rows/day shape holds) | PENDING-24H | Due 2026-07-22 evening. |
+| L4 | Dry-run sweep Phase 1 | PENDING-OPERATOR | Flip `switch.ura_notification_manager_dry_run` ON + trigger a synthetic notify; expect dry_run=1 rows, zero transport calls. |
+| L5 | Audit rows with route_reason=legacy_fallback | PENDING-ORGANIC | First real/dry-run notification writes them; rides L4 or the next organic event. |
 
 Phase 2 (single-recipient live pilot, iMessage) remains checkpoint-gated
 per the plan — not part of this validation.
