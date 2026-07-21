@@ -1316,8 +1316,46 @@ NM_DEDUP_HIGH: Final = 300
 NM_DEDUP_MEDIUM: Final = 900
 NM_DEDUP_LOW: Final = 3600
 
-# Repeat interval for CRITICAL alerts (seconds)
+# Repeat interval for CRITICAL alerts (seconds).
+# Legacy pre-Cycle-B constant kept for source-anchored regression tests.
+# Cycle B (2026-07-20) splits by hazard subtype — see NM_REPEAT_INTERVAL_*.
 NM_CRITICAL_REPEAT_INTERVAL: Final = 30
+
+# =========================================================================
+# NM Cycle B (2026-07-20): Safety rails
+# =========================================================================
+
+# B0: minimal dry-run gate. When true, every emit-path service call is
+# short-circuited to a `_log_dry_run` row. Options-flow key + Switch entity.
+CONF_NM_DRY_RUN: Final = "nm_dry_run"
+DEFAULT_NM_DRY_RUN: Final = False
+
+# B1: per-subtype CRITICAL repeat cadence (seconds). Rung 1 (module const)
+# because life-safety cadence is a safety contract, not an operator knob.
+NM_REPEAT_INTERVAL_LIFE_SAFETY: Final = 30
+NM_REPEAT_INTERVAL_NON_LIFE_SAFETY: Final = 300
+# Life-safety hazard vocabulary. Non-life-safety CRITICAL uses the longer
+# 300s cadence to reduce non-fatal paging fatigue.
+NM_LIFE_SAFETY_HAZARDS: Final = frozenset({
+    "smoke", "fire", "carbon_monoxide", "co",
+    "water_leak", "flooding", "intrusion", "freeze_risk",
+})
+
+# B3: per-channel token-bucket defaults (rung 3 defaults; Number entities
+# override). Capacity = burst budget; refill = tokens/minute.
+NM_BUCKET_CAPACITY_DEFAULT: Final = 10
+NM_BUCKET_REFILL_PER_MIN_DEFAULT: Final = 6.0
+# Bounded FIFO — safety valve against unbounded memory growth under storm.
+NM_OVERFLOW_QUEUE_MAX: Final = 50
+
+# B4: post-`async_setup` boot-settle window. Collapses per-(coord, hazard)
+# emissions to one during the window so restart replay doesn't fan out.
+NM_BOOT_SETTLE_S: Final = 60
+
+# CONF keys for token-bucket Number entities (options-flow persistence
+# handled by the Number itself via async_update_entry writeback).
+CONF_NM_BUCKET_CAPACITY: Final = "nm_bucket_capacity"
+CONF_NM_BUCKET_REFILL_PER_MIN: Final = "nm_bucket_refill_per_min"
 
 # v3.9.7 C4b: Inbound / Safe Word
 CONF_NM_SAFE_WORD: Final = "nm_safe_word"

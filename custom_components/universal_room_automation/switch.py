@@ -22,7 +22,9 @@ from .const import (
     CONF_ENTRY_TYPE,
     CONF_HVAC_ENABLED,
     CONF_MUSIC_FOLLOWING_COORDINATOR_ENABLED,
+    CONF_NM_DRY_RUN,
     CONF_NM_ENABLED,
+    DEFAULT_NM_DRY_RUN,
     CONF_PRESENCE_ENABLED,
     CONF_SAFETY_ENABLED,
     CONF_SECURITY_ENABLED,
@@ -229,6 +231,11 @@ async def async_setup_entry(
             ),
             # v3.15.3: NM messaging kill switch
             NMMessagingSuppressSwitch(hass, entry),
+            # NM Cycle B (2026-07-20) B0: minimal dry-run gate. When ON,
+            # every emit-path service call is short-circuited to a
+            # `notification_log` dry-run row. Enables safe live exercise
+            # of CRITICAL machinery without real outbound sends.
+            NMDryRunSwitch(hass, entry),
             # v3.6.37: Security → NM light delegation toggle
             SecurityDelegateLightsSwitch(hass),
             # v3.7.6: Energy Observation Mode toggle
@@ -3394,6 +3401,122 @@ class NMMessagingSuppressSwitch(SwitchEntity, RestoreEntity):
     @property
     def available(self) -> bool:
         """Always available — state is self-contained, NM synced when ready."""
+        return True
+
+
+class NMDryRunSwitch(SwitchEntity, RestoreEntity):
+    """NM Cycle B B0: master dry-run gate.
+
+    When ON: every emit-path `hass.services.async_call` in NM is short-
+    circuited to a minimal `notification_log` row (dry_run=1). Enables
+    safe live exercise of CRITICAL machinery — repeat cadence, safe-word
+    ack, storm behavior — without any real Pushover / iMessage /
+    WhatsApp / Companion / TTS / Alert-Light send.
+
+    Kill-switch semantics: `true = zero outbound`. Restart-safe via
+    RestoreEntity. Sole exception: `_restore_alert_lights` teardown is
+    NOT gated — lights must be returned to their pre-alert state so
+    physical state stays honest.
+
+    Entity: switch.ura_nm_dry_run
+    Device: URA: Notification Manager
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:test-tube"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    _MAX_SYNC_RETRIES = 18  # 18 × 10s = 3 minutes max wait for NM
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self._entry = entry
+        self._sync_retries = 0
+        self._sync_unsub = None
+        self._attr_unique_id = f"{DOMAIN}_nm_dry_run"
+        self._attr_name = "Dry Run"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "notification_manager")},
+            name="URA: Notification Manager",
+            manufacturer="Universal Room Automation",
+            model="Notification Manager",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        # Seed from options-flow at install; RestoreEntity overrides on restart.
+        opts = {**entry.data, **entry.options}
+        self._is_on = bool(opts.get(CONF_NM_DRY_RUN, DEFAULT_NM_DRY_RUN))
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last state and sync to NM."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state in ("on", "off"):
+            self._is_on = last_state.state == "on"
+        if self._is_on:
+            _LOGGER.warning(
+                "NM dry-run gate restored ON — outbound notifications SHORT-CIRCUITED"
+            )
+        await self._sync_to_nm()
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._sync_unsub:
+            self._sync_unsub()
+            self._sync_unsub = None
+
+    def _get_nm(self):
+        return self.hass.data.get(DOMAIN, {}).get("notification_manager")
+
+    async def _sync_to_nm(self) -> None:
+        """Push local state to NM. Bounded-retry on NM-not-ready."""
+        nm = self._get_nm()
+        if nm is None:
+            self._sync_retries += 1
+            if self._sync_retries > self._MAX_SYNC_RETRIES:
+                _LOGGER.warning(
+                    "NM not available after %d retries — giving up dry-run sync "
+                    "(switch state preserved locally, will sync on next toggle)",
+                    self._sync_retries,
+                )
+                return
+            async def _deferred_sync(_now=None):
+                # Named coroutine — avoids Bug Class #42
+                # (lambda-wrapped async_create_task) tripwire.
+                self._sync_unsub = None
+                await self._sync_to_nm()
+
+            self._sync_unsub = async_call_later(self.hass, 10, _deferred_sync)
+            return
+        self._sync_retries = 0
+        await nm.set_dry_run_active(self._is_on)
+
+    @property
+    def is_on(self) -> bool:
+        return self._is_on
+
+    async def async_turn_on(self, **kwargs) -> None:
+        self._is_on = True
+        nm = self._get_nm()
+        if nm is not None:
+            await nm.set_dry_run_active(True)
+        else:
+            self._sync_retries = 0
+            await self._sync_to_nm()
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        self._is_on = False
+        nm = self._get_nm()
+        if nm is not None:
+            await nm.set_dry_run_active(False)
+        else:
+            self._sync_retries = 0
+            await self._sync_to_nm()
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
         return True
 
 

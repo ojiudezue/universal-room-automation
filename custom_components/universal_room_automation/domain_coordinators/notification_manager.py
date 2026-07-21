@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections import defaultdict
+from collections import defaultdict, deque
 from datetime import datetime, timedelta
 # functools.partial used for digest scheduling. HA's
 # get_hassjob_callable_job_type() explicitly unwraps partials before
@@ -96,11 +96,22 @@ from ..const import (
     DEFAULT_NM_TTS_SEVERITY,
     DEFAULT_NM_WHATSAPP_SEVERITY,
     DOMAIN,
+    CONF_NM_BUCKET_CAPACITY,
+    CONF_NM_BUCKET_REFILL_PER_MIN,
+    CONF_NM_DRY_RUN,
+    DEFAULT_NM_DRY_RUN,
+    NM_BOOT_SETTLE_S,
+    NM_BUCKET_CAPACITY_DEFAULT,
+    NM_BUCKET_REFILL_PER_MIN_DEFAULT,
     NM_CRITICAL_REPEAT_INTERVAL,
     NM_DEDUP_CRITICAL,
     NM_DEDUP_HIGH,
     NM_DEDUP_LOW,
     NM_DEDUP_MEDIUM,
+    NM_LIFE_SAFETY_HAZARDS,
+    NM_OVERFLOW_QUEUE_MAX,
+    NM_REPEAT_INTERVAL_LIFE_SAFETY,
+    NM_REPEAT_INTERVAL_NON_LIFE_SAFETY,
     NM_DELIVERY_DIGEST,
     NM_DELIVERY_IMMEDIATE,
     NM_DELIVERY_OFF,
@@ -274,6 +285,191 @@ class NotificationManager:
             "ack": 0, "status": 0, "silence": 0, "help": 0, "safe_word": 0, "unknown": 0,
         }
 
+        # =====================================================================
+        # NM Cycle B (2026-07-20): Safety rails
+        # =====================================================================
+        # B0: dry-run gate — mirrored from CM options AND live Switch state.
+        # Read at every emit site via `_dry_run_active`; Switch entity may
+        # override at runtime via `set_dry_run_active(bool)`.
+        self._dry_run_active: bool = bool(
+            self._config.get(CONF_NM_DRY_RUN, DEFAULT_NM_DRY_RUN)
+        )
+        # B2: safe-word ack registry — restart-safe. Keyed by episode_key
+        # `f"{coord_id}:{hazard_type}:{location}:{episode_id}"`. Value is a
+        # small dict; grows once per acked episode, capped by natural episode
+        # cadence (not per-tick — DB write-flood safe).
+        self._ack_registry: dict[str, dict[str, Any]] = {}
+        self._active_episode_id: str | None = None
+        # B3: per-channel token buckets. Continuous-refill; life-safety
+        # bypasses. Capacity + refill rate default from module const, live-
+        # overridable via Number entities calling `set_bucket_capacity` /
+        # `set_bucket_refill_per_min`.
+        self._bucket_capacity: float = float(
+            self._config.get(CONF_NM_BUCKET_CAPACITY, NM_BUCKET_CAPACITY_DEFAULT)
+        )
+        self._bucket_refill_per_min: float = float(
+            self._config.get(CONF_NM_BUCKET_REFILL_PER_MIN, NM_BUCKET_REFILL_PER_MIN_DEFAULT)
+        )
+        self._bucket_tokens: dict[str, float] = {
+            ch: self._bucket_capacity
+            for ch in ("pushover", "companion", "whatsapp", "imessage", "tts", "lights")
+        }
+        self._bucket_last_refill: float = dt_util.utcnow().timestamp()
+        # Bounded FIFO overflow queue. Entries: dict(channel, payload_fn,
+        # queued_at). Drains lazily on next `_bucket_take`.
+        self._overflow_queue: deque[dict[str, Any]] = deque(
+            maxlen=NM_OVERFLOW_QUEUE_MAX,
+        )
+        self._overflow_dropped_count: int = 0
+        # B4: boot-settle window — collapse per-(coord, hazard) to one emit
+        # in the first NM_BOOT_SETTLE_S seconds after `async_setup` returns.
+        self._boot_settle_until: float = 0.0  # set in async_setup
+        self._boot_settle_seen: set[tuple[str, str]] = set()
+
+    # =========================================================================
+    # NM Cycle B B0: dry-run gate + write helper
+    # =========================================================================
+
+    @property
+    def dry_run_active(self) -> bool:
+        """Return True if outbound service calls are short-circuited."""
+        return self._dry_run_active
+
+    async def set_dry_run_active(self, value: bool) -> None:
+        """Live toggle from `NMDryRunSwitch`. Never raises."""
+        if value == self._dry_run_active:
+            return
+        self._dry_run_active = bool(value)
+        _LOGGER.warning(
+            "NM dry-run gate set to %s — outbound sends %s",
+            self._dry_run_active,
+            "SHORT-CIRCUITED" if self._dry_run_active else "resumed",
+        )
+        async_dispatcher_send(self.hass, SIGNAL_NM_ENTITIES_UPDATE)
+
+    async def _log_dry_run(
+        self,
+        channel: str,
+        target: str,
+        coordinator_id: str = "unknown",
+        severity_str: str = "MEDIUM",
+        title: str = "",
+        hazard_type: str | None = None,
+        location: str | None = None,
+    ) -> None:
+        """Write a minimal dry-run row to `notification_log`.
+
+        Safety-first: writes ONE row per short-circuited send call. Any
+        DB failure is swallowed (never propagates into the emit path).
+        """
+        try:
+            database = self.hass.data.get(DOMAIN, {}).get("database")
+            if database is None:
+                _LOGGER.debug(
+                    "dry-run: would send channel=%s target=%s (no DB)",
+                    channel, target,
+                )
+                return
+            await database.log_notification(
+                coordinator_id=coordinator_id,
+                severity=severity_str,
+                title=title or f"[dry-run] {channel}",
+                message=f"[dry-run] would-have-target={target}",
+                hazard_type=hazard_type,
+                location=location,
+                person_id=None,
+                channel=channel,
+                delivered=0,
+                dry_run=1,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("dry-run log failed (swallowed)", exc_info=True)
+
+    # =========================================================================
+    # NM Cycle B B3: token-bucket helpers
+    # =========================================================================
+
+    def _bucket_refill(self) -> None:
+        """Continuous refill up to capacity; no-op if capacity already full."""
+        now = dt_util.utcnow().timestamp()
+        elapsed_min = max(0.0, (now - self._bucket_last_refill) / 60.0)
+        if elapsed_min <= 0:
+            return
+        add = elapsed_min * self._bucket_refill_per_min
+        for ch in list(self._bucket_tokens.keys()):
+            self._bucket_tokens[ch] = min(
+                self._bucket_capacity,
+                self._bucket_tokens.get(ch, 0.0) + add,
+            )
+        self._bucket_last_refill = now
+
+    def _bucket_take(self, channel: str, life_safety: bool) -> bool:
+        """Consume 1 token for channel. Life-safety bypasses the gate."""
+        if life_safety:
+            return True
+        self._bucket_refill()
+        tokens = self._bucket_tokens.get(channel, 0.0)
+        if tokens >= 1.0:
+            self._bucket_tokens[channel] = tokens - 1.0
+            return True
+        return False
+
+    def _enqueue_overflow(
+        self, channel: str, coordinator_id: str, hazard_type: str | None,
+    ) -> None:
+        """Enqueue an overflow marker. Bounded — drops silently at capacity."""
+        if len(self._overflow_queue) >= NM_OVERFLOW_QUEUE_MAX:
+            # deque(maxlen=...) auto-drops on append, but track the count.
+            self._overflow_dropped_count += 1
+        self._overflow_queue.append({
+            "channel": channel,
+            "coordinator_id": coordinator_id,
+            "hazard_type": hazard_type,
+            "queued_at": dt_util.utcnow().timestamp(),
+        })
+
+    def set_bucket_capacity(self, capacity: float) -> None:
+        """Live-attr push from `NMBucketCapacityNumber`."""
+        capacity = max(1.0, float(capacity))
+        self._bucket_capacity = capacity
+        # Clamp existing token counts to new capacity.
+        for ch in list(self._bucket_tokens.keys()):
+            self._bucket_tokens[ch] = min(self._bucket_tokens[ch], capacity)
+        _LOGGER.info("NM bucket capacity set to %.1f per channel", capacity)
+        async_dispatcher_send(self.hass, SIGNAL_NM_ENTITIES_UPDATE)
+
+    def set_bucket_refill_per_min(self, rate: float) -> None:
+        """Live-attr push from `NMBucketRefillNumber`."""
+        rate = max(0.0, float(rate))
+        # Force a refill snapshot at the OLD rate before switching so the
+        # accumulated fractional tokens land under the correct rate.
+        self._bucket_refill()
+        self._bucket_refill_per_min = rate
+        _LOGGER.info("NM bucket refill set to %.2f tokens/min", rate)
+        async_dispatcher_send(self.hass, SIGNAL_NM_ENTITIES_UPDATE)
+
+    def _bucket_snapshot(self) -> dict[str, float]:
+        """Refill-then-snapshot; used by sensor attribute reads only."""
+        self._bucket_refill()
+        return {ch: round(v, 2) for ch, v in self._bucket_tokens.items()}
+
+    # =========================================================================
+    # NM Cycle B B4: boot-settle guard
+    # =========================================================================
+
+    def _boot_settle_should_suppress(
+        self, coordinator_id: str, hazard_type: str | None,
+    ) -> bool:
+        """Collapse repeat (coord, hazard) emits within boot-settle window."""
+        now = dt_util.utcnow().timestamp()
+        if now >= self._boot_settle_until:
+            return False
+        key = (coordinator_id, str(hazard_type or ""))
+        if key in self._boot_settle_seen:
+            return True
+        self._boot_settle_seen.add(key)
+        return False
+
     @property
     def device_info(self) -> DeviceInfo:
         """Return device info for the NM device."""
@@ -396,6 +592,14 @@ class NotificationManager:
                     ("imessage", self._bb_webhook_registered),
                 ] if enabled
             ],
+            # NM Cycle B (2026-07-20): safety-rails attributes
+            "dry_run_active": self._dry_run_active,
+            "overflow_queue_depth": len(self._overflow_queue),
+            "overflow_dropped_count": self._overflow_dropped_count,
+            "bucket_capacity_remaining_per_channel": self._bucket_snapshot(),
+            "bucket_capacity": self._bucket_capacity,
+            "bucket_refill_per_min": self._bucket_refill_per_min,
+            "active_ack_registry_size": len(self._ack_registry),
         }
 
     @property
@@ -442,7 +646,11 @@ class NotificationManager:
     # =========================================================================
 
     def get_persistence_state(self) -> dict[str, Any]:
-        """Return serializable alert/cooldown/dedup state for RestoreEntity persistence."""
+        """Return serializable alert/cooldown/dedup state for RestoreEntity persistence.
+
+        NM Cycle B B2: includes ``ack_registry`` and ``active_episode_id`` so
+        an acked CRITICAL cannot re-fire after a mid-episode HA restart.
+        """
         return {
             "alert_state": self._alert_state.value,
             "cooldown_remaining": self._cooldown_remaining,
@@ -450,6 +658,9 @@ class NotificationManager:
             "cooldown_location": self._cooldown_location,
             "dedup_cache": {k: v for k, v in self._dedup_cache.items()},
             "active_alert_severity": self._active_alert_data.get("severity") if self._active_alert_data else None,
+            # NM Cycle B B2 — restart-safe ack registry
+            "ack_registry": {k: dict(v) for k, v in self._ack_registry.items()},
+            "active_episode_id": self._active_episode_id,
         }
 
     def restore_persistence_state(self, state: dict[str, Any]) -> None:
@@ -485,6 +696,17 @@ class NotificationManager:
         if isinstance(dedup, dict):
             self._dedup_cache = {k: float(v) for k, v in dedup.items() if isinstance(v, (int, float))}
 
+        # NM Cycle B B2: restore ack registry + active episode id
+        registry = state.get("ack_registry")
+        if isinstance(registry, dict):
+            self._ack_registry = {
+                str(k): dict(v) for k, v in registry.items()
+                if isinstance(v, dict)
+            }
+        active_ep = state.get("active_episode_id")
+        if isinstance(active_ep, str):
+            self._active_episode_id = active_ep
+
     @property
     def safe_word_configured(self) -> bool:
         """Return whether a safe word is configured."""
@@ -502,6 +724,12 @@ class NotificationManager:
             return
 
         _LOGGER.info("Notification Manager starting setup")
+
+        # NM Cycle B B4: arm boot-settle window — first NM_BOOT_SETTLE_S
+        # seconds collapse repeat (coord, hazard) emits to one to prevent
+        # restart-replay fan-out.
+        self._boot_settle_until = dt_util.utcnow().timestamp() + NM_BOOT_SETTLE_S
+        self._boot_settle_seen.clear()
 
         # Prune old notifications
         database = self.hass.data.get(DOMAIN, {}).get("database")
@@ -704,6 +932,19 @@ class NotificationManager:
             self._dedup_suppressions += 1
             return
 
+        # NM Cycle B B4: boot-settle collapse (per (coord, hazard)) for the
+        # first NM_BOOT_SETTLE_S after async_setup. Life-safety CRITICAL
+        # never collapses — safety trumps quieting.
+        life_safety_hazard = str(hazard_type or "").lower() in NM_LIFE_SAFETY_HAZARDS
+        if not life_safety_hazard and self._boot_settle_should_suppress(
+            coordinator_id, hazard_type,
+        ):
+            _LOGGER.info(
+                "NM: boot-settle suppress duplicate %s/%s within %ds window",
+                coordinator_id, hazard_type, NM_BOOT_SETTLE_S,
+            )
+            return
+
         severity_str = severity.name
         database = self.hass.data.get(DOMAIN, {}).get("database")
         now_str = dt_util.utcnow().isoformat()
@@ -723,7 +964,7 @@ class NotificationManager:
         channels_fired: list[str] = []
 
         # --- Global channels (TTS, Alert Lights) — always immediate ---
-        if self._channel_qualifies("tts", severity):
+        if self._channel_ready("tts", severity, hazard_type):
             await self._send_tts(title, message)
             channels_fired.append("tts")
             if database:
@@ -732,7 +973,7 @@ class NotificationManager:
                     hazard_type, location, None, "tts", 1,
                 )
 
-        if self._channel_qualifies("lights", severity):
+        if self._channel_ready("lights", severity, hazard_type):
             await self._trigger_alert_lights(hazard_type or "warning", severity)
             channels_fired.append("lights")
             if database:
@@ -757,7 +998,7 @@ class NotificationManager:
                 continue
 
             # Pushover
-            if self._channel_qualifies("pushover", severity):
+            if self._channel_ready("pushover", severity, hazard_type):
                 pushover_key = person_cfg.get(CONF_NM_PERSON_PUSHOVER_KEY, "")
                 pushover_device = person_cfg.get(CONF_NM_PERSON_PUSHOVER_DEVICE, "")
                 if pushover_key:
@@ -777,7 +1018,7 @@ class NotificationManager:
                             )
 
             # Companion App
-            if self._channel_qualifies("companion", severity):
+            if self._channel_ready("companion", severity, hazard_type):
                 companion_svc = person_cfg.get(CONF_NM_PERSON_COMPANION_SERVICE, "")
                 if companion_svc:
                     if effective_pref == NM_DELIVERY_IMMEDIATE:
@@ -799,7 +1040,7 @@ class NotificationManager:
                             )
 
             # WhatsApp
-            if self._channel_qualifies("whatsapp", severity):
+            if self._channel_ready("whatsapp", severity, hazard_type):
                 phone = person_cfg.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
                 if phone:
                     if effective_pref == NM_DELIVERY_IMMEDIATE:
@@ -818,7 +1059,7 @@ class NotificationManager:
                             )
 
             # iMessage (BlueBubbles)
-            if self._channel_qualifies("imessage", severity):
+            if self._channel_ready("imessage", severity, hazard_type):
                 imessage_handle = person_cfg.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "")
                 if imessage_handle:
                     if effective_pref == NM_DELIVERY_IMMEDIATE:
@@ -1009,6 +1250,9 @@ class NotificationManager:
         device: str = "",
     ) -> None:
         """Send notification via Pushover."""
+        if self._dry_run_active:
+            await self._log_dry_run(channel="pushover", target=device or user_key[:8], title=title)
+            return
         service_name = self._config.get(CONF_NM_PUSHOVER_SERVICE, "notify.pushover")
         try:
             domain, service = service_name.split(".", 1)
@@ -1039,6 +1283,9 @@ class NotificationManager:
         is_critical: bool = False,
     ) -> None:
         """Send notification via HA Companion App."""
+        if self._dry_run_active:
+            await self._log_dry_run(channel="companion", target=service_name, title=title)
+            return
         try:
             domain, service = service_name.split(".", 1)
             data: dict[str, Any] = {
@@ -1076,6 +1323,9 @@ class NotificationManager:
 
     async def _send_whatsapp(self, title: str, message: str, phone: str) -> None:
         """Send notification via WhatsApp (ha-wa-bridge)."""
+        if self._dry_run_active:
+            await self._log_dry_run(channel="whatsapp", target=phone, title=title)
+            return
         try:
             await self.hass.services.async_call(
                 "whatsapp", "send_message",
@@ -1089,6 +1339,9 @@ class NotificationManager:
 
     async def _send_imessage(self, title: str, message: str, handle: str) -> None:
         """Send notification via BlueBubbles (iMessage)."""
+        if self._dry_run_active:
+            await self._log_dry_run(channel="imessage", target=handle, title=title)
+            return
         try:
             await self.hass.services.async_call(
                 "bluebubbles", "send_message",
@@ -1104,6 +1357,9 @@ class NotificationManager:
         """Send TTS announcement to configured speakers."""
         speakers = self._config.get(CONF_NM_TTS_SPEAKERS, [])
         if not speakers:
+            return
+        if self._dry_run_active:
+            await self._log_dry_run(channel="tts", target=",".join(speakers), title=title)
             return
         try:
             for speaker in speakers:
@@ -1130,6 +1386,16 @@ class NotificationManager:
         """Activate alert light pattern for a hazard type."""
         light_entities = self._config.get(CONF_NM_ALERT_LIGHTS, [])
         if not light_entities:
+            return
+
+        # NM Cycle B B0: dry-run short-circuits the pattern trigger itself
+        # so `_run_light_pattern` is never scheduled. `_restore_alert_lights`
+        # is deliberately NOT gated — it must always run to keep state honest.
+        if self._dry_run_active:
+            await self._log_dry_run(
+                channel="lights", target=",".join(light_entities),
+                hazard_type=hazard_type,
+            )
             return
 
         pattern = LIGHT_PATTERNS.get(hazard_type, LIGHT_PATTERNS["warning"])
@@ -1278,6 +1544,10 @@ class NotificationManager:
         self._cooldown_remaining = 0
 
         self._alert_state = AlertState.ALERTING
+        # NM Cycle B B2: assign episode id — one per _enter_alerting so
+        # ack registry keys are stable across REPEATING and across restart.
+        episode_id = f"{coordinator_id}:{hazard_type or ''}:{location or ''}:{dt_util.utcnow().timestamp():.0f}"
+        self._active_episode_id = episode_id
         self._active_alert_data = {
             "coordinator_id": coordinator_id,
             "severity": severity_str,
@@ -1285,6 +1555,7 @@ class NotificationManager:
             "message": message,
             "hazard_type": hazard_type,
             "location": location,
+            "episode_id": episode_id,
         }
 
         async_dispatcher_send(self.hass, SIGNAL_NM_ALERT_STATE_CHANGED)
@@ -1294,12 +1565,31 @@ class NotificationManager:
         self._schedule_repeat()
 
     def _schedule_repeat(self) -> None:
-        """Schedule the next repeat notification."""
+        """Schedule the next repeat notification.
+
+        NM Cycle B B1: cadence selected by hazard subtype. Life-safety
+        (smoke / CO / fire / water_leak / flooding / intrusion / freeze_risk)
+        uses NM_REPEAT_INTERVAL_LIFE_SAFETY (30s); everything else uses
+        NM_REPEAT_INTERVAL_NON_LIFE_SAFETY (300s) to reduce paging fatigue.
+        """
         if self._repeat_unsub:
             self._repeat_unsub()
+        interval = self._repeat_interval_for_active_alert()
         self._repeat_unsub = async_call_later(
-            self.hass, NM_CRITICAL_REPEAT_INTERVAL, self._repeat_alert
+            self.hass, interval, self._repeat_alert
         )
+
+    def _repeat_interval_for_active_alert(self) -> int:
+        """Return the repeat cadence (seconds) for the current alert.
+
+        Extracted so tests + review-C mutation can anchor on ONE site.
+        """
+        hazard = ""
+        if self._active_alert_data:
+            hazard = str(self._active_alert_data.get("hazard_type") or "").lower()
+        if hazard in NM_LIFE_SAFETY_HAZARDS:
+            return NM_REPEAT_INTERVAL_LIFE_SAFETY
+        return NM_REPEAT_INTERVAL_NON_LIFE_SAFETY
 
     async def _repeat_alert(self, _now: Any = None) -> None:
         """Repeat the active CRITICAL alert."""
@@ -1317,31 +1607,31 @@ class NotificationManager:
         # Re-send to all qualifying channels
         persons = self._config.get(CONF_NM_PERSONS, [])
         for person_cfg in persons:
-            if self._channel_qualifies("pushover", Severity.CRITICAL):
+            if self._channel_ready("pushover", Severity.CRITICAL, data.get("hazard_type")):
                 key = person_cfg.get(CONF_NM_PERSON_PUSHOVER_KEY, "")
                 device = person_cfg.get(CONF_NM_PERSON_PUSHOVER_DEVICE, "")
                 if key:
                     await self._send_pushover(
                         data["title"], data["message"], Severity.CRITICAL, key, device
                     )
-            if self._channel_qualifies("companion", Severity.CRITICAL):
+            if self._channel_ready("companion", Severity.CRITICAL, data.get("hazard_type")):
                 svc = person_cfg.get(CONF_NM_PERSON_COMPANION_SERVICE, "")
                 if svc:
                     await self._send_companion(
                         data["title"], data["message"], Severity.CRITICAL, svc,
                         is_critical=True,
                     )
-            if self._channel_qualifies("whatsapp", Severity.CRITICAL):
+            if self._channel_ready("whatsapp", Severity.CRITICAL, data.get("hazard_type")):
                 phone = person_cfg.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
                 if phone:
                     await self._send_whatsapp(data["title"], data["message"], phone)
-            if self._channel_qualifies("imessage", Severity.CRITICAL):
+            if self._channel_ready("imessage", Severity.CRITICAL, data.get("hazard_type")):
                 handle = person_cfg.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "")
                 if handle:
                     await self._send_imessage(data["title"], data["message"], handle)
 
         # TTS repeat
-        if self._channel_qualifies("tts", Severity.CRITICAL):
+        if self._channel_ready("tts", Severity.CRITICAL, data.get("hazard_type")):
             await self._send_tts(data["title"], data["message"])
 
         # Re-check suppression — kill switch may have been toggled between awaits
@@ -1351,13 +1641,27 @@ class NotificationManager:
         # Schedule next repeat
         self._schedule_repeat()
 
-    async def async_acknowledge(self) -> None:
-        """Acknowledge the active alert — stops repeating, starts cooldown."""
+    async def async_acknowledge(self, safe_word_verified: bool = False) -> None:
+        """Acknowledge the active alert — stops repeating, starts cooldown.
+
+        NM Cycle B B2: on ack, write the current episode into
+        ``_ack_registry`` so a mid-episode HA restart won't re-fire the
+        same alert. Registry entry cadence = once per acked episode
+        (bounded by hazard cadence, not per tick — write-flood safe).
+        """
         if self._alert_state not in (AlertState.ALERTING, AlertState.REPEATING):
             _LOGGER.debug("No active alert to acknowledge")
             return
 
-        _LOGGER.info("Alert acknowledged")
+        _LOGGER.info("Alert acknowledged (safe_word_verified=%s)", safe_word_verified)
+
+        # NM Cycle B B2: record ack in registry (survives restart via
+        # persistence dict → RestoreEntity round-trip in NMDiagnosticsSensor).
+        if self._active_episode_id:
+            self._ack_registry[self._active_episode_id] = {
+                "acked_at": dt_util.utcnow().isoformat(),
+                "safe_word_verified": bool(safe_word_verified),
+            }
 
         # Cancel repeat
         if self._repeat_unsub:
@@ -1675,11 +1979,11 @@ class NotificationManager:
                 person_name = self._get_person_name(person_id)
                 hazard_type = self._active_alert_data.get("hazard_type", "")
                 location = self._active_alert_data.get("location", "")
-                await self.async_acknowledge()
+                await self.async_acknowledge(safe_word_verified=True)
                 await self._announce_ack(person_name, hazard_type, location)
                 response = f"CRITICAL alert acknowledged by {person_name}."
             elif has_active_alert:
-                await self.async_acknowledge()
+                await self.async_acknowledge(safe_word_verified=True)
                 response = "Alert acknowledged."
             else:
                 response = "No active alert to acknowledge."
@@ -1789,6 +2093,15 @@ class NotificationManager:
         message = f"{hazard_type} alert acknowledged by {person_name}"
         if location:
             message += f" in {location}"
+        # NM Cycle B B0: gate the ack-announce TTS emit too — it's a direct
+        # tts.speak call that bypasses _send_tts's gate.
+        if self._dry_run_active:
+            await self._log_dry_run(
+                channel="tts", target=",".join(speakers),
+                title="[dry-run] ack announce", hazard_type=hazard_type,
+                location=location,
+            )
+            return
         try:
             for speaker in speakers:
                 await self.hass.services.async_call(
@@ -1947,11 +2260,40 @@ class NotificationManager:
             if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
                 new_config = {**entry.data, **entry.options}
                 self._config = new_config
+                # NM Cycle B B0: honor options-flow change to dry-run when
+                # the Switch entity isn't the source of the toggle. Switch
+                # calls set_dry_run_active() directly and wins if both set.
+                if CONF_NM_DRY_RUN in new_config:
+                    self._dry_run_active = bool(new_config[CONF_NM_DRY_RUN])
                 return
 
     # =========================================================================
     # Channel qualification
     # =========================================================================
+
+    def _channel_ready(
+        self, channel: str, severity: Severity, hazard_type: str | None,
+    ) -> bool:
+        """Channel qualifies AND has a token (or life-safety bypass).
+
+        NM Cycle B B3 wrapper: single site for token-bucket enforcement.
+        Overflow rejections enqueue a marker + count; life-safety CRITICAL
+        bypasses the bucket entirely (safety must never be rate-limited).
+        """
+        if not self._channel_qualifies(channel, severity):
+            return False
+        life_safety = (
+            severity == Severity.CRITICAL
+            and str(hazard_type or "").lower() in NM_LIFE_SAFETY_HAZARDS
+        )
+        if not self._bucket_take(channel, life_safety):
+            self._enqueue_overflow(channel, "notify", hazard_type)
+            _LOGGER.debug(
+                "NM bucket exhausted for %s — overflow queued (depth=%d)",
+                channel, len(self._overflow_queue),
+            )
+            return False
+        return True
 
     def _channel_qualifies(self, channel: str, severity: Severity) -> bool:
         """Check if a channel should fire for a given severity."""
@@ -2196,6 +2538,15 @@ class NotificationManager:
         # Check for unacked CRITICAL — resume repeating
         active = await database.get_active_critical()
         if active:
+            # NM Cycle B B2: if the ack registry already has the current
+            # episode (persisted from before restart) SKIP re-arm — the
+            # operator acknowledged this episode; do not re-fire.
+            if self._active_episode_id and self._active_episode_id in self._ack_registry:
+                _LOGGER.info(
+                    "NM: skipping REPEATING recovery — episode %s already acked (registry)",
+                    self._active_episode_id,
+                )
+                return
             _LOGGER.warning("Recovering unacknowledged CRITICAL alert from DB")
             self._alert_state = AlertState.REPEATING
             self._active_alert_data = {
