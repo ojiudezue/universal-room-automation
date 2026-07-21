@@ -153,6 +153,14 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     _extract_conf(CONST_SRC, "CONF_NM_DRY_RUN"),
     _extract_conf(CONST_SRC, "CONF_NM_BUCKET_CAPACITY"),
     _extract_conf(CONST_SRC, "CONF_NM_BUCKET_REFILL_PER_MIN"),
+    # NM Cycle C (2026-07-20): per-recipient matrix + DND-bypass +
+    # mute-shortcut CONF keys. All 4 belong to `_NM_C_KEYS` which is
+    # splatted into both `_NO_LIVE_ATTR_KEYS` and
+    # `OPTIONS_RELOAD_SUPPRESS_KEYS`.
+    _extract_conf(CONST_SRC, "CONF_NM_PERSON_ROUTING_MATRIX"),
+    _extract_conf(CONST_SRC, "CONF_NM_PERSON_HAZARD_OVERRIDES"),
+    _extract_conf(CONST_SRC, "CONF_NM_PERSON_DND_BYPASS_SEVERITIES"),
+    _extract_conf(CONST_SRC, "CONF_NM_MUTE_DEFAULT_DURATION_MINUTES"),
 }
 
 
@@ -264,7 +272,9 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     # promoted to rung-2.
     # NM Cycle A-2 (2026-07-20) — +13 A knobs (12 Cycle-A + 1 optimizer allowlist).
     # NM Cycle B fix-up (2026-07-20, B-B1) — +3 keys (dry-run + capacity + refill).
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 77
+    # NM Cycle C (2026-07-20) — +4 keys (routing matrix, hazard overrides,
+    # DND-bypass severities, mute default duration).
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 81
 
 
 # ---------------------------------------------------------------------------
@@ -286,6 +296,10 @@ def _load_init_dispatch_namespace() -> dict:
         # NM Cycle A-2 (2026-07-20) — knob-key bundle spliced into both
         # _NO_LIVE_ATTR_KEYS and OPTIONS_RELOAD_SUPPRESS_KEYS via `*_NM_A2_KEYS`.
         "_NM_A2_KEYS",
+        # NM Cycle C (2026-07-20) — matrix/DND-bypass/mute-duration
+        # bundle spliced into both _NO_LIVE_ATTR_KEYS and
+        # OPTIONS_RELOAD_SUPPRESS_KEYS via `*_NM_C_KEYS`.
+        "_NM_C_KEYS",
     }
     keep_funcs = {
         "_seed_cm_last_applied_options",
@@ -404,6 +418,14 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_NM_DRY_RUN":                            "nm_dry_run",
         "_CONF_NM_BUCKET_CAPACITY":                    "nm_bucket_capacity",
         "_CONF_NM_BUCKET_REFILL_PER_MIN":              "nm_bucket_refill_per_min",
+        # NM Cycle C (2026-07-20) — per-recipient matrix + DND-bypass +
+        # mute-shortcut keys. All 4 belong to `_NM_C_KEYS` which is
+        # splatted into both `_NO_LIVE_ATTR_KEYS` and
+        # `OPTIONS_RELOAD_SUPPRESS_KEYS`.
+        "_CONF_NM_PERSON_ROUTING_MATRIX":              "nm_person_routing_matrix",
+        "_CONF_NM_PERSON_HAZARD_OVERRIDES":            "nm_person_hazard_overrides",
+        "_CONF_NM_PERSON_DND_BYPASS_SEVERITIES":       "nm_person_dnd_bypass_severities",
+        "_CONF_NM_MUTE_DEFAULT_DURATION_MINUTES":      "nm_mute_default_duration_minutes",
     }
     mod = ast.Module(body=body, type_ignores=[])
     code = compile(mod, str(PKG / "__init__.py"), "exec")

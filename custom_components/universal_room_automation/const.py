@@ -1367,6 +1367,30 @@ CONF_NM_SAFE_WORD: Final = "nm_safe_word"
 CONF_NM_SILENCE_DURATION: Final = "nm_silence_duration"
 DEFAULT_NM_SILENCE_DURATION: Final = 30  # minutes
 
+# =========================================================================
+# NM Cycle C (2026-07-20): Per-recipient routing matrix + full dry-run UX +
+# DND-bypass + mute shortcut. See PLANNING_nm_cycle_c_routing_matrix.md.
+# =========================================================================
+# C1: per-recipient routing matrix (dict) and optional per-hazard override.
+# Both live under CONF_NM_PERSONS[i]. Absent/empty → legacy severity gate.
+CONF_NM_PERSON_ROUTING_MATRIX: Final = "nm_person_routing_matrix"
+CONF_NM_PERSON_HAZARD_OVERRIDES: Final = "nm_person_hazard_overrides"
+# C3: per-recipient DND-bypass severity set (list[str] persisted, coerced
+# to frozenset at read). Default: {"CRITICAL"} preserves v5.26.0.
+CONF_NM_PERSON_DND_BYPASS_SEVERITIES: Final = "nm_person_dnd_bypass_severities"
+DEFAULT_NM_PERSON_DND_BYPASS_SEVERITIES: Final = ("CRITICAL",)
+# C4: mute-shortcut default duration (Number entity rung 3). 0 = no-op.
+CONF_NM_MUTE_DEFAULT_DURATION_MINUTES: Final = "nm_mute_default_duration_minutes"
+DEFAULT_NM_MUTE_DEFAULT_DURATION_MINUTES: Final = 60
+# C4: service name constant.
+SERVICE_NM_MUTE_PERSON_CHANNEL: Final = "nm_mute_person_channel"
+# Known transport-channel names — used by the mute service for input
+# validation AND the combinatorial fixtures. Central definition prevents
+# drift with `_channel_health` init (verified alignment 2026-07-20).
+NM_CHANNELS_KNOWN: Final = frozenset(
+    {"pushover", "companion", "whatsapp", "imessage", "tts", "lights"}
+)
+
 # v3.9.8 C4b+: BlueBubbles/iMessage webhook
 WEBHOOK_BB_ID: Final = f"{DOMAIN}_bluebubbles_reply"
 

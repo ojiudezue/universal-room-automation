@@ -3094,6 +3094,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "acknowledge_notification",
             "test_notification",
             "test_inbound",
+            # NM Cycle C fix-up (2026-07-20, D5/B-MED-2): register
+            # symmetric unload for `nm_mute_person_channel` so entry
+            # unload cleans it up (matches its now-central registration
+            # in `_async_register_notification_services`).
+            "nm_mute_person_channel",
         ):
             # default-arg binding pins _service_name into each lambda's
             # closure so the loop variable doesn't capture-by-reference
@@ -4368,6 +4373,36 @@ async def _async_register_notification_services(hass: HomeAssistant) -> None:
             }),
         )
 
+    # NM Cycle C fix-up (2026-07-20, D5): register `nm_mute_person_channel`
+    # centrally so entry unload's `async_on_unload(async_remove...)` loop
+    # covers it symmetrically. NM's own async_setup ALSO tries to
+    # register; `has_service` guards make both paths idempotent.
+    from .const import SERVICE_NM_MUTE_PERSON_CHANNEL as _SVC_NM_MUTE
+
+    async def handle_mute_person_channel(call):
+        """Handle nm_mute_person_channel service call."""
+        nm = hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            _LOGGER.warning("NM not available for mute_person_channel")
+            return
+        await nm.async_mute_person_channel(
+            person_id=call.data.get("person_id"),
+            channel=call.data.get("channel"),
+            duration_minutes=call.data.get("duration_minutes"),
+        )
+
+    if not hass.services.has_service(DOMAIN, _SVC_NM_MUTE):
+        hass.services.async_register(
+            DOMAIN,
+            _SVC_NM_MUTE,
+            handle_mute_person_channel,
+            schema=vol.Schema({
+                vol.Required("person_id"): str,
+                vol.Required("channel"): str,
+                vol.Optional("duration_minutes"): vol.Any(int, None),
+            }),
+        )
+
     _LOGGER.info("Registered notification manager services")
 
 
@@ -4506,7 +4541,24 @@ from .const import (
     CONF_NM_DRY_RUN as _CONF_NM_DRY_RUN,
     CONF_NM_BUCKET_CAPACITY as _CONF_NM_BUCKET_CAPACITY,
     CONF_NM_BUCKET_REFILL_PER_MIN as _CONF_NM_BUCKET_REFILL_PER_MIN,
+    # NM Cycle C (2026-07-20) — matrix + DND-bypass + mute duration.
+    # All 4 keys are re-read fresh by NM on every emit (`_refresh_config`
+    # +  matrix helpers); no CM reload, no live-attr push required.
+    CONF_NM_PERSON_ROUTING_MATRIX as _CONF_NM_PERSON_ROUTING_MATRIX,
+    CONF_NM_PERSON_HAZARD_OVERRIDES as _CONF_NM_PERSON_HAZARD_OVERRIDES,
+    CONF_NM_PERSON_DND_BYPASS_SEVERITIES as _CONF_NM_PERSON_DND_BYPASS_SEVERITIES,
+    CONF_NM_MUTE_DEFAULT_DURATION_MINUTES as _CONF_NM_MUTE_DEFAULT_DURATION_MINUTES,
 )
+
+# NM Cycle C — central set used to extend BOTH `_NO_LIVE_ATTR_KEYS` and
+# `OPTIONS_RELOAD_SUPPRESS_KEYS`. Both prior NM cycles (A-2, B) tripped
+# on missing membership here — see B-B1 v5.26.0, A-2 fix v5.25.0.
+_NM_C_KEYS: frozenset[str] = frozenset({
+    _CONF_NM_PERSON_ROUTING_MATRIX,
+    _CONF_NM_PERSON_HAZARD_OVERRIDES,
+    _CONF_NM_PERSON_DND_BYPASS_SEVERITIES,
+    _CONF_NM_MUTE_DEFAULT_DURATION_MINUTES,
+})
 
 # NM Cycle A-2 — the 13 CONF keys (12 Cycle-A + 1 optimizer allowlist)
 # consumed via `nm_cycle_a_knob(...)`. Central set used to extend both
@@ -4657,6 +4709,8 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     _CONF_NM_DRY_RUN,
     _CONF_NM_BUCKET_CAPACITY,
     _CONF_NM_BUCKET_REFILL_PER_MIN,
+    # NM Cycle C — matrix / DND-bypass / mute-duration keys.
+    *_NM_C_KEYS,
 })
 
 OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
@@ -4742,6 +4796,9 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     _CONF_NM_DRY_RUN,
     _CONF_NM_BUCKET_CAPACITY,
     _CONF_NM_BUCKET_REFILL_PER_MIN,
+    # NM Cycle C — options-flow-authored keys; NM re-reads via
+    # `_refresh_config`. No CM reload needed.
+    *_NM_C_KEYS,
 })
 
 
