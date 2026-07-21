@@ -1836,6 +1836,25 @@ OPTIMIZER_DIMENSION_SECURITY_POSTURE: Final = "security_posture"
 # dimension stays advisory until the predictor has actually learned.
 OPTIMIZER_DIMENSION_PREDICTION_ACCURACY: Final = "prediction_accuracy"
 
+# NM Cycle A-2 — single tuple of dimension value strings, used by the
+# options-flow allowlist SelectSelector without pulling in the heavy
+# optimization coordinator module (which drags HA imports).
+OPTIMIZER_DIMENSIONS_ALL: Final = (
+    OPTIMIZER_DIMENSION_SENSOR_HEALTH,
+    OPTIMIZER_DIMENSION_COMFORT,
+    OPTIMIZER_DIMENSION_META,
+    OPTIMIZER_DIMENSION_OCCUPANCY_ACCURACY,
+    OPTIMIZER_DIMENSION_AUTOMATION_RESPONSIVENESS,
+    OPTIMIZER_DIMENSION_CONFIG_BEHAVIOR,
+    OPTIMIZER_DIMENSION_ENERGY_EFFICIENCY,
+    OPTIMIZER_DIMENSION_SETPOINT_COMPLIANCE,
+    OPTIMIZER_DIMENSION_VACANCY_MANAGEMENT,
+    OPTIMIZER_DIMENSION_OVERRIDE_FREQUENCY,
+    OPTIMIZER_DIMENSION_STATE_MACHINE_ACCURACY,
+    OPTIMIZER_DIMENSION_SECURITY_POSTURE,
+    OPTIMIZER_DIMENSION_PREDICTION_ACCURACY,
+)
+
 # v5.3.0 Phase 4 thresholds. Module constants only (no per-room CONF — the
 # accuracy surface is house/person-level, not per-room).
 # Top-1 next-room hit-rate floor (percent). Below this is "degraded".
@@ -1873,20 +1892,26 @@ OPTIMIZER_NOTIFY_DEDUP_CYCLES: Final = 12
 # until an operator can name a specific dimension + concrete on-phone action.
 # CRITICAL findings still page. All HIGH otherwise flows to
 # `optimization_daily_digest` (wired via `_build_optimizer_digest_section`).
-# Rung: module constant (policy decision — flipping this reintroduces noise).
-OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS: Final = frozenset()
+# Rung: promoted to rung-2 (options-flow) in NM Cycle A-2 — see
+# CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS below. The bare frozenset
+# constant retained for one release as a deprecated alias for any
+# downstream import; scheduled for removal in the following minor.
+CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS: Final = "nm_a2_optimizer_high_allowlist_dimensions"
+DEFAULT_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS: Final = ()
+OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS: Final = frozenset()  # deprecated — see CONF_ above
 
 # ================================================================
 # NM Cycle A (2026-07-20) — noise-reduction knobs.
 # Values below are DEFAULTS fitted to the reference deployment's
 # 2026-07-20 would-have-sent audit distributions. Other households
-# will have different noise floors; CONF_* names are reserved for
-# rung-2 promotion (options flow) planned as Cycle A-2. Until A-2
-# ships the config-flow UI + reload-suppression + live-apply
-# setters, coordinators call `_nm_cycle_a_knob(hass, CONF_X,
-# DEFAULT_X)` (in domain_coordinators/_nm_cycle_a.py) which reads
-# any operator override from the CoordinatorManager options dict
-# and falls back to the DEFAULT_*.
+# will have different noise floors; CONF_* names are ratified as
+# rung-2 (options flow) — NM Cycle A-2 (shipped) surfaced these
+# under CM options → "Notification volume". Coordinators call
+# `nm_cycle_a_knob(hass, CONF_X, DEFAULT_X)` (in
+# domain_coordinators/_nm_cycle_a.py) which reads any operator
+# override from the CoordinatorManager options dict (cached, with
+# an invalidation hook on the options-update listener) and falls
+# back to the DEFAULT_*.
 # ================================================================
 
 # --- A1: Tripped-breaker window + route ---

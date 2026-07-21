@@ -145,6 +145,9 @@ def _load_init_listener_helpers():
         "_EC_SETTER_DISPATCH",
         "_OFFPEAK_DRAIN_QUALITY",
         "_NO_LIVE_ATTR_KEYS",
+        # NM Cycle A-2 (2026-07-20) — knob-key bundle spliced into both
+        # _NO_LIVE_ATTR_KEYS and OPTIONS_RELOAD_SUPPRESS_KEYS via `*_NM_A2_KEYS`.
+        "_NM_A2_KEYS",
     }
     body = []
     for node in tree.body:
@@ -246,6 +249,20 @@ def _load_init_listener_helpers():
         "_CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP": "energy_soc_divergence_threshold_pp",
         "_CONF_ENERGY_SOC_DIVERGENCE_DWELL_MIN":    "energy_soc_divergence_dwell_min",
         "_CONF_ENERGY_CLOUD_LAG_ALERT_S":           "energy_cloud_lag_alert_s",
+        # NM Cycle A-2 (2026-07-20) — 12 Cycle-A knobs + optimizer allowlist.
+        "_CONF_TRIPPED_BREAKER_ZERO_WINDOW_S":      "nm_a1_tripped_breaker_zero_window_s",
+        "_CONF_TRIPPED_BREAKER_ROUTE_NM":           "nm_a1_tripped_breaker_route_nm",
+        "_CONF_LOCK_UNAVAILABLE_DEDUP_S":           "nm_a3_lock_unavailable_dedup_s",
+        "_CONF_HUMIDITY_NORMAL_LOG_ONLY_PCT":       "nm_a4_humidity_log_only_pct",
+        "_CONF_HUMIDITY_NORMAL_MEDIUM_PCT":         "nm_a4_humidity_medium_pct",
+        "_CONF_HUMIDITY_NORMAL_HIGH_PCT":           "nm_a4_humidity_high_pct",
+        "_CONF_HUMIDITY_SWING_DELTA_PCT":           "nm_a4_humidity_swing_delta_pct",
+        "_CONF_HUMIDITY_SWING_MIN_ABS_PCT":         "nm_a4_humidity_swing_min_abs_pct",
+        "_CONF_CO2_LOG_ONLY_CEILING_PPM":           "nm_a5_co2_log_only_ppm",
+        "_CONF_TVOC_ABSOLUTE_HIGH_PPB":             "nm_a5_tvoc_absolute_high_ppb",
+        "_CONF_TVOC_SUSTAINED_S":                   "nm_a5_tvoc_sustained_s",
+        "_CONF_SAFETY_DISCOVERY_BLOCKLIST":         "nm_a5_safety_discovery_blocklist",
+        "_CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS": "nm_a2_optimizer_high_allowlist_dimensions",
         # Typing — frozenset[str] subscript requires Python 3.9+; ok.
     }
     # Wrap kept nodes in a Module and compile.

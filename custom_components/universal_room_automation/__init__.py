@@ -4456,7 +4456,44 @@ from .const import (
     # v5.10.0 D2 — MF sleep + night suppression CM keys.
     CONF_MF_SLEEP_SUPPRESS as _CONF_MF_SLEEP_SUPPRESS,
     CONF_MF_NIGHT_SUPPRESS_MODE as _CONF_MF_NIGHT_SUPPRESS_MODE,
+    # NM Cycle A-2 (2026-07-20) — rung-2 promotion of Cycle A knobs.
+    # All 12 consumed via `nm_cycle_a_knob(...)` which reads
+    # entry.options fresh on every call (cached, invalidated on
+    # options-update). They belong in _NO_LIVE_ATTR_KEYS (no live-attr
+    # push) and in OPTIONS_RELOAD_SUPPRESS_KEYS (no CM reload).
+    CONF_TRIPPED_BREAKER_ZERO_WINDOW_S as _CONF_TRIPPED_BREAKER_ZERO_WINDOW_S,
+    CONF_TRIPPED_BREAKER_ROUTE_NM as _CONF_TRIPPED_BREAKER_ROUTE_NM,
+    CONF_LOCK_UNAVAILABLE_DEDUP_S as _CONF_LOCK_UNAVAILABLE_DEDUP_S,
+    CONF_HUMIDITY_NORMAL_LOG_ONLY_PCT as _CONF_HUMIDITY_NORMAL_LOG_ONLY_PCT,
+    CONF_HUMIDITY_NORMAL_MEDIUM_PCT as _CONF_HUMIDITY_NORMAL_MEDIUM_PCT,
+    CONF_HUMIDITY_NORMAL_HIGH_PCT as _CONF_HUMIDITY_NORMAL_HIGH_PCT,
+    CONF_HUMIDITY_SWING_DELTA_PCT as _CONF_HUMIDITY_SWING_DELTA_PCT,
+    CONF_HUMIDITY_SWING_MIN_ABS_PCT as _CONF_HUMIDITY_SWING_MIN_ABS_PCT,
+    CONF_CO2_LOG_ONLY_CEILING_PPM as _CONF_CO2_LOG_ONLY_CEILING_PPM,
+    CONF_TVOC_ABSOLUTE_HIGH_PPB as _CONF_TVOC_ABSOLUTE_HIGH_PPB,
+    CONF_TVOC_SUSTAINED_S as _CONF_TVOC_SUSTAINED_S,
+    CONF_SAFETY_DISCOVERY_BLOCKLIST as _CONF_SAFETY_DISCOVERY_BLOCKLIST,
+    CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS as _CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS,
 )
+
+# NM Cycle A-2 — the 13 CONF keys (12 Cycle-A + 1 optimizer allowlist)
+# consumed via `nm_cycle_a_knob(...)`. Central set used to extend both
+# `_NO_LIVE_ATTR_KEYS` and `OPTIONS_RELOAD_SUPPRESS_KEYS` below.
+_NM_A2_KEYS: frozenset[str] = frozenset({
+    _CONF_TRIPPED_BREAKER_ZERO_WINDOW_S,
+    _CONF_TRIPPED_BREAKER_ROUTE_NM,
+    _CONF_LOCK_UNAVAILABLE_DEDUP_S,
+    _CONF_HUMIDITY_NORMAL_LOG_ONLY_PCT,
+    _CONF_HUMIDITY_NORMAL_MEDIUM_PCT,
+    _CONF_HUMIDITY_NORMAL_HIGH_PCT,
+    _CONF_HUMIDITY_SWING_DELTA_PCT,
+    _CONF_HUMIDITY_SWING_MIN_ABS_PCT,
+    _CONF_CO2_LOG_ONLY_CEILING_PPM,
+    _CONF_TVOC_ABSOLUTE_HIGH_PPB,
+    _CONF_TVOC_SUSTAINED_S,
+    _CONF_SAFETY_DISCOVERY_BLOCKLIST,
+    _CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS,
+})
 
 # The 14 HVAC tunable factory CONFs share an identical dispatch pattern:
 # look up `hvac.<sub_controller_attr>` then `setattr(sub, runtime_field, cast(value))`.
@@ -4578,6 +4615,10 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     # and we dispatch SIGNAL_ENERGY_ENTITIES_UPDATE below so the
     # switch entity's `is_on` (a live property reading the coord attr)
     # re-renders.
+    # NM Cycle A-2 — knob keys consumed via `nm_cycle_a_knob(...)`
+    # which reads entry.options fresh on every call (module-level
+    # cache flushed by the update-listener). No live-attr push needed.
+    *_NM_A2_KEYS,
 })
 
 OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
@@ -4654,6 +4695,10 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     _CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP,
     _CONF_ENERGY_SOC_DIVERGENCE_DWELL_MIN,
     _CONF_ENERGY_CLOUD_LAG_ALERT_S,
+    # NM Cycle A-2 (2026-07-20) — 12 Cycle-A knobs + optimizer allowlist.
+    # Consumed via `nm_cycle_a_knob(...)`; cache invalidated by the
+    # update listener; no live-attr push, no reload.
+    *_NM_A2_KEYS,
 })
 
 
@@ -5161,6 +5206,18 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
         snapshots[entry.entry_id] = dict(new)
 
     if entry_type == ENTRY_TYPE_COORDINATOR_MANAGER:
+        # NM Cycle A-2 B-LOW-1: total-flush the NM knob cache on EVERY
+        # CM options-update, unconditionally and before any subset check.
+        # Cheap (dict.clear), correctness-first — the next
+        # `nm_cycle_a_knob(...)` call reads fresh from `entry.options`.
+        try:
+            from .domain_coordinators._nm_cycle_a import invalidate_knob_cache
+            invalidate_knob_cache()
+        except Exception:  # noqa: BLE001 — defensive; never block the listener
+            _LOGGER.debug(
+                "NM Cycle A-2: invalidate_knob_cache raised (non-fatal)",
+                exc_info=True,
+            )
         snapshots = hass.data.setdefault(DOMAIN, {}).setdefault(
             "cm_last_applied_options", {},
         )

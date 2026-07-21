@@ -4061,9 +4061,28 @@ class OptimizationCoordinator(BaseCoordinator):
         # CRITICAL always pages. Digest wiring already lives in NM via
         # `_build_optimizer_digest_section` → `opt.format_digest_section()`.
         if finding.severity == "high":
-            from ..const import OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS
+            # NM Cycle A-2: allowlist promoted rung-1 → rung-2 (CM options).
+            # L4 hazard mitigation: allowlist entries persist as str via
+            # SelectSelector; `finding.dimension` may arrive as Enum, str,
+            # None, or a stringified Enum. Normalize BOTH sides to a
+            # lowercased str before the membership test.
+            from ..const import (
+                CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS,
+                DEFAULT_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS,
+            )
+            from ._nm_cycle_a import nm_cycle_a_knob
+            allowlist_raw = nm_cycle_a_knob(
+                self.hass,
+                CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS,
+                DEFAULT_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS,
+            )
+            allowlist = frozenset(
+                str(x).lower() for x in (allowlist_raw or ())
+            )
             dim = getattr(finding, "dimension", None)
-            if dim not in OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS:
+            dim_val = getattr(dim, "value", dim)
+            dim_str = str(dim_val).lower() if dim_val is not None else ""
+            if dim_str not in allowlist:
                 _LOGGER.info(
                     "Optimizer: HIGH finding (dimension=%s) deferred to "
                     "daily digest (not in NM allowlist)", dim,

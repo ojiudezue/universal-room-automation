@@ -2587,6 +2587,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     "coordinator_hvac",
                     "coordinator_music_following",
                     "coordinator_notifications",
+                    # NM Cycle A-2 — rung-2 knobs for Cycle-A noise reduction.
+                    "coordinator_notifications_volume",
                     "signal_responses",
                     # v4.7.34 Phase 1 D7: Optimization Coordinator options section
                     "coordinator_optimization",
@@ -6283,6 +6285,242 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="coordinator_notifications_cooldowns",
             data_schema=vol.Schema(cooldown_schema),
+        )
+
+    async def async_step_coordinator_notifications_volume(self, user_input=None):
+        """NM Cycle A-2 — rung-2 knobs for Cycle-A noise reduction.
+
+        Groups: A1 tripped-breaker window+route, A3 lock dedup, A4 humidity
+        ladder + swing, A5 CO2/TVOC + discovery blocklist, A2 optimizer
+        HIGH allowlist. Defaults sourced from `const.py` `DEFAULT_*`; behavior
+        with no options set is byte-identical to v5.24.0.
+
+        All keys are in `OPTIONS_RELOAD_SUPPRESS_KEYS` and `_NO_LIVE_ATTR_KEYS`;
+        saving here does NOT trigger a CM reload. Consumers read via
+        `nm_cycle_a_knob(...)`, cached process-wide; the update-listener
+        flushes the cache before the next tick.
+        """
+        from .const import (
+            CONF_TRIPPED_BREAKER_ZERO_WINDOW_S,
+            DEFAULT_TRIPPED_BREAKER_ZERO_WINDOW_S,
+            CONF_TRIPPED_BREAKER_ROUTE_NM,
+            DEFAULT_TRIPPED_BREAKER_ROUTE_NM,
+            CONF_LOCK_UNAVAILABLE_DEDUP_S,
+            DEFAULT_LOCK_UNAVAILABLE_DEDUP_S,
+            CONF_HUMIDITY_NORMAL_LOG_ONLY_PCT,
+            DEFAULT_HUMIDITY_NORMAL_LOG_ONLY_PCT,
+            CONF_HUMIDITY_NORMAL_MEDIUM_PCT,
+            DEFAULT_HUMIDITY_NORMAL_MEDIUM_PCT,
+            CONF_HUMIDITY_NORMAL_HIGH_PCT,
+            DEFAULT_HUMIDITY_NORMAL_HIGH_PCT,
+            CONF_HUMIDITY_SWING_DELTA_PCT,
+            DEFAULT_HUMIDITY_SWING_DELTA_PCT,
+            CONF_HUMIDITY_SWING_MIN_ABS_PCT,
+            DEFAULT_HUMIDITY_SWING_MIN_ABS_PCT,
+            CONF_CO2_LOG_ONLY_CEILING_PPM,
+            DEFAULT_CO2_LOG_ONLY_CEILING_PPM,
+            CONF_TVOC_ABSOLUTE_HIGH_PPB,
+            DEFAULT_TVOC_ABSOLUTE_HIGH_PPB,
+            CONF_TVOC_SUSTAINED_S,
+            DEFAULT_TVOC_SUSTAINED_S,
+            CONF_SAFETY_DISCOVERY_BLOCKLIST,
+            DEFAULT_SAFETY_DISCOVERY_BLOCKLIST,
+            CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS,
+            DEFAULT_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS,
+            OPTIMIZER_DIMENSIONS_ALL,
+        )
+
+        if user_input is not None:
+            # L4 mitigation on the save side: coerce the allowlist to a
+            # list[str] of lowercased dimension values, so what we persist
+            # matches what the consumer normalizes on the read side.
+            merged = {**self._config_entry.options, **user_input}
+            raw_allow = merged.get(CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS, [])
+            if isinstance(raw_allow, (list, tuple, set, frozenset)):
+                merged[CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS] = [
+                    str(x).lower() for x in raw_allow
+                ]
+            # Blocklist may come back as list[str] entity_ids — leave shape,
+            # `nm_cycle_a_knob` handles tuple/list/frozenset coercion at read.
+            raw_block = merged.get(CONF_SAFETY_DISCOVERY_BLOCKLIST)
+            if raw_block is None:
+                merged[CONF_SAFETY_DISCOVERY_BLOCKLIST] = []
+            return self.async_create_entry(title="", data=merged)
+
+        allowlist_options = [
+            {"value": v, "label": v} for v in OPTIMIZER_DIMENSIONS_ALL
+        ]
+
+        data_schema = vol.Schema({
+            # --- A1: tripped-breaker ---
+            vol.Optional(
+                CONF_TRIPPED_BREAKER_ZERO_WINDOW_S,
+                default=self._get_current(
+                    CONF_TRIPPED_BREAKER_ZERO_WINDOW_S,
+                    DEFAULT_TRIPPED_BREAKER_ZERO_WINDOW_S,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=7200, step=60,
+                    unit_of_measurement="seconds",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_TRIPPED_BREAKER_ROUTE_NM,
+                default=self._get_current(
+                    CONF_TRIPPED_BREAKER_ROUTE_NM,
+                    DEFAULT_TRIPPED_BREAKER_ROUTE_NM,
+                ),
+            ): selector.BooleanSelector(),
+            # --- A3: lock dedup ---
+            vol.Optional(
+                CONF_LOCK_UNAVAILABLE_DEDUP_S,
+                default=self._get_current(
+                    CONF_LOCK_UNAVAILABLE_DEDUP_S,
+                    DEFAULT_LOCK_UNAVAILABLE_DEDUP_S,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=604800, step=60,
+                    unit_of_measurement="seconds",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            # --- A4: humidity ladder + swing ---
+            vol.Optional(
+                CONF_HUMIDITY_NORMAL_LOG_ONLY_PCT,
+                default=self._get_current(
+                    CONF_HUMIDITY_NORMAL_LOG_ONLY_PCT,
+                    DEFAULT_HUMIDITY_NORMAL_LOG_ONLY_PCT,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=200, step=1,
+                    unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_HUMIDITY_NORMAL_MEDIUM_PCT,
+                default=self._get_current(
+                    CONF_HUMIDITY_NORMAL_MEDIUM_PCT,
+                    DEFAULT_HUMIDITY_NORMAL_MEDIUM_PCT,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=200, step=1,
+                    unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_HUMIDITY_NORMAL_HIGH_PCT,
+                default=self._get_current(
+                    CONF_HUMIDITY_NORMAL_HIGH_PCT,
+                    DEFAULT_HUMIDITY_NORMAL_HIGH_PCT,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=200, step=1,
+                    unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_HUMIDITY_SWING_DELTA_PCT,
+                default=self._get_current(
+                    CONF_HUMIDITY_SWING_DELTA_PCT,
+                    DEFAULT_HUMIDITY_SWING_DELTA_PCT,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=100, step=1,
+                    unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_HUMIDITY_SWING_MIN_ABS_PCT,
+                default=self._get_current(
+                    CONF_HUMIDITY_SWING_MIN_ABS_PCT,
+                    DEFAULT_HUMIDITY_SWING_MIN_ABS_PCT,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=200, step=1,
+                    unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            # --- A5: CO2 / TVOC / discovery blocklist ---
+            vol.Optional(
+                CONF_CO2_LOG_ONLY_CEILING_PPM,
+                default=self._get_current(
+                    CONF_CO2_LOG_ONLY_CEILING_PPM,
+                    DEFAULT_CO2_LOG_ONLY_CEILING_PPM,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=10000, step=50,
+                    unit_of_measurement="ppm",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_TVOC_ABSOLUTE_HIGH_PPB,
+                default=self._get_current(
+                    CONF_TVOC_ABSOLUTE_HIGH_PPB,
+                    DEFAULT_TVOC_ABSOLUTE_HIGH_PPB,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=100000, step=50,
+                    unit_of_measurement="ppb",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_TVOC_SUSTAINED_S,
+                default=self._get_current(
+                    CONF_TVOC_SUSTAINED_S,
+                    DEFAULT_TVOC_SUSTAINED_S,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=86400, step=60,
+                    unit_of_measurement="seconds",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_SAFETY_DISCOVERY_BLOCKLIST,
+                default=list(self._get_current(
+                    CONF_SAFETY_DISCOVERY_BLOCKLIST,
+                    list(DEFAULT_SAFETY_DISCOVERY_BLOCKLIST),
+                ) or []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", multiple=True)
+            ),
+            # --- A2: optimizer HIGH allowlist (empty by design) ---
+            vol.Optional(
+                CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS,
+                default=list(self._get_current(
+                    CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS,
+                    list(DEFAULT_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS),
+                ) or []),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=allowlist_options,
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="coordinator_notifications_volume",
+            data_schema=data_schema,
         )
 
     async def async_step_coordinator_toggles(self, user_input=None):
