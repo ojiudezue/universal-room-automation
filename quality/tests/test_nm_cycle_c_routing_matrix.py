@@ -24,6 +24,32 @@ from unittest.mock import AsyncMock, MagicMock, patch
 # Piggyback on the NM harness's HA-module stubs.
 from test_notification_manager import _make_hass, _make_config  # noqa: F401
 
+# ---------------------------------------------------------------------------
+# NM Cycle C fix-up (2026-07-20, D-R5): full-suite isolation hardening.
+#
+# Root-cause of the intermittent order-dependent failure the reviewer saw
+# in ~1/3 full-suite runs: `test_notification_manager` installs its
+# `homeassistant.util.dt` shim (with a real `datetime.utcnow` binding) via
+# a guarded `if not hasattr(existing, k): setattr(existing, k, v)` loop
+# (test_notification_manager.py:111-122). If ANY earlier test module
+# pre-populates `sys.modules["homeassistant.util.dt"]` with a MagicMock
+# (which reports `hasattr(...)` True for any attribute), the guarded loop
+# NO-OPS — `dt_util.utcnow` stays a MagicMock, and downstream comparisons
+# like `datetime.utcnow() < self._silence_until` raise `TypeError` on
+# MagicMock <-> datetime. Same class of bleed that A-2 fix-up C-HIGH-1
+# fixed for `_nm_cycle_a` — here it manifests through `_make_hass` /
+# `_is_deduplicated` / `_silence_until` inside `async_notify`. We force-
+# install the real bindings after the harness import so this test file
+# is order-independent regardless of what earlier modules did to
+# `homeassistant.util.dt`.
+import sys as _sys
+from datetime import datetime as _datetime
+_dt_util_mod = _sys.modules.get("homeassistant.util.dt")
+if _dt_util_mod is not None:
+    _dt_util_mod.utcnow = _datetime.utcnow
+    _dt_util_mod.now = _datetime.now
+    _dt_util_mod.as_local = lambda dt: dt
+
 from custom_components.universal_room_automation.const import (
     CONF_NM_PERSONS,
     CONF_NM_PERSON_ENTITY,
@@ -688,6 +714,191 @@ class TestFixupGlobalDNDUnion:
         nm._send_pushover = AsyncMock()
         _run(nm.async_notify("safety", Severity.MEDIUM, "T", "M"))
         assert nm._send_pushover.await_count == 0
+
+
+class TestFixupPostReviewGlobalChannelDND:
+    """Post-fix-up D-R1 HIGH (C-INV-3 over-delivery). Widened per-recipient
+    bypass reaches messaging fan-out, but the recipient-less global
+    channels (TTS + alert lights) MUST honor the GLOBAL predicate
+    (default {CRITICAL} + life-safety floor). One person's personal
+    bypass must not wake the whole house.
+
+    Mutation anchor: remove the `_global_dnd_ok` predicate in
+    `async_notify` (global-channels block) → the widened-bypass HIGH
+    test fires TTS.
+    """
+
+    def test_global_tts_and_lights_ignore_personal_bypass_in_quiet_hours(self):
+        from custom_components.universal_room_automation.const import (
+            CONF_NM_ALERT_LIGHTS,
+            CONF_NM_TTS_SPEAKERS,
+        )
+        hass = _make_hass()
+        # Recipient bypass covers HIGH — but not global {CRITICAL}.
+        person = _base_person(**{
+            CONF_NM_PERSON_DND_BYPASS_SEVERITIES: ("HIGH", "CRITICAL"),
+        })
+        cfg = _cfg_all_channels(**{
+            CONF_NM_PERSONS: [person],
+            CONF_NM_QUIET_USE_HOUSE_STATE: False,
+            CONF_NM_TTS_SPEAKERS: ["media_player.kitchen"],
+            CONF_NM_ALERT_LIGHTS: ["light.hall"],
+        })
+        nm = NotificationManager(hass, cfg)
+        nm._is_quiet_hours = MagicMock(return_value=True)
+        nm._send_tts = AsyncMock()
+        nm._trigger_alert_lights = AsyncMock()
+        nm._send_pushover = AsyncMock()
+        # Non-life-safety HIGH.
+        _run(nm.async_notify("safety", Severity.HIGH, "T", "M", hazard_type="peak_overshoot"))
+        # Global gate blocks: personal bypass doesn't wake the house.
+        assert nm._send_tts.await_count == 0
+        assert nm._trigger_alert_lights.await_count == 0
+        # But messaging fan-out DID reach the recipient.
+        assert nm._send_pushover.await_count == 1
+
+    def test_global_tts_fires_on_life_safety_critical(self):
+        from custom_components.universal_room_automation.const import (
+            CONF_NM_TTS_SPEAKERS,
+        )
+        hass = _make_hass()
+        cfg = _cfg_all_channels(**{
+            CONF_NM_QUIET_USE_HOUSE_STATE: False,
+            CONF_NM_TTS_SPEAKERS: ["media_player.kitchen"],
+        })
+        nm = NotificationManager(hass, cfg)
+        nm._is_quiet_hours = MagicMock(return_value=True)
+        nm._send_tts = AsyncMock()
+        # Life-safety hazard @ CRITICAL → global bypass via safety floor.
+        # (TTS default severity threshold is CRITICAL.)
+        _run(nm.async_notify("safety", Severity.CRITICAL, "T", "M", hazard_type="smoke"))
+        assert nm._send_tts.await_count == 1
+
+
+class TestFixupDigestRowNotGatedOnChannelGate:
+    """Post-fix-up D-R2 MEDIUM + D-R3. Digest-pref recipients' delivered=0
+    rows must be written whenever the router allows the channel, even if
+    the union channel_gate is closed (sole immediate recipient muted, or
+    all-digest household). Ratified behavior improvement vs v5.26.0.
+
+    Mutation anchor: nest the digest-row write back under
+    `_channel_gate.get(ch)` → this test fails.
+    """
+
+    def test_digest_row_written_when_immediate_peer_muted(self):
+        from custom_components.universal_room_automation.const import (
+            NM_DELIVERY_DIGEST,
+        )
+        hass = _make_hass()
+        immediate = _base_person(pid="person.oji")  # immediate, muted
+        digest = _base_person(pid="person.ez", **{
+            CONF_NM_PERSON_PUSHOVER_KEY: "pk_ez",
+            CONF_NM_PERSON_DELIVERY_PREF: NM_DELIVERY_DIGEST,
+        })
+        cfg = _cfg_all_channels(**{
+            CONF_NM_PERSONS: [immediate, digest],
+            CONF_NM_QUIET_USE_HOUSE_STATE: False,
+        })
+        nm = NotificationManager(hass, cfg)
+        nm._is_quiet_hours = MagicMock(return_value=False)
+        # Mute the only immediate recipient's pushover — union gate
+        # closes for pushover.
+        _run(nm.async_mute_person_channel("person.oji", "pushover", 30))
+        # Fake DB captures rows.
+        fake_db = MagicMock()
+        fake_db.log_notification = AsyncMock()
+        from custom_components.universal_room_automation.const import DOMAIN
+        hass.data[DOMAIN]["database"] = fake_db
+        nm._send_pushover = AsyncMock()
+        _run(nm.async_notify("safety", Severity.MEDIUM, "T", "M"))
+        # Digest row for person.ez must be written (delivered=0).
+        found = False
+        for c in fake_db.log_notification.await_args_list:
+            args = c.args
+            if len(args) >= 9 and args[7] == "pushover" and args[6] == "person.ez" and args[8] == 0:
+                found = True
+                break
+        assert found, "digest-pref row for muted-peer case must be written"
+
+    def test_digest_row_written_all_digest_household(self):
+        from custom_components.universal_room_automation.const import (
+            NM_DELIVERY_DIGEST,
+        )
+        hass = _make_hass()
+        d1 = _base_person(pid="person.oji", **{
+            CONF_NM_PERSON_DELIVERY_PREF: NM_DELIVERY_DIGEST,
+        })
+        cfg = _cfg_all_channels(**{
+            CONF_NM_PERSONS: [d1],
+            CONF_NM_QUIET_USE_HOUSE_STATE: False,
+        })
+        nm = NotificationManager(hass, cfg)
+        nm._is_quiet_hours = MagicMock(return_value=False)
+        fake_db = MagicMock()
+        fake_db.log_notification = AsyncMock()
+        from custom_components.universal_room_automation.const import DOMAIN
+        hass.data[DOMAIN]["database"] = fake_db
+        nm._send_pushover = AsyncMock()
+        _run(nm.async_notify("safety", Severity.MEDIUM, "T", "M"))
+        # Union gate closes (all-digest → no immediate recipients).
+        # Digest row must still be written for pushover.
+        found = False
+        for c in fake_db.log_notification.await_args_list:
+            args = c.args
+            if len(args) >= 9 and args[6] == "person.oji" and args[7] == "pushover" and args[8] == 0:
+                found = True
+                break
+        assert found, "all-digest household must still emit digest row"
+        # And no immediate send happened.
+        assert nm._send_pushover.await_count == 0
+
+
+class TestFixupDryRunNoBucketBurnGlobalChannels:
+    """Post-fix-up D-R4 LOW. tts/lights path through `_channel_ready` must
+    not burn bucket tokens under dry-run, and must not write a
+    `delivered=1` row (dry-run row is written by `_send_tts` /
+    `_trigger_alert_lights` via `_log_dry_run`).
+
+    Mutation anchor: change the `if self._dry_run_active` in the tts
+    or lights gate back to always `_channel_ready(...)` → tokens burn.
+    """
+
+    def test_dry_run_no_token_burn_and_no_delivered_row(self):
+        from custom_components.universal_room_automation.const import (
+            CONF_NM_ALERT_LIGHTS,
+            CONF_NM_TTS_SPEAKERS,
+            CONF_NM_DRY_RUN,
+            DOMAIN,
+        )
+        hass = _make_hass()
+        cfg = _cfg_all_channels(**{
+            CONF_NM_QUIET_USE_HOUSE_STATE: False,
+            CONF_NM_TTS_SPEAKERS: ["media_player.kitchen"],
+            CONF_NM_ALERT_LIGHTS: ["light.hall"],
+            CONF_NM_DRY_RUN: True,
+        })
+        nm = NotificationManager(hass, cfg)
+        nm._is_quiet_hours = MagicMock(return_value=False)
+        # Snapshot bucket state, stub log-dry-run to observe writes.
+        tokens_before = dict(nm._bucket_tokens)
+        nm._log_dry_run = AsyncMock()
+        # Fake DB — should NOT receive a delivered=1 tts/lights row.
+        fake_db = MagicMock()
+        fake_db.log_notification = AsyncMock()
+        hass.data[DOMAIN]["database"] = fake_db
+        _run(nm.async_notify("safety", Severity.MEDIUM, "T", "M"))
+        # No token burn on tts/lights.
+        assert nm._bucket_tokens.get("tts") == tokens_before.get("tts")
+        assert nm._bucket_tokens.get("lights") == tokens_before.get("lights")
+        # No delivered=1 row for tts / lights.
+        for c in fake_db.log_notification.await_args_list:
+            args = c.args
+            if len(args) >= 9 and args[7] in ("tts", "lights"):
+                assert args[8] == 0 or c.kwargs.get("dry_run") == 1, (
+                    "under dry-run no delivered=1 tts/lights row may be written"
+                )
+        # _send_tts / _trigger_alert_lights delegated to _log_dry_run.
+        assert nm._log_dry_run.await_count >= 1
 
 
 class TestFixupMuteRejectsGlobalChannels:

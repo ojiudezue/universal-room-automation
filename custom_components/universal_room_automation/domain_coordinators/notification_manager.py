@@ -1140,19 +1140,45 @@ class NotificationManager:
         channels_fired: list[str] = []
 
         # --- Global channels (TTS, Alert Lights) — always immediate ---
-        if self._channel_ready("tts", severity, hazard_type):
+        # NM Cycle C fix-up (2026-07-20, D-R1 HIGH / C-INV-3 over-delivery):
+        # the widened quiet-hours gate above admits the notify when ANY
+        # recipient's DND-bypass set covers this severity. That's correct
+        # for reaching the per-recipient messaging fan-out, but the
+        # recipient-less global channels (TTS + alert lights) must NOT
+        # inherit one person's personal bypass — otherwise a single
+        # recipient's widened set wakes the whole house. Gate the two
+        # global emits on the GLOBAL predicate: default set {CRITICAL}
+        # + life-safety floor (via `_recipient_bypasses_dnd(None, ...)`).
+        # NM Cycle C fix-up (2026-07-20, D-R4 LOW): under dry-run the
+        # tts/lights paths must NOT burn bucket tokens (no-burn ruling)
+        # and must not write a `delivered=1` row. `_send_tts` /
+        # `_trigger_alert_lights` already short-circuit to `_log_dry_run`
+        # which writes a `dry_run=1, delivered=0` row on our behalf.
+        _global_dnd_ok = (
+            not self._is_quiet_hours()
+            or self._recipient_bypasses_dnd(None, hazard_type, severity)
+        )
+        _tts_gate = (
+            self._channel_qualifies("tts", severity) if self._dry_run_active
+            else self._channel_ready("tts", severity, hazard_type)
+        )
+        if _global_dnd_ok and _tts_gate:
             await self._send_tts(title, message)
             channels_fired.append("tts")
-            if database:
+            if database and not self._dry_run_active:
                 await database.log_notification(
                     coordinator_id, severity_str, title, message,
                     hazard_type, location, None, "tts", 1,
                 )
 
-        if self._channel_ready("lights", severity, hazard_type):
+        _lights_gate = (
+            self._channel_qualifies("lights", severity) if self._dry_run_active
+            else self._channel_ready("lights", severity, hazard_type)
+        )
+        if _global_dnd_ok and _lights_gate:
             await self._trigger_alert_lights(hazard_type or "warning", severity)
             channels_fired.append("lights")
-            if database:
+            if database and not self._dry_run_active:
                 await database.log_notification(
                     coordinator_id, severity_str, title, message,
                     hazard_type, location, None, "lights", 1,
@@ -1228,85 +1254,108 @@ class NotificationManager:
                 )
             )
 
+            # NM Cycle C fix-up (2026-07-20, D-R2 MED + D-R3): digest-row
+            # writes are NOT transport sends and must NOT be gated on the
+            # token/union gate. A digest-pref recipient's row is queued
+            # whenever the ROUTER allows the channel (matrix / override /
+            # legacy + mute + life-safety), regardless of whether the
+            # union gate happened to close (e.g. sole immediate recipient
+            # muted → union False → previously ALL digest rows were lost;
+            # or an all-digest household → union always False → pre-
+            # existing Cycle B row-loss shape). Ratified behavior
+            # improvement over v5.26.0 — see PLANNING doc.
+
             # Pushover
+            _pushover_key = person_cfg.get(CONF_NM_PERSON_PUSHOVER_KEY, "")
+            _pushover_device = person_cfg.get(CONF_NM_PERSON_PUSHOVER_DEVICE, "")
             if _channel_gate.get("pushover", False) and "pushover" in _router_allowed:
-                pushover_key = person_cfg.get(CONF_NM_PERSON_PUSHOVER_KEY, "")
-                pushover_device = person_cfg.get(CONF_NM_PERSON_PUSHOVER_DEVICE, "")
-                if pushover_key:
-                    if effective_pref == NM_DELIVERY_IMMEDIATE:
-                        await self._send_pushover(title, message_with_dict, severity, pushover_key, pushover_device)
-                        channels_fired.append("pushover")
-                        if database:
-                            await database.log_notification(
-                                coordinator_id, severity_str, title, message,
-                                hazard_type, location, person_id, "pushover", 1,
-                            )
-                    elif effective_pref == NM_DELIVERY_DIGEST:
-                        if database:
-                            await database.log_notification(
-                                coordinator_id, severity_str, title, message,
-                                hazard_type, location, person_id, "pushover", 0,
-                            )
+                if _pushover_key and effective_pref == NM_DELIVERY_IMMEDIATE:
+                    await self._send_pushover(title, message_with_dict, severity, _pushover_key, _pushover_device)
+                    channels_fired.append("pushover")
+                    if database:
+                        await database.log_notification(
+                            coordinator_id, severity_str, title, message,
+                            hazard_type, location, person_id, "pushover", 1,
+                        )
+            if (
+                effective_pref == NM_DELIVERY_DIGEST
+                and _pushover_key
+                and "pushover" in _router_allowed
+                and database
+            ):
+                await database.log_notification(
+                    coordinator_id, severity_str, title, message,
+                    hazard_type, location, person_id, "pushover", 0,
+                )
 
             # Companion App
+            _companion_svc = person_cfg.get(CONF_NM_PERSON_COMPANION_SERVICE, "")
             if _channel_gate.get("companion", False) and "companion" in _router_allowed:
-                companion_svc = person_cfg.get(CONF_NM_PERSON_COMPANION_SERVICE, "")
-                if companion_svc:
-                    if effective_pref == NM_DELIVERY_IMMEDIATE:
-                        await self._send_companion(
-                            title, message, severity, companion_svc,
-                            is_critical=(severity == Severity.CRITICAL),
+                if _companion_svc and effective_pref == NM_DELIVERY_IMMEDIATE:
+                    await self._send_companion(
+                        title, message, severity, _companion_svc,
+                        is_critical=(severity == Severity.CRITICAL),
+                    )
+                    channels_fired.append("companion")
+                    if database:
+                        await database.log_notification(
+                            coordinator_id, severity_str, title, message,
+                            hazard_type, location, person_id, "companion", 1,
                         )
-                        channels_fired.append("companion")
-                        if database:
-                            await database.log_notification(
-                                coordinator_id, severity_str, title, message,
-                                hazard_type, location, person_id, "companion", 1,
-                            )
-                    elif effective_pref == NM_DELIVERY_DIGEST:
-                        if database:
-                            await database.log_notification(
-                                coordinator_id, severity_str, title, message,
-                                hazard_type, location, person_id, "companion", 0,
-                            )
+            if (
+                effective_pref == NM_DELIVERY_DIGEST
+                and _companion_svc
+                and "companion" in _router_allowed
+                and database
+            ):
+                await database.log_notification(
+                    coordinator_id, severity_str, title, message,
+                    hazard_type, location, person_id, "companion", 0,
+                )
 
             # WhatsApp
+            _phone = person_cfg.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
             if _channel_gate.get("whatsapp", False) and "whatsapp" in _router_allowed:
-                phone = person_cfg.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
-                if phone:
-                    if effective_pref == NM_DELIVERY_IMMEDIATE:
-                        await self._send_whatsapp(title, message_with_dict, phone)
-                        channels_fired.append("whatsapp")
-                        if database:
-                            await database.log_notification(
-                                coordinator_id, severity_str, title, message,
-                                hazard_type, location, person_id, "whatsapp", 1,
-                            )
-                    elif effective_pref == NM_DELIVERY_DIGEST:
-                        if database:
-                            await database.log_notification(
-                                coordinator_id, severity_str, title, message,
-                                hazard_type, location, person_id, "whatsapp", 0,
-                            )
+                if _phone and effective_pref == NM_DELIVERY_IMMEDIATE:
+                    await self._send_whatsapp(title, message_with_dict, _phone)
+                    channels_fired.append("whatsapp")
+                    if database:
+                        await database.log_notification(
+                            coordinator_id, severity_str, title, message,
+                            hazard_type, location, person_id, "whatsapp", 1,
+                        )
+            if (
+                effective_pref == NM_DELIVERY_DIGEST
+                and _phone
+                and "whatsapp" in _router_allowed
+                and database
+            ):
+                await database.log_notification(
+                    coordinator_id, severity_str, title, message,
+                    hazard_type, location, person_id, "whatsapp", 0,
+                )
 
             # iMessage (BlueBubbles)
+            _imessage_handle = person_cfg.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "")
             if _channel_gate.get("imessage", False) and "imessage" in _router_allowed:
-                imessage_handle = person_cfg.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "")
-                if imessage_handle:
-                    if effective_pref == NM_DELIVERY_IMMEDIATE:
-                        await self._send_imessage(title, message_with_dict, imessage_handle)
-                        channels_fired.append("imessage")
-                        if database:
-                            await database.log_notification(
-                                coordinator_id, severity_str, title, message,
-                                hazard_type, location, person_id, "imessage", 1,
-                            )
-                    elif effective_pref == NM_DELIVERY_DIGEST:
-                        if database:
-                            await database.log_notification(
-                                coordinator_id, severity_str, title, message,
-                                hazard_type, location, person_id, "imessage", 0,
-                            )
+                if _imessage_handle and effective_pref == NM_DELIVERY_IMMEDIATE:
+                    await self._send_imessage(title, message_with_dict, _imessage_handle)
+                    channels_fired.append("imessage")
+                    if database:
+                        await database.log_notification(
+                            coordinator_id, severity_str, title, message,
+                            hazard_type, location, person_id, "imessage", 1,
+                        )
+            if (
+                effective_pref == NM_DELIVERY_DIGEST
+                and _imessage_handle
+                and "imessage" in _router_allowed
+                and database
+            ):
+                await database.log_notification(
+                    coordinator_id, severity_str, title, message,
+                    hazard_type, location, person_id, "imessage", 0,
+                )
 
             # NM Cycle C C2: single per-recipient audit row. Rolled up
             # after all channels are decided so write-volume is bounded
@@ -1937,7 +1986,21 @@ class NotificationManager:
         _ = life_safety_hazard
 
         # TTS repeat
-        if self._channel_ready("tts", Severity.CRITICAL, _hz):
+        # NM Cycle C fix-up (2026-07-20, D-R1 + D-R4): apply GLOBAL quiet-
+        # hours predicate explicitly (default {CRITICAL} + life-safety
+        # floor); under dry-run use non-consuming gate to honor no-burn.
+        # Repeats are Severity.CRITICAL so the DND predicate is
+        # byte-identical to the pre-fix behavior — documented for
+        # consistency with the initial-notify path.
+        _global_dnd_ok_repeat = (
+            not self._is_quiet_hours()
+            or self._recipient_bypasses_dnd(None, _hz, Severity.CRITICAL)
+        )
+        _tts_gate_repeat = (
+            self._channel_qualifies("tts", Severity.CRITICAL) if self._dry_run_active
+            else self._channel_ready("tts", Severity.CRITICAL, _hz)
+        )
+        if _global_dnd_ok_repeat and _tts_gate_repeat:
             await self._send_tts(data["title"], data["message"])
         # (data.get was assigned to `_hz` above; local scope only.)
 
