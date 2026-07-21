@@ -315,12 +315,18 @@ class NotificationManager:
             for ch in ("pushover", "companion", "whatsapp", "imessage", "tts", "lights")
         }
         self._bucket_last_refill: float = dt_util.utcnow().timestamp()
-        # Bounded FIFO overflow queue. Entries: dict(channel, payload_fn,
-        # queued_at). Drains lazily on next `_bucket_take`.
-        self._overflow_queue: deque[dict[str, Any]] = deque(
+        # NM Cycle B fix-up (2026-07-20, C-HIGH-1 / B-B5): overflow is an
+        # HONEST DROP COUNTER this cycle — no drain/replay. A correct drain
+        # requires per-payload capture + staleness re-validation on refill,
+        # AND per-recipient routing changes payload shape (Cycle C rework).
+        # Building drain here would ship a footgun with stale replays. We
+        # keep a small ring of RECENT DROPS for diagnostic surface only;
+        # the aggregate counter (`overflow_dropped_total`) is the
+        # authoritative signal. Deferred: real drain → Cycle C.
+        self._overflow_recent_drops: deque[dict[str, Any]] = deque(
             maxlen=NM_OVERFLOW_QUEUE_MAX,
         )
-        self._overflow_dropped_count: int = 0
+        self._overflow_dropped_total: int = 0
         # B4: boot-settle window — collapse per-(coord, hazard) to one emit
         # in the first NM_BOOT_SETTLE_S seconds after `async_setup` returns.
         self._boot_settle_until: float = 0.0  # set in async_setup
@@ -417,16 +423,34 @@ class NotificationManager:
     def _enqueue_overflow(
         self, channel: str, coordinator_id: str, hazard_type: str | None,
     ) -> None:
-        """Enqueue an overflow marker. Bounded — drops silently at capacity."""
-        if len(self._overflow_queue) >= NM_OVERFLOW_QUEUE_MAX:
-            # deque(maxlen=...) auto-drops on append, but track the count.
-            self._overflow_dropped_count += 1
-        self._overflow_queue.append({
+        """Record an overflow DROP (Cycle B honest-drop semantics).
+
+        NM Cycle B fix-up (2026-07-20, C-HIGH-1 / B-B5): no drain / no
+        replay in Cycle B. Every call is a dropped send. The recent-drops
+        ring is diagnostic-only; the aggregate `_overflow_dropped_total`
+        counter is the authoritative signal. Cycle C will add per-
+        recipient routing + payload capture, at which point real drain
+        becomes safe.
+        """
+        self._overflow_dropped_total += 1
+        self._overflow_recent_drops.append({
             "channel": channel,
             "coordinator_id": coordinator_id,
             "hazard_type": hazard_type,
-            "queued_at": dt_util.utcnow().timestamp(),
+            "dropped_at": dt_util.utcnow().timestamp(),
         })
+
+    # Legacy attribute aliases so existing test/dashboard consumers keep
+    # working without asserting a queue-with-replay contract.
+    @property
+    def _overflow_queue(self) -> deque[dict[str, Any]]:
+        """DEPRECATED alias — returns the recent-drops ring (no replay)."""
+        return self._overflow_recent_drops
+
+    @property
+    def _overflow_dropped_count(self) -> int:
+        """DEPRECATED alias — returns the aggregate drop counter."""
+        return self._overflow_dropped_total
 
     def set_bucket_capacity(self, capacity: float) -> None:
         """Live-attr push from `NMBucketCapacityNumber`."""
@@ -594,8 +618,14 @@ class NotificationManager:
             ],
             # NM Cycle B (2026-07-20): safety-rails attributes
             "dry_run_active": self._dry_run_active,
-            "overflow_queue_depth": len(self._overflow_queue),
-            "overflow_dropped_count": self._overflow_dropped_count,
+            # Fix-up (C-HIGH-1 / B-B5): honest DROP COUNTER — no drain in
+            # Cycle B. `overflow_dropped_total` is authoritative; the
+            # legacy `overflow_queue_depth` alias reports recent-drops ring
+            # depth for continuity with dashboards but does NOT imply a
+            # queued replay will happen.
+            "overflow_dropped_total": self._overflow_dropped_total,
+            "overflow_queue_depth": len(self._overflow_recent_drops),
+            "overflow_dropped_count": self._overflow_dropped_total,
             "bucket_capacity_remaining_per_channel": self._bucket_snapshot(),
             "bucket_capacity": self._bucket_capacity,
             "bucket_refill_per_min": self._bucket_refill_per_min,
@@ -706,6 +736,35 @@ class NotificationManager:
         active_ep = state.get("active_episode_id")
         if isinstance(active_ep, str):
             self._active_episode_id = active_ep
+        # NM Cycle B fix-up (2026-07-20, B-B2): LATE ack-cancel path.
+        # If the DB-recovery step already armed us to REPEATING for the
+        # SAME episode that was acked before restart (present in the
+        # restored registry), cancel the arm now. This is the real
+        # protection — the pre-fix guard inside `_recover_state_from_db`
+        # was dead because recovery runs BEFORE the sensor restores
+        # attributes into NM. Primary protection remains the DB
+        # `acknowledged=0` filter; this catches the residual race where
+        # the DB row wasn't marked acked before restart.
+        if (
+            self._alert_state == AlertState.REPEATING
+            and self._active_episode_id
+            and self._active_episode_id in self._ack_registry
+        ):
+            _LOGGER.info(
+                "NM: cancelling REPEATING arm on restore — episode %s already "
+                "acked (registry)", self._active_episode_id,
+            )
+            if self._repeat_unsub:
+                try:
+                    self._repeat_unsub()
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "NM: repeat_unsub raised during ack-cancel (swallowed)",
+                        exc_info=True,
+                    )
+                self._repeat_unsub = None
+            self._alert_state = AlertState.IDLE
+            self._active_alert_data = None
 
     @property
     def safe_word_configured(self) -> bool:
@@ -983,7 +1042,15 @@ class NotificationManager:
                 )
 
         # --- Per-person channels ---
+        # NM Cycle B fix-up (2026-07-20, C-HIGH-2): hoist bucket-take to
+        # ONE take per channel per notification (see docstring on
+        # `_gate_channels_for_notify`). Previously each `_channel_ready`
+        # inside the per-person loop burned a token per person + per
+        # unconfigured/digest-pref person, blowing capacity on fan-out.
         persons = self._config.get(CONF_NM_PERSONS, [])
+        _channel_gate = self._gate_channels_for_notify(
+            persons, severity, hazard_type, coordinator_id,
+        )
         for person_cfg in persons:
             person_id = person_cfg.get(CONF_NM_PERSON_ENTITY, "")
             delivery_pref = person_cfg.get(CONF_NM_PERSON_DELIVERY_PREF, NM_DELIVERY_IMMEDIATE)
@@ -998,7 +1065,7 @@ class NotificationManager:
                 continue
 
             # Pushover
-            if self._channel_ready("pushover", severity, hazard_type):
+            if _channel_gate.get("pushover", False):
                 pushover_key = person_cfg.get(CONF_NM_PERSON_PUSHOVER_KEY, "")
                 pushover_device = person_cfg.get(CONF_NM_PERSON_PUSHOVER_DEVICE, "")
                 if pushover_key:
@@ -1018,7 +1085,7 @@ class NotificationManager:
                             )
 
             # Companion App
-            if self._channel_ready("companion", severity, hazard_type):
+            if _channel_gate.get("companion", False):
                 companion_svc = person_cfg.get(CONF_NM_PERSON_COMPANION_SERVICE, "")
                 if companion_svc:
                     if effective_pref == NM_DELIVERY_IMMEDIATE:
@@ -1040,7 +1107,7 @@ class NotificationManager:
                             )
 
             # WhatsApp
-            if self._channel_ready("whatsapp", severity, hazard_type):
+            if _channel_gate.get("whatsapp", False):
                 phone = person_cfg.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
                 if phone:
                     if effective_pref == NM_DELIVERY_IMMEDIATE:
@@ -1059,7 +1126,7 @@ class NotificationManager:
                             )
 
             # iMessage (BlueBubbles)
-            if self._channel_ready("imessage", severity, hazard_type):
+            if _channel_gate.get("imessage", False):
                 imessage_handle = person_cfg.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "")
                 if imessage_handle:
                     if effective_pref == NM_DELIVERY_IMMEDIATE:
@@ -1605,34 +1672,44 @@ class NotificationManager:
         _LOGGER.info("Repeating CRITICAL alert: %s", data.get("title"))
 
         # Re-send to all qualifying channels
+        # NM Cycle B fix-up (2026-07-20, C-HIGH-2): hoist bucket-take to
+        # ONE take per channel per repeat tick (same rationale as
+        # async_notify). Life-safety CRITICAL bypasses the bucket so
+        # smoke/CO/etc. still repeat under storm.
         persons = self._config.get(CONF_NM_PERSONS, [])
+        _hz = data.get("hazard_type")
+        _coord_id = data.get("coordinator_id", "unknown")
+        _channel_gate = self._gate_channels_for_notify(
+            persons, Severity.CRITICAL, _hz, _coord_id,
+        )
         for person_cfg in persons:
-            if self._channel_ready("pushover", Severity.CRITICAL, data.get("hazard_type")):
+            if _channel_gate.get("pushover", False):
                 key = person_cfg.get(CONF_NM_PERSON_PUSHOVER_KEY, "")
                 device = person_cfg.get(CONF_NM_PERSON_PUSHOVER_DEVICE, "")
                 if key:
                     await self._send_pushover(
                         data["title"], data["message"], Severity.CRITICAL, key, device
                     )
-            if self._channel_ready("companion", Severity.CRITICAL, data.get("hazard_type")):
+            if _channel_gate.get("companion", False):
                 svc = person_cfg.get(CONF_NM_PERSON_COMPANION_SERVICE, "")
                 if svc:
                     await self._send_companion(
                         data["title"], data["message"], Severity.CRITICAL, svc,
                         is_critical=True,
                     )
-            if self._channel_ready("whatsapp", Severity.CRITICAL, data.get("hazard_type")):
+            if _channel_gate.get("whatsapp", False):
                 phone = person_cfg.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
                 if phone:
                     await self._send_whatsapp(data["title"], data["message"], phone)
-            if self._channel_ready("imessage", Severity.CRITICAL, data.get("hazard_type")):
+            if _channel_gate.get("imessage", False):
                 handle = person_cfg.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "")
                 if handle:
                     await self._send_imessage(data["title"], data["message"], handle)
 
         # TTS repeat
-        if self._channel_ready("tts", Severity.CRITICAL, data.get("hazard_type")):
+        if self._channel_ready("tts", Severity.CRITICAL, _hz):
             await self._send_tts(data["title"], data["message"])
+        # (data.get was assigned to `_hz` above; local scope only.)
 
         # Re-check suppression — kill switch may have been toggled between awaits
         if self._messaging_suppressed or self._alert_state != AlertState.REPEATING:
@@ -1662,6 +1739,13 @@ class NotificationManager:
                 "acked_at": dt_util.utcnow().isoformat(),
                 "safe_word_verified": bool(safe_word_verified),
             }
+            # NM Cycle B fix-up (2026-07-20, B-B3): bound the registry
+            # to the most recent 20 acked episodes (dict insertion
+            # order preserves recency). Prune on write so persistence
+            # payloads stay small and restart replay stays bounded.
+            while len(self._ack_registry) > 20:
+                oldest = next(iter(self._ack_registry))
+                self._ack_registry.pop(oldest, None)
 
         # Cancel repeat
         if self._repeat_unsub:
@@ -2279,6 +2363,19 @@ class NotificationManager:
         NM Cycle B B3 wrapper: single site for token-bucket enforcement.
         Overflow rejections enqueue a marker + count; life-safety CRITICAL
         bypasses the bucket entirely (safety must never be rate-limited).
+
+        NM Cycle B fix-up (2026-07-20, C-HIGH-2): Callers that fan-out
+        per-person MUST hoist this call to ONE take per channel per
+        notification (see `_gate_channels_for_notify`), otherwise N
+        persons burn N tokens per hazard. This helper remains as the
+        single-shot gate for TTS/lights and _repeat_alert.
+
+        Coordinator-id provenance: real emitters route through
+        `async_notify(coordinator_id=...)` which no longer calls this
+        helper on the per-person path. Any residual call site here (TTS,
+        lights, hoisted-shim in `_gate_channels_for_notify`) does not
+        know the coord id at wrapper level; the caller may pass a
+        specific id via `_take_channel_once`.
         """
         if not self._channel_qualifies(channel, severity):
             return False
@@ -2287,13 +2384,126 @@ class NotificationManager:
             and str(hazard_type or "").lower() in NM_LIFE_SAFETY_HAZARDS
         )
         if not self._bucket_take(channel, life_safety):
-            self._enqueue_overflow(channel, "notify", hazard_type)
+            # Note: coordinator_id is unknown at this generic wrapper;
+            # C-HIGH-2 hoisted callers use `_take_channel_once` with
+            # the real coord id.
+            self._enqueue_overflow(channel, "unknown", hazard_type)
             _LOGGER.debug(
-                "NM bucket exhausted for %s — overflow queued (depth=%d)",
-                channel, len(self._overflow_queue),
+                "NM bucket exhausted for %s — drop counted (total=%d)",
+                channel, self._overflow_dropped_total,
             )
             return False
         return True
+
+    def _take_channel_once(
+        self,
+        channel: str,
+        severity: Severity,
+        hazard_type: str | None,
+        coordinator_id: str,
+    ) -> bool:
+        """Single-take gate with real coordinator_id provenance.
+
+        NM Cycle B fix-up (2026-07-20, C-HIGH-2 + C-HIGH-1): hoisted
+        callers must use this variant so overflow drops record the
+        actual coordinator_id (not the placeholder used by the generic
+        `_channel_ready` wrapper). Returns True iff the channel
+        qualifies AND a token was taken (or life-safety bypass).
+        """
+        if not self._channel_qualifies(channel, severity):
+            return False
+        life_safety = (
+            severity == Severity.CRITICAL
+            and str(hazard_type or "").lower() in NM_LIFE_SAFETY_HAZARDS
+        )
+        if not self._bucket_take(channel, life_safety):
+            self._enqueue_overflow(channel, coordinator_id, hazard_type)
+            _LOGGER.debug(
+                "NM bucket exhausted for %s (coord=%s) — drop counted (total=%d)",
+                channel, coordinator_id, self._overflow_dropped_total,
+            )
+            return False
+        return True
+
+    def _gate_channels_for_notify(
+        self,
+        persons: list[dict],
+        severity: Severity,
+        hazard_type: str | None,
+        coordinator_id: str,
+    ) -> dict[str, bool]:
+        """Compute per-channel fire-decision ONCE per notification.
+
+        C-HIGH-2 fix: previously `_channel_ready` was called inside the
+        per-person loop and BEFORE key/handle/pref checks, so N persons
+        consumed N tokens even when only 1 was configured, and
+        unconfigured / digest-pref persons still burned tokens.
+
+        New semantics: for each per-person channel, first determine
+        whether ANY person has (a) a valid handle/key/service for that
+        channel AND (b) an effective delivery preference of
+        IMMEDIATE. Only then take exactly ONE token.
+
+        Dry-run gate policy (documented ruling): when dry_run is
+        active we STILL evaluate the qualification check, but we do
+        NOT burn tokens — otherwise the observation would distort the
+        very counters we're observing. The `_send_*` helpers already
+        short-circuit to `_log_dry_run` in dry-run mode.
+        """
+        channels = ("pushover", "companion", "whatsapp", "imessage")
+        # Which key on the per-person dict identifies "configured" for each
+        # channel, and which delivery-pref key gates immediate/digest.
+        handle_keys = {
+            "pushover":  CONF_NM_PERSON_PUSHOVER_KEY,
+            "companion": CONF_NM_PERSON_COMPANION_SERVICE,
+            "whatsapp":  CONF_NM_PERSON_WHATSAPP_PHONE,
+            "imessage":  CONF_NM_PERSON_IMESSAGE_HANDLE,
+        }
+        result: dict[str, bool] = {ch: False for ch in channels}
+        for ch in channels:
+            any_immediate = False
+            for person_cfg in persons:
+                delivery_pref = person_cfg.get(
+                    CONF_NM_PERSON_DELIVERY_PREF, NM_DELIVERY_IMMEDIATE,
+                )
+                if severity in (Severity.CRITICAL, Severity.HIGH):
+                    effective_pref = NM_DELIVERY_IMMEDIATE
+                else:
+                    effective_pref = delivery_pref
+                if effective_pref != NM_DELIVERY_IMMEDIATE:
+                    continue
+                if not person_cfg.get(handle_keys[ch], ""):
+                    continue
+                any_immediate = True
+                break
+            if not any_immediate:
+                continue
+            # Channel qualifies by severity threshold? (non-consuming)
+            if not self._channel_qualifies(ch, severity):
+                continue
+            if self._dry_run_active:
+                # Dry-run: gate PASSES for observation purposes but does
+                # NOT burn tokens (ruling C-HIGH-2). Log a drop-would-
+                # block marker if the bucket is empty and non-life-safety
+                # — makes dry-run rows reflect real production behavior.
+                life_safety = (
+                    severity == Severity.CRITICAL
+                    and str(hazard_type or "").lower() in NM_LIFE_SAFETY_HAZARDS
+                )
+                if not life_safety:
+                    self._bucket_refill()
+                    if self._bucket_tokens.get(ch, 0.0) < 1.0:
+                        _LOGGER.debug(
+                            "dry-run: %s bucket would block (0 tokens; coord=%s)",
+                            ch, coordinator_id,
+                        )
+                result[ch] = True
+                continue
+            # Live path: take exactly one token.
+            result[ch] = self._take_channel_once(
+                ch, severity, hazard_type, coordinator_id,
+            )
+        return result
 
     def _channel_qualifies(self, channel: str, severity: Severity) -> bool:
         """Check if a channel should fire for a given severity."""
@@ -2538,15 +2748,15 @@ class NotificationManager:
         # Check for unacked CRITICAL — resume repeating
         active = await database.get_active_critical()
         if active:
-            # NM Cycle B B2: if the ack registry already has the current
-            # episode (persisted from before restart) SKIP re-arm — the
-            # operator acknowledged this episode; do not re-fire.
-            if self._active_episode_id and self._active_episode_id in self._ack_registry:
-                _LOGGER.info(
-                    "NM: skipping REPEATING recovery — episode %s already acked (registry)",
-                    self._active_episode_id,
-                )
-                return
+            # NM Cycle B fix-up (2026-07-20, B-B2): the ack-registry skip
+            # that used to live here is DEAD at this point — recovery
+            # runs BEFORE the sensor's RestoreEntity populates
+            # `_ack_registry`. The DB `acknowledged=0` filter inside
+            # `get_active_critical` is the PRIMARY protection. The
+            # secondary registry-based cancel now lives in
+            # `restore_persistence_state`, which runs after the sensor
+            # restores its extra_state_attributes and pushes them back
+            # into NM.
             _LOGGER.warning("Recovering unacknowledged CRITICAL alert from DB")
             self._alert_state = AlertState.REPEATING
             self._active_alert_data = {

@@ -149,6 +149,10 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     "nm_a5_tvoc_sustained_s",
     "nm_a5_safety_discovery_blocklist",
     "nm_a2_optimizer_high_allowlist_dimensions",
+    # NM Cycle B fix-up (2026-07-20, B-B1): dry-run + token-bucket keys.
+    _extract_conf(CONST_SRC, "CONF_NM_DRY_RUN"),
+    _extract_conf(CONST_SRC, "CONF_NM_BUCKET_CAPACITY"),
+    _extract_conf(CONST_SRC, "CONF_NM_BUCKET_REFILL_PER_MIN"),
 }
 
 
@@ -259,7 +263,8 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     # v5.21.0 fix-up (SECOND OPERATOR ADDITION 2026-07-17) — +3 D2 knobs
     # promoted to rung-2.
     # NM Cycle A-2 (2026-07-20) — +13 A knobs (12 Cycle-A + 1 optimizer allowlist).
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 74
+    # NM Cycle B fix-up (2026-07-20, B-B1) — +3 keys (dry-run + capacity + refill).
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 77
 
 
 # ---------------------------------------------------------------------------
@@ -395,6 +400,10 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_TVOC_SUSTAINED_S":                   "nm_a5_tvoc_sustained_s",
         "_CONF_SAFETY_DISCOVERY_BLOCKLIST":         "nm_a5_safety_discovery_blocklist",
         "_CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS": "nm_a2_optimizer_high_allowlist_dimensions",
+        # NM Cycle B fix-up (2026-07-20, B-B1) — dry-run + token-bucket keys.
+        "_CONF_NM_DRY_RUN":                            "nm_dry_run",
+        "_CONF_NM_BUCKET_CAPACITY":                    "nm_bucket_capacity",
+        "_CONF_NM_BUCKET_REFILL_PER_MIN":              "nm_bucket_refill_per_min",
     }
     mod = ast.Module(body=body, type_ignores=[])
     code = compile(mod, str(PKG / "__init__.py"), "exec")

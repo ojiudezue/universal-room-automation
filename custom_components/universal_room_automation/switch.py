@@ -3495,8 +3495,25 @@ class NMDryRunSwitch(SwitchEntity, RestoreEntity):
     def is_on(self) -> bool:
         return self._is_on
 
+    def _writeback_options(self, value: bool) -> None:
+        """NM Cycle B fix-up (2026-07-20, B-B4): options-writeback pattern
+        (mirrors the Numbers). Persist the toggle into CM entry.options so
+        NM.__init__ reads the true value at construction post-restart;
+        RestoreEntity remains as a display-state backup only. The
+        `CONF_NM_DRY_RUN` key is reload-suppressed in
+        `OPTIONS_RELOAD_SUPPRESS_KEYS`, so this write does NOT cause a
+        CM reload."""
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={**self._entry.options, CONF_NM_DRY_RUN: bool(value)},
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("NMDryRunSwitch options-writeback failed", exc_info=True)
+
     async def async_turn_on(self, **kwargs) -> None:
         self._is_on = True
+        self._writeback_options(True)
         nm = self._get_nm()
         if nm is not None:
             await nm.set_dry_run_active(True)
@@ -3507,6 +3524,7 @@ class NMDryRunSwitch(SwitchEntity, RestoreEntity):
 
     async def async_turn_off(self, **kwargs) -> None:
         self._is_on = False
+        self._writeback_options(False)
         nm = self._get_nm()
         if nm is not None:
             await nm.set_dry_run_active(False)

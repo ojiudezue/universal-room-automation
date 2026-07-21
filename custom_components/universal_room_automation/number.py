@@ -3257,7 +3257,19 @@ class NMBucketCapacityNumber(NumberEntity, _NMDeviceInfoMixin):
 
 
 class NMBucketRefillPerMinNumber(NumberEntity, _NMDeviceInfoMixin):
-    """Per-channel token-bucket refill rate (tokens/minute)."""
+    """Per-channel token-bucket refill rate (tokens/minute).
+
+    NM Cycle B fix-up (2026-07-20, C-MED-1) — kill-switch semantics:
+    setting this to ``0`` disables refill entirely. Non-life-safety
+    sends will STOP as soon as each channel's initial bucket drains
+    (no new tokens will ever be granted). Life-safety CRITICAL hazards
+    (smoke / fire / carbon_monoxide / water_leak / flooding / intruder /
+    freeze_risk) BYPASS the bucket and are unaffected — safety paging
+    keeps firing at the 30 s life-safety cadence regardless of this
+    setting. Use ``0`` as an emergency mute for non-life-safety
+    notifications only.
+    """
+    # (End of class docstring — attribute definitions follow.)
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:water"

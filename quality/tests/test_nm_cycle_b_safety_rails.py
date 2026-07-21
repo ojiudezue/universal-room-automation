@@ -223,17 +223,17 @@ class TestB2AckRegistryRestartSafe:
         assert "k1" in nm._ack_registry
         assert nm._active_episode_id == "k1"
 
-    def test_recover_skips_repeat_for_acked_episode(self):
-        """Mid-episode restart: DB has active CRITICAL, registry has ack →
-        NM must NOT return to REPEATING."""
+    def test_recover_then_restore_cancels_acked_episode(self):
+        """B-B2 fix-up (2026-07-20): REAL ordering test — recovery runs
+        BEFORE the sensor's RestoreEntity populates `_ack_registry`, so
+        the pre-fix skip inside `_recover_state_from_db` was dead. The
+        cancel now lives in `restore_persistence_state`: if recovery
+        armed REPEATING and the restored registry contains the current
+        episode → cancel + IDLE.
+        """
         hass = _make_hass()
         nm = NotificationManager(hass, _make_config())
-        # Simulate restore having replayed persistence state.
-        nm._active_episode_id = "safety:smoke:kitchen:1234"
-        nm._ack_registry["safety:smoke:kitchen:1234"] = {
-            "acked_at": "x", "safe_word_verified": True,
-        }
-        # Fake DB returning an active CRITICAL row.
+        # Step 1: recovery runs FIRST — registry still empty.
         db = MagicMock()
         db.get_active_critical = AsyncMock(return_value={
             "coordinator_id": "safety",
@@ -247,8 +247,25 @@ class TestB2AckRegistryRestartSafe:
         db.get_notifications_today = AsyncMock(return_value=[])
         hass.data["universal_room_automation"] = {"database": db}
         _run(nm._recover_state_from_db())
+        # Recovery armed REPEATING (primary DB filter didn't help — the
+        # row's `acknowledged` column wasn't updated pre-restart).
+        assert nm.alert_state == AlertState.REPEATING
+        # Track the episode id that would have been armed.
+        nm._active_episode_id = "safety:smoke:kitchen:1234"
+        # Step 2: sensor's RestoreEntity replays extra_state_attributes
+        # into NM. Registry now shows the episode was acked.
+        nm.restore_persistence_state({
+            "alert_state": "repeating",
+            "ack_registry": {
+                "safety:smoke:kitchen:1234": {
+                    "acked_at": "x", "safe_word_verified": True,
+                }
+            },
+            "active_episode_id": "safety:smoke:kitchen:1234",
+        })
+        # LATE cancel must have kicked in.
         assert nm.alert_state == AlertState.IDLE, (
-            "acked episode must NOT return to REPEATING after restart"
+            "acked episode must be cancelled by late restore_persistence_state"
         )
 
     def test_recover_arms_when_registry_empty(self):
@@ -437,3 +454,269 @@ class TestWriteVolumeRegression:
         # Second call = second row (not amplified).
         _run(nm._send_pushover("t", "m", Severity.HIGH, "u", "d"))
         assert db.log_notification.await_count == 2
+
+
+# ============================================================================
+# NM Cycle B fix-up (2026-07-20) — A-CRIT-1 vocabulary authority
+# ============================================================================
+
+
+class TestACrit1VocabularyAuthority:
+    """Every NM_LIFE_SAFETY_HAZARDS member must be a TOKEN THAT IS ACTUALLY
+    EMITTED by production code (safety.HazardType enum OR a string literal
+    passed as ``hazard_type=`` in a domain coordinator).
+
+    Locks against silent-typo demotion of a life-safety hazard to the
+    300 s non-life-safety cadence (the exact bug this fix-up repaired for
+    ``intrusion``→``intruder``).
+    """
+
+    @staticmethod
+    def _emitted_tokens() -> set[str]:
+        import re
+        from pathlib import Path
+        pkg = Path(__file__).resolve().parents[2] / "custom_components" / "universal_room_automation"
+        # HazardType enum values (safety.py).
+        safety_src = (pkg / "domain_coordinators" / "safety.py").read_text()
+        enum_vals = set(re.findall(r"^\s*[A-Z_]+\s*=\s*\"([a-z_0-9]+)\"", safety_src, re.MULTILINE))
+        # String-literal `hazard_type="..."` at emit sites across coords.
+        literals: set[str] = set()
+        for p in (pkg / "domain_coordinators").glob("*.py"):
+            text = p.read_text()
+            literals.update(re.findall(r"hazard_type=\"([a-z_0-9]+)\"", text))
+            # Also patterns like `hazard = "intruder"` (security.py:1158).
+            literals.update(re.findall(r"hazard\s*=\s*\"([a-z_0-9]+)\"", text))
+        return enum_vals | literals
+
+    def test_every_life_safety_member_is_emitted_somewhere(self):
+        emitted = self._emitted_tokens()
+        assert emitted, "harness failure: found zero emitted hazard tokens"
+        missing = sorted(NM_LIFE_SAFETY_HAZARDS - emitted)
+        assert not missing, (
+            f"A-CRIT-1: NM_LIFE_SAFETY_HAZARDS contains tokens not emitted "
+            f"anywhere in production: {missing}. Every member must be a real "
+            f"emitted string (HazardType enum value or hazard_type=... literal); "
+            f"otherwise a hand-typo silently demotes an intended life-safety "
+            f"hazard to the 300s non-life-safety cadence."
+        )
+
+    def test_intruder_is_present_and_intrusion_is_not(self):
+        """Anchor for the specific typo repaired 2026-07-20."""
+        assert "intruder" in NM_LIFE_SAFETY_HAZARDS
+        assert "intrusion" not in NM_LIFE_SAFETY_HAZARDS
+
+    def test_co_alias_dropped(self):
+        """A-MED-1: only ``carbon_monoxide`` is emitted; the ``co`` alias
+        was dead vocabulary."""
+        assert "carbon_monoxide" in NM_LIFE_SAFETY_HAZARDS
+        assert "co" not in NM_LIFE_SAFETY_HAZARDS
+
+
+class TestB1IntruderCadence:
+    """CRITICAL intruder must select the 30 s life-safety cadence AND
+    bypass the token bucket AND NOT be boot-collapsed."""
+
+    def test_intruder_selects_life_safety_cadence(self):
+        nm = NotificationManager(_make_hass(), _make_config())
+        nm._active_alert_data = {"hazard_type": "intruder"}
+        assert nm._repeat_interval_for_active_alert() == NM_REPEAT_INTERVAL_LIFE_SAFETY
+
+    def test_intruder_critical_bypasses_bucket(self):
+        nm = NotificationManager(_make_hass(), _make_config())
+        nm._bucket_tokens["pushover"] = 0.0
+        nm._bucket_last_refill = 1e15  # prevent refill
+        # Life-safety CRITICAL intruder: gate must pass even with empty bucket.
+        assert nm._channel_ready("pushover", Severity.CRITICAL, "intruder") is True
+
+    def test_intruder_never_boot_collapsed(self):
+        """B4 collapse suppresses NON-life-safety only. Verify the async_notify
+        path does NOT suppress intruder inside the boot-settle window."""
+        # `_boot_settle_should_suppress` is only called for non-life-safety
+        # emits (see async_notify site). Assert the guard's parameters are
+        # respected — an intruder emit should never be routed through the
+        # collapse map. We anchor this by contract: the life-safety set
+        # includes intruder AND the async_notify site short-circuits on
+        # life-safety before consulting boot-settle.
+        assert "intruder" in NM_LIFE_SAFETY_HAZARDS
+
+
+# ============================================================================
+# B-B3 fix-up — ack registry pruned to 20 most recent
+# ============================================================================
+
+
+class TestBB3AckRegistryPrune:
+    def test_registry_pruned_to_20_entries(self):
+        nm = NotificationManager(_make_hass(), _make_config())
+        nm._alert_state = AlertState.REPEATING
+        nm._active_alert_data = {"hazard_type": "smoke", "location": "k"}
+        nm._start_cooldown = AsyncMock()
+        nm._restore_alert_lights = AsyncMock()
+        for i in range(25):
+            nm._active_episode_id = f"ep:{i}"
+            nm._alert_state = AlertState.REPEATING
+            _run(nm.async_acknowledge(safe_word_verified=True))
+        assert len(nm._ack_registry) == 20
+        # Oldest 5 pruned, most recent 20 preserved (insertion order).
+        assert "ep:0" not in nm._ack_registry
+        assert "ep:4" not in nm._ack_registry
+        assert "ep:5" in nm._ack_registry
+        assert "ep:24" in nm._ack_registry
+
+
+# ============================================================================
+# C-HIGH-2 fix-up — hoisted per-channel bucket-take semantics
+# ============================================================================
+
+
+class TestCHigh2HoistedChannelGate:
+    """N configured persons on one channel with capacity K < N: exactly ONE
+    token per channel per notification (not N), and unconfigured / digest-pref
+    persons must NOT burn tokens either."""
+
+    def _nm_with_persons(self, persons, capacity=2, dry_run=False):
+        from custom_components.universal_room_automation.const import (
+            CONF_NM_PERSONS,
+            CONF_NM_BUCKET_CAPACITY,
+            CONF_NM_PUSHOVER_ENABLED,
+        )
+        hass = _make_hass()
+        cfg = _make_config(**{
+            CONF_NM_PERSONS: persons,
+            CONF_NM_BUCKET_CAPACITY: capacity,
+            CONF_NM_PUSHOVER_ENABLED: True,
+            CONF_NM_DRY_RUN: dry_run,
+        })
+        nm = NotificationManager(hass, cfg)
+        # Force initial bucket to configured capacity.
+        for ch in nm._bucket_tokens:
+            nm._bucket_tokens[ch] = float(capacity)
+        return hass, nm
+
+    def test_three_persons_one_channel_capacity_two_burns_one_token(self):
+        """C-MED-2 lock-in: async_notify with 3 configured persons on pushover,
+        capacity=2 → exactly 1 token burned + 3 sends (one per person)."""
+        from custom_components.universal_room_automation.const import (
+            CONF_NM_PERSON_ENTITY,
+            CONF_NM_PERSON_PUSHOVER_KEY,
+            CONF_NM_PERSON_DELIVERY_PREF,
+        )
+        persons = [
+            {
+                CONF_NM_PERSON_ENTITY: f"person.p{i}",
+                CONF_NM_PERSON_PUSHOVER_KEY: f"key{i}",
+                CONF_NM_PERSON_DELIVERY_PREF: "immediate",
+            }
+            for i in range(3)
+        ]
+        hass, nm = self._nm_with_persons(persons, capacity=2)
+        start_tokens = nm._bucket_tokens["pushover"]
+        gate = nm._gate_channels_for_notify(
+            persons, Severity.HIGH, "test_synth", "safety",
+        )
+        assert gate["pushover"] is True
+        # EXACTLY one token consumed.
+        assert nm._bucket_tokens["pushover"] == start_tokens - 1.0
+
+    def test_unconfigured_persons_do_not_burn_tokens(self):
+        """3 persons but only 1 has a pushover key → still only 1 token."""
+        from custom_components.universal_room_automation.const import (
+            CONF_NM_PERSON_ENTITY,
+            CONF_NM_PERSON_PUSHOVER_KEY,
+            CONF_NM_PERSON_DELIVERY_PREF,
+        )
+        persons = [
+            {CONF_NM_PERSON_ENTITY: "person.p0", CONF_NM_PERSON_PUSHOVER_KEY: "",
+             CONF_NM_PERSON_DELIVERY_PREF: "immediate"},
+            {CONF_NM_PERSON_ENTITY: "person.p1", CONF_NM_PERSON_PUSHOVER_KEY: "",
+             CONF_NM_PERSON_DELIVERY_PREF: "immediate"},
+            {CONF_NM_PERSON_ENTITY: "person.p2", CONF_NM_PERSON_PUSHOVER_KEY: "K",
+             CONF_NM_PERSON_DELIVERY_PREF: "immediate"},
+        ]
+        _, nm = self._nm_with_persons(persons, capacity=5)
+        start = nm._bucket_tokens["pushover"]
+        nm._gate_channels_for_notify(persons, Severity.HIGH, "x", "c")
+        assert nm._bucket_tokens["pushover"] == start - 1.0
+
+    def test_digest_pref_persons_do_not_burn_tokens(self):
+        """3 persons all with digest pref for a MEDIUM sev → zero tokens."""
+        from custom_components.universal_room_automation.const import (
+            CONF_NM_PERSON_ENTITY,
+            CONF_NM_PERSON_PUSHOVER_KEY,
+            CONF_NM_PERSON_DELIVERY_PREF,
+        )
+        persons = [
+            {CONF_NM_PERSON_ENTITY: f"p{i}", CONF_NM_PERSON_PUSHOVER_KEY: "K",
+             CONF_NM_PERSON_DELIVERY_PREF: "digest"}
+            for i in range(3)
+        ]
+        _, nm = self._nm_with_persons(persons, capacity=5)
+        start = nm._bucket_tokens["pushover"]
+        gate = nm._gate_channels_for_notify(persons, Severity.MEDIUM, "x", "c")
+        assert gate["pushover"] is False
+        assert nm._bucket_tokens["pushover"] == start
+
+    def test_dry_run_does_not_burn_tokens(self):
+        """C-HIGH-2 ruling: dry-run STILL evaluates the gate, but does NOT
+        burn tokens (observation must not distort the observed counter)."""
+        from custom_components.universal_room_automation.const import (
+            CONF_NM_PERSON_ENTITY,
+            CONF_NM_PERSON_PUSHOVER_KEY,
+            CONF_NM_PERSON_DELIVERY_PREF,
+        )
+        persons = [
+            {CONF_NM_PERSON_ENTITY: "p0", CONF_NM_PERSON_PUSHOVER_KEY: "K",
+             CONF_NM_PERSON_DELIVERY_PREF: "immediate"},
+        ]
+        _, nm = self._nm_with_persons(persons, capacity=2, dry_run=True)
+        start = nm._bucket_tokens["pushover"]
+        gate = nm._gate_channels_for_notify(persons, Severity.HIGH, "x", "c")
+        assert gate["pushover"] is True
+        assert nm._bucket_tokens["pushover"] == start  # unchanged
+
+
+# ============================================================================
+# B-B4 fix-up — dry-run options-writeback (Switch construction sees true value)
+# ============================================================================
+
+
+class TestBB4DryRunOptionsWriteback:
+    def test_nm_init_reads_dry_run_true_from_options(self):
+        """B-B4: NM constructed with CONF_NM_DRY_RUN=True in options must be
+        dry-run-active from tick zero (before the Switch entity restores)."""
+        cfg = _make_config(**{CONF_NM_DRY_RUN: True})
+        nm = NotificationManager(_make_hass(), cfg)
+        assert nm.dry_run_active is True
+
+
+# ============================================================================
+# C-HIGH-1 / B-B5 fix-up — overflow is honest DROP COUNTER (no drain)
+# ============================================================================
+
+
+class TestOverflowDropCounter:
+    def test_overflow_dropped_total_counter_exposed(self):
+        nm = NotificationManager(_make_hass(), _make_config())
+        attrs = nm.diagnostics_summary
+        assert "overflow_dropped_total" in attrs
+        assert attrs["overflow_dropped_total"] == 0
+
+    def test_overflow_drop_increments_counter(self):
+        nm = NotificationManager(_make_hass(), _make_config())
+        nm._enqueue_overflow("pushover", "safety", "test_synth")
+        nm._enqueue_overflow("pushover", "safety", "test_synth")
+        assert nm._overflow_dropped_total == 2
+        # Recent-drops ring reflects the two drops.
+        assert len(nm._overflow_recent_drops) == 2
+
+    def test_take_channel_once_uses_real_coordinator_id(self):
+        """Fix for hardcoded coordinator_id=\"notify\" at old ~2290 site."""
+        nm = NotificationManager(_make_hass(), _make_config())
+        nm._bucket_tokens["pushover"] = 0.0
+        nm._bucket_last_refill = 1e15
+        assert nm._take_channel_once(
+            "pushover", Severity.HIGH, "test_synth", "safety",
+        ) is False
+        # Recent-drops carry the real coord id, not "notify".
+        drop = nm._overflow_recent_drops[-1]
+        assert drop["coordinator_id"] == "safety"

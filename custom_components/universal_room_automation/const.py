@@ -1337,8 +1337,13 @@ NM_REPEAT_INTERVAL_NON_LIFE_SAFETY: Final = 300
 # Life-safety hazard vocabulary. Non-life-safety CRITICAL uses the longer
 # 300s cadence to reduce non-fatal paging fatigue.
 NM_LIFE_SAFETY_HAZARDS: Final = frozenset({
-    "smoke", "fire", "carbon_monoxide", "co",
-    "water_leak", "flooding", "intrusion", "freeze_risk",
+    # NM Cycle B fix-up (2026-07-20, A-CRIT-1): canonical emitted vocabulary
+    # only. The emitted security-alert token is "intruder" (security.py:919,
+    # 1158 — via base.py:136 hazard_type contract), NOT "intrusion". A prior
+    # typo demoted intruder to non-life-safety (300s cadence) silently.
+    # "co" removed (A-MED-1) — dead: only "carbon_monoxide" is ever emitted.
+    "smoke", "fire", "carbon_monoxide",
+    "water_leak", "flooding", "intruder", "freeze_risk",
 })
 
 # B3: per-channel token-bucket defaults (rung 3 defaults; Number entities
