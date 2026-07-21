@@ -45,13 +45,20 @@ cycle (paging-fatigue tradeoff) — ratify or amend; recorded in the plan.
 7275 passed; failure set = pre-existing env-drift baseline (36+14), zero new.
 Write-volume regression tests: sensor reads and idle ticks produce 0 DB rows.
 
-## Live Validation (prospective — write back observed results post-restart)
+## Live Validation — Validated 2026-07-20 (restart, boot 21:36 CDT)
 
-| # | Criterion | How to check |
-|---|---|---|
-| L1 | Clean boot: CM + NM load, no URA ERROR logs, house state resolves | log scan + sensors |
-| L2 | `switch.ura_nm_dry_run` + 2 bucket Numbers exist on NM device; defaults OFF / 10 / 6.0 | entity registry |
-| L3 | NM sensor shows new attrs (dry_run_active false, buckets at capacity, ack registry 0) | live attributes |
-| L4 | Bucket Number turn does NOT reload CM (sibling last_changed invariant) | operator-exercised |
-| L5 | notification_log migration applied (dry_run column present; existing rows intact) | DB read via MCP |
-| L6 | 24h: notification shape unchanged vs pre-deploy (machinery dark, observe mode) | recorder next evening |
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | Clean boot, no URA ERROR logs | PASS | Zero URA ERROR lines after 21:36 boot; house state `home_night` by 21:38:19. |
+| L2 | Dry-run switch + bucket Numbers exist w/ defaults | PASS | `switch.ura_notification_manager_dry_run` = off; `number.ura_notification_manager_rate_limit_bucket_capacity` = 10; `number.ura_notification_manager_rate_limit_refill_rate` = 6.0. |
+| L3 | New NM diagnostics attrs | PASS | `sensor.ura_notification_manager_notification_diagnostics`: dry_run_active false, all 6 channel buckets at 10, overflow_dropped_total 0, active_ack_registry_size 0. |
+| L4 | Bucket Number turn does not reload CM | PENDING-OPERATOR | Exercise via UI; sibling last_changed invariant. |
+| L5 | notification_log migration | PASS | `dry_run` column present (INTEGER DEFAULT 0, col 14) via live DB read; table intact (0 rows — consistent with observe mode + Cycle A quieting). |
+| L6 | 24h notification shape unchanged | PASS | Validated 2026-07-21 ~17:45 CDT: notification_log = 0 rows in trailing 26h (live DB query; target ≤6) — zero outdoor-humidity rows, zero optimizer rows outside digest. notifications_today sensor = 0. Zero URA ERROR lines in log. Machinery confirmed dark (observe mode). |
+
+Non-this-deploy observation logged during validation: single pre-restart
+ERROR at 21:02 — `Energy: failed to execute switch.turn_on on
+switch.garage_a` (v5.25.0 era, right after off-peak start; likely a
+momentary EVSE switch unavailability). One occurrence, no recurrence
+post-boot; watch organically — if it recurs at off-peak boundaries,
+investigate the EV ensure-on retry path.

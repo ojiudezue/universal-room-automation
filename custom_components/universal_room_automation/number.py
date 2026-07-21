@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.26.0
+# Universal Room Automation vv5.27.0
 # Build: 2026-01-02
 # File: number.py
 #
@@ -35,6 +35,8 @@ from .const import (
     # NM Cycle B B3 — token-bucket knobs.
     CONF_NM_BUCKET_CAPACITY,
     CONF_NM_BUCKET_REFILL_PER_MIN,
+    CONF_NM_MUTE_DEFAULT_DURATION_MINUTES,
+    DEFAULT_NM_MUTE_DEFAULT_DURATION_MINUTES,
     NM_BUCKET_CAPACITY_DEFAULT,
     NM_BUCKET_REFILL_PER_MIN_DEFAULT,
 )
@@ -113,6 +115,10 @@ async def async_setup_entry(
             # symmetrically. Per-channel overrides are a Cycle C surface.
             NMBucketCapacityNumber(hass, entry),
             NMBucketRefillPerMinNumber(hass, entry),
+            # NM Cycle C fix-up (2026-07-20, D8): operator-tunable default
+            # mute duration (minutes). Consumed when `nm.mute_person_channel`
+            # is invoked with `duration_minutes` omitted (button + service).
+            NMMuteDefaultDurationNumber(hass, entry),
         ]
         # Session B1 — 5 EVSE drain-precedence knob Numbers on EC device.
         for cls in _build_dp_numbers():
@@ -3322,3 +3328,62 @@ class NMBucketRefillPerMinNumber(NumberEntity, _NMDeviceInfoMixin):
             _LOGGER.debug("NMBucketRefill options-writeback failed", exc_info=True)
         self.async_write_ha_state()
         _LOGGER.info("NM bucket refill set to %.2f tokens/min", float(value))
+
+
+class NMMuteDefaultDurationNumber(NumberEntity, _NMDeviceInfoMixin):
+    """Operator-tunable default duration (minutes) for per-person mutes.
+
+    NM Cycle C fix-up (2026-07-20, D8): rung 3 (live-tunable). Used by
+    `NMMutePersonChannelPrimaryButton` and `nm.mute_person_channel`
+    when `duration_minutes` is omitted. 0 = kill semantics (clears any
+    existing mute on invoke).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:bell-off"
+    _attr_native_step = 5
+    _attr_native_min_value = 0
+    _attr_native_max_value = 1440  # up to 24h
+    _attr_native_unit_of_measurement = "min"
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_nm_mute_default_duration_minutes"
+        self._attr_name = "Mute Default Duration"
+        self._attr_device_info = self._nm_device_info()
+        cfg = {**entry.data, **entry.options}
+        self._value = int(cfg.get(
+            CONF_NM_MUTE_DEFAULT_DURATION_MINUTES,
+            DEFAULT_NM_MUTE_DEFAULT_DURATION_MINUTES,
+        ))
+
+    def _get_nm(self):
+        return self.hass.data.get(DOMAIN, {}).get("notification_manager")
+
+    @property
+    def native_value(self) -> float:
+        return float(self._value)
+
+    @property
+    def available(self) -> bool:
+        return self._get_nm() is not None
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._value = int(value)
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={
+                    **self._entry.options,
+                    CONF_NM_MUTE_DEFAULT_DURATION_MINUTES: int(value),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "NMMuteDefaultDuration options-writeback failed", exc_info=True,
+            )
+        self.async_write_ha_state()
+        _LOGGER.info("NM mute default duration set to %d min", int(value))

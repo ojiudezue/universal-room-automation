@@ -1,5 +1,32 @@
 # URA Backlog — As of v4.6.10 (May 2026)
 
+## EVSE owner-set persistence registry + energy_pool module extraction — RATIFIED as dedicated refactor cycle (2026-07-20)
+
+**Operator ratified 2026-07-20** (quoting the DP-yield reconciliation
+recommendation): ship the money-path cycle as-is (done — DP-yield shipped
+v5.24.0), then run the **module extraction + owner-set persistence
+registry** as a dedicated, behavior-frozen refactor cycle. Never fold a
+refactor into a money-path change — mixing them is how diffs stop being
+reviewable.
+
+- **Scope:** extract the EVSE pause-owner machinery from `energy_pool.py`
+  into its own module; introduce a persistence registry over the separate
+  owner sets (`_paused_by_dp`, `_excess_solar_active`, `_paused_by_us`,
+  etc. — the 12-row precedence table in EC manual §2.4b is the contract).
+  S3 ratified constraint stands: owner sets stay SEPARATE — the registry
+  unifies persistence/restore, not ownership semantics.
+- **Tier:** 2-DB, behavior-frozen — acceptance is **byte-identical
+  decisions**: a fixture sweep of (owner-set state × TOU period × SOC ×
+  precedence event) tuples through pre- and post-refactor code must
+  produce identical pause/resume/reserve decisions. No new behavior, no
+  knobs, no schema change beyond the persistence shape itself.
+- **Prior art:** `docs/planning/PLANNING_dp_sticky_yields_to_excess_solar.md`
+  (S3 ratified at line ~530; owner-set enumeration ~301, 442), EC manual
+  §2.4b (a0d48a95), the four accepted reconciliation follow-ups.
+- **Sequencing:** after the NM overhaul pipeline closes (Cycle C at
+  operator checkpoint as of 2026-07-20). Do not start without operator
+  scheduling — it touches the money path even though behavior-frozen.
+
 ## ★ PINNED NEXT — Config Subentries Migration (D2) — after planned core work (2026-06-05)
 
 Operator (2026-06-05): subentries is **queued behind some core work he has planned**,

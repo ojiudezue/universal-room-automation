@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.26.0
+# Universal Room Automation vv5.27.0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -1468,6 +1468,36 @@ class UniversalRoomDatabase:
                         _LOGGER.info("Added dry_run column to notification_log (NM Cycle B B0)")
                 except Exception as e:
                     _LOGGER.warning("notification_log dry_run migration failed: %s", e)
+
+                # NM Cycle C (2026-07-20) C2: additive audit columns on
+                # `notification_log`. Same pattern as B0 dry_run column.
+                # All nullable; existing readers unaffected. Cycle C
+                # populates them only on routing decisions that emit or
+                # are dry-run-logged (see `_emit_audit_row`).
+                try:
+                    cursor = await db.execute("PRAGMA table_info(notification_log)")
+                    nl_columns = {row[1] for row in await cursor.fetchall()}
+                    _nm_c_audit_cols = [
+                        ("recipient_id", "TEXT"),
+                        ("route_reason", "TEXT"),
+                        ("dnd_bypass_applied", "INTEGER"),
+                        ("bucket_outcome", "TEXT"),
+                        ("matrix_branch", "TEXT"),
+                    ]
+                    for col_name, col_type in _nm_c_audit_cols:
+                        if col_name not in nl_columns:
+                            await db.execute(
+                                f"ALTER TABLE notification_log "
+                                f"ADD COLUMN {col_name} {col_type}"
+                            )
+                    await db.commit()
+                    _LOGGER.info(
+                        "notification_log NM Cycle C audit columns verified/added",
+                    )
+                except Exception as e:
+                    _LOGGER.warning(
+                        "notification_log NM Cycle C audit migration failed: %s", e,
+                    )
 
                 # v4.6.1 D1 (review fix F3): backfill old TEXT severity values
                 # to numeric-string equivalents matching the unified IntEnum.
@@ -3475,30 +3505,69 @@ class UniversalRoomDatabase:
         channel: str | None = None,
         delivered: int = 1,
         dry_run: int = 0,
+        recipient_id: str | None = None,
+        route_reason: str | None = None,
+        dnd_bypass_applied: int | None = None,
+        bucket_outcome: str | None = None,
+        matrix_branch: str | None = None,
     ) -> int | None:
         """Log a notification to the database. Returns the row ID.
 
         NM Cycle B B0: ``dry_run=1`` marks a would-have-sent row written by
         the minimal dry-run gate. Real sends stay ``dry_run=0`` — existing
         readers unaffected (default preserves prior behavior).
+
+        NM Cycle C C2: the 5 audit fields are OPTIONAL — legacy callers
+        that pass only the pre-C kwargs still INSERT successfully (all
+        additive columns are nullable). Audit-populating callers pass
+        the extended kwargs explicitly.
         """
         try:
             async with self._db() as db:
                 cursor = await db.execute("""
                     INSERT INTO notification_log
                     (timestamp, coordinator_id, severity, title, message,
-                     hazard_type, location, person_id, channel, delivered, dry_run)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     hazard_type, location, person_id, channel, delivered, dry_run,
+                     recipient_id, route_reason, dnd_bypass_applied,
+                     bucket_outcome, matrix_branch)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     dt_util.utcnow().isoformat(),
                     coordinator_id, severity, title, message,
                     hazard_type, location, person_id, channel, delivered, dry_run,
+                    recipient_id, route_reason, dnd_bypass_applied,
+                    bucket_outcome, matrix_branch,
                 ))
                 await db.commit()
                 return cursor.lastrowid
         except Exception as e:
             _LOGGER.error("Failed to log notification: %s", e)
             return None
+
+    async def get_recent_routing_decisions(self, limit: int = 50) -> list[dict]:
+        """NM Cycle C C2: return the most recent audit rows.
+
+        Rows carry both real fires (dry_run=0) and would-fires
+        (dry_run=1) — the ``route_reason`` / ``bucket_outcome`` fields
+        distinguish. Returned newest-first.
+        """
+        try:
+            async with self._db_read() as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute(
+                    """
+                    SELECT * FROM notification_log
+                    WHERE route_reason IS NOT NULL
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                    """,
+                    (int(limit),),
+                )
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
+        except Exception as e:
+            _LOGGER.error("Error fetching recent routing decisions: %s", e)
+            return []
 
     async def get_notifications_today(self) -> list[dict]:
         """Get all delivered notifications from today."""

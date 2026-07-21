@@ -1,6 +1,6 @@
 """Button platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.26.0
+# Universal Room Automation vv5.27.0
 # Build: 2026-01-04
 # File: button.py
 #
@@ -66,6 +66,40 @@ async def async_setup_entry(
             OptimizerResetSettingsButton(hass, entry),
             OptimizerRunCycleNowButton(hass, entry),
         ]
+        # NM Cycle C C4: one primary-channel mute button per configured
+        # person. Priority order: pushover > imessage > whatsapp >
+        # companion (matches operator's paging-fatigue frequency). The
+        # `nm.mute_person_channel` service covers non-primary channels.
+        # Kept intentionally small (N buttons, not 5xN) per operator
+        # ruling; checkpoint-amendable.
+        from .const import (
+            CONF_NM_PERSONS,
+            CONF_NM_PERSON_ENTITY,
+            CONF_NM_PERSON_PUSHOVER_KEY,
+            CONF_NM_PERSON_IMESSAGE_HANDLE,
+            CONF_NM_PERSON_WHATSAPP_PHONE,
+            CONF_NM_PERSON_COMPANION_SERVICE,
+        )
+        _cm_config = {**entry.data, **entry.options}
+        for _person_cfg in _cm_config.get(CONF_NM_PERSONS, []) or []:
+            _pid = _person_cfg.get(CONF_NM_PERSON_ENTITY, "")
+            if not _pid:
+                continue
+            _primary_ch: str | None = None
+            for _ch_key, _ch_name in (
+                (CONF_NM_PERSON_PUSHOVER_KEY, "pushover"),
+                (CONF_NM_PERSON_IMESSAGE_HANDLE, "imessage"),
+                (CONF_NM_PERSON_WHATSAPP_PHONE, "whatsapp"),
+                (CONF_NM_PERSON_COMPANION_SERVICE, "companion"),
+            ):
+                if _person_cfg.get(_ch_key, ""):
+                    _primary_ch = _ch_name
+                    break
+            if _primary_ch is None:
+                continue
+            cm_entities.append(
+                NMMutePersonChannelPrimaryButton(hass, entry, _pid, _primary_ch),
+            )
         # v4.5.11: 3 buttons per AC zone (force_nudge / cancel_nudge /
         # clear_lockout). Discovers zones from Zone Manager entries — same
         # pattern as number.py per-zone kWh threshold sliders.
@@ -533,6 +567,69 @@ class NMAcknowledgeButton(ButtonEntity):
             _LOGGER.info("Alert acknowledged via dashboard button")
         else:
             _LOGGER.warning("Notification Manager not available")
+
+
+# ============================================================================
+# NM Cycle C C4: per-person primary-channel mute button
+# ============================================================================
+
+
+class NMMutePersonChannelPrimaryButton(ButtonEntity):
+    """One-tap mute the operator's primary channel for a person.
+
+    Duration is read from `CONF_NM_MUTE_DEFAULT_DURATION_MINUTES`
+    (Number entity, rung 3). Non-primary channels are muted via the
+    `nm.mute_person_channel` service.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:bell-off-outline"
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        person_id: str,
+        channel: str,
+    ) -> None:
+        """Initialize."""
+        self.hass = hass
+        self._entry = entry
+        self._person_id = person_id
+        self._channel = channel
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        # Safe unique_id — colons legal in HA unique_ids but avoid to keep
+        # entity_id derivation clean.
+        safe_pid = person_id.replace(".", "_").replace(":", "_")
+        self._attr_unique_id = f"{DOMAIN}_nm_mute_{safe_pid}_{channel}"
+        self._attr_name = f"Mute {person_id} ({channel})"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "notification_manager")},
+            name="URA: Notification Manager",
+            manufacturer="Universal Room Automation",
+            model="Notification Manager",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    @property
+    def available(self) -> bool:
+        """Available when NM is up."""
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        return nm is not None
+
+    async def async_press(self) -> None:
+        """Invoke the mute service with the operator-configured default."""
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            _LOGGER.warning("NM mute button pressed but NM not registered")
+            return
+        await nm.async_mute_person_channel(
+            person_id=self._person_id,
+            channel=self._channel,
+            duration_minutes=None,  # picks up CONF_NM_MUTE_DEFAULT_DURATION_MINUTES
+        )
 
 
 # ============================================================================

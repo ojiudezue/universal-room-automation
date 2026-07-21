@@ -118,6 +118,15 @@ from ..const import (
     RETENTION_NOTIFICATION_LOG,
     VERSION,
     WEBHOOK_BB_ID,
+    # NM Cycle C (2026-07-20) — matrix, DND-bypass, mute-shortcut keys.
+    CONF_NM_PERSON_ROUTING_MATRIX,
+    CONF_NM_PERSON_HAZARD_OVERRIDES,
+    CONF_NM_PERSON_DND_BYPASS_SEVERITIES,
+    CONF_NM_MUTE_DEFAULT_DURATION_MINUTES,
+    DEFAULT_NM_PERSON_DND_BYPASS_SEVERITIES,
+    DEFAULT_NM_MUTE_DEFAULT_DURATION_MINUTES,
+    SERVICE_NM_MUTE_PERSON_CHANNEL,
+    NM_CHANNELS_KNOWN,
 )
 from .base import Severity
 from .signals import SIGNAL_NM_ALERT_STATE_CHANGED, SIGNAL_NM_ENTITIES_UPDATE
@@ -331,6 +340,27 @@ class NotificationManager:
         # in the first NM_BOOT_SETTLE_S seconds after `async_setup` returns.
         self._boot_settle_until: float = 0.0  # set in async_setup
         self._boot_settle_seen: set[tuple[str, str]] = set()
+
+        # =====================================================================
+        # NM Cycle C (2026-07-20): routing matrix + DND-bypass + mute registry.
+        # =====================================================================
+        # C4: `_person_channel_mutes[(person_id, channel)] = expires_at_dt`.
+        # Absolute-time expiries survive restart cleanly; past-expiry entries
+        # pruned on restore. Consulted BEFORE the routing matrix so a mute
+        # neuters any routing decision short of the DND-bypass safety floor.
+        self._person_channel_mutes: dict[tuple[str, str], datetime] = {}
+        # C1 (fix-up 2026-07-20, D4/B-MED-1): coordinator-owned materialized
+        # matrix. Legacy → matrix materialization writes HERE, never into
+        # `entry.data / entry.options / person_cfg` (which would silently
+        # freeze operator-driven changes to legacy severity thresholds).
+        # `_materialized_matrix[person_id][SEV_KEY][channel] = bool`.
+        # Rebuilt in `_refresh_config` whenever the relevant legacy keys
+        # or persons list changes (cheap hash-diff). Kill switch = clear
+        # the dict; next `_route_for_recipient` re-materializes.
+        self._materialized_matrix: dict[str, dict[str, dict[str, bool]]] = {}
+        # Hash of the legacy-shape inputs used to build the last
+        # materialization — used by `_refresh_config` to detect drift.
+        self._materialized_matrix_key: tuple | None = None
 
     # =========================================================================
     # NM Cycle B B0: dry-run gate + write helper
@@ -691,6 +721,13 @@ class NotificationManager:
             # NM Cycle B B2 — restart-safe ack registry
             "ack_registry": {k: dict(v) for k, v in self._ack_registry.items()},
             "active_episode_id": self._active_episode_id,
+            # NM Cycle C C4 — restart-safe per-(person, channel) mutes.
+            # Keys serialised as "person_id::channel" (colon-tuple avoided
+            # so JSON round-trip is clean). Expiry values as ISO strings.
+            "person_channel_mutes": {
+                f"{pid}::{ch}": exp.isoformat()
+                for (pid, ch), exp in self._person_channel_mutes.items()
+            },
         }
 
     def restore_persistence_state(self, state: dict[str, Any]) -> None:
@@ -736,6 +773,28 @@ class NotificationManager:
         active_ep = state.get("active_episode_id")
         if isinstance(active_ep, str):
             self._active_episode_id = active_ep
+        # NM Cycle C C4: restore mutes; drop past-expiry entries.
+        mutes = state.get("person_channel_mutes")
+        if isinstance(mutes, dict):
+            now = dt_util.utcnow()
+            restored: dict[tuple[str, str], datetime] = {}
+            for key, iso in mutes.items():
+                if not isinstance(key, str) or "::" not in key:
+                    continue
+                pid, _, ch = key.partition("::")
+                if ch not in NM_CHANNELS_KNOWN:
+                    continue
+                try:
+                    exp = datetime.fromisoformat(iso)
+                except (TypeError, ValueError):
+                    continue
+                if exp > now:
+                    restored[(pid, ch)] = exp
+            self._person_channel_mutes = restored
+            _LOGGER.info(
+                "NM Cycle C: restored %d active mute(s) (pruned expired)",
+                len(restored),
+            )
         # NM Cycle B fix-up (2026-07-20, B-B2): LATE ack-cancel path.
         # If the DB-recovery step already armed us to REPEATING for the
         # SAME episode that was acked before restart (present in the
@@ -810,6 +869,37 @@ class NotificationManager:
         self._action_unsub = self.hass.bus.async_listen(
             "mobile_app_notification_action", self._handle_companion_action
         )
+
+        # NM Cycle C C4: register the `nm.mute_person_channel` service.
+        # Idempotent — HA `services.async_register` overwrites an existing
+        # registration silently. Wrapped in try/except so an unavailable
+        # `hass.services` (test stubs) does not break setup.
+        try:
+            def _mute_service_handler(call):
+                person_id = call.data.get("person_id")
+                channel = call.data.get("channel")
+                duration = call.data.get("duration_minutes")
+                self.hass.async_create_task(
+                    self.async_mute_person_channel(
+                        person_id=person_id,
+                        channel=channel,
+                        duration_minutes=duration,
+                    )
+                )
+            self.hass.services.async_register(
+                DOMAIN,
+                SERVICE_NM_MUTE_PERSON_CHANNEL,
+                _mute_service_handler,
+            )
+            _LOGGER.info(
+                "NM Cycle C: registered service %s.%s",
+                DOMAIN, SERVICE_NM_MUTE_PERSON_CHANNEL,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "NM Cycle C: mute service registration skipped (test stub?)",
+                exc_info=True,
+            )
 
         # C4b: Subscribe to WhatsApp inbound events
         if self._config.get(CONF_NM_WHATSAPP_ENABLED, False):
@@ -970,11 +1060,38 @@ class NotificationManager:
         # so OptionsFlow changes take effect without restart
         self._refresh_config()
 
-        # Quiet hours check (CRITICAL bypasses)
-        if severity != Severity.CRITICAL and self._is_quiet_hours():
-            _LOGGER.debug("Notification suppressed during quiet hours: %s", title)
-            self._quiet_suppressions += 1
-            return
+        # Quiet hours check.
+        #
+        # NM Cycle C C3: replaces the flat "CRITICAL bypasses" gate with
+        # a two-layer decision (safety floor + per-recipient bypass set).
+        # * Global (recipient-less) DND-bypass reuses the DEFAULT_NM_PERSON_
+        #   DND_BYPASS_SEVERITIES set → {CRITICAL} preserves v5.26.0
+        #   behavior byte-identically for the global path.
+        # * Life-safety hazards (NM_LIFE_SAFETY_HAZARDS) ALWAYS bypass
+        #   (hard safety floor — see `_recipient_bypasses_dnd`).
+        # * Per-recipient DND-bypass is evaluated per-person inside the
+        #   fan-out loop below; here we only decide the GLOBAL emit.
+        # NM Cycle C fix-up (2026-07-20, D3/B-HIGH-1): the global gate
+        # must suppress only if BOTH the global default set fails AND no
+        # configured recipient's per-recipient bypass set contains this
+        # severity. Otherwise widened per-recipient bypass sets below
+        # CRITICAL become unreachable (early-return kills the entire
+        # per-person loop). Life-safety floor unchanged.
+        if self._is_quiet_hours():
+            global_bypass = self._recipient_bypasses_dnd(
+                None, hazard_type, severity,
+            )
+            any_recipient_bypass = False
+            if not global_bypass:
+                for _pcfg in self._config.get(CONF_NM_PERSONS, []) or []:
+                    _pid = _pcfg.get(CONF_NM_PERSON_ENTITY, "")
+                    if self._recipient_bypasses_dnd(_pid, hazard_type, severity):
+                        any_recipient_bypass = True
+                        break
+            if not global_bypass and not any_recipient_bypass:
+                _LOGGER.debug("Notification suppressed during quiet hours: %s", title)
+                self._quiet_suppressions += 1
+                return
 
         # C4b: Silence check — suppress non-CRITICAL when silenced
         if (
@@ -1023,19 +1140,45 @@ class NotificationManager:
         channels_fired: list[str] = []
 
         # --- Global channels (TTS, Alert Lights) — always immediate ---
-        if self._channel_ready("tts", severity, hazard_type):
+        # NM Cycle C fix-up (2026-07-20, D-R1 HIGH / C-INV-3 over-delivery):
+        # the widened quiet-hours gate above admits the notify when ANY
+        # recipient's DND-bypass set covers this severity. That's correct
+        # for reaching the per-recipient messaging fan-out, but the
+        # recipient-less global channels (TTS + alert lights) must NOT
+        # inherit one person's personal bypass — otherwise a single
+        # recipient's widened set wakes the whole house. Gate the two
+        # global emits on the GLOBAL predicate: default set {CRITICAL}
+        # + life-safety floor (via `_recipient_bypasses_dnd(None, ...)`).
+        # NM Cycle C fix-up (2026-07-20, D-R4 LOW): under dry-run the
+        # tts/lights paths must NOT burn bucket tokens (no-burn ruling)
+        # and must not write a `delivered=1` row. `_send_tts` /
+        # `_trigger_alert_lights` already short-circuit to `_log_dry_run`
+        # which writes a `dry_run=1, delivered=0` row on our behalf.
+        _global_dnd_ok = (
+            not self._is_quiet_hours()
+            or self._recipient_bypasses_dnd(None, hazard_type, severity)
+        )
+        _tts_gate = (
+            self._channel_qualifies("tts", severity) if self._dry_run_active
+            else self._channel_ready("tts", severity, hazard_type)
+        )
+        if _global_dnd_ok and _tts_gate:
             await self._send_tts(title, message)
             channels_fired.append("tts")
-            if database:
+            if database and not self._dry_run_active:
                 await database.log_notification(
                     coordinator_id, severity_str, title, message,
                     hazard_type, location, None, "tts", 1,
                 )
 
-        if self._channel_ready("lights", severity, hazard_type):
+        _lights_gate = (
+            self._channel_qualifies("lights", severity) if self._dry_run_active
+            else self._channel_ready("lights", severity, hazard_type)
+        )
+        if _global_dnd_ok and _lights_gate:
             await self._trigger_alert_lights(hazard_type or "warning", severity)
             channels_fired.append("lights")
-            if database:
+            if database and not self._dry_run_active:
                 await database.log_notification(
                     coordinator_id, severity_str, title, message,
                     hazard_type, location, None, "lights", 1,
@@ -1048,6 +1191,9 @@ class NotificationManager:
         # inside the per-person loop burned a token per person + per
         # unconfigured/digest-pref person, blowing capacity on fan-out.
         persons = self._config.get(CONF_NM_PERSONS, [])
+        # NM Cycle C: run legacy → matrix migration exactly once so router
+        # decisions are self-consistent for the process lifetime.
+        self._migrate_legacy_severity_to_matrix()
         _channel_gate = self._gate_channels_for_notify(
             persons, severity, hazard_type, coordinator_id,
         )
@@ -1064,85 +1210,184 @@ class NotificationManager:
             if effective_pref == NM_DELIVERY_OFF:
                 continue
 
+            # NM Cycle C C3: per-recipient quiet-hours veto. If we're in
+            # quiet hours and this recipient's DND-bypass set doesn't
+            # include this severity (and it's not a life-safety hazard),
+            # SKIP this recipient entirely. Life-safety hazards fall
+            # through via `_recipient_bypasses_dnd`'s safety floor.
+            if self._is_quiet_hours() and not self._recipient_bypasses_dnd(
+                person_id, hazard_type, severity,
+            ):
+                if database:
+                    await self._emit_audit_row(
+                        coordinator_id=coordinator_id,
+                        severity=severity,
+                        title=title,
+                        hazard_type=hazard_type,
+                        location=location,
+                        recipient_id=person_id,
+                        channel=None,
+                        route_reason="dnd_suppressed",
+                        dnd_bypass_applied=False,
+                        bucket_outcome="quiet_hours_suppressed",
+                        matrix_branch="dnd",
+                        delivered=0,
+                        dry_run=1 if self._dry_run_active else 0,
+                    )
+                continue
+
+            # NM Cycle C C1/C4: per-recipient routing matrix + mutes.
+            # `_router_allowed` is the intersection of the router's
+            # decision with the token-bucket gate's channel-global
+            # decision. `matrix_branch` records which layer decided.
+            _router_allowed = self._route_for_recipient(
+                person_id, hazard_type, severity,
+            )
+            _matrix_branch = self._route_branch_label(
+                person_cfg, hazard_type, severity,
+            )
+            # D-LOW: compute once per recipient decision — not
+            # recomputed later inside the audit row.
+            _dnd_bypass_applied = (
+                self._is_quiet_hours() and self._recipient_bypasses_dnd(
+                    person_id, hazard_type, severity,
+                )
+            )
+
+            # NM Cycle C fix-up (2026-07-20, D-R2 MED + D-R3): digest-row
+            # writes are NOT transport sends and must NOT be gated on the
+            # token/union gate. A digest-pref recipient's row is queued
+            # whenever the ROUTER allows the channel (matrix / override /
+            # legacy + mute + life-safety), regardless of whether the
+            # union gate happened to close (e.g. sole immediate recipient
+            # muted → union False → previously ALL digest rows were lost;
+            # or an all-digest household → union always False → pre-
+            # existing Cycle B row-loss shape). Ratified behavior
+            # improvement over v5.26.0 — see PLANNING doc.
+
             # Pushover
-            if _channel_gate.get("pushover", False):
-                pushover_key = person_cfg.get(CONF_NM_PERSON_PUSHOVER_KEY, "")
-                pushover_device = person_cfg.get(CONF_NM_PERSON_PUSHOVER_DEVICE, "")
-                if pushover_key:
-                    if effective_pref == NM_DELIVERY_IMMEDIATE:
-                        await self._send_pushover(title, message_with_dict, severity, pushover_key, pushover_device)
-                        channels_fired.append("pushover")
-                        if database:
-                            await database.log_notification(
-                                coordinator_id, severity_str, title, message,
-                                hazard_type, location, person_id, "pushover", 1,
-                            )
-                    elif effective_pref == NM_DELIVERY_DIGEST:
-                        if database:
-                            await database.log_notification(
-                                coordinator_id, severity_str, title, message,
-                                hazard_type, location, person_id, "pushover", 0,
-                            )
+            _pushover_key = person_cfg.get(CONF_NM_PERSON_PUSHOVER_KEY, "")
+            _pushover_device = person_cfg.get(CONF_NM_PERSON_PUSHOVER_DEVICE, "")
+            if _channel_gate.get("pushover", False) and "pushover" in _router_allowed:
+                if _pushover_key and effective_pref == NM_DELIVERY_IMMEDIATE:
+                    await self._send_pushover(title, message_with_dict, severity, _pushover_key, _pushover_device)
+                    channels_fired.append("pushover")
+                    if database:
+                        await database.log_notification(
+                            coordinator_id, severity_str, title, message,
+                            hazard_type, location, person_id, "pushover", 1,
+                        )
+            if (
+                effective_pref == NM_DELIVERY_DIGEST
+                and _pushover_key
+                and "pushover" in _router_allowed
+                and database
+            ):
+                await database.log_notification(
+                    coordinator_id, severity_str, title, message,
+                    hazard_type, location, person_id, "pushover", 0,
+                )
 
             # Companion App
-            if _channel_gate.get("companion", False):
-                companion_svc = person_cfg.get(CONF_NM_PERSON_COMPANION_SERVICE, "")
-                if companion_svc:
-                    if effective_pref == NM_DELIVERY_IMMEDIATE:
-                        await self._send_companion(
-                            title, message, severity, companion_svc,
-                            is_critical=(severity == Severity.CRITICAL),
+            _companion_svc = person_cfg.get(CONF_NM_PERSON_COMPANION_SERVICE, "")
+            if _channel_gate.get("companion", False) and "companion" in _router_allowed:
+                if _companion_svc and effective_pref == NM_DELIVERY_IMMEDIATE:
+                    await self._send_companion(
+                        title, message, severity, _companion_svc,
+                        is_critical=(severity == Severity.CRITICAL),
+                    )
+                    channels_fired.append("companion")
+                    if database:
+                        await database.log_notification(
+                            coordinator_id, severity_str, title, message,
+                            hazard_type, location, person_id, "companion", 1,
                         )
-                        channels_fired.append("companion")
-                        if database:
-                            await database.log_notification(
-                                coordinator_id, severity_str, title, message,
-                                hazard_type, location, person_id, "companion", 1,
-                            )
-                    elif effective_pref == NM_DELIVERY_DIGEST:
-                        if database:
-                            await database.log_notification(
-                                coordinator_id, severity_str, title, message,
-                                hazard_type, location, person_id, "companion", 0,
-                            )
+            if (
+                effective_pref == NM_DELIVERY_DIGEST
+                and _companion_svc
+                and "companion" in _router_allowed
+                and database
+            ):
+                await database.log_notification(
+                    coordinator_id, severity_str, title, message,
+                    hazard_type, location, person_id, "companion", 0,
+                )
 
             # WhatsApp
-            if _channel_gate.get("whatsapp", False):
-                phone = person_cfg.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
-                if phone:
-                    if effective_pref == NM_DELIVERY_IMMEDIATE:
-                        await self._send_whatsapp(title, message_with_dict, phone)
-                        channels_fired.append("whatsapp")
-                        if database:
-                            await database.log_notification(
-                                coordinator_id, severity_str, title, message,
-                                hazard_type, location, person_id, "whatsapp", 1,
-                            )
-                    elif effective_pref == NM_DELIVERY_DIGEST:
-                        if database:
-                            await database.log_notification(
-                                coordinator_id, severity_str, title, message,
-                                hazard_type, location, person_id, "whatsapp", 0,
-                            )
+            _phone = person_cfg.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
+            if _channel_gate.get("whatsapp", False) and "whatsapp" in _router_allowed:
+                if _phone and effective_pref == NM_DELIVERY_IMMEDIATE:
+                    await self._send_whatsapp(title, message_with_dict, _phone)
+                    channels_fired.append("whatsapp")
+                    if database:
+                        await database.log_notification(
+                            coordinator_id, severity_str, title, message,
+                            hazard_type, location, person_id, "whatsapp", 1,
+                        )
+            if (
+                effective_pref == NM_DELIVERY_DIGEST
+                and _phone
+                and "whatsapp" in _router_allowed
+                and database
+            ):
+                await database.log_notification(
+                    coordinator_id, severity_str, title, message,
+                    hazard_type, location, person_id, "whatsapp", 0,
+                )
 
             # iMessage (BlueBubbles)
-            if _channel_gate.get("imessage", False):
-                imessage_handle = person_cfg.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "")
-                if imessage_handle:
-                    if effective_pref == NM_DELIVERY_IMMEDIATE:
-                        await self._send_imessage(title, message_with_dict, imessage_handle)
-                        channels_fired.append("imessage")
-                        if database:
-                            await database.log_notification(
-                                coordinator_id, severity_str, title, message,
-                                hazard_type, location, person_id, "imessage", 1,
-                            )
-                    elif effective_pref == NM_DELIVERY_DIGEST:
-                        if database:
-                            await database.log_notification(
-                                coordinator_id, severity_str, title, message,
-                                hazard_type, location, person_id, "imessage", 0,
-                            )
+            _imessage_handle = person_cfg.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "")
+            if _channel_gate.get("imessage", False) and "imessage" in _router_allowed:
+                if _imessage_handle and effective_pref == NM_DELIVERY_IMMEDIATE:
+                    await self._send_imessage(title, message_with_dict, _imessage_handle)
+                    channels_fired.append("imessage")
+                    if database:
+                        await database.log_notification(
+                            coordinator_id, severity_str, title, message,
+                            hazard_type, location, person_id, "imessage", 1,
+                        )
+            if (
+                effective_pref == NM_DELIVERY_DIGEST
+                and _imessage_handle
+                and "imessage" in _router_allowed
+                and database
+            ):
+                await database.log_notification(
+                    coordinator_id, severity_str, title, message,
+                    hazard_type, location, person_id, "imessage", 0,
+                )
+
+            # NM Cycle C C2: single per-recipient audit row. Rolled up
+            # after all channels are decided so write-volume is bounded
+            # to O(persons) per notify (not O(persons × channels)).
+            # `bucket_outcome` records whether ANY channel actually fired
+            # for this recipient — pairs with the write-volume regression
+            # gate. Idle ticks emit ZERO audit rows (function is never
+            # reached without a routing decision).
+            if database:
+                per_person_fired = sorted(
+                    ch for ch in ("pushover", "companion", "whatsapp", "imessage")
+                    if (_channel_gate.get(ch, False) and ch in _router_allowed)
+                )
+                await self._emit_audit_row(
+                    coordinator_id=coordinator_id,
+                    severity=severity,
+                    title=title,
+                    hazard_type=hazard_type,
+                    location=location,
+                    recipient_id=person_id,
+                    channel=",".join(per_person_fired) or None,
+                    route_reason=(
+                        "hazard_override" if _matrix_branch == "hazard_override"
+                        else "matrix_default" if _matrix_branch == "matrix_default"
+                        else "legacy_fallback"
+                    ),
+                    dnd_bypass_applied=_dnd_bypass_applied,
+                    bucket_outcome=("accepted" if per_person_fired else "no_channel_fired"),
+                    matrix_branch=_matrix_branch,
+                    delivered=1 if per_person_fired else 0,
+                    dry_run=1 if self._dry_run_active else 0,
+                )
 
         # Activity log: notification sent
         activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
@@ -1540,6 +1785,11 @@ class NotificationManager:
 
             cycle = 0
             while True:
+                # NM Cycle C fix-up (2026-07-20, D7): re-check dry-run
+                # each loop iteration so toggling ON mid-pattern stops
+                # emission promptly (was pinned to the state at entry).
+                if self._dry_run_active:
+                    return
                 if effect == "flash":
                     if cycle % 2 == 0:
                         svc_data = {"entity_id": entities, "brightness": 255}
@@ -1672,42 +1922,85 @@ class NotificationManager:
         _LOGGER.info("Repeating CRITICAL alert: %s", data.get("title"))
 
         # Re-send to all qualifying channels
-        # NM Cycle B fix-up (2026-07-20, C-HIGH-2): hoist bucket-take to
-        # ONE take per channel per repeat tick (same rationale as
-        # async_notify). Life-safety CRITICAL bypasses the bucket so
-        # smoke/CO/etc. still repeat under storm.
+        # NM Cycle C fix-up (2026-07-20, D1/D2 CRITICAL): rebuild the
+        # per-person fan-out to mirror `async_notify`. Prior code
+        # referenced `_router_allowed` (never defined here) → NameError
+        # on first repeat tick with companion/whatsapp/imessage
+        # configured, killing the repeat chain (life-safety regression).
+        # Pushover branch had no router gate at all — matrix / override
+        # / mute / DND all bypassed on repeats.
+        #
+        # LIFE-SAFETY EXCEPTION (documented ruling): for hazards in
+        # NM_LIFE_SAFETY_HAZARDS mutes+DND are SKIPPED so smoke/CO/etc.
+        # continue paging (parallels DND safety floor). Non-life-safety
+        # repeats HONOR per-recipient mutes/DND so a MED-during-episode
+        # mute halts repeats for that channel.
         persons = self._config.get(CONF_NM_PERSONS, [])
         _hz = data.get("hazard_type")
         _coord_id = data.get("coordinator_id", "unknown")
+        life_safety_hazard = str(_hz or "").lower() in NM_LIFE_SAFETY_HAZARDS
+        # Ensure materialized matrix is fresh for the legacy-fallback path.
+        self._migrate_legacy_severity_to_matrix()
         _channel_gate = self._gate_channels_for_notify(
             persons, Severity.CRITICAL, _hz, _coord_id,
         )
         for person_cfg in persons:
-            if _channel_gate.get("pushover", False):
+            person_id = person_cfg.get(CONF_NM_PERSON_ENTITY, "")
+            # Per-recipient DND veto — life-safety hazards bypass via
+            # `_recipient_bypasses_dnd`'s safety floor. Non-life-safety
+            # repeats respect the recipient's DND-bypass set.
+            if self._is_quiet_hours() and not self._recipient_bypasses_dnd(
+                person_id, _hz, Severity.CRITICAL,
+            ):
+                continue
+            # Per-recipient router — same intersection semantics as
+            # async_notify. `_route_for_recipient` handles the
+            # mute-skip-on-life-safety exception internally.
+            _router_allowed = self._route_for_recipient(
+                person_id, _hz, Severity.CRITICAL,
+            )
+            if _channel_gate.get("pushover", False) and "pushover" in _router_allowed:
                 key = person_cfg.get(CONF_NM_PERSON_PUSHOVER_KEY, "")
                 device = person_cfg.get(CONF_NM_PERSON_PUSHOVER_DEVICE, "")
                 if key:
                     await self._send_pushover(
                         data["title"], data["message"], Severity.CRITICAL, key, device
                     )
-            if _channel_gate.get("companion", False):
+            if _channel_gate.get("companion", False) and "companion" in _router_allowed:
                 svc = person_cfg.get(CONF_NM_PERSON_COMPANION_SERVICE, "")
                 if svc:
                     await self._send_companion(
                         data["title"], data["message"], Severity.CRITICAL, svc,
                         is_critical=True,
                     )
-            if _channel_gate.get("whatsapp", False):
+            if _channel_gate.get("whatsapp", False) and "whatsapp" in _router_allowed:
                 phone = person_cfg.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
                 if phone:
                     await self._send_whatsapp(data["title"], data["message"], phone)
-            if _channel_gate.get("imessage", False):
+            if _channel_gate.get("imessage", False) and "imessage" in _router_allowed:
                 handle = person_cfg.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "")
                 if handle:
                     await self._send_imessage(data["title"], data["message"], handle)
+        # `life_safety_hazard` is retained for readers; DND/mute skips
+        # happen inside `_recipient_bypasses_dnd` and `_route_for_recipient`.
+        _ = life_safety_hazard
 
         # TTS repeat
-        if self._channel_ready("tts", Severity.CRITICAL, _hz):
+        # NM Cycle C fix-up (2026-07-20, D-R1 + D-R4): apply GLOBAL quiet-
+        # hours predicate explicitly (default {CRITICAL} + life-safety
+        # floor); under dry-run use non-consuming gate to honor no-burn.
+        # Repeats are Severity.CRITICAL so the DND predicate is
+        # byte-identical to the pre-fix behavior — documented for
+        # consistency with the initial-notify path.
+        _global_dnd_ok_repeat = (
+            not self._is_quiet_hours()
+            or self._recipient_bypasses_dnd(None, _hz, Severity.CRITICAL)
+        )
+        _tts_gate_repeat = (
+            self._channel_qualifies("tts", Severity.CRITICAL) if self._dry_run_active
+            else self._channel_ready("tts", Severity.CRITICAL, _hz)
+        )
+        if _global_dnd_ok_repeat and _tts_gate_repeat:
             await self._send_tts(data["title"], data["message"])
         # (data.get was assigned to `_hz` above; local scope only.)
 
@@ -2349,6 +2642,15 @@ class NotificationManager:
                 # calls set_dry_run_active() directly and wins if both set.
                 if CONF_NM_DRY_RUN in new_config:
                     self._dry_run_active = bool(new_config[CONF_NM_DRY_RUN])
+                # D4/B-MED-1: re-materialize if the legacy inputs changed.
+                # Cheap tuple-hash — no persistence side effects.
+                try:
+                    self._migrate_legacy_severity_to_matrix()
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "NM materialized-matrix rebuild failed on refresh",
+                        exc_info=True,
+                    )
                 return
 
     # =========================================================================
@@ -2460,8 +2762,14 @@ class NotificationManager:
             "imessage":  CONF_NM_PERSON_IMESSAGE_HANDLE,
         }
         result: dict[str, bool] = {ch: False for ch in channels}
+        # NM Cycle C fix-up (2026-07-20, B-HIGH-2): only burn a token
+        # for channels with ≥1 actual receiving recipient POST-mute /
+        # matrix / DND intersection. Prior code burned on
+        # configured+immediate alone, so a fully-muted channel or a
+        # channel excluded by every recipient's routing matrix would
+        # still drain a token per notification.
         for ch in channels:
-            any_immediate = False
+            any_receiving = False
             for person_cfg in persons:
                 delivery_pref = person_cfg.get(
                     CONF_NM_PERSON_DELIVERY_PREF, NM_DELIVERY_IMMEDIATE,
@@ -2474,9 +2782,21 @@ class NotificationManager:
                     continue
                 if not person_cfg.get(handle_keys[ch], ""):
                     continue
-                any_immediate = True
+                _pid = person_cfg.get(CONF_NM_PERSON_ENTITY, "")
+                # Per-recipient DND — life-safety floor inside helper.
+                if self._is_quiet_hours() and not self._recipient_bypasses_dnd(
+                    _pid, hazard_type, severity,
+                ):
+                    continue
+                # Per-recipient router intersection (mute + matrix +
+                # override + life-safety exception). If this channel
+                # would not fire for any recipient, don't burn a token.
+                allowed = self._route_for_recipient(_pid, hazard_type, severity)
+                if ch not in allowed:
+                    continue
+                any_receiving = True
                 break
-            if not any_immediate:
+            if not any_receiving:
                 continue
             # Channel qualifies by severity threshold? (non-consuming)
             if not self._channel_qualifies(ch, severity):
@@ -2505,8 +2825,449 @@ class NotificationManager:
             )
         return result
 
+    # =========================================================================
+    # NM Cycle C (2026-07-20): per-recipient router + DND-bypass + mute + audit
+    # =========================================================================
+    # See PLANNING_nm_cycle_c_routing_matrix.md. Invariants:
+    #   C-INV-1 backward-compat: no matrix set → `_route_for_recipient`
+    #     reproduces `_channel_qualifies` semantics byte-identically.
+    #   C-INV-2 dry-run zero-outbound: every new codepath routes through
+    #     the Cycle B dry-run-gated `_send_*` helpers — no new
+    #     `hass.services.async_call`.
+    #   C-INV-3 DND-bypass determinism: quiet-hours alert fires iff
+    #     `severity in recipient.dnd_bypass` OR hazard ∈ NM_LIFE_SAFETY_HAZARDS.
+
+    def _get_person_cfg(self, recipient_id: str | None) -> dict | None:
+        """Return the per-person config dict for a recipient id, or None."""
+        if not recipient_id:
+            return None
+        persons = self._config.get(CONF_NM_PERSONS, []) or []
+        for person_cfg in persons:
+            if person_cfg.get(CONF_NM_PERSON_ENTITY, "") == recipient_id:
+                return person_cfg
+        return None
+
+    def _mute_active(self, person_id: str, channel: str) -> bool:
+        """True iff a mute for (person, channel) is present AND not expired.
+
+        Expired entries pruned inline so the map self-heals.
+        """
+        key = (person_id, channel)
+        expires = self._person_channel_mutes.get(key)
+        if expires is None:
+            return False
+        if dt_util.utcnow() >= expires:
+            # Self-heal: drop the past-expiry entry.
+            self._person_channel_mutes.pop(key, None)
+            return False
+        return True
+
+    async def async_mute_person_channel(
+        self,
+        person_id: str,
+        channel: str,
+        duration_minutes: int | None = None,
+    ) -> None:
+        """Public entry point for `nm.mute_person_channel` service.
+
+        Validates person_id ∈ CONF_NM_PERSONS AND channel ∈ NM_CHANNELS_KNOWN.
+        ``duration_minutes=0`` CLEARS an existing mute (documented kill
+        semantics). ``None`` uses the operator-configured default.
+        """
+        person_cfg = self._get_person_cfg(person_id)
+        if person_cfg is None:
+            _LOGGER.warning(
+                "NM mute: unknown person_id=%s (not in CONF_NM_PERSONS)",
+                person_id,
+            )
+            return
+        if channel not in NM_CHANNELS_KNOWN:
+            _LOGGER.warning(
+                "NM mute: unknown channel=%s (known=%s)",
+                channel, sorted(NM_CHANNELS_KNOWN),
+            )
+            return
+        # NM Cycle C fix-up (2026-07-20, D6/B-LOW-2): tts and lights are
+        # RECIPIENT-LESS global channels; muting them per-person is a
+        # silent no-op (the per-person mute layer only applies to
+        # per-recipient sends). Reject with an explicit error so the
+        # operator can pick the right knob (global severity gate).
+        if channel in ("tts", "lights"):
+            _LOGGER.error(
+                "NM mute: channel=%r is a global channel and cannot be "
+                "muted per-person (use severity gate or Alert Lights entity)",
+                channel,
+            )
+            return
+        if duration_minutes is None:
+            duration_minutes = int(
+                self._config.get(
+                    CONF_NM_MUTE_DEFAULT_DURATION_MINUTES,
+                    DEFAULT_NM_MUTE_DEFAULT_DURATION_MINUTES,
+                )
+            )
+        try:
+            duration_minutes = int(duration_minutes)
+        except (TypeError, ValueError):
+            _LOGGER.warning("NM mute: bad duration_minutes=%r", duration_minutes)
+            return
+        key = (person_id, channel)
+        if duration_minutes <= 0:
+            # Kill semantics: clear the mute.
+            existed = self._person_channel_mutes.pop(key, None) is not None
+            _LOGGER.info(
+                "NM mute cleared for (person=%s, channel=%s) (existed=%s)",
+                person_id, channel, existed,
+            )
+            async_dispatcher_send(self.hass, SIGNAL_NM_ENTITIES_UPDATE)
+            return
+        expires_at = dt_util.utcnow() + timedelta(minutes=duration_minutes)
+        self._person_channel_mutes[key] = expires_at
+        _LOGGER.info(
+            "NM mute set for (person=%s, channel=%s) until %s (%d min)",
+            person_id, channel, expires_at.isoformat(), duration_minutes,
+        )
+        async_dispatcher_send(self.hass, SIGNAL_NM_ENTITIES_UPDATE)
+
+    def active_mutes_per_person(self) -> dict[str, list[str]]:
+        """Sensor-attribute helper — muted channels grouped by person.
+
+        Prunes past-expiry entries as a side effect (self-heal).
+        """
+        now = dt_util.utcnow()
+        out: dict[str, list[str]] = {}
+        for (pid, ch), expires in list(self._person_channel_mutes.items()):
+            if expires <= now:
+                self._person_channel_mutes.pop((pid, ch), None)
+                continue
+            out.setdefault(pid, []).append(ch)
+        for pid in out:
+            out[pid].sort()
+        return out
+
+    def _recipient_bypasses_dnd(
+        self,
+        recipient_id: str | None,
+        hazard_type: str | None,
+        severity: Severity,
+    ) -> bool:
+        """C-INV-3: does this alert bypass quiet-hours for this recipient?
+
+        Order (deterministic — NO third condition):
+          1. Life-safety hazard → always bypass (hard safety floor).
+          2. severity ∈ recipient.dnd_bypass_severities → bypass.
+          3. Otherwise → suppressed by DND.
+
+        Global-recipient (recipient_id=None) branches: uses default set
+        `{CRITICAL}` so back-compat with v5.26.0's CRITICAL-bypass is
+        preserved for TTS/lights.
+        """
+        # 1. Safety floor — hard-coded, not a per-recipient knob.
+        if str(hazard_type or "").lower() in NM_LIFE_SAFETY_HAZARDS:
+            return True
+        # 2. Per-recipient set.
+        person_cfg = self._get_person_cfg(recipient_id)
+        if person_cfg is not None:
+            bypass_list = person_cfg.get(
+                CONF_NM_PERSON_DND_BYPASS_SEVERITIES,
+                DEFAULT_NM_PERSON_DND_BYPASS_SEVERITIES,
+            )
+        else:
+            bypass_list = DEFAULT_NM_PERSON_DND_BYPASS_SEVERITIES
+        bypass_set = {str(s).upper() for s in (bypass_list or ())}
+        return severity.name.upper() in bypass_set
+
+    def _route_for_recipient(
+        self,
+        recipient_id: str | None,
+        hazard_type: str | None,
+        severity: Severity,
+    ) -> set[str]:
+        """Return the set of channels that should fire for this tuple.
+
+        Layering (top-to-bottom, first hit wins for that channel):
+
+        A. **Mute** — (recipient_id, channel) with unexpired expiry:
+           excludes channel unconditionally (mute never neuters the
+           life-safety floor because life-safety hazards route via TTS
+           / lights, which are recipient-less, not per-person mutes).
+        B. **Hazard override** — recipient's `CONF_NM_PERSON_HAZARD_OVERRIDES`
+           for `(hazard_type, severity)` returns an explicit channel set.
+        C. **2D matrix** — recipient's `CONF_NM_PERSON_ROUTING_MATRIX`
+           for `severity` returns an explicit channel set.
+        D. **Legacy fallback (C-INV-1)** — no matrix / override present:
+           delegate PER-CHANNEL to `_channel_qualifies(channel, severity)`.
+           This is the byte-identical backcompat path.
+
+        Notes:
+        * When `recipient_id is None` (global channels TTS/lights), only
+          layers D (channel-global severity gate) applies. Mute is a
+          per-person concept; overrides and matrix are per-person.
+        """
+        candidate_channels: tuple[str, ...] = tuple(sorted(NM_CHANNELS_KNOWN))
+        person_cfg = self._get_person_cfg(recipient_id)
+
+        # Life-safety exception (fix-up ruling 2026-07-20): for
+        # NM_LIFE_SAFETY_HAZARDS, mutes and per-recipient DND do NOT
+        # suppress messaging channels on initial or repeat sends. An
+        # explicit hazard-override / matrix still applies (operator
+        # intent is authoritative routing, not a snooze). This mirrors
+        # `_recipient_bypasses_dnd`'s safety floor.
+        life_safety = str(hazard_type or "").lower() in NM_LIFE_SAFETY_HAZARDS
+
+        # D. Legacy fallback — the byte-identical oracle path. For legacy
+        # (no matrix/override) *materialized* matrix lookup: prefer the
+        # coordinator-owned materialization over person_cfg so live
+        # options changes take effect (see `_materialized_matrix`).
+        materialized = self._materialized_matrix.get(recipient_id or "")
+        if materialized is not None:
+            sev_key = severity.name.upper()
+            per_sev = materialized.get(sev_key) or {}
+            legacy: set[str] = {
+                ch for ch, allowed in per_sev.items()
+                if ch in NM_CHANNELS_KNOWN and bool(allowed)
+            }
+        else:
+            legacy = {
+                ch for ch in candidate_channels
+                if self._channel_qualifies(ch, severity)
+            }
+
+        # If recipient not resolved (e.g., TTS/lights global emit),
+        # skip mute + matrix + override layers. Backcompat path only.
+        if person_cfg is None:
+            return legacy
+
+        # A. Mute — exclude explicitly muted channels from the final set.
+        # Life-safety hazards skip mutes entirely.
+        if life_safety:
+            muted_channels: set[str] = set()
+        else:
+            muted_channels = {
+                ch for ch in candidate_channels
+                if self._mute_active(recipient_id, ch)
+            }
+
+        # B. Hazard override wins over 2D matrix if both are set.
+        hazard_overrides = person_cfg.get(CONF_NM_PERSON_HAZARD_OVERRIDES) or {}
+        haz_key = (hazard_type or "").lower()
+        sev_key = severity.name.upper()
+        # C-INV-1 self-check: the router must not silently fall through
+        # on empty containers. `override_hit` / `matrix_hit` flags let
+        # callers audit which branch fired.
+        override_hit: dict | None = None
+        if isinstance(hazard_overrides, dict) and haz_key:
+            per_haz = hazard_overrides.get(haz_key)
+            if isinstance(per_haz, dict):
+                per_sev = per_haz.get(sev_key)
+                if isinstance(per_sev, dict):
+                    override_hit = per_sev
+
+        if override_hit is not None:
+            fired = {
+                ch for ch, allowed in override_hit.items()
+                if ch in NM_CHANNELS_KNOWN and bool(allowed)
+            }
+            return fired - muted_channels
+
+        # C. 2D matrix.
+        matrix = person_cfg.get(CONF_NM_PERSON_ROUTING_MATRIX) or {}
+        if isinstance(matrix, dict) and matrix:
+            per_sev = matrix.get(sev_key)
+            if isinstance(per_sev, dict):
+                fired = {
+                    ch for ch, allowed in per_sev.items()
+                    if ch in NM_CHANNELS_KNOWN and bool(allowed)
+                }
+                return fired - muted_channels
+
+        # D. Legacy fallback minus mutes.
+        return legacy - muted_channels
+
+    def _route_branch_label(
+        self,
+        person_cfg: dict,
+        hazard_type: str | None,
+        severity: Severity,
+    ) -> str:
+        """Thin wrapper — single source of truth is `_route_for_recipient`.
+
+        A-MED-1 fix-up: prior duplicate logic drifted from the router.
+        Now delegates via a routing decision to guarantee the audit row
+        matches the actual routing branch. Missing-severity rows in a
+        partial matrix still count as `matrix_default` (documented
+        semantics: an explicit matrix, even sparse, is authoritative;
+        the missing rows resolve via the router's legacy fallback but
+        are still labelled matrix-branch for operator visibility).
+        """
+        pid = person_cfg.get(CONF_NM_PERSON_ENTITY, "") if person_cfg else ""
+        overrides = person_cfg.get(CONF_NM_PERSON_HAZARD_OVERRIDES) or {}
+        haz_key = (hazard_type or "").lower()
+        sev_key = severity.name.upper()
+        if isinstance(overrides, dict) and haz_key:
+            per_haz = overrides.get(haz_key)
+            if isinstance(per_haz, dict) and isinstance(per_haz.get(sev_key), dict):
+                return "hazard_override"
+        matrix = person_cfg.get(CONF_NM_PERSON_ROUTING_MATRIX) or {}
+        # Empty-matrix-row (partial matrix, missing this severity) is
+        # still labelled matrix-branch — the presence of ANY matrix is
+        # operator intent (A-MED-2 documented semantics).
+        if isinstance(matrix, dict) and matrix:
+            return "matrix_default"
+        _ = pid  # reserved for future audit hooks
+        return "legacy_fallback"
+
+    def _legacy_matrix_key(self) -> tuple:
+        """Cheap hash of the inputs that decide legacy-fallback semantics.
+
+        Rebuilt whenever severity thresholds / enabled channels / persons
+        list changes — the coordinator-owned matrix must follow live
+        options changes (fix-up D4/B-MED-1 — kill the process-lifetime
+        latch that froze routing to the boot-time snapshot).
+        """
+        from ..const import (
+            CONF_NM_PUSHOVER_ENABLED, CONF_NM_PUSHOVER_SEVERITY,
+            CONF_NM_COMPANION_ENABLED, CONF_NM_COMPANION_SEVERITY,
+            CONF_NM_WHATSAPP_ENABLED, CONF_NM_WHATSAPP_SEVERITY,
+            CONF_NM_IMESSAGE_ENABLED, CONF_NM_IMESSAGE_SEVERITY,
+            CONF_NM_TTS_ENABLED, CONF_NM_TTS_SEVERITY,
+            CONF_NM_LIGHTS_ENABLED, CONF_NM_LIGHTS_SEVERITY,
+        )
+        cfg = self._config
+        persons = cfg.get(CONF_NM_PERSONS, []) or []
+        person_ids = tuple(
+            p.get(CONF_NM_PERSON_ENTITY, "") for p in persons
+        )
+        return (
+            bool(cfg.get(CONF_NM_PUSHOVER_ENABLED, False)),
+            str(cfg.get(CONF_NM_PUSHOVER_SEVERITY, "")),
+            bool(cfg.get(CONF_NM_COMPANION_ENABLED, False)),
+            str(cfg.get(CONF_NM_COMPANION_SEVERITY, "")),
+            bool(cfg.get(CONF_NM_WHATSAPP_ENABLED, False)),
+            str(cfg.get(CONF_NM_WHATSAPP_SEVERITY, "")),
+            bool(cfg.get(CONF_NM_IMESSAGE_ENABLED, False)),
+            str(cfg.get(CONF_NM_IMESSAGE_SEVERITY, "")),
+            bool(cfg.get(CONF_NM_TTS_ENABLED, False)),
+            str(cfg.get(CONF_NM_TTS_SEVERITY, "")),
+            bool(cfg.get(CONF_NM_LIGHTS_ENABLED, False)),
+            str(cfg.get(CONF_NM_LIGHTS_SEVERITY, "")),
+            person_ids,
+        )
+
+    def _migrate_legacy_severity_to_matrix(self) -> None:
+        """Materialize legacy severity gates into a coord-owned matrix.
+
+        Fix-up ruling (2026-07-20, D4/B-MED-1): does NOT mutate
+        `person_cfg` (which is aliased into `entry.data/options` and
+        would silently freeze routing against live options changes).
+        Instead, writes into `self._materialized_matrix` keyed by
+        person_id.
+
+        Idempotent + change-detecting: recomputes only when the hash of
+        the legacy inputs (`_legacy_matrix_key`) changed since the last
+        run. Kill switch = clearing `self._materialized_matrix` forces
+        a rebuild on next call.
+
+        Migration self-check (C-5): after build, asserts each person's
+        matrix is non-empty and covers all 4 severities × all
+        NM_CHANNELS_KNOWN. Missing keys log at WARNING (safety-visible
+        breakage of the byte-identical backcompat guarantee).
+        """
+        key = self._legacy_matrix_key()
+        if key == self._materialized_matrix_key and self._materialized_matrix:
+            return
+        persons = self._config.get(CONF_NM_PERSONS, []) or []
+        new_materialized: dict[str, dict[str, dict[str, bool]]] = {}
+        expected_channels = frozenset(NM_CHANNELS_KNOWN)
+        expected_severities = ("LOW", "MEDIUM", "HIGH", "CRITICAL")
+        for person_cfg in persons:
+            pid = person_cfg.get(CONF_NM_PERSON_ENTITY, "")
+            if not pid:
+                continue
+            if person_cfg.get(CONF_NM_PERSON_ROUTING_MATRIX):
+                # Explicit operator-authored matrix — never overwrite
+                # (per-person router already consults person_cfg first).
+                continue
+            matrix: dict[str, dict[str, bool]] = {}
+            for sev in (Severity.LOW, Severity.MEDIUM, Severity.HIGH, Severity.CRITICAL):
+                per_sev: dict[str, bool] = {}
+                for ch in sorted(NM_CHANNELS_KNOWN):
+                    per_sev[ch] = self._channel_qualifies(ch, sev)
+                matrix[sev.name.upper()] = per_sev
+            # C-5 self-check.
+            missing_sev = [s for s in expected_severities if s not in matrix]
+            missing_ch = [
+                (s, ch) for s in expected_severities
+                for ch in expected_channels
+                if ch not in (matrix.get(s) or {})
+            ]
+            if missing_sev or missing_ch:
+                _LOGGER.warning(
+                    "NM materialized-matrix self-check FAILED for %s "
+                    "(missing_sev=%s missing_ch=%s) — backcompat may be broken",
+                    pid, missing_sev, missing_ch[:6],
+                )
+            new_materialized[pid] = matrix
+        self._materialized_matrix = new_materialized
+        self._materialized_matrix_key = key
+        _LOGGER.info(
+            "NM Cycle C: matrix materialized (persons=%d)", len(new_materialized),
+        )
+
+    async def _emit_audit_row(
+        self,
+        *,
+        coordinator_id: str,
+        severity: Severity,
+        title: str,
+        hazard_type: str | None,
+        location: str | None,
+        recipient_id: str | None,
+        channel: str | None,
+        route_reason: str,
+        dnd_bypass_applied: bool,
+        bucket_outcome: str,
+        matrix_branch: str,
+        delivered: int,
+        dry_run: int,
+    ) -> None:
+        """C2: write a single audit row via the extended `log_notification`.
+
+        Write-volume safe: called ONLY on routing decisions that emit or
+        are dry-run-logged. Idle ticks emit zero rows.
+        """
+        try:
+            database = self.hass.data.get(DOMAIN, {}).get("database")
+            if database is None:
+                return
+            await database.log_notification(
+                coordinator_id=coordinator_id,
+                severity=severity.name if isinstance(severity, Severity) else str(severity),
+                title=title,
+                message="[audit]",
+                hazard_type=hazard_type,
+                location=location,
+                person_id=recipient_id,
+                channel=channel,
+                delivered=delivered,
+                dry_run=dry_run,
+                recipient_id=recipient_id,
+                route_reason=route_reason,
+                dnd_bypass_applied=1 if dnd_bypass_applied else 0,
+                bucket_outcome=bucket_outcome,
+                matrix_branch=matrix_branch,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("NM audit row write failed (swallowed)", exc_info=True)
+
     def _channel_qualifies(self, channel: str, severity: Severity) -> bool:
-        """Check if a channel should fire for a given severity."""
+        """Check if a channel should fire for a given severity.
+
+        NM Cycle C: kept as the DEPRECATED oracle for C-INV-1 backcompat.
+        The router (`_route_for_recipient`) delegates to this method for
+        the no-matrix / no-override fallback path so byte-identity holds
+        by construction. Slated for removal one deploy after C1 lives.
+        """
         channel_config = {
             "pushover": (CONF_NM_PUSHOVER_ENABLED, CONF_NM_PUSHOVER_SEVERITY, DEFAULT_NM_PUSHOVER_SEVERITY),
             "companion": (CONF_NM_COMPANION_ENABLED, CONF_NM_COMPANION_SEVERITY, DEFAULT_NM_COMPANION_SEVERITY),

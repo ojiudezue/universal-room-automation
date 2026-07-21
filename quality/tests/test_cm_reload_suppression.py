@@ -148,6 +148,8 @@ def _load_init_listener_helpers():
         # NM Cycle A-2 (2026-07-20) — knob-key bundle spliced into both
         # _NO_LIVE_ATTR_KEYS and OPTIONS_RELOAD_SUPPRESS_KEYS via `*_NM_A2_KEYS`.
         "_NM_A2_KEYS",
+        # NM Cycle C (2026-07-20) — matrix/DND-bypass/mute-duration.
+        "_NM_C_KEYS",
     }
     body = []
     for node in tree.body:
@@ -267,6 +269,12 @@ def _load_init_listener_helpers():
         "_CONF_NM_DRY_RUN":                            "nm_dry_run",
         "_CONF_NM_BUCKET_CAPACITY":                    "nm_bucket_capacity",
         "_CONF_NM_BUCKET_REFILL_PER_MIN":              "nm_bucket_refill_per_min",
+        # NM Cycle C (2026-07-20) — per-recipient matrix + DND-bypass +
+        # mute-shortcut CONF keys (all 4 belong to `_NM_C_KEYS`).
+        "_CONF_NM_PERSON_ROUTING_MATRIX":              "nm_person_routing_matrix",
+        "_CONF_NM_PERSON_HAZARD_OVERRIDES":            "nm_person_hazard_overrides",
+        "_CONF_NM_PERSON_DND_BYPASS_SEVERITIES":       "nm_person_dnd_bypass_severities",
+        "_CONF_NM_MUTE_DEFAULT_DURATION_MINUTES":      "nm_mute_default_duration_minutes",
         # Typing — frozenset[str] subscript requires Python 3.9+; ok.
     }
     # C-MED-2 fix-up (2026-07-20): self-check every hand-typed _CONF_* alias
