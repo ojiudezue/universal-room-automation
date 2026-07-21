@@ -178,3 +178,43 @@ test_notification:
       example: "pushover"
       selector:
         text:
+
+nm_mute_person_channel:
+  name: Mute Person Channel (NM Cycle C)
+  description: >
+    Suppress notifications on a specific channel for a specific person
+    for a bounded window. Restart-safe (absolute-time expiry). Set
+    duration_minutes=0 to clear an existing mute.
+  fields:
+    person_id:
+      name: Person ID
+      description: The person entity id (must match a CONF_NM_PERSONS entry).
+      required: true
+      example: "person.oji"
+      selector:
+        text:
+    channel:
+      name: Channel
+      description: One of pushover, companion, whatsapp, imessage, tts, lights.
+      required: true
+      example: "pushover"
+      selector:
+        select:
+          options:
+            - "pushover"
+            - "companion"
+            - "whatsapp"
+            - "imessage"
+            - "tts"
+            - "lights"
+    duration_minutes:
+      name: Duration (minutes)
+      description: Mute duration; 0 clears an existing mute.
+      required: false
+      example: 60
+      selector:
+        number:
+          min: 0
+          max: 1440
+          step: 1
+          unit_of_measurement: min

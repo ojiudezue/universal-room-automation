@@ -4506,7 +4506,24 @@ from .const import (
     CONF_NM_DRY_RUN as _CONF_NM_DRY_RUN,
     CONF_NM_BUCKET_CAPACITY as _CONF_NM_BUCKET_CAPACITY,
     CONF_NM_BUCKET_REFILL_PER_MIN as _CONF_NM_BUCKET_REFILL_PER_MIN,
+    # NM Cycle C (2026-07-20) — matrix + DND-bypass + mute duration.
+    # All 4 keys are re-read fresh by NM on every emit (`_refresh_config`
+    # +  matrix helpers); no CM reload, no live-attr push required.
+    CONF_NM_PERSON_ROUTING_MATRIX as _CONF_NM_PERSON_ROUTING_MATRIX,
+    CONF_NM_PERSON_HAZARD_OVERRIDES as _CONF_NM_PERSON_HAZARD_OVERRIDES,
+    CONF_NM_PERSON_DND_BYPASS_SEVERITIES as _CONF_NM_PERSON_DND_BYPASS_SEVERITIES,
+    CONF_NM_MUTE_DEFAULT_DURATION_MINUTES as _CONF_NM_MUTE_DEFAULT_DURATION_MINUTES,
 )
+
+# NM Cycle C — central set used to extend BOTH `_NO_LIVE_ATTR_KEYS` and
+# `OPTIONS_RELOAD_SUPPRESS_KEYS`. Both prior NM cycles (A-2, B) tripped
+# on missing membership here — see B-B1 v5.26.0, A-2 fix v5.25.0.
+_NM_C_KEYS: frozenset[str] = frozenset({
+    _CONF_NM_PERSON_ROUTING_MATRIX,
+    _CONF_NM_PERSON_HAZARD_OVERRIDES,
+    _CONF_NM_PERSON_DND_BYPASS_SEVERITIES,
+    _CONF_NM_MUTE_DEFAULT_DURATION_MINUTES,
+})
 
 # NM Cycle A-2 — the 13 CONF keys (12 Cycle-A + 1 optimizer allowlist)
 # consumed via `nm_cycle_a_knob(...)`. Central set used to extend both
@@ -4657,6 +4674,8 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     _CONF_NM_DRY_RUN,
     _CONF_NM_BUCKET_CAPACITY,
     _CONF_NM_BUCKET_REFILL_PER_MIN,
+    # NM Cycle C — matrix / DND-bypass / mute-duration keys.
+    *_NM_C_KEYS,
 })
 
 OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
@@ -4742,6 +4761,9 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     _CONF_NM_DRY_RUN,
     _CONF_NM_BUCKET_CAPACITY,
     _CONF_NM_BUCKET_REFILL_PER_MIN,
+    # NM Cycle C — options-flow-authored keys; NM re-reads via
+    # `_refresh_config`. No CM reload needed.
+    *_NM_C_KEYS,
 })
 
 

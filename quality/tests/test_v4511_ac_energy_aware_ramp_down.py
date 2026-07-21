@@ -1019,7 +1019,10 @@ class TestPerZoneButtons:
         # diagnostic/maintenance buttons (e.g. VacuumDatabaseButton) that sit
         # between the marker and the per-zone _make_ac_ramp_button calls.
         idx = button_src.find("ENTRY_TYPE_COORDINATOR_MANAGER")
-        body = button_src[idx:idx + 3600]
+        # Widen window as CM entity list grows (NM Cycle C added a per-
+        # person primary-channel mute button block above the per-zone
+        # loop). 3600 -> 4400.
+        body = button_src[idx:idx + 5200]
         for action in ("force_nudge", "cancel_nudge", "clear_lockout"):
             assert f'"{action}"' in body
 
