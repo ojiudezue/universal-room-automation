@@ -88,3 +88,56 @@ standing policy), with the v5.5.5 review docs re-read as prior art.
 - Live: next moderate-forecast morning with a car plugged in after
   sunrise → EVSE holds until SOC ≥ 80, then charges; overnight sessions
   unaffected.
+
+## Cross-season scope (fix-up B-2)
+
+The hold surface is EVERY `off_peak ∩ daylight` overlap on the operator's
+TOU calendar — not just the 07:00–14:00 summer morning slice that
+triggered the cycle. Concretely:
+- **Summer** (peak-only afternoon 14:00–21:00, off_peak 21:00→14:00):
+  daylight overlap = ~07:00→14:00 (before peak). This is the trigger
+  window and the primary win.
+- **Winter** (typically wider mid_peak / off_peak envelopes, shorter
+  daylight): daylight overlap can include short pre-work slices around
+  sunrise and post-mid_peak evening slices before sunset. The hold
+  applies there too — that is by design, "day = battery first" is
+  season-independent.
+- **Winter mitigant — forecast health.** On low-forecast winter days the
+  existing `forecast_healthy` gate (remaining_forecast ≥
+  excess_solar_kwh_threshold) collapses the hold to no-op (release), so
+  the pattern degenerates gracefully without special-casing. No
+  season-detection code is required; forecast is the season proxy that
+  matters (an unusually sunny winter day SHOULD hold; an overcast summer
+  day SHOULD NOT).
+
+## Fix-up appendix — three-review findings (fill-up 2026-07-22)
+
+- **C-1 (HIGH):** caller thread-through — added a source-assertion test
+  that BOTH determine_fill_priority_actions call sites in energy.py pass
+  `is_daylight=` (guards against reviewer mutations M3a/M3b: severed
+  computation, EV-only threading).
+- **A-M1:** false fail-safe wording corrected in the caller comment
+  (energy.py) and both pool docstring/comment sites — sun.sun outage
+  substitutes the 07:00/19:00 fallback envelope; None only escapes on a
+  genuine exception.
+- **A-M2:** four inline 07:00/19:00 literals extracted to named rung-1
+  module constants `DAYLIGHT_FALLBACK_SUNRISE_HOUR` /
+  `DAYLIGHT_FALLBACK_SUNSET_HOUR` in `energy_const.py`.
+- **A-M4 + C-2:** direct unit tests on `_daylight_bounds` — pre-sunrise,
+  daytime, post-sunset with a stubbed `sun.sun`; the missing-sun fallback
+  path asserted against the named constants; swapped-fallback mutation now
+  fails.
+- **B-1:** ensure-on-seam integration test — daylight hold at
+  20:59-equivalent, after night flip fill-priority releases AND the
+  drain/off_peak ensure path emits `turn_on` (verifies the daylight bool
+  doesn't strand the release).
+- **A-M3 / B-3:** completed the L1 plug mirror — the plug fill-priority
+  call site in `energy.py` now threads `peak_ahead=peak_ahead` (pre-
+  existing asymmetry; verified no existing plug test depended on the L1
+  unconditional mid_peak hold).
+- **C-3 hygiene:** future mutation runs should
+  `export PYTHONDONTWRITEBYTECODE=1` and `touch` restored sources — the
+  interpreter can serve a cached `.pyc` for a source file whose mtime did
+  not advance, silently invalidating a "restored source, ran tests"
+  claim.
+

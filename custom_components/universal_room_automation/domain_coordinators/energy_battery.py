@@ -3177,9 +3177,19 @@ class BatteryStrategy:
     ) -> tuple[datetime | None, datetime | None]:
         """Return (sunrise, sunset) on the same local date as ``anchor``.
 
-        Best-effort; falls back to a conservative 07:00 / 19:00 envelope
-        when the HA sun integration is unavailable in the test sandbox.
+        Best-effort; falls back to a conservative
+        DAYLIGHT_FALLBACK_SUNRISE_HOUR / DAYLIGHT_FALLBACK_SUNSET_HOUR
+        envelope when ``sun.sun`` is unavailable OR its `next_rising` /
+        `next_setting` attrs fail to parse. That fallback is the
+        sun-loss behavior — this helper does NOT return None on missing
+        sun; genuine exceptions from callers (wrapped `try/except`)
+        yield None, and the pool treats None as "preserve v5.5.5
+        off_peak-inert".
         """
+        from .energy_const import (
+            DAYLIGHT_FALLBACK_SUNRISE_HOUR,
+            DAYLIGHT_FALLBACK_SUNSET_HOUR,
+        )
         try:
             sun_state = self.hass.states.get("sun.sun") if self.hass else None
         except Exception:  # noqa: BLE001
@@ -3206,9 +3216,15 @@ class BatteryStrategy:
                     second=0, microsecond=0,
                 )
             except Exception:  # noqa: BLE001
-                sunrise = anchor.replace(hour=7, minute=0, second=0, microsecond=0)
+                sunrise = anchor.replace(
+                    hour=DAYLIGHT_FALLBACK_SUNRISE_HOUR,
+                    minute=0, second=0, microsecond=0,
+                )
         else:
-            sunrise = anchor.replace(hour=7, minute=0, second=0, microsecond=0)
+            sunrise = anchor.replace(
+                hour=DAYLIGHT_FALLBACK_SUNRISE_HOUR,
+                minute=0, second=0, microsecond=0,
+            )
         if sunset_iso:
             try:
                 ss = datetime.fromisoformat(str(sunset_iso).replace("Z", "+00:00"))
@@ -3218,9 +3234,15 @@ class BatteryStrategy:
                     second=0, microsecond=0,
                 )
             except Exception:  # noqa: BLE001
-                sunset = anchor.replace(hour=19, minute=0, second=0, microsecond=0)
+                sunset = anchor.replace(
+                    hour=DAYLIGHT_FALLBACK_SUNSET_HOUR,
+                    minute=0, second=0, microsecond=0,
+                )
         else:
-            sunset = anchor.replace(hour=19, minute=0, second=0, microsecond=0)
+            sunset = anchor.replace(
+                hour=DAYLIGHT_FALLBACK_SUNSET_HOUR,
+                minute=0, second=0, microsecond=0,
+            )
         return (sunrise, sunset)
 
     def _attain_target_boundary(
