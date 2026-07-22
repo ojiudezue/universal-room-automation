@@ -2380,3 +2380,47 @@ def test_D_LOW_3_liveness_release_row_dedups_within_epoch_source_anchored():
     assert reset_idx != -1
     reset_body = src[reset_idx: reset_idx + 800]
     assert "_blind_window_liveness_release_logged = set()" in reset_body
+
+
+# ===========================================================================
+# Fix-up Micro-batch 7 — D-F1: DROP leg honors ride latch
+# ===========================================================================
+
+
+def test_D_F1_excess_solar_DROP_leg_skips_ride_latch_members():
+    """Restart-epoch-loss re-capture repro:
+      * KV restore rehydrates `_blind_window_liveness_ride` with
+        `garage_a` (a mid-outage restart, latch persisted from a prior
+        DP must-start-by grant).
+      * The excess-solar DROP leg fires (guard engaged fresh-epoch,
+        witness absent, envelope denies): `garage_a` is in
+        `_excess_solar_active`.
+      * Pre-fix: the DROP leg turn_off'd + re-added to
+        `_paused_by_blind_window`, stranding the car.
+      * Post-fix: the loop's one-line ride-latch guard skips granted
+        EVSEs entirely — no turn_off, no re-add.
+
+    Mutation: removing the `if evse_id in self._blind_window_liveness_ride:
+    continue` guard in the DROP loop makes this test fail (turn_off
+    appears in actions AND the EVSE lands in _paused_by_blind_window).
+    """
+    ev = _make_ev(evse_on=True)
+    coord = _make_coord_stub(envelope=None, mains_export=None)
+    _engage_guard(ev, coord)
+    # Post-restart shape: granted authority carried in via KV restore.
+    ev._blind_window_liveness_ride.add("garage_a")
+    ev._excess_solar_active.add("garage_a")
+    actions = ev.determine_excess_solar_actions(
+        soc=None, remaining_forecast_kwh=10.0, tou_period="off_peak",
+        coord=coord,
+    )
+    assert not any(a["service"] == "switch.turn_off" for a in actions), (
+        "D-F1: DROP leg turn_off'd a ride-authority-granted EVSE"
+    )
+    assert "garage_a" not in ev._paused_by_blind_window, (
+        "D-F1: DROP leg re-added a granted EVSE to the pause set"
+    )
+    # Excess-solar claim preserved (skipped, not drained).
+    assert "garage_a" in ev._excess_solar_active
+    # Ride latch still armed.
+    assert "garage_a" in ev._blind_window_liveness_ride

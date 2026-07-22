@@ -324,7 +324,8 @@ class EVChargerController:
         # debounce would cause the else-branch to drain membership,
         # producing a blind ensure-on flap.
         self._blind_window_pre_engaged: bool = False
-        # Fix-up D-HIGH-3 (Batch 6) — per-epoch liveness-ride authority.
+        # Fix-up D-HIGH-3 (Batch 6) + D-F1/D-F2 (micro-batch 7) —
+        # per-epoch liveness-ride authority.
         # When the DP must-start-by fire (or any other pressure release
         # path) grants a liveness release, the released EVSE MUST NOT be
         # re-captured by the pause leg on the very next tick. Prior to
@@ -338,6 +339,34 @@ class EVChargerController:
         # This set is consumed by the pause leg's `will_pause` gate:
         # if `evse_id` is in this latch, the guard NEVER pauses this
         # EVSE within the current epoch, regardless of envelope state.
+        # The excess-solar DROP leg (D-F1, micro-batch 7) also honors
+        # the latch — a granted EVSE in `_excess_solar_active` is
+        # SKIPPED during a DROP so it is neither turned off nor
+        # re-added to `_paused_by_blind_window`.
+        #
+        # Accepted semantic (documented for future reviewers):
+        #   * NEVER-PAUSE-THIS-EPOCH — once a pressure release grants
+        #     ride authority for an evse_id, the guard treats that
+        #     grant as absolute for the remainder of the current epoch.
+        #     Envelope re-tightening within the epoch does NOT revoke
+        #     it. The DP timer that WOULD have retried was cancelled
+        #     by the release; overriding the grant mid-epoch would
+        #     re-open the strand shape D-HIGH-3 closed.
+        #
+        # D-F2 accept-with-note (STALE LATCH CROSS-EPOCH, SELF-HEALS):
+        #   * A restart that rehydrates the latch from KV then never
+        #     re-engages the guard (Envoy stays healthy) leaves stale
+        #     `_blind_window_liveness_ride` membership in RAM. This is
+        #     ACCEPTED: without an active epoch there is no code path
+        #     that consults the latch (the pause leg + excess-solar
+        #     DROP only run when the guard is engaged), so a stale
+        #     entry is inert. The FIRST time the guard engages after
+        #     restart, the epoch-close path (raw predicate False in
+        #     `_blind_window_guard_engaged`) clears the latch on the
+        #     transition out of that new epoch — self-heal. Adding an
+        #     eager clear on restart would risk stranding a car whose
+        #     restart happened MID-outage (the latch is legitimate);
+        #     the accepted path chose the safer default.
         # Cleared on epoch close (raw predicate False path in
         # `_blind_window_guard_engaged`). Persisted via `_save_evse_state`
         # so a mid-epoch restart carries the authority forward.
@@ -1422,6 +1451,21 @@ class EVChargerController:
                     return actions
                 # DROP leg — fail-safe pause.
                 for evse_id in list(self._excess_solar_active):
+                    # Fix-up D-F1 (micro-batch 7) — DROP leg MUST honor
+                    # the per-epoch liveness ride latch. Restart-epoch-loss
+                    # repro: mid-outage restart rehydrates
+                    # `_blind_window_liveness_ride` from KV but the excess-
+                    # solar DROP leg would still turn_off the granted EVSE
+                    # AND re-add it to `_paused_by_blind_window`,
+                    # stranding the car (mirror of the D-HIGH-3 shape on
+                    # the excess-solar path). Skip granted EVSEs entirely.
+                    if evse_id in self._blind_window_liveness_ride:
+                        _LOGGER.debug(
+                            "blind-window guard: DROP leg skipping %s "
+                            "(ride authority granted this epoch)",
+                            evse_id,
+                        )
+                        continue
                     config = self._evse.get(evse_id, {})
                     switch_entity = config.get("switch", "")
                     if switch_entity:
