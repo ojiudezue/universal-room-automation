@@ -4920,6 +4920,21 @@ class EnergyCoordinator(BaseCoordinator):
                         )
                     except Exception:  # noqa: BLE001
                         peak_ahead = None
+                    # fill-priority-daylight-restoration D1: compute TIME-
+                    # anchored daylight bool from the battery's civil
+                    # sunrise/sunset primitive (energy_battery._daylight_bounds;
+                    # sun.sun-backed with a conservative 07:00/19:00 fallback).
+                    # Never PV. `None` on any error → pool preserves v5.5.5
+                    # off_peak-inert (cross-midnight release path unchanged).
+                    try:
+                        _sr, _ss = self._battery._daylight_bounds(_now_phase)
+                        is_daylight = (
+                            _sr is not None
+                            and _ss is not None
+                            and _sr <= _now_phase < _ss
+                        )
+                    except Exception:  # noqa: BLE001
+                        is_daylight = None
                     # v4.7.6 fix-up B-M3: pass tick-snapshot, not live attr.
                     fp_actions = self._ev.determine_fill_priority_actions(
                         soc=self._battery.battery_soc,
@@ -4929,6 +4944,7 @@ class EnergyCoordinator(BaseCoordinator):
                         excess_solar_kwh_threshold=self._excess_solar_kwh,
                         safety_margin_kwh=DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH,
                         peak_ahead=peak_ahead,
+                        is_daylight=is_daylight,
                     )
                     for action_spec in fp_actions:
                         await self._execute_service_action(action_spec)
@@ -5026,6 +5042,7 @@ class EnergyCoordinator(BaseCoordinator):
                         excess_solar_kwh_threshold=self._excess_solar_kwh,
                         safety_margin_kwh=DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH,
                         force_charge_active=force_charge_active,
+                        is_daylight=is_daylight,
                     )
                     for action_spec in plug_fp_actions:
                         await self._execute_service_action(action_spec)

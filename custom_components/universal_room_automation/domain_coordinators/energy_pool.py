@@ -1270,6 +1270,7 @@ class EVChargerController:
         excess_solar_kwh_threshold: float,
         safety_margin_kwh: float = DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH,
         peak_ahead: bool | None = None,
+        is_daylight: bool | None = None,
     ) -> list[dict[str, Any]]:
         """Pause EVSEs so the home battery fills first when solar is healthy.
 
@@ -1326,13 +1327,23 @@ class EVChargerController:
         )
         self._fill_priority_solar_ok = bool(forecast_healthy)
 
-        # evse-offpeak-fill-release D1: determine whether fill-priority is
-        # inert this tick. Inert = release-and-don't-rehold. TIME-anchored:
-        #   - peak / off_peak: always inert (release).
+        # evse-offpeak-fill-release D1 + fill-priority-daylight-restoration D1:
+        # inert = release-and-don't-rehold. TIME-anchored (never PV):
+        #   - peak: always inert (TOU pause canonical).
+        #   - off_peak AND night (is_daylight is False): inert. Preserves the
+        #     v5.5.5 cross-midnight off_peak-release fix (cars charge overnight
+        #     on the cheap-grid window). `is_daylight is None` (no sun info /
+        #     legacy harness) → preserve v5.5.5 always-inert-in-off_peak.
+        #   - off_peak AND daylight (is_daylight is True): NOT inert. Restores
+        #     pre-v5.5.5 daytime "battery-first" behavior for the summer
+        #     morning off_peak slice (~07:00-14:00) where the previous proxy
+        #     silently surrendered fill-priority.
         #   - mid_peak: inert when no peak is ahead before off_peak (post-peak).
         #     `peak_ahead is None` (legacy / no TOU engine) → NOT inert (hold).
+        off_peak_inert = tou_period == "off_peak" and (is_daylight is not True)
         fill_priority_inert = (
-            tou_period in ("peak", "off_peak")
+            tou_period == "peak"
+            or off_peak_inert
             or (tou_period == "mid_peak" and peak_ahead is False)
         )
         if fill_priority_inert:
@@ -2559,6 +2570,7 @@ class SmartPlugController:
         safety_margin_kwh: float = DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH,
         force_charge_active: bool = False,
         peak_ahead: bool | None = None,
+        is_daylight: bool | None = None,
     ) -> list[dict[str, Any]]:
         """Mirror of EVPool.determine_fill_priority_actions for L1 plugs (D2).
 
@@ -2586,10 +2598,14 @@ class SmartPlugController:
         )
         self._fill_priority_solar_ok = bool(forecast_healthy)
 
-        # evse-offpeak-fill-release D1: fill-priority inert outside the
-        # daytime-pre-peak window (mirror of the EV path).
+        # evse-offpeak-fill-release D1 + fill-priority-daylight-restoration D1:
+        # fill-priority inert outside daytime-pre-peak (mirror of EV path).
+        # off_peak: inert at night; NOT inert in daylight (restore daytime
+        # battery-first hold). is_daylight None → preserve v5.5.5 always-inert.
+        off_peak_inert = tou_period == "off_peak" and (is_daylight is not True)
         fill_priority_inert = (
-            tou_period in ("peak", "off_peak")
+            tou_period == "peak"
+            or off_peak_inert
             or (tou_period == "mid_peak" and peak_ahead is False)
         )
         if fill_priority_inert:
