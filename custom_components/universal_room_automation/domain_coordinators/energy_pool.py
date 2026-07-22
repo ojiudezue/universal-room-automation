@@ -410,6 +410,22 @@ class EVChargerController:
                     "blind-window guard: cleared (defers this epoch=%d)",
                     self._blind_window_defers_this_epoch,
                 )
+                # Fix-up B5 (Batch 4) — clear the coord's per-(evse,
+                # epoch) dedup set so the next real outage emits a fresh
+                # row per EVSE. Called ONLY on the epoch-close path
+                # (not on debounce-pending) so a transient blip does
+                # not reset in-flight dedup state.
+                _co = coord if coord is not None else getattr(
+                    self, "_energy_coord", None,
+                )
+                if _co is not None:
+                    try:
+                        _co._reset_blind_window_defer_dedup()  # noqa: SLF001
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.debug(
+                            "reset defer dedup failed (swallowed)",
+                            exc_info=True,
+                        )
             self._blind_window_epoch_started_at = None
             self._blind_window_defers_this_epoch = 0
             # Fix-up D-CRIT-2: clear pre-engaged so the next real outage
@@ -836,6 +852,20 @@ class EVChargerController:
                         if evse_id not in self._paused_by_blind_window:
                             self._paused_by_blind_window.add(evse_id)
                             self._proactive_offpeak_holds.discard(evse_id)
+                        # Fix-up B5 (Batch 4) — INV-BW1 defer log +
+                        # dedup counter. `maybe_log_blind_window_defer`
+                        # dedups per (evse, epoch) so a multi-hour outage
+                        # generates a bounded set of rows. The counter
+                        # increments ONLY on FIRST defer this epoch,
+                        # matching the row cardinality.
+                        try:
+                            first_this_epoch = (
+                                coord.maybe_log_blind_window_defer(evse_id)
+                            )
+                        except Exception:  # noqa: BLE001
+                            first_this_epoch = False
+                        if first_this_epoch:
+                            self._blind_window_defers_this_epoch += 1
                         if state["is_on"] and not ride_ok:
                             actions.append({
                                 "service": "switch.turn_off",
@@ -852,19 +882,54 @@ class EVChargerController:
                                 "blind-window guard: deferring ensure-on for %s",
                                 evse_id,
                             )
-                        self._blind_window_defers_this_epoch += 1
+                        # B5 dedup: the counter was incremented above ONLY
+                        # on the first-defer-this-epoch path. Do NOT
+                        # increment again here (previous unconditional
+                        # increment removed).
                         continue
                     elif engaged and max_defer_exceeded:
-                        # Max defer exceeded — yield to must-start-by
-                        # (fall through into normal off-peak ensure-on
-                        # semantics). Release the pause claim; the
-                        # normal row-2 force-charge / must-start-by
-                        # timer path is the authority now.
+                        # Fix-up D-HIGH-2 + D-MED-2 (Batch 4) — route
+                        # max-defer expiry through the explicit liveness-
+                        # release helper. `has_pressure=False`: max-defer
+                        # is a TIME-based yield, not a car-charge liveness
+                        # deadline. The helper consults the envelope and
+                        # writes a decision_log row for both outcomes,
+                        # so the release is never silent.
+                        release_ok = True
+                        _bw_coord_ref = coord if coord is not None else getattr(
+                            self, "_energy_coord", None,
+                        )
+                        if _bw_coord_ref is not None:
+                            try:
+                                release_ok = _bw_coord_ref.blind_window_liveness_release(
+                                    evse_id, reason="max_defer_exceeded",
+                                    has_pressure=False,
+                                )
+                            except Exception:  # noqa: BLE001
+                                # Fail-safe: if the helper raises, prefer
+                                # HOLDING pause (silent ensure-on = the
+                                # exact bug D-HIGH-2 closed).
+                                release_ok = False
+                        if not release_ok:
+                            # Envelope proved SOC is below drain threshold
+                            # AND we have no must-start-by pressure. Keep
+                            # the pause; the DP machinery's own timer will
+                            # ultimately fire (which routes through the
+                            # helper with pressure=True). Log with the
+                            # dedup path so we don't spam per-tick.
+                            _LOGGER.info(
+                                "blind-window guard: max-defer exceeded "
+                                "for %s but envelope refuses release — "
+                                "holding pause (waiting on must-start-by)",
+                                evse_id,
+                            )
+                            continue
                         if evse_id in self._paused_by_blind_window:
                             self._paused_by_blind_window.discard(evse_id)
                             _LOGGER.info(
                                 "blind-window guard: max-defer bound "
-                                "exceeded for %s — yielding to must-start-by",
+                                "exceeded for %s — yielding to must-start-by "
+                                "(liveness helper permitted release)",
                                 evse_id,
                             )
                     else:
@@ -1211,9 +1276,15 @@ class EVChargerController:
                 continue_permission = (exp is True) and envelope_ride_ok
                 if continue_permission:
                     # Active EVSEs continue; NEW claims still refused.
-                    # Log once per epoch-defer for observability.
-                    self._blind_window_defers_this_epoch += 1
+                    # Emit dedup-anchored defer row for each active EVSE
+                    # (bounded per epoch by `maybe_log_blind_window_defer`).
                     for _active in self._excess_solar_active:
+                        try:
+                            _first = coord.maybe_log_blind_window_defer(_active)
+                        except Exception:  # noqa: BLE001
+                            _first = False
+                        if _first:
+                            self._blind_window_defers_this_epoch += 1
                         _LOGGER.debug(
                             "blind-window guard: permitting excess-solar "
                             "CONTINUE for %s (witness + envelope both ok)",
@@ -1240,7 +1311,12 @@ class EVChargerController:
                             )
                     self._excess_solar_active.discard(evse_id)
                     self._paused_by_blind_window.add(evse_id)
-                self._blind_window_defers_this_epoch += 1
+                    try:
+                        _first = coord.maybe_log_blind_window_defer(evse_id)
+                    except Exception:  # noqa: BLE001
+                        _first = False
+                    if _first:
+                        self._blind_window_defers_this_epoch += 1
                 return actions
 
         conditions_met = (

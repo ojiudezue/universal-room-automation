@@ -1471,6 +1471,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             # prune wiring as findings/digest — else
                             # ``optimizer_shadow_samples`` grows unbounded.
                             ("optimizer_shadow_samples", "prune_optimizer_shadow_samples", {}),
+                            # Fix-up A-HIGH-1 (Batch 4): retention prune for
+                            # decision_log rows. `dp_eval` uses the module
+                            # const `CONF_DP_EVAL_LOG_RETENTION_DAYS` (90d);
+                            # the two blind-window row types share the same
+                            # retention today. Each decision_type gets its
+                            # own op so batching / logging is per-type.
+                            ("decision_log_dp_eval", "cleanup_decision_log", {"decision_type": "dp_eval", "retention_days": 90}),
+                            ("decision_log_blind_window_defer", "cleanup_decision_log", {"decision_type": "blind_window_defer", "retention_days": 90}),
+                            ("decision_log_blind_window_liveness_release", "cleanup_decision_log", {"decision_type": "blind_window_liveness_release", "retention_days": 90}),
                             # DB space-reclamation: bounded incremental_vacuum
                             # runs LAST so the prunes above have already freed
                             # pages for it to reclaim. No-ops cleanly until the
@@ -1591,6 +1600,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # v5.11.0 F-MED (D-MED-2 fix-up): mirror primary path so
                 # deferred-startup ALSO schedules the shadow-samples prune.
                 ("optimizer_shadow_samples", "prune_optimizer_shadow_samples", {}),
+                # Fix-up A-HIGH-1 (Batch 4) mirror: deferred-startup path
+                # also schedules the decision_log prunes.
+                ("decision_log_dp_eval", "cleanup_decision_log", {"decision_type": "dp_eval", "retention_days": 90}),
+                ("decision_log_blind_window_defer", "cleanup_decision_log", {"decision_type": "blind_window_defer", "retention_days": 90}),
+                ("decision_log_blind_window_liveness_release", "cleanup_decision_log", {"decision_type": "blind_window_liveness_release", "retention_days": 90}),
                 # DB space-reclamation fix-up HIGH-1: mirror the primary path
                 # so a deferred-startup (DB-init-race) boot ALSO schedules the
                 # bounded incremental_vacuum. Without this, the deferred branch

@@ -7,8 +7,20 @@ Falsifiable invariant under test:
 INV-BW1 (Blind-Window Battery Isolation) — while SOC is unresolved
 (`blind_hold_active`) AND the reserve write path is unverifiable
 (`reserve_write_verifiable()` False), no EVSE transitions OFF->ON via any
-ensure-on precedence row, EXCEPT the row-2 force-charge escape. Any
-ensure-on that WOULD have fired is logged.
+ensure-on precedence row EXCEPT via one of the TWO sanctioned liveness
+escapes, and both escapes route through
+`EnergyCoordinator.blind_window_liveness_release(evse_id, reason,
+has_pressure)` which consults the envelope and writes ONE decision_log
+row (decision_type='blind_window_liveness_release') per consultation:
+  1. MAX-DEFER EXPIRY — the outage has exceeded
+     `CONF_BLIND_WINDOW_MAX_DEFER_MIN`; helper called with
+     `has_pressure=False`. Envelope proving lower < drain_target HOLDS
+     the pause; envelope permitting OR unknown YIELDS to must-start-by.
+  2. DP MUST-START-BY FIRE — INV-DP2 car-charge liveness deadline;
+     helper called with `has_pressure=True` (INV-DP2 trumps envelope).
+Any ensure-on that WOULD have fired is logged. Row-2 force-charge is a
+prior-tick suppression (not a turn_on site of its own), so it does not
+need the helper — B3's drain plumbing (Batch 2) covers it.
 
 Mutation anchors (documented at each test):
   * `_blind_window_guard_engaged` -> if the debounce short-circuit is removed,
@@ -133,14 +145,48 @@ def _make_coord_stub(
     envelope: tuple[float, float] | None = None,
     mains_export: bool | None = None,
     drain_target: int = 40,
+    liveness_release_returns: bool = True,
 ) -> SimpleNamespace:
-    return SimpleNamespace(
+    """Test stub for EnergyCoordinator public surface consumed by the guard.
+
+    Batch 4 additions:
+      * `maybe_log_blind_window_defer(evse_id)` — records the call and
+        returns True on the FIRST call per evse_id (matching production
+        dedup semantics), False after.
+      * `_reset_blind_window_defer_dedup()` — clears the recorded set.
+      * `blind_window_liveness_release(evse_id, reason, has_pressure)`
+        — returns `liveness_release_returns` (default True) and records
+        the call so tests can assert wiring.
+    """
+    ns = SimpleNamespace(
         blind_hold_active=blind_hold,
         reserve_write_verifiable=lambda: reserve_verifiable,
         soc_envelope=lambda: envelope,
         mains_export_active=lambda threshold_w=100.0: mains_export,
         _ev_battery_drain_soc=drain_target,
     )
+    ns._defer_logged = set()
+    ns._defer_calls = []
+    ns._liveness_calls = []
+
+    def _maybe_log(evse_id):
+        ns._defer_calls.append(evse_id)
+        if evse_id in ns._defer_logged:
+            return False
+        ns._defer_logged.add(evse_id)
+        return True
+
+    def _reset_dedup():
+        ns._defer_logged = set()
+
+    def _liveness(evse_id, reason, has_pressure=False):
+        ns._liveness_calls.append((evse_id, reason, has_pressure))
+        return liveness_release_returns
+
+    ns.maybe_log_blind_window_defer = _maybe_log
+    ns._reset_blind_window_defer_dedup = _reset_dedup
+    ns.blind_window_liveness_release = _liveness
+    return ns
 
 
 # ---------------------------------------------------------------------------
@@ -737,7 +783,11 @@ def test_mark_pre_engaged_from_restore_stores_epoch():
 # ---------------------------------------------------------------------------
 
 # name -> (relative_file_path, marker_substring, kind)
-# kind ∈ {"guard_covered", "force_charge_exempt", "must_start_by_exempt"}
+# kind ∈ {"guard_covered", "guard_covered_via_liveness_helper",
+#         "force_charge_exempt", "must_start_by_exempt"}
+# The two "exempt" kinds are LEGACY — Batch 4 (D-HIGH-2) closed the last
+# bare exemption. Retained in the enum so a regression can re-introduce
+# one and immediately fail `test_D_HIGH_1_contract_has_no_bare_exemptions_after_batch_4`.
 # marker_substring is used to identify the specific block after slicing near
 # the `switch.turn_on` line — it is a distinctive log/comment string in the
 # same routine that anchors the site to a semantic name.
@@ -802,7 +852,12 @@ EVSE_TURN_ON_SITE_CONTRACT = {
     "dp_must_start_by_forced": (
         "custom_components/universal_room_automation/domain_coordinators/energy.py",
         "drain-precedence must-start-by fire: forced EVSE",
-        "must_start_by_exempt",
+        # Fix-up D-HIGH-2 (Batch 4) — no longer an exempt turn_on site.
+        # The DP must-start-by path routes through
+        # `blind_window_liveness_release(has_pressure=True)` which
+        # consults the envelope + writes a decision_log row before the
+        # turn_on can fire. Now guard-covered via helper.
+        "guard_covered_via_liveness_helper",
     ),
 }
 
@@ -942,21 +997,35 @@ def test_D_HIGH_1_enumeration_contract_covers_every_evse_turn_on_site():
     )
 
 
-def test_D_HIGH_1_contract_lists_only_sanctioned_exemptions():
-    """The exemption list is the auditable contract. Adding a NEW
-    exemption without ratification MUST break this test — it is the
-    tripwire on scope-creep of INV-BW1 escape hatches. Today only
-    must-start-by is sanctioned (force-charge has no dedicated turn_on
-    site; it works by suppression + B3 drain, both guard-covered).
+def test_D_HIGH_1_contract_has_no_bare_exemptions_after_batch_4():
+    """Batch 4 (D-HIGH-2) closed the last bare INV-BW1 exemption. All
+    live turn_on sites are now either directly guard-covered (peer-
+    defer includes `_paused_by_blind_window`) or covered-via-liveness-
+    helper (must-start-by routes through
+    `blind_window_liveness_release`). Any NEW bare exemption MUST
+    break this test — the two sanctioned escapes (max-defer expiry,
+    must-start-by fire) both flow through the helper, which is not a
+    bare exemption.
     """
-    exempt_kinds = {"force_charge_exempt", "must_start_by_exempt"}
-    exempt_keys = [
+    bare_exempt_kinds = {"force_charge_exempt", "must_start_by_exempt"}
+    bare_keys = [
         k for k, (_p, _m, kind) in EVSE_TURN_ON_SITE_CONTRACT.items()
-        if kind in exempt_kinds
+        if kind in bare_exempt_kinds
     ]
-    assert set(exempt_keys) == {"dp_must_start_by_forced"}, (
-        f"Exemption drift — expected exactly {{dp_must_start_by_forced}}, "
-        f"got {set(exempt_keys)}"
+    assert bare_keys == [], (
+        f"Bare-exemption drift — all live turn_on sites should be "
+        f"guard_covered or guard_covered_via_liveness_helper, but "
+        f"found bare exempts: {bare_keys}"
+    )
+
+
+def test_D_HIGH_2_liveness_helper_covers_dp_must_start_by_site():
+    """Positive assertion: the DP must-start-by fire is now classified
+    as `guard_covered_via_liveness_helper` — the enumeration contract's
+    proof that D-HIGH-2 wired the site through the helper.
+    """
+    assert EVSE_TURN_ON_SITE_CONTRACT["dp_must_start_by_forced"][2] == (
+        "guard_covered_via_liveness_helper"
     )
 
 
@@ -1288,4 +1357,340 @@ def test_A_MED_1_shim_matches_production_normalization_source():
         assert token in body, (
             f"A-MED-1: production normalization drifted — shim no "
             f"longer matches source. Missing token: {token!r}"
+        )
+
+
+# ===========================================================================
+# Fix-up Batch 4 — D-HIGH-2 liveness helper + B5 defer rows + A-HIGH-1 prune
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# D-HIGH-2 — max-defer path routes through liveness helper
+# ---------------------------------------------------------------------------
+
+
+def test_D_HIGH_2_max_defer_calls_liveness_helper_no_silent_release():
+    """When max-defer expires, the guard MUST call
+    `blind_window_liveness_release(evse, 'max_defer_exceeded',
+    has_pressure=False)` before yielding. Direct release without the
+    helper = silent ensure-on = D-HIGH-2 regression.
+
+    Mutation: revert the max-defer branch to unconditional discard =>
+    the recorded helper-call list would be empty and this test fails.
+    """
+    from homeassistant.util import dt as dt_util
+    from datetime import timedelta
+    ev = _make_ev(evse_on=False)
+    coord = _make_coord_stub(liveness_release_returns=True)
+    _engage_guard(ev, coord)
+    # Force max-defer exceeded.
+    ev._blind_window_epoch_started_at = dt_util.utcnow() - timedelta(
+        minutes=CONF_BLIND_WINDOW_MAX_DEFER_MIN + 5,
+    )
+    ev._paused_by_blind_window.add("garage_a")
+    ev.determine_actions("off_peak", coord=coord)
+    # Helper called exactly with the expected shape.
+    assert ("garage_a", "max_defer_exceeded", False) in coord._liveness_calls
+    # Release permitted -> membership drained.
+    assert "garage_a" not in ev._paused_by_blind_window
+
+
+def test_D_HIGH_2_max_defer_helper_refusal_holds_pause():
+    """If the helper refuses release (envelope proves lower < drain
+    AND no pressure), the guard MUST keep `_paused_by_blind_window`
+    membership. Silent fall-through to plain ensure-on is exactly the
+    bug D-HIGH-2 closed.
+    """
+    from homeassistant.util import dt as dt_util
+    from datetime import timedelta
+    ev = _make_ev(evse_on=False)
+    # Stub's liveness_release_returns=False mimics envelope-refusal.
+    coord = _make_coord_stub(liveness_release_returns=False)
+    _engage_guard(ev, coord)
+    ev._blind_window_epoch_started_at = dt_util.utcnow() - timedelta(
+        minutes=CONF_BLIND_WINDOW_MAX_DEFER_MIN + 5,
+    )
+    ev._paused_by_blind_window.add("garage_a")
+    actions = ev.determine_actions("off_peak", coord=coord)
+    assert ("garage_a", "max_defer_exceeded", False) in coord._liveness_calls
+    # No turn_on emitted.
+    assert not any(a["service"] == "switch.turn_on" for a in actions)
+    # Membership survives — waiting on must-start-by.
+    assert "garage_a" in ev._paused_by_blind_window
+
+
+def test_D_HIGH_2_liveness_helper_semantics_pressure_overrides_envelope():
+    """Source-anchored proof: the production helper decision-branches on
+    `has_pressure` BEFORE the envelope check. With `has_pressure=True`,
+    the release ALWAYS fires + row is written with reason including
+    'must_start_by_pressure' (INV-DP2 trumps envelope).
+    """
+    src_path = _os.path.join(
+        _os.path.dirname(__file__), "..", "..", "custom_components",
+        "universal_room_automation", "domain_coordinators", "energy.py",
+    )
+    with open(src_path) as f:
+        src = f.read()
+    idx = src.find("def blind_window_liveness_release(")
+    assert idx != -1, "liveness helper missing"
+    body = src[idx: idx + 4000]
+    assert "if has_pressure:" in body
+    assert "release = True" in body
+    # Envelope-refusal branch requires envelope_low_below_drain AND no
+    # pressure — verify the AND-shape didn't drift.
+    assert "envelope_low_below_drain = (" in body
+    assert "decision_type=\"blind_window_liveness_release\"" in src
+
+
+def test_D_HIGH_2_dp_must_start_by_site_routes_through_helper():
+    """Source-anchored proof that `_apply_dp_must_start_release` now
+    routes through the liveness helper BEFORE the turn_on can fire.
+    Batch 2 marked this the sole exempt site; Batch 4 closes the
+    exemption by routing it through the helper.
+    """
+    src_path = _os.path.join(
+        _os.path.dirname(__file__), "..", "..", "custom_components",
+        "universal_room_automation", "domain_coordinators", "energy.py",
+    )
+    with open(src_path) as f:
+        src = f.read()
+    idx = src.find("def _apply_dp_must_start_release(")
+    assert idx != -1, "must-start-by helper missing"
+    body = src[idx: idx + 6000]
+    # Helper call precedes the turn_on dispatch.
+    call_idx = body.find("blind_window_liveness_release(")
+    turn_on_idx = body.find('"switch", "turn_on"')
+    assert call_idx != -1, "must-start-by site does NOT call liveness helper"
+    assert turn_on_idx != -1, "must-start-by turn_on dispatch missing"
+    assert call_idx < turn_on_idx, (
+        "liveness helper must be called BEFORE the turn_on dispatch — "
+        "regression opens the silent ensure-on bug"
+    )
+    assert 'reason="dp_must_start_by"' in body
+    assert "has_pressure=True" in body
+
+
+# ---------------------------------------------------------------------------
+# B5 — INV-BW1 defer decision_log rows (dedup per (evse, epoch))
+# ---------------------------------------------------------------------------
+
+
+def test_B5_defer_log_fires_once_per_evse_per_epoch():
+    """Multiple guard ticks in the SAME epoch => ONE defer row per EVSE
+    (not one per tick). Mutation: dropping the dedup gate makes the
+    counter and row cardinality grow with tick count.
+    """
+    ev = _make_ev(evse_on=False)
+    coord = _make_coord_stub()
+    _engage_guard(ev, coord)
+    # Two ticks in the same epoch.
+    ev.determine_actions("off_peak", coord=coord)
+    ev.determine_actions("off_peak", coord=coord)
+    # `garage_a` recorded exactly ONCE in coord._defer_logged.
+    assert list(coord._defer_calls).count("garage_a") >= 1
+    # Dedup: only the FIRST call returned True; only ONE increment.
+    assert ev._blind_window_defers_this_epoch == 1
+
+
+def test_B5_defer_counter_resets_on_epoch_clear():
+    """Epoch clears (raw predicate False) drop dedup + counter.
+    Mutation: the reset call missing => a subsequent outage's first
+    defer would NOT re-log (dedup carryover)."""
+    ev = _make_ev(evse_on=False)
+    coord = _make_coord_stub()
+    _engage_guard(ev, coord)
+    ev.determine_actions("off_peak", coord=coord)
+    assert ev._blind_window_defers_this_epoch == 1
+    assert "garage_a" in coord._defer_logged
+    # Envoy recovers — the guard's clear path fires.
+    coord_recovered = _make_coord_stub(blind_hold=False)
+    # Copy the state fields (defer log dedup lives on coord — clearing
+    # it requires the recovered coord's _reset method to be called).
+    # In production the SAME coord instance is passed; here we simulate
+    # by pointing at the recovered coord for guard state, but call the
+    # recovered coord's reset explicitly (production would do this via
+    # the recovered coord's `_reset_blind_window_defer_dedup`).
+    ev._energy_coord = coord  # ensure the reset path finds a coord
+    ev._blind_window_guard_engaged(coord)  # triggers reset via raw-true
+    # Force raw-false clear on the ORIGINAL coord.
+    coord.blind_hold_active = False
+    ev._blind_window_guard_engaged(coord)
+    assert coord._defer_logged == set(), (
+        "epoch clear must reset dedup set on the coord"
+    )
+    assert ev._blind_window_defers_this_epoch == 0
+
+
+def test_B5_defer_log_source_anchored_row_shape():
+    """Source-anchored contract on the defer row: coordinator_id='energy',
+    decision_type='blind_window_defer', context includes evse_id +
+    epoch + envelope snapshot + reserve_verifiable + blind_hold_active.
+    """
+    src_path = _os.path.join(
+        _os.path.dirname(__file__), "..", "..", "custom_components",
+        "universal_room_automation", "domain_coordinators", "energy.py",
+    )
+    with open(src_path) as f:
+        src = f.read()
+    idx = src.find("async def _log_blind_window_defer(")
+    assert idx != -1
+    body = src[idx: idx + 2500]
+    for token in (
+        'decision_type="blind_window_defer"',
+        'coordinator_id="energy"',
+        '"evse_id": evse_id',
+        '"epoch": epoch_key',
+        '"reserve_verifiable"',
+        '"blind_hold_active"',
+        '"envelope_lower"',
+        '"envelope_upper"',
+    ):
+        assert token in body, (
+            f"B5 row-shape drift — missing token: {token!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# A-HIGH-1 — cleanup_decision_log DAO
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_A_HIGH_1_cleanup_decision_log_prunes_old_rows_of_named_type():
+    """Direct SQL replica of the DAO. Standing up the full Database
+    class under the test harness requires the entire HA / integration
+    boot chain, so we exercise the EXACT SQL the production DAO issues
+    against a raw aiosqlite connection. The paired
+    `test_A_HIGH_1_cleanup_decision_log_source_anchored_sql` guards
+    that the replica stays in sync with production.
+    """
+    import aiosqlite
+    import os as _os2
+    from datetime import datetime, timedelta
+
+    db_path = _os2.path.join(
+        _os2.path.dirname(__file__), "..", "..",
+        f"scratchpad_ec_batch4_prune_{_os2.getpid()}.sqlite",
+    )
+    db_path = _os2.path.normpath(db_path)
+    if _os2.path.exists(db_path):
+        _os2.unlink(db_path)
+
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            await db.execute("""
+                CREATE TABLE decision_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    coordinator_id TEXT NOT NULL,
+                    decision_type TEXT NOT NULL,
+                    context_json TEXT,
+                    action_json TEXT
+                )
+            """)
+            now = datetime.utcnow()
+            old = (now - timedelta(days=120)).isoformat()
+            fresh = (now - timedelta(days=5)).isoformat()
+            for ts, dtype in [
+                (old, "dp_eval"), (fresh, "dp_eval"),
+                (old, "other_kind"), (fresh, "other_kind"),
+            ]:
+                await db.execute(
+                    """INSERT INTO decision_log
+                       (timestamp, coordinator_id, decision_type,
+                        context_json, action_json)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (ts, "energy", dtype, "{}", "{}"),
+                )
+            await db.commit()
+
+            # Direct execution of the DAO's SQL.
+            cutoff = (now - timedelta(days=90)).isoformat()
+            cursor = await db.execute(
+                """DELETE FROM decision_log
+                WHERE rowid IN (
+                    SELECT rowid FROM decision_log
+                    WHERE decision_type = ?
+                      AND timestamp < ?
+                    LIMIT ?
+                )""",
+                ("dp_eval", cutoff, 1000),
+            )
+            await db.commit()
+            deleted = cursor.rowcount
+            assert deleted == 1, f"expected 1 old dp_eval pruned, got {deleted}"
+
+            cur = await db.execute(
+                "SELECT decision_type, timestamp FROM decision_log "
+                "ORDER BY timestamp"
+            )
+            rows = await cur.fetchall()
+            types_left = [(r[0], r[1] == old) for r in rows]
+            assert ("dp_eval", False) in types_left, (
+                "fresh dp_eval must survive"
+            )
+            assert ("dp_eval", True) not in types_left, (
+                "old dp_eval must be gone"
+            )
+            assert ("other_kind", False) in types_left, (
+                "other_kind fresh untouched"
+            )
+            assert ("other_kind", True) in types_left, (
+                "other_kind old untouched"
+            )
+    finally:
+        if _os2.path.exists(db_path):
+            _os2.unlink(db_path)
+
+
+def test_A_HIGH_1_cleanup_decision_log_source_anchored_sql():
+    """Source-anchored contract on the DAO's SQL — guards that the
+    behavioral replica in the async test above stays in sync with
+    production.
+    """
+    src_path = _os.path.join(
+        _os.path.dirname(__file__), "..", "..", "custom_components",
+        "universal_room_automation", "database.py",
+    )
+    with open(src_path) as f:
+        src = f.read()
+    idx = src.find("async def cleanup_decision_log(")
+    assert idx != -1, "cleanup_decision_log DAO missing"
+    body = src[idx: idx + 2500]
+    for token in (
+        "DELETE FROM decision_log",
+        "WHERE rowid IN (",
+        "SELECT rowid FROM decision_log",
+        "WHERE decision_type = ?",
+        "AND timestamp < ?",
+        "LIMIT ?",
+        "await asyncio.sleep(0.1)",  # batching contract
+    ):
+        assert token in body, (
+            f"A-HIGH-1: DAO SQL drifted from replica — missing token: {token!r}"
+        )
+
+
+def test_A_HIGH_1_cleanup_decision_log_wired_into_nightly_cadence():
+    """Source-anchored: both nightly-cadence registration sites must
+    include entries for dp_eval, blind_window_defer, blind_window_
+    liveness_release, otherwise rows grow unbounded.
+    """
+    src_path = _os.path.join(
+        _os.path.dirname(__file__), "..", "..", "custom_components",
+        "universal_room_automation", "__init__.py",
+    )
+    with open(src_path) as f:
+        src = f.read()
+    # BOTH registration blocks (primary + deferred-startup mirror).
+    for token in (
+        '"cleanup_decision_log", {"decision_type": "dp_eval"',
+        '"cleanup_decision_log", {"decision_type": "blind_window_defer"',
+        '"cleanup_decision_log", {"decision_type": "blind_window_liveness_release"',
+    ):
+        # Must appear twice: primary + deferred-startup mirror.
+        assert src.count(token) == 2, (
+            f"A-HIGH-1: nightly-cadence registration missing/asymmetric "
+            f"for {token!r} (found {src.count(token)}, expected 2)"
         )

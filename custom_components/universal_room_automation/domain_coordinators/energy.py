@@ -3388,6 +3388,229 @@ class EnergyCoordinator(BaseCoordinator):
         except Exception:  # noqa: BLE001
             return None
 
+    # ------------------------------------------------------------------
+    # Fix-up D-HIGH-2 + D-MED-2 (Batch 4) — liveness-release helper.
+    # ------------------------------------------------------------------
+    # Single choke-point for the TWO sanctioned INV-BW1 escape hatches:
+    #   * max-defer expiry (guard has held past `CONF_BLIND_WINDOW_MAX_DEFER_MIN`).
+    #   * DP must-start-by fire (INV-DP2 liveness ceiling).
+    #
+    # Before this helper, the two paths silently released without
+    # consulting the envelope OR emitting a decision_log row — the
+    # exact "silent fall-through to plain ensure-on" the RULING closed.
+    # ------------------------------------------------------------------
+    def blind_window_liveness_release(
+        self,
+        evse_id: str,
+        reason: str,
+        has_pressure: bool = False,
+    ) -> bool:
+        """Consult the envelope; permit or refuse a liveness release.
+
+        Semantics per RULING:
+          * If `has_pressure` is True (must-start-by pressure IS the
+            pressure), the release is ALWAYS permitted — INV-DP2 trumps.
+          * Otherwise consult `soc_envelope()`. If the envelope's LOWER
+            bound is below the drain threshold AND we have no pressure,
+            we PREFER holding the pause — return False so the caller
+            keeps membership. If the envelope proves lower >= drain,
+            release is permitted. If the envelope is unknown, release
+            is permitted at max-defer expiry — the whole point of the
+            max-defer bound is to yield after the cap.
+
+        Whether the helper returns True (release) or False (hold pause),
+        a `decision_log` row is scheduled (`decision_type=
+        'blind_window_liveness_release'`) so no path silently emits a
+        turn_on OR silently holds.
+
+        Sync-callable (both call sites are inside sync decision-cycle
+        loops). The DB write is scheduled via `hass.async_create_task`.
+        """
+        # 1) Snapshot envelope + drain target for both the decision AND
+        #    the persisted row.
+        try:
+            env = self.soc_envelope()
+        except Exception:  # noqa: BLE001
+            env = None
+        drain_target = None
+        try:
+            drain_target = int(
+                getattr(self, "_ev_battery_drain_soc", None) or 0
+            ) or None
+        except Exception:  # noqa: BLE001
+            drain_target = None
+
+        env_lower = env[0] if env else None
+        env_upper = env[1] if env else None
+        envelope_low_below_drain = (
+            env_lower is not None
+            and drain_target is not None
+            and env_lower < float(drain_target)
+        )
+
+        # 2) Decide.
+        if has_pressure:
+            release = True
+            decision_note = "must_start_by_pressure_overrides_envelope"
+        elif envelope_low_below_drain:
+            release = False
+            decision_note = "envelope_low_below_drain_and_no_pressure"
+        else:
+            # Envelope unknown OR envelope proves safe → release.
+            release = True
+            decision_note = (
+                "envelope_permits_release" if env_lower is not None
+                else "envelope_unknown_max_defer_yield"
+            )
+
+        # 3) Schedule the durable decision_log row (never blocks).
+        try:
+            self.hass.async_create_task(
+                self._log_blind_window_liveness_release(
+                    evse_id=evse_id,
+                    reason=reason,
+                    release=release,
+                    has_pressure=has_pressure,
+                    env_lower=env_lower,
+                    env_upper=env_upper,
+                    drain_target=drain_target,
+                    decision_note=decision_note,
+                ),
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "liveness_release: schedule log failed (swallowed)",
+                exc_info=True,
+            )
+        _LOGGER.info(
+            "blind-window liveness release: evse=%s reason=%s release=%s "
+            "note=%s env=%s drain_target=%s pressure=%s",
+            evse_id, reason, release, decision_note,
+            (env_lower, env_upper) if env else None,
+            drain_target, has_pressure,
+        )
+        return release
+
+    async def _log_blind_window_liveness_release(
+        self,
+        evse_id: str,
+        reason: str,
+        release: bool,
+        has_pressure: bool,
+        env_lower: float | None,
+        env_upper: float | None,
+        drain_target: int | None,
+        decision_note: str,
+    ) -> None:
+        """Write one decision_log row per liveness-release consultation."""
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            import json as _json
+            context = {
+                "evse_id": evse_id,
+                "reason": reason,
+                "has_pressure": bool(has_pressure),
+                "envelope_lower": env_lower,
+                "envelope_upper": env_upper,
+                "drain_target_soc": drain_target,
+                "decision_note": decision_note,
+            }
+            action = {"released": bool(release)}
+            await db.log_coordinator_decision(
+                coordinator_id="energy",
+                decision_type="blind_window_liveness_release",
+                context_json=_json.dumps(context),
+                action_json=_json.dumps(action),
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "_log_blind_window_liveness_release raised (swallowed)",
+                exc_info=True,
+            )
+
+    # ------------------------------------------------------------------
+    # Fix-up B5 (Batch 4) — INV-BW1 defer decision_log rows.
+    # ------------------------------------------------------------------
+    # ONE row per (evse_id, epoch) — dedup keyed on the epoch's ISO
+    # timestamp so a multi-hour outage generates a bounded set of rows
+    # (max = #EVSEs). Same dedup applies to
+    # `_blind_window_defers_this_epoch` — the observability counter is
+    # now "distinct EVSEs deferred this epoch", not "ticks the guard
+    # held" (which grew unboundedly with tick cadence).
+    # ------------------------------------------------------------------
+    def maybe_log_blind_window_defer(self, evse_id: str) -> bool:
+        """Return True iff this (evse_id, epoch) is the FIRST defer this
+        epoch — caller uses the return value to gate the counter
+        increment so it stays deduped.
+
+        Idempotent within an epoch: subsequent calls return False and
+        do not schedule a duplicate row.
+
+        Called by `EVChargerController.determine_actions` / `determine_
+        excess_solar_actions` at each fail-safe defer site.
+        """
+        try:
+            epoch = getattr(self._ev, "_blind_window_epoch_started_at", None)
+        except Exception:  # noqa: BLE001
+            epoch = None
+        epoch_key = epoch.isoformat() if epoch is not None else ""
+        key = (evse_id, epoch_key)
+        seen = getattr(self, "_blind_window_defer_logged", None)
+        if seen is None:
+            seen = set()
+            self._blind_window_defer_logged = seen
+        if key in seen:
+            return False
+        seen.add(key)
+        try:
+            self.hass.async_create_task(
+                self._log_blind_window_defer(evse_id=evse_id, epoch_key=epoch_key),
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "maybe_log_blind_window_defer: schedule failed (swallowed)",
+                exc_info=True,
+            )
+        return True
+
+    def _reset_blind_window_defer_dedup(self) -> None:
+        """Called from the guard's clear-path (raw predicate False) so a
+        new epoch starts with a fresh dedup set.
+        """
+        self._blind_window_defer_logged = set()
+
+    async def _log_blind_window_defer(
+        self, evse_id: str, epoch_key: str,
+    ) -> None:
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            import json as _json
+            # Snapshot envelope + verifier state for forensic completeness.
+            env = self.soc_envelope()
+            context = {
+                "evse_id": evse_id,
+                "epoch": epoch_key,
+                "reserve_verifiable": bool(self.reserve_write_verifiable()),
+                "blind_hold_active": bool(self.blind_hold_active),
+                "envelope_lower": env[0] if env else None,
+                "envelope_upper": env[1] if env else None,
+            }
+            action = {"deferred": True}
+            await db.log_coordinator_decision(
+                coordinator_id="energy",
+                decision_type="blind_window_defer",
+                context_json=_json.dumps(context),
+                action_json=_json.dumps(action),
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "_log_blind_window_defer raised (swallowed)", exc_info=True,
+            )
+
     async def _log_dp_eval_decision(
         self,
         prev_state: Any,
@@ -4468,6 +4691,29 @@ class EnergyCoordinator(BaseCoordinator):
                 # No switch — drop claim; nothing dispatch can do.
                 self._ev._paused_by_dp.discard(evse_id)  # noqa: SLF001
                 self._ev._release_pause_dispatch_owner(evse_id, "dp")  # noqa: SLF001
+                continue
+            # Fix-up D-HIGH-2 + D-MED-2 (Batch 4) — route through the
+            # explicit liveness-release helper (the enumeration contract's
+            # sole exempt site is now covered-via-helper). must-start-by
+            # IS the sanctioned INV-BW1 pressure signal → `has_pressure=True`
+            # → the helper always releases + writes a decision_log row
+            # with reason='dp_must_start_by'. Guard-covered (writes the
+            # row) OR pause-held (row records refusal) — no silent
+            # ensure-on ever leaves this site.
+            release_permitted = self.blind_window_liveness_release(
+                evse_id, reason="dp_must_start_by", has_pressure=True,
+            )
+            if not release_permitted:
+                # Defensive: with has_pressure=True the helper always
+                # returns True; a False here means an implementation
+                # regression. Keep the DP claim sticky rather than
+                # silently discarding, so a later tick can retry.
+                _LOGGER.warning(
+                    "drain-precedence must-start-by fire: %s — liveness "
+                    "helper refused release under has_pressure=True; "
+                    "keeping DP claim (invariant regression?)",
+                    evse_id,
+                )
                 continue
             state = self._ev._get_evse_state(evse_id)  # noqa: SLF001
             self._ev._paused_by_dp.discard(evse_id)  # noqa: SLF001
