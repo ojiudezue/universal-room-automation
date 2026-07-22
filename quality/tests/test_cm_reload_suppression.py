@@ -237,6 +237,11 @@ def _load_init_listener_helpers():
         # Zone Delete Flow fix-up R2 — CONF_ZONE added to _ROOM_SUPPRESS_KEYS
         # so zone reassignment during delete doesn't storm per-room reloads.
         "CONF_ZONE":                              "zone",
+        # Fan/humidity toggle-symmetry (2026-07-22) — added to
+        # _ROOM_SUPPRESS_KEYS so per-room comfort/humidity fan-control
+        # switch toggles no longer full-reload the ROOM entry (~90 entities).
+        "_CONF_FAN_CONTROL_ENABLED":              "fan_control_enabled",
+        "_CONF_HUMIDITY_FAN_CONTROL_ENABLED":     "humidity_fan_control_enabled",
         # ENTRY_TYPE_ROOM (C-HIGH-3 path in _async_update_listener).
         "ENTRY_TYPE_ROOM":                        "room",
         # Session B1 — EVSE Drain-Precedence CM options keys.

@@ -4513,6 +4513,8 @@ from .const import (
     CONF_COMFORT_TEMP_MIN as _CONF_COMFORT_TEMP_MIN,
     CONF_COMFORT_TEMP_MAX as _CONF_COMFORT_TEMP_MAX,
     CONF_COMFORT_HUMIDITY_MAX as _CONF_COMFORT_HUMIDITY_MAX,
+    CONF_FAN_CONTROL_ENABLED as _CONF_FAN_CONTROL_ENABLED,
+    CONF_HUMIDITY_FAN_CONTROL_ENABLED as _CONF_HUMIDITY_FAN_CONTROL_ENABLED,
     # v5.10.0 D2 — MF sleep + night suppression CM keys.
     CONF_MF_SLEEP_SUPPRESS as _CONF_MF_SLEEP_SUPPRESS,
     CONF_MF_NIGHT_SUPPRESS_MODE as _CONF_MF_NIGHT_SUPPRESS_MODE,
@@ -5254,6 +5256,15 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
         _CONF_COMFORT_TEMP_MAX,
         _CONF_COMFORT_HUMIDITY_MAX,
         CONF_ZONE,
+        # Fan/humidity toggle-symmetry (2026-07-22, HIGH F1):
+        # RoomComfortFanControlSwitch / RoomHumidityFanControlSwitch mirror
+        # into entry.options on every physical toggle (switch.py:4576-4586).
+        # Without these keys in the suppress set, every toggle → full ROOM
+        # reload (~90-entity cycle) via the fall-through async_reload below.
+        # Safe: consumers read live merged options every tick (see import
+        # comment above and AUDIT §1).
+        _CONF_FAN_CONTROL_ENABLED,
+        _CONF_HUMIDITY_FAN_CONTROL_ENABLED,
     })
 
     if entry_type == ENTRY_TYPE_ROOM:

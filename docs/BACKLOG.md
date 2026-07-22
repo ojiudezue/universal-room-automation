@@ -1496,7 +1496,21 @@ Currently `z_threshold` is global per coordinator (HVAC, Security, etc.).
 
 ## Room-device toggle symmetry: Fan Control + Humidity Control switches (filed 2026-07-04)
 
-**Status:** Filed, not queued. Own small cycle (NOT part of reconcile-on-return).
+**Status: DONE-with-residue (2026-07-22).** Audit
+(`docs/planning/AUDIT_fan_humidity_toggle_symmetry.md`) found the two
+switches **already shipped** in v5.6.0 (D6): `RoomComfortFanControlSwitch`
+(switch.py:4599) + `RoomHumidityFanControlSwitch` (switch.py:4614) on the
+`_RoomBooleanOptionSwitch` base (switch.py:4546). The audit's real findings
+were a HIGH per-toggle full-ROOM-reload defect (F1) and a MEDIUM
+dual-source restore-precedence nit (F2). Both fixed by the fan/humidity
+toggle-symmetry cycle (build/fan-humidity-toggle-fix, 2026-07-22):
+`CONF_FAN_CONTROL_ENABLED` + `CONF_HUMIDITY_FAN_CONTROL_ENABLED` added to
+`_ROOM_SUPPRESS_KEYS` (__init__.py); options-flow value now wins over
+RestoreEntity at boot when the key is present in entry.options.
+Bug-Class-#52 guard preserved.
+
+Historical context (kept for record — the below is what the entry
+originally proposed, before the audit found the switches shipped):
 
 **Gap:** Climate and cover expose per-room automation toggles on the room device
 (`ClimateAutomationSwitch` switch.py:3507, `CoverAutomationSwitch` switch.py:3542,
