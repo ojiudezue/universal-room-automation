@@ -180,6 +180,40 @@ day (the observed Garage B incident).
   on `_paused_by_battery_drain` (corner); excess-solar lacks a
   release-only path when its toggle is off (backlog).
 
+### 2.5a EMERGENCY BACKOUT KNOB — `CONF_RESERVE_VERIFIABLE_MAX_AGE_S` (v5.28.0)
+
+**⚠️ FIRE AXE BEHIND GLASS — read this before ever touching the value.**
+
+The blind-window EVSE guard's entry predicate asks "can we prove a battery
+reserve write would take RIGHT NOW?" via `is_reserve_verifiable()`
+(`energy_write_verify.py`). Verifiable requires ALL THREE:
+(a) record status OK (STALE never counts),
+(b) the verified outcome fresher than **`CONF_RESERVE_VERIFIABLE_MAX_AGE_S`
+    (default 600 s, rung-1 constant in `energy_const.py`)**, and
+(c) the reserve oracle readable at this instant.
+
+**Setting the constant to 0 disables ONLY gate (b).** It exists solely as an
+emergency backout: if the freshness gate ever false-positives in production
+(guard engaging constantly on healthy telemetry, chargers deferring on good
+days), zero it to retreat from the one sub-check without reverting the
+cycle. Sequence: zero as stopgap → file the fix-forward cycle → restore 600.
+
+**The documented price at 0 (bounded by the Tier-3 D re-pass):** gates (a)
+and (c) survive, so FULL outages (Envoy dark, oracle unreachable — the
+2026-07-21 incident shape) remain protected even at 0. The hole reopens
+ONLY for PARTIAL outages: SOC feed blind while the reserve oracle still
+answers and a resting-OK record exists → predicate reports verifiable →
+guard does not arm → pre-v5.28.0 behavior for that window. Full outages
+protected; partial outages exposed. This asymmetry is intentional and is
+NOT a bug — do not "rediscover" it (review record:
+`docs/reviews/code-review/v5.28.0_ec_blind_window_guard.md`).
+
+**For future agents:** never promote this to an options/Number knob; never
+zero it as a tuning move; any change to its value or semantics is
+Tier 2-DB minimum with the guard test file as the regression harness.
+Sibling kill-switch with DIFFERENT semantics: `CONF_BLIND_WINDOW_MAX_DEFER_MIN
+<= 0` disables the whole guard (releases pauses, no helper, no rows).
+
 ### 2.5 Blind-hold contract (v5.17.5)
 
 Battery telemetry can degrade — local Envoy API stops answering, or
