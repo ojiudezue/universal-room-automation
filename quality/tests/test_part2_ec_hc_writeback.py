@@ -161,6 +161,8 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     _extract_conf(CONST_SRC, "CONF_NM_PERSON_HAZARD_OVERRIDES"),
     _extract_conf(CONST_SRC, "CONF_NM_PERSON_DND_BYPASS_SEVERITIES"),
     _extract_conf(CONST_SRC, "CONF_NM_MUTE_DEFAULT_DURATION_MINUTES"),
+    # NM Cycle C-2 (2026-07-22, D2): additive-only life-safety extras.
+    _extract_conf(CONST_SRC, "CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS"),
 }
 
 
@@ -274,7 +276,8 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     # NM Cycle B fix-up (2026-07-20, B-B1) — +3 keys (dry-run + capacity + refill).
     # NM Cycle C (2026-07-20) — +4 keys (routing matrix, hazard overrides,
     # DND-bypass severities, mute default duration).
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 81
+    # NM Cycle C-2 (2026-07-22) — +1 key (extra life-safety hazards, D2).
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 82
 
 
 # ---------------------------------------------------------------------------
@@ -429,6 +432,8 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_NM_PERSON_HAZARD_OVERRIDES":            "nm_person_hazard_overrides",
         "_CONF_NM_PERSON_DND_BYPASS_SEVERITIES":       "nm_person_dnd_bypass_severities",
         "_CONF_NM_MUTE_DEFAULT_DURATION_MINUTES":      "nm_mute_default_duration_minutes",
+        # NM Cycle C-2 (2026-07-22, D2) — additive-only life-safety extras.
+        "_CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS":          "nm_extra_life_safety_hazards",
     }
     mod = ast.Module(body=body, type_ignores=[])
     code = compile(mod, str(PKG / "__init__.py"), "exec")

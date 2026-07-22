@@ -169,6 +169,58 @@ def high_finding_allowlisted(hass: HomeAssistant, finding: Any) -> bool:
     return dim_str in allowlist
 
 
+# ---------------------------------------------------------------------------
+# NM Cycle C-2 (2026-07-22, D2) — life-safety union helper.
+# ---------------------------------------------------------------------------
+#
+# The base ``NM_LIFE_SAFETY_HAZARDS`` frozenset in ``const.py`` is a rung-1
+# code-reviewed vocabulary (safety contract). The Cycle C-2 tunable
+# ``CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS`` promotes additional HazardType
+# tokens into life-safety treatment WITHOUT allowing demotion of the base
+# set (union, never difference).
+#
+# This helper is the SINGLE source of truth for the life-safety predicate
+# across ALL NM consumer sites — the load-bearing site for Bug Class #53
+# (computed-but-not-consumed). Every ``NM_LIFE_SAFETY_HAZARDS`` inline
+# read in ``notification_manager.py`` has been migrated to route through
+# ``is_life_safety_hazard(...)`` — the review-C mutation-anchored test
+# surface. Falsifiable invariant I-C2-LS:
+#
+#   For any hazard_type H and any reachable NM code path, H is treated
+#   as life-safety iff H ∈ (NM_LIFE_SAFETY_HAZARDS ∪
+#   options[CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS]).
+#
+# Cache flush + membership contract: the extras knob key is registered in
+# ``_NO_LIVE_ATTR_KEYS`` + ``OPTIONS_RELOAD_SUPPRESS_KEYS`` (via
+# ``_NM_C_KEYS`` in ``__init__.py``); the CM options-update listener calls
+# :func:`invalidate_knob_cache` unconditionally so the next
+# ``is_life_safety_hazard`` call after apply sees the new union.
+
+
+def is_life_safety_hazard(hass: HomeAssistant, hazard_type: Any) -> bool:
+    """Union of the rung-1 base frozenset and operator-promoted extras.
+
+    ADDITIVE-ONLY by construction — base members always return True.
+    Lowercase-coerces the input (Bug Class #22 mitigation) and the extras
+    list (defence-in-depth in case the save-side coercion misfires).
+    """
+    from ..const import (
+        NM_LIFE_SAFETY_HAZARDS,
+        CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS,
+        DEFAULT_NM_EXTRA_LIFE_SAFETY_HAZARDS,
+    )
+    token = str(hazard_type or "").lower()
+    if token in NM_LIFE_SAFETY_HAZARDS:
+        return True
+    extras_raw = nm_cycle_a_knob(
+        hass,
+        CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS,
+        DEFAULT_NM_EXTRA_LIFE_SAFETY_HAZARDS,
+    )
+    extras = frozenset(str(x).lower() for x in (extras_raw or ()))
+    return token in extras
+
+
 def should_defer_high_to_digest(hass: HomeAssistant, finding: Any) -> bool:
     """Return True iff the caller should DEFER this finding to the daily digest.
 

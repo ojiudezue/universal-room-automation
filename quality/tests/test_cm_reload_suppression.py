@@ -280,6 +280,8 @@ def _load_init_listener_helpers():
         "_CONF_NM_PERSON_HAZARD_OVERRIDES":            "nm_person_hazard_overrides",
         "_CONF_NM_PERSON_DND_BYPASS_SEVERITIES":       "nm_person_dnd_bypass_severities",
         "_CONF_NM_MUTE_DEFAULT_DURATION_MINUTES":      "nm_mute_default_duration_minutes",
+        # NM Cycle C-2 (2026-07-22, D2) — additive-only life-safety extras.
+        "_CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS":          "nm_extra_life_safety_hazards",
         # Typing — frozenset[str] subscript requires Python 3.9+; ok.
     }
     # C-MED-2 fix-up (2026-07-20): self-check every hand-typed _CONF_* alias
