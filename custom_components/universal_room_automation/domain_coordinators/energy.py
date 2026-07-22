@@ -1467,6 +1467,40 @@ class EnergyCoordinator(BaseCoordinator):
                             self._ev._paused_by_blind_window.add(eid)
                 except (ValueError, TypeError):
                     pass
+            # Fix-up D-CRIT-2 (Batch 1) — restore the persisted epoch AND
+            # mark the guard pre-engaged when the pause set is non-empty.
+            # Without the pre-engaged flag, the fresh debounce would
+            # gate `_blind_window_guard_engaged` False for the entire
+            # `CONF_BLIND_WINDOW_ENTRY_DEBOUNCE_S` window post-restart, and
+            # the else-branch (even after the D-CRIT-2 narrowing) would
+            # briefly leave the pause set unclaimed by any current logic —
+            # producing exactly the blind ensure-on flap the fix-up targets.
+            if self._ev._paused_by_blind_window:
+                bw_epoch_iso = await db.restore_energy_state_with_age(
+                    "evse_blind_window_epoch_started_at",
+                    max_age_hours=STALE_MAX_AGE_HOURS,
+                )
+                epoch_dt = None
+                if bw_epoch_iso:
+                    try:
+                        epoch_dt = dt_util.parse_datetime(bw_epoch_iso)
+                        if epoch_dt is not None and epoch_dt.tzinfo is None:
+                            epoch_dt = epoch_dt.replace(tzinfo=dt_util.UTC)
+                    except (ValueError, TypeError):
+                        epoch_dt = None
+                if epoch_dt is None:
+                    # Missing/unparseable persisted epoch — anchor to now().
+                    # The pause set proves the guard engaged pre-restart;
+                    # losing epoch precision costs at most one max-defer
+                    # window's worth of extension, not correctness.
+                    epoch_dt = dt_util.utcnow()
+                self._ev.mark_pre_engaged_from_restore(epoch_dt)
+                _LOGGER.info(
+                    "blind-window guard: pre-engaged from restore "
+                    "(paused_set=%s, epoch=%s)",
+                    sorted(self._ev._paused_by_blind_window),
+                    epoch_dt.isoformat(),
+                )
             # v<next> WS1 D1.1: Restore force-charge expiry from canonical KV.
             # F8 (review): Switch RestoreEntity (`switch.py:802-854`) is the
             # fresher fast-path (~15s attribute flush) and wins when present;
@@ -1832,6 +1866,25 @@ class EnergyCoordinator(BaseCoordinator):
                 "evse_blind_window_paused",
                 _json.dumps(list(self._ev._paused_by_blind_window)),
             )
+            # Fix-up D-CRIT-2 (Batch 1) — persist the epoch wall-clock
+            # alongside the pause set. Restart mid-outage otherwise resets
+            # the epoch to post-restart now(), zeroing the max-defer bound
+            # (D-LOW-1). Empty-string sentinel matches the ev_force_charge
+            # pattern above; restore side treats "" as "no persisted epoch"
+            # and falls back to now() (the pre-fix behavior for that leg).
+            epoch = self._ev._blind_window_epoch_started_at
+            if epoch is not None:
+                if epoch.tzinfo is None:
+                    epoch = epoch.replace(tzinfo=dt_util.UTC)
+                await db.save_energy_state(
+                    "evse_blind_window_epoch_started_at",
+                    epoch.isoformat(),
+                )
+            else:
+                await db.save_energy_state(
+                    "evse_blind_window_epoch_started_at",
+                    "",
+                )
             # D5 (blind-window guard): persist LKG SOC snapshot (value +
             # timestamp). Consumed by the SOCEnvelope decay math on restart.
             battery = getattr(self, "_battery", None)

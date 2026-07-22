@@ -488,3 +488,148 @@ def test_mains_export_key_in_reload_suppress_set():
     assert "_CONF_ENERGY_MAINS_EXPORT_ENTITY" in body, (
         "new CONF key must appear in OPTIONS_RELOAD_SUPPRESS_KEYS body"
     )
+
+
+# ---------------------------------------------------------------------------
+# Fix-up D-CRIT-2 (Batch 1) — restart mid-outage persistence
+# ---------------------------------------------------------------------------
+# RULING: (a) persist `_blind_window_epoch_started_at` alongside the pause
+# set (also fixes D-LOW-1 max-defer clock reset); (b) on restore of a
+# non-empty set, mark the guard pre-engaged (skip debounce); (c) the
+# else-branch drains membership ONLY when the raw entry predicate is
+# confirmed False (envoy back), not when debounce is merely pending.
+#
+# These tests exercise the guard AFTER a simulated restart mid-outage:
+# the persisted pause set is restored, the pre-engaged flag is set, and
+# the very first post-restart tick MUST keep the EVSE paused (no turn_on).
+
+
+def test_pre_engaged_flag_bypasses_debounce_on_first_tick():
+    """Restart-restore case: pre-engaged flag makes the first tick engage
+    immediately, no debounce wait. Mutation: removing the pre-engaged
+    bypass in `_blind_window_guard_engaged` reverts to the flapping bug.
+    """
+    ev = _make_ev(evse_on=True)
+    coord = _make_coord_stub()  # raw predicate True (blind + unverifiable)
+    from homeassistant.util import dt as dt_util
+    from datetime import timedelta
+    # Simulate a restart-restore: persisted pause set + persisted epoch,
+    # NO fresh entry_first_at (would be None post-restart RAM boot).
+    ev._paused_by_blind_window.add("garage_a")
+    ev.mark_pre_engaged_from_restore(
+        dt_util.utcnow() - timedelta(minutes=5),  # outage started 5min ago
+    )
+    # First post-restart tick — pre-engaged bypass MUST fire True.
+    assert ev._blind_window_guard_engaged(coord) is True
+    # After consumption, subsequent ticks stay engaged via seeded
+    # entry_first_at (debounce still satisfied on next call).
+    assert ev._blind_window_pre_engaged is False
+    assert ev._blind_window_guard_engaged(coord) is True
+
+
+def test_pre_engaged_epoch_survives_restore_for_max_defer():
+    """D-LOW-1 close: the persisted epoch anchors max-defer to the actual
+    outage start-time, not post-restart now(). A 5-hour-old epoch trips
+    max-defer even though the restart just happened.
+    """
+    from homeassistant.util import dt as dt_util
+    from datetime import timedelta
+    ev = _make_ev()
+    ev._paused_by_blind_window.add("garage_a")
+    ev.mark_pre_engaged_from_restore(
+        dt_util.utcnow() - timedelta(minutes=CONF_BLIND_WINDOW_MAX_DEFER_MIN + 5),
+    )
+    # Max-defer must be exceeded because the epoch is honestly old.
+    assert ev._blind_window_max_defer_exceeded() is True
+
+
+def test_MUTATION_mid_outage_restart_first_tick_keeps_evse_paused(monkeypatch):
+    """B's mandated mid-outage-restart fixture.
+
+    Setup: outage in progress, EVSE is currently ON (never got its
+    fail-safe pause pre-crash — or already paused, either way we prove
+    the RESTORED pause set means the guard IMMEDIATELY commands OFF /
+    stays OFF, no `switch.turn_on`).
+
+    Mutations killed:
+      * Removing `mark_pre_engaged_from_restore` wiring => guard reports
+        not engaged on first tick, else-branch would drain the set OR
+        (post-fix) leaves membership intact but ensure-on could still
+        fire in a subsequent tick. Either failure mode makes this test
+        fail (no persisted pause, guard cannot claim, ensure-on wins).
+      * Reverting the else-branch drain to unconditional discard =>
+        first tick with `_blind_window_pre_engaged=True` still engages
+        via the bypass, but if a code-path bug leaves the guard in the
+        else-branch (e.g. broken pre-engaged path), unconditional drain
+        would immediately wipe the restored set. Guarded by the
+        assertion below.
+    """
+    from homeassistant.util import dt as dt_util
+    from datetime import timedelta
+    ev = _make_ev(evse_on=True)
+    coord = _make_coord_stub(envelope=(20.0, 30.0))  # envelope denies ride
+    # Simulate the restore handler having run.
+    ev._paused_by_blind_window.add("garage_a")
+    ev.mark_pre_engaged_from_restore(
+        dt_util.utcnow() - timedelta(minutes=10),
+    )
+    actions = ev.determine_actions("off_peak", coord=coord)
+    # No turn_on emitted (guard has authority).
+    assert not any(a["service"] == "switch.turn_on" for a in actions)
+    # Restored pause set survived the tick.
+    assert "garage_a" in ev._paused_by_blind_window
+    # Fail-safe pause leg still commands OFF for the currently-ON EVSE.
+    assert any(a["service"] == "switch.turn_off" for a in actions)
+
+
+def test_mid_outage_restart_else_branch_narrowed_drain_holds_membership_during_debounce():
+    """Fix-up D-CRIT-2 (c) — else-branch drains only when raw predicate is
+    confirmed False. During a debounce-pending tick (raw True, engaged
+    False because pre-engaged is off and clock hasn't elapsed), the else
+    branch MUST NOT drain the pause set.
+
+    Prior-bug repro: even without the pre-engaged bypass, membership
+    survives a debounce-pending tick provided the raw predicate says
+    we're still blind.
+    """
+    ev = _make_ev(evse_on=False)
+    coord = _make_coord_stub()  # raw predicate True
+    ev._paused_by_blind_window.add("garage_a")
+    # Force the debounce clock to be PENDING (freshly stamped now).
+    import time as _time
+    ev._blind_window_entry_first_at = _time.monotonic()  # 0 elapsed
+    # No pre-engaged bypass (default False) — engaged reports False due
+    # to debounce, but raw predicate is True.
+    assert ev._blind_window_guard_engaged(coord) is False
+    # NOTE: the guard-engaged call above set entry_first_at as a side
+    # effect if it was None; we set it explicitly, so debounce is still
+    # pending. The determine_actions else-branch must NOT drain because
+    # the raw predicate is True (this is D-CRIT-2 (c)).
+    ev.determine_actions("off_peak", coord=coord)
+    assert "garage_a" in ev._paused_by_blind_window
+
+
+def test_else_branch_drains_only_on_confirmed_envoy_recovery():
+    """Fix-up D-CRIT-2 (c) — the drain path fires when the raw predicate
+    is False (envoy actually back). Existing carry-over-then-recovery test
+    still holds. This is the paired case: identical to
+    `test_guard_clears_on_envoy_recovery` but explicitly through the
+    else-branch drain gate.
+    """
+    ev = _make_ev(evse_on=False)
+    ev._paused_by_blind_window.add("garage_a")
+    coord_recovered = _make_coord_stub(blind_hold=False)  # raw predicate False
+    ev.determine_actions("off_peak", coord=coord_recovered)
+    assert "garage_a" not in ev._paused_by_blind_window
+
+
+def test_mark_pre_engaged_from_restore_stores_epoch():
+    """Public helper contract: sets both epoch + flag; flag is one-shot
+    (consumed by next `_blind_window_guard_engaged` call).
+    """
+    from homeassistant.util import dt as dt_util
+    ev = _make_ev()
+    stamp = dt_util.utcnow()
+    ev.mark_pre_engaged_from_restore(stamp)
+    assert ev._blind_window_epoch_started_at == stamp
+    assert ev._blind_window_pre_engaged is True

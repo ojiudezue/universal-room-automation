@@ -1410,6 +1410,18 @@ CONF_BLIND_WINDOW_ENTRY_DEBOUNCE_S: Final[int] = 120
 # have needed. See D2 in the planning doc.
 CONF_DP_EVAL_LOG_RETENTION_DAYS: Final[int] = 90
 
+# Rung-1 (module const, freshness bound — change requires review).
+# Fix-up A-CRIT-1 (Batch 1): a reserve write-verify record is only
+# "verifiable" if its `verified_at` timestamp is fresher than this bound.
+# Between write episodes the record RESTS in STATUS_OK; without a freshness
+# gate, `is_reserve_verifiable()` would return True forever on a resting-OK
+# record even during a live Envoy blackout — the guard's entry predicate
+# could never engage in a quiet outage. Style-matched to the 600s
+# `_desired_stamped_at` staleness gate in energy_write_verify.py at
+# ~line 815 (`_age > 600`). Kill-switch: value 0 disables freshness gating
+# (record status alone governs) — emergency backout.
+CONF_RESERVE_VERIFIABLE_MAX_AGE_S: Final[int] = 600
+
 # Rung-2 (CONF, per-deployment). Optional Emporia-mains backup net/export
 # sensor consulted by the excess-solar path when Envoy is blind. Default
 # unset = current behavior (excess-solar claim requires Envoy). Registry-

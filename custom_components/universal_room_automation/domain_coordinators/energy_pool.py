@@ -314,6 +314,16 @@ class EVChargerController:
         self._blind_window_entry_first_at: float | None = None
         self._blind_window_epoch_started_at: datetime | None = None
         self._blind_window_defers_this_epoch: int = 0
+        # Fix-up D-CRIT-2 (Batch 1) — pre-engaged restore flag. Set by
+        # `mark_pre_engaged_from_restore()` when the restart handler
+        # rehydrates a non-empty `_paused_by_blind_window` set with a
+        # non-None restored epoch. Consumed by `_blind_window_guard_engaged`
+        # to bypass the debounce on the first post-restart tick: the
+        # outage was already debounced pre-restart (the set only got
+        # persisted BECAUSE the guard had engaged), and re-arming the
+        # debounce would cause the else-branch to drain membership,
+        # producing a blind ensure-on flap.
+        self._blind_window_pre_engaged: bool = False
 
         # v4.7.6 D1 #9: Prune stale entries on init (idempotent on cold boot).
         self._prune_removed_evses()
@@ -390,7 +400,10 @@ class EVChargerController:
         raw = self._blind_window_entry_predicate(coord)
         if not raw:
             # Clear debounce + epoch. Any pre-existing pause set membership
-            # is drained by caller (release path in determine_actions).
+            # is drained by caller (release path in determine_actions) —
+            # the caller consults `_blind_window_entry_predicate` directly
+            # to distinguish "raw=False (envoy back)" from "raw=True but
+            # debounce pending" (fix-up D-CRIT-2 else-branch narrowing).
             self._blind_window_entry_first_at = None
             if self._blind_window_epoch_started_at is not None:
                 _LOGGER.info(
@@ -399,7 +412,35 @@ class EVChargerController:
                 )
             self._blind_window_epoch_started_at = None
             self._blind_window_defers_this_epoch = 0
+            # Fix-up D-CRIT-2: clear pre-engaged so the next real outage
+            # debounces normally (only a restart-restored non-empty set
+            # gets the debounce bypass).
+            self._blind_window_pre_engaged = False
             return False
+        # Fix-up D-CRIT-2 (Batch 1) — pre-engaged restore bypass. When the
+        # restart handler rehydrated a non-empty pause set with a non-None
+        # epoch, the outage was already debounced BEFORE the restart. The
+        # persisted set is our proof; skip the fresh debounce so the very
+        # first post-restart tick sees the guard as engaged and the
+        # else-branch does NOT drain membership.
+        if self._blind_window_pre_engaged:
+            # One-shot: consume the flag. Subsequent ticks fall through to
+            # the normal debounce-satisfied branch (epoch is already
+            # populated from restore, so no re-stamp).
+            self._blind_window_pre_engaged = False
+            # Seed entry_first_at so subsequent ticks satisfy the debounce
+            # elapsed check without another wait.
+            if self._blind_window_entry_first_at is None:
+                self._blind_window_entry_first_at = (
+                    time.monotonic()
+                    - float(CONF_BLIND_WINDOW_ENTRY_DEBOUNCE_S)
+                    - 1.0
+                )
+            _LOGGER.info(
+                "blind-window guard: engaged from restart-restore "
+                "(pause set carried over, debounce bypassed)",
+            )
+            return True
         now_mono = time.monotonic()
         if self._blind_window_entry_first_at is None:
             self._blind_window_entry_first_at = now_mono
@@ -420,6 +461,24 @@ class EVChargerController:
                 int(CONF_BLIND_WINDOW_ENTRY_DEBOUNCE_S),
             )
         return True
+
+    def mark_pre_engaged_from_restore(
+        self, epoch_started_at: "datetime | None" = None,
+    ) -> None:
+        """Fix-up D-CRIT-2 (Batch 1) — mark the guard pre-engaged.
+
+        Called from `EnergyCoordinator._restore_evse_state` immediately
+        after rehydrating a non-empty `_paused_by_blind_window` set. Wires
+        the persisted `_blind_window_epoch_started_at` (so the max-defer
+        bound remains anchored to the outage's ACTUAL start, not the
+        post-restart wall-clock — this also closes D-LOW-1) and flips the
+        one-shot bypass flag consumed by `_blind_window_guard_engaged`.
+
+        Idempotent: subsequent invocations without a fresh epoch will
+        overwrite with None (defensive; caller should never do this).
+        """
+        self._blind_window_epoch_started_at = epoch_started_at
+        self._blind_window_pre_engaged = True
 
     def _blind_window_max_defer_exceeded(self) -> bool:
         """True when the current epoch has exceeded the max-defer bound.
@@ -809,8 +868,25 @@ class EVChargerController:
                                 evse_id,
                             )
                     else:
-                        # Guard not engaged — drain any stale membership.
-                        if evse_id in self._paused_by_blind_window:
+                        # Fix-up D-CRIT-2 (Batch 1) — narrow drain gate.
+                        # `_blind_window_guard_engaged` returning False has
+                        # TWO causes:
+                        #   (i) raw entry predicate is False (envoy back /
+                        #       reserve write verifiable — the real "outage
+                        #       ended" case), OR
+                        #   (ii) raw is True but the debounce is still
+                        #        counting (transient blip that may extend
+                        #        into a real outage), OR the pre-engaged
+                        #        one-shot was consumed on a prior tick and
+                        #        state is briefly ambiguous.
+                        # Only case (i) permits draining `_paused_by_blind_window`.
+                        # Draining under (ii) would produce the blind
+                        # ensure-on flap D-CRIT-2 called out: on the very
+                        # next tick the guard re-engages (or force-charge
+                        # gate reaches ensure-on) with a car we already
+                        # explicitly paused.
+                        raw_false = not self._blind_window_entry_predicate(coord)
+                        if raw_false and evse_id in self._paused_by_blind_window:
                             self._paused_by_blind_window.discard(evse_id)
 
                 # v<next> WS2 D2.1: off-peak ensure-on with guard precedence.
