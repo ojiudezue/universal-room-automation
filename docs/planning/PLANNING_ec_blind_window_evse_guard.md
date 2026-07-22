@@ -405,3 +405,53 @@ incident already happened).
 5. **D3 probe scope:** should it also correlate Envoy outages with
    HA restart events / integration reload events, so the "spontaneous
    recovery" hypothesis (load-driven?) has more data? Cheap to add.
+
+---
+
+## Operator adjudication — 2026-07-21 late (verified against code/registry)
+
+**Q1 (fail-safe semantics) — operator correction accepted.** The drain
+guard's actual code semantics (energy_pool.py:1184): pause fires when
+battery is DISCHARGING and SOC < threshold (80). At/below the threshold,
+car charging is legitimate only when grid covers it (battery held); above
+it, battery contribution is tolerated (surplus zone). So the blind-window
+fail-safe decision is NOT "below target → pause"; it is: pause mid-charge
+UNLESS the guard can establish EITHER (a) battery-not-discharging from a
+live non-Envoy source, or (b) SOC ≥ threshold via the LKG envelope (Q4).
+
+**Q2 (excess-solar backup path) — CONFIRMED, Emporia mains has the
+semantics.** Registry: `sensor.mains_vue_2_mainstogrid_*` (export),
+`sensor.mains_vue_3_mainsfromgrid_*` (import),
+`sensor.mainw_vue_balance_*` (net) + `_power_minute_average` variants.
+Export power > threshold = Envoy-independent excess-solar signal. New
+deliverable D4: optional CONF for a backup net/export sensor (config
+path, default unset = current behavior); excess-solar claim may consult
+it when Envoy is blind. Guard covers excess-solar path per operator "yes".
+
+**Q3 — dissolved, operator right.** EC already computes `envoy_available`
+per tick (battery-strategy attr) — the fast local predicate exists. Use
+BOTH: envoy_available (fast entry) + write-verify staleness (confirm for
+the write leg). No new detection surface.
+**New finding from this check:** the CLOUD fallback entity
+(`sensor.iq_battery_hacs_battery_overall_charge`) went unavailable at the
+SAME instants as the local entities (20:09:13, 20:20:34) and recovered
+the same minute (21:44) — identical timestamps across independent
+integrations point to a shared cause (likely a host/LAN network event,
+unproven). Design consequence: the guard MUST NOT assume the cloud tier
+survives local outages — last night it did not.
+
+**Q4 (operator proposal: persist last local SOC) — adopted as D5.**
+The 3-tier resolver already holds an in-RAM LKG (energy_battery.py:290,
+max age DEFAULT_SOC_LKG_MAX_AGE_S=300s) and cloud fallback (600s cap).
+Last night ALL tiers expired/died: 84-min outage >> 300s LKG, cloud
+entity down with it → SOC=None for the whole window. D5:
+(a) persist LKG (value + timestamp) across restart via the existing EC
+persistence shape; (b) extend LKG beyond 300s as a DECAY ENVELOPE, not a
+point estimate: [lkg − max_discharge_kw×Δt/capacity, lkg +
+max_charge_kw×Δt/capacity]. The blind-window guard consumes the envelope:
+lower bound ≥ drain threshold → mid-charge EVSE may ride; else pause.
+Envelope parameters are physics constants (rung 1). This turns "blind"
+from binary into bounded-uncertainty, and directly answers Q1's fail-safe.
+
+Retention (Q4-minor): dp_eval log 90 days ratified by default. Q5 probe
+refinement: skipped (cause-agnostic guard).
