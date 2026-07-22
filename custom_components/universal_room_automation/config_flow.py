@@ -2589,6 +2589,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     "coordinator_notifications",
                     # NM Cycle A-2 — rung-2 knobs for Cycle-A noise reduction.
                     "coordinator_notifications_volume",
+                    # NM Cycle C-2 (2026-07-22) — per-person routing matrix,
+                    # hazard overrides, DND-bypass, mute-default duration,
+                    # and additive-only life-safety hazard extras.
+                    "coordinator_notifications_routing",
                     "signal_responses",
                     # v4.7.34 Phase 1 D7: Optimization Coordinator options section
                     "coordinator_optimization",
@@ -6594,6 +6598,295 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="coordinator_notifications_volume",
+            data_schema=data_schema,
+            errors=errors or None,
+        )
+
+    async def async_step_coordinator_notifications_routing(self, user_input=None):
+        """NM Cycle C-2 (2026-07-22) — D1 routing UI + D2 life-safety extras.
+
+        Authors the four Cycle-C CONF keys (routing matrix, hazard overrides,
+        DND-bypass, mute-default duration) plus the D2 additive-only
+        ``CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS`` knob. Mirrors the A-2 step's
+        save-side contract (default-drop, options-clobber-safe merged
+        writes, lowercase coercion, form re-render on validation error).
+
+        All 5 keys are in ``_NO_LIVE_ATTR_KEYS`` + ``OPTIONS_RELOAD_SUPPRESS_KEYS``
+        (via ``_NM_C_KEYS`` in ``__init__.py``); saving here does NOT
+        trigger a CM reload. NM re-reads via ``_refresh_config`` +
+        ``is_life_safety_hazard(...)`` reads via cached
+        ``nm_cycle_a_knob`` (flushed by the CM update listener).
+
+        The routing matrix / hazard-overrides / DND-bypass keys are
+        persisted as dict/list shapes matching what the NM router already
+        consumes (``notification_manager.py`` ``_route_for_recipient`` +
+        ``_recipient_bypasses_dnd``). The per-person nested grid UX is
+        deferred to a future cycle; this step's ObjectSelector surface
+        lets the operator author the exact persisted shape (matches the
+        service-YAML pattern for other object-shape options).
+        """
+        from .const import (
+            CONF_NM_PERSON_ROUTING_MATRIX,
+            CONF_NM_PERSON_HAZARD_OVERRIDES,
+            CONF_NM_PERSON_DND_BYPASS_SEVERITIES,
+            CONF_NM_MUTE_DEFAULT_DURATION_MINUTES,
+            DEFAULT_NM_MUTE_DEFAULT_DURATION_MINUTES,
+            CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS,
+            DEFAULT_NM_EXTRA_LIFE_SAFETY_HAZARDS,
+            NM_LIFE_SAFETY_HAZARDS,
+            NM_CHANNELS_KNOWN,
+        )
+        from .domain_coordinators.safety import HazardType
+
+        # D2 selector options: HazardType members NOT already in the base
+        # rung-1 frozenset. Kill-switch: empty list = base only.
+        extras_candidates = [
+            {"value": t.value, "label": t.value}
+            for t in HazardType
+            if t.value not in NM_LIFE_SAFETY_HAZARDS
+        ]
+
+        # Cycle C valid severity vocabulary (mirrors the notifications step).
+        _VALID_SEVERITIES = frozenset({"LOW", "MEDIUM", "HIGH", "CRITICAL"})
+        _VALID_CHANNELS = frozenset(NM_CHANNELS_KNOWN)
+
+        _DEFAULTS = {
+            CONF_NM_PERSON_ROUTING_MATRIX: {},
+            CONF_NM_PERSON_HAZARD_OVERRIDES: {},
+            CONF_NM_PERSON_DND_BYPASS_SEVERITIES: {},
+            CONF_NM_MUTE_DEFAULT_DURATION_MINUTES:
+                DEFAULT_NM_MUTE_DEFAULT_DURATION_MINUTES,
+            CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS:
+                list(DEFAULT_NM_EXTRA_LIFE_SAFETY_HAZARDS),
+        }
+
+        def _canonical(value):
+            """Order-independent canonical form for dict/list compare."""
+            if isinstance(value, dict):
+                return tuple(sorted(
+                    (str(k), _canonical(v)) for k, v in value.items()
+                ))
+            if isinstance(value, (list, tuple, set, frozenset)):
+                try:
+                    return tuple(sorted(_canonical(v) for v in value))
+                except TypeError:
+                    return tuple(_canonical(v) for v in value)
+            return value
+
+        def _equals_default(key, submitted):
+            expected = _DEFAULTS[key]
+            if isinstance(expected, (int, float)) and not isinstance(expected, bool):
+                try:
+                    return float(submitted) == float(expected)
+                except (TypeError, ValueError):
+                    return False
+            return _canonical(submitted) == _canonical(expected)
+
+        def _coerce_matrix(m):
+            """Lowercase channel + hazard tokens; uppercase severities (Bug Class #22).
+
+            Persisted shape:
+                {person_id: {SEVERITY: {channel: bool}}}
+            Router reads SEVERITY as ``severity.name.upper()`` and channel
+            names against ``NM_CHANNELS_KNOWN`` (lowercase).
+            """
+            if not isinstance(m, dict):
+                return {}
+            out: dict = {}
+            for person, sev_map in m.items():
+                if not isinstance(sev_map, dict):
+                    continue
+                out[str(person)] = {}
+                for sev, ch_map in sev_map.items():
+                    sev_key = str(sev).upper()
+                    if not isinstance(ch_map, dict):
+                        continue
+                    out[str(person)][sev_key] = {
+                        str(ch).lower(): bool(v) for ch, v in ch_map.items()
+                    }
+            return out
+
+        def _coerce_overrides(o):
+            """Shape: {person_id: {hazard_type: {SEVERITY: {channel: bool}}}}."""
+            if not isinstance(o, dict):
+                return {}
+            out: dict = {}
+            for person, hz_map in o.items():
+                if not isinstance(hz_map, dict):
+                    continue
+                out[str(person)] = {}
+                for hz, sev_map in hz_map.items():
+                    hz_key = str(hz).lower()
+                    if not isinstance(sev_map, dict):
+                        continue
+                    out[str(person)][hz_key] = {}
+                    for sev, ch_map in sev_map.items():
+                        sev_key = str(sev).upper()
+                        if not isinstance(ch_map, dict):
+                            continue
+                        out[str(person)][hz_key][sev_key] = {
+                            str(ch).lower(): bool(v) for ch, v in ch_map.items()
+                        }
+            return out
+
+        def _coerce_dnd(d):
+            """Shape: {person_id: [SEVERITY, ...]}."""
+            if not isinstance(d, dict):
+                return {}
+            out: dict = {}
+            for person, sev_list in d.items():
+                if not isinstance(sev_list, (list, tuple, set, frozenset)):
+                    continue
+                out[str(person)] = sorted({
+                    str(s).upper() for s in sev_list
+                })
+            return out
+
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            # Coerce all matrix keys BEFORE default-drop so a re-opened
+            # form saved untouched leaves persisted-options gain at zero.
+            matrix = _coerce_matrix(
+                user_input.get(CONF_NM_PERSON_ROUTING_MATRIX) or {}
+            )
+            overrides = _coerce_overrides(
+                user_input.get(CONF_NM_PERSON_HAZARD_OVERRIDES) or {}
+            )
+            dnd = _coerce_dnd(
+                user_input.get(CONF_NM_PERSON_DND_BYPASS_SEVERITIES) or {}
+            )
+
+            # D2 extras: lowercase, dedup, allowlist coercion.
+            raw_extras = user_input.get(CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS)
+            if isinstance(raw_extras, (list, tuple, set, frozenset)):
+                extras_lower = [str(x).lower() for x in raw_extras]
+                # Vocabulary-authority guard (Cycle-B A-CRIT-1 sibling):
+                # extras must be canonical HazardType tokens AND must NOT
+                # be in the base rung-1 frozenset (additive-only).
+                valid_extras_tokens = {
+                    t.value for t in HazardType
+                    if t.value not in NM_LIFE_SAFETY_HAZARDS
+                }
+                bad = [x for x in extras_lower if x not in valid_extras_tokens]
+                if bad:
+                    errors["base"] = "nm_c2_extras_unknown_hazard"
+                extras_coerced = sorted(set(extras_lower))
+            else:
+                extras_coerced = list(DEFAULT_NM_EXTRA_LIFE_SAFETY_HAZARDS)
+
+            # Matrix-row completeness: every configured (person, severity)
+            # row must reference a known channel (mixed unknown keys
+            # re-render). All-false rows are the legal "silent" case.
+            for person, sev_map in matrix.items():
+                for sev, ch_map in sev_map.items():
+                    if sev not in _VALID_SEVERITIES:
+                        errors["base"] = "nm_c2_matrix_unknown_severity"
+                    for ch in ch_map:
+                        if ch not in _VALID_CHANNELS:
+                            errors["base"] = "nm_c2_matrix_row_incomplete"
+
+            # Overrides: same channel-vocabulary guard.
+            for person, hz_map in overrides.items():
+                for hz, sev_map in hz_map.items():
+                    for sev, ch_map in sev_map.items():
+                        if sev not in _VALID_SEVERITIES:
+                            errors["base"] = "nm_c2_overrides_unknown_severity"
+                        for ch in ch_map:
+                            if ch not in _VALID_CHANNELS:
+                                errors["base"] = "nm_c2_overrides_unknown_channel"
+
+            # DND-bypass: severities must be canonical.
+            for person, sev_list in dnd.items():
+                for sev in sev_list:
+                    if sev not in _VALID_SEVERITIES:
+                        errors["base"] = "nm_c2_dnd_unknown_severity"
+
+            # Mute duration bounds guard.
+            try:
+                mute_val = int(
+                    user_input.get(
+                        CONF_NM_MUTE_DEFAULT_DURATION_MINUTES,
+                        DEFAULT_NM_MUTE_DEFAULT_DURATION_MINUTES,
+                    )
+                )
+                if mute_val < 0 or mute_val > 1440:
+                    errors["base"] = "nm_c2_mute_duration_out_of_range"
+            except (TypeError, ValueError):
+                errors["base"] = "nm_c2_mute_duration_invalid"
+                mute_val = int(DEFAULT_NM_MUTE_DEFAULT_DURATION_MINUTES)
+
+            if not errors:
+                # Options-clobber-safe merged write (v3.2.3.1 trap):
+                # start from full options dict, mutate ONLY our keys.
+                # Number-persistence no-clobber: the mute-duration
+                # Number entity (NMMuteDefaultDurationNumber) writes the
+                # same CONF key on its setter; we route through the same
+                # merged-dict pattern so neither surface loses writes.
+                new_opts = dict(self._config_entry.options)
+                coerced = {
+                    CONF_NM_PERSON_ROUTING_MATRIX: matrix,
+                    CONF_NM_PERSON_HAZARD_OVERRIDES: overrides,
+                    CONF_NM_PERSON_DND_BYPASS_SEVERITIES: dnd,
+                    CONF_NM_MUTE_DEFAULT_DURATION_MINUTES: mute_val,
+                    CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS: extras_coerced,
+                }
+                for key, val in coerced.items():
+                    if _equals_default(key, val):
+                        new_opts.pop(key, None)
+                    else:
+                        new_opts[key] = val
+                return self.async_create_entry(title="", data=new_opts)
+
+        # Form render — object-shape defaults from persisted options.
+        cur_matrix = self._get_current(CONF_NM_PERSON_ROUTING_MATRIX, {}) or {}
+        cur_overrides = self._get_current(CONF_NM_PERSON_HAZARD_OVERRIDES, {}) or {}
+        cur_dnd = self._get_current(CONF_NM_PERSON_DND_BYPASS_SEVERITIES, {}) or {}
+        cur_mute = int(self._get_current(
+            CONF_NM_MUTE_DEFAULT_DURATION_MINUTES,
+            DEFAULT_NM_MUTE_DEFAULT_DURATION_MINUTES,
+        ))
+        cur_extras = list(self._get_current(
+            CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS,
+            list(DEFAULT_NM_EXTRA_LIFE_SAFETY_HAZARDS),
+        ) or [])
+
+        data_schema = vol.Schema({
+            vol.Optional(
+                CONF_NM_PERSON_ROUTING_MATRIX,
+                default=cur_matrix,
+            ): selector.ObjectSelector(),
+            vol.Optional(
+                CONF_NM_PERSON_HAZARD_OVERRIDES,
+                default=cur_overrides,
+            ): selector.ObjectSelector(),
+            vol.Optional(
+                CONF_NM_PERSON_DND_BYPASS_SEVERITIES,
+                default=cur_dnd,
+            ): selector.ObjectSelector(),
+            vol.Optional(
+                CONF_NM_MUTE_DEFAULT_DURATION_MINUTES,
+                default=cur_mute,
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=1440, step=1,
+                    unit_of_measurement="minutes",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS,
+                default=cur_extras,
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=extras_candidates,
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="coordinator_notifications_routing",
             data_schema=data_schema,
             errors=errors or None,
         )
