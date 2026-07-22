@@ -1694,3 +1694,418 @@ def test_A_HIGH_1_cleanup_decision_log_wired_into_nightly_cadence():
             f"A-HIGH-1: nightly-cadence registration missing/asymmetric "
             f"for {token!r} (found {src.count(token)}, expected 2)"
         )
+
+
+# ===========================================================================
+# Fix-up Batch 5 (FINAL) — MEDIUMs + LOWs + docs anchoring
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# C-MED-1 — D2 dp_eval row-shape test (kills reviewer mutation B5-log)
+# ---------------------------------------------------------------------------
+
+
+def test_C_MED_1_dp_eval_row_shape_source_anchored():
+    """The dp_eval row shape is the forensic ledger's contract. Source-
+    anchored on the exact context/action keys so a mutation that
+    neuters `_log_dp_eval_decision` (empty context, wrong decision_type,
+    missing keys) fails this test.
+    """
+    src_path = _os.path.join(
+        _os.path.dirname(__file__), "..", "..", "custom_components",
+        "universal_room_automation", "domain_coordinators", "energy.py",
+    )
+    with open(src_path) as f:
+        src = f.read()
+    idx = src.find("async def _log_dp_eval_decision(")
+    assert idx != -1, "_log_dp_eval_decision missing"
+    body = src[idx: idx + 4500]
+    # Row must land on decision_log with decision_type='dp_eval'.
+    assert 'decision_type="dp_eval"' in body
+    assert 'coordinator_id="energy"' in body
+    # Context keys required for forensic replay of the 2026-07-20 shape:
+    for key in (
+        '"state"',
+        '"prior_state"',
+        '"reason"',
+        '"charger_rate_kw"',
+        '"soc"',
+        '"is_blind_hold"',
+        '"reserve_verifiable"',
+        '"drain_target_soc"',
+        '"tou_period"',
+        '"force_charge_active"',
+        '"soc_envelope_lower"',
+        '"soc_envelope_upper"',
+        '"ev_load_w"',
+        '"now_iso"',
+    ):
+        assert key in body, (
+            f"C-MED-1: dp_eval context missing key {key!r} — forensic "
+            f"replay shape regressed"
+        )
+    # Action shape.
+    assert '"transitioned"' in body
+    assert '"next_state"' in body
+
+
+def test_C_MED_1_dp_eval_call_site_uses_async_create_task():
+    """The dp_eval log dispatch must not block the decision-cycle path.
+    Batch 5 B6-low anchors the task handle for teardown-cancel; the
+    schedule call itself must remain non-blocking.
+    """
+    src_path = _os.path.join(
+        _os.path.dirname(__file__), "..", "..", "custom_components",
+        "universal_room_automation", "domain_coordinators", "energy.py",
+    )
+    with open(src_path) as f:
+        src = f.read()
+    idx = src.find("_dp_eval_task = self.hass.async_create_task(")
+    assert idx != -1, (
+        "dp_eval schedule call must retain async_create_task + task "
+        "handle assignment (B6-low)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# C-MED-2 — LKG persist/restore round-trip (kills mutation B6-LKG)
+# ---------------------------------------------------------------------------
+
+
+def _ensure_dt_parse_available():
+    """The sibling `test_energy_load_shedding_correctness` bootstrap
+    does NOT provide `parse_datetime` / `UTC` on the mocked
+    `homeassistant.util.dt`. `restore_lkg_snapshot` needs both; patch
+    them in on-the-fly so this test's round-trip actually exercises
+    the production code path (rather than falling into the broad
+    `except` which would silently no-op).
+    """
+    from datetime import datetime, timezone
+    import homeassistant.util.dt as _dt
+    if not hasattr(_dt, "parse_datetime"):
+        _dt.parse_datetime = lambda s: (
+            datetime.fromisoformat(s) if isinstance(s, str) and s else None
+        )
+    if not hasattr(_dt, "UTC"):
+        _dt.UTC = timezone.utc
+
+
+def test_C_MED_2_lkg_snapshot_round_trip_preserves_value_and_timestamp():
+    """Round-trip contract:
+      * `get_lkg_snapshot()` returns None when unset (first-boot safety).
+      * After manual set, returns {"value": float, "at_iso": ISO}.
+      * `restore_lkg_snapshot(payload)` rehydrates value + timestamp.
+      * Empty/None payload does NOT clobber existing RAM state.
+
+    Mutation B6-LKG: neuter `restore_lkg_snapshot` (e.g. drop the
+    `self._soc_lkg = v` line) => the round-trip assertion below fails.
+    """
+    _ensure_dt_parse_available()
+    from datetime import datetime, timezone
+    # BatteryStrategy has a heavy ctor; probe via a __new__ instance to
+    # exercise ONLY the LKG methods (they are pure and only read
+    # instance attrs `_soc_lkg` + `_soc_lkg_at`).
+    import importlib
+    _mod = importlib.import_module(
+        "custom_components.universal_room_automation.domain_coordinators.energy_battery"
+    )
+    BatteryStrategy = _mod.BatteryStrategy
+    b = BatteryStrategy.__new__(BatteryStrategy)
+    b._soc_lkg = None
+    b._soc_lkg_at = None
+    # First-boot: no LKG => None.
+    assert b.get_lkg_snapshot() is None
+    # Set + snapshot.
+    stamp = datetime(2026, 7, 22, 12, 0, 0, tzinfo=timezone.utc)
+    b._soc_lkg = 47.5
+    b._soc_lkg_at = stamp
+    snap = b.get_lkg_snapshot()
+    assert snap is not None
+    assert snap["value"] == 47.5
+    assert snap["at_iso"].startswith("2026-07-22T12:00:00")
+
+    # Restore into a fresh instance.
+    b2 = BatteryStrategy.__new__(BatteryStrategy)
+    b2._soc_lkg = None
+    b2._soc_lkg_at = None
+    b2.restore_lkg_snapshot(snap)
+    assert b2._soc_lkg == 47.5
+    assert b2._soc_lkg_at is not None
+    # Timestamp round-trips (tz-aware preservation contract).
+    assert b2._soc_lkg_at.isoformat().startswith("2026-07-22T12:00:00")
+
+
+def test_C_MED_2_lkg_restore_none_or_empty_does_not_clobber():
+    """Contract on the RESTORE side — a None / empty payload is a no-op,
+    not a wipe. Prevents a first-boot deserialize-empty-KV from
+    destroying a same-boot fresh LKG read.
+    """
+    from datetime import datetime, timezone
+    import importlib
+    _mod = importlib.import_module(
+        "custom_components.universal_room_automation.domain_coordinators.energy_battery"
+    )
+    BatteryStrategy = _mod.BatteryStrategy
+    b = BatteryStrategy.__new__(BatteryStrategy)
+    b._soc_lkg = 55.0
+    b._soc_lkg_at = datetime(2026, 7, 22, tzinfo=timezone.utc)
+    b.restore_lkg_snapshot(None)
+    assert b._soc_lkg == 55.0
+    b.restore_lkg_snapshot({})
+    assert b._soc_lkg == 55.0
+
+
+def test_C_MED_2_lkg_restore_garbage_payload_is_safe_noop():
+    """Corrupt payload (non-numeric value, unparseable timestamp) must
+    NOT crash and must leave RAM state untouched.
+    """
+    from datetime import datetime, timezone
+    import importlib
+    _mod = importlib.import_module(
+        "custom_components.universal_room_automation.domain_coordinators.energy_battery"
+    )
+    BatteryStrategy = _mod.BatteryStrategy
+    b = BatteryStrategy.__new__(BatteryStrategy)
+    b._soc_lkg = 60.0
+    original_at = datetime(2026, 7, 21, tzinfo=timezone.utc)
+    b._soc_lkg_at = original_at
+    b.restore_lkg_snapshot({"value": "not_a_number", "at_iso": "garbage"})
+    assert b._soc_lkg == 60.0
+    assert b._soc_lkg_at == original_at
+
+
+def test_C_MED_2_lkg_get_snapshot_returns_none_when_only_partial_ram_state():
+    """If _soc_lkg is set but _soc_lkg_at is None (or vice versa) the
+    snapshot must be None — an incomplete pair can't be trusted on
+    restore to age correctly.
+    """
+    import importlib
+    _mod = importlib.import_module(
+        "custom_components.universal_room_automation.domain_coordinators.energy_battery"
+    )
+    BatteryStrategy = _mod.BatteryStrategy
+    b = BatteryStrategy.__new__(BatteryStrategy)
+    b._soc_lkg = 40.0
+    b._soc_lkg_at = None
+    assert b.get_lkg_snapshot() is None
+    b._soc_lkg = None
+    from datetime import datetime, timezone
+    b._soc_lkg_at = datetime(2026, 7, 22, tzinfo=timezone.utc)
+    assert b.get_lkg_snapshot() is None
+
+
+def test_C_MED_2_soc_envelope_returns_none_when_lkg_past_max_age():
+    """Past-max-age contract on the envelope side: a stale LKG produces
+    None from `soc_envelope()` (via the SOCEnvelope max-age gate). The
+    guard's fail-safe pause leg then cannot ride, which is the
+    correct-safe behavior.
+    """
+    from datetime import datetime, timezone, timedelta
+    from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+        DEFAULT_SOC_LKG_ENVELOPE_MAX_AGE_S,
+    )
+    import importlib
+    _mod = importlib.import_module(
+        "custom_components.universal_room_automation.domain_coordinators.energy_battery"
+    )
+    BatteryStrategy = _mod.BatteryStrategy
+    b = BatteryStrategy.__new__(BatteryStrategy)
+    # Stub the private helpers the property invokes.
+    b._get_entity = lambda k, d=None, **kw: None
+    b._get_state_float = lambda eid: None  # primary SOC unavailable
+    b._soc_lkg = 50.0
+    b._soc_lkg_at = (
+        datetime.now(tz=timezone.utc)
+        - timedelta(seconds=int(DEFAULT_SOC_LKG_ENVELOPE_MAX_AGE_S) + 60)
+    )
+    assert b.soc_envelope() is None
+
+
+# ---------------------------------------------------------------------------
+# B7 — DP-tick snapshot threaded into the guard path
+# ---------------------------------------------------------------------------
+
+
+def test_B7_guard_prefers_snapshot_when_available():
+    """When the coord exposes `blind_hold_active_snapshot`, the guard
+    predicate reads THAT (single per-tick truth), not the property.
+    """
+    from types import SimpleNamespace
+    coord = SimpleNamespace(
+        # Property says NOT blind, snapshot says BLIND. Guard MUST honor
+        # the snapshot (DP tick's authoritative value for this tick).
+        blind_hold_active=False,
+        blind_hold_active_snapshot=lambda: True,
+        reserve_write_verifiable=lambda: False,
+    )
+    ev = _make_ev()
+    assert ev._blind_window_entry_predicate(coord) is True
+
+
+def test_B7_guard_falls_back_to_property_without_snapshot():
+    """Legacy stubs (no snapshot method) still work — the getattr
+    fallback keeps existing test fixtures + non-tick call sites honest.
+    """
+    from types import SimpleNamespace
+    coord = SimpleNamespace(
+        blind_hold_active=True,
+        reserve_write_verifiable=lambda: False,
+    )
+    ev = _make_ev()
+    assert ev._blind_window_entry_predicate(coord) is True
+
+
+def test_B7_snapshot_method_returns_fresh_or_property():
+    """Source-anchored: the snapshot method must consult the recorded
+    snapshot within a staleness window, else fall back to the property.
+    Mutation: replace the snapshot check with `return
+    self.blind_hold_active` unconditionally => this test fails.
+    """
+    src_path = _os.path.join(
+        _os.path.dirname(__file__), "..", "..", "custom_components",
+        "universal_room_automation", "domain_coordinators", "energy.py",
+    )
+    with open(src_path) as f:
+        src = f.read()
+    idx = src.find("def blind_hold_active_snapshot(")
+    assert idx != -1
+    body = src[idx: idx + 1500]
+    assert "_blind_hold_snapshot" in body
+    assert "max_age_s" in body
+    assert "return bool(self.blind_hold_active)" in body
+
+
+# ---------------------------------------------------------------------------
+# D-LOW-2 — riding EVSEs must NOT be added to _paused_by_blind_window
+# ---------------------------------------------------------------------------
+
+
+def test_D_LOW_2_riding_evse_is_not_claimed_as_paused():
+    """Ownership honesty: an ON EVSE with envelope permitting ride is
+    NOT paused by the guard, so it MUST NOT appear in
+    `_paused_by_blind_window`. Persistence (`_save_evse_state`) would
+    otherwise restore a bogus pause.
+    """
+    ev = _make_ev(evse_on=True)
+    coord = _make_coord_stub(envelope=(70.0, 80.0))  # lower 70 >= 40 => ride
+    _engage_guard(ev, coord)
+    ev.determine_actions("off_peak", coord=coord)
+    assert "garage_a" not in ev._paused_by_blind_window
+    # Defer counter also does NOT increment (not deferred, riding).
+    assert ev._blind_window_defers_this_epoch == 0
+
+
+def test_D_LOW_2_ride_ok_drops_stale_membership_from_prior_pause():
+    """Envelope was tight last tick (real pause claimed) → envelope
+    permits this tick (ride). The stale claim must drop so ownership
+    matches reality.
+    """
+    ev = _make_ev(evse_on=True)
+    ev._paused_by_blind_window.add("garage_a")  # stale from prior tick
+    coord = _make_coord_stub(envelope=(70.0, 80.0))
+    _engage_guard(ev, coord)
+    ev.determine_actions("off_peak", coord=coord)
+    assert "garage_a" not in ev._paused_by_blind_window
+
+
+def test_D_LOW_2_real_pause_still_claims_membership():
+    """Regression guard: an ON EVSE with envelope DENYING ride still
+    gets claimed (real pause). And an OFF EVSE (defer-ensure-on) also
+    claims (so `_stronger_peer_holds` blocks other paths from turning
+    it on).
+    """
+    # ON + envelope denies => real pause + claim.
+    ev = _make_ev(evse_on=True)
+    coord_deny = _make_coord_stub(envelope=(20.0, 30.0))
+    _engage_guard(ev, coord_deny)
+    ev.determine_actions("off_peak", coord=coord_deny)
+    assert "garage_a" in ev._paused_by_blind_window
+
+    # OFF + envelope denies (or None) => defer + claim.
+    ev2 = _make_ev(evse_on=False)
+    coord_none = _make_coord_stub(envelope=None)
+    _engage_guard(ev2, coord_none)
+    ev2.determine_actions("off_peak", coord=coord_none)
+    assert "garage_a" in ev2._paused_by_blind_window
+
+
+# ---------------------------------------------------------------------------
+# D-LOW-3 — blind_hold_active fail-CLOSED on exception
+# ---------------------------------------------------------------------------
+
+
+def test_D_LOW_3_blind_hold_active_source_anchored_fail_closed():
+    """Source-anchored: the exception branch on `envoy_available` MUST
+    default `env_ok = False` (fail-closed), NOT True. Prior code was
+    fail-open which silently disabled the guard under a transient
+    read exception. WARNING logging must be present.
+    """
+    src_path = _os.path.join(
+        _os.path.dirname(__file__), "..", "..", "custom_components",
+        "universal_room_automation", "domain_coordinators", "energy.py",
+    )
+    with open(src_path) as f:
+        src = f.read()
+    idx = src.find("def blind_hold_active(")
+    assert idx != -1
+    body = src[idx: idx + 3000]
+    # Fail-closed direction.
+    assert "env_ok = False" in body
+    assert "assuming " in body  # WARNING message present
+    assert "_LOGGER.warning" in body
+
+
+# ---------------------------------------------------------------------------
+# B6-low — teardown cancels the dp_eval task handle
+# ---------------------------------------------------------------------------
+
+
+def test_B6_low_teardown_cancels_pending_dp_eval_task_source_anchored():
+    """Source-anchored: teardown must consult `_dp_eval_last_task` and
+    cancel if pending. Removing the cancel snippet opens Bug Class #38.
+    """
+    src_path = _os.path.join(
+        _os.path.dirname(__file__), "..", "..", "custom_components",
+        "universal_room_automation", "domain_coordinators", "energy.py",
+    )
+    with open(src_path) as f:
+        src = f.read()
+    # Teardown block includes the dp_eval cancel snippet.
+    idx = src.find("async def async_teardown(")
+    assert idx != -1
+    body = src[idx:]
+    # Locate the tail of teardown (up to the class-end or next def).
+    end_idx = body.find("\n    async def ", 100)
+    end_idx = end_idx if end_idx != -1 else 8000
+    body = body[:end_idx]
+    assert "_dp_eval_last_task" in body
+    assert "_dp_task.cancel()" in body
+
+
+# ---------------------------------------------------------------------------
+# EC manual anchor — row 2.5 documents the FINAL semantics
+# ---------------------------------------------------------------------------
+
+
+def test_EC_manual_row_2_5_documents_final_semantics():
+    """Guardrail: the operator-facing manual entry for row 2.5 must
+    reference the final semantics so a doc drift is caught at test time.
+    """
+    manual = _os.path.join(
+        _os.path.dirname(__file__), "..", "..", "docs", "Coordinator",
+        "ENERGY_COORDINATOR_MANUAL.md",
+    )
+    with open(manual) as f:
+        src = f.read()
+    for token in (
+        "CONF_BLIND_WINDOW_ENTRY_DEBOUNCE_S",
+        "CONF_BLIND_WINDOW_MAX_DEFER_MIN",
+        "blind_window_liveness_release",
+        "CONTINUE-permission",
+        "D-LOW-2",
+        "blind_window_defer",
+    ):
+        assert token in src, (
+            f"EC manual §2.4b row 2.5 stale — missing token: {token!r}"
+        )

@@ -373,9 +373,26 @@ class EVChargerController:
         staleness on the reserve surface. False means the guard SHOULD NOT
         engage this tick (either Envoy is live OR the reserve write path is
         proveably verifiable).
+
+        Fix-up B7 (Batch 5) — single per-tick truth via
+        `blind_hold_active_snapshot()` on the coord. During a DP tick the
+        snapshot is authoritative (guard sees the same value the DP tick
+        acted on); outside a tick, the snapshot method falls back to the
+        `blind_hold_active` property. Older coord stubs (test fixtures)
+        without the snapshot method fall back to `blind_hold_active`
+        directly. Backward-compatible: `_make_coord_stub` in the test
+        file only exposes `blind_hold_active`, and getattr'ing the
+        snapshot method with a fallback keeps those tests passing.
         """
         try:
-            if not coord.blind_hold_active:
+            snapshot_reader = getattr(
+                coord, "blind_hold_active_snapshot", None,
+            )
+            if callable(snapshot_reader):
+                blind = snapshot_reader()
+            else:
+                blind = coord.blind_hold_active
+            if not blind:
                 return False
         except Exception:  # noqa: BLE001
             return False
@@ -848,24 +865,43 @@ class EVChargerController:
                         ride_ok = self._blind_window_envelope_permits_ride(
                             coord, drain_target,
                         )
-                        # Newly engage or re-affirm the pause set.
-                        if evse_id not in self._paused_by_blind_window:
+                        # Fix-up D-LOW-2 (Batch 5) — OWNERSHIP HONESTY.
+                        # An EVSE that is ON with `ride_ok=True` is NOT
+                        # being paused by the guard — it is being ridden.
+                        # Adding it to `_paused_by_blind_window` was a lie
+                        # about ownership that (a) confused the enumeration
+                        # audit (a "paused-by" set with unpaused members),
+                        # (b) leaked persistence rows (`_save_evse_state`
+                        # writes the set verbatim; restart would restore a
+                        # bogus pause for an EVSE the operator was actively
+                        # allowing to ride), and (c) triggered dedup-defer
+                        # log rows that don't reflect real defers.
+                        # Only claim membership when we're actually pausing.
+                        will_pause = (state["is_on"] and not ride_ok) or (
+                            not state["is_on"]
+                        )
+                        if will_pause and evse_id not in self._paused_by_blind_window:
                             self._paused_by_blind_window.add(evse_id)
                             self._proactive_offpeak_holds.discard(evse_id)
-                        # Fix-up B5 (Batch 4) — INV-BW1 defer log +
-                        # dedup counter. `maybe_log_blind_window_defer`
-                        # dedups per (evse, epoch) so a multi-hour outage
-                        # generates a bounded set of rows. The counter
-                        # increments ONLY on FIRST defer this epoch,
-                        # matching the row cardinality.
-                        try:
-                            first_this_epoch = (
-                                coord.maybe_log_blind_window_defer(evse_id)
-                            )
-                        except Exception:  # noqa: BLE001
-                            first_this_epoch = False
-                        if first_this_epoch:
-                            self._blind_window_defers_this_epoch += 1
+                        elif not will_pause and evse_id in self._paused_by_blind_window:
+                            # A prior tick paused this EVSE; ride_ok now
+                            # permits ride. Drop the stale claim so the
+                            # ownership set matches reality.
+                            self._paused_by_blind_window.discard(evse_id)
+                        # Fix-up B5 (Batch 4) + D-LOW-2 gating — INV-BW1
+                        # defer log only fires when we're actually
+                        # deferring (pausing or refusing ensure-on).
+                        # Ownership honesty: a riding EVSE is not being
+                        # deferred, so it does not produce a defer row.
+                        if will_pause:
+                            try:
+                                first_this_epoch = (
+                                    coord.maybe_log_blind_window_defer(evse_id)
+                                )
+                            except Exception:  # noqa: BLE001
+                                first_this_epoch = False
+                            if first_this_epoch:
+                                self._blind_window_defers_this_epoch += 1
                         if state["is_on"] and not ride_ok:
                             actions.append({
                                 "service": "switch.turn_off",

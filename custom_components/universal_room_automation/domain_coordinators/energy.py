@@ -3354,16 +3354,73 @@ class EnergyCoordinator(BaseCoordinator):
         (`(not envoy_available) and battery_soc is None`) but as a
         public property so `energy_pool` may consult it without reaching
         into private state.
+
+        Fix-up D-LOW-3 (Batch 5) — FAIL-CLOSED on exception. The prior
+        `env_ok = True` fallback was fail-OPEN for a battery-protection
+        guard: an exception reading `envoy_available` would report the
+        Envoy as HEALTHY and the guard would refuse to engage even
+        under a real outage. The safer direction for a battery-protection
+        guard is "assume the worst" — treat an unreadable env_ok as
+        `False` (Envoy assumed down), which combined with an unreadable
+        SOC (also None) yields `blind_hold_active=True` and the guard
+        may engage. If the reserve write path is separately verifiable,
+        the guard's second predicate (`reserve_write_verifiable`) will
+        still short-circuit the false-positive engagement — so worst
+        case under this exception path is one tick of over-conservative
+        protection, not a silent ensure-on. WARNING is logged so a
+        recurring exception is observable in ops.
         """
         try:
             env_ok = bool(self._battery.envoy_available)
         except Exception:  # noqa: BLE001
-            env_ok = True
+            _LOGGER.warning(
+                "blind_hold_active: envoy_available read raised; assuming "
+                "Envoy DOWN (fail-closed)", exc_info=True,
+            )
+            env_ok = False
         try:
             soc = self._battery.battery_soc
         except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "blind_hold_active: battery_soc read raised; assuming "
+                "SOC unresolved (fail-closed)", exc_info=True,
+            )
             soc = None
         return (not env_ok) and soc is None
+
+    # Fix-up B7 (Batch 5) — DP-tick snapshot of blind_hold_active.
+    # The DP tick computes the same predicate locally at ~line 4064
+    # (`_env_ok`/`_bat_soc` snapshot). Threading that snapshot in here
+    # gives the GUARD path a single per-tick truth (avoids the guard
+    # re-reading Envoy state during the same tick and observing a
+    # different result). Non-tick consumers keep reading the property
+    # directly (the sensor attrs, etc.). Authority contract:
+    #   * DURING a DP tick: `blind_hold_active_snapshot()` is authoritative.
+    #   * OUTSIDE a DP tick: `blind_hold_active` property is authoritative.
+    def _record_blind_hold_snapshot(self, is_blind_hold: bool) -> None:
+        """Called from the DP tick with the tick's computed is_blind_hold.
+
+        Stores the value + a monotonic timestamp; the snapshot is only
+        consulted within a bounded staleness window (one decision tick)
+        so a stale snapshot never leaks into a fresh tick.
+        """
+        import time as _time
+        self._blind_hold_snapshot = (bool(is_blind_hold), _time.monotonic())
+
+    def blind_hold_active_snapshot(self, max_age_s: float = 30.0) -> bool:
+        """Return the DP tick's snapshot if fresh; else the property.
+
+        The GUARD path (energy_pool.py) uses this method so both the
+        DP tick and the guard see the SAME blind_hold_active value
+        within a decision cycle — no torn reads.
+        """
+        import time as _time
+        snap = getattr(self, "_blind_hold_snapshot", None)
+        if snap is not None:
+            value, at = snap
+            if (_time.monotonic() - at) <= float(max_age_s):
+                return bool(value)
+        return bool(self.blind_hold_active)
 
     def reserve_write_verifiable(self) -> bool:
         """True iff the reserve write path is proveably verifiable now.
@@ -3442,6 +3499,19 @@ class EnergyCoordinator(BaseCoordinator):
 
         env_lower = env[0] if env else None
         env_upper = env[1] if env else None
+        # Batch-4 note (documented per Batch-5 (7)): when `drain_target`
+        # is None (operator has NOT wired `_ev_battery_drain_soc`), the
+        # AND-clause below evaluates False — envelope_low_below_drain=False
+        # — and (under has_pressure=False) the release will be permitted.
+        # RATIONALE: no wired drain target ⇒ no numeric safety floor
+        # exists ⇒ the guard has no basis to hold pause on envelope
+        # grounds. The alternative (default drain=X) would inject a
+        # fabricated policy number, which the "Numbers Get Knobs"
+        # ladder in CLAUDE.md explicitly bars. Operators wanting a
+        # protective floor MUST wire the drain-target knob; otherwise
+        # max-defer expiry yields cleanly. This matches the current
+        # semantics of `_blind_window_envelope_permits_ride` where a
+        # None drain_target also returns False (no proof possible).
         envelope_low_below_drain = (
             env_lower is not None
             and drain_target is not None
@@ -4059,9 +4129,24 @@ class EnergyCoordinator(BaseCoordinator):
         except Exception:  # noqa: BLE001
             _bat_soc = None
 
+        # Fix-up B7 (Batch 5) — single per-tick truth. Compute the
+        # is_blind_hold value ONCE here and thread it into (a) the
+        # DPInputs shape below AND (b) the coord's snapshot slot for
+        # the guard path to consult during THIS same tick.
+        _tick_is_blind_hold = bool((not _env_ok) and _bat_soc is None)
+        # Defensive: extracted-namespace test FakeCoords bind
+        # `_dp_decision_tick` onto their own class without inheriting
+        # `_record_blind_hold_snapshot`. getattr fallback keeps the
+        # DP surface stable for those fixtures.
+        _rec = getattr(self, "_record_blind_hold_snapshot", None)
+        if callable(_rec):
+            try:
+                _rec(_tick_is_blind_hold)
+            except Exception:  # noqa: BLE001
+                pass
         _dp_inputs = _DPInputs(
             dp_enabled=True,
-            is_blind_hold=bool((not _env_ok) and _bat_soc is None),
+            is_blind_hold=_tick_is_blind_hold,  # B7
             force_charge_active=(
                 self._ev._force_charge_until is not None  # noqa: SLF001
                 and self._ev._force_charge_until > _now_dp  # noqa: SLF001
@@ -4097,8 +4182,14 @@ class EnergyCoordinator(BaseCoordinator):
         # eval tick so the forensic trace the 2026-07-20 incident lacked is
         # durably captured. Non-blocking (async_create_task) — the DP tick
         # runs on the decision-cycle path. See PLANNING_ec_blind_window_evse_guard.md.
+        # Fix-up B6-low (Batch 5) — track the dp_eval fire-and-forget task
+        # handle so teardown can cancel it if in-flight. Sibling shape to
+        # `WriteVerifier.cancel_all` (Bug Class #38 — orphan async_call_later
+        # handles). We only need to retain the LAST scheduled task: DP eval
+        # runs once per decision cycle (~5 min), and the DAO is idempotent
+        # (INSERT), so an overlapping second task never occurs organically.
         try:
-            self.hass.async_create_task(
+            _dp_eval_task = self.hass.async_create_task(
                 self._log_dp_eval_decision(
                     prev_state=_prev_dp_state,
                     now=_now_dp,
@@ -4107,6 +4198,11 @@ class EnergyCoordinator(BaseCoordinator):
                     ev_load_w=ev_load_w,
                 )
             )
+            # Retain the handle. On the next tick this will be overwritten;
+            # the previous task is either done (task ref goes out of scope
+            # cleanly) or still pending (asyncio keeps it alive via the
+            # loop's ready queue). Teardown consults this slot.
+            self._dp_eval_last_task = _dp_eval_task
         except Exception:  # noqa: BLE001
             _LOGGER.debug("dp_eval log dispatch failed (swallowed)", exc_info=True)
 
@@ -8084,6 +8180,17 @@ class EnergyCoordinator(BaseCoordinator):
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
                 "write_verifier.cancel_all raised (swallowed)", exc_info=True,
+            )
+        # Fix-up B6-low (Batch 5) — cancel a pending dp_eval log task if
+        # in-flight. Prevents a late DB write firing against a torn-down
+        # DB / hass instance.
+        try:
+            _dp_task = getattr(self, "_dp_eval_last_task", None)
+            if _dp_task is not None and not _dp_task.done():
+                _dp_task.cancel()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "dp_eval_last_task cancel raised (swallowed)", exc_info=True,
             )
         self._cancel_listeners()
         _LOGGER.info("Energy Coordinator stopped")
