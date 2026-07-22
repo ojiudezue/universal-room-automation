@@ -1332,8 +1332,11 @@ class EVChargerController:
         #   - peak: always inert (TOU pause canonical).
         #   - off_peak AND night (is_daylight is False): inert. Preserves the
         #     v5.5.5 cross-midnight off_peak-release fix (cars charge overnight
-        #     on the cheap-grid window). `is_daylight is None` (no sun info /
-        #     legacy harness) → preserve v5.5.5 always-inert-in-off_peak.
+        #     on the cheap-grid window). `is_daylight is None` (helper raised /
+        #     legacy harness with no kwarg) → preserve v5.5.5 always-inert-in-
+        #     off_peak. NOTE: a sun.sun outage does NOT produce None here —
+        #     `_daylight_bounds` substitutes the 07:00/19:00 fallback envelope
+        #     and returns True/False; None only escapes on a genuine exception.
         #   - off_peak AND daylight (is_daylight is True): NOT inert. Restores
         #     pre-v5.5.5 daytime "battery-first" behavior for the summer
         #     morning off_peak slice (~07:00-14:00) where the previous proxy
@@ -2601,7 +2604,11 @@ class SmartPlugController:
         # evse-offpeak-fill-release D1 + fill-priority-daylight-restoration D1:
         # fill-priority inert outside daytime-pre-peak (mirror of EV path).
         # off_peak: inert at night; NOT inert in daylight (restore daytime
-        # battery-first hold). is_daylight None → preserve v5.5.5 always-inert.
+        # battery-first hold). is_daylight None (helper raised / legacy harness)
+        # → preserve v5.5.5 always-inert. A sun.sun outage does NOT produce None
+        # here — `_daylight_bounds` substitutes the 07:00/19:00 fallback
+        # envelope and returns True/False; None only escapes on a genuine
+        # exception in the caller.
         off_peak_inert = tou_period == "off_peak" and (is_daylight is not True)
         fill_priority_inert = (
             tou_period == "peak"

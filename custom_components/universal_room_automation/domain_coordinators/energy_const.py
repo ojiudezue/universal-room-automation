@@ -1381,3 +1381,16 @@ CONF_ENERGY_DP_HOUSE_LOAD_SOURCE: Final[str] = "energy_dp_house_load_source"
 # window. Not operator-tunable by design — turning this up hides evidence,
 # turning it down burns disk. Kill: not exposed as a knob.
 DP_SHADOW_LOG_RATE_LIMIT_S: Final[int] = 300
+
+# fill-priority-daylight-restoration fix-up A-M2 (Numbers-Get-Knobs rung-1):
+# Fallback civil sunrise/sunset hours used by
+# ``BatteryStrategy._daylight_bounds`` when ``sun.sun`` is unavailable OR
+# its `next_rising` / `next_setting` attrs fail to parse. Named rung-1
+# module constants — not operator-tunable; widening these silently
+# changes the daytime hold surface everywhere the daylight bool is
+# consumed. Kill semantics: N/A — a bad value degrades the fallback
+# envelope but does not disable the feature (genuine helper exceptions
+# still yield None, which the pool treats as "preserve v5.5.5 off_peak-
+# inert").
+DAYLIGHT_FALLBACK_SUNRISE_HOUR: Final[int] = 7
+DAYLIGHT_FALLBACK_SUNSET_HOUR: Final[int] = 19

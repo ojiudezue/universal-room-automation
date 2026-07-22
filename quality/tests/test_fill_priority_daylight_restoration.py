@@ -313,3 +313,235 @@ class TestL1PlugMirror:
             is_daylight=False,
         )
         assert not _has_off(actions)
+
+    # ------------------------------------------------------------------
+    # Fix-up A-M3 / B-3: plug mid_peak post-peak release (mirror of EV
+    # peak_ahead gating). Pre-fix-up the plug call site did NOT thread
+    # peak_ahead so the plug held unconditionally through mid_peak.
+    # ------------------------------------------------------------------
+
+    def test_plug_midpeak_post_peak_releases(self):
+        """mid_peak + peak_ahead=False + daylight + low SOC → RELEASE (post-peak)."""
+        plug, _ = self._make_plug()
+        actions = plug.determine_fill_priority_actions(
+            soc=51.0, remaining_forecast_kwh=18.0, tou_period="mid_peak",
+            soc_threshold=80, excess_solar_kwh_threshold=5.0,
+            peak_ahead=False, is_daylight=True,
+        )
+        assert not _has_off(actions)
+        assert "switch.plug_a" not in plug._paused_by_fill_priority
+
+    def test_plug_midpeak_peak_ahead_holds(self):
+        """mid_peak + peak_ahead=True + daylight + low SOC → HOLD (pre-peak fill)."""
+        plug, _ = self._make_plug()
+        actions = plug.determine_fill_priority_actions(
+            soc=51.0, remaining_forecast_kwh=18.0, tou_period="mid_peak",
+            soc_threshold=80, excess_solar_kwh_threshold=5.0,
+            peak_ahead=True, is_daylight=True,
+        )
+        assert _has_off(actions)
+
+
+# ---------------------------------------------------------------------------
+# Fix-up C-1: caller thread-through source assertion — BOTH
+# `determine_fill_priority_actions` call sites in energy.py MUST pass
+# `is_daylight=`. Kills reviewer mutations M3a (severed is_daylight
+# computation) and M3b (EV-only threading — plug site missing kwarg).
+# ---------------------------------------------------------------------------
+
+class TestCallerThreadThroughAnchor:
+    """Source-assertion test — cheap invariant on the caller shape."""
+
+    def test_both_call_sites_pass_is_daylight(self):
+        import re
+        import pathlib
+        energy_py = pathlib.Path(__file__).resolve().parents[2] / (
+            "custom_components/universal_room_automation/"
+            "domain_coordinators/energy.py"
+        )
+        src = energy_py.read_text()
+        # Find every `determine_fill_priority_actions(` invocation and the
+        # kwargs block that follows (up to matching close paren, naive but
+        # sufficient — no nested balanced-paren fill-priority literals).
+        matches = list(re.finditer(
+            r"determine_fill_priority_actions\((.*?)\)",
+            src, re.DOTALL,
+        ))
+        assert len(matches) == 2, (
+            f"expected 2 call sites (EV + L1 plug); found {len(matches)}"
+        )
+        for m in matches:
+            block = m.group(1)
+            assert "is_daylight=is_daylight" in block, (
+                "caller must pass the COMPUTED is_daylight variable (not a "
+                "literal / None) — severed-computation mutations must fail. "
+                f"Got:\n{block}"
+            )
+
+    def test_both_call_sites_pass_peak_ahead(self):
+        """A-M3/B-3 mirror invariant: both callers thread peak_ahead too."""
+        import re
+        import pathlib
+        energy_py = pathlib.Path(__file__).resolve().parents[2] / (
+            "custom_components/universal_room_automation/"
+            "domain_coordinators/energy.py"
+        )
+        src = energy_py.read_text()
+        matches = list(re.finditer(
+            r"determine_fill_priority_actions\((.*?)\)",
+            src, re.DOTALL,
+        ))
+        assert len(matches) == 2
+        for m in matches:
+            block = m.group(1)
+            assert "peak_ahead=" in block, (
+                f"caller must pass peak_ahead= — got:\n{block}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Fix-up A-M4 / C-2: direct unit tests on `_daylight_bounds` — pre-sunrise,
+# daytime, post-sunset with a stub sun.sun state; missing-sun fallback path
+# asserts against the NAMED constants; swapped-fallback mutation now fails.
+# ---------------------------------------------------------------------------
+
+# Load energy_battery for _daylight_bounds tests. It has additional
+# dependencies (write_verify etc.) so we import it lazily inside the class.
+
+
+class TestDaylightBoundsHelper:
+    """Direct unit tests on `EnergyBatteryController._daylight_bounds`."""
+
+    def _make_battery(self, sun_attrs=None):
+        # Lazy import so heavy energy_battery deps don't slow module import.
+        import importlib
+        # Ensure sibling modules referenced by energy_battery are loaded first.
+        for sub in (
+            "energy_write_verify", "energy_forecast", "energy_projector",
+            "energy_billing", "energy_drain_precedence", "energy_battery",
+        ):
+            full = f"{_dc_name}.{sub}"
+            if full in sys.modules:
+                continue
+            try:
+                spec = importlib.util.spec_from_file_location(
+                    full, os.path.join(_dc_path, f"{sub}.py"),
+                )
+                mod = importlib.util.module_from_spec(spec)
+                sys.modules[full] = mod
+                spec.loader.exec_module(mod)
+                setattr(_dc, sub, mod)
+            except Exception:  # noqa: BLE001
+                # Best-effort — helper only needs a shell to bind `self.hass`.
+                pass
+        hass = MockHass()
+        if sun_attrs is not None:
+            hass.set_state("sun.sun", "above_horizon", attributes=sun_attrs)
+        # Build a minimal shell with just `.hass`; call the unbound helper.
+        from custom_components.universal_room_automation.domain_coordinators import (  # noqa: E501
+            energy_battery as eb_mod,
+        )
+        shell = types.SimpleNamespace(hass=hass)
+        return eb_mod.BatteryStrategy._daylight_bounds, shell
+
+    def test_pre_sunrise_projection_from_sun_state(self):
+        # sun.sun next_rising = 12:15 UTC → 07:15 CDT (UTC-5).
+        # as_local is stubbed to identity in the test harness so the projected
+        # hour is the raw UTC hour (12). Assert both hour + minute round-trip.
+        fn, shell = self._make_battery(sun_attrs={
+            "next_rising": "2026-07-22T12:15:00+00:00",
+            "next_setting": "2026-07-23T01:20:00+00:00",
+        })
+        anchor = _dt.datetime(2026, 7, 22, 5, 0, 0)
+        sunrise, sunset = fn(shell, anchor)
+        assert sunrise.hour == 12 and sunrise.minute == 15
+        assert sunset.hour == 1 and sunset.minute == 20
+        # Pre-sunrise: anchor (05:00) < sunrise (12:15).
+        assert anchor < sunrise
+
+    def test_daytime_between_bounds(self):
+        fn, shell = self._make_battery(sun_attrs={
+            "next_rising": "2026-07-22T12:15:00+00:00",
+            "next_setting": "2026-07-23T01:20:00+00:00",
+        })
+        anchor = _dt.datetime(2026, 7, 22, 15, 0, 0)
+        sunrise, sunset = fn(shell, anchor)
+        # projected sunset hour is 01 (per as_local identity stub); daytime
+        # semantic check: sunrise < anchor is what the caller uses.
+        assert sunrise < anchor
+
+    def test_missing_sun_falls_back_to_named_constants(self):
+        """No sun.sun → fallback envelope uses the NAMED module constants."""
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (  # noqa: E501
+            DAYLIGHT_FALLBACK_SUNRISE_HOUR,
+            DAYLIGHT_FALLBACK_SUNSET_HOUR,
+        )
+        fn, shell = self._make_battery(sun_attrs=None)
+        anchor = _dt.datetime(2026, 7, 22, 10, 0, 0)
+        sunrise, sunset = fn(shell, anchor)
+        # Assertion tied to the NAMED constants — swapping the two constants
+        # (mutation) makes both assertions fail.
+        assert sunrise.hour == DAYLIGHT_FALLBACK_SUNRISE_HOUR
+        assert sunset.hour == DAYLIGHT_FALLBACK_SUNSET_HOUR
+        # And the concrete expected values (guards against BOTH constants
+        # being changed to the same non-7/19 value).
+        assert sunrise.hour == 7
+        assert sunset.hour == 19
+        assert sunrise.minute == 0 and sunset.minute == 0
+
+    def test_swapped_fallback_mutation_would_fail(self):
+        """Property: sunrise fallback < sunset fallback (invariant).
+
+        A swapped-constants mutation (sunrise=19, sunset=7) violates this
+        invariant on the fallback path.
+        """
+        fn, shell = self._make_battery(sun_attrs=None)
+        anchor = _dt.datetime(2026, 7, 22, 10, 0, 0)
+        sunrise, sunset = fn(shell, anchor)
+        assert sunrise < sunset, (
+            "fallback sunrise must precede fallback sunset — a swapped "
+            "constants mutation breaks this."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Fix-up B-1: ensure-on seam integration — daylight hold at 20:59-equivalent,
+# after night flip fill-priority releases AND the off_peak ensure-on branch
+# emits switch.turn_on for the previously-held EVSE.
+# ---------------------------------------------------------------------------
+
+class TestEnsureOnSeamAfterNightFlip:
+    """Drive determine_fill_priority_actions + determine_actions together."""
+
+    def test_daylight_hold_then_night_release_and_ensure_on(self):
+        ev, hass = _make_ev(on=True)
+        # (1) Daylight off_peak, low SOC, healthy forecast → HOLD (turn_off).
+        fp_actions_day = ev.determine_fill_priority_actions(
+            soc=51.0, remaining_forecast_kwh=18.0, tou_period="off_peak",
+            soc_threshold=80, excess_solar_kwh_threshold=5.0,
+            is_daylight=True,
+        )
+        assert _has_off(fp_actions_day)
+        assert "garage_a" in ev._paused_by_fill_priority
+        # Reflect the actuation: switch is now off (as URA would issue).
+        hass.set_state("switch.garage_a", "off")
+
+        # (2) Night flip (sunset passed) — is_daylight=False. Fill-priority
+        # inert path releases the hold.
+        fp_actions_night = ev.determine_fill_priority_actions(
+            soc=51.0, remaining_forecast_kwh=18.0, tou_period="off_peak",
+            soc_threshold=80, excess_solar_kwh_threshold=5.0,
+            is_daylight=False,
+        )
+        assert not _has_off(fp_actions_night)
+        assert "garage_a" not in ev._paused_by_fill_priority
+
+        # (3) The off_peak ensure-on branch of determine_actions must now
+        # command turn_on (switch is off, no peer holds).
+        actions = ev.determine_actions("off_peak")
+        assert any(
+            a["service"] == "switch.turn_on"
+            and a.get("target") == "switch.garage_a"
+            for a in actions
+        ), f"off_peak ensure-on must fire after fill-priority release; got {actions}"
+

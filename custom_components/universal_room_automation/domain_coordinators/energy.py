@@ -4923,9 +4923,14 @@ class EnergyCoordinator(BaseCoordinator):
                     # fill-priority-daylight-restoration D1: compute TIME-
                     # anchored daylight bool from the battery's civil
                     # sunrise/sunset primitive (energy_battery._daylight_bounds;
-                    # sun.sun-backed with a conservative 07:00/19:00 fallback).
-                    # Never PV. `None` on any error → pool preserves v5.5.5
-                    # off_peak-inert (cross-midnight release path unchanged).
+                    # sun.sun-backed with a conservative 07:00/19:00 fallback
+                    # envelope). Never PV. A sun.sun OUTAGE does NOT reach the
+                    # `except` here — `_daylight_bounds` internally substitutes
+                    # the fallback envelope and returns concrete datetimes; that
+                    # IS the sun-loss behavior. `is_daylight = None` occurs only
+                    # on a genuine exception (helper raises), in which case the
+                    # pool preserves v5.5.5 off_peak-inert (cross-midnight
+                    # release path unchanged).
                     try:
                         _sr, _ss = self._battery._daylight_bounds(_now_phase)
                         is_daylight = (
@@ -5042,6 +5047,7 @@ class EnergyCoordinator(BaseCoordinator):
                         excess_solar_kwh_threshold=self._excess_solar_kwh,
                         safety_margin_kwh=DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH,
                         force_charge_active=force_charge_active,
+                        peak_ahead=peak_ahead,
                         is_daylight=is_daylight,
                     )
                     for action_spec in plug_fp_actions:
