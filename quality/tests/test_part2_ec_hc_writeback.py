@@ -387,6 +387,9 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_MF_NIGHT_SUPPRESS_MODE":           "mf_night_suppress_mode",
         # Zone Delete Flow fix-up R2 — CONF_ZONE in _ROOM_SUPPRESS_KEYS.
         "CONF_ZONE":                              "zone",
+        # Fan/humidity toggle-symmetry (2026-07-22) — HIGH F1 defect fix.
+        "_CONF_FAN_CONTROL_ENABLED":              "fan_control_enabled",
+        "_CONF_HUMIDITY_FAN_CONTROL_ENABLED":     "humidity_fan_control_enabled",
         "ENTRY_TYPE_ROOM":                        "room",
         # Session B1 — EVSE Drain-Precedence CM options keys.
         "_CONF_ENERGY_DP_ENABLE":                 "energy_dp_enable",

@@ -4568,7 +4568,26 @@ class _RoomBooleanOptionSwitch(
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
-        if last_state is not None and last_state.state in ("on", "off"):
+        # Fan/humidity toggle-symmetry (2026-07-22, F2 MEDIUM):
+        # dual-source precedence — RestoreEntity vs options-flow write.
+        # Options-flow is the OTHER writer for these knobs
+        # (config_flow.py:9277-9283 humidity, :1858/1870 comfort). If the
+        # operator edits the options flow between restarts, the reload
+        # would otherwise restore the switch's stale entity state while
+        # consumers read the fresh option → switch display diverges from
+        # consumer behavior until the next physical toggle.
+        # Precedence: options value (if the key is PRESENT in entry
+        # options) wins at boot; RestoreEntity only covers the
+        # key-ABSENT first-boot case.
+        # Bug Class #52 guard preserved: last_state.state must be
+        # "on"/"off" (never trust unavailable/unknown).
+        try:
+            entry_options = self.coordinator.entry.options
+        except Exception:  # noqa: BLE001 — defensive; entry always present at added_to_hass
+            entry_options = {}
+        if self._conf_key in entry_options:
+            self._attr_is_on = bool(entry_options[self._conf_key])
+        elif last_state is not None and last_state.state in ("on", "off"):
             self._attr_is_on = last_state.state == "on"
         else:
             self._attr_is_on = self._read_default()
