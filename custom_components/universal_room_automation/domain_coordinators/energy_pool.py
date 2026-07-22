@@ -287,6 +287,34 @@ class EVChargerController:
         # surfaced as `fill_priority_solar_ok` on the EV status sensor.
         self._fill_priority_solar_ok: bool = False
 
+        # ==============================================================
+        # Blind-window EVSE guard (see PLANNING_ec_blind_window_evse_guard.md)
+        # --------------------------------------------------------------
+        # Pause-owner set for EVSEs held OFF while the reserve write path
+        # is unverifiable (Envoy blind + WV inconclusive). Peer of the
+        # other battery-protection owners; participates in
+        # `_stronger_peer_holds`, `_prune_removed_evses`, and the
+        # `_save_evse_state` persistence blob.
+        #
+        # `_blind_window_entry_first_at`: monotonic() timestamp of the
+        # first tick the entry predicate held; consumed by the debounce
+        # (CONF_BLIND_WINDOW_ENTRY_DEBOUNCE_S). None when the predicate
+        # is currently false.
+        #
+        # `_blind_window_epoch_started_at`: wall-clock of the current
+        # epoch (a single epoch spans one contiguous outage). Reset to
+        # None when the guard clears. Consumed by the max-defer bound
+        # (CONF_BLIND_WINDOW_MAX_DEFER_MIN) so we hand off to
+        # must-start-by when an outage exceeds the cap.
+        #
+        # `_blind_window_defers_this_epoch`: integer count for the
+        # `blind_window_defers_this_epoch` observability attribute.
+        # ==============================================================
+        self._paused_by_blind_window: set[str] = set()
+        self._blind_window_entry_first_at: float | None = None
+        self._blind_window_epoch_started_at: datetime | None = None
+        self._blind_window_defers_this_epoch: int = 0
+
         # v4.7.6 D1 #9: Prune stale entries on init (idempotent on cold boot).
         self._prune_removed_evses()
 
@@ -315,7 +343,140 @@ class EVChargerController:
             or evse_id in self._paused_by_grid_cap
             or evse_id in self._paused_by_arbitrage
             or evse_id in self._paused_by_load_shed
+            # Blind-window guard is a peer battery-protection owner: while
+            # SOC is unresolved AND reserve write path is unverifiable, no
+            # TOU / excess-solar path may claim this EVSE. Only row 2
+            # force-charge preempts (see PLANNING_ec_blind_window_evse_guard.md
+            # INV-BW1 escape hatch — force-charge is handled inline at each
+            # site, not via this helper).
+            or evse_id in self._paused_by_blind_window
         )
+
+    # ------------------------------------------------------------------
+    # Blind-window EVSE guard predicate + debounce + max-defer bound
+    # (see PLANNING_ec_blind_window_evse_guard.md D1 + PROBE gates)
+    # ------------------------------------------------------------------
+    def _blind_window_entry_predicate(self, coord: Any) -> bool:
+        """Raw entry predicate BEFORE debounce.
+
+        Q3 ruling: use BOTH `envoy_available` (fast local) AND write-verify
+        staleness on the reserve surface. False means the guard SHOULD NOT
+        engage this tick (either Envoy is live OR the reserve write path is
+        proveably verifiable).
+        """
+        try:
+            if not coord.blind_hold_active:
+                return False
+        except Exception:  # noqa: BLE001
+            return False
+        try:
+            return not coord.reserve_write_verifiable()
+        except Exception:  # noqa: BLE001
+            # Fail-safe: verifier failure is not proof of a good write.
+            return True
+
+    def _blind_window_guard_engaged(self, coord: Any) -> bool:
+        """Debounced entry predicate.
+
+        Returns True only after `CONF_BLIND_WINDOW_ENTRY_DEBOUNCE_S`
+        seconds of continuous raw-predicate truth (per D3 probe: 66% of
+        Envoy outages are <2min; without a debounce the fail-safe pause
+        leg would flap on 90-second blips). Also stamps the epoch
+        start-time on first engagement so the max-defer bound is anchored
+        to the outage's actual start.
+        """
+        from .energy_const import CONF_BLIND_WINDOW_ENTRY_DEBOUNCE_S
+        import time
+        raw = self._blind_window_entry_predicate(coord)
+        if not raw:
+            # Clear debounce + epoch. Any pre-existing pause set membership
+            # is drained by caller (release path in determine_actions).
+            self._blind_window_entry_first_at = None
+            if self._blind_window_epoch_started_at is not None:
+                _LOGGER.info(
+                    "blind-window guard: cleared (defers this epoch=%d)",
+                    self._blind_window_defers_this_epoch,
+                )
+            self._blind_window_epoch_started_at = None
+            self._blind_window_defers_this_epoch = 0
+            return False
+        now_mono = time.monotonic()
+        if self._blind_window_entry_first_at is None:
+            self._blind_window_entry_first_at = now_mono
+        elapsed = now_mono - self._blind_window_entry_first_at
+        if elapsed < float(CONF_BLIND_WINDOW_ENTRY_DEBOUNCE_S):
+            # Debounce still counting; do not engage.
+            return False
+        # Debounce satisfied — stamp epoch start-time if unset.
+        if self._blind_window_epoch_started_at is None:
+            try:
+                from homeassistant.util import dt as dt_util
+                self._blind_window_epoch_started_at = dt_util.utcnow()
+            except Exception:  # noqa: BLE001
+                self._blind_window_epoch_started_at = None
+            _LOGGER.info(
+                "blind-window guard: engaged (Envoy blind, reserve write "
+                "unverifiable, debounce %ds satisfied)",
+                int(CONF_BLIND_WINDOW_ENTRY_DEBOUNCE_S),
+            )
+        return True
+
+    def _blind_window_max_defer_exceeded(self) -> bool:
+        """True when the current epoch has exceeded the max-defer bound.
+
+        Per D3 probe: ~2-3 outages >30min per day; an unbounded defer would
+        strand overnight EVSE charging. When exceeded, the guard yields to
+        the DP must-start-by machinery (ensure-on paths proceed normally;
+        the fail-safe pause leg still holds mid-charge unless the envelope
+        proves SOC is safe).
+        """
+        from .energy_const import CONF_BLIND_WINDOW_MAX_DEFER_MIN
+        cap = int(CONF_BLIND_WINDOW_MAX_DEFER_MIN)
+        if cap <= 0:
+            # Kill-switch: value 0 disables the defer (guard is a no-op).
+            return True
+        if self._blind_window_epoch_started_at is None:
+            return False
+        try:
+            from homeassistant.util import dt as dt_util
+            elapsed_min = (
+                dt_util.utcnow() - self._blind_window_epoch_started_at
+            ).total_seconds() / 60.0
+        except Exception:  # noqa: BLE001
+            return False
+        return elapsed_min >= cap
+
+    def _blind_window_envelope_permits_ride(
+        self, coord: Any, drain_target_soc: int | None,
+    ) -> bool:
+        """Q1/Q4: mid-charge ride permission via the LKG envelope.
+
+        Returns True iff the envelope's lower bound is >= the drain
+        threshold — a bounded-uncertainty proof that SOC has not fallen
+        below the guard's protection floor, so an already-on EVSE may
+        legitimately ride. Also permits ride if D4 mains-export shows
+        active grid export (battery-not-discharging from a non-Envoy
+        source). Returns False when neither proof is available
+        (default fail-safe: pause).
+        """
+        # D4 non-Envoy witness (Q1 branch a).
+        try:
+            exp = coord.mains_export_active()
+        except Exception:  # noqa: BLE001
+            exp = None
+        if exp is True:
+            return True
+        # LKG envelope lower bound >= threshold (Q1 branch b / Q4).
+        if drain_target_soc is None:
+            return False
+        try:
+            env = coord.soc_envelope()
+        except Exception:  # noqa: BLE001
+            env = None
+        if env is None:
+            return False
+        lower, _upper = env
+        return lower >= float(drain_target_soc)
 
     def _get_evse_state(self, evse_id: str) -> dict[str, Any]:
         """Get current state of an EVSE.
@@ -459,6 +620,8 @@ class EVChargerController:
             self._proactive_offpeak_holds,
             # EVSE drain-precedence (B2b-i): mirror sibling owners.
             self._paused_by_dp,
+            # Blind-window guard (D1): peer battery-protection owner.
+            self._paused_by_blind_window,
         ):
             for evse_id in list(tracking_set):
                 if evse_id not in known:
@@ -486,10 +649,20 @@ class EVChargerController:
     # avoid a footgun for future contributors. `_prune_removed_evses()` runs
     # in `__init__` and handles the equivalent state cleanup.
 
+    def attach_coord(self, coord: Any) -> None:
+        """Wire the owning EnergyCoordinator so the blind-window guard
+        may consult its blind_hold_active / reserve_write_verifiable /
+        soc_envelope / mains_export_active predicates without
+        altering the `determine_actions(...)` public signature (which
+        many production sibling controllers + test spies rely on).
+        """
+        self._energy_coord = coord
+
     def determine_actions(
         self,
         tou_period: str,
         grid_charge_on: bool = False,
+        coord: Any = None,
     ) -> list[dict[str, Any]]:
         """Determine EV charger actions based on TOU period.
 
@@ -567,6 +740,79 @@ class EVChargerController:
                     self._paused_by_us.add(evse_id)
                     _LOGGER.info("EV: pausing %s (%s TOU)", evse_id, tou_period)
             elif tou_period == "off_peak":
+                # =====================================================
+                # Row 2.5 — Blind-Window EVSE Guard
+                # (see PLANNING_ec_blind_window_evse_guard.md D1 + INV-BW1)
+                # -----------------------------------------------------
+                # BEFORE any of the existing row-2..N chains: while SOC is
+                # unresolved AND the reserve write path is unverifiable,
+                # DEFER turn-on and PAUSE any already-on EVSE (fail-safe
+                # leg — Q1). Row 2 force-charge preempts (INV-BW1 escape).
+                # Debounce prevents flapping on sub-2-min Envoy blips
+                # (66% of outages per D3 probe). Max-defer bound hands
+                # off to must-start-by on long outages (~2-3/day > 30min).
+                # =====================================================
+                _bw_coord = coord if coord is not None else getattr(
+                    self, "_energy_coord", None,
+                )
+                if _bw_coord is not None and not force_charge_active:
+                    coord = _bw_coord  # for the block below
+                    engaged = self._blind_window_guard_engaged(coord)
+                    max_defer_exceeded = self._blind_window_max_defer_exceeded()
+                    if engaged and not max_defer_exceeded:
+                        # Fail-safe pause leg (Q1): pause mid-charge UNLESS
+                        # the LKG envelope lower bound >= drain threshold
+                        # OR mains-export active (battery not discharging).
+                        drain_target = None
+                        try:
+                            drain_target = int(
+                                getattr(coord, "_ev_battery_drain_soc", None) or 0
+                            ) or None
+                        except Exception:  # noqa: BLE001
+                            drain_target = None
+                        ride_ok = self._blind_window_envelope_permits_ride(
+                            coord, drain_target,
+                        )
+                        # Newly engage or re-affirm the pause set.
+                        if evse_id not in self._paused_by_blind_window:
+                            self._paused_by_blind_window.add(evse_id)
+                            self._proactive_offpeak_holds.discard(evse_id)
+                        if state["is_on"] and not ride_ok:
+                            actions.append({
+                                "service": "switch.turn_off",
+                                "target": switch_entity,
+                                "data": {},
+                            })
+                            _LOGGER.info(
+                                "blind-window guard: pausing %s "
+                                "(Envoy blind, reserve write unverifiable)",
+                                evse_id,
+                            )
+                        elif not state["is_on"]:
+                            _LOGGER.info(
+                                "blind-window guard: deferring ensure-on for %s",
+                                evse_id,
+                            )
+                        self._blind_window_defers_this_epoch += 1
+                        continue
+                    elif engaged and max_defer_exceeded:
+                        # Max defer exceeded — yield to must-start-by
+                        # (fall through into normal off-peak ensure-on
+                        # semantics). Release the pause claim; the
+                        # normal row-2 force-charge / must-start-by
+                        # timer path is the authority now.
+                        if evse_id in self._paused_by_blind_window:
+                            self._paused_by_blind_window.discard(evse_id)
+                            _LOGGER.info(
+                                "blind-window guard: max-defer bound "
+                                "exceeded for %s — yielding to must-start-by",
+                                evse_id,
+                            )
+                    else:
+                        # Guard not engaged — drain any stale membership.
+                        if evse_id in self._paused_by_blind_window:
+                            self._paused_by_blind_window.discard(evse_id)
+
                 # v<next> WS2 D2.1: off-peak ensure-on with guard precedence.
                 #
                 # Replaces the legacy resume-only rule (which only un-paused
@@ -742,6 +988,7 @@ class EVChargerController:
         soc_threshold: int = 95,
         kwh_threshold: float = 5.0,
         dp_carrier_state: str | None = None,
+        coord: Any = None,
     ) -> list[dict[str, Any]]:
         """Determine whether to turn on EVSEs for excess solar charging.
 
@@ -790,6 +1037,48 @@ class EVChargerController:
                 # off-peak intent.
                 self._proactive_offpeak_holds.discard(evse_id)
             return actions
+
+        # Blind-window guard for the excess-solar path (row 2.5 sibling).
+        # When Envoy is blind + reserve write unverifiable, the caller
+        # cannot trust `soc`. D4 fallback: if operator wired
+        # `CONF_ENERGY_MAINS_EXPORT_ENTITY`, use export>threshold as the
+        # Envoy-independent excess-solar signal; else defer.
+        if coord is None:
+            coord = getattr(self, "_energy_coord", None)
+        if coord is not None:
+            engaged = self._blind_window_guard_engaged(coord)
+            max_defer_exceeded = self._blind_window_max_defer_exceeded()
+            if engaged and not max_defer_exceeded:
+                try:
+                    exp = coord.mains_export_active()
+                except Exception:  # noqa: BLE001
+                    exp = None
+                if exp is not True:
+                    # No Envoy-independent proof of export → refuse
+                    # excess-solar ensure-on. Fail-safe pause: turn off
+                    # any previously-claimed excess-solar EVSE.
+                    for evse_id in list(self._excess_solar_active):
+                        config = self._evse.get(evse_id, {})
+                        switch_entity = config.get("switch", "")
+                        if switch_entity:
+                            st = self._get_evse_state(evse_id)
+                            if st["is_on"]:
+                                actions.append({
+                                    "service": "switch.turn_off",
+                                    "target": switch_entity,
+                                    "data": {},
+                                })
+                                _LOGGER.info(
+                                    "blind-window guard: dropping excess-solar "
+                                    "claim on %s (Envoy blind, no D4 witness)",
+                                    evse_id,
+                                )
+                        self._excess_solar_active.discard(evse_id)
+                        self._paused_by_blind_window.add(evse_id)
+                    self._blind_window_defers_this_epoch += 1
+                    return actions
+                # else: mains-export proves surplus — fall through to
+                # normal claim path (D4 backup consumed).
 
         conditions_met = (
             soc is not None

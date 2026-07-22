@@ -1381,3 +1381,56 @@ CONF_ENERGY_DP_HOUSE_LOAD_SOURCE: Final[str] = "energy_dp_house_load_source"
 # window. Not operator-tunable by design — turning this up hides evidence,
 # turning it down burns disk. Kill: not exposed as a knob.
 DP_SHADOW_LOG_RATE_LIMIT_S: Final[int] = 300
+
+# ============================================================================
+# Blind-window EVSE guard + DP eval persistence + LKG envelope
+# (see docs/planning/PLANNING_ec_blind_window_evse_guard.md)
+# ============================================================================
+
+# Rung-1 (module const, safety-vs-liveness tradeoff — change requires review).
+# Bounds how long the blind-window guard may DEFER an EVSE ensure-on before it
+# must yield to the DP must-start-by machinery so cars still charge overnight.
+# Default derived from D3 probe (PROBE_envoy_outage_frequency.md: ~2-3 outages
+# >30min per day; 60 min covers 78%+ of tail while preserving overnight liveness
+# ahead of must-start-by pressure). Kill-switch: value 0 disables the defer
+# (D1 becomes a no-op — emergency backout via a code-change hotfix).
+CONF_BLIND_WINDOW_MAX_DEFER_MIN: Final[int] = 60
+
+# Rung-1 (module const, anti-flap bound). Sub-2-min Envoy blips are 66% of
+# events per D3 probe; without a debounce the fail-safe pause leg would cycle
+# chargers on 90-second blips — the same disconcerting-actuation class the fan
+# pause work fought. The guard "opens" only after the entry-predicate holds
+# for this many consecutive seconds (i.e. at least one full ~5-min decision
+# tick under blind conditions). Kill: 0 disables debounce (fires immediately).
+CONF_BLIND_WINDOW_ENTRY_DEBOUNCE_S: Final[int] = 120
+
+# Rung-1 (module const, forensic-scope decision — change requires review).
+# Retention window for `decision_log` rows tagged `decision_type='dp_eval'`.
+# 90 days is comfortably above the 7-14 day forensic windows past incidents
+# have needed. See D2 in the planning doc.
+CONF_DP_EVAL_LOG_RETENTION_DAYS: Final[int] = 90
+
+# Rung-2 (CONF, per-deployment). Optional Emporia-mains backup net/export
+# sensor consulted by the excess-solar path when Envoy is blind. Default
+# unset = current behavior (excess-solar claim requires Envoy). Registry-
+# verified candidates (2026-07-21): sensor.mains_vue_2_mainstogrid_*,
+# sensor.mainw_vue_balance_power_minute_average. Positive-export convention:
+# operator supplies an entity whose numeric state is > 0 W when the house
+# is exporting to the grid (surplus solar). See D4 in the planning doc.
+CONF_ENERGY_MAINS_EXPORT_ENTITY: Final = "energy_mains_export_entity"
+
+# Rung-1 (module const, physical property — change requires code review).
+# Home battery physics used by the LKG SOC envelope. Live health data:
+# 40 kWh capacity, 30.72 kW max power (2x IQ Battery 10T at 15.36 kW each).
+# The envelope widens LKG bounds by ± max_power*Δt/capacity*100 per second
+# so a bounded-uncertainty SOC estimate remains usable beyond the LKG's
+# freshness cap. See D5 in the planning doc.
+BATTERY_CAPACITY_KWH: Final[float] = 40.0
+BATTERY_MAX_CHARGE_KW: Final[float] = 30.72
+BATTERY_MAX_DISCHARGE_KW: Final[float] = 30.72
+
+# Rung-1 (module const). Absolute upper age (seconds) for the LKG envelope
+# to remain queryable after primary/cloud tiers die. Beyond this, the envelope
+# is so wide it's useless and the guard treats SOC as fully unknown. 6 hours
+# is long enough to bridge the worst observed 84-min outage plus margin.
+DEFAULT_SOC_LKG_ENVELOPE_MAX_AGE_S: Final[int] = 6 * 3600

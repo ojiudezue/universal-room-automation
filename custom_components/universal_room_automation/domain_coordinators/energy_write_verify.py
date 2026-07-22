@@ -214,6 +214,40 @@ class WriteVerifier:
         self._pending_standdown_value: dict[str, Any] = {}
 
     # ------------------------------------------------------------------
+    # Blind-window guard predicate (see PLANNING_ec_blind_window_evse_guard.md)
+    # ------------------------------------------------------------------
+    def is_reserve_verifiable(self) -> bool:
+        """Return True iff the reserve write path has a fresh verified outcome.
+
+        Coarse predicate consumed by the blind-window EVSE guard: "can we
+        prove a reserve command took right now?" A False here means the
+        reserve write path is unverifiable (stale/no-data/pending beyond
+        the attempt-3 watchdog), which is the second half of the guard's
+        entry predicate (the first half being `blind_hold_active`).
+
+        REUSES the existing per-surface status vocabulary (STATUS_*).
+        Considers the RESERVE surface only — the guard's invariant is
+        battery-reserve-specific.
+        """
+        try:
+            rec = self._records.get(WRITE_VERIFY_SURFACE_RESERVE)
+            if rec is None:
+                return False
+            status = rec.status
+            # Explicitly verifiable outcomes.
+            if status in (STATUS_OK, STATUS_STALE):
+                return True
+            # A pending episode past the attempt-3 watchdog age is by
+            # contract "unverifiable".
+            if self.is_pending_episode_active(WRITE_VERIFY_SURFACE_RESERVE):
+                return False
+            # NO_DATA / INCONCLUSIVE / MISMATCH / REVERTED / UNMAPPED /
+            # UNIT_MISMATCH — all "cannot prove the write took".
+            return False
+        except Exception:  # noqa: BLE001 — defensive; guard is a read-only oracle
+            return False
+
+    # ------------------------------------------------------------------
     # Cloud oracle entity id resolution (respects operator overrides)
     # ------------------------------------------------------------------
     def _oracle_entity_for(self, surface: str) -> Optional[str]:

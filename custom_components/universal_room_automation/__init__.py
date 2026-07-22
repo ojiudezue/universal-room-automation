@@ -4472,6 +4472,8 @@ from .domain_coordinators.energy_const import (
     CONF_ENERGY_EV_BATTERY_DRAIN_SOC as _CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
     CONF_ENERGY_FILL_PRIORITY_SOC as _CONF_ENERGY_FILL_PRIORITY_SOC,
     CONF_ENERGY_EXCESS_SOLAR_SOC as _CONF_ENERGY_EXCESS_SOLAR_SOC,
+    # Blind-window guard cycle — D4 Emporia-mains backup export sensor.
+    CONF_ENERGY_MAINS_EXPORT_ENTITY as _CONF_ENERGY_MAINS_EXPORT_ENTITY,
     # Session B1 — EVSE Drain-Precedence CM options keys.
     CONF_ENERGY_DP_ENABLE as _CONF_ENERGY_DP_ENABLE,
     # v5.21.0 fix-up (SECOND OPERATOR ADDITION 2026-07-17) — D2 detection
@@ -4666,6 +4668,10 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     _CONF_ROUTINE_REGIME_BASELINE_WINDOW_DAYS,
     _CONF_ROUTINE_REGIME_RECENT_WINDOW_DAYS,
     _CONF_BAYESIAN_CELL_STALENESS_DAYS,
+    # Blind-window guard cycle — D4 Emporia-mains backup export sensor.
+    # `EnergyCoordinator.mains_export_active` reads `_entity_config` fresh
+    # every tick; no live-attr push needed.
+    _CONF_ENERGY_MAINS_EXPORT_ENTITY,
     # v4.7.34 — Optimization Coordinator (C-CRIT-1): the coordinator
     # reads `entry.options` fresh on every cycle, so no live-attr push
     # is needed.  These keys flow through `_apply_in_place` purely as a
@@ -4730,6 +4736,10 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     _CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
     _CONF_ENERGY_FILL_PRIORITY_SOC,
     _CONF_ENERGY_EXCESS_SOLAR_SOC,
+    # Blind-window guard cycle — D4 Emporia-mains backup export sensor.
+    # Read at every excess-solar tick via `EnergyCoordinator.mains_export_active`,
+    # so a change takes effect without a full CM reload.
+    _CONF_ENERGY_MAINS_EXPORT_ENTITY,
     _CONF_BAYESIAN_CELL_STALENESS_DAYS,
     # Part 2 D2 — Routine family
     _CONF_ROUTINE_EVENT_COOLDOWN_DAYS,

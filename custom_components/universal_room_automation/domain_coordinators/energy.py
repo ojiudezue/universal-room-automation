@@ -1456,6 +1456,17 @@ class EnergyCoordinator(BaseCoordinator):
                             self._ev._proactive_offpeak_holds.add(eid)
                 except (ValueError, TypeError):
                     pass
+            # D1 (blind-window guard): restore blind-window pause set.
+            bw_json = await db.restore_energy_state_with_age(
+                "evse_blind_window_paused", max_age_hours=STALE_MAX_AGE_HOURS,
+            )
+            if bw_json:
+                try:
+                    for eid in _json.loads(bw_json):
+                        if eid in valid_evse_ids:
+                            self._ev._paused_by_blind_window.add(eid)
+                except (ValueError, TypeError):
+                    pass
             # v<next> WS1 D1.1: Restore force-charge expiry from canonical KV.
             # F8 (review): Switch RestoreEntity (`switch.py:802-854`) is the
             # fresher fast-path (~15s attribute flush) and wins when present;
@@ -1497,6 +1508,26 @@ class EnergyCoordinator(BaseCoordinator):
             await self._restore_wv_state(
                 db, battery, verifier, STALE_MAX_AGE_HOURS,
             )
+            # D5 (blind-window guard): restore the LKG SOC snapshot so a
+            # restart mid-outage can keep the envelope alive instead of
+            # falling back to fully-blind (SOC=None across all tiers) —
+            # that was the 2026-07-20 incident shape. Restore is bounded by
+            # `DEFAULT_SOC_LKG_ENVELOPE_MAX_AGE_S` inside the envelope math,
+            # so a truly stale snapshot naturally decays to unusable.
+            try:
+                import json as _json
+                lkg_raw = await db.restore_energy_state_with_age(
+                    "battery_soc_lkg", max_age_hours=STALE_MAX_AGE_HOURS,
+                )
+                if lkg_raw and battery is not None:
+                    try:
+                        snap = _json.loads(lkg_raw)
+                    except (ValueError, TypeError):
+                        snap = None
+                    if snap:
+                        battery.restore_lkg_snapshot(snap)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("LKG restore failed (swallowed)", exc_info=True)
             # Session B1 — drain-precedence carrier restore.
             # `restore_from_blob(raw, now_provider=dt_util.now)` enforces
             # INV-DP2 (expired must_start_by → fresh HOLD_ONLY) and the
@@ -1793,6 +1824,27 @@ class EnergyCoordinator(BaseCoordinator):
                 "evse_proactive_offpeak_holds",
                 _json.dumps(list(self._ev._proactive_offpeak_holds)),
             )
+            # D1 (blind-window guard): persist blind-window pause set so a
+            # mid-outage restart does not lose the fail-safe pause carry-over.
+            # Sibling shape to `evse_dp_paused` and friends; STALE_MAX_AGE_HOURS
+            # gate on the restore side bounds a truly stale row.
+            await db.save_energy_state(
+                "evse_blind_window_paused",
+                _json.dumps(list(self._ev._paused_by_blind_window)),
+            )
+            # D5 (blind-window guard): persist LKG SOC snapshot (value +
+            # timestamp). Consumed by the SOCEnvelope decay math on restart.
+            battery = getattr(self, "_battery", None)
+            if battery is not None:
+                try:
+                    snap = battery.get_lkg_snapshot()
+                    if snap:
+                        await db.save_energy_state(
+                            "battery_soc_lkg",
+                            _json.dumps(snap),
+                        )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("LKG save failed (swallowed)", exc_info=True)
             # v<next> WS1 D1.1: force-charge expiry (canonical durable copy).
             # tz-aware ISO; on restore goes through dt_util.parse_datetime.
             fc_until = self._ev._force_charge_until
@@ -3237,6 +3289,137 @@ class EnergyCoordinator(BaseCoordinator):
                 return True
         return False
 
+    # ------------------------------------------------------------------
+    # Blind-window EVSE guard — public accessors (D1)
+    # (see PLANNING_ec_blind_window_evse_guard.md)
+    # ------------------------------------------------------------------
+    @property
+    def blind_hold_active(self) -> bool:
+        """True iff Envoy is unavailable AND SOC unresolved on all tiers.
+
+        Mirrors the existing local computation at `_dp_decision_tick`
+        (`(not envoy_available) and battery_soc is None`) but as a
+        public property so `energy_pool` may consult it without reaching
+        into private state.
+        """
+        try:
+            env_ok = bool(self._battery.envoy_available)
+        except Exception:  # noqa: BLE001
+            env_ok = True
+        try:
+            soc = self._battery.battery_soc
+        except Exception:  # noqa: BLE001
+            soc = None
+        return (not env_ok) and soc is None
+
+    def reserve_write_verifiable(self) -> bool:
+        """True iff the reserve write path is proveably verifiable now.
+
+        Thin delegate over `WriteVerifier.is_reserve_verifiable()`. See
+        docstring there for status vocabulary.
+        """
+        wv = getattr(self, "_write_verifier", None)
+        if wv is None:
+            # No verifier wired = we cannot prove writes took; treat as
+            # unverifiable (fail-safe: guard errs on the side of holding).
+            return False
+        try:
+            return bool(wv.is_reserve_verifiable())
+        except Exception:  # noqa: BLE001
+            return False
+
+    def soc_envelope(self) -> tuple[float, float] | None:
+        """Passthrough to BatteryStrategy.soc_envelope (D5)."""
+        try:
+            return self._battery.soc_envelope()
+        except Exception:  # noqa: BLE001
+            return None
+
+    async def _log_dp_eval_decision(
+        self,
+        prev_state: Any,
+        now: Any,
+        inputs: Any,
+        period: str,
+        ev_load_w: float | None,
+    ) -> None:
+        """D2: persist one dp_eval row to decision_log per DP tick.
+
+        REUSES `Database.log_coordinator_decision` (database.py:2047).
+        Context shape matches the plan D2 spec so a future forensic query
+        can reconstruct the eval that led (or did not lead) to a transition.
+        """
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            import json as _json
+            # Live SOC + LKG envelope for forensic completeness — during a
+            # blind window `soc` will be None; the envelope may still bound it.
+            env = None
+            try:
+                env = self._battery.soc_envelope()
+            except Exception:  # noqa: BLE001
+                env = None
+            reserve_verifiable = self.reserve_write_verifiable()
+            context = {
+                "state": str(getattr(self._dp_carrier, "state", None)),
+                "prior_state": str(prev_state),
+                "reason": getattr(self._dp_carrier, "reason", None),
+                "charger_rate_kw": float(getattr(inputs, "charger_rate_kw", 0.0) or 0.0),
+                "soc": getattr(inputs, "soc", None),
+                "is_blind_hold": bool(getattr(inputs, "is_blind_hold", False)),
+                "reserve_verifiable": bool(reserve_verifiable),
+                "target_soc": None,
+                "drain_target_soc": int(getattr(inputs, "drain_target_soc", 0) or 0),
+                "tou_period": period,
+                "force_charge_active": bool(getattr(inputs, "force_charge_active", False)),
+                "soc_envelope_lower": env[0] if env else None,
+                "soc_envelope_upper": env[1] if env else None,
+                "ev_load_w": float(ev_load_w or 0.0),
+                "now_iso": now.isoformat() if now is not None else None,
+            }
+            action = {
+                "transitioned": (
+                    str(prev_state) != str(getattr(self._dp_carrier, "state", None))
+                ),
+                "next_state": str(getattr(self._dp_carrier, "state", None)),
+            }
+            await db.log_coordinator_decision(
+                coordinator_id="energy",
+                decision_type="dp_eval",
+                context_json=_json.dumps(context),
+                action_json=_json.dumps(action),
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("_log_dp_eval_decision raised (swallowed)", exc_info=True)
+
+    def mains_export_active(self, threshold_w: float = 100.0) -> bool | None:
+        """D4: excess-solar backup path via optional Emporia mains sensor.
+
+        Returns True/False when the operator has wired
+        `CONF_ENERGY_MAINS_EXPORT_ENTITY` and its state is a positive
+        export power > threshold_w. Returns None when unwired (caller
+        falls back to current Envoy-only behavior).
+        """
+        from .energy_const import CONF_ENERGY_MAINS_EXPORT_ENTITY
+        try:
+            eid = (self._entity_config or {}).get(
+                CONF_ENERGY_MAINS_EXPORT_ENTITY
+            )
+        except Exception:  # noqa: BLE001
+            eid = None
+        if not eid:
+            return None
+        try:
+            st = self.hass.states.get(eid)
+            if st is None or st.state in ("unknown", "unavailable"):
+                return None
+            v = float(st.state)
+        except (ValueError, TypeError, AttributeError):
+            return None
+        return v > float(threshold_w)
+
     def _dp_needed_kwh_plugged(self) -> float:
         """Sum needed_kwh only over currently-plugged-in EVSEs.
 
@@ -3604,6 +3787,23 @@ class EnergyCoordinator(BaseCoordinator):
             now_provider=dt_util.now,
             persister=_persist_dp,
         )
+
+        # D2 (blind-window guard cycle): persist ONE decision_log row per DP
+        # eval tick so the forensic trace the 2026-07-20 incident lacked is
+        # durably captured. Non-blocking (async_create_task) — the DP tick
+        # runs on the decision-cycle path. See PLANNING_ec_blind_window_evse_guard.md.
+        try:
+            self.hass.async_create_task(
+                self._log_dp_eval_decision(
+                    prev_state=_prev_dp_state,
+                    now=_now_dp,
+                    inputs=_dp_inputs,
+                    period=period,
+                    ev_load_w=ev_load_w,
+                )
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("dp_eval log dispatch failed (swallowed)", exc_info=True)
 
         # Fresh entry to TRANSITIONED: actuate + arm must-start-by timer.
         if (
@@ -4805,6 +5005,10 @@ class EnergyCoordinator(BaseCoordinator):
                     except Exception:  # noqa: BLE001
                         _dp_state_val = None
                     _pre_dp_set = set(self._ev._paused_by_dp)  # noqa: SLF001
+                    try:
+                        self._ev.attach_coord(self)
+                    except Exception:  # noqa: BLE001
+                        pass
                     excess_actions = self._ev.determine_excess_solar_actions(
                         soc, remaining, period,
                         soc_threshold=excess_solar_soc_tick,
@@ -5426,6 +5630,13 @@ class EnergyCoordinator(BaseCoordinator):
         # invariant. Without this kwarg threaded live, the resume-side
         # guard added in the chokepoint refactor would be dead code.
         if self._ev_tou_enabled:
+            # Blind-window guard: attach coord ref so `determine_actions`
+            # can consult the guard predicates without a signature break
+            # (spies/mocks in older tests take (period, grid_charge_on=)).
+            try:
+                self._ev.attach_coord(self)
+            except Exception:  # noqa: BLE001
+                pass
             ev_actions = self._ev.determine_actions(
                 period, grid_charge_on=grid_charge_intent,
             )

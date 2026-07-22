@@ -1112,7 +1112,8 @@ class TestReloadSuppressionAllowlist:
         allowlist_start = src.find("OPTIONS_RELOAD_SUPPRESS_KEYS")
         assert allowlist_start > 0
         # Grab up to a reasonable closing point.
-        allowlist_block = src[allowlist_start:allowlist_start + 6000]
+        # Blind-window guard cycle bumped the window past 6000; use 8000.
+        allowlist_block = src[allowlist_start:allowlist_start + 8000]
         assert "_CONF_MF_SLEEP_SUPPRESS" in allowlist_block, (
             "CONF_MF_SLEEP_SUPPRESS must be in OPTIONS_RELOAD_SUPPRESS_KEYS "
             "so edits are pushed live via update_gate_config()"

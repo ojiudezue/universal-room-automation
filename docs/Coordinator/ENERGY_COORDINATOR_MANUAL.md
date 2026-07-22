@@ -139,6 +139,7 @@ unnecessarily drain house storage.
 |---|---|---|---|
 | 1 | Manual URA kill-switch re-pause (`_paused_by_us`, peak/mid-peak) | grid | energy_pool.py ~:540-568 |
 | 2 | Force-Charge admin override (`_force_charge_until`) | operator escape | energy_pool.py ~:551-556, :703-724 |
+| 2.5 | Blind-window guard (`_paused_by_blind_window`) — pauses/defers while `blind_hold_active AND NOT reserve_write_verifiable()`; row 2 force-charge preempts; hands off to must-start-by past `CONF_BLIND_WINDOW_MAX_DEFER_MIN` | battery (integrity under unverifiable writes) | energy_pool.py `_blind_window_guard_engaged` / off-peak row 2.5 site; see PLANNING_ec_blind_window_evse_guard.md |
 | 3 | Breaker safety (grid-charge-on pause) | hardware + battery | energy_pool.py ~:627-646 |
 | 4 | Grid-import cap (`_paused_by_grid_cap`) | grid | peer group A |
 | 5 | Load shed (`_paused_by_load_shed`) | grid | peer group A |
