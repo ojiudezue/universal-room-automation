@@ -914,6 +914,26 @@ class EVChargerController:
                 # doesn't gain membership for a charge that was authorized
                 # for a different reason.
 
+                # Fix-up B3 (Batch 2) — force-charge preempt drain.
+                # `_stronger_peer_holds` now INCLUDES `_paused_by_blind_window`,
+                # which means an EVSE the guard paused pre-force-charge
+                # would still trigger the 2a peer-guard `continue` below
+                # and force-charge could not preempt. Per INV-BW1 escape
+                # hatch (row 2 force-charge is the sole authoritative
+                # override), drain blind-window membership FIRST so row 2
+                # authority actually reaches the ensure-on dispatch.
+                # Force-charge does NOT drain other peer sets (drain /
+                # fill-priority / grid-cap / arbitrage / load-shed) —
+                # those retain their existing precedence. This is the
+                # narrowest possible mutation to close the deadlock.
+                if force_charge_active and evse_id in self._paused_by_blind_window:
+                    self._paused_by_blind_window.discard(evse_id)
+                    _LOGGER.info(
+                        "blind-window guard: releasing %s to force-charge "
+                        "(INV-BW1 escape hatch)",
+                        evse_id,
+                    )
+
                 # 2a: carry-over guards (battery protections) win — don't
                 # pre-empt the downstream rules; drop legacy _paused_by_us
                 # bookkeeping and clear any stale proactive-hold claim so
@@ -1124,6 +1144,17 @@ class EVChargerController:
         if coord is not None:
             engaged = self._blind_window_guard_engaged(coord)
             max_defer_exceeded = self._blind_window_max_defer_exceeded()
+            # Fix-up B4 (Batch 2) — guard-not-engaged drain (symmetric to
+            # the off_peak else-branch narrowing D-CRIT-2 (c)). When the
+            # RAW predicate is confirmed False (envoy back, reserve write
+            # verifiable), drain any stale membership so a daytime recovery
+            # allows the excess-solar claim path to proceed. Draining only
+            # on raw-false (not on `not engaged`) preserves the debounce-
+            # pending semantics: a transient blip must not drop membership.
+            if not self._blind_window_entry_predicate(coord):
+                # raw False => outage has ended (or never engaged).
+                for _eid in list(self._paused_by_blind_window):
+                    self._paused_by_blind_window.discard(_eid)
             if engaged and not max_defer_exceeded:
                 try:
                     exp = coord.mains_export_active()
@@ -1332,6 +1363,11 @@ class EVChargerController:
                         or evse_id in self._paused_by_fill_priority
                         or evse_id in self._paused_by_arbitrage
                         or evse_id in self._paused_by_us
+                        # D-HIGH-1 (Batch 2): blind-window guard is a peer
+                        # battery-protection owner; grid-cap resume must
+                        # NOT turn the EVSE on while the guard still
+                        # claims it (blind ensure-on = D-CRIT-2 flap).
+                        or evse_id in self._paused_by_blind_window
                     ):
                         self._paused_by_grid_cap.discard(evse_id)
                         _LOGGER.info(
@@ -1593,6 +1629,8 @@ class EVChargerController:
                             or evse_id in self._paused_by_us
                             or evse_id in self._paused_by_arbitrage
                             or evse_id in self._paused_by_fill_priority
+                            # D-HIGH-1 (Batch 2): blind-window guard peer.
+                            or evse_id in self._paused_by_blind_window
                         ):
                             self._paused_by_battery_drain.discard(evse_id)
                             self._release_pause_dispatch_owner(
@@ -1815,6 +1853,8 @@ class EVChargerController:
                         or evse_id in self._paused_by_us
                         or evse_id in self._paused_by_arbitrage
                         or evse_id in self._paused_by_load_shed
+                        # D-HIGH-1 (Batch 2): blind-window guard peer.
+                        or evse_id in self._paused_by_blind_window
                     ):
                         self._paused_by_fill_priority.discard(evse_id)
                         self._release_pause_dispatch_owner(
@@ -1999,6 +2039,8 @@ class EVChargerController:
                 or evse_id in self._paused_by_battery_drain
                 or evse_id in self._paused_by_us
                 or evse_id in self._paused_by_load_shed
+                # D-HIGH-1 (Batch 2): blind-window guard peer.
+                or evse_id in self._paused_by_blind_window
             ):
                 _LOGGER.info(
                     "EV %s arbitrage release (%s): another pause reason holds — leaving paused",
@@ -2288,6 +2330,8 @@ class EVChargerController:
                 or evse_id in self._paused_by_grid_cap
                 or evse_id in self._paused_by_arbitrage
                 or evse_id in self._paused_by_load_shed
+                # D-HIGH-1 (Batch 2): blind-window guard peer.
+                or evse_id in self._paused_by_blind_window
             ):
                 _LOGGER.debug(
                     "EV release_all_tou: %s dropped TOU membership; "
@@ -2330,6 +2374,8 @@ class EVChargerController:
                 # turned_on when fill-priority toggle flips OFF during
                 # peak — `_paused_by_us` still legitimately holds it.
                 or evse_id in self._paused_by_us
+                # D-HIGH-1 (Batch 2): blind-window guard peer.
+                or evse_id in self._paused_by_blind_window
             ):
                 _LOGGER.debug(
                     "EV release_all_fill_priority: %s dropped fill-priority "
@@ -2367,6 +2413,8 @@ class EVChargerController:
                 or evse_id in self._paused_by_load_shed
                 # Fix 4 (A-MED-1): TOU-owner defers grid-cap release too.
                 or evse_id in self._paused_by_us
+                # D-HIGH-1 (Batch 2): blind-window guard peer.
+                or evse_id in self._paused_by_blind_window
             ):
                 _LOGGER.debug(
                     "EV release_all_grid_cap: %s dropped grid-cap "

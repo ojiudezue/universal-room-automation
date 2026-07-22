@@ -4351,6 +4351,11 @@ class EnergyCoordinator(BaseCoordinator):
                 or evse_id in self._ev._paused_by_grid_cap  # noqa: SLF001
                 or evse_id in self._ev._paused_by_load_shed  # noqa: SLF001
                 or evse_id in self._ev._paused_by_us  # noqa: SLF001
+                # D-HIGH-1 (Batch 2): blind-window guard peer. DP
+                # reversion turn_on must NOT fire while the guard still
+                # claims the EVSE — keep the DP claim sticky so a later
+                # tick can retry once the outage clears.
+                or evse_id in self._ev._paused_by_blind_window  # noqa: SLF001
             ):
                 _LOGGER.info(
                     "drain-precedence release: %s — peer owner still holds, "
@@ -6589,6 +6594,11 @@ class EnergyCoordinator(BaseCoordinator):
                             or evse_id in self._ev._paused_by_grid_cap
                             or evse_id in self._ev._paused_by_arbitrage
                             or evse_id in self._ev._paused_by_us
+                            # D-HIGH-1 (Batch 2): blind-window guard peer.
+                            # Load-shed release must NOT turn the EVSE on
+                            # while the guard still claims it (Envoy blind
+                            # + reserve unverifiable => blind ensure-on).
+                            or evse_id in self._ev._paused_by_blind_window
                         ):
                             _LOGGER.info(
                                 "Energy: Load shed release EV %s — deferring "

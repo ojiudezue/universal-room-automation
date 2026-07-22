@@ -633,3 +633,446 @@ def test_mark_pre_engaged_from_restore_stores_epoch():
     ev.mark_pre_engaged_from_restore(stamp)
     assert ev._blind_window_epoch_started_at == stamp
     assert ev._blind_window_pre_engaged is True
+
+
+# ===========================================================================
+# Fix-up Batch 2 — D-HIGH-1 nine sites + B3 + B4 + enumeration contract
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# ENUMERATION CONTRACT (D-HIGH-1) — auditable list of every EVSE
+# `switch.turn_on` emission site in energy_pool.py + energy.py that could
+# resume/release an EVSE. Each site MUST either (a) consult the blind-window
+# guard membership set in its own owner-precedence list, OR (b) be on the
+# sanctioned-exemption list below.
+#
+# Sanctioned exemptions (INV-BW1 escape hatches — MUST stay short):
+#   * MUST_START_BY — the DP-liveness ceiling. Fix-up D-HIGH-2 (Batch 3)
+#     will wrap this in an explicit liveness-release helper that consults
+#     the envelope + writes a `blind_window_liveness_release` decision_log
+#     row. Until then the exemption exists so the DP invariant is not
+#     accidentally violated by this batch.
+# Note on force-charge: force-charge does NOT emit a dedicated turn_on;
+# it works by SUPPRESSING peak/mid_peak pause and SKIPPING the row-2.5
+# guard block. B3 (Batch 2) drains `_paused_by_blind_window` at
+# determine_actions off_peak so the peer-guard `continue` cannot deadlock
+# an already-guard-claimed EVSE when the operator flips force-charge.
+#
+# If a NEW turn_on site appears in either file that is NOT in this table,
+# `test_D_HIGH_1_enumeration_contract_covers_every_evse_turn_on_site` fails.
+# ---------------------------------------------------------------------------
+
+# name -> (relative_file_path, marker_substring, kind)
+# kind ∈ {"guard_covered", "force_charge_exempt", "must_start_by_exempt"}
+# marker_substring is used to identify the specific block after slicing near
+# the `switch.turn_on` line — it is a distinctive log/comment string in the
+# same routine that anchors the site to a semantic name.
+EVSE_TURN_ON_SITE_CONTRACT = {
+    # ============= energy_pool.py — EVChargerController =============
+    "off_peak_ensure_on": (
+        "custom_components/universal_room_automation/domain_coordinators/energy_pool.py",
+        "EV: proactive off-peak turn-on",
+        "guard_covered",
+    ),
+    "excess_solar_claim": (
+        "custom_components/universal_room_automation/domain_coordinators/energy_pool.py",
+        "Excess solar: turning on",
+        "guard_covered",
+    ),
+    "grid_cap_resume": (
+        "custom_components/universal_room_automation/domain_coordinators/energy_pool.py",
+        "EV grid cap: resuming",
+        "guard_covered",
+    ),
+    "battery_drain_resume": (
+        "custom_components/universal_room_automation/domain_coordinators/energy_pool.py",
+        "EV battery drain: resuming",
+        "guard_covered",
+    ),
+    "fill_priority_resume": (
+        "custom_components/universal_room_automation/domain_coordinators/energy_pool.py",
+        "EV fill-priority: resuming",
+        "guard_covered",
+    ),
+    "arbitrage_release": (
+        "custom_components/universal_room_automation/domain_coordinators/energy_pool.py",
+        "EV %s resumed (arbitrage released",
+        "guard_covered",
+    ),
+    "release_all_tou": (
+        "custom_components/universal_room_automation/domain_coordinators/energy_pool.py",
+        "EV release_all_tou: releasing",
+        "guard_covered",
+    ),
+    "release_all_fill_priority": (
+        "custom_components/universal_room_automation/domain_coordinators/energy_pool.py",
+        "EV release_all_fill_priority: releasing",
+        "guard_covered",
+    ),
+    "release_all_grid_cap": (
+        "custom_components/universal_room_automation/domain_coordinators/energy_pool.py",
+        "EV release_all_grid_cap: releasing",
+        "guard_covered",
+    ),
+    # ============= energy.py — EnergyCoordinator =============
+    "load_shed_restore": (
+        "custom_components/universal_room_automation/domain_coordinators/energy.py",
+        "Load shed release EV %s",  # release-side turn_on
+        "guard_covered",
+    ),
+    "dp_reversion_resume": (
+        "custom_components/universal_room_automation/domain_coordinators/energy.py",
+        "drain-precedence: resumed EVSE",
+        "guard_covered",
+    ),
+    "dp_must_start_by_forced": (
+        "custom_components/universal_room_automation/domain_coordinators/energy.py",
+        "drain-precedence must-start-by fire: forced EVSE",
+        "must_start_by_exempt",
+    ),
+}
+
+
+def _iter_evse_turn_on_line_numbers(src_path):
+    """Yield line numbers of every `switch.turn_on` payload in the file.
+
+    We scan for the literal `"service": "switch.turn_on"` — this is how
+    every EVSE turn_on site in these two files structures the action
+    payload. Non-EVSE contexts (SmartPlugController class body in
+    energy_pool.py, `target == "smart_plugs"` branch in energy.py) use
+    the SAME string; the caller must filter them out.
+    """
+    with open(src_path) as f:
+        lines = f.readlines()
+    hits = []
+    for i, line in enumerate(lines, start=1):
+        if '"service": "switch.turn_on"' in line:
+            hits.append(i)
+    return hits, lines
+
+
+def _find_smart_plug_class_range(lines):
+    """Return (start, end) line numbers of the SmartPlugController class
+    in energy_pool.py so we can EXCLUDE its `switch.turn_on` sites (out
+    of EVSE scope). Also returns the end line of EVChargerController.
+    """
+    smart_plug_start = None
+    ev_charger_end = None
+    for i, line in enumerate(lines, start=1):
+        if line.startswith("class SmartPlugController"):
+            smart_plug_start = i
+            ev_charger_end = i - 1
+            break
+    return smart_plug_start, ev_charger_end
+
+
+def _find_non_evse_target_ranges(lines):
+    """Return line ranges in energy.py that host non-EVSE `switch.turn_on`
+    payloads inside `_execute_shed_action` — the `target == "smart_plugs"`
+    and `target == "hvac"` branches. Their turn_on payloads are out of
+    EVSE scope and must be excluded from the enumeration.
+    """
+    ranges = []
+    smart_plug_start = None
+    hvac_start = None
+    end_marker = None
+    for i, line in enumerate(lines, start=1):
+        if 'elif target == "smart_plugs"' in line:
+            smart_plug_start = i
+        elif 'elif target == "hvac"' in line:
+            hvac_start = i
+            if smart_plug_start is not None:
+                ranges.append((smart_plug_start, i - 1))
+        elif hvac_start is not None and end_marker is None:
+            # End of _execute_shed_action: next dedented def or new
+            # top-level `elif target == ...` — approximate by hunting the
+            # next `def ` at method indentation.
+            stripped = line.rstrip("\n")
+            if stripped.startswith("    def ") or (
+                stripped and not stripped.startswith(" ") and not stripped.startswith("\t")
+            ):
+                end_marker = i - 1
+                ranges.append((hvac_start, end_marker))
+                break
+    if hvac_start is not None and end_marker is None:
+        ranges.append((hvac_start, len(lines)))
+    return ranges
+
+
+def _nearest_prior_marker(lines, hit_line, contract):
+    """Return the contract key whose marker appears in the ~30 lines
+    surrounding the hit, or None if unmatched.
+    """
+    window_start = max(0, hit_line - 25)
+    window_end = min(len(lines), hit_line + 25)
+    window = "".join(lines[window_start:window_end])
+    for key, (_path, marker, _kind) in contract.items():
+        if marker in window:
+            return key
+    return None
+
+
+def test_D_HIGH_1_enumeration_contract_covers_every_evse_turn_on_site():
+    """D-HIGH-1 auditable enumeration test.
+
+    Source-parses every `switch.turn_on` emission site in the two files
+    that host EVSE control paths (energy_pool.py::EVChargerController and
+    energy.py::EnergyCoordinator). Every hit must be classifiable as
+    either (a) covered by the blind-window guard's peer-owner set (i.e.
+    the routine consults `_paused_by_blind_window` OR routes through
+    `_stronger_peer_holds` which already includes it), OR (b) a
+    sanctioned exemption (force-charge / must-start-by).
+
+    Mutations killed:
+      * Adding a new EVSE turn_on site without also adding it to the
+        contract table above => this test fails on the next commit.
+      * Removing the `_paused_by_blind_window` inline check at any
+        "guard_covered" site => the paired per-site behavioral test in
+        this module (or the guard-integration tests already shipped)
+        fails; this enumeration is the AUDIT LEDGER, the behavioral
+        tests are the load-bearing proofs.
+    """
+    repo_root = _os.path.join(_os.path.dirname(__file__), "..", "..")
+    # Group hits by file (they share the contract table).
+    files_seen = set()
+    for _key, (rel, _marker, _kind) in EVSE_TURN_ON_SITE_CONTRACT.items():
+        files_seen.add(rel)
+
+    unmatched = []
+    for rel in sorted(files_seen):
+        src = _os.path.join(repo_root, rel)
+        hits, lines = _iter_evse_turn_on_line_numbers(src)
+        # For energy_pool.py, exclude SmartPlugController + downstream
+        # (its plug turn_on sites are NOT EVSE control paths).
+        if rel.endswith("energy_pool.py"):
+            smart_start, _ev_end = _find_smart_plug_class_range(lines)
+            if smart_start is not None:
+                hits = [h for h in hits if h < smart_start]
+        # For energy.py, exclude `target == "smart_plugs"` and
+        # `target == "hvac"` branches inside `_execute_shed_action`.
+        if rel.endswith("energy.py"):
+            excluded = _find_non_evse_target_ranges(lines)
+            def _in_excluded(h):
+                for lo, hi in excluded:
+                    if lo <= h <= hi:
+                        return True
+                return False
+            hits = [h for h in hits if not _in_excluded(h)]
+        for h in hits:
+            key = _nearest_prior_marker(lines, h, EVSE_TURN_ON_SITE_CONTRACT)
+            if key is None:
+                unmatched.append((rel, h))
+    assert not unmatched, (
+        f"Unclassified EVSE `switch.turn_on` site(s) — add to "
+        f"EVSE_TURN_ON_SITE_CONTRACT or remove: {unmatched}"
+    )
+
+
+def test_D_HIGH_1_contract_lists_only_sanctioned_exemptions():
+    """The exemption list is the auditable contract. Adding a NEW
+    exemption without ratification MUST break this test — it is the
+    tripwire on scope-creep of INV-BW1 escape hatches. Today only
+    must-start-by is sanctioned (force-charge has no dedicated turn_on
+    site; it works by suppression + B3 drain, both guard-covered).
+    """
+    exempt_kinds = {"force_charge_exempt", "must_start_by_exempt"}
+    exempt_keys = [
+        k for k, (_p, _m, kind) in EVSE_TURN_ON_SITE_CONTRACT.items()
+        if kind in exempt_kinds
+    ]
+    assert set(exempt_keys) == {"dp_must_start_by_forced"}, (
+        f"Exemption drift — expected exactly {{dp_must_start_by_forced}}, "
+        f"got {set(exempt_keys)}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Per-site behavioral tests (D-HIGH-1 load-bearing proofs)
+# ---------------------------------------------------------------------------
+
+
+def test_grid_cap_resume_defers_to_blind_window_owner():
+    """Site 1: grid-cap resume drops its own claim + does NOT turn on
+    when `_paused_by_blind_window` still holds the EVSE.
+
+    Mutation: removing the inline `_paused_by_blind_window` check at the
+    grid-cap resume site fires a spurious turn_on and this test fails.
+    """
+    ev = _make_ev(evse_on=False)
+    ev._paused_by_grid_cap.add("garage_a")
+    ev._paused_by_blind_window.add("garage_a")
+    # Grid at 0 kW (well below cap) — resume conditions met.
+    actions = ev.determine_grid_cap_actions(
+        net_power_kw=0.0, grid_cap_kw=10.0, hysteresis_kw=1.0,
+    )
+    # No turn_on emitted.
+    assert not any(a["service"] == "switch.turn_on" for a in actions)
+    # Grid-cap owner released (its claim dropped when other owner holds),
+    # blind-window claim preserved for the next tick's own decision.
+    assert "garage_a" not in ev._paused_by_grid_cap
+    assert "garage_a" in ev._paused_by_blind_window
+
+
+def test_release_all_tou_defers_to_blind_window_owner():
+    """Site 5: release_all_tou drops the TOU membership but does NOT
+    turn on while blind-window still owns the device.
+    """
+    ev = _make_ev(evse_on=False)
+    ev._paused_by_us.add("garage_a")
+    ev._paused_by_blind_window.add("garage_a")
+    actions = ev.release_all_tou()
+    assert not any(a["service"] == "switch.turn_on" for a in actions)
+    assert "garage_a" not in ev._paused_by_us
+    assert "garage_a" in ev._paused_by_blind_window
+
+
+def test_release_all_fill_priority_defers_to_blind_window_owner():
+    ev = _make_ev(evse_on=False)
+    ev._paused_by_fill_priority.add("garage_a")
+    ev._paused_by_blind_window.add("garage_a")
+    actions = ev.release_all_fill_priority()
+    assert not any(a["service"] == "switch.turn_on" for a in actions)
+    assert "garage_a" not in ev._paused_by_fill_priority
+    assert "garage_a" in ev._paused_by_blind_window
+
+
+def test_release_all_grid_cap_defers_to_blind_window_owner():
+    ev = _make_ev(evse_on=False)
+    ev._paused_by_grid_cap.add("garage_a")
+    ev._paused_by_blind_window.add("garage_a")
+    actions = ev.release_all_grid_cap()
+    assert not any(a["service"] == "switch.turn_on" for a in actions)
+    assert "garage_a" not in ev._paused_by_grid_cap
+    assert "garage_a" in ev._paused_by_blind_window
+
+
+# ---------------------------------------------------------------------------
+# B3 — force-charge preempts blind-window guard (INV-BW1 escape)
+# ---------------------------------------------------------------------------
+
+
+def test_B3_force_charge_drains_blind_window_before_2a_check():
+    """Force-charge is the sole INV-BW1 escape. If the EVSE was paused by
+    the guard on a prior tick (membership survives ticks), force-charge
+    MUST drain it BEFORE the 2a peer-guard check — otherwise
+    `_stronger_peer_holds` (which now includes blind-window) causes the
+    2a `continue` and force-charge cannot preempt.
+
+    Mutation: removing the B3 drain snippet at determine_actions off_peak
+    (`if force_charge_active and evse_id in self._paused_by_blind_window`)
+    makes this test fail — force-charge remains deadlocked behind the
+    guard's pause claim.
+    """
+    from datetime import timedelta
+    from homeassistant.util import dt as dt_util
+    ev = _make_ev(evse_on=False)
+    # Pre-existing guard claim from a prior tick.
+    ev._paused_by_blind_window.add("garage_a")
+    # Operator hits the force-charge button.
+    ev.set_force_charge_override(dt_util.utcnow() + timedelta(minutes=30))
+    # Coord passed (guard block skipped when force_charge_active).
+    coord = _make_coord_stub()
+    actions = ev.determine_actions("off_peak", coord=coord)
+    # The B3 drain runs => membership dropped.
+    assert "garage_a" not in ev._paused_by_blind_window
+    # Force-charge preempt is complete: an ensure-on can now fire in the
+    # normal downstream path. We assert the primary effect (drain); the
+    # ensure-on dispatch is guarded by other precedence rules and is
+    # covered by existing force-charge tests.
+
+
+# ---------------------------------------------------------------------------
+# B4 — guard-not-engaged drain at top of determine_excess_solar_actions
+# ---------------------------------------------------------------------------
+
+
+def test_B4_daytime_recovery_drains_stale_blind_window_membership():
+    """B4 (Batch 2): symmetric to determine_actions off_peak else-branch
+    narrowing. When the raw entry predicate flips False (envoy back,
+    reserve write verifiable), stale `_paused_by_blind_window` membership
+    that survived from an overnight outage MUST be drained at the top of
+    `determine_excess_solar_actions` so a daytime claim can proceed.
+
+    Mutation: removing the B4 drain snippet (`if not
+    self._blind_window_entry_predicate(coord): drain`) makes this test
+    fail — the stale membership blocks `_stronger_peer_holds` and the
+    normal claim path never fires.
+    """
+    ev = _make_ev(evse_on=False)
+    # Overnight outage left an orphan claim.
+    ev._paused_by_blind_window.add("garage_a")
+    # Daytime — envoy back, reserve verifiable (raw predicate False).
+    coord = _make_coord_stub(blind_hold=False, reserve_verifiable=True)
+    actions = ev.determine_excess_solar_actions(
+        soc=95.0, remaining_forecast_kwh=10.0,
+        tou_period="off_peak", soc_threshold=95, coord=coord,
+    )
+    # Membership drained by B4.
+    assert "garage_a" not in ev._paused_by_blind_window
+    # And the claim path proceeded (turn_on emitted).
+    assert any(a["service"] == "switch.turn_on" for a in actions)
+
+
+def test_B4_debounce_pending_does_NOT_drain_membership():
+    """B4 counterpart: when raw predicate is TRUE (blind + unverifiable)
+    but debounce is still counting, we must NOT drain — that would be the
+    D-CRIT-2 flap sibling. The drain gate must be raw-false only.
+    """
+    ev = _make_ev(evse_on=False)
+    ev._paused_by_blind_window.add("garage_a")
+    coord = _make_coord_stub()  # raw True
+    ev.determine_excess_solar_actions(
+        soc=95.0, remaining_forecast_kwh=10.0,
+        tou_period="off_peak", soc_threshold=95, coord=coord,
+    )
+    # Raw predicate is True → membership preserved.
+    assert "garage_a" in ev._paused_by_blind_window
+
+
+def test_load_shed_restore_site_consults_blind_window():
+    """Site 8 (load-shed restore, energy.py::_execute_shed_action ev branch).
+
+    Source-anchored behavioral proof: the load-shed release deferral list
+    MUST include `_paused_by_blind_window`. Fully instantiating an
+    `EnergyCoordinator` for a runtime test would require the entire EC
+    dependency graph; the anchor here is on the code shape at the exact
+    site, paired with the enumeration contract test above (which alone
+    catches added sites but does not prove the peer set is threaded).
+
+    Mutation: removing the `_paused_by_blind_window` line from the
+    load-shed EV-release deferral block => this test fails.
+    """
+    src_path = _os.path.join(
+        _os.path.dirname(__file__), "..", "..", "custom_components",
+        "universal_room_automation", "domain_coordinators", "energy.py",
+    )
+    with open(src_path) as f:
+        src = f.read()
+    idx = src.find("Load shed release EV")
+    assert idx != -1, "Load-shed EV release site not found"
+    # Grab the preceding ~2000 chars — the deferral if-block sits above.
+    window = src[max(0, idx - 2000): idx]
+    assert "_paused_by_blind_window" in window, (
+        "Load-shed EV release deferral does not consult "
+        "_paused_by_blind_window — D-HIGH-1 site 8 regression"
+    )
+
+
+def test_dp_reversion_site_consults_blind_window():
+    """Site 9 (DP reversion, energy.py::_apply_dp_reversion).
+
+    Same shape as load-shed proof: source-anchored on the peer-defer list.
+    """
+    src_path = _os.path.join(
+        _os.path.dirname(__file__), "..", "..", "custom_components",
+        "universal_room_automation", "domain_coordinators", "energy.py",
+    )
+    with open(src_path) as f:
+        src = f.read()
+    idx = src.find("drain-precedence release: %s — peer owner still holds")
+    assert idx != -1, "DP reversion peer-defer site not found"
+    window = src[max(0, idx - 2000): idx]
+    assert "_paused_by_blind_window" in window, (
+        "DP reversion peer-defer does not consult _paused_by_blind_window"
+    )
