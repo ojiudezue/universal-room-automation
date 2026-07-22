@@ -361,6 +361,11 @@ class NotificationManager:
         # Hash of the legacy-shape inputs used to build the last
         # materialization — used by `_refresh_config` to detect drift.
         self._materialized_matrix_key: tuple | None = None
+        # NM Cycle C-2 fix-up (M-B1): bounded routing-decision ring used
+        # by the D4 audit card. Populated FROM `_emit_audit_row` (same
+        # decision data — no new DB writes, RAM only). Excluded from the
+        # recorder via `NMDiagnosticsSensor._unrecorded_attributes`.
+        self._routing_audit_log: deque[dict[str, Any]] = deque(maxlen=10)
 
     # =========================================================================
     # NM Cycle B B0: dry-run gate + write helper
@@ -660,6 +665,10 @@ class NotificationManager:
             "bucket_capacity": self._bucket_capacity,
             "bucket_refill_per_min": self._bucket_refill_per_min,
             "active_ack_registry_size": len(self._ack_registry),
+            # NM Cycle C-2 D4 (fix-up M-B1): bounded routing-decision ring
+            # for the audit card. `_unrecorded_attributes` on the sensor
+            # keeps this out of the recorder (per-tick churn otherwise).
+            "nm_routing_audit_recent": list(self._routing_audit_log),
         }
 
     @property
@@ -3243,7 +3252,33 @@ class NotificationManager:
 
         Write-volume safe: called ONLY on routing decisions that emit or
         are dry-run-logged. Idle ticks emit zero rows.
+
+        NM Cycle C-2 fix-up (M-B1): also append to the in-RAM
+        `_routing_audit_log` ring (maxlen=10) that feeds the D4 audit
+        card via the `nm_routing_audit_recent` attribute on
+        `sensor.ura_notification_manager_notification_diagnostics`. This
+        is a RAM-only side effect — no additional DB writes.
         """
+        try:
+            self._routing_audit_log.append({
+                "at": dt_util.utcnow().isoformat(),
+                "coordinator_id": coordinator_id,
+                "severity": (
+                    severity.name if isinstance(severity, Severity) else str(severity)
+                ),
+                "hazard": hazard_type,
+                "location": location,
+                "person": recipient_id,
+                "channel": channel,
+                "route_reason": route_reason,
+                "dnd_bypass_applied": bool(dnd_bypass_applied),
+                "bucket_outcome": bucket_outcome,
+                "matrix_branch": matrix_branch,
+                "delivered": int(delivered),
+                "dry_run": int(dry_run),
+            })
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("NM audit ring append failed (swallowed)", exc_info=True)
         try:
             database = self.hass.data.get(DOMAIN, {}).get("database")
             if database is None:

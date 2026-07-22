@@ -6746,15 +6746,33 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             # Coerce all matrix keys BEFORE default-drop so a re-opened
             # form saved untouched leaves persisted-options gain at zero.
-            matrix = _coerce_matrix(
-                user_input.get(CONF_NM_PERSON_ROUTING_MATRIX) or {}
-            )
-            overrides = _coerce_overrides(
-                user_input.get(CONF_NM_PERSON_HAZARD_OVERRIDES) or {}
-            )
-            dnd = _coerce_dnd(
-                user_input.get(CONF_NM_PERSON_DND_BYPASS_SEVERITIES) or {}
-            )
+            raw_matrix = user_input.get(CONF_NM_PERSON_ROUTING_MATRIX) or {}
+            raw_overrides = user_input.get(CONF_NM_PERSON_HAZARD_OVERRIDES) or {}
+            raw_dnd = user_input.get(CONF_NM_PERSON_DND_BYPASS_SEVERITIES) or {}
+            matrix = _coerce_matrix(raw_matrix)
+            overrides = _coerce_overrides(raw_overrides)
+            dnd = _coerce_dnd(raw_dnd)
+            # C-2 fix-up A5: silent coercion-drops are hostile. If a
+            # top-level per-person value was non-dict (matrix/overrides)
+            # or non-list (dnd), the coerce funcs quietly drop the row.
+            # Surface it as a validation error so the operator sees the
+            # broken submission instead of a phantom-successful save.
+            def _dropped_top_level(raw_dict: object, expect_dict_values: bool) -> bool:
+                if not isinstance(raw_dict, dict):
+                    return False
+                for _v in raw_dict.values():
+                    ok = isinstance(_v, dict) if expect_dict_values else isinstance(
+                        _v, (list, tuple, set, frozenset)
+                    )
+                    if not ok:
+                        return True
+                return False
+            if (
+                _dropped_top_level(raw_matrix, expect_dict_values=True)
+                or _dropped_top_level(raw_overrides, expect_dict_values=True)
+                or _dropped_top_level(raw_dnd, expect_dict_values=False)
+            ):
+                errors["base"] = "nm_c2_coercion_dropped_row"
 
             # D2 extras: lowercase, dedup, allowlist coercion.
             raw_extras = user_input.get(CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS)
@@ -6783,7 +6801,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         errors["base"] = "nm_c2_matrix_unknown_severity"
                     for ch in ch_map:
                         if ch not in _VALID_CHANNELS:
-                            errors["base"] = "nm_c2_matrix_row_incomplete"
+                            # C-2 fix-up A7: rename from
+                            # ``nm_c2_matrix_row_incomplete`` — the true
+                            # cause is an unknown channel token, mirror
+                            # the overrides error-key vocabulary.
+                            errors["base"] = "nm_c2_matrix_unknown_channel"
 
             # Overrides: same channel-vocabulary guard.
             for person, hz_map in overrides.items():
