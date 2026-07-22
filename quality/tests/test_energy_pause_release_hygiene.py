@@ -91,6 +91,9 @@ def _make_evpool(hass: _FakeHass, evse_ids: list[str]) -> _epool.EVChargerContro
     # into hygiene tests. Also the DP sibling set which some paths may
     # reference — mirror the real `__init__`.
     pool._paused_by_blind_window = set()
+    # Batch 6 (D-HIGH-3): per-epoch liveness ride latch; consulted by
+    # will_pause. `__new__` fixtures MUST seed it.
+    pool._blind_window_liveness_ride = set()
     if not hasattr(pool, "_paused_by_dp"):
         pool._paused_by_dp = set()
     return pool

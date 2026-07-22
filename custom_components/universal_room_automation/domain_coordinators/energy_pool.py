@@ -324,6 +324,24 @@ class EVChargerController:
         # debounce would cause the else-branch to drain membership,
         # producing a blind ensure-on flap.
         self._blind_window_pre_engaged: bool = False
+        # Fix-up D-HIGH-3 (Batch 6) — per-epoch liveness-ride authority.
+        # When the DP must-start-by fire (or any other pressure release
+        # path) grants a liveness release, the released EVSE MUST NOT be
+        # re-captured by the pause leg on the very next tick. Prior to
+        # this latch, the sequence was:
+        #   t=0  must-start release: `_paused_by_blind_window.discard()`
+        #         intended to fire but was missing, and even had it
+        #         fired, the pause leg on t+1 would see is_on=True +
+        #         envelope-deny + no ride authority → turn_off, and the
+        #         DP must-start-by timer had already been cancelled →
+        #         no retry → car stranded (D-HIGH-3).
+        # This set is consumed by the pause leg's `will_pause` gate:
+        # if `evse_id` is in this latch, the guard NEVER pauses this
+        # EVSE within the current epoch, regardless of envelope state.
+        # Cleared on epoch close (raw predicate False path in
+        # `_blind_window_guard_engaged`). Persisted via `_save_evse_state`
+        # so a mid-epoch restart carries the authority forward.
+        self._blind_window_liveness_ride: set[str] = set()
 
         # v4.7.6 D1 #9: Prune stale entries on init (idempotent on cold boot).
         self._prune_removed_evses()
@@ -449,6 +467,16 @@ class EVChargerController:
             # debounces normally (only a restart-restored non-empty set
             # gets the debounce bypass).
             self._blind_window_pre_engaged = False
+            # Fix-up D-HIGH-3 (Batch 6) — epoch close clears the ride
+            # latch. A liveness-ride grant is scoped to ONE epoch; the
+            # next epoch must debounce + evaluate afresh.
+            if self._blind_window_liveness_ride:
+                _LOGGER.info(
+                    "blind-window guard: epoch clear — dropping ride "
+                    "authority for %s",
+                    sorted(self._blind_window_liveness_ride),
+                )
+                self._blind_window_liveness_ride.clear()
             return False
         # Fix-up D-CRIT-2 (Batch 1) — pre-engaged restore bypass. When the
         # restart handler rehydrated a non-empty pause set with a non-None
@@ -494,6 +522,24 @@ class EVChargerController:
                 int(CONF_BLIND_WINDOW_ENTRY_DEBOUNCE_S),
             )
         return True
+
+    def grant_liveness_ride_authority(self, evse_id: str) -> None:
+        """Fix-up D-HIGH-3 (Batch 6) — grant a per-epoch ride authority.
+
+        Called by `EnergyCoordinator._apply_dp_must_start_release` (and
+        any future pressure-release site routing through the liveness
+        helper) IMMEDIATELY after the helper returns `release=True`.
+        Semantics:
+          * Membership in `_blind_window_liveness_ride` short-circuits
+            the pause leg's `will_pause` gate to False for this evse_id
+            for the remainder of the current epoch.
+          * Also drops any existing `_paused_by_blind_window` membership
+            so ownership matches the ride grant.
+          * Cleared on epoch close.
+        Idempotent + defensive.
+        """
+        self._blind_window_liveness_ride.add(evse_id)
+        self._paused_by_blind_window.discard(evse_id)
 
     def mark_pre_engaged_from_restore(
         self, epoch_started_at: "datetime | None" = None,
@@ -714,6 +760,8 @@ class EVChargerController:
             self._paused_by_dp,
             # Blind-window guard (D1): peer battery-protection owner.
             self._paused_by_blind_window,
+            # Fix-up D-HIGH-3 (Batch 6) — per-epoch liveness-ride latch.
+            self._blind_window_liveness_ride,
         ):
             for evse_id in list(tracking_set):
                 if evse_id not in known:
@@ -880,6 +928,20 @@ class EVChargerController:
                         will_pause = (state["is_on"] and not ride_ok) or (
                             not state["is_on"]
                         )
+                        # Fix-up D-HIGH-3 (Batch 6) — LIVENESS RIDE AUTHORITY.
+                        # If a pressure release path has granted a
+                        # per-epoch ride authority for this EVSE, the
+                        # guard MUST NOT pause it — regardless of
+                        # envelope state — for the remainder of the
+                        # epoch. The DP must-start-by fire (or a future
+                        # pressure-release site) had legitimate car-
+                        # charge liveness authority to override the
+                        # guard; re-capturing on the very next tick
+                        # would strand the car (the DP timer is already
+                        # cancelled by the release, so no retry driver
+                        # would re-force the ON state).
+                        if evse_id in self._blind_window_liveness_ride:
+                            will_pause = False
                         if will_pause and evse_id not in self._paused_by_blind_window:
                             self._paused_by_blind_window.add(evse_id)
                             self._proactive_offpeak_holds.discard(evse_id)
@@ -902,7 +964,14 @@ class EVChargerController:
                                 first_this_epoch = False
                             if first_this_epoch:
                                 self._blind_window_defers_this_epoch += 1
-                        if state["is_on"] and not ride_ok:
+                        if state["is_on"] and not ride_ok and will_pause:
+                            # Fix-up D-HIGH-3 (Batch 6) — gate the actual
+                            # turn_off on `will_pause` so a ride-authority
+                            # grant fully suppresses the pause action
+                            # (not just the peer-set claim). Without this
+                            # extra clause, the just-released EVSE would
+                            # get turn_off dispatched on the very next
+                            # tick and the D-HIGH-3 sequence would fail.
                             actions.append({
                                 "service": "switch.turn_off",
                                 "target": switch_entity,
@@ -924,6 +993,17 @@ class EVChargerController:
                         # increment removed).
                         continue
                     elif engaged and max_defer_exceeded:
+                        # Fix-up D-MED-2 (Batch 6) — cap<=0 short-circuit.
+                        # `CONF_BLIND_WINDOW_MAX_DEFER_MIN <= 0` is the
+                        # documented kill-switch: the guard's defer/pause
+                        # is disabled entirely, meaning the liveness helper
+                        # should NOT be consulted (there is no "yield"
+                        # to record — the guard was never armed for this
+                        # tick's defer decision). Skip the helper, drop
+                        # membership, and fall through to normal off-peak
+                        # ensure-on semantics.
+                        from .energy_const import CONF_BLIND_WINDOW_MAX_DEFER_MIN
+                        _cap_disabled = int(CONF_BLIND_WINDOW_MAX_DEFER_MIN) <= 0
                         # Fix-up D-HIGH-2 + D-MED-2 (Batch 4) — route
                         # max-defer expiry through the explicit liveness-
                         # release helper. `has_pressure=False`: max-defer
@@ -935,7 +1015,7 @@ class EVChargerController:
                         _bw_coord_ref = coord if coord is not None else getattr(
                             self, "_energy_coord", None,
                         )
-                        if _bw_coord_ref is not None:
+                        if not _cap_disabled and _bw_coord_ref is not None:
                             try:
                                 release_ok = _bw_coord_ref.blind_window_liveness_release(
                                     evse_id, reason="max_defer_exceeded",
@@ -946,6 +1026,7 @@ class EVChargerController:
                                 # HOLDING pause (silent ensure-on = the
                                 # exact bug D-HIGH-2 closed).
                                 release_ok = False
+                        # cap<=0 => release_ok stays True, helper skipped.
                         if not release_ok:
                             # Envelope proved SOC is below drain threshold
                             # AND we have no must-start-by pressure. Keep
@@ -960,12 +1041,24 @@ class EVChargerController:
                                 evse_id,
                             )
                             continue
+                        # Fix-up D-HIGH-3 (Batch 6) — max-defer expiry
+                        # also grants a per-epoch ride authority (only
+                        # when the helper was actually consulted and
+                        # returned True; the cap<=0 short-circuit does
+                        # NOT grant since the guard was never armed for
+                        # this tick). Without the authority, the very
+                        # next tick's pause leg would re-capture the
+                        # EVSE (envelope may still deny) even though we
+                        # just legitimately yielded.
+                        if not _cap_disabled:
+                            self._blind_window_liveness_ride.add(evse_id)
                         if evse_id in self._paused_by_blind_window:
                             self._paused_by_blind_window.discard(evse_id)
                             _LOGGER.info(
                                 "blind-window guard: max-defer bound "
                                 "exceeded for %s — yielding to must-start-by "
-                                "(liveness helper permitted release)",
+                                "(liveness helper permitted release, "
+                                "ride authority granted)",
                                 evse_id,
                             )
                     else:

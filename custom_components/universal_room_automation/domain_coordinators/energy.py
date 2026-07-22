@@ -1467,6 +1467,18 @@ class EnergyCoordinator(BaseCoordinator):
                             self._ev._paused_by_blind_window.add(eid)
                 except (ValueError, TypeError):
                     pass
+            # Fix-up D-HIGH-3 (Batch 6) — restore the liveness-ride latch.
+            ride_json = await db.restore_energy_state_with_age(
+                "evse_blind_window_liveness_ride",
+                max_age_hours=STALE_MAX_AGE_HOURS,
+            )
+            if ride_json:
+                try:
+                    for eid in _json.loads(ride_json):
+                        if eid in valid_evse_ids:
+                            self._ev._blind_window_liveness_ride.add(eid)
+                except (ValueError, TypeError):
+                    pass
             # Fix-up D-CRIT-2 (Batch 1) — restore the persisted epoch AND
             # mark the guard pre-engaged when the pause set is non-empty.
             # Without the pre-engaged flag, the fresh debounce would
@@ -1865,6 +1877,16 @@ class EnergyCoordinator(BaseCoordinator):
             await db.save_energy_state(
                 "evse_blind_window_paused",
                 _json.dumps(list(self._ev._paused_by_blind_window)),
+            )
+            # Fix-up D-HIGH-3 (Batch 6) — persist the per-epoch liveness
+            # ride latch. A mid-epoch restart that dropped the RAM latch
+            # would let the guard re-capture a released EVSE, stranding
+            # the car again. Sibling shape to the pause set; the same
+            # epoch-restore path (`mark_pre_engaged_from_restore`) carries
+            # the epoch key that scopes this latch.
+            await db.save_energy_state(
+                "evse_blind_window_liveness_ride",
+                _json.dumps(list(self._ev._blind_window_liveness_ride)),
             )
             # Fix-up D-CRIT-2 (Batch 1) — persist the epoch wall-clock
             # alongside the pause set. Restart mid-outage otherwise resets
@@ -3534,24 +3556,51 @@ class EnergyCoordinator(BaseCoordinator):
             )
 
         # 3) Schedule the durable decision_log row (never blocks).
+        # Fix-up D-LOW-3 (Batch 6) — EPOCH DEDUP on liveness-release rows.
+        # Dedup key = (evse_id, epoch_iso, branch). BOTH branches (release
+        # vs refusal) are separately deduped so a legitimate branch flip
+        # (e.g. envelope proves safe after several refusals, then release)
+        # still gets its own single row per epoch. The earlier code
+        # scheduled one row per consultation, which under a busy blind
+        # window could emit many rows per (evse, epoch) — Bug Class #34
+        # noise contour on decision_log for a hot rare-fire path.
         try:
-            self.hass.async_create_task(
-                self._log_blind_window_liveness_release(
-                    evse_id=evse_id,
-                    reason=reason,
-                    release=release,
-                    has_pressure=has_pressure,
-                    env_lower=env_lower,
-                    env_upper=env_upper,
-                    drain_target=drain_target,
-                    decision_note=decision_note,
-                ),
-            )
+            epoch = getattr(self._ev, "_blind_window_epoch_started_at", None)
         except Exception:  # noqa: BLE001
+            epoch = None
+        epoch_key = epoch.isoformat() if epoch is not None else ""
+        branch = "release" if release else "refuse"
+        dedup_key = (evse_id, epoch_key, branch)
+        seen = getattr(self, "_blind_window_liveness_release_logged", None)
+        if seen is None:
+            seen = set()
+            self._blind_window_liveness_release_logged = seen
+        if dedup_key in seen:
             _LOGGER.debug(
-                "liveness_release: schedule log failed (swallowed)",
-                exc_info=True,
+                "liveness_release: row suppressed (already logged this "
+                "epoch: evse=%s branch=%s)",
+                evse_id, branch,
             )
+        else:
+            seen.add(dedup_key)
+            try:
+                self.hass.async_create_task(
+                    self._log_blind_window_liveness_release(
+                        evse_id=evse_id,
+                        reason=reason,
+                        release=release,
+                        has_pressure=has_pressure,
+                        env_lower=env_lower,
+                        env_upper=env_upper,
+                        drain_target=drain_target,
+                        decision_note=decision_note,
+                    ),
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "liveness_release: schedule log failed (swallowed)",
+                    exc_info=True,
+                )
         _LOGGER.info(
             "blind-window liveness release: evse=%s reason=%s release=%s "
             "note=%s env=%s drain_target=%s pressure=%s",
@@ -3650,6 +3699,10 @@ class EnergyCoordinator(BaseCoordinator):
         new epoch starts with a fresh dedup set.
         """
         self._blind_window_defer_logged = set()
+        # Fix-up D-LOW-3 (Batch 6) — also clear the liveness-release
+        # dedup so the next epoch's release/refuse decisions get their
+        # own rows (no cross-epoch dedup leakage).
+        self._blind_window_liveness_release_logged = set()
 
     async def _log_blind_window_defer(
         self, evse_id: str, epoch_key: str,
@@ -4814,6 +4867,21 @@ class EnergyCoordinator(BaseCoordinator):
             state = self._ev._get_evse_state(evse_id)  # noqa: SLF001
             self._ev._paused_by_dp.discard(evse_id)  # noqa: SLF001
             self._ev._release_pause_dispatch_owner(evse_id, "dp")  # noqa: SLF001
+            # Fix-up D-HIGH-3 (Batch 6) — grant per-epoch ride authority
+            # + drop any blind-window pause claim BEFORE the dispatch.
+            # Ordering matters: the guard consults membership on the
+            # NEXT tick, so the grant must be visible before this tick
+            # returns. The must-start-by timer was already cancelled
+            # in `_cancel_dp_must_start_by_timer` above, so without the
+            # ride authority the next tick's pause leg would strand
+            # the car (D-HIGH-3).
+            try:
+                self._ev.grant_liveness_ride_authority(evse_id)  # noqa: SLF001
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "grant_liveness_ride_authority raised (swallowed)",
+                    exc_info=True,
+                )
             if not state.get("is_on"):
                 self.hass.async_create_task(
                     self.hass.services.async_call(

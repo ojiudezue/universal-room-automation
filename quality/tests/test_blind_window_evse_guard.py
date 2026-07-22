@@ -856,26 +856,49 @@ EVSE_TURN_ON_SITE_CONTRACT = {
         # The DP must-start-by path routes through
         # `blind_window_liveness_release(has_pressure=True)` which
         # consults the envelope + writes a decision_log row before the
-        # turn_on can fire. Now guard-covered via helper.
+        # turn_on can fire. Now guard-covered via helper. Batch 6 adds
+        # ride-authority latch so the next tick cannot re-capture.
         "guard_covered_via_liveness_helper",
     ),
+    # D-MED-1 (Batch 6) — the `dp_reversion_resume` entry above is
+    # discovered by the enumerator's NEW positional-idiom scanner in
+    # addition to the hand-list. No new contract entry needed for the
+    # two DP sites; the pre-existing `dp_reversion_resume` +
+    # `dp_must_start_by_forced` entries cover them, and the scanner
+    # confirms both are actually reachable in source.
 }
 
 
 def _iter_evse_turn_on_line_numbers(src_path):
     """Yield line numbers of every `switch.turn_on` payload in the file.
 
-    We scan for the literal `"service": "switch.turn_on"` — this is how
-    every EVSE turn_on site in these two files structures the action
-    payload. Non-EVSE contexts (SmartPlugController class body in
-    energy_pool.py, `target == "smart_plugs"` branch in energy.py) use
-    the SAME string; the caller must filter them out.
+    D-MED-1 (Batch 6) — scans BOTH idioms:
+      (a) The dict-payload shape used by `EVChargerController` actions:
+          ``"service": "switch.turn_on"`` on a payload line.
+      (b) The positional `hass.services.async_call` shape used by DP
+          release paths in `EnergyCoordinator`: ``async_call("switch",
+          "turn_on"`` — with the two literal args on the same line.
+    Scope: this scanner is anchored to TWO source files only —
+    `energy_pool.py` (EVChargerController class body) and `energy.py`
+    (`_execute_shed_action` EV branch + DP release paths). Non-EVSE
+    contexts (SmartPlugController class body in energy_pool.py,
+    `target == "smart_plugs"` / `target == "hvac"` branches in
+    energy.py) use the SAME strings; the caller must filter them out.
+    An EVSE `switch.turn_on` site added to any OTHER file will not be
+    scanned by this contract — that is a deliberate scope limitation
+    the enumeration test docstring makes explicit.
     """
     with open(src_path) as f:
         lines = f.readlines()
     hits = []
     for i, line in enumerate(lines, start=1):
         if '"service": "switch.turn_on"' in line:
+            hits.append(i)
+        elif '"switch", "turn_on"' in line:
+            # Positional shape: `hass.services.async_call("switch",
+            # "turn_on", ...)`. The two literal args land on one line
+            # in the DP release sites; anchor the pair to distinguish
+            # from unrelated `"switch"` mentions.
             hits.append(i)
     return hits, lines
 
@@ -2109,3 +2132,251 @@ def test_EC_manual_row_2_5_documents_final_semantics():
         assert token in src, (
             f"EC manual §2.4b row 2.5 stale — missing token: {token!r}"
         )
+
+
+# ===========================================================================
+# Fix-up Batch 6 — D re-pass findings (liveness ride authority)
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# D-HIGH-3 — Sequence test: must-start release grants per-epoch ride
+# authority; the pause leg does NOT re-capture on the very next tick.
+# ---------------------------------------------------------------------------
+
+
+def test_D_HIGH_3_must_start_release_grants_ride_and_next_tick_stays_on():
+    """The D-HIGH-3 sequence:
+      t=0  guard engaged, EVSE paused in `_paused_by_blind_window`.
+      t=1  DP must-start-by fire calls `grant_liveness_ride_authority(evse)`
+           — membership drops from `_paused_by_blind_window` AND ride
+           latch gains membership.
+      t=2  Next tick's pause leg sees the EVSE ON. Envelope may deny
+           ride, but the ride-latch overrides: `will_pause = False`.
+           No turn_off; no re-capture. Car stays ON.
+      t=3  Next tick after that — SAME OUTCOME while epoch is open.
+      t=4  Envoy recovers → epoch clears → ride latch cleared.
+
+    Mutations killed:
+      * Removing `_paused_by_blind_window.discard(evse_id)` from
+        `grant_liveness_ride_authority` => membership survives + next
+        tick's peer-set check re-holds it; this test's turn_off
+        assertion fails.
+      * Removing the `_blind_window_liveness_ride` short-circuit in the
+        pause leg's `will_pause` computation => the next tick's pause
+        leg re-captures the just-released EVSE.
+    """
+    ev = _make_ev(evse_on=False)
+    coord = _make_coord_stub(envelope=(20.0, 30.0))  # envelope denies ride
+    _engage_guard(ev, coord)
+
+    # t=0 — guard engaged; EVSE has been paused earlier (simulate the
+    # membership state that `determine_actions` would produce).
+    ev._paused_by_blind_window.add("garage_a")
+
+    # t=1 — DP must-start-by fire simulates: the helper (mocked True)
+    # then `grant_liveness_ride_authority`. Mirror the production
+    # sequencing (energy.py `_apply_dp_must_start_release`).
+    ev.grant_liveness_ride_authority("garage_a")
+    assert "garage_a" not in ev._paused_by_blind_window, (
+        "D-HIGH-3: pressure release must discard blind-window claim"
+    )
+    assert "garage_a" in ev._blind_window_liveness_ride, (
+        "D-HIGH-3: ride authority latch must gain membership"
+    )
+    # Simulate the turn_on that DP dispatched (production would fire
+    # via hass.services). Rewire the EVSE state to ON for the next tick.
+    ev.hass._set("switch.garage_a", "on")
+    ev.hass._set("sensor.garage_a_power", "1000", unit="W")
+
+    # t=2 — next tick's pause leg MUST NOT re-capture.
+    actions_t2 = ev.determine_actions("off_peak", coord=coord)
+    assert not any(a["service"] == "switch.turn_off" for a in actions_t2), (
+        "D-HIGH-3: next tick re-captured a just-released EVSE"
+    )
+    assert "garage_a" not in ev._paused_by_blind_window, (
+        "D-HIGH-3: pause leg re-added membership despite ride authority"
+    )
+    assert "garage_a" in ev._blind_window_liveness_ride, (
+        "D-HIGH-3: ride authority MUST persist through the epoch"
+    )
+
+    # t=3 — tick after that — SAME outcome (idempotent within epoch).
+    actions_t3 = ev.determine_actions("off_peak", coord=coord)
+    assert not any(a["service"] == "switch.turn_off" for a in actions_t3)
+    assert "garage_a" in ev._blind_window_liveness_ride
+
+    # t=4 — envoy recovers → epoch close → latch cleared.
+    coord_recovered = _make_coord_stub(blind_hold=False)
+    ev.determine_actions("off_peak", coord=coord_recovered)
+    assert "garage_a" not in ev._blind_window_liveness_ride, (
+        "D-HIGH-3: ride latch must clear on epoch close"
+    )
+
+
+def test_D_HIGH_3_ride_authority_survives_persist_restore():
+    """A mid-epoch restart must not strand the car. The latch is written
+    to KV (`evse_blind_window_liveness_ride`) alongside the pause set
+    persistence; restore rehydrates it. Verified via a source-anchored
+    proof (round-trip through the whole EC teardown is out of scope for
+    this unit test; the anchor guards the persistence contract).
+    """
+    src_path = _os.path.join(
+        _os.path.dirname(__file__), "..", "..", "custom_components",
+        "universal_room_automation", "domain_coordinators", "energy.py",
+    )
+    with open(src_path) as f:
+        src = f.read()
+    # Save side: writes the KV key with the set contents.
+    assert '"evse_blind_window_liveness_ride"' in src
+    assert "_blind_window_liveness_ride" in src
+    # Restore side: reads the same KV key.
+    assert 'restore_energy_state_with_age(\n                "evse_blind_window_liveness_ride"' in src, (
+        "D-HIGH-3: restore path for liveness-ride latch missing"
+    )
+
+
+def test_D_HIGH_3_grant_helper_drops_pause_membership():
+    """Mutation: `grant_liveness_ride_authority` without the
+    `_paused_by_blind_window.discard(evse_id)` line lets the just-
+    released EVSE stay in the peer-defer set, and the next tick's
+    `_stronger_peer_holds` blocks ensure-on.
+    """
+    ev = _make_ev()
+    ev._paused_by_blind_window.add("garage_a")
+    ev.grant_liveness_ride_authority("garage_a")
+    assert "garage_a" not in ev._paused_by_blind_window
+    assert "garage_a" in ev._blind_window_liveness_ride
+
+
+def test_D_HIGH_3_will_pause_gate_respects_ride_authority_source_anchored():
+    """Source-anchored: the `will_pause = False` short-circuit MUST
+    appear immediately after the ride-authority membership check in
+    the pause leg. Reviewer C-style mutation of the check pattern
+    would surface here.
+    """
+    src_path = _os.path.join(
+        _os.path.dirname(__file__), "..", "..", "custom_components",
+        "universal_room_automation", "domain_coordinators", "energy_pool.py",
+    )
+    with open(src_path) as f:
+        src = f.read()
+    idx = src.find("if evse_id in self._blind_window_liveness_ride:")
+    assert idx != -1, "D-HIGH-3 will_pause short-circuit missing"
+    tail = src[idx: idx + 200]
+    assert "will_pause = False" in tail
+
+
+# ---------------------------------------------------------------------------
+# D-MED-1 — enumerator finds BOTH idioms (dict-payload + positional)
+# ---------------------------------------------------------------------------
+
+
+def test_D_MED_1_enumerator_finds_positional_dp_release_sites():
+    """The positional idiom `hass.services.async_call("switch",
+    "turn_on", ...)` is used by the DP reversion + must-start-by
+    release sites. The enumerator must find them by scanning that
+    idiom's on-line literal token, not just the dict-payload shape.
+    """
+    src_path = _os.path.join(
+        _os.path.dirname(__file__), "..", "..", "custom_components",
+        "universal_room_automation", "domain_coordinators", "energy.py",
+    )
+    hits, lines = _iter_evse_turn_on_line_numbers(src_path)
+    # Filter to lines that use the POSITIONAL idiom.
+    positional_hits = [h for h in hits if '"switch", "turn_on"' in lines[h - 1]]
+    assert len(positional_hits) >= 2, (
+        f"D-MED-1: enumerator must find the two DP positional sites; "
+        f"found {len(positional_hits)}"
+    )
+
+
+def test_D_MED_1_scope_limitation_documented_in_iterator_docstring():
+    """Guardrail: the enumerator's docstring must state the two-file
+    scope limitation so a future contributor knows an EVSE turn_on in
+    a THIRD file will not be caught by this contract.
+    """
+    import inspect
+    src = inspect.getsource(_iter_evse_turn_on_line_numbers)
+    assert "TWO source files" in src
+    assert "scope limitation" in src
+
+
+# ---------------------------------------------------------------------------
+# D-MED-2 — cap<=0 short-circuits (guard defer/pause disabled)
+# ---------------------------------------------------------------------------
+
+
+def test_D_MED_2_cap_zero_short_circuits_liveness_helper():
+    """When `CONF_BLIND_WINDOW_MAX_DEFER_MIN <= 0`, the max-defer
+    branch MUST NOT consult the liveness helper — the guard's
+    defer/pause is disabled by that kill-switch. `_max_defer_exceeded`
+    returns True unconditionally when cap<=0, so the elif branch is
+    reached every tick under the kill-switch; the helper must be
+    bypassed OR the helper's rows would flood the decision_log.
+    """
+    import importlib
+    _epc = importlib.import_module(
+        "custom_components.universal_room_automation.domain_coordinators.energy_const"
+    )
+    _ep = importlib.import_module(
+        "custom_components.universal_room_automation.domain_coordinators.energy_pool"
+    )
+    # Save + patch the cap to 0.
+    original_cap = _epc.CONF_BLIND_WINDOW_MAX_DEFER_MIN
+    try:
+        _epc.CONF_BLIND_WINDOW_MAX_DEFER_MIN = 0
+        ev = _make_ev(evse_on=False)
+        coord = _make_coord_stub()
+        _engage_guard(ev, coord)
+        ev._paused_by_blind_window.add("garage_a")
+        # The helper is on the coord stub with a call recorder.
+        pre_calls = len(coord._liveness_calls)
+        ev.determine_actions("off_peak", coord=coord)
+        post_calls = len(coord._liveness_calls)
+        assert post_calls == pre_calls, (
+            f"D-MED-2: cap<=0 short-circuit failed — liveness helper was "
+            f"called ({post_calls - pre_calls} new calls under kill-switch)"
+        )
+        # And the pause membership is dropped (kill-switch => guard no-op).
+        assert "garage_a" not in ev._paused_by_blind_window
+    finally:
+        _epc.CONF_BLIND_WINDOW_MAX_DEFER_MIN = original_cap
+
+
+# ---------------------------------------------------------------------------
+# D-LOW-3 (Batch 6) — epoch dedup on liveness-release rows
+# ---------------------------------------------------------------------------
+
+
+def test_D_LOW_3_liveness_release_row_dedups_within_epoch_source_anchored():
+    """Source-anchored: the liveness helper writes ONE row per
+    (evse_id, epoch, branch) via `_blind_window_liveness_release_logged`
+    dedup set. Repeat consultations within the epoch (either branch)
+    are suppressed. The dedup set is cleared on epoch close via
+    `_reset_blind_window_defer_dedup`.
+    """
+    src_path = _os.path.join(
+        _os.path.dirname(__file__), "..", "..", "custom_components",
+        "universal_room_automation", "domain_coordinators", "energy.py",
+    )
+    with open(src_path) as f:
+        src = f.read()
+    idx = src.find("def blind_window_liveness_release(")
+    assert idx != -1
+    body = src[idx: idx + 5500]
+    for token in (
+        "_blind_window_liveness_release_logged",
+        "dedup_key = (evse_id, epoch_key, branch)",
+        '"release" if release else "refuse"',
+        "if dedup_key in seen:",
+        "seen.add(dedup_key)",
+    ):
+        assert token in body, (
+            f"D-LOW-3: liveness-release dedup shape missing: {token!r}"
+        )
+    # Reset path clears BOTH dedup sets on epoch close.
+    reset_idx = src.find("_reset_blind_window_defer_dedup(self)")
+    assert reset_idx != -1
+    reset_body = src[reset_idx: reset_idx + 800]
+    assert "_blind_window_liveness_release_logged = set()" in reset_body
