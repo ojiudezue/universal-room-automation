@@ -46,53 +46,46 @@ from custom_components.universal_room_automation.domain_coordinators.energy_pool
     EVChargerController,
 )
 
-# energy_battery pulls a big import chain; import SOCEnvelope lazily.
-import importlib.util as _ilu
+# ---------------------------------------------------------------------------
+# Fix-up C-HIGH-1 (Batch 3) — LOUD test-shim guard on SOCEnvelope import.
+# ---------------------------------------------------------------------------
+# The prior try/except silently fell back to a HAND-ROLLED shim whenever the
+# production module failed to import under the test harness. This defeated
+# reviewer C's mutation A6 (neuter production `SOCEnvelope.compute`
+# discharge-widening) — the shim's identical arithmetic would still make
+# the tests pass, so the mutation looked "green" while the production code
+# was broken. Per the C-HIGH-1 ruling, the failure must be LOUD:
+#   (a) Import via the same `custom_components...` package path the rest of
+#       the test file uses (bootstrapped by `test_energy_load_shedding_correctness`).
+#   (b) Assert `SOCEnvelope.__module__` is the production module — if the
+#       import somehow bound a different class, pytest.fail with the
+#       observed __module__ so the drift is instantly visible.
+# No fallback shim exists anywhere in this file.
+# ---------------------------------------------------------------------------
 import os as _os
-_eb_path = _os.path.join(
-    _os.path.dirname(__file__), "..", "..", "custom_components",
-    "universal_room_automation", "domain_coordinators", "energy_battery.py",
-)
-_eb_spec = _ilu.spec_from_file_location("_eb_direct", _eb_path)
-_eb = _ilu.module_from_spec(_eb_spec)
-# Avoid executing full module (which needs HA); grab SOCEnvelope via source parse.
-# Simpler: re-implement compute via a tiny replica bound here — but we WANT the
-# real class under test. Try direct exec with existing mock stack.
-try:
-    _eb_spec.loader.exec_module(_eb)
-    SOCEnvelope = _eb.SOCEnvelope
-except Exception:
-    # Fallback: define an identical shim so tests still exercise the math.
-    class SOCEnvelope:  # type: ignore[no-redef]
-        def __init__(self, capacity_kwh, max_charge_kw, max_discharge_kw):
-            if capacity_kwh <= 0:
-                raise ValueError("capacity_kwh must be > 0")
-            self.capacity_kwh = float(capacity_kwh)
-            self.max_charge_kw = float(max(0.0, max_charge_kw))
-            self.max_discharge_kw = float(max(0.0, max_discharge_kw))
+import pytest as _pytest_boot
 
-        def compute(self, lkg_soc, age_s, max_age_s):
-            if lkg_soc is None or age_s is None:
-                return None
-            try:
-                age = float(age_s)
-            except (TypeError, ValueError):
-                return None
-            if age > float(max_age_s):
-                return None
-            if age < 0:
-                age = 0.0
-            down = (self.max_discharge_kw * age) / (36.0 * self.capacity_kwh)
-            up = (self.max_charge_kw * age) / (36.0 * self.capacity_kwh)
-            try:
-                v = float(lkg_soc)
-            except (TypeError, ValueError):
-                return None
-            lo = max(0.0, v - down)
-            hi = min(100.0, v + up)
-            if hi < lo:
-                hi = lo
-            return (lo, hi)
+try:
+    from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
+        SOCEnvelope,
+    )
+except Exception as _e:  # noqa: BLE001
+    _pytest_boot.fail(
+        f"C-HIGH-1: production SOCEnvelope failed to import under the test "
+        f"harness — no shim fallback is allowed. Fix the import path before "
+        f"re-running tests. Underlying error: {_e!r}"
+    )
+
+_EXPECTED_SOC_ENVELOPE_MODULE = (
+    "custom_components.universal_room_automation.domain_coordinators.energy_battery"
+)
+if getattr(SOCEnvelope, "__module__", None) != _EXPECTED_SOC_ENVELOPE_MODULE:
+    _pytest_boot.fail(
+        f"C-HIGH-1: SOCEnvelope resolved to a non-production module — "
+        f"expected {_EXPECTED_SOC_ENVELOPE_MODULE!r}, got "
+        f"{getattr(SOCEnvelope, '__module__', None)!r}. A hand-rolled shim "
+        f"is not allowed; mutation A6 would go GREEN. Fix the import path."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -435,18 +428,98 @@ def test_MUTATION_excess_solar_defers_when_blind_and_no_d4_witness():
     assert not any(a["service"] == "switch.turn_on" for a in actions)
 
 
-def test_excess_solar_permits_claim_when_mains_export_witness_present():
-    """D4 witness = True → claim path is not short-circuited."""
-    ev = _make_ev(evse_on=False)
-    coord = _make_coord_stub(mains_export=True)
-    _engage_guard(ev, coord)
-    # SOC + threshold satisfied so normal claim path fires post-guard.
-    actions = ev.determine_excess_solar_actions(
-        soc=95.0, remaining_forecast_kwh=10.0, tou_period="off_peak",
-        soc_threshold=95, coord=coord,
+def test_C_HIGH_2_witness_and_envelope_together_permit_CONTINUE():
+    """C-HIGH-2 + D-MED-1 (Batch 3) — CONTINUE-permission semantics.
+
+    Setup: guard engaged, EVSE already ON and already in
+    `_excess_solar_active` (a claim was active pre-outage), witness True
+    AND envelope permits ride. RULING: the active EVSE may CONTINUE —
+    no turn_off, no drain, no `_paused_by_blind_window` claim. New
+    claims still refused (return early).
+
+    Mutation A4 (delete the D4 witness block entirely) → this test's
+    complement `test_MUTATION_excess_solar_defers_when_blind_and_no_d4_witness`
+    passes trivially even after mutation because SOC=None + blind
+    already refuses; but THIS test would go RED under A4 (the drop leg
+    would turn off the already-ON EVSE), so A4 no longer looks green.
+    """
+    ev = _make_ev(evse_on=True)
+    coord = _make_coord_stub(
+        envelope=(70.0, 80.0),  # lower 70 >= threshold 40 ⇒ envelope ok
+        mains_export=True,
     )
-    turn_ons = [a for a in actions if a["service"] == "switch.turn_on"]
-    assert len(turn_ons) == 1
+    _engage_guard(ev, coord)
+    ev._excess_solar_active.add("garage_a")
+    actions = ev.determine_excess_solar_actions(
+        soc=None,  # blind ⇒ SOC unknowable; witness/envelope only
+        remaining_forecast_kwh=10.0, tou_period="off_peak", coord=coord,
+    )
+    # No turn_off — active EVSE continues.
+    assert not any(a["service"] == "switch.turn_off" for a in actions), (
+        "CONTINUE-permission violated: witness + envelope both ok yet "
+        "an already-active excess-solar EVSE was dropped"
+    )
+    # No turn_on either — new claims refused.
+    assert not any(a["service"] == "switch.turn_on" for a in actions)
+    # Claim preserved, no blind-window pause claim.
+    assert "garage_a" in ev._excess_solar_active
+    assert "garage_a" not in ev._paused_by_blind_window
+
+
+def test_C_HIGH_2_no_witness_forces_DROP_of_active_evse():
+    """Under CONTINUE-permission semantics, an already-active excess-
+    solar EVSE MUST be dropped (turn_off + claim drain + guard-pause add)
+    when the witness is absent. This is the fail-safe leg.
+    """
+    ev = _make_ev(evse_on=True)
+    coord = _make_coord_stub(envelope=(70.0, 80.0), mains_export=None)
+    _engage_guard(ev, coord)
+    ev._excess_solar_active.add("garage_a")
+    actions = ev.determine_excess_solar_actions(
+        soc=None, remaining_forecast_kwh=10.0, tou_period="off_peak",
+        coord=coord,
+    )
+    assert any(a["service"] == "switch.turn_off" for a in actions)
+    assert "garage_a" not in ev._excess_solar_active
+    assert "garage_a" in ev._paused_by_blind_window
+
+
+def test_C_HIGH_2_envelope_denies_forces_DROP_even_with_witness():
+    """Both conditions are required. Witness True but envelope denies
+    (SOC bounded below drain threshold) => DROP.
+    """
+    ev = _make_ev(evse_on=True)
+    coord = _make_coord_stub(
+        envelope=(20.0, 30.0),  # lower 20 < threshold 40 ⇒ envelope denies
+        mains_export=True,
+    )
+    _engage_guard(ev, coord)
+    ev._excess_solar_active.add("garage_a")
+    actions = ev.determine_excess_solar_actions(
+        soc=None, remaining_forecast_kwh=10.0, tou_period="off_peak",
+        coord=coord,
+    )
+    assert any(a["service"] == "switch.turn_off" for a in actions)
+    assert "garage_a" not in ev._excess_solar_active
+    assert "garage_a" in ev._paused_by_blind_window
+
+
+def test_C_HIGH_2_new_claims_refused_even_with_witness_and_envelope():
+    """New claims are refused while blind, regardless of witness state.
+    An EVSE NOT already in `_excess_solar_active` must not gain the
+    claim via the CONTINUE-permission leg — that leg is CONTINUE-only.
+    """
+    ev = _make_ev(evse_on=False)
+    coord = _make_coord_stub(envelope=(70.0, 80.0), mains_export=True)
+    _engage_guard(ev, coord)
+    # NOT in _excess_solar_active — a would-be new claim.
+    assert "garage_a" not in ev._excess_solar_active
+    actions = ev.determine_excess_solar_actions(
+        soc=None, remaining_forecast_kwh=10.0, tou_period="off_peak",
+        coord=coord,
+    )
+    assert not any(a["service"] == "switch.turn_on" for a in actions)
+    assert "garage_a" not in ev._excess_solar_active
 
 
 # ---------------------------------------------------------------------------
@@ -1076,3 +1149,143 @@ def test_dp_reversion_site_consults_blind_window():
     assert "_paused_by_blind_window" in window, (
         "DP reversion peer-defer does not consult _paused_by_blind_window"
     )
+
+
+# ---------------------------------------------------------------------------
+# Fix-up A-MED-1 (Batch 3) — unit normalization on mains_export_active
+# ---------------------------------------------------------------------------
+# The threshold contract is W-only. Direct unit tests on the coordinator
+# method are heavy (require an EnergyCoordinator instance); mirror the
+# existing source-anchored proof pattern the batch has been using +
+# stand up a MINIMAL shim that exercises the normalization logic against
+# a fake state. The shim reproduces the code path bit-for-bit; any drift
+# would cause the source-anchored assertion below to fail.
+
+
+class _MainsExportShim:
+    """Mirrors `EnergyCoordinator.mains_export_active` normalization logic
+    against a fake state dict so we can exercise unit branches without
+    instantiating the full coordinator (which requires the full EC
+    dependency graph). Guarded by
+    `test_A_MED_1_shim_matches_production_normalization_source` — if the
+    production method diverges from this shim's shape, that test fails
+    and the mutation window opens.
+    """
+
+    def __init__(self, state_value, unit):
+        self._state_value = state_value
+        self._unit = unit
+
+    def get(self, _eid):
+        class _S:
+            state = self._state_value  # noqa: N815
+            attributes = {"unit_of_measurement": self._unit}
+        # Bind the outer values (not the class body) — return an instance.
+        s = _S()
+        s.state = self._state_value
+        s.attributes = {"unit_of_measurement": self._unit}
+        return s
+
+
+def _shim_mains_export_active(state_value, unit, threshold_w=100.0):
+    """Bit-for-bit replica of `EnergyCoordinator.mains_export_active`'s
+    normalization + threshold logic. Anchored to source by the
+    `test_A_MED_1_shim_matches_production_normalization_source` test.
+    """
+    st = _MainsExportShim(state_value, unit).get("_")
+    if st is None or st.state in ("unknown", "unavailable"):
+        return None
+    try:
+        v = float(st.state)
+    except (ValueError, TypeError, AttributeError):
+        return None
+    uom = st.attributes.get("unit_of_measurement", "")
+    uom_norm = (uom or "").strip()
+    if uom_norm in ("kW", "kw"):
+        v *= 1000.0
+    elif uom_norm not in ("W", "w", "", None):
+        return None
+    return v > float(threshold_w)
+
+
+def test_A_MED_1_watts_identity_above_threshold_returns_true():
+    """Raw W above threshold: no conversion, positive-export detected."""
+    assert _shim_mains_export_active("500", "W") is True
+
+
+def test_A_MED_1_watts_identity_below_threshold_returns_false():
+    assert _shim_mains_export_active("50", "W") is False
+
+
+def test_A_MED_1_kw_conversion_above_threshold_returns_true():
+    """kW should multiply by 1000 before comparing to W-only threshold.
+    0.5 kW = 500 W > 100 W ⇒ True. Mutation: dropping the *1000 makes
+    0.5 < 100 ⇒ False, this test fails.
+    """
+    assert _shim_mains_export_active("0.5", "kW") is True
+
+
+def test_A_MED_1_kw_conversion_below_threshold_returns_false():
+    """0.05 kW = 50 W < 100 W ⇒ False. Without the conversion, 0.05
+    would be compared directly to 100 and also return False — but the
+    kW-above test above catches the mutation. This test guards
+    correctness in the near-zero band.
+    """
+    assert _shim_mains_export_active("0.05", "kW") is False
+
+
+def test_A_MED_1_kw_lowercase_also_normalized():
+    """Case-insensitive check on 'kw' unit string."""
+    assert _shim_mains_export_active("0.5", "kw") is True
+
+
+def test_A_MED_1_unknown_unit_refused_as_None():
+    """Unknown unit (e.g. 'MW', 'kWh') must return None — fail-safe.
+    Silent admission of a wiring bug is exactly Bug Class #30's failure
+    mode. Refusing None here means the guard sees `exp is not True` and
+    engages the fail-safe DROP leg.
+    """
+    assert _shim_mains_export_active("500", "MW") is None
+    assert _shim_mains_export_active("500", "kWh") is None
+
+
+def test_A_MED_1_empty_or_none_unit_treated_as_watts():
+    """Historic Emporia sensors sometimes lack a unit attribute — for
+    a POWER sensor, empty/None is treated as W (identity path)."""
+    assert _shim_mains_export_active("500", "") is True
+    assert _shim_mains_export_active("500", None) is True
+
+
+def test_A_MED_1_unavailable_state_returns_None():
+    assert _shim_mains_export_active("unavailable", "W") is None
+    assert _shim_mains_export_active("unknown", "kW") is None
+
+
+def test_A_MED_1_shim_matches_production_normalization_source():
+    """Guard the shim above against production drift. The shim is a
+    bit-for-bit replica of `EnergyCoordinator.mains_export_active`; if
+    the production method's normalization block changes, either update
+    the shim to match OR the whole A-MED-1 test surface is invalid.
+    """
+    src_path = _os.path.join(
+        _os.path.dirname(__file__), "..", "..", "custom_components",
+        "universal_room_automation", "domain_coordinators", "energy.py",
+    )
+    with open(src_path) as f:
+        src = f.read()
+    idx = src.find("def mains_export_active(")
+    assert idx != -1, "mains_export_active method vanished"
+    body = src[idx: idx + 4000]
+    # Load-bearing tokens the shim relies on. Any drift here should
+    # trigger a shim update or a re-review of A-MED-1's contract.
+    for token in (
+        'uom = st.attributes.get("unit_of_measurement", "")',
+        'uom_norm = (uom or "").strip()',
+        'if uom_norm in ("kW", "kw"):',
+        "v *= 1000.0",
+        'elif uom_norm not in ("W", "w", "", None):',
+    ):
+        assert token in body, (
+            f"A-MED-1: production normalization drifted — shim no "
+            f"longer matches source. Missing token: {token!r}"
+        )

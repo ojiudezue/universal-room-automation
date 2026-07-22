@@ -3454,6 +3454,17 @@ class EnergyCoordinator(BaseCoordinator):
         `CONF_ENERGY_MAINS_EXPORT_ENTITY` and its state is a positive
         export power > threshold_w. Returns None when unwired (caller
         falls back to current Envoy-only behavior).
+
+        `threshold_w` — WATTS. Documented on `CONF_ENERGY_MAINS_EXPORT_ENTITY`
+        as W-only; the entity's raw numeric state is normalized here
+        (Fix-up A-MED-1, Batch 3). Bug Class #30 (unit normalization):
+        Emporia typically reports W; some setups expose the same signal
+        via a `sensor.*_kw` template that reads kW. We honor the
+        entity's `unit_of_measurement`:
+          * "W"  / None / "" → treat state as W (identity).
+          * "kW" / "kw"      → multiply by 1000.
+          * anything else    → refuse to compare (return None); a
+            wiring/units bug must not silently pass the guard.
         """
         from .energy_const import CONF_ENERGY_MAINS_EXPORT_ENTITY
         try:
@@ -3470,6 +3481,24 @@ class EnergyCoordinator(BaseCoordinator):
                 return None
             v = float(st.state)
         except (ValueError, TypeError, AttributeError):
+            return None
+        # A-MED-1 (Batch 3) — honor unit_of_measurement per Bug Class #30.
+        try:
+            uom = st.attributes.get("unit_of_measurement", "")
+        except Exception:  # noqa: BLE001
+            uom = ""
+        uom_norm = (uom or "").strip()
+        if uom_norm in ("kW", "kw"):
+            v *= 1000.0
+        elif uom_norm not in ("W", "w", "", None):
+            # Unknown unit — refuse to admit as W-comparable. Better to
+            # return None (caller falls through to fail-safe) than to
+            # silently compare mixed units and admit a wiring bug.
+            _LOGGER.debug(
+                "mains_export_active: %s has unexpected unit=%r; "
+                "refusing to compare (fail-safe None)",
+                eid, uom,
+            )
             return None
         return v > float(threshold_w)
 

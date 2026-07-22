@@ -1156,36 +1156,92 @@ class EVChargerController:
                 for _eid in list(self._paused_by_blind_window):
                     self._paused_by_blind_window.discard(_eid)
             if engaged and not max_defer_exceeded:
+                # Fix-up C-HIGH-2 + D-MED-1 (Batch 3) — CONTINUE-permission
+                # semantics for D4 witness.
+                #
+                # Previously the witness-True branch fell through to the
+                # normal claim path. That leg was LIVE-UNREACHABLE (SOC is
+                # None while blind → `conditions_met` False → no new
+                # claims), and a test could only exercise it by feeding
+                # impossible state (SOC + blind at once). The correct
+                # semantic is narrower and testable:
+                #
+                #   * Guard engaged AND witness True AND envelope permits
+                #     ride → an ALREADY-ACTIVE excess-solar EVSE may
+                #     CONTINUE (we do NOT turn it off, we do NOT drain the
+                #     claim, and we do NOT gain `_paused_by_blind_window`
+                #     membership). New claims (EVSE not already in
+                #     `_excess_solar_active`) remain refused — we return
+                #     early so the normal claim path below cannot fire.
+                #
+                #   * Any other combination (witness None/False OR
+                #     envelope denies) → fail-safe DROP leg: turn off any
+                #     active excess-solar EVSE, drain the claim set, and
+                #     add to `_paused_by_blind_window` so the guard's
+                #     other precedence gates keep it off.
                 try:
                     exp = coord.mains_export_active()
                 except Exception:  # noqa: BLE001
                     exp = None
-                if exp is not True:
-                    # No Envoy-independent proof of export → refuse
-                    # excess-solar ensure-on. Fail-safe pause: turn off
-                    # any previously-claimed excess-solar EVSE.
-                    for evse_id in list(self._excess_solar_active):
-                        config = self._evse.get(evse_id, {})
-                        switch_entity = config.get("switch", "")
-                        if switch_entity:
-                            st = self._get_evse_state(evse_id)
-                            if st["is_on"]:
-                                actions.append({
-                                    "service": "switch.turn_off",
-                                    "target": switch_entity,
-                                    "data": {},
-                                })
-                                _LOGGER.info(
-                                    "blind-window guard: dropping excess-solar "
-                                    "claim on %s (Envoy blind, no D4 witness)",
-                                    evse_id,
-                                )
-                        self._excess_solar_active.discard(evse_id)
-                        self._paused_by_blind_window.add(evse_id)
+                # Envelope check for CONTINUE-permission — INDEPENDENT of
+                # the witness (both conditions required per C-HIGH-2
+                # ruling). We do NOT reuse `_blind_window_envelope_permits_ride`
+                # here because that helper short-circuits True on witness
+                # alone (a legitimate optimization for the off_peak
+                # fail-safe ride leg where either signal suffices, but
+                # wrong for CONTINUE-permission which requires BOTH).
+                drain_target_for_ride = None
+                try:
+                    drain_target_for_ride = int(
+                        getattr(coord, "_ev_battery_drain_soc", None) or 0
+                    ) or None
+                except Exception:  # noqa: BLE001
+                    drain_target_for_ride = None
+                envelope_ride_ok = False
+                if drain_target_for_ride is not None:
+                    try:
+                        env_bounds = coord.soc_envelope()
+                    except Exception:  # noqa: BLE001
+                        env_bounds = None
+                    if env_bounds is not None:
+                        _lower, _upper = env_bounds
+                        envelope_ride_ok = (
+                            _lower >= float(drain_target_for_ride)
+                        )
+                continue_permission = (exp is True) and envelope_ride_ok
+                if continue_permission:
+                    # Active EVSEs continue; NEW claims still refused.
+                    # Log once per epoch-defer for observability.
                     self._blind_window_defers_this_epoch += 1
+                    for _active in self._excess_solar_active:
+                        _LOGGER.debug(
+                            "blind-window guard: permitting excess-solar "
+                            "CONTINUE for %s (witness + envelope both ok)",
+                            _active,
+                        )
                     return actions
-                # else: mains-export proves surplus — fall through to
-                # normal claim path (D4 backup consumed).
+                # DROP leg — fail-safe pause.
+                for evse_id in list(self._excess_solar_active):
+                    config = self._evse.get(evse_id, {})
+                    switch_entity = config.get("switch", "")
+                    if switch_entity:
+                        st = self._get_evse_state(evse_id)
+                        if st["is_on"]:
+                            actions.append({
+                                "service": "switch.turn_off",
+                                "target": switch_entity,
+                                "data": {},
+                            })
+                            _LOGGER.info(
+                                "blind-window guard: dropping excess-solar "
+                                "claim on %s (Envoy blind, witness=%r, "
+                                "envelope_ok=%s)",
+                                evse_id, exp, envelope_ride_ok,
+                            )
+                    self._excess_solar_active.discard(evse_id)
+                    self._paused_by_blind_window.add(evse_id)
+                self._blind_window_defers_this_epoch += 1
+                return actions
 
         conditions_met = (
             soc is not None

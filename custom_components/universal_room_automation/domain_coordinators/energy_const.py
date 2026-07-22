@@ -1427,8 +1427,17 @@ CONF_RESERVE_VERIFIABLE_MAX_AGE_S: Final[int] = 600
 # unset = current behavior (excess-solar claim requires Envoy). Registry-
 # verified candidates (2026-07-21): sensor.mains_vue_2_mainstogrid_*,
 # sensor.mainw_vue_balance_power_minute_average. Positive-export convention:
-# operator supplies an entity whose numeric state is > 0 W when the house
+# operator supplies an entity whose numeric state is > 0 when the house
 # is exporting to the grid (surplus solar). See D4 in the planning doc.
+#
+# Fix-up A-MED-1 (Batch 3) — UNIT CONTRACT is W-only for threshold math.
+# `EnergyCoordinator.mains_export_active(threshold_w)` normalizes the
+# entity's raw numeric state to WATTS by reading `unit_of_measurement`:
+#   * "W" / None / "" → identity (already W).
+#   * "kW" / "kw"    → multiplied by 1000.
+#   * any other unit → refused as inconclusive (fail-safe None); operator
+#     must fix the wiring rather than have URA silently admit mixed units
+#     (Bug Class #30). Thresholds are ALWAYS expressed in W.
 CONF_ENERGY_MAINS_EXPORT_ENTITY: Final = "energy_mains_export_entity"
 
 # Rung-1 (module const, physical property — change requires code review).
