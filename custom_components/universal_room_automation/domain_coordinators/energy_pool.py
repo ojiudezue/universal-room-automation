@@ -775,7 +775,7 @@ class EVChargerController:
 
         Without this, config-flow edits that remove an EVSE leak entries in
         _paused_by_*, _battery_drain_cooldown, _pause_dispatch_ts, etc.
-        Called from __init__ and update_evse_config().
+        Called from __init__ (update_evse_config was removed; options edits rebuild via async_setup_entry).
         """
         known = set(self._evse.keys())
         # Phase-2 refactor: two-pass shape (sets, then dicts) preserved
@@ -814,7 +814,7 @@ class EVChargerController:
         the pause set. Every legitimate write pairs them (see
         `determine_arbitrage_actions` add-side ~L2286 and release-side
         ~L2331), but a mismatched discard elsewhere would leak an
-        orphaned reason. This sweep polices the invariant.
+        orphaned reason. This sweep reconciles the invariant at construction (init-only prune cadence; runtime orphans persist until next restart and are diagnostically inert — sole consumer iterates the set, not the map).
         """
         orphans = [
             eid for eid in list(self._arbitrage_pause_reason.keys())
