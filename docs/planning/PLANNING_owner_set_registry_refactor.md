@@ -294,6 +294,25 @@ Independent. No owner-set overlap.
 
 ---
 
+## Phase-3 acceptance note — KV write-order (D-2)
+
+The registry-driven `_save_registry_owner_lists` writes list-shape KV
+keys in **declaration order** (the natural `iter_persisted_lists()`
+sequence), which is not the same as the pre-phase-2 hand-rolled order
+in `_save_evse_state`. This is ACCEPTED because:
+
+- `db.save_energy_state(...)` is idempotent per key; no downstream
+  consumer reads mid-batch (all reads are `restore_energy_state_with_age`
+  at boot).
+- The oracle asserts round-trip set equality per owner attr, not order.
+- If a future consumer becomes order-sensitive, the fix is a
+  `write_order_priority` field on `OwnerDeclaration` + a stable-sorted
+  iterator — one declaration edit per key, not one call-site edit per
+  key.
+
+The phase-3 persistence oracle (`test_owner_registry_persistence.py`)
+verifies content preservation; order is not part of the contract.
+
 ## Audit summary (headline)
 
 - **Owner surfaces:** 12 EV + 5 plug = **17**.

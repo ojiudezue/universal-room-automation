@@ -22,6 +22,11 @@ from .energy_const import (
     DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH,
     L1_ESTIMATED_POWER_W,
 )
+# Owner-set registry (phase-2 refactor). Declares the 12 EV + 5 plug
+# owner surfaces; the five enumeration sites below (prune, peer-holds,
+# save/restore list-keys, classifier) derive from these declarations.
+# See `energy_pool_owners.py` for the declaration table + design notes.
+from .energy_pool_owners import EV_REGISTRY, PLUG_REGISTRY
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -394,20 +399,17 @@ class EVChargerController:
             yieldable (INV-YIELD-1 HOLD_ONLY-only claim); the DP check
             lives at that site.
         """
-        return (
-            evse_id in self._paused_by_battery_drain
-            or evse_id in self._paused_by_fill_priority
-            or evse_id in self._paused_by_grid_cap
-            or evse_id in self._paused_by_arbitrage
-            or evse_id in self._paused_by_load_shed
-            # Blind-window guard is a peer battery-protection owner: while
-            # SOC is unresolved AND reserve write path is unverifiable, no
-            # TOU / excess-solar path may claim this EVSE. Only row 2
-            # force-charge preempts (see PLANNING_ec_blind_window_evse_guard.md
-            # INV-BW1 escape hatch — force-charge is handled inline at each
-            # site, not via this helper).
-            or evse_id in self._paused_by_blind_window
-        )
+        # Phase-2 refactor: enumeration derived from EV_REGISTRY. The
+        # OR-loop below is byte-equivalent to the pre-refactor inline
+        # check (planning §1a peer_holds column: battery_drain, grid_cap,
+        # arbitrage, load_shed, fill_priority, blind_window). `dp` and
+        # intent-state owners are excluded via `peer_holds_member=False`
+        # on their declarations — the two-site consultation semantics
+        # documented above remain inline at those call sites.
+        for decl in EV_REGISTRY.iter_peer_holds():
+            if evse_id in getattr(self, decl.attr):
+                return True
+        return False
 
     # ------------------------------------------------------------------
     # Blind-window EVSE guard predicate + debounce + max-defer bound
@@ -776,37 +778,23 @@ class EVChargerController:
         Called from __init__ and update_evse_config().
         """
         known = set(self._evse.keys())
-        for tracking_set in (
-            self._paused_by_us,
-            self._excess_solar_active,
-            self._paused_by_grid_cap,
-            self._paused_by_battery_drain,
-            self._paused_by_arbitrage,
-            self._paused_by_fill_priority,
-            # v<next> WS2 D1.3: prune proactive off-peak holds for removed EVSEs.
-            self._proactive_offpeak_holds,
-            # EVSE drain-precedence (B2b-i): mirror sibling owners.
-            self._paused_by_dp,
-            # Blind-window guard (D1): peer battery-protection owner.
-            self._paused_by_blind_window,
-            # Fix-up D-HIGH-3 (Batch 6) — per-epoch liveness-ride latch.
-            self._blind_window_liveness_ride,
-        ):
+        # Phase-2 refactor: two-pass shape (sets, then dicts) preserved
+        # verbatim (anomaly #2 in the phase-1 report). Enumeration
+        # derived from EV_REGISTRY. Load-shed EV tier is DELIBERATELY
+        # EXCLUDED from the set-pass via `prune_participant=False` on
+        # its declaration — that quirk is preserved byte-identically
+        # per operator ruling 3 in the planning appendix.
+        for decl in EV_REGISTRY.iter_prune_sets():
+            tracking_set: set = getattr(self, decl.attr)
             for evse_id in list(tracking_set):
                 if evse_id not in known:
                     tracking_set.discard(evse_id)
-        for tracking_dict in (
-            self._battery_drain_cooldown,
-            self._pause_dispatch_ts,
-            self._observed_off_since_pause,
-            self._dispatch_owners,
-            self._power_sensor_unavail_count,
-            self._power_sensor_unavail_since,
-            self._arbitrage_pause_reason,
-        ):
+        for decl in EV_REGISTRY.iter_prune_dicts():
+            tracking_dict: dict = getattr(self, decl.attr)
             for evse_id in list(tracking_dict.keys()):
                 if evse_id not in known:
                     tracking_dict.pop(evse_id, None)
+        # Non-owner tracking set — kept inline (not an owner-set surface).
         for evse_id in list(self._power_sensor_alerted):
             if evse_id not in known:
                 self._power_sensor_alerted.discard(evse_id)
@@ -2554,39 +2542,22 @@ class EVChargerController:
         target_str = f"{target_pct}%" if target_pct is not None else "configured target"
         fp_msg = f"holding for battery fill (target {target_str}, solar healthy)"
 
+        # Phase-2 refactor: classifier precedence derived from
+        # EV_REGISTRY.iter_classifier() (ordered by classifier_priority
+        # 1..8). Fallback branches (charging/idle/off) preserved inline
+        # — they are not owner surfaces. Order is byte-identical to the
+        # pre-refactor cascade documented above.
+        _classifier_decls = tuple(EV_REGISTRY.iter_classifier())
+
         def _classify_evse(evse_id: str, ent: dict[str, Any]) -> tuple[str, str]:
-            if evse_id in self._paused_by_fill_priority:
-                return ("fill_priority_paused", fp_msg)
-            if evse_id in self._paused_by_battery_drain:
-                return ("battery_drain_paused", "battery drain protection (paused)")
-            if evse_id in self._paused_by_grid_cap:
-                return ("grid_capped", "grid import cap")
-            if evse_id in self._paused_by_arbitrage:
-                return ("arbitrage_paused", "arbitrage compound-load protection")
-            # EVSE drain-precedence (B2b-i): peer classification, positioned
-            # above the TOU/charging/idle fallbacks and below the higher-
-            # authority owners already listed. Force-charge is not a set
-            # (window state); when active it PREVENTS DP from claiming here.
-            if evse_id in self._paused_by_dp:
-                return (
-                    "dp_paused",
-                    "drain-precedence transition (paused)",
-                )
-            if evse_id in self._paused_by_us:
-                return ("paused", "TOU peak/mid-peak pause")
-            if evse_id in self._excess_solar_active:
-                return ("excess_solar", "excess solar (charging)")
-            # B-MED-1 fix-up: surface URA's off-peak proactive turn-on intent
-            # so the EV charging-status sensor doesn't hide it behind
-            # "charging"/"idle". Positioned AFTER excess_solar so the
-            # human reason resolves to "excess solar (charging)" on dual
-            # membership (excess_solar_active + proactive_offpeak_holds),
-            # which is the operator-preferred precedence. Outranks the
-            # bare charging/idle fallbacks so the sensor reflects URA's
-            # ensure-on claim (operator decision 1 — documented widened
-            # `_ev_tou_enabled` semantics at the read side).
-            if evse_id in self._proactive_offpeak_holds:
-                return ("offpeak_proactive_on", "off-peak proactive turn-on")
+            for _decl in _classifier_decls:
+                if evse_id in getattr(self, _decl.attr):
+                    if _decl.dynamic_reason is not None:
+                        return (
+                            _decl.reason_token,
+                            _decl.dynamic_reason({"fp_msg": fp_msg}),
+                        )
+                    return (_decl.reason_token, _decl.reason_human)
             if ent.get("charging"):
                 return ("charging", "charging")
             if ent.get("is_on"):
@@ -3085,13 +3056,16 @@ class SmartPlugController:
         exist — the method was dead code. Idempotent.
         """
         current = set(self._plugs)
-        for owner_set in (
-            self._paused_by_us,
-            self._paused_by_battery_drain,
-            self._paused_by_fill_priority,
-            self._paused_by_load_shed,
-            self._proactive_offpeak_holds,
-        ):
+        # Phase-2 refactor: enumeration derived from PLUG_REGISTRY.
+        # Phase-3 D-4 correction (comment): the plug tier DOES now carry
+        # dict-shape declarations (see PLUG_DECLARATIONS), but every
+        # dict-shape row is declared `prune_participant=False` — so
+        # `iter_prune_dicts()` currently yields nothing and the
+        # single-pass shape here still matches the pre-refactor code.
+        # A future phase-4 parity cycle can promote any of the plug
+        # dicts to participant status without touching this loop.
+        for decl in PLUG_REGISTRY.iter_prune_sets():
+            owner_set: set = getattr(self, decl.attr)
             for eid in list(owner_set):
                 if eid not in current:
                     owner_set.discard(eid)
@@ -3496,15 +3470,21 @@ class SmartPlugController:
             charging = is_on and not paused and assume_charging_when_on
             # v4.7.6 fix-up A-M2: precedence aligned with EVPool —
             # fill_priority > drain > TOU > activity.
-            if entity_id in self._paused_by_fill_priority:
-                energy_status = "fill_priority_paused"
-                pause_reason_human[entity_id] = fp_msg
-            elif entity_id in self._paused_by_battery_drain:
-                energy_status = "battery_drain_paused"
-                pause_reason_human[entity_id] = "battery drain protection (paused)"
-            elif entity_id in self._paused_by_us:
-                energy_status = "paused"
-                pause_reason_human[entity_id] = "TOU peak/mid-peak pause"
+            # Phase-2 refactor: precedence + tokens + strings derived
+            # from PLUG_REGISTRY.iter_classifier(). Byte-identical order.
+            _matched = None
+            for _decl in PLUG_REGISTRY.iter_classifier():
+                if entity_id in getattr(self, _decl.attr):
+                    _matched = _decl
+                    break
+            if _matched is not None:
+                energy_status = _matched.reason_token
+                if _matched.dynamic_reason is not None:
+                    pause_reason_human[entity_id] = _matched.dynamic_reason(
+                        {"fp_msg": fp_msg},
+                    )
+                else:
+                    pause_reason_human[entity_id] = _matched.reason_human
             elif charging:
                 energy_status = "charging"
                 pause_reason_human[entity_id] = "charging"
