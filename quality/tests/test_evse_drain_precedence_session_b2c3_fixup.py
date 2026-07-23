@@ -102,20 +102,57 @@ def test_MUTATION_h2_retry_driver_removed_makes_orphan_test_red():
 
 
 def test_MUTATION_h1_save_evse_dp_paused_dropped_makes_ast_test_red():
-    """Drop the `evse_dp_paused` KV save from `_save_evse_state`. The
-    AST-anchored persistence test looks for the literal key + the save
-    call site; without it the source-parse check goes RED.
-
-    Anchors on the KV key STRING; a broader anchor risks catching the
-    restore path too."""
-    _mutate_and_expect_red(
-        swap_from='await db.save_energy_state(\n                "evse_dp_paused",\n                _json.dumps(list(self._ev._paused_by_dp)),\n            )',
-        swap_to='pass  # mutation: evse_dp_paused save removed',
-        test_name=(
-            "test_evse_drain_precedence_session_b2c3_fixup.py::"
-            "test_h1_evse_dp_paused_is_saved_alongside_siblings"
-        ),
+    """Phase-2 owner-registry refactor: the `evse_dp_paused` KV literal
+    now lives on the `dp` OwnerDeclaration in `energy_pool_owners.py`.
+    `_save_evse_state` iterates `EV_REGISTRY.iter_persisted_lists()`.
+    Mutation-anchor: null out the DP declaration's persistence_key. The
+    registry no longer emits a `dp` write, and the AST-registry check
+    below goes RED (evse_dp_paused literal disappears from the
+    declaration file).
+    """
+    from pathlib import Path
+    import subprocess, sys, os
+    owners_src = Path(
+        "custom_components/universal_room_automation/domain_coordinators/"
+        "energy_pool_owners.py",
     )
+    original = owners_src.read_text(encoding="utf-8")
+    swap_from = 'persistence_key="evse_dp_paused", persistence_kind="list",'
+    swap_to = 'persistence_key=None, persistence_kind="none",'
+    assert swap_from in original, f"anchor missing: {swap_from!r}"
+    try:
+        owners_src.write_text(original.replace(swap_from, swap_to, 1),
+                              encoding="utf-8")
+        env = os.environ.copy()
+        env["PYTHONPATH"] = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), ".."),
+        )
+        # Clear caches so the mutated module is re-imported.
+        for root, _dirs, _files in os.walk(
+            os.path.join(os.path.dirname(__file__), "..", ".."),
+        ):
+            if root.endswith("__pycache__"):
+                for f in os.listdir(root):
+                    try:
+                        os.unlink(os.path.join(root, f))
+                    except OSError:
+                        pass
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "pytest",
+                f"{os.path.abspath(__file__)}::"
+                "test_h1_evse_dp_paused_is_saved_alongside_siblings",
+                "-x", "--tb=short", "-q",
+            ],
+            env=env, capture_output=True, text=True,
+            cwd=os.path.abspath(os.path.join(os.path.dirname(__file__),
+                                             "..", "..")),
+        )
+        assert result.returncode != 0, (
+            f"expected RED under mutation; got 0\n{result.stdout}"
+        )
+    finally:
+        owners_src.write_text(original, encoding="utf-8")
 
 
 # ==========================================================================
@@ -124,10 +161,27 @@ def test_MUTATION_h1_save_evse_dp_paused_dropped_makes_ast_test_red():
 
 
 def test_h1_evse_dp_paused_is_saved_alongside_siblings():
-    """H-1 save side. `_save_evse_state` must emit an
-    `evse_dp_paused` KV write with the DP set contents — mirroring the
-    grid_cap / battery_drain / fill_priority / arbitrage sibling writes.
-    AST-verify the KV key literal + the DP set arg."""
+    """H-1 save side (phase-2 refactor).
+
+    The `evse_dp_paused` KV write contract is now expressed on the `dp`
+    OwnerDeclaration in `energy_pool_owners.py`:
+
+        persistence_key='evse_dp_paused', persistence_kind='list',
+        attr='_paused_by_dp'
+
+    and `_save_evse_state` iterates `EV_REGISTRY.iter_persisted_lists()`
+    once. This test verifies BOTH the declaration wiring AND that the
+    save enumeration site consumes the registry — the original contract
+    (a `dp` KV write bundled alongside grid_cap/battery_drain/…) is
+    preserved via one loop instead of eight hand-rolled calls.
+    """
+    from custom_components.universal_room_automation.domain_coordinators \
+        .energy_pool_owners import EV_REGISTRY
+    dp = EV_REGISTRY.by_name("dp")
+    assert dp.persistence_key == "evse_dp_paused"
+    assert dp.persistence_kind == "list"
+    assert dp.attr == "_paused_by_dp"
+
     import ast
     from pathlib import Path
     src = Path(
@@ -143,18 +197,26 @@ def test_h1_evse_dp_paused_is_saved_alongside_siblings():
             save_body = ast.unparse(node)
             break
     assert save_body is not None, "_save_evse_state not found in energy.py"
-    assert 'evse_dp_paused' in save_body, (
-        "H-1: `_save_evse_state` must write KV key 'evse_dp_paused'"
-    )
-    assert "_paused_by_dp" in save_body, (
-        "H-1: `_save_evse_state` must include the DP set contents"
+    assert "iter_persisted_lists" in save_body, (
+        "H-1: `_save_evse_state` must iterate the registry "
+        "(EV_REGISTRY.iter_persisted_lists)"
     )
 
 
 def test_h1_evse_dp_paused_is_restored_and_dp_owner_reclaimed():
-    """H-1 restore side. `_restore_evse_state` must read
-    `evse_dp_paused`, add ids into `_paused_by_dp`, AND reinstall the
-    "dp" dispatch owner claim on each restored id."""
+    """H-1 restore side (phase-2 refactor).
+
+    The DP OwnerDeclaration carries `restore_hook='reinstall_dp_dispatch_owner'`;
+    `_restore_evse_state` iterates the registry and applies the hook by
+    reinstalling `_claim_pause_dispatch_owner(eid, "dp")` on every
+    restored id. This preserves B2c-3 H-1 semantics: without the claim
+    the HOLD_ONLY sticky reversion has nothing to release (INV-DP2).
+    """
+    from custom_components.universal_room_automation.domain_coordinators \
+        .energy_pool_owners import EV_REGISTRY
+    dp = EV_REGISTRY.by_name("dp")
+    assert dp.restore_hook == "reinstall_dp_dispatch_owner"
+
     import ast
     from pathlib import Path
     src = Path(
@@ -170,16 +232,17 @@ def test_h1_evse_dp_paused_is_restored_and_dp_owner_reclaimed():
             body = ast.unparse(node)
             break
     assert body is not None
-    assert 'evse_dp_paused' in body, (
-        "H-1: `_restore_evse_state` must read KV key 'evse_dp_paused'"
+    assert "iter_persisted_lists" in body, (
+        "H-1: `_restore_evse_state` must iterate the registry"
     )
-    assert "_paused_by_dp.add" in body, (
-        "H-1: restored ids must be added into `_paused_by_dp`"
+    assert "reinstall_dp_dispatch_owner" in body, (
+        "H-1: registry-driven restore must key the DP hook off "
+        "`decl.restore_hook == 'reinstall_dp_dispatch_owner'`"
     )
-    assert '_claim_pause_dispatch_owner' in body and (
+    assert "_claim_pause_dispatch_owner" in body and (
         '"dp"' in body or "'dp'" in body
     ), (
-        "H-1: restored ids must reinstall the 'dp' dispatch owner claim "
+        "H-1: restored DP ids must reinstall the 'dp' dispatch owner claim "
         "(else sticky reversion has nothing to release)"
     )
 

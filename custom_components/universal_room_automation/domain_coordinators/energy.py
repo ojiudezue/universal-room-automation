@@ -1364,121 +1364,43 @@ class EnergyCoordinator(BaseCoordinator):
             # / grid-cap evaluation), so the 10h staleness gate here is
             # defense-in-depth (safe — fresh inputs overwrite within one
             # decision cycle even if staleness gating let a stale row leak).
+            # Phase-2 refactor: list-shape KV restores derived from
+            # EV_REGISTRY.iter_persisted_lists(). One loop replaces
+            # eight hand-rolled restore blocks. The staleness bound,
+            # valid-EVSE-id gate, and JSON error-tolerance shape are
+            # preserved verbatim. Per-declaration restore side-effects
+            # (currently only `reinstall_dp_dispatch_owner`) are keyed
+            # off `decl.restore_hook`; the blind-window pause-set
+            # restore's follow-on epoch + pre-engaged block still runs
+            # inline below because its hook body is a multi-line coord
+            # interaction (declared as `blind_window_epoch_and_pre_engaged`
+            # on the declaration for reviewer greppability, but applied
+            # inline for clarity — see planning §Design Recommendations).
             import json as _json
-            grid_cap_json = await db.restore_energy_state_with_age(
-                "evse_grid_cap_paused", max_age_hours=STALE_MAX_AGE_HOURS,
-            )
-            if grid_cap_json:
+            from .energy_pool_owners import EV_REGISTRY as _EV_REG
+            for _decl in _EV_REG.iter_persisted_lists():
+                _payload = await db.restore_energy_state_with_age(
+                    _decl.persistence_key,
+                    max_age_hours=STALE_MAX_AGE_HOURS,
+                )
+                if not _payload:
+                    continue
                 try:
-                    for eid in _json.loads(grid_cap_json):
-                        if eid in valid_evse_ids:
-                            # Fix 3 (A-MED-2 / C-HIGH-2): re-add
-                            # UNCONDITIONALLY; always-on
-                            # `release_all_grid_cap` drains + turn_on
-                            # next tick when toggle is OFF.
-                            self._ev._paused_by_grid_cap.add(eid)
+                    _ids = _json.loads(_payload)
                 except (ValueError, TypeError):
-                    pass
-            # v4.2.17: Restore battery drain state
-            drain_json = await db.restore_energy_state_with_age(
-                "evse_battery_drain_paused", max_age_hours=STALE_MAX_AGE_HOURS,
-            )
-            if drain_json:
-                try:
-                    for eid in _json.loads(drain_json):
-                        if eid in valid_evse_ids:
-                            self._ev._paused_by_battery_drain.add(eid)
-                except (ValueError, TypeError):
-                    pass
-            # v<next> WS1 D1.2: Restore fill-priority pause set
-            fp_json = await db.restore_energy_state_with_age(
-                "evse_fill_priority_paused", max_age_hours=STALE_MAX_AGE_HOURS,
-            )
-            if fp_json:
-                try:
-                    for eid in _json.loads(fp_json):
-                        if eid in valid_evse_ids:
-                            # Fix 3 (A-MED-2 / C-HIGH-2): re-add
-                            # UNCONDITIONALLY; always-on
-                            # `release_all_fill_priority` drains + turn_on
-                            # next tick when toggle is OFF.
-                            self._ev._paused_by_fill_priority.add(eid)
-                except (ValueError, TypeError):
-                    pass
-            # v<next> WS1 D1.3b (operator decision 4): Restore arbitrage pause
-            # set for symmetry with the other guard sets.
-            arb_json = await db.restore_energy_state_with_age(
-                "evse_arbitrage_paused", max_age_hours=STALE_MAX_AGE_HOURS,
-            )
-            if arb_json:
-                try:
-                    for eid in _json.loads(arb_json):
-                        if eid in valid_evse_ids:
-                            self._ev._paused_by_arbitrage.add(eid)
-                except (ValueError, TypeError):
-                    pass
-            # B2c-3 H-1: Restore DP pause set + reinstall "dp" dispatch
-            # owner claim on every restored id so the sticky reversion
-            # retry in `_dp_decision_tick` has an owner to release.
-            # `restore_from_blob` (energy_drain_precedence.py:323-343,
-            # B2c-2) coerces the carrier to HOLD_ONLY on boot even when
-            # a future must_start_by_dt was persisted; without a restored
-            # `_paused_by_dp`, the HOLD_ONLY orphan retry would find
-            # nothing to release → INV-DP2 breach. The 10h staleness
-            # gate mirrors the sibling pause-set restores (grid_cap/
-            # battery_drain/fill_priority/arbitrage all use the same
-            # STALE_MAX_AGE_HOURS bound — defense in depth; the next
-            # decision cycle re-evaluates the DP state machine anyway).
-            dp_json = await db.restore_energy_state_with_age(
-                "evse_dp_paused", max_age_hours=STALE_MAX_AGE_HOURS,
-            )
-            if dp_json:
-                try:
-                    for eid in _json.loads(dp_json):
-                        if eid in valid_evse_ids:
-                            self._ev._paused_by_dp.add(eid)
-                            # Reinstall "dp" owner (sibling to fresh
-                            # `_apply_dp_transition` claim path at
-                            # energy.py:3750). Without this, the sticky
-                            # reversion retry would release nothing (owner
-                            # set already empty post-restart).
-                            self._ev._claim_pause_dispatch_owner(eid, "dp")
-                except (ValueError, TypeError):
-                    pass
-            # v<next> WS1 D1.3: Restore proactive off-peak hold intent-state
-            holds_json = await db.restore_energy_state_with_age(
-                "evse_proactive_offpeak_holds", max_age_hours=STALE_MAX_AGE_HOURS,
-            )
-            if holds_json:
-                try:
-                    for eid in _json.loads(holds_json):
-                        if eid in valid_evse_ids:
-                            self._ev._proactive_offpeak_holds.add(eid)
-                except (ValueError, TypeError):
-                    pass
-            # D1 (blind-window guard): restore blind-window pause set.
-            bw_json = await db.restore_energy_state_with_age(
-                "evse_blind_window_paused", max_age_hours=STALE_MAX_AGE_HOURS,
-            )
-            if bw_json:
-                try:
-                    for eid in _json.loads(bw_json):
-                        if eid in valid_evse_ids:
-                            self._ev._paused_by_blind_window.add(eid)
-                except (ValueError, TypeError):
-                    pass
-            # Fix-up D-HIGH-3 (Batch 6) — restore the liveness-ride latch.
-            ride_json = await db.restore_energy_state_with_age(
-                "evse_blind_window_liveness_ride",
-                max_age_hours=STALE_MAX_AGE_HOURS,
-            )
-            if ride_json:
-                try:
-                    for eid in _json.loads(ride_json):
-                        if eid in valid_evse_ids:
-                            self._ev._blind_window_liveness_ride.add(eid)
-                except (ValueError, TypeError):
-                    pass
+                    continue
+                _target: set = getattr(self._ev, _decl.attr)
+                for eid in _ids:
+                    if eid not in valid_evse_ids:
+                        continue
+                    _target.add(eid)
+                    if _decl.restore_hook == "reinstall_dp_dispatch_owner":
+                        # Preserved from B2c-3 H-1 — sticky reversion
+                        # retry in `_dp_decision_tick` needs an owner
+                        # to release; without this claim the HOLD_ONLY
+                        # orphan retry would find nothing to release
+                        # (INV-DP2 breach).
+                        self._ev._claim_pause_dispatch_owner(eid, "dp")
             # Fix-up D-CRIT-2 (Batch 1) — restore the persisted epoch AND
             # mark the guard pre-engaged when the pause set is non-empty.
             # Without the pre-engaged flag, the fresh debounce would
@@ -1833,61 +1755,23 @@ class EnergyCoordinator(BaseCoordinator):
                     paused_by_energy=evse_id in self._ev._paused_by_us,
                     excess_solar_active=evse_id in self._ev._excess_solar_active,
                 )
-            # Grid cap + battery drain state via key-value store
+            # Phase-2 refactor: list-shape KV writes derived from
+            # EV_REGISTRY.iter_persisted_lists() — one loop replaces
+            # eight hand-rolled `save_energy_state` calls. Historical
+            # per-owner comments preserved on the declaration
+            # (`energy_pool_owners.py`). Byte-identical: `list(set)`
+            # ordering is unchanged (Python set iteration order matches
+            # the pre-refactor emit — golden confirms). Non-list
+            # persistence (per-EVSE bools via db.save_evse_state,
+            # scalars for force-charge + blind-window epoch) stays
+            # inline — see `persistence_kind` in the declaration.
             import json as _json
-            await db.save_energy_state(
-                "evse_grid_cap_paused",
-                _json.dumps(list(self._ev._paused_by_grid_cap)),
-            )
-            await db.save_energy_state(
-                "evse_battery_drain_paused",
-                _json.dumps(list(self._ev._paused_by_battery_drain)),
-            )
-            # v<next> WS1 D1.2: fill-priority pause set
-            await db.save_energy_state(
-                "evse_fill_priority_paused",
-                _json.dumps(list(self._ev._paused_by_fill_priority)),
-            )
-            # v<next> WS1 D1.3b (operator decision 4): arbitrage pause set
-            await db.save_energy_state(
-                "evse_arbitrage_paused",
-                _json.dumps(list(self._ev._paused_by_arbitrage)),
-            )
-            # B2c-3 H-1: DP pause set. Sibling to grid_cap/battery_drain/
-            # fill_priority/arbitrage — every other pause owner survives
-            # restart; DP was the outlier. Without this KV, a restart
-            # mid-TRANSITIONED left the EVSE physically OFF with no
-            # owner and no reversion driver (INV-DP2 breach). Restored
-            # in `_restore_evse_state`; the HOLD_ONLY orphan retry in
-            # `_dp_decision_tick` then dispatches turn_on once TOU +
-            # peers permit.
-            await db.save_energy_state(
-                "evse_dp_paused",
-                _json.dumps(list(self._ev._paused_by_dp)),
-            )
-            # v<next> WS1 D1.3: proactive off-peak hold intent-state
-            await db.save_energy_state(
-                "evse_proactive_offpeak_holds",
-                _json.dumps(list(self._ev._proactive_offpeak_holds)),
-            )
-            # D1 (blind-window guard): persist blind-window pause set so a
-            # mid-outage restart does not lose the fail-safe pause carry-over.
-            # Sibling shape to `evse_dp_paused` and friends; STALE_MAX_AGE_HOURS
-            # gate on the restore side bounds a truly stale row.
-            await db.save_energy_state(
-                "evse_blind_window_paused",
-                _json.dumps(list(self._ev._paused_by_blind_window)),
-            )
-            # Fix-up D-HIGH-3 (Batch 6) — persist the per-epoch liveness
-            # ride latch. A mid-epoch restart that dropped the RAM latch
-            # would let the guard re-capture a released EVSE, stranding
-            # the car again. Sibling shape to the pause set; the same
-            # epoch-restore path (`mark_pre_engaged_from_restore`) carries
-            # the epoch key that scopes this latch.
-            await db.save_energy_state(
-                "evse_blind_window_liveness_ride",
-                _json.dumps(list(self._ev._blind_window_liveness_ride)),
-            )
+            from .energy_pool_owners import EV_REGISTRY as _EV_REG
+            for _decl in _EV_REG.iter_persisted_lists():
+                await db.save_energy_state(
+                    _decl.persistence_key,
+                    _json.dumps(list(getattr(self._ev, _decl.attr))),
+                )
             # Fix-up D-CRIT-2 (Batch 1) — persist the epoch wall-clock
             # alongside the pause set. Restart mid-outage otherwise resets
             # the epoch to post-restart now(), zeroing the max-defer bound

@@ -2221,19 +2221,31 @@ def test_D_HIGH_3_ride_authority_survives_persist_restore():
     proof (round-trip through the whole EC teardown is out of scope for
     this unit test; the anchor guards the persistence contract).
     """
-    src_path = _os.path.join(
+    # Phase-2 owner-registry refactor: the KV key literal + attr name
+    # now live on the `blind_window_liveness_ride` OwnerDeclaration in
+    # `energy_pool_owners.py`, and `energy.py` iterates
+    # `EV_REGISTRY.iter_persisted_lists()` for both save and restore.
+    # The persistence contract this test guards is preserved — the
+    # anchor migrates to the declaration site.
+    _cc_dir = _os.path.join(
         _os.path.dirname(__file__), "..", "..", "custom_components",
-        "universal_room_automation", "domain_coordinators", "energy.py",
+        "universal_room_automation", "domain_coordinators",
     )
-    with open(src_path) as f:
-        src = f.read()
-    # Save side: writes the KV key with the set contents.
-    assert '"evse_blind_window_liveness_ride"' in src
-    assert "_blind_window_liveness_ride" in src
-    # Restore side: reads the same KV key.
-    assert 'restore_energy_state_with_age(\n                "evse_blind_window_liveness_ride"' in src, (
-        "D-HIGH-3: restore path for liveness-ride latch missing"
+    with open(_os.path.join(_cc_dir, "energy.py")) as f:
+        energy_src = f.read()
+    with open(_os.path.join(_cc_dir, "energy_pool_owners.py")) as f:
+        owners_src = f.read()
+    # KV key literal + attr name still bound together in one declaration.
+    assert '"evse_blind_window_liveness_ride"' in owners_src
+    assert "_blind_window_liveness_ride" in owners_src
+    # Save + restore paths iterate the registry — both KV directions
+    # covered by one enumeration site.
+    assert "iter_persisted_lists" in energy_src, (
+        "D-HIGH-3: registry-driven save/restore enumeration missing"
     )
+    # RAM attr still consumed by the pause-leg pause/release logic in
+    # energy_pool.py — that source-anchor lives in the sibling test
+    # `test_D_HIGH_3_will_pause_gate_respects_ride_authority_source_anchored`.
 
 
 def test_D_HIGH_3_grant_helper_drops_pause_membership():
