@@ -316,3 +316,15 @@ Independent. No owner-set overlap.
 ## Tier call
 
 **Tier 3** (four framing-disjoint reviews A/B/C/D + operator checkpoint before deploy + Live Validation Review E). Operator may downgrade to 2-DB; do NOT drop Reviewer D under any downgrade.
+
+---
+## Operator rulings — 2026-07-23 pre-build checkpoint
+1. **Tier 3 confirmed** (upgraded from the BACKLOG's 2-DB): four framings
+   incl. diff-blind D; operator checkpoint before deploy.
+2. **Sequencing: this cycle FIRST**, LKG wave 1 queued behind it (LKG's
+   persistence keys will land as registry declarations).
+3. **Prune quirk (_paused_by_load_shed): PRESERVE in-cycle** — golden
+   oracle reproduces it byte-identically; one-line Tier-1 fix + test lands
+   immediately after this cycle merges.
+4. (Sequencing note corrected: fill-priority daylight already shipped in
+   v5.28.0 — the registry absorbs it as one of the 17.)

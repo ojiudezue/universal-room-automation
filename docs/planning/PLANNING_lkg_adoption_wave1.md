@@ -676,3 +676,13 @@ follow the existing `save_energy_state` cadence.
   cross-coordinator + safety-adjacent + asymmetric read semantics).
 - **Persistence.** Zero new DB writers; three keys under the existing
   `save_energy_state` KV path piggyback on the EC persist cadence.
+
+---
+## Operator rulings — 2026-07-23 pre-build checkpoint
+- **QUEUED BEHIND the owner-set registry cycle** (its persistence keys
+  become registry declarations).
+- **Solar upper bound: CONFIG-FLOW FIELD (rung 2), not a module constant.**
+  Operator: array THEORETICAL max is **19.4 kW** — default the field to
+  19400 W (not the ~15.4 kW observed peak; the envelope must bound what
+  the array CAN do, not what it has done). Numbers-Get-Knobs entry updates
+  accordingly.
