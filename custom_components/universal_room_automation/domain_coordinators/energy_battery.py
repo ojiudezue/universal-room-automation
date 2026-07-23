@@ -129,9 +129,10 @@ class SOCEnvelope:
         # Preserve the shipped boundary: age == max_age_s returned a
         # bounded pair (only strict > was None). soc_bounds treats
         # `age >= max_age_s` as expired, so widen the cap by one epsilon
-        # at the boundary check here rather than in the shared factory.
-        if age > cap_max_age:
-            return None
+        # below and let the tier translation be the SINGLE expiry
+        # authority (C-MED-1 fix-up: the local `age > cap_max_age`
+        # pre-check was redundant dead defense — the expired-tier
+        # translation at the bottom of this method now handles it).
         if age < 0:
             age = 0.0
         try:

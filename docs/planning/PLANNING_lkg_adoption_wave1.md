@@ -686,3 +686,33 @@ follow the existing `save_energy_state` cadence.
   19400 W (not the ~15.4 kW observed peak; the envelope must bound what
   the array CAN do, not what it has done). Numbers-Get-Knobs entry updates
   accordingly.
+
+---
+## Plan-completion tracking — D1 (fix-up 2026-07-23)
+
+### Intentional deviations from the D1 plan
+- **B2 — LkgValue field-shape simplified vs the property design.** The
+  plan sketched a `@property`-fronted `LkgValue` (private ``_value/_at``
+  attrs behind read-only properties) so callers couldn't mutate the
+  frozen sample. Built instead as PLAIN dataclass attrs (`value`, `at`,
+  `source`, `bounds_fn`) + a **transient** `LkgValue` construction
+  inside `SOCEnvelope.compute` per call — the shim never persists the
+  instance, so the "read-only handle" surface the property design was
+  guarding never exists. This eliminates the double-source surface
+  (attr write vs property setter) that the property design would have
+  introduced and keeps the primitive a straight dataclass. Consumers
+  in D2/D3 that DO persist an `LkgValue` will document the "immutable
+  by convention" contract at their own construction sites; if a real
+  mutation bug appears there, revisit properties then, not now.
+
+### Deferred to D2/D3 consumers
+- **C-LOW-1 (test authority) — tier-consumption anchors owed by D2/D3.**
+  D1 ships tier equivalence via `soc_bounds` (fresh/lkg_bounded/lkg_stale/
+  expired) but no D1 consumer branches on the tier value — SOC's shipped
+  shim collapses expired → None and treats the other three tiers
+  identically. D2 (excess-solar `forecast_healthy`) and D3 (HVAC
+  predictor/covers/freeze/best-outdoor) MUST land a mutation-anchored
+  test per tier-consumption site: a real per-site source mutation
+  (Tier-3 framing C) that flips the tier branch and confirms a
+  specific test fails. Without those anchors, tier semantics are
+  effectively untested at the consumer boundary.

@@ -37,7 +37,7 @@ _UTC = timezone.utc
 _MAX_AGE = float(DEFAULT_SOC_LKG_ENVELOPE_MAX_AGE_S)
 
 
-def _mk_lv(value: float, age_s: float) -> LkgValue:
+def _mk_lv(value: float, age_s: float) -> tuple[LkgValue, datetime]:
     now = datetime(2026, 7, 23, 12, 0, 0, tzinfo=_UTC)
     at = now - timedelta(seconds=age_s)
     bf = soc_bounds(
@@ -163,3 +163,109 @@ def test_mutation_envelope_lower_bound_is_load_bearing(monkeypatch):
     # Honest lower bound at age=300s: 50 - (30.72*300)/(36*40) = 50 - 6.4 = 43.6
     # Mutated should be ~68.6
     assert lo == pytest.approx(68.6, abs=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# A2 fix-up: REAL-ORACLE parity — inline the pre-refactor develop arithmetic
+# as a frozen reference and diff SOCEnvelope.compute against it over a dense
+# grid including non-integer + sub-microsecond fractional ages. The oracle
+# is DIRECT-float (no datetime detour), so any divergence at 1e-6 pp is
+# honest quantization from the shim's timedelta round-trip (measured
+# worst-case ~1e-8 pp on this grid). Tolerance 1e-6 pp keeps this honest.
+# ---------------------------------------------------------------------------
+def _shipped_reference(
+    lkg_soc: float | None,
+    age_s: float | None,
+    max_age_s: float,
+    capacity_kwh: float,
+    max_charge_kw: float,
+    max_discharge_kw: float,
+) -> tuple[float, float] | None:
+    """Frozen pre-refactor develop arithmetic — direct float age, no datetime."""
+    if lkg_soc is None or age_s is None:
+        return None
+    try:
+        age = float(age_s)
+    except (TypeError, ValueError):
+        return None
+    if age > float(max_age_s):
+        return None
+    if age < 0:
+        age = 0.0
+    try:
+        v = float(lkg_soc)
+    except (TypeError, ValueError):
+        return None
+    down_pp = (float(max_discharge_kw) * age) / (36.0 * float(capacity_kwh))
+    up_pp = (float(max_charge_kw) * age) / (36.0 * float(capacity_kwh))
+    lo = max(0.0, v - down_pp)
+    hi = min(100.0, v + up_pp)
+    if hi < lo:
+        hi = lo
+    return (lo, hi)
+
+
+def test_real_oracle_parity_dense_grid():
+    """SOCEnvelope.compute vs frozen develop arithmetic — 1e-6 pp tolerance.
+
+    Measured worst-case divergence on this grid is ~1e-8 pp; the ~1e-6 pp
+    envelope tolerates the honest timedelta quantization introduced by the
+    shim's (now - at).total_seconds() round-trip vs the oracle's direct float.
+    """
+    env = SOCEnvelope(
+        capacity_kwh=BATTERY_CAPACITY_KWH,
+        max_charge_kw=BATTERY_MAX_CHARGE_KW,
+        max_discharge_kw=BATTERY_MAX_DISCHARGE_KW,
+    )
+    # Edge SOCs + interior values.
+    socs = [0.0, 0.001, 5.0, 47.5, 50.0, 80.0, 99.999, 100.0]
+    # Dense age grid including non-integer, sub-second, sub-microsecond.
+    ages = [
+        0.0, 1e-9, 1e-6, 0.3, 1.0, 59.9, 60.0, 60.0000001,
+        107.7, 300.0, 599.999, 600.0, 1234.5678,
+        _MAX_AGE / 2.0, _MAX_AGE - 1.0, _MAX_AGE - 1e-6,
+    ]
+    for soc in socs:
+        for age in ages:
+            oracle = _shipped_reference(
+                soc, age, _MAX_AGE,
+                BATTERY_CAPACITY_KWH,
+                BATTERY_MAX_CHARGE_KW,
+                BATTERY_MAX_DISCHARGE_KW,
+            )
+            got = env.compute(soc, age, _MAX_AGE)
+            assert oracle is not None
+            assert got is not None, f"shim None at soc={soc} age={age}"
+            assert got[0] == pytest.approx(oracle[0], abs=1e-6), (
+                f"lo mismatch soc={soc} age={age}: shim={got[0]} oracle={oracle[0]}"
+            )
+            assert got[1] == pytest.approx(oracle[1], abs=1e-6), (
+                f"hi mismatch soc={soc} age={age}: shim={got[1]} oracle={oracle[1]}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# C-MED-1 anchor: after removing the duplicated `age > cap_max_age` pre-check
+# in SOCEnvelope.compute, the expired-tier -> None translation is the SOLE
+# expiry authority. Mutation-verify: if that translation is reverted to
+# `return (0.0, 0.0)`, this test must FAIL. Ages beyond max_age_s route
+# through soc_bounds' expired tier -> None; asserting that pathway
+# specifically pins the translation as load-bearing.
+# ---------------------------------------------------------------------------
+def test_expired_tier_translation_is_sole_expiry_authority():
+    env = SOCEnvelope(
+        capacity_kwh=BATTERY_CAPACITY_KWH,
+        max_charge_kw=BATTERY_MAX_CHARGE_KW,
+        max_discharge_kw=BATTERY_MAX_DISCHARGE_KW,
+    )
+    # Beyond the widened cap (max_age + 1e-6) — soc_bounds returns
+    # tier=expired, shim MUST translate to None (not a (0,0) bounded pair).
+    result = env.compute(50.0, _MAX_AGE + 1.0, _MAX_AGE)
+    assert result is None, (
+        "Expired-tier translation broken: shim returned bounded pair instead "
+        "of None. If this fails after reverting the `if tier == 'expired': "
+        "return None` line to `return (0.0, 0.0)`, that confirms the "
+        "translation is the sole expiry authority (C-MED-1 anchor)."
+    )
+    # And well past the cap.
+    assert env.compute(50.0, _MAX_AGE * 2, _MAX_AGE) is None

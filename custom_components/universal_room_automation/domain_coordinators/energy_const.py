@@ -1495,6 +1495,18 @@ def soc_bounds(
         lkg_bounded  age < 600 s (10 min — money-path safe)
         lkg_stale    age < max_age_s (bounded but wide)
         expired      age >= max_age_s (unusable — caller should treat as unknown)
+
+    Epsilon convention (A3 / B1 fix-up, wave 1 D1):
+        The boundary at ``age == max_age_s`` is EXPIRED in this factory
+        (strict-less-than gate at ``age < hard_max``). The shipped
+        ``SOCEnvelope.compute`` shim used to return a bounded pair AT the
+        boundary; it preserves that legacy behavior by passing
+        ``max_age_s + 1e-6`` when it constructs its per-call factory. That
+        ``+1e-6`` widening lives IN THE CALLER, not here — direct callers
+        of ``soc_bounds`` get expired AT ``max_age_s``. Future
+        signal-specific factories (solar, outdoor temp in D2/D3) should
+        adopt an explicit ``boundary_inclusive: bool`` parameter rather
+        than replicating the widen-at-the-caller idiom.
     """
     if capacity_kwh <= 0:
         raise ValueError(f"capacity_kwh must be > 0, got {capacity_kwh!r}")
