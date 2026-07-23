@@ -1468,3 +1468,78 @@ BATTERY_MAX_DISCHARGE_KW: Final[float] = 30.72
 # is so wide it's useless and the guard treats SOC as fully unknown. 6 hours
 # is long enough to bridge the worst observed 84-min outage plus margin.
 DEFAULT_SOC_LKG_ENVELOPE_MAX_AGE_S: Final[int] = 6 * 3600
+
+
+def soc_bounds(
+    capacity_kwh: float,
+    max_charge_kw: float,
+    max_discharge_kw: float,
+    max_age_s: float,
+):
+    """Return a :data:`..lkg.BoundsFn` closing over battery physics constants.
+
+    LKG wave 1 D1: physics factory for the SOC LKG envelope. Consumed by
+    the ``SOCEnvelope`` shim in ``energy_battery`` and directly by any
+    caller building an ``LkgValue`` for SOC. Placed at rung 1 (module
+    constant / factory) — capacity + max power are per-install physical
+    numbers whose change should require code review.
+
+    Envelope math (byte-identical to the shipped ``SOCEnvelope.compute``):
+        down_pp = max_discharge_kw * age_s / (36 * capacity_kwh)
+        up_pp   = max_charge_kw    * age_s / (36 * capacity_kwh)
+        lo      = max(0.0, value - down_pp)
+        hi      = min(100.0, value + up_pp)
+
+    Tier crossovers (survey §4 shape):
+        fresh        age < 60 s  (live-cadence read)
+        lkg_bounded  age < 600 s (10 min — money-path safe)
+        lkg_stale    age < max_age_s (bounded but wide)
+        expired      age >= max_age_s (unusable — caller should treat as unknown)
+
+    Epsilon convention (A3 / B1 fix-up, wave 1 D1):
+        The boundary at ``age == max_age_s`` is EXPIRED in this factory
+        (strict-less-than gate at ``age < hard_max``). The shipped
+        ``SOCEnvelope.compute`` shim used to return a bounded pair AT the
+        boundary; it preserves that legacy behavior by passing
+        ``max_age_s + 1e-6`` when it constructs its per-call factory. That
+        ``+1e-6`` widening lives IN THE CALLER, not here — direct callers
+        of ``soc_bounds`` get expired AT ``max_age_s``. Future
+        signal-specific factories (solar, outdoor temp in D2/D3) should
+        adopt an explicit ``boundary_inclusive: bool`` parameter rather
+        than replicating the widen-at-the-caller idiom.
+    """
+    if capacity_kwh <= 0:
+        raise ValueError(f"capacity_kwh must be > 0, got {capacity_kwh!r}")
+    cap = float(capacity_kwh)
+    chg = float(max(0.0, max_charge_kw))
+    dsg = float(max(0.0, max_discharge_kw))
+    hard_max = float(max_age_s)
+
+    def _bounds(value, at, now):
+        try:
+            age = (now - at).total_seconds()
+        except Exception:  # noqa: BLE001
+            return (0.0, 0.0, "expired")
+        if age < 0:
+            age = 0.0
+        if age >= hard_max:
+            return (0.0, 0.0, "expired")
+        if age < 60:
+            tier = "fresh"
+        elif age < 600:
+            tier = "lkg_bounded"
+        else:
+            tier = "lkg_stale"
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return (0.0, 0.0, "expired")
+        down_pp = (dsg * age) / (36.0 * cap)
+        up_pp = (chg * age) / (36.0 * cap)
+        lo = max(0.0, v - down_pp)
+        hi = min(100.0, v + up_pp)
+        if hi < lo:
+            hi = lo
+        return (lo, hi, tier)
+
+    return _bounds

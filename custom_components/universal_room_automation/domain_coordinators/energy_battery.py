@@ -110,6 +110,14 @@ class SOCEnvelope:
         - age_s > max_age_s → None (envelope so wide it's useless).
         - age_s <= 0 → collapses to the LKG point (fresh reading).
         - Bounds are clamped to [0, 100].
+
+        LKG wave 1 D1: this method is a THIN SHIM over the generic
+        ``LkgValue.envelope`` primitive. The physics/tier math lives in
+        ``energy_const.soc_bounds`` and is load-bearing here (mutating
+        ``LkgValue.envelope`` or the lower-bound math in ``soc_bounds``
+        breaks the guard suite's envelope tests). The class definition
+        stays in this module — the guard suite's C-HIGH-1 shim asserts
+        ``SOCEnvelope.__module__`` is exactly this module.
         """
         if lkg_soc is None or age_s is None:
             return None
@@ -117,23 +125,40 @@ class SOCEnvelope:
             age = float(age_s)
         except (TypeError, ValueError):
             return None
-        if age > float(max_age_s):
-            return None
+        cap_max_age = float(max_age_s)
+        # Preserve the shipped boundary: age == max_age_s returned a
+        # bounded pair (only strict > was None). soc_bounds treats
+        # `age >= max_age_s` as expired, so widen the cap by one epsilon
+        # below and let the tier translation be the SINGLE expiry
+        # authority (C-MED-1 fix-up: the local `age > cap_max_age`
+        # pre-check was redundant dead defense — the expired-tier
+        # translation at the bottom of this method now handles it).
         if age < 0:
             age = 0.0
-        # Δ%SOC = kW * (seconds / 3600) / kWh * 100
-        # = kW * seconds / (36 * kWh)
-        down_pp = (self.max_discharge_kw * age) / (36.0 * self.capacity_kwh)
-        up_pp = (self.max_charge_kw * age) / (36.0 * self.capacity_kwh)
         try:
             v = float(lkg_soc)
         except (TypeError, ValueError):
             return None
-        lo = max(0.0, v - down_pp)
-        hi = min(100.0, v + up_pp)
-        # Envelope may cross zero-width if both physics rates are 0 (config).
-        if hi < lo:
-            hi = lo
+        # Delegate to the generic primitive. Synthesize a (at, now) pair
+        # such that (now - at).total_seconds() == age.
+        from datetime import datetime, timedelta, timezone
+        from ..lkg import LkgValue
+        from .energy_const import soc_bounds
+
+        now = datetime(2000, 1, 1, tzinfo=timezone.utc)
+        at = now - timedelta(seconds=age)
+        # Route through soc_bounds with a slightly-widened max_age so the
+        # boundary (age == max_age_s) still returns bounded — matches shipped.
+        bf = soc_bounds(
+            self.capacity_kwh,
+            self.max_charge_kw,
+            self.max_discharge_kw,
+            cap_max_age + 1e-6,
+        )
+        lv = LkgValue(value=v, at=at, source="soc", bounds_fn=bf)
+        lo, hi, tier = lv.envelope(now)
+        if tier == "expired":
+            return None
         return (lo, hi)
 
 # v4.5.0 D1: arbitrage phase names. Single source of truth — used by the
@@ -2136,14 +2161,24 @@ class BatteryStrategy:
         )
 
     def get_lkg_snapshot(self) -> dict[str, Any] | None:
-        """Return LKG {value, at_iso} for D5 persistence; None if unset."""
+        """Return LKG {value, at_iso} for D5 persistence; None if unset.
+
+        LKG wave 1 D1: routed through :class:`..lkg.LkgValue.to_blob`.
+        On-disk shape preserved verbatim ({"value", "at_iso"}) — the
+        generic primitive's optional ``source`` field is dropped here so
+        the shipped v5.28.0 blob is byte-identical.
+        """
         if self._soc_lkg is None or self._soc_lkg_at is None:
             return None
         try:
-            return {
-                "value": float(self._soc_lkg),
-                "at_iso": self._soc_lkg_at.isoformat(),
-            }
+            from ..lkg import LkgValue
+            lv = LkgValue(
+                value=float(self._soc_lkg),
+                at=self._soc_lkg_at,
+                source=getattr(self, "_soc_source_last", None) or "envoy",
+            )
+            blob = lv.to_blob()
+            return {"value": blob["value"], "at_iso": blob["at_iso"]}
         except Exception:  # noqa: BLE001
             return None
 
@@ -2152,22 +2187,19 @@ class BatteryStrategy:
 
         Idempotent + defensive: any parse failure leaves the RAM state
         untouched (a subsequent live SOC read repopulates it anyway).
+
+        LKG wave 1 D1: routed through :meth:`..lkg.LkgValue.from_blob`
+        (None-safe, tz-aware promotion preserved).
         """
         if not snap:
             return
         try:
-            from homeassistant.util import dt as dt_util
-            v = float(snap.get("value"))
-            at_iso = snap.get("at_iso")
-            if at_iso is None:
+            from ..lkg import LkgValue
+            lv = LkgValue.from_blob(snap)
+            if lv is None:
                 return
-            parsed = dt_util.parse_datetime(at_iso)
-            if parsed is None:
-                return
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=dt_util.UTC)
-            self._soc_lkg = v
-            self._soc_lkg_at = parsed
+            self._soc_lkg = lv.value
+            self._soc_lkg_at = lv.at
         except Exception:  # noqa: BLE001
             return
 
