@@ -139,6 +139,7 @@ unnecessarily drain house storage.
 |---|---|---|---|
 | 1 | Manual URA kill-switch re-pause (`_paused_by_us`, peak/mid-peak) | grid | energy_pool.py ~:540-568 |
 | 2 | Force-Charge admin override (`_force_charge_until`) | operator escape | energy_pool.py ~:551-556, :703-724 |
+| 2.5 | Blind-window guard (`_paused_by_blind_window`) — pauses/defers while `blind_hold_active AND NOT reserve_write_verifiable()` (raw entry predicate). Debounced by `CONF_BLIND_WINDOW_ENTRY_DEBOUNCE_S` so sub-2-min Envoy blips do not flap. Two sanctioned INV-BW1 escapes: (a) row 2 force-charge (B3 drains membership BEFORE the 2a peer-guard so ensure-on reaches dispatch); (b) TWO liveness paths — max-defer expiry (past `CONF_BLIND_WINDOW_MAX_DEFER_MIN`) AND DP must-start-by fire — both route through `EnergyCoordinator.blind_window_liveness_release(evse_id, reason, has_pressure)` which consults the SOC envelope + drain target and writes a `decision_log` row (`decision_type='blind_window_liveness_release'`) for BOTH outcomes so no release is silent. Excess-solar (`determine_excess_solar_actions`) uses CONTINUE-permission semantics: guard engaged + D4 mains-export witness True + envelope lower ≥ drain → already-active EVSEs may CONTINUE; new claims while blind are always refused; any other combination = fail-safe DROP. Ownership honesty (D-LOW-2): a riding EVSE is NOT added to `_paused_by_blind_window`. Each fail-safe defer emits ONE `blind_window_defer` decision_log row per (evse_id, epoch) via dedup on the coord. See PLANNING_ec_blind_window_evse_guard.md and energy_pool.py `_blind_window_guard_engaged` / row 2.5 site. |
 | 3 | Breaker safety (grid-charge-on pause) | hardware + battery | energy_pool.py ~:627-646 |
 | 4 | Grid-import cap (`_paused_by_grid_cap`) | grid | peer group A |
 | 5 | Load shed (`_paused_by_load_shed`) | grid | peer group A |
@@ -178,6 +179,40 @@ day (the observed Garage B incident).
   (ladder-validator extension queued); must-start-by does not defer
   on `_paused_by_battery_drain` (corner); excess-solar lacks a
   release-only path when its toggle is off (backlog).
+
+### 2.5a EMERGENCY BACKOUT KNOB — `CONF_RESERVE_VERIFIABLE_MAX_AGE_S` (v5.28.0)
+
+**⚠️ FIRE AXE BEHIND GLASS — read this before ever touching the value.**
+
+The blind-window EVSE guard's entry predicate asks "can we prove a battery
+reserve write would take RIGHT NOW?" via `is_reserve_verifiable()`
+(`energy_write_verify.py`). Verifiable requires ALL THREE:
+(a) record status OK (STALE never counts),
+(b) the verified outcome fresher than **`CONF_RESERVE_VERIFIABLE_MAX_AGE_S`
+    (default 600 s, rung-1 constant in `energy_const.py`)**, and
+(c) the reserve oracle readable at this instant.
+
+**Setting the constant to 0 disables ONLY gate (b).** It exists solely as an
+emergency backout: if the freshness gate ever false-positives in production
+(guard engaging constantly on healthy telemetry, chargers deferring on good
+days), zero it to retreat from the one sub-check without reverting the
+cycle. Sequence: zero as stopgap → file the fix-forward cycle → restore 600.
+
+**The documented price at 0 (bounded by the Tier-3 D re-pass):** gates (a)
+and (c) survive, so FULL outages (Envoy dark, oracle unreachable — the
+2026-07-21 incident shape) remain protected even at 0. The hole reopens
+ONLY for PARTIAL outages: SOC feed blind while the reserve oracle still
+answers and a resting-OK record exists → predicate reports verifiable →
+guard does not arm → pre-v5.28.0 behavior for that window. Full outages
+protected; partial outages exposed. This asymmetry is intentional and is
+NOT a bug — do not "rediscover" it (review record:
+`docs/reviews/code-review/v5.28.0_ec_blind_window_guard.md`).
+
+**For future agents:** never promote this to an options/Number knob; never
+zero it as a tuning move; any change to its value or semantics is
+Tier 2-DB minimum with the guard test file as the regression harness.
+Sibling kill-switch with DIFFERENT semantics: `CONF_BLIND_WINDOW_MAX_DEFER_MIN
+<= 0` disables the whole guard (releases pauses, no helper, no rows).
 
 ### 2.5 Blind-hold contract (v5.17.5)
 

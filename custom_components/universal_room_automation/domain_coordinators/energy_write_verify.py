@@ -214,6 +214,102 @@ class WriteVerifier:
         self._pending_standdown_value: dict[str, Any] = {}
 
     # ------------------------------------------------------------------
+    # Blind-window guard predicate (see PLANNING_ec_blind_window_evse_guard.md)
+    # ------------------------------------------------------------------
+    def is_reserve_verifiable(self) -> bool:
+        """Return True iff the reserve write path has a fresh verified outcome.
+
+        Coarse predicate consumed by the blind-window EVSE guard: "can we
+        prove a reserve command took right now?" A False here means the
+        reserve write path is unverifiable (stale/no-data/pending beyond
+        the attempt-3 watchdog), which is the second half of the guard's
+        entry predicate (the first half being `blind_hold_active`).
+
+        Fix-up A-CRIT-1 (Batch 1) — RULING enforced here:
+          (a) Only STATUS_OK counts as verifiable. STATUS_STALE is EXPLICITLY
+              excluded: a STALE record has been retired (its `verified_at` is
+              frozen at retirement time and never re-checked) — a resting
+              STALE record cannot prove a live-write took NOW. Previously
+              STALE returned True which made the guard's entry predicate
+              unable to fire during a quiet outage between write episodes.
+          (b) `verified_at` must be fresher than `CONF_RESERVE_VERIFIABLE_MAX_AGE_S`.
+              Between write episodes an OK record rests indefinitely; without
+              a freshness bound the predicate would report the reserve write
+              path healthy forever, blinding the guard during a live outage
+              that started AFTER the last successful verify.
+          (c) The cloud oracle for the reserve surface must be READABLE now.
+              An oracle-unreadable condition (envoy blind / entity
+              unavailable / no oracle configured) means we CANNOT prove the
+              write took right now regardless of what the record says.
+
+        REUSES the existing per-surface status vocabulary (STATUS_*).
+        Considers the RESERVE surface only — the guard's invariant is
+        battery-reserve-specific.
+        """
+        try:
+            # (c) Oracle-readability precondition — evaluated FIRST so a
+            # blind oracle short-circuits even a fresh OK record. When the
+            # cloud (or its integration) is dark, the last-known outcome
+            # is not evidence about NOW.
+            from .energy_const import CONF_RESERVE_VERIFIABLE_MAX_AGE_S
+            oracle = self._oracle_entity_for(WRITE_VERIFY_SURFACE_RESERVE)
+            if not oracle:
+                return False
+            oracle_probe = self._read_oracle_raw(oracle)
+            if oracle_probe is None:
+                return False
+
+            rec = self._records.get(WRITE_VERIFY_SURFACE_RESERVE)
+            if rec is None:
+                return False
+
+            # (a) OK-only. STATUS_STALE, NO_DATA, INCONCLUSIVE, MISMATCH,
+            # REVERTED, UNMAPPED, UNIT_MISMATCH — none of these prove the
+            # write took right now.
+            if rec.status != STATUS_OK:
+                return False
+
+            # A pending episode past the attempt-3 watchdog age is by
+            # contract "unverifiable" even if the RAM record still reads OK
+            # (episode may have been armed post-OK).
+            if self.is_pending_episode_active(WRITE_VERIFY_SURFACE_RESERVE):
+                return False
+
+            # (b) Freshness gate. Reuse the existing 600s stamp-age gate
+            # style used at ~line 815 for `_desired_stamped_at`. Value 0
+            # disables the gate (kill-switch for emergency backout).
+            max_age = int(CONF_RESERVE_VERIFIABLE_MAX_AGE_S)
+            if max_age > 0:
+                if not rec.verified_at:
+                    return False
+                try:
+                    stamp = dt_util.parse_datetime(rec.verified_at)
+                except Exception:  # noqa: BLE001
+                    stamp = None
+                if stamp is None:
+                    return False
+                # tz-aware / tz-naive alignment: match `now` to `stamp`'s
+                # awareness so the subtraction never raises. Production HA
+                # emits aware ISO from `dt_util.utcnow().isoformat()`; test
+                # mocks bind naive `datetime.utcnow`. Both cases yield a
+                # valid `age_s`.
+                now = dt_util.utcnow()
+                try:
+                    if stamp.tzinfo is None and now.tzinfo is not None:
+                        stamp = stamp.replace(tzinfo=now.tzinfo)
+                    elif stamp.tzinfo is not None and now.tzinfo is None:
+                        stamp = stamp.replace(tzinfo=None)
+                    age_s = (now - stamp).total_seconds()
+                except Exception:  # noqa: BLE001
+                    return False
+                if age_s > float(max_age):
+                    return False
+
+            return True
+        except Exception:  # noqa: BLE001 — defensive; guard is a read-only oracle
+            return False
+
+    # ------------------------------------------------------------------
     # Cloud oracle entity id resolution (respects operator overrides)
     # ------------------------------------------------------------------
     def _oracle_entity_for(self, surface: str) -> Optional[str]:

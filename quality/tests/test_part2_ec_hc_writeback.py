@@ -71,6 +71,8 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_EV_BATTERY_DRAIN_SOC"),
     _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_FILL_PRIORITY_SOC"),
     _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_EXCESS_SOLAR_SOC"),
+    # Blind-window guard cycle — D4 Emporia-mains backup export sensor.
+    _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_MAINS_EXPORT_ENTITY"),
     "bayesian_cell_staleness_days",
     # D2 — Routine family
     _extract_conf(CONST_SRC, "CONF_ROUTINE_EVENT_COOLDOWN_DAYS"),
@@ -161,6 +163,8 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     _extract_conf(CONST_SRC, "CONF_NM_PERSON_HAZARD_OVERRIDES"),
     _extract_conf(CONST_SRC, "CONF_NM_PERSON_DND_BYPASS_SEVERITIES"),
     _extract_conf(CONST_SRC, "CONF_NM_MUTE_DEFAULT_DURATION_MINUTES"),
+    # NM Cycle C-2 (2026-07-22, D2): additive-only life-safety extras.
+    _extract_conf(CONST_SRC, "CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS"),
 }
 
 
@@ -274,7 +278,10 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     # NM Cycle B fix-up (2026-07-20, B-B1) — +3 keys (dry-run + capacity + refill).
     # NM Cycle C (2026-07-20) — +4 keys (routing matrix, hazard overrides,
     # DND-bypass severities, mute default duration).
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 81
+    # +1 CONF_ENERGY_MAINS_EXPORT_ENTITY (blind-window guard D4)
+    # +1 CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS (NM C-2 D2)
+    # (both cycles merged 2026-07-23 -> combined count 83)
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 83
 
 
 # ---------------------------------------------------------------------------
@@ -354,6 +361,8 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_ENERGY_EV_BATTERY_DRAIN_SOC":      "energy_ev_battery_drain_soc",
         "_CONF_ENERGY_FILL_PRIORITY_SOC":         "energy_fill_priority_soc",
         "_CONF_ENERGY_EXCESS_SOLAR_SOC":          "energy_excess_solar_soc",
+        # Blind-window guard cycle — D4 Emporia-mains backup export sensor.
+        "_CONF_ENERGY_MAINS_EXPORT_ENTITY":       "energy_mains_export_entity",
         "_CONF_DYNAMIC_PRESET_HYSTERESIS_F":      "dynamic_preset_hysteresis_f",
         "_CONF_HVAC_EGRESS_THRESHOLD_MIN":        "hvac_egress_threshold_min",
         "_CONF_HVAC_EGRESS_RESUME_DELAY_MIN":     "hvac_egress_resume_delay_min",
@@ -387,6 +396,9 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_MF_NIGHT_SUPPRESS_MODE":           "mf_night_suppress_mode",
         # Zone Delete Flow fix-up R2 — CONF_ZONE in _ROOM_SUPPRESS_KEYS.
         "CONF_ZONE":                              "zone",
+        # Fan/humidity toggle-symmetry (2026-07-22) — HIGH F1 defect fix.
+        "_CONF_FAN_CONTROL_ENABLED":              "fan_control_enabled",
+        "_CONF_HUMIDITY_FAN_CONTROL_ENABLED":     "humidity_fan_control_enabled",
         "ENTRY_TYPE_ROOM":                        "room",
         # Session B1 — EVSE Drain-Precedence CM options keys.
         "_CONF_ENERGY_DP_ENABLE":                 "energy_dp_enable",
@@ -426,6 +438,8 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_NM_PERSON_HAZARD_OVERRIDES":            "nm_person_hazard_overrides",
         "_CONF_NM_PERSON_DND_BYPASS_SEVERITIES":       "nm_person_dnd_bypass_severities",
         "_CONF_NM_MUTE_DEFAULT_DURATION_MINUTES":      "nm_mute_default_duration_minutes",
+        # NM Cycle C-2 (2026-07-22, D2) — additive-only life-safety extras.
+        "_CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS":          "nm_extra_life_safety_hazards",
     }
     mod = ast.Module(body=body, type_ignores=[])
     code = compile(mod, str(PKG / "__init__.py"), "exec")

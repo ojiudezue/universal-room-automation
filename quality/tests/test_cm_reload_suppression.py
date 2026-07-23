@@ -202,6 +202,8 @@ def _load_init_listener_helpers():
         "_CONF_ENERGY_EV_BATTERY_DRAIN_SOC":      "energy_ev_battery_drain_soc",
         "_CONF_ENERGY_FILL_PRIORITY_SOC":         "energy_fill_priority_soc",
         "_CONF_ENERGY_EXCESS_SOLAR_SOC":          "energy_excess_solar_soc",
+        # Blind-window guard cycle — D4 Emporia-mains backup export sensor.
+        "_CONF_ENERGY_MAINS_EXPORT_ENTITY":       "energy_mains_export_entity",
         # Part 2 — DPM hysteresis + egress + fan-interference hold + Routine + Bayesian
         "_CONF_DYNAMIC_PRESET_HYSTERESIS_F":      "dynamic_preset_hysteresis_f",
         "_CONF_HVAC_EGRESS_THRESHOLD_MIN":        "hvac_egress_threshold_min",
@@ -237,6 +239,11 @@ def _load_init_listener_helpers():
         # Zone Delete Flow fix-up R2 — CONF_ZONE added to _ROOM_SUPPRESS_KEYS
         # so zone reassignment during delete doesn't storm per-room reloads.
         "CONF_ZONE":                              "zone",
+        # Fan/humidity toggle-symmetry (2026-07-22) — added to
+        # _ROOM_SUPPRESS_KEYS so per-room comfort/humidity fan-control
+        # switch toggles no longer full-reload the ROOM entry (~90 entities).
+        "_CONF_FAN_CONTROL_ENABLED":              "fan_control_enabled",
+        "_CONF_HUMIDITY_FAN_CONTROL_ENABLED":     "humidity_fan_control_enabled",
         # ENTRY_TYPE_ROOM (C-HIGH-3 path in _async_update_listener).
         "ENTRY_TYPE_ROOM":                        "room",
         # Session B1 — EVSE Drain-Precedence CM options keys.
@@ -275,6 +282,8 @@ def _load_init_listener_helpers():
         "_CONF_NM_PERSON_HAZARD_OVERRIDES":            "nm_person_hazard_overrides",
         "_CONF_NM_PERSON_DND_BYPASS_SEVERITIES":       "nm_person_dnd_bypass_severities",
         "_CONF_NM_MUTE_DEFAULT_DURATION_MINUTES":      "nm_mute_default_duration_minutes",
+        # NM Cycle C-2 (2026-07-22, D2) — additive-only life-safety extras.
+        "_CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS":          "nm_extra_life_safety_hazards",
         # Typing — frozenset[str] subscript requires Python 3.9+; ok.
     }
     # C-MED-2 fix-up (2026-07-20): self-check every hand-typed _CONF_* alias

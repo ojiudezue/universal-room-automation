@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.27.0
+# Universal Room Automation vv5.28.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.27.0"
+VERSION: Final = "v5.28.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1382,6 +1382,19 @@ DEFAULT_NM_PERSON_DND_BYPASS_SEVERITIES: Final = ("CRITICAL",)
 # C4: mute-shortcut default duration (Number entity rung 3). 0 = no-op.
 CONF_NM_MUTE_DEFAULT_DURATION_MINUTES: Final = "nm_mute_default_duration_minutes"
 DEFAULT_NM_MUTE_DEFAULT_DURATION_MINUTES: Final = 60
+# NM Cycle C-2 (2026-07-22, D2 — operator "Tunable?" answer):
+# ADDITIVE-ONLY life-safety promotion. The base NM_LIFE_SAFETY_HAZARDS
+# frozenset stays rung-1 code-reviewed (demotion requires code review
+# + Tier-3). This options knob PROMOTES additional HazardType tokens
+# into life-safety treatment across all 8 NM consumer sites: boot-settle
+# exemption, 30s CRITICAL cadence, bucket bypass, DND floor, mute
+# exception (initial + repeat), and the router's messaging-channel
+# life-safety exception.
+#   Kill-switch semantics: empty list = base set only (byte-identical
+#   to v5.27.0 Cycle C).
+#   Demotion impossible by construction (union, never difference).
+CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS: Final = "nm_extra_life_safety_hazards"
+DEFAULT_NM_EXTRA_LIFE_SAFETY_HAZARDS: Final = ()
 # C4: service name constant.
 SERVICE_NM_MUTE_PERSON_CHANNEL: Final = "nm_mute_person_channel"
 # Known transport-channel names — used by the mute service for input

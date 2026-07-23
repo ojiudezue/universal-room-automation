@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.27.0
+# Universal Room Automation vv5.28.0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -4839,6 +4839,61 @@ class UniversalRoomDatabase:
                 await asyncio.sleep(0.1)
         except Exception as err:
             _LOGGER.warning("cleanup_anomaly_log failed: %s", err, exc_info=True)
+        return total_deleted
+
+    # ====================================================================
+    # Fix-up A-HIGH-1 (Batch 4) — decision_log retention prune per type
+    # ====================================================================
+    async def cleanup_decision_log(
+        self,
+        decision_type: str,
+        retention_days: int,
+        batch_size: int = 1000,
+    ) -> int:
+        """Delete `decision_log` rows of a given `decision_type` older than
+        `retention_days`. Rows of OTHER decision_types are untouched.
+
+        Sibling shape to `cleanup_anomaly_log` / `cleanup_room_energy_baselines`:
+        batched (LIMIT + asyncio.sleep) so a large backlog doesn't stall
+        the write queue during the nightly maintenance window.
+
+        Wired into the nightly cadence in `__init__.py` per decision_type:
+          * `dp_eval` — retention `CONF_DP_EVAL_LOG_RETENTION_DAYS`.
+          * `blind_window_defer` — same retention as dp_eval today.
+          * `blind_window_liveness_release` — same retention as dp_eval today.
+        Returns total rows deleted across all passes.
+        """
+        from datetime import timedelta as _td
+        from homeassistant.util import dt as _dtu
+
+        if not decision_type or int(retention_days) <= 0:
+            return 0
+        cutoff = (_dtu.utcnow() - _td(days=int(retention_days))).isoformat()
+        total_deleted = 0
+        try:
+            while True:
+                async with self._db() as db:
+                    cursor = await db.execute(
+                        """DELETE FROM decision_log
+                        WHERE rowid IN (
+                            SELECT rowid FROM decision_log
+                            WHERE decision_type = ?
+                              AND timestamp < ?
+                            LIMIT ?
+                        )""",
+                        (decision_type, cutoff, int(batch_size)),
+                    )
+                    await db.commit()
+                    deleted = cursor.rowcount
+                    total_deleted += deleted
+                if deleted < int(batch_size):
+                    break
+                await asyncio.sleep(0.1)
+        except Exception as err:
+            _LOGGER.warning(
+                "cleanup_decision_log(%s, %d) failed: %s",
+                decision_type, retention_days, err, exc_info=True,
+            )
         return total_deleted
 
     # ====================================================================

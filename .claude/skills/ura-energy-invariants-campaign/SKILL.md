@@ -305,3 +305,21 @@ Date-stamped facts to sanity-check when they drift:
 - **Bug Classes in play:** #51 (day-boundary TOU), #53 (computed-but-not-consumed). Confirm neither has been renumbered.
 
 If any command above returns unexpected output, STOP and update the skill before continuing the campaign. A wrong runbook is worse than no runbook.
+
+## v5.28.0 addendum — blind-window guard + the §2.5a emergency-backout knob (2026-07-22)
+
+The blind-window EVSE guard (INV-BW1) is part of the invariant surface as
+of v5.28.0. BEFORE touching `is_reserve_verifiable`, the guard predicates,
+or `CONF_RESERVE_VERIFIABLE_MAX_AGE_S`, READ **EC manual §2.5a**. Non-negotiables:
+- `CONF_RESERVE_VERIFIABLE_MAX_AGE_S=0` is an EMERGENCY BACKOUT (fire axe),
+  not a tuning value. At 0, full outages remain guarded; **partial outages
+  (SOC blind, oracle readable) are knowingly exposed** — intentional,
+  adjudicated, documented. Do not report it as a discovered bug; do not
+  "fix" it by weakening gates (a)/(c).
+- Guard-flapping-on-healthy-telemetry → the sanctioned response is the
+  §2.5a backout sequence (0 → fix-forward → 600), never a cycle revert.
+- The knob stays rung-1. Any semantic change = Tier 2-DB minimum with
+  `quality/tests/test_blind_window_evse_guard.py` (incl. the 12-site
+  enumeration contract + 15-mutation matrix) as the harness.
+- Sibling with different semantics: `CONF_BLIND_WINDOW_MAX_DEFER_MIN <= 0`
+  disables the WHOLE guard. Don't conflate the two kill-switches.

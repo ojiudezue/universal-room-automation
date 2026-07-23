@@ -51,6 +51,91 @@ from .energy_const import (
 )
 from .energy_projector import EnergyProjector
 
+
+# ============================================================================
+# SOC LKG envelope — REUSABLE PRIMITIVE (see PLANNING_ec_blind_window_evse_guard.md D5)
+# ----------------------------------------------------------------------------
+# Bounded-uncertainty SOC estimate for consumers that must reason about the
+# battery when the primary/cloud SOC tiers are all dead. The envelope widens
+# a Last-Known-Good SOC reading by ± max_power * Δt / capacity * 100 per
+# elapsed second, capped at [0, 100]. NOT EVSE-specific: the operator has
+# flagged this as a primitive other coordinators (HVAC, load-shed, arbitrage
+# floor arithmetic) will adopt. Do NOT entangle with EVSE-specific policy —
+# consumers make their own decisions from the (lower, upper) tuple.
+# ============================================================================
+
+
+class SOCEnvelope:
+    """Widen a Last-Known-Good SOC by battery-physics limits over elapsed time.
+
+    Pure computation — no HA / no I/O. Consumers pass in `lkg`, `age_s`, and
+    the physics constants; get back `(lower, upper)` in %-SOC or None when
+    the LKG is stale beyond the caller's max-age cap.
+
+    Attributes:
+        capacity_kwh: usable battery capacity in kWh (physics constant).
+        max_charge_kw: max sustained charge rate in kW.
+        max_discharge_kw: max sustained discharge rate in kW.
+
+    Usage:
+        env = SOCEnvelope(capacity_kwh, max_charge_kw, max_discharge_kw)
+        bounds = env.compute(lkg_soc, age_s, max_age_s)
+        if bounds is not None:
+            lo, hi = bounds
+            # consumer decides: lo >= threshold? proceed; else pause.
+    """
+
+    def __init__(
+        self,
+        capacity_kwh: float,
+        max_charge_kw: float,
+        max_discharge_kw: float,
+    ) -> None:
+        # Guard against 0/negative capacity — would divide by zero.
+        if capacity_kwh <= 0:
+            raise ValueError(f"capacity_kwh must be > 0, got {capacity_kwh!r}")
+        self.capacity_kwh = float(capacity_kwh)
+        self.max_charge_kw = float(max(0.0, max_charge_kw))
+        self.max_discharge_kw = float(max(0.0, max_discharge_kw))
+
+    def compute(
+        self,
+        lkg_soc: float | None,
+        age_s: float | None,
+        max_age_s: float,
+    ) -> tuple[float, float] | None:
+        """Return (lower_pp, upper_pp) SOC envelope, or None if unusable.
+
+        - lkg_soc None or age_s None → None (no LKG to widen).
+        - age_s > max_age_s → None (envelope so wide it's useless).
+        - age_s <= 0 → collapses to the LKG point (fresh reading).
+        - Bounds are clamped to [0, 100].
+        """
+        if lkg_soc is None or age_s is None:
+            return None
+        try:
+            age = float(age_s)
+        except (TypeError, ValueError):
+            return None
+        if age > float(max_age_s):
+            return None
+        if age < 0:
+            age = 0.0
+        # Δ%SOC = kW * (seconds / 3600) / kWh * 100
+        # = kW * seconds / (36 * kWh)
+        down_pp = (self.max_discharge_kw * age) / (36.0 * self.capacity_kwh)
+        up_pp = (self.max_charge_kw * age) / (36.0 * self.capacity_kwh)
+        try:
+            v = float(lkg_soc)
+        except (TypeError, ValueError):
+            return None
+        lo = max(0.0, v - down_pp)
+        hi = min(100.0, v + up_pp)
+        # Envelope may cross zero-width if both physics rates are 0 (config).
+        if hi < lo:
+            hi = lo
+        return (lo, hi)
+
 # v4.5.0 D1: arbitrage phase names. Single source of truth — used by the
 # state matrix routing in determine_mode(), the sensor `arbitrage_phase`
 # attribute (D6), and the D4 EV mutual-exclusion logic (which gates on
@@ -2005,6 +2090,87 @@ class BatteryStrategy:
             "inclement_solar_horizon": sh,
         }
 
+    # ------------------------------------------------------------------
+    # LKG SOC envelope (D5) — thin passthrough over the reusable primitive.
+    # ------------------------------------------------------------------
+    def soc_envelope(self) -> tuple[float, float] | None:
+        """Return (lower_pp, upper_pp) SOC bounds from LKG + physics decay.
+
+        Returns None when either (a) primary SOC is currently available
+        (envelope is redundant — consumer should read `battery_soc`
+        directly), or (b) no LKG is stored, or (c) LKG age exceeds the
+        configured max envelope age.
+
+        Consumers include the blind-window EVSE guard (D1) which uses the
+        lower bound to answer "can we prove SOC >= drain threshold right
+        now?" — a Yes lets a mid-charge EVSE ride, a No triggers pause.
+        """
+        from homeassistant.util import dt as dt_util
+        from .energy_const import (
+            BATTERY_CAPACITY_KWH,
+            BATTERY_MAX_CHARGE_KW,
+            BATTERY_MAX_DISCHARGE_KW,
+            DEFAULT_SOC_LKG_ENVELOPE_MAX_AGE_S,
+        )
+
+        # If primary is live, envelope is unnecessary noise.
+        try:
+            primary = self._get_state_float(self._get_entity("battery_soc"))
+        except Exception:  # noqa: BLE001
+            primary = None
+        if primary is not None:
+            return None
+        if self._soc_lkg is None or self._soc_lkg_at is None:
+            return None
+        try:
+            age = (dt_util.utcnow() - self._soc_lkg_at).total_seconds()
+        except Exception:  # noqa: BLE001
+            return None
+        env = SOCEnvelope(
+            capacity_kwh=BATTERY_CAPACITY_KWH,
+            max_charge_kw=BATTERY_MAX_CHARGE_KW,
+            max_discharge_kw=BATTERY_MAX_DISCHARGE_KW,
+        )
+        return env.compute(
+            self._soc_lkg, age, DEFAULT_SOC_LKG_ENVELOPE_MAX_AGE_S,
+        )
+
+    def get_lkg_snapshot(self) -> dict[str, Any] | None:
+        """Return LKG {value, at_iso} for D5 persistence; None if unset."""
+        if self._soc_lkg is None or self._soc_lkg_at is None:
+            return None
+        try:
+            return {
+                "value": float(self._soc_lkg),
+                "at_iso": self._soc_lkg_at.isoformat(),
+            }
+        except Exception:  # noqa: BLE001
+            return None
+
+    def restore_lkg_snapshot(self, snap: dict[str, Any] | None) -> None:
+        """Rehydrate LKG (value + timestamp) from D5 persistence blob.
+
+        Idempotent + defensive: any parse failure leaves the RAM state
+        untouched (a subsequent live SOC read repopulates it anyway).
+        """
+        if not snap:
+            return
+        try:
+            from homeassistant.util import dt as dt_util
+            v = float(snap.get("value"))
+            at_iso = snap.get("at_iso")
+            if at_iso is None:
+                return
+            parsed = dt_util.parse_datetime(at_iso)
+            if parsed is None:
+                return
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=dt_util.UTC)
+            self._soc_lkg = v
+            self._soc_lkg_at = parsed
+        except Exception:  # noqa: BLE001
+            return
+
     @property
     def envoy_available(self) -> bool:
         """Whether the Envoy is responding.
@@ -3177,9 +3343,19 @@ class BatteryStrategy:
     ) -> tuple[datetime | None, datetime | None]:
         """Return (sunrise, sunset) on the same local date as ``anchor``.
 
-        Best-effort; falls back to a conservative 07:00 / 19:00 envelope
-        when the HA sun integration is unavailable in the test sandbox.
+        Best-effort; falls back to a conservative
+        DAYLIGHT_FALLBACK_SUNRISE_HOUR / DAYLIGHT_FALLBACK_SUNSET_HOUR
+        envelope when ``sun.sun`` is unavailable OR its `next_rising` /
+        `next_setting` attrs fail to parse. That fallback is the
+        sun-loss behavior — this helper does NOT return None on missing
+        sun; genuine exceptions from callers (wrapped `try/except`)
+        yield None, and the pool treats None as "preserve v5.5.5
+        off_peak-inert".
         """
+        from .energy_const import (
+            DAYLIGHT_FALLBACK_SUNRISE_HOUR,
+            DAYLIGHT_FALLBACK_SUNSET_HOUR,
+        )
         try:
             sun_state = self.hass.states.get("sun.sun") if self.hass else None
         except Exception:  # noqa: BLE001
@@ -3206,9 +3382,15 @@ class BatteryStrategy:
                     second=0, microsecond=0,
                 )
             except Exception:  # noqa: BLE001
-                sunrise = anchor.replace(hour=7, minute=0, second=0, microsecond=0)
+                sunrise = anchor.replace(
+                    hour=DAYLIGHT_FALLBACK_SUNRISE_HOUR,
+                    minute=0, second=0, microsecond=0,
+                )
         else:
-            sunrise = anchor.replace(hour=7, minute=0, second=0, microsecond=0)
+            sunrise = anchor.replace(
+                hour=DAYLIGHT_FALLBACK_SUNRISE_HOUR,
+                minute=0, second=0, microsecond=0,
+            )
         if sunset_iso:
             try:
                 ss = datetime.fromisoformat(str(sunset_iso).replace("Z", "+00:00"))
@@ -3218,9 +3400,15 @@ class BatteryStrategy:
                     second=0, microsecond=0,
                 )
             except Exception:  # noqa: BLE001
-                sunset = anchor.replace(hour=19, minute=0, second=0, microsecond=0)
+                sunset = anchor.replace(
+                    hour=DAYLIGHT_FALLBACK_SUNSET_HOUR,
+                    minute=0, second=0, microsecond=0,
+                )
         else:
-            sunset = anchor.replace(hour=19, minute=0, second=0, microsecond=0)
+            sunset = anchor.replace(
+                hour=DAYLIGHT_FALLBACK_SUNSET_HOUR,
+                minute=0, second=0, microsecond=0,
+            )
         return (sunrise, sunset)
 
     def _attain_target_boundary(

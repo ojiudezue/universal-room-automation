@@ -287,6 +287,91 @@ class EVChargerController:
         # surfaced as `fill_priority_solar_ok` on the EV status sensor.
         self._fill_priority_solar_ok: bool = False
 
+        # ==============================================================
+        # Blind-window EVSE guard (see PLANNING_ec_blind_window_evse_guard.md)
+        # --------------------------------------------------------------
+        # Pause-owner set for EVSEs held OFF while the reserve write path
+        # is unverifiable (Envoy blind + WV inconclusive). Peer of the
+        # other battery-protection owners; participates in
+        # `_stronger_peer_holds`, `_prune_removed_evses`, and the
+        # `_save_evse_state` persistence blob.
+        #
+        # `_blind_window_entry_first_at`: monotonic() timestamp of the
+        # first tick the entry predicate held; consumed by the debounce
+        # (CONF_BLIND_WINDOW_ENTRY_DEBOUNCE_S). None when the predicate
+        # is currently false.
+        #
+        # `_blind_window_epoch_started_at`: wall-clock of the current
+        # epoch (a single epoch spans one contiguous outage). Reset to
+        # None when the guard clears. Consumed by the max-defer bound
+        # (CONF_BLIND_WINDOW_MAX_DEFER_MIN) so we hand off to
+        # must-start-by when an outage exceeds the cap.
+        #
+        # `_blind_window_defers_this_epoch`: integer count for the
+        # `blind_window_defers_this_epoch` observability attribute.
+        # ==============================================================
+        self._paused_by_blind_window: set[str] = set()
+        self._blind_window_entry_first_at: float | None = None
+        self._blind_window_epoch_started_at: datetime | None = None
+        self._blind_window_defers_this_epoch: int = 0
+        # Fix-up D-CRIT-2 (Batch 1) — pre-engaged restore flag. Set by
+        # `mark_pre_engaged_from_restore()` when the restart handler
+        # rehydrates a non-empty `_paused_by_blind_window` set with a
+        # non-None restored epoch. Consumed by `_blind_window_guard_engaged`
+        # to bypass the debounce on the first post-restart tick: the
+        # outage was already debounced pre-restart (the set only got
+        # persisted BECAUSE the guard had engaged), and re-arming the
+        # debounce would cause the else-branch to drain membership,
+        # producing a blind ensure-on flap.
+        self._blind_window_pre_engaged: bool = False
+        # Fix-up D-HIGH-3 (Batch 6) + D-F1/D-F2 (micro-batch 7) —
+        # per-epoch liveness-ride authority.
+        # When the DP must-start-by fire (or any other pressure release
+        # path) grants a liveness release, the released EVSE MUST NOT be
+        # re-captured by the pause leg on the very next tick. Prior to
+        # this latch, the sequence was:
+        #   t=0  must-start release: `_paused_by_blind_window.discard()`
+        #         intended to fire but was missing, and even had it
+        #         fired, the pause leg on t+1 would see is_on=True +
+        #         envelope-deny + no ride authority → turn_off, and the
+        #         DP must-start-by timer had already been cancelled →
+        #         no retry → car stranded (D-HIGH-3).
+        # This set is consumed by the pause leg's `will_pause` gate:
+        # if `evse_id` is in this latch, the guard NEVER pauses this
+        # EVSE within the current epoch, regardless of envelope state.
+        # The excess-solar DROP leg (D-F1, micro-batch 7) also honors
+        # the latch — a granted EVSE in `_excess_solar_active` is
+        # SKIPPED during a DROP so it is neither turned off nor
+        # re-added to `_paused_by_blind_window`.
+        #
+        # Accepted semantic (documented for future reviewers):
+        #   * NEVER-PAUSE-THIS-EPOCH — once a pressure release grants
+        #     ride authority for an evse_id, the guard treats that
+        #     grant as absolute for the remainder of the current epoch.
+        #     Envelope re-tightening within the epoch does NOT revoke
+        #     it. The DP timer that WOULD have retried was cancelled
+        #     by the release; overriding the grant mid-epoch would
+        #     re-open the strand shape D-HIGH-3 closed.
+        #
+        # D-F2 accept-with-note (STALE LATCH CROSS-EPOCH, SELF-HEALS):
+        #   * A restart that rehydrates the latch from KV then never
+        #     re-engages the guard (Envoy stays healthy) leaves stale
+        #     `_blind_window_liveness_ride` membership in RAM. This is
+        #     ACCEPTED: without an active epoch there is no code path
+        #     that consults the latch (the pause leg + excess-solar
+        #     DROP only run when the guard is engaged), so a stale
+        #     entry is inert. The FIRST time the guard engages after
+        #     restart, the epoch-close path (raw predicate False in
+        #     `_blind_window_guard_engaged`) clears the latch on the
+        #     transition out of that new epoch — self-heal. Adding an
+        #     eager clear on restart would risk stranding a car whose
+        #     restart happened MID-outage (the latch is legitimate);
+        #     the accepted path chose the safer default.
+        # Cleared on epoch close (raw predicate False path in
+        # `_blind_window_guard_engaged`). Persisted via `_save_evse_state`
+        # so a mid-epoch restart carries the authority forward.
+        self._blind_window_liveness_ride: set[str] = set()
+
         # v4.7.6 D1 #9: Prune stale entries on init (idempotent on cold boot).
         self._prune_removed_evses()
 
@@ -315,7 +400,250 @@ class EVChargerController:
             or evse_id in self._paused_by_grid_cap
             or evse_id in self._paused_by_arbitrage
             or evse_id in self._paused_by_load_shed
+            # Blind-window guard is a peer battery-protection owner: while
+            # SOC is unresolved AND reserve write path is unverifiable, no
+            # TOU / excess-solar path may claim this EVSE. Only row 2
+            # force-charge preempts (see PLANNING_ec_blind_window_evse_guard.md
+            # INV-BW1 escape hatch — force-charge is handled inline at each
+            # site, not via this helper).
+            or evse_id in self._paused_by_blind_window
         )
+
+    # ------------------------------------------------------------------
+    # Blind-window EVSE guard predicate + debounce + max-defer bound
+    # (see PLANNING_ec_blind_window_evse_guard.md D1 + PROBE gates)
+    # ------------------------------------------------------------------
+    def _blind_window_entry_predicate(self, coord: Any) -> bool:
+        """Raw entry predicate BEFORE debounce.
+
+        Q3 ruling: use BOTH `envoy_available` (fast local) AND write-verify
+        staleness on the reserve surface. False means the guard SHOULD NOT
+        engage this tick (either Envoy is live OR the reserve write path is
+        proveably verifiable).
+
+        Fix-up B7 (Batch 5) — single per-tick truth via
+        `blind_hold_active_snapshot()` on the coord. During a DP tick the
+        snapshot is authoritative (guard sees the same value the DP tick
+        acted on); outside a tick, the snapshot method falls back to the
+        `blind_hold_active` property. Older coord stubs (test fixtures)
+        without the snapshot method fall back to `blind_hold_active`
+        directly. Backward-compatible: `_make_coord_stub` in the test
+        file only exposes `blind_hold_active`, and getattr'ing the
+        snapshot method with a fallback keeps those tests passing.
+        """
+        try:
+            snapshot_reader = getattr(
+                coord, "blind_hold_active_snapshot", None,
+            )
+            if callable(snapshot_reader):
+                blind = snapshot_reader()
+            else:
+                blind = coord.blind_hold_active
+            if not blind:
+                return False
+        except Exception:  # noqa: BLE001
+            return False
+        try:
+            return not coord.reserve_write_verifiable()
+        except Exception:  # noqa: BLE001
+            # Fail-safe: verifier failure is not proof of a good write.
+            return True
+
+    def _blind_window_guard_engaged(self, coord: Any) -> bool:
+        """Debounced entry predicate.
+
+        Returns True only after `CONF_BLIND_WINDOW_ENTRY_DEBOUNCE_S`
+        seconds of continuous raw-predicate truth (per D3 probe: 66% of
+        Envoy outages are <2min; without a debounce the fail-safe pause
+        leg would flap on 90-second blips). Also stamps the epoch
+        start-time on first engagement so the max-defer bound is anchored
+        to the outage's actual start.
+        """
+        from .energy_const import CONF_BLIND_WINDOW_ENTRY_DEBOUNCE_S
+        import time
+        raw = self._blind_window_entry_predicate(coord)
+        if not raw:
+            # Clear debounce + epoch. Any pre-existing pause set membership
+            # is drained by caller (release path in determine_actions) —
+            # the caller consults `_blind_window_entry_predicate` directly
+            # to distinguish "raw=False (envoy back)" from "raw=True but
+            # debounce pending" (fix-up D-CRIT-2 else-branch narrowing).
+            self._blind_window_entry_first_at = None
+            if self._blind_window_epoch_started_at is not None:
+                _LOGGER.info(
+                    "blind-window guard: cleared (defers this epoch=%d)",
+                    self._blind_window_defers_this_epoch,
+                )
+                # Fix-up B5 (Batch 4) — clear the coord's per-(evse,
+                # epoch) dedup set so the next real outage emits a fresh
+                # row per EVSE. Called ONLY on the epoch-close path
+                # (not on debounce-pending) so a transient blip does
+                # not reset in-flight dedup state.
+                _co = coord if coord is not None else getattr(
+                    self, "_energy_coord", None,
+                )
+                if _co is not None:
+                    try:
+                        _co._reset_blind_window_defer_dedup()  # noqa: SLF001
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.debug(
+                            "reset defer dedup failed (swallowed)",
+                            exc_info=True,
+                        )
+            self._blind_window_epoch_started_at = None
+            self._blind_window_defers_this_epoch = 0
+            # Fix-up D-CRIT-2: clear pre-engaged so the next real outage
+            # debounces normally (only a restart-restored non-empty set
+            # gets the debounce bypass).
+            self._blind_window_pre_engaged = False
+            # Fix-up D-HIGH-3 (Batch 6) — epoch close clears the ride
+            # latch. A liveness-ride grant is scoped to ONE epoch; the
+            # next epoch must debounce + evaluate afresh.
+            if self._blind_window_liveness_ride:
+                _LOGGER.info(
+                    "blind-window guard: epoch clear — dropping ride "
+                    "authority for %s",
+                    sorted(self._blind_window_liveness_ride),
+                )
+                self._blind_window_liveness_ride.clear()
+            return False
+        # Fix-up D-CRIT-2 (Batch 1) — pre-engaged restore bypass. When the
+        # restart handler rehydrated a non-empty pause set with a non-None
+        # epoch, the outage was already debounced BEFORE the restart. The
+        # persisted set is our proof; skip the fresh debounce so the very
+        # first post-restart tick sees the guard as engaged and the
+        # else-branch does NOT drain membership.
+        if self._blind_window_pre_engaged:
+            # One-shot: consume the flag. Subsequent ticks fall through to
+            # the normal debounce-satisfied branch (epoch is already
+            # populated from restore, so no re-stamp).
+            self._blind_window_pre_engaged = False
+            # Seed entry_first_at so subsequent ticks satisfy the debounce
+            # elapsed check without another wait.
+            if self._blind_window_entry_first_at is None:
+                self._blind_window_entry_first_at = (
+                    time.monotonic()
+                    - float(CONF_BLIND_WINDOW_ENTRY_DEBOUNCE_S)
+                    - 1.0
+                )
+            _LOGGER.info(
+                "blind-window guard: engaged from restart-restore "
+                "(pause set carried over, debounce bypassed)",
+            )
+            return True
+        now_mono = time.monotonic()
+        if self._blind_window_entry_first_at is None:
+            self._blind_window_entry_first_at = now_mono
+        elapsed = now_mono - self._blind_window_entry_first_at
+        if elapsed < float(CONF_BLIND_WINDOW_ENTRY_DEBOUNCE_S):
+            # Debounce still counting; do not engage.
+            return False
+        # Debounce satisfied — stamp epoch start-time if unset.
+        if self._blind_window_epoch_started_at is None:
+            try:
+                from homeassistant.util import dt as dt_util
+                self._blind_window_epoch_started_at = dt_util.utcnow()
+            except Exception:  # noqa: BLE001
+                self._blind_window_epoch_started_at = None
+            _LOGGER.info(
+                "blind-window guard: engaged (Envoy blind, reserve write "
+                "unverifiable, debounce %ds satisfied)",
+                int(CONF_BLIND_WINDOW_ENTRY_DEBOUNCE_S),
+            )
+        return True
+
+    def grant_liveness_ride_authority(self, evse_id: str) -> None:
+        """Fix-up D-HIGH-3 (Batch 6) — grant a per-epoch ride authority.
+
+        Called by `EnergyCoordinator._apply_dp_must_start_release` (and
+        any future pressure-release site routing through the liveness
+        helper) IMMEDIATELY after the helper returns `release=True`.
+        Semantics:
+          * Membership in `_blind_window_liveness_ride` short-circuits
+            the pause leg's `will_pause` gate to False for this evse_id
+            for the remainder of the current epoch.
+          * Also drops any existing `_paused_by_blind_window` membership
+            so ownership matches the ride grant.
+          * Cleared on epoch close.
+        Idempotent + defensive.
+        """
+        self._blind_window_liveness_ride.add(evse_id)
+        self._paused_by_blind_window.discard(evse_id)
+
+    def mark_pre_engaged_from_restore(
+        self, epoch_started_at: "datetime | None" = None,
+    ) -> None:
+        """Fix-up D-CRIT-2 (Batch 1) — mark the guard pre-engaged.
+
+        Called from `EnergyCoordinator._restore_evse_state` immediately
+        after rehydrating a non-empty `_paused_by_blind_window` set. Wires
+        the persisted `_blind_window_epoch_started_at` (so the max-defer
+        bound remains anchored to the outage's ACTUAL start, not the
+        post-restart wall-clock — this also closes D-LOW-1) and flips the
+        one-shot bypass flag consumed by `_blind_window_guard_engaged`.
+
+        Idempotent: subsequent invocations without a fresh epoch will
+        overwrite with None (defensive; caller should never do this).
+        """
+        self._blind_window_epoch_started_at = epoch_started_at
+        self._blind_window_pre_engaged = True
+
+    def _blind_window_max_defer_exceeded(self) -> bool:
+        """True when the current epoch has exceeded the max-defer bound.
+
+        Per D3 probe: ~2-3 outages >30min per day; an unbounded defer would
+        strand overnight EVSE charging. When exceeded, the guard yields to
+        the DP must-start-by machinery (ensure-on paths proceed normally;
+        the fail-safe pause leg still holds mid-charge unless the envelope
+        proves SOC is safe).
+        """
+        from .energy_const import CONF_BLIND_WINDOW_MAX_DEFER_MIN
+        cap = int(CONF_BLIND_WINDOW_MAX_DEFER_MIN)
+        if cap <= 0:
+            # Kill-switch: value 0 disables the defer (guard is a no-op).
+            return True
+        if self._blind_window_epoch_started_at is None:
+            return False
+        try:
+            from homeassistant.util import dt as dt_util
+            elapsed_min = (
+                dt_util.utcnow() - self._blind_window_epoch_started_at
+            ).total_seconds() / 60.0
+        except Exception:  # noqa: BLE001
+            return False
+        return elapsed_min >= cap
+
+    def _blind_window_envelope_permits_ride(
+        self, coord: Any, drain_target_soc: int | None,
+    ) -> bool:
+        """Q1/Q4: mid-charge ride permission via the LKG envelope.
+
+        Returns True iff the envelope's lower bound is >= the drain
+        threshold — a bounded-uncertainty proof that SOC has not fallen
+        below the guard's protection floor, so an already-on EVSE may
+        legitimately ride. Also permits ride if D4 mains-export shows
+        active grid export (battery-not-discharging from a non-Envoy
+        source). Returns False when neither proof is available
+        (default fail-safe: pause).
+        """
+        # D4 non-Envoy witness (Q1 branch a).
+        try:
+            exp = coord.mains_export_active()
+        except Exception:  # noqa: BLE001
+            exp = None
+        if exp is True:
+            return True
+        # LKG envelope lower bound >= threshold (Q1 branch b / Q4).
+        if drain_target_soc is None:
+            return False
+        try:
+            env = coord.soc_envelope()
+        except Exception:  # noqa: BLE001
+            env = None
+        if env is None:
+            return False
+        lower, _upper = env
+        return lower >= float(drain_target_soc)
 
     def _get_evse_state(self, evse_id: str) -> dict[str, Any]:
         """Get current state of an EVSE.
@@ -459,6 +787,10 @@ class EVChargerController:
             self._proactive_offpeak_holds,
             # EVSE drain-precedence (B2b-i): mirror sibling owners.
             self._paused_by_dp,
+            # Blind-window guard (D1): peer battery-protection owner.
+            self._paused_by_blind_window,
+            # Fix-up D-HIGH-3 (Batch 6) — per-epoch liveness-ride latch.
+            self._blind_window_liveness_ride,
         ):
             for evse_id in list(tracking_set):
                 if evse_id not in known:
@@ -486,10 +818,20 @@ class EVChargerController:
     # avoid a footgun for future contributors. `_prune_removed_evses()` runs
     # in `__init__` and handles the equivalent state cleanup.
 
+    def attach_coord(self, coord: Any) -> None:
+        """Wire the owning EnergyCoordinator so the blind-window guard
+        may consult its blind_hold_active / reserve_write_verifiable /
+        soc_envelope / mains_export_active predicates without
+        altering the `determine_actions(...)` public signature (which
+        many production sibling controllers + test spies rely on).
+        """
+        self._energy_coord = coord
+
     def determine_actions(
         self,
         tou_period: str,
         grid_charge_on: bool = False,
+        coord: Any = None,
     ) -> list[dict[str, Any]]:
         """Determine EV charger actions based on TOU period.
 
@@ -567,6 +909,209 @@ class EVChargerController:
                     self._paused_by_us.add(evse_id)
                     _LOGGER.info("EV: pausing %s (%s TOU)", evse_id, tou_period)
             elif tou_period == "off_peak":
+                # =====================================================
+                # Row 2.5 — Blind-Window EVSE Guard
+                # (see PLANNING_ec_blind_window_evse_guard.md D1 + INV-BW1)
+                # -----------------------------------------------------
+                # BEFORE any of the existing row-2..N chains: while SOC is
+                # unresolved AND the reserve write path is unverifiable,
+                # DEFER turn-on and PAUSE any already-on EVSE (fail-safe
+                # leg — Q1). Row 2 force-charge preempts (INV-BW1 escape).
+                # Debounce prevents flapping on sub-2-min Envoy blips
+                # (66% of outages per D3 probe). Max-defer bound hands
+                # off to must-start-by on long outages (~2-3/day > 30min).
+                # =====================================================
+                _bw_coord = coord if coord is not None else getattr(
+                    self, "_energy_coord", None,
+                )
+                if _bw_coord is not None and not force_charge_active:
+                    coord = _bw_coord  # for the block below
+                    engaged = self._blind_window_guard_engaged(coord)
+                    max_defer_exceeded = self._blind_window_max_defer_exceeded()
+                    if engaged and not max_defer_exceeded:
+                        # Fail-safe pause leg (Q1): pause mid-charge UNLESS
+                        # the LKG envelope lower bound >= drain threshold
+                        # OR mains-export active (battery not discharging).
+                        drain_target = None
+                        try:
+                            drain_target = int(
+                                getattr(coord, "_ev_battery_drain_soc", None) or 0
+                            ) or None
+                        except Exception:  # noqa: BLE001
+                            drain_target = None
+                        ride_ok = self._blind_window_envelope_permits_ride(
+                            coord, drain_target,
+                        )
+                        # Fix-up D-LOW-2 (Batch 5) — OWNERSHIP HONESTY.
+                        # An EVSE that is ON with `ride_ok=True` is NOT
+                        # being paused by the guard — it is being ridden.
+                        # Adding it to `_paused_by_blind_window` was a lie
+                        # about ownership that (a) confused the enumeration
+                        # audit (a "paused-by" set with unpaused members),
+                        # (b) leaked persistence rows (`_save_evse_state`
+                        # writes the set verbatim; restart would restore a
+                        # bogus pause for an EVSE the operator was actively
+                        # allowing to ride), and (c) triggered dedup-defer
+                        # log rows that don't reflect real defers.
+                        # Only claim membership when we're actually pausing.
+                        will_pause = (state["is_on"] and not ride_ok) or (
+                            not state["is_on"]
+                        )
+                        # Fix-up D-HIGH-3 (Batch 6) — LIVENESS RIDE AUTHORITY.
+                        # If a pressure release path has granted a
+                        # per-epoch ride authority for this EVSE, the
+                        # guard MUST NOT pause it — regardless of
+                        # envelope state — for the remainder of the
+                        # epoch. The DP must-start-by fire (or a future
+                        # pressure-release site) had legitimate car-
+                        # charge liveness authority to override the
+                        # guard; re-capturing on the very next tick
+                        # would strand the car (the DP timer is already
+                        # cancelled by the release, so no retry driver
+                        # would re-force the ON state).
+                        if evse_id in self._blind_window_liveness_ride:
+                            will_pause = False
+                        if will_pause and evse_id not in self._paused_by_blind_window:
+                            self._paused_by_blind_window.add(evse_id)
+                            self._proactive_offpeak_holds.discard(evse_id)
+                        elif not will_pause and evse_id in self._paused_by_blind_window:
+                            # A prior tick paused this EVSE; ride_ok now
+                            # permits ride. Drop the stale claim so the
+                            # ownership set matches reality.
+                            self._paused_by_blind_window.discard(evse_id)
+                        # Fix-up B5 (Batch 4) + D-LOW-2 gating — INV-BW1
+                        # defer log only fires when we're actually
+                        # deferring (pausing or refusing ensure-on).
+                        # Ownership honesty: a riding EVSE is not being
+                        # deferred, so it does not produce a defer row.
+                        if will_pause:
+                            try:
+                                first_this_epoch = (
+                                    coord.maybe_log_blind_window_defer(evse_id)
+                                )
+                            except Exception:  # noqa: BLE001
+                                first_this_epoch = False
+                            if first_this_epoch:
+                                self._blind_window_defers_this_epoch += 1
+                        if state["is_on"] and not ride_ok and will_pause:
+                            # Fix-up D-HIGH-3 (Batch 6) — gate the actual
+                            # turn_off on `will_pause` so a ride-authority
+                            # grant fully suppresses the pause action
+                            # (not just the peer-set claim). Without this
+                            # extra clause, the just-released EVSE would
+                            # get turn_off dispatched on the very next
+                            # tick and the D-HIGH-3 sequence would fail.
+                            actions.append({
+                                "service": "switch.turn_off",
+                                "target": switch_entity,
+                                "data": {},
+                            })
+                            _LOGGER.info(
+                                "blind-window guard: pausing %s "
+                                "(Envoy blind, reserve write unverifiable)",
+                                evse_id,
+                            )
+                        elif not state["is_on"]:
+                            _LOGGER.info(
+                                "blind-window guard: deferring ensure-on for %s",
+                                evse_id,
+                            )
+                        # B5 dedup: the counter was incremented above ONLY
+                        # on the first-defer-this-epoch path. Do NOT
+                        # increment again here (previous unconditional
+                        # increment removed).
+                        continue
+                    elif engaged and max_defer_exceeded:
+                        # Fix-up D-MED-2 (Batch 6) — cap<=0 short-circuit.
+                        # `CONF_BLIND_WINDOW_MAX_DEFER_MIN <= 0` is the
+                        # documented kill-switch: the guard's defer/pause
+                        # is disabled entirely, meaning the liveness helper
+                        # should NOT be consulted (there is no "yield"
+                        # to record — the guard was never armed for this
+                        # tick's defer decision). Skip the helper, drop
+                        # membership, and fall through to normal off-peak
+                        # ensure-on semantics.
+                        from .energy_const import CONF_BLIND_WINDOW_MAX_DEFER_MIN
+                        _cap_disabled = int(CONF_BLIND_WINDOW_MAX_DEFER_MIN) <= 0
+                        # Fix-up D-HIGH-2 + D-MED-2 (Batch 4) — route
+                        # max-defer expiry through the explicit liveness-
+                        # release helper. `has_pressure=False`: max-defer
+                        # is a TIME-based yield, not a car-charge liveness
+                        # deadline. The helper consults the envelope and
+                        # writes a decision_log row for both outcomes,
+                        # so the release is never silent.
+                        release_ok = True
+                        _bw_coord_ref = coord if coord is not None else getattr(
+                            self, "_energy_coord", None,
+                        )
+                        if not _cap_disabled and _bw_coord_ref is not None:
+                            try:
+                                release_ok = _bw_coord_ref.blind_window_liveness_release(
+                                    evse_id, reason="max_defer_exceeded",
+                                    has_pressure=False,
+                                )
+                            except Exception:  # noqa: BLE001
+                                # Fail-safe: if the helper raises, prefer
+                                # HOLDING pause (silent ensure-on = the
+                                # exact bug D-HIGH-2 closed).
+                                release_ok = False
+                        # cap<=0 => release_ok stays True, helper skipped.
+                        if not release_ok:
+                            # Envelope proved SOC is below drain threshold
+                            # AND we have no must-start-by pressure. Keep
+                            # the pause; the DP machinery's own timer will
+                            # ultimately fire (which routes through the
+                            # helper with pressure=True). Log with the
+                            # dedup path so we don't spam per-tick.
+                            _LOGGER.info(
+                                "blind-window guard: max-defer exceeded "
+                                "for %s but envelope refuses release — "
+                                "holding pause (waiting on must-start-by)",
+                                evse_id,
+                            )
+                            continue
+                        # Fix-up D-HIGH-3 (Batch 6) — max-defer expiry
+                        # also grants a per-epoch ride authority (only
+                        # when the helper was actually consulted and
+                        # returned True; the cap<=0 short-circuit does
+                        # NOT grant since the guard was never armed for
+                        # this tick). Without the authority, the very
+                        # next tick's pause leg would re-capture the
+                        # EVSE (envelope may still deny) even though we
+                        # just legitimately yielded.
+                        if not _cap_disabled:
+                            self._blind_window_liveness_ride.add(evse_id)
+                        if evse_id in self._paused_by_blind_window:
+                            self._paused_by_blind_window.discard(evse_id)
+                            _LOGGER.info(
+                                "blind-window guard: max-defer bound "
+                                "exceeded for %s — yielding to must-start-by "
+                                "(liveness helper permitted release, "
+                                "ride authority granted)",
+                                evse_id,
+                            )
+                    else:
+                        # Fix-up D-CRIT-2 (Batch 1) — narrow drain gate.
+                        # `_blind_window_guard_engaged` returning False has
+                        # TWO causes:
+                        #   (i) raw entry predicate is False (envoy back /
+                        #       reserve write verifiable — the real "outage
+                        #       ended" case), OR
+                        #   (ii) raw is True but the debounce is still
+                        #        counting (transient blip that may extend
+                        #        into a real outage), OR the pre-engaged
+                        #        one-shot was consumed on a prior tick and
+                        #        state is briefly ambiguous.
+                        # Only case (i) permits draining `_paused_by_blind_window`.
+                        # Draining under (ii) would produce the blind
+                        # ensure-on flap D-CRIT-2 called out: on the very
+                        # next tick the guard re-engages (or force-charge
+                        # gate reaches ensure-on) with a car we already
+                        # explicitly paused.
+                        raw_false = not self._blind_window_entry_predicate(coord)
+                        if raw_false and evse_id in self._paused_by_blind_window:
+                            self._paused_by_blind_window.discard(evse_id)
+
                 # v<next> WS2 D2.1: off-peak ensure-on with guard precedence.
                 #
                 # Replaces the legacy resume-only rule (which only un-paused
@@ -591,6 +1136,26 @@ class EVChargerController:
                 # we skip the proactive-on claim so `_proactive_offpeak_holds`
                 # doesn't gain membership for a charge that was authorized
                 # for a different reason.
+
+                # Fix-up B3 (Batch 2) — force-charge preempt drain.
+                # `_stronger_peer_holds` now INCLUDES `_paused_by_blind_window`,
+                # which means an EVSE the guard paused pre-force-charge
+                # would still trigger the 2a peer-guard `continue` below
+                # and force-charge could not preempt. Per INV-BW1 escape
+                # hatch (row 2 force-charge is the sole authoritative
+                # override), drain blind-window membership FIRST so row 2
+                # authority actually reaches the ensure-on dispatch.
+                # Force-charge does NOT drain other peer sets (drain /
+                # fill-priority / grid-cap / arbitrage / load-shed) —
+                # those retain their existing precedence. This is the
+                # narrowest possible mutation to close the deadlock.
+                if force_charge_active and evse_id in self._paused_by_blind_window:
+                    self._paused_by_blind_window.discard(evse_id)
+                    _LOGGER.info(
+                        "blind-window guard: releasing %s to force-charge "
+                        "(INV-BW1 escape hatch)",
+                        evse_id,
+                    )
 
                 # 2a: carry-over guards (battery protections) win — don't
                 # pre-empt the downstream rules; drop legacy _paused_by_us
@@ -742,6 +1307,7 @@ class EVChargerController:
         soc_threshold: int = 95,
         kwh_threshold: float = 5.0,
         dp_carrier_state: str | None = None,
+        coord: Any = None,
     ) -> list[dict[str, Any]]:
         """Determine whether to turn on EVSEs for excess solar charging.
 
@@ -790,6 +1356,141 @@ class EVChargerController:
                 # off-peak intent.
                 self._proactive_offpeak_holds.discard(evse_id)
             return actions
+
+        # Blind-window guard for the excess-solar path (row 2.5 sibling).
+        # When Envoy is blind + reserve write unverifiable, the caller
+        # cannot trust `soc`. D4 fallback: if operator wired
+        # `CONF_ENERGY_MAINS_EXPORT_ENTITY`, use export>threshold as the
+        # Envoy-independent excess-solar signal; else defer.
+        if coord is None:
+            coord = getattr(self, "_energy_coord", None)
+        if coord is not None:
+            engaged = self._blind_window_guard_engaged(coord)
+            max_defer_exceeded = self._blind_window_max_defer_exceeded()
+            # Fix-up B4 (Batch 2) — guard-not-engaged drain (symmetric to
+            # the off_peak else-branch narrowing D-CRIT-2 (c)). When the
+            # RAW predicate is confirmed False (envoy back, reserve write
+            # verifiable), drain any stale membership so a daytime recovery
+            # allows the excess-solar claim path to proceed. Draining only
+            # on raw-false (not on `not engaged`) preserves the debounce-
+            # pending semantics: a transient blip must not drop membership.
+            if not self._blind_window_entry_predicate(coord):
+                # raw False => outage has ended (or never engaged).
+                for _eid in list(self._paused_by_blind_window):
+                    self._paused_by_blind_window.discard(_eid)
+            if engaged and not max_defer_exceeded:
+                # Fix-up C-HIGH-2 + D-MED-1 (Batch 3) — CONTINUE-permission
+                # semantics for D4 witness.
+                #
+                # Previously the witness-True branch fell through to the
+                # normal claim path. That leg was LIVE-UNREACHABLE (SOC is
+                # None while blind → `conditions_met` False → no new
+                # claims), and a test could only exercise it by feeding
+                # impossible state (SOC + blind at once). The correct
+                # semantic is narrower and testable:
+                #
+                #   * Guard engaged AND witness True AND envelope permits
+                #     ride → an ALREADY-ACTIVE excess-solar EVSE may
+                #     CONTINUE (we do NOT turn it off, we do NOT drain the
+                #     claim, and we do NOT gain `_paused_by_blind_window`
+                #     membership). New claims (EVSE not already in
+                #     `_excess_solar_active`) remain refused — we return
+                #     early so the normal claim path below cannot fire.
+                #
+                #   * Any other combination (witness None/False OR
+                #     envelope denies) → fail-safe DROP leg: turn off any
+                #     active excess-solar EVSE, drain the claim set, and
+                #     add to `_paused_by_blind_window` so the guard's
+                #     other precedence gates keep it off.
+                try:
+                    exp = coord.mains_export_active()
+                except Exception:  # noqa: BLE001
+                    exp = None
+                # Envelope check for CONTINUE-permission — INDEPENDENT of
+                # the witness (both conditions required per C-HIGH-2
+                # ruling). We do NOT reuse `_blind_window_envelope_permits_ride`
+                # here because that helper short-circuits True on witness
+                # alone (a legitimate optimization for the off_peak
+                # fail-safe ride leg where either signal suffices, but
+                # wrong for CONTINUE-permission which requires BOTH).
+                drain_target_for_ride = None
+                try:
+                    drain_target_for_ride = int(
+                        getattr(coord, "_ev_battery_drain_soc", None) or 0
+                    ) or None
+                except Exception:  # noqa: BLE001
+                    drain_target_for_ride = None
+                envelope_ride_ok = False
+                if drain_target_for_ride is not None:
+                    try:
+                        env_bounds = coord.soc_envelope()
+                    except Exception:  # noqa: BLE001
+                        env_bounds = None
+                    if env_bounds is not None:
+                        _lower, _upper = env_bounds
+                        envelope_ride_ok = (
+                            _lower >= float(drain_target_for_ride)
+                        )
+                continue_permission = (exp is True) and envelope_ride_ok
+                if continue_permission:
+                    # Active EVSEs continue; NEW claims still refused.
+                    # Emit dedup-anchored defer row for each active EVSE
+                    # (bounded per epoch by `maybe_log_blind_window_defer`).
+                    for _active in self._excess_solar_active:
+                        try:
+                            _first = coord.maybe_log_blind_window_defer(_active)
+                        except Exception:  # noqa: BLE001
+                            _first = False
+                        if _first:
+                            self._blind_window_defers_this_epoch += 1
+                        _LOGGER.debug(
+                            "blind-window guard: permitting excess-solar "
+                            "CONTINUE for %s (witness + envelope both ok)",
+                            _active,
+                        )
+                    return actions
+                # DROP leg — fail-safe pause.
+                for evse_id in list(self._excess_solar_active):
+                    # Fix-up D-F1 (micro-batch 7) — DROP leg MUST honor
+                    # the per-epoch liveness ride latch. Restart-epoch-loss
+                    # repro: mid-outage restart rehydrates
+                    # `_blind_window_liveness_ride` from KV but the excess-
+                    # solar DROP leg would still turn_off the granted EVSE
+                    # AND re-add it to `_paused_by_blind_window`,
+                    # stranding the car (mirror of the D-HIGH-3 shape on
+                    # the excess-solar path). Skip granted EVSEs entirely.
+                    if evse_id in self._blind_window_liveness_ride:
+                        _LOGGER.debug(
+                            "blind-window guard: DROP leg skipping %s "
+                            "(ride authority granted this epoch)",
+                            evse_id,
+                        )
+                        continue
+                    config = self._evse.get(evse_id, {})
+                    switch_entity = config.get("switch", "")
+                    if switch_entity:
+                        st = self._get_evse_state(evse_id)
+                        if st["is_on"]:
+                            actions.append({
+                                "service": "switch.turn_off",
+                                "target": switch_entity,
+                                "data": {},
+                            })
+                            _LOGGER.info(
+                                "blind-window guard: dropping excess-solar "
+                                "claim on %s (Envoy blind, witness=%r, "
+                                "envelope_ok=%s)",
+                                evse_id, exp, envelope_ride_ok,
+                            )
+                    self._excess_solar_active.discard(evse_id)
+                    self._paused_by_blind_window.add(evse_id)
+                    try:
+                        _first = coord.maybe_log_blind_window_defer(evse_id)
+                    except Exception:  # noqa: BLE001
+                        _first = False
+                    if _first:
+                        self._blind_window_defers_this_epoch += 1
+                return actions
 
         conditions_met = (
             soc is not None
@@ -967,6 +1668,11 @@ class EVChargerController:
                         or evse_id in self._paused_by_fill_priority
                         or evse_id in self._paused_by_arbitrage
                         or evse_id in self._paused_by_us
+                        # D-HIGH-1 (Batch 2): blind-window guard is a peer
+                        # battery-protection owner; grid-cap resume must
+                        # NOT turn the EVSE on while the guard still
+                        # claims it (blind ensure-on = D-CRIT-2 flap).
+                        or evse_id in self._paused_by_blind_window
                     ):
                         self._paused_by_grid_cap.discard(evse_id)
                         _LOGGER.info(
@@ -1228,6 +1934,8 @@ class EVChargerController:
                             or evse_id in self._paused_by_us
                             or evse_id in self._paused_by_arbitrage
                             or evse_id in self._paused_by_fill_priority
+                            # D-HIGH-1 (Batch 2): blind-window guard peer.
+                            or evse_id in self._paused_by_blind_window
                         ):
                             self._paused_by_battery_drain.discard(evse_id)
                             self._release_pause_dispatch_owner(
@@ -1270,6 +1978,7 @@ class EVChargerController:
         excess_solar_kwh_threshold: float,
         safety_margin_kwh: float = DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH,
         peak_ahead: bool | None = None,
+        is_daylight: bool | None = None,
     ) -> list[dict[str, Any]]:
         """Pause EVSEs so the home battery fills first when solar is healthy.
 
@@ -1326,13 +2035,26 @@ class EVChargerController:
         )
         self._fill_priority_solar_ok = bool(forecast_healthy)
 
-        # evse-offpeak-fill-release D1: determine whether fill-priority is
-        # inert this tick. Inert = release-and-don't-rehold. TIME-anchored:
-        #   - peak / off_peak: always inert (release).
+        # evse-offpeak-fill-release D1 + fill-priority-daylight-restoration D1:
+        # inert = release-and-don't-rehold. TIME-anchored (never PV):
+        #   - peak: always inert (TOU pause canonical).
+        #   - off_peak AND night (is_daylight is False): inert. Preserves the
+        #     v5.5.5 cross-midnight off_peak-release fix (cars charge overnight
+        #     on the cheap-grid window). `is_daylight is None` (helper raised /
+        #     legacy harness with no kwarg) → preserve v5.5.5 always-inert-in-
+        #     off_peak. NOTE: a sun.sun outage does NOT produce None here —
+        #     `_daylight_bounds` substitutes the 07:00/19:00 fallback envelope
+        #     and returns True/False; None only escapes on a genuine exception.
+        #   - off_peak AND daylight (is_daylight is True): NOT inert. Restores
+        #     pre-v5.5.5 daytime "battery-first" behavior for the summer
+        #     morning off_peak slice (~07:00-14:00) where the previous proxy
+        #     silently surrendered fill-priority.
         #   - mid_peak: inert when no peak is ahead before off_peak (post-peak).
         #     `peak_ahead is None` (legacy / no TOU engine) → NOT inert (hold).
+        off_peak_inert = tou_period == "off_peak" and (is_daylight is not True)
         fill_priority_inert = (
-            tou_period in ("peak", "off_peak")
+            tou_period == "peak"
+            or off_peak_inert
             or (tou_period == "mid_peak" and peak_ahead is False)
         )
         if fill_priority_inert:
@@ -1450,6 +2172,8 @@ class EVChargerController:
                         or evse_id in self._paused_by_us
                         or evse_id in self._paused_by_arbitrage
                         or evse_id in self._paused_by_load_shed
+                        # D-HIGH-1 (Batch 2): blind-window guard peer.
+                        or evse_id in self._paused_by_blind_window
                     ):
                         self._paused_by_fill_priority.discard(evse_id)
                         self._release_pause_dispatch_owner(
@@ -1634,6 +2358,8 @@ class EVChargerController:
                 or evse_id in self._paused_by_battery_drain
                 or evse_id in self._paused_by_us
                 or evse_id in self._paused_by_load_shed
+                # D-HIGH-1 (Batch 2): blind-window guard peer.
+                or evse_id in self._paused_by_blind_window
             ):
                 _LOGGER.info(
                     "EV %s arbitrage release (%s): another pause reason holds — leaving paused",
@@ -1923,6 +2649,8 @@ class EVChargerController:
                 or evse_id in self._paused_by_grid_cap
                 or evse_id in self._paused_by_arbitrage
                 or evse_id in self._paused_by_load_shed
+                # D-HIGH-1 (Batch 2): blind-window guard peer.
+                or evse_id in self._paused_by_blind_window
             ):
                 _LOGGER.debug(
                     "EV release_all_tou: %s dropped TOU membership; "
@@ -1965,6 +2693,8 @@ class EVChargerController:
                 # turned_on when fill-priority toggle flips OFF during
                 # peak — `_paused_by_us` still legitimately holds it.
                 or evse_id in self._paused_by_us
+                # D-HIGH-1 (Batch 2): blind-window guard peer.
+                or evse_id in self._paused_by_blind_window
             ):
                 _LOGGER.debug(
                     "EV release_all_fill_priority: %s dropped fill-priority "
@@ -2002,6 +2732,8 @@ class EVChargerController:
                 or evse_id in self._paused_by_load_shed
                 # Fix 4 (A-MED-1): TOU-owner defers grid-cap release too.
                 or evse_id in self._paused_by_us
+                # D-HIGH-1 (Batch 2): blind-window guard peer.
+                or evse_id in self._paused_by_blind_window
             ):
                 _LOGGER.debug(
                     "EV release_all_grid_cap: %s dropped grid-cap "
@@ -2559,6 +3291,7 @@ class SmartPlugController:
         safety_margin_kwh: float = DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH,
         force_charge_active: bool = False,
         peak_ahead: bool | None = None,
+        is_daylight: bool | None = None,
     ) -> list[dict[str, Any]]:
         """Mirror of EVPool.determine_fill_priority_actions for L1 plugs (D2).
 
@@ -2586,10 +3319,18 @@ class SmartPlugController:
         )
         self._fill_priority_solar_ok = bool(forecast_healthy)
 
-        # evse-offpeak-fill-release D1: fill-priority inert outside the
-        # daytime-pre-peak window (mirror of the EV path).
+        # evse-offpeak-fill-release D1 + fill-priority-daylight-restoration D1:
+        # fill-priority inert outside daytime-pre-peak (mirror of EV path).
+        # off_peak: inert at night; NOT inert in daylight (restore daytime
+        # battery-first hold). is_daylight None (helper raised / legacy harness)
+        # → preserve v5.5.5 always-inert. A sun.sun outage does NOT produce None
+        # here — `_daylight_bounds` substitutes the 07:00/19:00 fallback
+        # envelope and returns True/False; None only escapes on a genuine
+        # exception in the caller.
+        off_peak_inert = tou_period == "off_peak" and (is_daylight is not True)
         fill_priority_inert = (
-            tou_period in ("peak", "off_peak")
+            tou_period == "peak"
+            or off_peak_inert
             or (tou_period == "mid_peak" and peak_ahead is False)
         )
         if fill_priority_inert:

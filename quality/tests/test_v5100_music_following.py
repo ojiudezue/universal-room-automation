@@ -1112,7 +1112,13 @@ class TestReloadSuppressionAllowlist:
         allowlist_start = src.find("OPTIONS_RELOAD_SUPPRESS_KEYS")
         assert allowlist_start > 0
         # Grab up to a reasonable closing point.
-        allowlist_block = src[allowlist_start:allowlist_start + 6000]
+        # 2026-07-22: bumped 6000 -> 8000 (fan/humidity toggle-symmetry AND blind-window guard cycles both grew the block)
+        # cycle added CONF_FAN_CONTROL_ENABLED / CONF_HUMIDITY_FAN_CONTROL_ENABLED
+        # aliases inside the CM import block, pushing _CONF_MF_NIGHT_SUPPRESS_MODE
+        # past the old window. The window is just a text-search bound; extending
+        # it does not weaken the assertion (the token is either in the source or
+        # it isn't).
+        allowlist_block = src[allowlist_start:allowlist_start + 8000]
         assert "_CONF_MF_SLEEP_SUPPRESS" in allowlist_block, (
             "CONF_MF_SLEEP_SUPPRESS must be in OPTIONS_RELOAD_SUPPRESS_KEYS "
             "so edits are pushed live via update_gate_config()"

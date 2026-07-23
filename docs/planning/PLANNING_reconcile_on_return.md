@@ -950,13 +950,20 @@ D2.12 Auto-Recovery-off-suppression proof and get explicit go.
    `sensor.<room>_room_reconcile.would_reconcile` to preview what the reconciler WOULD
    do, then flip `Auto-Recovery` ON when confident. Documented here so a future reader
    does not re-propose the rejected shape.
-9. **Per-room `FanControlSwitch` / `HumidityControlSwitch` room-device toggles.** The
-   const-side pair `CONF_FAN_CONTROL_ENABLED` (`const.py:591`) and
-   `CONF_HUMIDITY_FAN_CONTROL_ENABLED` (`const.py:604`) exist today as config-entry
-   data but have no operator-facing per-room switch. Adding those is a SEPARATE
-   room-device-toggle-symmetry cycle (tracked in backlog); it does NOT belong in
-   reconcile-on-return. D2.12 adds ONLY the reconcile-specific `Auto-Recovery` switch;
-   fan/humidity toggle symmetry is out of scope for this plan.
+9. **Per-room fan / humidity room-device toggles — STALE, corrected 2026-07-22.**
+   This §6.9 previously claimed the operator-facing per-room switches did not exist.
+   That was already stale when this plan was written: `RoomComfortFanControlSwitch`
+   (switch.py:4599) and `RoomHumidityFanControlSwitch` (switch.py:4614) shipped in
+   v5.6.0 (D6 bathroom-exhaust cycle) on the shared `_RoomBooleanOptionSwitch` base
+   (switch.py:4546). The audit
+   `docs/planning/AUDIT_fan_humidity_toggle_symmetry.md` (2026-07-22) verified this
+   and identified the actual defects (HIGH per-toggle full-ROOM-reload and MEDIUM
+   restore-precedence), both fixed by the fan/humidity toggle-symmetry cycle
+   (build/fan-humidity-toggle-fix). Reconcile-on-return remains out of scope for
+   those knobs; D2.12 still adds ONLY the reconcile-specific `Auto-Recovery` switch.
+   Anchor drift for the CONF sites: `CONF_FAN_CONTROL_ENABLED` = `const.py:603`,
+   `CONF_HUMIDITY_FAN_CONTROL_ENABLED` = `const.py:616` (the `:591 / :604` lines
+   above have drifted since this plan was written).
 
 ---
 

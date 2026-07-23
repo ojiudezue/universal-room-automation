@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.27.0
+# Universal Room Automation vv5.28.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -6719,6 +6719,13 @@ class NMDiagnosticsSensor(AggregationEntity, SensorEntity, RestoreEntity):
     _attr_has_entity_name = True
     _attr_icon = "mdi:stethoscope"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    # NM Cycle C-2 fix-up (M-B1): keep the churny audit ring out of the
+    # recorder — the ring updates on every routing decision and would
+    # otherwise create per-decision recorder rows for zero analytical
+    # value (raw DB rows live in `notification_log`). Mirrors the
+    # v5.23.0 pattern for other volatile attribute-carriers.
+    _unrecorded_attributes = frozenset({"nm_routing_audit_recent"})
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""

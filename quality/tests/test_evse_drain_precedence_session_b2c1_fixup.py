@@ -832,9 +832,12 @@ def test_MUTATION_item2_house_load_restubbed_zero_makes_live_test_red():
 
 
 def test_MUTATION_item3_blind_signal_reverted_to_invented_attr_makes_test_red():
+    # Batch-5 B7 refactor: the is_blind_hold value is computed ONCE per
+    # tick into `_tick_is_blind_hold` and threaded into both DPInputs
+    # AND the coord snapshot. The mutation-anchor moved with it.
     _mutate_and_expect_red(
-        swap_from='is_blind_hold=bool((not _env_ok) and _bat_soc is None)',
-        swap_to='is_blind_hold=bool(getattr(self._battery, "_is_blind_hold_active", False))',
+        swap_from='_tick_is_blind_hold = bool((not _env_ok) and _bat_soc is None)',
+        swap_to='_tick_is_blind_hold = bool(getattr(self._battery, "_is_blind_hold_active", False))',
         test_name="test_blind_signal_uses_envoy_available_and_battery_soc",
     )
 
