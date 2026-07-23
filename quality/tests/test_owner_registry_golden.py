@@ -100,6 +100,34 @@ def test_golden_header_schema(golden_payload):
     assert header["pinned_utc"] == gen.PINNED_UTC.isoformat()
 
 
+def test_golden_content_hash_matches_committed_header(golden_payload):
+    """C-MED-1: recompute the SHA-256 of the row payload and compare
+    against the committed header. A silent regen (bytes change without
+    a code change) fails this loudly — the oracle cannot be
+    tautologized by re-baselining it.
+    """
+    import hashlib, json as _json
+    header, rows = golden_payload
+    hasher = hashlib.sha256()
+    for row in rows:
+        hasher.update(_json.dumps(row, sort_keys=True, default=str).encode())
+    assert hasher.hexdigest() == header["content_hash_sha256"], (
+        "Golden content hash mismatch — either the golden was silently "
+        "regenerated (bytes moved without a header refresh) or the row "
+        "serialization drifted. Regenerate with `python3 "
+        "quality/tools/regen_owner_golden.py` if the drift is intentional."
+    )
+
+
+def test_golden_source_commit_pinned():
+    """C-MED-1: the source_commit field is populated (not 'unknown') so
+    a `git bisect` starting point exists when the oracle diverges.
+    """
+    header, _ = _load_golden()
+    assert header["source_commit"] != "unknown"
+    assert len(header["source_commit"]) == 40  # full git sha1
+
+
 def test_golden_byte_identical_replay(golden_payload):
     """Replay every tuple; any diff on any of the 5 surfaces fails.
 
@@ -145,9 +173,17 @@ def test_golden_byte_identical_replay(golden_payload):
                     if json.dumps(expected.get(k), sort_keys=True, default=str)
                     != json.dumps(observed.get(k), sort_keys=True, default=str)
                 ]
+                # C-LOW-1: merged rows use `ev_class`/`plug_class` keys,
+                # not `class`. Use `.get(...)` for diagnostics so the
+                # failure message doesn't raise KeyError on merged rows.
+                _cls_label = (
+                    expected.get("class")
+                    or f"ev={expected.get('ev_class')!r} "
+                       f"plug={expected.get('plug_class')!r}"
+                )
                 pytest.fail(
                     "Owner-registry golden diverged at row "
-                    f"{idx} tier={tier} class={expected['class']!r} "
+                    f"{idx} tier={tier} class={_cls_label} "
                     f"tou={expected.get('tou')!r} soc={expected.get('soc')!r} "
                     f"event={event!r}\n"
                     f"  first differing surfaces: {diffing_keys}\n"

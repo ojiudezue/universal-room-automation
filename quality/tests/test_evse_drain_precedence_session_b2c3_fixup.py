@@ -161,89 +161,72 @@ def test_MUTATION_h1_save_evse_dp_paused_dropped_makes_ast_test_red():
 
 
 def test_h1_evse_dp_paused_is_saved_alongside_siblings():
-    """H-1 save side (phase-2 refactor).
+    """H-1 save side (phase-3 C-HIGH-1 — BEHAVIORAL).
 
-    The `evse_dp_paused` KV write contract is now expressed on the `dp`
-    OwnerDeclaration in `energy_pool_owners.py`:
-
-        persistence_key='evse_dp_paused', persistence_kind='list',
-        attr='_paused_by_dp'
-
-    and `_save_evse_state` iterates `EV_REGISTRY.iter_persisted_lists()`
-    once. This test verifies BOTH the declaration wiring AND that the
-    save enumeration site consumes the registry — the original contract
-    (a `dp` KV write bundled alongside grid_cap/battery_drain/…) is
-    preserved via one loop instead of eight hand-rolled calls.
+    Drive the production `_save_registry_owner_lists` helper against a
+    KV-capture fake DB and assert:
+      (a) the `evse_dp_paused` KV write occurred,
+      (b) the payload is a JSON list of the exact DP set contents.
+    Also asserts the sibling declarations still emit — this is the
+    "bundled alongside grid_cap/battery_drain/fill_priority/arbitrage"
+    invariant expressed behaviorally instead of by source substring.
     """
-    from custom_components.universal_room_automation.domain_coordinators \
-        .energy_pool_owners import EV_REGISTRY
-    dp = EV_REGISTRY.by_name("dp")
-    assert dp.persistence_key == "evse_dp_paused"
-    assert dp.persistence_kind == "list"
-    assert dp.attr == "_paused_by_dp"
-
-    import ast
-    from pathlib import Path
-    src = Path(
-        "custom_components/universal_room_automation/domain_coordinators/energy.py"
-    ).read_text(encoding="utf-8")
-    tree = ast.parse(src)
-    save_body = None
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.AsyncFunctionDef)
-            and node.name == "_save_evse_state"
-        ):
-            save_body = ast.unparse(node)
-            break
-    assert save_body is not None, "_save_evse_state not found in energy.py"
-    assert "iter_persisted_lists" in save_body, (
-        "H-1: `_save_evse_state` must iterate the registry "
-        "(EV_REGISTRY.iter_persisted_lists)"
+    import asyncio, json
+    from tests_owner_registry_helpers import (  # type: ignore
+        make_fake_energy_coord, FakeKVDB,
     )
+
+    coord = make_fake_energy_coord()
+    coord._ev._paused_by_dp.add("garage_a")
+    coord._ev._paused_by_grid_cap.add("garage_b")
+    coord._ev._paused_by_battery_drain.add("garage_a")
+    coord._ev._paused_by_fill_priority.add("garage_a")
+    coord._ev._paused_by_arbitrage.add("garage_b")
+
+    db = FakeKVDB()
+    asyncio.get_event_loop().run_until_complete(
+        coord._save_registry_owner_lists(db),
+    )
+
+    assert "evse_dp_paused" in db.energy_state, (
+        "H-1: DP KV key missing from writer output"
+    )
+    assert sorted(json.loads(db.energy_state["evse_dp_paused"])) == ["garage_a"]
+    # Siblings emitted too — the "bundled alongside" contract.
+    for _k in ("evse_grid_cap_paused", "evse_battery_drain_paused",
+               "evse_fill_priority_paused", "evse_arbitrage_paused"):
+        assert _k in db.energy_state, f"H-1: sibling {_k} missing"
 
 
 def test_h1_evse_dp_paused_is_restored_and_dp_owner_reclaimed():
-    """H-1 restore side (phase-2 refactor).
+    """H-1 restore side (phase-3 C-HIGH-3 — BEHAVIORAL).
 
-    The DP OwnerDeclaration carries `restore_hook='reinstall_dp_dispatch_owner'`;
-    `_restore_evse_state` iterates the registry and applies the hook by
-    reinstalling `_claim_pause_dispatch_owner(eid, "dp")` on every
-    restored id. This preserves B2c-3 H-1 semantics: without the claim
-    the HOLD_ONLY sticky reversion has nothing to release (INV-DP2).
+    Drive the production `_restore_registry_owner_lists` helper against
+    a KV-preloaded fake DB, then assert:
+      (a) `_paused_by_dp` contains the restored id,
+      (b) `_dispatch_owners['<eid>']` contains "dp" — the load-bearing
+          reinstall of the dispatch-owner claim (INV-DP2). This is the
+          real behavioral surface; a source-substring guard cannot
+          detect a broken hook that still name-checks correctly.
     """
-    from custom_components.universal_room_automation.domain_coordinators \
-        .energy_pool_owners import EV_REGISTRY
-    dp = EV_REGISTRY.by_name("dp")
-    assert dp.restore_hook == "reinstall_dp_dispatch_owner"
+    import asyncio, json
+    from tests_owner_registry_helpers import (  # type: ignore
+        make_fake_energy_coord, FakeKVDB,
+    )
 
-    import ast
-    from pathlib import Path
-    src = Path(
-        "custom_components/universal_room_automation/domain_coordinators/energy.py"
-    ).read_text(encoding="utf-8")
-    tree = ast.parse(src)
-    body = None
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.AsyncFunctionDef)
-            and node.name == "_restore_evse_state"
-        ):
-            body = ast.unparse(node)
-            break
-    assert body is not None
-    assert "iter_persisted_lists" in body, (
-        "H-1: `_restore_evse_state` must iterate the registry"
+    coord = make_fake_energy_coord()
+    db = FakeKVDB()
+    db.energy_state["evse_dp_paused"] = json.dumps(["garage_a"])
+    asyncio.get_event_loop().run_until_complete(
+        coord._restore_registry_owner_lists(
+            db, 10.0, {"garage_a", "garage_b"},
+        ),
     )
-    assert "reinstall_dp_dispatch_owner" in body, (
-        "H-1: registry-driven restore must key the DP hook off "
-        "`decl.restore_hook == 'reinstall_dp_dispatch_owner'`"
-    )
-    assert "_claim_pause_dispatch_owner" in body and (
-        '"dp"' in body or "'dp'" in body
-    ), (
-        "H-1: restored DP ids must reinstall the 'dp' dispatch owner claim "
-        "(else sticky reversion has nothing to release)"
+    assert "garage_a" in coord._ev._paused_by_dp
+    owners = coord._ev._dispatch_owners.get("garage_a", set())
+    assert "dp" in owners, (
+        "H-1: restored DP id must have `dp` in `_dispatch_owners` "
+        f"(got {owners!r}) — else sticky reversion has nothing to release"
     )
 
 

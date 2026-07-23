@@ -3057,8 +3057,13 @@ class SmartPlugController:
         """
         current = set(self._plugs)
         # Phase-2 refactor: enumeration derived from PLUG_REGISTRY.
-        # Plug tier has no dict-shape owner declarations today, so the
+        # Phase-3 D-4 correction (comment): the plug tier DOES now carry
+        # dict-shape declarations (see PLUG_DECLARATIONS), but every
+        # dict-shape row is declared `prune_participant=False` — so
+        # `iter_prune_dicts()` currently yields nothing and the
         # single-pass shape here still matches the pre-refactor code.
+        # A future phase-4 parity cycle can promote any of the plug
+        # dicts to participant status without touching this loop.
         for decl in PLUG_REGISTRY.iter_prune_sets():
             owner_set: set = getattr(self, decl.attr)
             for eid in list(owner_set):

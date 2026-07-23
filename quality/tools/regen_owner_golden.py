@@ -97,7 +97,15 @@ bootstrap_energy_imports()
 # ---------------------------------------------------------------------------
 PINNED_UTC = datetime(2026, 7, 23, 12, 0, 0, tzinfo=timezone.utc)
 PINNED_MONO = 1_000_000.0
-GOLDEN_SCHEMA_VERSION = 2
+GOLDEN_SCHEMA_VERSION = 3
+
+# v3 (phase 3) — persistence save shape now comes from the PRODUCTION
+# writer (`EnergyCoordinator._save_registry_owner_lists`) captured via
+# `FakeKVDB`. The v1 `_emit_save_kv` shim is DELETED; a synthetic mirror
+# of the writer would tautologize the oracle. C-MED-1 golden-integrity:
+# the header pins `source_commit` and a `content_hash` of every row so a
+# silent regen (rewriting the golden without a code change) is caught
+# by the test's header assertion.
 
 # v2 extension (phase 1b, 2026-07-23) — merged EV+plug get_status coverage.
 # Closes anomaly #3 from the phase-1 report: `EVChargerController.get_status`
@@ -238,8 +246,13 @@ def _evse_owner_classes() -> list[dict[str, Any]]:
         _paused_by_dp=[a],
         _paused_by_us=[b],
     ))
-    classes.append(C("load_shed_a", _paused_by_load_shed=[a],
-                     _load_shed_was_on_at_shed={a: True}))
+    # C-HIGH-4 fix-up: seed BOTH garage ids into `_paused_by_load_shed`
+    # so the prune-of-garage_b sweep actually exercises the load-shed
+    # quirk (previously the fixture only seeded garage_a, meaning
+    # pruning garage_b was a no-op regardless of whether the quirk
+    # was preserved — the golden captured nothing distinguishable).
+    classes.append(C("load_shed_both", _paused_by_load_shed=[a, b],
+                     _load_shed_was_on_at_shed={a: True, b: True}))
     classes.append(C(
         "load_shed_plus_tou",
         _paused_by_load_shed=[a],
@@ -382,20 +395,54 @@ def _make_plug_controller(hass: Any, class_seed: dict[str, Any]):
 
 
 # ---------------------------------------------------------------------------
-# Save-KV payload replication (mirrors _save_evse_state exactly)
+# Save-KV payload capture — PRODUCTION writer via a fake DB
 # ---------------------------------------------------------------------------
 def _emit_save_kv(ev_ctrl: Any) -> dict[str, Any]:
-    """Replicate the KV payload `_save_evse_state` writes.
+    """Capture the exact KV output the PRODUCTION save path emits.
 
-    Mirrors `energy.py:_save_evse_state` (lines ~1811-1949) key-for-key.
-    Any drift here vs the production writer would fail the oracle when
-    phase 2 migrates that writer — this is exactly the surface the
-    registry must reproduce byte-identically. The KV emission is
-    NORMALIZED via `sort_keys` at serialization time.
+    Phase-3 C-HIGH-1: the previous synthetic mirror is deleted; we now
+    drive `EnergyCoordinator._save_registry_owner_lists` against the
+    same `FakeKVDB` used by `test_owner_registry_persistence`. The inline
+    per-EVSE bool bundle + blind-window epoch scalar + force-charge
+    scalar stay outside the registry loop in production — they are
+    replicated here inline for golden coverage of those surfaces, and
+    the payload is NORMALIZED via sort at emission so set-iteration
+    order doesn't create phantom diffs.
     """
     from homeassistant.util import dt as dt_util
+    import types
+    from _energy_bootstrap import bootstrap_energy_imports as _b
+    _b()
+    from custom_components.universal_room_automation.domain_coordinators \
+        import energy as _energy_mod
+    from tests_owner_registry_helpers import FakeKVDB
+
+    # Bind the production helper to a stand-in that only carries `_ev`.
+    coord = types.SimpleNamespace()
+    coord._ev = ev_ctrl
+    coord._save_registry_owner_lists = types.MethodType(
+        _energy_mod.EnergyCoordinator._save_registry_owner_lists, coord,
+    )
+    db = FakeKVDB()
+    import asyncio
+    asyncio.get_event_loop().run_until_complete(
+        coord._save_registry_owner_lists(db),
+    )
 
     payload: dict[str, Any] = {}
+    # Normalize captured KV values: parse the JSON list, sort, re-emit
+    # sorted (dets not order-sensitive).
+    import json as _json
+    for _k, _v in db.energy_state.items():
+        try:
+            _parsed = _json.loads(_v)
+        except (ValueError, TypeError):
+            _parsed = _v
+        if isinstance(_parsed, list):
+            _parsed = sorted(_parsed)
+        payload[_k] = _parsed
+
+    # Non-registry inline surfaces — per-EVSE bool bundle + two scalars.
     per_evse: dict[str, dict[str, bool]] = {}
     for evse_id in ev_ctrl._evse:
         per_evse[evse_id] = {
@@ -403,14 +450,6 @@ def _emit_save_kv(ev_ctrl: Any) -> dict[str, Any]:
             "excess_solar_active": evse_id in ev_ctrl._excess_solar_active,
         }
     payload["per_evse"] = per_evse
-    payload["evse_grid_cap_paused"] = sorted(ev_ctrl._paused_by_grid_cap)
-    payload["evse_battery_drain_paused"] = sorted(ev_ctrl._paused_by_battery_drain)
-    payload["evse_fill_priority_paused"] = sorted(ev_ctrl._paused_by_fill_priority)
-    payload["evse_arbitrage_paused"] = sorted(ev_ctrl._paused_by_arbitrage)
-    payload["evse_dp_paused"] = sorted(ev_ctrl._paused_by_dp)
-    payload["evse_proactive_offpeak_holds"] = sorted(ev_ctrl._proactive_offpeak_holds)
-    payload["evse_blind_window_paused"] = sorted(ev_ctrl._paused_by_blind_window)
-    payload["evse_blind_window_liveness_ride"] = sorted(ev_ctrl._blind_window_liveness_ride)
 
     epoch = ev_ctrl._blind_window_epoch_started_at
     if epoch is not None:
@@ -779,9 +818,21 @@ def generate(output_path: Path) -> dict[str, Any]:
     except Exception:
         commit = "unknown"
 
+    # C-MED-1 golden integrity — SHA-256 of the row payload. If someone
+    # silently regenerates the golden without a real code change, the
+    # content_hash in the committed header will match the fresh emit
+    # AND the test asserts the header hash matches recomputed rows —
+    # any mismatch fails loudly.
+    import hashlib
+    _hasher = hashlib.sha256()
+    for row in rows:
+        _hasher.update(json.dumps(row, sort_keys=True, default=str).encode())
+    content_hash = _hasher.hexdigest()
+
     header = {
         "schema_version": GOLDEN_SCHEMA_VERSION,
         "source_commit": commit,
+        "content_hash_sha256": content_hash,
         "pinned_utc": PINNED_UTC.isoformat(),
         "pinned_monotonic": PINNED_MONO,
         "ev_owner_classes": len(ev_classes),

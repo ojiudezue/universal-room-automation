@@ -52,7 +52,20 @@ Design decisions worth calling out (§3d discipline)
    uses `set_force_charge_override(...)`. These are captured as
    `RestoreHook` labels on the declaration (documented but the
    coordinator applies the hook body inline for clarity — the
-   declaration merely names the hook so reviewers can grep).
+   declaration merely names the hook so reviewers can grep). The
+   registry-driven restore helper (`_restore_registry_owner_lists`)
+   raises AssertionError on any unhandled `restore_hook` value
+   (A-LOW-2 hardening) so silent contract drift is not possible.
+
+6. **Plug-tier `peer_holds_member` / `dispatch_tag` fields are
+   currently UNCONSUMED** (D-5 fix-up note). The plug controller
+   does not maintain a peer-holds helper analogous to
+   `EVChargerController._stronger_peer_holds` — sibling deferral in
+   `SmartPlugController` remains a hand-rolled inline check inside
+   each `release_all_*` method. The fields are DECLARED for future
+   parity work (the natural follow-up cycle behind the load-shed
+   Tier-1 fix) and for documentation completeness; a linter or a
+   phase-4 consolidation cycle should either wire them or drop them.
 """
 from __future__ import annotations
 
@@ -342,6 +355,25 @@ EV_DECLARATIONS: tuple[OwnerDeclaration, ...] = (
                      attr="_power_sensor_unavail_since", tier="evse", kind="dict"),
     OwnerDeclaration(name="arbitrage_pause_reason",
                      attr="_arbitrage_pause_reason", tier="evse", kind="dict"),
+    # Phase-3 D-3 completeness — the `load_shed_was_on_at_shed`
+    # companion map documents the "was on at claim time" flag consumed
+    # by the release policy (energy.py load-shed cascade ~L2358). RAM
+    # only, no prune wiring today (mirrors the load_shed set quirk —
+    # not a proven bug, but the enumeration is now complete). Declared
+    # non-participant to make the shape visible to any future audit.
+    OwnerDeclaration(
+        name="load_shed_was_on_at_shed",
+        attr="_load_shed_was_on_at_shed", tier="evse", kind="dict",
+        prune_participant=False,
+        prune_quirk_note=(
+            "RAM-only companion to _paused_by_load_shed. Not persisted "
+            "(re-derived from the cascade). Not pruned today (mirrors "
+            "the load_shed set); documented for enumeration "
+            "completeness — cascade-bundle path at "
+            "`energy.py` load-shed cascade (search "
+            "`_load_shed_was_on_at_shed`)."
+        ),
+    ),
 )
 
 
@@ -378,6 +410,47 @@ PLUG_DECLARATIONS: tuple[OwnerDeclaration, ...] = (
     OwnerDeclaration(
         name="proactive_offpeak", attr="_proactive_offpeak_holds", tier="plug",
         kind="set", peer_holds_member=False,
+    ),
+    # Phase-3 D-4 completeness — the five plug-tier dicts are NOT
+    # pruned by `SmartPlugController.prune_removed_plugs` today (that
+    # method touches only owner sets). Declared here as non-participant
+    # dict-shape rows so the enumeration is complete and a future
+    # phase-4 parity cycle has one edit point. `_load_shed_was_on_at_shed`
+    # mirrors the EV-tier quirk one row up. `_pause_dispatch_ts`,
+    # `_observed_off_since_pause`, `_dispatch_owners`,
+    # `_battery_drain_cooldown` are the same manual-override-detection
+    # bookkeeping the EV tier maintains (see `EVChargerController.__init__`
+    # v4.7.6 D1 comment block).
+    OwnerDeclaration(
+        name="load_shed_was_on_at_shed",
+        attr="_load_shed_was_on_at_shed", tier="plug", kind="dict",
+        prune_participant=False,
+        prune_quirk_note=(
+            "RAM-only companion to plug _paused_by_load_shed. Not "
+            "persisted; not pruned today. Cascade-bundle path in "
+            "energy.py load-shed cascade."
+        ),
+    ),
+    OwnerDeclaration(
+        name="pause_dispatch_ts", attr="_pause_dispatch_ts",
+        tier="plug", kind="dict", prune_participant=False,
+        prune_quirk_note=(
+            "Manual-override detection state; re-derived per tick. "
+            "Not pruned today (parity gap vs EV tier)."
+        ),
+    ),
+    OwnerDeclaration(
+        name="observed_off_since_pause",
+        attr="_observed_off_since_pause", tier="plug", kind="dict",
+        prune_participant=False,
+    ),
+    OwnerDeclaration(
+        name="dispatch_owners", attr="_dispatch_owners",
+        tier="plug", kind="dict", prune_participant=False,
+    ),
+    OwnerDeclaration(
+        name="battery_drain_cooldown", attr="_battery_drain_cooldown",
+        tier="plug", kind="dict", prune_participant=False,
     ),
 )
 
