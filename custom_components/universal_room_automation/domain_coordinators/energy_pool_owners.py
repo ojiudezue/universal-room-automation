@@ -30,11 +30,16 @@ Design decisions worth calling out (§3d discipline)
    `_excess_solar_active`, ...). The registry references them by
    name via `getattr`, not by rebinding. This keeps the 8 test files
    documented in §1c working unchanged.
-2. **Load-shed prune quirk preserved.** `_paused_by_load_shed` is
-   declared with `prune_participant=False` (EV tier only). This is
-   NOT a fix — it captures the pre-existing behavior the operator
-   rulings ratified in-cycle (§Operator rulings §3). A one-line
-   Tier-1 fix + test lands immediately after this cycle merges.
+2. **Load-shed prune quirk RETIRED (Tier-1 follow-up cycle).** The
+   phase-2 build declared `_paused_by_load_shed` (EV tier) plus both
+   `_load_shed_was_on_at_shed` companion dicts (EV + plug tiers) as
+   `prune_participant=False` to preserve byte-identical golden output.
+   That quirk is now FIXED — all three surfaces prune. The golden was
+   regenerated with a header note naming this cycle
+   ("Tier-1 pair: load_shed prune fix + arbitrage reason-map invariant"),
+   and the mutation-matrix row that asserted the quirk (mutation c) was
+   inverted to assert the FIX (flipping back to `prune_participant=False`
+   now KILLS the golden).
 3. **Two-pass prune shape preserved.** Prune iterates set-shape
    declarations first, then dict-shape declarations, matching the
    two hand-rolled loops in `_prune_removed_evses` (anomaly #2 in the
@@ -126,12 +131,13 @@ class OwnerDeclaration:
     # blind_window liveness-ride latch).
     dispatch_tag: str | None = None
 
-    # Prune participation. Load-shed EV tier: FALSE by design (see
-    # planning appendix operator ruling 3). This is a quirk PRESERVED
-    # for byte-identical golden compatibility; the one-line Tier-1 fix
-    # lands immediately after this cycle merges.
+    # Prune participation. Load-shed EV set + both load_shed_was_on_at_shed
+    # companion dicts USED to declare `prune_participant=False` (phase-2
+    # golden compatibility). Retired in the Tier-1 follow-up cycle — all
+    # three now prune. Field retained: some plug-tier bookkeeping dicts
+    # remain non-participants (parity gap tracked for phase-4).
     prune_participant: bool = True
-    prune_quirk_note: str = ""  # populated only on the load_shed EV row
+    prune_quirk_note: str = ""
 
     # Classifier data — get_status precedence-ordered owner slice.
     # `classifier_priority` None ⇒ this owner has no explicit
@@ -284,7 +290,8 @@ EV_DECLARATIONS: tuple[OwnerDeclaration, ...] = (
         classifier_priority=4, reason_token="arbitrage_paused",
         reason_human="arbitrage compound-load protection",
     ),
-    # Row 7: Load-shed EV tier. QUIRK: NOT pruned. Preserved in-cycle.
+    # Row 7: Load-shed EV tier. Prune quirk RETIRED — Tier-1 follow-up
+    # cycle ("load_shed prune fix + arbitrage reason-map invariant").
     OwnerDeclaration(
         name="load_shed", attr="_paused_by_load_shed", tier="evse", kind="set",
         precedence_row=7,
@@ -292,12 +299,7 @@ EV_DECLARATIONS: tuple[OwnerDeclaration, ...] = (
                                # energy.py:2358 (§1c cross-module coupling).
         persistence_kind="none",
         peer_holds_member=True, dispatch_tag="load_shed",
-        prune_participant=False,
-        prune_quirk_note=(
-            "PRESERVED byte-identically in phase-2 build (operator ruling 3, "
-            "planning appendix). One-line Tier-1 fix + test lands "
-            "immediately after this cycle merges."
-        ),
+        prune_participant=True,
         # No explicit classifier branch — falls through to state.
     ),
     # Row 8: Fill-priority.
@@ -355,24 +357,15 @@ EV_DECLARATIONS: tuple[OwnerDeclaration, ...] = (
                      attr="_power_sensor_unavail_since", tier="evse", kind="dict"),
     OwnerDeclaration(name="arbitrage_pause_reason",
                      attr="_arbitrage_pause_reason", tier="evse", kind="dict"),
-    # Phase-3 D-3 completeness — the `load_shed_was_on_at_shed`
-    # companion map documents the "was on at claim time" flag consumed
-    # by the release policy (energy.py load-shed cascade ~L2358). RAM
-    # only, no prune wiring today (mirrors the load_shed set quirk —
-    # not a proven bug, but the enumeration is now complete). Declared
-    # non-participant to make the shape visible to any future audit.
+    # `load_shed_was_on_at_shed` companion map — RAM-only "was on at
+    # claim time" flag consumed by the release policy (energy.py
+    # load-shed cascade ~L2358). Prune quirk RETIRED in the Tier-1
+    # follow-up cycle: now participates in the dict-prune pass so
+    # removed EVSEs don't leak stale flags.
     OwnerDeclaration(
         name="load_shed_was_on_at_shed",
         attr="_load_shed_was_on_at_shed", tier="evse", kind="dict",
-        prune_participant=False,
-        prune_quirk_note=(
-            "RAM-only companion to _paused_by_load_shed. Not persisted "
-            "(re-derived from the cascade). Not pruned today (mirrors "
-            "the load_shed set); documented for enumeration "
-            "completeness — cascade-bundle path at "
-            "`energy.py` load-shed cascade (search "
-            "`_load_shed_was_on_at_shed`)."
-        ),
+        prune_participant=True,
     ),
 )
 
@@ -421,15 +414,14 @@ PLUG_DECLARATIONS: tuple[OwnerDeclaration, ...] = (
     # `_battery_drain_cooldown` are the same manual-override-detection
     # bookkeeping the EV tier maintains (see `EVChargerController.__init__`
     # v4.7.6 D1 comment block).
+    # Plug-tier `load_shed_was_on_at_shed` — prune quirk RETIRED in
+    # the Tier-1 follow-up cycle. Note plug-tier prune previously ran
+    # sets only; this cycle also adds a dict pass in
+    # `prune_removed_plugs` so this declaration is effective.
     OwnerDeclaration(
         name="load_shed_was_on_at_shed",
         attr="_load_shed_was_on_at_shed", tier="plug", kind="dict",
-        prune_participant=False,
-        prune_quirk_note=(
-            "RAM-only companion to plug _paused_by_load_shed. Not "
-            "persisted; not pruned today. Cascade-bundle path in "
-            "energy.py load-shed cascade."
-        ),
+        prune_participant=True,
     ),
     OwnerDeclaration(
         name="pause_dispatch_ts", attr="_pause_dispatch_ts",
