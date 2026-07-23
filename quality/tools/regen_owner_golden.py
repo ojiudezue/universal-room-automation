@@ -97,7 +97,19 @@ bootstrap_energy_imports()
 # ---------------------------------------------------------------------------
 PINNED_UTC = datetime(2026, 7, 23, 12, 0, 0, tzinfo=timezone.utc)
 PINNED_MONO = 1_000_000.0
-GOLDEN_SCHEMA_VERSION = 3
+GOLDEN_SCHEMA_VERSION = 4
+
+# v4 (Tier-1 follow-up cycle, 2026-07-23) — INTENTIONAL golden divergence.
+# The v3 golden preserved a load-shed prune quirk: `_paused_by_load_shed`
+# (EV tier) and both `_load_shed_was_on_at_shed` companion dicts were
+# non-prune-participants, so removed EVSE ids leaked in those surfaces.
+# This cycle ("Tier-1 pair: load_shed prune fix (quirk retired) +
+# arbitrage reason-map invariant") retires that quirk — all three
+# surfaces now prune. The prune-row `load_shed_after_prune` field no
+# longer contains the removed EVSE id, and a new
+# `load_shed_was_on_at_shed_after_prune` field is emitted. Mutation
+# matrix row c is inverted: reverting `prune_participant=True` back to
+# False on the load_shed EV row now KILLS the oracle.
 
 # v3 (phase 3) — persistence save shape now comes from the PRODUCTION
 # writer (`EnergyCoordinator._save_registry_owner_lists`) captured via
@@ -652,11 +664,18 @@ def _run_ev_prune(class_seed: dict[str, Any], monkeypatch_ctx) -> dict[str, Any]
         "class": class_seed["__name__"],
         "event": "prune_removed_evse:garage_b",
         "post_owners": _snapshot_owners(ctrl, _EV_OWNER_ATTRS),
-        # Load-shed quirk surface: NOT pruned by the current code even
-        # when membership references the removed EVSE. The golden
-        # captures the quirk here so a future accidental "fix" during
-        # phase 2 fails the oracle.
+        # Tier-1 follow-up cycle ("load_shed prune fix + arbitrage
+        # reason-map invariant"): the load-shed EV set + companion
+        # dict now DO prune. The golden captures the fixed shape;
+        # the load_shed_after_prune list should no longer contain
+        # the removed EVSE id. Reverting `prune_participant=True` on
+        # the load_shed row in energy_pool_owners.py flips this
+        # surface and KILLS the oracle (mutation matrix row c —
+        # inverted for this cycle).
         "load_shed_after_prune": sorted(ctrl._paused_by_load_shed),
+        "load_shed_was_on_at_shed_after_prune": sorted(
+            ctrl._load_shed_was_on_at_shed.keys(),
+        ),
     }
 
 

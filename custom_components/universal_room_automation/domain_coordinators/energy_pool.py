@@ -780,10 +780,10 @@ class EVChargerController:
         known = set(self._evse.keys())
         # Phase-2 refactor: two-pass shape (sets, then dicts) preserved
         # verbatim (anomaly #2 in the phase-1 report). Enumeration
-        # derived from EV_REGISTRY. Load-shed EV tier is DELIBERATELY
-        # EXCLUDED from the set-pass via `prune_participant=False` on
-        # its declaration — that quirk is preserved byte-identically
-        # per operator ruling 3 in the planning appendix.
+        # derived from EV_REGISTRY. Tier-1 follow-up cycle
+        # ("load_shed prune fix + arbitrage reason-map invariant")
+        # RETIRED the load-shed EV set + `_load_shed_was_on_at_shed`
+        # companion-dict quirks — all three now participate in prune.
         for decl in EV_REGISTRY.iter_prune_sets():
             tracking_set: set = getattr(self, decl.attr)
             for evse_id in list(tracking_set):
@@ -798,6 +798,34 @@ class EVChargerController:
         for evse_id in list(self._power_sensor_alerted):
             if evse_id not in known:
                 self._power_sensor_alerted.discard(evse_id)
+        # Tier-1 follow-up cycle — arbitrage reason-map invariant:
+        # `_arbitrage_pause_reason.keys() ⊆ _paused_by_arbitrage`.
+        # Cheap defensive sweep so a future mismatched discard of the
+        # set can never leave an orphaned reason key behind. Also
+        # cleans reason keys the dict-prune pass above dropped from
+        # `_paused_by_arbitrage` (belt-and-braces, no-op in the
+        # steady state).
+        self._enforce_arbitrage_reason_invariant()
+
+    def _enforce_arbitrage_reason_invariant(self) -> None:
+        """Ensure `_arbitrage_pause_reason.keys() ⊆ _paused_by_arbitrage`.
+
+        Registry danger-spot #4: the reason map is a side channel to
+        the pause set. Every legitimate write pairs them (see
+        `determine_arbitrage_actions` add-side ~L2286 and release-side
+        ~L2331), but a mismatched discard elsewhere would leak an
+        orphaned reason. This sweep polices the invariant.
+        """
+        orphans = [
+            eid for eid in list(self._arbitrage_pause_reason.keys())
+            if eid not in self._paused_by_arbitrage
+        ]
+        for eid in orphans:
+            self._arbitrage_pause_reason.pop(eid, None)
+            _LOGGER.debug(
+                "arbitrage_pause_reason invariant: cleaned orphan key %s "
+                "(not in _paused_by_arbitrage)", eid,
+            )
 
     # v4.7.6 fix-up B-H1 / C-M1: `update_evse_config` was dead code — no
     # production caller. The canonical config-update path is HA's options-flow
@@ -3057,18 +3085,20 @@ class SmartPlugController:
         """
         current = set(self._plugs)
         # Phase-2 refactor: enumeration derived from PLUG_REGISTRY.
-        # Phase-3 D-4 correction (comment): the plug tier DOES now carry
-        # dict-shape declarations (see PLUG_DECLARATIONS), but every
-        # dict-shape row is declared `prune_participant=False` — so
-        # `iter_prune_dicts()` currently yields nothing and the
-        # single-pass shape here still matches the pre-refactor code.
-        # A future phase-4 parity cycle can promote any of the plug
-        # dicts to participant status without touching this loop.
+        # Tier-1 follow-up cycle: `_load_shed_was_on_at_shed` (plug
+        # tier) is now a prune participant, so the dict pass below is
+        # non-empty. Remaining plug-tier bookkeeping dicts stay
+        # non-participants (parity gap tracked for phase-4).
         for decl in PLUG_REGISTRY.iter_prune_sets():
             owner_set: set = getattr(self, decl.attr)
             for eid in list(owner_set):
                 if eid not in current:
                     owner_set.discard(eid)
+        for decl in PLUG_REGISTRY.iter_prune_dicts():
+            owner_dict: dict = getattr(self, decl.attr)
+            for eid in list(owner_dict.keys()):
+                if eid not in current:
+                    owner_dict.pop(eid, None)
 
     def determine_battery_drain_actions(
         self,
