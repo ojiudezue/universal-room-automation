@@ -497,6 +497,18 @@ def _bind_persistence_methods(hass, ev_controller):
     holder._restore_evse_state = _energy_mod.EnergyCoordinator._restore_evse_state.__get__(
         holder, type(holder)
     )
+    # Phase-3 C-HIGH-1: `_save_evse_state`/`_restore_evse_state` now
+    # delegate the registry-driven list-key loops to two extracted
+    # helpers. Bind those to the SimpleNamespace too so the harness
+    # continues to drive the same production code paths end-to-end.
+    holder._save_registry_owner_lists = (
+        _energy_mod.EnergyCoordinator._save_registry_owner_lists
+        .__get__(holder, type(holder))
+    )
+    holder._restore_registry_owner_lists = (
+        _energy_mod.EnergyCoordinator._restore_registry_owner_lists
+        .__get__(holder, type(holder))
+    )
     return holder
 
 
