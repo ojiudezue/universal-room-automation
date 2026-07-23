@@ -85,6 +85,17 @@ def _make_evpool(hass: _FakeHass, evse_ids: list[str]) -> _epool.EVChargerContro
     pool._proactive_offpeak_holds = set()
     pool._arbitrage_pause_reason = {}
     pool._force_charge_until = None
+    # Fix-up Batch 2 (D-HIGH-1): the release_all_* paths + resume sites
+    # now consult `_paused_by_blind_window` in their peer-defer lists.
+    # `__new__` fixtures MUST seed this set or the AttributeError leaks
+    # into hygiene tests. Also the DP sibling set which some paths may
+    # reference — mirror the real `__init__`.
+    pool._paused_by_blind_window = set()
+    # Batch 6 (D-HIGH-3): per-epoch liveness ride latch; consulted by
+    # will_pause. `__new__` fixtures MUST seed it.
+    pool._blind_window_liveness_ride = set()
+    if not hasattr(pool, "_paused_by_dp"):
+        pool._paused_by_dp = set()
     return pool
 
 

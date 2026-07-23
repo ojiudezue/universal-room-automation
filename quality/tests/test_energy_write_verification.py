@@ -2584,3 +2584,264 @@ async def test_v5175_d3_mutation_removed_age_gate_reverts(hass, monkeypatch):
     # Under a "no age gate" world (or fresh stamp) genuine reversion fires
     assert v._records["charge_from_grid"].status == STATUS_REVERTED
     assert v._emit_anomaly.await_count >= 1
+
+
+# ==================================================================
+# Fix-up A-CRIT-1 (Batch 1) — is_reserve_verifiable() freshness gate
+# ==================================================================
+# RULING: verifiable requires BOTH (a) status OK (never STALE) AND
+# (b) verified_at fresh within CONF_RESERVE_VERIFIABLE_MAX_AGE_S AND
+# (c) oracle-unreadable => NOT verifiable regardless of record.
+#
+# These tests kill reviewer C's GREEN mutations B3a/B3b — a quiet-outage
+# fixture proving the guard ENGAGES against a resting-OK record + no
+# scheduled write. If A-CRIT-1's ruling is reverted (STATUS_STALE or
+# stale-OK counted as verifiable, or oracle-blindness ignored), each
+# ruling clause below fails independently.
+
+
+def _make_v_with_reserve_oracle(hass):
+    """Build a WriteVerifier wired to a resolvable RESERVE oracle entity."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        WriteVerifier,
+    )
+    coord = _FakeCoord(hass)
+    coord._battery._entities["cloud_reserve_oracle"] = "sensor.cloud_reserve_oracle"
+    return coord, WriteVerifier(hass, coord)
+
+
+def _seed_reserve_record(v, status, verified_at, hass=None):
+    """Seed the reserve `_records` slot for is_reserve_verifiable testing."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        WRITE_VERIFY_SURFACE_RESERVE,
+    )
+    rec = v._records[WRITE_VERIFY_SURFACE_RESERVE]
+    rec.status = status
+    rec.verified_at = verified_at
+    if hass is not None:
+        _set_state(hass, "sensor.cloud_reserve_oracle", "50", unit="%")
+
+
+def _fresh_iso(offset_s=0):
+    from custom_components.universal_room_automation.domain_coordinators import (
+        energy_write_verify as _wv,
+    )
+    return (_wv.dt_util.utcnow() - timedelta(seconds=offset_s)).isoformat()
+
+
+def test_is_reserve_verifiable_status_ok_fresh_returns_true(hass):
+    """Baseline verifiable case: OK + fresh verified_at + readable oracle."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        STATUS_OK,
+    )
+    coord, v = _make_v_with_reserve_oracle(hass)
+    _seed_reserve_record(v, STATUS_OK, _fresh_iso(5), hass=hass)
+    assert v.is_reserve_verifiable() is True
+
+
+def test_is_reserve_verifiable_status_stale_returns_false(hass):
+    """A-CRIT-1 (a): STATUS_STALE explicitly excluded. STALE = retired
+    record; a resting stale record cannot prove a live-write took NOW.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        STATUS_STALE,
+    )
+    coord, v = _make_v_with_reserve_oracle(hass)
+    _seed_reserve_record(v, STATUS_STALE, _fresh_iso(5), hass=hass)
+    assert v.is_reserve_verifiable() is False
+
+
+def test_is_reserve_verifiable_status_no_data_returns_false(hass):
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        STATUS_NO_DATA,
+    )
+    coord, v = _make_v_with_reserve_oracle(hass)
+    _seed_reserve_record(v, STATUS_NO_DATA, _fresh_iso(5), hass=hass)
+    assert v.is_reserve_verifiable() is False
+
+
+def test_is_reserve_verifiable_status_inconclusive_returns_false(hass):
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        STATUS_INCONCLUSIVE,
+    )
+    coord, v = _make_v_with_reserve_oracle(hass)
+    _seed_reserve_record(v, STATUS_INCONCLUSIVE, _fresh_iso(5), hass=hass)
+    assert v.is_reserve_verifiable() is False
+
+
+def test_is_reserve_verifiable_status_mismatch_returns_false(hass):
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        STATUS_MISMATCH,
+    )
+    coord, v = _make_v_with_reserve_oracle(hass)
+    _seed_reserve_record(v, STATUS_MISMATCH, _fresh_iso(5), hass=hass)
+    assert v.is_reserve_verifiable() is False
+
+
+def test_is_reserve_verifiable_status_reverted_returns_false(hass):
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        STATUS_REVERTED,
+    )
+    coord, v = _make_v_with_reserve_oracle(hass)
+    _seed_reserve_record(v, STATUS_REVERTED, _fresh_iso(5), hass=hass)
+    assert v.is_reserve_verifiable() is False
+
+
+def test_is_reserve_verifiable_status_unmapped_returns_false(hass):
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        STATUS_UNMAPPED,
+    )
+    coord, v = _make_v_with_reserve_oracle(hass)
+    _seed_reserve_record(v, STATUS_UNMAPPED, _fresh_iso(5), hass=hass)
+    assert v.is_reserve_verifiable() is False
+
+
+def test_is_reserve_verifiable_status_unit_mismatch_returns_false(hass):
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        STATUS_UNIT_MISMATCH,
+    )
+    coord, v = _make_v_with_reserve_oracle(hass)
+    _seed_reserve_record(v, STATUS_UNIT_MISMATCH, _fresh_iso(5), hass=hass)
+    assert v.is_reserve_verifiable() is False
+
+
+def test_is_reserve_verifiable_ok_but_stale_verified_at_returns_false(hass):
+    """A-CRIT-1 (b): resting OK record older than
+    CONF_RESERVE_VERIFIABLE_MAX_AGE_S is NOT verifiable — this is the
+    QUIET-OUTAGE case (kills reviewer C's B3a).
+    """
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        STATUS_OK,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+        CONF_RESERVE_VERIFIABLE_MAX_AGE_S,
+    )
+    coord, v = _make_v_with_reserve_oracle(hass)
+    _seed_reserve_record(
+        v, STATUS_OK,
+        _fresh_iso(int(CONF_RESERVE_VERIFIABLE_MAX_AGE_S) + 60),
+        hass=hass,
+    )
+    assert v.is_reserve_verifiable() is False
+
+
+def test_is_reserve_verifiable_oracle_unavailable_returns_false(hass):
+    """A-CRIT-1 (c): oracle-unreadable => NOT verifiable even with fresh OK
+    record (kills reviewer C's B3b — envoy blind is proof, not maskable).
+    """
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        STATUS_OK,
+    )
+    coord, v = _make_v_with_reserve_oracle(hass)
+    _seed_reserve_record(v, STATUS_OK, _fresh_iso(5))  # no oracle state set
+    _set_state(hass, "sensor.cloud_reserve_oracle", "unavailable")
+    assert v.is_reserve_verifiable() is False
+
+
+def test_is_reserve_verifiable_no_oracle_configured_returns_false(hass):
+    """No oracle entity configured => cannot prove — fail-safe False."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        WriteVerifier, STATUS_OK,
+    )
+    coord = _FakeCoord(hass)
+    # No cloud_reserve_oracle registered on battery entities.
+    v = WriteVerifier(hass, coord)
+    _seed_reserve_record(v, STATUS_OK, _fresh_iso(5))
+    assert v.is_reserve_verifiable() is False
+
+
+def test_is_reserve_verifiable_verified_at_missing_returns_false(hass):
+    """Freshness gate cannot evaluate without a verified_at stamp."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        STATUS_OK,
+    )
+    coord, v = _make_v_with_reserve_oracle(hass)
+    _seed_reserve_record(v, STATUS_OK, None, hass=hass)
+    assert v.is_reserve_verifiable() is False
+
+
+# ------------------------------------------------------------------
+# QUIET-OUTAGE fixture (B's mandated). No scheduled writes are firing.
+# The record is RESTING at STATUS_OK from a previous successful verify
+# hours earlier. Envoy is now blind. The guard MUST engage.
+# ------------------------------------------------------------------
+def test_quiet_outage_guard_entry_predicate_engages_on_resting_ok(hass):
+    """QUIET OUTAGE — no scheduled write, resting OK from long ago,
+    envoy blind: `is_reserve_verifiable` returns False so the guard's
+    entry predicate evaluates True. Kills B3a/B3b: without EITHER the
+    freshness gate OR the oracle-unreadable check, `is_reserve_verifiable`
+    would return True and the guard could never engage.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        STATUS_OK,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+        CONF_RESERVE_VERIFIABLE_MAX_AGE_S,
+    )
+    coord, v = _make_v_with_reserve_oracle(hass)
+    # (1) Record has been resting OK since a verify hours ago —
+    # freshness gate must fire.
+    _seed_reserve_record(
+        v, STATUS_OK,
+        _fresh_iso(int(CONF_RESERVE_VERIFIABLE_MAX_AGE_S) + 3600),
+    )
+    # (2) Envoy is blind — oracle unreadable.
+    _set_state(hass, "sensor.cloud_reserve_oracle", "unavailable")
+    # (3) NO scheduled write is armed (no in-flight verify).
+    assert not v._pending_by_surface
+    # Predicate must report unverifiable => guard entry predicate True.
+    assert v.is_reserve_verifiable() is False
+
+
+# ------------------------------------------------------------------
+# reserve_write_verifiable() delegate — EnergyCoordinator side
+# ------------------------------------------------------------------
+def test_reserve_write_verifiable_delegate_returns_true_when_verifier_true(hass):
+    """Thin delegate: coord.reserve_write_verifiable() mirrors
+    WriteVerifier.is_reserve_verifiable(). Fresh OK + readable oracle => True.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        STATUS_OK,
+    )
+    coord, v = _make_v_with_reserve_oracle(hass)
+    _seed_reserve_record(v, STATUS_OK, _fresh_iso(5), hass=hass)
+    # Attach delegate on the fake coordinator (production EC has this
+    # method; the fake needs it for the delegate test).
+    coord._write_verifier = v
+    def _delegate():
+        try:
+            return bool(coord._write_verifier.is_reserve_verifiable())
+        except Exception:
+            return False
+    assert _delegate() is True
+
+
+def test_reserve_write_verifiable_delegate_returns_false_when_verifier_missing(hass):
+    """Delegate contract: no verifier wired => fail-safe False (guard err
+    on the side of holding)."""
+    coord = _FakeCoord(hass)
+    coord._write_verifier = None
+    def _delegate():
+        wv = coord._write_verifier
+        if wv is None:
+            return False
+        try:
+            return bool(wv.is_reserve_verifiable())
+        except Exception:
+            return False
+    assert _delegate() is False
+
+
+def test_reserve_write_verifiable_delegate_swallows_verifier_raise(hass):
+    """Delegate contract: verifier raising propagates as False, never up."""
+    coord = _FakeCoord(hass)
+    class _Boom:
+        def is_reserve_verifiable(self):
+            raise RuntimeError("boom")
+    coord._write_verifier = _Boom()
+    def _delegate():
+        try:
+            return bool(coord._write_verifier.is_reserve_verifiable())
+        except Exception:
+            return False
+    assert _delegate() is False

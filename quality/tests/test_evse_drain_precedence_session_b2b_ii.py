@@ -280,6 +280,22 @@ class _FakeCoord:
         # called with this callback ref, not that it fires.
         return None
 
+    def blind_window_liveness_release(
+        self, evse_id, reason, has_pressure=False,
+    ):
+        """Batch 4 D-HIGH-2 stub — the DP must-start-by fire now routes
+        through this helper. With `has_pressure=True` the production
+        helper always returns True; mirror that here so existing tests
+        continue to observe the same "release fires" behavior.
+        """
+        self._blind_window_liveness_calls = getattr(
+            self, "_blind_window_liveness_calls", [],
+        )
+        self._blind_window_liveness_calls.append(
+            (evse_id, reason, has_pressure),
+        )
+        return True
+
 
 for _name in (
     "_apply_evse_battery_hold",

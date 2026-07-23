@@ -71,6 +71,8 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_EV_BATTERY_DRAIN_SOC"),
     _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_FILL_PRIORITY_SOC"),
     _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_EXCESS_SOLAR_SOC"),
+    # Blind-window guard cycle — D4 Emporia-mains backup export sensor.
+    _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_MAINS_EXPORT_ENTITY"),
     "bayesian_cell_staleness_days",
     # D2 — Routine family
     _extract_conf(CONST_SRC, "CONF_ROUTINE_EVENT_COOLDOWN_DAYS"),
@@ -274,7 +276,8 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     # NM Cycle B fix-up (2026-07-20, B-B1) — +3 keys (dry-run + capacity + refill).
     # NM Cycle C (2026-07-20) — +4 keys (routing matrix, hazard overrides,
     # DND-bypass severities, mute default duration).
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 81
+    # +1 for CONF_ENERGY_MAINS_EXPORT_ENTITY (blind-window guard D4).
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 82
 
 
 # ---------------------------------------------------------------------------
@@ -354,6 +357,8 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_ENERGY_EV_BATTERY_DRAIN_SOC":      "energy_ev_battery_drain_soc",
         "_CONF_ENERGY_FILL_PRIORITY_SOC":         "energy_fill_priority_soc",
         "_CONF_ENERGY_EXCESS_SOLAR_SOC":          "energy_excess_solar_soc",
+        # Blind-window guard cycle — D4 Emporia-mains backup export sensor.
+        "_CONF_ENERGY_MAINS_EXPORT_ENTITY":       "energy_mains_export_entity",
         "_CONF_DYNAMIC_PRESET_HYSTERESIS_F":      "dynamic_preset_hysteresis_f",
         "_CONF_HVAC_EGRESS_THRESHOLD_MIN":        "hvac_egress_threshold_min",
         "_CONF_HVAC_EGRESS_RESUME_DELAY_MIN":     "hvac_egress_resume_delay_min",

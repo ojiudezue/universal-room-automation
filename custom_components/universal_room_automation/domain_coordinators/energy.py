@@ -1456,6 +1456,63 @@ class EnergyCoordinator(BaseCoordinator):
                             self._ev._proactive_offpeak_holds.add(eid)
                 except (ValueError, TypeError):
                     pass
+            # D1 (blind-window guard): restore blind-window pause set.
+            bw_json = await db.restore_energy_state_with_age(
+                "evse_blind_window_paused", max_age_hours=STALE_MAX_AGE_HOURS,
+            )
+            if bw_json:
+                try:
+                    for eid in _json.loads(bw_json):
+                        if eid in valid_evse_ids:
+                            self._ev._paused_by_blind_window.add(eid)
+                except (ValueError, TypeError):
+                    pass
+            # Fix-up D-HIGH-3 (Batch 6) — restore the liveness-ride latch.
+            ride_json = await db.restore_energy_state_with_age(
+                "evse_blind_window_liveness_ride",
+                max_age_hours=STALE_MAX_AGE_HOURS,
+            )
+            if ride_json:
+                try:
+                    for eid in _json.loads(ride_json):
+                        if eid in valid_evse_ids:
+                            self._ev._blind_window_liveness_ride.add(eid)
+                except (ValueError, TypeError):
+                    pass
+            # Fix-up D-CRIT-2 (Batch 1) — restore the persisted epoch AND
+            # mark the guard pre-engaged when the pause set is non-empty.
+            # Without the pre-engaged flag, the fresh debounce would
+            # gate `_blind_window_guard_engaged` False for the entire
+            # `CONF_BLIND_WINDOW_ENTRY_DEBOUNCE_S` window post-restart, and
+            # the else-branch (even after the D-CRIT-2 narrowing) would
+            # briefly leave the pause set unclaimed by any current logic —
+            # producing exactly the blind ensure-on flap the fix-up targets.
+            if self._ev._paused_by_blind_window:
+                bw_epoch_iso = await db.restore_energy_state_with_age(
+                    "evse_blind_window_epoch_started_at",
+                    max_age_hours=STALE_MAX_AGE_HOURS,
+                )
+                epoch_dt = None
+                if bw_epoch_iso:
+                    try:
+                        epoch_dt = dt_util.parse_datetime(bw_epoch_iso)
+                        if epoch_dt is not None and epoch_dt.tzinfo is None:
+                            epoch_dt = epoch_dt.replace(tzinfo=dt_util.UTC)
+                    except (ValueError, TypeError):
+                        epoch_dt = None
+                if epoch_dt is None:
+                    # Missing/unparseable persisted epoch — anchor to now().
+                    # The pause set proves the guard engaged pre-restart;
+                    # losing epoch precision costs at most one max-defer
+                    # window's worth of extension, not correctness.
+                    epoch_dt = dt_util.utcnow()
+                self._ev.mark_pre_engaged_from_restore(epoch_dt)
+                _LOGGER.info(
+                    "blind-window guard: pre-engaged from restore "
+                    "(paused_set=%s, epoch=%s)",
+                    sorted(self._ev._paused_by_blind_window),
+                    epoch_dt.isoformat(),
+                )
             # v<next> WS1 D1.1: Restore force-charge expiry from canonical KV.
             # F8 (review): Switch RestoreEntity (`switch.py:802-854`) is the
             # fresher fast-path (~15s attribute flush) and wins when present;
@@ -1497,6 +1554,26 @@ class EnergyCoordinator(BaseCoordinator):
             await self._restore_wv_state(
                 db, battery, verifier, STALE_MAX_AGE_HOURS,
             )
+            # D5 (blind-window guard): restore the LKG SOC snapshot so a
+            # restart mid-outage can keep the envelope alive instead of
+            # falling back to fully-blind (SOC=None across all tiers) —
+            # that was the 2026-07-20 incident shape. Restore is bounded by
+            # `DEFAULT_SOC_LKG_ENVELOPE_MAX_AGE_S` inside the envelope math,
+            # so a truly stale snapshot naturally decays to unusable.
+            try:
+                import json as _json
+                lkg_raw = await db.restore_energy_state_with_age(
+                    "battery_soc_lkg", max_age_hours=STALE_MAX_AGE_HOURS,
+                )
+                if lkg_raw and battery is not None:
+                    try:
+                        snap = _json.loads(lkg_raw)
+                    except (ValueError, TypeError):
+                        snap = None
+                    if snap:
+                        battery.restore_lkg_snapshot(snap)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("LKG restore failed (swallowed)", exc_info=True)
             # Session B1 — drain-precedence carrier restore.
             # `restore_from_blob(raw, now_provider=dt_util.now)` enforces
             # INV-DP2 (expired must_start_by → fresh HOLD_ONLY) and the
@@ -1793,6 +1870,56 @@ class EnergyCoordinator(BaseCoordinator):
                 "evse_proactive_offpeak_holds",
                 _json.dumps(list(self._ev._proactive_offpeak_holds)),
             )
+            # D1 (blind-window guard): persist blind-window pause set so a
+            # mid-outage restart does not lose the fail-safe pause carry-over.
+            # Sibling shape to `evse_dp_paused` and friends; STALE_MAX_AGE_HOURS
+            # gate on the restore side bounds a truly stale row.
+            await db.save_energy_state(
+                "evse_blind_window_paused",
+                _json.dumps(list(self._ev._paused_by_blind_window)),
+            )
+            # Fix-up D-HIGH-3 (Batch 6) — persist the per-epoch liveness
+            # ride latch. A mid-epoch restart that dropped the RAM latch
+            # would let the guard re-capture a released EVSE, stranding
+            # the car again. Sibling shape to the pause set; the same
+            # epoch-restore path (`mark_pre_engaged_from_restore`) carries
+            # the epoch key that scopes this latch.
+            await db.save_energy_state(
+                "evse_blind_window_liveness_ride",
+                _json.dumps(list(self._ev._blind_window_liveness_ride)),
+            )
+            # Fix-up D-CRIT-2 (Batch 1) — persist the epoch wall-clock
+            # alongside the pause set. Restart mid-outage otherwise resets
+            # the epoch to post-restart now(), zeroing the max-defer bound
+            # (D-LOW-1). Empty-string sentinel matches the ev_force_charge
+            # pattern above; restore side treats "" as "no persisted epoch"
+            # and falls back to now() (the pre-fix behavior for that leg).
+            epoch = self._ev._blind_window_epoch_started_at
+            if epoch is not None:
+                if epoch.tzinfo is None:
+                    epoch = epoch.replace(tzinfo=dt_util.UTC)
+                await db.save_energy_state(
+                    "evse_blind_window_epoch_started_at",
+                    epoch.isoformat(),
+                )
+            else:
+                await db.save_energy_state(
+                    "evse_blind_window_epoch_started_at",
+                    "",
+                )
+            # D5 (blind-window guard): persist LKG SOC snapshot (value +
+            # timestamp). Consumed by the SOCEnvelope decay math on restart.
+            battery = getattr(self, "_battery", None)
+            if battery is not None:
+                try:
+                    snap = battery.get_lkg_snapshot()
+                    if snap:
+                        await db.save_energy_state(
+                            "battery_soc_lkg",
+                            _json.dumps(snap),
+                        )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("LKG save failed (swallowed)", exc_info=True)
             # v<next> WS1 D1.1: force-charge expiry (canonical durable copy).
             # tz-aware ISO; on restore goes through dt_util.parse_datetime.
             fc_until = self._ev._force_charge_until
@@ -3237,6 +3364,490 @@ class EnergyCoordinator(BaseCoordinator):
                 return True
         return False
 
+    # ------------------------------------------------------------------
+    # Blind-window EVSE guard — public accessors (D1)
+    # (see PLANNING_ec_blind_window_evse_guard.md)
+    # ------------------------------------------------------------------
+    @property
+    def blind_hold_active(self) -> bool:
+        """True iff Envoy is unavailable AND SOC unresolved on all tiers.
+
+        Mirrors the existing local computation at `_dp_decision_tick`
+        (`(not envoy_available) and battery_soc is None`) but as a
+        public property so `energy_pool` may consult it without reaching
+        into private state.
+
+        Fix-up D-LOW-3 (Batch 5) — FAIL-CLOSED on exception. The prior
+        `env_ok = True` fallback was fail-OPEN for a battery-protection
+        guard: an exception reading `envoy_available` would report the
+        Envoy as HEALTHY and the guard would refuse to engage even
+        under a real outage. The safer direction for a battery-protection
+        guard is "assume the worst" — treat an unreadable env_ok as
+        `False` (Envoy assumed down), which combined with an unreadable
+        SOC (also None) yields `blind_hold_active=True` and the guard
+        may engage. If the reserve write path is separately verifiable,
+        the guard's second predicate (`reserve_write_verifiable`) will
+        still short-circuit the false-positive engagement — so worst
+        case under this exception path is one tick of over-conservative
+        protection, not a silent ensure-on. WARNING is logged so a
+        recurring exception is observable in ops.
+        """
+        try:
+            env_ok = bool(self._battery.envoy_available)
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "blind_hold_active: envoy_available read raised; assuming "
+                "Envoy DOWN (fail-closed)", exc_info=True,
+            )
+            env_ok = False
+        try:
+            soc = self._battery.battery_soc
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "blind_hold_active: battery_soc read raised; assuming "
+                "SOC unresolved (fail-closed)", exc_info=True,
+            )
+            soc = None
+        return (not env_ok) and soc is None
+
+    # Fix-up B7 (Batch 5) — DP-tick snapshot of blind_hold_active.
+    # The DP tick computes the same predicate locally at ~line 4064
+    # (`_env_ok`/`_bat_soc` snapshot). Threading that snapshot in here
+    # gives the GUARD path a single per-tick truth (avoids the guard
+    # re-reading Envoy state during the same tick and observing a
+    # different result). Non-tick consumers keep reading the property
+    # directly (the sensor attrs, etc.). Authority contract:
+    #   * DURING a DP tick: `blind_hold_active_snapshot()` is authoritative.
+    #   * OUTSIDE a DP tick: `blind_hold_active` property is authoritative.
+    def _record_blind_hold_snapshot(self, is_blind_hold: bool) -> None:
+        """Called from the DP tick with the tick's computed is_blind_hold.
+
+        Stores the value + a monotonic timestamp; the snapshot is only
+        consulted within a bounded staleness window (one decision tick)
+        so a stale snapshot never leaks into a fresh tick.
+        """
+        import time as _time
+        self._blind_hold_snapshot = (bool(is_blind_hold), _time.monotonic())
+
+    def blind_hold_active_snapshot(self, max_age_s: float = 30.0) -> bool:
+        """Return the DP tick's snapshot if fresh; else the property.
+
+        The GUARD path (energy_pool.py) uses this method so both the
+        DP tick and the guard see the SAME blind_hold_active value
+        within a decision cycle — no torn reads.
+        """
+        import time as _time
+        snap = getattr(self, "_blind_hold_snapshot", None)
+        if snap is not None:
+            value, at = snap
+            if (_time.monotonic() - at) <= float(max_age_s):
+                return bool(value)
+        return bool(self.blind_hold_active)
+
+    def reserve_write_verifiable(self) -> bool:
+        """True iff the reserve write path is proveably verifiable now.
+
+        Thin delegate over `WriteVerifier.is_reserve_verifiable()`. See
+        docstring there for status vocabulary.
+        """
+        wv = getattr(self, "_write_verifier", None)
+        if wv is None:
+            # No verifier wired = we cannot prove writes took; treat as
+            # unverifiable (fail-safe: guard errs on the side of holding).
+            return False
+        try:
+            return bool(wv.is_reserve_verifiable())
+        except Exception:  # noqa: BLE001
+            return False
+
+    def soc_envelope(self) -> tuple[float, float] | None:
+        """Passthrough to BatteryStrategy.soc_envelope (D5)."""
+        try:
+            return self._battery.soc_envelope()
+        except Exception:  # noqa: BLE001
+            return None
+
+    # ------------------------------------------------------------------
+    # Fix-up D-HIGH-2 + D-MED-2 (Batch 4) — liveness-release helper.
+    # ------------------------------------------------------------------
+    # Single choke-point for the TWO sanctioned INV-BW1 escape hatches:
+    #   * max-defer expiry (guard has held past `CONF_BLIND_WINDOW_MAX_DEFER_MIN`).
+    #   * DP must-start-by fire (INV-DP2 liveness ceiling).
+    #
+    # Before this helper, the two paths silently released without
+    # consulting the envelope OR emitting a decision_log row — the
+    # exact "silent fall-through to plain ensure-on" the RULING closed.
+    # ------------------------------------------------------------------
+    def blind_window_liveness_release(
+        self,
+        evse_id: str,
+        reason: str,
+        has_pressure: bool = False,
+    ) -> bool:
+        """Consult the envelope; permit or refuse a liveness release.
+
+        Semantics per RULING:
+          * If `has_pressure` is True (must-start-by pressure IS the
+            pressure), the release is ALWAYS permitted — INV-DP2 trumps.
+          * Otherwise consult `soc_envelope()`. If the envelope's LOWER
+            bound is below the drain threshold AND we have no pressure,
+            we PREFER holding the pause — return False so the caller
+            keeps membership. If the envelope proves lower >= drain,
+            release is permitted. If the envelope is unknown, release
+            is permitted at max-defer expiry — the whole point of the
+            max-defer bound is to yield after the cap.
+
+        Whether the helper returns True (release) or False (hold pause),
+        a `decision_log` row is scheduled (`decision_type=
+        'blind_window_liveness_release'`) so no path silently emits a
+        turn_on OR silently holds.
+
+        Sync-callable (both call sites are inside sync decision-cycle
+        loops). The DB write is scheduled via `hass.async_create_task`.
+        """
+        # 1) Snapshot envelope + drain target for both the decision AND
+        #    the persisted row.
+        try:
+            env = self.soc_envelope()
+        except Exception:  # noqa: BLE001
+            env = None
+        drain_target = None
+        try:
+            drain_target = int(
+                getattr(self, "_ev_battery_drain_soc", None) or 0
+            ) or None
+        except Exception:  # noqa: BLE001
+            drain_target = None
+
+        env_lower = env[0] if env else None
+        env_upper = env[1] if env else None
+        # Batch-4 note (documented per Batch-5 (7)): when `drain_target`
+        # is None (operator has NOT wired `_ev_battery_drain_soc`), the
+        # AND-clause below evaluates False — envelope_low_below_drain=False
+        # — and (under has_pressure=False) the release will be permitted.
+        # RATIONALE: no wired drain target ⇒ no numeric safety floor
+        # exists ⇒ the guard has no basis to hold pause on envelope
+        # grounds. The alternative (default drain=X) would inject a
+        # fabricated policy number, which the "Numbers Get Knobs"
+        # ladder in CLAUDE.md explicitly bars. Operators wanting a
+        # protective floor MUST wire the drain-target knob; otherwise
+        # max-defer expiry yields cleanly. This matches the current
+        # semantics of `_blind_window_envelope_permits_ride` where a
+        # None drain_target also returns False (no proof possible).
+        envelope_low_below_drain = (
+            env_lower is not None
+            and drain_target is not None
+            and env_lower < float(drain_target)
+        )
+
+        # 2) Decide.
+        if has_pressure:
+            release = True
+            decision_note = "must_start_by_pressure_overrides_envelope"
+        elif envelope_low_below_drain:
+            release = False
+            decision_note = "envelope_low_below_drain_and_no_pressure"
+        else:
+            # Envelope unknown OR envelope proves safe → release.
+            release = True
+            decision_note = (
+                "envelope_permits_release" if env_lower is not None
+                else "envelope_unknown_max_defer_yield"
+            )
+
+        # 3) Schedule the durable decision_log row (never blocks).
+        # Fix-up D-LOW-3 (Batch 6) — EPOCH DEDUP on liveness-release rows.
+        # Dedup key = (evse_id, epoch_iso, branch). BOTH branches (release
+        # vs refusal) are separately deduped so a legitimate branch flip
+        # (e.g. envelope proves safe after several refusals, then release)
+        # still gets its own single row per epoch. The earlier code
+        # scheduled one row per consultation, which under a busy blind
+        # window could emit many rows per (evse, epoch) — Bug Class #34
+        # noise contour on decision_log for a hot rare-fire path.
+        try:
+            epoch = getattr(self._ev, "_blind_window_epoch_started_at", None)
+        except Exception:  # noqa: BLE001
+            epoch = None
+        epoch_key = epoch.isoformat() if epoch is not None else ""
+        branch = "release" if release else "refuse"
+        dedup_key = (evse_id, epoch_key, branch)
+        seen = getattr(self, "_blind_window_liveness_release_logged", None)
+        if seen is None:
+            seen = set()
+            self._blind_window_liveness_release_logged = seen
+        if dedup_key in seen:
+            _LOGGER.debug(
+                "liveness_release: row suppressed (already logged this "
+                "epoch: evse=%s branch=%s)",
+                evse_id, branch,
+            )
+        else:
+            seen.add(dedup_key)
+            try:
+                self.hass.async_create_task(
+                    self._log_blind_window_liveness_release(
+                        evse_id=evse_id,
+                        reason=reason,
+                        release=release,
+                        has_pressure=has_pressure,
+                        env_lower=env_lower,
+                        env_upper=env_upper,
+                        drain_target=drain_target,
+                        decision_note=decision_note,
+                    ),
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "liveness_release: schedule log failed (swallowed)",
+                    exc_info=True,
+                )
+        _LOGGER.info(
+            "blind-window liveness release: evse=%s reason=%s release=%s "
+            "note=%s env=%s drain_target=%s pressure=%s",
+            evse_id, reason, release, decision_note,
+            (env_lower, env_upper) if env else None,
+            drain_target, has_pressure,
+        )
+        return release
+
+    async def _log_blind_window_liveness_release(
+        self,
+        evse_id: str,
+        reason: str,
+        release: bool,
+        has_pressure: bool,
+        env_lower: float | None,
+        env_upper: float | None,
+        drain_target: int | None,
+        decision_note: str,
+    ) -> None:
+        """Write one decision_log row per liveness-release consultation."""
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            import json as _json
+            context = {
+                "evse_id": evse_id,
+                "reason": reason,
+                "has_pressure": bool(has_pressure),
+                "envelope_lower": env_lower,
+                "envelope_upper": env_upper,
+                "drain_target_soc": drain_target,
+                "decision_note": decision_note,
+            }
+            action = {"released": bool(release)}
+            await db.log_coordinator_decision(
+                coordinator_id="energy",
+                decision_type="blind_window_liveness_release",
+                context_json=_json.dumps(context),
+                action_json=_json.dumps(action),
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "_log_blind_window_liveness_release raised (swallowed)",
+                exc_info=True,
+            )
+
+    # ------------------------------------------------------------------
+    # Fix-up B5 (Batch 4) — INV-BW1 defer decision_log rows.
+    # ------------------------------------------------------------------
+    # ONE row per (evse_id, epoch) — dedup keyed on the epoch's ISO
+    # timestamp so a multi-hour outage generates a bounded set of rows
+    # (max = #EVSEs). Same dedup applies to
+    # `_blind_window_defers_this_epoch` — the observability counter is
+    # now "distinct EVSEs deferred this epoch", not "ticks the guard
+    # held" (which grew unboundedly with tick cadence).
+    # ------------------------------------------------------------------
+    def maybe_log_blind_window_defer(self, evse_id: str) -> bool:
+        """Return True iff this (evse_id, epoch) is the FIRST defer this
+        epoch — caller uses the return value to gate the counter
+        increment so it stays deduped.
+
+        Idempotent within an epoch: subsequent calls return False and
+        do not schedule a duplicate row.
+
+        Called by `EVChargerController.determine_actions` / `determine_
+        excess_solar_actions` at each fail-safe defer site.
+        """
+        try:
+            epoch = getattr(self._ev, "_blind_window_epoch_started_at", None)
+        except Exception:  # noqa: BLE001
+            epoch = None
+        epoch_key = epoch.isoformat() if epoch is not None else ""
+        key = (evse_id, epoch_key)
+        seen = getattr(self, "_blind_window_defer_logged", None)
+        if seen is None:
+            seen = set()
+            self._blind_window_defer_logged = seen
+        if key in seen:
+            return False
+        seen.add(key)
+        try:
+            self.hass.async_create_task(
+                self._log_blind_window_defer(evse_id=evse_id, epoch_key=epoch_key),
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "maybe_log_blind_window_defer: schedule failed (swallowed)",
+                exc_info=True,
+            )
+        return True
+
+    def _reset_blind_window_defer_dedup(self) -> None:
+        """Called from the guard's clear-path (raw predicate False) so a
+        new epoch starts with a fresh dedup set.
+        """
+        self._blind_window_defer_logged = set()
+        # Fix-up D-LOW-3 (Batch 6) — also clear the liveness-release
+        # dedup so the next epoch's release/refuse decisions get their
+        # own rows (no cross-epoch dedup leakage).
+        self._blind_window_liveness_release_logged = set()
+
+    async def _log_blind_window_defer(
+        self, evse_id: str, epoch_key: str,
+    ) -> None:
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            import json as _json
+            # Snapshot envelope + verifier state for forensic completeness.
+            env = self.soc_envelope()
+            context = {
+                "evse_id": evse_id,
+                "epoch": epoch_key,
+                "reserve_verifiable": bool(self.reserve_write_verifiable()),
+                "blind_hold_active": bool(self.blind_hold_active),
+                "envelope_lower": env[0] if env else None,
+                "envelope_upper": env[1] if env else None,
+            }
+            action = {"deferred": True}
+            await db.log_coordinator_decision(
+                coordinator_id="energy",
+                decision_type="blind_window_defer",
+                context_json=_json.dumps(context),
+                action_json=_json.dumps(action),
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "_log_blind_window_defer raised (swallowed)", exc_info=True,
+            )
+
+    async def _log_dp_eval_decision(
+        self,
+        prev_state: Any,
+        now: Any,
+        inputs: Any,
+        period: str,
+        ev_load_w: float | None,
+    ) -> None:
+        """D2: persist one dp_eval row to decision_log per DP tick.
+
+        REUSES `Database.log_coordinator_decision` (database.py:2047).
+        Context shape matches the plan D2 spec so a future forensic query
+        can reconstruct the eval that led (or did not lead) to a transition.
+        """
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            import json as _json
+            # Live SOC + LKG envelope for forensic completeness — during a
+            # blind window `soc` will be None; the envelope may still bound it.
+            env = None
+            try:
+                env = self._battery.soc_envelope()
+            except Exception:  # noqa: BLE001
+                env = None
+            reserve_verifiable = self.reserve_write_verifiable()
+            context = {
+                "state": str(getattr(self._dp_carrier, "state", None)),
+                "prior_state": str(prev_state),
+                "reason": getattr(self._dp_carrier, "reason", None),
+                "charger_rate_kw": float(getattr(inputs, "charger_rate_kw", 0.0) or 0.0),
+                "soc": getattr(inputs, "soc", None),
+                "is_blind_hold": bool(getattr(inputs, "is_blind_hold", False)),
+                "reserve_verifiable": bool(reserve_verifiable),
+                "target_soc": None,
+                "drain_target_soc": int(getattr(inputs, "drain_target_soc", 0) or 0),
+                "tou_period": period,
+                "force_charge_active": bool(getattr(inputs, "force_charge_active", False)),
+                "soc_envelope_lower": env[0] if env else None,
+                "soc_envelope_upper": env[1] if env else None,
+                "ev_load_w": float(ev_load_w or 0.0),
+                "now_iso": now.isoformat() if now is not None else None,
+            }
+            action = {
+                "transitioned": (
+                    str(prev_state) != str(getattr(self._dp_carrier, "state", None))
+                ),
+                "next_state": str(getattr(self._dp_carrier, "state", None)),
+            }
+            await db.log_coordinator_decision(
+                coordinator_id="energy",
+                decision_type="dp_eval",
+                context_json=_json.dumps(context),
+                action_json=_json.dumps(action),
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("_log_dp_eval_decision raised (swallowed)", exc_info=True)
+
+    def mains_export_active(self, threshold_w: float = 100.0) -> bool | None:
+        """D4: excess-solar backup path via optional Emporia mains sensor.
+
+        Returns True/False when the operator has wired
+        `CONF_ENERGY_MAINS_EXPORT_ENTITY` and its state is a positive
+        export power > threshold_w. Returns None when unwired (caller
+        falls back to current Envoy-only behavior).
+
+        `threshold_w` — WATTS. Documented on `CONF_ENERGY_MAINS_EXPORT_ENTITY`
+        as W-only; the entity's raw numeric state is normalized here
+        (Fix-up A-MED-1, Batch 3). Bug Class #30 (unit normalization):
+        Emporia typically reports W; some setups expose the same signal
+        via a `sensor.*_kw` template that reads kW. We honor the
+        entity's `unit_of_measurement`:
+          * "W"  / None / "" → treat state as W (identity).
+          * "kW" / "kw"      → multiply by 1000.
+          * anything else    → refuse to compare (return None); a
+            wiring/units bug must not silently pass the guard.
+        """
+        from .energy_const import CONF_ENERGY_MAINS_EXPORT_ENTITY
+        try:
+            eid = (self._entity_config or {}).get(
+                CONF_ENERGY_MAINS_EXPORT_ENTITY
+            )
+        except Exception:  # noqa: BLE001
+            eid = None
+        if not eid:
+            return None
+        try:
+            st = self.hass.states.get(eid)
+            if st is None or st.state in ("unknown", "unavailable"):
+                return None
+            v = float(st.state)
+        except (ValueError, TypeError, AttributeError):
+            return None
+        # A-MED-1 (Batch 3) — honor unit_of_measurement per Bug Class #30.
+        try:
+            uom = st.attributes.get("unit_of_measurement", "")
+        except Exception:  # noqa: BLE001
+            uom = ""
+        uom_norm = (uom or "").strip()
+        if uom_norm in ("kW", "kw"):
+            v *= 1000.0
+        elif uom_norm not in ("W", "w", "", None):
+            # Unknown unit — refuse to admit as W-comparable. Better to
+            # return None (caller falls through to fail-safe) than to
+            # silently compare mixed units and admit a wiring bug.
+            _LOGGER.debug(
+                "mains_export_active: %s has unexpected unit=%r; "
+                "refusing to compare (fail-safe None)",
+                eid, uom,
+            )
+            return None
+        return v > float(threshold_w)
+
     def _dp_needed_kwh_plugged(self) -> float:
         """Sum needed_kwh only over currently-plugged-in EVSEs.
 
@@ -3571,9 +4182,24 @@ class EnergyCoordinator(BaseCoordinator):
         except Exception:  # noqa: BLE001
             _bat_soc = None
 
+        # Fix-up B7 (Batch 5) — single per-tick truth. Compute the
+        # is_blind_hold value ONCE here and thread it into (a) the
+        # DPInputs shape below AND (b) the coord's snapshot slot for
+        # the guard path to consult during THIS same tick.
+        _tick_is_blind_hold = bool((not _env_ok) and _bat_soc is None)
+        # Defensive: extracted-namespace test FakeCoords bind
+        # `_dp_decision_tick` onto their own class without inheriting
+        # `_record_blind_hold_snapshot`. getattr fallback keeps the
+        # DP surface stable for those fixtures.
+        _rec = getattr(self, "_record_blind_hold_snapshot", None)
+        if callable(_rec):
+            try:
+                _rec(_tick_is_blind_hold)
+            except Exception:  # noqa: BLE001
+                pass
         _dp_inputs = _DPInputs(
             dp_enabled=True,
-            is_blind_hold=bool((not _env_ok) and _bat_soc is None),
+            is_blind_hold=_tick_is_blind_hold,  # B7
             force_charge_active=(
                 self._ev._force_charge_until is not None  # noqa: SLF001
                 and self._ev._force_charge_until > _now_dp  # noqa: SLF001
@@ -3604,6 +4230,34 @@ class EnergyCoordinator(BaseCoordinator):
             now_provider=dt_util.now,
             persister=_persist_dp,
         )
+
+        # D2 (blind-window guard cycle): persist ONE decision_log row per DP
+        # eval tick so the forensic trace the 2026-07-20 incident lacked is
+        # durably captured. Non-blocking (async_create_task) — the DP tick
+        # runs on the decision-cycle path. See PLANNING_ec_blind_window_evse_guard.md.
+        # Fix-up B6-low (Batch 5) — track the dp_eval fire-and-forget task
+        # handle so teardown can cancel it if in-flight. Sibling shape to
+        # `WriteVerifier.cancel_all` (Bug Class #38 — orphan async_call_later
+        # handles). We only need to retain the LAST scheduled task: DP eval
+        # runs once per decision cycle (~5 min), and the DAO is idempotent
+        # (INSERT), so an overlapping second task never occurs organically.
+        try:
+            _dp_eval_task = self.hass.async_create_task(
+                self._log_dp_eval_decision(
+                    prev_state=_prev_dp_state,
+                    now=_now_dp,
+                    inputs=_dp_inputs,
+                    period=period,
+                    ev_load_w=ev_load_w,
+                )
+            )
+            # Retain the handle. On the next tick this will be overwritten;
+            # the previous task is either done (task ref goes out of scope
+            # cleanly) or still pending (asyncio keeps it alive via the
+            # loop's ready queue). Teardown consults this slot.
+            self._dp_eval_last_task = _dp_eval_task
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("dp_eval log dispatch failed (swallowed)", exc_info=True)
 
         # Fresh entry to TRANSITIONED: actuate + arm must-start-by timer.
         if (
@@ -4098,6 +4752,11 @@ class EnergyCoordinator(BaseCoordinator):
                 or evse_id in self._ev._paused_by_grid_cap  # noqa: SLF001
                 or evse_id in self._ev._paused_by_load_shed  # noqa: SLF001
                 or evse_id in self._ev._paused_by_us  # noqa: SLF001
+                # D-HIGH-1 (Batch 2): blind-window guard peer. DP
+                # reversion turn_on must NOT fire while the guard still
+                # claims the EVSE — keep the DP claim sticky so a later
+                # tick can retry once the outage clears.
+                or evse_id in self._ev._paused_by_blind_window  # noqa: SLF001
             ):
                 _LOGGER.info(
                     "drain-precedence release: %s — peer owner still holds, "
@@ -4182,9 +4841,47 @@ class EnergyCoordinator(BaseCoordinator):
                 self._ev._paused_by_dp.discard(evse_id)  # noqa: SLF001
                 self._ev._release_pause_dispatch_owner(evse_id, "dp")  # noqa: SLF001
                 continue
+            # Fix-up D-HIGH-2 + D-MED-2 (Batch 4) — route through the
+            # explicit liveness-release helper (the enumeration contract's
+            # sole exempt site is now covered-via-helper). must-start-by
+            # IS the sanctioned INV-BW1 pressure signal → `has_pressure=True`
+            # → the helper always releases + writes a decision_log row
+            # with reason='dp_must_start_by'. Guard-covered (writes the
+            # row) OR pause-held (row records refusal) — no silent
+            # ensure-on ever leaves this site.
+            release_permitted = self.blind_window_liveness_release(
+                evse_id, reason="dp_must_start_by", has_pressure=True,
+            )
+            if not release_permitted:
+                # Defensive: with has_pressure=True the helper always
+                # returns True; a False here means an implementation
+                # regression. Keep the DP claim sticky rather than
+                # silently discarding, so a later tick can retry.
+                _LOGGER.warning(
+                    "drain-precedence must-start-by fire: %s — liveness "
+                    "helper refused release under has_pressure=True; "
+                    "keeping DP claim (invariant regression?)",
+                    evse_id,
+                )
+                continue
             state = self._ev._get_evse_state(evse_id)  # noqa: SLF001
             self._ev._paused_by_dp.discard(evse_id)  # noqa: SLF001
             self._ev._release_pause_dispatch_owner(evse_id, "dp")  # noqa: SLF001
+            # Fix-up D-HIGH-3 (Batch 6) — grant per-epoch ride authority
+            # + drop any blind-window pause claim BEFORE the dispatch.
+            # Ordering matters: the guard consults membership on the
+            # NEXT tick, so the grant must be visible before this tick
+            # returns. The must-start-by timer was already cancelled
+            # in `_cancel_dp_must_start_by_timer` above, so without the
+            # ride authority the next tick's pause leg would strand
+            # the car (D-HIGH-3).
+            try:
+                self._ev.grant_liveness_ride_authority(evse_id)  # noqa: SLF001
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "grant_liveness_ride_authority raised (swallowed)",
+                    exc_info=True,
+                )
             if not state.get("is_on"):
                 self.hass.async_create_task(
                     self.hass.services.async_call(
@@ -4805,6 +5502,10 @@ class EnergyCoordinator(BaseCoordinator):
                     except Exception:  # noqa: BLE001
                         _dp_state_val = None
                     _pre_dp_set = set(self._ev._paused_by_dp)  # noqa: SLF001
+                    try:
+                        self._ev.attach_coord(self)
+                    except Exception:  # noqa: BLE001
+                        pass
                     excess_actions = self._ev.determine_excess_solar_actions(
                         soc, remaining, period,
                         soc_threshold=excess_solar_soc_tick,
@@ -5449,6 +6150,13 @@ class EnergyCoordinator(BaseCoordinator):
         # invariant. Without this kwarg threaded live, the resume-side
         # guard added in the chokepoint refactor would be dead code.
         if self._ev_tou_enabled:
+            # Blind-window guard: attach coord ref so `determine_actions`
+            # can consult the guard predicates without a signature break
+            # (spies/mocks in older tests take (period, grid_charge_on=)).
+            try:
+                self._ev.attach_coord(self)
+            except Exception:  # noqa: BLE001
+                pass
             ev_actions = self._ev.determine_actions(
                 period, grid_charge_on=grid_charge_intent,
             )
@@ -6348,6 +7056,11 @@ class EnergyCoordinator(BaseCoordinator):
                             or evse_id in self._ev._paused_by_grid_cap
                             or evse_id in self._ev._paused_by_arbitrage
                             or evse_id in self._ev._paused_by_us
+                            # D-HIGH-1 (Batch 2): blind-window guard peer.
+                            # Load-shed release must NOT turn the EVSE on
+                            # while the guard still claims it (Envoy blind
+                            # + reserve unverifiable => blind ensure-on).
+                            or evse_id in self._ev._paused_by_blind_window
                         ):
                             _LOGGER.info(
                                 "Energy: Load shed release EV %s — deferring "
@@ -7558,6 +8271,17 @@ class EnergyCoordinator(BaseCoordinator):
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
                 "write_verifier.cancel_all raised (swallowed)", exc_info=True,
+            )
+        # Fix-up B6-low (Batch 5) — cancel a pending dp_eval log task if
+        # in-flight. Prevents a late DB write firing against a torn-down
+        # DB / hass instance.
+        try:
+            _dp_task = getattr(self, "_dp_eval_last_task", None)
+            if _dp_task is not None and not _dp_task.done():
+                _dp_task.cancel()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "dp_eval_last_task cancel raised (swallowed)", exc_info=True,
             )
         self._cancel_listeners()
         _LOGGER.info("Energy Coordinator stopped")

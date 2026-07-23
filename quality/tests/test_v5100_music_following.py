@@ -1112,7 +1112,7 @@ class TestReloadSuppressionAllowlist:
         allowlist_start = src.find("OPTIONS_RELOAD_SUPPRESS_KEYS")
         assert allowlist_start > 0
         # Grab up to a reasonable closing point.
-        # 2026-07-22: bumped 6000 -> 8000 after the fan/humidity toggle-symmetry
+        # 2026-07-22: bumped 6000 -> 8000 (fan/humidity toggle-symmetry AND blind-window guard cycles both grew the block)
         # cycle added CONF_FAN_CONTROL_ENABLED / CONF_HUMIDITY_FAN_CONTROL_ENABLED
         # aliases inside the CM import block, pushing _CONF_MF_NIGHT_SUPPRESS_MODE
         # past the old window. The window is just a text-search bound; extending

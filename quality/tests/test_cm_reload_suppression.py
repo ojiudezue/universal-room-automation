@@ -202,6 +202,8 @@ def _load_init_listener_helpers():
         "_CONF_ENERGY_EV_BATTERY_DRAIN_SOC":      "energy_ev_battery_drain_soc",
         "_CONF_ENERGY_FILL_PRIORITY_SOC":         "energy_fill_priority_soc",
         "_CONF_ENERGY_EXCESS_SOLAR_SOC":          "energy_excess_solar_soc",
+        # Blind-window guard cycle — D4 Emporia-mains backup export sensor.
+        "_CONF_ENERGY_MAINS_EXPORT_ENTITY":       "energy_mains_export_entity",
         # Part 2 — DPM hysteresis + egress + fan-interference hold + Routine + Bayesian
         "_CONF_DYNAMIC_PRESET_HYSTERESIS_F":      "dynamic_preset_hysteresis_f",
         "_CONF_HVAC_EGRESS_THRESHOLD_MIN":        "hvac_egress_threshold_min",

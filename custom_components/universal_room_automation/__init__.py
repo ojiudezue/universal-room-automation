@@ -1471,6 +1471,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             # prune wiring as findings/digest — else
                             # ``optimizer_shadow_samples`` grows unbounded.
                             ("optimizer_shadow_samples", "prune_optimizer_shadow_samples", {}),
+                            # Fix-up A-HIGH-1 (Batch 4): retention prune for
+                            # decision_log rows. `dp_eval` uses the module
+                            # const `CONF_DP_EVAL_LOG_RETENTION_DAYS` (90d);
+                            # the two blind-window row types share the same
+                            # retention today. Each decision_type gets its
+                            # own op so batching / logging is per-type.
+                            ("decision_log_dp_eval", "cleanup_decision_log", {"decision_type": "dp_eval", "retention_days": 90}),
+                            ("decision_log_blind_window_defer", "cleanup_decision_log", {"decision_type": "blind_window_defer", "retention_days": 90}),
+                            ("decision_log_blind_window_liveness_release", "cleanup_decision_log", {"decision_type": "blind_window_liveness_release", "retention_days": 90}),
                             # DB space-reclamation: bounded incremental_vacuum
                             # runs LAST so the prunes above have already freed
                             # pages for it to reclaim. No-ops cleanly until the
@@ -1591,6 +1600,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # v5.11.0 F-MED (D-MED-2 fix-up): mirror primary path so
                 # deferred-startup ALSO schedules the shadow-samples prune.
                 ("optimizer_shadow_samples", "prune_optimizer_shadow_samples", {}),
+                # Fix-up A-HIGH-1 (Batch 4) mirror: deferred-startup path
+                # also schedules the decision_log prunes.
+                ("decision_log_dp_eval", "cleanup_decision_log", {"decision_type": "dp_eval", "retention_days": 90}),
+                ("decision_log_blind_window_defer", "cleanup_decision_log", {"decision_type": "blind_window_defer", "retention_days": 90}),
+                ("decision_log_blind_window_liveness_release", "cleanup_decision_log", {"decision_type": "blind_window_liveness_release", "retention_days": 90}),
                 # DB space-reclamation fix-up HIGH-1: mirror the primary path
                 # so a deferred-startup (DB-init-race) boot ALSO schedules the
                 # bounded incremental_vacuum. Without this, the deferred branch
@@ -4472,6 +4486,8 @@ from .domain_coordinators.energy_const import (
     CONF_ENERGY_EV_BATTERY_DRAIN_SOC as _CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
     CONF_ENERGY_FILL_PRIORITY_SOC as _CONF_ENERGY_FILL_PRIORITY_SOC,
     CONF_ENERGY_EXCESS_SOLAR_SOC as _CONF_ENERGY_EXCESS_SOLAR_SOC,
+    # Blind-window guard cycle — D4 Emporia-mains backup export sensor.
+    CONF_ENERGY_MAINS_EXPORT_ENTITY as _CONF_ENERGY_MAINS_EXPORT_ENTITY,
     # Session B1 — EVSE Drain-Precedence CM options keys.
     CONF_ENERGY_DP_ENABLE as _CONF_ENERGY_DP_ENABLE,
     # v5.21.0 fix-up (SECOND OPERATOR ADDITION 2026-07-17) — D2 detection
@@ -4668,6 +4684,10 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     _CONF_ROUTINE_REGIME_BASELINE_WINDOW_DAYS,
     _CONF_ROUTINE_REGIME_RECENT_WINDOW_DAYS,
     _CONF_BAYESIAN_CELL_STALENESS_DAYS,
+    # Blind-window guard cycle — D4 Emporia-mains backup export sensor.
+    # `EnergyCoordinator.mains_export_active` reads `_entity_config` fresh
+    # every tick; no live-attr push needed.
+    _CONF_ENERGY_MAINS_EXPORT_ENTITY,
     # v4.7.34 — Optimization Coordinator (C-CRIT-1): the coordinator
     # reads `entry.options` fresh on every cycle, so no live-attr push
     # is needed.  These keys flow through `_apply_in_place` purely as a
@@ -4732,6 +4752,10 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     _CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
     _CONF_ENERGY_FILL_PRIORITY_SOC,
     _CONF_ENERGY_EXCESS_SOLAR_SOC,
+    # Blind-window guard cycle — D4 Emporia-mains backup export sensor.
+    # Read at every excess-solar tick via `EnergyCoordinator.mains_export_active`,
+    # so a change takes effect without a full CM reload.
+    _CONF_ENERGY_MAINS_EXPORT_ENTITY,
     _CONF_BAYESIAN_CELL_STALENESS_DAYS,
     # Part 2 D2 — Routine family
     _CONF_ROUTINE_EVENT_COOLDOWN_DAYS,
