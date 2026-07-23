@@ -108,7 +108,6 @@ from ..const import (
     NM_DEDUP_HIGH,
     NM_DEDUP_LOW,
     NM_DEDUP_MEDIUM,
-    NM_LIFE_SAFETY_HAZARDS,
     NM_OVERFLOW_QUEUE_MAX,
     NM_REPEAT_INTERVAL_LIFE_SAFETY,
     NM_REPEAT_INTERVAL_NON_LIFE_SAFETY,
@@ -129,6 +128,7 @@ from ..const import (
     NM_CHANNELS_KNOWN,
 )
 from .base import Severity
+from ._nm_cycle_a import is_life_safety_hazard
 from .signals import SIGNAL_NM_ALERT_STATE_CHANGED, SIGNAL_NM_ENTITIES_UPDATE
 
 _LOGGER = logging.getLogger(__name__)
@@ -361,6 +361,11 @@ class NotificationManager:
         # Hash of the legacy-shape inputs used to build the last
         # materialization — used by `_refresh_config` to detect drift.
         self._materialized_matrix_key: tuple | None = None
+        # NM Cycle C-2 fix-up (M-B1): bounded routing-decision ring used
+        # by the D4 audit card. Populated FROM `_emit_audit_row` (same
+        # decision data — no new DB writes, RAM only). Excluded from the
+        # recorder via `NMDiagnosticsSensor._unrecorded_attributes`.
+        self._routing_audit_log: deque[dict[str, Any]] = deque(maxlen=10)
 
     # =========================================================================
     # NM Cycle B B0: dry-run gate + write helper
@@ -660,6 +665,10 @@ class NotificationManager:
             "bucket_capacity": self._bucket_capacity,
             "bucket_refill_per_min": self._bucket_refill_per_min,
             "active_ack_registry_size": len(self._ack_registry),
+            # NM Cycle C-2 D4 (fix-up M-B1): bounded routing-decision ring
+            # for the audit card. `_unrecorded_attributes` on the sensor
+            # keeps this out of the recorder (per-tick churn otherwise).
+            "nm_routing_audit_recent": list(self._routing_audit_log),
         }
 
     @property
@@ -1111,7 +1120,8 @@ class NotificationManager:
         # NM Cycle B B4: boot-settle collapse (per (coord, hazard)) for the
         # first NM_BOOT_SETTLE_S after async_setup. Life-safety CRITICAL
         # never collapses — safety trumps quieting.
-        life_safety_hazard = str(hazard_type or "").lower() in NM_LIFE_SAFETY_HAZARDS
+        # NM Cycle C-2 D2: union helper — base frozenset ∪ operator extras.
+        life_safety_hazard = is_life_safety_hazard(self.hass, hazard_type)
         if not life_safety_hazard and self._boot_settle_should_suppress(
             coordinator_id, hazard_type,
         ):
@@ -1904,7 +1914,8 @@ class NotificationManager:
         hazard = ""
         if self._active_alert_data:
             hazard = str(self._active_alert_data.get("hazard_type") or "").lower()
-        if hazard in NM_LIFE_SAFETY_HAZARDS:
+        # NM Cycle C-2 D2: union helper — extras promoted to 30s cadence.
+        if is_life_safety_hazard(self.hass, hazard):
             return NM_REPEAT_INTERVAL_LIFE_SAFETY
         return NM_REPEAT_INTERVAL_NON_LIFE_SAFETY
 
@@ -1938,7 +1949,8 @@ class NotificationManager:
         persons = self._config.get(CONF_NM_PERSONS, [])
         _hz = data.get("hazard_type")
         _coord_id = data.get("coordinator_id", "unknown")
-        life_safety_hazard = str(_hz or "").lower() in NM_LIFE_SAFETY_HAZARDS
+        # NM Cycle C-2 D2: union helper — extras bypass repeat mute/DND.
+        life_safety_hazard = is_life_safety_hazard(self.hass, _hz)
         # Ensure materialized matrix is fresh for the legacy-fallback path.
         self._migrate_legacy_severity_to_matrix()
         _channel_gate = self._gate_channels_for_notify(
@@ -2681,9 +2693,10 @@ class NotificationManager:
         """
         if not self._channel_qualifies(channel, severity):
             return False
+        # NM Cycle C-2 D2: union helper — extras bypass token bucket.
         life_safety = (
             severity == Severity.CRITICAL
-            and str(hazard_type or "").lower() in NM_LIFE_SAFETY_HAZARDS
+            and is_life_safety_hazard(self.hass, hazard_type)
         )
         if not self._bucket_take(channel, life_safety):
             # Note: coordinator_id is unknown at this generic wrapper;
@@ -2714,9 +2727,10 @@ class NotificationManager:
         """
         if not self._channel_qualifies(channel, severity):
             return False
+        # NM Cycle C-2 D2: union helper — extras bypass token bucket.
         life_safety = (
             severity == Severity.CRITICAL
-            and str(hazard_type or "").lower() in NM_LIFE_SAFETY_HAZARDS
+            and is_life_safety_hazard(self.hass, hazard_type)
         )
         if not self._bucket_take(channel, life_safety):
             self._enqueue_overflow(channel, coordinator_id, hazard_type)
@@ -2806,9 +2820,10 @@ class NotificationManager:
                 # NOT burn tokens (ruling C-HIGH-2). Log a drop-would-
                 # block marker if the bucket is empty and non-life-safety
                 # — makes dry-run rows reflect real production behavior.
+                # NM Cycle C-2 D2: union helper — extras bypass dry-run bucket check.
                 life_safety = (
                     severity == Severity.CRITICAL
-                    and str(hazard_type or "").lower() in NM_LIFE_SAFETY_HAZARDS
+                    and is_life_safety_hazard(self.hass, hazard_type)
                 )
                 if not life_safety:
                     self._bucket_refill()
@@ -2963,7 +2978,8 @@ class NotificationManager:
         preserved for TTS/lights.
         """
         # 1. Safety floor — hard-coded, not a per-recipient knob.
-        if str(hazard_type or "").lower() in NM_LIFE_SAFETY_HAZARDS:
+        # NM Cycle C-2 D2: union helper — extras also bypass DND.
+        if is_life_safety_hazard(self.hass, hazard_type):
             return True
         # 2. Per-recipient set.
         person_cfg = self._get_person_cfg(recipient_id)
@@ -3013,7 +3029,8 @@ class NotificationManager:
         # explicit hazard-override / matrix still applies (operator
         # intent is authoritative routing, not a snooze). This mirrors
         # `_recipient_bypasses_dnd`'s safety floor.
-        life_safety = str(hazard_type or "").lower() in NM_LIFE_SAFETY_HAZARDS
+        # NM Cycle C-2 D2: union helper — extras bypass mute in router.
+        life_safety = is_life_safety_hazard(self.hass, hazard_type)
 
         # D. Legacy fallback — the byte-identical oracle path. For legacy
         # (no matrix/override) *materialized* matrix lookup: prefer the
@@ -3235,7 +3252,33 @@ class NotificationManager:
 
         Write-volume safe: called ONLY on routing decisions that emit or
         are dry-run-logged. Idle ticks emit zero rows.
+
+        NM Cycle C-2 fix-up (M-B1): also append to the in-RAM
+        `_routing_audit_log` ring (maxlen=10) that feeds the D4 audit
+        card via the `nm_routing_audit_recent` attribute on
+        `sensor.ura_notification_manager_notification_diagnostics`. This
+        is a RAM-only side effect — no additional DB writes.
         """
+        try:
+            self._routing_audit_log.append({
+                "at": dt_util.utcnow().isoformat(),
+                "coordinator_id": coordinator_id,
+                "severity": (
+                    severity.name if isinstance(severity, Severity) else str(severity)
+                ),
+                "hazard": hazard_type,
+                "location": location,
+                "person": recipient_id,
+                "channel": channel,
+                "route_reason": route_reason,
+                "dnd_bypass_applied": bool(dnd_bypass_applied),
+                "bucket_outcome": bucket_outcome,
+                "matrix_branch": matrix_branch,
+                "delivered": int(delivered),
+                "dry_run": int(dry_run),
+            })
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("NM audit ring append failed (swallowed)", exc_info=True)
         try:
             database = self.hass.data.get(DOMAIN, {}).get("database")
             if database is None:

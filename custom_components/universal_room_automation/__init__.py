@@ -4566,6 +4566,10 @@ from .const import (
     CONF_NM_PERSON_HAZARD_OVERRIDES as _CONF_NM_PERSON_HAZARD_OVERRIDES,
     CONF_NM_PERSON_DND_BYPASS_SEVERITIES as _CONF_NM_PERSON_DND_BYPASS_SEVERITIES,
     CONF_NM_MUTE_DEFAULT_DURATION_MINUTES as _CONF_NM_MUTE_DEFAULT_DURATION_MINUTES,
+    # NM Cycle C-2 (2026-07-22, D2) — extras union knob. Consumed via
+    # `is_life_safety_hazard(hass, ...)` which reads fresh via
+    # `nm_cycle_a_knob` (cache flushed by CM options-update listener).
+    CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS as _CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS,
 )
 
 # NM Cycle C — central set used to extend BOTH `_NO_LIVE_ATTR_KEYS` and
@@ -4576,6 +4580,8 @@ _NM_C_KEYS: frozenset[str] = frozenset({
     _CONF_NM_PERSON_HAZARD_OVERRIDES,
     _CONF_NM_PERSON_DND_BYPASS_SEVERITIES,
     _CONF_NM_MUTE_DEFAULT_DURATION_MINUTES,
+    # NM Cycle C-2 (2026-07-22, D2) — additive-only life-safety extras.
+    _CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS,
 })
 
 # NM Cycle A-2 — the 13 CONF keys (12 Cycle-A + 1 optimizer allowlist)
