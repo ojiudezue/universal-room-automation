@@ -41,15 +41,19 @@ Combined tree: 7486 passed; 36 failed + 14 errors = exact pre-existing
 env-drift baseline. Cross-cycle compositions verified at merge: guard ×
 fill-priority (142/142), suppress-set count reconciled (82+1+1=83).
 
-## Live Validation (prospective — write back observed results post-restart)
+## Live Validation — Validated 2026-07-23 (restart, boot 07:54 CDT)
 
-| # | Criterion | How to check |
-|---|---|---|
-| L1 | Clean boot; house state + EC resolve; zero URA ERRORs | logs + sensors |
-| L2 | Guard telemetry: dp_eval rows appear (~12/hr); retention prune registered | decision_log query |
-| L3 | ORGANIC (probe: ~2-3 chances/day): next >2-min Envoy blip → guard engages, blind_window_defer rows, no EVSE start in-window; §2.5a watch note applies if it flaps on healthy telemetry | decision_log + logs |
-| L4 | `mains_vue_*` unit_of_measurement ∈ {W, kW} allowlist | entity attributes |
-| L5 | LKG snapshot survives restart (soc_resolution lkg fields present post-boot) | battery-strategy attrs |
-| L6 | C-2: routing options step reachable; extras selector offers env hazards; NM diagnostics sensor carries `nm_routing_audit_recent` | UI + attrs |
-| L7 | Fill-priority ORGANIC: next below-80% daylight off_peak morning with a car plugged in → hold until SOC≥80 (tomorrow morning qualifies if SOC<80 at sunrise) | recorder + pause_reason |
-| L8 | Toggle symmetry: room fan switch toggle → no room reload (sibling last_changed invariant) | operator-exercised |
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | Clean boot | PASS | Zero URA ERROR lines post-boot; house state `home_day` by 07:56; EC `self_consumption` by 07:58 (SOC 39, all three resolver tiers agreeing at 0.0pp — wired-Envoy repoint delivering fresh cloud at 28.5s age). |
+| L2 | Guard telemetry | PASS | 2 `dp_eval` rows in decision_log within minutes of boot (~1/tick as designed); prune registered on nightly cadence (in-suite anchored). |
+| L3 | Guard organic (Envoy blip) | PENDING-ORGANIC | ~2-3 chances/day per probe. §2.5a watch note stands: flapping-on-healthy = freshness-gate suspect → backout sequence, never revert. |
+| L4 | D4 witness units | PASS-with-correction | Power variants carry W (`mainw_vue_balance_power_minute_average` unit=W ✓, transiently unavailable — Emporia blip). NOTE: the `*_energy_today` variants are kWh ENERGY sensors — NOT valid witness candidates; when enabling D4, wire a *power* sensor. Config ships unset (feature dormant). |
+| L5 | LKG fields post-boot | PASS | `soc_resolution` carries lkg_soc=39/lkg_age=0 live; restart round-trip proven in-suite. |
+| L6 | C-2 surfaces | PASS | `nm_routing_audit_recent: []` present on the diagnostics sensor (empty = observe mode, correct); extras selector + routing step in-suite anchored; UI walkthrough at operator's leisure. |
+| L7 | Fill-priority daylight hold | **PASS — ORGANIC, FIRST QUALIFYING MORNING** | 07:59:55 (minutes after boot, sun up, SOC 39<80, off_peak): all four chargers/plugs paused — `paused_by_fill_priority: [garage_a, garage_b, 2×smartplug]`, `pause_reason_human: "holding for battery fill (target 80%, solar healthy)"`. The exact behavior the 2026-07-22 trace found missing, restored and observed live. |
+| L8 | Toggle symmetry no-reload | PENDING-OPERATOR | Toggle any room fan/humidity switch; sibling last_changed invariant. |
+
+Deploy-time manual follow-ups still owed: `scripts/rename_nm_entities.py`
+(HA STOPPED required — schedule at will) and the NM audit card via MCP
+once routing goes live (card renders empty rows until notifications flow).
