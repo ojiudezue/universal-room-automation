@@ -62,6 +62,8 @@ def _driver_for(row: dict):
     """Map a golden row back to the generator function that produced it."""
     event = row["event"]
     tier = row["tier"]
+    if event == "merged_get_status":
+        return gen._run_merged_status
     if event.startswith("prune_removed"):
         return gen._run_ev_prune if tier == "evse" else gen._run_plug_prune
     if event == "stronger_peer_holds":
@@ -110,12 +112,19 @@ def test_golden_byte_identical_replay(golden_payload):
         for idx, expected in enumerate(rows):
             tier = expected["tier"]
             event = expected["event"]
-            class_seed = _rebuild_class_seed(expected["class"], tier)
-            driver = _driver_for(expected)
-
-            if event.startswith("prune_removed") or event == "stronger_peer_holds":
+            if event == "merged_get_status":
+                ev_cls = _rebuild_class_seed(expected["ev_class"], "evse")
+                plug_cls = _rebuild_class_seed(expected["plug_class"], "plug")
+                observed = gen._run_merged_status(
+                    ev_cls, plug_cls, expected["tou"], mp,
+                )
+            elif event.startswith("prune_removed") or event == "stronger_peer_holds":
+                class_seed = _rebuild_class_seed(expected["class"], tier)
+                driver = _driver_for(expected)
                 observed = driver(class_seed, mp)
             else:
+                class_seed = _rebuild_class_seed(expected["class"], tier)
+                driver = _driver_for(expected)
                 observed = driver(
                     class_seed,
                     expected["tou"],

@@ -97,7 +97,18 @@ bootstrap_energy_imports()
 # ---------------------------------------------------------------------------
 PINNED_UTC = datetime(2026, 7, 23, 12, 0, 0, tzinfo=timezone.utc)
 PINNED_MONO = 1_000_000.0
-GOLDEN_SCHEMA_VERSION = 1
+GOLDEN_SCHEMA_VERSION = 2
+
+# v2 extension (phase 1b, 2026-07-23) — merged EV+plug get_status coverage.
+# Closes anomaly #3 from the phase-1 report: `EVChargerController.get_status`
+# merges plug-tier `paused_by_energy` / `paused_by_battery_drain` /
+# `paused_by_fill_priority` lists into its own returns when the caller
+# passes `plug_status=SmartPlugController.get_status()` (energy_pool.py
+# :2456-2470). This shared-keyspace surface is what dashboards + the
+# EV charging-status sensor read; phase 2's registry must preserve it
+# byte-identically. v2 adds a merged-status sweep in addition to the
+# v1 standalone captures — v1 rows are re-emitted unchanged.
+MERGED_TOU_PERIODS = ("off_peak", "mid_peak", "peak")
 
 
 def _pin_time(monkeypatch_ctx) -> None:
@@ -628,6 +639,65 @@ def _run_plug_prune(class_seed: dict[str, Any], monkeypatch_ctx) -> dict[str, An
 # ---------------------------------------------------------------------------
 # Peer-holds sweep — one row per (class, evse_id)
 # ---------------------------------------------------------------------------
+def _run_merged_status(
+    ev_class_seed: dict[str, Any],
+    plug_class_seed: dict[str, Any],
+    tou: str,
+    monkeypatch_ctx,
+) -> dict[str, Any]:
+    """v2 (phase 1b): capture EV.get_status(plug_status=plug.get_status()).
+
+    Exercises the plug-status merge at energy_pool.py:2456 where plug-tier
+    paused_by_energy / battery_drain / fill_priority ride into the EV's
+    surfaced totals, plus per-plug entries land in the top-level status
+    dict and pause_reason_human keyspace becomes shared across tiers.
+    """
+    fake_states = {f"switch.{eid}": _FakeState("off") for eid in EVSE_IDS}
+    fake_states.update({pid: _FakeState("off") for pid in PLUG_IDS})
+    hass = _FakeHass(fake_states)
+    ev = _make_ev_controller(hass, ev_class_seed)
+    plug = _make_plug_controller(hass, plug_class_seed)
+    _pin_time(monkeypatch_ctx)
+
+    plug_status = plug.get_status(fill_priority_target_soc=55)
+    ev_status = ev.get_status(
+        fill_priority_target_soc=55, plug_status=plug_status,
+    )
+    # Merged slice: focus on the fields the merge actually touches
+    # (2456-2470) + the shared pause_reason_human dict + per-plug
+    # entries landed at the top level of status.
+    merged_slice = {
+        "paused_by_energy": sorted(ev_status.get("paused_by_energy", [])),
+        "paused_by_battery_drain": sorted(
+            ev_status.get("paused_by_battery_drain", []),
+        ),
+        "paused_by_fill_priority": sorted(
+            ev_status.get("paused_by_fill_priority", []),
+        ),
+        "pause_reason_human": ev_status.get("pause_reason_human", {}),
+        "plug_ids_in_status": sorted(
+            k for k in ev_status if k in set(PLUG_IDS)
+        ),
+        "plug_energy_status_per_id": {
+            k: ev_status[k].get("energy_status")
+            for k in ev_status
+            if k in set(PLUG_IDS) and isinstance(ev_status[k], dict)
+        },
+        "evse_config_keys": sorted(ev_status.get("evse_config", {}).keys()),
+        "pause_dispatch_state_keys": sorted(
+            ev_status.get("pause_dispatch_state", {}).keys(),
+        ),
+    }
+    return {
+        "tier": "merged",
+        "ev_class": ev_class_seed["__name__"],
+        "plug_class": plug_class_seed["__name__"],
+        "tou": tou,
+        "event": "merged_get_status",
+        "merged_slice": merged_slice,
+    }
+
+
 def _run_ev_peer_holds(class_seed: dict[str, Any], monkeypatch_ctx) -> dict[str, Any]:
     fake_states = {f"switch.{eid}": _FakeState("off") for eid in EVSE_IDS}
     hass = _FakeHass(fake_states)
@@ -695,6 +765,13 @@ def generate(output_path: Path) -> dict[str, Any]:
                         rows.append(_run_plug_tuple(cls, tou, soc, event, mp))
             rows.append(_run_plug_prune(cls, mp))
 
+        # v2 (phase 1b): merged EV+plug get_status sweep — closes
+        # anomaly #3 (plug_status merge coverage).
+        for ev_cls in ev_classes:
+            for plug_cls in plug_classes:
+                for tou in MERGED_TOU_PERIODS:
+                    rows.append(_run_merged_status(ev_cls, plug_cls, tou, mp))
+
     try:
         commit = subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=Path(__file__).resolve().parent.parent.parent,
@@ -713,6 +790,15 @@ def generate(output_path: Path) -> dict[str, Any]:
         "soc_buckets": list(SOC_BUCKETS),
         "tick_events": list(TICK_EVENTS),
         "row_count": len(rows),
+        "v2_extension_notes": {
+            "phase": "1b",
+            "coverage_gap_closed": (
+                "anomaly #3 from phase-1 report — plug_status merge path "
+                "at energy_pool.py:2456 not previously exercised"
+            ),
+            "merged_row_count": len(ev_classes) * len(plug_classes) * len(MERGED_TOU_PERIODS),
+            "merged_tou_periods": list(MERGED_TOU_PERIODS),
+        },
         "reductions_from_plan_s4a": {
             "tick_family_events_captured": list(TICK_EVENTS),
             "external_mutation_events_seeded_via_owner_class": True,
