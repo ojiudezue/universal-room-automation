@@ -1481,18 +1481,32 @@ class EVChargerController:
                     except Exception:  # noqa: BLE001
                         s_env = None
                     if s_env is not None:
-                        _slo, _shi, _stier = s_env
-                        # Only `fresh` / `lkg_bounded` are discriminating
-                        # (see block comment above). `lkg_stale` collapses
-                        # to full nameplate, no signal.
-                        if _stier in ("fresh", "lkg_bounded") and _shi >= 500.0:
+                        # Fix-up A-HIGH-1: envelope now returns a 4-tuple
+                        # (lo, hi, tier, stamped). The admit MUST gate on
+                        # the STAMPED LKG value (real last production),
+                        # NOT `hi` — `hi` widens toward nameplate with age
+                        # regardless of what the array actually did, and
+                        # would admit even off a stamped 0 W dusk reading.
+                        # Envelope tier still gates freshness (fresh /
+                        # lkg_bounded only; lkg_stale = no signal).
+                        _slo, _shi, _stier, _sstamped = s_env
+                        from .energy_const import (
+                            SOLAR_ENVELOPE_ADMIT_FLOOR_W,
+                        )
+                        if (
+                            _stier in ("fresh", "lkg_bounded")
+                            and _sstamped >= float(
+                                SOLAR_ENVELOPE_ADMIT_FLOOR_W
+                            )
+                        ):
                             solar_env_admits = True
                             _LOGGER.info(
                                 "excess_solar CONTINUE admitted under "
-                                "solar envelope tier=%s solar_hi=%.0f W "
-                                "(mains-export witness unavailable; SOC "
-                                "envelope gate still enforced)",
-                                _stier, _shi,
+                                "solar envelope tier=%s stamped=%.0f W "
+                                "hi=%.0f W (mains-export witness "
+                                "unavailable; SOC envelope gate still "
+                                "enforced)",
+                                _stier, _sstamped, _shi,
                             )
                 continue_permission = (
                     (exp is True) or solar_env_admits

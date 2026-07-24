@@ -829,6 +829,14 @@ CONF_ENERGY_SOLAR_NAMEPLATE_W: Final = "energy_solar_nameplate_w"
 # (not the highest observed clip). Under-sizing here would falsely admit
 # excess-solar; over-sizing widens the envelope but is caught downstream
 # by the SOC-lower guard and the mains-export witness.
+#
+# NO KILL SWITCH: the feature is always-on whenever Envoy is blind and a
+# recent LKG exists. Setting the nameplate low does NOT disable the
+# envelope — the config-flow selector clamps to min=1000 W (see
+# config_flow.py NumberSelectorConfig for CONF_ENERGY_SOLAR_NAMEPLATE_W),
+# and if the field is unwired on an older entry the battery method falls
+# back to this default. To gate admits behind a real production floor
+# see SOLAR_ENVELOPE_ADMIT_FLOOR_W (rung-1 safety-adjacent const).
 DEFAULT_ENERGY_SOLAR_NAMEPLATE_W: Final[int] = 19400
 
 # EV Battery Drain Protection (v4.2.17)
@@ -1566,12 +1574,18 @@ def soc_bounds(
 # ---------------------------------------------------------------------
 # Rung-1 (module const). Upper-decay time constant: how long the envelope's
 # upper bound stays anchored on the LKG value before widening toward the
-# nameplate. Chosen to match the SOC envelope's `lkg_bounded` crossover
-# (600 s) at the caller layer, but the upper-decay physics itself is a
-# linear widening from LKG → nameplate over this many seconds. Beyond
-# `hard_max_age_s` the envelope is expired (nameplate is useless as a
-# freshness signal).
+# nameplate. 300 s = 5 min: linear widening from LKG → nameplate over this
+# window. Beyond `hard_max_age_s` (below) the envelope is expired
+# (nameplate is useless as a freshness signal).
 SOLAR_LKG_UPPER_DECAY_S: Final[int] = 300
+# Rung-1 (module const, safety-adjacent). Absolute lower-bound of stamped
+# LKG production required before the excess-solar CONTINUE gate admits.
+# Fix-up A-HIGH-1: the admit MUST be evidenced by a real live production
+# reading (the STAMPED LKG value), NOT by the envelope's upper bound —
+# the upper widens toward nameplate purely with age and would admit even
+# off a stamped 0 W dusk reading. 500 W is well below any EVSE draw
+# (~3-4 kW) but proves the array was recently doing real work.
+SOLAR_ENVELOPE_ADMIT_FLOOR_W: Final[int] = 500
 # Rung-1. Absolute upper age for the solar envelope. Solar can invert
 # entirely across a passing cloud front — after 15 min the LKG carries no
 # defensible information about now.

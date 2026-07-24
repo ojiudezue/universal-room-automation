@@ -5,15 +5,18 @@ Covers:
     always; hi widens linearly from LKG toward nameplate; clamped at
     nameplate; expired past hard cap).
   * Tier crossovers (fresh / lkg_bounded / lkg_stale / expired).
-  * ``BatteryStrategy.solar_production_w_envelope`` returns None when live
-    solar is present (envelope is unnecessary noise) and when LKG age is
-    past the hard cap (falls back to pre-D2 binary-None).
-  * LKG stamp on healthy live read; snapshot round-trip.
   * Mutation-anchor witness for the excess-solar CONTINUE admit path in
     ``EnergyPool.determine_excess_solar_actions``: neutering
     ``EnergyCoordinator.solar_production_w_envelope`` (returning None)
     MUST fail a named test. This anchors the new D2 decision path to a
     single production-source site.
+  * Fix-up A-HIGH-1: admit gate is anchored on the STAMPED LKG value
+    (not the age-widened upper bound); boundary tests at 499/500 W.
+  * Fix-up C-HIGH-1(b): witness precedence — exp is False (mains-export
+    wired, house NOT exporting) beats a bounded solar envelope.
+  * Fix-up C-MED-2: real ``BatteryStrategy.solar_production_w_envelope``
+    + ``get/restore_solar_lkg_snapshot`` round-trip (unmocked battery
+    path — kills the restore-noop mutation).
 """
 from __future__ import annotations
 
@@ -200,7 +203,9 @@ def test_admit_when_exp_none_and_solar_envelope_bounded():
     """NEW D2 path: exp=None but solar envelope tier=lkg_bounded → admit."""
     pool, coord = _make_fake_coord_and_pool(
         exp_return=None,
-        envelope_return=(0.0, 5000.0, "lkg_bounded"),
+        # Fix-up A-HIGH-1: envelope now returns 4-tuple; stamped=5000
+        # comfortably above SOLAR_ENVELOPE_ADMIT_FLOOR_W (500).
+        envelope_return=(0.0, 5000.0, "lkg_bounded", 5000.0),
     )
     actions = pool.determine_excess_solar_actions(
         soc=None,
@@ -254,7 +259,7 @@ def test_stale_tier_envelope_does_not_admit():
     """`lkg_stale` widened to full nameplate = no discriminating power."""
     pool, coord = _make_fake_coord_and_pool(
         exp_return=None,
-        envelope_return=(0.0, _NAMEPLATE, "lkg_stale"),
+        envelope_return=(0.0, _NAMEPLATE, "lkg_stale", 8000.0),
     )
     actions = pool.determine_excess_solar_actions(
         soc=None,
@@ -269,6 +274,68 @@ def test_stale_tier_envelope_does_not_admit():
     assert turn_offs, (
         "lkg_stale tier must NOT admit CONTINUE (nameplate-wide envelope "
         "carries no signal); expected DROP leg. Got: %r" % actions
+    )
+
+
+def test_admit_gates_on_stamped_lkg_boundary_499_drops_500_admits():
+    """Fix-up A-HIGH-1: floor is SOLAR_ENVELOPE_ADMIT_FLOOR_W (500 W).
+
+    Stamped 499 → DROP even though tier is `lkg_bounded` (proves the
+    gate is NOT on the age-widened `hi`, which would be far above 500).
+    Stamped 500 → ADMIT (boundary is inclusive).
+    """
+    # Below floor: DROP. `hi` is huge (widened) but stamped is 499.
+    pool, coord = _make_fake_coord_and_pool(
+        exp_return=None,
+        envelope_return=(0.0, 15000.0, "lkg_bounded", 499.0),
+    )
+    actions = pool.determine_excess_solar_actions(
+        soc=None, remaining_forecast_kwh=10.0, tou_period="off_peak",
+        soc_threshold=95, kwh_threshold=5.0, dp_carrier_state="hold_only",
+        coord=coord,
+    )
+    turn_offs = [a for a in actions if a.get("service") == "switch.turn_off"]
+    assert turn_offs, (
+        "stamped=499 W (< SOLAR_ENVELOPE_ADMIT_FLOOR_W=500) must DROP "
+        "regardless of widened `hi`; got: %r" % actions
+    )
+
+    # At floor: ADMIT.
+    pool, coord = _make_fake_coord_and_pool(
+        exp_return=None,
+        envelope_return=(0.0, 15000.0, "lkg_bounded", 500.0),
+    )
+    actions = pool.determine_excess_solar_actions(
+        soc=None, remaining_forecast_kwh=10.0, tou_period="off_peak",
+        soc_threshold=95, kwh_threshold=5.0, dp_carrier_state="hold_only",
+        coord=coord,
+    )
+    turn_offs = [a for a in actions if a.get("service") == "switch.turn_off"]
+    assert turn_offs == [], (
+        "stamped=500 W (== floor) must ADMIT; got: %r" % actions
+    )
+
+
+def test_exp_false_witness_wins_over_bounded_envelope():
+    """Fix-up C-HIGH-1(b): mains-export wired + house NOT exporting = DROP.
+
+    Anchors the `if exp is None` gate — the live no-export witness MUST
+    win over any bounded solar envelope. If a future refactor removes
+    the `exp is None` guard, this test breaks.
+    """
+    pool, coord = _make_fake_coord_and_pool(
+        exp_return=False,  # wired, not exporting
+        envelope_return=(0.0, 8000.0, "lkg_bounded", 5000.0),
+    )
+    actions = pool.determine_excess_solar_actions(
+        soc=None, remaining_forecast_kwh=10.0, tou_period="off_peak",
+        soc_threshold=95, kwh_threshold=5.0, dp_carrier_state="hold_only",
+        coord=coord,
+    )
+    turn_offs = [a for a in actions if a.get("service") == "switch.turn_off"]
+    assert turn_offs, (
+        "exp=False (wired witness = NOT exporting) MUST DROP regardless "
+        "of solar envelope admits; got: %r" % actions
     )
 
 
@@ -292,3 +359,72 @@ def test_exp_true_admit_preserved_when_envelope_unavailable():
         "exp=True must preserve the pre-D2 CONTINUE-permission; got: %r"
         % actions
     )
+
+
+# ---------------------------------------------------------------------
+# Fix-up C-MED-2: real BatteryStrategy round-trip
+# ---------------------------------------------------------------------
+
+def test_battery_solar_envelope_and_snapshot_round_trip_unmocked():
+    """Real ``BatteryStrategy`` method + get/restore snapshot round-trip.
+
+    Kills the restore-noop mutation and closes the mocked-seam gap that
+    Reviewer C called out (previous coverage patched the coord seam
+    with a MagicMock; no test drove the actual battery code path).
+    """
+    from datetime import datetime, timedelta, timezone as _tz
+    from homeassistant.util import dt as dt_util
+    from custom_components.universal_room_automation.domain_coordinators import (
+        energy_battery as eb,
+    )
+    # The mock HA in this test env returns a NAIVE utcnow; the production
+    # code returns tz-aware. Restore-from-blob decodes an aware datetime,
+    # so we need matched-aware clocks for the age subtraction to succeed.
+    _orig_utcnow = dt_util.utcnow
+    dt_util.utcnow = lambda: datetime.now(_tz.utc)  # type: ignore[assignment]
+    bs = eb.BatteryStrategy.__new__(eb.BatteryStrategy)
+    # Minimum state required by the envelope + snapshot methods.
+    bs._solar_prod_lkg_w = None
+    bs._solar_prod_lkg_at = None
+    bs._solar_prod_source_last = "envoy"
+    bs._solar_nameplate_fallback_logged = False
+    # Force the "live is None" path in the envelope method.
+    bs._read_power_w = lambda _k: None  # type: ignore[attr-defined]
+
+    # 1) No LKG yet → envelope is None.
+    assert bs.solar_production_w_envelope(nameplate_w=_NAMEPLATE) is None
+    # Snapshot is None until stamped.
+    assert bs.get_solar_lkg_snapshot() is None
+
+    # 2) Stamp an LKG value and confirm envelope returns 4-tuple with
+    # stamped == value.
+    at = datetime.now(_tz.utc) - timedelta(seconds=30)
+    bs._solar_prod_lkg_w = 6000.0
+    bs._solar_prod_lkg_at = at
+    env = bs.solar_production_w_envelope(nameplate_w=_NAMEPLATE)
+    assert env is not None
+    assert len(env) == 4, "envelope must return 4-tuple (lo, hi, tier, stamped)"
+    lo, hi, tier, stamped = env
+    assert lo == 0.0
+    assert stamped == pytest.approx(6000.0)
+    assert tier in ("fresh", "lkg_bounded")
+
+    # 3) Snapshot round-trip on a FRESH strategy (restore-noop kill).
+    snap = bs.get_solar_lkg_snapshot()
+    assert snap is not None and "value" in snap and "at_iso" in snap
+
+    bs2 = eb.BatteryStrategy.__new__(eb.BatteryStrategy)
+    bs2._solar_prod_lkg_w = None
+    bs2._solar_prod_lkg_at = None
+    bs2._solar_prod_source_last = "envoy"
+    bs2._solar_nameplate_fallback_logged = False
+    bs2._read_power_w = lambda _k: None  # type: ignore[attr-defined]
+    bs2.restore_solar_lkg_snapshot(snap)
+    # After restore, the LKG must be repopulated (mutation: if restore
+    # is a no-op, these stay None and the assertion fails).
+    assert bs2._solar_prod_lkg_w == pytest.approx(6000.0)
+    assert bs2._solar_prod_lkg_at is not None
+    env2 = bs2.solar_production_w_envelope(nameplate_w=_NAMEPLATE)
+    dt_util.utcnow = _orig_utcnow  # type: ignore[assignment]
+    assert env2 is not None
+    assert env2[3] == pytest.approx(6000.0)

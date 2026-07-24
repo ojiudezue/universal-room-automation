@@ -3424,7 +3424,7 @@ class EnergyCoordinator(BaseCoordinator):
 
     def solar_production_w_envelope(
         self,
-    ) -> "tuple[float, float, str] | None":
+    ) -> "tuple[float, float, str, float] | None":
         """Passthrough to BatteryStrategy.solar_production_w_envelope.
 
         LKG wave 1 D2: threads the operator's configured array nameplate

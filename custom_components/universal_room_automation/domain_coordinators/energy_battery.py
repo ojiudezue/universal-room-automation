@@ -407,6 +407,9 @@ class BatteryStrategy:
         self._solar_prod_lkg_w: float | None = None
         self._solar_prod_lkg_at: Any = None
         self._solar_prod_source_last: str = "envoy"
+        # Fix-up A-LOW-1: explicit init so the one-shot INFO log latch is
+        # not resurrected by RestoreEntity / repeat construction paths.
+        self._solar_nameplate_fallback_logged: bool = False
         # v5.20.0 D2 — read-side telemetry divergence + tier-disagreement +
         # cloud settings-lag. State machine variables: dwell start-times
         # (None = idle), active-alert booleans, last observed values, and
@@ -2212,11 +2215,17 @@ class BatteryStrategy:
     def solar_production_w_envelope(
         self,
         nameplate_w: float | None = None,
-    ) -> "tuple[float, float, str] | None":
-        """Return ``(lo, hi, tier)`` for solar production or None.
+    ) -> "tuple[float, float, str, float] | None":
+        """Return ``(lo, hi, tier, stamped)`` for solar production or None.
 
         LKG wave 1 D2: asymmetric upper envelope over the last known
-        live-solar reading. Returns None when:
+        live-solar reading. The 4th element ``stamped`` is the raw LKG
+        value (last real Envoy reading, not widened) — callers making
+        an ADMIT decision MUST gate on this, NOT on ``hi`` (fix-up
+        A-HIGH-1: ``hi`` widens toward nameplate purely with age and
+        would admit even off a stamped 0 W dusk reading).
+
+        Returns None when:
           * live solar is currently available (envelope is unnecessary
             noise — consumer should read `solar_production_w` directly);
           * no LKG has been stamped yet (fresh boot before any healthy
@@ -2228,11 +2237,13 @@ class BatteryStrategy:
         ``nameplate_w`` — physical array max in watts, from the
         operator's config-flow field ``CONF_ENERGY_SOLAR_NAMEPLATE_W``
         (rung 2). If the caller passes None we fall back to
-        ``DEFAULT_ENERGY_SOLAR_NAMEPLATE_W`` (19400 W = 19.4 kW,
-        operator's installed array as of 2026-07-23) so the envelope
-        stays useful even if the config-flow field is unwired on an
-        older config entry. A one-shot INFO log surfaces the fallback
-        so the operator can see it in home-assistant.log.
+        ``DEFAULT_ENERGY_SOLAR_NAMEPLATE_W`` (19400 W). A one-shot
+        INFO log surfaces the fallback so the operator can see it —
+        this only fires when the field is GENUINELY unset (an older
+        config entry with no wired nameplate); a passthrough that
+        threads the operator-configured value never triggers it. There
+        is NO kill switch: the envelope is always-on when Envoy is
+        blind and a recent LKG exists (see nameplate CONF comment).
         """
         from homeassistant.util import dt as dt_util
         from .energy_const import (
@@ -2286,7 +2297,9 @@ class BatteryStrategy:
             return None
         if tier == "expired":
             return None
-        return (lo, hi, tier)
+        # Fix-up A-HIGH-1: expose the stamped LKG value so admit gates
+        # evidence on real production, not the age-widened upper bound.
+        return (lo, hi, tier, float(self._solar_prod_lkg_w))
 
     def get_solar_lkg_snapshot(self) -> "dict[str, Any] | None":
         """Return solar LKG {value, at_iso} blob for EC persistence.
@@ -5923,8 +5936,22 @@ class BatteryStrategy:
         # symmetric with the SOC envelope attrs added in v5.28.0). None
         # when live-present or LKG expired; the operator can distinguish
         # "live" from "envelope-bounded" from the tier value.
+        # Fix-up A-MED-2: route through the coordinator passthrough when
+        # available so the emitted attrs honor the operator-configured
+        # nameplate (CONF_ENERGY_SOLAR_NAMEPLATE_W) — otherwise the attr
+        # path calls the battery method with nameplate=None, always
+        # falling back to 19400 W AND firing the "unwired" one-shot log
+        # even when the field IS configured. Divergent from the decision
+        # envelope (which the pool reads via the passthrough).
+        _s_env = None
         try:
-            _s_env = self.solar_production_w_envelope()
+            _coord = getattr(self, "_coord", None)
+            if _coord is not None and hasattr(
+                _coord, "solar_production_w_envelope"
+            ):
+                _s_env = _coord.solar_production_w_envelope()
+            else:
+                _s_env = self.solar_production_w_envelope()
         except Exception:  # noqa: BLE001
             _s_env = None
         return {
