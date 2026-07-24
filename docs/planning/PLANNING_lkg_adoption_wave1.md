@@ -716,3 +716,387 @@ follow the existing `save_energy_state` cadence.
   (Tier-3 framing C) that flips the tier branch and confirms a
   specific test fails. Without those anchors, tier semantics are
   effectively untested at the consumer boundary.
+
+---
+## D3 build-detail (pre-build)
+
+Sharpened pre-build spec for the outdoor-temp envelope adoption. D3 is
+**Tier 3** (cross-coordinator: WPM → HVAC predictor / covers / freeze-floor
++ DPM transitive; safety-adjacent via freeze-floor). This section is
+BUILD-READY detail — it does NOT authorize build. Operator checkpoint on
+the open questions at the end is prerequisite to build kickoff.
+
+### D3.1 Falsifiable Tier-3 invariant (D-reviewer target)
+
+**Stated in falsifiable form so the D reviewer can attempt to break it:**
+
+> **(I-D3)** For every outdoor-temp consumer in the codebase
+> (predictor `_get_outdoor_temp`, covers `_get_outdoor_temp`, freeze-floor
+> `_get_best_outdoor_temp`, and any future consumer), under ANY WPM state
+> — providers healthy, DIVERGENT, APPARENT_UNAVAILABLE, all-stale,
+> all-unavailable — the following two properties hold simultaneously:
+>
+> **(I-D3.a) Fresh-live parity.** When the primary provider returns a
+> reading with `tier == "fresh"`, every consumer's decision is
+> byte-identical to today's raw-entity read. (No fresh-path regression:
+> the envelope collapses to a point and the consumer branches identically
+> to the pre-D3 code.)
+>
+> **(I-D3.b) Freeze-floor prolong-only.** The envelope may only
+> **PROLONG** a freeze-protection ARM; it may never **CLEAR** one that
+> a fresh reading would not also clear. Equivalently: for every
+> `(lkg_temp, age_s)` legally reachable under the physics factory, if
+> `_freeze_active is True` under the raw-entity path with the same latest
+> known reading, the envelope path MUST also compute
+> `_freeze_active is True`. There exists NO reachable state
+> (age, temp, hysteresis, trigger) under which the envelope disarms a
+> freeze that the raw path would keep armed.
+
+D-reviewer's completeness pass MUST enumerate every `outdoor` /
+`temperature` read across `hvac*.py`, `weather_manager.py`,
+`dynamic_preset.py`, and `energy_battery.py` (as of 2026-07-24) and, for
+each, either show it routes through `current_apparent_temp_envelope()` or
+document why routing is inapplicable (day-forecast path, not-a-live-read,
+etc.). Break attempts must produce a legal-config repro (concrete
+`FREEZE_TRIGGER_TEMP` / `FREEZE_TRIGGER_HYSTERESIS` / `age_s` / `lkg_temp`
+values) demonstrating a leak.
+
+### D3.2 `temp_bounds(max_drift_f_per_hr, max_age_s) -> BoundsFn`
+
+Reuses the `lkg.py` `BoundsFn` signature shipped in D1. Lives in
+`energy_const.py` next to `soc_bounds` (import-path uniformity with the
+shipped D1 factory).
+
+**Symmetric envelope math (for non-safety consumers):**
+
+```
+drift_f_per_s = max_drift_f_per_hr / 3600.0
+age_s = max(0, (now - at).total_seconds())
+delta = drift_f_per_s * age_s
+lo = lkg - delta
+hi = lkg + delta
+tier = (
+    "fresh"        if age_s <  FRESH_AGE_S       # 300s
+    "lkg_bounded"  if age_s <  BOUNDED_AGE_S     # 1800s (30 min)
+    "lkg_stale"    if age_s <  max_age_s         # 21600s (6h default)
+    "expired"      otherwise
+)
+```
+
+No hard clamp (temperature is a real number, unlike SOC's `[0,100]`).
+
+**Defensible meteorological max drift.** The plan proposed `30°F/hr`
+(≈0.5°F/min). This is the operator-frame extreme rate observed under
+frontal passage / chinook events; typical diurnal drift is 5-10°F/hr. Using
+the extreme keeps the envelope worst-case honest without collapsing
+decisions on typical days (30 min at 30°F/hr = ±15°F, wide but still
+actionable for pre-cool bucketing).
+
+**Rung placement (Numbers-Get-Knobs).**
+- `MAX_OUTDOOR_TEMP_DRIFT_F_PER_HR = 30.0` — **Rung 1 (module constant)**
+  in `energy_const.py`. Defensible physical bound grounded in
+  climatology, not an operator preference. A knob here would invite
+  drift-tuning by observation, which would silently widen or narrow the
+  freeze-floor safety envelope. Change requires code review + counter-
+  argument grounded in climatology.
+- `DEFAULT_OUTDOOR_TEMP_LKG_ENVELOPE_MAX_AGE_S = 6 * 3600` — Rung 1;
+  mirrors `DEFAULT_SOC_LKG_ENVELOPE_MAX_AGE_S` for cross-signal
+  consistency (a 6h envelope width of ±180°F is obviously useless →
+  `expired`).
+- Tier crossovers `FRESH_AGE_S = 300`, `BOUNDED_AGE_S = 1800` — Rung 1
+  in `energy_const.py`; documented next to the SOC tier crossovers so
+  future maintainers see them as one family.
+
+**Freeze-floor SAFETY-CONSERVATIVE asymmetric read.** The generic
+`temp_bounds` returns a symmetric envelope; the SAFETY consumer applies
+an asymmetric reading rule at the CALL SITE (NOT inside `temp_bounds` —
+the factory is unit-agnostic and the asymmetry is a policy of the
+freeze-floor consumer, not a physics property of temperature).
+
+The rule, spelled out:
+
+```
+# Arm predicate (may prolong; never permissively "not-cold"):
+def _outdoor_for_freeze_arm(env) -> float | None:
+    """Return the WORST-CASE COLD end of the envelope for arm-check."""
+    if env is None or env.tier == "expired":
+        return None                             # fail-open: today's behavior
+    lo, hi, tier = env.envelope(now)
+    return lo                                   # worst-case cold
+
+# Disarm predicate (may prolong; never permissively "warm-enough"):
+def _outdoor_for_freeze_disarm(env) -> float | None:
+    """Return the WORST-CASE COLD end for disarm-check too."""
+    if env is None or env.tier == "expired":
+        return None                             # fail-open (unchanged)
+    lo, hi, tier = env.envelope(now)
+    return lo                                   # worst-case cold — envelope
+                                                # must PROVE it's warm to
+                                                # clear the arm.
+
+# _update_freeze_active becomes:
+temp_arm    = _outdoor_for_freeze_arm(env)      # arm on lo <= trigger
+temp_disarm = _outdoor_for_freeze_disarm(env)   # disarm only if lo >
+                                                #   trigger + hysteresis
+```
+
+Both predicates read `lo` (worst-case cold). Arm on `lo <= trigger`;
+disarm on `lo > trigger + hysteresis`. This encodes I-D3.b directly: the
+envelope path arms whenever the raw path would arm (LKG is the point) AND
+whenever staleness widens the envelope to include the trigger — it may
+prolong, never clear.
+
+Fresh-tier collapse (`age_s == 0`) makes `lo == hi == lkg`, satisfying
+I-D3.a (byte-identical on fresh).
+
+### D3.3 The 4 HVAC consumer sites (line numbers verified 2026-07-24)
+
+| Site | File:line (verified) | Read via | Envelope | Raw fallback | Why this policy |
+|------|---------------------|----------|----------|--------------|-----------------|
+| Predictor `_get_outdoor_temp` | `hvac_predict.py:1196-1206` | direct entity | **`(lo+hi)/2` at tier ≥ `lkg_bounded`**, else None | None on `expired` (today's behavior) | Non-safety pre-cool/preheat bucketing; midpoint is unbiased; graceful degradation for ≥30 min of WPM outage. |
+| Covers `_get_outdoor_temp` | `hvac_covers.py:783-790` | direct entity | **`(lo+hi)/2` at tier ≥ `lkg_bounded`**, else None | None on `expired` | Symmetric hysteresis (`_cover_close_temp` vs `_cover_open_temp`); midpoint is unbiased. Covers are latching so short mispredictions self-correct on the next tick. |
+| Freeze-floor arm | `hvac.py:1513` (`_update_freeze_active`) via `hvac.py:1495` (`_get_best_outdoor_temp`) → predictor | direct entity (today) | **`lo` (worst-case cold) at any tier < `expired`** | None on `expired` → freeze cleared (today's fail-open) | Safety asymmetry per I-D3.b. Envelope may PROLONG arm, never clear. `expired` stays fail-open (documented; not a change). |
+| Freeze-floor disarm | same as arm (same helper) | same | **`lo` (worst-case cold) at any tier < `expired`** | None on `expired` → freeze cleared | Symmetric with arm predicate — disarm requires envelope to PROVE warmth (`lo > trigger + hysteresis`). |
+
+**Wiring:** the predictor site is the "primary" outdoor-temp read; covers
+call their own local helper today. Both should be re-routed through a
+new WPM handle passed in at coordinator setup (analogous to how the
+existing `_outdoor_temp_entity` is threaded). Freeze-floor already
+delegates to the predictor at `hvac.py:1506`, so redirecting the predictor
+transitively fixes the freeze-floor read — BUT the freeze-floor helper
+MUST call the asymmetric-`lo` accessor, not the midpoint. New helpers
+`_get_outdoor_temp_for_freeze_arm()` / `_get_outdoor_temp_for_freeze_disarm()`
+on the predictor make the asymmetry legible in code (grep-able policy).
+
+**New WPM API.** `WeatherProviderManager.current_apparent_temp_envelope()
+-> LkgValue | None`, sibling to the existing
+`current_apparent_temp() -> (val, age_s)` at `weather_manager.py:238-262`.
+Reuses WPM's existing `_active_provider` selection, `_last_probe_at`
+freshness field, and `APPARENT_UNAVAILABLE` / `divergence_f` machinery —
+the envelope is a NEW derived output, not a competing provider selector.
+Divergence flag composition:
+
+- DIVERGENT + `fresh` → returns raw + `tier=fresh` (existing divergence
+  path unchanged; consumers that branch on `divergence_f` continue to).
+- Non-DIVERGENT + stale → envelope from LKG with tier by age.
+- APPARENT_UNAVAILABLE across all providers → envelope from LKG (WPM's
+  raw path already returns None here; envelope adds resilience without
+  changing the None-path fallback for `expired`).
+
+**DPM transitive benefit.** DPM reads `WPM.baseline_delta_for_zone`
+(`dynamic_preset.py:525`), which uses `_cached_forecast.apparent_high`
+(day-cadence, NOT live). DPM does NOT read live outdoor temp. D3 does
+NOT modify DPM. DPM benefits transitively because WPM becomes more
+resilient — no code change; document the transitive-only relationship
+in the cycle README so a future reader doesn't hunt for a DPM diff.
+
+### D3.4 Persistence home decision (WPM Store vs EC persist path)
+
+The plan flagged this as open (§9 Q3). Recommendation, with reasoning:
+
+**Persist via `WPM.Store`** (own the LKG next to the primitive that
+produces it), NOT the EC `save_energy_state` KV path. This REVERSES the
+§6 recommendation for D3 on ownership-locality grounds — see reasoning
+below; operator confirmation requested in D3.7 Q1.
+
+Rationale:
+- **Ownership locality.** WPM already owns an `apparent_high` `Store`
+  (`weather_manager.py:155-157`). Adding a sibling
+  `ura_outdoor_temp_lkg` `Store` (or extending the existing one with a
+  second key) keeps outdoor-temp state within the WPM lifecycle — same
+  `async_setup` hydrate + save-on-refresh cadence, same teardown.
+  Routing outdoor-temp persistence through EC couples two unrelated
+  coordinators through a shared KV bag.
+- **EC coupling smell.** EC-persist path was correct for SOC (SOC is EC's
+  own state) and defensible for solar (solar is EC-adjacent). Outdoor
+  temp is WPM's state; borrowing EC's KV would create a debug-time
+  scavenger hunt ("why does EC own outdoor temp?").
+- **Cadence.** Save cadence matches natural WPM probe cadence
+  (`_refresh_all_providers`), which is state-change-triggered — inherently
+  lower-cadence than EC's tick loop and safe by construction. No
+  per-tick save risk.
+
+**Write-flood discipline.** `WPM.Store.async_save()` fires only on LKG
+UPDATE (new fresh probe replaced the last-known-good), NOT on every
+`current_apparent_temp_envelope()` READ. Concretely: the LKG is refreshed
+in-memory whenever `current_apparent_temp()` returns a fresh (age < FRESH_AGE_S)
+value, but persisted only when the refreshed value differs from the last
+persisted one by ≥ 0.5°F OR the last persist was > 5 min ago (whichever
+first). Zero risk of the write-flood pattern that took down v5.0.0-v5.2.1.
+
+**Reversal condition.** If Tier-3 review B (integration) finds that WPM's
+`Store` lifecycle has a hydrate-race variant of the one WPM already
+patched for `_apparent_high_store` (see WPM async_setup B-H1 comment at
+`weather_manager.py:175-186`), consider routing through EC-persist after
+all. The B-H1 pattern (hydrate BEFORE listeners) MUST be replicated for
+the new Store.
+
+### D3.5 Tier-3 four-framing plan
+
+| Framing | Focus | Load-bearing question |
+|---------|-------|-----------------------|
+| **A — local correctness** | `temp_bounds` math, tier crossovers, symmetric envelope over a 6h age grid; WPM envelope accessor's None-safety on cold-boot / all-providers-unhealthy / DIVERGENT-fresh compositions. | Does `temp_bounds` produce `(lo, hi, tier)` byte-identical to a hand-computed reference across `age_s ∈ [0, 6h]` at 1s resolution? Does the WPM accessor return the right thing under every WPM health composition? |
+| **B — integration / state-machine integrity + no fresh-path regression** | Every migrated site (predictor, covers, freeze-arm, freeze-disarm) produces the SAME decision as today when tier is `fresh`. WPM `Store` hydrate-before-listeners pattern replicated. No double-source (raw entity read alongside envelope inside the same decision). No DPM-facing composition change. | Under fresh-live for every site, is behavior byte-identical to pre-D3 (I-D3.a)? Under WPM restart, does the LKG rehydrate before listeners can race a stale envelope? |
+| **C — test authority via per-site source mutation** | Neuter `WPM.current_apparent_temp_envelope` at each of the 4 consumer sites individually (not in aggregate); confirm a SPECIFIC named test fails per site. A site whose neuter leaves the suite green = untested. | For each of {predictor, covers, freeze-arm, freeze-disarm}, does a per-site mutation produce a SPECIFIC test failure? |
+| **D — adversarial completeness + freeze-floor safety review** | (i) Re-enumerate every outdoor-temp read across the codebase (not just the diff). (ii) State I-D3.b in falsifiable form and BREAK it. (iii) Explicit safety review of the freeze-floor asymmetric-lo predicates: does the code as written encode "prolong-only, never-clear"? Legal-config repros only (concrete trigger + hysteresis + age + lkg values). | Is there any outdoor-temp read anywhere that BYPASSES the envelope? Is there any `(lkg, age, trigger, hyst)` such that the envelope path disarms a freeze the raw path holds armed? |
+
+**D is the safety-review pass the survey demanded for any alarm-adjacent
+envelope** — freeze-protection is the alarm-adjacent surface here (the
+downstream `_freeze_active` gates HVAC away/off / floor-holds that
+protect pipes in winter). D reviewer MUST produce either a proof-by-
+enumeration that I-D3.b holds across the reachable state-space, OR a
+concrete counter-example. "Looks fine on the diff" is NOT acceptable.
+
+**Orchestrator independent verification before ship (Tier 3 requirement):**
+before deploy, orchestrator personally re-greps every `outdoor` /
+`temperature` / `_get_outdoor_temp` / `_get_best_outdoor_temp` site and
+re-runs a real source mutation on the load-bearing site (freeze-arm
+predicate) to confirm the suite goes red. Do NOT trust reviewer summaries.
+
+### D3.6 Acceptance criteria per site (unit + Live)
+
+**D3-A1 (predictor / precool / preheat)**
+- **Verify (unit):** with all WPM providers UNAVAILABLE and LKG apparent
+  temp age = 15 min at `MAX_OUTDOOR_TEMP_DRIFT_F_PER_HR = 30`, envelope
+  width is ±7.5°F; `_get_outdoor_temp()` returns midpoint (== LKG).
+- **Verify (unit):** age = 40 min (tier = `lkg_stale` if `BOUNDED_AGE_S = 1800`),
+  policy TBD — recommend collapse to None (predictor gates conservatively).
+- **Test:** `quality/tests/test_outdoor_temp_envelope.py::test_predictor_uses_envelope_midpoint_when_bounded`.
+- **Live:** disable primary weather entity for 20 min; confirm
+  `sensor.ura_hvac_predictor_*` continues producing preheat / precool
+  buckets; log line `outdoor_temp source=envelope tier=lkg_bounded midpoint=<F>`
+  appears at least once.
+
+**D3-A2 (covers)**
+- **Verify (unit):** cover-controller `_get_outdoor_temp` returns
+  `(lo+hi)/2` at `tier ≥ lkg_bounded`; None at `expired`.
+- **Test:** `test_outdoor_temp_envelope.py::test_covers_midpoint_bounded`.
+- **Live:** during WPM outage, covers do NOT open/close spuriously on
+  hysteresis boundaries (envelope width < |`_cover_open_temp − _cover_close_temp`|
+  or covers stay in current state).
+
+**D3-A3 (freeze-floor ARM — I-D3.b half-a)**
+- **Verify (unit / safety-invariant):** for every `(lkg_temp, age_s)`
+  where the raw-path arm predicate would fire (`lkg_temp <= FREEZE_TRIGGER_TEMP`),
+  the envelope-path arm predicate ALSO fires. Property-based test
+  (hypothesis or a 10_000-point grid) over
+  `lkg_temp ∈ [-20, 100]`, `age_s ∈ [0, 6h]`.
+- **Verify (unit):** additional arm paths: when `lkg_temp > trigger` but
+  `lo = lkg - drift*age <= trigger`, the envelope path DOES arm (prolong
+  case — this is behavior ADDING vs today, documented and desired).
+- **Test:** `test_outdoor_temp_envelope.py::test_freeze_arm_invariant_property`.
+- **Live:** during a live sub-40°F morning, confirm `hvac._freeze_active`
+  flips True on the SAME tick as the raw-entity path would have (attr
+  snapshot pre-restart vs post-restart with envelope).
+
+**D3-A4 (freeze-floor DISARM — I-D3.b half-b)**
+- **Verify (unit / safety-invariant):** for every `(lkg_temp, age_s)`
+  where the raw-path would KEEP armed, the envelope path ALSO keeps
+  armed. Equivalently: envelope disarms ONLY when
+  `lo > FREEZE_TRIGGER_TEMP + FREEZE_TRIGGER_HYSTERESIS`. Property-based
+  test over the same grid.
+- **Verify (unit):** legal-config edge — `FREEZE_TRIGGER_TEMP = 34`,
+  `FREEZE_TRIGGER_HYSTERESIS = 4`, LKG = 39°F, age = 15 min → `lo = 39 - 7.5 = 31.5 <= 38`
+  → freeze STAYS armed (envelope proves nothing about warmth); at age = 0
+  → `lo = hi = 39 > 38` → freeze CLEARS (byte-identical to raw path).
+- **Test:** `test_outdoor_temp_envelope.py::test_freeze_disarm_invariant_property`.
+- **Live:** during a warming afternoon following a freeze night, confirm
+  `_freeze_active` clears NO EARLIER than the raw-entity path would.
+
+**D3-A5 (WPM API + persistence)**
+- **Sensor:** WPM diagnostics sensor exposes
+  `outdoor_apparent_temp_envelope_lower`, `_upper`, `_tier`, `_source`
+  attrs.
+- **Verify (unit):** WPM `Store` hydrate-before-listeners pattern
+  replicated (analogous to B-H1 at `weather_manager.py:175-186`).
+- **Live:** after HA restart, LKG hydrates from `Store` before the first
+  provider state-change event; envelope is available on tick 1 (not "None
+  for the first 5 min post-restart").
+
+**D3-A6 (DPM regression check — no code change but transitive)**
+- **Verify:** DPM `baseline_delta_for_zone` (`dynamic_preset.py:525`)
+  returns byte-identical values pre-D3 vs post-D3 for the same
+  `_cached_forecast.apparent_high` fixture (D3 does not touch this path).
+- **Test:** `test_dpm_unchanged_by_d3.py::test_baseline_delta_bytewise_identical`.
+
+**Numbers-Get-Knobs summary for D3 (all Rung 1):**
+- `MAX_OUTDOOR_TEMP_DRIFT_F_PER_HR = 30.0` (module const, `energy_const.py`).
+- `DEFAULT_OUTDOOR_TEMP_LKG_ENVELOPE_MAX_AGE_S = 6 * 3600` (module const).
+- `FRESH_AGE_S = 300`, `BOUNDED_AGE_S = 1800` (module consts, shared with
+  future envelope consumers). No config-flow field, no Number entity,
+  no Switch. Rationale: physical/temporal bounds, not operator preferences.
+
+### D3.7 Open questions for operator checkpoint (BEFORE build)
+
+1. **Persistence home — confirm WPM `Store`, not EC-KV.** Plan §6 / §9 Q3
+   recommended EC-persist path; D3.4 REVERSES to WPM `Store` on
+   ownership-locality grounds. Confirm the reversal? If
+   consistency-with-D1/D2-cadence outweighs ownership-locality in the
+   operator's mental model, revert to EC-persist path.
+2. **`MAX_OUTDOOR_TEMP_DRIFT_F_PER_HR = 30.0` as Rung 1.** Confirm this
+   is defensible for the operator's climate. If the install sits in a
+   more-extreme climate zone (documented frontal drops > 30°F/hr are
+   rare but observed), the number may need to be raised — but staying
+   Rung 1 (module const, not knob) is the recommendation regardless.
+   (Note: the 2026-07-23 operator ruling elevated `SOLAR_NAMEPLATE_W` to
+   Rung 2 config-flow. Drift const is a physics number not a per-install
+   number, so the same elevation logic does NOT apply — but flag for
+   operator preference.)
+3. **`lkg_stale` policy for non-safety consumers.** Recommendation:
+   predictor + covers collapse to None at `lkg_stale` (>30 min age); only
+   freeze-floor consumes `lkg_stale` (via its asymmetric `lo` read).
+   Confirm — or admit `lkg_stale` for predictor / covers under a wider
+   `hi - lo` tolerance?
+4. **Fresh-path byte-identity target.** I-D3.a demands byte-identical on
+   `fresh`. Confirm this is the correct invariant vs a weaker "identical
+   in decision, not necessarily in float bit-pattern" target. (Recommend
+   byte-identical because envelope-at-age-0 mathematically collapses to
+   `lo == hi == lkg`; any float delta is a bug.)
+5. **Freeze-floor `expired` policy — keep fail-open?** Today's raw-path
+   is fail-open on None; envelope path preserves this (`expired` →
+   fail-open, no arm). Confirm — or should `expired` PROLONG the last
+   known freeze state (fail-safe, not fail-open)? Fail-safe would be a
+   behavior CHANGE beyond I-D3 and probably out-of-scope for D3.
+6. **Sibling `outdoor` reads in optimization / anomaly detection.** The
+   audit enumerated 4 HVAC sites. D-reviewer's completeness pass may
+   surface a 5th site (optimizer, anomaly, sensor observability). Preview
+   grep now, or defer to D review? Recommend: preview during build
+   scoping to avoid a D-HIGH-1-style surprise (that finding predated
+   the v5.5.3 cycle).
+
+---
+
+### D3 return summary
+
+- **Invariant:** I-D3 (fresh-path parity + freeze-floor prolong-only).
+- **Sites:** 4 HVAC (predictor `hvac_predict.py:1196`, covers
+  `hvac_covers.py:783`, freeze arm+disarm via `hvac.py:1495` →
+  predictor). WPM gets new `current_apparent_temp_envelope()` accessor
+  at `weather_manager.py:262` (post-`current_apparent_temp`).
+- **Persistence:** WPM `Store` (own the LKG next to its producer);
+  hydrate-before-listeners; save on ≥0.5°F delta or 5 min elapsed.
+  REVERSES the §6 EC-persist default for D3.
+- **Tier framings:** A local / B integration / C per-site mutation /
+  D adversarial completeness + freeze-floor safety review. Orchestrator
+  independent re-verification before ship.
+- **Open Q for checkpoint:** persistence home reversal, drift const
+  value, `lkg_stale` policy for non-safety consumers, fresh-path identity
+  target, `expired` fail-open vs fail-safe for freeze-floor,
+  optimization/anomaly outdoor-temp read audit.
+
+---
+## D3 open-question rulings — 2026-07-24 (operator)
+
+**Q2 (drift bound) — RATIFIED as rung-2 config knob clamped to a rung-1 safety floor** (operator overrode the flat rung-1; synthesis accepted):
+- `CONF_OUTDOOR_TEMP_MAX_DRIFT_F_PER_HR` — config-flow field, **default 30**, advanced/expert section.
+- `OUTDOOR_TEMP_DRIFT_SAFETY_FLOOR_F_PER_HR: Final = 15` — rung-1 module const; the config value is CLAMPED `max(configured, floor)` at read so the drift can never be set below the safe minimum (a too-small drift under-protects the freeze floor — the dangerous direction). Config-flow field min = 15 to match; clamp is the belt-and-braces server-side guarantee.
+- **User-friendly labels (NOT the raw const name):**
+  - Field label: **"Outdoor temperature — max change rate"**
+  - Unit suffix: **"°F per hour"**
+  - Helper/description: **"How fast outdoor temperature can realistically change when the weather sensor is briefly offline. Lower values give sharper estimates for a mild climate; the system won't let it drop below a safe minimum, so frost protection stays reliable. Leave at 30 unless you know your local weather swings less."**
+  - Reload-suppressed (advisory number, no reload); Numbers-Get-Knobs: rung 2 field + rung 1 floor.
+- Marginal-benefit note (operator-acknowledged): payoff is modest (outdoor-temp blind windows are rare); worth doing because it's near-free and productization-correct, not because it's high-impact.
+
+**Still OPEN — operator to confirm before D3 build:**
+- Q1 (WPM Store persistence) / Q3 (lkg_stale → None for comfort consumers) / Q4 (fresh-path byte-identity) / Q6 (grep for a 5th outdoor-temp reader) — proceeding on the recommended defaults unless the operator says otherwise.
+- **Q5 (freeze-floor `expired` policy: keep today's fail-OPEN vs upgrade to fail-SAFE) — GENUINE operator judgment call, still required before build.**
