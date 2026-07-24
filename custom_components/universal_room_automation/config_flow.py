@@ -3551,6 +3551,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW,
             CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
             DEFAULT_EV_BATTERY_DRAIN_SOC_THRESHOLD,
+            # LKG wave 1 D2 — solar production upper-envelope nameplate.
+            CONF_ENERGY_SOLAR_NAMEPLATE_W,
+            DEFAULT_ENERGY_SOLAR_NAMEPLATE_W,
             # v4.7.x Cycle A: WeatherProviderManager ranked-list providers
             CONF_ENERGY_WEATHER_FALLBACK_1,
             CONF_ENERGY_WEATHER_FALLBACK_2,
@@ -4311,6 +4314,29 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     min=10, max=90, step=5,
                     unit_of_measurement="%",
                     mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            # LKG wave 1 D2 — solar array nameplate for the production
+            # upper-envelope. Rung-2 (config-flow) per operator ruling
+            # 2026-07-23: per-install physical structure, set once at
+            # commissioning. Default 19400 W = 19.4 kW = operator's
+            # installed Enphase fleet theoretical maximum (NOT the
+            # ~15 kW observed peak; the envelope must bound what the
+            # array CAN do). Range: 1000-50000 W spans small residential
+            # to large commercial. Live-tunable via options-flow (see
+            # OPTIONS_RELOAD_SUPPRESS_KEYS in __init__.py — read fresh
+            # every excess-solar tick).
+            vol.Optional(
+                CONF_ENERGY_SOLAR_NAMEPLATE_W,
+                default=self._get_current(
+                    CONF_ENERGY_SOLAR_NAMEPLATE_W,
+                    DEFAULT_ENERGY_SOLAR_NAMEPLATE_W,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1000, max=50000, step=100,
+                    unit_of_measurement="W",
+                    mode=selector.NumberSelectorMode.BOX,
                 )
             ),
             # v4.1.1 B4 L2: Occupancy-weighted prediction toggle

@@ -1447,7 +1447,56 @@ class EVChargerController:
                         envelope_ride_ok = (
                             _lower >= float(drain_target_for_ride)
                         )
-                continue_permission = (exp is True) and envelope_ride_ok
+                # LKG wave 1 D2 — solar-envelope admit path for CONTINUE.
+                # New decision path (behavior-adding). When the operator
+                # HAS wired the mains-export entity, `exp` is True/False
+                # and the pre-D2 gate stands (single source of truth). When
+                # `exp is None` (entity unwired OR entity unavailable), we
+                # previously always fell through to DROP — the CONTINUE
+                # leg required a positive witness we didn't have.
+                #
+                # With D2 the bounded solar upper envelope (nameplate-
+                # capped, LKG-anchored, tier-gated) can act as a fallback
+                # witness: if the envelope UPPER bound at tier ≥
+                # `lkg_bounded` is at least the drain target's equivalent
+                # power (drain_target_pp × BATTERY_MAX_CHARGE_KW * 10 W/pp
+                # is not quite right — instead use a conservative absolute
+                # floor: 500 W. This is well below the ~3-4 kW an EVSE
+                # draws while still proving "solar is producing enough to
+                # meaningfully offset something"). Envelope tier `lkg_stale`
+                # is deliberately EXCLUDED here — a stale envelope has
+                # widened to full nameplate, giving no discriminating
+                # power. Envelope None (expired / no LKG / live-present)
+                # falls back to the pre-D2 exp-required semantics.
+                #
+                # Sites that MUST stay raw per plan §1.2:
+                #   * attain/arbitrage ladder (bound_to_solar_horizon —
+                #     Solcast-driven, not Envoy-blind);
+                #   * observability attr emitters (must show raw None on
+                #     stale so operator can distinguish live from projected).
+                solar_env_admits = False
+                if exp is None:
+                    try:
+                        s_env = coord.solar_production_w_envelope()
+                    except Exception:  # noqa: BLE001
+                        s_env = None
+                    if s_env is not None:
+                        _slo, _shi, _stier = s_env
+                        # Only `fresh` / `lkg_bounded` are discriminating
+                        # (see block comment above). `lkg_stale` collapses
+                        # to full nameplate, no signal.
+                        if _stier in ("fresh", "lkg_bounded") and _shi >= 500.0:
+                            solar_env_admits = True
+                            _LOGGER.info(
+                                "excess_solar CONTINUE admitted under "
+                                "solar envelope tier=%s solar_hi=%.0f W "
+                                "(mains-export witness unavailable; SOC "
+                                "envelope gate still enforced)",
+                                _stier, _shi,
+                            )
+                continue_permission = (
+                    (exp is True) or solar_env_admits
+                ) and envelope_ride_ok
                 if continue_permission:
                     # Active EVSEs continue; NEW claims still refused.
                     # Emit dedup-anchored defer row for each active EVSE
