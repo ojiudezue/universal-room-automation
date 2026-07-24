@@ -401,6 +401,15 @@ class BatteryStrategy:
         self._soc_lkg_at: Any = None
         self._last_soc_divergence_at: Any = None
         self._soc_source_last: str = "envoy"
+        # LKG wave 1 D2 — solar production upper-envelope LKG. Stamped by
+        # `solar_production_w` on every healthy live read; consumed by
+        # `solar_production_w_envelope()`. Mirrors the SOC LKG shape.
+        self._solar_prod_lkg_w: float | None = None
+        self._solar_prod_lkg_at: Any = None
+        self._solar_prod_source_last: str = "envoy"
+        # Fix-up A-LOW-1: explicit init so the one-shot INFO log latch is
+        # not resurrected by RestoreEntity / repeat construction paths.
+        self._solar_nameplate_fallback_logged: bool = False
         # v5.20.0 D2 — read-side telemetry divergence + tier-disagreement +
         # cloud settings-lag. State machine variables: dwell start-times
         # (None = idle), active-alert booleans, last observed values, and
@@ -1581,8 +1590,26 @@ class BatteryStrategy:
         that assumes a specific unit. Production code should use this
         property + a single `/1000.0` step at the kW boundary, never read
         the raw sensor and assume W.
+
+        LKG wave 1 D2: on every healthy read (result is not None), stamp
+        the LKG value + timestamp so `solar_production_w_envelope()` can
+        bound production during an Envoy blind window. This is a RAM
+        write per tick; persistence piggybacks on the EC persist path
+        (`save_energy_state("solar_production_w_lkg", ...)`), zero new
+        DB writers.
         """
-        return self._read_power_w("solar_production")
+        val = self._read_power_w("solar_production")
+        if val is not None:
+            try:
+                from homeassistant.util import dt as dt_util
+                self._solar_prod_lkg_w = float(val)
+                self._solar_prod_lkg_at = dt_util.utcnow()
+                self._solar_prod_source_last = "envoy"
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "solar LKG stamp failed (swallowed)", exc_info=True,
+                )
+        return val
 
     @property
     def net_power_w(self) -> float | None:
@@ -2181,6 +2208,136 @@ class BatteryStrategy:
             return {"value": blob["value"], "at_iso": blob["at_iso"]}
         except Exception:  # noqa: BLE001
             return None
+
+    # ------------------------------------------------------------------
+    # LKG wave 1 D2 — solar production upper envelope
+    # ------------------------------------------------------------------
+    def solar_production_w_envelope(
+        self,
+        nameplate_w: float | None = None,
+    ) -> "tuple[float, float, str, float] | None":
+        """Return ``(lo, hi, tier, stamped)`` for solar production or None.
+
+        LKG wave 1 D2: asymmetric upper envelope over the last known
+        live-solar reading. The 4th element ``stamped`` is the raw LKG
+        value (last real Envoy reading, not widened) — callers making
+        an ADMIT decision MUST gate on this, NOT on ``hi`` (fix-up
+        A-HIGH-1: ``hi`` widens toward nameplate purely with age and
+        would admit even off a stamped 0 W dusk reading).
+
+        Returns None when:
+          * live solar is currently available (envelope is unnecessary
+            noise — consumer should read `solar_production_w` directly);
+          * no LKG has been stamped yet (fresh boot before any healthy
+            read);
+          * LKG age exceeds ``DEFAULT_SOLAR_LKG_ENVELOPE_MAX_AGE_S``
+            (envelope tier is `expired` — caller falls back to the
+            pre-D2 binary-None path).
+
+        ``nameplate_w`` — physical array max in watts, from the
+        operator's config-flow field ``CONF_ENERGY_SOLAR_NAMEPLATE_W``
+        (rung 2). If the caller passes None we fall back to
+        ``DEFAULT_ENERGY_SOLAR_NAMEPLATE_W`` (19400 W). A one-shot
+        INFO log surfaces the fallback so the operator can see it —
+        this only fires when the field is GENUINELY unset (an older
+        config entry with no wired nameplate); a passthrough that
+        threads the operator-configured value never triggers it. There
+        is NO kill switch: the envelope is always-on when Envoy is
+        blind and a recent LKG exists (see nameplate CONF comment).
+        """
+        from homeassistant.util import dt as dt_util
+        from .energy_const import (
+            DEFAULT_ENERGY_SOLAR_NAMEPLATE_W,
+            DEFAULT_SOLAR_LKG_ENVELOPE_MAX_AGE_S,
+            SOLAR_LKG_UPPER_DECAY_S,
+            solar_upper_bounds,
+        )
+
+        # If live solar is available, the envelope is noise.
+        try:
+            live = self._read_power_w("solar_production")
+        except Exception:  # noqa: BLE001
+            live = None
+        if live is not None:
+            return None
+        if self._solar_prod_lkg_w is None or self._solar_prod_lkg_at is None:
+            return None
+
+        eff_nameplate = nameplate_w
+        if eff_nameplate is None or eff_nameplate <= 0:
+            eff_nameplate = float(DEFAULT_ENERGY_SOLAR_NAMEPLATE_W)
+            if not getattr(self, "_solar_nameplate_fallback_logged", False):
+                _LOGGER.info(
+                    "solar envelope: nameplate unwired, falling back to "
+                    "DEFAULT_ENERGY_SOLAR_NAMEPLATE_W=%d W (operator can "
+                    "set CONF_ENERGY_SOLAR_NAMEPLATE_W in coordinator "
+                    "options to override)",
+                    DEFAULT_ENERGY_SOLAR_NAMEPLATE_W,
+                )
+                self._solar_nameplate_fallback_logged = True
+
+        try:
+            from ..lkg import LkgValue
+            bounds_fn = solar_upper_bounds(
+                nameplate_w=eff_nameplate,
+                upper_decay_s=SOLAR_LKG_UPPER_DECAY_S,
+                max_age_s=DEFAULT_SOLAR_LKG_ENVELOPE_MAX_AGE_S,
+            )
+            lv = LkgValue(
+                value=float(self._solar_prod_lkg_w),
+                at=self._solar_prod_lkg_at,
+                source=self._solar_prod_source_last or "envoy",
+                bounds_fn=bounds_fn,
+            )
+            lo, hi, tier = lv.envelope(dt_util.utcnow())
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "solar envelope compute failed (swallowed)", exc_info=True,
+            )
+            return None
+        if tier == "expired":
+            return None
+        # Fix-up A-HIGH-1: expose the stamped LKG value so admit gates
+        # evidence on real production, not the age-widened upper bound.
+        return (lo, hi, tier, float(self._solar_prod_lkg_w))
+
+    def get_solar_lkg_snapshot(self) -> "dict[str, Any] | None":
+        """Return solar LKG {value, at_iso} blob for EC persistence.
+
+        LKG wave 1 D2: mirrors :meth:`get_lkg_snapshot` shape. Persisted
+        via `save_energy_state("solar_production_w_lkg", ...)` on the
+        EC's existing persist cadence (no new DB writer).
+        """
+        if self._solar_prod_lkg_w is None or self._solar_prod_lkg_at is None:
+            return None
+        try:
+            from ..lkg import LkgValue
+            lv = LkgValue(
+                value=float(self._solar_prod_lkg_w),
+                at=self._solar_prod_lkg_at,
+                source=self._solar_prod_source_last or "envoy",
+            )
+            blob = lv.to_blob()
+            return {"value": blob["value"], "at_iso": blob["at_iso"]}
+        except Exception:  # noqa: BLE001
+            return None
+
+    def restore_solar_lkg_snapshot(
+        self, snap: "dict[str, Any] | None",
+    ) -> None:
+        """Rehydrate solar LKG from persisted blob (None-safe)."""
+        if not snap:
+            return
+        try:
+            from ..lkg import LkgValue
+            lv = LkgValue.from_blob(snap)
+            if lv is None:
+                return
+            self._solar_prod_lkg_w = float(lv.value)
+            self._solar_prod_lkg_at = lv.at
+            self._solar_prod_source_last = lv.source or "envoy"
+        except Exception:  # noqa: BLE001
+            return
 
     def restore_lkg_snapshot(self, snap: dict[str, Any] | None) -> None:
         """Rehydrate LKG (value + timestamp) from D5 persistence blob.
@@ -5775,11 +5932,42 @@ class BatteryStrategy:
             else "unknown"
         )
 
+        # LKG wave 1 D2 — solar envelope observability (upper bound only —
+        # symmetric with the SOC envelope attrs added in v5.28.0). None
+        # when live-present or LKG expired; the operator can distinguish
+        # "live" from "envelope-bounded" from the tier value.
+        # Fix-up A-MED-2: route through the coordinator passthrough when
+        # available so the emitted attrs honor the operator-configured
+        # nameplate (CONF_ENERGY_SOLAR_NAMEPLATE_W) — otherwise the attr
+        # path calls the battery method with nameplate=None, always
+        # falling back to 19400 W AND firing the "unwired" one-shot log
+        # even when the field IS configured. Divergent from the decision
+        # envelope (which the pool reads via the passthrough).
+        _s_env = None
+        try:
+            _coord = getattr(self, "_coord", None)
+            if _coord is not None and hasattr(
+                _coord, "solar_production_w_envelope"
+            ):
+                _s_env = _coord.solar_production_w_envelope()
+            else:
+                _s_env = self.solar_production_w_envelope()
+        except Exception:  # noqa: BLE001
+            _s_env = None
         return {
             "mode": self._last_mode or self.current_storage_mode or "unknown",
             "reason": self._last_reason or "initializing",
             "soc": soc,
             "solar_production": self.solar_production,
+            "solar_production_w_envelope_lower": (
+                _s_env[0] if _s_env else None
+            ),
+            "solar_production_w_envelope_upper": (
+                _s_env[1] if _s_env else None
+            ),
+            "solar_production_w_envelope_tier": (
+                _s_env[2] if _s_env else None
+            ),
             "net_power": self.net_power,
             "battery_power": self.battery_power,
             "grid_connected": self.grid_connected,

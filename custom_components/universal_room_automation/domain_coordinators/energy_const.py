@@ -815,6 +815,30 @@ CONF_ENERGY_EXCESS_SOLAR_ENABLED: Final = "energy_excess_solar_enabled"
 CONF_ENERGY_EXCESS_SOLAR_SOC: Final = "energy_excess_solar_soc"
 CONF_ENERGY_EXCESS_SOLAR_KWH: Final = "energy_excess_solar_kwh"
 
+# LKG wave 1 D2 — solar production upper envelope. Config-flow field
+# (rung 2, per operator ruling 2026-07-23): the installed inverter
+# nameplate is per-install physical structure the operator sets ONCE
+# at commissioning, not a comfort knob the operator tunes by observation
+# (rung 3). NOT a module constant (rung 1) because the operator MUST be
+# able to set this without a code change — a new install has a
+# different array size, and hard-coding would require a patch release
+# for every new deployment. See planning §3.2 + operator rulings appendix.
+CONF_ENERGY_SOLAR_NAMEPLATE_W: Final = "energy_solar_nameplate_w"
+# Theoretical array max: 19.4 kW (operator's installed fleet, 2026-07-23).
+# The envelope's UPPER bound must reflect what the array CAN produce
+# (not the highest observed clip). Under-sizing here would falsely admit
+# excess-solar; over-sizing widens the envelope but is caught downstream
+# by the SOC-lower guard and the mains-export witness.
+#
+# NO KILL SWITCH: the feature is always-on whenever Envoy is blind and a
+# recent LKG exists. Setting the nameplate low does NOT disable the
+# envelope — the config-flow selector clamps to min=1000 W (see
+# config_flow.py NumberSelectorConfig for CONF_ENERGY_SOLAR_NAMEPLATE_W),
+# and if the field is unwired on an older entry the battery method falls
+# back to this default. To gate admits behind a real production floor
+# see SOLAR_ENVELOPE_ADMIT_FLOOR_W (rung-1 safety-adjacent const).
+DEFAULT_ENERGY_SOLAR_NAMEPLATE_W: Final[int] = 19400
+
 # EV Battery Drain Protection (v4.2.17)
 DEFAULT_EV_BATTERY_DRAIN_SOC_THRESHOLD: Final = 50
 CONF_ENERGY_EV_BATTERY_DRAIN_SOC: Final = "energy_ev_battery_drain_soc"
@@ -1538,6 +1562,103 @@ def soc_bounds(
         up_pp = (chg * age) / (36.0 * cap)
         lo = max(0.0, v - down_pp)
         hi = min(100.0, v + up_pp)
+        if hi < lo:
+            hi = lo
+        return (lo, hi, tier)
+
+    return _bounds
+
+
+# ---------------------------------------------------------------------
+# LKG wave 1 D2 — solar production upper envelope factory
+# ---------------------------------------------------------------------
+# Rung-1 (module const). Upper-decay time constant: how long the envelope's
+# upper bound stays anchored on the LKG value before widening toward the
+# nameplate. 300 s = 5 min: linear widening from LKG → nameplate over this
+# window. Beyond `hard_max_age_s` (below) the envelope is expired
+# (nameplate is useless as a freshness signal).
+SOLAR_LKG_UPPER_DECAY_S: Final[int] = 300
+# Rung-1 (module const, safety-adjacent). Absolute lower-bound of stamped
+# LKG production required before the excess-solar CONTINUE gate admits.
+# Fix-up A-HIGH-1: the admit MUST be evidenced by a real live production
+# reading (the STAMPED LKG value), NOT by the envelope's upper bound —
+# the upper widens toward nameplate purely with age and would admit even
+# off a stamped 0 W dusk reading. 500 W is well below any EVSE draw
+# (~3-4 kW) but proves the array was recently doing real work.
+SOLAR_ENVELOPE_ADMIT_FLOOR_W: Final[int] = 500
+# Rung-1. Absolute upper age for the solar envelope. Solar can invert
+# entirely across a passing cloud front — after 15 min the LKG carries no
+# defensible information about now.
+DEFAULT_SOLAR_LKG_ENVELOPE_MAX_AGE_S: Final[int] = 15 * 60
+
+
+def solar_upper_bounds(
+    nameplate_w: float,
+    upper_decay_s: float = SOLAR_LKG_UPPER_DECAY_S,
+    max_age_s: float = DEFAULT_SOLAR_LKG_ENVELOPE_MAX_AGE_S,
+):
+    """Return a :data:`..lkg.BoundsFn` for solar production (asymmetric UPPER).
+
+    LKG wave 1 D2: physics factory for the solar production envelope.
+    Asymmetric by construction — solar production can drop to zero
+    instantaneously (cloud edge), so the LOWER bound collapses to 0. It
+    cannot exceed the installed array nameplate, so the UPPER bound is
+    clamped to ``nameplate_w`` and widens LINEARLY from ``lkg`` toward
+    that ceiling over ``upper_decay_s`` seconds.
+
+    Envelope math::
+
+        age    = (now - at).total_seconds()
+        frac   = min(1.0, age / upper_decay_s)
+        lo     = 0.0                                    # physics: instant drop
+        hi_raw = value + (nameplate_w - value) * frac   # widen to nameplate
+        hi     = min(nameplate_w, max(0.0, hi_raw))
+
+    Tier crossovers (mirror the SOC envelope shape for cross-signal
+    consistency; see planning §3.2)::
+
+        fresh        age < 60 s
+        lkg_bounded  age < upper_decay_s (money-path safe)
+        lkg_stale    age < max_age_s (bounded but wide — envelope has
+                     already widened to full nameplate)
+        expired      age >= max_age_s (unusable — caller should treat
+                     as raw-None binary, matches pre-D2 behavior)
+
+    Rung-1 factory. ``nameplate_w`` is supplied by the caller from the
+    config-flow field ``CONF_ENERGY_SOLAR_NAMEPLATE_W`` (rung 2) —
+    physical structure, per-install.
+    """
+    cap = float(max(0.0, nameplate_w))
+    decay = float(max(1.0, upper_decay_s))
+    hard_max = float(max_age_s)
+
+    def _bounds(value, at, now):
+        try:
+            age = (now - at).total_seconds()
+        except Exception:  # noqa: BLE001
+            return (0.0, 0.0, "expired")
+        if age < 0:
+            age = 0.0
+        if age >= hard_max:
+            return (0.0, 0.0, "expired")
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return (0.0, 0.0, "expired")
+        # Clamp value into physical range before widening (a spurious
+        # over-nameplate reading upstream must not persist through the
+        # envelope).
+        v = max(0.0, min(cap, v))
+        if age < 60:
+            tier = "fresh"
+        elif age < decay:
+            tier = "lkg_bounded"
+        else:
+            tier = "lkg_stale"
+        frac = min(1.0, age / decay)
+        hi_raw = v + (cap - v) * frac
+        hi = min(cap, max(0.0, hi_raw))
+        lo = 0.0  # asymmetric: solar can drop to zero instantly
         if hi < lo:
             hi = lo
         return (lo, hi, tier)
