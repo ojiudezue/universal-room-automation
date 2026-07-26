@@ -379,6 +379,18 @@ class StubPersonCensusV2:
                 except (TypeError, AttributeError):
                     age = CENSUS_FACE_RECOGNITION_WINDOW_SECONDS + 1
                 if age <= CENSUS_FACE_RECOGNITION_WINDOW_SECONDS:
+                    # Person-trust cross-check (stale-face-latch guard):
+                    # Frigate's last_camera flaps unavailable⇄<camera> and
+                    # re-stamps last_changed, so age gate alone never
+                    # elapses for a departed person. Drop if person.<slug>
+                    # tracker reports not_home. Fail-OPEN if missing.
+                    person_entity_id = f"person.{person_slug.lower()}"
+                    person_state = self.hass.states.get(person_entity_id)
+                    if (
+                        person_state is not None
+                        and person_state.state == "not_home"
+                    ):
+                        continue
                     recognized.append(person_slug)
 
         return recognized
@@ -1707,6 +1719,64 @@ class TestFaceRecognizedPersonNames:
         census = StubPersonCensusV2(hass)
         result = census._get_face_recognized_person_names(now)
         assert result == ["oji_udezue"]
+
+    def test_person_not_home_excluded_stale_face_latch_guard(self):
+        """FIX A: face-recognized person dropped when person.<slug>=not_home.
+
+        Frigate's last_camera flaps unavailable⇄<camera> and re-stamps
+        last_changed, keeping the age gate <=1800s indefinitely for a
+        departed person (e.g. person.jaya=not_home). The person-trust
+        cross-check must drop them from the recognized list.
+        """
+        now = datetime.now()
+        hass = _make_hass_with_entry({
+            "tracked_persons": ["person.jaya"],
+        })
+        hass.set_state_with_time(
+            "sensor.frigate_jaya_last_camera",
+            "playroom",
+            last_changed=now - timedelta(minutes=1),  # fresh (flapping)
+        )
+        # But person tracker says they left the house
+        hass.set_state("person.jaya", "not_home")
+        census = StubPersonCensusV2(hass)
+        result = census._get_face_recognized_person_names(now)
+        assert result == [], (
+            "Face-recognized person with person.<slug>=not_home must be "
+            "excluded (stale-face latch guard)"
+        )
+
+    def test_person_home_still_counted(self):
+        """FIX A: person.<slug>=home does NOT block recognition."""
+        now = datetime.now()
+        hass = _make_hass_with_entry({
+            "tracked_persons": ["person.jaya"],
+        })
+        hass.set_state_with_time(
+            "sensor.frigate_jaya_last_camera",
+            "playroom",
+            last_changed=now - timedelta(minutes=1),
+        )
+        hass.set_state("person.jaya", "home")
+        census = StubPersonCensusV2(hass)
+        result = census._get_face_recognized_person_names(now)
+        assert result == ["jaya"]
+
+    def test_person_missing_fails_open(self):
+        """FIX A: missing person entity does NOT block (fail-open)."""
+        now = datetime.now()
+        hass = _make_hass_with_entry({
+            "tracked_persons": ["person.jaya"],
+        })
+        hass.set_state_with_time(
+            "sensor.frigate_jaya_last_camera",
+            "playroom",
+            last_changed=now - timedelta(minutes=1),
+        )
+        # No person.jaya state set
+        census = StubPersonCensusV2(hass)
+        result = census._get_face_recognized_person_names(now)
+        assert result == ["jaya"]
 
 
 # ============================================================================

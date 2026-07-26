@@ -1465,6 +1465,28 @@ class EnergyCoordinator(BaseCoordinator):
                         battery.restore_lkg_snapshot(snap)
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("LKG restore failed (swallowed)", exc_info=True)
+            # LKG wave 1 D2 — restore solar production LKG (mirror of the
+            # SOC path). Bounded by DEFAULT_SOLAR_LKG_ENVELOPE_MAX_AGE_S
+            # inside the envelope math — a stale-restored snapshot
+            # naturally decays to `expired` and the envelope method
+            # returns None (pre-D2 binary-None fall-through preserved).
+            try:
+                import json as _json
+                solar_raw = await db.restore_energy_state_with_age(
+                    "solar_production_w_lkg",
+                    max_age_hours=STALE_MAX_AGE_HOURS,
+                )
+                if solar_raw and battery is not None:
+                    try:
+                        s_snap = _json.loads(solar_raw)
+                    except (ValueError, TypeError):
+                        s_snap = None
+                    if s_snap:
+                        battery.restore_solar_lkg_snapshot(s_snap)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "solar LKG restore failed (swallowed)", exc_info=True,
+                )
             # Session B1 — drain-precedence carrier restore.
             # `restore_from_blob(raw, now_provider=dt_util.now)` enforces
             # INV-DP2 (expired must_start_by → fresh HOLD_ONLY) and the
@@ -1847,6 +1869,19 @@ class EnergyCoordinator(BaseCoordinator):
                         )
                 except Exception:  # noqa: BLE001
                     _LOGGER.debug("LKG save failed (swallowed)", exc_info=True)
+                # LKG wave 1 D2 — piggyback solar LKG persist on the SOC
+                # persist cadence (same EC persist call; no new writer).
+                try:
+                    s_snap = battery.get_solar_lkg_snapshot()
+                    if s_snap:
+                        await db.save_energy_state(
+                            "solar_production_w_lkg",
+                            _json.dumps(s_snap),
+                        )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "solar LKG save failed (swallowed)", exc_info=True,
+                    )
             # v<next> WS1 D1.1: force-charge expiry (canonical durable copy).
             # tz-aware ISO; on restore goes through dt_util.parse_datetime.
             fc_until = self._ev._force_charge_until
@@ -3386,6 +3421,43 @@ class EnergyCoordinator(BaseCoordinator):
             return bool(wv.is_reserve_verifiable())
         except Exception:  # noqa: BLE001
             return False
+
+    def solar_production_w_envelope(
+        self,
+    ) -> "tuple[float, float, str, float] | None":
+        """Passthrough to BatteryStrategy.solar_production_w_envelope.
+
+        LKG wave 1 D2: threads the operator's configured array nameplate
+        (config-flow field ``CONF_ENERGY_SOLAR_NAMEPLATE_W``, rung 2)
+        into the envelope factory. Consumers (excess-solar path in
+        `energy_pool.determine_excess_solar_actions`) call this rather
+        than the battery method directly so the config-flow value is
+        applied uniformly.
+        """
+        try:
+            from .energy_const import (
+                CONF_ENERGY_SOLAR_NAMEPLATE_W,
+                DEFAULT_ENERGY_SOLAR_NAMEPLATE_W,
+            )
+            nameplate = None
+            try:
+                cfg = self._entity_config or {}
+                raw = cfg.get(CONF_ENERGY_SOLAR_NAMEPLATE_W)
+                if raw is not None:
+                    nameplate = float(raw)
+            except Exception:  # noqa: BLE001
+                nameplate = None
+            if nameplate is None or nameplate <= 0:
+                nameplate = float(DEFAULT_ENERGY_SOLAR_NAMEPLATE_W)
+            return self._battery.solar_production_w_envelope(
+                nameplate_w=nameplate,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "solar_production_w_envelope passthrough failed (swallowed)",
+                exc_info=True,
+            )
+            return None
 
     def soc_envelope(self) -> tuple[float, float] | None:
         """Passthrough to BatteryStrategy.soc_envelope (D5)."""

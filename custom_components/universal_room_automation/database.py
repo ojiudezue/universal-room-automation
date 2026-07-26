@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.30.0
+# Universal Room Automation vv5.31.0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -7030,7 +7030,7 @@ class UniversalRoomDatabase:
             return []
 
     async def get_ac_ramp_kwh_avoided(
-        self, days: int | None = None,
+        self, days: int | None = None, since: "datetime | None" = None,
     ) -> tuple[float, int, int]:
         """Compute (kwh_avoided, total_nudge_evals, false_positive_count).
 
@@ -7049,7 +7049,16 @@ class UniversalRoomDatabase:
         """
         where_clauses = ["event_type = 'nudge_evaluated'", "triggered_by != 'manual'"]
         params: list = []
-        if days is not None:
+        # `since` (a concrete datetime, e.g. local-midnight) wins over the
+        # rolling `days` window when both are supplied. This is how the
+        # "today" cache anchors to local midnight so the sensor resets
+        # cleanly at 00:00 local instead of drifting as a 24h-rolling sum
+        # (which caused non-monotonic decreases as events aged out — v5.24+
+        # fix; see HVACACKwhAvoidedTodaySensor docstring).
+        if since is not None:
+            where_clauses.append("timestamp >= ?")
+            params.append(since.isoformat())
+        elif days is not None:
             where_clauses.append("timestamp >= ?")
             params.append((dt_util.now() - timedelta(days=days)).isoformat())
         where_sql = " AND ".join(where_clauses)

@@ -667,7 +667,7 @@ class TestRevertOverrideOrdering:
                 end = pos
         body = body[:end]
 
-        suppress_pos = body.find("self.suppress(zone.climate_entity)")
+        suppress_pos = body.find("self.suppress(zone.climate_entity")
         service_pos = body.find("services.async_call(")
         assert suppress_pos > 0, (
             "_revert_override must call self.suppress(zone.climate_entity) "
@@ -681,3 +681,319 @@ class TestRevertOverrideOrdering:
             "_revert_override — otherwise the settle event can race the "
             "suppression window open and re-arm the arrester."
         )
+
+
+# ---------------------------------------------------------------------------
+# FIX B1: kind-tagged suppression — induced preset_mode manual under a
+# "temp" suppression (from URA's own set_temperature nudge) must NOT
+# self-count as a user override. Otherwise on preset-based Carrier/Bryant
+# thermostats, every nudge triggers preset sleep->manual as a SIDE EFFECT,
+# which fires override_count_today++ (empty house, 85 auto ac_ramp_events/
+# night with current_temp==target).
+# ---------------------------------------------------------------------------
+
+
+class TestKindTaggedSuppression:
+    def test_induced_manual_under_temp_suppression_stays_suppressed(
+        self, fake_clock,
+    ):
+        """FIX B1 core: kind='temp' suppression blocks the induced manual."""
+        arrester = _make_arrester()
+        arrester.suppress(CLIMATE_ENTITY, kind="temp")
+
+        fake_clock.advance(1.0)
+        # Preset-based thermostat side effect: temp write induced
+        # preset_mode sleep->manual
+        induced_manual = _make_event(
+            CLIMATE_ENTITY,
+            old_preset="sleep", new_preset="manual",
+            old_high=76.0, new_high=76.5,  # nudge
+            old_low=70.0, new_low=70.0,
+        )
+        arrester._handle_climate_change(induced_manual)
+
+        assert arrester._find_zone_calls == [], (
+            "Induced manual under kind='temp' must stay suppressed — "
+            "otherwise it self-counts as a user override. Got: %r"
+            % (arrester._find_zone_calls,)
+        )
+        # Suppression entry preserved (still within TTL).
+        assert CLIMATE_ENTITY in arrester._suppressed_until
+
+    def test_genuine_user_manual_without_temp_suppression_passes_through(
+        self, fake_clock,
+    ):
+        """FIX B1 guard: outside a 'temp' suppression, a manual flip still
+        reaches override detection (existing FIX 1 behavior preserved)."""
+        arrester = _make_arrester()
+        # No suppress at all — pure user action.
+        user_evt = _make_event(
+            CLIMATE_ENTITY,
+            old_preset="home", new_preset="manual",
+            old_high=76.0, new_high=68.0,
+            old_low=70.0, new_low=68.0,
+        )
+        arrester._handle_climate_change(user_evt)
+        assert arrester._find_zone_calls == [CLIMATE_ENTITY]
+
+    def test_genuine_user_manual_under_preset_kind_still_passes(
+        self, fake_clock,
+    ):
+        """kind='preset' (URA's revert write) does NOT block a
+        genuine user manual mid-window — only 'temp' does."""
+        arrester = _make_arrester()
+        arrester.suppress(CLIMATE_ENTITY, kind="preset")
+
+        fake_clock.advance(1.0)
+        user_evt = _make_event(
+            CLIMATE_ENTITY,
+            old_preset="home", new_preset="manual",
+            old_high=76.0, new_high=68.0,
+            old_low=70.0, new_low=68.0,
+        )
+        arrester._handle_climate_change(user_evt)
+
+        assert arrester._find_zone_calls == [CLIMATE_ENTITY], (
+            "kind='preset' must not block genuine user manual (FIX B1 "
+            "narrowly targets kind='temp'). Got: %r"
+            % (arrester._find_zone_calls,)
+        )
+
+    def test_untagged_suppress_backwards_compatible(self, fake_clock):
+        """External callers that don't pass kind (hvac.py / hvac_predict.py /
+        optimization.py) keep the legacy FIX 1 behavior: mid-window manual
+        passes through."""
+        arrester = _make_arrester()
+        arrester.suppress(CLIMATE_ENTITY)  # no kind — legacy
+
+        fake_clock.advance(1.0)
+        user_evt = _make_event(
+            CLIMATE_ENTITY,
+            old_preset="home", new_preset="manual",
+            old_high=76.0, new_high=68.0,
+            old_low=70.0, new_low=68.0,
+        )
+        arrester._handle_climate_change(user_evt)
+
+        assert arrester._find_zone_calls == [CLIMATE_ENTITY]
+
+    def test_unsuppress_clears_kind(self, fake_clock):
+        arrester = _make_arrester()
+        arrester.suppress(CLIMATE_ENTITY, kind="temp")
+        assert arrester._suppress_kind.get(CLIMATE_ENTITY) == "temp"
+        arrester.unsuppress(CLIMATE_ENTITY)
+        assert CLIMATE_ENTITY not in arrester._suppress_kind
+
+    def test_disable_clears_kind(self, fake_clock):
+        arrester = _make_arrester()
+        arrester.suppress(CLIMATE_ENTITY, kind="temp")
+        arrester.enabled = False
+        assert arrester._suppress_kind == {}
+
+
+# ---------------------------------------------------------------------------
+# FIX B2: preset-preserving restore. The nudge set_temperature flips
+# preset_mode ("sleep"->"manual") on Carrier/Bryant thermostats as a side
+# effect. The restore path used to only write target back, leaving the
+# thermostat in "manual" preset for the rest of the night — 20+ nudges/
+# night = 20+ preset flips + sleep-schedule defeated. Fix: snapshot
+# preset before the nudge; if restore sees preset==manual and snapshot
+# was non-manual, re-write the preset. Snapshot dict is `_nudge_pre_preset`.
+# ---------------------------------------------------------------------------
+
+
+class TestPresetPreservingRestore:
+    def test_pre_preset_snapshot_field_exists(self):
+        arrester = _make_arrester()
+        # Fresh instance: empty dict, not missing attribute.
+        assert hasattr(arrester, "_nudge_pre_preset")
+        assert arrester._nudge_pre_preset == {}
+
+    def test_cancel_clears_snapshot(self):
+        """Verify the cancel path clears the pre-preset snapshot."""
+        arrester = _make_arrester()
+        arrester._nudge_pre_preset["zone_a"] = "sleep"
+        # Simulate the cancel-path cleanup (matches production code).
+        arrester._nudge_pre_preset.pop("zone_a", None)
+        assert "zone_a" not in arrester._nudge_pre_preset
+
+    def test_perform_soft_nudge_captures_non_manual_preset(self):
+        """Source-shape guard: _perform_soft_nudge must read preset_mode
+        from the climate entity BEFORE the first emit_set_temperature so
+        we snapshot pre-nudge state."""
+        src_path = os.path.join(
+            _URA_PATH, "domain_coordinators", "hvac_override.py",
+        )
+        with open(src_path, "r", encoding="utf-8") as f:
+            src = f.read()
+        idx = src.find("async def _perform_soft_nudge(")
+        assert idx > 0
+        end_markers = ["\n    async def ", "\n    def "]
+        end = len(src)
+        for m in end_markers:
+            pos = src.find(m, idx + len("async def _perform_soft_nudge("))
+            if pos != -1 and pos < end:
+                end = pos
+        body = src[idx:end]
+        # The snapshot MUST come before emit_set_temperature, else we'd
+        # read the post-write preset (already flipped to manual).
+        snap_pos = body.find('_nudge_pre_preset[zone_id] = _pre_preset')
+        # Fallback: look for the dict write pattern
+        if snap_pos < 0:
+            snap_pos = body.find('_nudge_pre_preset[zone_id]')
+        emit_pos = body.find("emit_set_temperature(")
+        assert snap_pos > 0, (
+            "_perform_soft_nudge must snapshot pre-nudge preset "
+            "(self._nudge_pre_preset[zone_id] = ...)"
+        )
+        assert emit_pos > 0
+        assert snap_pos < emit_pos, (
+            "Preset snapshot must precede the set_temperature write, "
+            "otherwise we'd capture the post-write (manual) preset."
+        )
+        # Non-manual guard: don't overwrite a user-set manual mid-night.
+        assert '_pre_preset != "manual"' in body
+
+    def test_restore_after_nudge_writes_preset_when_flipped(self):
+        """Source-shape guard: _restore_after_nudge must call
+        set_preset_mode with the snapshotted preset when the current
+        preset is 'manual'."""
+        src_path = os.path.join(
+            _URA_PATH, "domain_coordinators", "hvac_override.py",
+        )
+        with open(src_path, "r", encoding="utf-8") as f:
+            src = f.read()
+        idx = src.find("async def _restore_after_nudge(")
+        assert idx > 0
+        end_markers = ["\n    async def ", "\n    def "]
+        end = len(src)
+        for m in end_markers:
+            pos = src.find(m, idx + len("async def _restore_after_nudge("))
+            if pos != -1 and pos < end:
+                end = pos
+        body = src[idx:end]
+        assert '_nudge_pre_preset.pop(zone_id' in body, (
+            "restore must consume the snapshot"
+        )
+        assert '"set_preset_mode"' in body, (
+            "restore must emit set_preset_mode to reverse the induced flip"
+        )
+        assert '_cur_preset == "manual"' in body, (
+            "restore must gate on current preset actually being manual"
+        )
+        # FIX B1 alignment: preset write must be under kind='preset'.
+        assert 'kind="preset"' in body
+
+
+# ---------------------------------------------------------------------------
+# HIGH-C2 behavioral: drive REAL _restore_after_nudge preset restore.
+#
+# Review C flagged that the B2 restore is only covered by source-string
+# greps — neutering `if _cur_preset == "manual":` (~line 1691) leaves
+# those greps green. These tests exercise the actual coroutine and
+# assert on the emitted service call log.
+# ---------------------------------------------------------------------------
+
+
+import asyncio  # noqa: E402
+
+
+class TestRestoreAfterNudgeBehavioral:
+    """B2 preset-restore behavioral — neutering the manual-gate MUST fail
+    at least one of these."""
+
+    @staticmethod
+    def _build(preset_now: str | None, snapshotted_preset: str):
+        """Build an arrester + zone ready to have _restore_after_nudge called.
+
+        preset_now: current thermostat preset_mode (what hass.states returns).
+                    Pass None to simulate missing state.
+        snapshotted_preset: what was captured pre-nudge into _nudge_pre_preset.
+        """
+        zone = ZoneState(
+            zone_id=ZONE_ID, zone_name="Zone A",
+            climate_entity=CLIMATE_ENTITY,
+        )
+        zone.hvac_mode = "heat_cool"
+        zone.preset_mode = snapshotted_preset or "home"
+        zone.target_temp_low = 70.0
+        zone.target_temp_high = 76.0
+        zone.nudge_kwh_rate_before = 1.0
+
+        zm = MagicMock()
+        zm.zones = {ZONE_ID: zone}
+
+        hass = MagicMock()
+        service_calls: list[tuple[str, str, dict]] = []
+
+        async def _async_call(domain, service, data, blocking=False):
+            service_calls.append((domain, service, dict(data)))
+
+        hass.services.async_call = _async_call
+
+        if preset_now is None:
+            hass.states.get = MagicMock(return_value=None)
+        else:
+            _st = MagicMock()
+            _st.attributes = {"preset_mode": preset_now}
+            hass.states.get = MagicMock(return_value=_st)
+
+        arrester = OverrideArrester(
+            hass=hass, zone_manager=zm,
+            compromise_minutes=30, ac_reset_timeout=60, enabled=True,
+        )
+        arrester._db = None
+        if snapshotted_preset:
+            arrester._nudge_pre_preset[ZONE_ID] = snapshotted_preset
+
+        # Stub emit_set_temperature (temp write is not what we test here);
+        # also stub async_call_later (schedules eval timer post-restore).
+        hvac_override.emit_set_temperature = MagicMock(
+            return_value=asyncio.sleep(0),
+        )
+        hvac_override.async_call_later = MagicMock(return_value=lambda: None)
+
+        return arrester, zone, service_calls
+
+    def _run(self, coro):
+        return asyncio.get_event_loop().run_until_complete(coro)
+
+    def _preset_calls(self, log):
+        return [c for c in log if c[1] == "set_preset_mode"]
+
+    def test_restore_fires_set_preset_mode_when_manual_and_snapshot(self):
+        """LOAD-BEARING: preset_now=='manual' + snapshot='home' → fire
+        set_preset_mode(home). Neutering `_cur_preset == "manual"` breaks
+        this assertion."""
+        arrester, zone, log = self._build(
+            preset_now="manual", snapshotted_preset="home",
+        )
+        self._run(arrester._restore_after_nudge(zone, original_target=76.0))
+        preset_calls = self._preset_calls(log)
+        assert len(preset_calls) == 1, (
+            f"Expected 1 set_preset_mode call, got {preset_calls}"
+        )
+        _, _, data = preset_calls[0]
+        assert data.get("preset_mode") == "home"
+        assert data.get("entity_id") == CLIMATE_ENTITY
+
+    def test_restore_does_not_fire_preset_when_not_manual(self):
+        """preset_now=='home' (already correct) → NO set_preset_mode."""
+        arrester, zone, log = self._build(
+            preset_now="home", snapshotted_preset="home",
+        )
+        self._run(arrester._restore_after_nudge(zone, original_target=76.0))
+        assert self._preset_calls(log) == [], (
+            "No preset restore when thermostat isn't in manual"
+        )
+
+    def test_restore_does_not_fire_preset_when_no_snapshot(self):
+        """No pre-nudge snapshot → skip restore entirely (empty pop)."""
+        arrester, zone, log = self._build(
+            preset_now="manual", snapshotted_preset="",
+        )
+        self._run(arrester._restore_after_nudge(zone, original_target=76.0))
+        assert self._preset_calls(log) == [], (
+            "No preset restore when no snapshot was taken"
+        )
+

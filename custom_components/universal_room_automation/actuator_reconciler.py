@@ -778,6 +778,20 @@ class ActuatorReconciler:
         if automation is not None and automation._is_hvac_managing_fans():
             return None
 
+        # HIGH-1 (review B): defer while the room-tier manual-off cooldown
+        # is live. `handle_temperature_based_fan_control` opens a cooldown
+        # when an external actor turns the fan off; the reconciler MUST
+        # honor that same window or it will re-assert "on" on the next
+        # reconcile edge and defeat the fix. Mirrors the HVAC-managed
+        # defer above.
+        if automation is not None:
+            try:
+                if automation.is_fan_in_manual_cooldown():
+                    return None
+            except AttributeError:
+                # Older RoomAutomation without the accessor: fall through.
+                pass
+
         # A-HIGH-2: mirror the canonical handle_temperature_based_fan_control
         # sleep-policy + vacancy-hold. That handler forces fans OFF under
         # FAN_SLEEP_OFF, caps speed under FAN_SLEEP_REDUCE, and HOLDS fans on

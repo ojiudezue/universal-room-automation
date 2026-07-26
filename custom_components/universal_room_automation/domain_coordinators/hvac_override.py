@@ -142,6 +142,27 @@ class OverrideArrester:
         # set_hvac_mode + set_preset_mode in _revert_override) stays
         # suppressed across all of them. Window self-clears on TTL expiry.
         self._suppressed_until: dict[str, datetime] = {}
+        # FIX B1: tag each active suppression with a KIND so the
+        # manual-passthrough (~:660) can distinguish induced-manual from
+        # a URA temp-write ("temp") vs a URA preset-write ("preset") vs
+        # an untagged external suppression (None, legacy). An induced
+        # preset_mode sleep->manual event that lands inside a "temp"
+        # suppression window must NOT self-count as a user override
+        # (85 auto ac_ramp_events/night on empty house with
+        # current_temp==target).
+        self._suppress_kind: dict[str, str | None] = {}
+        # FIX B2: pre-nudge preset capture. On preset-based Carrier/Bryant
+        # thermostats, a `set_temperature` write flips `preset_mode` from
+        # e.g. `sleep`->`manual` as a side effect and it PERSISTS —
+        # `_restore_after_nudge` only writes target back, never preset, so
+        # the thermostat sits in `manual` for the rest of the night, and
+        # the user's sleep-preset schedule is defeated across 20+ nudges
+        # per night. We snapshot the preset BEFORE the nudge write; if
+        # the restore path sees preset == "manual" and the snapshot was a
+        # non-manual preset, we also emit a `set_preset_mode` to restore
+        # it. Empty snapshot (unknown/unavailable at nudge time) = skip
+        # restore = fail-safe (no worse than pre-fix behavior).
+        self._nudge_pre_preset: dict[str, str] = {}
 
         # v3.18.x review fix: Track verify/retry tasks for AC reset restore
         self._verify_tasks: dict[str, asyncio.Task] = {}
@@ -223,11 +244,20 @@ class OverrideArrester:
 
             # kWh-avoided + false-positive math (excludes manual triggers
             # per the slice-1 R6 mitigation already in get_ac_ramp_kwh_avoided)
+            # Anchor "today" to LOCAL MIDNIGHT (not now-24h rolling) so the
+            # sensor is a true daily accumulator: monotonic non-decreasing
+            # across the day, resets cleanly at 00:00 local. state_class
+            # total_increasing depends on this — a rolling 24h sum would
+            # decrease as events age out and corrupt HA long-term stats.
+            # Restart behavior: not persisted in RAM; re-derived from DB rows
+            # (same pattern as sibling `nudges_today`/`resets_today` which
+            # read per-date rows). ac_ramp_events survives restart.
+            local_midnight = dt_util.start_of_local_day()
             (
                 kwh_avoided_today,
                 evals_today,
                 fp_today,
-            ) = await self._db.get_ac_ramp_kwh_avoided(days=1)
+            ) = await self._db.get_ac_ramp_kwh_avoided(since=local_midnight)
             (
                 kwh_avoided_total,
                 evals_total,
@@ -517,16 +547,24 @@ class OverrideArrester:
         self._energy_offset = offset
         self._energy_coast = coast
 
-    def suppress(self, entity_id: str) -> None:
+    def suppress(self, entity_id: str, kind: str | None = None) -> None:
         """Suppress override detection for an entity (URA-initiated change).
 
         v4.7.33 A-F5: opens a TTL window (`SUPPRESS_TTL_SECONDS`) rather
         than adding to a set that gets popped on the first state event.
         Covers multi-event settles from a single URA service call.
+
+        FIX B1: ``kind`` tags the suppression origin so the mid-window
+        manual-passthrough (~:660) can distinguish an induced
+        ``preset_mode`` transition caused by URA's own temp-write
+        (``kind="temp"``) from a genuine user manual flip. Preset-writes
+        pass ``kind="preset"``. External callers that leave ``kind=None``
+        retain legacy behavior (manual passthrough fires as before).
         """
         self._suppressed_until[entity_id] = (
             dt_util.now() + timedelta(seconds=SUPPRESS_TTL_SECONDS)
         )
+        self._suppress_kind[entity_id] = kind
 
     def unsuppress(self, entity_id: str) -> None:
         """Re-enable override detection for an entity immediately.
@@ -535,6 +573,7 @@ class OverrideArrester:
         did not happen (or failed) and the TTL window must close now.
         """
         self._suppressed_until.pop(entity_id, None)
+        self._suppress_kind.pop(entity_id, None)
 
     @property
     def enabled(self) -> bool:
@@ -615,6 +654,7 @@ class OverrideArrester:
             # disable so a stale TTL window doesn't survive an arrester
             # disable (which would silently swallow events for ≤5s).
             self._suppressed_until.clear()
+            self._suppress_kind.clear()
         _LOGGER.info("Override Arrester %s", "enabled" if value else "disabled (passive mode)")
 
     @callback
@@ -653,12 +693,30 @@ class OverrideArrester:
                     and old_preset_mid != "manual"
                 ):
                     return
+                # FIX B1: distinguish induced-manual from genuine.
+                # If the active suppression kind is "temp" (URA's own
+                # set_temperature nudge), the preset_mode sleep->manual
+                # transition we just saw is a SIDE EFFECT of that write
+                # on preset-based Carrier/Bryant thermostats — NOT a user
+                # action. Stay suppressed. Any other kind (None/legacy or
+                # "preset" for our own preset write) keeps the arrester's
+                # original behavior of catching a genuine user flip mid-
+                # window.
+                if self._suppress_kind.get(entity_id) == "temp":
+                    _LOGGER.debug(
+                        "Arrester: induced manual on %s during temp "
+                        "suppression — staying suppressed (FIX B1)",
+                        entity_id,
+                    )
+                    return
                 # Genuine user override mid-window: drop suppression and
                 # fall through to normal override detection below.
                 self._suppressed_until.pop(entity_id, None)
+                self._suppress_kind.pop(entity_id, None)
             else:
                 # Expired — clean up so the dict doesn't accumulate stale keys
                 self._suppressed_until.pop(entity_id, None)
+                self._suppress_kind.pop(entity_id, None)
 
         # Find which zone this entity belongs to
         zone = self._find_zone_by_entity(entity_id)
@@ -885,7 +943,11 @@ class OverrideArrester:
             self._compromise_minutes,
         )
 
-        # Set compromise temperature
+        # Set compromise temperature.
+        # FIX B1: kind="temp" — the compromise is a set_temperature write
+        # which can induce a preset_mode side effect on preset thermostats;
+        # that induced manual must not self-count as another user override.
+        self.suppress(zone.climate_entity, kind="temp")
         try:
             await emit_set_temperature(
                 self.hass,
@@ -946,7 +1008,9 @@ class OverrideArrester:
 
         # Suppress arrester for our own revert (TTL window covers both
         # set_hvac_mode and set_preset_mode settle events — A-F5).
-        self.suppress(zone.climate_entity)
+        # FIX B1: kind="preset" so genuine mid-window user manual is
+        # still caught (only "temp" suppression blocks manual passthrough).
+        self.suppress(zone.climate_entity, kind="preset")
 
         try:
             # v4.7.32: re-assert heat_cool whenever the mode has drifted from it
@@ -1486,8 +1550,32 @@ class OverrideArrester:
                 duration_s=duration_s,
             )
 
-        # Suppress override detection during URA-initiated change (R11)
-        self.suppress(zone.climate_entity)
+        # FIX B2: snapshot preset BEFORE the temp write so
+        # _restore_after_nudge can restore it (the temp write flips
+        # preset->manual as a side effect on Carrier/Bryant and the
+        # restore path never wrote preset back — leaving the sleep
+        # schedule defeated for the rest of the night).
+        try:
+            _cs = self.hass.states.get(zone.climate_entity)
+            _pre_preset = (
+                _cs.attributes.get("preset_mode", "") if _cs is not None else ""
+            )
+        except Exception:  # noqa: BLE001 — defensive
+            _pre_preset = ""
+        # Only snapshot a non-manual, non-empty preset. If the thermostat
+        # was already in "manual" (user-driven) or reports no preset,
+        # leave the snapshot empty so restore is a no-op — we don't want
+        # to fight a user-set manual mid-night.
+        if _pre_preset and _pre_preset != "manual":
+            self._nudge_pre_preset[zone_id] = _pre_preset
+        else:
+            self._nudge_pre_preset.pop(zone_id, None)
+
+        # Suppress override detection during URA-initiated change (R11).
+        # FIX B1: kind="temp" — the nudge set_temperature can induce a
+        # preset_mode sleep->manual side effect on preset thermostats
+        # (Carrier/Bryant); that induced transition must stay suppressed.
+        self.suppress(zone.climate_entity, kind="temp")
 
         try:
             await emit_set_temperature(
@@ -1505,6 +1593,8 @@ class OverrideArrester:
             )
             if self._db is not None:
                 await self._db.clear_ac_in_flight_nudge(zone_id)
+            # FIX B2: nudge never took effect, don't try to restore preset later.
+            self._nudge_pre_preset.pop(zone_id, None)
             return
 
         self._nudge_in_flight.add(zone_id)
@@ -1563,7 +1653,8 @@ class OverrideArrester:
 
         # Risk R11: re-suppress before our own write so an in-flight user
         # override doesn't get mis-classified.
-        self.suppress(zone.climate_entity)
+        # FIX B1: kind="temp" (see suppress() docstring).
+        self.suppress(zone.climate_entity, kind="temp")
 
         try:
             await emit_set_temperature(
@@ -1579,6 +1670,46 @@ class OverrideArrester:
                 "Soft nudge restore: set_temperature failed on %s: %s",
                 zone.climate_entity, e,
             )
+
+        # FIX B2: preset-preserving restore. If we snapshotted a
+        # non-manual preset before the nudge AND the thermostat is now
+        # in "manual" (i.e. our temp write flipped it as a side effect),
+        # write the preset back to what it was. Suppression is already
+        # open (kind="temp" set above); we re-open with kind="preset"
+        # so the induced settle events from set_preset_mode stay
+        # suppressed and don't self-count as a user override.
+        pre_preset = self._nudge_pre_preset.pop(zone_id, "")
+        if pre_preset:
+            try:
+                _cs_after = self.hass.states.get(zone.climate_entity)
+                _cur_preset = (
+                    _cs_after.attributes.get("preset_mode", "")
+                    if _cs_after is not None else ""
+                )
+            except Exception:  # noqa: BLE001 — defensive
+                _cur_preset = ""
+            if _cur_preset == "manual":
+                self.suppress(zone.climate_entity, kind="preset")
+                try:
+                    await self.hass.services.async_call(
+                        "climate",
+                        "set_preset_mode",
+                        {
+                            "entity_id": zone.climate_entity,
+                            "preset_mode": pre_preset,
+                        },
+                        blocking=False,
+                    )
+                    _LOGGER.info(
+                        "Soft nudge restore on %s: preset "
+                        "manual->%s (FIX B2 preset-preserving)",
+                        zone.zone_name, pre_preset,
+                    )
+                except Exception as e:  # noqa: BLE001 — defensive
+                    _LOGGER.error(
+                        "Soft nudge preset restore failed on %s: %s",
+                        zone.climate_entity, e,
+                    )
 
         self._track_zone_action(
             zone, AC_RAMP_EVENT_NUDGE_RESTORED, "auto",
@@ -2005,6 +2136,10 @@ class OverrideArrester:
         # against a stale window.
         self._nudge_post_restore_ts.pop(zone_id, None)
         self._nudge_in_flight.discard(zone_id)
+        # FIX B2: also clear pre-preset snapshot on cancel — the
+        # cancel_nudge restore path emits its own set_temperature but
+        # not a preset write, so any stashed preset is now stale.
+        self._nudge_pre_preset.pop(zone_id, None)
 
         original_target = None
         if self._db is not None:
@@ -2012,7 +2147,8 @@ class OverrideArrester:
             original_target = state.get("in_flight_nudge_original_target")
 
         if original_target is not None:
-            self.suppress(zone.climate_entity)
+            # FIX B1: kind="temp" — cancel_nudge restore is a set_temperature.
+            self.suppress(zone.climate_entity, kind="temp")
             try:
                 await emit_set_temperature(
                     self.hass,
@@ -2230,7 +2366,8 @@ class OverrideArrester:
 
             if elapsed_s >= duration_s:
                 # Expired — restore now
-                self.suppress(zone.climate_entity)
+                # FIX B1: kind="temp" — startup nudge restore is a set_temperature.
+                self.suppress(zone.climate_entity, kind="temp")
                 try:
                     await emit_set_temperature(
                         self.hass,

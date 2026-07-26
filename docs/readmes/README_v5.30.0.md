@@ -21,10 +21,10 @@ Why it matters: adding a future owner is one declaration, not a nine-site
 scavenger hunt (the blind-window guard's review history is the evidence).
 LKG wave 1 and the load_shed/arbitrage Tier-1 pair land next on this base.
 
-## Live Validation (prospective — write back post-restart)
+## Live Validation — Validated 2026-07-23 (restart ~17:25 CDT)
 
-| # | Criterion | How to check |
-|---|---|---|
-| L1 | Clean boot; house + EC resolve; zero URA ERRORs | logs + sensors |
-| L2 | Restart round-trip: any live owner pauses survive the restart (fill-priority morning holds if SOC<80, TOU pauses if mid/peak) and pause_reason_human strings byte-identical to pre-deploy | EV charging status attrs pre/post |
-| L3 | NOTHING ELSE observable changed — decisions, sensor attrs, dashboards identical | spot-check battery strategy + EV status vs pre-deploy |
+| # | Criterion | Result | Observed evidence |
+|---|---|---|---|
+| L1 | Clean boot | PASS | Zero URA ERROR lines post-boot; house `home_day`; EC normal warm-up (SOC 100 — battery full from the day's excellent solar). |
+| L2 | Owner-state restart round-trip | **PASS — byte-identical** | Pre-deploy snapshot 17:21 vs post-restart: identical `paused_by_energy` (both L1 plugs), identical empty `paused_by_fill_priority`, identical `pause_reason_human` strings ("TOU peak/mid-peak pause" ×2, "off" ×2) — character-exact through the new registry restore path. |
+| L3 | Nothing else changed | PASS | EV status state + attrs identical; no new/missing attrs; dashboards unchanged. For a behavior-frozen refactor, boring = success. |

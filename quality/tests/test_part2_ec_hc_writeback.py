@@ -73,6 +73,8 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_EXCESS_SOLAR_SOC"),
     # Blind-window guard cycle — D4 Emporia-mains backup export sensor.
     _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_MAINS_EXPORT_ENTITY"),
+    # LKG wave 1 D2 — solar production upper-envelope nameplate.
+    _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_SOLAR_NAMEPLATE_W"),
     "bayesian_cell_staleness_days",
     # D2 — Routine family
     _extract_conf(CONST_SRC, "CONF_ROUTINE_EVENT_COOLDOWN_DAYS"),
@@ -281,7 +283,8 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     # +1 CONF_ENERGY_MAINS_EXPORT_ENTITY (blind-window guard D4)
     # +1 CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS (NM C-2 D2)
     # (both cycles merged 2026-07-23 -> combined count 83)
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 83
+    # +1 CONF_ENERGY_SOLAR_NAMEPLATE_W (LKG wave 1 D2, 2026-07-24) -> 84
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 84
 
 
 # ---------------------------------------------------------------------------
@@ -363,6 +366,8 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_ENERGY_EXCESS_SOLAR_SOC":          "energy_excess_solar_soc",
         # Blind-window guard cycle — D4 Emporia-mains backup export sensor.
         "_CONF_ENERGY_MAINS_EXPORT_ENTITY":       "energy_mains_export_entity",
+        # LKG wave 1 D2 — solar production upper-envelope nameplate.
+        "_CONF_ENERGY_SOLAR_NAMEPLATE_W":         "energy_solar_nameplate_w",
         "_CONF_DYNAMIC_PRESET_HYSTERESIS_F":      "dynamic_preset_hysteresis_f",
         "_CONF_HVAC_EGRESS_THRESHOLD_MIN":        "hvac_egress_threshold_min",
         "_CONF_HVAC_EGRESS_RESUME_DELAY_MIN":     "hvac_egress_resume_delay_min",

@@ -434,6 +434,28 @@ Lower = tighter/riskier (may not finish the chunk before peak); higher
 this to be more aggressive about diverting to EVSEs before export;
 raise it to prioritize battery top-off.
 
+### 5.5a EV SOC-threshold jurisdiction — who governs which window
+
+The EVSE SOC knobs are TWO owners' engage points, not one hysteresis
+loop. Their non-overlapping shifts across a summer day:
+
+| Window | Governing owner | Behaviour |
+|---|---|---|
+| Sunrise → 14:00, **SOC < 80** (off-peak daylight) | **Fill priority** (row 8, `fill_priority_soc`=80) | HOLD the car — battery fills first. The ONLY owner between ensure-on and the car here. Releases at SOC 80 → ensure-on charges on cheap off-peak while solar pushes battery toward 95. Fired live 2026-07-23 07:59:55. |
+| 80–95 band, daytime | **Plain TOU** | Hands-off; no solar-aware interference either way. |
+| **SOC ≥ 95** + forecast ≥ 5 kWh, never peak | **Excess-solar** (row 10, `excess_solar_soc`=95) | Turn ON (overriding TOU pause). Cut off the instant SOC dips **below 95** OR forecast < 5 kWh OR peak starts — NOT at 80. Worst-case battery give-back through this path ≈ 5 SOC points. |
+| Peak | TOU pause (row 12) | Battery needed; EV off. |
+| Night off-peak | Ensure-on | Cars charge (v5.5.5 deadlock fix; fill-priority inert at night). |
+
+The 80–95 dead band is asymmetric by design: **pause-until 80, resume-at
+95** — two owners' thresholds, not a single loop.
+
+**⚠️ Two knobs share the value 80 — do not conflate.**
+`fill_priority_soc` (when morning cars wait for the battery) and
+`energy_ev_battery_drain_soc` (the blind-window envelope's ride-cut bar,
+§2.5a) both default to 80 in this deployment but are INDEPENDENT knobs.
+Tuning one does not move the other.
+
 ### 5.6 Kill switches
 
 - **Battery-Aware EV Charging:** flip

@@ -1,0 +1,45 @@
+{
+  "format_version": "2.1",
+  "entry_id": "032",
+  "author": "ojiudezue",
+  "session_id": "claude_20260726_morning_debug_marathon_v5310_ship",
+  "timestamp": "2026-07-26T18:30:00Z",
+  "type": "milestone",
+  "weight": "critical",
+  "title": "v5.31.0 combined ship (owner-set + LKG D1/D2 + Tier-1 pair + morning fix batch); verify-before-mechanism reinforced across 4 corrected misdiagnoses; framing-disjoint caught a non-working fan fix + 2 grep-only tests",
+  "summary": "A live-debug marathon on an empty house surfaced four quiet defects and a stack of dashboards work, then bundled the accumulated develop delta into one release. The through-line was VERIFY-BEFORE-MECHANISM: the orchestrator mis-diagnosed the Jaya comfort-fan owner three times (device firmware -> HVAC not-managing -> back to room-tier), the census phantom's driver (wrongly blamed wifi_guest_floor then a camera reflection), and Ezinne's stuck-home (asserted a beacon, was the phone GPS app) -- each corrected ONLY by pulling live state/config/recorder, never reasoning. The dispositive catch: Jaya's config read `fan_control_enabled=False` -- but its `modified_at` timestamp proved the operator had flipped it minutes earlier, so the incident-time state was the opposite; reading post-intervention config had inverted the whole diagnosis. Root causes, once data-backed: (1) census face-latch = URA trusts Frigate `sensor.frigate_<slug>_last_camera.last_changed` as a freshness clock, but that sensor flaps unavailable<->value 205x/6h re-stamping last_changed, so a departed person never ages out (Bug Class: stale-data via unreliable freshness proxy); (2) HVAC 'override storm' (26/night, empty house) = URA's own AC-nudge set_temperature induces preset sleep->manual on Carrier/Bryant, which the arrester self-counted as a user override AND never restored the preset -- defeating the sleep schedule 40+x/night (the real harm was preset persistence, not the count); (3) fan manual-off never stuck because the room-tier path had no cooldown AND the actuator reconciler re-arms independently. Reviews then caught a fan fix that would have shipped NOT WORKING (reconciler defeats the cooldown) and two batch fixes whose 'passing' tests were tautological-stub / source-grep only.",
+  "decisions": [
+    "Ship the accumulated disjoint develop delta as ONE release v5.31.0 (owner-set registry v5.30.0 Tier-3, LKG D1 SOC, LKG D2 solar, load-shed/arbitrage Tier-1 pair, EC manual, + the morning batch): disjoint subsystems, each reviewed on merge; operator chose bundle-if-disjoint.",
+    "D3 (outdoor-temp envelope) persist-vs-clear RATIFIED: on total sustained sensor loss, PERSIST the freeze floor bounded to <=12h then NOTIFY+release, with live-secondary-provider (the redundant HC weather providers) precedence before any timed hold. Rationale = ~1000:1 cost asymmetry (few $ of heat vs a burst pipe) in an Austin/Winter-Storm-Uri climate. Latch-and-hold the last freeze STATE, do not keep widening the envelope. Constants live in config/module, never a dashboard knob. Feeds the D3 fix-forward (still held behind CRIT-1 producer-wiring).",
+    "Override fix: DO NOT gate out nudges firing at current_temp==target -- that is intentional per hotfix v4.7.16.2 (catches variable-speed Bryant modulating at setpoint burning kWh). Fix the actual harm instead: B1 kind-tagged suppression (URA-induced manual stays suppressed, stops the self-count loop) + B2 snapshot-and-restore the pre-nudge preset. Fewer-firings is a separate explicit Tier-2-DB decision (promote AC_NUDGE_OVERSHOOT_GAP to a per-zone live knob, or an occupancy gate).",
+    "Fan fix scope = DOC 1 only (room-tier manual-off cooldown, module const DEFAULT_FAN_MANUAL_OFF_COOLDOWN_S=3600 kill=0, + reconciler defer + hvac-coord-but-not-managed diagnostic). The shared-actuation extraction (DOC 2) parked as a separate Tier-3 to discuss risks first.",
+    "Census face fix = person-trust cross-check (drop a face-recognized person whose person.<slug>=not_home; fail-open on missing) -- verified non-circular because HA person state is device-tracker-driven, upstream of URA's census (URA never writes person.*).",
+    "PWA plan flagged: select.<slug>_automation_mode is an inert URA knob (select.py stores/logs only, no consumer) -- gap G4 added, D1.3 must not render it as a live control until wired."
+  ],
+  "alternatives_considered": [
+    "Sequence the release (owner-set+LKG first, batch second) for cleaner post-deploy bisection: operator chose bundle because the subsystems are disjoint.",
+    "Override: require current_temp meaningfully above target before nudging -- REJECTED as a design inversion that reverts v4.7.16.2's deliberate OVERSHOOT_GAP=0.0.",
+    "Override: band-aid the false count only (B1) -- REJECTED as insufficient; the operator-visible harm was the sleep preset being overwritten all night (B2).",
+    "Fan: port the room-tier cooldown alone -- INSUFFICIENT; review B proved the actuator reconciler re-arms the fan behind the cooldown, so the reconciler must also defer.",
+    "Face latch: fix the Frigate freshness proxy (ignore unavailable flaps / require live corroboration) -- deferred as the durable follow-up; person-trust cross-check ships first as the robust symptom-killer."
+  ],
+  "implications": [
+    "VERIFY-BEFORE-MECHANISM is now a hard, repeatedly-earned rule: read live config/state/recorder (and check .storage modified_at for post-intervention contamination) BEFORE asserting any mechanism; on a live incident sweep ALL primary sources first. Four misdiagnoses this session were each reversed by data, never by reasoning.",
+    "Tautological-fixture / grep-only tests overstated coverage on 2 of 4 batch sites (face guard tested vs a hand-copied stub; B2 preset-restore tested by source-string greps). Standing gate reaffirmed: every load-bearing fix ships with a fail-on-neuter mutation anchor that the orchestrator personally re-runs, not a builder self-report.",
+    "New failure shape worth a QUALITY_CONTEXT note: CROSS-COORDINATOR RE-ASSERTION -- one coordinator's guard (a cooldown) silently defeated by another writer (the reconciler) that re-asserts the same actuator. Inverse of computed-but-not-consumed (#53): consumed-and-re-asserted-elsewhere.",
+    "AC kWh Avoided was a rolling-24h point-in-time value mislabeled total_increasing/'Today' -- corrupting long-term statistics with spurious resets; now a true since-local-midnight DB accumulator. Watch H5 (midnight reset) post-deploy.",
+    "Ezinne's person entity stuck home for 3+ days = HA person 'any tracker home => home' rule + one frozen GPS/app tracker (device_tracker.zinny_s_iphone_15); durable hygiene = prune a person's stale/duplicate trackers so one ghost can't hold the house occupied.",
+    "Dashboard ura-v8 grew a full status surface this session (config-error root-cause = string state: on button-card verified in source; fans/blinds-with-Venetian-tilt in popups; humidity+occupancy-countdown chips; HVAC-ops + energy-situation + house-draw + top-5-draws cards; native HA energy Sankey/distribution/devices). ura-v7 preserved."
+  ],
+  "refs": {
+    "docs": [
+      "docs/readmes/README_v5.31.0.md",
+      "docs/reviews/code-review/v5.31.0_morning_batch.md",
+      "docs/planning/PLANNING_fan_manual_off_cooldown.md",
+      "docs/planning/PLANNING_fan_actuation_shared_layer.md"
+    ],
+    "entries": ["028", "031"]
+  },
+  "confidence": "high",
+  "revisit_trigger": "If any of the Shipwatch acceptance hypotheses fail post-restart -- especially H5 (kWh-avoided midnight reset), H6/H7 (override self-count drop + sleep-preset survival on the next empty-house overnight), or H8/H9 (fan manual-off sticks / census excludes departed faces). Also revisit the fan-actuation extraction (DOC 2) and the D3 fix-forward when scheduled."
+}

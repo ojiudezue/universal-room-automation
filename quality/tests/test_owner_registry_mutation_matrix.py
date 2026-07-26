@@ -132,10 +132,13 @@ def test_mutation_b_grid_cap_peer_holds_dropped_is_KILLED():
 
 
 # ---------------------------------------------------------------------------
-# c — flip load_shed prune_participant to True (quirk lost)
-#     Must be KILLED after C-HIGH-4 fixture fix (seed both ids).
+# c — INVERTED for the Tier-1 follow-up cycle ("load_shed prune fix +
+#     arbitrage reason-map invariant"). Pre-cycle: quirk PRESERVED and
+#     flipping to True KILLED the oracle. Post-cycle: quirk RETIRED
+#     (True is the fixed state), and reverting to False (the old quirk)
+#     now KILLS the oracle. This asserts the FIX, not the quirk.
 # ---------------------------------------------------------------------------
-def test_mutation_c_load_shed_prune_quirk_lost_is_KILLED():
+def test_mutation_c_load_shed_prune_fix_reverted_is_KILLED():
     _apply(
         _CC / "energy_pool_owners.py",
         swap_from=(
@@ -145,7 +148,7 @@ def test_mutation_c_load_shed_prune_quirk_lost_is_KILLED():
             '                               # energy.py:2358 (§1c cross-module coupling).\n'
             '        persistence_kind="none",\n'
             '        peer_holds_member=True, dispatch_tag="load_shed",\n'
-            '        prune_participant=False,'
+            '        prune_participant=True,'
         ),
         swap_to=(
             'name="load_shed", attr="_paused_by_load_shed", tier="evse", kind="set",\n'
@@ -154,7 +157,7 @@ def test_mutation_c_load_shed_prune_quirk_lost_is_KILLED():
             '                               # energy.py:2358 (§1c cross-module coupling).\n'
             '        persistence_kind="none",\n'
             '        peer_holds_member=True, dispatch_tag="load_shed",\n'
-            '        prune_participant=True,'  # <— mutation
+            '        prune_participant=False,'  # <— revert-fix mutation
         ),
         anchor=(
             "quality/tests/test_owner_registry_golden.py::"

@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.30.0
+# Universal Room Automation vv5.31.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.30.0"
+VERSION: Final = "v5.31.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -456,6 +456,22 @@ DEFAULT_FAN_RECHECK_MAX_PER_HOUR: Final = 2
 # HVAC handshake duration. Sized as SPINDOWN + WINDOW + 2*margin.
 CONF_FAN_RECHECK_HVAC_SUPPRESS_S: Final = "fan_recheck_hvac_suppress_s"
 DEFAULT_FAN_RECHECK_HVAC_SUPPRESS_S: Final = 600
+
+# FIX C (room-tier fan manual-off cooldown).
+# Duration (seconds) that a manually-off fan is held OFF against re-arm
+# by the room-tier temperature-fan path (automation.py
+# handle_temperature_based_fan_control) after an external actor turns
+# the fan off. Mirrors the HVAC-tier manual-off cooldown at
+# hvac_fans.py:207-217 (which previously hard-coded 1h inline).
+#
+# Rung: module constant per CLAUDE.md "Numbers Get Knobs" — safety
+# cooldown that protects manual actions; misconfiguring it re-creates
+# the exact re-arm bug, so tuning requires reviewed code change.
+#
+# Kill switch: 0 = feature disabled (pre-fix behavior). Use if a bad
+# interaction with a specific room config appears live and needs
+# reversal without a rollback.
+DEFAULT_FAN_MANUAL_OFF_COOLDOWN_S: Final = 3600
 
 # Trigger requires occupancy_source == "mmwave" for N consecutive ticks.
 CONF_FAN_RECHECK_MMWAVE_HISTORY_TICKS: Final = "fan_recheck_mmwave_history_ticks"

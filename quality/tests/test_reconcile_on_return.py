@@ -268,6 +268,29 @@ def test_fan_reconcile_respects_hvac_managed_defer():
     assert r.resolve_desired_state("fan.bedroom") is None
 
 
+def test_fan_reconcile_defers_when_room_tier_cooldown_live():
+    """HIGH-1 (review B): the reconciler must honor the room-tier
+    manual-off cooldown that `handle_temperature_based_fan_control`
+    opens after an external actor turns the fan off. Without this
+    defer the next reconcile edge re-asserts 'on' for a hot+occupied
+    room-owned fan and defeats the fix (fan_on_hot_occupied)."""
+    hass, coord, r = make_env(
+        data={CONF_FANS: ["fan.bedroom"], CONF_FAN_CONTROL_ENABLED: True,
+              CONF_FAN_TEMP_THRESHOLD: 75},
+        coordinator_data={STATE_OCCUPIED: True, STATE_TEMPERATURE: 80},
+    )
+    # With no cooldown, hot+occupied resolves to on.
+    coord.automation.is_fan_in_manual_cooldown = lambda: False
+    desired = r.resolve_desired_state("fan.bedroom")
+    assert desired is not None and desired.state == "on"
+
+    # Cooldown live → defer.
+    coord.automation.is_fan_in_manual_cooldown = lambda: True
+    assert r.resolve_desired_state("fan.bedroom") is None, (
+        "Reconciler must defer while room-tier manual-off cooldown is live"
+    )
+
+
 def test_fan_reconcile_off_when_vacant_or_below_threshold():
     # Occupied + cool (non-sleep) -> off (mirrors canonical temp handler).
     hass, coord, r = make_env(
