@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.31.1
+# Universal Room Automation vv5.32.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -254,6 +254,16 @@ async def async_setup_entry(
             EnergyArbitrageSavingsTodaySensor(hass, entry),
             EnergyArbitrageSavingsCycleSensor(hass, entry),
             EnergyArbitrageSavingsTotalSensor(hass, entry),
+            # Energy Savings Unification (cycle #7): additive display family
+            EnergySavingsPeakAvoidanceTodaySensor(hass, entry),
+            EnergySavingsPeakAvoidanceBillingCycleSensor(hass, entry),
+            EnergySavingsPeakAvoidanceLifetimeSensor(hass, entry),
+            EnergySavingsTotalTodaySensor(hass, entry),
+            EnergySavingsTotalBillingCycleSensor(hass, entry),
+            EnergySavingsTotalLifetimeSensor(hass, entry),
+            EnergyKwhAvoidedTodaySensor(hass, entry),
+            EnergyKwhAvoidedBillingCycleSensor(hass, entry),
+            EnergyKwhAvoidedLifetimeSensor(hass, entry),
             EnergyCurrentRateSensor(hass, entry),
             EnergyDeliveryRateSensor(hass, entry),
             EnergyImportTodaySensor(hass, entry),
@@ -8561,6 +8571,36 @@ class EnergyPredictedBillSensor(AggregationEntity, SensorEntity):
                 "high-rate window. Counterfactual assumes the locked buffer "
                 "is fully discharged at the displaced rate."
             )
+
+        # Energy Savings Unification (cycle #7): peak-avoidance + total attrs.
+        # Additive — existing arbitrage attrs preserved above for consumer compat.
+        try:
+            pa_status = energy.peak_avoidance_status or {}
+            pa_cycle = float(pa_status.get("peak_avoidance_cycle", 0.0))
+            attrs["peak_avoidance_savings_this_cycle"] = round(pa_cycle, 2)
+            total_cycle = float(
+                attrs.get("arbitrage_savings_this_cycle", 0.0)
+            ) + pa_cycle
+            attrs["total_savings_this_cycle"] = round(total_cycle, 2)
+            predicted = self.native_value
+            if predicted is not None:
+                # Combined counterfactual: bill without solar+battery = raw
+                # predicted + BOTH savings components projected across cycle.
+                # Peak-avoidance projection uses same avg-per-day shape as
+                # arbitrage above (cycle_savings + avg_per_day × days_left).
+                pa_avg_per_day = (
+                    pa_cycle / max(days_in_cycle, 1) if days_in_cycle else 0.0
+                )
+                pa_projected_remaining = pa_avg_per_day * days_remaining
+                pa_full_cycle = pa_cycle + pa_projected_remaining
+                without_sb = (
+                    float(predicted) + full_cycle_pace + pa_full_cycle
+                )
+                attrs["predicted_bill_without_solar_battery"] = round(without_sb, 2)
+        except Exception:
+            # B-MEDIUM-3 (fix-up): debug-log so shape regressions surface
+            # in logs; still non-fatal — this sensor is display-only.
+            _LOGGER.debug("PA predicted-bill attrs skipped", exc_info=True)
         return attrs or None
 
 
@@ -8729,6 +8769,378 @@ class EnergyArbitrageSavingsTotalSensor(AggregationEntity, SensorEntity):
                 "until the high-rate window — minimizing pre-arbitrage waste. "
                 "Estimate accuracy ±10% per cycle; lifetime drift bounded."
             ),
+        }
+
+
+# ============================================================================
+# Energy Savings Unification (cycle #7) — display-only savings family
+# ============================================================================
+# Additive family, alongside the existing 3 arbitrage_savings sensors (no
+# rename). Total_{scope} = arbitrage_{scope} + peak_avoidance_{scope}, computed
+# at read time (single source of truth). All USD, MONETARY, state_class TOTAL.
+
+
+def _ec(hass: HomeAssistant):
+    manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+    if manager is None:
+        return None
+    return manager.coordinators.get("energy")
+
+
+def _arb_scope(hass: HomeAssistant, scope: str) -> float:
+    """Return arbitrage savings ($) for scope in {today, cycle, total}."""
+    ec = _ec(hass)
+    if ec is None:
+        return 0.0
+    data = (ec.arbitrage_status or {}).get(scope) or {}
+    return float(data.get("savings", 0.0))
+
+
+def _arb_kwh_scope(hass: HomeAssistant, scope: str) -> float:
+    ec = _ec(hass)
+    if ec is None:
+        return 0.0
+    data = (ec.arbitrage_status or {}).get(scope) or {}
+    return float(data.get("kwh_charged", 0.0))
+
+
+class _SavingsSensorBase(AggregationEntity, SensorEntity):
+    _attr_has_entity_name = True
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_native_unit_of_measurement = "USD"
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_device_info = _energy_device_info()
+
+
+class EnergySavingsPeakAvoidanceTodaySensor(_SavingsSensorBase):
+    """Peak-avoidance $ saved since local midnight.
+
+    Entity: sensor.ura_energy_savings_peak_avoidance_today
+    """
+    _attr_icon = "mdi:solar-power"
+
+    def __init__(self, hass, entry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_savings_peak_avoidance_today"
+        self._attr_name = "Energy Savings — Peak Avoidance Today"
+
+    @property
+    def native_value(self) -> float | None:
+        ec = _ec(self.hass)
+        if ec is None:
+            return None
+        return round(ec.peak_avoidance_status.get("peak_avoidance_today", 0.0), 2)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        ec = _ec(self.hass)
+        if ec is None:
+            return {}
+        st = ec.peak_avoidance_status
+        return {
+            "kwh_avoided_today": st.get("kwh_avoided_today"),
+            "peak_avoidance_methodology": st.get("methodology"),
+        }
+
+
+class EnergySavingsPeakAvoidanceBillingCycleSensor(_SavingsSensorBase):
+    """Peak-avoidance $ saved since billing-cycle start.
+
+    Entity: sensor.ura_energy_savings_peak_avoidance_billing_cycle
+    """
+    _attr_icon = "mdi:solar-power-variant"
+
+    def __init__(self, hass, entry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = (
+            f"{DOMAIN}_energy_savings_peak_avoidance_billing_cycle"
+        )
+        self._attr_name = "Energy Savings — Peak Avoidance This Cycle"
+
+    @property
+    def native_value(self) -> float | None:
+        ec = _ec(self.hass)
+        if ec is None:
+            return None
+        return round(ec.peak_avoidance_status.get("peak_avoidance_cycle", 0.0), 2)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        ec = _ec(self.hass)
+        if ec is None:
+            return {}
+        st = ec.peak_avoidance_status
+        return {
+            "kwh_avoided_billing_cycle": st.get("kwh_avoided_cycle"),
+            "peak_avoidance_methodology": st.get("methodology"),
+        }
+
+
+class EnergySavingsPeakAvoidanceLifetimeSensor(_SavingsSensorBase):
+    """Lifetime peak-avoidance $ (= baseline + delta-since-baseline).
+
+    Entity: sensor.ura_energy_savings_peak_avoidance_lifetime
+    """
+    _attr_icon = "mdi:solar-panel-large"
+
+    def __init__(self, hass, entry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_savings_peak_avoidance_lifetime"
+        self._attr_name = "Energy Savings — Peak Avoidance Lifetime"
+
+    @property
+    def native_value(self) -> float | None:
+        ec = _ec(self.hass)
+        if ec is None:
+            return None
+        baseline = float(
+            (ec.savings_baselines.get("peak_avoidance") or {}).get("baseline_usd", 0.0)
+        )
+        delta = float(
+            ec.peak_avoidance_status.get("peak_avoidance_lifetime_delta", 0.0)
+        )
+        return round(baseline + delta, 2)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        ec = _ec(self.hass)
+        if ec is None:
+            return {}
+        b = ec.savings_baselines.get("peak_avoidance") or {}
+        st = ec.peak_avoidance_status
+        return {
+            "baseline_usd": b.get("baseline_usd"),
+            "baseline_since": b.get("first_recorded_iso"),
+            "delta_since_baseline_usd": st.get("peak_avoidance_lifetime_delta"),
+            "peak_avoidance_methodology": st.get("methodology"),
+        }
+
+
+class EnergySavingsTotalTodaySensor(_SavingsSensorBase):
+    """Total (arbitrage + peak-avoidance) $ saved today.
+
+    Entity: sensor.ura_energy_savings_total_today
+    """
+    _attr_icon = "mdi:cash-plus"
+
+    def __init__(self, hass, entry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_savings_total_today"
+        self._attr_name = "Energy Savings — Total Today"
+
+    @property
+    def native_value(self) -> float | None:
+        ec = _ec(self.hass)
+        if ec is None:
+            return None
+        arb = _arb_scope(self.hass, "today")
+        pa = float(ec.peak_avoidance_status.get("peak_avoidance_today", 0.0))
+        return round(arb + pa, 2)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        ec = _ec(self.hass)
+        if ec is None:
+            return {}
+        return {
+            "arbitrage_component_usd": round(_arb_scope(self.hass, "today"), 4),
+            "peak_avoidance_component_usd": round(
+                float(ec.peak_avoidance_status.get("peak_avoidance_today", 0.0)), 4,
+            ),
+        }
+
+
+class EnergySavingsTotalBillingCycleSensor(_SavingsSensorBase):
+    """Total savings $ so far this billing cycle.
+
+    Entity: sensor.ura_energy_savings_total_billing_cycle
+    """
+    _attr_icon = "mdi:cash-multiple"
+
+    def __init__(self, hass, entry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_savings_total_billing_cycle"
+        self._attr_name = "Energy Savings — Total This Cycle"
+
+    @property
+    def native_value(self) -> float | None:
+        ec = _ec(self.hass)
+        if ec is None:
+            return None
+        arb = _arb_scope(self.hass, "cycle")
+        pa = float(ec.peak_avoidance_status.get("peak_avoidance_cycle", 0.0))
+        return round(arb + pa, 2)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        ec = _ec(self.hass)
+        if ec is None:
+            return {}
+        return {
+            "arbitrage_component_usd": round(_arb_scope(self.hass, "cycle"), 4),
+            "peak_avoidance_component_usd": round(
+                float(ec.peak_avoidance_status.get("peak_avoidance_cycle", 0.0)), 4,
+            ),
+        }
+
+
+class EnergySavingsTotalLifetimeSensor(_SavingsSensorBase):
+    """Lifetime total savings $ (arbitrage lifetime + peak-avoidance lifetime).
+
+    Entity: sensor.ura_energy_savings_total_lifetime
+    """
+    _attr_icon = "mdi:cash-100"
+
+    def __init__(self, hass, entry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_savings_total_lifetime"
+        self._attr_name = "Energy Savings — Total Lifetime"
+
+    def _arb_lifetime(self) -> float:
+        ec = _ec(self.hass)
+        if ec is None:
+            return 0.0
+        baseline = float(
+            (ec.savings_baselines.get("arbitrage") or {}).get("baseline_usd", 0.0)
+        )
+        # Existing arbitrage_status['total'] queries the FULL arbitrage_cycles
+        # table (which includes pre-baseline rows). To honor baseline
+        # semantics AND survive prune, take max(baseline, live_total): while
+        # rows are intact live_total >= baseline (baseline was seeded from
+        # live_total); after a prune live_total drops but max() preserves
+        # baseline. This is the "min-guarantee" shape the plan calls for.
+        live_total = _arb_scope(self.hass, "total")
+        return max(baseline, live_total)
+
+    @property
+    def native_value(self) -> float | None:
+        ec = _ec(self.hass)
+        if ec is None:
+            return None
+        pa_baseline = float(
+            (ec.savings_baselines.get("peak_avoidance") or {}).get(
+                "baseline_usd", 0.0
+            )
+        )
+        pa_delta = float(
+            ec.peak_avoidance_status.get("peak_avoidance_lifetime_delta", 0.0)
+        )
+        return round(self._arb_lifetime() + pa_baseline + pa_delta, 2)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        ec = _ec(self.hass)
+        if ec is None:
+            return {}
+        return {
+            "arbitrage_lifetime_usd": round(self._arb_lifetime(), 2),
+            "peak_avoidance_lifetime_usd": round(
+                float(
+                    (ec.savings_baselines.get("peak_avoidance") or {}).get(
+                        "baseline_usd", 0.0
+                    )
+                )
+                + float(
+                    ec.peak_avoidance_status.get(
+                        "peak_avoidance_lifetime_delta", 0.0
+                    )
+                ),
+                2,
+            ),
+        }
+
+
+# ---- kWh-avoided (energy side of the same story) --------------------------
+
+
+class _KwhAvoidedBase(AggregationEntity, SensorEntity):
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:lightning-bolt-outline"
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_native_unit_of_measurement = "kWh"
+    _attr_suggested_display_precision = 3
+
+    def __init__(self, hass, entry) -> None:
+        super().__init__(hass, entry)
+        self._attr_device_info = _energy_device_info()
+
+
+class EnergyKwhAvoidedTodaySensor(_KwhAvoidedBase):
+    """kWh avoided (served locally instead of imported) since midnight.
+
+    Entity: sensor.ura_energy_kwh_avoided_today
+    """
+
+    def __init__(self, hass, entry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_kwh_avoided_today"
+        self._attr_name = "Energy kWh Avoided Today"
+
+    @property
+    def native_value(self) -> float | None:
+        ec = _ec(self.hass)
+        if ec is None:
+            return None
+        return round(ec.peak_avoidance_status.get("kwh_avoided_today", 0.0), 3)
+
+
+class EnergyKwhAvoidedBillingCycleSensor(_KwhAvoidedBase):
+    """kWh avoided since billing-cycle start.
+
+    Entity: sensor.ura_energy_kwh_avoided_billing_cycle
+    """
+
+    def __init__(self, hass, entry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_kwh_avoided_billing_cycle"
+        self._attr_name = "Energy kWh Avoided This Cycle"
+
+    @property
+    def native_value(self) -> float | None:
+        ec = _ec(self.hass)
+        if ec is None:
+            return None
+        return round(ec.peak_avoidance_status.get("kwh_avoided_cycle", 0.0), 3)
+
+
+class EnergyKwhAvoidedLifetimeSensor(_KwhAvoidedBase):
+    """Lifetime kWh avoided (baseline + delta-since-baseline).
+
+    Entity: sensor.ura_energy_kwh_avoided_lifetime
+    """
+
+    def __init__(self, hass, entry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_kwh_avoided_lifetime"
+        self._attr_name = "Energy kWh Avoided Lifetime"
+
+    @property
+    def native_value(self) -> float | None:
+        ec = _ec(self.hass)
+        if ec is None:
+            return None
+        baseline = float(
+            (ec.savings_baselines.get("kwh_avoided") or {}).get("baseline_kwh", 0.0)
+        )
+        delta = float(
+            ec.peak_avoidance_status.get("kwh_avoided_lifetime_delta", 0.0)
+        )
+        return round(baseline + delta, 3)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        ec = _ec(self.hass)
+        if ec is None:
+            return {}
+        b = ec.savings_baselines.get("kwh_avoided") or {}
+        return {
+            "baseline_kwh": b.get("baseline_kwh"),
+            "baseline_since": b.get("first_recorded_iso"),
         }
 
 

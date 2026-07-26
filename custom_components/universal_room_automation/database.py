@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.31.1
+# Universal Room Automation vv5.32.0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -1157,6 +1157,23 @@ class UniversalRoomDatabase:
                     ON arbitrage_cycles(timestamp)""",
                 ]):
                     failed_tables.append("arbitrage_cycles")
+
+                # -- Energy Savings Unification (cycle #7) ---------------------
+                # Baseline snapshot per savings component. One row per
+                # component (arbitrage / peak_avoidance / kwh_avoided) written
+                # ONCE at cutover; the lifetime sensor renders
+                # `baseline + rollup_since_baseline` so a prune of any
+                # rollup-source table cannot silently shrink the number.
+                if not await self._create_table_safe(
+                    db, "savings_lifetime_baseline", [
+                    """CREATE TABLE IF NOT EXISTS savings_lifetime_baseline (
+                        component TEXT PRIMARY KEY,
+                        baseline_usd REAL NOT NULL DEFAULT 0.0,
+                        baseline_kwh REAL NOT NULL DEFAULT 0.0,
+                        first_recorded_iso TEXT NOT NULL
+                    )""",
+                ]):
+                    failed_tables.append("savings_lifetime_baseline")
 
                 # -- Activity log -----------------------------------------------
                 if not await self._create_table_safe(db, "ura_activity_log", [
@@ -5057,6 +5074,95 @@ class UniversalRoomDatabase:
         except Exception as err:
             _LOGGER.warning("query_arbitrage_pace_recent failed: %s", err)
             return {"avg_savings_per_day": 0.0, "days_with_cycles": 0, "lookback_days": days}
+
+    # ====================================================================
+    # Energy Savings Unification (cycle #7) — lifetime baseline
+    # ====================================================================
+
+    async def get_savings_baseline(self, component: str) -> dict | None:
+        """Return the lifetime baseline row for a savings component.
+
+        Components in use: "arbitrage", "peak_avoidance", "kwh_avoided".
+        Returns None if no baseline is recorded yet.
+        """
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT baseline_usd, baseline_kwh, first_recorded_iso
+                       FROM savings_lifetime_baseline WHERE component = ?""",
+                    (component,),
+                )
+                row = await cursor.fetchone()
+                if row is None:
+                    return None
+                return {
+                    "baseline_usd": float(row[0] or 0.0),
+                    "baseline_kwh": float(row[1] or 0.0),
+                    "first_recorded_iso": row[2],
+                }
+        except Exception as err:
+            _LOGGER.warning("get_savings_baseline(%s) failed: %s", component, err)
+            return None
+
+    async def save_savings_baseline(
+        self,
+        component: str,
+        baseline_usd: float,
+        baseline_kwh: float,
+        first_recorded_iso: str,
+    ) -> None:
+        """Persist the baseline row for a savings component (idempotent).
+
+        Uses INSERT OR IGNORE so an existing baseline is never overwritten —
+        the baseline is a one-shot cutover snapshot by design.
+        """
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """INSERT OR IGNORE INTO savings_lifetime_baseline
+                       (component, baseline_usd, baseline_kwh, first_recorded_iso)
+                       VALUES (?, ?, ?, ?)""",
+                    (
+                        component,
+                        float(baseline_usd),
+                        float(baseline_kwh),
+                        first_recorded_iso,
+                    ),
+                )
+                await db.commit()
+        except Exception as err:
+            _LOGGER.warning(
+                "save_savings_baseline(%s) failed: %s", component, err
+            )
+
+    async def update_savings_baseline(
+        self,
+        component: str,
+        baseline_usd: float,
+        baseline_kwh: float,
+    ) -> None:
+        """UPDATE the baseline row for a component (post-cutover rollup).
+
+        Fix-up B-HIGH-1/2: the lifetime baseline row is seeded once via
+        `save_savings_baseline` (INSERT OR IGNORE) at cutover; subsequent
+        midnight rollups fold the in-RAM lifetime_delta into the row via
+        this method so the delta can be reset to 0 without losing money.
+        Call cadence: at most twice/day (peak_avoidance + kwh_avoided) at
+        local midnight — NOT per-tick (respects v5.2.1 write-flood lesson).
+        """
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """UPDATE savings_lifetime_baseline
+                       SET baseline_usd = ?, baseline_kwh = ?
+                       WHERE component = ?""",
+                    (float(baseline_usd), float(baseline_kwh), component),
+                )
+                await db.commit()
+        except Exception as err:
+            _LOGGER.warning(
+                "update_savings_baseline(%s) failed: %s", component, err
+            )
 
     # ====================================================================
     # Activity Log
