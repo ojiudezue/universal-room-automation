@@ -26,7 +26,39 @@
 - **HVAC ac_ramp `$` sibling:** defer to a follow-up — `kwh_avoided_{today,billing_cycle,lifetime}` already carries the energy side; the HVAC-specific `$` conversion is additive and non-blocking.
 - The peak-rate lookup gets a named `_get_peak_rate()` primitive (promoted from private `_get_displaced_rate`).
 
-**QUEUED (operator go 2026-07-26).** All decisions resolved. Build as its own dedicated Tier-2-DB cycle **immediately after** the small polish batch (10a wifi-guest accuracy + 10c-b dead-select delete + #9 test-pollution fix + this session's doc commits) lands its deploy — so the money-math + DB-migration change starts from a clean, deployed base rather than entangled with polish.
+**QUEUED (operator go 2026-07-26).** Small polish batch shipped as v5.31.1 (deployed + validated 2026-07-26) — clean base achieved. Build next.
+
+### TIER RE-SCOPE — 2026-07-26 (operator challenge: "why Tier 2-DB when it's just accounting + sensor surface? does material code use it?")
+
+**Verified: the savings sensors are display-only.** §2 I10 (grep-backed) confirms NO coordinator reads arbitrage-savings / cost-today / cost-this-cycle / hvac kwh_avoided for any decision. The outputs are pure surface.
+
+The Tier-2-DB label was driven by three OPTIONAL implementation ingredients, not the accounting:
+1. Rewiring the shared rate primitive (`_get_displaced_rate` → `_get_peak_rate`, routing arbitrage through it) — the real cross-coordinator ripple.
+2. Hooking `CostTracker.accumulate()` — the shared billing hot-path that also feeds `cost_today` + `predicted_bill`.
+3. New DB tables + a 3-sensor rename migration (recorder-history continuity).
+
+**Decision: drop to Tier 2 (two reviews) by scoping the risk out:**
+- **DROP D4 (rename migration).** Add the new `energy_savings_*` family ALONGSIDE the existing 3 arbitrage sensors — no rename, no history risk. Rename deferred to a later cosmetic hygiene pass.
+- **DON'T rewire arbitrage.** Add `_get_peak_rate` as a NEW standalone read-only helper; leave `_get_displaced_rate` untouched → zero arbitrage regression surface. (Drops the I8/I9 unification from this cycle.)
+- **ISOLATE the accumulator.** Peak-avoidance accumulation lives in a separate field wrapped in try/except so a fault can never corrupt `cost_today` / `cost_this_cycle`.
+- Remaining DB footprint = one additive `savings_lifetime_baseline` table (ADD TABLE, no reader migration) → low-risk.
+
+Result: additive display sensors + counterfactual + one additive table + dashboard surfacing = **Tier 2**. Captures the full headline benefit (time-shifted-joules + kWh/$ × 3 epochs). The unify/rename/rewire part (high-risk, low-marginal-benefit) parks for a later cosmetic cycle.
+
+### FOUNDATION VERIFICATION — 2026-07-26 (read both primitives from source before ruling)
+
+Operator asked whether the two primitives this cycle builds on are accurate. Verified against source:
+
+**`_get_displaced_rate(season)` (energy.py:3061-3088):** accurate for ARBITRAGE (returns the season's top displaceable tier — summer peak / else mid_peak — live-sourced with static fallback). It is NOT a general "peak rate now" (no time arg). **Consequence:** under ratified decision #1 (credit the tick's ACTUAL tier, not season peak), peak-avoidance needs `get_effective_import_rate(now)` — which already exists and which `accumulate()` already uses. **The `_get_peak_rate` promotion is therefore UNNECESSARY and is dropped.** `_get_displaced_rate` stays untouched; arbitrage regression surface = zero.
+
+**`CostTracker.accumulate()` (energy_billing.py:143-269):** sound for its purpose (net-metered point-sample × interval; W→kW guarded; interval clamps; daily+cycle resets). BUT it reads only GRID NET POWER (`_get_net_power`) — it cannot see solar / battery-discharge / house-load, which is exactly what peak-avoidance (`house_load − grid_import`) needs. **Consequence: D1's "accumulate inside CostTracker" is the WRONG SITE.** The peak-avoidance accumulator moves to the **EC decision cycle** (which already holds `solar_production_w`, `battery_power_w`, load). CostTracker (the billing hot-path feeding cost_today + predicted_bill) is left byte-identical → the "corrupt cost_today" risk = zero.
+
+**Net effect of both findings:** the two risk ingredients that made this feel like 2-DB are gone by siting alone. Remaining risk is purely "is the new number correct" (served-locally clamp, sign, decision-#4 double-count guard) — a formula-correctness risk, not a regression risk. **Confirmed Tier 2.**
+
+**Review framings (Tier 2):** A = peak-avoidance formula correctness + double-count guard vs arbitrage-discharged kWh (signs, kW/W, clamp-at-zero for served_kW, rate-boundary ticks); B = additive-only wiring PROVES byte-identity of the existing arbitrage + cost_today + predicted_bill surfaces (CostTracker & `_get_displaced_rate` untouched) + additive sensor registration (no recorder rejection).
+
+### D1 RE-SITE (supersedes §4 D1)
+Peak-avoidance accumulator lives in the **EnergyCoordinator decision cycle**, NOT in `CostTracker.accumulate()`, and uses the existing `get_effective_import_rate(now)` (NOT a new `_get_peak_rate`). Per tick: `served_locally_kW = max(0, house_load_kW − grid_import_kW)` (equivalently `solar + battery_discharge − charge − export`, clamped ≥ 0); `credit_$ = served_locally_kW × Δh × effective_rate_now`. Decision-#4 double-count guard applies on arbitrage-discharged kWh. Accumulate to today/cycle in an isolated field; try/except so a fault cannot touch cost accounting.
 
 **Status: PRIORITIZED by operator (2026-07-26) — ready to promote to a Tier-2-DB build once the 3 deferred Qs are answered.**
 
@@ -285,6 +317,18 @@ Add `sensor.ura_hvac_ac_kwh_avoided_billing_cycle` and `sensor.ura_hvac_ac_ramp_
 - **Live:** Sensor populated within 24h.
 
 **Deferrable** — file as follow-up if D1–D5 land clean.
+
+### D7: Surface cost + kWh-avoided on dashboards (operator-requested 2026-07-26)
+Once the sensor family exists, surface it — the whole point of the cycle is a glanceable savings story.
+- **ura-v8 Energy tab:** add the savings family to the Energy Situation / Energy dashboard section — arbitrage $, peak-avoidance $, and total $ per epoch (today / billing_cycle / lifetime), plus kWh-avoided. Fit the existing Material Clean card style (no new controls — status only, per the ura-v8 no-new-controls directive).
+- **PWA:** mirror the headline (total $ saved today + lifetime) on the energy surface.
+
+**Acceptance criteria:**
+- **Verify:** Energy tab shows the 3-component × 3-epoch savings grid + kWh-avoided, values matching the sensor states.
+- **Verify:** PWA energy surface shows total-saved-today + lifetime, matching sensors.
+- **Live:** After sensors populate (D2 live), dashboard tiles render non-zero within the same window.
+
+**Sequencing:** D7 runs AFTER D1–D5 land + sensors are live-validated (can't surface a sensor that doesn't exist yet). Dashboard-only, no tier weight of its own.
 
 ---
 

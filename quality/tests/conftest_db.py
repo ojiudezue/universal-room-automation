@@ -49,6 +49,8 @@ _REQUIRED_TABLES = {
     "optimization_findings",
     # v4.7.36 Phase 3 — Optimization daily digest table.
     "optimization_daily_digest",
+    # Energy Savings Unification (cycle #7) — lifetime baseline table.
+    "savings_lifetime_baseline",
 }
 
 

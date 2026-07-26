@@ -2,8 +2,30 @@
 
 **Date:** 2026-07-26
 **Author:** ura-planner
-**Status:** DESIGN-ONLY. Discussion doc for operator before any build authorization.
-**Related:** `PLANNING_fan_manual_off_cooldown.md` (the narrow fix; this doc is the "do it properly" alternative).
+**Status:** DEFERRED (operator ruling 2026-07-26). Do NOT build until the GO CRITERIA below fire. Design is complete and buildable when they do.
+**Related:** `PLANNING_fan_manual_off_cooldown.md` (the narrow DOC-1 fix; SHIPPED v5.31.0).
+
+---
+
+## GO CRITERIA — operator-ratified 2026-07-26 (DEFERRED until ALL of gate + ANY trigger)
+
+DOC-2 is a Tier-3 extraction with house-wide fan blast radius. Its benefit (consistency-by-construction, no future port cost) only pays off once drift **actually recurs**. Building it to prevent a *hypothetical* future port is the sunk-cost trap. So it stays parked until:
+
+**FOUNDATION GATE (must be TRUE):**
+- The DOC-1 room-tier manual-off cooldown (shipped v5.31.0) has been live **≥1 full deploy cycle** AND **H8 has validated organically** — a real, manually-turned-off room-tier comfort fan was observed NOT to re-arm within the cooldown window on the running house. (Until H8 is proven, we don't even know the narrow fix behaves; extracting it would refactor unproven code.)
+
+**PLUS ANY ONE TRIGGER:**
+1. **New drift-hole:** a new fan mechanic (hysteresis change, min-runtime, sleep-cap tweak, new gate) is added to ONE tier but not the other — i.e. the port-cost recurs for real.
+2. **Real-world inconsistency bug:** a filed report that a fan re-armed, failed to run, or double-actuated due to room-tier vs HVAC-tier divergence (not hypothetical — observed).
+3. **Third-writer bypass in the wild:** `actuator_reconciler.py:778` or any new caller is found actuating a fan around a cooldown/min-runtime the other path enforces.
+4. **Piggyback:** we're already opening `hvac_fans.py` / `automation.py` fan paths for another cycle AND the change would otherwise have to be double-ported — fold the extraction in rather than port twice.
+
+**EXPLICIT NON-TRIGGERS (do NOT build on these alone):**
+- "It would be cleaner." / "To prevent a hypothetical future port." / "The split is inelegant." Consistency-by-construction is not worth the Tier-3 blast radius until drift has actually recurred.
+
+**When it fires:** standalone **Tier 3** (4 framing-disjoint reviews incl. adversarial-completeness D against the falsifiable invariant in "Recommended tier" below) + orchestrator independent mutation verification + operator checkpoint before deploy. Ratify the 8 open decisions to their recommended defaults at that time.
+
+**Re-check cadence:** revisit at the next fan-area cycle, or ~90 days (≈2026-10-24) — whichever comes first. If no trigger has fired by then, the deferral stands (evidence says the split isn't costing us).
 
 ---
 

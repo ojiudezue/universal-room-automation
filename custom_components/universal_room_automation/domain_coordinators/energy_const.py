@@ -196,6 +196,20 @@ DEFAULT_DECISION_INTERVAL_MINUTES: Final = 5
 TOU_BOUNDARY_TICK_DELAY_S: Final = 5
 DEFAULT_BILL_CYCLE_START_DAY: Final = 23
 
+# ============================================================================
+# Energy Savings Unification (cycle #7) — display-only accounting constants
+# ============================================================================
+# Noise floor for peak-avoidance accumulation. Ticks with less than this much
+# "served locally" (kW) are ignored so sub-noise-floor Envoy jitter cannot
+# credit spurious fractions of a cent every 5 minutes.
+PEAK_AVOIDANCE_MIN_SERVED_KW: Final = 0.05
+
+# Battery round-trip efficiency assumption used for arbitrage savings math.
+# Mirrors the historical `EnergyCoord._ARBITRAGE_RTE` class attribute (kept
+# in-place for byte-identity of the existing arbitrage code path); exposed
+# here so the new savings-family sensors can label their methodology.
+ARBITRAGE_RTE: Final = 0.90
+
 # Battery storage mode values (Enphase Enpower)
 BATTERY_MODE_SELF_CONSUMPTION: Final = "self_consumption"
 BATTERY_MODE_SAVINGS: Final = "savings"

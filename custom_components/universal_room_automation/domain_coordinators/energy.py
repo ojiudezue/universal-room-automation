@@ -496,6 +496,14 @@ class EnergyCoordinator(BaseCoordinator):
             grid_import_entity=ec.get(CONF_ENERGY_GRID_IMPORT_ENTITY),
             grid_export_entity=ec.get(CONF_ENERGY_GRID_EXPORT_ENTITY),
         )
+        # Energy Savings Unification (cycle #7): peak-avoidance accumulator.
+        # Isolated from CostTracker so any fault here cannot touch
+        # cost_today / cost_this_cycle / predicted_bill.
+        from .energy_billing import PeakAvoidanceTracker
+        self._peak_avoidance = PeakAvoidanceTracker(hass)
+        # Lifetime baseline cache (loaded lazily on first accumulate).
+        self._savings_baselines: dict[str, dict] = {}
+        self._savings_baselines_loaded: bool = False
 
         # E5: Forecasting + prediction
         # v4.1.1 B4 L2: Room power profiles + occupancy weighting
@@ -2145,6 +2153,21 @@ class EnergyCoordinator(BaseCoordinator):
 
                 # Restore daily billing accumulators
                 self._billing.restore_daily(snapshot)
+
+                # B-HIGH-1/2 (fix-up): restore peak-avoidance accumulators
+                # from the sibling energy_state blob (json). Never fatal.
+                try:
+                    import json as _json
+                    raw = await db.restore_energy_state(
+                        "peak_avoidance_snapshot"
+                    )
+                    if raw:
+                        self._peak_avoidance.restore_snapshot(_json.loads(raw))
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "peak_avoidance snapshot restore failed",
+                        exc_info=True,
+                    )
             else:
                 _LOGGER.debug(
                     "Midnight snapshot date %s != today %s, snapshots will re-seed",
@@ -2179,8 +2202,81 @@ class EnergyCoordinator(BaseCoordinator):
                 "export_credit_today": billing.get("export_credit_today", 0),
                 "net_cost_today": billing.get("cost_today", 0),
             })
+
+            # B-HIGH-1/2 (fix-up): persist peak-avoidance accumulators
+            # alongside the midnight snapshot (same cadence — every 3rd
+            # decision cycle + midnight + teardown; NOT per-tick).
+            try:
+                import json as _json
+                await db.save_energy_state(
+                    "peak_avoidance_snapshot",
+                    _json.dumps(self._peak_avoidance.snapshot_state()),
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "peak_avoidance snapshot save failed", exc_info=True
+                )
+
+            # Roll the lifetime deltas into the persisted baseline row
+            # ONCE per local-date. The tracker method is idempotent — on
+            # the 2nd/3rd call same date it returns None. Total writes to
+            # savings_lifetime_baseline: 2/day (peak_avoidance + kwh_avoided).
+            await self._rollup_savings_lifetime_deltas()
         except Exception as e:
             _LOGGER.warning("Could not save midnight snapshot: %s", e)
+
+    async def _rollup_savings_lifetime_deltas(self) -> None:
+        """Fold in-RAM PA lifetime delta into the baseline row (2 writes/day).
+
+        Called from `_save_midnight_snapshot`. Idempotent: the tracker
+        returns None on subsequent same-day calls so this method's DB
+        writes are capped at 2/day (usd + kwh). Respects the v5.2.1
+        write-flood lesson: NEVER call this on the per-tick decision cycle.
+        """
+        db = self.hass.data.get(_DOMAIN, {}).get("database")
+        if db is None:
+            return
+        try:
+            from homeassistant.util import dt as _dtu
+            today = _dtu.now().date().isoformat()
+            rolled = self._peak_avoidance.pop_lifetime_delta_for_rollup(today)
+            if rolled is None:
+                return
+            usd_delta, kwh_delta = rolled
+
+            # Peak-avoidance $ baseline
+            pa_base = self._savings_baselines.get("peak_avoidance") or {}
+            new_pa_usd = float(pa_base.get("baseline_usd", 0.0)) + usd_delta
+            new_pa_kwh = float(pa_base.get("baseline_kwh", 0.0))
+            await db.update_savings_baseline(
+                "peak_avoidance", new_pa_usd, new_pa_kwh,
+            )
+            self._savings_baselines["peak_avoidance"] = {
+                **pa_base,
+                "baseline_usd": new_pa_usd,
+                "baseline_kwh": new_pa_kwh,
+            }
+
+            # kWh-avoided baseline (kWh only; usd stays 0)
+            kwh_base = self._savings_baselines.get("kwh_avoided") or {}
+            new_kwh = float(kwh_base.get("baseline_kwh", 0.0)) + kwh_delta
+            await db.update_savings_baseline(
+                "kwh_avoided", 0.0, new_kwh,
+            )
+            self._savings_baselines["kwh_avoided"] = {
+                **kwh_base,
+                "baseline_usd": 0.0,
+                "baseline_kwh": new_kwh,
+            }
+            _LOGGER.info(
+                "Rolled peak-avoidance lifetime delta into baseline: "
+                "+$%.4f, +%.4f kWh (date=%s)",
+                usd_delta, kwh_delta, today,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "rollup_savings_lifetime_deltas failed", exc_info=True
+            )
 
     async def _save_envoy_cache(self) -> None:
         """Cache current Envoy sensor values to DB (each decision cycle).
@@ -3058,6 +3154,11 @@ class EnergyCoordinator(BaseCoordinator):
             self._capacity_fallback_logged = True
         return BATTERY_TOTAL_CAPACITY_KWH_FALLBACK
 
+    # Fix-up note (cycle #7): A-MEDIUM-2 flagged a mid_peak/peak asymmetry
+    # in _get_displaced_rate (peak season returns peak rate, shoulder returns
+    # mid_peak rate — asymmetric handling of the two displaced tiers). This
+    # is pre-existing behavior, byte-frozen for cycle #7 (guarded by the
+    # test-file SHA1). Do not modify without a dedicated cycle.
     def _get_displaced_rate(self, season: str) -> float:
         """Return the import rate this arbitrage cycle is displacing.
 
@@ -3198,6 +3299,141 @@ class EnergyCoordinator(BaseCoordinator):
             prev_soc_for_log, soc_now, delta_soc, kwh_charged,
             off_peak_rate, displaced_rate, self._ARBITRAGE_RTE, savings,
         )
+
+    # =========================================================================
+    # Energy Savings Unification (cycle #7)
+    # =========================================================================
+
+    async def _load_savings_baselines(self) -> None:
+        """One-shot: load or seed lifetime baselines for each component.
+
+        Called from the peak-avoidance accumulator on first tick. Idempotent —
+        subsequent calls short-circuit via `_savings_baselines_loaded`.
+
+        On first run:
+          * arbitrage baseline = current `arbitrage_cycles` total (so the
+            existing months of history are preserved even if rows are ever
+            pruned).
+          * peak_avoidance + kwh_avoided baselines = 0.
+        """
+        if self._savings_baselines_loaded:
+            return
+        database = self.hass.data.get(_DOMAIN, {}).get("database")
+        if database is None:
+            return
+        try:
+            from homeassistant.util import dt as _dtu
+            now_iso = _dtu.utcnow().isoformat()
+
+            # Arbitrage — back-fill from the existing rollup.
+            # B-MEDIUM-2 (fix-up note): prune-before-seed race — if the
+            # arbitrage_cycles rollup is pruned BEFORE this seed runs (first
+            # boot after prune), the captured baseline is smaller than the
+            # true lifetime. Acceptable: seeds only on first boot after this
+            # cycle deploys; live house captures full history. No fix.
+            arb = await database.get_savings_baseline("arbitrage")
+            if arb is None:
+                total = await database.query_arbitrage_savings_total()
+                arb = {
+                    "baseline_usd": float((total or {}).get("savings", 0.0)),
+                    "baseline_kwh": float((total or {}).get("kwh_charged", 0.0)),
+                    "first_recorded_iso": now_iso,
+                }
+                await database.save_savings_baseline(
+                    "arbitrage",
+                    arb["baseline_usd"], arb["baseline_kwh"], now_iso,
+                )
+                _LOGGER.info(
+                    "Savings lifetime baseline seeded: arbitrage=$%.2f "
+                    "(%.3f kWh) at %s",
+                    arb["baseline_usd"], arb["baseline_kwh"], now_iso,
+                )
+            self._savings_baselines["arbitrage"] = arb
+
+            for comp in ("peak_avoidance", "kwh_avoided"):
+                row = await database.get_savings_baseline(comp)
+                if row is None:
+                    row = {
+                        "baseline_usd": 0.0,
+                        "baseline_kwh": 0.0,
+                        "first_recorded_iso": now_iso,
+                    }
+                    await database.save_savings_baseline(
+                        comp, 0.0, 0.0, now_iso,
+                    )
+                    _LOGGER.info(
+                        "Savings lifetime baseline seeded: %s at %s",
+                        comp, now_iso,
+                    )
+                self._savings_baselines[comp] = row
+
+            self._savings_baselines_loaded = True
+        except Exception:  # noqa: BLE001
+            # B-MEDIUM-1 (fix-up): on persistent DB failure, mark loaded
+            # anyway so we don't retry 3 reads + 3 writes every 5-min tick
+            # forever. Sensors render baseline=0 via the max() guard —
+            # correct fallback. A subsequent restart re-tries seeding.
+            self._savings_baselines_loaded = True
+            _LOGGER.warning(
+                "load_savings_baselines failed — proceeding with empty "
+                "baselines (lifetime sensors render live-only until next "
+                "restart)",
+                exc_info=True,
+            )
+
+    async def _accumulate_peak_avoidance(
+        self, period: str | None, season: str,
+    ) -> None:
+        """One tick of peak-avoidance accumulation.
+
+        Reads solar / battery / grid-net snapshots and delegates to the
+        `PeakAvoidanceTracker`. Wrapped in try/except by the caller; also
+        guards each state read internally so a stale/missing sensor makes
+        this tick a no-op rather than raising.
+        """
+        await self._load_savings_baselines()
+        from homeassistant.util import dt as _dtu
+
+        try:
+            solar_w = self._battery.solar_production_w
+        except Exception:  # noqa: BLE001
+            solar_w = None
+        try:
+            battery_w = self._battery.battery_power_w
+        except Exception:  # noqa: BLE001
+            battery_w = None
+        try:
+            net_kw = self._billing._get_net_power()
+        except Exception:  # noqa: BLE001
+            net_kw = None
+        try:
+            effective_rate = self._tou.get_effective_import_rate(_dtu.now())
+        except Exception:  # noqa: BLE001
+            return
+        try:
+            displaced_rate = self._get_displaced_rate(season)
+        except Exception:  # noqa: BLE001
+            displaced_rate = effective_rate
+
+        self._peak_avoidance.accumulate(
+            now=_dtu.now(),
+            solar_kw=(solar_w / 1000.0) if solar_w is not None else None,
+            battery_power_kw=(battery_w / 1000.0) if battery_w is not None else None,
+            net_import_kw=net_kw,
+            effective_rate=effective_rate,
+            displaced_rate=displaced_rate,
+            period=period,
+        )
+
+    @property
+    def peak_avoidance_status(self) -> dict[str, Any]:
+        """Snapshot of peak-avoidance accumulators for sensors."""
+        return self._peak_avoidance.get_status()
+
+    @property
+    def savings_baselines(self) -> dict[str, dict]:
+        """Loaded lifetime baselines keyed by component."""
+        return dict(self._savings_baselines)
 
     async def _refresh_arbitrage_status_cache(self) -> None:
         """Refresh DB-derived savings rollups for synchronous sensor reads.
@@ -5827,6 +6063,19 @@ class EnergyCoordinator(BaseCoordinator):
 
             # E4: Cost accumulation
             self._billing.accumulate()
+
+            # Energy Savings Unification (cycle #7): peak-avoidance accumulator.
+            # Runs adjacent to billing but never inside CostTracker so a fault
+            # here cannot corrupt cost_today / cost_this_cycle. See
+            # PLANNING_energy_savings_unification.md §D1 RE-SITE.
+            try:
+                await self._accumulate_peak_avoidance(period, season)
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Peak-avoidance accumulation skipped this tick "
+                    "(cost accounting unaffected)",
+                    exc_info=True,
+                )
 
             # E5: Daily prediction (generates once per day, no-ops after)
             self._predictor.generate_prediction()

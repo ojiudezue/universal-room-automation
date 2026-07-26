@@ -60,5 +60,15 @@ All items are display-only or dead-code removal — no decision-logic or money-p
   `sensor.universal_room_automation_persons_in_house` `wifi_guest_floor` attribute
   trends toward 0 (vs. the prior stale 2); headline `identified_count` unchanged by
   this edit. Window: next empty-house period.
+
+### Validated 2026-07-26 (restart ~17:2x CDT)
+
+| # | Result | Observed evidence |
+|---|--------|-------------------|
+| H1 | **PASS** | Zero URA `ERROR` lines in `error_log` (search=universal_room_automation) post-restart; `sensor.ura_presence_coordinator_presence_house_state` live (`away`), coordinators emitting. |
+| H2 | **PASS** | `select.master_bedroom_automation_mode` → `ENTITY_NOT_FOUND` (fully removed — cleaner than the predicted `unavailable`/restored; HA dropped it once the platform stopped creating it). `switch.master_bedroom_automation` present + togglable (`off`). Live automation switches intact. |
+| H3 | **PASS (trending)** | On the empty house `wifi_guest_floor` = **1** (was 2 pre-deploy → tightened recency/IoT-prefix filter working, trending to 0); `identified_count` = 0 unchanged; `face_recognized_persons` = []. Full settle to 0 recorder-watched over the next empty window. |
+
+All three confirmed live at restart. `wifi_guest_floor` final settle to 0 is the only tail item (organic, next empty-house window).
 </content>
 </invoke>
