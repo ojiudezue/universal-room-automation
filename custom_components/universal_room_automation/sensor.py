@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.30.0
+# Universal Room Automation vv5.31.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -10372,11 +10372,19 @@ class HVACACResetsTodaySensor(
 class HVACACKwhAvoidedTodaySensor(
     _ACRampImpactSensorMixin, AggregationEntity, SensorEntity,
 ):
-    """v4.5.12 D8: rough estimate of kWh avoided by AC ramp-down today.
+    """v4.5.12 D8: daily accumulator of kWh avoided by AC ramp-down since
+    local midnight.
 
-    **NOT a precision instrument.** See docs/TECH_DEBT.md for the math
-    (point-in-time delta × capped 30-min projection). Use for trend-
-    watching, NOT for billing accuracy.
+    **NOT a precision instrument.** See docs/TECH_DEBT.md for the math.
+    Each nudge_evaluated event stores its own per-event kwh_avoided at
+    log time; this sensor sums those persisted per-event values across
+    events whose `timestamp >= start_of_local_day()`. Properties:
+      - monotonic non-decreasing within a day (state_class total_increasing)
+      - resets to 0 at local midnight (rows fall out of the WHERE clause)
+      - restart-safe: value is re-derived from ac_ramp_events, no RAM state
+
+    Prior implementation used a rolling 24h window (`days=1`) which caused
+    non-monotonic decreases as events aged out — see hvac_override.py.
 
     Entity: sensor.ura_hvac_ac_kwh_avoided_today
     """
@@ -10405,7 +10413,9 @@ class HVACACKwhAvoidedTodaySensor(
         return {
             "accuracy": "rough_estimate",
             "accuracy_note": (
-                "Point-in-time kW-delta × capped 30-min projection. "
+                "Sum of per-event kwh_avoided (kW-delta × capped 30-min "
+                "projection recorded at nudge-eval time) for events since "
+                "local midnight. Monotonic within-day, resets at 00:00 local. "
                 "Trend-watching only; not billing-grade. See docs/TECH_DEBT.md."
             ),
         }

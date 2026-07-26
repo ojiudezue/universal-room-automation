@@ -673,6 +673,11 @@ async def test_override_compromise_floored_via_chokepoint():
     arr._grace_timers = {}
     arr._compromise_timers = {}
     arr._compromise_minutes = 30
+    # FIX B1 (2026-07-26): _apply_compromise now calls self.suppress(kind="temp")
+    # to prevent induced preset_mode manual side effects from self-counting.
+    # __new__ construction needs the suppression dicts.
+    arr._suppressed_until = {}
+    arr._suppress_kind = {}
     arr._hvac_coord = types.SimpleNamespace(freeze_active=True)
     zone = types.SimpleNamespace(
         zone_id="z1", climate_entity="climate.z1", zone_name="Z",

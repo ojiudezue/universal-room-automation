@@ -344,7 +344,10 @@ class TestImpactCacheInfrastructure:
 
     def test_impact_cache_initialized_in_init(self, hvac_override_src):
         idx = hvac_override_src.find("def __init__(")
-        body = hvac_override_src[idx:idx + 6000]
+        # Window widened 6000 -> 8000: B1/B2 comment additions pushed the
+        # `_impact_cache` init assignment past the prior 6000-char slice.
+        # (Same mechanical fix already applied to test_v4511.)
+        body = hvac_override_src[idx:idx + 8000]
         assert "self._impact_cache: dict =" in body
 
     @pytest.mark.parametrize(
@@ -630,3 +633,111 @@ class TestQualityFrameworkApplied:
                             )
                             break
         assert not violations, "\n".join(violations)
+
+
+# ===========================================================================
+# kWh-Avoided Today: daily accumulator semantics (v5.24+ fix)
+# ===========================================================================
+#
+# Original v4.5.12 impl passed `days=1` to get_ac_ramp_kwh_avoided producing
+# a NOW-24H ROLLING sum. Symptoms live: non-monotonic decreases as events
+# aged out of the window + no reset at local midnight (sensor read 42.2 at
+# 00:00). Since the sensor is declared state_class=total_increasing and
+# named "…Today", both properties violated the HA statistics contract.
+#
+# Fix: anchor "today" to LOCAL MIDNIGHT via a new `since=` parameter on
+# get_ac_ramp_kwh_avoided; refresher uses dt_util.start_of_local_day().
+# Restart-safe by construction: query re-derives from ac_ramp_events
+# (persisted), no RAM accumulator — same pattern as sibling
+# `nudges_today` / `resets_today`.
+# ===========================================================================
+
+
+@pytest.fixture(scope="module")
+def database_src() -> str:
+    with open("custom_components/universal_room_automation/database.py") as f:
+        return f.read()
+
+
+class TestKwhAvoidedTodayDailyAccumulator:
+
+    def test_dao_accepts_since_param(self, database_src):
+        idx = database_src.find("async def get_ac_ramp_kwh_avoided(")
+        sig = database_src[idx:idx + 400]
+        assert "since:" in sig, (
+            "get_ac_ramp_kwh_avoided must accept a `since` datetime "
+            "parameter to anchor the today window at local midnight"
+        )
+
+    def test_dao_since_takes_precedence_over_days(self, database_src):
+        idx = database_src.find("async def get_ac_ramp_kwh_avoided(")
+        body = database_src[idx:idx + 2500]
+        # since branch must appear before the days branch and use
+        # since.isoformat() as the SQL bind value.
+        since_idx = body.find("if since is not None:")
+        days_idx = body.find("elif days is not None:")
+        assert since_idx != -1, "since branch missing"
+        assert days_idx != -1, "days branch must be elif under since"
+        assert since_idx < days_idx, (
+            "since must be checked first so it wins over days"
+        )
+        assert "since.isoformat()" in body
+
+    def test_refresh_uses_local_midnight_for_today(self, hvac_override_src):
+        """The today-cache MUST anchor at local midnight, not now-24h."""
+        idx = hvac_override_src.find("async def _refresh_impact_cache(")
+        body = hvac_override_src[idx:idx + 4000]
+        assert "start_of_local_day()" in body, (
+            "today window must be anchored via dt_util.start_of_local_day()"
+        )
+        # And it must pass that midnight to the DAO via since=, NOT days=1.
+        assert "since=local_midnight" in body or "since=dt_util.start_of_local_day()" in body
+
+    def test_refresh_does_not_use_days1_for_today(self, hvac_override_src):
+        """Regression guard: the old `days=1` rolling window must not
+        return for the today aggregate."""
+        idx = hvac_override_src.find("kwh_avoided_today,")
+        # Look at the ~500 chars around the today call to be sure the
+        # call site itself doesn't pass days=1 anymore.
+        body = hvac_override_src[max(0, idx - 200):idx + 500]
+        # `days=None` is still legit for the total aggregate; guard only
+        # against a stray days=1 in the today block.
+        assert "days=1" not in body, (
+            "today aggregate must anchor at local midnight, not days=1 rolling"
+        )
+
+    def test_total_aggregate_still_uses_days_none(self, hvac_override_src):
+        """Lifetime total must remain a full-history sum."""
+        idx = hvac_override_src.find("async def _refresh_impact_cache(")
+        body = hvac_override_src[idx:idx + 4000]
+        assert "days=None" in body
+
+    def test_today_sensor_docstring_reflects_accumulator(self, sensor_src):
+        idx = sensor_src.find("class HVACACKwhAvoidedTodaySensor(")
+        body = sensor_src[idx:idx + 2500]
+        assert "local midnight" in body.lower()
+        # accuracy_note must NOT describe it as point-in-time anymore
+        assert "point-in-time" not in body.lower(), (
+            "accuracy_note must reflect daily accumulator semantics, "
+            "not point-in-time projection"
+        )
+
+    def test_today_sensor_still_total_increasing(self, sensor_src):
+        """state_class must remain TOTAL_INCREASING — daily accumulator
+        with a single midnight reset is valid under HA's contract."""
+        idx = sensor_src.find("class HVACACKwhAvoidedTodaySensor(")
+        body = sensor_src[idx:idx + 2500]
+        assert "SensorStateClass.TOTAL_INCREASING" in body
+
+    def test_today_sensor_does_not_add_restore_entity(self, sensor_src):
+        """Restart behavior: value re-derived from DB rows (same as
+        sibling nudges_today/resets_today). No RestoreEntity in the
+        today sensor's class base list — that's the total sensor."""
+        idx = sensor_src.find("class HVACACKwhAvoidedTodaySensor(")
+        end = sensor_src.find(":", idx)
+        class_line = sensor_src[idx:end]
+        assert "RestoreEntity" not in class_line, (
+            "today sensor must NOT use RestoreEntity — value is "
+            "re-derived from DB, matching sibling daily counters"
+        )
+

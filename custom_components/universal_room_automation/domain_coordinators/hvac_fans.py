@@ -22,6 +22,7 @@ from ..const import (
     CONF_FANS,
     CONF_ROOM_NAME,
     CONF_ROOM_TYPE,
+    DEFAULT_FAN_MANUAL_OFF_COOLDOWN_S,
     DEFAULT_FAN_SLEEP_POLICY,
     DOMAIN,
     ENTRY_TYPE_ROOM,
@@ -207,8 +208,13 @@ class FanController:
             if room_fan.is_on and not any(
                 self._is_entity_on(e) for e in room_fan.fan_entities
             ):
-                # v4.0.18: Fan turned off externally — set 1-hour cooldown
-                cooldown_until = (now + timedelta(hours=1)).isoformat()
+                # v4.0.18: Fan turned off externally — set cooldown.
+                # FIX C D3: promoted from inline timedelta(hours=1) to
+                # DEFAULT_FAN_MANUAL_OFF_COOLDOWN_S so HVAC-tier and
+                # room-tier share one knob (kill switch: 0 = disabled).
+                cooldown_until = (
+                    now + timedelta(seconds=DEFAULT_FAN_MANUAL_OFF_COOLDOWN_S)
+                ).isoformat()
                 room_fan.manual_off_cooldown_until = cooldown_until
                 _LOGGER.info(
                     "HVAC Fans: %s turned off externally — cooldown until %s",

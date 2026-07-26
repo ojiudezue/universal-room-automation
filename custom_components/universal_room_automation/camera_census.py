@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation vv5.30.0
+# Universal Room Automation vv5.31.0
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -2192,6 +2192,30 @@ class PersonCensus:
                     age = CENSUS_FACE_RECOGNITION_WINDOW_SECONDS + 1
 
                 if age <= CENSUS_FACE_RECOGNITION_WINDOW_SECONDS:
+                    # Person-trust cross-check: Frigate's last_camera sensor
+                    # flaps unavailable⇄<camera>, re-stamping last_changed, so
+                    # the age gate alone never elapses for a departed person.
+                    # Drop the face-recognized person if their person.<slug>
+                    # tracker reports not_home (mirrors v4.7.13/v4.7.14
+                    # person-trust veto pattern). Fail-OPEN: if the person
+                    # entity is missing/unknown/unavailable, count them
+                    # (preserves prior behavior — conservative).
+                    person_entity_id = f"person.{person_slug.lower()}"
+                    try:
+                        person_state = self.hass.states.get(person_entity_id)
+                    except Exception:  # noqa: BLE001 — defensive
+                        person_state = None
+                    if (
+                        person_state is not None
+                        and person_state.state == "not_home"
+                    ):
+                        _LOGGER.debug(
+                            "Face-recognized person %s dropped: "
+                            "%s=not_home (stale-face latch guard)",
+                            person_slug,
+                            person_entity_id,
+                        )
+                        continue
                     recognized.append(person_slug)
 
         return recognized

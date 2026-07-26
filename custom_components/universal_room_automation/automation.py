@@ -97,6 +97,7 @@ from .const import (
     CONF_HUMIDITY_FAN_MAX_RUNTIME,
     CONF_FAN_VACANCY_HOLD,
     DEFAULT_FAN_VACANCY_HOLD,
+    DEFAULT_FAN_MANUAL_OFF_COOLDOWN_S,
     DEFAULT_HUMIDITY_THRESHOLD,
     DEFAULT_HUMIDITY_FAN_TIMEOUT,
     DEFAULT_HUMIDITY_FAN_MAX_RUNTIME,
@@ -250,6 +251,42 @@ class RoomAutomation:
         self._service_call_reset_date: str = dt_util.now().strftime("%Y-%m-%d")
         # v3.18.0: Fan vacancy hold tracking
         self._fan_vacancy_start: datetime | None = None
+        # FIX C (fan manual-off cooldown, room-tier).
+        # Symmetric to hvac_fans.py:207-217 which sets a 1h cooldown when
+        # an external actor turns off an HVAC-managed fan. Room-tier had
+        # no such memory, so a user off-tap on a room-owned fan was
+        # re-armed on the next 30s tick. See
+        # docs/planning/PLANNING_fan_manual_off_cooldown.md D1.
+        self._fan_manual_off_until: datetime | None = None
+        # Baseline for external-off detection: tracks whether we saw any
+        # fan ON on the PREVIOUS tick, so a transition to all-off that
+        # wasn't caused by our own service call is diagnosable as
+        # external. False on first tick — cold-boot fan-already-off state
+        # does NOT open a cooldown.
+        self._last_seen_any_fan_on: bool = False
+        # We turned a fan OFF ourselves this tick — used to distinguish
+        # our own off-write from an external off transition. Cleared on
+        # every entry to handle_temperature_based_fan_control.
+        self._fan_off_issued_this_tick: bool = False
+        # FIX C D2: once-per-boot HVAC-managed-mismatch WARN gate.
+        self._fan_hvac_mismatch_warned: bool = False
+
+    def is_fan_in_manual_cooldown(self) -> bool:
+        """True while the room-tier fan manual-off cooldown window is live.
+
+        Consumed by ActuatorReconciler._resolve_fan so the reconciler does
+        NOT re-arm a room-owned fan that the operator just turned off
+        (symmetric to hvac_fans.py's HVAC-tier cooldown). Cheap read: does
+        NOT clear expired windows — expiry is handled organically by
+        handle_temperature_based_fan_control on the next tick.
+        """
+        try:
+            until = self._fan_manual_off_until
+            if until is None:
+                return False
+            return dt_util.now() < until
+        except Exception:
+            return False
 
     async def _safe_service_call(
         self,
@@ -1554,8 +1591,89 @@ class RoomAutomation:
             return
 
         # v3.18.1: Defer to HVAC coordinator if it's managing this room's fans
-        if self._is_hvac_managing_fans():
+        hvac_manages = self._is_hvac_managing_fans()
+        if hvac_manages:
             return
+
+        # FIX C D2: silent-mismatch diagnostic. Room believes it should be
+        # HVAC-managed (hvac_coordination_enabled=True with a
+        # climate_entity), but HVAC's fan_controller._room_fans doesn't
+        # include this room — most commonly because the Zone Manager
+        # entry's zone_rooms list doesn't reference this room's entry_id
+        # (or the zone lacks a thermostat). Emit ONCE per HA restart so
+        # the config gap is discoverable without spamming the log.
+        if not self._fan_hvac_mismatch_warned:
+            if (
+                self.config.get(CONF_HVAC_COORDINATION_ENABLED, False)
+                and self.config.get(CONF_CLIMATE_ENTITY)
+                and fans
+            ):
+                _LOGGER.warning(
+                    "Room %s expects HVAC fan management "
+                    "(hvac_coordination_enabled=True, climate_entity=%s) "
+                    "but is not in HVAC fan_controller._room_fans — "
+                    "room-tier is owning fans. Check Zone Manager "
+                    "zone_rooms wiring.",
+                    self.config.get("room_name", "Unknown"),
+                    self.config.get(CONF_CLIMATE_ENTITY),
+                )
+                self._fan_hvac_mismatch_warned = True
+
+        # FIX C D1: room-tier manual-off cooldown.
+        # Symmetric to hvac_fans.py:207-217. Detect an external actor
+        # turning fans off (previously any-on, now all-off, and we did
+        # NOT issue an off-call this tick) and open a cooldown window.
+        # While the window is live, do NOT re-arm — an operator that
+        # manually killed a fan expects it to stay killed.
+        # Kill switch: DEFAULT_FAN_MANUAL_OFF_COOLDOWN_S == 0 disables.
+        cooldown_s = DEFAULT_FAN_MANUAL_OFF_COOLDOWN_S
+        self._fan_off_issued_this_tick = False
+        any_fan_on_now = any(
+            (s := self.hass.states.get(f)) is not None and s.state == STATE_ON
+            for f in fans
+        )
+        if cooldown_s > 0:
+            if (
+                self._last_seen_any_fan_on
+                and not any_fan_on_now
+                and self._fan_manual_off_until is None
+            ):
+                self._fan_manual_off_until = (
+                    dt_util.now() + timedelta(seconds=cooldown_s)
+                )
+                _LOGGER.info(
+                    "Room %s: fan turned off externally — "
+                    "room-tier cooldown until %s (FIX C)",
+                    self.config.get("room_name", "Unknown"),
+                    self._fan_manual_off_until.isoformat(),
+                )
+            elif (
+                self._fan_manual_off_until is not None
+                and any_fan_on_now
+            ):
+                # Manual-on reversal — operator changed their mind.
+                _LOGGER.info(
+                    "Room %s: fan back on during cooldown — "
+                    "room-tier cooldown cleared (FIX C)",
+                    self.config.get("room_name", "Unknown"),
+                )
+                self._fan_manual_off_until = None
+            elif (
+                self._fan_manual_off_until is not None
+                and dt_util.now() >= self._fan_manual_off_until
+            ):
+                # Window expired — clear.
+                self._fan_manual_off_until = None
+
+            # If cooldown live, skip activation. We must NOT block
+            # turn-OFF paths (an in-cooldown room whose temp drops
+            # below threshold should still get an off-call emitted;
+            # any_fan_on_now is False in that case, so the off path
+            # inside the temp branch is a no-op anyway).
+            if self._fan_manual_off_until is not None:
+                # Baseline update happens at end via last_seen tracking.
+                self._last_seen_any_fan_on = any_fan_on_now
+                return
 
         # v3.18.1: Fan sleep policy — reduce speed or turn off during sleep
         sleep_speed_cap = None
@@ -1566,6 +1684,9 @@ class RoomAutomation:
                     "homeassistant", SERVICE_TURN_OFF, {"entity_id": fans},
                     blocking=False,
                 )
+                # FIX C: we owned this off. Baseline reflects our intent
+                # (state read may not have propagated on blocking=False).
+                self._last_seen_any_fan_on = False
                 return
             elif policy == FAN_SLEEP_REDUCE:
                 sleep_speed_cap = 33  # Cap at low speed during sleep
@@ -1637,6 +1758,9 @@ class RoomAutomation:
                         room=room_name,
                         entity_id=fans[0] if fans else None,
                     ))
+            # FIX C: we owned this off — update baseline before returning
+            # so next tick doesn't mis-detect our own off as external.
+            self._last_seen_any_fan_on = False
             return
 
         # Determine fan speed based on temperature
@@ -1693,6 +1817,11 @@ class RoomAutomation:
                         ))
             except Exception as e:
                 _LOGGER.error("Error controlling fans: %s", e)
+            # FIX C: baseline reflects our intent (we just turned fans ON).
+            self._last_seen_any_fan_on = True
+        else:
+            # No action this tick — baseline follows observed state.
+            self._last_seen_any_fan_on = any_fan_on_now
 
     def _fan_is_actually_on(self, fans: list[str]) -> bool:
         """Return True if any entity in fans reports state 'on'.

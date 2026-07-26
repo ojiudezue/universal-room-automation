@@ -558,7 +558,10 @@ class TestSoftNudge:
         # (TTL-window) instead of the prior `self._suppressed_entities.add(...)`
         # set membership. The ordering invariant (suppress BEFORE the service
         # call) is what this test guards — call-site form is incidental.
-        suppress_pos = body.find("self.suppress(zone.climate_entity)")
+        # FIX B1 (2026-07-26): suppress() now accepts a `kind` kwarg —
+        # temp writes pass kind="temp". Match the prefix so both the
+        # legacy no-kwarg and the new kwarg forms are accepted.
+        suppress_pos = body.find("self.suppress(zone.climate_entity")
         # feature/freeze-floor: setpoint dispatch is now the chokepoint call.
         service_pos = body.find("emit_set_temperature(")
         assert suppress_pos > 0
@@ -568,7 +571,7 @@ class TestSoftNudge:
 
     def test_perform_soft_nudge_schedules_restore(self, hvac_override_src):
         idx = hvac_override_src.find("async def _perform_soft_nudge(")
-        body = hvac_override_src[idx:idx + 4000]
+        body = hvac_override_src[idx:idx + 6000]
         assert "_nudge_restore_timers" in body
         assert "async_call_later" in body
 
@@ -585,13 +588,13 @@ class TestSoftNudge:
 
     def test_restore_after_nudge_clears_in_flight(self, hvac_override_src):
         idx = hvac_override_src.find("async def _restore_after_nudge(")
-        body = hvac_override_src[idx:idx + 3000]
+        body = hvac_override_src[idx:idx + 6000]
         assert "clear_ac_in_flight_nudge" in body
         assert "AC_RAMP_EVENT_NUDGE_RESTORED" in body
 
     def test_restore_after_nudge_schedules_evaluation(self, hvac_override_src):
         idx = hvac_override_src.find("async def _restore_after_nudge(")
-        body = hvac_override_src[idx:idx + 3000]
+        body = hvac_override_src[idx:idx + 6000]
         assert "AC_NUDGE_EVALUATION_DELAY_S" in body
         assert "_nudge_eval_timers" in body
 
@@ -642,7 +645,7 @@ class TestHardResetEscalation:
         idx = hvac_override_src.find(
             "async def _perform_hard_reset_escalation("
         )
-        body = hvac_override_src[idx:idx + 3000]
+        body = hvac_override_src[idx:idx + 6000]
         assert "self._hard_reset_daily_limit" in body
 
     def test_hard_reset_checks_global_min_interval(self, hvac_override_src):
@@ -651,7 +654,7 @@ class TestHardResetEscalation:
         idx = hvac_override_src.find(
             "async def _perform_hard_reset_escalation("
         )
-        body = hvac_override_src[idx:idx + 3000]
+        body = hvac_override_src[idx:idx + 6000]
         assert "get_global_last_hard_reset_ts" in body
         assert "self._hard_reset_min_interval_min" in body
 
@@ -659,7 +662,7 @@ class TestHardResetEscalation:
         idx = hvac_override_src.find(
             "async def _perform_hard_reset_escalation("
         )
-        body = hvac_override_src[idx:idx + 3000]
+        body = hvac_override_src[idx:idx + 6000]
         assert "_engage_lockout" in body
 
     def test_hard_reset_reuses_existing_perform_ac_reset(
@@ -694,13 +697,13 @@ class TestLockout:
         """One persistent notification per zone (HA dedupes by id) — no
         spam if multiple lockouts fire in sequence."""
         idx = hvac_override_src.find("async def _engage_lockout(")
-        body = hvac_override_src[idx:idx + 3000]
+        body = hvac_override_src[idx:idx + 6000]
         assert "ura_ac_ramp_lockout_" in body
         assert "notification_id" in body
 
     def test_lockout_logs_event_with_flag(self, hvac_override_src):
         idx = hvac_override_src.find("async def _engage_lockout(")
-        body = hvac_override_src[idx:idx + 3000]
+        body = hvac_override_src[idx:idx + 6000]
         assert "AC_RAMP_EVENT_LOCKOUT_ENGAGED" in body
         assert "lockout_triggered=True" in body
 
