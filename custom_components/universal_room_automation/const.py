@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.31.0
+# Universal Room Automation vv5.31.1
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.31.0"
+VERSION: Final = "v5.31.1"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1627,9 +1627,16 @@ PHONE_ONLY_MANUFACTURERS: Final = frozenset({
     "Fairphone",
 })
 # How recently a phone must have appeared on the SSID to count as a guest.
-# Phones present longer than this are treated as residents (family devices).
-# Cameras still catch long-staying guests via camera_unrecognized count.
-WIFI_GUEST_RECENCY_HOURS: Final = 24
+# Phones present longer than this are treated as residents (family devices) or
+# stale IoT devices that happen to share the guest VLAN and reconnect
+# periodically. Cameras still catch long-staying guests via
+# camera_unrecognized count.
+#
+# 2026-07-26: tightened from 24 -> 4 hours. Attribute wifi_guest_floor was
+# reading 1-2 on an empty house because stale/IoT guest-VLAN devices with
+# phone-like hostnames reconnect within a 24h window. A genuine guest's
+# phone appears in the last few hours of a visit, not the last day.
+WIFI_GUEST_RECENCY_HOURS: Final = 4
 # Infrastructure device hostname prefixes — devices that are definitely NOT
 # guest personal devices on a shared entertainment SSID. Everything that
 # doesn't match these (and isn't a tablet) is a potential guest phone.
@@ -1653,6 +1660,15 @@ NON_GUEST_HOSTNAME_PREFIXES: Final = (
     "envoy",            # Enphase Envoy
     "enphase",          # Enphase devices
     "ubiquiti", "unifi",    # Ubiquiti network gear
+    # 2026-07-26: broaden IoT coverage for shared-VLAN false positives.
+    "roku",             # Roku streaming devices
+    "chromecast", "google-home", "google-nest", "nest-",  # Google/Nest IoT
+    "echo-", "alexa",   # Amazon Echo/Alexa
+    "hue-", "philips-hue",  # Hue hubs
+    "roomba", "irobot",     # iRobot vacuums
+    "lg-",              # LG appliances / TVs beyond samsung
+    "vizio",            # Vizio TVs
+    "smartthings",      # SmartThings hubs
 )
 # Tablet hostname prefixes — excluded from phone-only guest counting.
 # Guests may bring tablets but we count phones (1 per person) for accuracy.

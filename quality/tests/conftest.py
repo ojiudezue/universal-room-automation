@@ -22,6 +22,20 @@ try:
 except ImportError:  # pragma: no cover — only fires on broken dev env
     sys.modules.setdefault("aiosqlite", MagicMock())
 
+# Cross-test-pollution guard (Bug Class #44): several test modules do
+# ``sys.modules.setdefault("voluptuous", MagicMock())`` at import time (e.g.
+# test_b4_energy_integration.py). If the REAL voluptuous has not been imported
+# yet when that module is collected, the MagicMock wins and poisons every later
+# test that builds a config/options-flow schema — the schema comes back empty
+# (`assert 0 == 7` in test_cycle_b_config_flow). conftest.py is imported before
+# any test module is collected, so importing the real package here makes those
+# setdefault() calls no-ops. voluptuous is a hard HA dependency, so this import
+# reflects production reality rather than masking a defect.
+try:
+    import voluptuous  # noqa: F401  # real package preferred; pins sys.modules
+except ImportError:  # pragma: no cover — only on a broken dev env
+    pass
+
 
 class MockState:
     """Mock Home Assistant state."""
