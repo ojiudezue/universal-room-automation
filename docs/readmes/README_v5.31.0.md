@@ -75,4 +75,17 @@ Watched against the HA recorder after restart. Each: hypothesis · oracle entity
 
 **Boot-transient to dismiss:** brief `unavailable` on room sensors during the config-entry reload settle; the `test_freeze_floor` full-suite ordering pollution is a test-harness artifact, not runtime.
 
-_Post-restart, replace this section's prospective bullets with a `Validated <date>` PASS/FAIL table with observed evidence per URA convention._
+### Validated 2026-07-26 (restart ~12:08 CDT)
+
+| # | Result | Observed evidence |
+|---|---|---|
+| H1 | **PASS** | 41/41 URA config entries `loaded` (0 `setup_error`); zero URA `ERROR` lines in error_log post-boot; `sensor.ura_presence_coordinator_presence_house_state` live (`arriving`), coordinators emitting. |
+| H9 | **PASS (early)** | `sensor.universal_room_automation_persons_in_house` `face_recognized_persons: []`, `identified_count: 1` (the 1 = Ezinne's stuck GPS tracker, not a face latch). No `not_home` person face-counted. |
+| H2 | pending | Needs a pre/post owner-state comparison under matching EV conditions (owner-set behavior-frozen). |
+| H3 | **soc populated** | `battery_strategy.soc = 54.4` at T+4 min (was null); direct Envoy compare deferred — `sensor.envoy_482543015950_battery` briefly 404 (boot transient / Envoy re-key, not URA; URA soc reading fine). |
+| H4 | pending | Next daylight producing period. |
+| H5 | **PASS** | `ac_kwh_avoided_today` re-derived `0.0`→`23.558` (real since-midnight total); `accuracy_note` now states "Sum of per-event kwh_avoided … since local midnight. Monotonic within-day, resets at 00:00 local." Midnight-reset itself recorder-watched at next boundary. |
+| H6/H7 | pending-organic | Next empty-house overnight: override self-count no longer climbs from URA nudges; Bryant/Carrier presets not stuck in `manual`. |
+| H8 | pending-operator | Manually off a room-tier comfort fan hot+occupied → does not re-arm within cooldown. |
+
+H1/H9 confirmed live; H3/H5 to settle within a cache cycle; H2/H4/H6/H7/H8 handed to **Shipwatch** on the next qualifying window per the hypotheses above.

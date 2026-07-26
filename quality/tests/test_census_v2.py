@@ -60,7 +60,7 @@ PHONE_ONLY_MANUFACTURERS = frozenset({
     "Nothing Technology Limited",
     "Fairphone",
 })
-WIFI_GUEST_RECENCY_HOURS = 24
+WIFI_GUEST_RECENCY_HOURS = 4  # 2026-07-26 tightened from 24
 NON_GUEST_HOSTNAME_PREFIXES = (
     "samsung", "homepod", "wiim", "sonos",
     "trc-", "urc",
@@ -70,6 +70,9 @@ NON_GUEST_HOSTNAME_PREFIXES = (
     "g3-", "g4-", "g5-",
     "envoy", "enphase",
     "ubiquiti", "unifi",
+    "roku", "chromecast", "google-home", "google-nest", "nest-",
+    "echo-", "alexa", "hue-", "philips-hue",
+    "roomba", "irobot", "lg-", "vizio", "smartthings",
 )
 TABLET_HOSTNAME_PREFIXES = (
     "ipad",
@@ -1219,32 +1222,89 @@ class TestWiFiGuestCount:
         census = StubPersonCensusV2(hass)
         assert census._get_wifi_guest_count(now) == 1
 
-    def test_recency_boundary_exactly_24h(self):
-        """Phone at exactly 24 hours should NOT be counted (> threshold)."""
+    def test_recency_boundary_just_over_window(self):
+        """Phone just past the recency window should NOT be counted."""
         now = datetime.now()
         hass = _make_hass_with_entry({CONF_GUEST_VLAN_SSID: "Revel"})
-        # Phone connected exactly 24h + 1 second ago
         self._add_device_tracker(
             hass, "device_tracker.boundary_phone", "home",
             essid="Revel", host_name="iPhone",
-            last_changed=now - timedelta(hours=24, seconds=1),
+            last_changed=now - timedelta(
+                hours=WIFI_GUEST_RECENCY_HOURS, seconds=1,
+            ),
         )
         self._setup_async_all(hass, ["device_tracker.boundary_phone"])
         census = StubPersonCensusV2(hass)
         assert census._get_wifi_guest_count(now) == 0
 
-    def test_recency_boundary_just_under_24h(self):
-        """Phone just under 24 hours should be counted."""
+    def test_recency_boundary_just_under_window(self):
+        """Phone just under the recency window should be counted."""
         now = datetime.now()
         hass = _make_hass_with_entry({CONF_GUEST_VLAN_SSID: "Revel"})
         self._add_device_tracker(
             hass, "device_tracker.recent_phone", "home",
             essid="Revel", host_name="iPhone",
-            last_changed=now - timedelta(hours=23, minutes=59),
+            last_changed=now - timedelta(
+                hours=WIFI_GUEST_RECENCY_HOURS - 1, minutes=59,
+            ),
         )
         self._setup_async_all(hass, ["device_tracker.recent_phone"])
         census = StubPersonCensusV2(hass)
         assert census._get_wifi_guest_count(now) == 1
+
+    def test_stale_guest_vlan_device_excluded_by_tightened_recency(self):
+        """Regression 2026-07-26: attribute inflation on empty house.
+
+        A stale/returning device on the guest SSID with a phone-like
+        hostname (e.g. old visitor's iPhone reconnecting every few
+        hours) must NOT count when last_changed exceeds the tightened
+        recency window. A fresh guest phone still counts.
+        """
+        now = datetime.now()
+        hass = _make_hass_with_entry({CONF_GUEST_VLAN_SSID: "Revel"})
+        # Stale returning device — appeared 12h ago, still "home"
+        self._add_device_tracker(
+            hass, "device_tracker.stale_visitor_phone", "home",
+            essid="Revel", host_name="iPhone",
+            last_changed=now - timedelta(hours=12),
+        )
+        # Fresh actual guest arriving now
+        self._add_device_tracker(
+            hass, "device_tracker.fresh_guest_phone", "home",
+            essid="Revel", host_name="Galaxy-S22",
+            last_changed=now - timedelta(minutes=10),
+        )
+        self._setup_async_all(hass, [
+            "device_tracker.stale_visitor_phone",
+            "device_tracker.fresh_guest_phone",
+        ])
+        census = StubPersonCensusV2(hass)
+        assert census._get_wifi_guest_count(now) == 1
+
+    def test_iot_device_with_phone_like_hostname_excluded(self):
+        """New IoT hostname prefixes (roku/nest-/echo-/etc.) excluded
+        even when otherwise passing all filters."""
+        now = datetime.now()
+        hass = _make_hass_with_entry({CONF_GUEST_VLAN_SSID: "Revel"})
+        for eid, host in [
+            ("device_tracker.living_roku", "Roku-Ultra"),
+            ("device_tracker.kitchen_nest", "nest-hub-max"),
+            ("device_tracker.bedroom_echo", "echo-dot-5"),
+            ("device_tracker.hall_hue", "hue-bridge"),
+        ]:
+            self._add_device_tracker(
+                hass, eid, "home",
+                essid="Revel", host_name=host,
+                last_changed=now - timedelta(minutes=30),
+            )
+        self._setup_async_all(hass, [
+            "device_tracker.living_roku",
+            "device_tracker.kitchen_nest",
+            "device_tracker.bedroom_echo",
+            "device_tracker.hall_hue",
+        ])
+        census = StubPersonCensusV2(hass)
+        assert census._get_wifi_guest_count(now) == 0
 
     # --- Shared entertainment network scenario ---
 
@@ -2170,8 +2230,11 @@ class TestCensusV2EdgeCases:
         assert r1.wifi_guest_floor == 1
         assert r1.unidentified_count == 0  # camera-only: no cameras = 0
 
-        # Check at 6am
-        t1 = t0 + timedelta(hours=6)
+        # Check within the (tightened 2026-07-26) recency window: still counted.
+        # After the window elapses without a reconnect, the phone is treated
+        # as a resident/stale device and drops from wifi_guest_floor — that is
+        # the intended tightening (visible-in-cameras still catches long stays).
+        t1 = t0 + timedelta(hours=WIFI_GUEST_RECENCY_HOURS - 1)
         r2 = census._apply_enhanced_house_census(raw, ["oji", "ezinne"], t1)
         assert r2.wifi_guest_floor == 1
         assert r2.unidentified_count == 0  # camera-only

@@ -136,13 +136,31 @@ def _load_module(name, filepath):
     return mod
 
 
-# Create stub parent packages so relative imports work
-_cc_pkg = _mock_module("custom_components")
-sys.modules["custom_components"] = _cc_pkg
+# Create stub parent packages so relative imports work.
+#
+# Cross-test-pollution guard: this file is collected LAST (the "zzz"
+# prefix) so whatever it leaves in sys.modules is what every other test
+# module sees at RUN time. The previous version installed fakes whose
+# `__path__` was `[]` (from `_mock_module`), which shadowed the real
+# package and made `import custom_components.universal_room_automation.<x>`
+# fail with ModuleNotFoundError across the suite (activity_logger,
+# logbook, presence, safety, config_flow, ...). Fix: point `__path__` at
+# the REAL package directories so submodule imports still resolve, don't
+# clobber an already-valid package, and link child packages onto their
+# parents so `mock.patch("custom_components...")` string resolution works.
+_cc_pkg = sys.modules.get("custom_components")
+if _cc_pkg is None or not getattr(_cc_pkg, "__path__", None):
+    _cc_pkg = _mock_module("custom_components")
+    sys.modules["custom_components"] = _cc_pkg
+_cc_pkg.__path__ = [os.path.abspath(os.path.join(_project_root, "custom_components"))]
 
-_ura_pkg = _mock_module("custom_components.universal_room_automation")
+_ura_pkg = sys.modules.get("custom_components.universal_room_automation")
+if _ura_pkg is None or not getattr(_ura_pkg, "__path__", None):
+    _ura_pkg = _mock_module("custom_components.universal_room_automation")
+    sys.modules["custom_components.universal_room_automation"] = _ura_pkg
 _ura_pkg.__file__ = os.path.join(_ura_root, "__init__.py")
-sys.modules["custom_components.universal_room_automation"] = _ura_pkg
+_ura_pkg.__path__ = [os.path.abspath(_ura_root)]
+_cc_pkg.universal_room_automation = _ura_pkg
 
 # Load const.py directly (it has `from __future__ import annotations` so OK)
 _const = _load_module(
@@ -152,9 +170,16 @@ _const = _load_module(
 _ura_pkg.const = _const
 
 # Create domain_coordinators package stub
-_dc_pkg = _mock_module("custom_components.universal_room_automation.domain_coordinators")
+_dc_pkg = sys.modules.get(
+    "custom_components.universal_room_automation.domain_coordinators")
+if _dc_pkg is None or not getattr(_dc_pkg, "__path__", None):
+    _dc_pkg = _mock_module(
+        "custom_components.universal_room_automation.domain_coordinators")
+    sys.modules[
+        "custom_components.universal_room_automation.domain_coordinators"] = _dc_pkg
 _dc_pkg.__file__ = os.path.join(_dc_root, "__init__.py")
-sys.modules["custom_components.universal_room_automation.domain_coordinators"] = _dc_pkg
+_dc_pkg.__path__ = [os.path.abspath(_dc_root)]
+_ura_pkg.domain_coordinators = _dc_pkg
 
 # Load hvac_const.py
 hvac_const = _load_module(

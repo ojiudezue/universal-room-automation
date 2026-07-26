@@ -2373,6 +2373,44 @@ hand-built schema. Authority bar: for each load-bearing site, one
 real-source mutation must turn a NAMED test red (Tier 2-DB Review C /
 Tier 3 framing-C).
 
+### Bug Class #61 — Cross-coordinator re-assertion (guard defeated by a second writer) ⚠️
+
+**Symptom.** One coordinator installs a guard on a shared actuator (a
+cooldown, hold, or suppression) and is correct in isolation — but a
+DIFFERENT writer re-asserts that same actuator on its own cadence,
+silently defeating the guard. The behavior is only broken house-wide.
+
+**Exemplars.** v5.31.0 fan manual-off cooldown: the room-tier
+`handle_temperature_based_fan_control` opened the cooldown and skipped
+re-arm, but `actuator_reconciler._resolve_fan` independently re-issued
+`turn_on` on the next reconcile edge (Review-B HIGH-1). Fixed by teaching
+the reconciler to defer (`is_fan_in_manual_cooldown()`) while the cooldown
+is live.
+
+**Detection.** For any new guard/cooldown/hold on a shared actuator,
+enumerate EVERY writer of that actuator (grep all `turn_on`/`turn_off`/
+`set_*` call sites across coordinators AND the reconciler) and confirm
+each honors the guard. This is the inverse of #53 (computed-but-not-
+consumed): here the value IS consumed by its owner but re-asserted
+elsewhere.
+
+### Bug Class #62 — Source-text/grep-only test assertion ⚠️
+
+**Symptom.** A test asserts the PRESENCE of a code substring
+(`assert '"set_preset_mode"' in source`, `assert 'kind="temp"' in body`)
+instead of driving the code path. It stays green under any logic change
+that preserves the string — including dead-coding the whole feature.
+
+**Exemplars.** v5.31.0 C-HIGH-2 (B2 preset-restore covered only by source
+greps — a `False and …` neuter left every asserted substring intact, suite
+green); avoided-accumulator MED (8 grep-only tests, zero behavioral).
+
+**Detection.** Sibling of #60 (stub-mirror) and #44 (fixture authority):
+every load-bearing site needs a behavioral test that a real-source
+mutation turns red. Source-string asserts are acceptable ONLY as a
+secondary refactor-invariant (e.g. shared-constant lockstep), never as the
+sole coverage of behavior.
+
 ---
 
 ## ✅ MANDATORY VALIDATION CHECKLIST

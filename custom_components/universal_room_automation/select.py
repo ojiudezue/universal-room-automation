@@ -1,6 +1,6 @@
 """Select platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.31.0
+# Universal Room Automation vv5.31.1
 # File: select.py
 # v3.6.0-c1: Added house state override and zone presence mode selects
 #
@@ -25,8 +25,6 @@ from .const import (
     VERSION,
     ZONE_PRESENCE_OVERRIDE_OPTIONS,
 )
-from .coordinator import UniversalRoomCoordinator
-from .entity import UniversalRoomEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -91,51 +89,15 @@ async def async_setup_entry(
     if entry_type == ENTRY_TYPE_ZONE:
         return
 
-    # Room entry — automation mode select
-    coordinator: UniversalRoomCoordinator = hass.data[DOMAIN][entry.entry_id]
-
-    entities = [
-        AutomationModeSelect(coordinator),
-    ]
-
-    async_add_entities(entities)
-    _LOGGER.info(
-        "Set up %d select entities for room: %s",
-        len(entities),
-        entry.data.get("room_name")
-    )
-
-
-# ============================================================================
-# Room-level select
-# ============================================================================
-
-
-class AutomationModeSelect(UniversalRoomEntity, SelectEntity):
-    """Select entity for automation mode."""
-
-    _attr_icon = "mdi:tune"
-    _attr_options = ["auto", "manual", "learning", "eco", "comfort"]
-
-    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
-        """Initialize the select entity."""
-        super().__init__(coordinator, "automation_mode", "Automation Mode")
-        self._attr_current_option = "auto"
-
-    @property
-    def current_option(self) -> str:
-        """Return current automation mode."""
-        return self._attr_current_option
-
-    async def async_select_option(self, option: str) -> None:
-        """Set new automation mode."""
-        self._attr_current_option = option
-        self.async_write_ha_state()
-        _LOGGER.info(
-            "Automation mode set to '%s' for room: %s",
-            option,
-            self.coordinator.entry.data.get("room_name")
-        )
+    # Room entry — no select entities (2026-07-26: AutomationModeSelect
+    # deleted; it was an inert knob with no consumer. The real enable
+    # control is `switch.<room>_automation`. Existing
+    # `select.<room>_automation_mode` entities will remain in the entity
+    # registry as unavailable/restored until the operator removes them
+    # from the registry — this integration deliberately does NOT clean
+    # them up automatically (Bug Class #46: never delete registry
+    # entries from code).
+    return
 
 
 # ============================================================================
