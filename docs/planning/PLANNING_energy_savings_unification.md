@@ -330,6 +330,8 @@ Once the sensor family exists, surface it — the whole point of the cycle is a 
 
 **Sequencing:** D7 runs AFTER D1–D5 land + sensors are live-validated (can't surface a sensor that doesn't exist yet). Dashboard-only, no tier weight of its own.
 
+**DONE 2026-07-26.** ura-v8: "Energy Savings" section on the Energy & EV view (3-component × 3-epoch markdown grid + kWh-avoided row), write-verified, renders live values. PWA: `SavingsCard` on the Energy tab (total today + lifetime + PA/arbitrage components) via `useUraSensorFloat`, tsc clean + tests pass — in the ura-dashboard-pwa working tree, awaiting operator PWA deploy.
+
 ---
 
 ## 5. Tier-classification justification
