@@ -44,6 +44,43 @@ def hvac_override_src() -> str:
         return f.read()
 
 
+def _extract_function_body(src: str, def_prefix: str) -> str:
+    """Return the full body of a function whose def line starts with
+    `def_prefix` (e.g. ``"async def _refresh_impact_cache("``).
+
+    Bug Class #41: fixed-length string slices become brittle when new
+    statements shift target tokens past the window. Search the whole
+    function body instead of ``src[idx:idx+N]``.
+    """
+    idx = src.find(def_prefix)
+    if idx == -1:
+        return ""
+    # Find start of def line to read its indentation.
+    line_start = src.rfind("\n", 0, idx) + 1
+    def_indent = len(src[line_start:idx])
+    # Walk lines after the def; stop when we return to an outer scope
+    # (a non-blank line whose indent is <= def_indent).
+    after = src[src.find("\n", idx) + 1 :]
+    body_lines: list[str] = []
+    for line in after.splitlines():
+        stripped = line.lstrip(" ")
+        if stripped == "" or line.lstrip(" \t").startswith("#"):
+            body_lines.append(line)
+            continue
+        indent = len(line) - len(stripped)
+        if indent <= def_indent:
+            break
+        body_lines.append(line)
+    return "\n".join(body_lines)
+
+
+@pytest.fixture(scope="module")
+def refresh_impact_cache_body(hvac_override_src) -> str:
+    return _extract_function_body(
+        hvac_override_src, "async def _refresh_impact_cache("
+    )
+
+
 @pytest.fixture(scope="module")
 def hvac_zones_src() -> str:
     with open(
@@ -121,12 +158,16 @@ def test_tracker_called_alongside_log_for_event(hvac_override_src, event_constan
     """
     log_idx = hvac_override_src.find(f"event_type={event_constant},")
     assert log_idx > 0, f"No log_ac_ramp_event call for {event_constant}"
-    # Look in the ~30 lines before the event_type line for the tracker call
-    window_start = max(0, log_idx - 1500)
+    # Look in the containing function's body before the event_type line
+    # for the tracker call. Bug Class #41: widened from 1500 to 3500 after
+    # the D2 rate-capture guard grew the notes block ahead of the
+    # NUDGE_EVALUATED log site — a tight fixed window is brittle to any
+    # future in-function change.
+    window_start = max(0, log_idx - 3500)
     window = hvac_override_src[window_start:log_idx]
     # The tracker call uses the SAME event constant positionally
     assert f"_track_zone_action(" in window and event_constant in window, (
-        f"_track_zone_action with {event_constant} not found within ~1500 "
+        f"_track_zone_action with {event_constant} not found within ~3500 "
         f"chars before the log_ac_ramp_event site — last_action sensor "
         f"won't reflect this event"
     )
@@ -378,25 +419,25 @@ class TestImpactCacheInfrastructure:
         body = hvac_override_src[idx:idx + 12000]
         assert "await self._refresh_impact_cache()" in body
 
-    def test_refresh_handles_db_none_gracefully(self, hvac_override_src):
-        idx = hvac_override_src.find("async def _refresh_impact_cache(")
-        body = hvac_override_src[idx:idx + 3000]
+    def test_refresh_handles_db_none_gracefully(self, refresh_impact_cache_body):
+        body = refresh_impact_cache_body
         assert "if self._db is None:" in body and "return" in body
 
-    def test_refresh_excludes_manual_from_fp_math(self, hvac_override_src):
+    def test_refresh_excludes_manual_from_fp_math(self, refresh_impact_cache_body):
         """The DB method already excludes manual triggers (Risk R6 from
         slice 1). Refresh just reads the result — verify it calls
         get_ac_ramp_kwh_avoided which has that filter."""
-        idx = hvac_override_src.find("async def _refresh_impact_cache(")
-        body = hvac_override_src[idx:idx + 3000]
-        assert "get_ac_ramp_kwh_avoided" in body
+        assert "get_ac_ramp_kwh_avoided" in refresh_impact_cache_body
 
-    def test_fp_rate_hidden_until_sample_size_5(self, hvac_override_src):
-        """Risk R3: false-positive rate misleading at small N."""
-        idx = hvac_override_src.find("async def _refresh_impact_cache(")
-        body = hvac_override_src[idx:idx + 3000]
+    def test_fp_rate_hidden_until_sample_size_5(self, refresh_impact_cache_body):
+        """Risk R3: false-positive rate misleading at small N.
+
+        Bug Class #41: search the whole function body, not a fixed slice —
+        new statements (e.g. cycle-start / savings queries) can push the
+        target token past a slice window and silently break the test.
+        """
         # Must check evals_total >= 5 before publishing a rate
-        assert "evals_total >= 5" in body
+        assert "evals_total >= 5" in refresh_impact_cache_body
 
 
 class TestImpactSensorsExist:
@@ -683,10 +724,9 @@ class TestKwhAvoidedTodayDailyAccumulator:
         )
         assert "since.isoformat()" in body
 
-    def test_refresh_uses_local_midnight_for_today(self, hvac_override_src):
+    def test_refresh_uses_local_midnight_for_today(self, refresh_impact_cache_body):
         """The today-cache MUST anchor at local midnight, not now-24h."""
-        idx = hvac_override_src.find("async def _refresh_impact_cache(")
-        body = hvac_override_src[idx:idx + 4000]
+        body = refresh_impact_cache_body
         assert "start_of_local_day()" in body, (
             "today window must be anchored via dt_util.start_of_local_day()"
         )
@@ -706,11 +746,9 @@ class TestKwhAvoidedTodayDailyAccumulator:
             "today aggregate must anchor at local midnight, not days=1 rolling"
         )
 
-    def test_total_aggregate_still_uses_days_none(self, hvac_override_src):
+    def test_total_aggregate_still_uses_days_none(self, refresh_impact_cache_body):
         """Lifetime total must remain a full-history sum."""
-        idx = hvac_override_src.find("async def _refresh_impact_cache(")
-        body = hvac_override_src[idx:idx + 4000]
-        assert "days=None" in body
+        assert "days=None" in refresh_impact_cache_body
 
     def test_today_sensor_docstring_reflects_accumulator(self, sensor_src):
         idx = sensor_src.find("class HVACACKwhAvoidedTodaySensor(")
