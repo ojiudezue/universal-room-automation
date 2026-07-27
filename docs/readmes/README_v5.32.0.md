@@ -47,7 +47,7 @@ Actual entity_ids carry the `_energy_coordinator_` prefix and use `_this_cycle` 
 | H2 | **PASS** | All 9 register + numeric: `energy_savings_peak_avoidance_{today,this_cycle,lifetime}` (USD/monetary/TOTAL), `energy_savings_total_{...}` (USD/monetary/TOTAL), `energy_kwh_avoided_{...}` (kWh/energy/TOTAL). No recorder-rejection. `peak_avoidance_methodology` attr present with full formula + double-count guard + 0.05 kW noise floor. |
 | H3 | **PASS (exact)** | `total = arbitrage + peak_avoidance` at every scope: today `0.0=0.0+0.0`; this_cycle `1.42=1.42+0.0`; lifetime `11.67=11.67+0.0`. |
 | H5 | **PASS** | Arbitrage sensors unchanged (`arbitrage_savings_today=0.0`, `_this_cycle=1.42`, `_total=11.67`) — plus in-suite AST byte-identity of `_get_displaced_rate` + `CostTracker.accumulate` (orchestrator source-diff verified). |
-| H4 | pending-organic | Peak-avoidance = `0.0` at T+3min (fresh first-boot accumulator, evening, ~0-1 ticks). Prove on next daylight producing window: `energy_savings_peak_avoidance_today` > 0. |
+| H4 | **PASS (early)** | Peak-avoidance began accruing within ~15 min of restart (evening, battery @100% SOC self-consumption discharging to serve load): `energy_savings_total_today` climbed `$0.00 → $0.86` while `arbitrage_savings_today` stayed `$0.00` — so the $0.86 is pure peak-avoidance. Confirms the counterfactual fires on locally-served load. Daylight-solar leg still to watch. |
 | H6 | pending | Lifetime-survives-restart: PA lifetime is still `0.0` (nothing accrued yet), so provable only after PA accumulates then a restart. |
 | H7 | pending | 24 h write-queue / no-watchdog watch (≤2 baseline writes/day). |
 
