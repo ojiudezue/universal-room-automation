@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.32.0
+# Universal Room Automation vv5.33.0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -30,6 +30,60 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _sum_savings_from_rows(rows) -> tuple[float, int]:
+    """Pure kernel for `get_ac_ramp_savings`: sum $ savings from an
+    iterable of `(notes, effective)` tuples.
+
+    Extracted so it can be exercised by a NON-HA-gated unit test (Bug
+    Class #60/#62: `@_ha_only`-skipped tests silently pass on hosts
+    without HA installed, giving no mutation coverage).
+
+    Rules (must match the DAO's forward-only contract):
+      * `effective in (None, 0)` -> skip.
+      * Missing / malformed / non-parseable `kwh_avoided` -> skip.
+      * Missing / malformed / non-finite / non-positive `rate` -> skip
+        (row still counted by the kWh family, but contributes $0 here).
+      * Otherwise, add `kwh_event * rate_event` to total and increment
+        `counted_with_rate`.
+
+    Returns `(total_usd, counted_with_rate)`.
+    """
+    import math as _math
+    total_usd = 0.0
+    counted_with_rate = 0
+    for notes, effective in rows:
+        if effective is None or effective == 0:
+            continue
+        if not notes:
+            continue
+        kwh_event: float | None = None
+        rate_event: float | None = None
+        try:
+            for part in str(notes).split(";"):
+                k, _sep, v = part.partition("=")
+                key = k.strip()
+                if key == "kwh_avoided":
+                    try:
+                        kwh_event = float(v)
+                    except (ValueError, TypeError):
+                        kwh_event = None
+                elif key == "rate":
+                    try:
+                        rate_event = float(v)
+                    except (ValueError, TypeError):
+                        rate_event = None
+        except (ValueError, AttributeError):
+            continue
+        if kwh_event is None:
+            continue
+        if rate_event is None or not _math.isfinite(rate_event) or rate_event <= 0:
+            # Forward-only: no valid captured rate -> $0 contribution.
+            continue
+        counted_with_rate += 1
+        total_usd += kwh_event * rate_event
+    return (total_usd, counted_with_rate)
 
 
 class UniversalRoomDatabase:
@@ -7219,6 +7273,58 @@ class UniversalRoomDatabase:
             if kwh_event is not None:
                 kwh_total += kwh_event
         return (kwh_total, counted, false_pos)
+
+    async def get_ac_ramp_savings(
+        self, days: int | None = None, since: "datetime | None" = None,
+    ) -> tuple[float, int]:
+        """Compute (sum_usd_savings, count_events_with_captured_rate).
+
+        Standalone AC-ramp $ savings estimate — the D6 deferred deliverable
+        of the #7 (v5.32.0) cycle. Each `nudge_evaluated` row that (a) is
+        marked `effective=1` AND (b) carries a captured `rate=<float>` in
+        its `notes` payload contributes `kwh_event × rate_event` to the sum.
+
+        **Forward-only:** rows logged BEFORE the rate-capture change (or with
+        a missing / malformed / non-positive rate) contribute kWh to the kWh
+        family but $0 here — back-filling a current rate would guess.
+
+        **NOT `kWh_family × rate` exactly.** Savings is the subset of
+        effective rows that carry a valid captured `rate`; pre-deploy rows
+        and rows whose rate capture failed contribute kWh (via
+        `get_ac_ramp_kwh_avoided`) but $0 (via this method). The two families
+        converge only once every row in the window carries a rate.
+
+        Rough estimate (inherits the `rough_estimate / not billing-grade`
+        caveat as the kWh family). MUST NOT be summed into the EC
+        `energy_savings_total_*` family (double-counts vs peak-avoidance /
+        arbitrage).
+
+        Uses the same `since`/`days` windowing + `effective`/`triggered_by`
+        exclusions as `get_ac_ramp_kwh_avoided`.
+        """
+        where_clauses = ["event_type = 'nudge_evaluated'", "triggered_by != 'manual'"]
+        params: list = []
+        if since is not None:
+            where_clauses.append("timestamp >= ?")
+            params.append(since.isoformat())
+        elif days is not None:
+            where_clauses.append("timestamp >= ?")
+            params.append((dt_util.now() - timedelta(days=days)).isoformat())
+        where_sql = " AND ".join(where_clauses)
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    f"""SELECT notes, effective
+                        FROM ac_ramp_events
+                        WHERE {where_sql}""",
+                    params,
+                )
+                rows = await cursor.fetchall()
+        except Exception as err:
+            _LOGGER.warning("ac_ramp_events savings read failed: %s", err)
+            return (0.0, 0)
+
+        return _sum_savings_from_rows(rows)
 
     async def cleanup_ac_ramp_events(
         self, retention_days: int = 30, batch_size: int = 1000,

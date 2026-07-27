@@ -219,14 +219,14 @@ class TestEvaluateNudgeOutcome:
     def test_evaluate_uses_post_restore_ts_and_helper(self, hvac_override_src):
         idx = hvac_override_src.find("async def _evaluate_nudge_outcome(")
         assert idx > 0
-        body = hvac_override_src[idx: idx + 6000]
+        body = hvac_override_src[idx: idx + 9000]
         assert "self._nudge_post_restore_ts.pop(zone_id, None)" in body
         assert "self._compute_post_restore_min_kw(" in body
 
     def test_evaluate_applies_floor_classification(self, hvac_override_src):
         """H3 resolved: kwh_rate_before below floor → inconclusive (effective=None)."""
         idx = hvac_override_src.find("async def _evaluate_nudge_outcome(")
-        body = hvac_override_src[idx: idx + 6000]
+        body = hvac_override_src[idx: idx + 9000]
         assert "AC_NUDGE_KWH_RATE_BEFORE_FLOOR" in body
         assert 'classification = "inconclusive"' in body
         assert "effective: bool | None = None" in body
@@ -234,7 +234,7 @@ class TestEvaluateNudgeOutcome:
     def test_evaluate_applies_new_rule(self, hvac_override_src):
         """Main rule: ineffective iff post_min >= 0.50 * kwh_rate_before."""
         idx = hvac_override_src.find("async def _evaluate_nudge_outcome(")
-        body = hvac_override_src[idx: idx + 6000]
+        body = hvac_override_src[idx: idx + 9000]
         assert "post_min < AC_NUDGE_EVAL_MIN_DROP_FRAC * kwh_rate_before" in body
         assert 'classification = "effective"' in body
 
@@ -242,20 +242,20 @@ class TestEvaluateNudgeOutcome:
         """If recorder returns nothing, classify ineffective (escalate) —
         preserves pre-existing behavior for the no-data case."""
         idx = hvac_override_src.find("async def _evaluate_nudge_outcome(")
-        body = hvac_override_src[idx: idx + 6000]
+        body = hvac_override_src[idx: idx + 9000]
         assert "elif post_min is None:" in body
         assert 'classification = "ineffective_no_samples"' in body
 
     def test_evaluate_writes_effective_to_db(self, hvac_override_src):
         idx = hvac_override_src.find("async def _evaluate_nudge_outcome(")
-        body = hvac_override_src[idx: idx + 6000]
+        body = hvac_override_src[idx: idx + 9000]
         assert "effective=effective" in body
 
     def test_notes_format_remains_semicolon_separated(self, hvac_override_src):
         """M4 resolved: notes must stay key=value;key=value (parser at
         database.py:5576 splits on `;` then `=`)."""
         idx = hvac_override_src.find("async def _evaluate_nudge_outcome(")
-        body = hvac_override_src[idx: idx + 6000]
+        body = hvac_override_src[idx: idx + 9000]
         assert 'f"kwh_avoided={kwh_avoided:.3f};"' in body
         assert "post_min=" in body
         assert "sample_count=" in body

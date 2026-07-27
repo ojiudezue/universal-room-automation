@@ -9123,6 +9123,31 @@ class EnergyCoordinator(BaseCoordinator):
         """Current effective import rate."""
         return self._billing.current_effective_rate
 
+    def get_billing_cycle_start(self, now=None):
+        """Public accessor for the current billing cycle's start date.
+
+        Thin, exception-guarded wrapper over
+        `CostTracker._get_cycle_start(now)` so cross-coordinator callers
+        (e.g. HVAC override AC-ramp savings) do not need to reach into
+        the private `_billing` attribute (Bug Class #55: private
+        cross-coordinator reach).
+
+        Returns `date | None` — `None` if billing hasn't been constructed
+        or the underlying helper raises.
+        """
+        try:
+            if self._billing is None:
+                return None
+            if now is None:
+                from homeassistant.util import dt as _dt_util
+                now = _dt_util.now()
+            return self._billing._get_cycle_start(now)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "get_billing_cycle_start: fallback path taken (%s)", e,
+            )
+            return None
+
     # E5 accessors
     @property
     def forecast_today(self) -> dict[str, Any]:

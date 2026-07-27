@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -66,6 +67,7 @@ from .hvac_const import (
     OVERRIDE_SEVERE_DELTA,
     OVERRIDE_SEVERE_GRACE_MINUTES,
 )
+from .energy_billing import _get_effective_rate_kwh
 from .hvac_setpoint import emit_set_temperature
 from .hvac_zones import ZoneManager, ZoneState
 
@@ -215,9 +217,18 @@ class OverrideArrester:
             "nudges_today": 0,
             "resets_today": 0,
             "kwh_avoided_today": 0.0,
+            "kwh_avoided_cycle": 0.0,
             "kwh_avoided_total": 0.0,
             "false_positive_rate": None,  # None until sample_size >= 5
             "fp_sample_size": 0,
+            # PLANNING_hvac_kwh_avoided_savings D2: standalone AC-ramp $ family
+            # (rough estimate; NOT summed into EC energy_savings_total_*).
+            # Each nudge_evaluated event's kWh_avoided valued at the TOU rate
+            # captured into notes at nudge-eval time. Forward-only: pre-deploy
+            # events without a captured rate contribute kWh but $0.
+            "savings_today": 0.0,
+            "savings_cycle": 0.0,
+            "savings_lifetime": 0.0,
             "last_refresh_ts": None,
         }
 
@@ -264,6 +275,63 @@ class OverrideArrester:
                 fp_total,
             ) = await self._db.get_ac_ramp_kwh_avoided(days=None)
 
+            # PLANNING_hvac_kwh_avoided_savings D1: billing-cycle kWh scope.
+            # Route through EC's PUBLIC accessor `get_billing_cycle_start`
+            # (Review B M1: no more private `_billing._get_cycle_start` reach —
+            # Bug Class #55). Fallback to local midnight so the sensor still
+            # populates (cycle >= today invariant preserved as equality)
+            # rather than sitting at 0 forever.
+            cycle_start_dt = None
+            cycle_start_source = "fallback"
+            try:
+                mgr = self.hass.data.get("universal_room_automation", {}).get(
+                    "coordinator_manager"
+                )
+                ec = None
+                if mgr is not None and hasattr(mgr, "coordinators"):
+                    ec = mgr.coordinators.get("energy")
+                if ec is not None and hasattr(ec, "get_billing_cycle_start"):
+                    cycle_start_date = ec.get_billing_cycle_start(dt_util.now())
+                    if cycle_start_date is not None:
+                        # DAO expects a datetime; anchor at local midnight of
+                        # the cycle-start date (DST-safe via dt_util idiom —
+                        # Review B L2 / Bug Class #7).
+                        cycle_start_dt = dt_util.start_of_local_day(
+                            cycle_start_date
+                        )
+                        cycle_start_source = "ec"
+            except Exception as e:
+                _LOGGER.debug(
+                    "AC ramp cycle-start resolution failed (falling back to "
+                    "local midnight for cycle scope): %s", e,
+                )
+            if cycle_start_dt is None:
+                cycle_start_dt = local_midnight
+                # Once-per-refresh INFO so a degraded EC-lookup is visible in
+                # logs, not silently masked (Review B L1: observability).
+                _LOGGER.info(
+                    "AC ramp cycle-start using local-midnight fallback "
+                    "(EC billing cycle not resolvable this refresh)"
+                )
+            self._cycle_start_source = cycle_start_source
+            (
+                kwh_avoided_cycle,
+                _evals_cycle,
+                _fp_cycle,
+            ) = await self._db.get_ac_ramp_kwh_avoided(since=cycle_start_dt)
+
+            # PLANNING_hvac_kwh_avoided_savings D2: $ savings family (rough
+            # estimate; NOT summed into EC energy_savings_total_*).
+            savings_today, _n_t = await self._db.get_ac_ramp_savings(
+                since=local_midnight,
+            )
+            savings_cycle, _n_c = await self._db.get_ac_ramp_savings(
+                since=cycle_start_dt,
+            )
+            savings_lifetime, _n_l = await self._db.get_ac_ramp_savings(
+                days=None,
+            )
+
             # Risk R3: false-positive rate is meaningless until we have
             # a real sample. Hide it (None → "unavailable") until N >= 5.
             fp_rate: float | None
@@ -276,9 +344,14 @@ class OverrideArrester:
                 "nudges_today": nudges_today,
                 "resets_today": resets_today,
                 "kwh_avoided_today": round(kwh_avoided_today, 3),
+                "kwh_avoided_cycle": round(kwh_avoided_cycle, 3),
                 "kwh_avoided_total": round(kwh_avoided_total, 3),
                 "false_positive_rate": fp_rate,
                 "fp_sample_size": evals_total,
+                "savings_today": round(savings_today, 4),
+                "savings_cycle": round(savings_cycle, 4),
+                "savings_lifetime": round(savings_lifetime, 4),
+                "cycle_start_source": cycle_start_source,
                 "last_refresh_ts": dt_util.now().isoformat(),
             })
         except Exception as e:
@@ -1904,13 +1977,39 @@ class OverrideArrester:
         )
         if self._db is not None:
             # Structured notes — semicolon-separated key=value pairs,
-            # parser at database.py:5576 splits on `;` then `=`. Format
-            # MUST stay key=value;key=value for back-compat.
+            # parser at database.py splits on `;` then `=`. Format MUST
+            # stay key=value;key=value for back-compat. New keys are
+            # APPENDED (parser is tolerant of unknown keys + missing keys).
+            #
+            # PLANNING_hvac_kwh_avoided_savings D2: capture the TOU-effective
+            # rate at nudge-eval time so the $ savings family can value each
+            # event at the rate it happened at (not a later look-up). Forward-
+            # only: pre-deploy rows lacking `rate` contribute $0.
+            try:
+                _rate_val, _rate_src = _get_effective_rate_kwh(self.hass)
+                _rate_f = float(_rate_val)
+                # FIX (Review A L1): only persist a `rate=` key when finite
+                # AND positive. A `rate=nan` (or negative) would poison the
+                # cached lifetime savings total — omitting the key is
+                # forward-only-safe (row contributes $0 to savings math but
+                # still counts in kWh-avoided).
+                if math.isfinite(_rate_f) and _rate_f > 0:
+                    rate_field = f";rate={_rate_f:.5f}"
+                else:
+                    _LOGGER.debug(
+                        "ac_ramp savings: dropping non-finite/non-positive "
+                        "rate=%r (row will contribute $0)", _rate_val,
+                    )
+                    rate_field = ""
+            except Exception as _rerr:  # noqa: BLE001
+                _LOGGER.debug("rate capture for ac_ramp savings failed: %s", _rerr)
+                rate_field = ""
             notes = (
                 f"kwh_avoided={kwh_avoided:.3f};"
                 f"post_min={'NA' if post_min is None else f'{post_min:.2f}'};"
                 f"sample_count={sample_count};"
                 f"classification={classification}"
+                f"{rate_field}"
             )
             await self._db.log_ac_ramp_event(
                 zone_id=zone_id,

@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.32.0
+# Universal Room Automation vv5.33.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -298,6 +298,13 @@ async def async_setup_entry(
             HVACACKwhAvoidedTodaySensor(hass, entry),
             HVACACKwhAvoidedTotalSensor(hass, entry),
             HVACACFalsePositiveRateSensor(hass, entry),
+            # PLANNING_hvac_kwh_avoided_savings D1+D2: billing-cycle kWh +
+            # standalone $ savings family (rough estimate; NOT summed into
+            # EC energy_savings_total_*).
+            HVACACKwhAvoidedBillingCycleSensor(hass, entry),
+            HVACACRampSavingsTodaySensor(hass, entry),
+            HVACACRampSavingsBillingCycleSensor(hass, entry),
+            HVACACRampSavingsLifetimeSensor(hass, entry),
             # v3.9.0: HVAC transparency sensors
             HVACArresterStateSensor(hass, entry),
             # v3.17.0: Zone Intelligence sensor
@@ -10886,6 +10893,177 @@ class HVACACKwhAvoidedTotalSensor(
                 "Cumulative since feature enable. Trend-watching only; "
                 "not billing-grade. See docs/TECH_DEBT.md."
             ),
+        }
+
+
+class HVACACKwhAvoidedBillingCycleSensor(
+    _ACRampImpactSensorMixin, AggregationEntity, SensorEntity,
+):
+    """PLANNING_hvac_kwh_avoided_savings D1: kWh avoided by AC ramp-down since
+    the current billing-cycle start (mirrors EC billing_cycle scope).
+
+    Rough estimate; not billing-grade — same caveat as the today/total kWh
+    sensors. Restart-safe via DB re-derive; no RAM state.
+
+    Entity: sensor.ura_hvac_ac_kwh_avoided_billing_cycle
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:flash-off"
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_native_unit_of_measurement = "kWh"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_ac_kwh_avoided_billing_cycle"
+        self._attr_name = "75 · AC kWh Avoided This Cycle"
+        self._attr_device_info = _hvac_device_info()
+
+    @property
+    def native_value(self) -> float:
+        cache = self._get_cache()
+        if cache is None:
+            return 0.0
+        return float(cache.get("kwh_avoided_cycle", 0.0))
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        cache = self._get_cache() or {}
+        return {
+            "accuracy": "rough_estimate",
+            "accuracy_note": (
+                "Sum of per-event kwh_avoided since billing-cycle start "
+                "(mirrors EC billing_cycle boundary). Trend-watching only; "
+                "not billing-grade. See docs/TECH_DEBT.md."
+            ),
+            # Review B L1: expose whether the cycle boundary came from the
+            # EC public accessor or the local-midnight fallback, so a
+            # degraded EC lookup is observable to operators.
+            "cycle_start_source": cache.get("cycle_start_source", "unknown"),
+        }
+
+
+# ============================================================================
+# PLANNING_hvac_kwh_avoided_savings D2: standalone AC-ramp $ savings family
+# ============================================================================
+# Rough estimate. Each nudge_evaluated event's persisted `kwh_avoided` is
+# valued at the TOU-effective rate captured into `notes` at nudge-eval time
+# (key `rate=<float>`). Forward-only: pre-deploy events without a captured
+# rate contribute kWh but $0.
+#
+# CRITICAL DESIGN: these 3 sensors are their OWN family. They are NOT summed
+# into EC `sensor.ura_energy_savings_total_*` (that family sums
+# arbitrage + peak_avoidance only — see EnergySavingsTotal{Today,BillingCycle,
+# Lifetime}Sensor above). Folding AC-ramp $ into total_savings would double-
+# count against peak-avoidance/arbitrage on the same avoided kWh.
+
+
+class _ACRampSavingsSensorBase(
+    _ACRampImpactSensorMixin, AggregationEntity, SensorEntity,
+):
+    _attr_has_entity_name = True
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_native_unit_of_measurement = "USD"
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_device_info = _hvac_device_info()
+
+    _methodology = (
+        "Rough estimate. Each AC-ramp nudge's kWh_avoided (kW-delta × capped "
+        "30-min projection at nudge-eval time) valued at the TOU-effective "
+        "rate captured at nudge-eval time. Forward-only: events logged before "
+        "rate-capture contribute kWh but $0. NOT billing-grade; standalone "
+        "family (NOT summed into energy_savings_total_*). See "
+        "docs/TECH_DEBT.md."
+    )
+
+
+class HVACACRampSavingsTodaySensor(_ACRampSavingsSensorBase):
+    """PLANNING_hvac_kwh_avoided_savings D2: AC-ramp $ saved since local midnight.
+
+    Entity: sensor.ura_hvac_ac_ramp_savings_today
+    """
+    _attr_icon = "mdi:cash-plus"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_ac_ramp_savings_today"
+        self._attr_name = "76 · AC Ramp Savings Today"
+
+    @property
+    def native_value(self) -> float:
+        cache = self._get_cache()
+        if cache is None:
+            return 0.0
+        return round(float(cache.get("savings_today", 0.0)), 2)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {
+            "accuracy": "rough_estimate",
+            "methodology": self._methodology,
+        }
+
+
+class HVACACRampSavingsBillingCycleSensor(_ACRampSavingsSensorBase):
+    """PLANNING_hvac_kwh_avoided_savings D2: AC-ramp $ saved since billing-cycle start.
+
+    Entity: sensor.ura_hvac_ac_ramp_savings_billing_cycle
+    """
+    _attr_icon = "mdi:cash-multiple"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_ac_ramp_savings_billing_cycle"
+        self._attr_name = "77 · AC Ramp Savings This Cycle"
+
+    @property
+    def native_value(self) -> float:
+        cache = self._get_cache()
+        if cache is None:
+            return 0.0
+        return round(float(cache.get("savings_cycle", 0.0)), 2)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        cache = self._get_cache() or {}
+        return {
+            "accuracy": "rough_estimate",
+            "methodology": self._methodology,
+            # Review B L1: mirror the billing-cycle boundary provenance
+            # from the sibling kWh sensor.
+            "cycle_start_source": cache.get("cycle_start_source", "unknown"),
+        }
+
+
+class HVACACRampSavingsLifetimeSensor(_ACRampSavingsSensorBase):
+    """PLANNING_hvac_kwh_avoided_savings D2: AC-ramp $ saved lifetime.
+
+    Entity: sensor.ura_hvac_ac_ramp_savings_lifetime
+    """
+    _attr_icon = "mdi:cash-100"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_ac_ramp_savings_lifetime"
+        self._attr_name = "78 · AC Ramp Savings Lifetime"
+
+    @property
+    def native_value(self) -> float:
+        cache = self._get_cache()
+        if cache is None:
+            return 0.0
+        return round(float(cache.get("savings_lifetime", 0.0)), 2)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {
+            "accuracy": "rough_estimate",
+            "methodology": self._methodology,
         }
 
 

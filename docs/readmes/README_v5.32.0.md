@@ -36,5 +36,21 @@ behavior change**. Arbitrage and cost accounting are byte-frozen and guard-teste
 - **H5 — Arbitrage + cost byte-frozen (regression guard).** `arbitrage_savings_{today,cycle,total}` and `cost_today`/`predicted_bill` render the same shape/values as pre-deploy for matching conditions (byte-identity already proven in-suite). Window: 1 h.
 - **H6 — Lifetime survives restart.** After the sensor shows a non-zero `savings_peak_avoidance_lifetime`, an HA restart does NOT drop it to $0 (the reviewed defect). Oracle: recorder value across a restart boundary. Window: next restart.
 - **H7 — No write-flood.** No surge in DB write-queue depth / no watchdog restart attributable to the new accumulator; baseline writes ≤2/day. Window: 24 h.
+
+### Validated 2026-07-26 (restart ~18:34 CDT)
+
+Actual entity_ids carry the `_energy_coordinator_` prefix and use `_this_cycle` (not `_billing_cycle`).
+
+| # | Result | Observed evidence |
+|---|--------|-------------------|
+| H1 | **PASS** | Zero URA `ERROR` lines post-restart (error_log search=universal_room_automation). |
+| H2 | **PASS** | All 9 register + numeric: `energy_savings_peak_avoidance_{today,this_cycle,lifetime}` (USD/monetary/TOTAL), `energy_savings_total_{...}` (USD/monetary/TOTAL), `energy_kwh_avoided_{...}` (kWh/energy/TOTAL). No recorder-rejection. `peak_avoidance_methodology` attr present with full formula + double-count guard + 0.05 kW noise floor. |
+| H3 | **PASS (exact)** | `total = arbitrage + peak_avoidance` at every scope: today `0.0=0.0+0.0`; this_cycle `1.42=1.42+0.0`; lifetime `11.67=11.67+0.0`. |
+| H5 | **PASS** | Arbitrage sensors unchanged (`arbitrage_savings_today=0.0`, `_this_cycle=1.42`, `_total=11.67`) — plus in-suite AST byte-identity of `_get_displaced_rate` + `CostTracker.accumulate` (orchestrator source-diff verified). |
+| H4 | **PASS (early)** | Peak-avoidance began accruing within ~15 min of restart (evening, battery @100% SOC self-consumption discharging to serve load): `energy_savings_total_today` climbed `$0.00 → $0.86` while `arbitrage_savings_today` stayed `$0.00` — so the $0.86 is pure peak-avoidance. Confirms the counterfactual fires on locally-served load. Daylight-solar leg still to watch. |
+| H6 | pending | Lifetime-survives-restart: PA lifetime is still `0.0` (nothing accrued yet), so provable only after PA accumulates then a restart. |
+| H7 | pending | 24 h write-queue / no-watchdog watch (≤2 baseline writes/day). |
+
+H1/H2/H3/H5 confirmed live at restart. H4/H6/H7 handed to **Shipwatch** on their qualifying windows.
 </content>
 </invoke>
