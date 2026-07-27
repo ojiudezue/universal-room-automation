@@ -132,3 +132,8 @@ Energy Savings markdown-grid style.
 - Do NOT fold AC-ramp $ into the #7 `total_savings` family (double-count).
 - No decision-logic changes; kwh_avoided/savings remain display-only.
 </content>
+
+---
+
+## SHIPPED — v5.33.0 (2026-07-27)
+Built + Tier-2 reviewed (2 framing-disjoint; 1 HIGH brittle-slice-test + mediums/lows fixed; no-double-count independently verified) + deployed + live-validated. D1 (billing_cycle kWh), D2 (standalone $ family, forward-only, rate-at-nudge-eval), D4 (ura-v8 Climate "AC Ramp Savings" card) all shipped. D3 (post_min→mean) deferred per escape clause. Live: 6/7 hypotheses PASS (H4 $-accrual forward-only, organic). See `docs/readmes/README_v5.33.0.md` + `docs/reviews/code-review/v5.33.0_hvac_ac_ramp_savings.md`.
