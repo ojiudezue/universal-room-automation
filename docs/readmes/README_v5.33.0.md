@@ -36,4 +36,20 @@ on every sensor. The fixed 30-min projection model is unchanged.
 - **H5 — existing kWh sensors unchanged.** `ac_kwh_avoided_today/_total` render the same as pre-deploy. 1 h.
 - **H6 — no double-count.** `energy_savings_total_*` values are unchanged by this deploy (AC-ramp $ excluded). 1 h.
 - **H7 — cycle_start_source observable.** `ac_kwh_avoided_billing_cycle` attribute `cycle_start_source` = `ec` in steady state (not stuck `fallback`). 15 min post-warmup.
+
+### Validated 2026-07-27 (restart ~00:1x CDT)
+
+Actual entity_ids: `sensor.ura_hvac_coordinator_{ac_kwh_avoided_today,75_ac_kwh_avoided_this_cycle,ac_kwh_avoided_total,76_ac_ramp_savings_today,77_ac_ramp_savings_this_cycle,78_ac_ramp_savings_lifetime}`.
+
+| # | Result | Observed evidence |
+|---|--------|-------------------|
+| H1 | **PASS** | Zero URA `ERROR` lines post-restart. |
+| H2 | **PASS** | All 4 new sensors register + numeric. `75_ac_kwh_avoided_this_cycle` = kWh/ENERGY/TOTAL, `accuracy: rough_estimate`. `76/77/78_ac_ramp_savings_*` = USD/MONETARY/TOTAL, `accuracy: rough_estimate`, `methodology` present and explicitly states "NOT summed into energy_savings_total_*" + forward-only + not billing-grade. No recorder rejection. |
+| H3 | **PASS** | `75_ac_kwh_avoided_this_cycle` = 176.93 kWh ≥ `ac_kwh_avoided_today` (~0 at night) — cycle scope correctly sums historical nudge events since bill-cycle start. |
+| H5 | **PASS** | Existing `ac_kwh_avoided_today/_total` present, unchanged shape/behavior. |
+| H6 | **PASS (static + live)** | AST + grep verified no `EnergySavingsTotal*` reference to the new keys/classes; live `energy_savings_total_lifetime` = 13.55 tracks arbitrage + peak-avoidance only (AC-ramp $ currently 0.0, structurally excluded). |
+| H7 | **PASS** | `cycle_start_source` flipped `unknown → ec` after first impact-cache refresh — the new public `EnergyCoordinator.get_billing_cycle_start()` accessor works live (not stuck `fallback`). |
+| H4 | pending-organic | `ac_ramp_savings_*` = $0.00 now — forward-only ($ only for nudges logged post-deploy with a captured rate). Builds after the next effective nudge. |
+
+**Magnitude note (expected):** the 176.93 kWh cycle figure reflects the deliberately-rough model (fixed 30-min projection + min-based delta, self-labeled `rough_estimate`, not billing-grade per operator directive). It is a ballpark/trend, not a metered value.
 </content>

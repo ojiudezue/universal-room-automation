@@ -1824,11 +1824,17 @@ class OverrideArrester:
         zone: ZoneState,
         restore_dt: datetime,
         eval_dt: datetime,
-    ) -> tuple[float | None, int]:
+    ) -> tuple[float | None, float | None, int]:
         """Query HA recorder for kW samples on `zone.ac_load_sensor` over
-        `[restore_dt, eval_dt]` and return (min_kw, sample_count).
+        `[restore_dt, eval_dt]` and return (min_kw, mean_kw, sample_count).
 
-        Returns (None, 0) if:
+        v5.24+ hotfix: also return the arithmetic MEAN of the same samples.
+        Classification/escalation still key off `min_kw`; only the
+        `kwh_avoided` magnitude compute uses `mean_kw` (the min hits ~0
+        during natural compressor cycling and wildly over-credits each
+        nudge as if it eliminated the full AC load).
+
+        Returns (None, None, 0) if:
           - zone has no ac_load_sensor configured
           - recorder query errors out
           - no valid (parseable, non-stale, non-empty) samples in window
@@ -1842,7 +1848,7 @@ class OverrideArrester:
         rebound peak on variable-speed Bryant systems).
         """
         if not zone.ac_load_sensor:
-            return None, 0
+            return None, None, 0
         try:
             instance = recorder_get_instance(self.hass)
             states_dict = await instance.async_add_executor_job(
@@ -1857,13 +1863,14 @@ class OverrideArrester:
                 "AC nudge eval: recorder query failed for %s: %s",
                 zone.ac_load_sensor, err,
             )
-            return None, 0
+            return None, None, 0
 
         states = states_dict.get(zone.ac_load_sensor) if states_dict else None
         if not states:
-            return None, 0
+            return None, None, 0
 
         min_kw: float | None = None
+        sum_kw: float = 0.0
         sample_count = 0
         for st in states:
             raw = getattr(st, "state", None)
@@ -1878,9 +1885,11 @@ class OverrideArrester:
             if unit in ("w", "watt", "watts"):
                 value = value / 1000.0
             sample_count += 1
+            sum_kw += value
             if min_kw is None or value < min_kw:
                 min_kw = value
-        return min_kw, sample_count
+        mean_kw = (sum_kw / sample_count) if sample_count > 0 else None
+        return min_kw, mean_kw, sample_count
 
     async def _evaluate_nudge_outcome(self, zone: ZoneState) -> None:
         """Post-restore: did the compressor release? If not, escalate.
@@ -1926,8 +1935,14 @@ class OverrideArrester:
         kwh_rate_before = zone.nudge_kwh_rate_before
         restore_iso = self._nudge_post_restore_ts.pop(zone_id, None)
 
-        # Compute trailing-window minimum kW over [restore_ts, now]
+        # Compute trailing-window minimum kW over [restore_ts, now].
+        # v5.24+ hotfix: also collect the arithmetic MEAN over the same
+        # window — classification/escalation still key off post_min
+        # (byte-identical decision), but the kwh_avoided magnitude uses
+        # post_mean so we don't credit a nudge with the compressor's
+        # natural OFF-cycle valley (~0 kW) as if it eliminated full AC load.
         post_min: float | None = None
+        post_mean: float | None = None
         sample_count = 0
         if restore_iso is not None:
             try:
@@ -1935,8 +1950,10 @@ class OverrideArrester:
             except (ValueError, TypeError):
                 restore_dt = None
             if restore_dt is not None:
-                post_min, sample_count = await self._compute_post_restore_min_kw(
-                    zone, restore_dt, now,
+                post_min, post_mean, sample_count = (
+                    await self._compute_post_restore_min_kw(
+                        zone, restore_dt, now,
+                    )
                 )
 
         # Classify
@@ -1964,9 +1981,14 @@ class OverrideArrester:
 
         # Compute capped kWh-avoided estimate (uses post_min when present,
         # falls back to pre-existing rough estimate of zero when not).
+        # v5.24+ hotfix: magnitude uses post_mean (AVERAGE reduction across
+        # the post-window), not post_min. Classification above still keys
+        # off post_min so escalation logic is byte-identical. When there
+        # are no samples, post_mean is None → kwh_avoided stays 0.0
+        # (same fallback path as before).
         kwh_avoided = 0.0
-        if effective and post_min is not None and kwh_rate_before is not None:
-            delta = kwh_rate_before - post_min
+        if effective and post_mean is not None and kwh_rate_before is not None:
+            delta = kwh_rate_before - post_mean
             if delta > 0:
                 kwh_avoided = delta * (AC_KWH_AVOIDED_PROJECTION_CAP_MIN / 60.0)
 
@@ -2008,7 +2030,8 @@ class OverrideArrester:
                 f"kwh_avoided={kwh_avoided:.3f};"
                 f"post_min={'NA' if post_min is None else f'{post_min:.2f}'};"
                 f"sample_count={sample_count};"
-                f"classification={classification}"
+                f"classification={classification};"
+                f"post_mean={'NA' if post_mean is None else f'{post_mean:.2f}'}"
                 f"{rate_field}"
             )
             await self._db.log_ac_ramp_event(
