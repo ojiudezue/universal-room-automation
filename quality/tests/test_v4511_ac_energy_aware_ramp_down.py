@@ -630,9 +630,10 @@ class TestHardResetEscalation:
     ):
         """v4.7.17.1: window widened from 3000 to 8000 chars after the
         rule rewrite added the recorder-query path + classification block.
+        v5.24+: widened to 10000 after the post_mean hotfix (Bug Class #41).
         """
         idx = hvac_override_src.find("async def _evaluate_nudge_outcome(")
-        body = hvac_override_src[idx:idx + 8000]
+        body = hvac_override_src[idx:idx + 10000]
         assert "_perform_hard_reset_escalation" in body
 
     def test_perform_hard_reset_escalation_exists(self, hvac_override_src):

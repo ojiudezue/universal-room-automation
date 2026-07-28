@@ -282,3 +282,69 @@ class TestNoRegressionInExistingFlow:
     def test_legacy_const_still_importable(self, hvac_override_src):
         """Existing imports of AC_NUDGE_EVALUATION_DELAY_S still resolve."""
         assert "AC_NUDGE_EVALUATION_DELAY_S," in hvac_override_src
+
+
+class TestKwhAvoidedUsesMean:
+    """v5.24+ hotfix — the kwh_avoided MAGNITUDE uses the window MEAN,
+    not the window MIN. Classification/escalation still key off the
+    MIN (byte-identical decision boundary).
+
+    Root cause: on a naturally cycling compressor, `post_min` hits ~0
+    during the OFF-cycle → each nudge was credited as if it eliminated
+    the entire AC load for 30 min (~1.6 kWh/nudge).
+    """
+
+    def test_kwh_avoided_delta_uses_mean_not_min(self, hvac_override_src):
+        """Mutation-anchored: the delta compute uses post_mean, not
+        post_min. This test FAILS if the arithmetic reverts to
+        `kwh_rate_before - post_min`."""
+        idx = hvac_override_src.find("async def _evaluate_nudge_outcome(")
+        assert idx > 0
+        body = hvac_override_src[idx: idx + 9000]
+        # New: delta uses post_mean
+        assert "delta = kwh_rate_before - post_mean" in body
+        # Guard: the old min-based delta must be gone from this function
+        assert "delta = kwh_rate_before - post_min" not in body
+        # Guard on the effective branch: only compute kwh_avoided when
+        # post_mean is present.
+        assert "effective and post_mean is not None" in body
+
+    def test_classification_still_uses_min(self, hvac_override_src):
+        """Byte-identical decision boundary preserved: the effective /
+        ineffective_no_samples / ineffective classifier still keys off
+        post_min. Escalation logic MUST NOT shift onto post_mean."""
+        idx = hvac_override_src.find("async def _evaluate_nudge_outcome(")
+        body = hvac_override_src[idx: idx + 9000]
+        # The load-bearing classification predicate is unchanged.
+        assert "post_min < AC_NUDGE_EVAL_MIN_DROP_FRAC * kwh_rate_before" in body
+        # The no-samples branch still keys off post_min is None.
+        assert "elif post_min is None:" in body
+        # And NO parallel classification on post_mean was introduced.
+        assert "post_mean < AC_NUDGE_EVAL_MIN_DROP_FRAC" not in body
+
+    def test_post_mean_in_notes(self, hvac_override_src):
+        """The notes string carries `post_mean=` alongside `post_min=`
+        for audit/observability. Existing keys + order preserved
+        (append-only)."""
+        idx = hvac_override_src.find("async def _evaluate_nudge_outcome(")
+        body = hvac_override_src[idx: idx + 9000]
+        assert "post_mean=" in body
+        # Existing keys still present in the notes assignment.
+        assert 'f"kwh_avoided={kwh_avoided:.3f};"' in body
+        assert "post_min=" in body
+
+    def test_helper_returns_three_tuple_min_mean_count(self, hvac_override_src):
+        """`_compute_post_restore_min_kw` now returns (min, mean, count)."""
+        idx = hvac_override_src.find(
+            "async def _compute_post_restore_min_kw("
+        )
+        assert idx > 0
+        # Signature return-type annotation carries the new mean slot.
+        sig = hvac_override_src[idx: idx + 400]
+        assert "tuple[float | None, float | None, int]" in sig
+        # Body computes a running sum and derives mean = sum / count.
+        body = hvac_override_src[idx: idx + 4000]
+        assert "sum_kw" in body
+        assert "mean_kw" in body
+        # No-sample paths return the 3-tuple form.
+        assert "return None, None, 0" in body
