@@ -241,9 +241,11 @@ async def async_setup_aggregation_sensors(
 
         # === ENERGY PREDICTIONS ===
         PredictedEnergyTodaySensor(hass, entry),
+        PredictedEnergyTomorrowSensor(hass, entry),  # 2026-07-27: additive display-only forecast
         PredictedEnergyWeekSensor(hass, entry),
         PredictedEnergyMonthSensor(hass, entry),
         PredictedCostTodaySensor(hass, entry),
+        PredictedCostTomorrowSensor(hass, entry),  # 2026-07-27: trivial mirror of cost-today
         PredictedCostWeekSensor(hass, entry),
         PredictedCostMonthSensor(hass, entry),
 
@@ -849,7 +851,28 @@ class AggregationEntity:
         forecast = state.attributes.get("forecast", [])
         if forecast and len(forecast) > 0:
             return forecast[0].get("temperature")
-        
+
+        return state.attributes.get("temperature")
+
+    def _get_forecast_temp_tomorrow(self) -> float | None:
+        """Get tomorrow's forecast high temperature from the weather entity.
+
+        Mirrors _get_forecast_temp but reads forecast[1] (day-2) instead of
+        forecast[0] (today). Used by PredictedEnergyTomorrowSensor /
+        PredictedCostTomorrowSensor. Falls back to today's forecast[0] if
+        the weather entity only exposes a single-day forecast (best-effort;
+        the sensor is display-only)."""
+        weather_entity = self._get_config(CONF_WEATHER_ENTITY)
+        if not weather_entity:
+            return None
+        state = self.hass.states.get(weather_entity)
+        if not state:
+            return None
+        forecast = state.attributes.get("forecast", [])
+        if forecast and len(forecast) > 1:
+            return forecast[1].get("temperature")
+        if forecast and len(forecast) > 0:
+            return forecast[0].get("temperature")
         return state.attributes.get("temperature")
 
 
@@ -2021,6 +2044,158 @@ class PredictedEnergyMonthSensor(AggregationEntity, SensorEntity):
         forecast_temp = self._get_forecast_temp()
         value, confidence = await db.predict_energy("month", forecast_temp)
         self._cached_value = value
+        self._cached_confidence = confidence
+        self._cache_time = now
+
+
+class PredictedEnergyTomorrowSensor(AggregationEntity, SensorEntity):
+    """Sensor: Predicted net energy for tomorrow.
+
+    Additive display-only forecast sensor (2026-07-27) feeding the dashboard
+    "Net Tomorrow" tile (solar forecast - expected consumption). Mirrors
+    PredictedEnergyTodaySensor exactly (same clamp, same raw_net_kwh attr,
+    same 15-min cache) but calls db.predict_energy("tomorrow", tomorrow_temp)
+    where the "tomorrow" period keys similar-day lookup on tomorrow's weekday
+    and tomorrow's forecast high temp (see database.predict_energy). No
+    decision consumer reads this value.
+    """
+
+    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:crystal-ball"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_predicted_energy_tomorrow"
+        self._attr_name = "Predicted Energy Tomorrow"
+        self._cached_value: float | None = None
+        self._cached_confidence: int = 0
+        self._cache_time: datetime | None = None
+        self._cached_forecast_temp: float | None = None
+
+    @property
+    def native_value(self) -> float | None:
+        """Return predicted kWh value, clamped >=0 (gross consumer semantic).
+
+        See PredictedEnergyTodaySensor.native_value docstring — same
+        rationale (net can be negative on solar-rich days; display shows
+        gross, signed value exposed via raw_net_kwh attribute).
+        """
+        if self._cached_value is None:
+            return None
+        return max(self._cached_value, 0.0)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return prediction details."""
+        attrs = {
+            "value": (
+                max(self._cached_value, 0.0)
+                if self._cached_value is not None
+                else None
+            ),
+            "raw_net_kwh": self._cached_value,
+            "unit": "kWh",
+            "confidence": self._cached_confidence,
+            "confidence_level": _get_confidence_level(self._cached_confidence),
+            "period": "tomorrow",
+            "method": "historical_pattern_tomorrow_weekday_and_forecast_temp",
+            "forecast_temp_tomorrow": self._cached_forecast_temp,
+            "last_updated": self._cache_time.isoformat() if self._cache_time else None,
+        }
+        if self._cached_value is not None:
+            display_val = max(self._cached_value, 0.0)
+            attrs["display"] = f"{display_val} kWh ({_get_confidence_level(self._cached_confidence)})"
+        else:
+            attrs["display"] = "Collecting data..."
+        return attrs
+
+    async def async_update(self) -> None:
+        """Update prediction from database."""
+        db = self.hass.data.get(DOMAIN, {}).get("database")
+        if not db:
+            return
+        # Cache 15 minutes (same cadence as Today sibling; tomorrow's forecast
+        # can shift intraday as the weather integration refreshes).
+        now = dt_util.now()
+        if self._cache_time and (now - self._cache_time).total_seconds() < 900:
+            return
+        forecast_temp = self._get_forecast_temp_tomorrow()
+        value, confidence = await db.predict_energy("tomorrow", forecast_temp)
+        self._cached_value = value
+        self._cached_confidence = confidence
+        self._cached_forecast_temp = forecast_temp
+        self._cache_time = now
+
+
+class PredictedCostTomorrowSensor(AggregationEntity, SensorEntity):
+    """Sensor: Predicted energy cost for tomorrow.
+
+    Trivial mirror of PredictedCostTodaySensor — same rate/delivery/export
+    pipeline, only difference is db.predict_energy("tomorrow", tomorrow_temp).
+    Cost stays signed (negative cost = valid export credit)."""
+
+    _attr_native_unit_of_measurement = "$"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:currency-usd"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_predicted_cost_tomorrow"
+        self._attr_name = "Predicted Cost Tomorrow"
+        self._cached_value: float | None = None
+        self._cached_confidence: int = 0
+        self._cache_time: datetime | None = None
+        self._cached_raw_net_kwh: float | None = None
+
+    @property
+    def native_value(self) -> float | None:
+        return self._cached_value if self._cached_value is not None else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        rate, rate_source = _get_effective_rate_kwh(self.hass)
+        delivery = self._get_config(CONF_DELIVERY_RATE, DEFAULT_DELIVERY_RATE)
+        export_rate = self._get_config(CONF_EXPORT_REIMBURSEMENT_RATE, DEFAULT_EXPORT_REIMBURSEMENT_RATE)
+        attrs = {
+            "value": self._cached_value,
+            "raw_net_kwh": self._cached_raw_net_kwh,
+            "confidence": self._cached_confidence,
+            "confidence_level": _get_confidence_level(self._cached_confidence),
+            "electricity_rate": rate,
+            "delivery_rate": delivery,
+            "export_rate": export_rate,
+            "period": "tomorrow",
+            "rate_source": rate_source,
+        }
+        if self._cached_value is not None:
+            attrs["display"] = f"${self._cached_value:.2f} ({_get_confidence_level(self._cached_confidence)})"
+        else:
+            attrs["display"] = "Collecting data..."
+        return attrs
+
+    async def async_update(self) -> None:
+        db = self.hass.data.get(DOMAIN, {}).get("database")
+        if not db:
+            return
+        now = dt_util.now()
+        if self._cache_time and (now - self._cache_time).total_seconds() < 900:
+            return
+        forecast_temp = self._get_forecast_temp_tomorrow()
+        energy_kwh, confidence = await db.predict_energy("tomorrow", forecast_temp)
+        self._cached_raw_net_kwh = energy_kwh
+        if energy_kwh is None:
+            self._cached_value = None
+        else:
+            rate, _src = _get_effective_rate_kwh(self.hass)
+            delivery = self._get_config(CONF_DELIVERY_RATE, DEFAULT_DELIVERY_RATE)
+            export_rate = self._get_config(CONF_EXPORT_REIMBURSEMENT_RATE, DEFAULT_EXPORT_REIMBURSEMENT_RATE)
+            if energy_kwh >= 0:
+                self._cached_value = round(energy_kwh * (rate + delivery), 2)
+            else:
+                self._cached_value = round(energy_kwh * export_rate, 2)
         self._cached_confidence = confidence
         self._cache_time = now
 
