@@ -837,43 +837,100 @@ class AggregationEntity:
                     humidities.append(humidity)
         return round(sum(humidities) / len(humidities), 1) if humidities else None
     
-    def _get_forecast_temp(self) -> float | None:
-        """Get forecast high temperature from weather entity."""
+    # ------------------------------------------------------------------
+    # Weather forecast (2026-07-27): the `weather.forecast` state attribute
+    # was removed in HA 2024.4. Source daily highs from the
+    # `weather.get_forecasts` service instead. Fetch is cached on
+    # hass.data[DOMAIN]["_forecast_cache"] with a 15-min TTL so the six
+    # predicted-* sensors don't storm the weather integration on every read.
+    # ------------------------------------------------------------------
+    FORECAST_CACHE_TTL_S = 900
+
+    async def _refresh_forecast_cache(self) -> None:
+        """Fetch daily forecast via weather.get_forecasts, cache on hass.data.
+
+        Idempotent: no-op if the cached entry is fresh (<15 min). Safe on
+        service failure — leaves any stale cache in place; callers fall back
+        to the weather entity's current-temperature attribute.
+        """
+        weather_entity = self._get_config(CONF_WEATHER_ENTITY)
+        if not weather_entity:
+            return
+        cache = self.hass.data.setdefault(DOMAIN, {}).get("_forecast_cache")
+        now = dt_util.utcnow()
+        if (
+            cache
+            and cache.get("entity") == weather_entity
+            and (now - cache["time"]).total_seconds() < self.FORECAST_CACHE_TTL_S
+        ):
+            return
+        try:
+            response = await self.hass.services.async_call(
+                "weather",
+                "get_forecasts",
+                {"type": "daily"},
+                target={"entity_id": weather_entity},
+                blocking=True,
+                return_response=True,
+            )
+        except Exception as err:  # noqa: BLE001 — service can raise many types
+            _LOGGER.debug("weather.get_forecasts failed for %s: %s", weather_entity, err)
+            return
+        forecast: list = []
+        try:
+            forecast = (response or {}).get(weather_entity, {}).get("forecast", []) or []
+        except Exception:  # noqa: BLE001
+            forecast = []
+        self.hass.data.setdefault(DOMAIN, {})["_forecast_cache"] = {
+            "time": now,
+            "entity": weather_entity,
+            "forecast": forecast,
+        }
+        _LOGGER.info(
+            "Refreshed weather forecast cache for %s: %d days",
+            weather_entity,
+            len(forecast),
+        )
+
+    def _get_forecast_temp(self, day_offset: int = 0, field: str = "temperature") -> float | None:
+        """Return forecast temperature for the given day offset.
+
+        day_offset=0 -> today's high, day_offset=1 -> tomorrow's high, etc.
+        Reads from the cached weather.get_forecasts response
+        (see _refresh_forecast_cache). Fallback chain when the service
+        returned no data or the requested offset is missing:
+          cached forecast[0]['<field>']
+          -> weather entity's current `attributes.temperature`
+          -> None
+        Never returns None when the weather entity has a current temp.
+        """
         weather_entity = self._get_config(CONF_WEATHER_ENTITY)
         if not weather_entity:
             return None
-        
-        state = self.hass.states.get(weather_entity)
-        if not state:
-            return None
-        
-        # Try to get forecast from attributes
-        forecast = state.attributes.get("forecast", [])
-        if forecast and len(forecast) > 0:
-            return forecast[0].get("temperature")
-
-        return state.attributes.get("temperature")
+        cache = self.hass.data.get(DOMAIN, {}).get("_forecast_cache") or {}
+        forecast = cache.get("forecast") or []
+        if forecast and len(forecast) > day_offset:
+            val = forecast[day_offset].get(field)
+            if val is not None:
+                return val
+        if forecast:
+            val = forecast[0].get(field)
+            if val is not None:
+                return val
+        # Fallback: current temp attribute (only meaningful for the
+        # temperature field; templow has no analogue on the state itself).
+        if field == "temperature":
+            try:
+                state = self.hass.states.get(weather_entity)
+                if state:
+                    return state.attributes.get("temperature")
+            except Exception:  # noqa: BLE001
+                return None
+        return None
 
     def _get_forecast_temp_tomorrow(self) -> float | None:
-        """Get tomorrow's forecast high temperature from the weather entity.
-
-        Mirrors _get_forecast_temp but reads forecast[1] (day-2) instead of
-        forecast[0] (today). Used by PredictedEnergyTomorrowSensor /
-        PredictedCostTomorrowSensor. Falls back to today's forecast[0] if
-        the weather entity only exposes a single-day forecast (best-effort;
-        the sensor is display-only)."""
-        weather_entity = self._get_config(CONF_WEATHER_ENTITY)
-        if not weather_entity:
-            return None
-        state = self.hass.states.get(weather_entity)
-        if not state:
-            return None
-        forecast = state.attributes.get("forecast", [])
-        if forecast and len(forecast) > 1:
-            return forecast[1].get("temperature")
-        if forecast and len(forecast) > 0:
-            return forecast[0].get("temperature")
-        return state.attributes.get("temperature")
+        """Backwards-compat thin wrapper -> _get_forecast_temp(1)."""
+        return self._get_forecast_temp(1)
 
 
 # ============================================================================
@@ -1343,7 +1400,11 @@ class PredictedCoolingNeedSensor(AggregationEntity, SensorEntity):
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_predicted_cooling_need"
         self._attr_name = "Predicted Cooling Need"
-    
+
+    async def async_update(self) -> None:
+        """Refresh cached weather forecast (see _refresh_forecast_cache)."""
+        await self._refresh_forecast_cache()
+
     @property
     def native_value(self) -> float | None:
         """Return predicted kWh for cooling."""
@@ -1389,28 +1450,26 @@ class PredictedHeatingNeedSensor(AggregationEntity, SensorEntity):
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_predicted_heating_need"
         self._attr_name = "Predicted Heating Need"
-    
+
+    async def async_update(self) -> None:
+        """Refresh cached weather forecast (see _refresh_forecast_cache)."""
+        await self._refresh_forecast_cache()
+
     @property
     def native_value(self) -> float | None:
-        """Return predicted kWh equivalent for heating."""
-        weather_entity = self._get_config(CONF_WEATHER_ENTITY)
-        if not weather_entity:
-            return None
-        
-        state = self.hass.states.get(weather_entity)
-        if not state:
-            return None
-        
-        forecast = state.attributes.get("forecast", [])
-        forecast_low = forecast[0].get("templow") if forecast else None
-        
+        """Return predicted kWh equivalent for heating.
+
+        Sources tomorrow's forecast low (templow) from the cached
+        weather.get_forecasts response (see _refresh_forecast_cache).
+        """
+        forecast_low = self._get_forecast_temp(day_offset=0, field="templow")
         if forecast_low is None or forecast_low >= 65:
             return 0.0
-        
+
         heating_degrees = 65 - forecast_low
         base_kwh = 1.5
         temp_factor = heating_degrees * 0.4
-        
+
         return round(base_kwh + temp_factor, 1)
     
     @property
@@ -1895,6 +1954,7 @@ class PredictedEnergyTodaySensor(AggregationEntity, SensorEntity):
         if self._cache_time and (now - self._cache_time).total_seconds() < 900:
             return
 
+        await self._refresh_forecast_cache()
         forecast_temp = self._get_forecast_temp()
         value, confidence = await db.predict_energy("day", forecast_temp)
 
@@ -1969,6 +2029,7 @@ class PredictedEnergyWeekSensor(AggregationEntity, SensorEntity):
         now = dt_util.now()  # v4.2.27: tz-aware (HA convention)
         if self._cache_time and (now - self._cache_time).total_seconds() < 3600:
             return
+        await self._refresh_forecast_cache()
         forecast_temp = self._get_forecast_temp()
         value, confidence = await db.predict_energy("week", forecast_temp)
         self._cached_value = value
@@ -2041,6 +2102,7 @@ class PredictedEnergyMonthSensor(AggregationEntity, SensorEntity):
         now = dt_util.now()  # v4.2.27: tz-aware (HA convention)
         if self._cache_time and (now - self._cache_time).total_seconds() < 21600:
             return
+        await self._refresh_forecast_cache()
         forecast_temp = self._get_forecast_temp()
         value, confidence = await db.predict_energy("month", forecast_temp)
         self._cached_value = value
@@ -2121,6 +2183,7 @@ class PredictedEnergyTomorrowSensor(AggregationEntity, SensorEntity):
         now = dt_util.now()
         if self._cache_time and (now - self._cache_time).total_seconds() < 900:
             return
+        await self._refresh_forecast_cache()
         forecast_temp = self._get_forecast_temp_tomorrow()
         value, confidence = await db.predict_energy("tomorrow", forecast_temp)
         self._cached_value = value
@@ -2183,6 +2246,7 @@ class PredictedCostTomorrowSensor(AggregationEntity, SensorEntity):
         now = dt_util.now()
         if self._cache_time and (now - self._cache_time).total_seconds() < 900:
             return
+        await self._refresh_forecast_cache()
         forecast_temp = self._get_forecast_temp_tomorrow()
         energy_kwh, confidence = await db.predict_energy("tomorrow", forecast_temp)
         self._cached_raw_net_kwh = energy_kwh
@@ -2275,6 +2339,7 @@ class PredictedCostTodaySensor(AggregationEntity, SensorEntity):
         now = dt_util.now()  # v4.2.27: tz-aware (HA convention)
         if self._cache_time and (now - self._cache_time).total_seconds() < 900:
             return
+        await self._refresh_forecast_cache()
         forecast_temp = self._get_forecast_temp()
         energy_kwh, confidence = await db.predict_energy("day", forecast_temp)
         self._cached_raw_net_kwh = energy_kwh
@@ -2342,6 +2407,7 @@ class PredictedCostWeekSensor(AggregationEntity, SensorEntity):
         now = dt_util.now()  # v4.2.27: tz-aware (HA convention)
         if self._cache_time and (now - self._cache_time).total_seconds() < 3600:
             return
+        await self._refresh_forecast_cache()
         forecast_temp = self._get_forecast_temp()
         energy_kwh, confidence = await db.predict_energy("week", forecast_temp)
         if energy_kwh is None:
@@ -2408,6 +2474,7 @@ class PredictedCostMonthSensor(AggregationEntity, SensorEntity):
         now = dt_util.now()  # v4.2.27: tz-aware (HA convention)
         if self._cache_time and (now - self._cache_time).total_seconds() < 21600:
             return
+        await self._refresh_forecast_cache()
         forecast_temp = self._get_forecast_temp()
         energy_kwh, confidence = await db.predict_energy("month", forecast_temp)
         if energy_kwh is None:
