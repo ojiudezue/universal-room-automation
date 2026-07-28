@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.33.1
+# Universal Room Automation vv5.34.0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -2516,14 +2516,20 @@ class UniversalRoomDatabase:
             
             now = datetime.utcnow()
             
-            if period == "day":
-                # Get similar days (same weekday, similar temp)
+            if period in ("day", "tomorrow"):
+                # Get similar days (same weekday, similar temp).
+                # "tomorrow" (2026-07-27, additive, display-only): mirrors the
+                # "day" path but keys on tomorrow's weekday + tomorrow's
+                # forecast temp. Feeds sensor.universal_room_automation_predicted_energy_tomorrow
+                # for the dashboard "Net Tomorrow" tile. No decision consumer.
                 temp_range = 10  # +/- 10 degrees
                 if forecast_temp is None:
                     forecast_temp = 70  # Default assumption
-                
+
+                target_day = (now + timedelta(days=1)).weekday() if period == "tomorrow" else now.weekday()
+
                 historical = await self.get_energy_for_similar_days(
-                    day_of_week=now.weekday(),
+                    day_of_week=target_day,
                     temp_low=forecast_temp - temp_range,
                     temp_high=forecast_temp + temp_range,
                     limit=10
