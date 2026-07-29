@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.35.2
+# Universal Room Automation vv5.35.3
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -2026,11 +2026,21 @@ class DeviceStatusSensor(UniversalRoomEntity, SensorEntity):
 
     @property
     def native_value(self) -> str:
-        """Return comma-separated device names."""
+        """Return comma-separated device names, bounded to HA's 255-char state limit.
+
+        v5.35.3: rooms with many devices (Laundry: 10) produced a >255-char
+        state -> homeassistant.core ERROR "longer than 255, falling back to
+        unknown" every update (~2/min log flood). The full list is already in
+        the `device_list` attribute; the state degrades to a count when the
+        joined string would exceed the limit.
+        """
         device_names = self._get_device_names()
         if not device_names:
             return "No devices"
-        return ", ".join(device_names)
+        joined = ", ".join(device_names)
+        if len(joined) > 255:
+            return f"{len(device_names)} devices (see device_list)"
+        return joined
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
