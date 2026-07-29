@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.35.1
+# Universal Room Automation vv5.35.2
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -178,6 +178,8 @@ async def async_setup_entry(
         )
         coordinator_sensors = [
             CoordinatorManagerSensor(hass, entry),
+            # v5.36.0 D1: house-level stuck-signal watchdog aggregator.
+            URAStuckSignalWatchdogSensor(hass, entry),
             HouseStateSensor(hass, entry),
             CoordinatorSummarySensor(hass, entry),
             # v3.6.0-c1: Presence Coordinator sensors
@@ -4028,6 +4030,114 @@ class CoordinatorManagerSensor(AggregationEntity, SensorEntity):
             ),
             "decisions_today": manager.decisions_today,
             "conflicts_resolved_today": manager.conflicts_resolved_today,
+        }
+
+
+class URAStuckSignalWatchdogSensor(AggregationEntity, SensorEntity):
+    """House-level diagnostic sensor for the stuck-signal watchdog (v5.36.0 D1).
+
+    State: total count of currently-active suspect signals across the three
+    detector surfaces (stuck cameras + per-room stuck sensors + frozen
+    trackers).
+
+    Attributes surface the raw per-surface lists plus a per-kind NM emit
+    ledger. All reads are cheap sync accessors (no DB, no service calls) —
+    the sensor property is called on every state change of any subscribed
+    entity and must remain O(rooms). The emit ledger is RAM-only and
+    resets on HA restart.
+    """
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:radar"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize the stuck-signal watchdog sensor."""
+        super().__init__(hass, entry)
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_stuck_signal_watchdog"
+        self._attr_name = "Stuck Signal Watchdog"
+        # Register on the Coordinator Manager device so it lives with the
+        # other house-level diagnostic sensors (CoordinatorManagerSensor,
+        # HouseStateSensor, etc.).
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+
+    def _collect(self) -> tuple[list, dict, list]:
+        """Gather (stuck_cameras, stuck_sensors_by_room, frozen_trackers).
+
+        All three surfaces are pulled via public accessors — no
+        cross-module private-attr reach (B L-3). Each guarded so one
+        missing coordinator does not blank the sensor.
+        """
+        stuck_cameras: list = []
+        stuck_sensors: dict = {}
+        frozen_trackers: list = []
+        try:
+            census = self.hass.data.get(DOMAIN, {}).get("census")
+            if census is not None and hasattr(census, "get_stuck_cameras"):
+                stuck_cameras = list(census.get_stuck_cameras())
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("stuck_signal_watchdog: census read failed", exc_info=True)
+        try:
+            from .aggregation import _get_room_coordinators
+            for coord in _get_room_coordinators(self.hass):
+                try:
+                    kinds = coord.get_stuck_sensor_kinds()
+                except Exception:  # noqa: BLE001
+                    continue
+                if not kinds:
+                    continue
+                room = coord.entry.data.get("room_name", "unknown")
+                stuck_sensors[room] = dict(kinds)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("stuck_signal_watchdog: room sweep failed", exc_info=True)
+        try:
+            person = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+            if person is not None and hasattr(person, "get_frozen_trackers"):
+                frozen_trackers = list(person.get_frozen_trackers())
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("stuck_signal_watchdog: person read failed", exc_info=True)
+        return stuck_cameras, stuck_sensors, frozen_trackers
+
+    @property
+    def native_value(self) -> int:
+        """Return total count of currently-active suspect signals."""
+        cams, sensors_by_room, frozen = self._collect()
+        sensor_count = sum(len(v) for v in sensors_by_room.values())
+        return len(cams) + sensor_count + len(frozen)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return per-surface breakdown + per-kind NM emit ledger."""
+        cams, sensors_by_room, frozen = self._collect()
+        stats: dict = {}
+        try:
+            from .domain_coordinators._stuck_signal_nm import get_emit_stats
+            stats = get_emit_stats()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "stuck_signal_watchdog: emit stats read failed", exc_info=True,
+            )
+        # Split ledger into per-kind ISO timestamps + fires_today counts
+        # (the requested attr shape).
+        last_fired = {k: v.get("last_fired") for k, v in stats.items()}
+        fires_today = {k: int(v.get("fires_today", 0)) for k, v in stats.items()}
+        return {
+            "stuck_cameras": cams,
+            "stuck_sensors": sensors_by_room,
+            "frozen_trackers": frozen,
+            "last_fired": last_fired,
+            "fires_today": fires_today,
+            "ledger_note": (
+                "last_fired / fires_today are RAM-only and reset on HA restart"
+            ),
         }
 
 

@@ -1,6 +1,6 @@
 """Person tracking coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.35.1
+# Universal Room Automation vv5.35.2
 # Build: 2026-01-03
 # File: person_coordinator.py
 # v3.2.9: No changes (zone fixes in aggregation.py, fan fixes in automation.py)
@@ -609,6 +609,15 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         if hasattr(self, "_frozen_notified"):
             self._frozen_notified &= frozen_ids
         self._frozen_trackers_last = frozen
+
+    def get_frozen_trackers(self) -> list[dict[str, Any]]:
+        """Public accessor for the last-computed frozen-tracker diagnostic list.
+
+        v5.36.0 D1. Consumed by the house-level
+        `sensor.ura_stuck_signal_watchdog`. Returns a shallow copy so
+        callers cannot mutate the coordinator's internal state.
+        """
+        return list(self._frozen_trackers_last or [])
 
     def _boot_settle_done(self) -> bool:
         """Return True once presence has released the shared boot-settle gate.

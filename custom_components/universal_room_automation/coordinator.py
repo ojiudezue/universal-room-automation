@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.35.1
+# Universal Room Automation vv5.35.2
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -1370,6 +1370,17 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 "per boot.",
                 room_name, sensor,
             )
+
+    def get_stuck_sensor_kinds(self) -> dict[str, str]:
+        """Public accessor for the per-sensor stuck-kind map (v5.36.0 D1).
+
+        Returns a copy of `_stuck_sensor_kinds` — the per-sensor
+        classification ("continuous" or "dutycycle") for sensors currently
+        classified as stuck this tick. Consumed by the house-level
+        `sensor.ura_stuck_signal_watchdog` aggregator; do NOT reach the
+        private attribute cross-module (B L-3 discipline).
+        """
+        return dict(self._stuck_sensor_kinds or {})
 
     def _detect_duty_cycle_stuck(
         self,
