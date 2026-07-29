@@ -6129,6 +6129,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_NM_PERSON_IMESSAGE_HANDLE,
             CONF_NM_PERSON_DELIVERY_PREF, CONF_NM_PERSON_DIGEST_MORNING,
             CONF_NM_PERSON_DIGEST_EVENING_ENABLED, CONF_NM_PERSON_DIGEST_EVENING,
+            CONF_NM_PERSON_DIGEST_CHANNELS, NM_DIGEST_CHANNELS,
             NM_DELIVERY_IMMEDIATE, NM_DELIVERY_DIGEST, NM_DELIVERY_OFF,
         )
 
@@ -6147,6 +6148,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_NM_PERSON_DIGEST_MORNING: user_input.get(CONF_NM_PERSON_DIGEST_MORNING, "08:00"),
                 CONF_NM_PERSON_DIGEST_EVENING_ENABLED: user_input.get(CONF_NM_PERSON_DIGEST_EVENING_ENABLED, False),
                 CONF_NM_PERSON_DIGEST_EVENING: user_input.get(CONF_NM_PERSON_DIGEST_EVENING, "18:00"),
+                CONF_NM_PERSON_DIGEST_CHANNELS: user_input.get(CONF_NM_PERSON_DIGEST_CHANNELS, []),
             }
             # Replace existing entry for same person or add new
             entity_id = person_entry[CONF_NM_PERSON_ENTITY]
@@ -6208,6 +6210,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_NM_PERSON_DIGEST_EVENING,
                 default="18:00",
             ): selector.TimeSelector(),
+            vol.Optional(
+                CONF_NM_PERSON_DIGEST_CHANNELS,
+                default=[],
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=list(NM_DIGEST_CHANNELS),
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.LIST,
+                )
+            ),
         })
 
         return self.async_show_form(

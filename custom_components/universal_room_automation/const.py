@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.35.4
+# Universal Room Automation vv5.36.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.35.4"
+VERSION: Final = "v5.36.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1289,6 +1289,14 @@ CONF_NM_PERSON_DELIVERY_PREF: Final = "nm_person_delivery_pref"
 CONF_NM_PERSON_DIGEST_MORNING: Final = "nm_person_digest_morning"
 CONF_NM_PERSON_DIGEST_EVENING_ENABLED: Final = "nm_person_digest_evening_enabled"
 CONF_NM_PERSON_DIGEST_EVENING: Final = "nm_person_digest_evening"
+# NM digest multi-channel selection (per-person). When non-empty, the daily
+# digest fans out to EVERY selected channel (that is globally enabled AND
+# has a configured per-person target). Empty (default) = legacy single-
+# channel fallback chain (pushover → companion → whatsapp → imessage).
+CONF_NM_PERSON_DIGEST_CHANNELS: Final = "nm_person_digest_channels"
+# Digest-eligible channel keys (subset of NM_CHANNELS_KNOWN; excludes
+# tts/lights which are not digest transports).
+NM_DIGEST_CHANNELS: Final = ("pushover", "companion", "whatsapp", "imessage")
 
 # Quiet hours keys
 CONF_NM_QUIET_USE_HOUSE_STATE: Final = "nm_quiet_use_house_state"

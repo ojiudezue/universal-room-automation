@@ -60,6 +60,7 @@ from ..const import (
     CONF_NM_PERSONS,
     CONF_NM_PERSON_COMPANION_SERVICE,
     CONF_NM_PERSON_DELIVERY_PREF,
+    CONF_NM_PERSON_DIGEST_CHANNELS,
     CONF_NM_PERSON_DIGEST_EVENING,
     CONF_NM_PERSON_DIGEST_EVENING_ENABLED,
     CONF_NM_PERSON_DIGEST_MORNING,
@@ -3419,7 +3420,62 @@ class NotificationManager:
                     f"URA Daily Summary ({today})\n\n{opt_section}"
                 )
 
-        # Send via lowest-severity qualifying channel
+        sent = await self._deliver_digest(person_id, person_cfg, digest_message)
+
+        if sent:
+            await database.mark_digest_delivered(person_id)
+            _LOGGER.info("Digest delivered to %s (%d items)", person_id, len(pending))
+
+    async def _deliver_digest(
+        self,
+        person_id: str,
+        person_cfg: dict[str, Any],
+        digest_message: str,
+    ) -> bool:
+        """Deliver a digest message to a person via configured channels.
+
+        Behavior:
+        - If ``CONF_NM_PERSON_DIGEST_CHANNELS`` is a non-empty list, fan the
+          digest out to EVERY selected channel that is (a) globally enabled
+          AND (b) has a configured per-person target. Returns True if at
+          least one channel succeeded.
+        - If it is empty/absent (default), preserve the legacy first-wins
+          fallback chain (pushover → companion → whatsapp → imessage) —
+          byte-identical to pre-multi-channel behavior for unconfigured
+          persons.
+        """
+        selected = person_cfg.get(CONF_NM_PERSON_DIGEST_CHANNELS) or []
+        if selected:
+            sent_any = False
+            selected_set = set(selected)
+            if "pushover" in selected_set and self._config.get(CONF_NM_PUSHOVER_ENABLED):
+                key = person_cfg.get(CONF_NM_PERSON_PUSHOVER_KEY, "")
+                device = person_cfg.get(CONF_NM_PERSON_PUSHOVER_DEVICE, "")
+                if key:
+                    await self._send_pushover(
+                        "URA Daily Summary", digest_message, Severity.LOW, key, device
+                    )
+                    sent_any = True
+            if "companion" in selected_set and self._config.get(CONF_NM_COMPANION_ENABLED):
+                svc = person_cfg.get(CONF_NM_PERSON_COMPANION_SERVICE, "")
+                if svc:
+                    await self._send_companion(
+                        "URA Daily Summary", digest_message, Severity.LOW, svc
+                    )
+                    sent_any = True
+            if "whatsapp" in selected_set and self._config.get(CONF_NM_WHATSAPP_ENABLED):
+                phone = person_cfg.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
+                if phone:
+                    await self._send_whatsapp("URA Daily Summary", digest_message, phone)
+                    sent_any = True
+            if "imessage" in selected_set and self._config.get(CONF_NM_IMESSAGE_ENABLED):
+                handle = person_cfg.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "")
+                if handle:
+                    await self._send_imessage("URA Daily Summary", digest_message, handle)
+                    sent_any = True
+            return sent_any
+
+        # Legacy first-wins fallback chain (empty selection).
         sent = False
         if self._config.get(CONF_NM_PUSHOVER_ENABLED):
             key = person_cfg.get(CONF_NM_PERSON_PUSHOVER_KEY, "")
@@ -3446,9 +3502,7 @@ class NotificationManager:
                 await self._send_imessage("URA Daily Summary", digest_message, handle)
                 sent = True
 
-        if sent:
-            await database.mark_digest_delivered(person_id)
-            _LOGGER.info("Digest delivered to %s (%d items)", person_id, len(pending))
+        return sent
 
     def _build_optimizer_digest_section(self) -> str:
         """Render the optimizer's section for the NM person digest.
