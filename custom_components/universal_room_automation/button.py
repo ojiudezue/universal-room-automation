@@ -1,6 +1,6 @@
 """Button platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.35.3
+# Universal Room Automation vv5.35.4
 # Build: 2026-01-04
 # File: button.py
 #
@@ -43,6 +43,7 @@ async def async_setup_entry(
     if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
         cm_entities: list[ButtonEntity] = [
             NMAcknowledgeButton(hass, entry),
+            NMTestNotificationButton(hass, entry),
             ClearBayesianBeliefsButton(hass, entry),
             # v4.5.12 D10: diagnostic dump button (house-wide, on HVAC device)
             HVACACRampDiagnosticDumpButton(hass, entry),
@@ -567,6 +568,86 @@ class NMAcknowledgeButton(ButtonEntity):
             _LOGGER.info("Alert acknowledged via dashboard button")
         else:
             _LOGGER.warning("Notification Manager not available")
+
+
+class NMTestNotificationButton(ButtonEntity):
+    """Button that sends a TEST notification through NM's full routing loop.
+
+    v5.35.4 (operator ask 2026-07-29): channel-level tests bypass the
+    per-person router — the empty-recipients gap went unnoticed for weeks
+    because "the channels worked". This button drives `async_notify`
+    end-to-end (severity matrix, per-person routing, DND, channel gates),
+    so what you receive is exactly what a real alert would do.
+
+    Fires at Severity.HIGH deliberately: CRITICAL would engage the
+    repeat-until-acknowledged engine (noisy for a test). Channels whose
+    severity floor is CRITICAL will NOT fire — that is honest routing,
+    not a bug. NM's default cooldown (~10 min per hazard) applies between
+    presses.
+
+    Entity: button.ura_notification_test  ·  Device: URA: Notification Manager
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:bell-ring-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self._entry = entry
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_notification_test"
+        self._attr_name = "Send Test Notification"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "notification_manager")},
+            name="URA: Notification Manager",
+            manufacturer="Universal Room Automation",
+            model="Notification Manager",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    async def async_added_to_hass(self) -> None:
+        """Re-evaluate availability once NM registers (v4.6.9 pattern)."""
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_NM_READY
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_NM_READY, self._handle_ready)
+        )
+
+    @callback
+    def _handle_ready(self) -> None:
+        """Re-evaluate availability once NM is registered."""
+        self.async_schedule_update_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Button is available when NM is active."""
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        return nm is not None
+
+    async def async_press(self) -> None:
+        """Send a test notification through the full NM routing path."""
+        from homeassistant.util import dt as dt_util
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            _LOGGER.warning("NM test button: Notification Manager not available")
+            return
+        from .domain_coordinators.notification_manager import Severity
+        await nm.async_notify(
+            coordinator_id="nm_test",
+            severity=Severity.HIGH,
+            title="URA test notification",
+            message=(
+                "End-to-end NM routing test (severity HIGH) sent "
+                f"{dt_util.now().strftime('%H:%M:%S')}. Channels with a "
+                "CRITICAL-only floor intentionally stay silent."
+            ),
+            hazard_type="nm_test",
+        )
+        _LOGGER.info("NM test notification dispatched via button")
 
 
 # ============================================================================
