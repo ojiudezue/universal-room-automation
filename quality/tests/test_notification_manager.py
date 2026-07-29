@@ -188,6 +188,7 @@ from custom_components.universal_room_automation.const import (
     CONF_NM_PERSON_WHATSAPP_PHONE,
     CONF_NM_PERSON_IMESSAGE_HANDLE,
     CONF_NM_PERSON_DELIVERY_PREF,
+    CONF_NM_PERSON_DIGEST_CHANNELS,
     CONF_NM_QUIET_USE_HOUSE_STATE,
     CONF_NM_QUIET_MANUAL_START,
     CONF_NM_QUIET_MANUAL_END,
@@ -465,6 +466,95 @@ class TestDigestFormatting:
         nm = NotificationManager(hass, _make_config())
         result = nm._format_digest([])
         assert "URA Daily Summary" in result
+
+
+class TestDigestMultiChannel:
+    """Tests for per-person digest multi-channel fan-out (_deliver_digest)."""
+
+    def _cfg_all_enabled(self):
+        return _make_config(**{
+            CONF_NM_PUSHOVER_ENABLED: True,
+            CONF_NM_COMPANION_ENABLED: True,
+            CONF_NM_WHATSAPP_ENABLED: True,
+            CONF_NM_IMESSAGE_ENABLED: True,
+        })
+
+    def _person(self, **overrides):
+        person = {
+            CONF_NM_PERSON_ENTITY: "person.test",
+            CONF_NM_PERSON_PUSHOVER_KEY: "pk",
+            CONF_NM_PERSON_PUSHOVER_DEVICE: "",
+            CONF_NM_PERSON_COMPANION_SERVICE: "notify.mobile",
+            CONF_NM_PERSON_WHATSAPP_PHONE: "+1555",
+            CONF_NM_PERSON_IMESSAGE_HANDLE: "u@i",
+            CONF_NM_PERSON_DELIVERY_PREF: NM_DELIVERY_DIGEST,
+        }
+        person.update(overrides)
+        return person
+
+    @pytest.mark.asyncio
+    async def test_digest_multi_channel_sends_all_selected(self):
+        """whatsapp+imessage selected → both senders called, pushover/companion NOT."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, self._cfg_all_enabled())
+        nm._send_pushover = AsyncMock()
+        nm._send_companion = AsyncMock()
+        nm._send_whatsapp = AsyncMock()
+        nm._send_imessage = AsyncMock()
+        person = self._person(**{
+            CONF_NM_PERSON_DIGEST_CHANNELS: ["whatsapp", "imessage"],
+        })
+
+        sent = await nm._deliver_digest("person.test", person, "msg")
+
+        assert sent is True
+        nm._send_whatsapp.assert_awaited_once()
+        nm._send_imessage.assert_awaited_once()
+        nm._send_pushover.assert_not_awaited()
+        nm._send_companion.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_digest_empty_selection_legacy_fallback(self):
+        """Empty selection → exactly the legacy first-wins chain (pushover only)."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, self._cfg_all_enabled())
+        nm._send_pushover = AsyncMock()
+        nm._send_companion = AsyncMock()
+        nm._send_whatsapp = AsyncMock()
+        nm._send_imessage = AsyncMock()
+        person = self._person(**{CONF_NM_PERSON_DIGEST_CHANNELS: []})
+
+        sent = await nm._deliver_digest("person.test", person, "msg")
+
+        assert sent is True
+        # Pushover wins first — no other channels fired (legacy behavior).
+        nm._send_pushover.assert_awaited_once()
+        nm._send_companion.assert_not_awaited()
+        nm._send_whatsapp.assert_not_awaited()
+        nm._send_imessage.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_digest_channel_skipped_without_target(self):
+        """Selected channel with empty handle → skipped; others still send."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, self._cfg_all_enabled())
+        nm._send_pushover = AsyncMock()
+        nm._send_companion = AsyncMock()
+        nm._send_whatsapp = AsyncMock()
+        nm._send_imessage = AsyncMock()
+        # whatsapp selected but no phone; imessage selected with handle.
+        person = self._person(**{
+            CONF_NM_PERSON_WHATSAPP_PHONE: "",
+            CONF_NM_PERSON_DIGEST_CHANNELS: ["whatsapp", "imessage"],
+        })
+
+        sent = await nm._deliver_digest("person.test", person, "msg")
+
+        assert sent is True
+        nm._send_whatsapp.assert_not_awaited()
+        nm._send_imessage.assert_awaited_once()
+        nm._send_pushover.assert_not_awaited()
+        nm._send_companion.assert_not_awaited()
 
 
 class TestLightPatterns:
