@@ -63,4 +63,30 @@ D2-no-exclusion and the D1 fail-open call site, and personally patched a missed 
 - **H5 — D4 surfaces fire on their existing detectors.** Next time Fix #9 / failsafe /
   zone-stale / flap-quarantine trips organically, an NM notification accompanies the
   existing log line, once per day per signal. Window: organic.
+
+### Deployment incident + hotfix v5.35.1 (2026-07-28)
+
+**v5.35.0's first boot FAILED person tracking:** the build inserted the module-level
+`_fire_frozen_tracker_nm` mid-class in `person_coordinator.py`, silently nesting the
+26 subsequent class methods inside it → `'PersonTrackingCoordinator' object has no
+attribute '_build_scanner_room_map'` at init. Caught by post-restart validation
+(minutes); house was away/empty (impact contained). **v5.35.1** relocated the function
+below the class; AST-verified 30 class methods restored; all four sibling files AST-
+audited clean. Why 7,660 green tests missed it: the watchdog tests drive methods via
+`cls.__dict__` and the presence suite mocks the class — structural breaks invisible.
+**New bug-class candidate:** mid-class module-level insertion / class-body swallow —
+AST-verify class method counts after structural edits.
+
+### Validated 2026-07-28 (v5.35.1 boot ~18:35 CDT)
+
+| # | Result | Observed evidence |
+|---|--------|-------------------|
+| H1 | **PASS (on v5.35.1)** | Zero URA `ERROR` lines post-hotfix-restart (all logged errors timestamped to the v5.35.0 boot); no stuck-signal NM emits in the boot window; person tracking initialized (no PERSON INIT DIAGNOSTIC; presence publishing full tracker attrs; Bermuda per-person sensors live). |
+| H2 | pending (24 h) | No false stuck-signal alerts in steady state. |
+| H3 | **PASS (early)** | `persons_in_house` = 0 on the away house, `stuck_cameras: []`, attrs normal — census behavior unchanged, no discounts active. |
+| H4 | pending | Synthetic/organic stuck-camera drill. |
+| H5 | pending-organic | Next organic detector trip. |
+
+The v5.35.0 boot's DB write-worker timeouts did not recur on the v5.35.1 boot
+(attributed to the failing person-coordinator retry loop + boot congestion).
 </content>
