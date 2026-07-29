@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.34.1
+# Universal Room Automation vv5.35.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -3390,6 +3390,15 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
                 from homeassistant.util import dt as _dt_util
                 pending_info = census.get_pending_peak_info("house", _dt_util.now())
                 attrs["pending_peak"] = pending_info
+                # Stuck-Signal Watchdog D1 (v5.35.0): per-camera stuck
+                # entries discovered this tick. Empty on healthy.
+                # B L-3 fix-up 2026-07-28: use public accessor.
+                if hasattr(census, "get_stuck_cameras"):
+                    attrs["stuck_cameras"] = census.get_stuck_cameras()
+                else:
+                    attrs["stuck_cameras"] = list(
+                        getattr(census, "_last_stuck_cameras", []) or []
+                    )
         except Exception:  # pragma: no cover - defensive
             _LOGGER.debug("Failed to attach v5.9.0 census observability attrs", exc_info=True)
         return attrs

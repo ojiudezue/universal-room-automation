@@ -1301,6 +1301,29 @@ class HVACCoordinator(BaseCoordinator):
                             zone.zone_name, self._max_occupancy_hours,
                             confirmed, possible, threshold,
                         )
+                        # Stuck-Signal Watchdog D4-P18 (v5.35.0): notify-only
+                        # NM emit alongside the existing force-away action.
+                        # Per-day dedup latched by zone name to keep a
+                        # standing-stale zone from firing every 30s. Behavior
+                        # above is UNCHANGED — this is an observability add.
+                        from ._stuck_signal_nm import fire_stuck_signal  # noqa: PLC0415
+                        self.hass.async_create_task(fire_stuck_signal(
+                            self.hass,
+                            kind="zone_stale_occupancy",
+                            key=(zone.zone_name,),
+                            diagnosis=(
+                                f"HVAC zone {zone.zone_name} occupied "
+                                f">{self._max_occupancy_hours}h with only "
+                                f"{confirmed}/{possible} source(s) (threshold "
+                                f"{threshold}) — treating as stale sensor, "
+                                "forcing away"
+                            ),
+                            remedy=(
+                                "inspect the zone's motion/mmwave/camera "
+                                "sensors; a stuck signal is the most likely "
+                                "cause"
+                            ),
+                        ))
 
                 # D5: Duty cycle enforcement (skip during sleep — RH4)
                 if zone.runtime_exceeded and self._house_state != "sleep":

@@ -1,5 +1,73 @@
 # PLANNING: Stuck-Signal Watchdog Cycle
 
+## Post-review design rulings (2026-07-28 fix-up)
+
+Applied AFTER two Tier-2 reviews returned DO-NOT-SHIP. These are
+orchestrator-decided, do not re-litigate:
+
+1. **D3 predicate replaced.** Prior rule required tracker↔person
+   DISAGREEMENT — structurally blind to the motivating incident (the
+   frozen tracker DRIVES `person.state` → they always agree → silent).
+   New rule: `tracker.state in {"home","unknown"} AND age >=
+   FROZEN_TRACKER_DAYS` → NM. Frozen-at-`not_home` is benign (fire axe:
+   no user-actionable harm). Sibling-tracker disagreement is CONTEXT in
+   the payload, not a gate. Ezinne repro is a named test.
+
+2. **D2 becomes NOTIFY + DIAGNOSTIC ONLY.** D2 must NOT insert into the
+   room's `stuck_sensors` exclusion set. A sleeping person is ~100%
+   mmWave duty cycle with zero PIR — excluding would vacate sleeping
+   bedrooms (home_night trust gap uncovered by v4.7.13 sleep-only
+   person-trust). Exclusion graduates in a later cycle behind a
+   house-state gate once the detector earns trust (stage-1 doctrine).
+
+3. **D1 discount safety hardened.** (a) Camera with `area_id=None`:
+   NEVER discount (one-time WARN + `notify_only_reason=no_area_id` in
+   diagnostic). Silent auto-discount on a nameless area is unsafe.
+   (b) Area with NO configured interior tier at all (no URA room mapped
+   to the area_id): NEVER discount (`notify_only_reason=no_interior_tier`).
+   A lone stationary guest in a camera-only area must not be
+   census-dropped. Residual tradeoff: a stationary guest in an area WITH
+   sensors that miss them is still discounted (documented in failure-modes).
+
+4. **Boot-settle gate.** D1, D2, and D3 all short-circuit until the
+   shared `presence._boot_settle_done` predicate flips True (same source
+   consulted by `ActuatorReconciler`). No verdicts / no NM emits during
+   boot storm.
+
+5. **D2 corroboration shield tightened (FIX 4).** The prior
+   `bool(motion_deque)` gate let one stale PIR blip inside the 60-min
+   window disable detection permanently. New rule: corroborated iff
+   `len(motion_deque) >= STUCK_D2_MIN_MOTION_TRANSITIONS` (=2) OR at
+   least one transition within the last `STUCK_D2_FRESH_MOTION_SECONDS`
+   (=300s). Named module constants (rung 1).
+
+## Failure modes (post-fix)
+
+- **D1 stationary-guest-in-sensored-area.** A lone motionless guest in
+  a room that HAS interior sensors, if those sensors don't fire, will
+  still be discounted from the census after the stuck window elapses.
+  Acceptable tradeoff — the review-time alternative (never discount)
+  reopens the foyer 11h silent-hold bug that motivated this cycle.
+- **D2 sleeping-person false positive.** Held to notify-only per Ruling
+  2; no census impact until later cycle graduates exclusion.
+
+## Rung-2 vs rung-1 knobs (post-fix)
+
+- `CONF_STUCK_SIGNAL_NM_ENABLED` — rung 2 (options-flow), operator kill
+  switch during known outages.
+- `STUCK_CAMERA_HOURS`, `STUCK_CAMERA_INTERIOR_TIERS_REQUIRED`,
+  `FROZEN_TRACKER_DAYS`, `STUCK_D2_FRESH_MOTION_SECONDS`,
+  `STUCK_D2_MIN_MOTION_TRANSITIONS`, all `STUCK_SENSOR_DUTYCYCLE_*` —
+  rung 1 (module constants). The `CONF_STUCK_CAMERA_*`/`CONF_FROZEN_*`
+  keys still exist in `const.py` for backward compatibility with the
+  `merged.get()` reads in camera_census/person_coordinator (deprecated
+  — a future cycle drops the options read entirely). They are NOT wired
+  into the config flow.
+
+---
+
+
+
 **Version target:** next minor after HEAD (v5.34.x → v5.35.0 candidate).
 **Author date:** 2026-07-28.
 **Tier proposal:** Tier 2 (two framing-disjoint reviews) + Live Validation. See Tier Classification section.

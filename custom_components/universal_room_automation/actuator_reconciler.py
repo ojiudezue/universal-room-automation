@@ -874,6 +874,20 @@ class ActuatorReconciler:
             "(%d transitions)",
             self._room_name(), entity_id, len(w),
         )
+        # Stuck-Signal Watchdog D4-X7 (v5.35.0): NM emit paired with
+        # `check_quarantine_release` for the recovery latch clear.
+        # Notify-only; the quarantine/release behavior is unchanged.
+        from .domain_coordinators._stuck_signal_nm import fire_stuck_signal  # noqa: PLC0415
+        self.hass.async_create_task(fire_stuck_signal(
+            self.hass,
+            kind="actuator_flap_quarantine",
+            key=(self._room_name(), entity_id),
+            diagnosis=(
+                f"actuator {entity_id} in room {self._room_name()} "
+                f"flapping ({len(w)} transitions) — quarantined until stable"
+            ),
+            remedy="inspect the actuator's power / network / integration state",
+        ))
 
     def check_quarantine_release(self) -> None:
         """Poll for stability-proven release. Call on a periodic tick.
@@ -901,6 +915,22 @@ class ActuatorReconciler:
                 "(stable %.0fs) — running one reconcile pass",
                 self._room_name(), entity_id, now - last,
             )
+            # Stuck-Signal Watchdog D4-X7 (v5.35.0): paired recovery NM.
+            # Clears the per-day latch so a future flap on the same
+            # entity re-notifies immediately rather than waiting for
+            # next-day rollover.
+            from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
+                fire_stuck_signal_recovered,
+            )
+            self.hass.async_create_task(fire_stuck_signal_recovered(
+                self.hass,
+                kind="actuator_flap_quarantine",
+                key=(self._room_name(), entity_id),
+                message=(
+                    f"actuator {entity_id} in room {self._room_name()} "
+                    f"stable for {now - last:.0f}s — released from quarantine"
+                ),
+            ))
             # Run exactly ONE reconcile pass; then normal behavior resumes.
             self._consider_reconcile(entity_id, boot_edge=False)
 
