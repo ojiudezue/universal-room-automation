@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation vv5.34.1
+# Universal Room Automation vv5.35.0
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -28,6 +28,13 @@ from .const import (
     DOMAIN,
     CONF_AREA_ID,
     CONF_ROOM_NAME,
+    CONF_STUCK_CAMERA_HOURS,
+    CONF_STUCK_CAMERA_INTERIOR_TIERS_REQUIRED,
+    DEFAULT_STUCK_CAMERA_HOURS,
+    DEFAULT_STUCK_CAMERA_INTERIOR_TIERS_REQUIRED,
+    STATE_MOTION_DETECTED,
+    STATE_OCCUPIED,
+    STATE_PRESENCE_DETECTED,
     ENTRY_TYPE_ROOM,
     TRACKING_STATUS_STALE,
     TRACKING_STATUS_LOST,
@@ -67,6 +74,24 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+async def _fire_camera_stuck_nm(
+    hass: HomeAssistant, entity_id: str, count: int, hours: float,
+) -> None:
+    """Fire Stuck-Signal D1 NM via the shared helper (per-day dedup)."""
+    from .domain_coordinators._stuck_signal_nm import fire_stuck_signal  # noqa: PLC0415
+    await fire_stuck_signal(
+        hass,
+        kind="camera_stuck",
+        key=(entity_id,),
+        diagnosis=(
+            f"camera {entity_id} asserted person_count={count} for {hours:.1f}h "
+            "with no interior corroboration"
+        ),
+        remedy="reload Frigate config entry",
+    )
+
 
 # Platform identifiers for Reolink and Dahua (not stored as named constants yet)
 _CAMERA_PLATFORM_REOLINK = "reolink"
@@ -748,6 +773,41 @@ class PersonCensus:
         # or if the enhanced path takes an early-return during setup).
         self._last_ble_cancelled_count: int = 0
 
+        # ------------------------------------------------------------------
+        # Stuck-Signal Watchdog D1 (v5.35.0). Per-Frigate-camera state for the
+        # census-layer stuck-count check. See
+        # docs/planning/PLANNING_stuck_signal_watchdog.md.
+        #
+        # For each configured Frigate camera we track:
+        #   `since` — first wall-clock ts we observed person_count > 0 in the
+        #             current continuous run (reset whenever count returns to 0).
+        #   `last_value` — most recently observed person_count (for the
+        #             unchanged-value branch of the stuck window).
+        #   `last_change` — wall-clock ts of the most recent VALUE change of
+        #             person_count (any transition, including 0->N and N->M).
+        #             The stuck window is measured from this stamp so a value
+        #             that toggles between two non-zero values does NOT trip
+        #             the unchanged rule.
+        #   `duty_ring` — deque of (monotonic_seconds, bool_on) samples over
+        #             the last CONF_STUCK_CAMERA_DUTYCYCLE_WINDOW window
+        #             (D2 duty-cycle sibling; presently unused at the census
+        #             layer — Fix #9 duty-cycle lives at coordinator.py.)
+        # Fail-open: entire watchdog is wrapped in try/except at the call site;
+        # if this dict grows stale it can only cause the discount to skip.
+        self._camera_stuck_state: dict[str, dict[str, Any]] = {}
+        # Published diagnostic list (list of dicts) for the census sensor's
+        # `stuck_cameras` attribute — see URAPersonsInHouseSensor. Populated by
+        # `_watchdog_stuck_cameras` on every census tick; empty on healthy.
+        self._last_stuck_cameras: list[dict[str, Any]] = []
+        # Set of Frigate camera entity_ids to DISCOUNT from the interior
+        # census this tick. Consumed by `_calculate_house_census` — populated
+        # by `_watchdog_stuck_cameras` after the corroboration check.
+        self._watchdog_discounted_cameras: set[str] = set()
+        # FIX 5 (A-HIGH-2) 2026-07-28: one-time WARN dedup for null-area
+        # cameras. Grows bounded by camera count; entries persist for the
+        # process lifetime (deliberate — one WARN per problem camera).
+        self._null_area_warned: set[str] = set()
+
     # ------------------------------------------------------------------
     # Transit detection helpers (cross-platform)
     # ------------------------------------------------------------------
@@ -797,6 +857,23 @@ class PersonCensus:
 
         # --- 1. Gather BLE person data from person_coordinator ---
         ble_persons = self._get_ble_persons()
+
+        # Stuck-Signal Watchdog D1 (v5.35.0) — runs UPSTREAM of the raw
+        # camera tally so `_calculate_house_census` observes the discount
+        # BEFORE it feeds C7's peak/decay state machine (this is the
+        # exact cross-coupling that made the 2026-07-28 foyer incident
+        # 11h silent — a stuck count IS fresh so C7's floor never aged).
+        # Fail-open: any exception clears the discount set, restoring
+        # byte-identical pre-watchdog behavior.
+        try:
+            self._watchdog_stuck_cameras(now)
+        except Exception:  # noqa: BLE001 — fail-open (#7 accumulator pattern)
+            _LOGGER.debug(
+                "Stuck-signal watchdog raised (swallowed; census unchanged)",
+                exc_info=True,
+            )
+            self._watchdog_discounted_cameras = set()
+            self._last_stuck_cameras = []
 
         # --- 2. House census ---
         house_result = await self._calculate_house_census(ble_persons, now)
@@ -952,6 +1029,24 @@ class PersonCensus:
                         if state and state.state not in ("unavailable", "unknown"):
                             frigate_available = True
                             count = self._get_sensor_int(camera_info.person_count_sensor)
+                            # Stuck-Signal D1 discount (truth-preserving
+                            # DOWNWARD only — never raises a count, never
+                            # fires when interior corroboration is present;
+                            # the watchdog's own corroboration gate already
+                            # decided this). See _watchdog_stuck_cameras.
+                            if entity_id in self._watchdog_discounted_cameras:
+                                _LOGGER.debug(
+                                    "Stuck-signal D1: discounting Frigate "
+                                    "camera %s (person_count=%d) from house "
+                                    "census — no interior corroboration",
+                                    entity_id, count,
+                                )
+                                # A-MED-2 fix-up 2026-07-28: raw_pre_dedup_sum
+                                # EXCLUDES discounted cameras (observability
+                                # coherence — the "raw" attr should reflect
+                                # what actually flowed through this tick,
+                                # not the pre-discount hypothetical).
+                                continue
                             raw_frigate_sum += count
                             if count > 0:
                                 frigate_contributions.append((area_id, count))
@@ -1480,6 +1575,273 @@ class PersonCensus:
             )
             return {}
         return room_to_area
+
+    # ------------------------------------------------------------------
+    # Stuck-Signal Watchdog D1 (v5.35.0)
+    # ------------------------------------------------------------------
+
+    def _watchdog_stuck_cameras(self, now: datetime) -> None:
+        """Per-Frigate-camera stuck-count check + corroboration + NM latch.
+
+        For each configured Frigate camera with a person_count sensor,
+        track how long its value has held > 0 without changing. When the
+        window exceeds ``CONF_STUCK_CAMERA_HOURS`` (default 3h) AND there
+        is ZERO interior corroboration in the camera's area (no BLE-here,
+        no room-tier motion/mmwave/occupancy/occupied signal), record it
+        as stuck. The camera is DISCOUNTED from the census tally this tick
+        and a per-day NM latch fires.
+
+        Populates:
+          * ``self._camera_stuck_state`` — per-camera bookkeeping
+          * ``self._watchdog_discounted_cameras`` — set consumed by
+            ``_calculate_house_census`` to skip stuck contributions
+          * ``self._last_stuck_cameras`` — diagnostic list for the
+            ``stuck_cameras`` sensor attribute
+
+        Fail-open: caller wraps in try/except.
+        """
+        # FIX 3 (B H-2) 2026-07-28: boot-settle gate — no verdicts until
+        # presence has released the shared boot-settle predicate.
+        if not self._d1_boot_settle_done():
+            self._watchdog_discounted_cameras = set()
+            self._last_stuck_cameras = []
+            return
+
+        stuck_hours = self._get_stuck_camera_hours()
+        tiers_required = self._get_stuck_camera_tiers_required()
+
+        configured_interior = self._get_interior_camera_entities()
+        ble_by_area = self._ble_home_by_area()
+
+        # Snapshot per-area room-tier corroboration ONCE per tick. Iterating
+        # room coordinators once is O(rooms); the alternative of doing it
+        # per-camera would be O(rooms * cameras).
+        room_tier_by_area = self._room_tier_corroboration_by_area()
+
+        # FIX 5 (A-HIGH-3) 2026-07-28: set of area_ids that have ANY URA
+        # room mapped to them. Used to gate discount safety — a camera
+        # in an area with no interior tier must never be census-dropped.
+        _configured_interior_areas: set[str] = (
+            self._interior_configured_areas()
+        )
+
+        stuck_now: set[str] = set()
+        stuck_diag: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        for entity_id in configured_interior:
+            platform = self._camera_manager.get_platform_for_camera(entity_id)
+            if platform != CAMERA_PLATFORM_FRIGATE:
+                continue
+            camera_info = self._camera_manager._camera_by_entity.get(entity_id)
+            if not camera_info or not camera_info.person_count_sensor:
+                continue
+            count_sensor = camera_info.person_count_sensor
+            state = self.hass.states.get(count_sensor)
+            if state is None or state.state in ("unavailable", "unknown"):
+                # Availability transitions clear the stuck timer — an
+                # offline camera cannot be "stuck asserting a count".
+                self._camera_stuck_state.pop(entity_id, None)
+                continue
+            try:
+                count = int(float(state.state))
+            except (TypeError, ValueError):
+                self._camera_stuck_state.pop(entity_id, None)
+                continue
+
+            seen.add(entity_id)
+            rec = self._camera_stuck_state.get(entity_id)
+            if count <= 0:
+                # Any zero reading resets the stuck window (the count is
+                # only stuck when it holds > 0 for the whole window).
+                self._camera_stuck_state.pop(entity_id, None)
+                continue
+
+            if rec is None or rec.get("last_value") != count:
+                # First non-zero observation OR value CHANGED: (re-)stamp
+                # `since` (window start). A-LOW-3 fix-up 2026-07-28: dead
+                # `last_change` field dropped — the unchanged-value check
+                # is anchored on `since` alone.
+                self._camera_stuck_state[entity_id] = {
+                    "since": now,
+                    "last_value": count,
+                }
+                continue
+
+            # rec is not None and count matches last_value — running hold.
+            since = rec.get("since", now)
+            hours = (now - since).total_seconds() / 3600.0
+            if hours < stuck_hours:
+                continue
+
+            # Stuck window exceeded. Check corroboration.
+            area_id = camera_info.area_id
+            ble_here = ble_by_area.get(area_id, 0) if area_id else 0
+            room_tier = room_tier_by_area.get(area_id, 0) if area_id else 0
+            corroborators = int(ble_here > 0) + int(room_tier > 0)
+
+            corroborated = corroborators >= tiers_required
+
+            # FIX 5 (A-HIGH-2) 2026-07-28: camera with area_id None — SKIP
+            # discount entirely + one-time WARN. Silent auto-discount on a
+            # nameless area is unsafe.
+            # FIX 5 (A-HIGH-3): area has NO configured interior tier at all
+            # (no rooms mapped to this area_id in `room_tier_by_area`
+            # discovery + no BLE-resident capable of showing up here) →
+            # notify-only, never discount. A lone stationary guest in a
+            # camera-only area must not be census-dropped.
+            area_has_interior = (
+                bool(area_id) and area_id in _configured_interior_areas
+            )
+            safe_to_discount = bool(area_id) and area_has_interior
+
+            entry_diag = {
+                "entity_id": entity_id,
+                "kind": "camera_stuck",
+                "hours": round(hours, 2),
+                "count": count,
+                "area_id": area_id,
+                "interior_corroborators": corroborators,
+                "ble_here": ble_here,
+                "room_tier_on": room_tier,
+                "discounted": (not corroborated) and safe_to_discount,
+                "notify_only_reason": (
+                    None if safe_to_discount
+                    else ("no_area_id" if not area_id else "no_interior_tier")
+                ),
+            }
+            stuck_diag.append(entry_diag)
+            if corroborated:
+                # Signals agree with the camera — do not discount, do not NM.
+                # (Matches P18 zone-stale shape.)
+                continue
+
+            if not area_id and entity_id not in self._null_area_warned:
+                self._null_area_warned.add(entity_id)
+                _LOGGER.warning(
+                    "Stuck-signal D1: camera %s has area_id=None — "
+                    "notify-only, skipping census discount",
+                    entity_id,
+                )
+
+            if safe_to_discount:
+                stuck_now.add(entity_id)
+            # NM notify fires regardless of discount decision (operator
+            # visibility on any stuck camera).
+            self.hass.async_create_task(_fire_camera_stuck_nm(  # noqa: untracked-ok
+                self.hass, entity_id, count, hours,
+            ))
+            # Fire-and-forget NM emit; per-day latched.
+
+        # Purge state for cameras no longer configured or no longer
+        # reporting a valid count (prevents unbounded growth across
+        # config reloads — Bug Class #22 mitigation).
+        for stale_id in list(self._camera_stuck_state.keys()):
+            if stale_id not in seen:
+                self._camera_stuck_state.pop(stale_id, None)
+
+        self._watchdog_discounted_cameras = stuck_now
+        self._last_stuck_cameras = stuck_diag
+
+    def _d1_boot_settle_done(self) -> bool:
+        """Shared boot-settle predicate — same source as ActuatorReconciler."""
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if mgr is None:
+                return True
+            presence = getattr(mgr, "coordinators", {}).get("presence")
+            if presence is None:
+                return True
+            return bool(getattr(presence, "_boot_settle_done", True))
+        except Exception:  # noqa: BLE001
+            return True
+
+    def _interior_configured_areas(self) -> set[str]:
+        """Return the set of area_ids that have a URA room mapped to them."""
+        out: set[str] = set()
+        try:
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                    continue
+                area_id = entry.data.get(CONF_AREA_ID) or entry.options.get(
+                    CONF_AREA_ID,
+                )
+                if area_id:
+                    out.add(area_id)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "_interior_configured_areas failed", exc_info=True,
+            )
+        return out
+
+    def get_stuck_cameras(self) -> list[dict[str, Any]]:
+        """B L-3 fix-up 2026-07-28: public accessor for the sensor layer.
+
+        Returns a copy of the last-computed stuck-camera diagnostic list.
+        Callers (sensor.py) should use this instead of reaching into the
+        private `_last_stuck_cameras` attribute.
+        """
+        return list(self._last_stuck_cameras or [])
+
+    def _get_stuck_camera_hours(self) -> float:
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                merged = {**entry.data, **entry.options}
+                try:
+                    return float(merged.get(
+                        CONF_STUCK_CAMERA_HOURS, DEFAULT_STUCK_CAMERA_HOURS,
+                    ))
+                except (TypeError, ValueError):
+                    return DEFAULT_STUCK_CAMERA_HOURS
+        return DEFAULT_STUCK_CAMERA_HOURS
+
+    def _get_stuck_camera_tiers_required(self) -> int:
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                merged = {**entry.data, **entry.options}
+                try:
+                    return int(merged.get(
+                        CONF_STUCK_CAMERA_INTERIOR_TIERS_REQUIRED,
+                        DEFAULT_STUCK_CAMERA_INTERIOR_TIERS_REQUIRED,
+                    ))
+                except (TypeError, ValueError):
+                    return DEFAULT_STUCK_CAMERA_INTERIOR_TIERS_REQUIRED
+        return DEFAULT_STUCK_CAMERA_INTERIOR_TIERS_REQUIRED
+
+    def _room_tier_corroboration_by_area(self) -> dict[str, int]:
+        """Return ``{area_id: count_of_rooms_with_tier1_or_occupied}``.
+
+        Iterates all room coordinators; counts a room as corroborating iff
+        its live data shows any of motion/presence/occupied True. Safe to
+        call every census tick (~2 Hz).
+        """
+        out: dict[str, int] = {}
+        try:
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                    continue
+                area_id = entry.data.get(CONF_AREA_ID) or entry.options.get(
+                    CONF_AREA_ID,
+                )
+                if not area_id:
+                    continue
+                room_coord = self.hass.data.get(DOMAIN, {}).get(entry.entry_id)
+                if room_coord is None:
+                    continue
+                data = getattr(room_coord, "data", None) or {}
+                if (
+                    data.get(STATE_MOTION_DETECTED)
+                    or data.get(STATE_PRESENCE_DETECTED)
+                    or data.get(STATE_OCCUPIED)
+                ):
+                    out[area_id] = out.get(area_id, 0) + 1
+        except Exception:  # noqa: BLE001 — corroboration best-effort
+            _LOGGER.debug(
+                "_room_tier_corroboration_by_area failed; treating as none",
+                exc_info=True,
+            )
+            return {}
+        return out
 
     def _ble_home_by_area(self) -> dict[str, int]:
         """Return ``{area_id: count}`` of residents BLE places at home, keyed by area.

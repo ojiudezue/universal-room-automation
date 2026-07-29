@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.34.1
+# Universal Room Automation vv5.35.0
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -27,6 +27,14 @@ from homeassistant.helpers import entity_registry as er
 
 from .const import (
     BLE_MOTION_CONFIRM_MULTIPLIER,
+    CONF_STUCK_SENSOR_DUTYCYCLE_MIN_TICKS,
+    CONF_STUCK_SENSOR_DUTYCYCLE_PCT,
+    CONF_STUCK_SENSOR_DUTYCYCLE_WINDOW_MIN,
+    DEFAULT_STUCK_SENSOR_DUTYCYCLE_MIN_TICKS,
+    DEFAULT_STUCK_SENSOR_DUTYCYCLE_PCT,
+    DEFAULT_STUCK_SENSOR_DUTYCYCLE_WINDOW_MIN,
+    STUCK_D2_FRESH_MOTION_SECONDS,
+    STUCK_D2_MIN_MOTION_TRANSITIONS,
     DOMAIN,
     SCAN_INTERVAL_OCCUPANCY,
     CONF_MOTION_SENSORS,
@@ -132,6 +140,52 @@ from ._humidity_gate import humidity_venting_enabled
 
 _LOGGER = logging.getLogger(__name__)
 
+
+async def _fire_stuck_sensor_nm(
+    hass: HomeAssistant, room_name: str, entity_id: str, kind: str,
+    hours: float | None = None,
+) -> None:
+    """Stuck-Signal D4-P22 (+D2 duty-cycle) NM emit via shared helper.
+
+    A-LOW-2 fix-up 2026-07-28: `hours` is optional and only meaningful for
+    kind='continuous'. Callers for dutycycle pass None (was: fake 0.0).
+    """
+    from .domain_coordinators._stuck_signal_nm import fire_stuck_signal  # noqa: PLC0415
+    if kind == "continuous":
+        diag = (
+            f"room {room_name}: sensor {entity_id} continuously on for "
+            f"{hours or 0.0:.1f}h — excluded from occupancy (stuck-sensor rule)"
+        )
+    else:
+        diag = (
+            f"room {room_name}: sensor {entity_id} duty-cycle over threshold "
+            "with no PIR corroboration — excluded from occupancy"
+        )
+    await fire_stuck_signal(
+        hass,
+        kind=kind,
+        key=(room_name, entity_id),
+        diagnosis=diag,
+        remedy="power-cycle the sensor; if recurrent, replace / relocate",
+    )
+
+
+async def _fire_max_active_failsafe_nm(
+    hass: HomeAssistant, room_name: str, minutes: float, limit_min: float,
+) -> None:
+    """Stuck-Signal D4-P24 RESILIENCE-001 NM emit via shared helper."""
+    from .domain_coordinators._stuck_signal_nm import fire_stuck_signal  # noqa: PLC0415
+    await fire_stuck_signal(
+        hass,
+        kind="max_active_failsafe",
+        key=(room_name,),
+        diagnosis=(
+            f"room {room_name}: force-vacated after {minutes:.0f} min "
+            f"(failsafe limit {limit_min:.0f} min, Tier-1 signal stale)"
+        ),
+        remedy="inspect the room's motion/mmwave sensors for stuck-on state",
+    )
+
 # v4.5.15: 4-hour failsafe constant moved to const.DEFAULT_FAILSAFE_DURATION_SECONDS.
 # Room-type-keyed durations in const.ROOM_TYPE_FAILSAFE_DURATIONS;
 # resolved at runtime by `_get_failsafe_duration_seconds`.
@@ -191,6 +245,35 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # Stuck sensor tracking: per-sensor continuous-on timestamps
         self._sensor_on_since: dict[str, datetime] = {}
         self._stuck_sensor_hours: float = 4.0  # hours before flagging stuck
+
+        # Stuck-Signal Watchdog D2 (v5.35.0). Duty-cycle variant of Fix #9:
+        # per binary sensor, keep a bounded ring of (monotonic_seconds, bool)
+        # samples over the last CONF_STUCK_SENSOR_DUTYCYCLE_WINDOW_MIN
+        # minutes. Fix #9's continuous-on rule (above) is evaded by a
+        # flapping mmwave (Master Bedroom empty-suite incident) — the
+        # duty-cycle rule catches it. See PLANNING_stuck_signal_watchdog.md.
+        # Ring is bounded by pruning old samples on every append; per-entity
+        # memory is O(samples_in_window) with a hard ceiling from the
+        # coordinator's tick interval * window minutes.
+        from collections import deque as _deque  # noqa: PLC0415
+        self._sensor_dutycycle_rings: dict[str, "_deque[tuple[float, bool]]"] = {}
+        # Per-sensor motion-transition timestamps (rolling deque, same
+        # window) — used to detect PIR corroboration in the duty-cycle
+        # guard: a flapping mmWave with a transitioning motion sensor in
+        # the same room is NOT stuck, it's legitimately noisy.
+        self._sensor_dutycycle_motion_transitions: dict[
+            str, "_deque[float]"
+        ] = {}
+        self._sensor_last_motion_state: dict[str, bool] = {}
+        # Per-sensor stuck-kind label ("continuous" or "dutycycle") for the
+        # existing per-room sensor exposure at sensor.py:2188/2245.
+        self._stuck_sensor_kinds: dict[str, str] = {}
+        # M-3 (B) fix-up 2026-07-28: per-tick fired set to avoid scheduling
+        # redundant NM tasks when a sensor stays stuck across many ticks.
+        # NM helper itself dedups per-day; this dedup is only about not
+        # spamming asyncio task creation between per-day boundaries.
+        # Recovered by _stuck_sensor_fired.discard when the sensor clears.
+        self._stuck_sensor_fired: set[tuple[str, str, str]] = set()
 
         # Energy accumulator timing
         self._last_energy_calc_time: datetime | None = None
@@ -1288,6 +1371,142 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 room_name, sensor,
             )
 
+    def _detect_duty_cycle_stuck(
+        self,
+        now: datetime,
+        motion_sensors: list[str],
+        mmwave_sensors: list[str],
+        occupancy_sensors: list[str],
+        room_name: str,
+    ) -> set[str]:
+        """Stuck-Signal D2 — Fix #9 duty-cycle variant.
+
+        For each mmwave / occupancy sensor in the room, maintain a rolling
+        deque of (monotonic_seconds, bool_on) samples over the last
+        ``CONF_STUCK_SENSOR_DUTYCYCLE_WINDOW_MIN`` minutes. When the on-
+        ratio exceeds ``CONF_STUCK_SENSOR_DUTYCYCLE_PCT`` AND there are
+        NO motion transitions in the same window (PIR corroboration
+        absent), classify the sensor stuck.
+
+        Motion sensors themselves are NOT candidates — PIR is our
+        corroboration source; scoring PIR against itself would double-
+        count. This mirrors Fix #9's spirit: the room's motion signal is
+        the anchor Fix #9 falls back to when other sensors go bad.
+
+        Warm-up floor: below ``CONF_STUCK_SENSOR_DUTYCYCLE_MIN_TICKS``
+        samples in the window, no verdict.
+        """
+        from collections import deque as _deque  # noqa: PLC0415
+        from .const import ENTRY_TYPE_INTEGRATION  # noqa: PLC0415
+
+        merged: dict[str, Any] = {}
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                merged = {**entry.data, **entry.options}
+                break
+        window_min = int(merged.get(
+            CONF_STUCK_SENSOR_DUTYCYCLE_WINDOW_MIN,
+            DEFAULT_STUCK_SENSOR_DUTYCYCLE_WINDOW_MIN,
+        ))
+        pct_threshold = float(merged.get(
+            CONF_STUCK_SENSOR_DUTYCYCLE_PCT,
+            DEFAULT_STUCK_SENSOR_DUTYCYCLE_PCT,
+        ))
+        min_ticks = int(merged.get(
+            CONF_STUCK_SENSOR_DUTYCYCLE_MIN_TICKS,
+            DEFAULT_STUCK_SENSOR_DUTYCYCLE_MIN_TICKS,
+        ))
+        window_sec = window_min * 60
+        mono = time.monotonic()
+
+        # Boot-settle gate (FIX 3 2026-07-28): honor the shared presence
+        # boot-settle predicate — no verdicts until presence has settled.
+        if not self._d2_boot_settle_done():
+            return set()
+
+        # Track PIR transitions this tick (any motion sensor in the room
+        # changing state contributes a corroboration timestamp).
+        motion_key = f"__room::{room_name}"
+        motion_deque = self._sensor_dutycycle_motion_transitions.setdefault(
+            motion_key, _deque(),
+        )
+        while motion_deque and (mono - motion_deque[0]) > window_sec:
+            motion_deque.popleft()
+        for msensor in motion_sensors:
+            if not msensor:
+                continue
+            on_now = self._is_sensor_on(msensor)
+            prev = self._sensor_last_motion_state.get(msensor)
+            if prev is not None and prev != on_now:
+                motion_deque.append(mono)
+            self._sensor_last_motion_state[msensor] = on_now
+        # FIX 4 (A-HIGH-1) 2026-07-28: corroboration shield tightened.
+        # A single stale PIR blip inside the 60-min window used to disable
+        # detection permanently. Now: corroborated iff ≥2 transitions in
+        # the window OR ≥1 within the last STUCK_D2_FRESH_MOTION_SECONDS.
+        fresh_cutoff = mono - STUCK_D2_FRESH_MOTION_SECONDS
+        fresh_transitions = sum(1 for ts in motion_deque if ts >= fresh_cutoff)
+        has_motion_corroboration = (
+            len(motion_deque) >= STUCK_D2_MIN_MOTION_TRANSITIONS
+            or fresh_transitions >= 1
+        )
+
+        stuck: set[str] = set()
+        candidates = [s for s in (mmwave_sensors + occupancy_sensors) if s]
+        for sensor in candidates:
+            ring = self._sensor_dutycycle_rings.setdefault(sensor, _deque())
+            on_now = self._is_sensor_on(sensor)
+            ring.append((mono, on_now))
+            while ring and (mono - ring[0][0]) > window_sec:
+                ring.popleft()
+
+            if len(ring) < min_ticks:
+                continue
+            on_count = sum(1 for _, v in ring if v)
+            on_ratio = on_count / len(ring)
+            if on_ratio < pct_threshold:
+                continue
+            if has_motion_corroboration:
+                # PIR is transitioning — legitimately noisy room, not a
+                # stuck mmWave. Skip.
+                _LOGGER.debug(
+                    "Room %s: sensor %s on_ratio=%.2f exceeds %.2f but "
+                    "motion corroboration present — not stuck",
+                    room_name, sensor, on_ratio, pct_threshold,
+                )
+                continue
+            stuck.add(sensor)
+
+        # Purge rings for sensors no longer configured (config-reload
+        # hygiene — Bug Class #22 mitigation).
+        configured = set(candidates)
+        for stale in list(self._sensor_dutycycle_rings.keys()):
+            if stale not in configured:
+                self._sensor_dutycycle_rings.pop(stale, None)
+
+        # B L-2 fix-up 2026-07-28: also purge sibling per-sensor state so
+        # a de-configured motion sensor doesn't leave zombie last-state
+        # bookkeeping in memory across reloads.
+        configured_all = configured | {m for m in motion_sensors if m}
+        for stale in list(self._sensor_last_motion_state.keys()):
+            if stale not in configured_all:
+                self._sensor_last_motion_state.pop(stale, None)
+
+        return stuck
+
+    def _d2_boot_settle_done(self) -> bool:
+        """Shared boot-settle predicate — same source as ActuatorReconciler."""
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if mgr is None:
+                return True
+            presence = getattr(mgr, "coordinators", {}).get("presence")
+            if presence is None:
+                return True
+            return bool(getattr(presence, "_boot_settle_done", True))
+        except Exception:  # noqa: BLE001
+            return True
+
     def _is_sensor_on(self, entity_id: str) -> bool:
         """Check if a binary sensor is on."""
         state = self.hass.states.get(entity_id)
@@ -1514,13 +1733,77 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             s for s, since in self._sensor_on_since.items()
             if (now - since).total_seconds() / 3600 >= self._stuck_sensor_hours
         }
+        # Reset the per-sensor kind labels each tick — a sensor no longer
+        # stuck this tick must drop from the diagnostic surface.
+        self._stuck_sensor_kinds = {}
         if stuck_sensors:
             for s in stuck_sensors:
                 on_hours = (now - self._sensor_on_since[s]).total_seconds() / 3600
+                self._stuck_sensor_kinds[s] = "continuous"
                 _LOGGER.warning(
                     "Room %s: Sensor %s stuck on for %.1f hours — ignoring",
                     room_name, s, on_hours,
                 )
+                # D4-P22: NM notify (per-day dedup latch). Log path stays
+                # as-is — this is a notification-only addition.
+                _fired_key = ("continuous", room_name, s)
+                if _fired_key not in self._stuck_sensor_fired:
+                    self._stuck_sensor_fired.add(_fired_key)
+                    self.hass.async_create_task(_fire_stuck_sensor_nm(  # noqa: untracked-ok
+                        self.hass, room_name, s, "continuous", on_hours,
+                    ))
+                    # Fire-and-forget NM emit — per-day dedup latched
+                    # inside `_stuck_signal_nm.fire_stuck_signal`; no
+                    # awaitable state consumed by the coordinator.
+
+        # === Stuck-Signal D2 (v5.35.0): Fix #9 duty-cycle variant ===
+        # Continuous-on evades a flapping mmWave (Master Bedroom empty-
+        # suite incident). The duty-cycle rule catches on-ratio anomalies
+        # over a rolling window even when off-ticks reset _sensor_on_since.
+        # Guarded by warm-up floor + PIR corroboration to prevent boot-
+        # transient false-positives and legitimately noisy rooms. Fail-open:
+        # any exception restores byte-identical Fix #9-only behavior.
+        try:
+            dc_stuck = self._detect_duty_cycle_stuck(
+                now=now,
+                motion_sensors=motion_sensors,
+                mmwave_sensors=mmwave_sensors,
+                occupancy_sensors=occupancy_sensors,
+                room_name=room_name,
+            )
+            for s in dc_stuck:
+                if s in stuck_sensors:
+                    # Continuous rule already caught this one; keep the
+                    # existing kind label. Continuous rule DOES exclude.
+                    continue
+                # FIX 2 (B H-1) 2026-07-28: D2 is NOTIFY + DIAGNOSTIC ONLY.
+                # Do NOT insert into stuck_sensors — a sleeping person is
+                # ~100% mmWave duty cycle with zero PIR, and excluding
+                # would vacate sleeping bedrooms (home_night trust gap).
+                # Exclusion graduates in a later cycle behind a house-state
+                # gate once the detector earns trust (stage-1 doctrine).
+                self._stuck_sensor_kinds[s] = "dutycycle"
+                _LOGGER.warning(
+                    "Room %s: Sensor %s duty-cycle stuck (on-ratio "
+                    "exceeded over rolling window) — NOTIFY-ONLY, "
+                    "not excluded from occupancy",
+                    room_name, s,
+                )
+                # M-3 fix-up: caller-side latch pre-check to avoid per-tick
+                # task spam. `_stuck_signal_nm` still per-day-dedups the
+                # NM itself; this just prevents scheduling redundant tasks.
+                _fired_key = ("dutycycle", room_name, s)
+                if _fired_key not in self._stuck_sensor_fired:
+                    self._stuck_sensor_fired.add(_fired_key)
+                    self.hass.async_create_task(_fire_stuck_sensor_nm(  # noqa: untracked-ok
+                        self.hass, room_name, s, "dutycycle", None,
+                    ))
+                    # Fire-and-forget NM emit; per-day latched.
+        except Exception:  # noqa: BLE001 — fail-open (Fix #9 unchanged)
+            _LOGGER.debug(
+                "Room %s: duty-cycle stuck detection raised (swallowed)",
+                room_name, exc_info=True,
+            )
 
         # Check motion (excluding stuck sensors)
         motion_detected = any(
@@ -1742,6 +2025,13 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     data[STATE_TIMEOUT_REMAINING] = 0
                     self._last_motion_time = None
                     self._failsafe_fired = True
+                    # Stuck-Signal D4-P24 NM emit (per-day latch). Notify
+                    # only — the failsafe action above is UNCHANGED.
+                    self.hass.async_create_task(_fire_max_active_failsafe_nm(  # noqa: untracked-ok
+                        self.hass, room_name, duration / 60,
+                        failsafe_seconds / 60,
+                    ))
+                    # Fire-and-forget NM emit; per-day latched.
                 else:
                     # Skip failsafe — a Tier 1 sensor is still active.
                     # Debug-level because this is the common case for

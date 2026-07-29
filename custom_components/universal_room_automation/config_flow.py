@@ -6358,6 +6358,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS,
             DEFAULT_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS,
             OPTIMIZER_DIMENSIONS_ALL,
+            CONF_STUCK_SIGNAL_NM_ENABLED,
+            DEFAULT_STUCK_SIGNAL_NM_ENABLED,
         )
 
         # NM Cycle A-2 fix-up (A2, 2026-07-20): the humidity ladder must
@@ -6385,6 +6387,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_SAFETY_DISCOVERY_BLOCKLIST: list(DEFAULT_SAFETY_DISCOVERY_BLOCKLIST),
             CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS:
                 list(DEFAULT_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS),
+            # Stuck-Signal Watchdog kill switch (v5.35.0).
+            CONF_STUCK_SIGNAL_NM_ENABLED: DEFAULT_STUCK_SIGNAL_NM_ENABLED,
         }
 
         def _equals_default(key, submitted):
@@ -6620,6 +6624,19 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
+            # --- Stuck-Signal Watchdog kill switch (v5.35.0) ---
+            # Rung-2 knob per PLANNING_stuck_signal_watchdog.md: an
+            # operator may want to silence stuck_signal NM emits during
+            # a known-bad Frigate outage without a code push. Detection +
+            # discount logic keeps running with this off; only NM is
+            # suppressed.
+            vol.Optional(
+                CONF_STUCK_SIGNAL_NM_ENABLED,
+                default=self._get_current(
+                    CONF_STUCK_SIGNAL_NM_ENABLED,
+                    DEFAULT_STUCK_SIGNAL_NM_ENABLED,
+                ),
+            ): selector.BooleanSelector(),
         })
 
         return self.async_show_form(

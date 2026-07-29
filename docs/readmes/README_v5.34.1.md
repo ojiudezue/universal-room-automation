@@ -35,4 +35,14 @@ pollution baseline, zero new failures). Display-only, no decision consumer.
   (~98°F per the live daily forecast). Window: 15 min (cache warm).
 - **H3 — real forecast, not current temp.** `forecast_temp_tomorrow` (98) ≠ current temp
   (89); today/week/month values shift vs the pre-fix current-temp basis. Window: 15 min.
+
+### Validated 2026-07-28
+
+| # | Result | Observed evidence |
+|---|--------|-------------------|
+| H1 | **PASS** | Zero URA `ERROR` lines post-restart. |
+| H2 | **PASS** | `predicted_energy_tomorrow` numeric (`0.0` clamped, `raw_net_kwh: -6` — model predicts a net-EXPORT day); `predicted_cost_tomorrow = -0.48` (credit). No longer `unknown`. |
+| H3 | **PASS** | `forecast_temp_tomorrow: 99` = the real day-2 forecast high (current temp was ~89 at eval; live daily forecast 98-99) — get_forecasts sourcing confirmed, not current-temp fallback. |
+
+Note for consumers: `predicted_energy_tomorrow` is **net-of-solar** (similar-days model on net grid usage; `raw_net_kwh` signed, negative = export). Dashboard "Net Tomorrow" must use `raw_net_kwh` directly — computing solar − predicted would double-count solar.
 </content>

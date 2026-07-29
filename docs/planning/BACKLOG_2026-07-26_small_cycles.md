@@ -60,6 +60,19 @@ Decomposition"), and a **tier** estimate. Filed, not scheduled. Ordered by likel
 - **Threshold:** before a deploy where we want a hard green gate; or when a real failure hides in the noise.
 - **Tier:** 1 (xfail-quarantine the pollution set).
 
+### 11. Broken whole-house display sensors (found 2026-07-28 during Residence-tab build)
+- **Why:** `sensor.universal_room_automation_whole_house_cost_today` reads **$619.60 against 0.5 kWh** (snapshot-math sensor, the I4 duplicate flagged in the #7 plan); `sensor.universal_room_automation_whole_house_power` reads an implausible **15 W** (source breakdown all null). Both were excluded from the new Residence surfaces (House Draw uses the proven Envoy-based formula instead; cost omitted).
+- **Benefit:** kills two lying numbers; strengthens the #7-plan case to deprecate `whole_house_cost_today` in favor of the canonical `ura_energy_cost_today` (TOU-tick, billing-grade-ish) rather than fix the snapshot math.
+- **Threshold:** next hygiene batch — they're display-only and now unused by dashboards, so no urgency; do NOT let anything new bind to them meanwhile.
+- **Tier:** 1 (likely deprecate/remove + source-audit for the power sensor's null breakdown).
+
+### 12. Zone "safety alert" = comfort-drift heuristic crying wolf (found 2026-07-28)
+- **Why:** `ZoneSafetyAlertSensor` (aggregation.py:4354-4375) ORs: any room temp >85°F/<55°F, humidity >70%/<25%, or leak. On an empty house with HVAC away-setback in summer, rooms legitimately drift past 85° → Master Suite + Back Hallway both showed red "safety" alerts (verified 2026-07-28: MS avg 82.1° spread 9.2° → hottest room ~86-87°; no leak, no emergency). The new Residence-tab red chips will fire every hot empty afternoon.
+- **Benefit:** an alert that only fires for real problems (leak, smoke-adjacent, extreme temps beyond setback norms) is trustworthy; comfort-drift belongs in a separate, calmer signal.
+- **Fix shape:** split into `safety` (leak + true extremes, occupancy-independent) vs `comfort_drift` (threshold relative to the ACTIVE HVAC setback target, or gated on occupancy/HVAC mode); the four inline literals (85/55/70/25) violate Numbers-Get-Knobs → named module constants at minimum.
+- **Threshold:** before relying on the Residence-tab alert chips as a real signal; or bundle with the next presence/HVAC-adjacent cycle.
+- **Tier:** 1-2 (display + one aggregate sensor; no actuation).
+
 ### 10. Small / display
 - **`wifi_guest_floor` attribute** reads 2 on an empty house (display-only, does NOT feed the count) — tune the guest-VLAN hostname/recency filter if the *attribute* should read 0. **Threshold:** only if it confuses on the dashboard. Tier 1.
 - **Dashboard ura-v8:** weather animation assets (needs operator to drop `weather-bg.min.js`+`cloud.png` in `config/www/`); `data.zones` vs `options.zones` reconcile (Zone Manager); PWA `automation_mode` inert-knob (wire or hide — flagged G4).

@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.34.1
+# Universal Room Automation vv5.35.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.34.1"
+VERSION: Final = "v5.35.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -2429,4 +2429,76 @@ WS_ACTIVITY_COLUMNS: Final = (
     "id", "timestamp", "coordinator", "action", "room", "zone",
     "importance", "description", "details_json", "entity_id",
 )
+
+
+# ---------------------------------------------------------------------------
+# Stuck-Signal Watchdog cycle (v5.35.0) — see
+# docs/planning/PLANNING_stuck_signal_watchdog.md
+# ---------------------------------------------------------------------------
+# Detection + discount + notify ONLY. All rung-1 module constants (safety /
+# protocol boundaries — operator changes require review). The kill-switch
+# below is rung-2 (options-flow) so an operator can silence a known-bad
+# Frigate outage without a code push.
+
+# D1 — census-layer per-camera stuck-count check.
+CONF_STUCK_CAMERA_HOURS: Final = "stuck_camera_hours"
+DEFAULT_STUCK_CAMERA_HOURS: Final = 3.0  # hours a camera person_count>0 may
+                                          # hold w/ zero interior corroboration
+CONF_STUCK_CAMERA_INTERIOR_TIERS_REQUIRED: Final = (
+    "stuck_camera_interior_tiers_required"
+)
+DEFAULT_STUCK_CAMERA_INTERIOR_TIERS_REQUIRED: Final = 1
+
+# D2 — Fix #9 duty-cycle variant. On-ratio over a rolling window catches
+# flapping stuck sensors that Fix #9's continuous-on check evades.
+CONF_STUCK_SENSOR_DUTYCYCLE_WINDOW_MIN: Final = (
+    "stuck_sensor_dutycycle_window_min"
+)
+DEFAULT_STUCK_SENSOR_DUTYCYCLE_WINDOW_MIN: Final = 60
+CONF_STUCK_SENSOR_DUTYCYCLE_PCT: Final = "stuck_sensor_dutycycle_pct"
+DEFAULT_STUCK_SENSOR_DUTYCYCLE_PCT: Final = 0.85
+CONF_STUCK_SENSOR_DUTYCYCLE_MIN_TICKS: Final = (
+    "stuck_sensor_dutycycle_min_ticks"
+)
+DEFAULT_STUCK_SENSOR_DUTYCYCLE_MIN_TICKS: Final = 20  # warm-up floor
+
+# D3 — frozen device_tracker check (notify-only, no auto-prune).
+CONF_FROZEN_TRACKER_DAYS: Final = "frozen_tracker_days"
+DEFAULT_FROZEN_TRACKER_DAYS: Final = 2.0
+
+# FIX 4 (A-HIGH-1) 2026-07-28 — D2 corroboration shield constants.
+# The prior any-transition-in-60-min rule allowed one stale PIR blip
+# to disable stuck detection for the entire window. Now: corroborated
+# iff EITHER (a) ≥ STUCK_D2_MIN_MOTION_TRANSITIONS transitions across
+# the full window, OR (b) at least one transition within the last
+# STUCK_D2_FRESH_MOTION_SECONDS. Module constants (rung 1) — changing
+# these requires review.
+STUCK_D2_FRESH_MOTION_SECONDS: Final = 300  # 5 min
+STUCK_D2_MIN_MOTION_TRANSITIONS: Final = 2
+
+# FIX 7 (A-MED-5 / B L-1) 2026-07-28 — rung-1 aliases without the CONF_
+# prefix, so callers that want to signal "this is a module constant, NOT
+# an options-flow key" can import the honest name. The CONF_-prefixed
+# names above remain for backward compatibility with camera_census's
+# merged.get() calls (deprecated — a future cycle will drop the options
+# read entirely). Do NOT add these to config_flow.
+STUCK_CAMERA_HOURS: Final = DEFAULT_STUCK_CAMERA_HOURS
+STUCK_CAMERA_INTERIOR_TIERS_REQUIRED: Final = (
+    DEFAULT_STUCK_CAMERA_INTERIOR_TIERS_REQUIRED
+)
+FROZEN_TRACKER_DAYS: Final = DEFAULT_FROZEN_TRACKER_DAYS
+
+# D4 — kill switch (rung 2 — options-flow) for ALL stuck_signal NM emits.
+# Operator may want to silence during a known outage without disabling
+# the underlying exclusion/failsafe logic.
+CONF_STUCK_SIGNAL_NM_ENABLED: Final = "stuck_signal_nm_enabled"
+DEFAULT_STUCK_SIGNAL_NM_ENABLED: Final = True
+
+# Shared NM hazard_type + coordinator_id for the stuck_signal category.
+# Sub-classified by the `kind` field on the notification payload:
+#   continuous, dutycycle, camera_stuck, max_active_failsafe,
+#   zone_stale_occupancy, actuator_flap_quarantine, frozen_tracker
+STUCK_SIGNAL_NM_HAZARD_TYPE: Final = "stuck_signal"
+STUCK_SIGNAL_NM_COORDINATOR_ID: Final = "stuck_signal"
+
 
