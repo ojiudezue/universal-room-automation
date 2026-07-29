@@ -11,3 +11,8 @@ the joined-string state format found.
 ## Validation
 - H1: the repeating `sensor.laundry_device_status ... longer than 255` error STOPS
   post-restart; sensor reads "10 devices (see device_list)". 15 min.
+
+### Validated 2026-07-29 (~00:31 CDT)
+| # | Result | Evidence |
+|---|---|---|
+| H1 | **PASS** | `sensor.laundry_device_status` = "10 devices (see device_list)"; last "longer than 255" error timestamped 00:24:33 (pre-restart) — flood stopped. Watchdog sensor survived restart (0/healthy); zero URA errors post-boot. |

@@ -18,3 +18,9 @@ the observability surface of this?" — answer was push-heavy/pull-poor; this co
 ## Validation
 - H1: clean boot, sensor registers, state 0 with empty lists on the healthy house. 15 min.
 - H2: on the next watchdog emit, `fires_today`/`last_fired` update + one anomaly row. Organic.
+
+### Validated 2026-07-29
+| # | Result | Evidence |
+|---|---|---|
+| H1 | **PASS** | `sensor.ura_coordinator_manager_stuck_signal_watchdog` (device-prefixed id) live: state 0, attrs stuck_cameras[]/stuck_sensors{}/frozen_trackers[]/last_fired{}/fires_today{} + ledger note. Survived the v5.35.3 restart. Health-tab conditional card committed (renders only when >0). |
+| H2 | pending-organic | fires_today/last_fired + anomaly row on next emit. |
