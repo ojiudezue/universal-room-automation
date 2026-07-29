@@ -847,3 +847,244 @@ def test_d2_dutycycle_is_notify_only_no_exclusion():
         "D2 must be notify+diagnostic ONLY — inserting into the "
         "exclusion set would vacate sleeping bedrooms."
     )
+
+
+# ---------------------------------------------------------------------------
+# v5.36.0 — observability surface (D1 sensor + D2 anomaly write)
+# ---------------------------------------------------------------------------
+
+
+def test_emit_stats_ledger_updates_on_fire():
+    """v5.36.0 D1: successful fire_stuck_signal updates the per-kind ledger."""
+    _stuck_signal_nm.reset_latches_for_tests()
+    _force_kill_switch(True)
+    _install_fake_severity()
+    hass = _mk_hass_with_nm(nm_enabled=True)
+
+    assert _stuck_signal_nm.get_emit_stats() == {}
+    r = _run(_stuck_signal_nm.fire_stuck_signal(
+        hass, kind="continuous", key=("Bed", "s1"),
+        diagnosis="stuck",
+    ))
+    assert r is True
+    stats = _stuck_signal_nm.get_emit_stats()
+    assert "continuous" in stats
+    assert stats["continuous"]["fires_today"] == 1
+    assert stats["continuous"]["last_fired"] is not None
+    # Same-day re-fire on same key is latch-suppressed (does NOT increment).
+    r2 = _run(_stuck_signal_nm.fire_stuck_signal(
+        hass, kind="continuous", key=("Bed", "s1"), diagnosis="stuck",
+    ))
+    assert r2 is False
+    assert _stuck_signal_nm.get_emit_stats()["continuous"]["fires_today"] == 1
+    # A different key of the same kind DOES fire and increments.
+    r3 = _run(_stuck_signal_nm.fire_stuck_signal(
+        hass, kind="continuous", key=("Bed", "s2"), diagnosis="stuck2",
+    ))
+    assert r3 is True
+    assert _stuck_signal_nm.get_emit_stats()["continuous"]["fires_today"] == 2
+
+
+def test_anomaly_row_written_on_emit():
+    """v5.36.0 D2: successful fire writes one anomaly row via save_anomaly_event."""
+    _stuck_signal_nm.reset_latches_for_tests()
+    _force_kill_switch(True)
+    _install_fake_severity()
+    hass = _mk_hass_with_nm(nm_enabled=True)
+    db = MagicMock()
+    db.save_anomaly_event = AsyncMock()
+    hass.data[DOMAIN]["database"] = db
+
+    # Stub the anomaly_event module so _write_stuck_anomaly's local imports
+    # resolve without pulling the real production import chain.
+    _ae_mod_name = (
+        "custom_components.universal_room_automation.domain_coordinators."
+        "anomaly_event"
+    )
+    if _ae_mod_name not in sys.modules or not hasattr(
+        sys.modules[_ae_mod_name], "AnomalyEvent",
+    ):
+        fake = types.ModuleType(_ae_mod_name)
+
+        class _Sev:
+            WARNING = 1
+
+        class _Type:
+            POINT_IN_TIME = "point_in_time"
+
+        def _build_ctx(source_signal=None, extra=None):
+            return {"source_signal": source_signal, "extra": extra or {}}
+
+        class _Event:
+            def __init__(self, **kw):
+                for k, v in kw.items():
+                    setattr(self, k, v)
+
+        fake.AnomalySeverity = _Sev
+        fake.AnomalyType = _Type
+        fake.AnomalyEvent = _Event
+        fake.build_context_json = _build_ctx
+        sys.modules[_ae_mod_name] = fake
+
+    r = _run(_stuck_signal_nm.fire_stuck_signal(
+        hass, kind="continuous", key=("Bed", "s1"), diagnosis="stuck",
+    ))
+    assert r is True
+    assert db.save_anomaly_event.await_count == 1
+    (event,) = db.save_anomaly_event.await_args.args
+    assert getattr(event, "coordinator", None) == "stuck_signal"
+    assert getattr(event, "type", None) == "continuous"
+
+
+def test_anomaly_failure_does_not_block_nm():
+    """Mutation-anchored: DB write raises => NM still fires successfully."""
+    _stuck_signal_nm.reset_latches_for_tests()
+    _force_kill_switch(True)
+    _install_fake_severity()
+    hass = _mk_hass_with_nm(nm_enabled=True)
+    db = MagicMock()
+    db.save_anomaly_event = AsyncMock(side_effect=RuntimeError("boom"))
+    hass.data[DOMAIN]["database"] = db
+
+    r = _run(_stuck_signal_nm.fire_stuck_signal(
+        hass, kind="continuous", key=("Bed", "sX"), diagnosis="stuck",
+    ))
+    assert r is True, "NM must dispatch even when DB anomaly write raises"
+    assert hass.data[DOMAIN]["notification_manager"].async_notify.await_count == 1
+    # Ledger still updates.
+    assert _stuck_signal_nm.get_emit_stats()["continuous"]["fires_today"] == 1
+
+
+def test_watchdog_sensor_counts_and_attrs():
+    """v5.36.0 D1: URAStuckSignalWatchdogSensor aggregates + reports attrs.
+
+    Drive the REAL sensor class with stub coordinators exposing the new
+    public accessors (get_stuck_cameras, get_stuck_sensor_kinds,
+    get_frozen_trackers). No cross-module private-attr reads.
+    """
+    _stuck_signal_nm.reset_latches_for_tests()
+
+    hass = _StubHass(entries=[])
+    # Stub census
+    census = MagicMock()
+    census.get_stuck_cameras = MagicMock(return_value=[
+        {"entity_id": "cam.foyer", "kind": "camera_stuck", "hours": 4.0},
+    ])
+    hass.data[DOMAIN]["census"] = census
+    # Stub person coord
+    person = MagicMock()
+    person.get_frozen_trackers = MagicMock(return_value=[
+        {"entity_id": "device_tracker.ezinne_phone", "days": 3.0},
+    ])
+    hass.data[DOMAIN]["person_coordinator"] = person
+    # Stub room coordinators via aggregation._get_room_coordinators.
+    room_coord = MagicMock()
+    room_coord.get_stuck_sensor_kinds = MagicMock(return_value={
+        "binary_sensor.master_mmwave": "dutycycle",
+        "binary_sensor.master_pir": "continuous",
+    })
+    room_coord.entry = types.SimpleNamespace(data={"room_name": "Master"})
+
+    fake_agg_name = "custom_components.universal_room_automation.aggregation"
+    fake_agg = types.ModuleType(fake_agg_name)
+    fake_agg._get_room_coordinators = lambda _h: [room_coord]
+    sys.modules[fake_agg_name] = fake_agg
+
+    # Seed the emit ledger via the REAL fire path. Resolve the module
+    # from sys.modules so this test observes THE SAME module instance
+    # that the sensor's `from ..._stuck_signal_nm import get_emit_stats`
+    # will pick up, even under ordering pollution where another test has
+    # re-spec-loaded the module under the same key.
+    _ssn_name = (
+        "custom_components.universal_room_automation.domain_coordinators."
+        "_stuck_signal_nm"
+    )
+    ssn_mod = sys.modules[_ssn_name]
+    ssn_mod.reset_latches_for_tests()
+    ssn_mod._kill_switch_on = lambda _h: True  # type: ignore[attr-defined]
+    _install_fake_severity()
+    hass.data[DOMAIN]["notification_manager"] = MagicMock(
+        async_notify=AsyncMock(),
+    )
+    _run(ssn_mod.fire_stuck_signal(
+        hass, kind="continuous", key=("__watchdog_test__", "seed_a"),
+        diagnosis="seed",
+    ))
+    _run(ssn_mod.fire_stuck_signal(
+        hass, kind="continuous", key=("__watchdog_test__", "seed_b"),
+        diagnosis="seed",
+    ))
+    assert ssn_mod.get_emit_stats().get("continuous", {}).get("fires_today") == 2, (
+        f"seed failed; ledger={ssn_mod.get_emit_stats()}"
+    )
+
+    # Instantiate the sensor by exec-ing JUST the URAStuckSignalWatchdogSensor
+    # class body from sensor.py source into a scope with a stub base class —
+    # this avoids importing sensor.py (which pulls the full HA entity stack)
+    # while STILL driving the real production method bodies. If a future
+    # edit changes native_value/extra_state_attributes/_collect, this test
+    # picks up the change because the source is re-read every run.
+    import ast as _ast, logging as _logging, textwrap as _tw
+    src = open(os.path.join(_ura_path, "sensor.py")).read()
+    mod_ast = _ast.parse(src)
+    cls_node = next(
+        n for n in mod_ast.body
+        if isinstance(n, _ast.ClassDef)
+        and n.name == "URAStuckSignalWatchdogSensor"
+    )
+    # Rewrite bases -> (object,) so we don't need HA's SensorEntity.
+    cls_node.bases = [_ast.Name(id="object", ctx=_ast.Load())]
+    cls_node.decorator_list = []
+    # Also strip the __init__ (uses HA DeviceInfo) — we build via __new__.
+    cls_node.body = [
+        b for b in cls_node.body
+        if not (isinstance(b, _ast.FunctionDef) and b.name == "__init__")
+    ]
+    # Drop class-level attribute assignments that reference HA symbols.
+    cls_node.body = [
+        b for b in cls_node.body
+        if not (isinstance(b, _ast.AnnAssign) or isinstance(b, _ast.Assign))
+    ]
+
+    # Rewrite `from .aggregation import ...` and
+    # `from .domain_coordinators._stuck_signal_nm import ...` inside the
+    # method bodies to absolute imports so exec works regardless of what
+    # earlier tests did to sys.modules / __package__ hooks.
+    class _RelToAbs(_ast.NodeTransformer):
+        def visit_ImportFrom(self, node):
+            if node.level and node.module:
+                node.module = (
+                    "custom_components.universal_room_automation." + node.module
+                )
+                node.level = 0
+            return node
+
+    cls_node = _RelToAbs().visit(cls_node)
+    _ast.fix_missing_locations(cls_node)
+    wrapper = _ast.Module(body=[cls_node], type_ignores=[])
+    _ast.fix_missing_locations(wrapper)
+    ns = {
+        "_LOGGER": _logging.getLogger("test"),
+        "DOMAIN": DOMAIN,
+        # Provide package context so the class body's relative imports
+        # (`from .aggregation ...`, `from .domain_coordinators._stuck_signal_nm ...`)
+        # resolve against our pre-registered fake / spec-loaded modules.
+        "__package__": "custom_components.universal_room_automation",
+        "__name__": "custom_components.universal_room_automation.sensor",
+    }
+    exec(compile(wrapper, "<sensor-extract>", "exec"), ns)
+    Cls = ns["URAStuckSignalWatchdogSensor"]
+    sensor_obj = Cls.__new__(Cls)
+    sensor_obj.hass = hass
+    state = sensor_obj.native_value
+    attrs = sensor_obj.extra_state_attributes
+    # 1 stuck camera + 2 stuck sensors (Master room) + 1 frozen tracker = 4
+    assert state == 4, f"expected 4, got {state}"
+    assert attrs["stuck_cameras"][0]["entity_id"] == "cam.foyer"
+    assert attrs["stuck_sensors"]["Master"] == {
+        "binary_sensor.master_mmwave": "dutycycle",
+        "binary_sensor.master_pir": "continuous",
+    }
+    assert attrs["frozen_trackers"][0]["entity_id"] == "device_tracker.ezinne_phone"
+    assert attrs["fires_today"].get("continuous", 0) >= 2
+    assert attrs["last_fired"].get("continuous") is not None

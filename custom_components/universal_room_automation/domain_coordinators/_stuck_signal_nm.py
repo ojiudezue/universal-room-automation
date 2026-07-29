@@ -52,6 +52,12 @@ _LATCHES: dict[Tuple[str, Tuple[Any, ...]], str] = {}
 # entities that were never flagged). Cleared on `reset_latches_for_tests`.
 _STUCK_SIGNAL_NOTIFIED: set[Tuple[str, Tuple[Any, ...]]] = set()
 
+# v5.36.0 D1 ledger — per-kind emit stats. RAM-only (resets on restart);
+# populated in `fire_stuck_signal` on successful dispatch; read via
+# `get_emit_stats()` for the house-level diagnostic sensor.
+# Shape: { kind: {"last_fired": ISO_str, "fires_today": int, "date": ISO_date} }
+_EMIT_STATS: dict[str, dict[str, Any]] = {}
+
 
 def _kill_switch_on(hass: HomeAssistant) -> bool:
     """Return True when NM emits are ENABLED (default True).
@@ -110,6 +116,46 @@ def _prune_stale_latches(today: str) -> None:
         _LOGGER.debug("_prune_stale_latches failed (swallowed)", exc_info=True)
 
 
+async def _write_stuck_anomaly(
+    hass: HomeAssistant,
+    kind: str,
+    key: Tuple[Any, ...],
+    diagnosis: str,
+) -> None:
+    """Persist a POINT_IN_TIME anomaly row for a stuck-signal emit.
+
+    v5.36.0 D2. Mirrors the shape used by
+    ``energy_write_verify._emit_anomaly`` (grep write_verification_failed):
+    build the AnomalyEvent + call ``database.save_anomaly_event``. Local
+    imports guard the circular-load hazard the module docstring calls out.
+    Fail-open: any exception is swallowed by the caller wrapper.
+    """
+    from ..const import DOMAIN as _DOMAIN  # noqa: PLC0415
+    from .anomaly_event import (  # noqa: PLC0415
+        AnomalyEvent,
+        AnomalySeverity,
+        AnomalyType,
+        build_context_json,
+    )
+
+    database = hass.data.get(_DOMAIN, {}).get("database")
+    if database is None:
+        return
+    payload = build_context_json(
+        source_signal="stuck_signal",
+        extra={"kind": kind, "key": list(key), "diagnosis": diagnosis},
+    )
+    event = AnomalyEvent(
+        coordinator="stuck_signal",
+        type=str(kind),
+        severity=AnomalySeverity.WARNING,
+        anomaly_type=AnomalyType.POINT_IN_TIME,
+        detected_at=dt_util.utcnow().isoformat(),
+        payload=payload,
+    )
+    await database.save_anomaly_event(event)
+
+
 async def fire_stuck_signal(
     hass: HomeAssistant,
     kind: str,
@@ -163,6 +209,26 @@ async def fire_stuck_signal(
         _LATCHES[latch_key] = today
         _STUCK_SIGNAL_NOTIFIED.add(latch_key)
         _prune_stale_latches(today)
+        # v5.36.0 D1 ledger update — per-kind last_fired / fires_today.
+        try:
+            stats = _EMIT_STATS.get(kind)
+            if stats is None or stats.get("date") != today:
+                stats = {"date": today, "fires_today": 0, "last_fired": None}
+                _EMIT_STATS[kind] = stats
+            stats["fires_today"] = int(stats.get("fires_today", 0)) + 1
+            stats["last_fired"] = (now or dt_util.now()).isoformat()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("stuck_signal ledger update failed", exc_info=True)
+        # v5.36.0 D2 — persist an anomaly row (per-day-latched, so ≤1 per
+        # (kind,key) per day; no write-flood risk). Wrapped: a DB failure
+        # must NEVER block the NM emit path above.
+        try:
+            await _write_stuck_anomaly(hass, kind, key, diagnosis)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "stuck_signal anomaly write failed (swallowed): kind=%s key=%s",
+                kind, key, exc_info=True,
+            )
         _LOGGER.info(
             "stuck_signal NM fired: kind=%s key=%s diagnosis=%s",
             kind, key, diagnosis,
@@ -235,6 +301,17 @@ def reset_latches_for_tests() -> None:
     """Drop all per-day latches. Test-only helper."""
     _LATCHES.clear()
     _STUCK_SIGNAL_NOTIFIED.clear()
+    _EMIT_STATS.clear()
+
+
+def get_emit_stats() -> dict[str, dict[str, Any]]:
+    """Return a copy of the per-kind NM emit ledger.
+
+    RAM-only ledger (resets on HA restart, documented on the sensor).
+    Shape: ``{kind: {"last_fired": ISO, "fires_today": int, "date": ISO}}``.
+    Consumed by the house-level `sensor.ura_stuck_signal_watchdog`.
+    """
+    return {k: dict(v) for k, v in _EMIT_STATS.items()}
 
 
 def latch_snapshot_for_tests() -> dict[Tuple[str, Tuple[Any, ...]], str]:
