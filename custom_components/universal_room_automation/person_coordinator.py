@@ -1,6 +1,6 @@
 """Person tracking coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.35.0
+# Universal Room Automation vv5.35.1
 # Build: 2026-01-03
 # File: person_coordinator.py
 # v3.2.9: No changes (zone fixes in aggregation.py, fan fixes in automation.py)
@@ -631,35 +631,6 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         except Exception:  # noqa: BLE001 - defensive
             return True
 
-
-async def _fire_frozen_tracker_nm(
-    hass: HomeAssistant, person: str, tracker: str, days: float,
-    tracker_state: str, person_state: str,
-    sibling_disagrees: bool = False,
-) -> None:
-    """Stuck-Signal D3 frozen-tracker NM via shared helper (per-day latch)."""
-    from .domain_coordinators._stuck_signal_nm import fire_stuck_signal  # noqa: PLC0415
-    sibling_note = ""
-    if sibling_disagrees:
-        sibling_note = (
-            " Note: another tracker for this person reports 'not_home' fresh —"
-            " the frozen tracker is likely wedged."
-        )
-    diag = (
-        f"device_tracker {tracker} for {person} frozen at {tracker_state!r} for "
-        f"{days:.1f} days (person entity currently reports {person_state!r})."
-        f"{sibling_note}"
-    )
-    await fire_stuck_signal(
-        hass,
-        kind="frozen_tracker",
-        key=(person, tracker),
-        diagnosis=diag,
-        remedy=(
-            "check the device is powered on and reporting; consider removing "
-            "the stale tracker from the person entity"
-        ),
-    )
 
     async def _log_person_room_change(
         self,
@@ -1543,3 +1514,34 @@ async def _fire_frozen_tracker_nm(
                 count += 1
         
         return count
+
+
+async def _fire_frozen_tracker_nm(
+    hass: HomeAssistant, person: str, tracker: str, days: float,
+    tracker_state: str, person_state: str,
+    sibling_disagrees: bool = False,
+) -> None:
+    """Stuck-Signal D3 frozen-tracker NM via shared helper (per-day latch)."""
+    from .domain_coordinators._stuck_signal_nm import fire_stuck_signal  # noqa: PLC0415
+    sibling_note = ""
+    if sibling_disagrees:
+        sibling_note = (
+            " Note: another tracker for this person reports 'not_home' fresh —"
+            " the frozen tracker is likely wedged."
+        )
+    diag = (
+        f"device_tracker {tracker} for {person} frozen at {tracker_state!r} for "
+        f"{days:.1f} days (person entity currently reports {person_state!r})."
+        f"{sibling_note}"
+    )
+    await fire_stuck_signal(
+        hass,
+        kind="frozen_tracker",
+        key=(person, tracker),
+        diagnosis=diag,
+        remedy=(
+            "check the device is powered on and reporting; consider removing "
+            "the stale tracker from the person entity"
+        ),
+    )
+
