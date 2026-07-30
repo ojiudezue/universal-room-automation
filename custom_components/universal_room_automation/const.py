@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.36.0
+# Universal Room Automation vv5.36.1
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.36.0"
+VERSION: Final = "v5.36.1"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -2483,6 +2483,18 @@ DEFAULT_FROZEN_TRACKER_DAYS: Final = 2.0
 # these requires review.
 STUCK_D2_FRESH_MOTION_SECONDS: Final = 300  # 5 min
 STUCK_D2_MIN_MOTION_TRANSITIONS: Final = 2
+
+# v5.36.1 FIX 2 (A-MED-1 sibling) — D1 "never-zero" rule. The unchanged-value
+# check resets on ANY value change; an oscillating phantom (e.g. Frigate
+# count bouncing 1↔2 for 30h) evades it indefinitely. This sibling rule
+# fires when person_count has been continuously > 0 for the window,
+# regardless of value changes. Uses a LONGER default window than the
+# unchanged rule (which is aggressive at 3h) because a legitimately busy
+# camera can legally show sustained non-zero counts (parties, dinners,
+# gatherings). A 6h continuous-non-zero span with ZERO interior
+# corroboration is a strong stuck signal (nobody moves that little for
+# 6h without any BLE / motion / mmwave hit). Rung 1 — module constant.
+STUCK_CAMERA_NEVERZERO_HOURS: Final = 6.0
 
 # FIX 7 (A-MED-5 / B L-1) 2026-07-28 — rung-1 aliases without the CONF_
 # prefix, so callers that want to signal "this is a module constant, NOT
