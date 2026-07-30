@@ -421,51 +421,93 @@ class _CameraStubInfo:
         self.person_count_sensor = person_count_sensor
 
 
+def _run_real_d1(now, cameras, state_reader, ble_by_area, room_tier_by_area,
+                 stuck_state, stuck_hours=3.0, tiers_required=1,
+                 neverzero_hours=6.0, configured_areas=None,
+                 null_area_warned=None):
+    """Drive the REAL PersonCensus._watchdog_stuck_cameras (AST-extracted).
+
+    v5.36.1 fix-up of Bug Class #62 (3rd recurrence): the prior harnesses
+    here were line-for-line REIMPLEMENTATIONS — mutations to production
+    camera_census.py did not flip these tests. This runner extracts the
+    production method source at test time and execs it against a stub
+    self, so any edit to the production method is exercised directly.
+    """
+    import ast as _ast, textwrap as _tw
+    from types import SimpleNamespace as _NS
+    cc_path = os.path.join(_ura_path, "camera_census.py")
+    cc_src = open(cc_path).read()
+    tree = _ast.parse(cc_src)
+    seg = None
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.ClassDef) and node.name == "PersonCensus":
+            for m in node.body:
+                if isinstance(m, (_ast.FunctionDef, _ast.AsyncFunctionDef)) \
+                        and m.name == "_watchdog_stuck_cameras":
+                    seg = _ast.get_source_segment(cc_src, m)
+    assert seg is not None, "production _watchdog_stuck_cameras not found"
+
+    fired = []
+
+    def _fake_fire(hass, entity_id, count, hours, rule):
+        fired.append({"entity_id": entity_id, "count": count,
+                      "hours": hours, "rule": rule})
+        return None  # not a coroutine; stub async_create_task tolerates
+
+    ns = {
+        "CAMERA_PLATFORM_FRIGATE": "frigate",
+        "STUCK_CAMERA_NEVERZERO_HOURS": neverzero_hours,
+        "_fire_camera_stuck_nm": _fake_fire,
+        "_LOGGER": _NS(warning=lambda *a, **k: None,
+                       debug=lambda *a, **k: None),
+        "Any": object, "datetime": datetime,
+    }
+    exec(_tw.dedent(seg), ns)
+    real_method = ns["_watchdog_stuck_cameras"]
+
+    if configured_areas is None:
+        configured_areas = {c.area_id for c in cameras.values() if c.area_id}
+
+    def _states_get(sensor_id):
+        v = state_reader(sensor_id)
+        return None if v is None else _NS(state=str(v))
+
+    stub = _NS(
+        _d1_boot_settle_done=lambda: True,
+        _get_stuck_camera_hours=lambda: stuck_hours,
+        _get_stuck_camera_tiers_required=lambda: tiers_required,
+        _get_interior_camera_entities=lambda: list(cameras),
+        _ble_home_by_area=lambda: ble_by_area,
+        _room_tier_corroboration_by_area=lambda: room_tier_by_area,
+        _interior_configured_areas=lambda: set(configured_areas),
+        _camera_manager=_NS(
+            get_platform_for_camera=lambda e: "frigate",
+            _camera_by_entity=cameras,
+        ),
+        hass=_NS(states=_NS(get=_states_get),
+                 async_create_task=lambda x: None,
+                 data={}),
+        _camera_stuck_state=stuck_state,
+        _null_area_warned=(null_area_warned
+                           if null_area_warned is not None else set()),
+        _watchdog_discounted_cameras=set(),
+        _last_stuck_cameras=[],
+    )
+    real_method(stub, now)
+    stub._last_fired_nm = fired
+    return stub._watchdog_discounted_cameras, stub._last_stuck_cameras
+
+
 def _watchdog_stuck_cameras(
     now, cameras, state_reader, ble_by_area, room_tier_by_area,
     stuck_state, stuck_hours=3.0, tiers_required=1,
 ):
-    """Faithful reimpl of camera_census._watchdog_stuck_cameras."""
-    stuck_now = set()
-    diag = []
-    seen = set()
-    for entity_id, camera_info in cameras.items():
-        count = state_reader(camera_info.person_count_sensor)
-        if count is None:
-            stuck_state.pop(entity_id, None)
-            continue
-        seen.add(entity_id)
-        rec = stuck_state.get(entity_id)
-        if count <= 0:
-            stuck_state.pop(entity_id, None)
-            continue
-        if rec is None or rec.get("last_value") != count:
-            stuck_state[entity_id] = {
-                "since": now, "last_change": now, "last_value": count,
-            }
-            continue
-        since = rec.get("since", now)
-        hours = (now - since).total_seconds() / 3600.0
-        if hours < stuck_hours:
-            continue
-        area_id = camera_info.area_id
-        ble_here = ble_by_area.get(area_id, 0) if area_id else 0
-        room_tier = room_tier_by_area.get(area_id, 0) if area_id else 0
-        corroborators = int(ble_here > 0) + int(room_tier > 0)
-        entry = {
-            "entity_id": entity_id, "kind": "camera_stuck",
-            "hours": round(hours, 2), "count": count, "area_id": area_id,
-            "interior_corroborators": corroborators,
-            "discounted": corroborators < tiers_required,
-        }
-        diag.append(entry)
-        if corroborators >= tiers_required:
-            continue
-        stuck_now.add(entity_id)
-    for stale in list(stuck_state.keys()):
-        if stale not in seen:
-            stuck_state.pop(stale, None)
-    return stuck_now, diag
+    """Delegates to the REAL production method (see _run_real_d1)."""
+    return _run_real_d1(
+        now, cameras, state_reader, ble_by_area, room_tier_by_area,
+        stuck_state, stuck_hours=stuck_hours, tiers_required=tiers_required,
+        neverzero_hours=10**9,  # neutralize never-zero for unchanged-rule tests
+    )
 
 
 def test_d1_camera_stuck_discounted_without_corroboration():
@@ -565,6 +607,124 @@ def test_d1_null_area_never_discounts():
     # production rule is: if not area_id -> notify_only, never discount.
     # Assert the diagnostic surfaces area_id=None (visible to operator).
     assert diag[0]["area_id"] is None
+
+
+# ---------------------------------------------------------------------------
+# v5.36.1 FIX 2 — D1 "never-zero" sibling rule (line-for-line mirror of the
+# updated production shape in camera_census._watchdog_stuck_cameras).
+# ---------------------------------------------------------------------------
+
+
+def _watchdog_neverzero(
+    now, cameras, state_reader, ble_by_area, room_tier_by_area,
+    stuck_state, stuck_hours=3.0, tiers_required=1,
+    neverzero_hours=None,
+):
+    """Delegates to the REAL production method (see _run_real_d1)."""
+    return _run_real_d1(
+        now, cameras, state_reader, ble_by_area, room_tier_by_area,
+        stuck_state, stuck_hours=stuck_hours, tiers_required=tiers_required,
+        neverzero_hours=neverzero_hours,
+    )
+
+
+def test_d1_never_zero_catches_oscillating_phantom():
+    """Oscillating phantom (count flips 1↔2 forever, never 0, no corroboration)
+    must be caught by the never-zero rule even though the unchanged-value
+    window resets on each flip. Mutation-anchor: removing the never_zero_hit
+    branch above causes this test to fail (unchanged-value alone never
+    fires because every tick resets `since`)."""
+    cams = {
+        "cam.playroom": _CameraStubInfo(
+            "cam.playroom", "area_playroom", "sensor.playroom_person_count",
+        ),
+    }
+    states = {"sensor.playroom_person_count": 1}
+    stuck_state: dict = {}
+    now = datetime.now(timezone.utc)
+    # Ticks: every step advances 5s and toggles 1↔2 so the unchanged-value
+    # window can NEVER accumulate past 5s. neverzero_hours=0.001 (~3.6s)
+    # so a couple of ticks pushes past it.
+    for i in range(4):
+        _watchdog_neverzero(
+            now + timedelta(seconds=5 * i), cams,
+            lambda e: states.get(e), {}, {}, stuck_state,
+            stuck_hours=100.0,  # unchanged rule cannot fire
+            neverzero_hours=0.001,
+        )
+        states["sensor.playroom_person_count"] = 2 if i % 2 == 0 else 1
+    stuck, diag = _watchdog_neverzero(
+        now + timedelta(seconds=30), cams, lambda e: states.get(e),
+        {}, {}, stuck_state,
+        stuck_hours=100.0, neverzero_hours=0.001,
+    )
+    assert stuck == {"cam.playroom"}
+    assert diag[0]["rule"] == "never_zero"
+    assert diag[0]["interior_corroborators"] == 0
+
+
+def test_d1_never_zero_resets_on_zero():
+    """A zero reading between non-zero ticks must reset the never-zero window."""
+    cams = {
+        "cam.k": _CameraStubInfo(
+            "cam.k", "area_k", "sensor.k_person_count",
+        ),
+    }
+    states = {"sensor.k_person_count": 1}
+    stuck_state: dict = {}
+    now = datetime.now(timezone.utc)
+    _watchdog_neverzero(
+        now, cams, lambda e: states.get(e), {}, {}, stuck_state,
+        stuck_hours=100.0, neverzero_hours=0.001,
+    )
+    # Zero flips → pop → nonzero_since forgotten.
+    states["sensor.k_person_count"] = 0
+    _watchdog_neverzero(
+        now + timedelta(seconds=4), cams, lambda e: states.get(e),
+        {}, {}, stuck_state, stuck_hours=100.0, neverzero_hours=0.001,
+    )
+    # Non-zero resumes; the window starts fresh so 2s later we should NOT
+    # be stuck.
+    states["sensor.k_person_count"] = 1
+    _watchdog_neverzero(
+        now + timedelta(seconds=5), cams, lambda e: states.get(e),
+        {}, {}, stuck_state, stuck_hours=100.0, neverzero_hours=0.001,
+    )
+    stuck, _ = _watchdog_neverzero(
+        now + timedelta(seconds=6), cams, lambda e: states.get(e),
+        {}, {}, stuck_state, stuck_hours=100.0, neverzero_hours=0.001,
+    )
+    assert stuck == set()
+
+
+def test_d1_never_zero_skipped_with_corroboration():
+    """Corroboration in the area prevents both discount AND lets the
+    never-zero window reset."""
+    cams = {
+        "cam.foyer": _CameraStubInfo(
+            "cam.foyer", "area_foyer", "sensor.foyer_person_count",
+        ),
+    }
+    states = {"sensor.foyer_person_count": 1}
+    stuck_state: dict = {}
+    now = datetime.now(timezone.utc)
+    for i in range(4):
+        _watchdog_neverzero(
+            now + timedelta(seconds=5 * i), cams, lambda e: states.get(e),
+            {"area_foyer": 1}, {}, stuck_state,
+            stuck_hours=100.0, neverzero_hours=0.001,
+        )
+        states["sensor.foyer_person_count"] = 2 if i % 2 == 0 else 1
+    stuck, diag = _watchdog_neverzero(
+        now + timedelta(seconds=30), cams, lambda e: states.get(e),
+        {"area_foyer": 1}, {}, stuck_state,
+        stuck_hours=100.0, neverzero_hours=0.001,
+    )
+    assert stuck == set()
+    # If the never-zero window elapsed at all a diag row appears, but the
+    # corroboration branch clears `discounted`.
+    if diag:
+        assert diag[0]["discounted"] is False
 
 
 def test_d1_watchdog_fail_open_preserves_census():

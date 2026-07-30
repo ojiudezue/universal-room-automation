@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation vv5.36.0
+# Universal Room Automation vv5.36.1
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -32,6 +32,7 @@ from .const import (
     CONF_STUCK_CAMERA_INTERIOR_TIERS_REQUIRED,
     DEFAULT_STUCK_CAMERA_HOURS,
     DEFAULT_STUCK_CAMERA_INTERIOR_TIERS_REQUIRED,
+    STUCK_CAMERA_NEVERZERO_HOURS,
     STATE_MOTION_DETECTED,
     STATE_OCCUPIED,
     STATE_PRESENCE_DETECTED,
@@ -78,17 +79,32 @@ _LOGGER = logging.getLogger(__name__)
 
 async def _fire_camera_stuck_nm(
     hass: HomeAssistant, entity_id: str, count: int, hours: float,
+    rule: str = "unchanged",
 ) -> None:
-    """Fire Stuck-Signal D1 NM via the shared helper (per-day dedup)."""
+    """Fire Stuck-Signal D1 NM via the shared helper (per-day dedup).
+
+    v5.36.1 FIX 2: `rule` distinguishes the trigger — "unchanged"
+    (value held constant for STUCK_CAMERA_HOURS) vs "never_zero"
+    (count stayed > 0 across value changes for STUCK_CAMERA_NEVERZERO_HOURS).
+    Latch key includes the rule so an oscillating phantom that trips both
+    rules still fires once per rule per day (operator visibility).
+    """
     from .domain_coordinators._stuck_signal_nm import fire_stuck_signal  # noqa: PLC0415
+    if rule == "never_zero":
+        diagnosis = (
+            f"camera {entity_id} held person_count > 0 (last={count}) for "
+            f"{hours:.1f}h with no interior corroboration (never-zero rule)"
+        )
+    else:
+        diagnosis = (
+            f"camera {entity_id} asserted person_count={count} for {hours:.1f}h "
+            "with no interior corroboration"
+        )
     await fire_stuck_signal(
         hass,
         kind="camera_stuck",
-        key=(entity_id,),
-        diagnosis=(
-            f"camera {entity_id} asserted person_count={count} for {hours:.1f}h "
-            "with no interior corroboration"
-        ),
+        key=(entity_id, rule),
+        diagnosis=diagnosis,
         remedy="reload Frigate config entry",
     )
 
@@ -1657,22 +1673,40 @@ class PersonCensus:
                 self._camera_stuck_state.pop(entity_id, None)
                 continue
 
-            if rec is None or rec.get("last_value") != count:
-                # First non-zero observation OR value CHANGED: (re-)stamp
-                # `since` (window start). A-LOW-3 fix-up 2026-07-28: dead
-                # `last_change` field dropped — the unchanged-value check
-                # is anchored on `since` alone.
+            # v5.36.1 FIX 2: track `nonzero_since` INDEPENDENTLY of value
+            # changes. The unchanged-value window (`since`) still resets on
+            # every value change, but nonzero_since only resets when count
+            # hits 0 (handled above by pop) OR when corroboration appears
+            # (below). This is the "never-zero" sibling rule that catches
+            # oscillating phantoms the unchanged rule can't see.
+            if rec is None:
                 self._camera_stuck_state[entity_id] = {
                     "since": now,
                     "last_value": count,
+                    "nonzero_since": now,
                 }
                 continue
+            if rec.get("last_value") != count:
+                # Value CHANGED: reset the unchanged-value window but keep
+                # nonzero_since (count stayed > 0 across the change).
+                # v5.36.1 FIX 2: do NOT `continue` here — the never-zero
+                # rule must still be evaluated so a perpetually oscillating
+                # phantom (that changes value on every tick) cannot evade
+                # detection indefinitely. Update in place and fall through.
+                rec["since"] = now
+                rec["last_value"] = count
+                # nonzero_since preserved as-is.
 
-            # rec is not None and count matches last_value — running hold.
+            # rec is not None (unchanged OR just-updated on change) — running hold.
             since = rec.get("since", now)
             hours = (now - since).total_seconds() / 3600.0
-            if hours < stuck_hours:
+            nonzero_since = rec.get("nonzero_since", since)
+            nonzero_hours = (now - nonzero_since).total_seconds() / 3600.0
+            never_zero_hit = nonzero_hours >= STUCK_CAMERA_NEVERZERO_HOURS
+            unchanged_hit = hours >= stuck_hours
+            if not (unchanged_hit or never_zero_hit):
                 continue
+            stuck_rule = "unchanged" if unchanged_hit else "never_zero"
 
             # Stuck window exceeded. Check corroboration.
             area_id = camera_info.area_id
@@ -1698,7 +1732,9 @@ class PersonCensus:
             entry_diag = {
                 "entity_id": entity_id,
                 "kind": "camera_stuck",
+                "rule": stuck_rule,
                 "hours": round(hours, 2),
+                "nonzero_hours": round(nonzero_hours, 2),
                 "count": count,
                 "area_id": area_id,
                 "interior_corroborators": corroborators,
@@ -1713,7 +1749,10 @@ class PersonCensus:
             stuck_diag.append(entry_diag)
             if corroborated:
                 # Signals agree with the camera — do not discount, do not NM.
-                # (Matches P18 zone-stale shape.)
+                # (Matches P18 zone-stale shape.) v5.36.1 FIX 2: also reset
+                # nonzero_since so the never-zero window can't accumulate
+                # while corroboration is present.
+                rec["nonzero_since"] = now
                 continue
 
             if not area_id and entity_id not in self._null_area_warned:
@@ -1729,7 +1768,9 @@ class PersonCensus:
             # NM notify fires regardless of discount decision (operator
             # visibility on any stuck camera).
             self.hass.async_create_task(_fire_camera_stuck_nm(  # noqa: untracked-ok
-                self.hass, entity_id, count, hours,
+                self.hass, entity_id, count,
+                hours if unchanged_hit else nonzero_hours,
+                stuck_rule,
             ))
             # Fire-and-forget NM emit; per-day latched.
 

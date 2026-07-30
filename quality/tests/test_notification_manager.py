@@ -557,6 +557,102 @@ class TestDigestMultiChannel:
         nm._send_companion.assert_not_awaited()
 
 
+class TestDigestDuringDND:
+    """v5.36.1 FIX 1 — DND must NOT drop digest-row queue writes.
+
+    Evidence: notification_log = 0 rows in 36h; a MEDIUM stuck-camera
+    emit at 00:00 CDT (inside DND 22:00–07:00) was skipped entirely for
+    a digest-pref recipient because the per-recipient DND `continue`
+    ran BEFORE the digest queue writes. Mutation-anchor: restoring the
+    old ordering (unconditional `continue` on quiet-hours) makes the
+    digest test fail.
+    """
+
+    def _cfg_digest_recipient(self):
+        return _make_config(**{
+            CONF_NM_PUSHOVER_ENABLED: True,
+            CONF_NM_QUIET_USE_HOUSE_STATE: True,
+            CONF_NM_PERSONS: [{
+                CONF_NM_PERSON_ENTITY: "person.digest",
+                CONF_NM_PERSON_PUSHOVER_KEY: "pk",
+                CONF_NM_PERSON_PUSHOVER_DEVICE: "",
+                CONF_NM_PERSON_COMPANION_SERVICE: "",
+                CONF_NM_PERSON_WHATSAPP_PHONE: "",
+                CONF_NM_PERSON_IMESSAGE_HANDLE: "",
+                CONF_NM_PERSON_DELIVERY_PREF: NM_DELIVERY_DIGEST,
+            }],
+        })
+
+    def _cfg_immediate_recipient(self):
+        cfg = self._cfg_digest_recipient()
+        cfg[CONF_NM_PERSONS][0][CONF_NM_PERSON_DELIVERY_PREF] = (
+            NM_DELIVERY_IMMEDIATE
+        )
+        return cfg
+
+    def _install_db(self, hass):
+        db = MagicMock()
+        db.log_notification = AsyncMock()
+        hass.data[DOMAIN]["database"] = db
+        return db
+
+    def _put_house_asleep(self, hass):
+        mock_cm = MagicMock()
+        mock_cm.house_state = "sleep"
+        hass.data[DOMAIN]["coordinator_manager"] = mock_cm
+
+    @pytest.mark.asyncio
+    async def test_digest_row_queued_during_quiet_hours(self):
+        """MEDIUM alert during DND for a digest-pref recipient → digest
+        row IS queued (delivered=0) and no immediate send fires."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, self._cfg_digest_recipient())
+        nm._send_pushover = AsyncMock()
+        db = self._install_db(hass)
+        self._put_house_asleep(hass)
+
+        await nm.async_notify(
+            "camera_census", Severity.MEDIUM, "camera_stuck", "msg",
+            hazard_type="stuck_signal",
+        )
+
+        # No immediate transport send.
+        nm._send_pushover.assert_not_awaited()
+        # A digest queue row was written (delivered=0) for the recipient.
+        queued_calls = [
+            c for c in db.log_notification.await_args_list
+            if len(c.args) >= 9 and c.args[6] == "person.digest"
+            and c.args[7] == "pushover" and c.args[8] == 0
+        ]
+        assert queued_calls, (
+            f"expected a digest queue row for person.digest / pushover, "
+            f"got {db.log_notification.await_args_list!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_immediate_pref_still_dnd_skipped(self):
+        """Regression guard: IMMEDIATE-pref recipient in DND is still
+        skipped (no transport send, no delivered=1 row)."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, self._cfg_immediate_recipient())
+        nm._send_pushover = AsyncMock()
+        db = self._install_db(hass)
+        self._put_house_asleep(hass)
+
+        await nm.async_notify(
+            "camera_census", Severity.MEDIUM, "camera_stuck", "msg",
+            hazard_type="stuck_signal",
+        )
+
+        nm._send_pushover.assert_not_awaited()
+        # No delivered=1 send row written.
+        delivered_rows = [
+            c for c in db.log_notification.await_args_list
+            if len(c.args) >= 9 and c.args[8] == 1
+        ]
+        assert delivered_rows == []
+
+
 class TestLightPatterns:
     """Test light pattern definitions."""
 

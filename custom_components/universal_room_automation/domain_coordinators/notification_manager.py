@@ -1092,13 +1092,32 @@ class NotificationManager:
                 None, hazard_type, severity,
             )
             any_recipient_bypass = False
+            any_digest_recipient = False
             if not global_bypass:
                 for _pcfg in self._config.get(CONF_NM_PERSONS, []) or []:
                     _pid = _pcfg.get(CONF_NM_PERSON_ENTITY, "")
                     if self._recipient_bypasses_dnd(_pid, hazard_type, severity):
                         any_recipient_bypass = True
-                        break
-            if not global_bypass and not any_recipient_bypass:
+                    # v5.36.1 FIX 1: a digest-pref recipient with a sub-HIGH
+                    # alert during DND must reach the per-recipient fan-out
+                    # so their row is queued (delivery is deferred to flush;
+                    # no interruption). CRITICAL/HIGH always coerce to
+                    # IMMEDIATE downstream and are handled by the bypass /
+                    # safety-floor paths, so this only matters for
+                    # LOW / MEDIUM. Without this, `notification_log` loses
+                    # sub-HIGH alerts entirely on DND days (36h empty log
+                    # from the 00:00 camera_stuck emit).
+                    if severity not in (Severity.CRITICAL, Severity.HIGH):
+                        if _pcfg.get(
+                            CONF_NM_PERSON_DELIVERY_PREF,
+                            NM_DELIVERY_IMMEDIATE,
+                        ) == NM_DELIVERY_DIGEST:
+                            any_digest_recipient = True
+            if (
+                not global_bypass
+                and not any_recipient_bypass
+                and not any_digest_recipient
+            ):
                 _LOGGER.debug("Notification suppressed during quiet hours: %s", title)
                 self._quiet_suppressions += 1
                 return
@@ -1221,13 +1240,22 @@ class NotificationManager:
             if effective_pref == NM_DELIVERY_OFF:
                 continue
 
-            # NM Cycle C C3: per-recipient quiet-hours veto. If we're in
-            # quiet hours and this recipient's DND-bypass set doesn't
-            # include this severity (and it's not a life-safety hazard),
-            # SKIP this recipient entirely. Life-safety hazards fall
-            # through via `_recipient_bypasses_dnd`'s safety floor.
-            if self._is_quiet_hours() and not self._recipient_bypasses_dnd(
+            # NM Cycle C C3: per-recipient quiet-hours veto for IMMEDIATE-pref
+            # recipients only. A digest-pref recipient's rows are queued to
+            # the DB and delivered at flush time — DND does not skip them;
+            # skipping the row-write would LOSE the alert entirely (v5.36.1
+            # FIX 1: `notification_log` empty for 36h from a MEDIUM emit
+            # during DND). IMMEDIATE-pref recipients keep the pre-existing
+            # DND skip semantics (a send is an interruption); the audit row
+            # documenting the DND suppression is still emitted for them.
+            _in_quiet = self._is_quiet_hours()
+            _dnd_bypass = self._recipient_bypasses_dnd(
                 person_id, hazard_type, severity,
+            )
+            if (
+                _in_quiet
+                and not _dnd_bypass
+                and effective_pref == NM_DELIVERY_IMMEDIATE
             ):
                 if database:
                     await self._emit_audit_row(
@@ -1258,12 +1286,10 @@ class NotificationManager:
                 person_cfg, hazard_type, severity,
             )
             # D-LOW: compute once per recipient decision — not
-            # recomputed later inside the audit row.
-            _dnd_bypass_applied = (
-                self._is_quiet_hours() and self._recipient_bypasses_dnd(
-                    person_id, hazard_type, severity,
-                )
-            )
+            # recomputed later inside the audit row. FIX 1 v5.36.1: reuse
+            # the local `_in_quiet` / `_dnd_bypass` computed above so the
+            # digest-DND branch and the audit row see the same values.
+            _dnd_bypass_applied = _in_quiet and _dnd_bypass
 
             # NM Cycle C fix-up (2026-07-20, D-R2 MED + D-R3): digest-row
             # writes are NOT transport sends and must NOT be gated on the
