@@ -224,6 +224,333 @@ LOW_HUMIDITY_THRESHOLDS: dict[Severity, float] = {
     Severity.LOW: 30.0,
 }
 
+
+# ============================================================================
+# Zone chip safety-band projection (backlog #12, v5.38.0)
+# ============================================================================
+# Thin projection over the four EXISTING tables above (HUMIDITY_THRESHOLDS,
+# LOW_HUMIDITY_THRESHOLDS, NUMERIC_THRESHOLDS[OVERHEAT|FREEZE_RISK]) for the
+# Residence-tab zone chip (aggregation.ZoneSafetyAlertSensor). NOT a second
+# copy: `resolve_safety_bands()` reads the tables at call time so any tuning
+# to the safety-coordinator thresholds is inherited automatically.
+#
+# Rung selection is rung-1 (module constant): changing these is a safety
+# semantics decision and must go through review — not an operator knob.
+# The chip fires at MEDIUM (the "worth alerting a human" rung), above the
+# LOG-ONLY LOW rung that only starts sustained-window clocks.
+
+ZONE_CHIP_HUMIDITY_RUNG = "medium"          # HUMIDITY_THRESHOLDS[type][rung]
+ZONE_CHIP_TEMP_HIGH_RUNG = Severity.MEDIUM  # NUMERIC_THRESHOLDS[OVERHEAT][r]
+ZONE_CHIP_TEMP_LOW_RUNG = Severity.MEDIUM   # NUMERIC_THRESHOLDS[FREEZE][r]
+ZONE_CHIP_LOW_HUMIDITY_RUNG = Severity.MEDIUM  # LOW_HUMIDITY_THRESHOLDS[r]
+
+# Comfort-drift (D4a) uses the OLD chip thresholds — housekeeping/comfort
+# grade, not safety. Populates an attribute only; does not affect is_on.
+ZONE_CHIP_COMFORT_TEMP_HIGH = 85.0
+ZONE_CHIP_COMFORT_TEMP_LOW = 55.0
+ZONE_CHIP_COMFORT_HUMIDITY_HIGH = 70.0
+ZONE_CHIP_COMFORT_HUMIDITY_LOW = 25.0
+
+
+@dataclass(frozen=True)
+class SafetyBands:
+    """Per-room-type safety-alert bands consumed by the zone chip.
+
+    All temperatures in °F, humidity in %RH. `None` on a humidity field or
+    ``humidity_exempt=True`` means the chip must NOT evaluate humidity for
+    this room type (garage / outdoor). ``temp_exempt=True`` means the chip
+    must NOT evaluate temperature either (outdoor).
+    """
+
+    temp_high_medium: float
+    temp_high_low: float
+    temp_low_medium: float
+    temp_low_low: float
+    humidity_high_medium: float | None
+    humidity_high_high: float | None
+    humidity_low_medium: float | None
+    humidity_exempt: bool
+    temp_exempt: bool = False
+
+
+def _humidity_table_key(room_type: str) -> str:
+    """Map a CONF_ROOM_TYPE value to a HUMIDITY_THRESHOLDS key.
+
+    Unknown / missing → "normal" (matches _resolve_humidity_thresholds
+    fallback in the safety coordinator).
+    """
+    if room_type in ("bathroom",):
+        return "bathroom"
+    if room_type in ("basement",):
+        return "basement"
+    if room_type == "outdoor":
+        return "outdoor"
+    return "normal"
+
+
+def resolve_safety_bands(
+    room_type: str | None,
+    hass=None,
+) -> SafetyBands:
+    """Return the zone-chip safety bands for ``room_type``.
+
+    Reads directly from the four production threshold tables so the chip
+    inherits any tuning applied to the safety coordinator. Room types not
+    modeled in the config-flow enum (or ``None``) fall back to ``generic``
+    == the "normal" humidity table + default OVERHEAT/FREEZE rungs.
+
+    Fix-up A-HIGH-1 (CM knob drift): when ``hass`` is passed AND the room
+    type resolves to the ``normal`` humidity table, medium/high humidity
+    bands are resolved LIVE via the SAME ``nm_cycle_a_knob`` calls the
+    safety coordinator uses in ``_check_high_humidity_hazard`` (see
+    safety.py:2073-2098) so an operator-tuned normal ladder cannot drift
+    the chip vs the coordinator. ``hass=None`` falls back to the static
+    table (test/unit path — CM knobs not reachable without hass).
+
+    Special cases:
+      * ``outdoor`` → both temp AND humidity exempt (sentinel bands).
+      * ``garage`` → humidity exempt (garage RH tracks weather); temp
+        bands default (105/115 high, 40/35 low).
+    """
+    rt = (room_type or "").strip().lower() or "generic"
+
+    temp_high_medium = NUMERIC_THRESHOLDS[HazardType.OVERHEAT][ZONE_CHIP_TEMP_HIGH_RUNG]
+    temp_high_low = NUMERIC_THRESHOLDS[HazardType.OVERHEAT][Severity.LOW]
+    temp_low_medium = NUMERIC_THRESHOLDS[HazardType.FREEZE_RISK][ZONE_CHIP_TEMP_LOW_RUNG]
+    temp_low_low = NUMERIC_THRESHOLDS[HazardType.FREEZE_RISK][Severity.LOW]
+    low_hum_medium = LOW_HUMIDITY_THRESHOLDS[ZONE_CHIP_LOW_HUMIDITY_RUNG]
+
+    # Outdoor: fully exempt on both axes.
+    if rt == "outdoor":
+        return SafetyBands(
+            temp_high_medium=temp_high_medium,
+            temp_high_low=temp_high_low,
+            temp_low_medium=temp_low_medium,
+            temp_low_low=temp_low_low,
+            humidity_high_medium=None,
+            humidity_high_high=None,
+            humidity_low_medium=None,
+            humidity_exempt=True,
+            temp_exempt=True,
+        )
+
+    # Garage: humidity exempt; temp default.
+    if rt == "garage":
+        return SafetyBands(
+            temp_high_medium=temp_high_medium,
+            temp_high_low=temp_high_low,
+            temp_low_medium=temp_low_medium,
+            temp_low_low=temp_low_low,
+            humidity_high_medium=None,
+            humidity_high_high=None,
+            humidity_low_medium=None,
+            humidity_exempt=True,
+        )
+
+    hkey = _humidity_table_key(rt)
+    htable = HUMIDITY_THRESHOLDS[hkey]
+    hi_medium = htable[ZONE_CHIP_HUMIDITY_RUNG]
+    hi_high = htable["high"]
+
+    # A-HIGH-1: honor operator overrides on the "normal" ladder via the
+    # SAME knob calls the safety coordinator uses. Only reachable when a
+    # hass instance is threaded through (aggregation._evaluate does).
+    if hass is not None and hkey == "normal":
+        try:
+            from ..const import (
+                CONF_HUMIDITY_NORMAL_MEDIUM_PCT,
+                CONF_HUMIDITY_NORMAL_HIGH_PCT,
+                DEFAULT_HUMIDITY_NORMAL_MEDIUM_PCT,
+                DEFAULT_HUMIDITY_NORMAL_HIGH_PCT,
+            )
+            from ._nm_cycle_a import nm_cycle_a_knob
+            hi_medium = float(nm_cycle_a_knob(
+                hass, CONF_HUMIDITY_NORMAL_MEDIUM_PCT,
+                DEFAULT_HUMIDITY_NORMAL_MEDIUM_PCT,
+            ))
+            hi_high = float(nm_cycle_a_knob(
+                hass, CONF_HUMIDITY_NORMAL_HIGH_PCT,
+                DEFAULT_HUMIDITY_NORMAL_HIGH_PCT,
+            ))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "resolve_safety_bands: knob lookup failed — falling back "
+                "to static HUMIDITY_THRESHOLDS['normal']", exc_info=True,
+            )
+
+    return SafetyBands(
+        temp_high_medium=temp_high_medium,
+        temp_high_low=temp_high_low,
+        temp_low_medium=temp_low_medium,
+        temp_low_low=temp_low_low,
+        humidity_high_medium=hi_medium,
+        humidity_high_high=hi_high,
+        humidity_low_medium=low_hum_medium,
+        humidity_exempt=False,
+    )
+
+
+@dataclass(frozen=True)
+class ZoneChipRoomInput:
+    """Per-room snapshot the zone chip needs to evaluate safety bands.
+
+    Fields are already-materialized values, so the helper stays pure and
+    is trivial to test without importing HA / aggregation.
+    """
+
+    room_name: str
+    room_type: str
+    temperature: float | None
+    humidity: float | None
+    leak_sensor_entity_id: str | None
+    leak_is_on: bool
+    leak_device_class: str | None
+
+
+def evaluate_zone_chip(
+    rooms: list[ZoneChipRoomInput],
+    zone_is_outdoor: bool,
+    hass=None,
+) -> tuple[list[tuple[str, str]], list[str]]:
+    """Pure helper: given per-room inputs, return (tripping, comfort_drift).
+
+    ``tripping`` is a list of ``(room_name, reason)`` sorted by room name.
+    ``comfort_drift`` is a list of room names crossing the OLD chip lines
+    (85/55 F, 70/25 %RH) but NOT the new safety-grade lines.
+
+    Callers (aggregation.ZoneSafetyAlertSensor) resolve outdoor authority
+    upstream (see ``outdoor_zone_names_snapshot``) and pass
+    ``zone_is_outdoor=True`` to force every room to outdoor bands.
+    """
+    tripping: list[tuple[str, str]] = []
+    comfort_drift: list[str] = []
+    for r in rooms:
+        room_type = "outdoor" if zone_is_outdoor else (r.room_type or "generic")
+        bands = resolve_safety_bands(room_type, hass=hass)
+        temp = r.temperature
+        humidity = r.humidity
+
+        # Safety-grade temperature.
+        if temp is not None and not bands.temp_exempt:
+            if temp > bands.temp_high_medium:
+                tripping.append((
+                    r.room_name,
+                    f"temperature {temp:g}F > {bands.temp_high_medium:g}F",
+                ))
+            elif temp < bands.temp_low_medium:
+                tripping.append((
+                    r.room_name,
+                    f"temperature {temp:g}F < {bands.temp_low_medium:g}F",
+                ))
+
+        # Safety-grade humidity.
+        if humidity is not None and not bands.humidity_exempt:
+            if (
+                bands.humidity_high_medium is not None
+                and humidity > bands.humidity_high_medium
+            ):
+                tripping.append((
+                    r.room_name,
+                    f"humidity {humidity:g}% > {bands.humidity_high_medium:g}%",
+                ))
+            elif (
+                bands.humidity_low_medium is not None
+                and humidity < bands.humidity_low_medium
+            ):
+                tripping.append((
+                    r.room_name,
+                    f"humidity {humidity:g}% < {bands.humidity_low_medium:g}%",
+                ))
+
+        # Comfort-drift (attribute-only).
+        is_drift = False
+        if not bands.temp_exempt and temp is not None:
+            if (
+                (temp > ZONE_CHIP_COMFORT_TEMP_HIGH and temp <= bands.temp_high_medium)
+                or (temp < ZONE_CHIP_COMFORT_TEMP_LOW and temp >= bands.temp_low_medium)
+            ):
+                is_drift = True
+        if not bands.humidity_exempt and humidity is not None:
+            hi_gate = (
+                bands.humidity_high_medium
+                if bands.humidity_high_medium is not None
+                else float("inf")
+            )
+            lo_gate = (
+                bands.humidity_low_medium
+                if bands.humidity_low_medium is not None
+                else float("-inf")
+            )
+            if (
+                (humidity > ZONE_CHIP_COMFORT_HUMIDITY_HIGH and humidity <= hi_gate)
+                or (humidity < ZONE_CHIP_COMFORT_HUMIDITY_LOW and humidity >= lo_gate)
+            ):
+                is_drift = True
+        if is_drift and r.room_name not in comfort_drift:
+            comfort_drift.append(r.room_name)
+
+        # Leak — always evaluated (no room-type gate). Empty-string CONF
+        # is falsy — treated as absent. Require binary_sensor. prefix; if
+        # the entity exposes a device_class, require moisture.
+        eid = r.leak_sensor_entity_id
+        if (
+            eid
+            and isinstance(eid, str)
+            and eid.startswith("binary_sensor.")
+            and r.leak_is_on
+            and (r.leak_device_class in (None, "moisture"))
+        ):
+            tripping.append((r.room_name, "water leak detected"))
+
+    tripping.sort(key=lambda rr: rr[0])
+    comfort_drift = sorted(comfort_drift)
+    return tripping, comfort_drift
+
+
+def outdoor_zone_names_snapshot(hass) -> set[str]:
+    """Module-level twin of SafetyCoordinator._outdoor_zone_names_snapshot.
+
+    Used by the aggregation zone chip so it can honor the SAME outdoor
+    authority (CONF_ZONE_IS_OUTDOOR) that the safety coordinator uses,
+    without importing / instantiating the coordinator. Fails OPEN (empty
+    set) on any registry / shape error.
+    """
+    outdoor: set[str] = set()
+    try:
+        from ..const import (
+            CONF_ENTRY_TYPE,
+            CONF_ZONE_IS_OUTDOOR,
+            CONF_ZONE_NAME,
+            DEFAULT_ZONE_IS_OUTDOOR,
+            ENTRY_TYPE_ZONE,
+            ENTRY_TYPE_ZONE_MANAGER,
+        )
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            etype = entry.data.get(CONF_ENTRY_TYPE)
+            if etype == ENTRY_TYPE_ZONE:
+                merged = {**entry.data, **entry.options}
+                if merged.get(CONF_ZONE_IS_OUTDOOR, DEFAULT_ZONE_IS_OUTDOOR):
+                    zname = merged.get(CONF_ZONE_NAME) or merged.get("zone_name")
+                    if zname:
+                        outdoor.add(zname)
+            elif etype == ENTRY_TYPE_ZONE_MANAGER:
+                merged = {**entry.data, **entry.options}
+                zones = merged.get("zones") or {}
+                if isinstance(zones, dict):
+                    for zname, zcfg in zones.items():
+                        if not isinstance(zcfg, dict):
+                            continue
+                        if zcfg.get(CONF_ZONE_IS_OUTDOOR, DEFAULT_ZONE_IS_OUTDOOR):
+                            outdoor.add(zname)
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug(
+            "ZoneChip: outdoor zone snapshot failed — treating all zones "
+            "as indoor (fail-open)",
+            exc_info=True,
+        )
+        return set()
+    return outdoor
+
 # Light patterns by hazard type
 LIGHT_PATTERNS: dict[str, dict[str, Any]] = {
     "fire": {"color": (255, 100, 0), "effect": "flash", "interval_ms": 250},
@@ -910,42 +1237,12 @@ class SafetyCoordinator(BaseCoordinator):
         modern Zone Manager `zones` dict. Fails OPEN (empty set) on any
         registry / shape error — safety-humidity treats every room as
         indoor, which is the pre-fix behavior (no regression).
+
+        Fix-up B-H3: delegates to the module-level ``outdoor_zone_names_snapshot``
+        so the zone chip (aggregation) and the coordinator share ONE
+        implementation — no drift risk.
         """
-        outdoor: set[str] = set()
-        try:
-            from ..const import (
-                CONF_ENTRY_TYPE,
-                CONF_ZONE_IS_OUTDOOR,
-                CONF_ZONE_NAME,
-                DEFAULT_ZONE_IS_OUTDOOR,
-                ENTRY_TYPE_ZONE,
-                ENTRY_TYPE_ZONE_MANAGER,
-            )
-            for entry in self.hass.config_entries.async_entries(DOMAIN):
-                etype = entry.data.get(CONF_ENTRY_TYPE)
-                if etype == ENTRY_TYPE_ZONE:
-                    merged = {**entry.data, **entry.options}
-                    if merged.get(CONF_ZONE_IS_OUTDOOR, DEFAULT_ZONE_IS_OUTDOOR):
-                        zname = merged.get(CONF_ZONE_NAME) or merged.get("zone_name")
-                        if zname:
-                            outdoor.add(zname)
-                elif etype == ENTRY_TYPE_ZONE_MANAGER:
-                    merged = {**entry.data, **entry.options}
-                    zones = merged.get("zones") or {}
-                    if isinstance(zones, dict):
-                        for zname, zcfg in zones.items():
-                            if not isinstance(zcfg, dict):
-                                continue
-                            if zcfg.get(CONF_ZONE_IS_OUTDOOR, DEFAULT_ZONE_IS_OUTDOOR):
-                                outdoor.add(zname)
-        except Exception:  # noqa: BLE001
-            _LOGGER.debug(
-                "Safety H1: outdoor zone snapshot failed — treating all "
-                "rooms as indoor (fail-open)",
-                exc_info=True,
-            )
-            return set()
-        return outdoor
+        return outdoor_zone_names_snapshot(self.hass)
 
     def _discover_sensors(self) -> None:
         """Discover safety sensors from URA room configs + SC global config.
