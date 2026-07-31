@@ -233,7 +233,8 @@ class _FakeOverrideArrester:
         self.suppressed = []
         self.unsuppressed = []
 
-    def suppress(self, entity_id):
+    def suppress(self, entity_id, kind=None):
+        # v5.36.2 H6: production sites now pass kind="temp" (B1 completeness).
         self.suppressed.append(entity_id)
 
     def unsuppress(self, entity_id):
