@@ -1660,7 +1660,7 @@ class HVACCoordinator(BaseCoordinator):
 
                 # Suppress arrester so set_temperature isn't flagged as manual override
                 if self._override_arrester:
-                    self._override_arrester.suppress(zone.climate_entity)
+                    self._override_arrester.suppress(zone.climate_entity, kind="temp")  # v5.36.2 H6: B1 completeness
 
                 try:
                     await emit_set_temperature(

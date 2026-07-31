@@ -933,7 +933,7 @@ class HVACPredictor:
                 continue
             base_low, base_high = baseline
             if self._override_arrester:
-                self._override_arrester.suppress(zone.climate_entity)
+                self._override_arrester.suppress(zone.climate_entity, kind="temp")  # v5.36.2 H6: B1 completeness
             # B-L1: store the POST-guard pair the chokepoint will actually
             # write (consistent with the DPM apply at hvac.py:1522-1529), so a
             # banking-release during a freeze doesn't leave a pre-guard value
@@ -1009,7 +1009,7 @@ class HVACPredictor:
 
         # Suppress arrester
         if self._override_arrester:
-            self._override_arrester.suppress(zone.climate_entity)
+            self._override_arrester.suppress(zone.climate_entity, kind="temp")  # v5.36.2 H6: B1 completeness
 
         try:
             await emit_set_temperature(
@@ -1147,7 +1147,7 @@ class HVACPredictor:
 
             # Suppress override arrester for this change
             if self._override_arrester:
-                self._override_arrester.suppress(zone.climate_entity)
+                self._override_arrester.suppress(zone.climate_entity, kind="temp")  # v5.36.2 H6: B1 completeness
 
             try:
                 await emit_set_temperature(
