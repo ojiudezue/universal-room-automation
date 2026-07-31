@@ -38,6 +38,7 @@ from homeassistant.helpers.dispatcher import (
     async_dispatcher_send,
 )
 from homeassistant.helpers.event import (
+    async_call_later,
     async_track_state_change_event,
     async_track_time_interval,
 )
@@ -56,6 +57,7 @@ from ..const import (
     CONF_SECURITY_LOCK_CHECK_INTERVAL,
     CONF_SECURITY_LOCK_ENTITIES,
     DOMAIN,
+    SECURITY_AUTO_FOLLOW_ARM_DELAY_S,
 )
 from .base import (
     BaseCoordinator,
@@ -143,6 +145,50 @@ _ARMED_TO_ALARM_SERVICE: dict[ArmedState, str] = {
     ArmedState.ARMED_AWAY: "alarm_arm_away",
     ArmedState.ARMED_VACATION: "alarm_arm_vacation",
 }
+
+# House-State Rung 2a — canonical house_state string → ArmedState mapping.
+# Single source of truth used by ``_handle_house_state_intent`` (debounce
+# scheduler) and ``_fire_state_driven_arming`` (fire path).
+#
+# Fix-up A-H3: restricted to the plan's rung-2a table only. HOME_* / SLEEP
+# transitions are DELIBERATELY UNMAPPED — treated as no-ops (rung 2b
+# territory, deferred). This also resolves B-H2 boot-noise: HOME_*
+# transitions produced by presence post-boot no longer trigger any arming
+# action because they never resolve to an ArmedState.
+_HOUSE_STATE_TO_ARMED: dict[str, ArmedState] = {
+    "away": ArmedState.ARMED_AWAY,
+    "vacation": ArmedState.ARMED_VACATION,
+    "guest": ArmedState.ARMED_HOME,
+    "arriving": ArmedState.DISARMED,
+    "waking": ArmedState.DISARMED,
+}
+
+# INV-4: NM severity for state-driven arming transitions — DIRECTION-aware
+# (A-M3 fix-up). Escalation (moving to a stricter posture) is HIGH so the
+# operator sees it; de-escalation (relaxing, or DISARM) is MEDIUM. The
+# ordering below defines "stricter":
+#   DISARMED (0) < ARMED_HOME (1) < ARMED_AWAY (2) < ARMED_VACATION (3)
+# Under this rule guest-arm (DISARMED→ARMED_HOME) is correctly HIGH; a
+# flat per-target map would have called it MEDIUM.
+_ARMED_STRICTNESS: dict[ArmedState, int] = {
+    ArmedState.DISARMED: 0,
+    ArmedState.ARMED_HOME: 1,
+    ArmedState.ARMED_AWAY: 2,
+    ArmedState.ARMED_VACATION: 3,
+}
+
+
+def _state_driven_severity(from_state: ArmedState, to_state: ArmedState) -> Severity:
+    """Return NM severity for an auto-follow arming transition.
+
+    HIGH when ``to_state`` is stricter than ``from_state`` (escalation);
+    MEDIUM otherwise (de-escalation or same-rank move). Same-rank cannot
+    happen in the fire path because same-target transitions short-circuit
+    with ``suppressed="noop"`` before we notify.
+    """
+    if _ARMED_STRICTNESS.get(to_state, 0) > _ARMED_STRICTNESS.get(from_state, 0):
+        return Severity.HIGH
+    return Severity.MEDIUM
 
 # Verdict → severity mapping
 _VERDICT_SEVERITY: dict[EntryVerdict, Severity] = {
@@ -542,6 +588,33 @@ class SecurityCoordinator(BaseCoordinator):
         self._entry_debounce: dict[str, datetime] = {}
         self._entry_debounce_seconds: int = 10
 
+        # House-State Rung 2a (v5.39.0): auto-follow arming debounce state.
+        # ``_pending_house_state`` holds the latest target house-state string
+        # while ``_house_state_debounce_unsub`` is the async_call_later handle
+        # scheduled to fire after ``SECURITY_AUTO_FOLLOW_ARM_DELAY_S`` seconds
+        # of quiet. A newer intent cancels the pending handle and re-schedules,
+        # so a rapid flap (AWAY→ARRIVING→HOME_DAY within seconds) collapses to
+        # ONE net arming action against the LAST state.
+        # ``_state_driven_arming_last`` is the per-coordinator execution
+        # observability record (INV-1) surfaced on
+        # ``sensor.ura_security_armed_state``.
+        # A-L2 fix-up: typed Optional; None means "no pending fire".
+        self._pending_house_state: str | None = None
+        self._house_state_debounce_unsub = None
+        self._state_driven_arming_last: dict[str, Any] = {}
+
+        # A-H2 fix-up: manual-override hold. When the operator arms/disarms
+        # via UI/service, we stamp the CURRENT house_state string here so a
+        # subsequent auto-follow fire for the SAME house_state is suppressed
+        # (``suppressed="manual_hold"``). The next distinct house-state
+        # transition clears the stamp — manual wins for the remainder of
+        # that house-state, auto-follow resumes on real state change.
+        self._manual_action_house_state: str | None = None
+
+        # B-M1 fix-up: teardown flag re-checked at fire time so a debounced
+        # fire that lands DURING or AFTER async_teardown becomes a no-op.
+        self._shutting_down: bool = False
+
     async def async_setup(self) -> None:
         """Set up the Security Coordinator."""
         _LOGGER.info(
@@ -728,12 +801,24 @@ class SecurityCoordinator(BaseCoordinator):
 
     async def async_teardown(self) -> None:
         """Tear down the Security Coordinator."""
+        # B-M1 fix-up: mark shutdown BEFORE cancelling listeners so a fire
+        # that races past cancel returns immediately at the gate re-check.
+        self._shutting_down = True
         self._cancel_listeners()
         # B-M1 / C-C7 fix-up: reset the optimizer-intent unsub handle so
         # re-setup after teardown re-subscribes cleanly. ``_cancel_listeners``
         # already fired the dispatcher unsub (handle was on
         # ``self._unsub_listeners``).
         self._optimizer_intent_unsub = None
+        # House-State Rung 2a: cancel any pending debounced auto-follow
+        # fire so a shutdown-time reload does not arm 30s after teardown.
+        if self._house_state_debounce_unsub is not None:
+            try:
+                self._house_state_debounce_unsub()
+            except Exception:  # noqa: BLE001
+                pass
+            self._house_state_debounce_unsub = None
+        self._pending_house_state = None
         if self.anomaly_detector is not None:
             try:
                 await self.anomaly_detector.save_baselines()
@@ -1010,84 +1095,327 @@ class SecurityCoordinator(BaseCoordinator):
         self,
         intent: Intent,
     ) -> list[CoordinatorAction]:
-        """Handle house state change when auto-follow is enabled (req #6)."""
-        new_house_state = intent.data.get("new_state", "")
+        """Rung 2a: schedule a debounced state-driven arming fire.
 
-        state_mapping = {
-            "away": ArmedState.ARMED_AWAY,
-            "home_day": ArmedState.ARMED_HOME,
-            "home_evening": ArmedState.ARMED_HOME,
-            "home_night": ArmedState.ARMED_HOME,
-            "sleep": ArmedState.ARMED_HOME,
-            "vacation": ArmedState.ARMED_VACATION,
-            "arriving": ArmedState.DISARMED,
-            "waking": ArmedState.DISARMED,
-            "guest": ArmedState.ARMED_HOME,
-        }
+        The mapping (``_HOUSE_STATE_TO_ARMED``) is unchanged from Rung 1 —
+        away→ARMED_AWAY, home_*/sleep/guest→ARMED_HOME, vacation→
+        ARMED_VACATION, arriving/waking→DISARMED. Rather than mutate
+        ``_armed_state`` synchronously (Rung 1 behavior) we now:
 
-        new_armed = state_mapping.get(new_house_state)
-        if new_armed is None or new_armed == self._armed_state:
+        1. Compute the target and short-circuit on unknown/no-op.
+        2. Cancel any prior pending fire and replace ``_pending_house_state``
+           with this newer target.
+        3. Schedule ``_fire_state_driven_arming`` via ``async_call_later``
+           after ``SECURITY_AUTO_FOLLOW_ARM_DELAY_S`` seconds of quiet.
+
+        A rapid flap (AWAY→ARRIVING→HOME_DAY inside the debounce window)
+        collapses to one net arming call against the LAST state.
+
+        The evaluate() gate already ensures this handler only runs when
+        ``self._auto_follow_house_state`` is True AND the coordinator is
+        enabled (manager filters disabled coordinators before evaluate).
+        Observation-mode is honored at fire time, NOT here — we still want
+        the diagnostic attr to record a "would-arm" trace under observation.
+
+        Returns [] unconditionally: the fire is out-of-band via
+        ``handle_arm``/``handle_disarm`` (the SAME public entrypoints manual
+        UI arming uses — INV-2 no-bypass). NM emit is via the CM's
+        NotificationManager (INV-4). This deliberately bypasses the intent
+        action pipeline because the debounced fire happens LATER than any
+        current batch could tolerate.
+        """
+        new_house_state = str(intent.data.get("new_state", "") or "")
+        new_armed = _HOUSE_STATE_TO_ARMED.get(new_house_state)
+        if new_armed is None:
+            # A-H3 fix-up: unmapped house_state (home_*, sleep) → no-op.
             return []
 
-        old_state = self._armed_state
-        self._armed_state = new_armed
-        _LOGGER.info(
-            "Auto-follow: house state %s → armed state %s (was %s)",
+        # B-M2 / A-L1 fix-up: same-target short-circuit — target already
+        # matches current armed state. If a prior fire is pending against
+        # ANY target that would resolve to the same current armed, cancel
+        # it (no reschedule, no noop churn).
+        if new_armed == self._armed_state:
+            if self._house_state_debounce_unsub is not None:
+                try:
+                    self._house_state_debounce_unsub()
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "Security: same-target cancel failed", exc_info=True
+                    )
+                self._house_state_debounce_unsub = None
+                self._pending_house_state = None
+            return []
+
+        # Cancel any prior pending fire; latest intent wins.
+        if self._house_state_debounce_unsub is not None:
+            try:
+                self._house_state_debounce_unsub()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "Security: prior debounce cancel failed", exc_info=True
+                )
+            self._house_state_debounce_unsub = None
+
+        self._pending_house_state = new_house_state
+
+        # A-M1 fix-up: asymmetric debounce. Anti-flap protects ESCALATION
+        # (avoid alarm-panel thrash); DE-ESCALATION (→ DISARMED targets
+        # arriving/waking) is time-critical (operator at the door) so we
+        # fire immediately via a 0-delay async_call_later — same code
+        # path, but no user-facing wait.
+        delay_s = (
+            0.0
+            if new_armed == ArmedState.DISARMED
+            else float(SECURITY_AUTO_FOLLOW_ARM_DELAY_S)
+        )
+        _LOGGER.debug(
+            "Security auto-follow: scheduled arming fire in %.1fs (target=%s "
+            "from house_state=%s, current=%s)",
+            delay_s,
+            new_armed.value,
             new_house_state,
+            self._armed_state.value,
+        )
+        self._house_state_debounce_unsub = async_call_later(
+            self.hass,
+            delay_s,
+            self._fire_state_driven_arming,
+        )
+        return []
+
+    async def _fire_state_driven_arming(self, _now: Any = None) -> None:
+        """Execute the debounced state-driven arming (Rung 2a fire path).
+
+        Called by ``async_call_later`` ``SECURITY_AUTO_FOLLOW_ARM_DELAY_S``
+        seconds after the last house-state intent. Reads
+        ``_pending_house_state`` (the LATEST target), resolves the armed
+        target, and either:
+
+        * suppresses under ``observation_mode`` (records "would-arm" in
+          ``_state_driven_arming_last`` with ``suppressed="observation_mode"``,
+          ``notified=False``); or
+        * routes through the SAME public path manual UI arming uses:
+          ``handle_arm(target.value)`` or ``handle_disarm()``. Those methods
+          own the ``_armed_state`` mutation, alarm-panel sync, and the
+          ``SIGNAL_SECURITY_ENTITIES_UPDATE`` dispatch.
+
+        NM notification (INV-4) is emitted via the CM NotificationManager
+        with severity per ``_STATE_DRIVEN_NM_SEVERITY`` and channel
+        ``security``. If NM is unavailable, arming still proceeds but the
+        diagnostic records ``notified=False``.
+        """
+        self._house_state_debounce_unsub = None
+        target_state = self._pending_house_state
+        self._pending_house_state = None
+        if not target_state:
+            return
+
+        new_armed = _HOUSE_STATE_TO_ARMED.get(target_state)
+        if new_armed is None:
+            return
+
+        old_state = self._armed_state
+        now_iso = dt_util.utcnow().isoformat()
+        base_record: dict[str, Any] = {
+            "from_state": old_state.value,
+            "to_armed": new_armed.value,
+            "house_state": target_state,
+            "at": now_iso,
+        }
+
+        def _record_suppressed(reason: str, *, dispatch: bool = True) -> None:
+            record = {**base_record, "notified": False, "suppressed": reason}
+            self._state_driven_arming_last = record
+            if dispatch:
+                async_dispatcher_send(
+                    self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE
+                )
+            self._publish_policy_action(record)
+
+        # A-H1 / C-1 fix-up: re-check gates at FIRE TIME (they can flip
+        # during the debounce window). Order: shutting_down > enabled >
+        # auto_follow_house_state > observation_mode. Each records the
+        # suppression + dispatches the entities-update signal (so the
+        # diagnostic sensor observes the "would-fire" trace).
+        if self._shutting_down:
+            # Do NOT record; teardown may have torn down manager/sensors.
+            _LOGGER.debug(
+                "Security auto-follow: fire skipped — shutting_down"
+            )
+            return
+        if not self._enabled:
+            _record_suppressed("disabled")
+            _LOGGER.info(
+                "Security auto-follow: fire skipped — coordinator disabled"
+            )
+            return
+        if not self._auto_follow_house_state:
+            _record_suppressed("auto_follow_off")
+            _LOGGER.info(
+                "Security auto-follow: fire skipped — flag turned off "
+                "during debounce"
+            )
+            return
+
+        # A-H2 fix-up: manual override hold. If the operator arm/disarmed
+        # UNDER THE SAME house_state (stamp matches target_state), suppress
+        # the auto-follow fire. The next distinct house-state transition
+        # clears the stamp so auto-follow resumes.
+        if (
+            self._manual_action_house_state is not None
+            and self._manual_action_house_state == target_state
+        ):
+            _record_suppressed("manual_hold")
+            _LOGGER.info(
+                "Security auto-follow: fire suppressed — manual action holds "
+                "for house_state=%s (target=%s)",
+                target_state,
+                new_armed.value,
+            )
+            return
+        if (
+            self._manual_action_house_state is not None
+            and self._manual_action_house_state != target_state
+        ):
+            _LOGGER.debug(
+                "Security auto-follow: manual-hold cleared (was %s, now %s)",
+                self._manual_action_house_state,
+                target_state,
+            )
+            self._manual_action_house_state = None
+
+        # Observation mode: NO actuation, NO NM — but record the "would".
+        if self.observation_mode:
+            _record_suppressed("observation_mode")
+            _LOGGER.info(
+                "[observation mode] Security auto-follow would arm %s → %s "
+                "(house=%s) — suppressed",
+                old_state.value,
+                new_armed.value,
+                target_state,
+            )
+            return
+
+        # Same-state no-op after the debounce window (e.g. flap resolved
+        # back to current). Still refresh the diagnostic for observability.
+        if new_armed == old_state:
+            _record_suppressed("noop")
+            return
+
+        _LOGGER.info(
+            "Security auto-follow: house_state=%s → arming %s (was %s)",
+            target_state,
             new_armed.value,
             old_state.value,
         )
 
-        # Activity log: armed state change
-        from ..const import DOMAIN
+        # Route through the SAME public path manual UI arming uses (INV-2).
+        # ``source="auto_follow"`` suppresses the manual-hold stamp so the
+        # fire path never latches itself out.
+        try:
+            if new_armed == ArmedState.DISARMED:
+                await self.handle_disarm(source="auto_follow")
+            else:
+                await self.handle_arm(new_armed.value, source="auto_follow")
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception(
+                "Security auto-follow: arming call failed for target=%s",
+                new_armed.value,
+            )
+            # A-M2 / C-4 fix-up: failure branch dispatches the entities-
+            # update signal (same as observation/noop branches) so the
+            # diagnostic sensor reflects the arm_call_failed record.
+            _record_suppressed("arm_call_failed")
+            return
+
+        # NM notification (INV-4) — direction-aware severity (A-M3 fix-up):
+        # HIGH on escalation (stricter posture), MEDIUM on de-escalation.
+        # NM lookup uses the PUBLIC hass.data slot (B-H1 fix-up), never
+        # the private manager attribute.
+        severity = _state_driven_severity(old_state, new_armed)
+        notified = False
+        try:
+            nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+            if nm is not None:
+                await nm.async_notify(
+                    coordinator_id=self.COORDINATOR_ID,
+                    severity=severity,
+                    title="Security auto-follow",
+                    message=(
+                        f"House state {target_state} → armed {new_armed.value}"
+                    ),
+                    hazard_type="security_state_change",
+                    location="house",
+                )
+                notified = True
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "Security auto-follow: NM notify failed (non-fatal)",
+                exc_info=True,
+            )
+
+        record = {**base_record, "notified": notified, "suppressed": None}
+        self._state_driven_arming_last = record
+
+        # Activity log parity with Rung 1.
         activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
         if activity_logger:
             self.hass.async_create_task(
                 activity_logger.log(
                     coordinator="security",
                     action="armed_state_change",
-                    description=f"Armed state {old_state.value} -> {new_armed.value} (house={new_house_state})",
+                    description=(
+                        f"Armed state {old_state.value} -> {new_armed.value} "
+                        f"(house={target_state}, auto_follow)"
+                    ),
                     importance="notable",
                     details={
                         "old_state": old_state.value,
                         "new_state": new_armed.value,
-                        "house_state": new_house_state,
+                        "house_state": target_state,
+                        "source": "auto_follow",
                     },
                 )
             )
 
-        # Log decision
         if self.decision_logger is not None:
-            from .coordinator_diagnostics import DecisionLog
+            from .coordinator_diagnostics import DecisionLog  # noqa: PLC0415
 
             self.decision_logger.log_decision(
                 DecisionLog(
                     coordinator_id=self.COORDINATOR_ID,
                     decision_type="armed_state_change",
-                    context=f"auto_follow: {new_house_state}",
+                    context=f"auto_follow: {target_state}",
                     action=f"{old_state.value} → {new_armed.value}",
                 )
             )
 
-        # Always signal sensor update since armed state changed
-        async_dispatcher_send(self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE)
+        self._publish_policy_action(record)
 
-        # Sync to alarm panel if coupled
-        if self._alarm_panel_entity:
-            service = _ARMED_TO_ALARM_SERVICE.get(new_armed)
-            if service:
-                return [
-                    ServiceCallAction(
-                        coordinator_id=self.COORDINATOR_ID,
-                        target_device=self._alarm_panel_entity,
-                        severity=Severity.MEDIUM,
-                        service=f"alarm_control_panel.{service}",
-                        service_data={"entity_id": self._alarm_panel_entity},
-                        description=f"Sync alarm panel to {new_armed.value}",
-                    )
-                ]
+    def _publish_policy_action(self, record: dict[str, Any]) -> None:
+        """Publish this state-driven action to the CM house-policy surface.
 
-        return []
+        INV-1: the ``sensor.ura_coordinator_manager_house_policy`` diagnostic
+        surfaces active policies + last state-driven action across all
+        coordinators. Best-effort — a failure here MUST NOT block arming.
+        """
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if manager is None:
+                return
+            record_fn = getattr(manager, "record_state_driven_action", None)
+            if record_fn is None:
+                return
+            record_fn(
+                policy="security.auto_follow",
+                coordinator=self.COORDINATOR_ID,
+                action_record=record,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "Security: publish_policy_action failed (non-fatal)",
+                exc_info=True,
+            )
 
     def _handle_alarm_sync(self, intent: Intent) -> None:
         """Bidirectional sync from alarm panel state change (req #4)."""
@@ -1783,13 +2111,22 @@ class SecurityCoordinator(BaseCoordinator):
     # Service handlers
     # =========================================================================
 
-    async def handle_arm(self, armed_state: str) -> None:
-        """Handle security_arm service call."""
+    async def handle_arm(self, armed_state: str, *, source: str = "manual") -> None:
+        """Handle security_arm service call.
+
+        A-H2 fix-up: ``source`` distinguishes manual (UI/service) invocations
+        from the auto-follow fire path. Manual invocations stamp the current
+        house_state so a subsequent auto-follow fire against the SAME
+        house_state is suppressed as ``manual_hold``.
+        """
         try:
             new_state = ArmedState(armed_state)
         except ValueError:
             _LOGGER.warning("Invalid armed state: %s", armed_state)
             return
+
+        if source == "manual":
+            self._stamp_manual_action()
 
         old_state = self._armed_state
         self._armed_state = new_state
@@ -1812,8 +2149,14 @@ class SecurityCoordinator(BaseCoordinator):
 
         async_dispatcher_send(self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE)
 
-    async def handle_disarm(self) -> None:
-        """Handle security_disarm service call."""
+    async def handle_disarm(self, *, source: str = "manual") -> None:
+        """Handle security_disarm service call.
+
+        A-H2 fix-up: see ``handle_arm`` for the ``source`` semantics.
+        """
+        if source == "manual":
+            self._stamp_manual_action()
+
         old_state = self._armed_state
         self._armed_state = ArmedState.DISARMED
         self._active_alert = False
@@ -1874,6 +2217,39 @@ class SecurityCoordinator(BaseCoordinator):
     def delegate_lights_to_nm(self, value: bool) -> None:
         """Set whether light control is delegated to Notification Manager."""
         self._delegate_lights_to_nm = value
+
+    @property
+    def auto_follow_house_state(self) -> bool:
+        """Return whether Security auto-follows house-state transitions.
+
+        B-H1 fix-up: public accessor so ``CoordinatorManager`` and other
+        callers do NOT need to reach into the private
+        ``_auto_follow_house_state`` attribute.
+        """
+        return self._auto_follow_house_state
+
+    def _stamp_manual_action(self) -> None:
+        """Stamp the current house_state as a manual-hold anchor (A-H2).
+
+        Read from the CoordinatorManager's house state machine. Failures
+        are non-fatal — stamp with None (which disables the hold) rather
+        than crashing the arm/disarm path.
+        """
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if manager is None:
+                self._manual_action_house_state = None
+                return
+            hs = getattr(manager, "house_state", None)
+            self._manual_action_house_state = (
+                str(hs) if hs is not None else None
+            )
+            _LOGGER.debug(
+                "Security manual-hold stamp set: house_state=%s",
+                self._manual_action_house_state,
+            )
+        except Exception:  # noqa: BLE001
+            self._manual_action_house_state = None
 
     @property
     def armed_state(self) -> ArmedState:
