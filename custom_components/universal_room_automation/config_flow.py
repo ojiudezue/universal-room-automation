@@ -9063,6 +9063,14 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             else:
                 try:
                     merged = {**self._config_entry.options, **user_input}
+                    # v5.37.0: explicit-clear checkbox for the otherwise
+                    # unclearable optional water-leak EntitySelector.
+                    # Set an explicit EMPTY options override (not a pop):
+                    # consumers merge {**data, **options}, and the value may
+                    # also live in entry.data — an empty options value wins
+                    # the merge and is falsy at every `if leak_sensor:` guard.
+                    if merged.pop("clear_water_leak_sensor", False):
+                        merged[CONF_WATER_LEAK_SENSOR] = ""
                     _LOGGER.debug("sensors save: entry_id=%s, merged_keys=%d",
                                   self._config_entry.entry_id, len(merged))
                     return self.async_create_entry(title="", data=merged)
@@ -9156,6 +9164,14 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor", device_class=["moisture", "water_leak"])
             ),
+            # v5.37.0: explicit clear checkbox — an optional EntitySelector
+            # with a current-value default is otherwise UNCLEARABLE (empty
+            # submissions are rejected; omitting the key refills the
+            # default — true in the HA UI too). Checking this box removes
+            # the configured water-leak sensor on save.
+            vol.Optional(
+                "clear_water_leak_sensor", default=False,
+            ): selector.BooleanSelector(),
         })
 
         return self.async_show_form(

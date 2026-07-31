@@ -6812,16 +6812,22 @@ class EnergyCoordinator(BaseCoordinator):
             return {}
 
     def _get_house_state(self) -> str:
-        """Return current house_state string from presence coordinator (or empty string)."""
+        """Return current house_state string from the canonical source.
+
+        v5.37.0 (House-State Rung 1): the prior implementation read
+        ``presence._house_state`` — an attribute that never existed on the
+        Presence Coordinator — so this always returned "" and the GUEST
+        dynamic-preset reset path (dynamic_preset.py) was unreachable. Read
+        from ``CoordinatorManager.house_state`` (the HouseStateMachine's
+        StrEnum property), mirroring notification_manager.py:2614-2624.
+        Fail-open to "" on any absence so downstream consumers stay safe.
+        """
         try:
             from ..const import DOMAIN as _DOMAIN_KEY
             manager = self.hass.data.get(_DOMAIN_KEY, {}).get("coordinator_manager")
             if manager is None:
                 return ""
-            presence = manager.coordinators.get("presence")
-            if presence is None:
-                return ""
-            return str(getattr(presence, "_house_state", ""))
+            return str(getattr(manager, "house_state", "") or "")
         except Exception:
             return ""
 
