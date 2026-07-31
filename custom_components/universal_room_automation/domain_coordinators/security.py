@@ -66,6 +66,7 @@ from .base import (
     Severity,
 )
 from .signals import (
+    SIGNAL_HOUSE_STATE_CHANGED,
     SIGNAL_OPTIMIZER_INTENT,
     SIGNAL_OPTIMIZER_INTENT_VETO,
     SIGNAL_PERSON_ARRIVING,
@@ -633,6 +634,23 @@ class SecurityCoordinator(BaseCoordinator):
             )
         )
 
+        # v5.37.0 (House-State Rung 1): subscribe to SIGNAL_HOUSE_STATE_CHANGED
+        # so the existing arming map (_handle_house_state_intent) actually
+        # fires — previously it waited for a "house_state_change" Intent that
+        # nothing constructed. The signal handler queues an Intent through
+        # the CoordinatorManager, so evaluate()'s existing gates apply:
+        #   - _auto_follow_house_state flag (CONF_SECURITY_AUTO_FOLLOW,
+        #     default False — const.py:1114)
+        #   - observation_mode suppression (evaluate() line ~695)
+        # Unsub tracked via _unsub_listeners (Bug Class #50).
+        self._unsub_listeners.append(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_HOUSE_STATE_CHANGED,
+                self._on_house_state_changed_signal,
+            )
+        )
+
         # Anomaly detection setup
         from .coordinator_diagnostics import AnomalyDetector
         from ..const import (  # noqa: PLC0415
@@ -939,6 +957,54 @@ class SecurityCoordinator(BaseCoordinator):
 
         async_dispatcher_send(self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE)
         return actions
+
+    @callback
+    def _on_house_state_changed_signal(self, payload: Any) -> None:
+        """Bridge SIGNAL_HOUSE_STATE_CHANGED into the coordinator intent queue.
+
+        v5.37.0 (House-State Rung 1): the arming map at
+        ``_handle_house_state_intent`` waited for a "house_state_change"
+        Intent that no producer ever built. Presence dispatches the signal
+        directly (presence.py:~5569) with a dict payload
+        ``{"old_state", "new_state", "trigger", "confidence"}``. Queue an
+        Intent through the CoordinatorManager so the existing evaluate()
+        gates (flag + observation_mode) apply uniformly.
+
+        Behavior when the flag is off: evaluate() short-circuits at
+        ``self._auto_follow_house_state`` (line ~685) before the arming map
+        runs, so no ArmedState mutation and no actions are produced.
+        """
+        try:
+            # Flag-off short circuit — avoid even queueing to keep the
+            # no-op path byte-cheap and observable.
+            if not self._auto_follow_house_state:
+                return
+            new_state = ""
+            if isinstance(payload, dict):
+                new_state = str(payload.get("new_state", "") or "")
+            else:
+                new_state = str(getattr(payload, "new_state", "") or "")
+            if not new_state:
+                return
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if manager is None:
+                return
+            _LOGGER.info(
+                "Security: queueing house_state_change intent (new_state=%s)",
+                new_state,
+            )
+            manager.queue_intent(
+                Intent(
+                    source="house_state_change",
+                    data={"new_state": new_state},
+                    coordinator_id=self.COORDINATOR_ID,
+                )
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "Security: house_state_changed signal handling failed",
+                exc_info=True,
+            )
 
     def _handle_house_state_intent(
         self,

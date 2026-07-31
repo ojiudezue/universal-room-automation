@@ -2385,7 +2385,11 @@ class OptimizationCoordinator(BaseCoordinator):
             house_state = ""
         # Only flag when house is in a gated context. Lowercase compare so
         # both StrEnum value ("away") and plain string match.
-        gated = house_state.lower() in ("away", "night", "sleep")
+        # v5.37.0 (House-State Rung 1): "night" was a literal that never
+        # matched the canonical HouseState enum value "home_night" — the
+        # gate was silently dead for the home_night context. Use the enum
+        # value so home_night is actually included.
+        gated = house_state.lower() in ("away", "home_night", "sleep")
         if not gated:
             return findings
         dedup_key = ("security_posture", "house")

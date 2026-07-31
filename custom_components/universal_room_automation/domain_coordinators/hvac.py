@@ -684,9 +684,20 @@ class HVACCoordinator(BaseCoordinator):
                     _LOGGER.warning(
                         "HVAC: Timed out waiting for Presence — using default state"
                     )
-            if presence and hasattr(presence, "_house_state"):
-                self._house_state = str(presence._house_state)
-                _LOGGER.info("HVAC: Initial house state = %s", self._house_state)
+            # v5.37.0 (House-State Rung 1): the prior boot-seed read
+            # ``presence._house_state``, an attribute that never existed;
+            # the branch was dead and HVAC's initial ``_house_state`` was
+            # only ever updated via the live SIGNAL_HOUSE_STATE_CHANGED
+            # subscription below. Seed from the canonical source instead
+            # (CoordinatorManager.house_state — the HouseStateMachine's
+            # StrEnum property). Live-signal behavior is unchanged.
+            try:
+                _seed = getattr(manager, "house_state", None)
+                if _seed is not None:
+                    self._house_state = str(_seed)
+                    _LOGGER.info("HVAC: Initial house state = %s", self._house_state)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("HVAC: house_state boot-seed unavailable (non-fatal)", exc_info=True)
 
         # Initial zone update
         self._zone_manager.update_all_zones()
