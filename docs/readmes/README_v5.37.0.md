@@ -38,3 +38,15 @@ merge and is falsy at every `if leak_sensor:` guard).
   config shows empty; zone safety chip loses the shower-trip path.
 - H4 (organic): next GUEST episode → dynamic-preset guest reset actually fires (first
   time reachable) — recorder check.
+
+### Validated 2026-07-30
+| # | Result | Evidence |
+|---|---|---|
+| H1 | **PASS** | Zero URA errors post-restart; house away; watchdog 0. |
+| H2 | **PASS** | Auto-follow default OFF preserved — no arming activity on the away house. |
+| H3 | **PASS** | Master Bathroom water_leak_sensor cleared via the new checkbox (merged value `''`, motion/occupancy/temp/humidity preserved) — the shower-trip path on the zone safety chip is gone. |
+| H4 | pending-organic | Next GUEST episode → dynamic-preset guest reset fires (first time reachable). |
+
+Config remediations confirmed alongside: Outside zone `zone_is_outdoor: true` (activates
+A4 humidity exemption + WS-A4 presence exclusion); Patio needs no room-level change (no
+`outdoor` room_type exists — noted in the #12 plan as a code decision).

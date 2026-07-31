@@ -214,6 +214,13 @@ CRITICAL_RESPONSE_TEXT = (
 )
 WEBHOOK_ID = f"{DOMAIN}_pushover_reply"
 
+# v5.37.1: "all quiet" heartbeat digest. When True, digest-pref recipients
+# receive a minimal "all quiet" summary on their scheduled tick even when
+# nothing is pending and the optimizer has no section — so "no digest" is
+# distinguishable from "broken". Kill switch — set False to restore the
+# prior silent-skip behavior (reviewed-change rung).
+NM_DIGEST_HEARTBEAT_ENABLED = True
+
 
 class NotificationManager:
     """Centralized notification delivery for all domain coordinators.
@@ -3433,24 +3440,50 @@ class NotificationManager:
         # contribution renders independently of NM-pending items so even
         # a clean NM day can carry an "Optimizer (N findings)" section.
         opt_section = self._build_optimizer_digest_section()
+        heartbeat = False
         if not pending and not opt_section:
-            return
+            # v5.37.1: deliver a minimal "all quiet" heartbeat so a silent
+            # tick is distinguishable from a broken pipeline. Kill switch:
+            # set NM_DIGEST_HEARTBEAT_ENABLED=False to restore the prior
+            # silent-skip behavior. Recipient scope is inherited from the
+            # existing digest-pref loop; delivery routes through the same
+            # _deliver_digest path so digest_channels multi-select applies.
+            if not NM_DIGEST_HEARTBEAT_ENABLED:
+                return
+            heartbeat = True
 
-        digest_message = self._format_digest(pending) if pending else ""
-        if opt_section:
-            if digest_message:
-                digest_message = digest_message.rstrip() + "\n\n" + opt_section
-            else:
-                today = dt_util.now().strftime("%B %d, %Y")
-                digest_message = (
-                    f"URA Daily Summary ({today})\n\n{opt_section}"
-                )
+        if heartbeat:
+            today = dt_util.now().strftime("%B %d, %Y")
+            digest_message = (
+                f"URA Daily Summary ({today})\n\nAll quiet — no items."
+            )
+        else:
+            digest_message = self._format_digest(pending) if pending else ""
+            if opt_section:
+                if digest_message:
+                    digest_message = digest_message.rstrip() + "\n\n" + opt_section
+                else:
+                    today = dt_util.now().strftime("%B %d, %Y")
+                    digest_message = (
+                        f"URA Daily Summary ({today})\n\n{opt_section}"
+                    )
 
         sent = await self._deliver_digest(person_id, person_cfg, digest_message)
 
         if sent:
-            await database.mark_digest_delivered(person_id)
-            _LOGGER.info("Digest delivered to %s (%d items)", person_id, len(pending))
+            # v5.37.1 Review B MEDIUM-1: do NOT mark on a heartbeat-only
+            # flush. The "no-op" reasoning only held for the pending
+            # snapshot taken above — a LOW/MEDIUM row INSERTed between
+            # that read and this UPDATE would be marked delivered=2
+            # WITHOUT ever appearing in a digest body (silent loss).
+            # The pre-heartbeat code returned before ever reaching the
+            # mark, so gating restores the original race-free semantics.
+            if not heartbeat:
+                await database.mark_digest_delivered(person_id)
+            if heartbeat:
+                _LOGGER.info("Digest heartbeat delivered to %s (all quiet)", person_id)
+            else:
+                _LOGGER.info("Digest delivered to %s (%d items)", person_id, len(pending))
 
     async def _deliver_digest(
         self,

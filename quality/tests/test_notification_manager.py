@@ -1528,3 +1528,120 @@ class TestImessageOutbound:
         )
         assert nm._channel_health["imessage"]["failures"] == 1
         assert nm._channel_health["imessage"]["status"] == "ok"
+
+
+class TestDigestHeartbeat:
+    """v5.37.1 — "all quiet" heartbeat digest.
+
+    A digest tick with no pending items AND no optimizer section previously
+    returned silently, making "no digest" indistinguishable from "broken".
+    Behavior matrix (mutation-anchored on the module-level kill switch):
+
+    | pending | opt_section | HEARTBEAT_ENABLED | delivered? | body                |
+    |---------|-------------|-------------------|-----------|---------------------|
+    | []      | ""          | True              | yes       | "All quiet — no items." |
+    | []      | ""          | False             | no        | (silent skip)       |
+    | [item]  | ""          | True              | yes       | normal digest       |
+    """
+
+    def _digest_person(self):
+        return {
+            CONF_NM_PERSON_ENTITY: "person.hb",
+            CONF_NM_PERSON_PUSHOVER_KEY: "pk",
+            CONF_NM_PERSON_PUSHOVER_DEVICE: "",
+            CONF_NM_PERSON_COMPANION_SERVICE: "",
+            CONF_NM_PERSON_WHATSAPP_PHONE: "",
+            CONF_NM_PERSON_IMESSAGE_HANDLE: "",
+            CONF_NM_PERSON_DELIVERY_PREF: NM_DELIVERY_DIGEST,
+        }
+
+    def _install_db(self, hass, pending):
+        db = MagicMock()
+        db.get_pending_digest = AsyncMock(return_value=pending)
+        db.mark_digest_delivered = AsyncMock()
+        hass.data[DOMAIN]["database"] = db
+        return db
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_delivers_all_quiet_when_enabled(self, monkeypatch):
+        """Empty queue + heartbeat True → _deliver_digest called with
+        the "All quiet" body via the same delivery path."""
+        monkeypatch.setattr(_nm_mod, "NM_DIGEST_HEARTBEAT_ENABLED", True)
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        nm._deliver_digest = AsyncMock(return_value=True)
+        nm._build_optimizer_digest_section = MagicMock(return_value="")
+        db = self._install_db(hass, pending=[])
+
+        await nm._fire_digest("person.hb", self._digest_person())
+
+        nm._deliver_digest.assert_awaited_once()
+        _, args, _ = nm._deliver_digest.mock_calls[0]
+        # args = (person_id, person_cfg, digest_message)
+        assert args[0] == "person.hb"
+        assert "All quiet" in args[2]
+        assert "URA Daily Summary" in args[2]
+        # v5.37.1 Review B MEDIUM-1: heartbeat-only flush must NOT mark —
+        # a row inserted after the pending snapshot would be silently
+        # marked delivered without appearing in any digest.
+        db.mark_digest_delivered.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_optimizer_section_only_is_not_heartbeat(self, monkeypatch):
+        """Review A LOW-B1: pending=[] + optimizer section present takes the
+        pre-existing v4.7.36 path (NOT heartbeat) and DOES mark."""
+        monkeypatch.setattr(_nm_mod, "NM_DIGEST_HEARTBEAT_ENABLED", True)
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        nm._deliver_digest = AsyncMock(return_value=True)
+        nm._build_optimizer_digest_section = MagicMock(
+            return_value="Optimizer (2 findings)")
+        db = self._install_db(hass, pending=[])
+
+        await nm._fire_digest("person.hb", self._digest_person())
+
+        nm._deliver_digest.assert_awaited_once()
+        _, args, _ = nm._deliver_digest.mock_calls[0]
+        assert "Optimizer" in args[2]
+        assert "All quiet" not in args[2]
+        db.mark_digest_delivered.assert_awaited_once_with("person.hb")
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_disabled_preserves_silent_skip(self, monkeypatch):
+        """Kill-switch False + empty queue → old silent-skip; no delivery."""
+        monkeypatch.setattr(_nm_mod, "NM_DIGEST_HEARTBEAT_ENABLED", False)
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        nm._deliver_digest = AsyncMock(return_value=True)
+        nm._build_optimizer_digest_section = MagicMock(return_value="")
+        db = self._install_db(hass, pending=[])
+
+        await nm._fire_digest("person.hb", self._digest_person())
+
+        nm._deliver_digest.assert_not_awaited()
+        db.mark_digest_delivered.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_normal_digest_unchanged_when_pending(self, monkeypatch):
+        """Non-empty queue → normal digest body (NOT the heartbeat body),
+        regardless of kill-switch state."""
+        monkeypatch.setattr(_nm_mod, "NM_DIGEST_HEARTBEAT_ENABLED", True)
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        nm._deliver_digest = AsyncMock(return_value=True)
+        nm._build_optimizer_digest_section = MagicMock(return_value="")
+        pending = [{
+            "coordinator_id": "safety",
+            "severity": "MEDIUM",
+            "title": "Humidity high",
+            "location": "Bathroom",
+        }]
+        self._install_db(hass, pending=pending)
+
+        await nm._fire_digest("person.hb", self._digest_person())
+
+        nm._deliver_digest.assert_awaited_once()
+        _, args, _ = nm._deliver_digest.mock_calls[0]
+        assert "Humidity high" in args[2]
+        assert "All quiet" not in args[2]
+
