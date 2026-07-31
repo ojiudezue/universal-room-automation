@@ -36,3 +36,9 @@ mutations. All fixed; orchestrator re-verified with a fire-path gate mutation
   house-state changes; house_policy sensor live reading "idle"/no auto_follow.
 - H2 (at operator enable): away transition → HIGH NM + ARMED_AWAY after 30s;
   arriving → immediate disarm + MEDIUM NM; manual disarm holds until next state.
+
+### Validated 2026-07-30 (~22:12 CDT)
+| # | Result | Evidence |
+|---|---|---|
+| H1 | **PASS** | Fresh boot (restart confirmed by warmup window); `sensor.ura_coordinator_manager_house_policy` registered on the CM device; flag OFF → zero arming activity; no rung-2a errors. |
+| H2 | pending-operator | Fires at enable-checkpoint (away→HIGH+ARMED_AWAY/30s; arriving→immediate disarm; manual-hold). |

@@ -78,3 +78,9 @@ Decomposition"), and a **tier** estimate. Filed, not scheduled. Ordered by likel
 - **Dashboard ura-v8:** weather animation assets (needs operator to drop `weather-bg.min.js`+`cloud.png` in `config/www/`); `data.zones` vs `options.zones` reconcile (Zone Manager); PWA `automation_mode` inert-knob (wire or hide — flagged G4).
 - **`ac_kwh_avoided` naming** — folded into #7 (energy unification).
 </content>
+
+### 13. Boot-window DB write-worker saturation (filed 2026-07-30)
+- **Why:** three consecutive boots (v5.38.x/v5.39.0) show "DB write worker did not process request within 35s" ERRORs during warmup (census/house-state/energy/decision logging) for ~60-90s post-boot. Writes are dropped, not queued. Distinct from the v5.2.x write-flood (steady-state); this is boot-burst vs worker startup ordering.
+- **Benefit:** no silently-lost boot-window rows (house-state log feeds routine forecaster; census snapshots feed analytics); cleaner error log.
+- **Threshold:** persists on next 2-3 boots → build. Fix shape: start the write worker earlier / extend boot timeout / buffer-and-retry during warmup.
+- **Tier:** 1-2 (database.py write worker lifecycle).
