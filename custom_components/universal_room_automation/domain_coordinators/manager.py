@@ -10,6 +10,7 @@ from typing import Any, Final
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
@@ -155,6 +156,19 @@ class CoordinatorManager:
         # v3.6.29: Notification Manager (not a coordinator — standalone service)
         self._notification_manager = None
 
+        # House-State Rung 2a (v5.39.0) — house-policy diagnostic surface.
+        # Populated by coordinators via ``record_state_driven_action``. Exposed
+        # on the CM device through ``HousePolicySensor`` per INV-1/INV-3.
+        # * active_policies: string ids of policies currently ENABLED
+        #   (recomputed via ``get_active_policies`` — this dict just caches
+        #   the last-known set from coordinator publishes).
+        # * last_state_driven_action: {policy, coordinator, record} where
+        #   ``record`` is the coordinator's own arming/action trace.
+        self._house_policy: dict[str, Any] = {
+            "active_policies": [],
+            "last_state_driven_action": {},
+        }
+
         # v4.6.10 D3: CM-level anomaly detector for URA self-instrumentation.
         # Wrapped so detector failure does NOT prevent CM construction (CM failing = URA dead).
         try:
@@ -202,6 +216,79 @@ class CoordinatorManager:
     def house_state(self) -> HouseState:
         """Return the current house state."""
         return self._house_state_machine.state
+
+    @property
+    def house_policy(self) -> dict[str, Any]:
+        """Return the house-policy diagnostic snapshot (INV-1).
+
+        Consumed by ``HousePolicySensor`` on the CM device. The
+        ``active_policies`` list is recomputed on every read; the sensor
+        re-reads on ``SIGNAL_HOUSE_POLICY_UPDATE`` (signal-driven refresh),
+        so a coordinator toggling its kill-switch shows up the next time
+        that signal fires (i.e. on the next policy publish).
+        """
+        return {
+            "active_policies": self._compute_active_policies(),
+            "last_state_driven_action": dict(
+                self._house_policy.get("last_state_driven_action") or {}
+            ),
+        }
+
+    def _compute_active_policies(self) -> list[str]:
+        """Return the list of policies whose enable + kill-switch are ON.
+
+        Rung 2a adds ``security.auto_follow``: active iff the security
+        coordinator is enabled AND its ``_auto_follow_house_state`` flag
+        is True. Later rungs extend this list (energy.away_posture,
+        guest.mode, etc.).
+        """
+        active: list[str] = []
+        sec = self._coordinators.get("security")
+        # B-H1 fix-up: use the public ``auto_follow_house_state`` property
+        # instead of reaching into the private ``_auto_follow_house_state``.
+        if (
+            sec is not None
+            and getattr(sec, "enabled", False)
+            and getattr(sec, "auto_follow_house_state", False)
+        ):
+            active.append("security.auto_follow")
+        return active
+
+    def record_state_driven_action(
+        self,
+        policy: str,
+        coordinator: str,
+        action_record: dict[str, Any],
+    ) -> None:
+        """Record a state-driven action to the house-policy surface (INV-1).
+
+        Called by a coordinator each time it takes (or would take) a
+        state-driven action so the CM diagnostic sensor updates. The
+        ``action_record`` is the coordinator's own trace payload (e.g.
+        security's ``_state_driven_arming_last`` dict). Best-effort — this
+        method must never raise.
+        """
+        try:
+            self._house_policy["last_state_driven_action"] = {
+                "policy": policy,
+                "coordinator": coordinator,
+                "record": dict(action_record or {}),
+            }
+            # Signal the CM house-policy sensor to re-read.
+            try:
+                from .signals import (  # noqa: PLC0415
+                    SIGNAL_HOUSE_POLICY_UPDATE,
+                )
+
+                async_dispatcher_send(
+                    self.hass, SIGNAL_HOUSE_POLICY_UPDATE
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "record_state_driven_action failed (non-fatal)", exc_info=True
+            )
 
     @property
     def coordinators(self) -> dict[str, BaseCoordinator]:

@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.38.1
+# Universal Room Automation vv5.39.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -45,6 +45,12 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
+
+# B-LOW-2 fix-up: HousePolicySensor imports hoisted from async_added_to_hass.
+from homeassistant.helpers.dispatcher import (
+    async_dispatcher_connect as _hs_async_dispatcher_connect,
+)
+from .domain_coordinators.signals import SIGNAL_HOUSE_POLICY_UPDATE
 
 from .const import (
     DOMAIN,
@@ -178,6 +184,9 @@ async def async_setup_entry(
         )
         coordinator_sensors = [
             CoordinatorManagerSensor(hass, entry),
+            # House-State Rung 2a (v5.39.0): CM-device house-policy diagnostic
+            # surface (INV-1/INV-3).
+            HousePolicySensor(hass, entry),
             # v5.36.0 D1: house-level stuck-signal watchdog aggregator.
             URAStuckSignalWatchdogSensor(hass, entry),
             HouseStateSensor(hass, entry),
@@ -4043,6 +4052,98 @@ class CoordinatorManagerSensor(AggregationEntity, SensorEntity):
         }
 
 
+class HousePolicySensor(AggregationEntity, SensorEntity):
+    """House-State Rung 2a (v5.39.0) — CM-device house policy diagnostic.
+
+    Entity: sensor.ura_coordinator_manager_house_policy
+    Device: URA: Coordinator Manager
+    Category: diagnostic
+
+    INV-1: exposes which state-driven policies are currently active and
+    the most recent state-driven action taken by any coordinator. Reads
+    ``CoordinatorManager.house_policy`` (recomputed live). Updates via
+    ``SIGNAL_HOUSE_POLICY_UPDATE``.
+
+    State: comma-joined ``active_policies`` list (or "idle" when empty).
+    Attrs: ``active_policies`` (list), ``last_state_driven_action`` (dict).
+    """
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:home-automation"
+    # B-M4 fix-up: AggregationEntity does NOT set _attr_should_poll; the
+    # SensorEntity base defaults to True. This sensor is signal-driven
+    # (SIGNAL_HOUSE_POLICY_UPDATE) — polling would waste HA scheduler ticks.
+    _attr_should_poll = False
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize the house-policy sensor."""
+        super().__init__(hass, entry)
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_coordinator_manager_house_policy"
+        self._attr_name = "House Policy"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+
+    @property
+    def native_value(self) -> str:
+        """Return a compact status string.
+
+        "idle" when no state-driven policies are active; otherwise the
+        comma-joined active-policies list.
+        """
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "not_initialized"
+        try:
+            policy = manager.house_policy
+        except Exception:
+            return "error"
+        active = policy.get("active_policies") or []
+        if not active:
+            return "idle"
+        # C-3 fix-up: bound the state string (HA state length limit is 255;
+        # be defensive well below that). Full list stays in attrs.
+        joined = ",".join(active)
+        if len(joined) > 240:
+            return f"{len(active)} policies active"
+        return joined
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return the full policy snapshot."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {"status": "not_initialized"}
+        try:
+            return manager.house_policy
+        except Exception:
+            return {"status": "error"}
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to policy updates."""
+        await super().async_added_to_hass()
+        # B-LOW-2 fix-up: imports hoisted to module top — signals.py is a
+        # leaf module (no circular-import risk), async_dispatcher_connect
+        # is a stable HA API.
+        self.async_on_remove(
+            _hs_async_dispatcher_connect(
+                self.hass, SIGNAL_HOUSE_POLICY_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle house-policy update signal."""
+        self.async_schedule_update_ha_state()
+
+
 class URAStuckSignalWatchdogSensor(AggregationEntity, SensorEntity):
     """House-level diagnostic sensor for the stuck-signal watchdog (v5.36.0 D1).
 
@@ -5375,9 +5476,14 @@ class SecurityArmedStateSensor(AggregationEntity, SensorEntity):
         security = manager.coordinators.get("security")
         if security is None:
             return {"status": "disabled"}
+        # House-State Rung 2a (v5.39.0): expose the per-coordinator
+        # execution attr for state-driven arming. INV-1 per-coordinator
+        # observability surface — the last auto-follow arm/would-arm.
+        state_driven = getattr(security, "_state_driven_arming_last", {}) or {}
         return {
             "status": security.get_security_status(),
             "active_alert": security.active_alert,
+            "state_driven_arming_last": dict(state_driven),
         }
 
     @property

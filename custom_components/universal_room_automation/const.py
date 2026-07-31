@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.38.1
+# Universal Room Automation vv5.39.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.38.1"
+VERSION: Final = "v5.39.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1114,6 +1114,16 @@ CONF_SECURITY_ALARM_PANEL: Final = "security_alarm_panel"
 CONF_SECURITY_AUTO_FOLLOW: Final = "security_auto_follow"
 CONF_SECURITY_LOCK_CHECK_INTERVAL: Final = "security_lock_check_interval"
 CONF_SECURITY_DELEGATE_LIGHTS_TO_NM: Final = "security_delegate_lights_to_nm"
+
+# House-State Rung 2a — Security auto-follow arming debounce.
+# When SIGNAL_HOUSE_STATE_CHANGED flaps (e.g. ARRIVING → HOME_DAY within a
+# few seconds), we want ONE net arming transition rather than thrashing the
+# alarm panel. Rapid successive intents cancel the pending fire and reset
+# the delay so the LAST target wins.
+#
+# Numbers-Get-Knobs rung 1 (module constant): security-adjacent, changes
+# should require code review. Not exposed as an operator knob.
+SECURITY_AUTO_FOLLOW_ARM_DELAY_S: Final = 30
 
 # Zone presence mode values
 ZONE_MODE_AWAY: Final = "away"

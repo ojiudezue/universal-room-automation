@@ -10,6 +10,10 @@ from typing import Any, Final
 # ============================================================================
 
 SIGNAL_HOUSE_STATE_CHANGED: Final = "ura_house_state_changed"
+# House-State Rung 2a (v5.39.0): dispatched by CoordinatorManager whenever
+# the house-policy diagnostic (active_policies / last_state_driven_action)
+# changes. Subscribed by ``HousePolicySensor`` on the CM device (INV-1).
+SIGNAL_HOUSE_POLICY_UPDATE: Final = "ura_house_policy_update"
 SIGNAL_ENERGY_CONSTRAINT: Final = "ura_energy_constraint"
 SIGNAL_CENSUS_UPDATED: Final = "ura_census_updated"
 SIGNAL_SAFETY_HAZARD: Final = "ura_safety_hazard"

@@ -17,3 +17,12 @@ clear mechanism's consumers must be presence-aware or merge-style.
 ## Live Validation
 - H1: clean boot; Master Suite chip OFF (cleared sensor genuinely ignored); Back
   Hallway remains OFF.
+
+### Validated 2026-07-30 (~21:34 CDT, verified fresh boot 21:31)
+| # | Result | Evidence |
+|---|---|---|
+| H1 | **PASS** | Both zone safety chips OFF on the away-setback house (Master Suite no longer trips on the CLEARED bathroom sensor; Back Hallway clean). Fresh boot verified by entity timestamps ≥ boot; zero URA errors. |
+
+Ops note: one ha_restart call returned success without actually restarting (v5.38.1 sat
+on disk unloaded for ~10 min; diagnosis chased a phantom code bug). Discipline: verify
+restarts by boot signature (new PERSON INIT log + entity restamps), not the call result.
