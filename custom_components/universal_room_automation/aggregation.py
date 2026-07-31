@@ -1089,7 +1089,13 @@ class SafetyAlertBinarySensor(AggregationEntity, BinarySensorEntity):
                     alerts.append({"room": room_name, "type": "humidity", "value": humidity, "issue": "too_dry"})
             
             # Water leak
-            leak_sensor = coord.entry.options.get(CONF_WATER_LEAK_SENSOR) or coord.entry.data.get(CONF_WATER_LEAK_SENSOR)
+            # v5.38.1: presence-aware read — an `or`-chain treats the
+            # clear-checkbox's explicit '' options override as absent and
+            # falls through to the stale data value, defeating the clear.
+            if CONF_WATER_LEAK_SENSOR in coord.entry.options:
+                leak_sensor = coord.entry.options[CONF_WATER_LEAK_SENSOR]
+            else:
+                leak_sensor = coord.entry.data.get(CONF_WATER_LEAK_SENSOR)
             if leak_sensor:
                 state = self.hass.states.get(leak_sensor)
                 if state and state.state == "on":
@@ -4414,10 +4420,12 @@ class ZoneSafetyAlertSensor(ZoneSensorBase, BinarySensorEntity):
                 temp = coord.data.get(STATE_TEMPERATURE) if coord.data else None
                 humidity = coord.data.get(STATE_HUMIDITY) if coord.data else None
 
-                leak_sensor = (
-                    coord.entry.options.get(CONF_WATER_LEAK_SENSOR)
-                    or coord.entry.data.get(CONF_WATER_LEAK_SENSOR)
-                )
+                # v5.38.1: presence-aware read (see comment at the
+                # alert-manager site) — '' options override must win.
+                if CONF_WATER_LEAK_SENSOR in coord.entry.options:
+                    leak_sensor = coord.entry.options[CONF_WATER_LEAK_SENSOR]
+                else:
+                    leak_sensor = coord.entry.data.get(CONF_WATER_LEAK_SENSOR)
                 leak_on = False
                 leak_dc = None
                 if leak_sensor and isinstance(leak_sensor, str):
