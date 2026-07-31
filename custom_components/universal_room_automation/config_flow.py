@@ -9063,14 +9063,28 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             else:
                 try:
                     merged = {**self._config_entry.options, **user_input}
-                    # v5.37.0: explicit-clear checkbox for the otherwise
-                    # unclearable optional water-leak EntitySelector.
-                    # Set an explicit EMPTY options override (not a pop):
-                    # consumers merge {**data, **options}, and the value may
-                    # also live in entry.data — an empty options value wins
-                    # the merge and is falsy at every `if leak_sensor:` guard.
-                    if merged.pop("clear_water_leak_sensor", False):
-                        merged[CONF_WATER_LEAK_SENSOR] = ""
+                    # v5.37.0/v5.37.1: explicit-clear control for the otherwise
+                    # unclearable optional single-entity selectors (temperature,
+                    # humidity, illuminance, water_leak). An optional
+                    # EntitySelector with a current-value default is
+                    # UNCLEARABLE (empty submissions rejected; omitting the key
+                    # refills the default — true in the HA UI too). We write an
+                    # explicit EMPTY options override (not a pop): consumers
+                    # merge {**data, **options}, values may also live in
+                    # entry.data, and an empty options value wins the merge and
+                    # is falsy at every `if <sensor>:` guard.
+                    clear_map = {
+                        "temperature": CONF_TEMPERATURE_SENSOR,
+                        "humidity": CONF_HUMIDITY_SENSOR,
+                        "illuminance": CONF_ILLUMINANCE_SENSOR,
+                        "water_leak": CONF_WATER_LEAK_SENSOR,
+                    }
+                                  # Precedence: a field selected for CLEAR wins over a new pick
+                                  # made in the SAME submit (explicit clear beats accidental leftover).
+                    for choice in merged.pop("clear_sensor_fields", []) or []:
+                        conf_key = clear_map.get(choice)
+                        if conf_key:
+                            merged[conf_key] = ""
                     _LOGGER.debug("sensors save: entry_id=%s, merged_keys=%d",
                                   self._config_entry.entry_id, len(merged))
                     return self.async_create_entry(title="", data=merged)
@@ -9164,14 +9178,28 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor", device_class=["moisture", "water_leak"])
             ),
-            # v5.37.0: explicit clear checkbox — an optional EntitySelector
-            # with a current-value default is otherwise UNCLEARABLE (empty
-            # submissions are rejected; omitting the key refills the
-            # default — true in the HA UI too). Checking this box removes
-            # the configured water-leak sensor on save.
+            # v5.37.0/v5.37.1: single multi-select to clear otherwise
+            # UNCLEARABLE optional single-entity selectors on this step. An
+            # optional EntitySelector with a current-value default rejects
+            # empty submissions AND refills on key omission (true in the HA
+            # UI too); checking a value here writes an explicit EMPTY
+            # options override (see save handler above). List fields (motion,
+            # mmwave, occupancy, scanner areas, door, window) are clearable
+            # natively and are NOT included here.
             vol.Optional(
-                "clear_water_leak_sensor", default=False,
-            ): selector.BooleanSelector(),
+                "clear_sensor_fields", default=[],
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        {"label": "Clear Temperature Sensor", "value": "temperature"},
+                        {"label": "Clear Humidity Sensor", "value": "humidity"},
+                        {"label": "Clear Illuminance Sensor", "value": "illuminance"},
+                        {"label": "Clear Water-Leak Sensor", "value": "water_leak"},
+                    ],
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.LIST,
+                )
+            ),
         })
 
         return self.async_show_form(
