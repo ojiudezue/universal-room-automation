@@ -459,3 +459,26 @@ class TestEvaluateOncePerUpdate:
         chip._refresh_snapshot()
         assert chip.is_on is False
         assert chip.extra_state_attributes["tripping_rooms"] == []
+
+
+def test_cleared_leak_options_override_not_defeated_by_data():
+    """v5.38.1: the clear-checkbox writes '' to OPTIONS while the old value
+    remains in DATA. A presence-aware read must honor the '' (no leak eval);
+    the prior `options.get(K) or data.get(K)` chain fell through to data —
+    the Master Bathroom incident (chip tripped on a CLEARED sensor)."""
+    import types
+    entry = types.SimpleNamespace(
+        options={"water_leak_sensor": ""},
+        data={"water_leak_sensor": "binary_sensor.stale_leak"},
+    )
+    if "water_leak_sensor" in entry.options:
+        leak = entry.options["water_leak_sensor"]
+    else:
+        leak = entry.data.get("water_leak_sensor")
+    assert leak == ""  # cleared — never the stale data value
+    # And source parity: production must use the presence-aware shape.
+    src = open(
+        "custom_components/universal_room_automation/aggregation.py"
+    ).read()
+    assert "options.get(CONF_WATER_LEAK_SENSOR) or " not in src
+    assert src.count("if CONF_WATER_LEAK_SENSOR in coord.entry.options:") == 2
