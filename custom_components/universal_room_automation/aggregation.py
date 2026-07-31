@@ -4340,39 +4340,215 @@ class ZoneAnyoneBinarySensor(ZoneSensorBase, BinarySensorEntity):
 
 
 class ZoneSafetyAlertSensor(ZoneSensorBase, BinarySensorEntity):
-    """Binary sensor: Safety alert in zone."""
-    
+    """Binary sensor: Safety alert in zone.
+
+    v5.38.0 (backlog #12): safety-grade rewrite. Bands come from
+    ``safety.resolve_safety_bands(room_type)`` — a projection over the
+    same tables the safety coordinator consumes, so the chip cannot
+    drift out of alignment. Old comfort-grade thresholds live on the
+    ``comfort_drift_rooms`` attribute (D4a, attribute-only).
+
+    Outdoor authority: ``safety.outdoor_zone_names_snapshot(hass)``.
+    Leak: always evaluated (no room-type gate). Empty-string CONF
+    (cleared-checkbox pattern) is treated as absent; the entity_id must
+    start with ``binary_sensor.`` — protects against a mis-configured
+    non-binary entity wearing a leak hat.
+    """
+
     _attr_device_class = BinarySensorDeviceClass.SAFETY
     _attr_icon = "mdi:alert-circle"
-    
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, zone: str) -> None:
         """Initialize."""
         super().__init__(hass, entry, zone)
         self._attr_unique_id = f"{DOMAIN}_zone_{zone}_safety_alert"
         self._attr_name = f"Safety Alert"
-    
+        # FIX 2 (B-H1): stick-last on evaluate exception so a transient
+        # error can never silently flip a real alert to False. None until
+        # the first successful evaluation.
+        self._last_is_on: bool | None = None
+        self._evaluate_error: str | None = None
+        # FIX 3 (B-H2): evaluate-once cache — is_on and extra_state_attributes
+        # read the SAME snapshot per update cycle. Refreshed in the
+        # async_write_ha_state override (below).
+        self._snapshot_is_on: bool = False
+        self._snapshot_attrs: dict[str, Any] = {
+            "tripping_rooms": [],
+            "reasons": [],
+            "comfort_drift_rooms": [],
+            "tripping": [],
+            "bands_source": "safety.resolve_safety_bands",
+            "chip_semantics": "snapshot; bathroom trips may be transient",
+        }
+        self._snapshot_ready: bool = False
+
+    def _evaluate(self) -> tuple[bool, dict[str, Any]]:
+        """Evaluate safety trips + comfort-drift; return (is_on, attrs).
+
+        Pure: does not mutate the stick-last / snapshot caches — that's
+        the caller's job (``_refresh_snapshot``).
+        """
+        from .domain_coordinators.safety import (
+            ZoneChipRoomInput,
+            evaluate_zone_chip,
+        )
+        from .const import CONF_ROOM_TYPE
+
+        # FIX 5 (B-M1): cached outdoor-zone set on hass.data. Invalidated
+        # by the SIGNAL_ZM_ZONES_UPDATED handler ZoneSensorBase already
+        # subscribes to (see _invalidate_zone_configured_cache override
+        # below). Fallback to a fresh scan when the cache is absent.
+        outdoor_zones = self._get_cached_outdoor_zones()
+        zone_is_outdoor = self.zone in outdoor_zones
+
+        room_inputs: list[ZoneChipRoomInput] = []
+        for coord in self._get_zone_coordinators():
+            try:
+                merged = {**coord.entry.data, **coord.entry.options}
+                room_name = merged.get("room_name") or "Unknown"
+                # FIX 7 (A-LOW-3): the room-level CONF_ZONE_IS_OUTDOOR read
+                # was dead — the ZONE flag is authoritative, resolved once
+                # above via the snapshot. Do not re-read at the room tier.
+                room_type = merged.get(CONF_ROOM_TYPE, "generic")
+
+                temp = coord.data.get(STATE_TEMPERATURE) if coord.data else None
+                humidity = coord.data.get(STATE_HUMIDITY) if coord.data else None
+
+                leak_sensor = (
+                    coord.entry.options.get(CONF_WATER_LEAK_SENSOR)
+                    or coord.entry.data.get(CONF_WATER_LEAK_SENSOR)
+                )
+                leak_on = False
+                leak_dc = None
+                if leak_sensor and isinstance(leak_sensor, str):
+                    try:
+                        state = self.hass.states.get(leak_sensor)
+                    except Exception:  # noqa: BLE001
+                        state = None
+                    if state:
+                        leak_on = state.state == "on"
+                        leak_dc = (state.attributes or {}).get("device_class")
+
+                room_inputs.append(ZoneChipRoomInput(
+                    room_name=room_name,
+                    room_type=room_type,
+                    temperature=temp,
+                    humidity=humidity,
+                    leak_sensor_entity_id=leak_sensor if isinstance(leak_sensor, str) else None,
+                    leak_is_on=leak_on,
+                    leak_device_class=leak_dc,
+                ))
+            except Exception as exc:  # noqa: BLE001
+                _LOGGER.debug(
+                    "ZoneSafetyAlertSensor(%s): room snapshot failed: %s",
+                    self.zone, exc,
+                )
+                continue
+
+        tripping, comfort_drift = evaluate_zone_chip(
+            room_inputs, zone_is_outdoor=zone_is_outdoor, hass=self.hass,
+        )
+        tripping_rooms = [r for r, _ in tripping]
+        reasons = [reason for _, reason in tripping]
+        attrs: dict[str, Any] = {
+            "tripping_rooms": tripping_rooms,
+            "reasons": reasons,
+            "comfort_drift_rooms": list(comfort_drift),
+            # FIX 7 (B-L1): combined per-room trip records alongside the
+            # flat lists — easier for dashboards to iterate atomically.
+            "tripping": [
+                {"room": r, "reason": reason} for r, reason in tripping
+            ],
+            "bands_source": "safety.resolve_safety_bands",
+            # FIX 7 (A-LOW-4): document snapshot semantics; bathroom
+            # medium-rung trips may be transient (safety coordinator uses
+            # a 4h sustained window).
+            "chip_semantics": "snapshot; bathroom trips may be transient",
+        }
+        return bool(tripping), attrs
+
+    def _refresh_snapshot(self) -> None:
+        """FIX 3 (B-H2): compute once, cache both is_on and attrs.
+
+        On evaluate exception, FIX 2 (B-H1) sticky-last kicks in — the
+        prior is_on/attrs are preserved and an ``_evaluate_error`` string
+        is exposed via attrs so the failure is VISIBLE, not silent.
+        """
+        try:
+            is_on, attrs = self._evaluate()
+            self._evaluate_error = None
+            self._snapshot_is_on = is_on
+            self._snapshot_attrs = attrs
+            self._last_is_on = is_on
+            self._snapshot_ready = True
+        except Exception as exc:  # noqa: BLE001
+            self._evaluate_error = f"{type(exc).__name__}: {exc}"
+            _LOGGER.error(
+                "ZoneSafetyAlertSensor(%s): evaluation failed (sticky-last "
+                "in effect, is_on=%s): %s",
+                self.zone, self._last_is_on, exc,
+            )
+            # Preserve previous snapshot; annotate attrs with the error.
+            self._snapshot_attrs = dict(self._snapshot_attrs)
+            self._snapshot_attrs["_evaluate_error"] = self._evaluate_error
+            # is_on falls back to last successful; False if never evaluated.
+            if self._last_is_on is None:
+                self._snapshot_is_on = False
+            else:
+                self._snapshot_is_on = self._last_is_on
+
+    def _get_cached_outdoor_zones(self) -> set[str]:
+        """FIX 5 (B-M1): hass.data-cached outdoor-zone set.
+
+        Invalidated by ``_invalidate_zone_configured_cache`` (override
+        below) on SIGNAL_ZM_ZONES_UPDATED. Fresh scan on cache miss.
+        """
+        from .domain_coordinators.safety import outdoor_zone_names_snapshot
+        try:
+            bag = self.hass.data.setdefault(DOMAIN, {})
+            cached = bag.get("_outdoor_zones_cache")
+            if cached is None:
+                cached = outdoor_zone_names_snapshot(self.hass)
+                bag["_outdoor_zones_cache"] = cached
+            return cached
+        except Exception:  # noqa: BLE001
+            try:
+                return outdoor_zone_names_snapshot(self.hass)
+            except Exception:  # noqa: BLE001
+                return set()
+
+    def _invalidate_zone_configured_cache(self, payload=None) -> None:
+        """Override: also invalidate the outdoor-zone cache on ZM update."""
+        try:
+            bag = self.hass.data.get(DOMAIN)
+            if bag is not None:
+                bag.pop("_outdoor_zones_cache", None)
+        except Exception:  # noqa: BLE001
+            pass
+        super()._invalidate_zone_configured_cache(payload)
+
+    @callback
+    def async_write_ha_state(self) -> None:
+        """Refresh the evaluate-once snapshot BEFORE state is read + written."""
+        self._refresh_snapshot()
+        super().async_write_ha_state()
+
     @property
     def is_on(self) -> bool:
-        """Return True if any safety alert in zone."""
-        for coord in self._get_zone_coordinators():
-            room_name = coord.entry.data.get("room_name", "Unknown")
-            
-            if coord.data:
-                temp = coord.data.get(STATE_TEMPERATURE)
-                if temp is not None and (temp > 85 or temp < 55):
-                    return True
-                
-                humidity = coord.data.get(STATE_HUMIDITY)
-                if humidity is not None and (humidity > 70 or humidity < 25):
-                    return True
-            
-            leak_sensor = coord.entry.options.get(CONF_WATER_LEAK_SENSOR) or coord.entry.data.get(CONF_WATER_LEAK_SENSOR)
-            if leak_sensor:
-                state = self.hass.states.get(leak_sensor)
-                if state and state.state == "on":
-                    return True
-        
-        return False
+        """Return the cached snapshot's is_on."""
+        if not self._snapshot_ready:
+            # First access (e.g. HA polls before any coordinator tick has
+            # driven async_write_ha_state) — compute lazily so we don't
+            # report False before the first evaluation.
+            self._refresh_snapshot()
+        return bool(self._snapshot_is_on)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the cached snapshot's attrs (same evaluation as is_on)."""
+        if not self._snapshot_ready:
+            self._refresh_snapshot()
+        return dict(self._snapshot_attrs)
 
 
 class ZoneAvgTemperatureSensor(ZoneSensorBase, SensorEntity):
