@@ -128,6 +128,15 @@ SIGNAL_DPM_SKIP_REASONS_UPDATED: Final = "ura_dpm_skip_reasons_updated"
 # this signal (D2 actuation is build-gated separately).
 SIGNAL_FAN_INTERFERENCE_GATE_FIRED: Final = "ura_fan_interference_gate_fired"
 
+# mmWave fan-corroboration demotion (Tier-3 D2). Dispatched on the
+# tick a room transitions INTO the demoted set. Payload:
+#   {"room_name": str, "reason": "mmwave_sole_fan_on_no_corroboration",
+#    "fan_on_since": iso, "last_pir_motion_time": iso_or_none}
+# Observability only — downstream actuation MUST NOT depend on this
+# (the demotion has already been applied at the coordinator's own
+# `_async_update_data` seam).
+SIGNAL_MMWAVE_FAN_DEMOTED: Final = "ura_mmwave_fan_demoted"
+
 # Fan-noise Mode-2 mitigation (room-tier BLE-gated fan-pause + clean recheck).
 # Fired when the state machine transitions idle -> armed for a room.
 # Payload: ``{"room": str, "ble_ladder_layer": str}``.

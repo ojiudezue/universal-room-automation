@@ -486,6 +486,15 @@ class ZonePresenceTracker:
         # re-discovery so stale entries from a previous CONF_FANS shape
         # do not accumulate.
         self._fan_entity_to_room: Dict[str, str] = {}
+        # mmWave fan-corroboration Tier-3 D2: per-room timestamp of the
+        # False→True fan-on transition (or seed-time on discovery when
+        # already on). Cleared when the fan goes off. Consumed by
+        # ``PresenceCoordinator._compute_mmwave_fan_demoted_rooms`` to
+        # enforce leg (b) of Invariant M — the fan must have been on
+        # for at least ``MMWAVE_FAN_CORROBORATION_GRACE_S`` before a
+        # mmwave-sole hold can be demoted. Sibling shape to
+        # ``_fan_on_rooms`` (membership) but carries a datetime.
+        self._fan_on_since: Dict[str, "datetime"] = {}
         self._camera_occupied: Dict[str, bool] = {}  # entity_id -> detection active
         self._camera_last_seen: Dict[str, datetime] = {}  # entity_id -> last detection time
         # Fan-noise mitigation D1 (Layer-1 silent gate): per-room hold
@@ -3088,6 +3097,10 @@ class PresenceCoordinator(BaseCoordinator):
         for tracker in self._zone_trackers.values():
             tracker._fan_entity_to_room.clear()
             tracker._fan_on_rooms.clear()
+            # Tier-3 D2: clear per-room fan-on stamps on re-discovery so
+            # a re-seeded "on" fan gets a fresh grace clock (mirrors
+            # `_fan_on_rooms` reset above).
+            tracker._fan_on_since.clear()
         if self._fan_listener_unsub is not None:
             try:
                 self._fan_listener_unsub()
@@ -3138,8 +3151,17 @@ class PresenceCoordinator(BaseCoordinator):
                         if room_name in tracker.room_names:
                             if is_on:
                                 tracker._fan_on_rooms.add(room_name)
+                                # Tier-3 D2: seed fan-on stamp only if
+                                # not already set (a second fan in the
+                                # same room going on later must not
+                                # reset the grace clock).
+                                if room_name not in tracker._fan_on_since:
+                                    tracker._fan_on_since[room_name] = (
+                                        dt_util.utcnow()
+                                    )
                             else:
                                 tracker._fan_on_rooms.discard(room_name)
+                                tracker._fan_on_since.pop(room_name, None)
                             tracker._fan_entity_to_room[fan_id] = room_name
             if fan_entity_ids:
                 # H2 fix-up: capture the unsub returned by
@@ -3197,8 +3219,21 @@ class PresenceCoordinator(BaseCoordinator):
                 continue
             if is_on:
                 tracker._fan_on_rooms.add(room_name)
+                # Tier-3 D2: stamp the False→True edge for the
+                # grace-window check. Do NOT reset the stamp for a
+                # second fan going on in the same room (keeps the
+                # oldest fan-on transition as the reference).
+                if room_name not in tracker._fan_on_since:
+                    tracker._fan_on_since[room_name] = dt_util.utcnow()
             else:
                 tracker._fan_on_rooms.discard(room_name)
+                # A fan going off in a multi-fan room: only clear the
+                # stamp if all fans for that room are off (i.e. room
+                # is no longer in _fan_on_rooms after the discard —
+                # since discard is a no-op if it wasn't a member,
+                # membership check here is authoritative).
+                if room_name not in tracker._fan_on_rooms:
+                    tracker._fan_on_since.pop(room_name, None)
             _LOGGER.debug(
                 "Provenance-split D3: fan %s in room %s -> on=%s "
                 "(fan_on_rooms=%s)",
@@ -3599,6 +3634,89 @@ class PresenceCoordinator(BaseCoordinator):
             return sorted(gated_rooms), ladder
 
         return sorted(set(gated_rooms)), ladder
+
+    def _compute_mmwave_fan_demoted_rooms(self) -> Set[str]:
+        """Tier-3 D2 — mmWave fan-corroboration DEMOTION wrapper.
+
+        Wraps the existing observation-only ``_compute_fan_interference_rooms``
+        primitive (mmwave-sole + BLE-absent + camera-absent) with the
+        additional fan-on-duration gate (Invariant M leg (b)): the fan
+        must have been continuously ``on`` for at least
+        ``MMWAVE_FAN_CORROBORATION_GRACE_S`` seconds. The other Invariant
+        M legs live at the CONSUMER site (room coordinator):
+
+            - leg (b) fan-on ≥ grace           — HERE (per-tracker stamp)
+            - leg (e) PIR-motion stale ≥ MULT×timeout — CONSUMER (room coord)
+            - recheck-in-flight guard          — CONSUMER (room coord)
+            - debounce / boot-settle guard     — CONSUMER (room coord)
+
+        The primitive's zone-camera-any check is preserved as-is (it is
+        strictly fail-safe for a demotion — extra camera visibility can
+        only PREVENT demotion, never cause a spurious one). Per
+        Amendment 1, no per-room camera-covered check is added here:
+        with ``CAMERA_COVERED_ROOMS`` currently a single-room set with
+        no camera in effective use, the extra leg is dormant and the
+        zone-any check already provides the "no camera person" leg for
+        covered rooms in camera zones.
+
+        Kill switch: ``MMWAVE_FAN_CORROBORATION_ENABLED = False`` in
+        const.py → returns empty set. No stranded state to drain here
+        (unlike ``_apply_fan_interference_gate``) because this wrapper
+        writes NOTHING — it is a pure per-tick predicate.
+
+        Returns the set of room_names currently eligible for demotion.
+        """
+        from ..const import (  # noqa: PLC0415 — local to avoid import order concerns
+            MMWAVE_FAN_CORROBORATION_ENABLED,
+            MMWAVE_FAN_CORROBORATION_GRACE_S,
+        )
+        if not MMWAVE_FAN_CORROBORATION_ENABLED:
+            return set()
+        try:
+            suspects = self._compute_fan_interference_rooms()
+        except Exception:  # noqa: BLE001 — defensive
+            return set()
+        if not suspects:
+            return set()
+        now = dt_util.utcnow()
+        try:
+            grace = int(MMWAVE_FAN_CORROBORATION_GRACE_S)
+        except (TypeError, ValueError):
+            grace = 600
+        demoted: Set[str] = set()
+        for tracker in self._zone_trackers.values():
+            fan_since_map = getattr(tracker, "_fan_on_since", {}) or {}
+            for room_name in suspects:
+                if room_name not in tracker.room_names:
+                    continue
+                stamp = fan_since_map.get(room_name)
+                if stamp is None:
+                    continue
+                try:
+                    age = (now - stamp).total_seconds()
+                except Exception:  # noqa: BLE001 — tz mismatch / naive dt
+                    continue
+                if age < 0:
+                    # Clock skew — refuse to demote (fail-safe).
+                    continue
+                if age >= grace:
+                    demoted.add(room_name)
+        return demoted
+
+    def is_room_mmwave_fan_demoted(self, room_name: str) -> bool:
+        """Public accessor for the room coordinator's D2 sustain-gate.
+
+        Compute-on-read (no cache) — cost is bounded by
+        ``_compute_fan_interference_rooms`` which is already an
+        established per-tick primitive. Room coordinator calls this
+        during ``_async_update_data`` at most once per tick.
+        """
+        if not room_name:
+            return False
+        try:
+            return room_name in self._compute_mmwave_fan_demoted_rooms()
+        except Exception:  # noqa: BLE001 — defensive, never fail refresh
+            return False
 
     def _discover_zone_cameras(self) -> None:
         """Discover cameras in each zone using CameraIntegrationManager.
