@@ -32,6 +32,28 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# DB write worker "ready" wait tuning (rung 1 — module constants).
+#
+# Backlog #13 (2026-08-01): during the HA STARTED boot window, event-loop
+# starvation stalls the serial write worker >35s. The prior single-stage
+# 35s timeout raised RuntimeError from the producer, and the worker later
+# ran _execute with `done` already set — the caller never used the
+# connection, so the row was SILENTLY LOST (4 lost writes/boot observed
+# across 3 consecutive boots: census / energy / house-state / decision).
+#
+# Fix: two-stage wait. At the soft-warn boundary we log WARNING and keep
+# waiting (async, no loop block). Only at the hard cap do we set `done`
+# and raise. Rows now complete late instead of being dropped.
+#
+# Governance: rung 1 (module constants) — these are safety bounds, not
+# operator policy. Kill-switch: set HARD_CAP == SOFT_WARN to restore the
+# prior single-stage raise-at-35s behavior.
+# ---------------------------------------------------------------------------
+DB_WRITE_READY_SOFT_WARN_S: float = 35.0
+DB_WRITE_READY_HARD_CAP_S: float = 300.0
+
+
 def _sum_savings_from_rows(rows) -> tuple[float, int]:
     """Pure kernel for `get_ac_ramp_savings`: sum $ savings from an
     iterable of `(notes, effective)` tuples.
@@ -330,14 +352,44 @@ class UniversalRoomDatabase:
 
         await self._write_queue.put((_execute, future))
         # Wait for worker to give us the connection.
-        # Timeout prevents hanging if worker dies after enqueue (review fix F1).
-        try:
-            await asyncio.wait_for(ready.wait(), timeout=35.0)
-        except asyncio.TimeoutError:
-            done.set()  # Unblock worker if it somehow ran _execute late
-            raise RuntimeError(
-                "DB write worker did not process request within 35s"
-            )
+        # Two-stage wait (backlog #13): soft-warn then continue up to a
+        # hard cap, so a boot-window loop stall completes the row LATE
+        # instead of raising and dropping it (the pre-fix silent-loss
+        # path). See DB_WRITE_READY_{SOFT_WARN,HARD_CAP}_S above.
+        soft = DB_WRITE_READY_SOFT_WARN_S
+        hard = DB_WRITE_READY_HARD_CAP_S
+        elapsed = 0.0
+        if soft < hard:
+            try:
+                await asyncio.wait_for(ready.wait(), timeout=soft)
+            except asyncio.TimeoutError:
+                elapsed = soft
+                _LOGGER.warning(
+                    "DB write worker slow: no connection after %.1fs "
+                    "(queue_depth=%d); continuing to wait up to %.1fs",
+                    soft, self._write_queue.qsize(), hard,
+                )
+                remaining = hard - soft
+                try:
+                    await asyncio.wait_for(ready.wait(), timeout=remaining)
+                    elapsed = 0.0  # completed (late) — clear for success path
+                except asyncio.TimeoutError:
+                    done.set()  # Unblock worker if it runs _execute later
+                    raise RuntimeError(
+                        "DB write worker did not process request within "
+                        f"{hard:.1f}s (queue_depth={self._write_queue.qsize()}, "
+                        f"elapsed>={hard:.1f}s) — row dropped"
+                    )
+        else:
+            # Single-stage kill-switch (SOFT >= HARD): restore raise-at-soft.
+            try:
+                await asyncio.wait_for(ready.wait(), timeout=soft)
+            except asyncio.TimeoutError:
+                done.set()
+                raise RuntimeError(
+                    "DB write worker did not process request within "
+                    f"{soft:.1f}s (queue_depth={self._write_queue.qsize()})"
+                )
         try:
             yield db_holder[0]
         finally:
