@@ -178,36 +178,13 @@ class PerimeterAlertManager:
         def _on_perimeter_state_change(event: Event) -> None:
             """Handle perimeter camera person detection state change.
 
-            B-HIGH-2 boot-spurious guard: ignore when old_state is None
-            (initial publication) OR when the transition is on->on
-            (attribute-only change, not a rising edge). Additionally,
-            ignore any event within PERIMETER_BOOT_SETTLE_S of setup so
-            RestoreEntity replay cannot fire spurious CRITICAL alerts.
+            Delegates to _on_perimeter_event so the boot-spurious gate
+            (B-HIGH-2) is a REAL production method the test suite can
+            drive directly — a test-file replica of this logic went
+            green under production mutation (Bug Class #62, caught by
+            orchestrator drill 2026-08-01).
             """
-            entity_id = event.data.get("entity_id", "")
-            new_state = event.data.get("new_state")
-            old_state = event.data.get("old_state")
-            if not (new_state and new_state.state == "on"):
-                return
-            if old_state is None or old_state.state == "on":
-                _LOGGER.debug(
-                    "PerimeterAlertManager: ignoring non-rising-edge event "
-                    "for %s (old=%s)", entity_id,
-                    None if old_state is None else old_state.state,
-                )
-                return
-            if self._setup_time is not None:
-                elapsed = (dt_util.now() - self._setup_time).total_seconds()
-                if elapsed < PERIMETER_BOOT_SETTLE_S:
-                    _LOGGER.debug(
-                        "PerimeterAlertManager: ignoring %s trigger within "
-                        "boot settle window (%.1fs of %ds)",
-                        entity_id, elapsed, PERIMETER_BOOT_SETTLE_S,
-                    )
-                    return
-            self.hass.async_create_task(
-                self._async_handle_perimeter_trigger(entity_id)
-            )
+            self._on_perimeter_event(event)
 
         self._unsub_perimeter.append(
             async_track_state_change_event(
@@ -658,6 +635,40 @@ class PerimeterAlertManager:
                 service,
                 exc,
             )
+
+    @callback
+    def _on_perimeter_event(self, event: Event) -> None:
+        """B-HIGH-2 boot-spurious gate + dispatch (production, test-driven).
+
+        Ignore when old_state is None (initial publication) OR when the
+        transition is on->on (attribute-only change, not a rising edge).
+        Additionally, ignore any event within PERIMETER_BOOT_SETTLE_S of
+        setup so RestoreEntity replay cannot fire spurious CRITICAL alerts.
+        """
+        entity_id = event.data.get("entity_id", "")
+        new_state = event.data.get("new_state")
+        old_state = event.data.get("old_state")
+        if not (new_state and new_state.state == "on"):
+            return
+        if old_state is None or old_state.state == "on":
+            _LOGGER.debug(
+                "PerimeterAlertManager: ignoring non-rising-edge event "
+                "for %s (old=%s)", entity_id,
+                None if old_state is None else old_state.state,
+            )
+            return
+        if self._setup_time is not None:
+            elapsed = (dt_util.now() - self._setup_time).total_seconds()
+            if elapsed < PERIMETER_BOOT_SETTLE_S:
+                _LOGGER.debug(
+                    "PerimeterAlertManager: ignoring %s trigger within "
+                    "boot settle window (%.1fs of %ds)",
+                    entity_id, elapsed, PERIMETER_BOOT_SETTLE_S,
+                )
+                return
+        self.hass.async_create_task(
+            self._async_handle_perimeter_trigger(entity_id)
+        )
 
     # ------------------------------------------------------------------
     # Properties & helpers

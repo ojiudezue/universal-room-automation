@@ -660,28 +660,10 @@ def test_teardown_cancels_pending_dispatch():
 # --- B-HIGH-2: boot spurious CRITICAL guard ----------------------------------
 
 def _make_perimeter_state_cb(mgr):
-    """Rebuild the perimeter state-change callback for direct invocation."""
-    from custom_components.universal_room_automation.const import (
-        PERIMETER_BOOT_SETTLE_S,
-    )
-    from homeassistant.util import dt as _dt
-
-    def _cb(event):
-        entity_id = event.data.get("entity_id", "")
-        new_state = event.data.get("new_state")
-        old_state = event.data.get("old_state")
-        if not (new_state and new_state.state == "on"):
-            return
-        if old_state is None or old_state.state == "on":
-            return
-        if mgr._setup_time is not None:
-            elapsed = (_dt.now() - mgr._setup_time).total_seconds()
-            if elapsed < PERIMETER_BOOT_SETTLE_S:
-                return
-        mgr.hass.async_create_task(
-            mgr._async_handle_perimeter_trigger(entity_id))
-
-    return _cb
+    """Drive the REAL production gate method (Bug Class #62 fix: the prior
+    test-file replica of this logic stayed green when production was
+    mutated — orchestrator drill 2026-08-01)."""
+    return mgr._on_perimeter_event
 
 
 def _mk_event(entity_id, new, old):
