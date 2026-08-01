@@ -32,6 +32,41 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# DB write worker "ready" wait tuning (rung 1 — module constants).
+#
+# Backlog #13 (2026-08-01): during the HA STARTED boot window, event-loop
+# starvation stalls the serial write worker >35s. The prior single-stage
+# 35s timeout raised RuntimeError from the producer, and the worker later
+# ran _execute with `done` already set — the caller never used the
+# connection, so the row was SILENTLY LOST (4 lost writes/boot observed
+# across 3 consecutive boots: census / energy / house-state / decision).
+#
+# Fix: two-stage wait. At the soft-warn boundary we log WARNING and keep
+# waiting (async, no loop block). Only at the hard cap do we set `done`
+# and raise. Rows now complete late instead of being dropped.
+#
+# Governance: rung 1 (module constants) — these are safety bounds, not
+# operator policy. Kill-switch: set HARD_CAP == SOFT_WARN to restore the
+# prior single-stage raise-at-35s behavior.
+#
+# NOTE: HARD_CAP interacts with HA's ~10-minute config-entry setup
+# timeout — do NOT raise HARD_CAP without checking that budget. A hard
+# cap that outlasts entry setup would deadlock startup instead of
+# raising a diagnosable error.
+#
+# CALLER_HOLD_WARN_S (fix-up A-HIGH-1): time after which we log a
+# WARNING that a caller is still holding the write connection. The
+# worker NEVER abandons a live caller — abandoning + returning would
+# hand the SAME sqlite connection to the next queued write while the
+# late caller is still executing, silently interleaving or corrupting
+# DB state. See _execute's INVARIANT comment.
+# ---------------------------------------------------------------------------
+DB_WRITE_READY_SOFT_WARN_S: float = 35.0
+DB_WRITE_READY_HARD_CAP_S: float = 300.0
+DB_WRITE_CALLER_HOLD_WARN_S: float = 120.0
+
+
 def _sum_savings_from_rows(rows) -> tuple[float, int]:
     """Pure kernel for `get_ac_ramp_savings`: sum $ savings from an
     iterable of `(notes, effective)` tuples.
@@ -320,24 +355,107 @@ class UniversalRoomDatabase:
         async def _execute(db):
             db_holder.append(db)
             ready.set()
-            # Wait for caller to finish using db (timeout prevents stuck caller
-            # from blocking the entire write queue — review fix F6)
-            try:
-                await asyncio.wait_for(done.wait(), timeout=120.0)
-            except asyncio.TimeoutError:
-                _LOGGER.error("DB write caller held connection >120s — releasing")
+            # INVARIANT (backlog #13 fix-up A-HIGH-1): `done` is set on
+            # EVERY caller exit path — normal yield-finally, pre-yield
+            # exception (hard-cap raise, drain-propagated exception),
+            # and cancellation-mid-park. Therefore this unbounded wait
+            # cannot hang the worker. The prior 120s abandonment path
+            # was UNSAFE: on caller-hold-timeout the worker returned
+            # and handed the SAME sqlite connection to the next queued
+            # write while the late caller was still executing on it,
+            # silently interleaving statements and risking corruption.
+            # We warn (repeatedly) but never abandon.
+            _start = time.monotonic()
+            _warn_tier = 0
+            while not done.is_set():
+                try:
+                    await asyncio.wait_for(
+                        done.wait(), timeout=DB_WRITE_CALLER_HOLD_WARN_S
+                    )
+                except asyncio.TimeoutError:
+                    _warn_tier += 1
+                    _held = time.monotonic() - _start
+                    _LOGGER.warning(
+                        "DB write caller holding connection >%.1fs "
+                        "(held=%.1fs, tier=%d) — continuing to wait "
+                        "(worker will NOT reuse this connection)",
+                        DB_WRITE_CALLER_HOLD_WARN_S, _held, _warn_tier,
+                    )
             return None
+
+        async def _wait_ready_stage(timeout: float) -> str:
+            """Wait up to `timeout` for `ready` set OR `future` complete.
+
+            Returns 'ready' on ready set or on future normal completion,
+            'timeout' on timeout. If `future` completes with an exception
+            (drain path B-HIGH-1), sets `done` and re-raises that exception
+            so parked callers unblock promptly during shutdown. On
+            CancelledError (B-MED-2), sets `done` before re-raising so the
+            worker's unbounded done-wait terminates.
+            """
+            ready_task = asyncio.ensure_future(ready.wait())
+            try:
+                done_set, _pending = await asyncio.wait(
+                    {ready_task, future},
+                    timeout=timeout,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+            except BaseException:
+                if not ready_task.done():
+                    ready_task.cancel()
+                done.set()
+                raise
+            if not ready_task.done():
+                ready_task.cancel()
+            if not done_set:
+                return "timeout"
+            if ready_task in done_set:
+                return "ready"
+            # `future` completed first — only reachable via drain.
+            exc = future.exception()
+            if exc is not None:
+                done.set()
+                raise exc
+            return "ready"
 
         await self._write_queue.put((_execute, future))
         # Wait for worker to give us the connection.
-        # Timeout prevents hanging if worker dies after enqueue (review fix F1).
-        try:
-            await asyncio.wait_for(ready.wait(), timeout=35.0)
-        except asyncio.TimeoutError:
-            done.set()  # Unblock worker if it somehow ran _execute late
-            raise RuntimeError(
-                "DB write worker did not process request within 35s"
-            )
+        # Two-stage wait (backlog #13): soft-warn then continue up to a
+        # hard cap, so a boot-window loop stall completes the row LATE
+        # instead of raising and dropping it (the pre-fix silent-loss
+        # path). See DB_WRITE_READY_{SOFT_WARN,HARD_CAP}_S above.
+        soft = DB_WRITE_READY_SOFT_WARN_S
+        hard = DB_WRITE_READY_HARD_CAP_S
+        _wait_start = time.monotonic()
+        if soft < hard:
+            stage = await _wait_ready_stage(soft)
+            if stage == "timeout":
+                _elapsed = time.monotonic() - _wait_start
+                _LOGGER.warning(
+                    "DB write worker slow: no connection after %.1fs "
+                    "(queue_depth=%d, elapsed=%.1fs); continuing to wait up to %.1fs",
+                    soft, self._write_queue.qsize(), _elapsed, hard,
+                )
+                stage = await _wait_ready_stage(hard - soft)
+                if stage == "timeout":
+                    done.set()  # unblock worker if it runs _execute later
+                    _elapsed = time.monotonic() - _wait_start
+                    raise RuntimeError(
+                        "DB write worker did not process request within "
+                        f"{hard:.1f}s (queue_depth={self._write_queue.qsize()}, "
+                        f"elapsed={_elapsed:.1f}s) — row dropped"
+                    )
+        else:
+            # Single-stage kill-switch (SOFT >= HARD): restore raise-at-soft.
+            stage = await _wait_ready_stage(soft)
+            if stage == "timeout":
+                done.set()
+                _elapsed = time.monotonic() - _wait_start
+                raise RuntimeError(
+                    "DB write worker did not process request within "
+                    f"{soft:.1f}s (queue_depth={self._write_queue.qsize()}, "
+                    f"elapsed={_elapsed:.1f}s)"
+                )
         try:
             yield db_holder[0]
         finally:
