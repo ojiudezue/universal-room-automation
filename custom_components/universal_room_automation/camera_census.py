@@ -420,7 +420,55 @@ class CameraIntegrationManager:
              - sensor.{stem}_person_count
           4. Returns combined list, deduplicated by entity_id
         """
-        # Step 1: standard resolution (same-device sensors)
+        # 2026-08-01 cutover: route through the new shared CameraResolver
+        # when CENSUS_USE_NEW_RESOLVER=True (default). Fire-axe flag: flip
+        # to False in a reviewed change to fall back to the legacy
+        # name-stem-only path preserved below.
+        try:
+            from .camera_resolver import (  # noqa: PLC0415
+                CENSUS_USE_NEW_RESOLVER, CameraResolver, PLATFORM_FRIGATE, PLATFORM_UNIFI,
+            )
+        except Exception:  # noqa: BLE001
+            CENSUS_USE_NEW_RESOLVER = False
+        if CENSUS_USE_NEW_RESOLVER:
+            try:
+                from homeassistant.helpers import device_registry as dr  # noqa: PLC0415
+                resolver = CameraResolver(er.async_get(self.hass), dr.async_get(self.hass))
+                merged_infos: list[CameraInfo] = []
+                seen: set[str] = set()
+                for cam_eid in camera_entity_ids:
+                    fusion = resolver.resolve_operator_declaration([cam_eid])
+                    for src in fusion.sources:
+                        # person binary_sensor -> CameraInfo
+                        for eid in (src.person_binary_sensor,):
+                            if eid and eid not in seen:
+                                seen.add(eid)
+                                plat = (CAMERA_PLATFORM_FRIGATE
+                                        if src.integration == PLATFORM_FRIGATE
+                                        else CAMERA_PLATFORM_UNIFI
+                                        if src.integration == PLATFORM_UNIFI
+                                        else src.integration or CAMERA_PLATFORM_UNIFI)
+                                merged_infos.append(CameraInfo(
+                                    entity_id=eid,
+                                    platform=plat,
+                                    area_id=None,
+                                    person_binary_sensor=eid,
+                                    person_count_sensor=src.person_count_sensor,
+                                ))
+                if merged_infos:
+                    _LOGGER.info(
+                        "Cross-platform resolution (new-resolver): %d entities from %d cameras",
+                        len(merged_infos), len(camera_entity_ids),
+                    )
+                    return merged_infos
+                # Fall through to legacy if resolver returned nothing.
+                _LOGGER.debug("CameraResolver returned no sources; falling back to legacy name-stem path")
+            except Exception as exc:  # noqa: BLE001
+                _LOGGER.warning(
+                    "CameraResolver census cutover failed (%s); using legacy path", exc,
+                )
+
+        # Legacy path (preserved as fire-axe): standard resolution (same-device sensors)
         base_infos = self.resolve_configured_cameras(camera_entity_ids)
         seen_entity_ids = {info.entity_id for info in base_infos}
         additional: list[CameraInfo] = []

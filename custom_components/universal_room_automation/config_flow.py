@@ -106,6 +106,7 @@ from .const import (
     CONF_PHONE_TRACKER,  # DEPRECATED in v3.2.4 - kept for migration
     CONF_SCANNER_AREAS,  # v3.2.4: Scanner areas for sparse scanner homes
     CONF_DISABLE_CAMERA_PRESENCE,  # v4.7.16 D4: per-room camera-presence opt-out
+    CONF_ROOM_CAMERAS,  # 2026-08-01 room-camera fusion cycle (D1)
     DEFAULT_DISABLE_CAMERA_PRESENCE,
     CONF_DOOR_SENSORS,
     CONF_DOOR_TYPE,
@@ -1129,6 +1130,19 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
                 CONF_DISABLE_CAMERA_PRESENCE,
                 default=DEFAULT_DISABLE_CAMERA_PRESENCE,
             ): selector.BooleanSelector(),
+            # Room-camera fusion (2026-08-01): NEW key CONF_ROOM_CAMERAS.
+            # Multi-select of ANY entity of/near a physical camera; the
+            # resolver hops to the device and discovers per-integration
+            # capabilities. Intentionally NO domain filter — plan D1 requires
+            # accepting camera.*, binary_sensor.*, sensor.*, switch.*.
+            # Distinct key from CONF_CAMERA_PERSON_ENTITIES so the v3.4.5
+            # integration-migration does not eat it.
+            vol.Optional(
+                CONF_ROOM_CAMERAS,
+                default=[],
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(multiple=True)
+            ),
             vol.Optional(CONF_TEMPERATURE_SENSOR, default=area_temp[0] if area_temp else vol.UNDEFINED): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
             ),
@@ -9174,6 +9188,14 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     CONF_DISABLE_CAMERA_PRESENCE, DEFAULT_DISABLE_CAMERA_PRESENCE
                 ),
             ): selector.BooleanSelector(),
+            # Room-camera fusion (2026-08-01): NEW key CONF_ROOM_CAMERAS
+            # (mirrors initial-setup step).
+            vol.Optional(
+                CONF_ROOM_CAMERAS,
+                default=self._get_current(CONF_ROOM_CAMERAS, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(multiple=True)
+            ),
             vol.Optional(
                 CONF_TEMPERATURE_SENSOR, 
                 default=self._get_current(CONF_TEMPERATURE_SENSOR) or vol.UNDEFINED

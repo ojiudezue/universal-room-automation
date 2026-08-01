@@ -347,6 +347,84 @@ async def _migrate_room_cameras_to_integration(hass: HomeAssistant, integration_
     return len(collected_cameras)
 
 
+async def _camera_autoenable_dry_run_scan(
+    hass: HomeAssistant, integration_entry: ConfigEntry
+) -> None:
+    """D4 dry-run: LOG the person-detect switches that would be auto-enabled.
+
+    Iterates every ROOM entry, resolves its CONF_ROOM_CAMERAS via the shared
+    CameraResolver, and emits an INFO log listing the union of person-detect
+    switches currently OFF that would be turned on. Also emits a separate
+    log line naming any face-detect switches found in the fusion inventory
+    (INVENTORY ONLY — never auto-enabled; the log is there so the operator
+    can prove face was seen and rejected).
+
+    Behavior:
+      * When ``CAMERA_AUTOENABLE_DRY_RUN=True`` (default) OR the operator
+        knob ``CONF_AUTO_ENABLE_PERSON_DETECTION=False`` -> log only.
+      * When both dry-run is False AND the knob is True -> currently STILL
+        log only. The service-call plumbing is intentionally NOT wired this
+        cycle per the plan (flip is a later reviewed change once the log
+        inventory looks right on live).
+    """
+    from .camera_resolver import (  # noqa: PLC0415
+        CameraResolver,
+        collect_person_switches_to_enable,
+        CAMERA_AUTOENABLE_DRY_RUN,
+    )
+    from .const import (  # noqa: PLC0415
+        CONF_ROOM_CAMERAS,
+        CONF_AUTO_ENABLE_PERSON_DETECTION,
+        DEFAULT_AUTO_ENABLE_PERSON_DETECTION,
+        CONF_ENTRY_TYPE,
+        ENTRY_TYPE_ROOM,
+    )
+    from homeassistant.helpers import (  # noqa: PLC0415
+        entity_registry as er, device_registry as dr,
+    )
+
+    knob_enabled = (
+        (integration_entry.options.get(
+            CONF_AUTO_ENABLE_PERSON_DETECTION,
+            DEFAULT_AUTO_ENABLE_PERSON_DETECTION,
+        ))
+    )
+    resolver = CameraResolver(er.async_get(hass), dr.async_get(hass))
+    fusions = []
+    for room_entry in hass.config_entries.async_entries(DOMAIN):
+        if room_entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+            continue
+        merged = {**room_entry.data, **room_entry.options}
+        room_cams = merged.get(CONF_ROOM_CAMERAS) or []
+        if not room_cams:
+            continue
+        try:
+            fusion = resolver.resolve_operator_declaration(room_cams)
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.warning(
+                "Camera auto-enable dry-run: resolve failed for room %s: %s",
+                room_entry.title, exc,
+            )
+            continue
+        fusions.append(fusion)
+        face_sw = fusion.face_detect_switch_entity_ids()
+        if face_sw:
+            _LOGGER.info(
+                "Camera auto-enable dry-run: room=%s FACE switches (INVENTORY "
+                "ONLY, never auto-enabled): %s",
+                room_entry.title, face_sw,
+            )
+    would_enable = collect_person_switches_to_enable(
+        fusions, lambda eid: hass.states.get(eid)
+    )
+    _LOGGER.info(
+        "Camera auto-enable dry-run: dry_run=%s knob_enabled=%s fused_rooms=%d "
+        "person_switches_that_would_be_enabled=%d entities=%s",
+        CAMERA_AUTOENABLE_DRY_RUN, knob_enabled, len(fusions),
+        len(would_enable), would_enable,
+    )
+
+
 async def _migrate_arbitrage_target_to_peak_buffer(
     hass: HomeAssistant, cm_entry: ConfigEntry
 ) -> bool:
@@ -1204,6 +1282,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.error("Camera migration failed: %s", e)
                 import traceback
                 _LOGGER.error("Traceback: %s", traceback.format_exc())
+
+        # 2026-08-01 room-camera fusion cycle D4: dry-run inventory of
+        # per-integration person-detect switches that WOULD be auto-enabled.
+        # Gated by camera_resolver.CAMERA_AUTOENABLE_DRY_RUN (default True)
+        # AND per-integration knob CONF_AUTO_ENABLE_PERSON_DETECTION. Face
+        # switches are NEVER included in this list (invariant). Flip
+        # CAMERA_AUTOENABLE_DRY_RUN to False in a later reviewed change to
+        # turn on live action.
+        try:
+            await _camera_autoenable_dry_run_scan(hass, entry)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning("Camera auto-enable dry-run scan failed: %s", e)
 
         # v3.6.0: Migrate zone entries to Zone Manager entry and create manager entries
         if not entry.options.get("zone_manager_migration_done"):

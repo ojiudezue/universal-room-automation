@@ -59,6 +59,8 @@ from .const import (
     DEFAULT_HUMIDITY_FAN_CONTROL_ENABLED,
     # v3.5.0 Camera Census
     CONF_CAMERA_PERSON_ENTITIES,
+    CONF_ROOM_CAMERAS,
+    CONF_DISABLE_CAMERA_PRESENCE,
     CONF_TRACKED_PERSONS,
     ENTRY_TYPE_INTEGRATION,
     ENTRY_TYPE_ROOM,
@@ -1111,11 +1113,16 @@ class AutomationConflictBinarySensor(UniversalRoomEntity, BinarySensorEntity):
 
 
 class CameraPersonDetectedSensor(UniversalRoomEntity, BinarySensorEntity):
-    """Per-room binary sensor: true when any configured camera sees a person.
+    """Per-room binary sensor: true when any fused camera source sees a person.
 
-    Reads CONF_CAMERA_PERSON_ENTITIES from room config and checks if any
-    of them are currently in state 'on'. Gracefully returns False if no
-    cameras are configured for this room.
+    2026-08-01 fusion rewrite: reads NEW room key CONF_ROOM_CAMERAS (D1),
+    resolves via CameraResolver (D2), and OR-fuses the resolved per-integration
+    person binary_sensors with per-source attribution + agreement/confidence
+    attrs.
+
+    - Respects CONF_DISABLE_CAMERA_PRESENCE (forces off; disabled_by_config).
+    - Empty CONF_ROOM_CAMERAS -> is_on=False (not unavailable).
+    - Falsifiable invariant (Review D): is_on iff any resolved source == "on".
     """
 
     _attr_device_class = BinarySensorDeviceClass.OCCUPANCY
@@ -1124,35 +1131,129 @@ class CameraPersonDetectedSensor(UniversalRoomEntity, BinarySensorEntity):
     def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator, "camera_person_detected", "Camera Person Detected")
+        self._fusion = None  # cached RoomCameraFusion, populated lazily
+        self._source_entity_ids: list[str] = []
+
+    def _get_fusion(self):
+        """Return a RoomCameraFusion for this room's configured cameras.
+
+        Lazily resolves on first read; cached on the coordinator to avoid
+        re-walking the registry on every state-change event.
+        """
+        if self._fusion is not None:
+            return self._fusion
+        try:
+            from .camera_resolver import CameraResolver  # noqa: PLC0415
+            from homeassistant.helpers import (  # noqa: PLC0415
+                entity_registry as er, device_registry as dr,
+            )
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.warning(
+                "CameraPersonDetectedSensor: resolver import failed: %s", exc
+            )
+            return None
+        config = {**self.coordinator.entry.data, **self.coordinator.entry.options}
+        room_cams = config.get(CONF_ROOM_CAMERAS, []) or []
+        if not room_cams:
+            return None
+        try:
+            resolver = CameraResolver(
+                er.async_get(self.hass),
+                dr.async_get(self.hass),
+            )
+            self._fusion = resolver.resolve_operator_declaration(room_cams)
+            self._source_entity_ids = self._fusion.person_binary_sensor_entity_ids()
+            _LOGGER.info(
+                "CameraPersonDetectedSensor(%s): resolved %d sources from %d configured cameras: %s",
+                self.coordinator.entry.title, len(self._fusion.sources), len(room_cams),
+                self._source_entity_ids,
+            )
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.warning(
+                "CameraPersonDetectedSensor(%s): fusion resolve failed: %s",
+                self.coordinator.entry.title, exc,
+            )
+            return None
+        return self._fusion
 
     @property
     def is_on(self) -> bool:
-        """Return True if any room camera detects a person."""
+        """Return True if any resolved source binary_sensor is on."""
         config = {**self.coordinator.entry.data, **self.coordinator.entry.options}
-        camera_entities = config.get(CONF_CAMERA_PERSON_ENTITIES, [])
-        if not camera_entities:
+        if config.get(CONF_DISABLE_CAMERA_PRESENCE):
             return False
-
-        for entity_id in camera_entities:
-            state = self.hass.states.get(entity_id)
-            if state and state.state == "on":
+        fusion = self._get_fusion()
+        if fusion is None:
+            return False
+        for eid in fusion.person_binary_sensor_entity_ids():
+            try:
+                state = self.hass.states.get(eid)
+            except Exception:
+                continue
+            if state is not None and state.state == "on":
                 return True
         return False
 
     @property
     def extra_state_attributes(self) -> dict:
-        """Return which cameras are active."""
+        """Attribution + agreement/confidence + disabled_by_config."""
         config = {**self.coordinator.entry.data, **self.coordinator.entry.options}
-        camera_entities = config.get(CONF_CAMERA_PERSON_ENTITIES, [])
-        active = []
-        for entity_id in camera_entities:
-            state = self.hass.states.get(entity_id)
-            if state and state.state == "on":
-                active.append(entity_id)
+        disabled = bool(config.get(CONF_DISABLE_CAMERA_PRESENCE))
+        fusion = self._get_fusion()
+        if fusion is None:
+            return {
+                "sources": [],
+                "agreement": "no_sources",
+                "confidence": "none",
+                "resolved_camera_devices": [],
+                "disabled_by_config": disabled,
+                "configured_cameras": config.get(CONF_ROOM_CAMERAS, []) or [],
+            }
+        sources_out: list[dict] = []
+        on_count = 0
+        avail_count = 0
+        for src in fusion.sources:
+            eid = src.person_binary_sensor
+            state = self.hass.states.get(eid) if eid else None
+            state_val = state.state if state is not None else "unknown"
+            if state_val in ("on", "off"):
+                avail_count += 1
+                if state_val == "on":
+                    on_count += 1
+            sources_out.append({
+                "integration": src.integration,
+                "entity_id": eid,
+                "state": state_val,
+                "correlation_basis": src.correlation_basis,
+                "face_capability": src.face_capability,
+            })
+        # Agreement classification.
+        if not sources_out:
+            agreement = "no_sources"
+        elif len(sources_out) == 1:
+            agreement = "single_source"
+        elif on_count == avail_count and on_count > 0:
+            agreement = "unanimous_on"
+        elif on_count == 0:
+            agreement = "unanimous_off"
+        else:
+            agreement = "split"
+        # Confidence classification.
+        if avail_count == 0:
+            confidence = "low" if sources_out else "none"
+        elif on_count >= 2:
+            confidence = "high"
+        elif agreement == "split" or on_count == 1:
+            confidence = "medium"
+        else:
+            confidence = "high"  # unanimous_off with >=2 available
         return {
-            "configured_cameras": camera_entities,
-            "active_cameras": active,
-            "camera_count": len(camera_entities),
+            "sources": sources_out,
+            "agreement": agreement,
+            "confidence": confidence,
+            "resolved_camera_devices": [s.device_id for s in fusion.sources],
+            "disabled_by_config": disabled,
+            "configured_cameras": config.get(CONF_ROOM_CAMERAS, []) or [],
         }
 
 
