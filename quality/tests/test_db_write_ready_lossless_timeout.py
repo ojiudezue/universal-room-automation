@@ -190,6 +190,11 @@ def test_stall_between_soft_and_hard_completes_write(tmp_path, monkeypatch, capl
     async def _scenario():
         await db.initialize()
         # Stall = 0.15s: past soft (0.05) but well under hard (2.0).
+        # Margin note (mutation-c fragility guard): stall MUST sit strictly
+        # between soft*2 and hard/2 so an arithmetic mutation of the
+        # remaining-timeout calculation (e.g. `remaining = hard - soft` ->
+        # `remaining = hard - soft*2`) cannot silently accommodate the stall.
+        # Wide 0.05/0.15/2.0 margins pin this.
         await _install_stalled_worker(db, stall_s=0.15)
 
         caplog.set_level(logging.WARNING, logger=ura_db.__name__)
@@ -442,3 +447,145 @@ def test_mutation_single_stage_raise_makes_t1_red(tmp_path, monkeypatch):
         with open(src_path, "wb") as fh:
             fh.write(original)
         importlib.reload(ura_db)
+
+
+# ---------------------------------------------------------------------------
+# T5: kill-switch (SOFT == HARD) restores single-stage raise, no soft-warn
+# ---------------------------------------------------------------------------
+
+
+def test_kill_switch_soft_equals_hard_restores_single_stage_raise(
+    tmp_path, monkeypatch, caplog
+):
+    """SOFT == HARD -> single-stage raise at soft, NO 'slow' warn logged
+    (kill-switch semantics per DB_WRITE_READY_* constants doc)."""
+    monkeypatch.setattr(ura_db, "DB_WRITE_READY_SOFT_WARN_S", 0.1)
+    monkeypatch.setattr(ura_db, "DB_WRITE_READY_HARD_CAP_S", 0.1)
+
+    db = _make_db(str(tmp_path))
+
+    async def _scenario():
+        await db.initialize()
+        await _install_stalled_worker(db, stall_s=0.5)
+
+        caplog.set_level(logging.WARNING, logger=ura_db.__name__)
+
+        with pytest.raises(RuntimeError, match="did not process request"):
+            async with db._db() as conn:
+                await conn.execute(
+                    "INSERT INTO census_snapshots (timestamp, zone, "
+                    "identified_count, identified_persons, unidentified_count, "
+                    "total_persons) VALUES (?, ?, ?, ?, ?, ?)",
+                    ("2026-08-01T00:00:05", "t5_zone", 0, "", 0, 0),
+                )
+                await conn.commit()
+
+        warn_msgs = [r.message for r in caplog.records
+                     if r.levelno == logging.WARNING
+                     and "DB write worker slow" in r.message]
+        assert warn_msgs == [], (
+            f"kill-switch (SOFT==HARD) MUST NOT log the two-stage soft-warn; "
+            f"got {warn_msgs}"
+        )
+
+        # Drain fake worker.
+        await asyncio.sleep(0.6)
+        await _stop_fake_worker(db)
+
+    asyncio.get_event_loop().run_until_complete(_scenario())
+
+
+# ---------------------------------------------------------------------------
+# T6: shutdown-mid-park -- drain unblocks parked caller PROMPTLY
+# ---------------------------------------------------------------------------
+
+
+def test_shutdown_drain_unblocks_parked_caller_promptly(tmp_path, monkeypatch):
+    """B-HIGH-1 regression: parked callers must observe drain's future
+    exception via ready-OR-future FIRST_COMPLETED, not sleep out hard cap."""
+    monkeypatch.setattr(ura_db, "DB_WRITE_READY_SOFT_WARN_S", 5.0)
+    monkeypatch.setattr(ura_db, "DB_WRITE_READY_HARD_CAP_S", 30.0)
+
+    db = _make_db(str(tmp_path))
+
+    async def _scenario():
+        await db.initialize()
+        # No worker running -- caller's item sits on the queue.
+
+        async def _caller():
+            async with db._db() as conn:
+                await conn.execute("SELECT 1")
+
+        caller_task = asyncio.ensure_future(_caller())
+        # Let the caller enqueue its item and park on ready-wait.
+        await asyncio.sleep(0.05)
+
+        loop = asyncio.get_event_loop()
+        t0 = loop.time()
+        db._drain_pending_futures("shutdown timeout")
+
+        with pytest.raises(RuntimeError, match="shutdown timeout"):
+            await asyncio.wait_for(caller_task, timeout=1.0)
+
+        elapsed = loop.time() - t0
+        assert elapsed < 0.5, (
+            f"parked caller took {elapsed:.2f}s to observe drain; "
+            f"must be prompt (well under soft {5.0}s)"
+        )
+
+    asyncio.get_event_loop().run_until_complete(_scenario())
+
+
+# ---------------------------------------------------------------------------
+# T7: cancel-mid-park -- worker _execute returns promptly (done already set)
+# ---------------------------------------------------------------------------
+
+
+def test_cancel_mid_park_worker_execute_returns_promptly(tmp_path, monkeypatch):
+    """B-MED-2 regression: caller cancelled while parked MUST set `done`
+    before propagating CancelledError, so the worker's unbounded done-wait
+    (A-HIGH-1) terminates on the next pop."""
+    monkeypatch.setattr(ura_db, "DB_WRITE_READY_SOFT_WARN_S", 5.0)
+    monkeypatch.setattr(ura_db, "DB_WRITE_READY_HARD_CAP_S", 30.0)
+    # Force a small caller-hold warn so a bug that fails to set done would
+    # at least emit warns; we assert wall-clock instead for correctness.
+    monkeypatch.setattr(ura_db, "DB_WRITE_CALLER_HOLD_WARN_S", 5.0)
+
+    db = _make_db(str(tmp_path))
+
+    async def _scenario():
+        await db.initialize()
+
+        async def _caller():
+            async with db._db() as conn:
+                await conn.execute("SELECT 1")
+
+        caller_task = asyncio.ensure_future(_caller())
+        await asyncio.sleep(0.05)  # let caller park
+        caller_task.cancel()
+        try:
+            await caller_task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+        # Now drive one worker cycle manually: pop the item, run _execute.
+        # If `done` was set on cancel, _execute returns fast; otherwise it
+        # would hang up to CALLER_HOLD_WARN_S+ (bug).
+        import aiosqlite
+        conn = await aiosqlite.connect(db.db_file, timeout=30.0)
+        try:
+            item = await asyncio.wait_for(db._write_queue.get(), timeout=1.0)
+            factory, _future = item
+            loop = asyncio.get_event_loop()
+            t0 = loop.time()
+            await asyncio.wait_for(factory(conn), timeout=1.0)
+            elapsed = loop.time() - t0
+            db._write_queue.task_done()
+            assert elapsed < 0.3, (
+                f"_execute took {elapsed:.2f}s after cancel; done must be "
+                f"set on the cancel path (would otherwise block worker)"
+            )
+        finally:
+            await conn.close()
+
+    asyncio.get_event_loop().run_until_complete(_scenario())
