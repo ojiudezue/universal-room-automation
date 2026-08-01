@@ -25,7 +25,7 @@ reimplementation of the veto arithmetic in test code).
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -76,7 +76,12 @@ def _hass_with_house_state(state: str):
 def _state(state_str, last_changed=None):
     st = MagicMock()
     st.state = state_str
-    st.last_changed = last_changed or datetime.utcnow()
+    # tz-AWARE: production subtracts against dt_util.utcnow() (aware); a
+    # naive fixture datetime makes the age calc raise and fail-open — the
+    # test would then assert against the exception path, not the logic.
+    # Clock-derive from fan_veto's own dt_util binding so the fixture is
+    # agnostic to whether the harness stub clock is naive or aware.
+    st.last_changed = last_changed or fan_veto.dt_util.utcnow()
     return st
 
 
@@ -141,7 +146,7 @@ def test_t4_motion_currently_on_defeats_veto() -> None:
 def test_t4_motion_recent_within_timeout_defeats_veto() -> None:
     hass, _p, _pc = _hass_with_house_state(HouseState.AWAY)
     # Sensor OFF but flipped 60s ago; timeout=300 → recent.
-    recent = datetime.utcnow() - timedelta(seconds=60)
+    recent = fan_veto.dt_util.utcnow() - timedelta(seconds=60)
     hass.states.get = MagicMock(return_value=_state("off", last_changed=recent))
     cfg = {
         CONF_MOTION_SENSORS: ["binary_sensor.pir1"],
@@ -152,7 +157,7 @@ def test_t4_motion_recent_within_timeout_defeats_veto() -> None:
 
 def test_t4_motion_stale_beyond_timeout_does_not_defeat_veto() -> None:
     hass, _p, _pc = _hass_with_house_state(HouseState.AWAY)
-    stale = datetime.utcnow() - timedelta(seconds=900)
+    stale = fan_veto.dt_util.utcnow() - timedelta(seconds=900)
     hass.states.get = MagicMock(return_value=_state("off", last_changed=stale))
     cfg = {
         CONF_MOTION_SENSORS: ["binary_sensor.pir1"],
