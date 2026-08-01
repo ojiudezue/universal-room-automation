@@ -59,3 +59,13 @@ comparisons suite-wide).
 - **Live:** post-restart (boot-AWAY window), no veto suppression during
   boot-settle; no URA errors referencing fan_veto.
 - **Live:** reclassified rooms report `occupancy_source: mmwave` when mmWave-held.
+
+### Validated 2026-08-01 (~08:10 CDT, post-restart)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Deploy + boot clean | **PASS** | HACS v5.40.0 installed; config check valid; fresh boot 08:05 CDT; zero URA ERROR entries; zero fan_veto log entries. |
+| D7 observability live | **PASS** | `binary_sensor.study_a_occupied` carries `comfort_fan_away_veto_count: 0` post-boot. |
+| Boot-settle gate active | **PASS** | house_state=away with `boot_settle_done: false` at check time — veto correctly dormant during settle (fail-open), no suppression. |
+| First organic veto fires | pending-organic | Needs a hot room + house away + no trusted presence; watch for the INFO veto line + counter increment. |
+| No HOME-side suppression | pending-organic | Verify a comfort fan actuates normally on next occupied+hot event; zero veto lines while home. |
+| Reclassified rooms report `mmwave` source | pending-organic | All reclassified rooms unoccupied at validation (`occupancy_source: none` is correct-empty); confirms on next mmWave hold. |
