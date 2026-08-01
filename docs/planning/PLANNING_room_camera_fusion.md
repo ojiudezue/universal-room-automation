@@ -300,3 +300,31 @@ Write results back into `README_v<version>.md` as `Validated <date>` table (per 
 ## 8. Plan-completion tracking (for post-implementation write-back)
 
 Any of D1–D5 deferred: log here with reason. Parked items already recorded in §4.
+
+---
+
+## Amendment 2026-08-01 (operator): D2 becomes EXTRACT-AND-ABSTRACT of `resolve_cross_platform_sensors` — Tier 3, no regression
+
+Operator directive: improve/abstract `resolve_cross_platform_sensors` (camera_census.py:401) so the
+room-level re-add with a different purpose REUSES it — do not grow a parallel resolver. Tier 3; the
+census must not regress.
+
+**Revised D2 shape — a shared `CameraResolver` primitive:**
+- One module (e.g. `camera_resolver.py`) owning the full chain: any-entity → device → physical-camera
+  correlation (device `connections` MAC index → `identifiers` → entity-name-stem fallback → operator
+  multi-select as ground-truth declaration) → per-integration capability map (person/face/count
+  sensors, detection-enable switches).
+- **Consumers:** camera_census (existing name-stem behavior), room-camera fusion (D3), fan_veto camera
+  leg (D5), transit_validator (audit its usage during build). One resolver, N purposes — the same
+  corroborate-at-one-chokepoint discipline as fan_veto.
+
+**Non-regression invariant (this cycle's Review B/D anchor, falsifiable):** for every camera in the
+live census config, the abstracted resolver's census-facing output is IDENTICAL to the pre-cycle
+name-stem output — MAC/identifier correlation may only ADD matches for the NEW consumers, never
+change what the census sees, until a separately-flagged census cutover (own knob, default legacy).
+Golden-master test: capture pre-cycle `resolve_cross_platform_sensors` output for the live camera
+list as a committed fixture; the abstracted path must reproduce it byte-identically.
+
+**Tier 3 confirmation:** shared-primitive extraction consumed by 3+ coordinators = the definition of
+the Tier-3 trigger. Four framing-disjoint reviews; Review C mutates the resolver per consumer;
+Review D re-enumerates every resolution call site (census, transit, fusion, veto) for a missed one.
