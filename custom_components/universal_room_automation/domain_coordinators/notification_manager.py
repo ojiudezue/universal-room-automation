@@ -1052,6 +1052,7 @@ class NotificationManager:
         hazard_type: str | None = None,
         location: str | None = None,
         source_anomaly_id: int | None = None,
+        snapshot_url: str | None = None,
     ) -> None:
         """Main notification entry point — called by coordinators.
 
@@ -1314,7 +1315,7 @@ class NotificationManager:
             _pushover_device = person_cfg.get(CONF_NM_PERSON_PUSHOVER_DEVICE, "")
             if _channel_gate.get("pushover", False) and "pushover" in _router_allowed:
                 if _pushover_key and effective_pref == NM_DELIVERY_IMMEDIATE:
-                    await self._send_pushover(title, message_with_dict, severity, _pushover_key, _pushover_device)
+                    await self._send_pushover(title, message_with_dict, severity, _pushover_key, _pushover_device, snapshot_url=snapshot_url)
                     channels_fired.append("pushover")
                     if database:
                         await database.log_notification(
@@ -1339,6 +1340,7 @@ class NotificationManager:
                     await self._send_companion(
                         title, message, severity, _companion_svc,
                         is_critical=(severity == Severity.CRITICAL),
+                        snapshot_url=snapshot_url,
                     )
                     channels_fired.append("companion")
                     if database:
@@ -1361,7 +1363,7 @@ class NotificationManager:
             _phone = person_cfg.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
             if _channel_gate.get("whatsapp", False) and "whatsapp" in _router_allowed:
                 if _phone and effective_pref == NM_DELIVERY_IMMEDIATE:
-                    await self._send_whatsapp(title, message_with_dict, _phone)
+                    await self._send_whatsapp(title, message_with_dict, _phone, snapshot_url=snapshot_url)
                     channels_fired.append("whatsapp")
                     if database:
                         await database.log_notification(
@@ -1383,7 +1385,7 @@ class NotificationManager:
             _imessage_handle = person_cfg.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "")
             if _channel_gate.get("imessage", False) and "imessage" in _router_allowed:
                 if _imessage_handle and effective_pref == NM_DELIVERY_IMMEDIATE:
-                    await self._send_imessage(title, message_with_dict, _imessage_handle)
+                    await self._send_imessage(title, message_with_dict, _imessage_handle, snapshot_url=snapshot_url)
                     channels_fired.append("imessage")
                     if database:
                         await database.log_notification(
@@ -1604,8 +1606,13 @@ class NotificationManager:
         severity: Severity,
         user_key: str,
         device: str = "",
+        snapshot_url: str | None = None,
     ) -> None:
-        """Send notification via Pushover."""
+        """Send notification via Pushover.
+
+        ``snapshot_url``: optional image attachment URL. Threaded into the
+        Pushover ``attachment_url`` data field when present; no-op when None.
+        """
         if self._dry_run_active:
             await self._log_dry_run(channel="pushover", target=device or user_key[:8], title=title)
             return
@@ -1620,10 +1627,15 @@ class NotificationManager:
             if device:
                 data["target"] = device
             # Set priority based on severity
+            extra: dict[str, Any] = {}
             if severity == Severity.CRITICAL:
-                data["data"] = {"priority": 1, "sound": "siren"}
+                extra = {"priority": 1, "sound": "siren"}
             elif severity == Severity.HIGH:
-                data["data"] = {"priority": 1}
+                extra = {"priority": 1}
+            if snapshot_url:
+                extra["attachment_url"] = snapshot_url
+            if extra:
+                data["data"] = extra
             await self.hass.services.async_call(domain, service, data, blocking=True)
             self._update_channel_health("pushover", True)
         except Exception as e:
@@ -1637,6 +1649,7 @@ class NotificationManager:
         severity: Severity,
         service_name: str,
         is_critical: bool = False,
+        snapshot_url: str | None = None,
     ) -> None:
         """Send notification via HA Companion App."""
         if self._dry_run_active:
@@ -1671,21 +1684,37 @@ class NotificationManager:
                         {"action": "SILENCE_URA", "title": "Silence 30min"},
                     ],
                 }
+            # Thread snapshot as HA Companion "image" attachment when present.
+            if snapshot_url:
+                data.setdefault("data", {})["image"] = snapshot_url
             await self.hass.services.async_call(domain, service, data, blocking=True)
             self._update_channel_health("companion", True)
         except Exception as e:
             _LOGGER.error("Companion app send failed: %s", e)
             self._update_channel_health("companion", False)
 
-    async def _send_whatsapp(self, title: str, message: str, phone: str) -> None:
-        """Send notification via WhatsApp (ha-wa-bridge)."""
+    async def _send_whatsapp(
+        self, title: str, message: str, phone: str,
+        snapshot_url: str | None = None,
+    ) -> None:
+        """Send notification via WhatsApp (ha-wa-bridge).
+
+        ``snapshot_url`` is threaded as ``media_url`` best-effort when the
+        underlying integration supports it; ignored (no-op) when None.
+        """
         if self._dry_run_active:
             await self._log_dry_run(channel="whatsapp", target=phone, title=title)
             return
         try:
+            payload: dict[str, Any] = {
+                "number": phone,
+                "message": f"*{title}*\n{message}",
+            }
+            if snapshot_url:
+                payload["media_url"] = snapshot_url
             await self.hass.services.async_call(
                 "whatsapp", "send_message",
-                {"number": phone, "message": f"*{title}*\n{message}"},
+                payload,
                 blocking=True,
             )
             self._update_channel_health("whatsapp", True)
@@ -1693,15 +1722,28 @@ class NotificationManager:
             _LOGGER.error("WhatsApp send failed: %s", e)
             self._update_channel_health("whatsapp", False)
 
-    async def _send_imessage(self, title: str, message: str, handle: str) -> None:
-        """Send notification via BlueBubbles (iMessage)."""
+    async def _send_imessage(
+        self, title: str, message: str, handle: str,
+        snapshot_url: str | None = None,
+    ) -> None:
+        """Send notification via BlueBubbles (iMessage).
+
+        ``snapshot_url`` is threaded as an ``attachment`` best-effort when the
+        underlying integration supports it; ignored (no-op) when None.
+        """
         if self._dry_run_active:
             await self._log_dry_run(channel="imessage", target=handle, title=title)
             return
         try:
+            payload: dict[str, Any] = {
+                "addresses": handle,
+                "message": f"{title}\n{message}",
+            }
+            if snapshot_url:
+                payload["attachment"] = snapshot_url
             await self.hass.services.async_call(
                 "bluebubbles", "send_message",
-                {"addresses": handle, "message": f"{title}\n{message}"},
+                payload,
                 blocking=True,
             )
             self._update_channel_health("imessage", True)
