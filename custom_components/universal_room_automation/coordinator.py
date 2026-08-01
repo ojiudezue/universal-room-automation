@@ -2417,11 +2417,16 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # Precedence (highest first):
         #   1) fan-recheck (pause-based)  — recheck gets first crack;
         #      D2 defers while it is in-flight.
-        #   2) fan-interference HOLD (D1) — B-2/D-HIGH-2 adjudication:
-        #      D2 defers to the hold since the hold arbitrates first
-        #      and D2's blast radius is ROOM-TIER ONLY (no zone-side
-        #      writes here — the zone-side `_room_occupied` view is
-        #      unchanged).
+        #   2) D2 vs fan-interference HOLD (D1) — D-PRIME-CRIT-1
+        #      adjudication (supersedes B-2/D-HIGH-2 defer-to-hold,
+        #      which was unreachable: the hold re-stamps every tick a
+        #      room stays suspect). Same evidence, different horizons:
+        #      the hold is short-window decay protection; D2's bar is
+        #      strictly higher/longer. Once D2's bar is met it
+        #      OUTRANKS the hold — demotes and clears the room's hold
+        #      entry atomically. Blast radius stays ROOM-TIER ONLY
+        #      (zone-side `_room_occupied` is held up by sustained
+        #      mmwave provenance, not the hold).
         #   3) D2 (this block) — backstop for recheck-ineligible /
         #      rate-capped rooms.
         # NEVER fires while any of {motion=True, occupancy=True, BLE
@@ -2484,31 +2489,44 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                                     recheck_in_flight = True
                         except Exception:  # noqa: BLE001 — defensive
                             recheck_in_flight = False
-                        # B-2 / D-HIGH-2: fan-interference HOLD arbitrates
-                        # BEFORE D2. If the tracker's hold is in the
-                        # future for this room, defer — the hold's
-                        # extend-only semantics already keep the room
-                        # occupied; D2 must not race it.
-                        hold_active = False
-                        try:
-                            if presence is not None and hasattr(
-                                presence, "tracker_for_room",
-                            ):
-                                _tr_hold = presence.tracker_for_room(
-                                    room_name,
-                                )
-                                if _tr_hold is not None:
-                                    hold_map = getattr(
-                                        _tr_hold,
-                                        "_fan_interference_hold_until",
-                                        {},
-                                    ) or {}
-                                    _until = hold_map.get(room_name)
-                                    if _until is not None and _until > now:
-                                        hold_active = True
-                        except Exception:  # noqa: BLE001 — defensive
-                            hold_active = False
-                        if not recheck_in_flight and not hold_active:
+                        # D-PRIME-CRIT-1 (supersedes the B-2/D-HIGH-2
+                        # defer-to-hold adjudication): the D1 fan-
+                        # interference hold is RE-STAMPED every presence
+                        # tick while the room stays fan-suspect
+                        # (presence.py ~3643 "Refresh on every tick"),
+                        # so a defer-to-hold gate can never win in the
+                        # sustained case — it re-created the A-CRIT-1
+                        # unreachability at the arbitration level. The
+                        # two mechanisms act on the same evidence at
+                        # DIFFERENT horizons: the hold is short-window
+                        # truth-preservation during signal decay; D2's
+                        # bar (fan-on >= grace AND PIR-stale >= 2x
+                        # timeout AND no BLE/camera) is strictly higher
+                        # and longer. Once D2's bar is met, D2 OUTRANKS
+                        # the hold: demote and clear the room's hold
+                        # entry atomically. Zone-side `_room_occupied`
+                        # is unaffected in the sustained case either
+                        # way (mmwave provenance keeps it up), so the
+                        # pinned room-tier-only blast radius holds.
+                        if not recheck_in_flight:
+                            # Atomically clear this room's D1 hold so
+                            # the tracker's extend-only view cannot
+                            # resurrect a just-demoted room-tier state.
+                            try:
+                                if presence is not None and hasattr(
+                                    presence, "tracker_for_room",
+                                ):
+                                    _tr_hold = presence.tracker_for_room(
+                                        room_name,
+                                    )
+                                    if _tr_hold is not None:
+                                        getattr(
+                                            _tr_hold,
+                                            "_fan_interference_hold_until",
+                                            {},
+                                        ).pop(room_name, None)
+                            except Exception:  # noqa: BLE001 — defensive
+                                pass
                             # Apply demotion.
                             fan_since_iso: str | None = None
                             try:

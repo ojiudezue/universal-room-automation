@@ -732,12 +732,15 @@ def test_no_demote_when_no_pir_motion_sensors():
 # --------------------------------------------------------------------------
 
 
-def test_no_demote_when_fan_interference_hold_active():
-    """B-2 / D-HIGH-2: while the tracker's
-    _fan_interference_hold_until is in the future for the room, D2
-    defers (precedence: recheck > interference-hold > D2). And the
-    tracker's zone-side _room_occupied view MUST be unchanged
-    (room-tier-only blast radius)."""
+def test_demotes_despite_active_interference_hold_and_clears_it():
+    """D-PRIME-CRIT-1: the D1 hold is re-stamped EVERY tick a room
+    stays fan-suspect, so a defer-to-hold gate can never win in the
+    sustained case (arbitration-level unreachability, same class as
+    A-CRIT-1). Once D2's strictly-higher bar is met, D2 OUTRANKS the
+    hold: it demotes AND atomically clears the room's hold entry.
+    The zone-side _room_occupied view must STILL be unchanged
+    (room-tier-only blast radius — sustained mmwave provenance keeps
+    the zone view up regardless of the hold)."""
     _reset_dispatched()
     hass = make_hass()
     room = "TestRoom"
@@ -749,14 +752,20 @@ def test_no_demote_when_fan_interference_hold_active():
     presence = _seed_presence(
         hass, demoted_rooms={room},
         fan_on_since=now - timedelta(seconds=700),
-        fan_hold_until=now + timedelta(seconds=60),
+        # Sustained-suspect shape: hold freshly re-stamped, well in
+        # the future — exactly the state that permanently deferred
+        # the pre-fix arbitration.
+        fan_hold_until=now + timedelta(seconds=300),
     )
     tracker = presence.tracker_for_room(room)
     room_occupied_before = dict(tracker._room_occupied)
     data = {STATE_OCCUPIED: True, STATE_OCCUPANCY_SOURCE: "mmwave"}
     _run_d2_block(coord, data, now, room)
-    assert data[STATE_OCCUPIED] is True
-    assert coord._mmwave_fan_demoted_last_tick is False
+    # D2 wins: demoted despite the active hold.
+    assert data[STATE_OCCUPIED] is False
+    assert coord._mmwave_fan_demoted_last_tick is True
+    # Hold entry atomically cleared for this room.
+    assert room not in tracker._fan_interference_hold_until
     # Room-tier-only blast radius — zone-side view unchanged.
     assert dict(tracker._room_occupied) == room_occupied_before
 
