@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.41.0
+# Universal Room Automation vv5.42.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.41.0"
+VERSION: Final = "v5.42.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -487,6 +487,41 @@ DEFAULT_RECHECK_FACTOR: Final = 1.0
 
 # STATE_OCCUPANCY_SOURCE value set when the room-tier fan-recheck releases.
 OCCUPANCY_SOURCE_FAN_RECHECK_RELEASE: Final = "fan_recheck_release"
+
+# mmWave fan-corroboration demotion (Tier-3 D2 — planning doc
+# docs/planning/PLANNING_mmwave_corroboration_tier3.md §D2). Passive
+# backstop to the pause-based fan-recheck (v5.23.0): when a room's
+# occupancy is sustained by mmwave-alone AND fans have been on for
+# ≥GRACE seconds AND no PIR motion in ≥MULT×occupancy_timeout AND no
+# BLE-trustworthy person is present, demote the room to vacant (mmwave
+# cannot SUSTAIN past its natural timeout under these conditions).
+#
+# Truth-preserving invariant: NEVER fires while any of {motion=True,
+# occupancy(non-mmwave)=True, BLE person in room, camera-person in
+# covered room} holds. Worst-case failure mode = a fan-suspect room
+# reads vacant slightly earlier.
+#
+# Ordering vs recheck (v5.23.0): the pause-based recheck gets first
+# crack; D2 does NOT evaluate while a recheck is in-flight for the
+# room. D2's staleness bar (MULT×timeout) is deliberately HIGHER than
+# recheck's trigger bar. D2 is the backstop for recheck-ineligible /
+# rate-capped rooms.
+#
+# Kill switches (rung-1 module constants):
+#   1) MMWAVE_FAN_CORROBORATION_ENABLED — disables the whole predicate.
+#   2) BLE_MOTION_CONFIRM_MULTIPLIER=0 — also disables the derived
+#      staleness gate (mirrors the ble_extend_not_create kill).
+#   3) D3_DIAGNOSTIC_ENABLED — third UPSTREAM kill switch: D2's
+#      _compute_mmwave_fan_demoted_rooms wraps _compute_fan_interference_rooms,
+#      which short-returns [] when D3_DIAGNOSTIC_ENABLED is False. Reuse
+#      of the D3 primitive is BY DESIGN (single interference-conditional
+#      reliability primitive); D2 is NOT decoupled from D3.
+# MMWAVE_FAN_CORROBORATION_GRACE_S values below 300 are clamped to 300
+# in the wrapper (fail-safe floor; see D-MED-2). Setting it very low
+# does NOT disable the feature — use ENABLED=False for that.
+MMWAVE_FAN_CORROBORATION_ENABLED: Final = True
+MMWAVE_FAN_CORROBORATION_GRACE_S: Final = 600
+OCCUPANCY_SOURCE_MMWAVE_FAN_DEMOTED: Final = "mmwave_fan_demoted"
 
 CONF_DOOR_SENSORS: Final = "door_sensor"
 CONF_DOOR_TYPE: Final = "door_type"

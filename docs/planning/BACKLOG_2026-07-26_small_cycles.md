@@ -79,7 +79,7 @@ Decomposition"), and a **tier** estimate. Filed, not scheduled. Ordered by likel
 - **`ac_kwh_avoided` naming** — folded into #7 (energy unification).
 </content>
 
-### 13. Boot-window DB write-worker saturation (filed 2026-07-30)
+### 13. Boot-window DB write-worker saturation (filed 2026-07-30) — FIXED v5.41.0 (2026-08-01, lossless two-stage wait + done-invariant; first post-deploy boot clean)
 - **Why:** three consecutive boots (v5.38.x/v5.39.0) show "DB write worker did not process request within 35s" ERRORs during warmup (census/house-state/energy/decision logging) for ~60-90s post-boot. Writes are dropped, not queued. Distinct from the v5.2.x write-flood (steady-state); this is boot-burst vs worker startup ordering.
 - **Benefit:** no silently-lost boot-window rows (house-state log feeds routine forecaster; census snapshots feed analytics); cleaner error log.
 - **Threshold:** persists on next 2-3 boots → build.

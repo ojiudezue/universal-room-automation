@@ -221,3 +221,15 @@ D reviewer: grep every `SERVICE_TURN_ON` / `SERVICE_TURN_OFF` / `homeassistant` 
 - `custom_components/universal_room_automation/actuator_reconciler.py:778` — reconciler routes fan actuation through actuator too.
 - `custom_components/universal_room_automation/coordinator_manager.py` — construct `FanActuator` in coordinator lifecycle.
 - `quality/tests/test_fan_actuator_*.py` — full matrix (~1 test per row in the mechanics table × per caller).
+
+---
+
+## 2026-08-01 — Study A 4h vacant-fan incident: two confirmed bugs, both tier-seam class (this plan's raison d'être; fold as D0/D1 of the refresh)
+
+Verified chain (recorder + DB + code):
+1. **Unexpected HA restart 08:02 CDT** (cause unconfirmed — supervisor log window rotated; watch for recurrence).
+2. **BUG 1 — room-tier vacancy-hold override ARMS turn-ONs post-restart** (`automation.py:~1697-1703`): restart wipes RAM `_fan_vacancy_start`; first vacant tick re-stamps it; for the next `fan_vacancy_hold` (default 300s) the override sets `occupied=True`, which reaches the TURN-ON branch — so every reboot, every hot (temp ≥ speed thresholds) VACANT room gets its fan turned on at speed. Study A: fan ON 100% @ 08:05:19, room vacant all day. Intent was "don't turn OFF running fans immediately on timeout"; fix: apply the override only when a fan is ALREADY on (`any_fan_on`), matching the stated intent. NOTE: v5.40.0's away-veto now blocks the away/vacation instance at this site; home_day vacant rooms remain exposed.
+3. Boot ordering: during warmup HVAC's fan_controller isn't populated → room-tier owned the fan and lit it; once HVAC setup completed, `_is_hvac_managing_fans()` → room-tier early-returns forever (its off-branch unreachable for this room).
+4. **BUG 2 — HVAC-tier external-state sync is one-way** (`hvac_fans.py:209-238`): sync adopts external OFF (case 1) and external ON *during a cooldown* (case 2), but NOT external ON with no cooldown — exactly the room-tier-boot-lit state. `room_fan.is_on` stays False; the vacancy off-path short-circuits on `not occupied and not room_fan.is_on` → **nobody owns the off**. Fan ran 4h vacant until manual off. Fix: sync case 3 — adopt external ON (no cooldown) with trigger="external" so normal vacancy-off semantics apply.
+
+Both fixes are small, testable, and belong to this plan's D-list as the FIRST deliverables of the refresh (they're the third live instance of the tier-drift class). D2-mmwave dependency: D2's "vacancy turns the fan off post-demotion" assumption is FALSE while BUG 2 exists for ownership-gap fans — sequence the FanActuator refresh (or at minimum BUG 1+2 hotfixes) BEFORE or WITH the D2 deploy.

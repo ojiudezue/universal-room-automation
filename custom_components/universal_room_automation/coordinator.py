@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.41.0
+# Universal Room Automation vv5.42.0
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -19,7 +19,10 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.dispatcher import (
+    async_dispatcher_connect,
+    async_dispatcher_send,
+)
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -64,6 +67,8 @@ from .const import (
     STATE_BLE_PERSONS,
     STATE_OCCUPANCY_SOURCE,
     OCCUPANCY_SOURCE_FAN_RECHECK_RELEASE,
+    OCCUPANCY_SOURCE_MMWAVE_FAN_DEMOTED,
+    MMWAVE_FAN_CORROBORATION_ENABLED,
     STATE_POWER_CURRENT,
     STATE_ENERGY_TODAY,
     STATE_ENERGY_WEEKLY,
@@ -131,6 +136,7 @@ from .domain_coordinators.signals import (
     SIGNAL_SAFETY_HAZARD,
     SIGNAL_SECURITY_EVENT,
     SIGNAL_SUBSTRATE_KIND_CHANGED,
+    SIGNAL_MMWAVE_FAN_DEMOTED,
 )
 from .domain_coordinators.energy_billing import _get_effective_rate_kwh
 from .domain_coordinators._units import energy_state_to_kwh, power_state_to_w
@@ -280,6 +286,38 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
         # Failsafe tracking
         self._failsafe_fired: bool = False
+
+        # mmWave fan-corroboration Tier-3 D2 — PIR-only motion timestamp.
+        # Refreshed ONLY when a CONF_MOTION_SENSORS (PIR) entity fires;
+        # NOT by mmWave / occupancy_sensor. Used by the D2 consumer to
+        # enforce Invariant M leg (e) — motion is stale ≥ MULT×timeout.
+        # Distinct from ``_last_motion_time`` (which any Tier-1 sensor
+        # refreshes) so mmwave cannot self-confirm the motion leg.
+        # B-4 fix-up: seed with the __init__ anchor so "stale since
+        # boot" is measured from a real timestamp rather than being
+        # vacuously-True forever. The empty-motion_sensors fail-closed
+        # guard in _d2_motion_sensors_present() is the primary
+        # defense for rooms with no PIR at all.
+        self._last_pir_motion_time: datetime | None = _now
+
+        # mmWave fan-corroboration Tier-3 D2 — observability. Set True
+        # on the tick the demotion fires; carried until next tick.
+        # Counter is rolling since-boot (A-LOW-2 / B-5 rename: attr key
+        # is `mmwave_fan_demotions_since_boot`; no midnight machinery).
+        self._mmwave_fan_demoted_last_tick: bool = False
+        self._mmwave_fan_demotions_since_boot: int = 0
+        self._mmwave_fan_demoted_since: datetime | None = None
+        # Flap-protection latch (Reviewer B + C convergent finding):
+        # once D2 demotes, the still-firing mmWave sensor would re-
+        # create occupancy after debounce → immediate re-demotion →
+        # oscillation. While True, mmWave-sole activity cannot recreate
+        # occupancy in _async_update_data. Cleared on ANY of: mmWave
+        # off (clean edge), PIR motion fires, BLE person arrives in
+        # room, fan turns off.
+        self._mmwave_demoted_latch: bool = False
+        # D-HIGH-1: one-shot per-boot log for rooms with empty PIR
+        # motion_sensors config (post-MMWAVE_NAME_PATTERN filter).
+        self._d2_no_pir_logged: bool = False
 
         # Fan-noise Mode-2 mitigation: ring of recent occupancy sources so the
         # room-tier fan-recheck trigger can require N consecutive mmwave-sole
@@ -1518,6 +1556,148 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         except Exception:  # noqa: BLE001
             return True
 
+    def _d2_debounce_elapsed(self, now: datetime) -> bool:
+        """A-CRIT-1 / B-1 fix-up: True when NOT inside vacant→occupied
+        debounce window.
+
+        The prior gate ``_occupancy_first_detected is None`` was wrong:
+        that field retains its entry stamp for the whole sustained hold
+        (cleared only when ALL sensors go off), so D2 never fired in
+        the target sustained-mmwave scenario. Correct predicate: allow
+        demotion when the field is unset OR at least
+        ``_occupancy_debounce_seconds`` have elapsed since the entry
+        edge — i.e., the debounce window has closed and we are past
+        the entry transition.
+        """
+        if self._occupancy_first_detected is None:
+            return True
+        try:
+            elapsed = (now - self._occupancy_first_detected).total_seconds()
+            return elapsed >= self._occupancy_debounce_seconds
+        except Exception:  # noqa: BLE001 — tz/naive safety
+            return True
+
+    def _d2_motion_sensors_present(self) -> bool:
+        """D-HIGH-1: True if the room has ≥1 real PIR motion sensor
+        configured (after filtering out entries that match
+        ``MMWAVE_NAME_PATTERN`` — operator-misfiled mmWave hybrids
+        under CONF_MOTION_SENSORS).
+
+        Fail-closed: an empty filtered list means the staleness leg is
+        UNSATISFIABLE (mmwave itself would have to prove its own
+        staleness), so we refuse to demote. Logged once per room per
+        boot at DEBUG.
+        """
+        try:
+            from .fan_veto import MMWAVE_NAME_PATTERN  # noqa: PLC0415
+            motion = self._get_config(CONF_MOTION_SENSORS, []) or []
+            filtered = [
+                s for s in motion
+                if isinstance(s, str) and not MMWAVE_NAME_PATTERN.search(s)
+            ]
+            if not filtered:
+                if not self._d2_no_pir_logged:
+                    _LOGGER.debug(
+                        "Room %s: D2 skipped — no PIR motion sensors "
+                        "configured (leg (e) unsatisfiable, fail-closed)",
+                        self.entry.data.get("room_name", "unknown"),
+                    )
+                    self._d2_no_pir_logged = True
+                return False
+            return True
+        except Exception:  # noqa: BLE001 — fail-closed
+            return False
+
+    def _d2_house_state_allows(self) -> bool:
+        """D-CRIT-1: sleep-family veto for D2 (matches
+        presence_fan_recheck.py:374 sleep gate + the duty-cycle
+        detector's sleeping-bedroom refusal at coordinator.py:1812-1817).
+
+        NEVER demote while house is SLEEP / WAKING / HOME_NIGHT —
+        mmwave stillness is expected there and demotion would fight
+        the v4.7.13 keep-fans-on-through-sleep doctrine.
+        """
+        try:
+            from .domain_coordinators.house_state import (  # noqa: PLC0415
+                HouseState,
+            )
+            mgr = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if mgr is None:
+                return True
+            presence = getattr(mgr, "coordinators", {}).get("presence")
+            if presence is None:
+                return True
+            hs = getattr(presence, "house_state", "") or ""
+            return hs not in (
+                HouseState.SLEEP.value,
+                HouseState.WAKING.value,
+                HouseState.HOME_NIGHT.value,
+            )
+        except Exception:  # noqa: BLE001 — fail-open (rare edge)
+            return True
+
+    def _evaluate_mmwave_demoted_latch(
+        self, room_name: str, motion_detected: bool,
+        presence_detected: bool,
+    ) -> None:
+        """Clear the D2 flap-protection latch on any recovery signal.
+
+        Clear conditions (per Reviewer B + C latch spec):
+          - mmWave reads off (clean edge — presence_detected False)
+          - PIR motion fires (motion_detected True)
+          - BLE person arrives in room
+          - Fan turns off (tracker._fan_on_since drops the room)
+        """
+        if not getattr(self, "_mmwave_demoted_latch", False):
+            return
+        reason: str | None = None
+        if not presence_detected:
+            reason = "mmwave_off"
+        elif motion_detected:
+            reason = "pir_motion"
+        else:
+            # BLE person in room?
+            try:
+                person_coord = self.hass.data.get(DOMAIN, {}).get(
+                    "person_coordinator",
+                )
+                if person_coord is not None:
+                    persons = person_coord.get_persons_in_room(
+                        room_name,
+                    ) or []
+                    if persons:
+                        reason = "ble_person"
+            except Exception:  # noqa: BLE001 — defensive
+                pass
+        if reason is None:
+            # Fan off in room?
+            try:
+                mgr = self.hass.data.get(DOMAIN, {}).get(
+                    "coordinator_manager",
+                )
+                presence = (
+                    getattr(mgr, "coordinators", {}).get("presence")
+                    if mgr is not None else None
+                )
+                if presence is not None and hasattr(
+                    presence, "tracker_for_room",
+                ):
+                    tracker = presence.tracker_for_room(room_name)
+                    if tracker is not None:
+                        fan_since = getattr(
+                            tracker, "_fan_on_since", {},
+                        ) or {}
+                        if room_name not in fan_since:
+                            reason = "fan_off"
+            except Exception:  # noqa: BLE001 — defensive
+                pass
+        if reason is not None:
+            self._mmwave_demoted_latch = False
+            _LOGGER.info(
+                "Room %s: mmwave-fan demotion latch CLEARED (%s)",
+                room_name, reason,
+            )
+
     def _is_sensor_on(self, entity_id: str) -> bool:
         """Check if a binary sensor is on."""
         state = self.hass.states.get(entity_id)
@@ -1872,6 +2052,24 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
         any_sensor_active = motion_detected or presence_detected or occupancy_detected
 
+        # Tier-3 D2 flap-protection: evaluate + apply the mmwave-demoted
+        # latch. When latched, mmwave-sole activity cannot recreate
+        # occupancy (post-demote the still-firing mmwave would flip us
+        # back to occupied after debounce → immediate re-demote →
+        # oscillation). Clear on any real recovery signal (mmwave off,
+        # PIR fire, BLE person, fan off) via the helper.
+        self._evaluate_mmwave_demoted_latch(
+            room_name, motion_detected, presence_detected,
+        )
+        if getattr(self, "_mmwave_demoted_latch", False):
+            mmwave_sole_here = (
+                presence_detected
+                and not motion_detected
+                and not occupancy_detected
+            )
+            if mmwave_sole_here:
+                any_sensor_active = False
+
         # ---- Substrate-gap canary (D4 — substrate re-subscribe cycle) ----
         self._check_substrate_gap(
             room_name, motion_sensors, mmwave_sensors, occupancy_sensors,
@@ -1927,6 +2125,11 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             # Determine primary source
             if motion_detected:
                 data[STATE_OCCUPANCY_SOURCE] = "motion"
+                # Tier-3 D2: PIR-only motion timestamp for Invariant M
+                # leg (e). Refreshed ONLY on true PIR fire — mmWave and
+                # occupancy_sensor branches deliberately do NOT touch
+                # this so mmwave can't self-confirm the staleness gate.
+                self._last_pir_motion_time = now
             elif presence_detected:
                 data[STATE_OCCUPANCY_SOURCE] = "mmwave"
             else:
@@ -2202,6 +2405,232 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                             room_name,
                             ble_persons,
                         )
+
+        # === mmWave fan-corroboration Tier-3 D2 — DEMOTION consumer ===
+        # Passive backstop to the pause-based fan-recheck (v5.23.0).
+        # Fires when mmwave-sole occupancy is sustained past its natural
+        # timeout AND the fan-on grace has elapsed AND no PIR motion in
+        # ≥MULT×occupancy_timeout AND no BLE-trustworthy person AND we
+        # are past boot-settle AND no recheck is in-flight for this
+        # room. Invariant M (planning doc §D2).
+        #
+        # Precedence (highest first):
+        #   1) fan-recheck (pause-based)  — recheck gets first crack;
+        #      D2 defers while it is in-flight.
+        #   2) D2 vs fan-interference HOLD (D1) — D-PRIME-CRIT-1
+        #      adjudication (supersedes B-2/D-HIGH-2 defer-to-hold,
+        #      which was unreachable: the hold re-stamps every tick a
+        #      room stays suspect). Same evidence, different horizons:
+        #      the hold is short-window decay protection; D2's bar is
+        #      strictly higher/longer. Once D2's bar is met it
+        #      OUTRANKS the hold — demotes and clears the room's hold
+        #      entry atomically. Blast radius stays ROOM-TIER ONLY
+        #      (zone-side `_room_occupied` is held up by sustained
+        #      mmwave provenance, not the hold).
+        #   3) D2 (this block) — backstop for recheck-ineligible /
+        #      rate-capped rooms.
+        # NEVER fires while any of {motion=True, occupancy=True, BLE
+        # person in room, camera-person in covered room} holds — the
+        # truth-preserving invariant delegates those checks to the
+        # presence-side ``_compute_fan_interference_rooms`` primitive.
+        # Blast radius: room-tier only (this coord's `data` dict).
+        try:
+            if (
+                data.get(STATE_OCCUPIED)
+                and MMWAVE_FAN_CORROBORATION_ENABLED
+                and BLE_MOTION_CONFIRM_MULTIPLIER > 0
+                and self._d2_boot_settle_done()
+                and self._d2_debounce_elapsed(now)
+                and self._d2_motion_sensors_present()
+                and self._d2_house_state_allows()
+                and str(data.get(STATE_OCCUPANCY_SOURCE, "")) == "mmwave"
+            ):
+                # PIR-only motion staleness (Invariant M leg (e)).
+                stale_threshold_s = (
+                    BLE_MOTION_CONFIRM_MULTIPLIER * self._occupancy_timeout
+                )
+                pir_stale = True
+                if self._last_pir_motion_time is not None:
+                    try:
+                        pir_age = (
+                            now - self._last_pir_motion_time
+                        ).total_seconds()
+                        if 0 <= pir_age < stale_threshold_s:
+                            pir_stale = False
+                    except Exception:  # noqa: BLE001 — tz/naive dt safety
+                        pir_stale = True
+                if pir_stale:
+                    manager = self.hass.data.get(DOMAIN, {}).get(
+                        "coordinator_manager"
+                    )
+                    presence = (
+                        getattr(manager, "coordinators", {}).get("presence")
+                        if manager is not None else None
+                    )
+                    demoted = False
+                    if presence is not None and hasattr(
+                        presence, "is_room_mmwave_fan_demoted"
+                    ):
+                        demoted = bool(
+                            presence.is_room_mmwave_fan_demoted(room_name)
+                        )
+                    if demoted:
+                        # Recheck-in-flight guard — recheck gets first crack.
+                        recheck_in_flight = False
+                        try:
+                            fr_mgr = getattr(
+                                presence, "_fan_recheck_manager", None,
+                            )
+                            if fr_mgr is not None and hasattr(
+                                fr_mgr, "get_room_state",
+                            ):
+                                _state = fr_mgr.get_room_state(room_name)
+                                if _state and _state != "idle":
+                                    recheck_in_flight = True
+                        except Exception:  # noqa: BLE001 — defensive
+                            recheck_in_flight = False
+                        # D-PRIME-CRIT-1 (supersedes the B-2/D-HIGH-2
+                        # defer-to-hold adjudication): the D1 fan-
+                        # interference hold is RE-STAMPED every presence
+                        # tick while the room stays fan-suspect
+                        # (presence.py ~3643 "Refresh on every tick"),
+                        # so a defer-to-hold gate can never win in the
+                        # sustained case — it re-created the A-CRIT-1
+                        # unreachability at the arbitration level. The
+                        # two mechanisms act on the same evidence at
+                        # DIFFERENT horizons: the hold is short-window
+                        # truth-preservation during signal decay; D2's
+                        # bar (fan-on >= grace AND PIR-stale >= 2x
+                        # timeout AND no BLE/camera) is strictly higher
+                        # and longer. Once D2's bar is met, D2 OUTRANKS
+                        # the hold: demote and clear the room's hold
+                        # entry atomically. Zone-side `_room_occupied`
+                        # is unaffected in the sustained case either
+                        # way (mmwave provenance keeps it up), so the
+                        # pinned room-tier-only blast radius holds.
+                        if not recheck_in_flight:
+                            # Atomically clear this room's D1 hold so
+                            # the tracker's extend-only view cannot
+                            # resurrect a just-demoted room-tier state.
+                            try:
+                                if presence is not None and hasattr(
+                                    presence, "tracker_for_room",
+                                ):
+                                    _tr_hold = presence.tracker_for_room(
+                                        room_name,
+                                    )
+                                    if _tr_hold is not None:
+                                        getattr(
+                                            _tr_hold,
+                                            "_fan_interference_hold_until",
+                                            {},
+                                        ).pop(room_name, None)
+                            except Exception:  # noqa: BLE001 — defensive
+                                pass
+                            # Apply demotion.
+                            fan_since_iso: str | None = None
+                            try:
+                                tracker = None
+                                if hasattr(presence, "tracker_for_room"):
+                                    tracker = presence.tracker_for_room(
+                                        room_name,
+                                    )
+                                if tracker is not None:
+                                    _stamp = (
+                                        getattr(tracker, "_fan_on_since", {})
+                                        or {}
+                                    ).get(room_name)
+                                    if _stamp is not None:
+                                        fan_since_iso = _stamp.isoformat()
+                                        _fan_on_duration_s = (
+                                            now - _stamp
+                                        ).total_seconds()
+                                    else:
+                                        _fan_on_duration_s = None
+                                else:
+                                    _fan_on_duration_s = None
+                            except Exception:  # noqa: BLE001 — never fail
+                                fan_since_iso = None
+                                _fan_on_duration_s = None
+
+                            # A-LOW-1: capture pre-demotion source
+                            # before we reassign so the log carries the
+                            # true prior value (not the post-write one).
+                            _pre_source = data.get(STATE_OCCUPANCY_SOURCE)
+                            data[STATE_OCCUPIED] = False
+                            data[STATE_OCCUPANCY_SOURCE] = (
+                                OCCUPANCY_SOURCE_MMWAVE_FAN_DEMOTED
+                            )
+                            data[STATE_TIMEOUT_REMAINING] = 0
+                            self._last_motion_time = None
+                            if self._became_occupied_time is not None:
+                                self._last_occupied_since_for_handler = (
+                                    self._became_occupied_time
+                                )
+                            self._became_occupied_time = None
+                            self._mmwave_fan_demoted_last_tick = True
+                            self._mmwave_fan_demoted_since = now
+                            self._mmwave_fan_demotions_since_boot += 1
+                            # Flap-protection latch (B + C): while set,
+                            # mmwave-sole activity CANNOT recreate
+                            # occupancy in this room. Cleared on
+                            # recovery signal (see
+                            # _evaluate_mmwave_demoted_latch).
+                            self._mmwave_demoted_latch = True
+                            _LOGGER.info(
+                                "Room %s: mmwave-fan demotion latch SET",
+                                room_name,
+                            )
+                            _pir_age_str = (
+                                f"{(now - self._last_pir_motion_time).total_seconds():.0f}s"
+                                if self._last_pir_motion_time else "None"
+                            )
+                            _LOGGER.info(
+                                "Room %s: mmwave-fan-corroboration DEMOTE "
+                                "(fan_on_for=%.0fs, pir_last=%s, source was "
+                                "%r) — releasing to vacant",
+                                room_name,
+                                (_fan_on_duration_s or 0.0),
+                                _pir_age_str,
+                                _pre_source,
+                            )
+                            try:
+                                async_dispatcher_send(
+                                    self.hass,
+                                    SIGNAL_MMWAVE_FAN_DEMOTED,
+                                    {
+                                        "room_name": room_name,
+                                        "reason": (
+                                            "mmwave_sole_fan_on_no_corroboration"
+                                        ),
+                                        "fan_on_since": fan_since_iso,
+                                        "last_pir_motion_time": (
+                                            self._last_pir_motion_time.isoformat()
+                                            if self._last_pir_motion_time
+                                            else None
+                                        ),
+                                    },
+                                )
+                            except Exception:  # noqa: BLE001 — defensive
+                                _LOGGER.debug(
+                                    "D2 dispatch failed (non-fatal)",
+                                    exc_info=True,
+                                )
+                        else:
+                            self._mmwave_fan_demoted_last_tick = False
+                    else:
+                        self._mmwave_fan_demoted_last_tick = False
+                else:
+                    self._mmwave_fan_demoted_last_tick = False
+            else:
+                self._mmwave_fan_demoted_last_tick = False
+        except Exception:  # noqa: BLE001 — never let D2 break refresh
+            _LOGGER.debug(
+                "mmwave fan-corroboration demotion evaluation failed "
+                "(non-fatal)",
+                exc_info=True,
+            )
+            self._mmwave_fan_demoted_last_tick = False
 
         # Always populate ble_persons even when occupied by other sources
         # (single lookup, avoids double-call when BLE override already set it)

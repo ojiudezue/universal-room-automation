@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.41.0
+# Universal Room Automation vv5.42.0
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -544,6 +544,28 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
                 )
             except Exception:  # noqa: BLE001 — never fail attr expansion
                 attrs["comfort_fan_away_veto_count"] = 0
+            # Tier-3 D2 mmWave fan-corroboration demotion — observability.
+            # Read directly off the room coordinator's per-tick counters
+            # (parsimony — attrs only, no new entities). Defaults keep
+            # the surface stable for rooms whose coord hasn't ticked yet.
+            try:
+                attrs["mmwave_fan_demoted"] = bool(
+                    getattr(
+                        self.coordinator,
+                        "_mmwave_fan_demoted_last_tick",
+                        False,
+                    )
+                )
+                attrs["mmwave_fan_demotions_since_boot"] = int(
+                    getattr(
+                        self.coordinator,
+                        "_mmwave_fan_demotions_since_boot",
+                        0,
+                    )
+                )
+            except Exception:  # noqa: BLE001 — never fail attr expansion
+                attrs["mmwave_fan_demoted"] = False
+                attrs["mmwave_fan_demotions_since_boot"] = 0
         except Exception:
             # B-M4 fix-up: TIER1_KINDS imported at module top.
             attrs["tier1_provenance"] = {k: False for k in TIER1_KINDS}
@@ -555,6 +577,8 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
             attrs["fan_interference_hold_expires_at"] = None
             attrs["ble_corroboration_layer"] = "none"
             attrs["comfort_fan_away_veto_count"] = 0
+            attrs["mmwave_fan_demoted"] = False
+            attrs["mmwave_fan_demotions_since_boot"] = 0
         # Fan-noise Mode-2 (room-tier fan-pause + clean recheck) attrs.
         # Sourced from FanRecheckManager.get_room_attrs(room_name); the
         # manager owns idempotent defaults for rooms it has not yet
