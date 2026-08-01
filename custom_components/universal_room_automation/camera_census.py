@@ -1132,13 +1132,36 @@ class PersonCensus:
                 # UNCORROBORATED divergent max (the playroom-phantom shape).
                 # Face + BLE + any-tier-1-zone-occupied are the three kinds
                 # (CENSUS_DIVERGENCE_CORROBORATION_KINDS).
+                # 2026-08-01 fix-up B-HIGH-1: use a freshness-gated view of
+                # face recognitions here so a stale (hours-old) match cannot
+                # corroborate a live divergence forever. The other consumer
+                # (line ~1220 → _cross_correlate_persons) keeps the unfiltered
+                # accessor to avoid silently changing that surface.
                 _face_ids_corroboration = (
-                    self._get_face_recognized_persons() if frigate_available else set()
+                    self._get_face_recognized_persons_fresh(now)
+                    if frigate_available else set()
                 )
+                # A-M3 (2026-08-01 fix-up): this is the sole production call
+                # site of _cross_validate_platforms — `corroborated=` MUST be
+                # passed explicitly. The kwarg's default of True is legacy-off
+                # (byte-identical pre-cycle behavior for tests / future callers
+                # that omit it).
+                # A-C2 (2026-08-01 fix-up): defensively wrap so a future
+                # breakage inside the snapshot accessor cannot escape and
+                # crash the census cycle — a corroboration miss just falls
+                # back to False (which correctly LETS the downgrade fire).
+                try:
+                    _zone_occ = self._any_zone_occupied_snapshot()
+                except Exception:  # noqa: BLE001 — fail-closed for corroboration
+                    _LOGGER.debug(
+                        "corroboration snapshot raised; treating zone-occ as False",
+                        exc_info=True,
+                    )
+                    _zone_occ = False
                 _corroborated = (
                     bool(_face_ids_corroboration)
                     or bool(ble_persons)
-                    or self._any_zone_occupied_snapshot()
+                    or _zone_occ
                 )
                 camera_total, agreement = self._cross_validate_platforms(
                     frigate_total, binary_platform_count,
@@ -1362,29 +1385,51 @@ class PersonCensus:
 
         if frigate_count > 0 and binary_platform_count == 0:
             # Only Frigate detects
-            if not corroborated and self._is_divergence_downgrade_enabled():
-                _LOGGER.info(
-                    "Census divergence downgrade: frigate=%d, binary=0, "
-                    "uncorroborated → min-wins (0, DISAGREE)",
-                    frigate_count,
-                )
-                return (min(frigate_count, binary_platform_count), CENSUS_AGREEMENT_DISAGREE)
-            return (frigate_count, CENSUS_AGREEMENT_CLOSE)
+            return self._apply_divergence_downgrade(
+                frigate_count, binary_platform_count,
+                higher=frigate_count,
+                corroborated=corroborated,
+                direction="frigate=%d, binary=0" % frigate_count,
+            )
 
         if frigate_count == 0 and binary_platform_count > 0:
             # Only binary platforms detect — use their per-camera count
-            if not corroborated and self._is_divergence_downgrade_enabled():
-                _LOGGER.info(
-                    "Census divergence downgrade: frigate=0, binary=%d, "
-                    "uncorroborated → min-wins (0, DISAGREE)",
-                    binary_platform_count,
-                )
-                return (min(frigate_count, binary_platform_count), CENSUS_AGREEMENT_DISAGREE)
-            return (binary_platform_count, CENSUS_AGREEMENT_CLOSE)
+            return self._apply_divergence_downgrade(
+                frigate_count, binary_platform_count,
+                higher=binary_platform_count,
+                corroborated=corroborated,
+                direction="frigate=0, binary=%d" % binary_platform_count,
+            )
 
         # Should not reach here, but fallback
         total = max(frigate_count, binary_platform_count)
         return (total, CENSUS_AGREEMENT_SINGLE)
+
+    def _apply_divergence_downgrade(
+        self,
+        frigate_count: int,
+        binary_platform_count: int,
+        *,
+        higher: int,
+        corroborated: bool,
+        direction: str,
+    ) -> tuple[int, str]:
+        """Shared helper: apply the uncorroborated-divergence downgrade.
+
+        Both divergent branches (frigate-only, binary-only) route through here
+        so the downgrade rule lives in ONE place (A-M1 dedup). The per-branch
+        `direction` label is preserved in the info log for post-hoc analysis.
+        """
+        if not corroborated and self._is_divergence_downgrade_enabled():
+            _LOGGER.info(
+                "Census divergence downgrade: %s, uncorroborated → min-wins (0, DISAGREE)",
+                direction,
+            )
+            return (
+                min(frigate_count, binary_platform_count),
+                CENSUS_AGREEMENT_DISAGREE,
+            )
+        return (higher, CENSUS_AGREEMENT_CLOSE)
 
     def _any_zone_occupied_snapshot(self) -> bool:
         """Return True if the presence coordinator reports any occupied zone.
@@ -1393,25 +1438,52 @@ class PersonCensus:
         corroboration bundle. Returns False on any failure (coordinator
         unavailable, wrong shape) — a conservative default that lets the
         divergence downgrade fire when we simply don't know.
+
+        A-C1 (2026-08-01 fix-up): ``tracker.mode`` is the plain string
+        contract from ``ZonePresenceMode.OCCUPIED`` == ``"occupied"``
+        (presence.py:228-237), NOT a StrEnum whose ``.name`` is "OCCUPIED".
+        Compare against the string directly. Kept as string to avoid a hot
+        import cycle with ``domain_coordinators.presence``.
+
+        A-H1: once-per-instance WARNING when the accessor takes the
+        absent/exception path — so a future presence refactor that
+        re-severs this limb is visible in logs, not silently False.
         """
         try:
             mgr = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
             if mgr is None:
+                self._warn_zone_snapshot_absent("coordinator_manager missing")
                 return False
             presence = getattr(mgr, "coordinators", {}).get("presence")
             if presence is None:
+                self._warn_zone_snapshot_absent("presence coordinator missing")
                 return False
             trackers = getattr(presence, "_zone_trackers", None)
             if not trackers:
+                self._warn_zone_snapshot_absent("zone trackers absent/empty")
                 return False
             for tracker in trackers.values():
                 mode = getattr(tracker, "mode", None)
-                # Compare by string name to avoid importing the enum here.
-                if mode is not None and str(getattr(mode, "name", mode)) == "OCCUPIED":
+                # Contract: ZonePresenceMode.OCCUPIED == "occupied"
+                # (presence.py:228-237). Direct string compare.
+                if mode == "occupied":
                     return True
             return False
-        except Exception:  # noqa: BLE001 — best-effort corroboration read
+        except (AttributeError, KeyError, TypeError) as exc:  # A-L2: narrow
+            self._warn_zone_snapshot_absent(f"exception: {exc!r}")
             return False
+
+    def _warn_zone_snapshot_absent(self, reason: str) -> None:
+        """A-H1: once-per-instance drift warning for the zone-snapshot limb."""
+        if getattr(self, "_zone_snapshot_absent_warned", False):
+            return
+        self._zone_snapshot_absent_warned = True
+        _LOGGER.warning(
+            "Census corroboration: _any_zone_occupied_snapshot degraded (%s); "
+            "zone-occupied limb of the divergence-downgrade bundle is dark "
+            "for this session. Investigate presence-coordinator wiring.",
+            reason,
+        )
 
     def _is_divergence_downgrade_enabled(self) -> bool:
         """Return True if the divergence-downgrade policy is enabled (default True).
@@ -2082,6 +2154,57 @@ class PersonCensus:
             _LOGGER.debug("Face recognition identified: %s", face_ids)
 
         return face_ids
+
+    def _get_face_recognized_persons_fresh(self, now: datetime) -> set[str]:
+        """Freshness-gated view of face-recognized persons.
+
+        B-HIGH-1 (2026-08-01 fix-up): the plain
+        ``_get_face_recognized_persons`` has no age check — a
+        recognition from hours ago will still corroborate a live
+        divergence, defeating the whole downgrade. This wrapper drops
+        entries whose ``state.last_changed`` age exceeds
+        ``CENSUS_FACE_RECOGNITION_WINDOW_SECONDS`` (same window the
+        provenance path at ~l.2392 uses), returning only currently
+        actionable identities. Used only by the corroboration bundle;
+        the other consumer keeps the unfiltered accessor to avoid
+        silently altering that surface without its own review.
+        """
+        fresh: set[str] = set()
+        for camera_info in self._camera_manager.get_all_frigate_cameras():
+            bs_id = camera_info.entity_id
+            if not bs_id.endswith("_person_occupancy"):
+                continue
+            base_name = bs_id[len("binary_sensor."):-len("_person_occupancy")]
+            face_sensor_id = f"sensor.{base_name}_last_recognized_face"
+            try:
+                state = self.hass.states.get(face_sensor_id)
+            except Exception:  # noqa: BLE001 — best-effort corroboration read
+                continue
+            if not state:
+                continue
+            val = state.state.strip() if isinstance(state.state, str) else ""
+            if val.lower() in ("unavailable", "unknown", "", "none", "no_match"):
+                continue
+            last_changed = getattr(state, "last_changed", None)
+            if last_changed is None:
+                # No timestamp → cannot verify freshness → treat as stale
+                continue
+            try:
+                if last_changed.tzinfo is not None:
+                    age = (now - last_changed).total_seconds()
+                else:
+                    age = (now - last_changed.replace(
+                        tzinfo=dt_util.UTC
+                    )).total_seconds()
+            except (TypeError, AttributeError):
+                continue
+            if age <= CENSUS_FACE_RECOGNITION_WINDOW_SECONDS:
+                fresh.add(val)
+        if fresh:
+            _LOGGER.debug(
+                "Face recognition (fresh, corroboration): %s", fresh,
+            )
+        return fresh
 
     # ------------------------------------------------------------------
     # v3.10.1: Enhanced Census (event-driven sensor fusion)

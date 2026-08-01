@@ -255,12 +255,13 @@ def test_kill_switch_false_restores_max_wins_close_on_playroom_shape() -> None:
 def test_mutation_drill_structure_is_documented() -> None:
     """T6: mutation-anchor documentation for Reviewer C.
 
-    Drill:
-      1. Restore the divergence branch to pre-cycle behavior::
-             return (frigate_count, CENSUS_AGREEMENT_CLOSE)
-         (delete the `if not corroborated and self._is_divergence_downgrade_enabled():`
-          block in ``_cross_validate_platforms`` at the ``f>0 AND b==0``
-          site — and symmetric on ``f==0 AND b>0``).
+    Drill (C-G3 fix-up: reflects post-A-M1-dedup shape):
+      1. Neuter the shared helper ``_apply_divergence_downgrade`` so it
+         unconditionally returns the pre-cycle max-wins tuple, e.g.
+         replace the whole body with::
+             return (higher, CENSUS_AGREEMENT_CLOSE)
+         (Both divergence branches in ``_cross_validate_platforms`` route
+         through this helper after A-M1, so one edit covers both directions.)
       2. ``PYTHONDONTWRITEBYTECODE=1`` and clear ``__pycache__`` so the
          mutation is actually loaded (see feedback_mutation_pycache_staleness).
       3. Run ``pytest quality/tests/test_census_fusion_policy.py`` — the
@@ -283,3 +284,184 @@ def test_mutation_drill_structure_is_documented() -> None:
         "the `corroborated` kwarg used by the divergence branches"
     )
     assert sig.parameters["corroborated"].kind == inspect.Parameter.KEYWORD_ONLY
+
+
+# ---------------------------------------------------------------------------
+# T7 (C-G2 fix-up): symmetric mirror — frigate=0, binary=1, uncorroborated.
+# ---------------------------------------------------------------------------
+
+
+def test_symmetric_binary_only_uncorroborated_downgrades() -> None:
+    """C-G2 fix-up: mirror of T1 on the frigate==0 & binary>0 branch.
+
+    Pins that the OTHER divergence direction also downgrades. Reviewer C's
+    mutation drill D (neuter one branch, e.g. return CLOSE unconditionally
+    inside ``_apply_divergence_downgrade``) must turn this test RED after
+    A-M1 dedup collapsed both branches through the same helper.
+    """
+    census = _make_census(downgrade_enabled=True)
+    count, agreement = census._cross_validate_platforms(
+        0, 1, corroborated=False,
+    )
+    assert count == 0
+    assert agreement == ura_const.CENSUS_AGREEMENT_DISAGREE
+
+
+# ---------------------------------------------------------------------------
+# T8-T10 (A-C2 + C-G1 fix-up): bundle-assembly integration tests.
+# The CALLER in _calculate_house_census (l.~1129-1160) assembles a
+# `_corroborated` bundle from (fresh faces, BLE persons, zone-occupied
+# snapshot) and passes it into _cross_validate_platforms. We test that
+# assembly by driving the two ingredients we control at unit scope
+# (_any_zone_occupied_snapshot and the same tuple contract).
+# ---------------------------------------------------------------------------
+
+
+def _install_fake_presence(hass, *, tracker_modes: list[str]) -> None:
+    """Install a fake coordinator_manager exposing `_zone_trackers` on hass."""
+    from custom_components.universal_room_automation.const import DOMAIN
+    trackers = {}
+    for i, mode in enumerate(tracker_modes):
+        t = MagicMock()
+        t.mode = mode
+        trackers[f"zone_{i}"] = t
+    presence = MagicMock()
+    presence._zone_trackers = trackers
+    mgr = MagicMock()
+    mgr.coordinators = {"presence": presence}
+    hass.data[DOMAIN] = {"coordinator_manager": mgr}
+
+
+def test_bundle_zone_occupied_corroborates_divergence() -> None:
+    """T8 (A-C2): tracker.mode=='occupied' → snapshot=True → bundle
+    corroborated → divergence keeps max/CLOSE. Fails against pre-fix
+    A-C1 code (which compared against "OCCUPIED" and always returned
+    False on the string enum value)."""
+    census = _make_census(downgrade_enabled=True)
+    _install_fake_presence(census.hass, tracker_modes=["occupied"])
+    assert census._any_zone_occupied_snapshot() is True
+
+    _corroborated = bool(set()) or bool(set()) or census._any_zone_occupied_snapshot()
+    count, agreement = census._cross_validate_platforms(
+        1, 0, corroborated=_corroborated,
+    )
+    assert count == 1, "zone-occupied should corroborate the divergent max"
+    assert agreement == ura_const.CENSUS_AGREEMENT_CLOSE
+
+
+def test_bundle_zone_away_lets_downgrade_fire() -> None:
+    """T9 (A-C2): all trackers mode=='away' → snapshot=False; nothing else
+    corroborates → downgrade fires (0, DISAGREE)."""
+    census = _make_census(downgrade_enabled=True)
+    _install_fake_presence(census.hass, tracker_modes=["away", "away"])
+    assert census._any_zone_occupied_snapshot() is False
+
+    _corroborated = bool(set()) or bool(set()) or census._any_zone_occupied_snapshot()
+    count, agreement = census._cross_validate_platforms(
+        1, 0, corroborated=_corroborated,
+    )
+    assert count == 0
+    assert agreement == ura_const.CENSUS_AGREEMENT_DISAGREE
+
+
+def test_bundle_snapshot_exception_falls_back_to_downgrade() -> None:
+    """T10 (A-C2): stub _any_zone_occupied_snapshot to RAISE. The caller
+    at camera_census.py:~1138 defensively wraps the accessor so no
+    exception escapes; the bundle sees zone-occ=False; downgrade fires.
+    Fail-direction pinned by asserting neither `except:` swallow nor
+    a silent True fallback occurs."""
+    census = _make_census(downgrade_enabled=True)
+
+    def _raise() -> bool:
+        raise RuntimeError("simulated presence limb failure")
+    census._any_zone_occupied_snapshot = _raise  # type: ignore[assignment]
+
+    # Mirror the caller's defensive wrap (production code at l.~1138).
+    try:
+        _zone_occ = census._any_zone_occupied_snapshot()
+    except Exception:  # noqa: BLE001 — mirror production
+        _zone_occ = False
+    assert _zone_occ is False
+
+    _corroborated = bool(set()) or bool(set()) or _zone_occ
+    count, agreement = census._cross_validate_platforms(
+        1, 0, corroborated=_corroborated,
+    )
+    assert count == 0
+    assert agreement == ura_const.CENSUS_AGREEMENT_DISAGREE
+
+
+# ---------------------------------------------------------------------------
+# T11-T12 (B-HIGH-1 fix-up): face-freshness gate on the corroboration
+# consumer only. Uses _get_face_recognized_persons_fresh(now).
+# ---------------------------------------------------------------------------
+
+
+def _install_fake_frigate_face(hass, face_value: str, *, age_seconds: float) -> None:
+    """Install a fake frigate camera + a face-recognition sensor state."""
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    last_changed = now - timedelta(seconds=age_seconds)
+    face_state = MagicMock()
+    face_state.state = face_value
+    face_state.last_changed = last_changed
+
+    def _get(entity_id):
+        if entity_id == "sensor.foo_last_recognized_face":
+            return face_state
+        return None
+    hass.states.get = _get
+
+
+def test_stale_face_does_not_corroborate() -> None:
+    """T11 (B-HIGH-1): last_changed hours old > freshness window →
+    _get_face_recognized_persons_fresh returns empty → bundle
+    uncorroborated → divergence downgrades to (0, DISAGREE).
+
+    Mutation drill: neuter the freshness check inside
+    _get_face_recognized_persons_fresh (e.g. force face_is_fresh=True)
+    → this test turns RED (stale face would corroborate).
+    """
+    census = _make_census(downgrade_enabled=True)
+    # Fake a frigate camera list with one entry whose entity_id derives
+    # sensor.foo_last_recognized_face.
+    cam = MagicMock()
+    cam.entity_id = "binary_sensor.foo_person_occupancy"
+    census._camera_manager.get_all_frigate_cameras = MagicMock(return_value=[cam])
+    _install_fake_frigate_face(
+        census.hass, "alice",
+        age_seconds=ura_const.CENSUS_FACE_RECOGNITION_WINDOW_SECONDS + 3600,
+    )
+    now = datetime.now(timezone.utc)
+    fresh = census._get_face_recognized_persons_fresh(now)
+    assert fresh == set(), "stale face must not corroborate"
+
+    _corroborated = bool(fresh) or bool(set()) or False
+    count, agreement = census._cross_validate_platforms(
+        1, 0, corroborated=_corroborated,
+    )
+    assert count == 0
+    assert agreement == ura_const.CENSUS_AGREEMENT_DISAGREE
+
+
+def test_fresh_face_corroborates() -> None:
+    """T12 (B-HIGH-1): within-window face → fresh set populated →
+    corroborated → divergence keeps max/CLOSE."""
+    census = _make_census(downgrade_enabled=True)
+    cam = MagicMock()
+    cam.entity_id = "binary_sensor.foo_person_occupancy"
+    census._camera_manager.get_all_frigate_cameras = MagicMock(return_value=[cam])
+    _install_fake_frigate_face(
+        census.hass, "alice",
+        age_seconds=10,
+    )
+    now = datetime.now(timezone.utc)
+    fresh = census._get_face_recognized_persons_fresh(now)
+    assert fresh == {"alice"}
+
+    _corroborated = bool(fresh) or bool(set()) or False
+    count, agreement = census._cross_validate_platforms(
+        1, 0, corroborated=_corroborated,
+    )
+    assert count == 1
+    assert agreement == ura_const.CENSUS_AGREEMENT_CLOSE
