@@ -482,3 +482,5 @@ and MUST NOT be re-litigated without evidence:
    signal (mmWave off, PIR fire, BLE person, fan off).
 7. **Snapshot contract.** `is_room_mmwave_fan_demoted` reads a
    per-inference-tick snapshot; it never invokes the primitive live.
+
+**Residual observed live 2026-08-01 (playroom phantom #3):** the phantom→GUEST chain LAUNDERS the away-veto — a single unidentified census person flips house to `guest`, which is (by design) not a vetoed state, re-opening comfort-fan turn-ons house-wide. Guest-mode reliability is therefore upstream of Invariant V's effective coverage. Trip-wire: veto counter flat during a guest window whose census source is a single unidentified camera track. Related finding, same incident: Study A's vacancy fan-off path did NOT fire over ~4h of vacant+fan-on (manual off applied; investigate BEFORE the D2 deploy decision — D2's post-demotion story assumes the vacancy path turns fans off).
