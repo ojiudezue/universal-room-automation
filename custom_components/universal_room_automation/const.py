@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.39.0
+# Universal Room Automation vv5.40.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.39.0"
+VERSION: Final = "v5.40.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -625,6 +625,45 @@ CONF_HUMIDITY_FAN_THRESHOLD: Final = "humidity_fan_threshold"
 CONF_HUMIDITY_FAN_TIMEOUT: Final = "humidity_fan_timeout"
 CONF_HUMIDITY_FAN_MAX_RUNTIME: Final = "humidity_fan_max_runtime"
 CONF_FAN_VACANCY_HOLD: Final = "fan_vacancy_hold"
+
+# --- Comfort-fan house-AWAY veto (mmwave-corroboration Tier-3 cycle, D3) ---
+# Rung 2 (options-flow) kill switch. When True (default), comfort-fan
+# `turn_on` service calls at all three comfort-fan actuation sites
+# (room-tier automation.py, HVAC-tier hvac_fans.py, actuator_reconciler.py)
+# are SUPPRESSED when house_state ∈ {AWAY, VACATION} AND the room lacks
+# trusted presence (recent motion within occupancy_timeout, BLE-trustworthy
+# person in room, or camera-person in a camera-covered room). mmWave is
+# EXCLUDED from trusted presence — that is the whole point (an empty house
+# with a phantom mmwave firing should NEVER cool itself).
+#
+# KILL SWITCH SEMANTICS: setting this False at the options-flow makes the
+# veto helper return False unconditionally — behavior becomes byte-identical
+# to pre-cycle. Humidity fans / safety fans / sleep path are NEVER touched
+# by this veto regardless of setting.
+#
+# Per-room knob (default ON) so per-integration override is a simple
+# options-flow toggle. Rationale for rung-2 placement: operators may
+# legitimately want AWAY comfort fans (e.g. pet-cooling); the knob is
+# infrequently changed but IS operator-legitimate to change.
+# See PLANNING_mmwave_corroboration_tier3.md D1/D3.
+CONF_COMFORT_FAN_AWAY_VETO_ENABLED: Final = "comfort_fan_away_veto_enabled"
+DEFAULT_COMFORT_FAN_AWAY_VETO_ENABLED: Final = True
+
+# Camera-coverage map (rung-1 module constant per PLANNING Amendment 1).
+# Only rooms in this frozenset consult the camera-person leg of the
+# comfort-fan veto's trusted-presence check. Uncovered rooms (all
+# private bedrooms, most rooms) rely on PIR + BLE only — camera person
+# signals for uncovered rooms are ignored to prevent common-area camera
+# traffic from spuriously "corroborating" a private room via zone-scope.
+#
+# TODO-REVIEWED: initial population is Study A only (per operator: cameras
+# exist only in common areas + Study A). The camera-census common areas
+# should be appended here once D0 audit produces the mapping — candidates
+# by area name (from camera_census.py:678 area→camera map): "Kitchen",
+# "Great Room", "Foyer", "Front Entry", "Backyard" — reviewer to confirm
+# room-name spellings against live config before adding. Changing this
+# constant should require code review, not a dashboard toggle.
+CAMERA_COVERED_ROOMS: Final = frozenset({"Study A"})
 
 # --- Bathroom-exhaust intelligence (humidity-fan unification cycle) ---
 # Toggle #3: master enable for humidity-fan automation (D4/D5).
