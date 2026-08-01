@@ -35,7 +35,16 @@ _mods = {
         "State": _mock_cls,
     },
     "homeassistant.config_entries": {"ConfigEntry": _mock_cls},
-    "homeassistant.const": MagicMock(),
+    # MagicMock keeps auto-attrs for the long tail of const imports, but the
+    # four state strings are pinned to their real values — production code
+    # compares state.state against these, and a bare MagicMock() made every
+    # == STATE_ON / != STATE_OFF comparison silently wrong (2026-08-01, t4).
+    "homeassistant.const": MagicMock(
+        STATE_ON="on",
+        STATE_OFF="off",
+        STATE_UNAVAILABLE="unavailable",
+        STATE_UNKNOWN="unknown",
+    ),
     "homeassistant.helpers": {},
     "homeassistant.helpers.device_registry": {"DeviceInfo": dict},
     "homeassistant.helpers.entity": {

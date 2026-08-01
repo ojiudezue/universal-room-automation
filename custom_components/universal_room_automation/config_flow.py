@@ -203,6 +203,8 @@ from .const import (
     CONF_HVAC_COORDINATION_ENABLED,
     CONF_TARGET_TEMP_COOL,
     CONF_TARGET_TEMP_HEAT,
+    CONF_COMFORT_FAN_AWAY_VETO_ENABLED,
+    DEFAULT_COMFORT_FAN_AWAY_VETO_ENABLED,
     CONF_FAN_CONTROL_ENABLED,
     CONF_FAN_TEMP_THRESHOLD,
     CONF_FAN_SPEED_LOW_TEMP,
@@ -1868,6 +1870,14 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             # --- Fans first ---
             vol.Optional(CONF_HVAC_COORDINATION_ENABLED, default=False): selector.BooleanSelector(),
             vol.Optional(CONF_FAN_CONTROL_ENABLED, default=False): selector.BooleanSelector(),
+            # Comfort-fan house-AWAY veto (mmwave-corroboration Tier-3 D3).
+            # Default ON — suppresses comfort-fan turn_on when house is
+            # AWAY/VACATION and the room lacks trusted presence
+            # (mmwave excluded). See const.py CONF_COMFORT_FAN_AWAY_VETO_ENABLED.
+            vol.Optional(
+                CONF_COMFORT_FAN_AWAY_VETO_ENABLED,
+                default=DEFAULT_COMFORT_FAN_AWAY_VETO_ENABLED,
+            ): selector.BooleanSelector(),
             vol.Optional(
                 CONF_HUMIDITY_FAN_CONTROL_ENABLED,
                 default=DEFAULT_HUMIDITY_FAN_CONTROL_ENABLED,
@@ -9690,6 +9700,14 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_FAN_CONTROL_ENABLED,
                 default=self._get_current(CONF_FAN_CONTROL_ENABLED, False),
+            ): selector.BooleanSelector(),
+            # Comfort-fan house-AWAY veto (mmwave-corroboration Tier-3 D3).
+            vol.Optional(
+                CONF_COMFORT_FAN_AWAY_VETO_ENABLED,
+                default=self._get_current(
+                    CONF_COMFORT_FAN_AWAY_VETO_ENABLED,
+                    DEFAULT_COMFORT_FAN_AWAY_VETO_ENABLED,
+                ),
             ): selector.BooleanSelector(),
             vol.Optional(
                 CONF_HUMIDITY_FAN_CONTROL_ENABLED,

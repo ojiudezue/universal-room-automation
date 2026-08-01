@@ -534,6 +534,16 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
             attrs["fan_interference_hold_active"] = _hold_active
             attrs["fan_interference_hold_expires_at"] = _hold_iso
             attrs["ble_corroboration_layer"] = _ladder_label
+            # D7 observability (mmwave-corroboration Tier-3, D3):
+            # per-room comfort-fan house-AWAY veto count. Defensively
+            # 0 if the helper module hasn't been imported yet.
+            try:
+                from .fan_veto import get_veto_count  # noqa: PLC0415
+                attrs["comfort_fan_away_veto_count"] = get_veto_count(
+                    self.hass, _room_name,
+                )
+            except Exception:  # noqa: BLE001 — never fail attr expansion
+                attrs["comfort_fan_away_veto_count"] = 0
         except Exception:
             # B-M4 fix-up: TIER1_KINDS imported at module top.
             attrs["tier1_provenance"] = {k: False for k in TIER1_KINDS}
@@ -544,6 +554,7 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
             attrs["fan_interference_hold_active"] = False
             attrs["fan_interference_hold_expires_at"] = None
             attrs["ble_corroboration_layer"] = "none"
+            attrs["comfort_fan_away_veto_count"] = 0
         # Fan-noise Mode-2 (room-tier fan-pause + clean recheck) attrs.
         # Sourced from FanRecheckManager.get_room_attrs(room_name); the
         # manager owns idempotent defaults for rooms it has not yet
