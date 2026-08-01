@@ -236,6 +236,61 @@ class FanController:
                 room_fan.trigger = "manual"
                 room_fan.last_on_time = now.isoformat()
                 _LOGGER.info("HVAC Fans: %s turned on during cooldown — cooldown cleared", room_name)
+            # BUG 2 fix (2026-08-01 Study A, Phase 1 D1): adopt an
+            # externally-lit fan when no cooldown is pending. Without
+            # this branch, a room-tier-boot-lit fan (or physical-switch
+            # ON) leaves room_fan.is_on=False, so the downstream
+            # vacancy-off path short-circuits — nobody owns the OFF and
+            # the fan can run indefinitely in a vacant room (Study A:
+            # 4h at 100%). Trigger label "external" flags this as an
+            # observed, not-actuated state; the eventual OFF is a
+            # normal vacancy-off, NOT interpreted as manual.
+            elif (not room_fan.is_on
+                  and not room_fan.manual_off_cooldown_until
+                  and any(self._is_entity_on(e) for e in room_fan.fan_entities)):
+                # A-L3 + B-L1: switch-domain fans have no `percentage`
+                # attribute — observed_speed remains 0 in that case, which
+                # is safe: line-330's `should_on and speed != room_fan.speed_pct`
+                # guard means the next _evaluate_temp_fan tick that decides
+                # to hold the fan on at speed X will correctly re-actuate
+                # to X (0 -> X trips the change gate); switches ignore the
+                # percentage arg entirely. First observed non-zero speed
+                # wins in multi-fan rooms (we break on the first entity
+                # that reports a usable percentage — deterministic on the
+                # discover_fans ordering).
+                observed_speed = 0
+                for entity_id in room_fan.fan_entities:
+                    try:
+                        st = self.hass.states.get(entity_id)
+                        if st is None or st.state != "on":
+                            continue
+                        pct = None
+                        attrs = getattr(st, "attributes", None)
+                        if attrs is not None:
+                            try:
+                                pct = attrs.get("percentage")
+                            except Exception:  # noqa: BLE001
+                                pct = None
+                        # A-L2: accept numeric-string percentage too
+                        # (some integrations report "66" not 66).
+                        try:
+                            observed_speed = int(float(pct))
+                            break
+                        except (TypeError, ValueError):
+                            continue
+                    except Exception as exc:  # noqa: BLE001
+                        _LOGGER.debug(
+                            "HVAC Fans: %s adopt-speed read failed for %s (%s)",
+                            room_name, entity_id, exc,
+                        )
+                room_fan.is_on = True
+                room_fan.trigger = "external"
+                room_fan.speed_pct = observed_speed
+                room_fan.last_on_time = now.isoformat()
+                _LOGGER.info(
+                    "HVAC Fans: %s adopted externally-lit fan (speed=%d%%)",
+                    room_name, observed_speed,
+                )
 
             zone = self._zone_manager.zones.get(room_fan.zone_id)
             if zone is None:
