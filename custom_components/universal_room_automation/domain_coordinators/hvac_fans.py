@@ -248,6 +248,16 @@ class FanController:
             elif (not room_fan.is_on
                   and not room_fan.manual_off_cooldown_until
                   and any(self._is_entity_on(e) for e in room_fan.fan_entities)):
+                # A-L3 + B-L1: switch-domain fans have no `percentage`
+                # attribute — observed_speed remains 0 in that case, which
+                # is safe: line-330's `should_on and speed != room_fan.speed_pct`
+                # guard means the next _evaluate_temp_fan tick that decides
+                # to hold the fan on at speed X will correctly re-actuate
+                # to X (0 -> X trips the change gate); switches ignore the
+                # percentage arg entirely. First observed non-zero speed
+                # wins in multi-fan rooms (we break on the first entity
+                # that reports a usable percentage — deterministic on the
+                # discover_fans ordering).
                 observed_speed = 0
                 for entity_id in room_fan.fan_entities:
                     try:
@@ -261,9 +271,13 @@ class FanController:
                                 pct = attrs.get("percentage")
                             except Exception:  # noqa: BLE001
                                 pct = None
-                        if isinstance(pct, (int, float)):
-                            observed_speed = int(pct)
+                        # A-L2: accept numeric-string percentage too
+                        # (some integrations report "66" not 66).
+                        try:
+                            observed_speed = int(float(pct))
                             break
+                        except (TypeError, ValueError):
+                            continue
                     except Exception as exc:  # noqa: BLE001
                         _LOGGER.debug(
                             "HVAC Fans: %s adopt-speed read failed for %s (%s)",

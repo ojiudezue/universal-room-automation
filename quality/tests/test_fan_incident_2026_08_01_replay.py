@@ -599,6 +599,108 @@ class TestCooldownPathsUnchanged:
 
 
 # ---------------------------------------------------------------------------
+# Tests — (d) A-M1 fix-up: vacancy-anchor cleared across cooldown cycle
+# ---------------------------------------------------------------------------
+
+class TestVacancyStampClearedAcrossCooldownCycle:
+    """A-M1: fan-on+vacant+grace-stamp → external OFF (cooldown opens)
+    → external ON (cooldown clears) → next vacant tick gets FRESH grace
+    (fan held, NOT immediately turned off from stale stamp).
+    """
+
+    def test_cooldown_open_and_clear_resets_vacancy_stamp(self):
+        base = datetime(2026, 8, 1, 12, 0, 0)
+        _set_now(base)
+
+        auto, log, set_fan = _make_room_automation(initial_fan_on=True)
+
+        # Tick 1: occupied — establish any_fan_on baseline (fan is on).
+        _run(auto.handle_temperature_based_fan_control(TEMP_HOT, occupied=True))
+
+        # Tick 2: vacant, fan on → grace anchor is stamped.
+        _set_now(base + timedelta(seconds=30))
+        _run(auto.handle_temperature_based_fan_control(TEMP_HOT, occupied=False))
+        assert auto._fan_vacancy_start is not None, (
+            "Precondition: grace anchor must arm on fan-on+vacant tick"
+        )
+
+        # Tick 3: fan killed externally (cooldown OPENS). Anchor MUST clear.
+        set_fan(False)
+        _set_now(base + timedelta(seconds=60))
+        _run(auto.handle_temperature_based_fan_control(TEMP_HOT, occupied=False))
+        assert auto._fan_manual_off_until is not None, (
+            "Precondition: external-off must open cooldown"
+        )
+        assert auto._fan_vacancy_start is None, (
+            "A-M1: opening the cooldown must clear _fan_vacancy_start"
+        )
+
+        # Tick 4: fan turned back on externally (cooldown CLEARS). Anchor
+        # must be clear (symmetry — no residual stamp survives).
+        set_fan(True)
+        _set_now(base + timedelta(seconds=90))
+        _run(auto.handle_temperature_based_fan_control(TEMP_HOT, occupied=False))
+        assert auto._fan_manual_off_until is None, (
+            "Precondition: external ON during cooldown must clear cooldown"
+        )
+        # A-M1 symmetry: the cooldown-clear reversal branch itself must
+        # null the stale anchor. The vacancy-hold block that runs later
+        # in the SAME tick then re-stamps a fresh one (fan-on + vacant),
+        # so we assert the FRESH stamp (this tick's `now`), NOT the stale
+        # one from tick 2. Neutering the reset would leave the tick-2
+        # stamp in place, which is what tick 5 detects.
+        assert auto._fan_vacancy_start == base + timedelta(seconds=90), (
+            "A-M1 symmetry: cooldown-clear reversal must clear stale stamp; "
+            "in-tick re-arm then produces a FRESH anchor at `now`"
+        )
+
+        # Tick 5: next vacant tick past the previous grace window's
+        # would-have-elapsed moment. With a stale anchor the running fan
+        # would have been turned off; with a FRESH anchor it must be held.
+        stale_elapsed_at = (
+            base + timedelta(seconds=30 + DEFAULT_FAN_VACANCY_HOLD + 5)
+        )
+        _set_now(stale_elapsed_at)
+        turn_off_before = _count(log, "turn_off")
+        _run(auto.handle_temperature_based_fan_control(TEMP_HOT, occupied=False))
+        assert _count(log, "turn_off") == turn_off_before, (
+            "A-M1: after cooldown open+clear, running fan must be held "
+            "by a FRESH grace window — not turned off from a stale stamp"
+        )
+        assert auto._fan_vacancy_start is not None
+        assert auto._fan_vacancy_start >= base + timedelta(seconds=60), (
+            "New anchor must be stamped fresh (post-cooldown), not inherited"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tests — (e) C-LOW-1: stale-stamp-clear on vacant-no-fan branch
+# ---------------------------------------------------------------------------
+
+class TestVacantNoFanClearsStaleStamp:
+    """C-LOW-1: the `else: self._fan_vacancy_start = None` branch in the
+    vacant-no-fan path is currently untested (mutation (a) stays green).
+    """
+
+    def test_vacant_no_fan_clears_stale_vacancy_stamp(self):
+        base = datetime(2026, 8, 1, 15, 0, 0)
+        _set_now(base)
+
+        auto, log, set_fan = _make_room_automation(initial_fan_on=False)
+        # Prime a stale stamp as if a prior grace-stamped state persisted.
+        stale = base - timedelta(seconds=30)
+        auto._fan_vacancy_start = stale
+
+        # Vacant tick, no fan on (initial_fan_on=False).
+        _run(auto.handle_temperature_based_fan_control(TEMP_COOL, occupied=False))
+
+        assert auto._fan_vacancy_start is None, (
+            "C-LOW-1: vacant tick with no fan running must clear the "
+            "stale _fan_vacancy_start (else-branch of the vacancy-hold)"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Mutation-drill anchors — documented outcomes reviewer must reproduce
 # ---------------------------------------------------------------------------
 

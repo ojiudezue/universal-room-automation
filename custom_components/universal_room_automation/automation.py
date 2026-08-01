@@ -1644,6 +1644,12 @@ class RoomAutomation:
                 self._fan_manual_off_until = (
                     dt_util.now() + timedelta(seconds=cooldown_s)
                 )
+                # A-M1 fix-up: clear any live vacancy-hold anchor when the
+                # cooldown OPENS. Without this, a fan-on+vacant+grace-stamped
+                # room whose fan is then killed externally (cooldown opens)
+                # keeps the stale start; a subsequent external-ON reversal
+                # would inherit that stamp and skip the fresh grace window.
+                self._fan_vacancy_start = None
                 _LOGGER.info(
                     "Room %s: fan turned off externally — "
                     "room-tier cooldown until %s (FIX C)",
@@ -1655,12 +1661,17 @@ class RoomAutomation:
                 and any_fan_on_now
             ):
                 # Manual-on reversal — operator changed their mind.
+                # A-M1 fix-up (symmetry): also clear any residual
+                # vacancy-hold anchor so the reversal starts a FRESH
+                # grace window on the next vacant tick instead of an
+                # immediate off from a pre-cooldown stamp.
                 _LOGGER.info(
                     "Room %s: fan back on during cooldown — "
                     "room-tier cooldown cleared (FIX C)",
                     self.config.get("room_name", "Unknown"),
                 )
                 self._fan_manual_off_until = None
+                self._fan_vacancy_start = None
             elif (
                 self._fan_manual_off_until is not None
                 and dt_util.now() >= self._fan_manual_off_until
@@ -1707,14 +1718,12 @@ class RoomAutomation:
         # flipped `occupied=True` so the downstream temperature branch
         # emitted a spurious fan.turn_on in an unoccupied room.
         fan_vacancy_hold = self.config.get(CONF_FAN_VACANCY_HOLD, DEFAULT_FAN_VACANCY_HOLD)
-        _hold_running_fan = False
         if not occupied:
             if any_fan_on_now:
                 if self._fan_vacancy_start is None:
                     self._fan_vacancy_start = dt_util.now()
                 vacancy_elapsed = (dt_util.now() - self._fan_vacancy_start).total_seconds()
                 if vacancy_elapsed < fan_vacancy_hold:
-                    _hold_running_fan = True
                     occupied = True  # Override: hold RUNNING fans during grace period
             else:
                 # No fan to hold — clear any stale stamp so a later
