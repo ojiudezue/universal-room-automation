@@ -1149,6 +1149,17 @@ DEFAULT_EXTERIOR_SNAPSHOT_OFFSET_S: Final = 5
 MIN_EXTERIOR_SNAPSHOT_OFFSET_S: Final = 0
 MAX_EXTERIOR_SNAPSHOT_OFFSET_S: Final = 60
 
+# Rung-1 module constant (review B-HIGH-2 boot settle gate). Perimeter
+# state-change events fired within N seconds of manager setup are ignored to
+# suppress spurious CRITICALs caused by RestoreEntity replay / initial state
+# publication after HA restart.
+PERIMETER_BOOT_SETTLE_S: Final = 30
+
+# Review A-M2 label filter. Only Frigate events whose `after.label` is in this
+# set update the cached snapshot event_id. Prevents e.g. car detections from
+# supplying the URL for a later person alert.
+FRIGATE_SNAPSHOT_LABELS: Final = frozenset({"person"})
+
 # Zone aggregation sensor keys
 SENSOR_ZONE_IDENTIFIED_PERSONS: Final = "zone_identified_persons"
 SENSOR_ZONE_GUEST_COUNT: Final = "zone_guest_count"

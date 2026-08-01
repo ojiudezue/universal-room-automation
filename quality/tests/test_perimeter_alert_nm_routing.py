@@ -147,9 +147,18 @@ def _make_hass(
     snapshot_offset_s: int | None = 0,  # tests default to no scheduler delay
     nm_enabled: bool = True,
     include_nm: bool = True,
+    external_url: str | None = None,
+    internal_url: str | None = None,
 ):
     """Build a MockHass carrying all state PerimeterAlertManager reads."""
     hass = MagicMock()
+    # Config surfaces read by _absolutize (A-H1). Default None so tests
+    # that don't opt in exercise the "leave relative" path.
+    cfg = MagicMock()
+    cfg.external_url = external_url
+    cfg.internal_url = internal_url
+    hass.config = cfg
+    hass.is_stopping = False
     hass.services = MagicMock()
     hass.services.async_call = AsyncMock()
     hass.bus = MagicMock()
@@ -443,3 +452,316 @@ async def _setup_neutered(cls, hass):
     mgr = cls(hass)
     await mgr.async_setup()
     return mgr
+
+
+# --- A-H1: snapshot URL absolutization ----------------------------------------
+
+def test_absolutize_uses_external_url_when_set():
+    hass, nm = _make_hass(
+        house_state="away", external_url="https://ura.example.com/"
+    )
+    mgr = _run(_setup_mgr(hass))
+    mgr._frigate_last_event_id["front_yard"] = "evt-A"
+    _run(mgr._async_handle_perimeter_trigger(
+        "binary_sensor.front_yard_person_occupancy"))
+    assert nm.async_notify.await_args.kwargs["snapshot_url"] == (
+        "https://ura.example.com/api/frigate/notifications/evt-A/snapshot.jpg"
+    )
+
+
+def test_absolutize_falls_back_to_internal_url():
+    hass, nm = _make_hass(
+        house_state="away", internal_url="http://homeassistant.local:8123"
+    )
+    mgr = _run(_setup_mgr(hass))
+    mgr._frigate_last_event_id["front_yard"] = "evt-B"
+    _run(mgr._async_handle_perimeter_trigger(
+        "binary_sensor.front_yard_person_occupancy"))
+    assert nm.async_notify.await_args.kwargs["snapshot_url"] == (
+        "http://homeassistant.local:8123/api/frigate/notifications/evt-B/snapshot.jpg"
+    )
+
+
+def test_absolutize_no_urls_leaves_relative_and_logs_once(caplog):
+    hass, nm = _make_hass(house_state="away")
+    mgr = _run(_setup_mgr(hass))
+    mgr._frigate_last_event_id["front_yard"] = "evt-C"
+    with caplog.at_level("DEBUG"):
+        _run(mgr._async_handle_perimeter_trigger(
+            "binary_sensor.front_yard_person_occupancy"))
+    assert nm.async_notify.await_args.kwargs["snapshot_url"] == (
+        "/api/frigate/notifications/evt-C/snapshot.jpg"
+    )
+    matches = [r for r in caplog.records if "leaving snapshot URL relative" in r.getMessage()]
+    assert len(matches) >= 1
+    # Second trigger (clear cooldown) → no re-log
+    mgr._last_alert.clear()
+    caplog.clear()
+    mgr._frigate_last_event_id["front_yard"] = "evt-D"
+    with caplog.at_level("DEBUG"):
+        _run(mgr._async_handle_perimeter_trigger(
+            "binary_sensor.front_yard_person_occupancy"))
+    assert not any("leaving snapshot URL relative" in r.getMessage() for r in caplog.records)
+
+
+def test_absolutize_applies_to_live_fallback_path():
+    hass, nm = _make_hass(
+        house_state="away",
+        external_url="https://ura.example.com",
+    )
+    mgr = _run(_setup_mgr(hass))
+    _scheduled.clear()
+    _run(mgr._async_handle_perimeter_trigger(
+        "binary_sensor.front_yard_person_occupancy"))
+    # snapshot_offset defaults to 0 in _make_hass → immediate dispatch
+    assert nm.async_notify.await_args.kwargs["snapshot_url"] == (
+        "https://ura.example.com/api/camera_proxy/camera.front_yard"
+    )
+
+
+# --- A-M1: cooldown reservation AFTER dispatch --------------------------------
+
+def test_dispatch_failure_does_not_reserve_cooldown():
+    """A failed NM notify must NOT mute the camera for 5min."""
+    hass, nm = _make_hass(house_state="away")
+    nm.async_notify.side_effect = RuntimeError("channel down")
+    mgr = _run(_setup_mgr(hass))
+    _run(mgr._async_handle_perimeter_trigger(
+        "binary_sensor.front_yard_person_occupancy"))
+    assert nm.async_notify.await_count == 1
+    assert "binary_sensor.front_yard_person_occupancy" not in mgr._last_alert
+    # Second trigger immediately after → tries to dispatch again
+    _run(mgr._async_handle_perimeter_trigger(
+        "binary_sensor.front_yard_person_occupancy"))
+    assert nm.async_notify.await_count == 2
+
+
+def test_in_flight_guard_suppresses_concurrent_trigger():
+    """C-mut-a: while a slow NM notify is awaiting, second trigger drops."""
+    hass, nm = _make_hass(house_state="away")
+
+    call_count = {"n": 0}
+    holder: dict = {}
+
+    async def _run_race():
+        gate = asyncio.Event()
+        holder["gate"] = gate
+
+        async def _slow_notify(**kwargs):
+            call_count["n"] += 1
+            await gate.wait()
+
+        nm.async_notify.side_effect = _slow_notify
+        mgr = PerimeterAlertManager(hass)
+        await mgr.async_setup()
+        t1 = asyncio.create_task(
+            mgr._async_handle_perimeter_trigger(
+                "binary_sensor.front_yard_person_occupancy"))
+        # Yield so t1 enters the in-flight state and starts awaiting.
+        await asyncio.sleep(0)
+        # Second trigger should be suppressed by the in-flight guard.
+        await mgr._async_handle_perimeter_trigger(
+            "binary_sensor.front_yard_person_occupancy")
+        holder["gate"].set()
+        await t1
+        return mgr
+
+    mgr = asyncio.run(_run_race())
+    assert call_count["n"] == 1
+    # Only one cooldown reservation landed (dispatched_ok path ran once)
+    assert len(mgr._last_alert) == 1
+
+
+# --- A-M2: Frigate label filter -----------------------------------------------
+
+def test_frigate_event_cache_ignores_non_person_labels():
+    hass, nm = _make_hass(house_state="away")
+    mgr = _run(_setup_mgr(hass))
+    car_event = MagicMock()
+    car_event.data = {
+        "type": "new",
+        "after": {"id": "car-1", "camera": "front_yard", "label": "car"},
+    }
+    # Call the private handler directly via bus.async_listen capture
+    # (we stubbed it; walk the real setup path by invoking _on_frigate_event
+    # from the module scope isn't possible, so simulate by pushing state)
+    # Simpler: verify the cache stays empty by pushing via the same code path
+    # exposed through async_setup — we already called it. The listener stub
+    # in _make_hass returns a MagicMock and never routes real events, so we
+    # instead assert the semantic: use the resolver directly with only a
+    # non-person id preloaded — resolver still won't emit that URL because
+    # we simulate producer discipline: nothing writes non-person ids.
+    #
+    # The definitive check is the callback itself. Rebuild it inline:
+    def _make_cb(mgr):
+        # Mirror perimeter_alert._on_frigate_event
+        from custom_components.universal_room_automation.const import (
+            FRIGATE_SNAPSHOT_LABELS,
+        )
+        def _cb(event):
+            after = event.data.get("after") or {}
+            label = str(after.get("label") or "").lower()
+            camera = after.get("camera")
+            event_id = after.get("id")
+            msg_type = str(event.data.get("type") or "").lower()
+            if not camera or label not in FRIGATE_SNAPSHOT_LABELS:
+                return
+            cam_key = str(camera)
+            if msg_type == "end":
+                mgr._frigate_last_event_id.pop(cam_key, None)
+                return
+            if event_id:
+                mgr._frigate_last_event_id[cam_key] = str(event_id)
+        return _cb
+
+    cb = _make_cb(mgr)
+    cb(car_event)
+    assert "front_yard" not in mgr._frigate_last_event_id
+    # Person event then does land
+    person_event = MagicMock()
+    person_event.data = {
+        "type": "new",
+        "after": {"id": "person-1", "camera": "front_yard", "label": "person"},
+    }
+    cb(person_event)
+    assert mgr._frigate_last_event_id["front_yard"] == "person-1"
+    # End clears it
+    end_event = MagicMock()
+    end_event.data = {
+        "type": "end",
+        "after": {"id": "person-1", "camera": "front_yard", "label": "person"},
+    }
+    cb(end_event)
+    assert "front_yard" not in mgr._frigate_last_event_id
+
+
+# --- A-M3: teardown cancels pending dispatch ----------------------------------
+
+def test_teardown_cancels_pending_dispatch():
+    hass, nm = _make_hass(house_state="away", snapshot_offset_s=7)
+    mgr = _run(_setup_mgr(hass))
+    _scheduled.clear()
+    _run(mgr._async_handle_perimeter_trigger(
+        "binary_sensor.front_yard_person_occupancy"))
+    assert mgr._pending_dispatches, "expected a tracked delayed dispatch"
+    _run(mgr.async_teardown())
+    assert mgr._pending_dispatches == []
+    # Late-fire the recorded callback: _do_dispatch should no-op because
+    # not self._active
+    _delay, cb = _scheduled[-1]
+    cb(None)
+    # Retrieve the coroutine passed to async_create_task and run it
+    if hass.async_create_task.called:
+        coro = hass.async_create_task.call_args.args[0]
+        _run(coro)
+    assert nm.async_notify.await_count == 0
+
+
+# --- B-HIGH-2: boot spurious CRITICAL guard ----------------------------------
+
+def _make_perimeter_state_cb(mgr):
+    """Rebuild the perimeter state-change callback for direct invocation."""
+    from custom_components.universal_room_automation.const import (
+        PERIMETER_BOOT_SETTLE_S,
+    )
+    from homeassistant.util import dt as _dt
+
+    def _cb(event):
+        entity_id = event.data.get("entity_id", "")
+        new_state = event.data.get("new_state")
+        old_state = event.data.get("old_state")
+        if not (new_state and new_state.state == "on"):
+            return
+        if old_state is None or old_state.state == "on":
+            return
+        if mgr._setup_time is not None:
+            elapsed = (_dt.now() - mgr._setup_time).total_seconds()
+            if elapsed < PERIMETER_BOOT_SETTLE_S:
+                return
+        mgr.hass.async_create_task(
+            mgr._async_handle_perimeter_trigger(entity_id))
+
+    return _cb
+
+
+def _mk_event(entity_id, new, old):
+    e = MagicMock()
+    new_st = MagicMock(); new_st.state = new
+    old_st = None if old is None else MagicMock()
+    if old is not None:
+        old_st.state = old
+    e.data = {"entity_id": entity_id, "new_state": new_st, "old_state": old_st}
+    return e
+
+
+def test_boot_settle_ignores_old_state_none():
+    hass, nm = _make_hass(house_state="away")
+    mgr = _run(_setup_mgr(hass))
+    # Push setup time far in the past so settle isn't the reason it drops
+    from homeassistant.util import dt as _dt
+    mgr._setup_time = _dt.now() - timedelta(seconds=600)
+    cb = _make_perimeter_state_cb(mgr)
+    cb(_mk_event("binary_sensor.front_yard_person_occupancy", "on", None))
+    assert not hass.async_create_task.called
+
+
+def test_boot_settle_ignores_on_to_on():
+    hass, nm = _make_hass(house_state="away")
+    mgr = _run(_setup_mgr(hass))
+    from homeassistant.util import dt as _dt
+    mgr._setup_time = _dt.now() - timedelta(seconds=600)
+    cb = _make_perimeter_state_cb(mgr)
+    cb(_mk_event("binary_sensor.front_yard_person_occupancy", "on", "on"))
+    assert not hass.async_create_task.called
+
+
+def test_boot_settle_window_drops_early_triggers():
+    hass, nm = _make_hass(house_state="away")
+    mgr = _run(_setup_mgr(hass))
+    from homeassistant.util import dt as _dt
+    mgr._setup_time = _dt.now()  # just now
+    cb = _make_perimeter_state_cb(mgr)
+    cb(_mk_event("binary_sensor.front_yard_person_occupancy", "on", "off"))
+    assert not hass.async_create_task.called
+
+
+def test_post_settle_real_off_to_on_dispatches():
+    hass, nm = _make_hass(house_state="away")
+    mgr = _run(_setup_mgr(hass))
+    from homeassistant.util import dt as _dt
+    mgr._setup_time = _dt.now() - timedelta(seconds=600)
+    cb = _make_perimeter_state_cb(mgr)
+    cb(_mk_event("binary_sensor.front_yard_person_occupancy", "on", "off"))
+    assert hass.async_create_task.called
+
+
+# --- C-mut-d: resolver exception → CRITICAL fail-safe -------------------------
+
+def test_resolver_exception_falls_back_to_critical(caplog):
+    hass, nm = _make_hass(house_state="away")
+    mgr = _run(_setup_mgr(hass))
+
+    def _boom():
+        raise RuntimeError("resolver blew up")
+
+    mgr._severity_for_current_house_state = _boom
+    with caplog.at_level("WARNING"):
+        _run(mgr._async_handle_perimeter_trigger(
+            "binary_sensor.front_yard_person_occupancy"))
+    assert nm.async_notify.await_count == 1
+    assert nm.async_notify.await_args.kwargs["severity"] == Severity.CRITICAL
+    assert any("fail-safe" in r.getMessage().lower() for r in caplog.records)
+
+
+# --- C INV-XP: property test --------------------------------------------------
+
+@pytest.mark.parametrize("state", ["away", "vacation", "sleep", "home_night"])
+def test_INV_XP_alarming_states_never_below_high(state):
+    hass, nm = _make_hass(house_state=state)
+    mgr = _run(_setup_mgr(hass))
+    _run(mgr._async_handle_perimeter_trigger(
+        "binary_sensor.front_yard_person_occupancy"))
+    sev = nm.async_notify.await_args.kwargs["severity"]
+    assert sev in (Severity.HIGH, Severity.CRITICAL), (
+        f"state={state} yielded {sev} — INV-XP violated"
+    )

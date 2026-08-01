@@ -89,6 +89,8 @@ from .const import (
     DEFAULT_EXTERIOR_SNAPSHOT_OFFSET_S,
     MIN_EXTERIOR_SNAPSHOT_OFFSET_S,
     MAX_EXTERIOR_SNAPSHOT_OFFSET_S,
+    PERIMETER_BOOT_SETTLE_S,
+    FRIGATE_SNAPSHOT_LABELS,
 )
 from .domain_coordinators.base import Severity
 
@@ -125,7 +127,14 @@ class PerimeterAlertManager:
         # One-shot log gates
         self._legacy_deprecation_warned = False
         self._legacy_fallback_logged = False
+        self._absolutize_relative_logged = False
         self._active = False
+        # A-M3: track pending async_call_later unsub handles for teardown
+        self._pending_dispatches: list[Any] = []
+        # A-M1 / C-mut-a: in-flight guard (per person-sensor entity_id)
+        self._dispatch_in_flight: set[str] = set()
+        # B-HIGH-2: perimeter-local settle timestamp
+        self._setup_time: datetime | None = None
 
     async def async_setup(self) -> None:
         """Set up perimeter camera listeners.
@@ -167,13 +176,38 @@ class PerimeterAlertManager:
 
         @callback
         def _on_perimeter_state_change(event: Event) -> None:
-            """Handle perimeter camera person detection state change."""
+            """Handle perimeter camera person detection state change.
+
+            B-HIGH-2 boot-spurious guard: ignore when old_state is None
+            (initial publication) OR when the transition is on->on
+            (attribute-only change, not a rising edge). Additionally,
+            ignore any event within PERIMETER_BOOT_SETTLE_S of setup so
+            RestoreEntity replay cannot fire spurious CRITICAL alerts.
+            """
             entity_id = event.data.get("entity_id", "")
             new_state = event.data.get("new_state")
-            if new_state and new_state.state == "on":
-                self.hass.async_create_task(
-                    self._async_handle_perimeter_trigger(entity_id)
+            old_state = event.data.get("old_state")
+            if not (new_state and new_state.state == "on"):
+                return
+            if old_state is None or old_state.state == "on":
+                _LOGGER.debug(
+                    "PerimeterAlertManager: ignoring non-rising-edge event "
+                    "for %s (old=%s)", entity_id,
+                    None if old_state is None else old_state.state,
                 )
+                return
+            if self._setup_time is not None:
+                elapsed = (dt_util.now() - self._setup_time).total_seconds()
+                if elapsed < PERIMETER_BOOT_SETTLE_S:
+                    _LOGGER.debug(
+                        "PerimeterAlertManager: ignoring %s trigger within "
+                        "boot settle window (%.1fs of %ds)",
+                        entity_id, elapsed, PERIMETER_BOOT_SETTLE_S,
+                    )
+                    return
+            self.hass.async_create_task(
+                self._async_handle_perimeter_trigger(entity_id)
+            )
 
         self._unsub_perimeter.append(
             async_track_state_change_event(
@@ -207,12 +241,24 @@ class PerimeterAlertManager:
         # If nothing ever publishes `frigate_events`, this listener is harmless.
         @callback
         def _on_frigate_event(event: Event) -> None:
+            # A-M2: only cache event_id for label in FRIGATE_SNAPSHOT_LABELS
+            # (currently {"person"}). Clear the cache on the event's `end`
+            # message so a stale car/animal id never bleeds into a later
+            # person alert.
             try:
                 after = event.data.get("after") or {}
-                event_id = after.get("id")
+                label = str(after.get("label") or "").lower()
                 camera = after.get("camera")
-                if event_id and camera:
-                    self._frigate_last_event_id[str(camera)] = str(event_id)
+                event_id = after.get("id")
+                msg_type = str(event.data.get("type") or "").lower()
+                if not camera or label not in FRIGATE_SNAPSHOT_LABELS:
+                    return
+                cam_key = str(camera)
+                if msg_type == "end":
+                    self._frigate_last_event_id.pop(cam_key, None)
+                    return
+                if event_id:
+                    self._frigate_last_event_id[cam_key] = str(event_id)
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("Frigate event parse failed", exc_info=True)
 
@@ -220,6 +266,7 @@ class PerimeterAlertManager:
             FRIGATE_EVENTS_BUS_EVENT, _on_frigate_event
         )
 
+        self._setup_time = dt_util.now()
         self._active = True
 
     async def async_teardown(self) -> None:
@@ -238,6 +285,15 @@ class PerimeterAlertManager:
             except Exception:  # noqa: BLE001
                 pass
             self._unsub_frigate_events = None
+
+        # A-M3: cancel any pending delayed dispatches
+        for unsub in self._pending_dispatches:
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                pass
+        self._pending_dispatches.clear()
+        self._dispatch_in_flight.clear()
 
         self._active = False
         _LOGGER.debug("PerimeterAlertManager: torn down")
@@ -281,12 +337,31 @@ class PerimeterAlertManager:
                 )
                 return
 
-        # Reserve the cooldown slot NOW to bound phone rate even if the
-        # downstream awaits below race with a second detection burst.
-        self._last_alert[entity_id] = now
+        # A-M1 / C-mut-a: in-flight guard. Second trigger while a dispatch
+        # is in flight (possibly awaiting delayed snapshot) is suppressed
+        # without touching cooldown. Cooldown reservation is deferred to
+        # AFTER successful dispatch so a failed notify does not mute the
+        # camera for 5 minutes.
+        if entity_id in self._dispatch_in_flight:
+            _LOGGER.debug(
+                "PerimeterAlertManager: %s trigger suppressed — dispatch "
+                "already in flight",
+                entity_id,
+            )
+            return
 
-        # --- 4. Resolve severity from house state (D2) ---
-        severity = self._severity_for_current_house_state()
+        # --- 4. Resolve severity from house state (D2, fail-safe) ---
+        # C-mut-d: if the resolver itself raises, fall back to CRITICAL so
+        # the docstring guarantee ("any exception → CRITICAL") holds even
+        # if a downstream helper is broken.
+        try:
+            severity = self._severity_for_current_house_state()
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.warning(
+                "PerimeterAlertManager: severity resolver raised (%s) — "
+                "coercing to CRITICAL (fail-safe).", exc,
+            )
+            severity = Severity.CRITICAL
 
         # --- 5. Resolve snapshot URL (D4) ---
         snapshot_url, delay_s = self._resolve_snapshot_url_and_delay(entity_id)
@@ -312,51 +387,75 @@ class PerimeterAlertManager:
             f"at {now.strftime('%H:%M:%S')}."
         )
 
-        async def _do_dispatch(_now: Any = None) -> None:
-            if nm is not None and getattr(nm, "enabled", False):
-                try:
-                    await nm.async_notify(
-                        coordinator_id="perimeter_alert",
-                        severity=severity,
-                        title=title,
-                        message=message,
-                        hazard_type=NM_HAZARD_EXTERIOR_PERSON,
-                        location=entity_id,
-                        snapshot_url=snapshot_url,
-                    )
-                    _LOGGER.info(
-                        "PerimeterAlertManager: NM notify dispatched for %s "
-                        "(severity=%s, snapshot=%s)",
-                        entity_id, severity.name, bool(snapshot_url),
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    _LOGGER.error(
-                        "PerimeterAlertManager: NM notify failed for %s: %s",
-                        entity_id, exc,
-                    )
-                # D6 hook placeholder: future security-auto-follow can
-                # subscribe to a SIGNAL_NM_EXTERIOR_PERSON dispatch emitted
-                # here to pre-alarm the security coordinator. Not built.
-                return
+        # A-M1 short-circuit: no channels at all → don't reserve, don't
+        # add in-flight, WARN and return.
+        if (nm is None or not getattr(nm, "enabled", False)) and not legacy_service:
+            _LOGGER.warning(
+                "PerimeterAlertManager: person detected on %s but neither "
+                "NM nor legacy notify_service is configured — skipping.",
+                entity_id,
+            )
+            return
 
-            # Legacy fallback
-            if legacy_service:
-                if not self._legacy_fallback_logged:
-                    _LOGGER.info(
-                        "PerimeterAlertManager: NM absent/disabled — using "
-                        "legacy notify service '%s' (deprecated path).",
-                        legacy_service,
-                    )
-                    self._legacy_fallback_logged = True
-                await self._async_send_legacy_notification(
-                    legacy_service, legacy_target, entity_id, now
-                )
-            else:
-                _LOGGER.warning(
-                    "PerimeterAlertManager: person detected on %s but neither "
-                    "NM nor legacy notify_service is configured — skipping.",
-                    entity_id,
-                )
+        self._dispatch_in_flight.add(entity_id)
+
+        async def _do_dispatch(_now: Any = None) -> None:
+            # A-M3: don't run after teardown / during HA shutdown
+            if not self._active or getattr(self.hass, "is_stopping", False):
+                self._dispatch_in_flight.discard(entity_id)
+                return
+            dispatched_ok = False
+            try:
+                if nm is not None and getattr(nm, "enabled", False):
+                    try:
+                        await nm.async_notify(
+                            coordinator_id="perimeter_alert",
+                            severity=severity,
+                            title=title,
+                            message=message,
+                            hazard_type=NM_HAZARD_EXTERIOR_PERSON,
+                            location=entity_id,
+                            snapshot_url=snapshot_url,
+                        )
+                        dispatched_ok = True
+                        _LOGGER.info(
+                            "PerimeterAlertManager: NM notify dispatched for %s "
+                            "(severity=%s, snapshot=%s)",
+                            entity_id, severity.name, bool(snapshot_url),
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        _LOGGER.error(
+                            "PerimeterAlertManager: NM notify failed for %s: %s",
+                            entity_id, exc,
+                        )
+                    # D6 hook placeholder: future security-auto-follow can
+                    # subscribe to a SIGNAL_NM_EXTERIOR_PERSON dispatch emitted
+                    # here to pre-alarm the security coordinator. Not built.
+                elif legacy_service:
+                    if not self._legacy_fallback_logged:
+                        _LOGGER.info(
+                            "PerimeterAlertManager: NM absent/disabled — using "
+                            "legacy notify service '%s' (deprecated path).",
+                            legacy_service,
+                        )
+                        self._legacy_fallback_logged = True
+                    try:
+                        await self._async_send_legacy_notification(
+                            legacy_service, legacy_target, entity_id, now
+                        )
+                        dispatched_ok = True
+                    except Exception as exc:  # noqa: BLE001
+                        _LOGGER.error(
+                            "PerimeterAlertManager: legacy dispatch raised "
+                            "for %s: %s", entity_id, exc,
+                        )
+                # A-M1: reserve cooldown ONLY after a successful dispatch.
+                # A failed notify leaves the camera unmuted so the next
+                # trigger within 5min can still alert.
+                if dispatched_ok:
+                    self._last_alert[entity_id] = now
+            finally:
+                self._dispatch_in_flight.discard(entity_id)
 
         if delay_s > 0:
             @callback
@@ -365,7 +464,9 @@ class PerimeterAlertManager:
                 # async_create_task) so the anti-pattern grep stays clean.
                 self.hass.async_create_task(_do_dispatch())
 
-            async_call_later(self.hass, delay_s, _scheduled_dispatch)
+            # A-M3: track handle so teardown can cancel.
+            unsub = async_call_later(self.hass, delay_s, _scheduled_dispatch)
+            self._pending_dispatches.append(unsub)
         else:
             await _do_dispatch()
 
@@ -441,7 +542,9 @@ class PerimeterAlertManager:
                 # Verified URL shape — ~/ha-config/custom_components/frigate/
                 # views.py:317 (`NotificationsProxyView`).
                 return (
-                    f"/api/frigate/notifications/{event_id}/snapshot.jpg",
+                    self._absolutize(
+                        f"/api/frigate/notifications/{event_id}/snapshot.jpg"
+                    ),
                     0,
                 )
 
@@ -455,7 +558,36 @@ class PerimeterAlertManager:
                     picture_url = cam_state.attributes.get("entity_picture")
             except Exception:  # noqa: BLE001
                 picture_url = None
-        return picture_url, offset_s
+        return self._absolutize(picture_url), offset_s
+
+    def _absolutize(self, url: str | None) -> str | None:
+        """A-H1: normalize a relative HA URL to absolute for external channels.
+
+        Pushover / WhatsApp media fetchers cannot resolve `/api/...` — they
+        need `https://host/api/...`. Prefer `hass.config.external_url`,
+        fall back to `internal_url`. If neither is set, leave the URL
+        relative (Companion-app-only degradation) and DEBUG-log ONCE.
+        """
+        if not url or "://" in url:
+            return url
+        base = None
+        try:
+            cfg = getattr(self.hass, "config", None)
+            base = getattr(cfg, "external_url", None) or getattr(
+                cfg, "internal_url", None
+            )
+        except Exception:  # noqa: BLE001
+            base = None
+        if not base:
+            if not self._absolutize_relative_logged:
+                _LOGGER.debug(
+                    "PerimeterAlertManager: neither external_url nor "
+                    "internal_url set — leaving snapshot URL relative "
+                    "(Companion-only, Pushover/WhatsApp will drop image)."
+                )
+                self._absolutize_relative_logged = True
+            return url
+        return str(base).rstrip("/") + url
 
     def _get_snapshot_offset(self) -> int:
         """Read and clamp CONF_EXTERIOR_SNAPSHOT_OFFSET_S from config."""
