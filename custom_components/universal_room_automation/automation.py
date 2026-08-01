@@ -1782,6 +1782,22 @@ class RoomAutomation:
             speed_pct = min(speed_pct, sleep_speed_cap)
 
         if speed_pct > 0:
+            # Comfort-fan house-AWAY veto (mmwave-corroboration Tier-3, D3).
+            # Routes through the shared fan_veto.should_veto_comfort_fan
+            # predicate — Bug-Class-#53 mitigation: every comfort-fan
+            # turn_on site MUST consult the same helper. Explicitly NOT
+            # applied to turn-off (line ~1742 above), humidity path
+            # (handle_humidity_based_fan_control), sleep-off short-circuit
+            # (line ~1683), or safety paths.
+            from .fan_veto import should_veto_comfort_fan  # noqa: PLC0415
+            if should_veto_comfort_fan(
+                self.hass,
+                self.config.get(CONF_ROOM_NAME, ""),
+                self.config,
+            ):
+                # Baseline update mirrors the "no action" branch below.
+                self._last_seen_any_fan_on = any_fan_on_now
+                return
             try:
                 # v3.2.9: Try to set speed (works for fan domain)
                 # If it fails (e.g., switch domain), just turn on

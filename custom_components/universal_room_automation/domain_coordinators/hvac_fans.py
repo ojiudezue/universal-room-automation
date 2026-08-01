@@ -283,6 +283,40 @@ class FanController:
                         room_fan, speed, live_policy,
                     )
                 if should_on != room_fan.is_on or (should_on and speed != room_fan.speed_pct):
+                    # Comfort-fan house-AWAY veto (mmwave-corroboration
+                    # Tier-3, D3). Routes through the shared
+                    # fan_veto.should_veto_comfort_fan predicate — same
+                    # helper the room-tier + reconciler sites consume.
+                    # Scoped to ON transitions only: OFF actuations
+                    # (should_on=False), speed changes on an already-on
+                    # fan, humidity fans (not in this loop), safety paths
+                    # are all exempt.
+                    if should_on and not room_fan.is_on:
+                        from ..fan_veto import should_veto_comfort_fan  # noqa: PLC0415
+                        merged: dict[str, Any] = {}
+                        try:
+                            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                                if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                                    continue
+                                if entry.data.get(CONF_ROOM_NAME) != room_name:
+                                    continue
+                                merged = {**entry.data, **entry.options}
+                                break
+                        except Exception as exc:  # noqa: BLE001
+                            _LOGGER.debug(
+                                "HVAC Fans: %s merged-config read failed for veto (%s)",
+                                room_name, exc,
+                            )
+                        if should_veto_comfort_fan(
+                            self.hass, room_name, merged,
+                        ):
+                            # Skip the actuation — leave RoomFanState
+                            # unchanged so a subsequent tick (after
+                            # house_state transitions to HOME_* or
+                            # trusted presence lands) can re-evaluate
+                            # cleanly. Speed cap / vacancy anchors are
+                            # unaffected.
+                            continue
                     await self._set_fan_state(
                         room_fan.fan_entities, should_on, speed
                     )

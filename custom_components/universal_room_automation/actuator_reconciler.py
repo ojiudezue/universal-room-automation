@@ -830,6 +830,16 @@ class ActuatorReconciler:
                 state="off", domain=domain, service="turn_off",
                 reason="fan_off_vacant_or_cool",
             )
+        # Comfort-fan house-AWAY veto (mmwave-corroboration Tier-3, D3).
+        # Routes through the shared fan_veto.should_veto_comfort_fan
+        # predicate — Bug-Class-#53 mitigation: reconciler is the DOC-2
+        # third-writer for comfort fans; without this guard a
+        # reconcile-edge would re-assert ON against an empty house.
+        # Turn-off resolutions above are UNAFFECTED (veto is scoped to
+        # comfort-fan turn_on only).
+        from .fan_veto import should_veto_comfort_fan  # noqa: PLC0415
+        if should_veto_comfort_fan(self.hass, self._room_name(), cfg):
+            return None
         return DesiredState(
             state="on", domain=domain, service="turn_on",
             reason="fan_on_hot_occupied",
