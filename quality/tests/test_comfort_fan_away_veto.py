@@ -313,3 +313,57 @@ def test_t10_humidity_path_does_not_route_through_helper() -> None:
         "def handle_humidity_based_fan_control", 1,
     )[1].split("\n    def ", 1)[0]
     assert "should_veto_comfort_fan(" not in humidity_slice
+
+
+# ---------------------------------------------------------------------------
+# Orchestrator addition 2026-08-01 (camera-resolver cycle, post-fix-up drill
+# gap): the E-HIGH-1 divergence gate on the fused camera path must be
+# load-bearing — neutering `agreement == "unanimous_on" or confidence ==
+# "high"` in fan_veto._has_camera_person must turn these red.
+# ---------------------------------------------------------------------------
+
+def _fused_cam_hass(state_str, agreement, confidence):
+    hass = MagicMock()
+    st = MagicMock()
+    st.state = state_str
+    st.attributes = {}
+    if agreement is not None:
+        st.attributes["agreement"] = agreement
+    if confidence is not None:
+        st.attributes["confidence"] = confidence
+    hass.states.get = MagicMock(return_value=st)
+    return hass
+
+
+def test_veto_camera_leg_denies_on_split_agreement():
+    """Fused sensor ON but divergent (split/medium) must NOT count as
+    trusted camera presence (E-HIGH-1 divergence-aware gate)."""
+    cfg = {"room_cameras": ["camera.study_a"]}
+    hass = _fused_cam_hass("on", "split", "medium")
+    assert fan_veto._has_camera_person(hass, "Study A", cfg) is False
+
+
+def test_veto_camera_leg_grants_on_unanimous():
+    """Unanimous-ON agreement satisfies the leg — single-platform rooms
+    reach this via unanimous_on with one source (leg not disabled for
+    single-integration homes)."""
+    cfg = {"room_cameras": ["camera.study_a"]}
+    hass = _fused_cam_hass("on", "unanimous_on", "medium")
+    assert fan_veto._has_camera_person(hass, "Study A", cfg) is True
+
+
+def test_veto_camera_leg_denies_when_attributes_missing():
+    """Fail direction: ON with missing agreement/confidence attrs = unknown,
+    not corroborated — must deny."""
+    cfg = {"room_cameras": ["camera.study_a"]}
+    hass = _fused_cam_hass("on", None, None)
+    assert fan_veto._has_camera_person(hass, "Study A", cfg) is False
+
+
+def test_veto_camera_leg_grants_on_single_source():
+    """D'-HIGH-2 adjudication: single_source ON (uncontested — no second
+    camera dissenting) satisfies the leg, matching v5.43.0's census
+    single-source precedent. Split (contested) still denies."""
+    cfg = {"room_cameras": ["camera.study_a"]}
+    hass = _fused_cam_hass("on", "single_source", "medium")
+    assert fan_veto._has_camera_person(hass, "Study A", cfg) is True

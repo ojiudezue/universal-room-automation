@@ -137,6 +137,10 @@ class RoomCameraFusion:
     physical_camera_id: str
     sources: list[FusionSource] = field(default_factory=list)
     discovered_at: datetime = field(default_factory=datetime.now)
+    # D'-MED-1: person sensors of F2-collapse LOSERS, retained so consumers
+    # can watch for their recovery and re-resolve (a winner picked while
+    # both hosts were down must not stick forever once the loser recovers).
+    dropped_person_sensors: list[str] = field(default_factory=list)
 
     def person_binary_sensor_entity_ids(self) -> list[str]:
         return [s.person_binary_sensor for s in self.sources if s.person_binary_sensor]
@@ -397,6 +401,9 @@ class CameraResolver:
             if i == 0 or not operator_declared:
                 expanded[did] = BASIS_SAME_DEVICE
             else:
+                # D'-LOW-2: vestigial from the pre-Fix#7 single-fusion path — the
+                # operator-facing caller now resolves each entity separately, so this
+                # branch has no live emitter. Retained for a future batch-group path.
                 expanded[did] = BASIS_OPERATOR_DECLARED
 
         # Rung 2 (MAC join).
@@ -479,7 +486,7 @@ class CameraResolver:
             # D-HIGH-1: try both raw stem and resolution-suffix-stripped stem
             # (the compute already strips, but be defensive against callers
             # passing raw values).
-            for lookup in {stem, _strip_camera_resolution_suffix(stem)}:
+            for lookup in ([stem] if stem in self._frigate_stem_to_device_ids else [stem, _strip_camera_resolution_suffix(stem)]):  # D'-LOW-1: stripped fallback only on raw miss
                 for sibling_did in self._frigate_stem_to_device_ids.get(lookup, []):
                     if sibling_did not in expanded:
                         expanded[sibling_did] = BASIS_NAME_STEM
@@ -577,9 +584,20 @@ class CameraResolver:
         sources = list(deduped.values())
 
         physical_camera_id = sorted(device_ids)[0] if device_ids else ""
+        # D'-MED-1: collect the dropped losers' person sensors so consumers
+        # can subscribe to their recovery and re-resolve.
+        dropped_sensors: list[str] = []
+        for did in sorted(frigate_dropped):
+            d_bs, *_rest = self._scan_device_entities(
+                did, self._infer_integration(self._device(did)),
+                stem_filter=device_stems.get(did),
+            )
+            if d_bs:
+                dropped_sensors.append(d_bs)
         return RoomCameraFusion(
             physical_camera_id=physical_camera_id,
             sources=sources,
+            dropped_person_sensors=dropped_sensors,
         )
 
     # ---- Internals ---------------------------------------------------------

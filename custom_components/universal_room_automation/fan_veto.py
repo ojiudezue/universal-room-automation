@@ -313,7 +313,14 @@ def _has_camera_person(
             attrs = getattr(fused_state, "attributes", {}) or {}
             agreement = attrs.get("agreement")
             confidence = attrs.get("confidence")
-            if agreement == "unanimous_on" or confidence == "high":
+            # D'-HIGH-2 adjudication (2026-08-01): divergence doctrine downgrades
+            # DISAGREEMENT, not absence of a second opinion — same rule the
+            # operator ratified for the census (v5.43.0: single-source zones
+            # keep current behavior; only contested divergence downgrades).
+            # DENY on split (a second camera actively dissents); GRANT on
+            # unanimous_on or single_source (uncontested).
+            if (agreement in ("unanimous_on", "single_source")
+                    or confidence == "high"):
                 return True
             # ON but divergent — treat as NOT trusted presence for veto purposes.
             _LOGGER.debug(

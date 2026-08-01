@@ -433,12 +433,14 @@ class CameraIntegrationManager:
         if CENSUS_USE_NEW_RESOLVER:
             try:
                 from homeassistant.helpers import device_registry as dr  # noqa: PLC0415
-                resolver = CameraResolver(er.async_get(self.hass), dr.async_get(self.hass))
+                resolver = CameraResolver(er.async_get(self.hass), dr.async_get(self.hass), state_getter=lambda eid: self.hass.states.get(eid))
                 merged_infos: list[CameraInfo] = []
                 seen: set[str] = set()
                 for cam_eid in camera_entity_ids:
-                    fusion = resolver.resolve_operator_declaration([cam_eid])
-                    for src in fusion.sources:
+                    # Fix #7 caller migration (D'-HIGH-1): the resolver
+                    # returns list[RoomCameraFusion]; flatten.
+                    _fusions = resolver.resolve_operator_declaration([cam_eid])
+                    for src in [s for f in _fusions for s in f.sources]:
                         # person binary_sensor -> CameraInfo
                         for eid in (src.person_binary_sensor,):
                             if eid and eid not in seen:

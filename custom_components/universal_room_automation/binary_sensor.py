@@ -1227,12 +1227,33 @@ class CameraPersonDetectedSensor(UniversalRoomEntity, BinarySensorEntity):
                     pass
                 self._unsub_state = None
             self._get_fusion()
-            eids = list(self._source_entity_ids)
+            # D'-MED-1: also watch F2-collapse losers so a loser's recovery
+            # (winner picked while both hosts were down) triggers re-resolve.
+            _dropped = [
+                d for f in (self._fusions or [])
+                for d in getattr(f, "dropped_person_sensors", [])
+            ]
+            eids = list(self._source_entity_ids) + _dropped
             if not eids:
                 return
 
+            _dropped_set = set(_dropped)
+
             @callback
-            def _on_state_change(_event):
+            def _on_state_change(event):
+                # D'-MED-1: a collapse-loser transitioning out of
+                # unavailable/unknown means the deterministic winner pick may
+                # be stale — re-resolve so a recovered host can win.
+                try:
+                    eid = event.data.get("entity_id", "")
+                    new_st = event.data.get("new_state")
+                    if (eid in _dropped_set and new_st is not None
+                            and new_st.state not in ("unavailable", "unknown")):
+                        self._fusions = None
+                        self._source_entity_ids = []
+                        _subscribe_sources()
+                except Exception:  # noqa: BLE001 — never break state writes
+                    pass
                 self.async_write_ha_state()
 
             self._unsub_state = async_track_state_change_event(
