@@ -328,3 +328,9 @@ list as a committed fixture; the abstracted path must reproduce it byte-identica
 **Tier 3 confirmation:** shared-primitive extraction consumed by 3+ coordinators = the definition of
 the Tier-3 trigger. Four framing-disjoint reviews; Review C mutates the resolver per consumer;
 Review D re-enumerates every resolution call site (census, transit, fusion, veto) for a missed one.
+
+## Amendment 2026-08-01 (operator dispositions — scope guard)
+- Room-camera config was dead **by design** (v3.4.5 centralization was correct for its purpose). This cycle is a **new use case (fusion)**, not a resurrection/correction. Frame accordingly.
+- **Zone/census design is RIGHT — do not change it.** No census cutover, ever, in this cycle; strike the "separately-flagged census cutover" option. The census keeps its architecture; it simply gains the improved x-correlation through the shared resolver.
+- The CameraResolver's improved x-correlation serves BOTH consumers (zone census + room fusion) — that is the whole shared-primitive point. Census-facing output remains golden-master identical except where better correlation strictly adds capability its existing behavior already intends.
+- Standing directive: no overbuilding, guard scope creep. Trust-ledger note: if/when that cycle runs (gate ~Aug 11), THIS cycle is its template for fusion+trust shape.

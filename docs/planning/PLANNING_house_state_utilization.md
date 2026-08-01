@@ -329,3 +329,6 @@ Each cycle writes its live-validation results back into its README per the stand
 - Any change to Safety coordinator.
 - Any new house-state VALUE (no ENTERTAINMENT etc.) — differentiation happens in behavior, not new enum members. If a
   new state is proposed later it gets its own scoping doc under the Institutional Context First rule.
+
+---
+**2026-08-01 operator dispositions:** Rung 2a stays OFF — "right mechanism but I consider security WIP; won't enable yet." Rungs 2b/2c/3/4 PARKED without a trigger — "may be chasing a problem I don't want to solve yet." Do not re-propose; wait for operator pull.
