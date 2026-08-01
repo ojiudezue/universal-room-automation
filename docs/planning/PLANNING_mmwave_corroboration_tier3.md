@@ -406,3 +406,17 @@ Consequence for the invariant-M camera leg as originally drafted ("no camera-per
 **D0 addition:** the audit must produce the per-room camera-coverage map (from camera_census area mappings + operator confirmation), alongside the mmWave-only inventory and the PIR-exists-but-unwired list (Study A `binary_sensor.invisoutlet_b7d0_motion` is the known instance of the latter).
 
 **Knob:** the coverage map is rung-1 (module constant / derived from census area config) — changing which rooms count as camera-covered should require review, not a dashboard toggle.
+
+---
+
+## Amendment 2 — 2026-07-31 (operator: "make sure we're not doubling up"): D2 RE-SCOPED after fan-recheck root-cause
+
+Verification of the no-duplication challenge found the smoking gun:
+
+**Study A's phantom was a CONFIG-CLASSIFICATION bug, not a missing mechanism.** The existing fan-recheck (v5.23.0, presence_fan_recheck.py) is precisely a fan↔mmWave demotion protocol (pause fan → clean-air mmWave observation → drop = release) and was FULLY ENABLED for Study A (CM master `fan_recheck_enabled=True` + room switch on + L2 allowed). It never fired because `coordinator.py:1928-1933` derives `occupancy_source` from the CONFIG BUCKET, not the device: Study A's working Zigbee mmWave lives in `occupancy_sensors` (source string `"occupancy_sensor"`), while `mmwave_sensors` holds only the dead Athom. The recheck's condition-2 gate (`not_mmwave_sole`) therefore vetoed on every tick. The same blindness applies to the v4.7.20/22 fan-interference gate and WOULD have applied to D2 as originally drafted.
+
+**Consequences:**
+1. **D0 gains a mandatory sweep: mmWave devices misfiled under `occupancy_sensors`** across all ~41 rooms (match on entity naming `mmwave`/`presence` + device class vs bucket). Reclassification (move to `mmwave_sensors`, wire available PIRs into `motion_sensors` — Study A: `binary_sensor.invisoutlet_b7d0_motion`) is a ZERO-CODE fix that hands each such room to the EXISTING recheck machinery.
+2. **D2 (new demotion) is DEMOTED from the core to a parked deliverable.** Its coverage substantially duplicates fan-recheck once buckets are correct. Evidence trigger to un-park: post-reclassification, a phantom survives ≥1h in a room where recheck is enabled and its veto counters show it evaluated (i.e., the residue cases — rate-cap exhaustion, recheck-ineligible rooms — prove material).
+3. **D3 (house-AWAY comfort-fan veto) remains the novel core** — nothing existing prevents a comfort fan turning ON into a phantom in an empty house; fan-recheck is reactive, rate-limited (2/hr), and cannot precede the turn-on.
+4. Revised simple version: **D0 (audit + reclassify) + D3 (veto) + D5/D7 (tests/observability) + D8**. Tier-3 review discipline unchanged; Invariant M is now *delivered* by (existing recheck + correct classification) and D must attack it there, not in new code.
