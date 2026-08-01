@@ -55,6 +55,8 @@ from .const import (
     CENSUS_AGREEMENT_DISAGREE,
     CENSUS_AGREEMENT_SINGLE,
     CONF_CENSUS_CROSS_VALIDATION,
+    CONF_CENSUS_DIVERGENCE_DOWNGRADE,
+    DEFAULT_CENSUS_DIVERGENCE_DOWNGRADE,
     # v3.10.1 Census v2
     CONF_ENHANCED_CENSUS,
     CONF_CENSUS_HOLD_INTERIOR,
@@ -1124,9 +1126,23 @@ class PersonCensus:
             # Determine count and agreement based on what's available
             degraded = False
             if frigate_available and binary_platforms_available:
-                # Both available — cross-validate
+                # Both available — cross-validate.
+                # 2026-08-01 (census fusion policy): compute a corroboration
+                # bundle so ``_cross_validate_platforms`` can downgrade an
+                # UNCORROBORATED divergent max (the playroom-phantom shape).
+                # Face + BLE + any-tier-1-zone-occupied are the three kinds
+                # (CENSUS_DIVERGENCE_CORROBORATION_KINDS).
+                _face_ids_corroboration = (
+                    self._get_face_recognized_persons() if frigate_available else set()
+                )
+                _corroborated = (
+                    bool(_face_ids_corroboration)
+                    or bool(ble_persons)
+                    or self._any_zone_occupied_snapshot()
+                )
                 camera_total, agreement = self._cross_validate_platforms(
                     frigate_total, binary_platform_count,
+                    corroborated=_corroborated,
                 )
             elif frigate_available and not binary_platforms_available:
                 # Only Frigate — single source
@@ -1310,14 +1326,29 @@ class PersonCensus:
         self,
         frigate_count: int,
         binary_platform_count: int,
+        *,
+        corroborated: bool = True,
     ) -> tuple[int, str]:
         """Cross-validate person counts between Frigate and binary-detection platforms.
 
         Frigate provides numeric counts; other platforms (UniFi, Reolink, Dahua)
         provide per-camera binary detection summed as binary_platform_count.
 
-        When both are available, Frigate's numeric count is preferred (more precise).
-        binary_platform_count serves as a floor/confirmation signal.
+        Agreement (both>0) and mutual-zero paths are unchanged: Frigate wins,
+        BOTH agreement.
+
+        Divergence (one>0, other==0):
+        - If ``corroborated`` (a face-recognized person, a BLE-tracked person,
+          or any tier-1 room-occupied zone is present) → keep the higher
+          reading tagged CLOSE (pre-cycle behavior).
+        - Else, when ``CONF_CENSUS_DIVERGENCE_DOWNGRADE`` is enabled
+          (default), downgrade to ``min`` (== 0) tagged DISAGREE — the
+          uncorroborated higher reading is NOT adopted. This closes the
+          2026-08-01 playroom-phantom max-wins path where a lone
+          uncorroborated Frigate 1 flipped house→GUEST despite Protect zero.
+
+        The ``corroborated`` kwarg defaults to True so any legacy caller
+        that omits it preserves pre-cycle behavior byte-identically.
 
         Returns:
             (best_count, agreement_level)
@@ -1331,15 +1362,72 @@ class PersonCensus:
 
         if frigate_count > 0 and binary_platform_count == 0:
             # Only Frigate detects
+            if not corroborated and self._is_divergence_downgrade_enabled():
+                _LOGGER.info(
+                    "Census divergence downgrade: frigate=%d, binary=0, "
+                    "uncorroborated → min-wins (0, DISAGREE)",
+                    frigate_count,
+                )
+                return (min(frigate_count, binary_platform_count), CENSUS_AGREEMENT_DISAGREE)
             return (frigate_count, CENSUS_AGREEMENT_CLOSE)
 
         if frigate_count == 0 and binary_platform_count > 0:
             # Only binary platforms detect — use their per-camera count
+            if not corroborated and self._is_divergence_downgrade_enabled():
+                _LOGGER.info(
+                    "Census divergence downgrade: frigate=0, binary=%d, "
+                    "uncorroborated → min-wins (0, DISAGREE)",
+                    binary_platform_count,
+                )
+                return (min(frigate_count, binary_platform_count), CENSUS_AGREEMENT_DISAGREE)
             return (binary_platform_count, CENSUS_AGREEMENT_CLOSE)
 
         # Should not reach here, but fallback
         total = max(frigate_count, binary_platform_count)
         return (total, CENSUS_AGREEMENT_SINGLE)
+
+    def _any_zone_occupied_snapshot(self) -> bool:
+        """Return True if the presence coordinator reports any occupied zone.
+
+        Read-only best-effort accessor used only by the census-divergence
+        corroboration bundle. Returns False on any failure (coordinator
+        unavailable, wrong shape) — a conservative default that lets the
+        divergence downgrade fire when we simply don't know.
+        """
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if mgr is None:
+                return False
+            presence = getattr(mgr, "coordinators", {}).get("presence")
+            if presence is None:
+                return False
+            trackers = getattr(presence, "_zone_trackers", None)
+            if not trackers:
+                return False
+            for tracker in trackers.values():
+                mode = getattr(tracker, "mode", None)
+                # Compare by string name to avoid importing the enum here.
+                if mode is not None and str(getattr(mode, "name", mode)) == "OCCUPIED":
+                    return True
+            return False
+        except Exception:  # noqa: BLE001 — best-effort corroboration read
+            return False
+
+    def _is_divergence_downgrade_enabled(self) -> bool:
+        """Return True if the divergence-downgrade policy is enabled (default True).
+
+        Reads CONF_CENSUS_DIVERGENCE_DOWNGRADE from the integration entry.
+        False = fire-axe restore to pre-cycle max-wins behavior on the
+        divergence branch.
+        """
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                merged = {**entry.data, **entry.options}
+                return bool(merged.get(
+                    CONF_CENSUS_DIVERGENCE_DOWNGRADE,
+                    DEFAULT_CENSUS_DIVERGENCE_DOWNGRADE,
+                ))
+        return DEFAULT_CENSUS_DIVERGENCE_DOWNGRADE
 
     # ------------------------------------------------------------------
     # Cross-correlation

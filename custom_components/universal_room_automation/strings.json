@@ -703,6 +703,7 @@
         "description": "Set up cameras for person counting. Pick any camera entity — person detection sensors are found automatically. Works with UniFi Protect, Frigate, Reolink, and Dahua.",
         "data": {
           "census_cross_validation": "Cross-Check Between Camera Platforms",
+          "census_divergence_downgrade": "Downgrade Uncorroborated Camera Divergence",
           "camera_person_entities": "Indoor Cameras",
           "egress_cameras": "Door Cameras",
           "perimeter_cameras": "Outdoor Cameras",
@@ -715,6 +716,7 @@
         },
         "data_description": {
           "census_cross_validation": "When you run multiple camera platforms (e.g., Frigate and UniFi Protect), person counts are compared between them for higher accuracy. Turn this off if you only use one camera platform or prefer simpler, single-source counting.",
+          "census_divergence_downgrade": "When two camera platforms cover the same interior zone and disagree (one sees someone, the other sees nobody), and there is no other supporting evidence (no recognized face, no phone/BLE person, no other room reporting occupied), trust the zero and mark confidence as low. Prevents lone false detections from flipping the house into Guest mode. Turn OFF to restore the older 'max wins' behavior.",
           "camera_person_entities": "Select cameras inside your home. Each camera is automatically mapped to a room using its area assignment in Home Assistant. Works with UniFi Protect, Frigate, Reolink, and Dahua.",
           "egress_cameras": "Cameras at your exterior doors (front door, back door, garage). Used to track who enters and leaves — not used for room occupancy. Deliveries and visitors at the door won't trigger room automation.",
           "perimeter_cameras": "Cameras covering your yard, driveway, or fence line. Used to count people on your property who are outside the house.",

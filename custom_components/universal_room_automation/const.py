@@ -1079,6 +1079,23 @@ CENSUS_AGREEMENT_SINGLE: Final = "single_source"
 
 CONF_CENSUS_CROSS_VALIDATION: Final = "census_cross_validation"
 
+# Census fusion policy (divergence-aware confidence) — 2026-08-01 cycle.
+# When two camera platforms cover the same interior zone and DIVERGE (one>0,
+# other==0), the merge currently picks max (see camera_census
+# ``_cross_validate_platforms``). If no corroborating signal is present
+# (no face-ID, no BLE person, no zone-occupied predicate), the uncorroborated
+# higher source is downgraded to ``min`` (== 0) tagged ``DISAGREE`` (which
+# maps to LOW confidence and does not clear the guest-flip bar).
+# ``False`` = fire-axe restore to pre-cycle max-wins behavior.
+CONF_CENSUS_DIVERGENCE_DOWNGRADE: Final = "census_divergence_downgrade"
+DEFAULT_CENSUS_DIVERGENCE_DOWNGRADE: Final = True
+# Kinds of corroboration that suppress the divergence downgrade. Rung-1
+# (module constant): changing the set redefines the invariant and requires
+# review, not operator tuning.
+CENSUS_DIVERGENCE_CORROBORATION_KINDS: Final = frozenset(
+    {"face", "ble", "zone_occupied"}
+)
+
 # ============================================================================
 # v3.5.1 Perimeter Alerting & Zone Aggregation
 # ============================================================================
