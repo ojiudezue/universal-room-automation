@@ -352,3 +352,15 @@ Both Frigate hosts publish stats/events to IDENTICAL topics; HA's two Frigate co
 2. **Threshold hardening may have been aimed at the wrong cause.** Re-evaluate min_score/threshold reverts AFTER the prefix split, once phantoms can be attributed to a single host.
 3. **CameraResolver (D2) impact:** cross-integration correlation must treat the two Frigate entries as potentially DUPLICATE views of one topic stream until the prefix split lands — do not count them as independent corroborators (x-correlation "agreement" between them is currently meaningless). Gate the Frigate-vs-Frigate corroboration leg on the prefix split being done.
 4. **When the split lands:** HA Frigate entry reconfig may churn entity_ids (`*_2` renames). URA census reads HA entities via the CM camera list — re-verify the census camera list + any `_2` drift post-split. Watchdog + census behavior should be re-baselined for a few days after.
+
+## Amendment 2026-08-01 (operator Q): CameraResolver test strategy + motion exclusion
+
+**Camera MOTION is excluded from all trust/fusion legs** (blinds, vacuums, light changes, fan-blown fabric all fire it). Only person/face classification sensors participate. PARKED idea with evidence trigger: exterior-motion-during-sleep/away as a weak pre-signal — build only if the person-class detectors demonstrably miss real exterior events the motion stream caught.
+
+**Resolver test battery (Tier-3 bar):**
+1. **Golden-master census diff** (already specced): pre-cycle resolution captured as fixture; every changed resolution must be an explained improvement; unexplained diff blocks cutover.
+2. **Hand-built pairing table as acceptance fixture** (operator corollary): the current 9-camera census list + its per-camera person sensors, hand-verified, committed; auto-resolution is diffed against it.
+3. **Per-limb mutation tests** (2026-08-01 lesson: a dead limb in a compound expression is invisible to aggregate tests): every correlation strategy (same-device, MAC via device.connections, identifiers, name-stem, operator-declared) gets its own neuter-drill with a named red test.
+4. **Synthetic device-registry fixtures per correlation class**: same-device; cross-device MAC-match; name-stem-only; operator-declared-only (Frigate-ingests-Reolink — no MAC parity, no stem parity); AMBIGUOUS (two candidate matches) must resolve to operator-confirm, never a guess — mutation-anchored.
+5. **Live dry-run probe as a D0 artifact** (measure-before-build): resolver runs read-only against the live registry, emits the full derived pairing table for ALL cameras (both Frigates + Protect + Reolink), diffed against fixture #2 by hand before anything consumes it.
+6. **Negative controls**: disabled entities excluded; duplicate `_2` exposures collapse to one physical camera; interior/exterior classification preserved; a sensor from a DIFFERENT physical camera can never be attributed (the falsifiable invariant for Review D).
