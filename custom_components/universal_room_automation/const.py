@@ -1111,6 +1111,55 @@ DEFAULT_PERIMETER_ALERT_START: Final = 23   # 11 PM
 DEFAULT_PERIMETER_ALERT_END: Final = 5      # 5 AM
 PERIMETER_ALERT_COOLDOWN_SECONDS: Final = 300  # 5 minutes
 
+# ----------------------------------------------------------------------------
+# Exterior-person NM escalation (D1/D2/D4 — PLANNING_exterior_person_escalation)
+# Rung-1 module consts (safety-adjacent; changes require code review).
+# Values are Severity NAMES (strings) to keep const.py independent of the
+# domain_coordinators.base import graph; perimeter_alert.py coerces via
+# Severity[<name>] at emit time. Unknown / missing keys fail-safe to CRITICAL.
+# ----------------------------------------------------------------------------
+NM_HAZARD_EXTERIOR_PERSON: Final = "exterior_person"
+
+# GUEST default extracted so a follow-up cycle can flip it without churning
+# the full mapping table (plan D2).
+NM_HAZARD_EXTERIOR_PERSON_GUEST_SEVERITY: Final = "MEDIUM"
+
+# House-state (HouseState StrEnum values are lowercase, e.g. "away") →
+# Severity name. Fallback (unknown / missing / None) is CRITICAL (fail-safe
+# rule — unknown state is treated as away).
+NM_HAZARD_EXTERIOR_PERSON_SEVERITY_BY_HOUSE_STATE: Final = {
+    "away": "CRITICAL",
+    "vacation": "CRITICAL",
+    "sleep": "CRITICAL",
+    "home_night": "CRITICAL",   # unattended-observation state
+    "guest": NM_HAZARD_EXTERIOR_PERSON_GUEST_SEVERITY,
+    "home_day": "LOW",
+    "home_evening": "LOW",
+    "arriving": "LOW",
+    "waking": "LOW",
+}
+NM_HAZARD_EXTERIOR_PERSON_DEFAULT_SEVERITY: Final = "CRITICAL"  # fail-safe
+
+# Rung-2 options knob (plan D4). Delays live-fallback snapshot capture by N
+# seconds so the still frame is closer to the detection moment despite
+# acquisition lag. Ignored on the Frigate event-frame path (event snapshot
+# is inherently at-detection-time). 0 disables the delay.
+CONF_EXTERIOR_SNAPSHOT_OFFSET_S: Final = "exterior_snapshot_offset_s"
+DEFAULT_EXTERIOR_SNAPSHOT_OFFSET_S: Final = 5
+MIN_EXTERIOR_SNAPSHOT_OFFSET_S: Final = 0
+MAX_EXTERIOR_SNAPSHOT_OFFSET_S: Final = 60
+
+# Rung-1 module constant (review B-HIGH-2 boot settle gate). Perimeter
+# state-change events fired within N seconds of manager setup are ignored to
+# suppress spurious CRITICALs caused by RestoreEntity replay / initial state
+# publication after HA restart.
+PERIMETER_BOOT_SETTLE_S: Final = 30
+
+# Review A-M2 label filter. Only Frigate events whose `after.label` is in this
+# set update the cached snapshot event_id. Prevents e.g. car detections from
+# supplying the URL for a later person alert.
+FRIGATE_SNAPSHOT_LABELS: Final = frozenset({"person"})
+
 # Zone aggregation sensor keys
 SENSOR_ZONE_IDENTIFIED_PERSONS: Final = "zone_identified_persons"
 SENSOR_ZONE_GUEST_COUNT: Final = "zone_guest_count"

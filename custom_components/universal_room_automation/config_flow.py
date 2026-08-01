@@ -315,6 +315,10 @@ from .const import (
     CONF_PERIMETER_ALERT_NOTIFY_TARGET,
     DEFAULT_PERIMETER_ALERT_START,
     DEFAULT_PERIMETER_ALERT_END,
+    CONF_EXTERIOR_SNAPSHOT_OFFSET_S,
+    DEFAULT_EXTERIOR_SNAPSHOT_OFFSET_S,
+    MIN_EXTERIOR_SNAPSHOT_OFFSET_S,
+    MAX_EXTERIOR_SNAPSHOT_OFFSET_S,
     # v3.5.2: Face Recognition
     CONF_FACE_RECOGNITION_ENABLED,
     # v3.10.0: Automation Chaining
@@ -3037,6 +3041,24 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_current(CONF_PERIMETER_ALERT_NOTIFY_TARGET, ""),
             ): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
+            ),
+            # Exterior-person snapshot delay (D4). Delays the notification
+            # dispatch on the LIVE fallback path so entity_picture is closer
+            # to the detection moment. Ignored when a Frigate event_id
+            # snapshot is available. 0 = no delay.
+            vol.Optional(
+                CONF_EXTERIOR_SNAPSHOT_OFFSET_S,
+                default=self._get_current(
+                    CONF_EXTERIOR_SNAPSHOT_OFFSET_S,
+                    DEFAULT_EXTERIOR_SNAPSHOT_OFFSET_S,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=MIN_EXTERIOR_SNAPSHOT_OFFSET_S,
+                    max=MAX_EXTERIOR_SNAPSHOT_OFFSET_S,
+                    step=1,
+                    mode=selector.NumberSelectorMode.BOX,
+                )
             ),
         })
 
