@@ -38,3 +38,11 @@ docs/reviews/code-review/census_fusion_policy_tier2db.md — 3 reviews; 2 CRIT +
 - **Live:** normal guest detection unaffected: next REAL arrival (faces/BLE
   present) flips guest as before.
 - **Live:** zero drift-WARNs from the zone-snapshot accessor.
+
+### Validated 2026-08-01 (~15:55 CDT, first post-deploy boot)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Clean boot | **PASS** | Zero URA ERRORs post-settle; house `away`; no vacant-room fan actions (v5.42.0 BUG-1 holding, 2nd boot); write pipeline clean (v5.41.0, 3rd boot). |
+| No zone-snapshot drift WARNs | **PASS** | Log clean. |
+| Divergence downgrade fires organically | pending-organic | Next single-source phantom → `source_agreement="disagree"`, confidence LOW/NONE, no guest flip. |
+| Real-arrival guest detection unaffected | pending-organic | Next actual arrival with faces/BLE. |
