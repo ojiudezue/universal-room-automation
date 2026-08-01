@@ -390,3 +390,19 @@ Explicitly document any planned item skipped or deferred. Expected deferrals (al
 - **Presence.md / HVAC.md / HOUSE_MANUAL.md** doc updates — deferred until post-live-validation so the doc reflects observed, not prospective, behavior.
 
 Any additional deferrals accumulated during build MUST be listed in the cycle close-out with `WHY` and `where tracked`.
+
+---
+
+## Amendment 2026-07-31 (operator input): camera corroboration must be PER-ROOM COVERAGE, not zone-scoped
+
+Operator: cameras exist only in COMMON AREAS plus Study A (and Study A especially when away). No private room (bedrooms, most rooms) has camera coverage.
+
+Consequence for the invariant-M camera leg as originally drafted ("no camera-person signal for R's **zone**"): zone-scoping is wrong in BOTH directions:
+1. **It defeats incident #1.** The 2026-07-26 Master Bedroom case was house-OCCUPIED with people elsewhere. If "elsewhere" is a common area with a camera in the same zone, the zone-scoped camera leg reports person-present → demotion blocked → the phantom survives — the exact case D2 exists to fix.
+2. **It can never legitimately corroborate a private room**, because no private room has a camera. The leg is either spuriously satisfied (by common-area traffic) or vacuously false. Both are wrong.
+
+**Revised rule:** the camera leg participates ONLY for rooms with actual camera coverage (per a static coverage map: Study A + the common areas the census cameras see). For uncovered rooms the camera leg is ABSENT — the corroboration bar is PIR + BLE only. The truth-preserving invariant at the demotion site is updated accordingly: `camera-person present **in a camera-covered room's own coverage**`, never zone-wide.
+
+**D0 addition:** the audit must produce the per-room camera-coverage map (from camera_census area mappings + operator confirmation), alongside the mmWave-only inventory and the PIR-exists-but-unwired list (Study A `binary_sensor.invisoutlet_b7d0_motion` is the known instance of the latter).
+
+**Knob:** the coverage map is rung-1 (module constant / derived from census area config) — changing which rooms count as camera-covered should require review, not a dashboard toggle.
