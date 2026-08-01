@@ -43,3 +43,12 @@ baseline, zero drift.
   the mmWave stays on (latch).
 - **Live:** zero demotions during sleep-family house states.
 - **Live:** no new URA errors referencing fan_veto/fan_recheck/hvac_fans/demotion.
+
+### Validated 2026-08-01 (~14:20 CDT, first post-deploy boot)
+| Criterion | Result | Evidence |
+|---|---|---|
+| BUG 1: zero vacant-room fan turn-ons in boot window | **PASS** | Boot reproduced the morning incident's exact conditions (hot vacant Study A, house away, restart); ura_activity_log has ZERO fan actions since boot — this morning's identical window produced "Fans on at 100%". |
+| No new URA errors | **PASS** | ERROR log empty post-boot (also second consecutive clean boot for v5.41.0's write path). |
+| BUG 2: adoption + sweep | pending-organic | Needs an externally-lit fan; watch for "adopted externally-lit fan" INFO + off within vacancy-hold + tick. |
+| First organic demotion (D2) | pending-organic | Needs fan-sustained mmWave phantom while home-day/away; watch INFO line + `mmwave_fan_demoted` source + no flap. |
+| Zero sleep-window demotions | pending-organic | Standing watch across coming nights. |
