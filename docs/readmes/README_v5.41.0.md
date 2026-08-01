@@ -31,3 +31,15 @@ tests; zero suite drift.
   house-state/decision rows present in DB for the boot minutes).
 - **Live:** restart duration not elongated (shutdown drain wakes callers).
 - **Live:** no new URA errors referencing database.py.
+
+### Validated 2026-08-01 (~10:45 CDT, first post-deploy boot)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Zero dropped-write ERRORs through STARTED window | **PASS** | Boot 10:24-10:29 CDT; system log has zero "did not process request" AND zero "DB write worker slow" entries — the worker kept up outright this boot. First clean boot after 4 consecutive with dropped writes. |
+| Boot-window rows complete | **PASS** | census/energy/house_state/decision/activity streams all continuous 15:29Z onward, no gaps >5.5min (only the restart gap itself). |
+| No new database.py errors | **PASS** | URA ERROR log empty post-boot. |
+| Restart duration | **PASS** (as-expected) | ~5.5 min gap, in line with historical restarts — no shutdown elongation. |
+
+Note: the soft-WARN path was not organically exercised this boot (no stall occurred);
+it is proven in-suite (T1) and its live proof rides any future stalled boot — the
+trip-wire is the WARN line itself.
