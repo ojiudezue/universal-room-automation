@@ -556,16 +556,16 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
                         False,
                     )
                 )
-                attrs["mmwave_fan_demotions_today"] = int(
+                attrs["mmwave_fan_demotions_since_boot"] = int(
                     getattr(
                         self.coordinator,
-                        "_mmwave_fan_demotions_today",
+                        "_mmwave_fan_demotions_since_boot",
                         0,
                     )
                 )
             except Exception:  # noqa: BLE001 — never fail attr expansion
                 attrs["mmwave_fan_demoted"] = False
-                attrs["mmwave_fan_demotions_today"] = 0
+                attrs["mmwave_fan_demotions_since_boot"] = 0
         except Exception:
             # B-M4 fix-up: TIER1_KINDS imported at module top.
             attrs["tier1_provenance"] = {k: False for k in TIER1_KINDS}
@@ -578,7 +578,7 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
             attrs["ble_corroboration_layer"] = "none"
             attrs["comfort_fan_away_veto_count"] = 0
             attrs["mmwave_fan_demoted"] = False
-            attrs["mmwave_fan_demotions_today"] = 0
+            attrs["mmwave_fan_demotions_since_boot"] = 0
         # Fan-noise Mode-2 (room-tier fan-pause + clean recheck) attrs.
         # Sourced from FanRecheckManager.get_room_attrs(room_name); the
         # manager owns idempotent defaults for rooms it has not yet

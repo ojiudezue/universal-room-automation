@@ -507,11 +507,18 @@ OCCUPANCY_SOURCE_FAN_RECHECK_RELEASE: Final = "fan_recheck_release"
 # recheck's trigger bar. D2 is the backstop for recheck-ineligible /
 # rate-capped rooms.
 #
-# Kill switches (rung-1 module constants): MMWAVE_FAN_CORROBORATION_ENABLED
-# disables the whole predicate; MMWAVE_FAN_CORROBORATION_GRACE_S=0 keeps
-# the feature enabled but demotes immediately once suspect (not
-# recommended); setting BLE_MOTION_CONFIRM_MULTIPLIER=0 also disables
-# the derived staleness gate (mirrors the ble_extend_not_create kill).
+# Kill switches (rung-1 module constants):
+#   1) MMWAVE_FAN_CORROBORATION_ENABLED — disables the whole predicate.
+#   2) BLE_MOTION_CONFIRM_MULTIPLIER=0 — also disables the derived
+#      staleness gate (mirrors the ble_extend_not_create kill).
+#   3) D3_DIAGNOSTIC_ENABLED — third UPSTREAM kill switch: D2's
+#      _compute_mmwave_fan_demoted_rooms wraps _compute_fan_interference_rooms,
+#      which short-returns [] when D3_DIAGNOSTIC_ENABLED is False. Reuse
+#      of the D3 primitive is BY DESIGN (single interference-conditional
+#      reliability primitive); D2 is NOT decoupled from D3.
+# MMWAVE_FAN_CORROBORATION_GRACE_S values below 300 are clamped to 300
+# in the wrapper (fail-safe floor; see D-MED-2). Setting it very low
+# does NOT disable the feature — use ENABLED=False for that.
 MMWAVE_FAN_CORROBORATION_ENABLED: Final = True
 MMWAVE_FAN_CORROBORATION_GRACE_S: Final = 600
 OCCUPANCY_SOURCE_MMWAVE_FAN_DEMOTED: Final = "mmwave_fan_demoted"

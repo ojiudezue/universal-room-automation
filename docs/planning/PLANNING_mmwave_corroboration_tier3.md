@@ -447,3 +447,38 @@ Two adversarial-review findings were adjudicated as accepted residuals rather th
 **Why deferred:** operator-authored rules are a distinct trust domain — the operator has explicitly authored the intent. Vetoing operator rules from a URA-internal predicate would violate the "operator override wins" contract the AI-rule executor is built on. If a specific rule is misbehaving, the correct fix is to edit the rule (or add a house_state condition to it), not to layer URA guards over operator-authored actions.
 
 **Evidence trigger to un-park:** an AI-rule-triggered comfort-fan turn-on into an empty house that the operator flags as unintended (i.e. the rule was buggy but the veto could have caught it). At that point we would evaluate a scoped guard on AI-rule dispatch — not an unconditional veto.
+
+## Amendment 3 (post-review fix-up) — D2 semantics pinned
+
+After four Tier-3 review passes surfaced convergent defects on the initial
+D2 build (76a2ae5), the following semantics are now the doctrine for D2
+and MUST NOT be re-litigated without evidence:
+
+1. **Firing shape.** D2 fires on a steady-state, mmwave-sole sustained
+   occupancy AFTER the vacant->occupied debounce window has closed
+   (`_d2_debounce_elapsed`), NOT on the entry-transition (the initial gate
+   `_occupancy_first_detected is None` was a bug — the field retains its
+   stamp for the whole hold). Source gate is `"mmwave"` only; `"timeout"`
+   is unreachable in combination with the mmwave-sole primitive and has
+   been dropped.
+2. **Blast radius.** ROOM-TIER ONLY. D2 writes exclusively to the room
+   coordinator's `data` dict (STATE_OCCUPIED / STATE_OCCUPANCY_SOURCE /
+   STATE_TIMEOUT_REMAINING) and its own instance counters. It does NOT
+   mutate zone-tracker state — the zone-side `_room_occupied` view is
+   unchanged by D2 (pinned by test `test_no_demote_when_fan_interference_hold_active`).
+3. **Precedence.** `presence_fan_recheck` (pause-based) > fan-interference
+   HOLD (D1) > D2. D2 defers to both by short-circuit checks in the
+   consumer block.
+4. **Sleep-family veto.** D2 does NOT fire while house_state is in
+   {SLEEP, WAKING, HOME_NIGHT}. Doctrine source:
+   `presence_fan_recheck.py:374` sleep gate + duty-cycle detector's
+   sleeping-bedroom refusal (`coordinator.py:1812-1817`).
+5. **Bucket-classification blindness.** D2 is deliberately BLIND to
+   occupancy_sensor-bucket hybrids (radar hybrids misfiled as
+   `occupancy_sensor`). The remedy for those is the Amendment 2
+   reclassification audit, NOT expanding D2's source gate.
+6. **Flap protection.** Once D2 demotes, `_mmwave_demoted_latch` blocks
+   mmwave-sole activity from recreating occupancy until a real recovery
+   signal (mmWave off, PIR fire, BLE person, fan off).
+7. **Snapshot contract.** `is_room_mmwave_fan_demoted` reads a
+   per-inference-tick snapshot; it never invokes the primitive live.
