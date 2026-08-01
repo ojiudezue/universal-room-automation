@@ -35,3 +35,13 @@ orchestrator; 4 HIGH found+fixed incl. a Bug Class #62 test-replica catch.
   channels with a loading snapshot; second trigger within 5 min suppressed.
 - **Live:** restart HA → zero exterior_person alerts in the boot window.
 - **Live:** while home_day, a perimeter person → digest row only, no page.
+
+### Validated 2026-08-01 (~17:35 CDT, first post-deploy boot)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Zero exterior_person alerts in boot window | **PASS** | notification_log empty for the class since boot — rising-edge + settle gates held through restart with live cameras. |
+| No URA errors | **PASS** | ERROR log empty post-settle. |
+| Prior fixes holding | **PASS** | Zero vacant-room fan actions (v5.42.0 BUG-1, 3rd clean boot); write pipeline clean (v5.41.0, 4th). |
+| MQTT→event bridge live | **PASS** | automation.frigate_mqtt_to_frigate_events_bridge_ura_snapshot_support created, both prefixes. |
+| First real exterior CRITICAL w/ snapshot | pending-organic | Next perimeter person while away → one CRITICAL, snapshot loads on phone. |
+| Home-hours digest behavior | pending-organic | Next perimeter person while home → digest row only. |
