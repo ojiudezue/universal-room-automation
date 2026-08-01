@@ -136,6 +136,17 @@ PerimeterAlertManager = _perimeter.PerimeterAlertManager
 _perimeter.async_call_later = _fake_async_call_later
 _perimeter.async_track_state_change_event = _fake_async_track_state_change_event
 
+# Same guard for the clock: the real _on_perimeter_event reads dt_util.now()
+# for the boot-settle gate; under full-suite ordering another module's frozen
+# dt mock would make the elapsed calc raise and swallow dispatches (found as a
+# full-suite-only red on test_post_settle_real_off_to_on_dispatches).
+import types as _types
+from datetime import datetime as _dt_real, timezone as _tz_real
+_real_dt_util = _types.ModuleType("dt_util_pin")
+_real_dt_util.now = lambda: _dt_real.now(_tz_real.utc)
+_real_dt_util.utcnow = lambda: _dt_real.now(_tz_real.utc)
+_perimeter.dt_util = _real_dt_util
+
 
 # --- Test helpers -------------------------------------------------------------
 
@@ -279,7 +290,7 @@ def test_egress_suppression_preserved():
     hass, nm = _make_hass(house_state="away")
     mgr = _run(_setup_mgr(hass))
     # Simulate a recent egress crossing
-    from homeassistant.util import dt as _dt
+    _dt = _perimeter.dt_util  # clock-derive from the production binding (pinned above)
     mgr._last_egress_time = _dt.now()
     _run(mgr._async_handle_perimeter_trigger("binary_sensor.front_yard_person_occupancy"))
     assert nm.async_notify.await_count == 0
@@ -680,7 +691,7 @@ def test_boot_settle_ignores_old_state_none():
     hass, nm = _make_hass(house_state="away")
     mgr = _run(_setup_mgr(hass))
     # Push setup time far in the past so settle isn't the reason it drops
-    from homeassistant.util import dt as _dt
+    _dt = _perimeter.dt_util  # clock-derive from the production binding (pinned above)
     mgr._setup_time = _dt.now() - timedelta(seconds=600)
     cb = _make_perimeter_state_cb(mgr)
     cb(_mk_event("binary_sensor.front_yard_person_occupancy", "on", None))
@@ -690,7 +701,7 @@ def test_boot_settle_ignores_old_state_none():
 def test_boot_settle_ignores_on_to_on():
     hass, nm = _make_hass(house_state="away")
     mgr = _run(_setup_mgr(hass))
-    from homeassistant.util import dt as _dt
+    _dt = _perimeter.dt_util  # clock-derive from the production binding (pinned above)
     mgr._setup_time = _dt.now() - timedelta(seconds=600)
     cb = _make_perimeter_state_cb(mgr)
     cb(_mk_event("binary_sensor.front_yard_person_occupancy", "on", "on"))
@@ -700,7 +711,7 @@ def test_boot_settle_ignores_on_to_on():
 def test_boot_settle_window_drops_early_triggers():
     hass, nm = _make_hass(house_state="away")
     mgr = _run(_setup_mgr(hass))
-    from homeassistant.util import dt as _dt
+    _dt = _perimeter.dt_util  # clock-derive from the production binding (pinned above)
     mgr._setup_time = _dt.now()  # just now
     cb = _make_perimeter_state_cb(mgr)
     cb(_mk_event("binary_sensor.front_yard_person_occupancy", "on", "off"))
@@ -710,7 +721,7 @@ def test_boot_settle_window_drops_early_triggers():
 def test_post_settle_real_off_to_on_dispatches():
     hass, nm = _make_hass(house_state="away")
     mgr = _run(_setup_mgr(hass))
-    from homeassistant.util import dt as _dt
+    _dt = _perimeter.dt_util  # clock-derive from the production binding (pinned above)
     mgr._setup_time = _dt.now() - timedelta(seconds=600)
     cb = _make_perimeter_state_cb(mgr)
     cb(_mk_event("binary_sensor.front_yard_person_occupancy", "on", "off"))
