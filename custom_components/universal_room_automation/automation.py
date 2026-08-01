@@ -179,6 +179,9 @@ from .const import (
     ROOM_TYPE_GENERIC,
     DOMAIN,
 )
+# B-L1 fix: hoisted to module top (no import cycle — fan_veto imports
+# .const + .domain_coordinators.house_state, no back-reference to automation).
+from .fan_veto import should_veto_comfort_fan  # noqa: E402
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1789,7 +1792,6 @@ class RoomAutomation:
             # applied to turn-off (line ~1742 above), humidity path
             # (handle_humidity_based_fan_control), sleep-off short-circuit
             # (line ~1683), or safety paths.
-            from .fan_veto import should_veto_comfort_fan  # noqa: PLC0415
             if should_veto_comfort_fan(
                 self.hass,
                 self.config.get(CONF_ROOM_NAME, ""),

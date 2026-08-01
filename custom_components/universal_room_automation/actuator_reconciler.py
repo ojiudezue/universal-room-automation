@@ -42,6 +42,9 @@ from homeassistant.helpers.event import (
     async_track_state_change_event,
 )
 
+# B-L1 fix: hoisted to module top (no import cycle — fan_veto imports
+# .const + .domain_coordinators.house_state, no back-reference here).
+from .fan_veto import should_veto_comfort_fan  # noqa: E402
 from .const import (
     CONF_ENTRY_LIGHT_ACTION,
     CONF_EXIT_LIGHT_ACTION,
@@ -837,7 +840,6 @@ class ActuatorReconciler:
         # reconcile-edge would re-assert ON against an empty house.
         # Turn-off resolutions above are UNAFFECTED (veto is scoped to
         # comfort-fan turn_on only).
-        from .fan_veto import should_veto_comfort_fan  # noqa: PLC0415
         if should_veto_comfort_fan(self.hass, self._room_name(), cfg):
             return None
         return DesiredState(

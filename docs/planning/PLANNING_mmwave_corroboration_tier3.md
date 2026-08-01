@@ -422,3 +422,28 @@ Verification of the no-duplication challenge found the smoking gun:
 4. Revised simple version: **D0 (audit + reclassify) + D3 (veto) + D5/D7 (tests/observability) + D8**. Tier-3 review discipline unchanged; Invariant M is now *delivered* by (existing recheck + correct classification) and D must attack it there, not in new code.
 
 **Operator note (2026-08-01):** the Master Bathroom InvisOutlet is TRUSTED (per operator) — its behavior there is fine, unlike the Study A unit (removed for holding presence without cause). Do not migrate Master Bathroom off it; it remains the room's primary presence source, now correctly classified in `presence_sensors` (mmWave bucket) so recheck/corroboration machinery governs it. Trust is per-unit/per-placement, not per-product.
+
+---
+
+## Known residuals (fix-up pass 2026-08-01)
+
+Two adversarial-review findings were adjudicated as accepted residuals rather than in-cycle fixes. Both are captured here so future cycles do not re-litigate.
+
+### R1 — B-H2: fan already ON when house transitions to AWAY
+
+**Shape:** the D3 veto is scoped to `turn_on` paths (all three actuation sites: `automation.py`, `hvac_fans.py::update`, `actuator_reconciler.py::_resolve_fan`). If a comfort fan is ALREADY running when house_state transitions to AWAY (e.g. everyone leaves a hot room), no OFF-edge is issued by D3 — the fan keeps running until organic coverage catches it.
+
+**Why not an OFF-edge companion:**
+1. **Fights manual-remote turn-ons while away.** An operator can legitimately turn a fan ON from their phone while the house is AWAY (guest arriving early, pre-cooling before returning). An OFF-edge companion would immediately kill that action; there is no clean way to distinguish "URA armed this" from "operator armed this" at the OFF-edge moment.
+2. **Post-reclassification, fan-recheck now covers the shape organically.** After the D0 bucket-reclassification sweep, `presence_fan_recheck.py` reliably fires against the exact residual: fan-on + mmWave-only presence → recheck pauses fan → clean-air mmWave drops → occupancy releases → the vacancy path turns the fan OFF (`FanController._evaluate_temp_fan` vacancy branch + `handle_temperature_based_fan_control` vacancy-hold expiry). This is exactly the fan-noise-mode-2 coverage the v5.23.0 recheck was built for; correct bucket classification (per Amendment 2) is what makes it fire.
+3. **D-HIGH-1 already closes the acute variant.** The 4th actuation site — `restore_after_recheck` — WAS vulnerable to a mid-recheck AWAY transition re-arming the fan; that specific path is now guarded by the veto (see D3 fix-up pass R2).
+
+**Evidence trigger to un-park:** a documented case where a fan-on + AWAY residue survives ≥1 recheck cycle (or ≥30 min in a recheck-ineligible room) after the reclassification sweep is live.
+
+### R2 — D-LOW-1: AI-rule executor can `fan.turn_on` unvetoed
+
+**Shape:** operator-authored rules dispatched via the AI-rule executor call HA services directly and do NOT route through `should_veto_comfort_fan`. An operator rule with a `fan.turn_on` action bypasses the veto entirely.
+
+**Why deferred:** operator-authored rules are a distinct trust domain — the operator has explicitly authored the intent. Vetoing operator rules from a URA-internal predicate would violate the "operator override wins" contract the AI-rule executor is built on. If a specific rule is misbehaving, the correct fix is to edit the rule (or add a house_state condition to it), not to layer URA guards over operator-authored actions.
+
+**Evidence trigger to un-park:** an AI-rule-triggered comfort-fan turn-on into an empty house that the operator flags as unintended (i.e. the rule was buggy but the veto could have caught it). At that point we would evaluate a scoped guard on AI-rule dispatch — not an unconditional veto.

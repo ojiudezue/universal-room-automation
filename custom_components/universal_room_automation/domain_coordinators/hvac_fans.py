@@ -48,6 +48,10 @@ from .hvac_const import (
 from .hvac_zones import ZoneManager
 from .signals import EnergyConstraint
 
+# B-L1 fix: hoisted to module top (no import cycle — fan_veto imports only
+# .const + .domain_coordinators.house_state, no back-reference to hvac_fans).
+from ..fan_veto import should_veto_comfort_fan, is_veto_relevant  # noqa: E402
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -292,22 +296,25 @@ class FanController:
                     # fan, humidity fans (not in this loop), safety paths
                     # are all exempt.
                     if should_on and not room_fan.is_on:
-                        from ..fan_veto import should_veto_comfort_fan  # noqa: PLC0415
+                        # A-M1 / B-M1 hoisted early-out: skip the O(N)
+                        # config-entry scan on HOME_* / SLEEP / WAKING
+                        # ticks where the veto can't fire anyway.
                         merged: dict[str, Any] = {}
-                        try:
-                            for entry in self.hass.config_entries.async_entries(DOMAIN):
-                                if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
-                                    continue
-                                if entry.data.get(CONF_ROOM_NAME) != room_name:
-                                    continue
-                                merged = {**entry.data, **entry.options}
-                                break
-                        except Exception as exc:  # noqa: BLE001
-                            _LOGGER.debug(
-                                "HVAC Fans: %s merged-config read failed for veto (%s)",
-                                room_name, exc,
-                            )
-                        if should_veto_comfort_fan(
+                        if is_veto_relevant(self.hass):
+                            try:
+                                for entry in self.hass.config_entries.async_entries(DOMAIN):
+                                    if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                                        continue
+                                    if entry.data.get(CONF_ROOM_NAME) != room_name:
+                                        continue
+                                    merged = {**entry.data, **entry.options}
+                                    break
+                            except Exception as exc:  # noqa: BLE001
+                                _LOGGER.debug(
+                                    "HVAC Fans: %s merged-config read failed for veto (%s)",
+                                    room_name, exc,
+                                )
+                        if merged and should_veto_comfort_fan(
                             self.hass, room_name, merged,
                         ):
                             # Skip the actuation — leave RoomFanState
@@ -695,6 +702,44 @@ class FanController:
             return
         if snapshot.get("is_on"):
             speed = int(snapshot.get("speed_pct") or 0) or 100
+            # D-HIGH-1 fix: consult the comfort-fan veto BEFORE re-issuing
+            # the ON restoration. If the house transitioned to AWAY during
+            # the recheck window, the pre-pause snapshot must NOT be
+            # blindly restored — that would turn a fan back on in an empty
+            # house (Bug-Class-#53, 4th actuation site). Load the room's
+            # merged config the same way the update()-path veto does.
+            merged: dict[str, Any] = {}
+            if is_veto_relevant(self.hass):
+                try:
+                    for entry in self.hass.config_entries.async_entries(DOMAIN):
+                        if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                            continue
+                        if entry.data.get(CONF_ROOM_NAME) != room_name:
+                            continue
+                        merged = {**entry.data, **entry.options}
+                        break
+                except Exception as exc:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "HVAC Fans: %s restore-veto merged-config read failed (%s)",
+                        room_name, exc,
+                    )
+            if merged and should_veto_comfort_fan(
+                self.hass, room_name, merged,
+            ):
+                # Skip the restoration. Clear the local is_on snapshot so
+                # RoomFanState stays consistent with the LIVE (off) entity
+                # state — the fan-recheck pause already turned entities
+                # OFF at pause_for_recheck, and we're choosing not to
+                # re-arm them into an empty house.
+                room_fan.is_on = False
+                room_fan.speed_pct = 0
+                room_fan.trigger = ""
+                room_fan.last_on_time = ""
+                _LOGGER.info(
+                    "HVAC Fans: %s restore-after-recheck vetoed "
+                    "(house went AWAY during recheck)", room_name,
+                )
+                return
             await self._set_fan_state(snapshot["entities"], True, speed)
             room_fan.is_on = True
             room_fan.speed_pct = speed

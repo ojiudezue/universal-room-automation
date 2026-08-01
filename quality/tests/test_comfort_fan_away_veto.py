@@ -298,9 +298,13 @@ def test_t10_humidity_path_does_not_route_through_helper() -> None:
     handle_humidity_based_fan_control, this test fails.
     """
     src = _read("automation.py")
-    # Slice out the humidity handler and verify no veto import/call inside.
-    if "def handle_humidity_based_fan_control" in src:
-        humidity_slice = src.split(
-            "def handle_humidity_based_fan_control", 1,
-        )[1].split("\n    def ", 1)[0]
-        assert "should_veto_comfort_fan(" not in humidity_slice
+    # C-HIGH-1 fix (fix-up pass): hard-assert the humidity handler exists;
+    # a silent skip on rename would hide a real regression.
+    assert "def handle_humidity_based_fan_control" in src, (
+        "handle_humidity_based_fan_control must exist — humidity path is "
+        "the sole-owner for humidity fans"
+    )
+    humidity_slice = src.split(
+        "def handle_humidity_based_fan_control", 1,
+    )[1].split("\n    def ", 1)[0]
+    assert "should_veto_comfort_fan(" not in humidity_slice
