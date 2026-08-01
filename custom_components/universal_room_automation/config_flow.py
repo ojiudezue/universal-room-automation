@@ -306,6 +306,8 @@ from .const import (
     CONF_EGRESS_CAMERAS,
     CONF_PERIMETER_CAMERAS,
     CONF_CENSUS_CROSS_VALIDATION,
+    CONF_CENSUS_DIVERGENCE_DOWNGRADE,
+    DEFAULT_CENSUS_DIVERGENCE_DOWNGRADE,
     # v3.5.1: Perimeter Alerting
     CONF_PERIMETER_ALERT_HOURS_START,
     CONF_PERIMETER_ALERT_HOURS_END,
@@ -2948,6 +2950,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_current(
                     CONF_CENSUS_BLE_CANCEL_ENABLED,
                     DEFAULT_CENSUS_BLE_CANCEL_ENABLED,
+                ),
+            ): selector.BooleanSelector(),
+            # 2026-08-01 census fusion policy: divergence-aware downgrade.
+            # Default True (min-wins on uncorroborated divergence → DISAGREE).
+            # False = fire-axe restore to pre-cycle max-wins CLOSE behavior.
+            vol.Optional(
+                CONF_CENSUS_DIVERGENCE_DOWNGRADE,
+                default=self._get_current(
+                    CONF_CENSUS_DIVERGENCE_DOWNGRADE,
+                    DEFAULT_CENSUS_DIVERGENCE_DOWNGRADE,
                 ),
             ): selector.BooleanSelector(),
             vol.Optional(
