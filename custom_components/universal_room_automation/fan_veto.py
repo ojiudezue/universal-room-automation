@@ -284,7 +284,12 @@ def _has_camera_person(
     # (fusion is active). Allowlist-only rooms without room_cameras stay on
     # the legacy per-entity read path.
     if covered_by_config:
-        slug = room_name.strip().lower().replace(" ", "_")
+        # Fix #5: use HA slugify for the fused entity_id derivation.
+        try:
+            from homeassistant.util import slugify  # noqa: PLC0415
+            slug = slugify(room_name)
+        except Exception:  # noqa: BLE001
+            slug = room_name.strip().lower().replace(" ", "_")
         fused_id = f"binary_sensor.{slug}_camera_person_detected"
         try:
             fused_state = hass.states.get(fused_id)
@@ -295,7 +300,28 @@ def _has_camera_person(
             )
             fused_state = None
         if fused_state is not None:
-            return fused_state.state == STATE_ON
+            # E-HIGH-1 fix (divergence-aware veto leg): the fused sensor's ON
+            # state can reflect a SINGLE-camera ON in a multi-camera fusion.
+            # For a fan-veto REBUTTAL (evidence that a person is present, so
+            # DO NOT suppress the fan) we require corroborated evidence:
+            # agreement=unanimous_on OR confidence=high. See plan amendment
+            # §divergence-aware and E's grounding: raw is_on alone can be
+            # noise from one camera and would defeat the veto on any weak
+            # corroborator.
+            if fused_state.state != STATE_ON:
+                return False
+            attrs = getattr(fused_state, "attributes", {}) or {}
+            agreement = attrs.get("agreement")
+            confidence = attrs.get("confidence")
+            if agreement == "unanimous_on" or confidence == "high":
+                return True
+            # ON but divergent — treat as NOT trusted presence for veto purposes.
+            _LOGGER.debug(
+                "fan_veto: fused sensor %s is ON but agreement=%s confidence=%s "
+                "— not corroborated; not counted as camera-person",
+                fused_id, agreement, confidence,
+            )
+            return False
 
     # Legacy fallback: read raw per-camera entities from the old key.
     cam_entities = config.get(CONF_CAMERA_PERSON_ENTITIES) or []
@@ -354,6 +380,20 @@ def should_veto_comfort_fan(
             DEFAULT_COMFORT_FAN_AWAY_VETO_ENABLED,
         ):
             return False
+        # B-LOW-2: emit INFO once per room per boot when veto path is enabled
+        # (visibility that the D3/D5 code path is live for this room).
+        try:
+            seen = hass.data.setdefault(DOMAIN, {}).setdefault(
+                "_fan_veto_enabled_logged", set()
+            )
+            if room_name and room_name not in seen:
+                seen.add(room_name)
+                _LOGGER.info(
+                    "fan_veto: veto enabled for room=%s (first-check-this-boot)",
+                    room_name,
+                )
+        except Exception:  # noqa: BLE001
+            pass
         # B-H1 fix: boot-settle gate. house_state boots AWAY but the
         # presence coordinator may not have completed its first pass yet,
         # so a legitimate post-restart fan (family home) would otherwise

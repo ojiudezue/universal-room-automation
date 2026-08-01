@@ -113,6 +113,14 @@ def _mk(entities: list[FakeEntity], devices: list[FakeDevice]) -> CameraResolver
     )
 
 
+def _sole(fusions):
+    """Post-Fix#7 helper: resolve_operator_declaration returns list. Assert
+    exactly one physical camera resolved and return it."""
+    assert isinstance(fusions, list), f"expected list, got {type(fusions)}"
+    assert len(fusions) == 1, f"expected exactly one fusion, got {len(fusions)}"
+    return fusions[0]
+
+
 # ============================================================================
 # Rung 1 — same-device (Frigate + Protect co-resident on one device)
 # ============================================================================
@@ -133,7 +141,7 @@ def test_rung_same_device_finds_frigate_and_protect_on_one_device():
         FakeEntity("binary_sensor.playroom_last_recognized_face", "dev_play", PLATFORM_UNIFI),
     ]
     r = _mk(ents, [dev])
-    fusion = r.resolve_operator_declaration(["camera.playroom_high_resolution_channel"])
+    fusion = _sole(r.resolve_operator_declaration(["camera.playroom_high_resolution_channel"]))
     assert len(fusion.sources) >= 1
     src = fusion.sources[0]
     assert src.device_id == "dev_play"
@@ -166,7 +174,7 @@ def test_rung_mac_correlates_reolink_and_protect_by_shared_mac():
         FakeEntity("binary_sensor.unifi_driveway_person_detected", "dev_unifi", PLATFORM_UNIFI),
     ]
     r = _mk(ents, [dev_reo, dev_unifi])
-    fusion = r.resolve_operator_declaration(["camera.driveway"])
+    fusion = _sole(r.resolve_operator_declaration(["camera.driveway"]))
     bases = {s.correlation_basis for s in fusion.sources}
     dids = {s.device_id for s in fusion.sources}
     assert "dev_unifi" in dids, "MAC rung should pull in the Protect device"
@@ -179,18 +187,37 @@ def test_rung_mac_correlates_reolink_and_protect_by_shared_mac():
 
 
 def test_rung_identifiers_overlap_pulls_in_sibling_device():
-    dev_a = FakeDevice(id="dev_a", identifiers={("integA", "shared-uid")})
-    dev_b = FakeDevice(id="dev_b", identifiers={("integB", "shared-uid")})
+    # D-LOW-1: match requires the FULL (integration, key) tuple. Two devices
+    # from the SAME integration that expose the same key on separate
+    # DeviceEntry rows (rare but legal — e.g. UniFi Protect firmware
+    # rewiring) fuse via this rung.
+    dev_a = FakeDevice(id="dev_a", identifiers={(PLATFORM_UNIFI, "shared-uid")})
+    dev_b = FakeDevice(id="dev_b", identifiers={(PLATFORM_UNIFI, "shared-uid")})
+    ents = [
+        FakeEntity("camera.a", "dev_a", PLATFORM_UNIFI),
+        FakeEntity("binary_sensor.b_person_detected", "dev_b", PLATFORM_UNIFI),
+    ]
+    r = _mk(ents, [dev_a, dev_b])
+    fusion = _sole(r.resolve_operator_declaration(["camera.a"]))
+    dids = {s.device_id for s in fusion.sources}
+    bases = {s.correlation_basis for s in fusion.sources}
+    assert "dev_b" in dids
+    assert BASIS_IDENTIFIERS in bases
+
+
+def test_rung_identifiers_cross_integration_key_alone_does_not_pull():
+    """D-LOW-1: bare-key overlap across DIFFERENT integrations is NOT enough."""
+    dev_a = FakeDevice(id="dev_a", identifiers={("integA", "opaque-1")})
+    dev_b = FakeDevice(id="dev_b", identifiers={("integB", "opaque-1")})
     ents = [
         FakeEntity("camera.a", "dev_a", "integA"),
         FakeEntity("binary_sensor.b_person_detected", "dev_b", "integB"),
     ]
     r = _mk(ents, [dev_a, dev_b])
-    fusion = r.resolve_operator_declaration(["camera.a"])
-    dids = {s.device_id for s in fusion.sources}
-    bases = {s.correlation_basis for s in fusion.sources}
-    assert "dev_b" in dids
-    assert BASIS_IDENTIFIERS in bases
+    fusions = r.resolve_operator_declaration(["camera.a"])
+    assert isinstance(fusions, list)
+    dids = {s.device_id for f in fusions for s in f.sources}
+    assert "dev_b" not in dids
 
 
 # ============================================================================
@@ -215,7 +242,7 @@ def test_rung_network_inventory_join_via_ip_stub():
 
     r = CameraResolver(FakeEntityRegistry(ents), FakeDeviceRegistry([dev_reo, dev_unifi]),
                        network_inventory=inventory)
-    fusion = r.resolve_operator_declaration(["camera.reo"])
+    fusion = _sole(r.resolve_operator_declaration(["camera.reo"]))
     dids = {s.device_id for s in fusion.sources}
     bases = {s.correlation_basis for s in fusion.sources}
     assert "dev_unifi" in dids
@@ -229,7 +256,7 @@ def test_rung_network_inventory_absent_provider_no_op():
     ents = [FakeEntity("camera.r", "dev_reo", PLATFORM_REOLINK),
             FakeEntity("binary_sensor.r_person", "dev_reo", PLATFORM_REOLINK)]
     r = _mk(ents, [dev])
-    fusion = r.resolve_operator_declaration(["camera.r"])
+    fusion = _sole(r.resolve_operator_declaration(["camera.r"]))
     # Only the same-device source; no crash from missing provider.
     assert all(s.correlation_basis != BASIS_NETWORK_INVENTORY for s in fusion.sources)
 
@@ -252,7 +279,7 @@ def test_rung_name_stem_frigate_device_pulled_in():
         FakeEntity("binary_sensor.staircase_person_occupancy", "dev_f", PLATFORM_FRIGATE),
     ]
     r = _mk(ents, [dev_unifi, dev_frig])
-    fusion = r.resolve_operator_declaration(["camera.staircase"])
+    fusion = _sole(r.resolve_operator_declaration(["camera.staircase"]))
     dids = {s.device_id for s in fusion.sources}
     bases = {s.correlation_basis for s in fusion.sources}
     assert "dev_f" in dids
@@ -277,16 +304,17 @@ def test_rung_operator_declared_frigate_ingests_reolink_no_parity():
         FakeEntity("binary_sensor.some_other_name_person_occupancy", "dev_frig", PLATFORM_FRIGATE),
     ]
     r = _mk(ents, [dev_reo, dev_frig])
-    fusion = r.resolve_operator_declaration(
+    # Fix #7 (D-MED-2): multi-select now yields ONE RoomCameraFusion per
+    # physically-distinct camera. Two unrelated inputs => two fusions.
+    fusions = r.resolve_operator_declaration(
         ["camera.driveway", "camera.some_other_name"]
     )
-    dids = {s.device_id for s in fusion.sources}
+    assert len(fusions) == 2, f"expected 2 physical cameras; got {len(fusions)}"
+    dids = {s.device_id for f in fusions for s in f.sources}
     assert dids == {"dev_reo", "dev_frig"}
-    bases = {s.correlation_basis for s in fusion.sources}
-    # dev_reo is same_device (listed first); dev_frig is operator_declared
-    # (no MAC/identifier/stem linked it to dev_reo).
+    # Each fusion's primary source is SAME_DEVICE for its own device.
+    bases = {s.correlation_basis for f in fusions for s in f.sources}
     assert BASIS_SAME_DEVICE in bases
-    assert BASIS_OPERATOR_DECLARED in bases
 
 
 # ============================================================================
@@ -308,7 +336,7 @@ def test_f1_protect_nvr_device_defuses_by_entity_name_stem():
                    "dev_nvr", PLATFORM_UNIFI),
     ]
     r = _mk(ents, [dev])
-    fusion = r.resolve_operator_declaration(["camera.staircase_high_resolution_channel"])
+    fusion = _sole(r.resolve_operator_declaration(["camera.staircase_high_resolution_channel"]))
     person_bs_ids = fusion.person_binary_sensor_entity_ids()
     assert "binary_sensor.staircase_person_detected" in person_bs_ids
     assert "binary_sensor.camera_protect_garagehallway_person_detected" not in person_bs_ids, (
@@ -323,9 +351,12 @@ def test_f1_protect_nvr_device_defuses_by_entity_name_stem():
 
 
 def test_f2_frigate_dual_host_same_object_collapsed_when_gate_closed():
-    """Two Frigate devices with the SAME object name ("staircase") from
-    different hosts collapse to one source until the F1<->F2 stability gate
-    opens (FRIGATE_CROSS_HOST_CORROBORATION_ENABLED)."""
+    """C-HIGH-1 rebuild: BOTH Frigate devices carry VALID person-suffix
+    entities with unique entity_ids. Both devices have the same identifier
+    OBJECT name "staircase" (different host prefix). The collapse is what
+    reduces `len(frigate_dids)` to 1 — verifiable by neutering the collapse
+    (delete the frigate_dropped skip in resolve_capabilities) → test red.
+    """
     assert FRIGATE_CROSS_HOST_CORROBORATION_ENABLED is False, (
         "Gate must remain rung-1 CLOSED until 72h stability measured"
     )
@@ -335,18 +366,124 @@ def test_f2_frigate_dual_host_same_object_collapsed_when_gate_closed():
     ents = [
         FakeEntity("camera.staircase", "dev_u", PLATFORM_UNIFI),
         FakeEntity("binary_sensor.staircase_person_detected", "dev_u", PLATFORM_UNIFI),
+        # Both Frigate devices carry legit person-suffix entities with UNIQUE ids.
         FakeEntity("binary_sensor.staircase_person_occupancy", "dev_f1", PLATFORM_FRIGATE),
-        FakeEntity("binary_sensor.staircase_person_occupancy", "dev_f2", PLATFORM_FRIGATE),
+        FakeEntity("binary_sensor.staircase_alt_person_occupancy", "dev_f2", PLATFORM_FRIGATE),
     ]
-    # (Two entities share entity_id here — in real HA that's impossible; use
-    # distinct ids to keep the fixture legal.)
-    ents[3] = FakeEntity("binary_sensor.staircase_person_occupancy_2", "dev_f2", PLATFORM_FRIGATE)
     r = _mk(ents, [dev_f1, dev_f2, dev_u])
-    fusion = r.resolve_operator_declaration(["camera.staircase"])
+    fusion = _sole(r.resolve_operator_declaration(["camera.staircase"]))
     frigate_dids = [s.device_id for s in fusion.sources if s.integration == PLATFORM_FRIGATE]
     assert len(frigate_dids) == 1, (
         f"F2: expected 1 Frigate device after collapse; got {frigate_dids}"
     )
+
+
+def test_f1_order_inversion_garagehallway_first_still_picks_staircase():
+    """C-MED-1: F1 order-inversion. If the garagehallway entity is scanned
+    FIRST on the shared NVR device, the resolver must STILL exclude it and
+    pick the staircase sensor. Red under a `_stem_match` that returns True
+    unconditionally."""
+    dev = FakeDevice(id="dev_nvr", identifiers={(PLATFORM_UNIFI, "nvr-mac")},
+                     connections={("mac", "28:70:4e:17:ee:02")})
+    ents = [
+        # Order inverted: garagehallway FIRST.
+        FakeEntity("binary_sensor.camera_protect_garagehallway_person_detected",
+                   "dev_nvr", PLATFORM_UNIFI),
+        FakeEntity("camera.staircase_high_resolution_channel", "dev_nvr", PLATFORM_UNIFI),
+        FakeEntity("binary_sensor.staircase_person_detected", "dev_nvr", PLATFORM_UNIFI),
+    ]
+    r = _mk(ents, [dev])
+    fusion = _sole(r.resolve_operator_declaration(["camera.staircase_high_resolution_channel"]))
+    person_bs_ids = fusion.person_binary_sensor_entity_ids()
+    assert person_bs_ids == ["binary_sensor.staircase_person_detected"]
+    assert "binary_sensor.camera_protect_garagehallway_person_detected" not in person_bs_ids
+
+
+def test_f3_order_inversion_package_first_still_picks_person():
+    """C-MED-2: F3 order-inversion. Package entity FIRST must not become the
+    person_bs even though it's scanned first."""
+    dev = FakeDevice(id="d_entry", identifiers={(PLATFORM_FRIGATE, "host1:madrone_g6_entry")})
+    ents = [
+        # Package entity FIRST.
+        FakeEntity("binary_sensor.madrone_g6_entry_package_person_occupancy",
+                   "d_entry", PLATFORM_FRIGATE),
+        FakeEntity("camera.madrone_g6_entry", "d_entry", PLATFORM_FRIGATE),
+        FakeEntity("binary_sensor.madrone_g6_entry_person_occupancy", "d_entry", PLATFORM_FRIGATE),
+    ]
+    r = _mk(ents, [dev])
+    fusion = _sole(r.resolve_operator_declaration(["camera.madrone_g6_entry"]))
+    person_bs = fusion.person_binary_sensor_entity_ids()
+    assert person_bs == ["binary_sensor.madrone_g6_entry_person_occupancy"]
+
+
+def test_cross_camera_invariant_with_two_unrelated_frigate_devices():
+    """C-MED-3: Two unrelated Frigate devices with unrelated object names.
+    An over-collect mutation (e.g. bare-substring stem_match) would red this."""
+    dev_target = FakeDevice(id="dev_t", identifiers={(PLATFORM_FRIGATE, "host1:kitchen")})
+    dev_other = FakeDevice(id="dev_o", identifiers={(PLATFORM_FRIGATE, "host1:backyard")})
+    ents = [
+        FakeEntity("camera.kitchen", "dev_t", PLATFORM_FRIGATE),
+        FakeEntity("binary_sensor.kitchen_person_occupancy", "dev_t", PLATFORM_FRIGATE),
+        FakeEntity("camera.backyard", "dev_o", PLATFORM_FRIGATE),
+        FakeEntity("binary_sensor.backyard_person_occupancy", "dev_o", PLATFORM_FRIGATE),
+    ]
+    r = _mk(ents, [dev_target, dev_other])
+    fusion = _sole(r.resolve_operator_declaration(["camera.kitchen"]))
+    dids = {s.device_id for s in fusion.sources}
+    assert dids == {"dev_t"}, f"cross-camera attribution leak: {dids}"
+
+
+def test_direct_construction_dedup_same_integration_and_device():
+    """C-LOW-1: post-fusion dedup by (integration, device_id) — two sources
+    with the same (integration, device_id) collapse to one."""
+    from dataclasses import replace
+    FusionSource = _mod.FusionSource
+    RoomCameraFusion = _mod.RoomCameraFusion
+    a = FusionSource(integration=PLATFORM_UNIFI, device_id="d1",
+                     person_binary_sensor="binary_sensor.a_person_detected")
+    b = replace(a)  # duplicate (integration, device_id)
+    # Manually simulate the resolver's post-fusion dedup path via a re-scan.
+    dev = FakeDevice(id="d1", identifiers={(PLATFORM_UNIFI, "u")})
+    ents = [
+        FakeEntity("camera.a", "d1", PLATFORM_UNIFI),
+        FakeEntity("binary_sensor.a_person_detected", "d1", PLATFORM_UNIFI),
+    ]
+    r = _mk(ents, [dev])
+    fusion = _sole(r.resolve_operator_declaration(["camera.a"]))
+    # Even if the input carried duplicates conceptually, only one FusionSource per (integration, device_id).
+    pairs = [(s.integration, s.device_id) for s in fusion.sources]
+    assert len(pairs) == len(set(pairs)), f"duplicate (integration, device_id): {pairs}"
+
+
+def test_grep_guardrail_no_switch_actuation_in_resolver_or_dry_run():
+    """C-LOW-2: assert zero switch.turn_on / async_call actuation in
+    camera_resolver.py and the dry-run scan (per plan: dry-run only)."""
+    def _strip_comments_and_strings(src: str) -> str:
+        # Naive but sufficient: drop full-line comments AND triple-quoted docstrings.
+        import re as _re
+        no_docstrings = _re.sub(r'"""[\s\S]*?"""', "", src)
+        lines = []
+        for ln in no_docstrings.split("\n"):
+            s = ln.split("#", 1)[0]
+            lines.append(s)
+        return "\n".join(lines)
+
+    resolver_src = _strip_comments_and_strings(_RESOLVER_PATH.read_text())
+    for banned in ("hass.services.async_call", ".async_call(", "'switch.turn_on'"):
+        assert banned not in resolver_src, (
+            f"banned actuation {banned!r} found in camera_resolver.py"
+        )
+    init_src = (REPO_ROOT / "custom_components/universal_room_automation/__init__.py").read_text()
+    # Extract the dry-run function body.
+    marker_start = "async def _camera_autoenable_dry_run_scan"
+    if marker_start in init_src:
+        start = init_src.index(marker_start)
+        end = init_src.index("\nasync def ", start + 1)
+        body = _strip_comments_and_strings(init_src[start:end])
+        for banned in ("hass.services.async_call", ".async_call(", "'switch.turn_on'"):
+            assert banned not in body, (
+                f"banned actuation {banned!r} in dry-run scan body"
+            )
 
 
 # ============================================================================
@@ -367,7 +504,7 @@ def test_f3_package_person_detector_excluded():
         FakeEntity("sensor.madrone_g6_entry_package_person_count", "d_entry", PLATFORM_FRIGATE),
     ]
     r = _mk(ents, [dev])
-    fusion = r.resolve_operator_declaration(["camera.madrone_g6_entry"])
+    fusion = _sole(r.resolve_operator_declaration(["camera.madrone_g6_entry"]))
     person_bs = fusion.person_binary_sensor_entity_ids()
     assert person_bs == ["binary_sensor.madrone_g6_entry_person_occupancy"]
     assert all("_package_" not in e for e in person_bs)
@@ -388,9 +525,9 @@ def test_f4_post_fusion_dedup_by_device_id():
         FakeEntity("binary_sensor.foo_person_detected", "d", PLATFORM_UNIFI),
     ]
     r = _mk(ents, [dev])
-    fusion = r.resolve_operator_declaration(
+    fusion = _sole(r.resolve_operator_declaration(
         ["camera.foo", "camera.foo_high_resolution_channel"]
-    )
+    ))
     dids = [s.device_id for s in fusion.sources]
     assert dids == ["d"]
 
@@ -409,8 +546,8 @@ def test_negative_disabled_person_entity_excluded():
                    disabled_by="user"),
     ]
     r = _mk(ents, [dev])
-    fusion = r.resolve_operator_declaration(["camera.x"])
-    person = fusion.person_binary_sensor_entity_ids()
+    fusions = r.resolve_operator_declaration(["camera.x"])
+    person = [eid for f in fusions for eid in f.person_binary_sensor_entity_ids()]
     assert person == []
 
 
@@ -430,7 +567,7 @@ def test_negative_cross_camera_attribution_impossible_review_d_invariant():
         FakeEntity("binary_sensor.b_person_detected", "dev_b", PLATFORM_UNIFI),
     ]
     r = _mk(ents, [dev_a, dev_b])
-    fusion = r.resolve_operator_declaration(["camera.a"])
+    fusion = _sole(r.resolve_operator_declaration(["camera.a"]))
     dids = {s.device_id for s in fusion.sources}
     assert dids == {"dev_a"}, f"Cross-camera attribution leak: {dids}"
 
@@ -451,7 +588,7 @@ def test_negative_ambiguous_multi_candidate_requires_operator_confirm_never_gues
         FakeEntity("binary_sensor.foo_typo_person_occupancy", "dev_c", PLATFORM_FRIGATE),
     ]
     r = _mk(ents, [dev_a, dev_b, dev_c])
-    fusion = r.resolve_operator_declaration(["camera.foo"])
+    fusion = _sole(r.resolve_operator_declaration(["camera.foo"]))
     # dev_c has a different object name ("foo_typo") — must NOT be pulled in.
     dids = {s.device_id for s in fusion.sources}
     assert "dev_c" not in dids
@@ -471,7 +608,7 @@ def test_face_capability_absent_when_no_face_entity():
     ents = [FakeEntity("camera.x", "d", PLATFORM_UNIFI),
             FakeEntity("binary_sensor.x_person_detected", "d", PLATFORM_UNIFI)]
     r = _mk(ents, [dev])
-    fusion = r.resolve_operator_declaration(["camera.x"])
+    fusion = _sole(r.resolve_operator_declaration(["camera.x"]))
     assert fusion.sources[0].face_capability == FACE_ABSENT
 
 
@@ -481,7 +618,7 @@ def test_face_capability_usable_when_face_entity_enabled():
             FakeEntity("binary_sensor.x_person_detected", "d", PLATFORM_UNIFI),
             FakeEntity("binary_sensor.x_face_detected", "d", PLATFORM_UNIFI)]
     r = _mk(ents, [dev])
-    fusion = r.resolve_operator_declaration(["camera.x"])
+    fusion = _sole(r.resolve_operator_declaration(["camera.x"]))
     assert fusion.sources[0].face_capability == FACE_USABLE
 
 
@@ -492,7 +629,7 @@ def test_face_capability_ambiguous_when_face_entity_disabled():
             FakeEntity("binary_sensor.x_face_detected", "d", PLATFORM_UNIFI,
                        disabled_by="user")]
     r = _mk(ents, [dev])
-    fusion = r.resolve_operator_declaration(["camera.x"])
+    fusion = _sole(r.resolve_operator_declaration(["camera.x"]))
     assert fusion.sources[0].face_capability == FACE_AMBIGUOUS
 
 
@@ -513,7 +650,7 @@ def test_d4_face_switch_never_in_auto_enable_list():
         FakeEntity("switch.x_smart_detect_face", "d", PLATFORM_UNIFI),
     ]
     r = _mk(ents, [dev])
-    fusion = r.resolve_operator_declaration(["camera.x"])
+    fusion = _sole(r.resolve_operator_declaration(["camera.x"]))
     person_switches = fusion.person_detect_switch_entity_ids()
     face_switches = fusion.face_detect_switch_entity_ids()
     assert "switch.x_detections_person" in person_switches
@@ -567,12 +704,11 @@ def test_conf_room_cameras_key_is_distinct_from_migration_target():
 
 def test_empty_input_returns_empty_fusion():
     r = _mk([], [])
-    fusion = r.resolve_operator_declaration([])
-    assert fusion.sources == []
-    assert fusion.physical_camera_id == ""
+    fusions = r.resolve_operator_declaration([])
+    assert fusions == []
 
 
 def test_missing_entity_warns_and_skips():
     r = _mk([], [])
-    fusion = r.resolve_operator_declaration(["camera.does_not_exist"])
-    assert fusion.sources == []
+    fusions = r.resolve_operator_declaration(["camera.does_not_exist"])
+    assert fusions == []

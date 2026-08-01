@@ -309,6 +309,8 @@ from .const import (
     CONF_CENSUS_CROSS_VALIDATION,
     CONF_CENSUS_DIVERGENCE_DOWNGRADE,
     DEFAULT_CENSUS_DIVERGENCE_DOWNGRADE,
+    CONF_AUTO_ENABLE_PERSON_DETECTION,
+    DEFAULT_AUTO_ENABLE_PERSON_DETECTION,
     # v3.5.1: Perimeter Alerting
     CONF_PERIMETER_ALERT_HOURS_START,
     CONF_PERIMETER_ALERT_HOURS_END,
@@ -2978,6 +2980,15 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_current(
                     CONF_CENSUS_DIVERGENCE_DOWNGRADE,
                     DEFAULT_CENSUS_DIVERGENCE_DOWNGRADE,
+                ),
+            ): selector.BooleanSelector(),
+            # A-M6/E-LOW-1: expose D4 auto-enable knob for the person-detect
+            # switch scan. Face switches NEVER auto-enable (invariant).
+            vol.Optional(
+                CONF_AUTO_ENABLE_PERSON_DETECTION,
+                default=self._get_current(
+                    CONF_AUTO_ENABLE_PERSON_DETECTION,
+                    DEFAULT_AUTO_ENABLE_PERSON_DETECTION,
                 ),
             ): selector.BooleanSelector(),
             vol.Optional(

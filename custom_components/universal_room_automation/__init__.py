@@ -389,31 +389,42 @@ async def _camera_autoenable_dry_run_scan(
             DEFAULT_AUTO_ENABLE_PERSON_DETECTION,
         ))
     )
-    resolver = CameraResolver(er.async_get(hass), dr.async_get(hass))
-    fusions = []
-    for room_entry in hass.config_entries.async_entries(DOMAIN):
-        if room_entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
-            continue
+    # B-MED-2: early-return when zero ROOM entries have room_cameras configured.
+    rooms_with_cams = [
+        e for e in hass.config_entries.async_entries(DOMAIN)
+        if e.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ROOM
+        and ({**e.data, **e.options}.get(CONF_ROOM_CAMERAS) or [])
+    ]
+    if not rooms_with_cams:
+        _LOGGER.debug(
+            "Camera auto-enable dry-run: no rooms have CONF_ROOM_CAMERAS — skipping scan"
+        )
+        return
+    resolver = CameraResolver(
+        er.async_get(hass), dr.async_get(hass),
+        state_getter=hass.states.get,
+    )
+    fusions = []  # flat list across rooms
+    for room_entry in rooms_with_cams:
         merged = {**room_entry.data, **room_entry.options}
         room_cams = merged.get(CONF_ROOM_CAMERAS) or []
-        if not room_cams:
-            continue
         try:
-            fusion = resolver.resolve_operator_declaration(room_cams)
+            room_fusions = resolver.resolve_operator_declaration(room_cams)
         except Exception as exc:  # noqa: BLE001
             _LOGGER.warning(
                 "Camera auto-enable dry-run: resolve failed for room %s: %s",
                 room_entry.title, exc,
             )
             continue
-        fusions.append(fusion)
-        face_sw = fusion.face_detect_switch_entity_ids()
-        if face_sw:
-            _LOGGER.info(
-                "Camera auto-enable dry-run: room=%s FACE switches (INVENTORY "
-                "ONLY, never auto-enabled): %s",
-                room_entry.title, face_sw,
-            )
+        fusions.extend(room_fusions)  # Fix #7: list, not single
+        for f in room_fusions:
+            face_sw = f.face_detect_switch_entity_ids()
+            if face_sw:
+                _LOGGER.info(
+                    "Camera auto-enable dry-run: room=%s FACE switches (INVENTORY "
+                    "ONLY, never auto-enabled): %s",
+                    room_entry.title, face_sw,
+                )
     would_enable = collect_person_switches_to_enable(
         fusions, lambda eid: hass.states.get(eid)
     )

@@ -52,6 +52,20 @@ from typing import Any, Callable, Iterable
 
 _LOGGER = logging.getLogger(__name__)
 
+
+def _norm_mac(value: Any) -> str:
+    """Normalize a MAC connection value. A-L1: prefer HA's format_mac (canonical
+    lowercase colon-separated form), else fall back to a lowercased string so
+    index + lookup both agree on the same key.
+    """
+    if value is None:
+        return ""
+    try:
+        from homeassistant.helpers.device_registry import format_mac  # noqa: PLC0415
+        return format_mac(str(value))
+    except Exception:  # noqa: BLE001 — resolver runs from tests w/o HA import
+        return str(value).lower()
+
 # ---------------------------------------------------------------------------
 # Module-level rung-1 knobs (per plan: "flip via later reviewed change").
 # These are code-review-gated (Numbers-Get-Knobs rung 1 — module constant),
@@ -69,9 +83,13 @@ FRIGATE_CROSS_HOST_CORROBORATION_ENABLED: bool = False
 # inventory looks right.
 CAMERA_AUTOENABLE_DRY_RUN: bool = True
 
-# Census cutover: default NEW resolver. Legacy same-name-stem path preserved
-# in camera_census.py behind this flag for one-cycle rollback.
-CENSUS_USE_NEW_RESOLVER: bool = True
+# Census cutover: default LEGACY census path (Fix #1, reviews A-H2 / B-HIGH-2
+# / D-HIGH-2 unanimous). The new resolver is still exercised by D3 (per-room
+# fused binary_sensor) and D5 (fan_veto camera-person leg); flipping this
+# flag routes the whole-house census path through it too. Cutover requires
+# a golden-master diff artifact (legacy vs new outputs across the live
+# registry) per the plan amendment — do NOT flip without that artifact.
+CENSUS_USE_NEW_RESOLVER: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +187,22 @@ _FACE_SWITCH_SUFFIXES = (
 
 _PERSON_COUNT_SUFFIX = "_person_count"
 
+# Camera-entity resolution suffixes stripped when computing per-device stems.
+# Kept module-level so both `_compute_device_stems` and `_stem_match` agree.
+_CAMERA_RESOLUTION_SUFFIXES = (
+    "_high_resolution_channel",
+    "_medium_resolution_channel",
+    "_low_resolution_channel",
+    "_fisheye",
+)
+
+
+def _strip_camera_resolution_suffix(name: str) -> str:
+    for suf in _CAMERA_RESOLUTION_SUFFIXES:
+        if name.endswith(suf):
+            return name[: -len(suf)]
+    return name
+
 
 def _entity_name(entity_id: str) -> str:
     return entity_id.split(".", 1)[1] if "." in entity_id else entity_id
@@ -225,6 +259,7 @@ class CameraResolver:
         device_registry: Any,
         *,
         network_inventory: Callable[[str], str | None] | None = None,
+        state_getter: Callable[[str], Any | None] | None = None,
     ) -> None:
         """Initialize.
 
@@ -241,6 +276,9 @@ class CameraResolver:
         self._er = entity_registry
         self._dr = device_registry
         self._network_inventory = network_inventory
+        # Optional state accessor used by the deterministic F2 collapse
+        # winner-selection (A-M3). Signature matches hass.states.get.
+        self._state_getter = state_getter
         # Build the MAC index once per resolver instance.
         self._mac_to_device_ids: dict[str, set[str]] = {}
         # Build a stem -> list[device_id] index for the same-Frigate-object collapse.
@@ -265,7 +303,9 @@ class CameraResolver:
                     continue
                 if ctype != "mac" or not cval:
                     continue
-                mac = str(cval).lower()
+                mac = _norm_mac(cval)
+                if not mac:
+                    continue
                 self._mac_to_device_ids.setdefault(mac, set()).add(dev.id)
             # Frigate-stem index: identifiers look like ("frigate", "<host>:<name>")
             identifiers = getattr(dev, "identifiers", None) or ()
@@ -300,24 +340,36 @@ class CameraResolver:
     def resolve_operator_declaration(
         self,
         entity_ids: list[str],
-    ) -> RoomCameraFusion:
-        """CONF_ROOM_CAMERAS multi-select -> one RoomCameraFusion.
+    ) -> list[RoomCameraFusion]:
+        """CONF_ROOM_CAMERAS multi-select -> LIST of RoomCameraFusion (D-MED-2).
 
-        Operator declaration is GROUND TRUTH: every entity listed here is
-        asserted to belong to the same physical camera. Duplicate device_ids
-        are collapsed. Correlation basis for entities not otherwise linkable
-        is BASIS_OPERATOR_DECLARED.
+        Fix #7 (2026-08-01 fix-up): the multi-select now models one entry per
+        physical camera. Each input entity_id is resolved via the ladder; any
+        entities the ladder pulls in (MAC / identifier / name-stem siblings)
+        merge into the SAME physical camera's fusion. Two unrelated input
+        entities (no ladder link) resolve to TWO fusions.
+
+        Consumers (D3 fused sensor, D5 fan_veto, D4 dry-run scan) OR across
+        the returned list and attribute per-camera.
         """
-        device_ids: list[str] = []
+        input_devices: list[str] = []
         seen: set[str] = set()
         for eid in entity_ids:
             did = self.resolve_entity_to_device_id(eid)
             if did and did not in seen:
                 seen.add(did)
-                device_ids.append(did)
-        return self.resolve_capabilities(
-            device_ids, operator_declared=True
-        )
+                input_devices.append(did)
+        fusions: list[RoomCameraFusion] = []
+        consumed: set[str] = set()
+        for did in input_devices:
+            if did in consumed:
+                continue
+            fusion = self.resolve_capabilities([did])
+            for s in fusion.sources:
+                consumed.add(s.device_id)
+            if fusion.sources:
+                fusions.append(fusion)
+        return fusions
 
     def resolve_capabilities(
         self,
@@ -359,32 +411,35 @@ class CameraResolver:
                     continue
                 if ctype != "mac" or not cval:
                     continue
-                for peer_did in self._mac_to_device_ids.get(str(cval).lower(), set()):
+                for peer_did in self._mac_to_device_ids.get(_norm_mac(cval), set()):
                     if peer_did not in expanded:
                         expanded[peer_did] = BASIS_MAC
 
-        # Rung 3 (identifiers): overlap of identifier VALUES across integrations.
-        input_identifier_values: set[str] = set()
+        # Rung 3 (identifiers): overlap of full (integration, key) TUPLES —
+        # D-LOW-1 fix. Matching bare key strings across different integrations
+        # produced spurious pulls when two unrelated integrations happened to
+        # reuse an opaque key.
+        input_identifier_tuples: set[tuple[str, str]] = set()
         for did in device_ids:
             dev = self._device(did)
             if not dev:
                 continue
             for ident in getattr(dev, "identifiers", None) or ():
                 try:
-                    _integ, key = ident
+                    integ, key = ident
                 except Exception:
                     continue
-                if isinstance(key, str):
-                    input_identifier_values.add(key)
+                if isinstance(key, str) and integ:
+                    input_identifier_tuples.add((integ, key))
         for dev in getattr(self._dr, "devices", {}).values():
             if dev.id in expanded:
                 continue
             for ident in getattr(dev, "identifiers", None) or ():
                 try:
-                    _integ, key = ident
+                    integ, key = ident
                 except Exception:
                     continue
-                if isinstance(key, str) and key in input_identifier_values:
+                if isinstance(key, str) and (integ, key) in input_identifier_tuples:
                     expanded[dev.id] = BASIS_IDENTIFIERS
                     break
 
@@ -408,7 +463,7 @@ class CameraResolver:
                         continue
                     if not mac:
                         continue
-                    for peer_did in self._mac_to_device_ids.get(str(mac).lower(), set()):
+                    for peer_did in self._mac_to_device_ids.get(_norm_mac(mac), set()):
                         if peer_did not in expanded:
                             expanded[peer_did] = BASIS_NETWORK_INVENTORY
 
@@ -421,33 +476,82 @@ class CameraResolver:
         # name (F2 collapse handled below), plus entity-level sibling entities
         # on OTHER devices sharing a stem.
         for stem in list(device_stems.values()):
-            for sibling_did in self._frigate_stem_to_device_ids.get(stem, []):
-                if sibling_did not in expanded:
-                    expanded[sibling_did] = BASIS_NAME_STEM
+            # D-HIGH-1: try both raw stem and resolution-suffix-stripped stem
+            # (the compute already strips, but be defensive against callers
+            # passing raw values).
+            for lookup in {stem, _strip_camera_resolution_suffix(stem)}:
+                for sibling_did in self._frigate_stem_to_device_ids.get(lookup, []):
+                    if sibling_did not in expanded:
+                        expanded[sibling_did] = BASIS_NAME_STEM
+
+        # ---- F2 collapse: pre-select the winning Frigate device per object-name
+        # A-M3 fix — deterministic winner:
+        #   (1) person_bs state == "on"
+        #   (2) person_bs state not in (unavailable, unknown, None)
+        #   (3) lowest sorted device_id
+        # D-MED-1 observability: INFO log every collapse fire.
+        # -------------------------------------------------------------------
+        frigate_dropped: set[str] = set()
+        if not FRIGATE_CROSS_HOST_CORROBORATION_ENABLED:
+            frigate_by_obj: dict[str, list[str]] = {}
+            for did in expanded:
+                dev = self._device(did)
+                if self._infer_integration(dev) != PLATFORM_FRIGATE:
+                    continue
+                obj = self._frigate_object_name_for_device(dev)
+                if obj:
+                    frigate_by_obj.setdefault(obj, []).append(did)
+            for obj, dids in frigate_by_obj.items():
+                if len(dids) <= 1:
+                    continue
+
+                def _read_state(did: str) -> str | None:
+                    p_bs, *_ = self._scan_device_entities(
+                        did, PLATFORM_FRIGATE, stem_filter=device_stems.get(did)
+                    )
+                    if not p_bs or self._state_getter is None:
+                        return None
+                    try:
+                        st = self._state_getter(p_bs)
+                    except Exception:  # noqa: BLE001
+                        return None
+                    if st is None:
+                        return None
+                    return getattr(st, "state", None) if not isinstance(st, str) else st
+
+                def _rank(did: str):
+                    s = _read_state(did)
+                    if s == "on":
+                        return (0, did)
+                    if s and s not in ("unavailable", "unknown"):
+                        return (1, did)
+                    return (2, did)
+
+                ordered = sorted(dids, key=_rank)
+                winner = ordered[0]
+                losers = ordered[1:]
+                for l in losers:
+                    frigate_dropped.add(l)
+                _LOGGER.info(
+                    "CameraResolver: F2 collapse fired — object=%s winner=%s "
+                    "losers=%s (gate FRIGATE_CROSS_HOST_CORROBORATION_ENABLED=False)",
+                    obj, winner, losers,
+                )
 
         # ---- Build FusionSources per resolved device --------------------
+        # Iterate in deterministic device_id order so the primary source and
+        # attribution ordering are byte-stable across restarts.
         sources: list[FusionSource] = []
-        seen_frigate_stems: set[str] = set()   # F2 collapse dedup
-        for did, basis in expanded.items():
+        for did in sorted(expanded.keys()):
+            basis = expanded[did]
+            if did in frigate_dropped:
+                continue
             dev = self._device(did)
             integration = self._infer_integration(dev)
             # Gather entities on this device.
             person_bs, face_bs, face_cap, count_s, person_sw, face_sw = self._scan_device_entities(
                 did, integration, stem_filter=device_stems.get(did)
             )
-            # F2: collapse same-object-name Frigate devices across the two hosts
-            # unless the stability gate is open.
-            if integration == PLATFORM_FRIGATE and not FRIGATE_CROSS_HOST_CORROBORATION_ENABLED:
-                frigate_obj = self._frigate_object_name_for_device(dev)
-                if frigate_obj and frigate_obj in seen_frigate_stems:
-                    _LOGGER.debug(
-                        "CameraResolver: F2 collapse — dropping duplicate Frigate "
-                        "device %s (object=%s); gate FRIGATE_CROSS_HOST_CORROBORATION_ENABLED=False",
-                        did, frigate_obj,
-                    )
-                    continue
-                if frigate_obj:
-                    seen_frigate_stems.add(frigate_obj)
 
             if not (person_bs or face_bs or count_s or person_sw):
                 # Device contributes nothing to the fusion — skip.
@@ -539,7 +643,12 @@ class CameraResolver:
                         stem = s
                         break
             if stem:
-                out[did] = stem
+                # D-HIGH-1 (D's stem keyspace fix): the Frigate identifier index
+                # keys off the object-name (e.g. "staircase"); a UniFi camera
+                # entity name typically carries a resolution suffix (e.g.
+                # "staircase_high_resolution_channel"). Strip the suffix so
+                # rung-5 lookup can match Frigate<->Protect on the same base.
+                out[did] = _strip_camera_resolution_suffix(stem)
         return out
 
     def _scan_device_entities(
@@ -574,37 +683,29 @@ class CameraResolver:
 
         def _stem_match(entity_id: str) -> bool:
             # F1: within a Protect device that hosts multiple cameras, only
-            # accept entities whose stem starts with the same prefix as the
-            # camera the operator listed. For all other integrations the
-            # filter is a no-op.
+            # accept entities whose name-stem equals the camera's FULL stripped
+            # base OR starts with `<base>_` (word-boundary semantics). No
+            # first-token / bare-substring fallback — that was A-M5 / E-HIGH-3
+            # / D-HIGH-1: three independent findings that the permissive
+            # prefix-compare would silently pull in unrelated cameras that
+            # happen to share a first token (e.g. "garage_*" siblings on a
+            # "garagehallway_*" device).
             if integration != PLATFORM_UNIFI or not stem_filter:
                 return True
             name = _entity_name(entity_id)
-            # A Protect entity name for the target physical camera will start
-            # with the same base as its camera.* entity. e.g.
-            # stem_filter = "staircase_high_resolution_channel"
-            # accept: staircase_person_detected, staircase_last_recognized_face
-            # reject: camera_protect_garagehallway_person_detected
-            base = stem_filter
-            # Strip common camera-entity suffixes for comparison.
-            for suf in ("_high_resolution_channel", "_medium_resolution_channel",
-                        "_fisheye"):
-                if base.endswith(suf):
-                    base = base[: -len(suf)]
-                    break
-            # Take the leading token(s) up to the first underscore-separated
-            # segment for a permissive prefix compare.
-            base_head = base.split("_", 1)[0]
-            if not base_head:
+            base = _strip_camera_resolution_suffix(stem_filter)
+            if not base:
                 return True
-            return name.startswith(base_head + "_") or name.startswith(base_head)
+            return name == base or name.startswith(base + "_")
 
         for ent in entities:
             eid = getattr(ent, "entity_id", "")
             domain = getattr(ent, "domain", "") or (eid.split(".", 1)[0] if "." in eid else "")
             disabled_by = getattr(ent, "disabled_by", None)
-            # F3: exclude package-person detectors.
-            if _is_package_detector(eid):
+            # A-L2 fix: package-person detector filter is a Frigate-only concept
+            # (Frigate's package-object detector shares a stem with its person
+            # detector). Do NOT apply to other integrations.
+            if integration == PLATFORM_FRIGATE and _is_package_detector(eid):
                 continue
             if not _stem_match(eid):
                 continue
@@ -616,15 +717,24 @@ class CameraResolver:
                 elif _has_any_suffix(eid, _FACE_SUFFIXES):
                     if face_bs is None:
                         face_bs = eid
-                    face_cap = FACE_USABLE if disabled_by is None else FACE_AMBIGUOUS
+                    # A-M4 (sticky escalation): USABLE never demotes to AMBIGUOUS.
+                    # Once ANY enabled face entity is seen, capability stays USABLE
+                    # even if a later disabled face entity is scanned.
+                    if disabled_by is None:
+                        face_cap = FACE_USABLE
+                    elif face_cap == FACE_ABSENT:
+                        face_cap = FACE_AMBIGUOUS
             elif domain == "sensor":
                 if _entity_name(eid).endswith(_PERSON_COUNT_SUFFIX) and disabled_by is None:
                     if count_s is None:
                         count_s = eid
                 elif _has_any_suffix(eid, _FACE_SUFFIXES):
-                    # sensor.<stem>_last_recognized_face — presence indicates face capability
-                    if face_cap == FACE_ABSENT:
-                        face_cap = FACE_USABLE if disabled_by is None else FACE_AMBIGUOUS
+                    # sensor.<stem>_last_recognized_face — presence indicates face capability.
+                    # A-M4: sticky USABLE.
+                    if disabled_by is None:
+                        face_cap = FACE_USABLE
+                    elif face_cap == FACE_ABSENT:
+                        face_cap = FACE_AMBIGUOUS
             elif domain == "switch":
                 if _has_any_suffix(eid, _PERSON_SWITCH_SUFFIXES) and disabled_by is None:
                     if person_sw is None:
@@ -659,8 +769,12 @@ def collect_person_switches_to_enable(
             except Exception:
                 st = None
             if st is None:
-                # No state read available -- include so operator sees it in
-                # dry-run inventory; production caller will re-check state.
+                # A-L4 contract: a None state read means the entity is NOT
+                # in the state machine yet (registry-only / restart transient).
+                # We INCLUDE it in the dry-run inventory so the operator sees
+                # every candidate; the production call site (once wired) MUST
+                # re-check state at call time and skip if still None. This is
+                # the dry-run-first invariant — visibility beats silence.
                 out.append(sw)
                 continue
             state_val = getattr(st, "state", None) if not isinstance(st, str) else st
