@@ -1695,13 +1695,31 @@ class RoomAutomation:
                 sleep_speed_cap = 33  # Cap at low speed during sleep
 
         # v3.18.0: Fan vacancy hold — don't turn off fans immediately on occupancy timeout
+        # BUG 1 fix (2026-08-01 Study A, Phase 1 D0): the vacancy-hold
+        # override (`occupied = True` during grace) applies ONLY when a
+        # fan is already running (`any_fan_on_now`, computed above at
+        # the FIX C cooldown site). The documented intent was "don't
+        # turn OFF running fans immediately on timeout"; without the
+        # any_fan_on_now gate, the override also ARMS turn-ONs
+        # post-restart in hot vacant rooms — on boot the RAM
+        # `_fan_vacancy_start` is None, the first vacant tick re-stamps
+        # it, and for the next `fan_vacancy_hold` seconds this branch
+        # flipped `occupied=True` so the downstream temperature branch
+        # emitted a spurious fan.turn_on in an unoccupied room.
         fan_vacancy_hold = self.config.get(CONF_FAN_VACANCY_HOLD, DEFAULT_FAN_VACANCY_HOLD)
+        _hold_running_fan = False
         if not occupied:
-            if self._fan_vacancy_start is None:
-                self._fan_vacancy_start = dt_util.now()
-            vacancy_elapsed = (dt_util.now() - self._fan_vacancy_start).total_seconds()
-            if vacancy_elapsed < fan_vacancy_hold:
-                occupied = True  # Override: hold fans during grace period
+            if any_fan_on_now:
+                if self._fan_vacancy_start is None:
+                    self._fan_vacancy_start = dt_util.now()
+                vacancy_elapsed = (dt_util.now() - self._fan_vacancy_start).total_seconds()
+                if vacancy_elapsed < fan_vacancy_hold:
+                    _hold_running_fan = True
+                    occupied = True  # Override: hold RUNNING fans during grace period
+            else:
+                # No fan to hold — clear any stale stamp so a later
+                # externally-lit fan doesn't inherit a phantom grace window.
+                self._fan_vacancy_start = None
         else:
             self._fan_vacancy_start = None  # Reset on re-occupation
 
