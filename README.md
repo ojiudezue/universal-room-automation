@@ -259,4 +259,3 @@ MIT — see [LICENSE](LICENSE).
 
 - The **Home Assistant** community, for the platform URA rides on
 - **Bermuda BLE**, **Enphase Envoy**, **Solcast** — URA's data backbone
-- **Claude (Anthropic)** for development assistance throughout the v3 → v5 evolution
