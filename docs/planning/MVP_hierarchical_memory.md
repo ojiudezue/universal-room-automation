@@ -48,7 +48,7 @@ study_a.md`, containing:
 **Stage-0 pass criteria (the kill gate):** at least 4 of 7 answers are
 judged by the operator to have earned their keep — concretely: would
 have shortened the fan forensics, suppressed or sharpened a real July
-notification, or correctly explained a real decision. Fewer than 3 →
+notification, or correctly explained a real decision. Fewer than 4 →
 park the whole workstream with this doc as the record; the concept
 loses on evidence, not on taste.
 
