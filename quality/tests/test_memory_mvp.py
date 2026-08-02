@@ -962,3 +962,24 @@ def test_unload_cleanup_pops_wiring_keys():
     body = src[i:i+900]
     assert '"memory_baseline_unsub", None' in body
     assert 'pop("memory_facade", None)' in body
+
+
+def test_nm_conditioning_switch_resolved_via_registry_unique_id():
+    """v5.47.2: the NM conditioning switch guard must resolve the entity
+    id from the registry by unique_id (DOMAIN_memory_nm_conditioning) —
+    the live entity id is device-name-derived
+    (switch.ura_coordinator_manager_memory_nm_conditioning) so the old
+    hardcoded guess never matched and conditioning was inert."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[2] /
+           "custom_components/universal_room_automation/"
+           "domain_coordinators/notification_manager.py").read_text()
+    i = src.find("Runtime switch guard")
+    assert i > 0
+    region = src[i:i+1400]
+    assert 'async_get_entity_id(' in region
+    assert 'f"{DOMAIN}_memory_nm_conditioning"' in region  # exact unique_id
+    # fallback slug guess retained AFTER the registry attempt
+    assert region.find("async_get_entity_id(") < region.find(
+        '"switch.ura_memory_nm_conditioning"'
+    )
