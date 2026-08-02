@@ -36,3 +36,13 @@ entry (rare; bounded-retry rejected as overbuild).
   after HA started: 1 cameras / 1 sources" for Study A.
 - **Live:** `binary_sensor.studya_room_device_camera_person_detected` shows
   `agreement != no_sources` WITHOUT any manual reload post-restart.
+
+### Validated 2026-08-01 (~20:56 CDT, first post-deploy boot)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Autonomous re-resolve at STARTED, no manual reload | **PASS** | Sensor added 20:52:44 with `no_sources` (camera platforms not yet loaded); at 20:56:10 — EVENT_HOMEASSISTANT_STARTED, ~3.5 min after boot (bootstrap held by slow alexa_devices setup) — it re-resolved to `agreement: single_source`, `confidence: medium`, armcrestash41b via `name_stem`, 1 physical camera. Zero operator action. |
+| INFO log lines | not-observable | URA config entries run at log_level WARNING, so the two INFO lines never emit. Verified via the state oracle instead (the callback's `async_write_ha_state` at 20:56:10 IS the evidence the started-path ran). |
+
+This closes the v5.46.0 validation defect: every future restart self-heals the
+fused camera sensor (and therefore the fan-veto camera leg) once bootstrap
+completes.
