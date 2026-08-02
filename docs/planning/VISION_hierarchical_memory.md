@@ -49,6 +49,14 @@ thermostat; house → zones) and what it can DO (actuation surface,
 mechanisms enabled). The present answer reads live from config — config
 IS the store — but memory owns the CHANGES: a swapped sensor or added
 fan is an episode, so "when did my composition change" is answerable.
+Identity also carries **locality** (operator addition 2026-08-02), in
+two senses: *zone locality* — my zone siblings (pure config read; the
+§8 access policy already keys on it) — and *self locality* — the rooms
+physically around me, derived rather than declared: the room_transitions
+table (273k rows) yields a symmetric, physically-sane adjacency graph
+(probe 2026-08-02), refinable by BLE co-visibility, overridable by
+config. Locality is a queryable PROPERTY of a node, not a permission
+boundary (see architecture §5b for the rejection rationale).
 Without this kind, every diagnosis query begins by asking something
 memory can't answer.
 

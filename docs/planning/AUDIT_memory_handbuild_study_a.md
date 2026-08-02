@@ -125,7 +125,12 @@ night-light, Dreo tower fan, blinds, climate: shared Bryant zone-1
 (zone-tier owned)}. **Can do** (declared × enabled × actionable):
 lighting ✓/✓/✓; comfort-fan ✓ w/ away-veto+D2+transition-gate /✓/ ✓;
 humidity-fan ✗ declared; covers ✓/✓/✓; camera-person fusion ✓/✓/
-✓-as-of-08-01-restart (E6 + v5.46.1). July config deltas: E5, E6.
+✓-as-of-08-01-restart (E6 + v5.46.1). **Locality** — zone: {Study B, Master Bedroom, ...} (Bryant zone-1
+config); self (derived from room_transitions, probe 2026-08-02): Study
+A's own transit counts are sparse (its occupancy substrate was
+remediated late), but the adjacent cluster is unambiguous via Study A
+Closet ↔ {Study B 3.1k, Master Bedroom 3.2k, Receiving Room 2.9k} —
+symmetric counts, physically sane. July config deltas: E5, E6.
 coordinator:energy: **contains** ≈ nothing (thin by design). **Can
 do** — reserve/TOU arbitrage strategy (enabled; observation-mode off),
 peak-avoidance + AC-ramp savings accounting, load proposals (shed

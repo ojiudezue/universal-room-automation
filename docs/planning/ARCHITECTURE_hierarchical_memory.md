@@ -179,10 +179,39 @@ bucket (room), member rooms + thermostat (zone), zones (house).
    a capability nominal; profile() surfaces "can, but actuator
    unavailable" distinctly).
 
+**"Who is around me"** — locality, two senses (operator addition):
+- *zone locality*: member/sibling rooms from Zone Manager config (live
+  read; already the §8 visibility key).
+- *self locality*: physical neighbors, resolved by ladder — operator-
+  declared adjacency (optional config, wins if present) → derived from
+  `room_transitions` statistics (probe-validated 2026-08-02: 273k rows,
+  symmetric pair counts, physically sane graph; the table's path_type/
+  via_room columns mean routes, not just hops, are derivable) → BLE
+  co-visibility as tie-break. Derived adjacency is recomputed by the
+  daily compaction batch and stored as a house-level fact
+  (topic: adjacency_graph) with derived_from support counts — so it
+  self-corrects after a remodel and carries provenance like everything
+  else.
+
+**Locality is NOT a query-permission boundary (considered, rejected).**
+Permission stays tier-scoped per §8. Rationale: (a) the proven
+cross-node use case (systemic-vs-local, Q1 in the Stage-0 audit) needs
+zone/house reach that adjacency would wrongly deny; (b) permission
+derived from a learned graph means a statistics shift silently changes
+security posture — policy must not float on data; (c) zone-sibling
+scope already bounds coupling. Locality is an ANSWER (profile content,
+narrative context), and later possibly a fusion FEATURE — transit
+plausibility: occupancy appearing with no preceding neighbor activity
+is suspect (the 08-01 Study A phantom had exactly this signature).
+That feature is PARKED behind the memory-ineligible discipline (§8:
+occupancy decisions stay live-evidence) with evidence trigger: if
+post-v5.46.0 phantoms still occur, transit plausibility is the next
+corroborator to evaluate.
+
 So a coordinator's profile is dominated by the "can do" half (its
-contain half is thin), a room's carries both, and the answer
-distinguishes designed / enabled / currently-actionable — which is
-exactly the triage ladder of every "why didn't X happen" diagnosis.
+contain half is thin), a room's carries both plus locality, and the
+answer distinguishes designed / enabled / currently-actionable — which
+is exactly the triage ladder of every "why didn't X happen" diagnosis.
 
 NO new storage — duplicating config into memory would create a second
 source of truth. What memory
