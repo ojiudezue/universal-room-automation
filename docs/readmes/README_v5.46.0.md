@@ -63,3 +63,14 @@ BillingRestoreDaily failures that pass in isolation — pollution class, tracked
 - **Live:** Study A fused camera sensor leaves `no_sources` once resolver
   re-runs with the `_N`-strip fix (attribution attrs populate for
   armcrestash41b / G3 Instant).
+
+### Validated 2026-08-01 (~20:40 CDT, first post-deploy boot)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Clean boot, zero URA ERRORs | **PASS** | journald scan: only unrelated lepro_led/wiim errors; zero URA ERROR lines; no fan-gate WARNING (error latch silent). |
+| `fan_transition_suppressed_count` attr present | **PASS** | `binary_sensor.study_a_occupied` carries `fan_transition_suppressed_count: 0` post-boot. |
+| First organic suppression | pending-organic | Needs a fan transition in a vacant mmWave room; watch DEBUG line + counter. |
+| No missed real entries | pending-organic | Standing watch; PIR/BLE co-fire admits normally by design + tests. |
+| Study A fused sensor leaves `no_sources` | **PASS-after-reload / BUG FOUND** | Post-boot it stayed `no_sources` (boot-order cache poisoning — see below). After a targeted Study A entry reload: `agreement: single_source`, `confidence: medium`, armcrestash41b resolved via `name_stem` (the `_N`-strip fix working live). G3 Instant correctly contributes no person source (motion-only hardware). |
+
+**Defect found during validation (fixed in v5.46.1):** `CameraPersonDetectedSensor._get_fusion` caches an EMPTY resolution (`_fusions = []` is `not None`) computed while camera integrations are still loading at boot, and `_subscribe_sources` returns without any subscriptions — so the fused sensor and the fan-veto camera leg are inert after every restart until a manual entry reload. Failure direction is conservative (no camera evidence → veto holds), but the surface is dead each boot.
