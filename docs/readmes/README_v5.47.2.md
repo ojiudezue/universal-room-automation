@@ -23,3 +23,9 @@ Suite: 36 memory tests (drill caught + fixed a loose anchor), full
   hazard in an allowlist room logs the conditioning breadcrumb
   (dampened or insufficient-history DEBUG) — proves the guard now finds
   the switch.
+
+### Validated 2026-08-02 (~10:39 CDT, first post-deploy boot)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Wiring regression check | **PASS** | Second consecutive boot with memory_query registered + baseline folding (22 rows, folds each 5-min cycle) — the v5.47.1 race fix holds regardless of which entry wins the init lock. |
+| Conditioning breadcrumb | pending-organic | Needs a humidity/CO2 LOW-MED hazard in an allowlist room; switch now resolvable via registry. |
