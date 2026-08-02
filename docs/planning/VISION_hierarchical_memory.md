@@ -22,7 +22,7 @@ history owned by the node is memory — the difference between an operator
 phantoms align with fan transitions, and the room being able to answer
 that question itself.
 
-## 2. What "memory" means here — three kinds, one interface
+## 2. What "memory" means here — five kinds, one interface
 
 **Episodic memory** — discrete events that happened to this node, WITH
 adjudication: not just "occupancy released" but "occupancy released,
@@ -43,7 +43,27 @@ strategy, veto/demotion hit rates. This is the loop-closer: it is how
 the system learns which of its own judgments to trust, without ML
 machinery.
 
-All three kinds sit behind ONE interface (§3). A consumer never knows or
+**Identity memory (operator addition 2026-08-02)** — what a node IS:
+what it contains (room → sensors/actuators; zone → member rooms +
+thermostat; house → zones) and what it can DO (actuation surface,
+mechanisms enabled). The present answer reads live from config — config
+IS the store — but memory owns the CHANGES: a swapped sensor or added
+fan is an episode, so "when did my composition change" is answerable.
+Without this kind, every diagnosis query begins by asking something
+memory can't answer.
+
+**Consolidated facts (operator addition 2026-08-02, vibememo-inspired)**
+— the layer that keeps memory from devolving into aspect logging.
+Episodes are the flight recorder; facts are the synthesis: "Study A
+mmWave phantoms onset at fan transitions (12 episodes, Jul-Aug 2026)"
+as a durable, citable, CORRECTABLE statement. Per vibememo doctrine:
+the why-provenance (derived-from episode ids) is the last thing
+compressed and the first preserved; facts are never deleted, only
+superseded with lineage; and once distilled, the underlying episode
+detail can be redacted to counts/spans — compression with a paper
+trail, not forgetting.
+
+All five kinds sit behind ONE interface (§3). A consumer never knows or
 cares which table serves the answer.
 
 ## 3. The interface is the product
@@ -55,6 +75,13 @@ A small set of verbs, in domain vocabulary, read-only:
 - `episodes(node, pattern, window)` → adjudicated events matching
 - `outcome(node, decision_type, window)` → predicted vs realized
 - `narrative(node, window)` → ordered, human-readable event story
+- `profile(node)` → composition + capabilities (identity kind)
+- `facts(node, topic?)` → consolidated, correctable knowledge with
+  why-provenance
+
+(Seven verbs, was five: the two additions are distinct memory KINDS —
+identity and consolidated knowledge — not query conveniences. The creep
+rule stands for conveniences; kinds earn verbs.)
 
 Three properties are load-bearing and non-negotiable:
 
@@ -109,7 +136,7 @@ Honest accounting of the delta:
   have poisoned the occupancy baseline. Hence: write-quality gating +
   retroactive correction are part of the CONCEPT, not an enhancement.
 - **Query language creep.** The recorder already speaks SQL. If a need
-  can't be said in the five verbs, that is a design signal, not a reason
+  can't be said in the seven verbs, that is a design signal, not a reason
   to add verbs. We are building a semantic layer, not a database on a
   database.
 - **Memory-driven actuation is a trust-hierarchy ripple by definition.**

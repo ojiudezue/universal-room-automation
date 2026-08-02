@@ -25,7 +25,8 @@ study_a.md`, containing:
 2. **The baseline table** — occupancy rate, temperature, humidity, fan
    runtime per (3h-bin × home/away/sleep) context, computed with
    support counts, in the exact metric_baselines key shape.
-3. **Five hand-answered queries**, one per consumer class, each written
+3. **Seven hand-answered queries** (five consumer classes + one
+   `facts` + one `profile`), one per consumer class, each written
    as the MemoryAnswer it would return (verdict/value/support/
    provenance):
    - Sibling room (Study B): "sensor dropouts in the same window as
@@ -36,8 +37,15 @@ study_a.md`, containing:
    - Dashboard: "what was unusual in Study A this week?" (unusual())
    - Diagnosis session: "episodes matching occupancy_phantom in July?"
      (recurrence)
+4. **A hand-distilled facts ledger** — the consolidated facts the July
+   episodes justify (expected: the fan-transition fact, an InvisOutlet
+   trust fact), each with derived_from and one worked CORRECTION (a
+   fact superseded by later evidence) to prove the lineage model.
+5. **A hand-written profile answer** — `profile(room:study_a)` from
+   live config, plus the July `config_changed` episodes (the operator
+   reconfigured Study A sensors this period — real data exists).
 
-**Stage-0 pass criteria (the kill gate):** at least 3 of 5 answers are
+**Stage-0 pass criteria (the kill gate):** at least 4 of 7 answers are
 judged by the operator to have earned their keep — concretely: would
 have shortened the fan forensics, suppressed or sharpened a real July
 notification, or correctly explained a real decision. Fewer than 3 →
@@ -48,8 +56,9 @@ loses on evidence, not on taste.
 
 Build order and scope (one Tier 2-DB cycle):
 
-1. **`memory_episodes` table** + registered episode-type vocabulary
-   seeded with exactly the types Stage 0 needed (no speculative types).
+1. **`memory_episodes` + `memory_facts` tables** + registered episode-
+   type and fact-topic vocabularies seeded with exactly what Stage 0
+   needed (no speculative types).
 2. **Episode writers at 3 existing sites** — D2 demotion (writes
    phantom + retro-adjudicates the creation), fan-transition gate
    suppression, comfort-fan away-veto fire. All three already have the
@@ -58,8 +67,10 @@ Build order and scope (one Tier 2-DB cycle):
 3. **Baseline writer** — the 5-min-cycle Welford fold, Study-A signals
    first, all rooms once cadence is proven (write-volume test BEFORE
    enabling house-wide, per the write-flood postmortem).
-4. **`memory_facade.py`** — all five verbs, MemoryAnswer, §8 access
-   policy, kill switches. Verbs whose tier has no data yet return
+4. **`memory_facade.py`** — all seven verbs, MemoryAnswer, §8 access
+   policy, kill switches. profile() is a live config read (cheap);
+   facts() reads the table; the daily compaction batch ships with its
+   distillation rules for the seeded types only. Verbs whose tier has no data yet return
    honest `insufficient_history` (the facade ships complete; the DATA
    arrives incrementally — interface stability over feature count).
 5. **Two real consumers, zero actuation:**
@@ -83,7 +94,7 @@ memory-driven actuation, any new dashboard cards.
 
 | Claim | Proof |
 |---|---|
-| Interface is right-sized | The five Stage-0 hand answers reproduce EXACTLY through the facade (diff vs the hand-built artifact — it is the acceptance fixture) |
+| Interface is right-sized | The seven Stage-0 hand answers reproduce EXACTLY through the facade (diff vs the hand-built artifact — it is the acceptance fixture) |
 | Adjudication works | The next organic D2 demotion retro-adjudicates its creation episode within one cycle (live check, DB read) |
 | Baseline quality gate works | Samples during suppression/demotion windows provably absent from folds (test: inject phantom window in fixture, assert baseline unmoved) |
 | Write cadence safe | Measured rows/cycle for baseline writer under full-house load < 10% of write-queue budget, BEFORE house-wide enable |
@@ -93,7 +104,7 @@ memory-driven actuation, any new dashboard cards.
 
 ## Acceptance criteria (build contract)
 
-- **Verify:** five Stage-0 queries answer identically via facade
+- **Verify:** seven Stage-0 queries answer identically via facade
   (fixture diff).
 - **Verify:** episode retro-adjudication round-trip on organic demotion.
 - **Verify:** baseline rows carry support counts; unusual() returns
@@ -107,6 +118,9 @@ memory-driven actuation, any new dashboard cards.
   canonical demo query).
 - **Live:** write-queue depth unchanged (±10%) after one full day with
   baseline writer on, house-wide.
+- **Verify:** compaction round-trip in test — episodes → fact with
+  derived_from; contradicting evidence → superseding fact with lineage;
+  redaction preserves counts/spans and the fact survives.
 
 ---
 

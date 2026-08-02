@@ -27,25 +27,31 @@ enough structure to be reviewable and extensible, no speculative layers.
   persistence.md (anomaly persistence shape), PLANNING_paper_and_oss_
   fusion_library.md (this interface is its likely spine).
 - **NEW (justified below):** `memory_episodes` table (adjudication does
-  not exist anywhere); `MemoryFacade` module (no query surface exists);
-  baseline-writer job (nothing populates node-scoped baselines today).
+  not exist anywhere); `memory_facts` table + daily compaction batch
+  (no consolidation/redaction exists; vibememo-inspired, see §5c);
+  `MemoryFacade` module (no query surface exists); baseline-writer job
+  (nothing populates node-scoped baselines today). Vibememo consulted
+  (.vibememo/FORMAT.md) for the compaction doctrine: synthesis is the
+  artifact, why-provenance compressed last, archive-never-delete.
 
 ## 1. Definition made concrete
 
-A node's memory is: **its episodes + its baselines + its outcomes,
-reachable only through the facade.** Architecturally, memory is NOT a
+A node's memory is: **its episodes + its baselines + its outcomes +
+its identity-change record + its consolidated facts, reachable only
+through the facade.** Architecturally, memory is NOT a
 place — it is an ACCESS DISCIPLINE over (mostly existing) storage:
 
 ```
                  ┌──────────────────────────────┐
- any consumer →  │  MemoryFacade (5 verbs, RO)  │ → MemoryAnswer
+ any consumer →  │  MemoryFacade (7 verbs, RO)  │ → MemoryAnswer
  (node, NM,      └──────────────┬───────────────┘   {value, provenance,
   dashboard,                    │                     support, verdict}
   operator, AI)     ┌───────────┼─────────────┐
                     ▼           ▼             ▼
               memory_episodes  metric_baselines  outcome_log
-              (NEW, adjudicated) (REUSED, new     (REUSED)
-                    │             scopes)
+              + memory_facts   (REUSED, new     (REUSED)
+              (NEW)             scopes)   + config/registries (live,
+                    │                       for profile())
                     ▼
               existing logs + HA recorder (raw tier, consulted
               lazily for narrative(); never duplicated)
@@ -64,7 +70,7 @@ consistent (rejected).
 
 ## 3. The facade (the only door)
 
-One module, `memory_facade.py`, one class, five methods mirroring the
+One module, `memory_facade.py`, one class, seven methods mirroring the
 vision verbs. Sync, read-only, in-process (same pattern as existing DAO
 reads). Every method returns a `MemoryAnswer`:
 
@@ -92,8 +98,11 @@ constraint):
 - `outcome(node, decision_type, window)` — reads outcome_log; pairs
   predicted vs realized where both exist.
 - `narrative(node, window)` — merges episodes + decision_log +
-  house_state_log rows into an ordered story; the ONE verb allowed to
-  touch raw logs at read time.
+  house_state_log rows into an ordered story, citing facts for context;
+  the ONE verb allowed to touch raw logs at read time.
+- `profile(node)` — live composition/capability read (§5b); no storage.
+- `facts(node, topic?)` — consolidated tier read (§5c); current facts
+  by default, lineage on request.
 
 Interface change control: the verb set and MemoryAnswer shape are
 versioned in one place and reviewed like the signal bus (shared
@@ -147,6 +156,51 @@ Quality gate: samples tagged by an active suppression/demotion/veto in
 that room-window are EXCLUDED from baseline folding (the fan-phantom
 lesson, structurally enforced).
 
+## 5b. Identity tier — profile() reads live, episodes record change
+
+`profile(node)` is computed from config entries + registries at call
+time (composition: configured sensors/actuators per bucket; capability:
+mechanisms enabled, actuation surface). NO new storage — duplicating
+config into memory would create a second source of truth. What memory
+OWNS is change: a `config_changed` episode (registered type) written on
+options-update/reload with a before/after delta in attrs. "What do I
+contain" = live read; "when did that change" = episodes.
+
+## 5c. Consolidated-facts tier — the anti-logging layer (vibememo-inspired)
+
+```sql
+CREATE TABLE memory_facts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id TEXT NOT NULL,
+    topic TEXT NOT NULL,             -- registered, e.g. occupancy_reliability
+    statement TEXT NOT NULL,         -- human-readable, citable
+    attrs_json TEXT NOT NULL DEFAULT '{}',  -- structured form
+    confidence REAL NOT NULL,
+    derived_from TEXT NOT NULL,      -- episode ids / baseline keys (the WHY)
+    created_at TEXT NOT NULL,
+    superseded_by INTEGER            -- lineage; facts are never deleted
+);
+```
+
+**Compaction cycle** (the vibememo move): a low-frequency batch job
+(daily, on the existing scheduler — no new loop) that:
+1. **Distills** — rule-based, transparent: N+ same-type adjudicated
+   episodes on a node within a window → propose/refresh a fact, with
+   derived_from carrying the episode ids. No ML; distillation rules are
+   registered per episode type alongside the type itself.
+2. **Corrects** — a fact contradicted by newer evidence (adjudication
+   distribution shifted, config_changed invalidates premise) is
+   superseded, not edited: new row, superseded_by back-link. Lineage IS
+   the correction history.
+3. **Redacts** — episodes older than the redaction horizon whose type
+   has been distilled compress to rollup rows (type, count, span,
+   adjudication distribution); attrs dropped. The why survives in the
+   fact's derived_from; the bulk does not survive in the table. Bounded
+   growth, auditable compression.
+
+`facts()` and `narrative()` read this tier; `narrative` cites facts for
+context and episodes for sequence.
+
 ## 6. Outcome tier — reuse as-is
 
 `outcome_log` already carries (coordinator_id, scope, metrics_json).
@@ -163,8 +217,11 @@ pairing lives in metrics_json.
   severity/suppression, diagnostics, dashboard, and the operator/AI via
   a read-only service. Actuation gating on memory is a later, separately
   reviewed trust change (vision §6).
-- No background summarizer daemon — the baseline writer piggybacks the
-  existing cycle; narrative() computes on demand.
+- No background summarizer daemon beyond the daily compaction batch on
+  the existing scheduler; narrative() computes on demand.
+- No LLM in the compaction loop — distillation rules are registered,
+  transparent statistics (the session AI may PROPOSE facts via the
+  operator adjudication path, but the cycle itself is deterministic).
 - No retention machinery beyond: episodes are small and kept; baselines
   are fixed-size by key; raw logs keep their existing policies.
 
