@@ -64,3 +64,10 @@ a fabricating profile()); orchestrator drills caught a fifth #62 strike
 - **Organic:** next D2 demotion writes + retro-adjudicates an episode;
   first NM conditioning event logged (dampen or insufficient-history
   breadcrumb).
+
+### Validated (carried by v5.47.1 boot, 2026-08-02)
+v5.47.0's own boot FAILED live validation: memory_query absent +
+baseline_last_fold null — root-caused to the two-site DB-init race
+(wiring bypassed when a room entry won the boot lock; zero errors,
+silently skipped). Fixed and fully validated in v5.47.1 (see its table).
+Facts seeding and the status sensor were live on both boots.

@@ -1180,11 +1180,30 @@ class NotificationManager:
                 and hazard_type in ("high_humidity", "high_co2", "high_tvoc")
                 and location
             ):
-                # Runtime switch guard (default ON) — see
-                # switch.ura_memory_nm_conditioning.
-                _sw = self.hass.states.get(
-                    "switch.ura_memory_nm_conditioning",
-                )
+                # Runtime switch guard (default ON). v5.47.2: resolve the
+                # entity_id from the registry by unique_id — the actual id
+                # is device-name-derived (live:
+                # switch.ura_coordinator_manager_memory_nm_conditioning),
+                # so the old hardcoded guess never matched and conditioning
+                # was inert (same class as the fan_veto fused-sensor bench
+                # find, v5.46.0). Slug guess kept as fallback.
+                _sw = None
+                try:
+                    from homeassistant.helpers import (  # noqa: PLC0415
+                        entity_registry as er,
+                    )
+                    _sw_eid = er.async_get(self.hass).async_get_entity_id(
+                        "switch", DOMAIN,
+                        f"{DOMAIN}_memory_nm_conditioning",
+                    )
+                    if _sw_eid:
+                        _sw = self.hass.states.get(_sw_eid)
+                except Exception:  # noqa: BLE001
+                    _sw = None
+                if _sw is None:
+                    _sw = self.hass.states.get(
+                        "switch.ura_memory_nm_conditioning",
+                    )
                 # MED B3: _sw is None (entity not yet registered — boot
                 # window) must mean NO conditioning (fall through unchanged),
                 # not ON. Only condition when the switch exists AND reads on.
