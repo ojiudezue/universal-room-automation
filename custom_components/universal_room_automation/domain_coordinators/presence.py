@@ -3254,7 +3254,10 @@ class PresenceCoordinator(BaseCoordinator):
             if state_changed or pct_changed:
                 transition_now = dt_util.utcnow()
         except Exception:  # noqa: BLE001 — defensive: partial state objects
-            transition_now = dt_util.utcnow()
+            # A-LOW-2: fail OPEN on the gate (never stamp on garbage).
+            # A stamped-on-exception transition would falsely suppress a
+            # legitimate mmwave-sole creation on the very next tick.
+            transition_now = None
         for tracker in self._zone_trackers.values():
             # H1 fix-up: `_fan_entity_to_room` is now declared in
             # `ZonePresenceTracker.__init__`, so this is a stable dict
@@ -3857,14 +3860,36 @@ class PresenceCoordinator(BaseCoordinator):
         transition has been observed for the room since boot / last
         discovery (kill-switch friendly — caller treats None as "no
         fan transition, admit normally").
+
+        B-LOW-4 fix-up: when a room appears in multiple trackers
+        (multi-tracker deployments), return the MAX (newest) stamp
+        across all trackers — not the first-hit. Newest wins because
+        the gate cares about "any transition within the window", and
+        the newest stamp is the one most likely to satisfy `Δt <= W`.
+
+        MED-B2 (same-tick event-ordering race): HA fires state_changed
+        events synchronously in listener-registration order. If the
+        room coordinator's mmWave-triggered refresh runs BEFORE
+        `_handle_fan_change` stamps for the same underlying tick, this
+        method returns the stale/prior stamp (or None) for that tick
+        and the gate misses. The sibling D2 sustain-demotion backstops
+        this one-tick miss on the next cadence — deliberate per
+        three-mechanism complementarity (creation gate + sustain
+        demotion + actuation veto).
         """
         if not room_name:
             return None
+        newest = None
         for tracker in self._zone_trackers.values():
-            stamp = tracker._fan_last_transition.get(room_name)
-            if stamp is not None:
-                return stamp
-        return None
+            lt = getattr(tracker, "_fan_last_transition", None)
+            if lt is None:
+                continue
+            stamp = lt.get(room_name)
+            if stamp is None:
+                continue
+            if newest is None or stamp > newest:
+                newest = stamp
+        return newest
 
     def _discover_zone_cameras(self) -> None:
         """Discover cameras in each zone using CameraIntegrationManager.

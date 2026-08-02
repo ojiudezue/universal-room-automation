@@ -329,6 +329,11 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # D-HIGH-1: one-shot per-boot log for rooms with empty PIR
         # motion_sensors config (post-MMWAVE_NAME_PATTERN filter).
         self._d2_no_pir_logged: bool = False
+        # MED-B3: one-shot per-boot WARNING latch for the fan-transition
+        # gate's terminating `except`. Mirrors `_d2_no_pir_logged` — the
+        # first crash surfaces at WARNING w/ exc_info; subsequent errors
+        # log at DEBUG (avoid log-flood on a persistent misconfiguration).
+        self._fan_gate_error_logged: bool = False
 
         # Fan-noise Mode-2 mitigation: ring of recent occupancy sources so the
         # room-tier fan-recheck trigger can require N consecutive mmwave-sole
@@ -2112,6 +2117,26 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # (d) and admits normally. An already-occupied room flunks (c)
         # — sustain is NEVER interrupted by this gate. Kill switch:
         # FAN_TRANSITION_SUSPECT_WINDOW_S = 0.0 disables the gate.
+        #
+        # HIGH-B1 fix-up: when the gate suppresses, we also set the
+        # local flag `_fan_gate_suppressed` so the debounce fall-through
+        # (~30 lines below) does NOT reset `_occupancy_first_detected`
+        # or cancel the pending debounce refresh. Without this, a PIR
+        # corroboration on the very next tick would restart the debounce
+        # clock from zero — silently contradicting the "creation-only"
+        # intent by adding latency to the corroborated re-admit.
+        #
+        # MED-B2 (same-tick event-ordering race): HA fires state_changed
+        # events synchronously to listeners in subscription order. If
+        # the room coordinator's mmWave-triggered refresh happens BEFORE
+        # `_handle_fan_change` runs and stamps `_fan_last_transition`
+        # for the same underlying tick, the gate will miss on THIS tick
+        # (last_transition is stale / None). This is deliberate: the
+        # sibling D2 sustain-demotion path backstops the miss on the
+        # next cadence tick — three-mechanism complementarity (creation
+        # gate + sustain demotion + actuation veto) means no single
+        # ordering hole loses the phantom-suppression guarantee.
+        _fan_gate_suppressed = False
         try:
             if (
                 FAN_TRANSITION_SUSPECT_WINDOW_S > 0
@@ -2146,11 +2171,24 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                             self._fan_transition_suppressed_count,
                         )
                         any_sensor_active = False
+                        _fan_gate_suppressed = True
         except Exception:  # noqa: BLE001 — defensive: never let gate crash update
-            _LOGGER.debug(
-                "Room %s: fan-transition gate evaluation raised (non-fatal)",
-                room_name, exc_info=True,
-            )
+            # MED-B3: one-shot WARNING with exc_info on first crash per
+            # boot (mirrors `_d2_no_pir_logged` sibling pattern);
+            # subsequent errors log at DEBUG to avoid flood.
+            if not self._fan_gate_error_logged:
+                _LOGGER.warning(
+                    "Room %s: fan-transition gate evaluation raised "
+                    "(non-fatal, one-shot WARNING)",
+                    room_name, exc_info=True,
+                )
+                self._fan_gate_error_logged = True
+            else:
+                _LOGGER.debug(
+                    "Room %s: fan-transition gate evaluation raised "
+                    "(non-fatal)",
+                    room_name, exc_info=True,
+                )
 
         # === Fan-transition coincidence gate — END ===
 
@@ -2195,10 +2233,18 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                         self._debounce_refresh_unsub()
                         self._debounce_refresh_unsub = None
         else:
-            self._occupancy_first_detected = None
-            if self._debounce_refresh_unsub is not None:
-                self._debounce_refresh_unsub()
-                self._debounce_refresh_unsub = None
+            # HIGH-B1: when the fan-transition gate cleared
+            # any_sensor_active this tick, preserve any in-progress
+            # debounce clock. Resetting `_occupancy_first_detected` and
+            # cancelling `_debounce_refresh_unsub` here would restart
+            # debounce from zero on the next tick's corroboration
+            # (e.g. a PIR fire), silently adding latency that
+            # contradicts the gate's "creation-only" intent.
+            if not _fan_gate_suppressed:
+                self._occupancy_first_detected = None
+                if self._debounce_refresh_unsub is not None:
+                    self._debounce_refresh_unsub()
+                    self._debounce_refresh_unsub = None
 
         # Determine occupancy (any detection method)
         # Track which source is driving occupancy for sensor exposure

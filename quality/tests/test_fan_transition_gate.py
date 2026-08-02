@@ -505,9 +505,11 @@ def test_mutation_neuter_suppression_causes_incident_test_to_fail(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# T12 — Mutation drill on the window comparison: flip `<=` to `<` — the
-# T+5s exact-boundary case must switch behavior. We use T+window (equal
-# boundary) — under `<=`, the boundary suppresses; under `<`, it admits.
+# T12 — In-process boundary assertion (NOT a mutation drill; C5 fix-up):
+# at Δt = window (equal boundary), the gate MUST suppress — under `<=`
+# the boundary is inclusive, which is what the docs promise. This test
+# runs entirely in-process against the extracted gate block; no source
+# mutation, no subprocess.
 # --------------------------------------------------------------------------
 
 
@@ -532,3 +534,218 @@ def test_boundary_inclusive_at_window_edge():
         "window comparison is stricter than documented (should be <=)"
     )
     assert coord._fan_transition_suppressed_count == 1
+
+
+# --------------------------------------------------------------------------
+# T13 — HIGH-B1: when the gate fires, the local `_fan_gate_suppressed`
+# flag is set True. The debounce fall-through relies on this flag to
+# skip resetting `_occupancy_first_detected` and cancelling the
+# debounce refresh — see T14 for the source-level guard assertion.
+# --------------------------------------------------------------------------
+
+
+def test_high_b1_gate_sets_fan_gate_suppressed_flag_when_firing():
+    hass = make_hass()
+    room = "Study A"
+    fan_t = datetime(2026, 7, 31, 20, 41, 16, tzinfo=timezone.utc)
+    now = fan_t + timedelta(seconds=2)
+    coord = _FakeSelf(hass, last_occupied_state=False)
+    _seed_presence(hass, last_transition=fan_t)
+
+    ns = _run_gate(
+        coord, now, room,
+        any_sensor_active=True,
+        motion_detected=False,
+        presence_detected=True,
+        occupancy_detected=False,
+    )
+    assert ns["any_sensor_active"] is False
+    assert ns["_fan_gate_suppressed"] is True, (
+        "Gate fired but did NOT set _fan_gate_suppressed — HIGH-B1: "
+        "the debounce fall-through will reset _occupancy_first_detected "
+        "on the next tick, silently restarting the debounce clock."
+    )
+
+
+def test_high_b1_gate_no_fire_leaves_fan_gate_suppressed_false():
+    """When the gate is out-of-window, the flag stays False so the
+    normal debounce reset path runs (no regression to prior semantics).
+    """
+    hass = make_hass()
+    room = "Study A"
+    fan_t = datetime(2026, 7, 31, 20, 41, 16, tzinfo=timezone.utc)
+    now = fan_t + timedelta(seconds=99)  # far outside window
+    coord = _FakeSelf(hass, last_occupied_state=False)
+    _seed_presence(hass, last_transition=fan_t)
+
+    ns = _run_gate(
+        coord, now, room,
+        any_sensor_active=True,
+        motion_detected=False,
+        presence_detected=True,
+        occupancy_detected=False,
+    )
+    assert ns["_fan_gate_suppressed"] is False
+
+
+# --------------------------------------------------------------------------
+# T14 — HIGH-B1 (source-level guard): the debounce else-branch that
+# resets `_occupancy_first_detected` and cancels the debounce refresh
+# MUST be guarded by `if not _fan_gate_suppressed:`. Without this,
+# even if the gate flag is set (T13), the fall-through will silently
+# reset the debounce clock.
+# --------------------------------------------------------------------------
+
+
+def test_high_b1_debounce_fallthrough_guarded_by_fan_gate_suppressed():
+    src = _COORD_SRC.read_text(encoding="utf-8")
+    # Locate the debounce else-branch just past the gate END marker.
+    i = src.index(_BLOCK_END)
+    tail = src[i:i + 4000]
+    assert "self._occupancy_first_detected = None" in tail, (
+        "Debounce fall-through reset absent from expected region — "
+        "the source layout changed, mutation anchor invalid."
+    )
+    # The guard MUST appear before the reset in that region.
+    guard_at = tail.find("if not _fan_gate_suppressed:")
+    reset_at = tail.find("self._occupancy_first_detected = None")
+    assert guard_at != -1, (
+        "HIGH-B1 regression: debounce fall-through is NOT guarded by "
+        "`if not _fan_gate_suppressed:` — an in-progress debounce clock "
+        "will be reset when the gate suppresses."
+    )
+    assert guard_at < reset_at, (
+        "HIGH-B1 regression: `if not _fan_gate_suppressed:` guard is "
+        "positioned AFTER the reset — it does not protect it."
+    )
+
+
+# --------------------------------------------------------------------------
+# T15 — C1 reachability guard: no unconditional `return` between the
+# substrate-gap canary comment and the gate's _BLOCK_START. A future
+# early-return in that region would silently disable the gate.
+# --------------------------------------------------------------------------
+
+
+def test_c1_no_unconditional_return_before_gate():
+    import re
+    src = _COORD_SRC.read_text(encoding="utf-8")
+    canary = "# ---- Substrate-gap canary"
+    assert canary in src, (
+        "Substrate-gap canary marker missing — mutation anchor invalid."
+    )
+    i = src.index(canary)
+    j = src.index(_BLOCK_START, i)
+    region = src[i:j]
+    # An unconditional return is a bare `return` (or `return <expr>`) at
+    # column 8 (function-body indent), NOT nested inside an if/for/try.
+    # We flag any `        return` at exactly 8-space indent.
+    pattern = re.compile(r"^        return(\s|$)", re.MULTILINE)
+    matches = pattern.findall(region)
+    assert not matches, (
+        "C1 regression: an unconditional `return` at function-body indent "
+        "appears between the substrate-gap canary and the fan-transition "
+        "gate — the gate is unreachable from that codepath."
+    )
+
+
+# --------------------------------------------------------------------------
+# T16 — C4 boundary: Δt = window + 0.1s → NOT suppressed (pins the
+# `<= window` upper-bound rounding — one tenth past the boundary must
+# admit).
+# --------------------------------------------------------------------------
+
+
+def test_c4_boundary_just_past_window_admits():
+    hass = make_hass()
+    room = "Study A"
+    fan_t = datetime(2026, 7, 31, 20, 41, 16, tzinfo=timezone.utc)
+    now = fan_t + timedelta(
+        seconds=float(FAN_TRANSITION_SUSPECT_WINDOW_S) + 0.1,
+    )
+    coord = _FakeSelf(hass, last_occupied_state=False)
+    _seed_presence(hass, last_transition=fan_t)
+
+    ns = _run_gate(
+        coord, now, room,
+        any_sensor_active=True,
+        motion_detected=False,
+        presence_detected=True,
+        occupancy_detected=False,
+    )
+    assert ns["any_sensor_active"] is True, (
+        "Δt = window + 0.1s was suppressed — upper-bound rounding leak"
+    )
+    assert coord._fan_transition_suppressed_count == 0
+
+
+# --------------------------------------------------------------------------
+# T17 — C4 negative delta: stamp 2s in the FUTURE → NOT suppressed
+# (pins the `0 <= delta` lower-bound guard against clock skew / bad
+# stamps).
+# --------------------------------------------------------------------------
+
+
+def test_c4_negative_delta_future_stamp_admits():
+    hass = make_hass()
+    room = "Study A"
+    now = datetime(2026, 7, 31, 20, 41, 16, tzinfo=timezone.utc)
+    # Stamp 2s AFTER now — delta would be -2s, which must not suppress.
+    fan_t = now + timedelta(seconds=2)
+    coord = _FakeSelf(hass, last_occupied_state=False)
+    _seed_presence(hass, last_transition=fan_t)
+
+    ns = _run_gate(
+        coord, now, room,
+        any_sensor_active=True,
+        motion_detected=False,
+        presence_detected=True,
+        occupancy_detected=False,
+    )
+    assert ns["any_sensor_active"] is True, (
+        "Negative delta (future stamp) was suppressed — the `0 <= delta` "
+        "lower-bound guard is missing or inverted"
+    )
+    assert coord._fan_transition_suppressed_count == 0
+
+
+# --------------------------------------------------------------------------
+# T18 — C2: OccupiedBinarySensor.extra_state_attributes surfaces
+# `fan_transition_suppressed_count` from the coordinator via getattr.
+# Tests only the wiring — the property is patched onto a minimal fake
+# so we don't need to construct a full RoomCoordinator.
+# --------------------------------------------------------------------------
+
+
+def test_c2_occupied_binary_sensor_exposes_fan_transition_suppressed_count():
+    """C2 (source-level wiring): the OccupiedBinarySensor
+    `extra_state_attributes` property must expose the coordinator's
+    `_fan_transition_suppressed_count` under the attribute key
+    `fan_transition_suppressed_count`, via getattr (so it degrades to
+    0 on older-state coordinators). We assert on the source text
+    because the harness `homeassistant` mock can't import the binary
+    sensor module in-process; the pattern is validated verbatim.
+    """
+    bs_src = (
+        _REPO_ROOT
+        / "custom_components"
+        / "universal_room_automation"
+        / "binary_sensor.py"
+    ).read_text(encoding="utf-8")
+    # Locate the OccupiedBinarySensor class body.
+    assert "class OccupiedBinarySensor" in bs_src, (
+        "OccupiedBinarySensor class missing — mutation anchor invalid"
+    )
+    i = bs_src.index("class OccupiedBinarySensor")
+    # Trim to a bounded region so we don't match other classes' attrs.
+    region = bs_src[i:i + 20000]
+    assert '"fan_transition_suppressed_count"' in region, (
+        "C2: `fan_transition_suppressed_count` attribute key missing "
+        "from OccupiedBinarySensor.extra_state_attributes"
+    )
+    # The getattr wiring must reference the coordinator attr with a
+    # 0 fallback (mirrors mmwave_fan_demotions_since_boot sibling).
+    assert 'getattr(' in region and '"_fan_transition_suppressed_count"' in region, (
+        "C2: getattr wiring for `_fan_transition_suppressed_count` "
+        "missing from OccupiedBinarySensor.extra_state_attributes"
+    )
