@@ -247,19 +247,90 @@ def _has_camera_person(
 ) -> bool:
     """True if this room is camera-covered AND a camera-person signal is ON.
 
-    Per PLANNING Amendment 1: only rooms in CAMERA_COVERED_ROOMS consult
-    the camera leg. Uncovered rooms (no camera) — this returns False and
-    the trusted-presence check falls back to PIR + BLE only.
+    D5 (2026-08-01): coverage is now derived from CONFIG PRESENCE
+    (CONF_ROOM_CAMERAS non-empty) instead of the hand-frozen
+    CAMERA_COVERED_ROOMS allowlist. The allowlist is retained as an
+    ADDITIVE bridge (Study A continuity) while the room-camera fusion
+    cycle beds in; delete in a follow-up cycle after grep confirms zero
+    remaining consumers.
+
+    Camera-person state is read from the D3 fused sensor
+    ``binary_sensor.<room_slug>_camera_person_detected`` rather than from
+    the raw per-camera entities — the fusion machinery already applies
+    F1/F2/F3 correlation fixes.
     """
     if not room_name:
         return False
-    # D-LOW-3 fix: normalize both sides of the covered-rooms check so
-    # trivial casing/whitespace variance ("study a", " Study A ") doesn't
-    # accidentally exclude a genuinely covered room.
+    # CONF_DISABLE_CAMERA_PRESENCE is authoritative — respect it even if
+    # room_cameras is configured.
+    try:
+        from .const import CONF_DISABLE_CAMERA_PRESENCE, CONF_ROOM_CAMERAS  # noqa: PLC0415
+    except Exception:
+        CONF_DISABLE_CAMERA_PRESENCE = "disable_camera_presence"  # type: ignore
+        CONF_ROOM_CAMERAS = "room_cameras"  # type: ignore
+    if config.get(CONF_DISABLE_CAMERA_PRESENCE):
+        return False
+
+    # Coverage: config presence OR legacy allowlist membership (additive).
+    room_cams = config.get(CONF_ROOM_CAMERAS) or []
+    covered_by_config = bool(room_cams)
     room_norm = room_name.strip().casefold()
     covered_norm = {c.strip().casefold() for c in CAMERA_COVERED_ROOMS}
-    if room_norm not in covered_norm:
+    covered_by_allowlist = room_norm in covered_norm
+    if not (covered_by_config or covered_by_allowlist):
         return False
+
+    # Prefer the D3 fused sensor when this room has ROOM_CAMERAS configured
+    # (fusion is active). Allowlist-only rooms without room_cameras stay on
+    # the legacy per-entity read path.
+    if covered_by_config:
+        # Fix #5: use HA slugify for the fused entity_id derivation.
+        try:
+            from homeassistant.util import slugify  # noqa: PLC0415
+            slug = slugify(room_name)
+        except Exception:  # noqa: BLE001
+            slug = room_name.strip().lower().replace(" ", "_")
+        fused_id = f"binary_sensor.{slug}_camera_person_detected"
+        try:
+            fused_state = hass.states.get(fused_id)
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.warning(
+                "fan_veto: fused-sensor read failed for %s: %s (fail-open)",
+                fused_id, exc,
+            )
+            fused_state = None
+        if fused_state is not None:
+            # E-HIGH-1 fix (divergence-aware veto leg): the fused sensor's ON
+            # state can reflect a SINGLE-camera ON in a multi-camera fusion.
+            # For a fan-veto REBUTTAL (evidence that a person is present, so
+            # DO NOT suppress the fan) we require corroborated evidence:
+            # agreement=unanimous_on OR confidence=high. See plan amendment
+            # §divergence-aware and E's grounding: raw is_on alone can be
+            # noise from one camera and would defeat the veto on any weak
+            # corroborator.
+            if fused_state.state != STATE_ON:
+                return False
+            attrs = getattr(fused_state, "attributes", {}) or {}
+            agreement = attrs.get("agreement")
+            confidence = attrs.get("confidence")
+            # D'-HIGH-2 adjudication (2026-08-01): divergence doctrine downgrades
+            # DISAGREEMENT, not absence of a second opinion — same rule the
+            # operator ratified for the census (v5.43.0: single-source zones
+            # keep current behavior; only contested divergence downgrades).
+            # DENY on split (a second camera actively dissents); GRANT on
+            # unanimous_on or single_source (uncontested).
+            if (agreement in ("unanimous_on", "single_source")
+                    or confidence == "high"):
+                return True
+            # ON but divergent — treat as NOT trusted presence for veto purposes.
+            _LOGGER.debug(
+                "fan_veto: fused sensor %s is ON but agreement=%s confidence=%s "
+                "— not corroborated; not counted as camera-person",
+                fused_id, agreement, confidence,
+            )
+            return False
+
+    # Legacy fallback: read raw per-camera entities from the old key.
     cam_entities = config.get(CONF_CAMERA_PERSON_ENTITIES) or []
     for entity_id in cam_entities:
         try:
@@ -316,6 +387,20 @@ def should_veto_comfort_fan(
             DEFAULT_COMFORT_FAN_AWAY_VETO_ENABLED,
         ):
             return False
+        # B-LOW-2: emit INFO once per room per boot when veto path is enabled
+        # (visibility that the D3/D5 code path is live for this room).
+        try:
+            seen = hass.data.setdefault(DOMAIN, {}).setdefault(
+                "_fan_veto_enabled_logged", set()
+            )
+            if room_name and room_name not in seen:
+                seen.add(room_name)
+                _LOGGER.info(
+                    "fan_veto: veto enabled for room=%s (first-check-this-boot)",
+                    room_name,
+                )
+        except Exception:  # noqa: BLE001
+            pass
         # B-H1 fix: boot-settle gate. house_state boots AWAY but the
         # presence coordinator may not have completed its first pass yet,
         # so a legitimate post-restart fan (family home) would otherwise
