@@ -1,31 +1,42 @@
 # Universal Room Automation — your house runs itself
 
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Integration-blue.svg)](https://www.home-assistant.io/)
-[![Version](https://img.shields.io/badge/version-5.45.0-green.svg)](https://github.com/ojiudezue/universal-room-automation/releases)
+[![Version](https://img.shields.io/badge/version-5.46.1-green.svg)](https://github.com/ojiudezue/universal-room-automation/releases)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-3800%2B-brightgreen.svg)](quality/tests)
 
-**Rooms · zones · house.** URA manages your home at three tiers — every
-room runs itself (lighting, fans, covers, comfort), rooms aggregate into
-zones, and the whole house runs as one system under a nine-state machine —
-with domain coordinators (presence, safety, security, energy, HVAC) riding
-across all three. Local, observable, reversible. Built on Home Assistant —
-it doesn't replace what you have.
+**Smart homes run on smart devices. People live in rooms.** URA's core
+move is composition: it composes your smart devices into **rooms** — so
+you interact with *the humidity in the bathroom*, not *the reading from
+sensor 0x4f2a* — then builds on that abstraction: rooms aggregate into
+**zones**, zones into one **house** under a nine-state machine, with
+domain coordinators (presence, safety, security, energy, HVAC) riding
+across all three tiers. Local, observable, reversible. Built on Home
+Assistant — it doesn't replace what you have.
 
 Project site: **https://universalroom.org/** · Live dashboard demo: **https://ura.phalanxmadrone.com**
 
-Production install: 18+ months in one home. Current release: **v5.45.0**.
+Production install: 18+ months in one home. Current release: **v5.46.1**.
 
 ---
 
-## 1. Stop thinking devices
+## 1. Interact with a room, not a smart device
 
 Home automation platforms hand you a folder of devices and a trigger
-list. URA changes the unit of thought: a **room is a node** carrying 74+
-signals — occupancy, temperature, humidity, light, power, person count,
-predictions — not a place where devices happen to live. Rooms roll up
-into **zones** (physical areas that share a thermostat and a fate), and
-zones roll up into one **house**: a 9-state machine —
+list — every automation you write talks to a device by its serial-number
+name and re-derives context the device can't have. URA changes the unit
+of thought by **composing devices into rooms**: you tag which sensors
+and actuators belong to a room once, and from then on you (and every
+layer above) interact with the room. The room *has* humidity, occupancy,
+temperature, light, power — 74+ signals fused from whatever hardware
+happens to provide them. Swap a Zigbee sensor for an ESPHome one and
+nothing upstream changes; the room's humidity is still the room's
+humidity.
+
+A **room is a node**, not a place where devices happen to live — and the
+same composition repeats upward. Rooms roll up into **zones** (physical
+areas that share a thermostat and a fate), and zones roll up into one
+**house**: a 9-state machine —
 
 `home_day` · `home_evening` · `home_night` · `sleep` · `waking` ·
 `arriving` · `away` · `guest` · `vacation`
