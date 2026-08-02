@@ -1,5 +1,8 @@
 # Reddit post (r/homeassistant)
 
+<!-- draft: true -->
+<!-- Not a site article: this is the r/homeassistant crosspost that links BACK to /notes/mmwave-phantom-presence/ -->
+
 **Title:** Found out why my mmWave sensors see ghosts: it's the exact second the fan changes speed
 
 **Body:**

@@ -1,5 +1,8 @@
 # Your Ceiling Fan Is Impersonating You: Hunting mmWave Phantom Presence
 
+<!-- slug: mmwave-phantom-presence -->
+<!-- date: 2026-08-02 -->
+
 *How we found — in recorder data, to the second — that fan speed changes
 create phantom mmWave occupancy, and the three-layer defense that fixed it
 without new hardware. From the Universal Room Automation project
