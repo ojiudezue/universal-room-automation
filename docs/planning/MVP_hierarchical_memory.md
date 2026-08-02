@@ -60,7 +60,11 @@ loses on evidence, not on taste.
 ### Stage 1 — the thin slice (gate PASSED 2026-08-02; operator: "every
 scope expansion earns its keep; lean to simple and reuse")
 
-**Parsimony pass (post-gate, pre-build) — three trims:**
+**Parsimony pass (post-gate, pre-build). Operator clarification: these
+are MVP SEQUENCING decisions, not architectural ones — the architecture
+doc keeps the mature mechanisms (compactor with distill/correct/redact,
+batch adjacency refresh) in full; the MVP defers their construction, it
+does not shrink the design. Trims:**
 1. **Automated daily compaction batch DEFERRED.** A compactor needs
    volume to compact; memory_episodes starts at ~0 rows. Ship the
    memory_facts TABLE + facts() verb + the adjudication write path, and
@@ -72,9 +76,13 @@ scope expansion earns its keep; lean to simple and reuse")
    first profile() read from room_transitions, cached in-process,
    invalidated on restart. The "recompute in compaction" design
    activates only when the compactor exists.
-3. **Declared-capability registry: minimal static dict** (~30 lines,
-   node-type → mechanism list), not a framework. It grows only when a
-   profile() consumer actually needs a missing entry.
+3. ~~Declared-capability registry: minimal~~ **OVERRULED by operator
+   2026-08-02:** the registry ships COMPLETE from day one — static (a
+   completeness thing, not a dynamic thing), exhaustively mirroring the
+   mechanisms the code actually declares (derived from the enable
+   switches/toggles, all node types incl. every coordinator). Rationale:
+   completeness is cheap when static; an incomplete registry makes
+   profile() lie by omission — the young-primitive trap.
 
 Build order and scope (one Tier 2-DB cycle):
 
