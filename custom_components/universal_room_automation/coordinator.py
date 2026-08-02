@@ -69,6 +69,7 @@ from .const import (
     OCCUPANCY_SOURCE_FAN_RECHECK_RELEASE,
     OCCUPANCY_SOURCE_MMWAVE_FAN_DEMOTED,
     MMWAVE_FAN_CORROBORATION_ENABLED,
+    FAN_TRANSITION_SUSPECT_WINDOW_S,
     STATE_POWER_CURRENT,
     STATE_ENERGY_TODAY,
     STATE_ENERGY_WEEKLY,
@@ -315,6 +316,16 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # off (clean edge), PIR motion fires, BLE person arrives in
         # room, fan turns off.
         self._mmwave_demoted_latch: bool = False
+
+        # Fan-transition coincidence gate (AUDIT probe 2026-08-01):
+        # since-boot counter of mmwave-sole occupancy CREATIONS that
+        # were suppressed because a fan power/speed transition on this
+        # room's configured CONF_FANS entity occurred within
+        # FAN_TRANSITION_SUSPECT_WINDOW_S. Exposed as attribute
+        # `fan_transition_suppressed_count` on the occupied binary
+        # sensor for live observability. Not persisted (since-boot
+        # only, matches `mmwave_fan_demotions_since_boot`).
+        self._fan_transition_suppressed_count: int = 0
         # D-HIGH-1: one-shot per-boot log for rooms with empty PIR
         # motion_sensors config (post-MMWAVE_NAME_PATTERN filter).
         self._d2_no_pir_logged: bool = False
@@ -2074,6 +2085,86 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         self._check_substrate_gap(
             room_name, motion_sensors, mmwave_sensors, occupancy_sensors,
         )
+
+        # === Fan-transition coincidence gate — CREATION suppressor ===
+        # ---- Fan-transition coincidence gate (AUDIT probe 2026-08-01) ----
+        #
+        # Three-mechanism complementarity: the presence stack already has
+        # (1) fan-recheck / fan_veto = actuation-side veto, and
+        # (2) D2 mmwave-fan demotion = SUSTAIN gate. Neither covers the
+        # CREATION direction — a mmwave-sole rising edge coincident with a
+        # fan transition creates occupancy first, then gets demoted. This
+        # gate covers exactly that one direction — CREATION only — leaving
+        # sustain / actuation / recheck untouched.
+        #
+        # Predicate (all must hold):
+        #   (a) FAN_TRANSITION_SUSPECT_WINDOW_S > 0     (kill switch)
+        #   (b) any_sensor_active True this tick        (would-create)
+        #   (c) not self._last_occupied_state           (creation, not sustain)
+        #   (d) presence_detected AND not motion_detected AND not
+        #       occupancy_detected                       (mmwave-sole)
+        #   (e) (now - fan_last_transition[room]) <=
+        #       FAN_TRANSITION_SUSPECT_WINDOW_S          (coincidence)
+        #
+        # When the gate fires, `any_sensor_active` is cleared so the
+        # creation path (`data[STATE_OCCUPIED] = True`) does not execute
+        # this tick. PIR/BLE/camera co-firing inside the window flunks
+        # (d) and admits normally. An already-occupied room flunks (c)
+        # — sustain is NEVER interrupted by this gate. Kill switch:
+        # FAN_TRANSITION_SUSPECT_WINDOW_S = 0.0 disables the gate.
+        try:
+            if (
+                FAN_TRANSITION_SUSPECT_WINDOW_S > 0
+                and any_sensor_active
+                and not self._last_occupied_state
+                and presence_detected
+                and not motion_detected
+                and not occupancy_detected
+            ):
+                mgr = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+                presence = (
+                    getattr(mgr, "coordinators", {}).get("presence")
+                    if mgr is not None else None
+                )
+                last_transition = None
+                if presence is not None and hasattr(
+                    presence, "get_fan_last_transition"
+                ):
+                    last_transition = presence.get_fan_last_transition(
+                        room_name,
+                    )
+                if last_transition is not None:
+                    delta = (now - last_transition).total_seconds()
+                    if 0 <= delta <= FAN_TRANSITION_SUSPECT_WINDOW_S:
+                        self._fan_transition_suppressed_count += 1
+                        _LOGGER.debug(
+                            "Room %s: fan-transition gate SUPPRESSED "
+                            "mmwave-sole creation (Δt=%.2fs, window=%.1fs, "
+                            "count=%d)",
+                            room_name, delta,
+                            float(FAN_TRANSITION_SUSPECT_WINDOW_S),
+                            self._fan_transition_suppressed_count,
+                        )
+                        any_sensor_active = False
+        except Exception:  # noqa: BLE001 — defensive: never let gate crash update
+            _LOGGER.debug(
+                "Room %s: fan-transition gate evaluation raised (non-fatal)",
+                room_name, exc_info=True,
+            )
+
+        # === Fan-transition coincidence gate — END ===
+
+        # TODO (AUDIT probe 2026-08-01 §e): still_energy corroborator.
+        # For LD2410-equipped rooms, phantom vs human separates cleanly on
+        # still_energy distribution: phantom = tight low band (33-47,
+        # CV 0.20, 60s-autocorr 0.86); human = high/wide (median 79,
+        # CV 0.34, autocorr 0.16). The disabled per-unit still_energy
+        # entities (`sensor.hlk_ld2410_{07cb,3616,aff4,bdbc}_still_energy`
+        # / `_detection_distance`, `disabled_by: integration`) are the
+        # required feed; enabling them is a config action handled outside
+        # this build. Once enabled, add a rolling-median + autocorr
+        # corroborator here to strengthen creation-time confidence for
+        # LD2410 rooms.
 
         # === Fix #6: Entry debouncing (time-based) ===
         # Require sensors active for N seconds before confirming new entry.
