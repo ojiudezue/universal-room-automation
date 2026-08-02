@@ -1558,41 +1558,44 @@ class UniversalRoomDatabase:
                         confidence REAL NOT NULL,
                         derived_from TEXT NOT NULL,
                         created_at TEXT NOT NULL,
-                        superseded_by INTEGER
+                        superseded_by INTEGER,
+                        UNIQUE(node_id, topic, statement)
                     )""",
                     """CREATE INDEX IF NOT EXISTS idx_facts_node_topic
                     ON memory_facts(node_id, topic)""",
                 ]):
                     failed_tables.append("memory_facts")
 
-                # Seed F1-F4 facts idempotently (INSERT-if-empty).
+                # Seed F1-F4 facts idempotently — per-row INSERT OR IGNORE
+                # (HIGH A2). The UNIQUE(node_id, topic, statement) index
+                # makes re-init a no-op regardless of any pre-existing
+                # partial seed shape.
                 try:
-                    cursor = await db.execute(
-                        "SELECT COUNT(*) FROM memory_facts"
-                    )
-                    row = await cursor.fetchone()
-                    existing = int(row[0]) if row else 0
-                    if existing == 0:
-                        from .const import MEMORY_SEED_FACTS  # noqa: PLC0415
-                        _now_iso = datetime.now(timezone.utc).isoformat()
-                        for fact in MEMORY_SEED_FACTS:
-                            await db.execute(
-                                """INSERT INTO memory_facts (
-                                    node_id, topic, statement, attrs_json,
-                                    confidence, derived_from, created_at,
-                                    superseded_by
-                                ) VALUES (?, ?, ?, '{}', ?, ?, ?, NULL)""",
-                                (
-                                    fact["node_id"], fact["topic"],
-                                    fact["statement"],
-                                    float(fact["confidence"]),
-                                    fact["derived_from"], _now_iso,
-                                ),
-                            )
-                        await db.commit()
+                    from .const import MEMORY_SEED_FACTS  # noqa: PLC0415
+                    _now_iso = datetime.now(timezone.utc).isoformat()
+                    inserted = 0
+                    for fact in MEMORY_SEED_FACTS:
+                        cur = await db.execute(
+                            """INSERT OR IGNORE INTO memory_facts (
+                                node_id, topic, statement, attrs_json,
+                                confidence, derived_from, created_at,
+                                superseded_by
+                            ) VALUES (?, ?, ?, '{}', ?, ?, ?, NULL)""",
+                            (
+                                fact["node_id"], fact["topic"],
+                                fact["statement"],
+                                float(fact["confidence"]),
+                                fact["derived_from"], _now_iso,
+                            ),
+                        )
+                        if cur.rowcount:
+                            inserted += int(cur.rowcount)
+                    await db.commit()
+                    if inserted:
                         _LOGGER.info(
-                            "memory_facts seeded with %d rows (F1-F4)",
-                            len(MEMORY_SEED_FACTS),
+                            "memory_facts seeded with %d new rows "
+                            "(F1-F4; idempotent INSERT OR IGNORE)",
+                            inserted,
                         )
                 except Exception as e:  # noqa: BLE001
                     _LOGGER.warning("memory_facts seed failed: %s", e)
@@ -8277,7 +8280,10 @@ class UniversalRoomDatabase:
         """
         import json as _json  # noqa: PLC0415
         try:
-            from .const import MEMORY_EPISODE_TYPES  # noqa: PLC0415
+            from .const import (  # noqa: PLC0415
+                MEMORY_EPISODE_DEDUP_WINDOW_S,
+                MEMORY_EPISODE_TYPES,
+            )
             if episode_type not in MEMORY_EPISODE_TYPES:
                 _LOGGER.warning(
                     "log_memory_episode: unregistered episode_type=%r "
@@ -8285,6 +8291,27 @@ class UniversalRoomDatabase:
                     episode_type,
                 )
                 return None
+            # MED B4: in-memory per-(node_id, episode_type) dedup gate —
+            # a repeat fire inside MEMORY_EPISODE_DEDUP_WINDOW_S is dropped
+            # (Stage 1: no UPDATE-count machinery). Instance-scoped so it
+            # survives across calls but resets on process restart.
+            _dedup = self.__dict__.setdefault(
+                "_memory_episode_dedup", {},
+            )
+            _dedup_key = (node_id, episode_type)
+            _now_mono = datetime.now(timezone.utc).timestamp()
+            _prev = _dedup.get(_dedup_key)
+            if _prev is not None and (
+                _now_mono - _prev
+            ) < MEMORY_EPISODE_DEDUP_WINDOW_S:
+                _LOGGER.debug(
+                    "log_memory_episode: dropped repeat "
+                    "(node=%s type=%s dt=%.1fs<%ds)",
+                    node_id, episode_type, _now_mono - _prev,
+                    MEMORY_EPISODE_DEDUP_WINDOW_S,
+                )
+                return None
+            _dedup[_dedup_key] = _now_mono
             now_iso = datetime.now(timezone.utc).isoformat()
             started = started_at or now_iso
             adjudicated_at_iso = (
@@ -8356,8 +8383,17 @@ class UniversalRoomDatabase:
                     mean = old_mean + delta / n
                     delta2 = float(new_sample) - mean
                     # Welford's M2 update, normalized to variance.
+                    # MED A-M1: at the clamp (old_n == sample_cap so
+                    # n == old_n), shrink historical M2 by (n-1)/n so
+                    # variance TRACKS current spread rather than inflating
+                    # monotonically. Below the clamp it's the classic
+                    # Welford update (scale=1.0 identity).
                     m2_old = old_var * max(old_n - 1, 0)
-                    m2 = m2_old + delta * delta2
+                    if old_n >= sample_cap:  # at cap — decay historical
+                        scale = (n - 1) / max(n, 1)  # < 1
+                    else:
+                        scale = 1.0
+                    m2 = m2_old * scale + delta * delta2
                     variance = m2 / max(n - 1, 1)
                     count = n
                 await db.execute(
@@ -8379,12 +8415,26 @@ class UniversalRoomDatabase:
                 node_id, metric_name, e,
             )
 
+    # --- Memory read-DAO failure latch (LOW A-LOW) --------------------
+    # One-shot WARNING per DAO name, DEBUG thereafter. Kept as an instance
+    # attribute so it survives across calls but resets on process restart.
+    def _mem_dao_warn(self, dao_name: str, exc: Exception) -> None:
+        latch = self.__dict__.setdefault("_memory_read_dao_warned", set())
+        if dao_name not in latch:
+            latch.add(dao_name)
+            _LOGGER.warning(
+                "%s failed (first occurrence — subsequent failures at "
+                "DEBUG): %s", dao_name, exc,
+            )
+        else:
+            _LOGGER.debug("%s failed: %s", dao_name, exc)
+
     async def read_memory_baseline(
         self, node_id: str, metric_name: str,
     ) -> dict | None:
         """Read a single memory baseline row. Returns dict or None."""
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 cursor = await db.execute(
                     """SELECT mean, variance, sample_count, last_updated
                        FROM metric_baselines
@@ -8402,7 +8452,7 @@ class UniversalRoomDatabase:
                     "last_updated": row[3],
                 }
         except Exception as e:  # noqa: BLE001
-            _LOGGER.debug("read_memory_baseline failed: %s", e)
+            self._mem_dao_warn("read_memory_baseline", e)
             return None
 
     async def read_memory_baselines_for_node(
@@ -8410,7 +8460,7 @@ class UniversalRoomDatabase:
     ) -> list[dict]:
         """List all memory baseline rows for a node."""
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 cursor = await db.execute(
                     """SELECT metric_name, mean, variance, sample_count,
                               last_updated
@@ -8429,7 +8479,7 @@ class UniversalRoomDatabase:
                     for r in rows
                 ]
         except Exception as e:  # noqa: BLE001
-            _LOGGER.debug("read_memory_baselines_for_node failed: %s", e)
+            self._mem_dao_warn("read_memory_baselines_for_node", e)
             return []
 
     async def read_memory_episodes(
@@ -8450,7 +8500,7 @@ class UniversalRoomDatabase:
                 clauses.append("started_at >= ?")
                 params.append(since_iso)
             where = " AND ".join(clauses)
-            async with self._db() as db:
+            async with self._db_read() as db:
                 cursor = await db.execute(
                     f"""SELECT id, node_id, episode_type, started_at,
                               ended_at, adjudication, adjudicated_at,
@@ -8477,7 +8527,7 @@ class UniversalRoomDatabase:
                     })
                 return out
         except Exception as e:  # noqa: BLE001
-            _LOGGER.debug("read_memory_episodes failed: %s", e)
+            self._mem_dao_warn("read_memory_episodes", e)
             return []
 
     async def read_memory_facts(
@@ -8497,7 +8547,7 @@ class UniversalRoomDatabase:
             if not include_superseded:
                 clauses.append("superseded_by IS NULL")
             where = " AND ".join(clauses)
-            async with self._db() as db:
+            async with self._db_read() as db:
                 cursor = await db.execute(
                     f"""SELECT id, node_id, topic, statement, attrs_json,
                               confidence, derived_from, created_at,
@@ -8523,5 +8573,86 @@ class UniversalRoomDatabase:
                     })
                 return out
         except Exception as e:  # noqa: BLE001
-            _LOGGER.debug("read_memory_facts failed: %s", e)
+            self._mem_dao_warn("read_memory_facts", e)
+            return []
+
+    async def get_memory_status_counts(self) -> dict:
+        """Public read-only accessor for URAMemoryStatusSensor (LOW B9).
+
+        Returns {episode_total, episodes_by_type, facts_count,
+        baseline_row_count}. Uses the ``_db_read`` pool — never touches
+        the write queue. Failures return zeros so the sensor never blocks.
+        """
+        try:
+            async with self._db_read() as db:
+                cur = await db.execute(
+                    "SELECT COUNT(*), episode_type FROM memory_episodes "
+                    "GROUP BY episode_type"
+                )
+                rows = await cur.fetchall()
+                by_type: dict = {}
+                total = 0
+                for r in rows:
+                    by_type[r[1]] = int(r[0])
+                    total += int(r[0])
+                cur = await db.execute(
+                    "SELECT COUNT(*) FROM memory_facts "
+                    "WHERE superseded_by IS NULL"
+                )
+                r = await cur.fetchone()
+                facts_count = int(r[0]) if r else 0
+                cur = await db.execute(
+                    "SELECT COUNT(*) FROM metric_baselines "
+                    "WHERE coordinator_id='memory'"
+                )
+                r = await cur.fetchone()
+                baseline_row_count = int(r[0]) if r else 0
+                return {
+                    "episode_total": total,
+                    "episodes_by_type": by_type,
+                    "facts_count": facts_count,
+                    "baseline_row_count": baseline_row_count,
+                }
+        except Exception as e:  # noqa: BLE001
+            self._mem_dao_warn("get_memory_status_counts", e)
+            return {
+                "episode_total": 0,
+                "episodes_by_type": {},
+                "facts_count": 0,
+                "baseline_row_count": 0,
+            }
+
+    async def read_decision_log_since(
+        self, since_iso: str, limit: int = 500,
+    ) -> list[dict]:
+        """Read decision_log rows since a timestamp, oldest first.
+
+        Used by MemoryFacade.narrative() to merge coordinator decisions
+        with room episodes (architecture explicitly allows narrative to
+        touch raw logs). Read-only via _db_read.
+        """
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT timestamp, coordinator_id, decision_type,
+                              scope, situation_classified
+                       FROM decision_log
+                       WHERE timestamp >= ?
+                       ORDER BY timestamp ASC
+                       LIMIT ?""",
+                    (since_iso, int(limit)),
+                )
+                rows = await cursor.fetchall()
+                return [
+                    {
+                        "timestamp": r[0],
+                        "coordinator_id": r[1],
+                        "decision_type": r[2],
+                        "scope": r[3],
+                        "situation_classified": r[4],
+                    }
+                    for r in (rows or [])
+                ]
+        except Exception as e:  # noqa: BLE001
+            self._mem_dao_warn("read_decision_log_since", e)
             return []

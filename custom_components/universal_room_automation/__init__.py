@@ -1514,7 +1514,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 MemoryFacade(hass)
                             )
                             await _async_register_memory_services(hass)
-                            await _async_start_memory_baseline_writer(hass)
+                            await _async_start_memory_baseline_writer(hass, entry)
                             _LOGGER.info(
                                 "Memory MVP: facade + baseline writer "
                                 "wired (Stage 1)",
@@ -4009,6 +4009,22 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             unsub_catchup()
         hass.data[DOMAIN].pop("activity_logger", None)
 
+        # Hierarchical memory MVP (Stage 1) teardown — release the 5-min
+        # baseline-writer listener + drop the facade instance (v-review
+        # HIGH A1=B1). The unsub is also entry.async_on_unload-registered,
+        # but pop-and-call here matches the pattern used by neighboring
+        # timer cleanups above.
+        _mem_unsub = hass.data[DOMAIN].pop("memory_baseline_unsub", None)
+        if _mem_unsub is not None:
+            try:
+                _mem_unsub()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "memory_baseline_unsub call failed on unload",
+                    exc_info=True,
+                )
+        hass.data[DOMAIN].pop("memory_facade", None)
+
         # v3.22.7: Close persistent DB connections on unload
         database = hass.data[DOMAIN].get("database")
         if database and hasattr(database, "async_close"):
@@ -4320,7 +4336,9 @@ async def _async_register_memory_services(hass: HomeAssistant) -> None:
         context = call.data.get("context") or {}
         window_s = call.data.get("window_s")
         window = _timedelta(seconds=int(window_s)) if window_s else None
-        caller_id = call.data.get("caller_id")
+        # MED C-M5: default to explicit "observer" for the service caller
+        # so unknown-tier deny doesn't fire against dashboard/operator use.
+        caller_id = call.data.get("caller_id") or "observer"
         try:
             if verb == "baseline":
                 ans = await facade.baseline(
@@ -4397,9 +4415,15 @@ async def _async_register_memory_services(hass: HomeAssistant) -> None:
     _LOGGER.info("Registered memory_query service (MVP Stage 1)")
 
 
-async def _async_start_memory_baseline_writer(hass: HomeAssistant) -> None:
+async def _async_start_memory_baseline_writer(
+    hass: HomeAssistant, entry: ConfigEntry | None = None,
+) -> None:
     """Kick off the 5-min baseline-writer time interval, guarded by the
     kill switch. Handle stored in hass.data[DOMAIN]["memory_baseline_unsub"].
+
+    When ``entry`` is provided, the unsub is also registered with
+    ``entry.async_on_unload`` (v-review HIGH A1=B1) so a config-entry
+    unload deterministically releases the listener.
     """
     from datetime import timedelta as _timedelta  # noqa: PLC0415
     from homeassistant.helpers.event import (  # noqa: PLC0415
@@ -4428,6 +4452,14 @@ async def _async_start_memory_baseline_writer(hass: HomeAssistant) -> None:
         hass, _tick, _timedelta(minutes=5),
     )
     hass.data[DOMAIN]["memory_baseline_unsub"] = unsub
+    if entry is not None:
+        try:
+            entry.async_on_unload(unsub)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "memory_baseline_writer: async_on_unload registration "
+                "failed (non-fatal)", exc_info=True,
+            )
 
 
 async def _async_register_safety_services(hass: HomeAssistant) -> None:

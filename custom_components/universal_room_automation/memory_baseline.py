@@ -30,6 +30,7 @@ from .const import (
 from .memory_facade import (
     build_metric_key,
     house_state_to_family,
+    slugify as _mem_slugify,
     utc_to_local_hour_bin,
 )
 
@@ -73,7 +74,7 @@ def _is_room_suppressed(
             )
             if not title:
                 continue
-            slug = title.lower().replace(" ", "_").replace("-", "_")
+            slug = _mem_slugify(title)
             if slug != room_slug:
                 continue
             if getattr(coord, "_mmwave_demoted_latch", False):
@@ -188,6 +189,11 @@ async def async_fold_samples(hass: HomeAssistant) -> int:
     # Pre-compute unusual_today per allowlisted room so
     # OccupiedBinarySensor.extra_state_attributes can read a cached value
     # without a facade round-trip.
+    #
+    # B10 (LOW): the cached value is refreshed on the 5-min fold cadence,
+    # so a room reload / entity refresh can read a value that lags by up
+    # to ~5 minutes. Acceptable for the diagnostic surface (never on any
+    # control path); a reload that outlives the next tick self-heals.
     try:
         facade = hass.data.get(DOMAIN, {}).get("memory_facade")
         if facade is not None:
@@ -219,9 +225,7 @@ async def async_fold_samples(hass: HomeAssistant) -> int:
                         )
                         if not title:
                             continue
-                        slug = title.lower().replace(
-                            " ", "_",
-                        ).replace("-", "_")
+                        slug = _mem_slugify(title)
                         if slug == room_slug:
                             coord.__dict__[
                                 "_memory_unusual_today_cached"

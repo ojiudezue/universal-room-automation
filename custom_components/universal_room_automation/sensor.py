@@ -1683,7 +1683,73 @@ class UnavailableEntitiesSensor(UniversalRoomEntity, SensorEntity):
     @property
     def native_value(self) -> int:
         """Return count of unavailable configured entities (inputs + actuators)."""
-        return len(self._get_unavailable_entities())
+        eids = self._get_unavailable_entities()
+        # NEW (item 15): sensor_dropout episode on empty→non-empty
+        # transition. No new detection machinery — hooks the EXISTING
+        # unavailable-entities tracking. Dedup gate in log_memory_episode
+        # (MED B4) prevents storm bursts. Systemic events (cross-node) are
+        # answerable at read time by observer-tier queries.
+        try:
+            prev = int(self.__dict__.get(
+                "_memory_dropout_prev_count", 0,
+            ))
+        except Exception:  # noqa: BLE001
+            prev = 0
+        cur = len(eids)
+        if prev == 0 and cur > 0:
+            try:
+                _db = self.coordinator.hass.data.get(DOMAIN, {}).get(
+                    "database",
+                )
+                if _db is not None and hasattr(
+                    _db, "log_memory_episode",
+                ):
+                    _room = getattr(self.coordinator, "room_name", None) or (
+                        getattr(self.coordinator, "_room_name", None)
+                    )
+                    if _room:
+                        _slug = _room.lower().replace(
+                            " ", "_",
+                        ).replace("-", "_")
+                        # Best-effort house_state stamp — never blocks.
+                        _hs = None
+                        try:
+                            mgr = self.coordinator.hass.data.get(
+                                DOMAIN, {},
+                            ).get("coordinator_manager")
+                            pres = (
+                                getattr(mgr, "coordinators", {}).get(
+                                    "presence",
+                                )
+                                if mgr is not None else None
+                            )
+                            _hs = (
+                                str(getattr(pres, "house_state", None))
+                                if pres is not None else None
+                            )
+                        except Exception:  # noqa: BLE001
+                            _hs = None
+                        # untracked-ok: observational; failure silent.
+                        self.coordinator.hass.async_create_task(  # noqa: untracked-ok
+                            _db.log_memory_episode(
+                                node_id=f"room:{_slug}",
+                                episode_type="sensor_dropout",
+                                adjudication="unadjudicated",
+                                adjudicated_by="unavailable_entities_sensor",
+                                attrs={
+                                    "entities": list(eids),
+                                    "count": cur,
+                                    "house_state": _hs,
+                                },
+                                source_ref=(
+                                    "sensor.py:UnavailableEntitiesSensor"
+                                ),
+                            ),
+                        )
+            except Exception:  # noqa: BLE001
+                pass
+        self.__dict__["_memory_dropout_prev_count"] = cur
+        return cur
 
     def _iter_configured(self):
         """Yield (entity_id, role, category) for every configured entity."""
@@ -4095,34 +4161,17 @@ class URAMemoryStatusSensor(AggregationEntity, SensorEntity):
         db = self.hass.data.get(DOMAIN, {}).get("database")
         if db is None:
             return
+        # LOW B9: use the public read-only accessor — never touch db._db()
+        # (write queue) or db._db_read() (crossing a private) from a
+        # diagnostic sensor. See database.get_memory_status_counts.
         try:
-            async with db._db() as conn:  # noqa: SLF001 — internal DAO
-                cur = await conn.execute(
-                    "SELECT COUNT(*), episode_type FROM memory_episodes "
-                    "GROUP BY episode_type"
-                )
-                rows = await cur.fetchall()
-                by_type: dict = {}
-                total = 0
-                for r in rows:
-                    by_type[r[1]] = int(r[0])
-                    total += int(r[0])
-                self._episodes_by_type = by_type
-                self._episode_total = total
-
-                cur = await conn.execute(
-                    "SELECT COUNT(*) FROM memory_facts "
-                    "WHERE superseded_by IS NULL"
-                )
-                r = await cur.fetchone()
-                self._facts_count = int(r[0]) if r else 0
-
-                cur = await conn.execute(
-                    "SELECT COUNT(*) FROM metric_baselines "
-                    "WHERE coordinator_id='memory'"
-                )
-                r = await cur.fetchone()
-                self._baseline_row_count = int(r[0]) if r else 0
+            counts = await db.get_memory_status_counts()
+            self._episodes_by_type = counts.get("episodes_by_type") or {}
+            self._episode_total = int(counts.get("episode_total", 0))
+            self._facts_count = int(counts.get("facts_count", 0))
+            self._baseline_row_count = int(
+                counts.get("baseline_row_count", 0),
+            )
         except Exception:  # noqa: BLE001
             pass
 

@@ -293,7 +293,7 @@ prefix vs caller identity):
 | Room | Itself; its siblings within the same zone (differential diagnosis); the house (context) — NOT arbitrary distant rooms, NOT coordinators |
 | Zone | Itself; its member rooms; sibling zones; the house |
 | House | Everything below it |
-| Coordinator | Any node in its domain of action (presence → all; energy → energy-relevant scopes; etc.) |
+| Coordinator | Any node (unrestricted; narrowing to domain scopes deferred until a coordinator consumer exists) |
 | NM / diagnostics / dashboard / operator / AI service | Everything (read-only observers) |
 
 Rationale: the one cross-room use case with proven value (am-I-the-only-

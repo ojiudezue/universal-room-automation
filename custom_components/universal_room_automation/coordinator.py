@@ -148,6 +148,27 @@ from ._humidity_gate import humidity_venting_enabled
 _LOGGER = logging.getLogger(__name__)
 
 
+def _read_house_state_str(hass) -> str | None:
+    """Best-effort read of the current house_state (memory-episode attr).
+
+    Returns None on any failure — episode-writer sites treat this as
+    additive context, never as a control input.
+    """
+    try:
+        manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        presence = (
+            getattr(manager, "coordinators", {}).get("presence")
+            if manager is not None else None
+        )
+        if presence is not None:
+            state = getattr(presence, "house_state", None)
+            if state:
+                return str(state)
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
 async def _fire_stuck_sensor_nm(
     hass: HomeAssistant, room_name: str, entity_id: str, kind: str,
     hours: float | None = None,
@@ -2209,6 +2230,11 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                                             "count": (
                                                 self._fan_transition_suppressed_count
                                             ),
+                                            "house_state": (
+                                                _read_house_state_str(
+                                                    self.hass,
+                                                )
+                                            ),
                                         },
                                         source_ref=(
                                             "coordinator.py:fan_transition_gate"
@@ -2842,6 +2868,11 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                                                 ),
                                                 "prior_source": (
                                                     _pre_source
+                                                ),
+                                                "house_state": (
+                                                    _read_house_state_str(
+                                                        self.hass,
+                                                    )
                                                 ),
                                             },
                                             source_ref=(

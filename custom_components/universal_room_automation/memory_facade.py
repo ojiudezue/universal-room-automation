@@ -86,6 +86,7 @@ CAPABILITY_REGISTRY: dict[str, tuple[str, ...]] = {
         "occupancy_substrate_occupancy",   # occupancy bucket
         "vacancy_hold",                    # vacancy hold
         "fan_recheck",                     # fan-recheck manager
+        "music_following",                 # music-following (C-M2)
     ),
     "zone": (
         "presence_modes",                  # zone presence modes
@@ -140,14 +141,22 @@ CAPABILITY_REGISTRY: dict[str, tuple[str, ...]] = {
 # ------------------------------------------------------------------
 
 
+_UNKNOWN_CALLER_WARNED: set[str] = set()
+
+
 def _caller_tier(caller_id: str | None) -> str:
-    """Return the tier of a caller_id: room/zone/house/coordinator/observer."""
-    if not caller_id:
+    """Return the tier of a caller_id: room/zone/house/coordinator/observer/unknown.
+
+    MED C-M5: observer bypass ONLY for caller_id None or explicit
+    "observer". Unrecognized caller_id prefixes are tagged "unknown"
+    so the access check can DENY (never silently observe-through).
+    """
+    if caller_id is None or caller_id == "observer":
         return "observer"
     for prefix in ("room:", "zone:", "coordinator:", "house"):
         if caller_id.startswith(prefix):
             return prefix.rstrip(":") if prefix.endswith(":") else prefix
-    return "observer"
+    return "unknown"
 
 
 def _access_check(
@@ -165,11 +174,18 @@ def _access_check(
     their domain of action (implemented liberally: coordinators may
     query anything — reviewed).
     """
-    if not caller_id:
-        return None
     caller_tier = _caller_tier(caller_id)
     if caller_tier == "observer":
         return None
+    if caller_tier == "unknown":
+        # MED C-M5: deny with a one-shot WARNING per unrecognized string.
+        if caller_id not in _UNKNOWN_CALLER_WARNED:
+            _UNKNOWN_CALLER_WARNED.add(caller_id)
+            _LOGGER.warning(
+                "MemoryFacade denying unknown caller_id=%r "
+                "(no recognized tier prefix)", caller_id,
+            )
+        return "access_denied:unknown_caller_tier"
     if caller_tier == "coordinator":
         return None
     if caller_tier == "house":
@@ -229,7 +245,15 @@ def _same_zone(
 
 
 def _slugify(text: str) -> str:
+    """Shared memory slugifier (LOW B8) — reused by memory_baseline,
+    coordinator, and fan_veto so all writer sites produce identical
+    node_id slugs. Also exported as ``slugify``.
+    """
     return (text or "").lower().replace(" ", "_").replace("-", "_")
+
+
+# Public alias so callers can import a stable name.
+slugify = _slugify
 
 
 # ------------------------------------------------------------------
@@ -467,36 +491,110 @@ class MemoryFacade:
                 verdict="insufficient_history",
                 provenance=("memory_baselines:no_rows",),
             )
-        # Gate: aggregate support must clear MEMORY_UNUSUAL_MIN_SUPPORT.
-        total_support = sum(int(b["sample_count"]) for b in baselines)
-        if total_support < MEMORY_UNUSUAL_MIN_SUPPORT:
+        # HIGH C2: rank by z-score of LIVE sample vs own baseline.
+        # Per-row support>=30 gate is applied FIRST — a row that can't
+        # be compared honestly is excluded, not ranked by dispersion.
+        # For rows we can't resolve a live value for, we fall back to
+        # dispersion tagged as such in provenance.
+        eligible: list[dict] = []
+        excluded_low_support = 0
+        for b in baselines:
+            if int(b.get("sample_count", 0)) >= MEMORY_UNUSUAL_MIN_SUPPORT:
+                eligible.append(b)
+            else:
+                excluded_low_support += 1
+        total_support = sum(int(b["sample_count"]) for b in eligible)
+        if not eligible:
             return MemoryAnswer(
                 verdict="insufficient_history",
-                support=total_support,
+                support=sum(
+                    int(b["sample_count"]) for b in baselines
+                ),
                 provenance=(
-                    f"unusual:support={total_support}"
-                    f"<min={MEMORY_UNUSUAL_MIN_SUPPORT}",
+                    f"unusual:no_row_support={MEMORY_UNUSUAL_MIN_SUPPORT}_met",
+                    f"unusual:rows_excluded={excluded_low_support}",
                 ),
             )
-        # Rank rows by variance/mean ratio (proxy for "unusual signal"
-        # dispersion). Stage 1 is intentionally simple: the value is the
-        # baseline snapshot ranked. A real scorer against live samples
-        # is a Stage 2 follow-up (per MVP: "ships complete; data arrives
-        # incrementally").
-        ranked = sorted(
-            baselines,
-            key=lambda b: (
-                math.sqrt(max(b["variance"], 0.0))
-                / max(abs(b["mean"]), 1e-6)
-            ),
-            reverse=True,
+        room_slug = (
+            node_id.split(":", 1)[1] if ":" in node_id else node_id
         )
+        scored: list[dict] = []
+        live_hits = 0
+        for b in eligible:
+            metric_name = str(b.get("metric_name") or "")
+            signal = metric_name.split(":", 1)[0] if metric_name else ""
+            live_val = self._resolve_live_sample(room_slug, signal)
+            mean = float(b.get("mean", 0.0))
+            sd = math.sqrt(max(float(b.get("variance", 0.0)), 0.0))
+            entry = {
+                **b,
+                "signal": signal,
+                "value": live_val,
+                "sd": sd,
+            }
+            if live_val is None:
+                # Fallback: rank by dispersion, disclosed in provenance.
+                entry["z"] = None
+                entry["rank_basis"] = "dispersion_fallback"
+                entry["_sort"] = sd / max(abs(mean), 1e-6)
+            else:
+                live_hits += 1
+                if sd < 1e-9:
+                    if abs(live_val - mean) < 1e-9:
+                        z = 0.0
+                    else:
+                        z = float("inf")
+                else:
+                    z = (live_val - mean) / sd
+                entry["z"] = z
+                entry["rank_basis"] = "z_score_live"
+                entry["_sort"] = abs(z) if z != float("inf") else 1e18
+            scored.append(entry)
+        scored.sort(key=lambda e: e.get("_sort", 0.0), reverse=True)
+        for e in scored:
+            e.pop("_sort", None)
+        prov = ["memory_baselines:ranked_by_z_score"]
+        if live_hits == 0:
+            prov.append("degraded:no_live_samples_fell_back_to_dispersion")
+        elif live_hits < len(scored):
+            prov.append(
+                f"partial_live_samples:{live_hits}/{len(scored)}",
+            )
+        if excluded_low_support:
+            prov.append(f"low_support_rows_excluded={excluded_low_support}")
         return MemoryAnswer(
             verdict="ok",
-            value=ranked,
+            value=scored,
             support=total_support,
-            provenance=("memory_baselines:ranked_by_dispersion",),
+            provenance=tuple(prov),
         )
+
+    def _resolve_live_sample(
+        self, room_slug: str, signal: str,
+    ) -> float | None:
+        """Read the room's current live value for a memory signal.
+
+        Mirrors memory_baseline._room_samples so live and baseline share a
+        source. Returns None on any failure.
+        """
+        if not room_slug or not signal:
+            return None
+        try:
+            if signal == "occupied":
+                st = self.hass.states.get(
+                    f"binary_sensor.{room_slug}_occupied",
+                )
+                if st is not None and st.state in ("on", "off"):
+                    return 1.0 if st.state == "on" else 0.0
+                return None
+            st = self.hass.states.get(f"sensor.{room_slug}_{signal}")
+            if st is None:
+                return None
+            return float(st.state)
+        except (TypeError, ValueError, AttributeError):
+            return None
+        except Exception:  # noqa: BLE001
+            return None
 
     # ---- outcome(node, decision_type, window) ---------------------
 
@@ -543,7 +641,9 @@ class MemoryFacade:
                 datetime.now(timezone.utc) - window
             ).isoformat()
         events: list[dict] = []
+        provenance_tags: list[str] = []
         # Episodes tier
+        eps_ok = False
         try:
             eps = await db.read_memory_episodes(
                 node_id, episode_type=None, since_iso=since_iso,
@@ -554,22 +654,58 @@ class MemoryFacade:
                     "at": e["started_at"],
                     "detail": e,
                 })
+            provenance_tags.append("memory_episodes")
+            eps_ok = True
         except Exception:  # noqa: BLE001
-            pass
-        # decision_log + house_state_log are richer; Stage 1 exposes
-        # them via best-effort reads so consumers see the merged shape.
-        # (These readers may not exist as DAOs; we degrade gracefully.)
+            provenance_tags.append("degraded:memory_episodes_read_failed")
+        # HIGH C1: architecture explicitly allows narrative to touch raw
+        # logs. Best-effort merge of house_state_log + decision_log via
+        # the read pool. Failures degrade to episodes-only with an
+        # explicit provenance tag.
+        _since = since_iso or (
+            datetime.now(timezone.utc) - (window or timedelta(hours=24))
+        ).isoformat()
+        try:
+            if hasattr(db, "fetch_house_state_log_since"):
+                hs_rows = await db.fetch_house_state_log_since(
+                    _since, 500,
+                )
+                for r in hs_rows or []:
+                    events.append({
+                        "kind": "house_state",
+                        "at": r.get("timestamp"),
+                        "detail": r,
+                    })
+                provenance_tags.append("house_state_log")
+        except Exception:  # noqa: BLE001
+            provenance_tags.append(
+                "degraded:house_state_log_read_failed",
+            )
+        try:
+            if hasattr(db, "read_decision_log_since"):
+                dl_rows = await db.read_decision_log_since(_since, 500)
+                for r in dl_rows or []:
+                    events.append({
+                        "kind": "decision",
+                        "at": r.get("timestamp"),
+                        "detail": r,
+                    })
+                provenance_tags.append("decision_log")
+        except Exception:  # noqa: BLE001
+            provenance_tags.append(
+                "degraded:decision_log_read_failed",
+            )
         events.sort(key=lambda x: x.get("at") or "")
         if not events:
             return MemoryAnswer(
                 verdict="insufficient_history",
-                provenance=("narrative:no_events",),
+                provenance=tuple(provenance_tags + ["narrative:no_events"]),
             )
         return MemoryAnswer(
             verdict="ok",
             value=events,
             support=len(events),
-            provenance=("memory_episodes",),
+            provenance=tuple(provenance_tags or ["memory_episodes"]),
         )
 
     # ---- profile(node) --------------------------------------------
@@ -627,19 +763,105 @@ class MemoryFacade:
 
     def _compose_capability(self, node_id: str) -> dict:
         node_type = self._node_type(node_id)
-        declared: tuple[str, ...]
-        if node_type.startswith("coordinator:"):
-            declared = CAPABILITY_REGISTRY.get(node_type, ())
-        else:
-            declared = CAPABILITY_REGISTRY.get(node_type, ())
-        # Stage 1: enabled and actionable_now start conservative — every
-        # declared mech = enabled True, actionable_now unknown (facade
-        # cannot cheaply resolve every actuator entity here). Consumers
-        # that need finer grain drive the resolve step in their own code.
+        declared: tuple[str, ...] = CAPABILITY_REGISTRY.get(node_type, ())
+        # MED B5+C-M1: per-mechanism enabled derivation from the merged
+        # config; None when no toggle is derivable (never unconditional
+        # True). actionable_now checks concrete actuator entity availability
+        # where the mechanism has one.
+        merged: dict = {}
+        try:
+            if node_id.startswith("room:"):
+                target_slug = node_id.split(":", 1)[1]
+                for entry in self.hass.config_entries.async_entries(DOMAIN):
+                    title_slug = _slugify(entry.title or entry.entry_id)
+                    if title_slug == target_slug:
+                        merged = {
+                            **(entry.data or {}),
+                            **(entry.options or {}),
+                        }
+                        break
+        except Exception:  # noqa: BLE001
+            merged = {}
+
+        def _bool(key: str) -> bool | None:
+            if key not in merged:
+                return None
+            v = merged.get(key)
+            return bool(v)
+
+        def _nonempty(key: str) -> bool | None:
+            if key not in merged:
+                return None
+            v = merged.get(key)
+            if v is None:
+                return False
+            try:
+                return len(v) > 0
+            except TypeError:
+                return bool(v)
+
+        def _entities_actionable(key: str) -> bool | None:
+            v = merged.get(key) if key in merged else None
+            if not v:
+                return None
+            eids = v if isinstance(v, (list, tuple)) else [v]
+            if not eids:
+                return None
+            try:
+                for eid in eids:
+                    st = self.hass.states.get(eid)
+                    if st is None or st.state in ("unavailable", "unknown"):
+                        return False
+                return True
+            except Exception:  # noqa: BLE001
+                return None
+
+        enabled: dict = {}
+        actionable_now: dict = {}
+        for m in declared:
+            en: bool | None = None
+            act: bool | None = None
+            if m == "lighting":
+                en = _nonempty("lights")
+                act = _entities_actionable("lights")
+            elif m == "night_light":
+                en = _nonempty("night_lights")
+                act = _entities_actionable("night_lights")
+            elif m == "comfort_fan":
+                en = _nonempty("fans")
+                act = _entities_actionable("fans")
+            elif m == "comfort_fan_away_veto":
+                en = _bool("comfort_fan_away_veto_enabled")
+            elif m == "humidity_fan":
+                en = _bool("humidity_fan_control_enabled")
+                act = _entities_actionable("humidity_fans")
+            elif m == "covers":
+                en = _nonempty("covers")
+                act = _entities_actionable("covers")
+            elif m == "climate_coupling":
+                en = _nonempty("climate_entity")
+                act = _entities_actionable("climate_entity")
+            elif m == "camera_person_fusion":
+                disable = merged.get("disable_camera_presence")
+                has_cams = _nonempty("room_cameras")
+                if disable is None and has_cams is None:
+                    en = None
+                else:
+                    en = (not bool(disable)) and bool(has_cams)
+            elif m == "fan_recheck":
+                en = _bool("room_fan_recheck_enabled")
+                if en is None:
+                    en = _bool("fan_recheck_enabled")
+            elif m == "music_following":
+                en = _bool("music_following_enabled")
+                act = _entities_actionable("room_media_player")
+            # All other mechanisms: no derivable toggle → None (unknown).
+            enabled[m] = en
+            actionable_now[m] = act
         return {
             "declared": list(declared),
-            "enabled": {m: True for m in declared},
-            "actionable_now": {m: None for m in declared},
+            "enabled": enabled,
+            "actionable_now": actionable_now,
         }
 
     def _compose_locality(self, node_id: str) -> dict:

@@ -695,3 +695,212 @@ async def test_baseline_writer_respects_allowlist(monkeypatch, tmp_path):
         assert n == 0
     finally:
         await db.stop_write_worker()
+
+
+# ---------------------------------------------------------------------------
+# 10. Fix-up cycle new coverage — items 2, 6, 9, 13, 14.
+# ---------------------------------------------------------------------------
+
+
+def _tmp_db_hass(tmp_path):
+    hass = MagicMock()
+    hass.config.path = lambda *parts: str(tmp_path / os.path.join(*parts))
+
+    def _sched(coro, name=None):
+        return asyncio.ensure_future(coro)
+
+    hass.async_create_task = _sched
+    hass.async_create_background_task = _sched
+    return hass
+
+
+@pytest.mark.asyncio
+async def test_seed_idempotent_partial_shape(tmp_path):
+    """HIGH A2 fix-up: seed is idempotent under partial-failure shape.
+
+    Manually insert 2 of the 4 seed rows, re-run initialize, and assert
+    exactly 4 total (the missing 2 filled in, no dupes on the pre-existing).
+    """
+    from custom_components.universal_room_automation.database import (
+        UniversalRoomDatabase,
+    )
+    hass = _tmp_db_hass(tmp_path)
+    db = UniversalRoomDatabase(hass)
+    assert await db.initialize()
+    await db.start_write_worker()
+    try:
+        # Manually clear-and-insert 2 rows to simulate partial-shape state.
+        # Use a fresh initialize path: drop all and put back 2 rows through
+        # the DAO surface via a direct connection (test-scope only).
+        import aiosqlite  # noqa: PLC0415
+        async with aiosqlite.connect(db.db_file) as conn:
+            await conn.execute("DELETE FROM memory_facts")
+            await conn.commit()
+        # Insert 2 of the seed facts by hand.
+        async with aiosqlite.connect(db.db_file) as conn:
+            for fact in list(MEMORY_SEED_FACTS)[:2]:
+                await conn.execute(
+                    """INSERT INTO memory_facts (
+                        node_id, topic, statement, attrs_json,
+                        confidence, derived_from, created_at, superseded_by
+                    ) VALUES (?, ?, ?, '{}', ?, ?, ?, NULL)""",
+                    (fact["node_id"], fact["topic"], fact["statement"],
+                     float(fact["confidence"]), fact["derived_from"],
+                     "2026-01-01T00:00:00+00:00"),
+                )
+            await conn.commit()
+        # Re-initialize; INSERT OR IGNORE must fill in the missing 2.
+        assert await db.initialize()
+        facts = await db.read_memory_facts(
+            "room:study_a", include_superseded=True,
+        )
+        assert len(facts) == len(MEMORY_SEED_FACTS)
+        # Double-init once more should also be a no-op.
+        assert await db.initialize()
+        facts2 = await db.read_memory_facts(
+            "room:study_a", include_superseded=True,
+        )
+        assert len(facts2) == len(MEMORY_SEED_FACTS)
+    finally:
+        await db.stop_write_worker()
+
+
+@pytest.mark.asyncio
+async def test_welford_variance_decays_after_distribution_shift(tmp_path):
+    """MED A-M1 fix-up: variance tracks CURRENT spread after the count hits
+    the clamp. Feed 100 sd~5 samples then 500 sd~1 samples with cap=200 and
+    assert variance is closer to 1 than to 5 by the end.
+    """
+    import random  # noqa: PLC0415
+    from custom_components.universal_room_automation.database import (
+        UniversalRoomDatabase,
+    )
+    hass = _tmp_db_hass(tmp_path)
+    db = UniversalRoomDatabase(hass)
+    assert await db.initialize()
+    await db.start_write_worker()
+    try:
+        node = "room:test"
+        metric = "temperature:h12:home"
+        rng = random.Random(1234)
+        cap = 200
+        # Phase 1: 100 samples with sd~5 around 60
+        for _ in range(100):
+            await db.upsert_memory_baseline(
+                node, metric, 60.0 + rng.gauss(0, 5.0), cap,
+            )
+        # Phase 2: 500 tight samples with sd~1 around 60
+        for _ in range(500):
+            await db.upsert_memory_baseline(
+                node, metric, 60.0 + rng.gauss(0, 1.0), cap,
+            )
+        row = await db.read_memory_baseline(node, metric)
+        assert row is not None
+        sd = row["variance"] ** 0.5
+        # Without decay this would remain wedged around 5 (early rows
+        # dominate the M2 numerator forever). Assert convergence toward 1.
+        assert sd < 2.0, f"variance did not decay: sd={sd:.3f}"
+    finally:
+        await db.stop_write_worker()
+
+
+@pytest.mark.asyncio
+async def test_episode_dedup_gate_drops_in_window(tmp_path):
+    """MED B4 fix-up: two writes for the same (node, type) in the dedup
+    window collapse to one row."""
+    from custom_components.universal_room_automation.database import (
+        UniversalRoomDatabase,
+    )
+    hass = _tmp_db_hass(tmp_path)
+    db = UniversalRoomDatabase(hass)
+    assert await db.initialize()
+    await db.start_write_worker()
+    try:
+        node = "room:study_a"
+        r1 = await db.log_memory_episode(
+            node_id=node, episode_type="occupancy_phantom",
+            adjudication="phantom", adjudicated_by="d2_demotion",
+        )
+        r2 = await db.log_memory_episode(
+            node_id=node, episode_type="occupancy_phantom",
+            adjudication="phantom", adjudicated_by="d2_demotion",
+        )
+        assert r1 is not None and r1 > 0
+        assert r2 is None, "in-window repeat must be dropped"
+        rows = await db.read_memory_episodes(node)
+        assert len(rows) == 1
+    finally:
+        await db.stop_write_worker()
+
+
+@pytest.mark.asyncio
+async def test_zone_sibling_allow_via_zm_config(fake_hass):
+    """MED C-M6 fix-up: two rooms in the same ZM zone → sibling episodes()
+    is NOT denied."""
+    # Seed a fake ZM entry into the fake hass config_entries.
+    _entry = MagicMock()
+    _entry.data = {}
+    _entry.options = {
+        "zones": {
+            "Study Wing": {
+                "zone_rooms": ["Study A", "Study B"],
+            },
+        },
+    }
+    fake_hass.config_entries.async_entries = MagicMock(
+        return_value=[_entry],
+    )
+    facade = MemoryFacade(fake_hass)
+    ans = await facade.episodes(
+        "room:study_b", caller_id="room:study_a",
+    )
+    # Sibling → no access_denied provenance. No episodes stored → insufficient_history.
+    assert ans.verdict == "insufficient_history"
+    assert not any(
+        p.startswith("access_denied") for p in ans.provenance
+    ), ans.provenance
+
+
+@pytest.mark.asyncio
+async def test_unknown_caller_tier_denied(fake_hass):
+    """MED C-M5 fix-up: unrecognized caller_id prefix → DENY."""
+    facade = MemoryFacade(fake_hass)
+    ans = await facade.facts(
+        "room:study_a", caller_id="mystery_caller",
+    )
+    assert ans.verdict == "no_data"
+    assert any(
+        "access_denied:unknown_caller_tier" in p for p in ans.provenance
+    )
+
+
+@pytest.mark.asyncio
+async def test_episode_writer_site_fan_veto_lands_row(tmp_path):
+    """MED C-M3 fix-up: drive the fan_veto._record_veto site with minimal
+    fixtures and assert the row lands.
+    """
+    # Ensure homeassistant.const carries STATE_ON/STATE_OFF for fan_veto.
+    import sys  # noqa: PLC0415
+    _hac = sys.modules.get("homeassistant.const")
+    if _hac is not None and not hasattr(_hac, "STATE_OFF"):
+        _hac.STATE_OFF = "off"
+        _hac.STATE_ON = "on"
+    from custom_components.universal_room_automation import fan_veto
+    from custom_components.universal_room_automation.database import (
+        UniversalRoomDatabase,
+    )
+    hass = _tmp_db_hass(tmp_path)
+    db = UniversalRoomDatabase(hass)
+    assert await db.initialize()
+    await db.start_write_worker()
+    try:
+        hass.data = {DOMAIN: {"database": db}}
+        # Direct call to the writer site.
+        fan_veto._record_veto(hass, "Study A")
+        # Give the async task time to complete.
+        await asyncio.sleep(0.05)
+        rows = await db.read_memory_episodes("room:study_a")
+        by = [r["adjudicated_by"] for r in rows]
+        assert "fan_veto" in by
+    finally:
+        await db.stop_write_worker()

@@ -1185,7 +1185,10 @@ class NotificationManager:
                 _sw = self.hass.states.get(
                     "switch.ura_memory_nm_conditioning",
                 )
-                if _sw is None or str(_sw.state).lower() != "off":
+                # MED B3: _sw is None (entity not yet registered — boot
+                # window) must mean NO conditioning (fall through unchanged),
+                # not ON. Only condition when the switch exists AND reads on.
+                if _sw is not None and str(_sw.state).lower() == "on":
                     facade = self.hass.data.get(DOMAIN, {}).get(
                         "memory_facade",
                     )
@@ -1201,8 +1204,14 @@ class NotificationManager:
                         _signal = _signal_map[hazard_type]
                         ans = await facade.baseline(
                             f"room:{_slug}", _signal,
-                            caller_id="notification_manager",
+                            caller_id="observer",
                         )
+                        if ans.verdict == "insufficient_history":
+                            _LOGGER.debug(
+                                "memory conditioning skipped: insufficient "
+                                "history for %s/%s",
+                                f"room:{_slug}", _signal,
+                            )
                         if ans.verdict == "ok" and ans.value:
                             live = self.hass.states.get(
                                 f"sensor.{_slug}_{_signal}",

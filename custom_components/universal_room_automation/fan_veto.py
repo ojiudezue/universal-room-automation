@@ -479,6 +479,7 @@ def _record_veto(hass: HomeAssistant, room_name: str) -> None:
                             .get(_COUNTS_KEY, {})
                             .get(room_name, 0),
                         ),
+                        "house_state": _get_house_state(hass),
                     },
                     source_ref="fan_veto.py:_record_veto",
                 ),
