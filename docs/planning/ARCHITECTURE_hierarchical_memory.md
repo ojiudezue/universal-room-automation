@@ -334,6 +334,62 @@ Tier 3 review by definition.
   (rung 1 constants; promotion to entities only if operator tuning
   proves warranted).
 
+## 10. Per-tier observability & control (DESIGNED, build-deferred)
+
+(Operator 2026-08-02: "each type of node might need different things —
+maybe not build it now but design it.") The MVP ships only two surfaces
+(house diagnostics sensor + NM-conditioning switch). This section is
+the designed full surface, per tier, each item with its build trigger.
+The design rule: observability rides EXISTING entities as attributes
+wherever possible (rooms already have occupied sensors; coordinators
+already have diagnostic sensors) — new entities only where no carrier
+exists. Control follows the one-switch-per-behavior-touching-consumer
+pattern established by `switch.ura_memory_nm_conditioning`.
+
+**Room** (carrier: the existing occupied sensor)
+- MVP: `unusual_today` attr.
+- Designed: `last_episode` attr (type + adjudication + age of the most
+  recent episode — the "anything notable happen here?" glance).
+  Trigger: episode writers live + first operator request for per-room
+  recency. No per-room switches or buttons — adjudication and resets
+  are service calls with node args; 40 rooms of buttons is the
+  anti-pattern.
+
+**Zone** (carrier: existing zone presence/mode sensors)
+- Designed: `unusual_members` attr — top member-room deviation
+  roll-up (computed on read via facade fan-out, no storage).
+  Trigger: zone-tier consumer or dashboard demand; not before.
+
+**House** (carrier: `sensor.ura_memory_status`, ships in MVP)
+- Designed additions to the SAME sensor (no new entities): compactor
+  stats (facts_created, episodes_redacted, last_run) when the compactor
+  builds; adjacency_graph freshness once derived adjacency lands.
+- Designed: daily memory digest routed through NM's existing digest
+  machinery (NOT a new sensor) — "yesterday: N episodes (M phantom),
+  top unusual items". Trigger: operator asks for it after living with
+  unusual_today; digests are noise until proven wanted.
+
+**Coordinator** (carrier: existing coordinator diagnostic sensors)
+- Designed: `outcome_summary` attr per coordinator — prediction-skill /
+  realized-vs-projected snapshot from outcome(). Trigger: the first
+  coordinator that writes prediction-time outcome rows (energy is the
+  natural first; its savings accounting already computes the inputs).
+- Control: memory-conditioning switches added ONE PER CONSUMER as
+  behavior-touching consumers arrive (HVAC preset conditioning would
+  get `switch.ura_memory_hvac_conditioning`, etc.). Never a global
+  "memory influences behavior" switch — per-consumer kill switches keep
+  blast radii separable.
+
+**Buttons/services (tierless)**
+- `button.ura_memory_compact_now` — supervised manual compaction, DB-
+  vacuum-button precedent (v5.5.7). Builds WITH the compactor.
+- `universal_room_automation.memory_adjudicate` service (node, episode,
+  verdict) — the operator adjudication path; builds when the first
+  manual adjudication is actually needed (the three MVP writers self-
+  adjudicate).
+- `universal_room_automation.memory_reset_baseline` service (node,
+  signal) — trigger: first poisoning incident the quality gate misses.
+
 ---
 
 ## Critique applied before finalizing (v1 → v2)
