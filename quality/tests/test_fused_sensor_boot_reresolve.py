@@ -9,12 +9,15 @@ sensor stays inert (attribute `agreement=no_sources`) and the fan-veto
 camera leg reads OFF until a manual config-entry reload. Live-reproduced
 in v5.46.0; see docs/readmes/README_v5.46.0.md.
 
-Fix: after the initial `_subscribe_sources()` call, if configured
-`CONF_ROOM_CAMERAS` is non-empty AND the resolution came back empty AND
-`hass.is_running` is False, register a one-shot listener on
+Fix (post review-A fix-up): after the initial `_subscribe_sources()`
+call, if configured `CONF_ROOM_CAMERAS` is non-empty AND HA is not yet
+fully running (`hass.state is not CoreState.running` — includes the
+`starting` window), register a one-shot listener on
 `EVENT_HOMEASSISTANT_STARTED` that clears the cache and re-runs
-`_subscribe_sources()`. Cleanup via `async_on_remove` mirrors
-`_unsub_state` / `_unsub_lifecycle`.
+`_subscribe_sources()` UNCONDITIONALLY — a boot resolve can be empty or
+PARTIAL (one camera platform up, another still loading), so the re-resolve
+must not be gated on emptiness (review A MEDIUM). Cleanup via
+`async_on_remove` mirrors `_unsub_state` / `_unsub_lifecycle`.
 
 Test strategy (Bug Class #62 disclosure): binary_sensor.py's top-level
 imports (RestoreEntity, CoordinatorEntity, typed generics) exceed what
@@ -75,21 +78,22 @@ def test_init_declares_unsub_started_slot():
 # T2: boot re-resolve — empty resolution + not running → listener registered
 # ---------------------------------------------------------------------------
 
-def test_boot_reresolve_registers_started_listener_when_empty_and_booting():
+def test_boot_reresolve_registers_started_listener_when_booting():
     """The boot re-resolve block must:
        - Guard on CONF_ROOM_CAMERAS non-empty (room_cams_boot).
-       - Guard on empty resolution (empty_resolve = not fusions or not sources).
-       - Guard on `hass.is_running` False (ha_running).
+       - Guard on HA not fully running (CoreState.running check — includes
+         the `starting` window; review A LOW).
+       - NOT gate on empty resolution (partial resolves must re-join;
+         review A MEDIUM).
        - Register async_listen_once on EVENT_HOMEASSISTANT_STARTED.
        - Store the returned unsub in self._unsub_started.
     """
     assert "room_cams_boot = config_boot.get(CONF_ROOM_CAMERAS" in CLASS_BODY
-    assert (
-        "empty_resolve = not self._fusions or not self._source_entity_ids"
-        in CLASS_BODY
-    )
-    assert 'ha_running = bool(getattr(self.hass, "is_running", False))' in CLASS_BODY
-    assert "if room_cams_boot and empty_resolve and not ha_running:" in CLASS_BODY
+    assert "_ha_fully_running = self.hass.state is CoreState.running" in CLASS_BODY
+    assert "if room_cams_boot and not _ha_fully_running:" in CLASS_BODY
+    # review A MEDIUM: the emptiness gate must STAY deleted — a partial
+    # resolve (one platform up) must still re-resolve at STARTED.
+    assert "empty_resolve" not in CLASS_BODY
     assert "EVENT_HOMEASSISTANT_STARTED" in CLASS_BODY
     assert "self.hass.bus.async_listen_once(" in CLASS_BODY
     assert "self._unsub_started = self.hass.bus.async_listen_once(" in CLASS_BODY
@@ -119,13 +123,13 @@ def test_boot_reresolve_callback_clears_cache_and_resubscribes():
 # T4: non-empty resolution → no started listener (guard prevents entry)
 # ---------------------------------------------------------------------------
 
-def test_no_started_listener_when_resolution_non_empty():
+def test_started_listener_nested_under_boot_guard():
     """The whole boot-reresolve block sits under
-       `if room_cams_boot and empty_resolve and not ha_running:` — so a
-       non-empty initial resolution cannot register the listener. Anchor
-       that the async_listen_once call is INSIDE this guard, not at the
-       top of async_added_to_hass."""
-    guard = "if room_cams_boot and empty_resolve and not ha_running:"
+       `if room_cams_boot and not _ha_fully_running:` — so a room without
+       cameras, or an entity added post-boot, cannot register the
+       listener. Anchor that async_listen_once is INSIDE this guard, not
+       at the top of async_added_to_hass."""
+    guard = "if room_cams_boot and not _ha_fully_running:"
     guard_pos = CLASS_BODY.index(guard)
     listen_pos = CLASS_BODY.index("self._unsub_started = self.hass.bus.async_listen_once(")
     assert guard_pos < listen_pos, (
@@ -140,13 +144,32 @@ def test_no_started_listener_when_resolution_non_empty():
 # T5: empty resolution + hass ALREADY running → no listener (guard blocks)
 # ---------------------------------------------------------------------------
 
-def test_no_started_listener_when_hass_already_running():
-    """The `not ha_running` clause is the discriminator between the boot
-    path (register) and the options-updated-post-boot path (skip; the
-    lifecycle signal already covers it)."""
-    assert "and not ha_running:" in CLASS_BODY, (
-        "guard must include `not ha_running` — otherwise options-updated "
-        "with a bad entity list would register a listener that never fires"
+def test_no_started_listener_when_hass_fully_running():
+    """The `not _ha_fully_running` clause is the discriminator between the
+    boot/starting path (register) and the fully-running post-boot path
+    (skip; the lifecycle signal already covers options-updates). The check
+    is CoreState.running, NOT is_running — is_running is True during
+    `starting`, which would miss a reload wedged into that window."""
+    assert "and not _ha_fully_running:" in CLASS_BODY, (
+        "guard must include `not _ha_fully_running` — otherwise a room "
+        "entity added while HA is fully running would register a listener "
+        "that never fires"
+    )
+    assert "self.hass.state is CoreState.running" in CLASS_BODY
+
+
+def test_callback_nils_unsub_first():
+    """Review A LOW: _on_ha_started must nil self._unsub_started BEFORE
+    re-resolving — if _subscribe_sources raises, a stale unsub would
+    double-remove at entity removal and spam HA core's unknown-listener
+    exception log."""
+    cb_start = CLASS_BODY.index("def _on_ha_started(")
+    cb_end = CLASS_BODY.index("self._unsub_started = self.hass.bus.async_listen_once(")
+    cb = CLASS_BODY[cb_start:cb_end]
+    nil_pos = cb.index("self._unsub_started = None")
+    resub_pos = cb.index("_subscribe_sources()")
+    assert nil_pos < resub_pos, (
+        "_on_ha_started must nil _unsub_started before re-subscribing"
     )
 
 

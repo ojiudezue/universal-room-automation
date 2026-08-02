@@ -1275,19 +1275,26 @@ class CameraPersonDetectedSensor(UniversalRoomEntity, BinarySensorEntity):
 
         _subscribe_sources()
 
-        # 2026-08-01 boot re-resolve: if CONF_ROOM_CAMERAS is configured but
-        # initial resolution produced no fusions / no source entity_ids AND
-        # HA is still booting, the camera integrations (Frigate MQTT, UniFi
-        # Protect) likely haven't finished setup yet. Register a one-shot
-        # listener on EVENT_HOMEASSISTANT_STARTED that clears the cache and
-        # re-runs _subscribe_sources(). If HA is already running, keep the
-        # current behavior — the lifecycle signal covers options-updated
-        # paths and re-registering here would just churn.
+        # 2026-08-01 boot re-resolve: if CONF_ROOM_CAMERAS is configured AND
+        # HA has not finished starting, the camera integrations (Frigate
+        # MQTT, UniFi Protect) may not have finished setup yet — a boot-time
+        # resolution can be empty OR PARTIAL (review A MEDIUM: one platform
+        # up, the other still loading), so we re-resolve unconditionally on
+        # EVENT_HOMEASSISTANT_STARTED rather than only when the resolve came
+        # back empty. _subscribe_sources() is idempotent and cheap. If HA is
+        # already fully running, keep the current behavior — the lifecycle
+        # signal covers options-updated paths and re-registering here would
+        # just churn. State check includes CoreState.starting (review A LOW:
+        # `is_running` is True during `starting`, which would miss an entry
+        # reload wedged into the starting window).
         config_boot = {**self.coordinator.entry.data, **self.coordinator.entry.options}
         room_cams_boot = config_boot.get(CONF_ROOM_CAMERAS, []) or []
-        empty_resolve = not self._fusions or not self._source_entity_ids
-        ha_running = bool(getattr(self.hass, "is_running", False))
-        if room_cams_boot and empty_resolve and not ha_running:
+        try:
+            from homeassistant.core import CoreState  # noqa: PLC0415
+            _ha_fully_running = self.hass.state is CoreState.running
+        except Exception:  # noqa: BLE001
+            _ha_fully_running = bool(getattr(self.hass, "is_running", False))
+        if room_cams_boot and not _ha_fully_running:
             try:
                 from homeassistant.const import (  # noqa: PLC0415
                     EVENT_HOMEASSISTANT_STARTED,
@@ -1297,6 +1304,13 @@ class CameraPersonDetectedSensor(UniversalRoomEntity, BinarySensorEntity):
 
             @callback
             def _on_ha_started(event):
+                # Nil FIRST (review A LOW): if re-resolve below raises, a
+                # stale unsub here would double-remove at entity removal and
+                # spam HA core's unknown-listener exception log.
+                self._unsub_started = None
+                # Narrow race (review B): if removal was dispatched in the
+                # same loop tick as STARTED, this runs on a removed entity —
+                # at most one leaked state listener, no corruption; accepted.
                 _prior_cams = len(self._fusions or [])
                 _prior_sources = len(self._source_entity_ids or [])
                 self._fusions = None
@@ -1310,17 +1324,17 @@ class CameraPersonDetectedSensor(UniversalRoomEntity, BinarySensorEntity):
                     self.coordinator.entry.title,
                     _new_cams, _new_sources, _prior_cams, _prior_sources,
                 )
-                self._unsub_started = None
                 self.async_write_ha_state()
 
             self._unsub_started = self.hass.bus.async_listen_once(
                 EVENT_HOMEASSISTANT_STARTED, _on_ha_started,
             )
             _LOGGER.info(
-                "CameraPersonDetectedSensor(%s): empty resolution during "
-                "boot (%d configured cameras); scheduled re-resolve on "
-                "EVENT_HOMEASSISTANT_STARTED",
+                "CameraPersonDetectedSensor(%s): added during boot "
+                "(%d configured cameras, %d resolved sources); scheduled "
+                "re-resolve on EVENT_HOMEASSISTANT_STARTED",
                 self.coordinator.entry.title, len(room_cams_boot),
+                len(self._source_entity_ids or []),
             )
 
             @callback
