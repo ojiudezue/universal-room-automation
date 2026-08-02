@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.47.0
+# Universal Room Automation vv5.47.1
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1476,6 +1476,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # Initialize database (shared across all rooms — use existing if already created).
         # v4.0.17: Lock prevents race with concurrent room entry setup.
+        # v5.47.1: memory wiring is idempotent and must also run when the
+        # DB ALREADY exists (CM reload after owning the wiring: cleanup
+        # popped the keys, this guard would skip site 1, and no other CM-
+        # path call exists — memory would stay dead until restart).
+        if hass.data[DOMAIN].get("database") is not None:
+            await _async_wire_memory(hass, entry)
         if hass.data[DOMAIN].get("database") is None:
             db_lock = hass.data[DOMAIN].setdefault("_db_init_lock", asyncio.Lock())
             async with db_lock:
@@ -1505,25 +1511,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         activity_logger = ActivityLogger(hass)
                         hass.data[DOMAIN]["activity_logger"] = activity_logger
 
-                        # Hierarchical memory MVP (Stage 1) — facade +
-                        # baseline writer + service. See
-                        # docs/planning/MVP_hierarchical_memory.md
-                        try:
-                            from .memory_facade import MemoryFacade  # noqa: PLC0415
-                            hass.data[DOMAIN]["memory_facade"] = (
-                                MemoryFacade(hass)
-                            )
-                            await _async_register_memory_services(hass)
-                            await _async_start_memory_baseline_writer(hass, entry)
-                            _LOGGER.info(
-                                "Memory MVP: facade + baseline writer "
-                                "wired (Stage 1)",
-                            )
-                        except Exception as _mem_err:  # noqa: BLE001
-                            _LOGGER.warning(
-                                "Memory MVP wiring failed (non-fatal): %s",
-                                _mem_err,
-                            )
+                        # Hierarchical memory MVP (Stage 1) — v5.47.1:
+                        # extracted to _async_wire_memory (idempotent,
+                        # called from BOTH DB-init sites).
+                        await _async_wire_memory(hass, entry)
 
                         # v5.17.0 — Observability WS surface. Registration
                         # is process-global and idempotent (guarded by
@@ -3716,6 +3707,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Re-read from shared state (another entry may have created it)
     database = hass.data[DOMAIN].get("database")
 
+    # v5.47.1: memory wiring must run regardless of WHICH entry won the
+    # DB-init race (both init sites + this common room path). Idempotent.
+    if database is not None:
+        await _async_wire_memory(hass, entry)
+
     # Create coordinator
     coordinator = UniversalRoomCoordinator(hass, entry)
 
@@ -4306,6 +4302,34 @@ async def _async_register_presence_services(hass: HomeAssistant) -> None:
         _LOGGER.info("Registered fan_recheck_force_restore service")
 
 
+async def _async_wire_memory(
+    hass: HomeAssistant, entry: ConfigEntry | None = None,
+) -> None:
+    """Idempotently wire the memory facade + service + baseline writer.
+
+    v5.47.1 hotfix: async_setup_entry has TWO DB-init sites (CM-path
+    ~1483 and room-path ~3693) and 40+ entries race for the init lock at
+    boot — v5.47.0 wired memory only at the first site, so any boot
+    where a room entry won the lock silently skipped the facade, the
+    memory_query service, AND the baseline writer (observed live
+    2026-08-02: seeds present, service absent, baseline_last_fold null).
+    This helper is called from BOTH sites and guards on the facade key.
+    """
+    if hass.data.get(DOMAIN, {}).get("memory_facade") is not None:
+        return
+    try:
+        from .memory_facade import MemoryFacade  # noqa: PLC0415
+        hass.data[DOMAIN]["memory_facade"] = MemoryFacade(hass)
+        await _async_register_memory_services(hass)
+        await _async_start_memory_baseline_writer(hass, entry)
+        _LOGGER.info("Memory MVP: facade + baseline writer wired (Stage 1)")
+    except Exception as _mem_err:  # noqa: BLE001
+        hass.data.get(DOMAIN, {}).pop("memory_facade", None)
+        _LOGGER.warning(
+            "Memory MVP wiring failed (non-fatal): %s", _mem_err,
+        )
+
+
 async def _async_register_memory_services(hass: HomeAssistant) -> None:
     """Register the memory_query service (SupportsResponse.ONLY).
 
@@ -4453,8 +4477,24 @@ async def _async_start_memory_baseline_writer(
     )
     hass.data[DOMAIN]["memory_baseline_unsub"] = unsub
     if entry is not None:
+        def _cleanup_memory_wiring() -> None:
+            # v5.47.1: the owning entry's unload must ALSO drop the
+            # hass.data keys, not just cancel the listener — otherwise a
+            # reload of that one entry leaves the stale unsub + facade
+            # guarding _async_wire_memory closed, and memory stays dead
+            # until a full restart. Popping here lets the reloaded
+            # entry's own setup rewire cleanly.
+            _u = hass.data.get(DOMAIN, {}).pop(
+                "memory_baseline_unsub", None,
+            )
+            if _u is not None:
+                try:
+                    _u()
+                except Exception:  # noqa: BLE001
+                    pass
+            hass.data.get(DOMAIN, {}).pop("memory_facade", None)
         try:
-            entry.async_on_unload(unsub)
+            entry.async_on_unload(_cleanup_memory_wiring)
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
                 "memory_baseline_writer: async_on_unload registration "
