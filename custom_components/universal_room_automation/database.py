@@ -15,7 +15,7 @@ import shutil
 import statistics
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import aiosqlite
@@ -1523,6 +1523,79 @@ class UniversalRoomDatabase:
                     ON ac_ramp_events(timestamp)""",
                 ]):
                     failed_tables.append("ac_ramp_events")
+
+                # -- Hierarchical memory MVP (2026-08-02) --------------------
+                # See docs/planning/ARCHITECTURE_hierarchical_memory.md §4/§5c.
+                # memory_episodes: adjudicated notable events per node.
+                # memory_facts: consolidated tier (compactor DEFERRED per
+                # MVP parsimony pass; table + supersession ship, distill/
+                # correct/redact not yet).
+                if not await self._create_table_safe(db, "memory_episodes", [
+                    """CREATE TABLE IF NOT EXISTS memory_episodes (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        node_id TEXT NOT NULL,
+                        episode_type TEXT NOT NULL,
+                        started_at TEXT NOT NULL,
+                        ended_at TEXT,
+                        adjudication TEXT NOT NULL DEFAULT 'unadjudicated',
+                        adjudicated_at TEXT,
+                        adjudicated_by TEXT,
+                        attrs_json TEXT NOT NULL DEFAULT '{}',
+                        source_ref TEXT
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_episodes_node_type
+                    ON memory_episodes(node_id, episode_type, started_at)""",
+                ]):
+                    failed_tables.append("memory_episodes")
+
+                if not await self._create_table_safe(db, "memory_facts", [
+                    """CREATE TABLE IF NOT EXISTS memory_facts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        node_id TEXT NOT NULL,
+                        topic TEXT NOT NULL,
+                        statement TEXT NOT NULL,
+                        attrs_json TEXT NOT NULL DEFAULT '{}',
+                        confidence REAL NOT NULL,
+                        derived_from TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        superseded_by INTEGER
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_facts_node_topic
+                    ON memory_facts(node_id, topic)""",
+                ]):
+                    failed_tables.append("memory_facts")
+
+                # Seed F1-F4 facts idempotently (INSERT-if-empty).
+                try:
+                    cursor = await db.execute(
+                        "SELECT COUNT(*) FROM memory_facts"
+                    )
+                    row = await cursor.fetchone()
+                    existing = int(row[0]) if row else 0
+                    if existing == 0:
+                        from .const import MEMORY_SEED_FACTS  # noqa: PLC0415
+                        _now_iso = datetime.now(timezone.utc).isoformat()
+                        for fact in MEMORY_SEED_FACTS:
+                            await db.execute(
+                                """INSERT INTO memory_facts (
+                                    node_id, topic, statement, attrs_json,
+                                    confidence, derived_from, created_at,
+                                    superseded_by
+                                ) VALUES (?, ?, ?, '{}', ?, ?, ?, NULL)""",
+                                (
+                                    fact["node_id"], fact["topic"],
+                                    fact["statement"],
+                                    float(fact["confidence"]),
+                                    fact["derived_from"], _now_iso,
+                                ),
+                            )
+                        await db.commit()
+                        _LOGGER.info(
+                            "memory_facts seeded with %d rows (F1-F4)",
+                            len(MEMORY_SEED_FACTS),
+                        )
+                except Exception as e:  # noqa: BLE001
+                    _LOGGER.warning("memory_facts seed failed: %s", e)
 
                 # ============================================================
                 # Schema migrations (per-table, safe)
@@ -8175,3 +8248,280 @@ class UniversalRoomDatabase:
                         "worker after VACUUM: %s — writes will not flush!", err,
                     )
             self._vacuum_in_progress = False
+
+    # =========================================================================
+    # Hierarchical Memory MVP — episode + fact + baseline DAOs
+    # (feature/memory-mvp 2026-08-02). See:
+    #   docs/planning/ARCHITECTURE_hierarchical_memory.md §4, §5, §5c
+    #   docs/planning/MVP_hierarchical_memory.md
+    # All writes go through _db()'s write-queue like every other DAO.
+    # Timestamps are UTC ISO with an explicit +00:00 offset — never naive
+    # (audit gap #5).
+    # =========================================================================
+
+    async def log_memory_episode(
+        self,
+        node_id: str,
+        episode_type: str,
+        adjudication: str = "unadjudicated",
+        adjudicated_by: str | None = None,
+        attrs: dict | None = None,
+        source_ref: str | None = None,
+        started_at: str | None = None,
+        ended_at: str | None = None,
+    ) -> int | None:
+        """Insert a memory_episodes row. Returns row id or None on failure.
+
+        Never raises: episode logging is observational, not on any control
+        path.
+        """
+        import json as _json  # noqa: PLC0415
+        try:
+            from .const import MEMORY_EPISODE_TYPES  # noqa: PLC0415
+            if episode_type not in MEMORY_EPISODE_TYPES:
+                _LOGGER.warning(
+                    "log_memory_episode: unregistered episode_type=%r "
+                    "(registry gate — add to MEMORY_EPISODE_TYPES first)",
+                    episode_type,
+                )
+                return None
+            now_iso = datetime.now(timezone.utc).isoformat()
+            started = started_at or now_iso
+            adjudicated_at_iso = (
+                now_iso if adjudication != "unadjudicated" else None
+            )
+            async with self._db() as db:
+                cursor = await db.execute(
+                    """INSERT INTO memory_episodes (
+                        node_id, episode_type, started_at, ended_at,
+                        adjudication, adjudicated_at, adjudicated_by,
+                        attrs_json, source_ref
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        node_id, episode_type, started, ended_at,
+                        adjudication, adjudicated_at_iso, adjudicated_by,
+                        _json.dumps(attrs or {}, default=str), source_ref,
+                    ),
+                )
+                await db.commit()
+                _LOGGER.debug(
+                    "memory_episodes wrote row (node=%s type=%s "
+                    "adjudication=%s by=%s)",
+                    node_id, episode_type, adjudication,
+                    adjudicated_by or "-",
+                )
+                return int(cursor.lastrowid) if cursor.lastrowid else None
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning("log_memory_episode failed: %s", e)
+            return None
+
+    async def upsert_memory_baseline(
+        self,
+        node_id: str,
+        metric_name: str,
+        new_sample: float,
+        sample_cap: int,
+    ) -> None:
+        """Welford UPSERT for a memory baseline row.
+
+        Uses the reused `metric_baselines` table with `coordinator_id`
+        column carrying our tier prefix "memory" (distinct from other
+        coordinators), `metric_name` = context-qualified signal name
+        (e.g. "humidity:h14:home"), `scope` = the node_id (e.g.
+        "room:study_a"). See architecture §5.
+
+        Welford incremental update; count clamped to `sample_cap` so
+        baselines track season drift without a scheduled forgetting job.
+        """
+        try:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            async with self._db() as db:
+                cursor = await db.execute(
+                    """SELECT mean, variance, sample_count FROM
+                       metric_baselines WHERE coordinator_id=?
+                       AND metric_name=? AND scope=?""",
+                    ("memory", metric_name, node_id),
+                )
+                row = await cursor.fetchone()
+                if row is None:
+                    mean = float(new_sample)
+                    variance = 0.0
+                    count = 1
+                else:
+                    old_mean = float(row[0])
+                    old_var = float(row[1])
+                    old_n = int(row[2])
+                    n = min(old_n + 1, sample_cap)
+                    delta = float(new_sample) - old_mean
+                    mean = old_mean + delta / n
+                    delta2 = float(new_sample) - mean
+                    # Welford's M2 update, normalized to variance.
+                    m2_old = old_var * max(old_n - 1, 0)
+                    m2 = m2_old + delta * delta2
+                    variance = m2 / max(n - 1, 1)
+                    count = n
+                await db.execute(
+                    """INSERT INTO metric_baselines (
+                        coordinator_id, metric_name, scope,
+                        mean, variance, sample_count, last_updated
+                    ) VALUES ('memory', ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(coordinator_id, metric_name, scope)
+                    DO UPDATE SET mean=excluded.mean,
+                                  variance=excluded.variance,
+                                  sample_count=excluded.sample_count,
+                                  last_updated=excluded.last_updated""",
+                    (metric_name, node_id, mean, variance, count, now_iso),
+                )
+                await db.commit()
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning(
+                "upsert_memory_baseline failed (node=%s metric=%s): %s",
+                node_id, metric_name, e,
+            )
+
+    async def read_memory_baseline(
+        self, node_id: str, metric_name: str,
+    ) -> dict | None:
+        """Read a single memory baseline row. Returns dict or None."""
+        try:
+            async with self._db() as db:
+                cursor = await db.execute(
+                    """SELECT mean, variance, sample_count, last_updated
+                       FROM metric_baselines
+                       WHERE coordinator_id='memory'
+                         AND metric_name=? AND scope=?""",
+                    (metric_name, node_id),
+                )
+                row = await cursor.fetchone()
+                if row is None:
+                    return None
+                return {
+                    "mean": float(row[0]),
+                    "variance": float(row[1]),
+                    "sample_count": int(row[2]),
+                    "last_updated": row[3],
+                }
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug("read_memory_baseline failed: %s", e)
+            return None
+
+    async def read_memory_baselines_for_node(
+        self, node_id: str,
+    ) -> list[dict]:
+        """List all memory baseline rows for a node."""
+        try:
+            async with self._db() as db:
+                cursor = await db.execute(
+                    """SELECT metric_name, mean, variance, sample_count,
+                              last_updated
+                       FROM metric_baselines
+                       WHERE coordinator_id='memory' AND scope=?""",
+                    (node_id,),
+                )
+                rows = await cursor.fetchall()
+                return [
+                    {
+                        "metric_name": r[0], "mean": float(r[1]),
+                        "variance": float(r[2]),
+                        "sample_count": int(r[3]),
+                        "last_updated": r[4],
+                    }
+                    for r in rows
+                ]
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug("read_memory_baselines_for_node failed: %s", e)
+            return []
+
+    async def read_memory_episodes(
+        self,
+        node_id: str,
+        episode_type: str | None = None,
+        since_iso: str | None = None,
+    ) -> list[dict]:
+        """Read matching episodes for a node."""
+        import json as _json  # noqa: PLC0415
+        try:
+            clauses = ["node_id = ?"]
+            params: list = [node_id]
+            if episode_type is not None:
+                clauses.append("episode_type = ?")
+                params.append(episode_type)
+            if since_iso is not None:
+                clauses.append("started_at >= ?")
+                params.append(since_iso)
+            where = " AND ".join(clauses)
+            async with self._db() as db:
+                cursor = await db.execute(
+                    f"""SELECT id, node_id, episode_type, started_at,
+                              ended_at, adjudication, adjudicated_at,
+                              adjudicated_by, attrs_json, source_ref
+                       FROM memory_episodes
+                       WHERE {where}
+                       ORDER BY started_at ASC""",
+                    tuple(params),
+                )
+                rows = await cursor.fetchall()
+                out = []
+                for r in rows:
+                    try:
+                        attrs = _json.loads(r[8]) if r[8] else {}
+                    except Exception:  # noqa: BLE001
+                        attrs = {}
+                    out.append({
+                        "id": int(r[0]), "node_id": r[1],
+                        "episode_type": r[2],
+                        "started_at": r[3], "ended_at": r[4],
+                        "adjudication": r[5], "adjudicated_at": r[6],
+                        "adjudicated_by": r[7], "attrs": attrs,
+                        "source_ref": r[9],
+                    })
+                return out
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug("read_memory_episodes failed: %s", e)
+            return []
+
+    async def read_memory_facts(
+        self,
+        node_id: str,
+        topic: str | None = None,
+        include_superseded: bool = False,
+    ) -> list[dict]:
+        """Read facts for a node; by default only current (non-superseded)."""
+        import json as _json  # noqa: PLC0415
+        try:
+            clauses = ["node_id = ?"]
+            params: list = [node_id]
+            if topic is not None:
+                clauses.append("topic = ?")
+                params.append(topic)
+            if not include_superseded:
+                clauses.append("superseded_by IS NULL")
+            where = " AND ".join(clauses)
+            async with self._db() as db:
+                cursor = await db.execute(
+                    f"""SELECT id, node_id, topic, statement, attrs_json,
+                              confidence, derived_from, created_at,
+                              superseded_by
+                       FROM memory_facts
+                       WHERE {where}
+                       ORDER BY id ASC""",
+                    tuple(params),
+                )
+                rows = await cursor.fetchall()
+                out = []
+                for r in rows:
+                    try:
+                        attrs = _json.loads(r[4]) if r[4] else {}
+                    except Exception:  # noqa: BLE001
+                        attrs = {}
+                    out.append({
+                        "id": int(r[0]), "node_id": r[1], "topic": r[2],
+                        "statement": r[3], "attrs": attrs,
+                        "confidence": float(r[5]),
+                        "derived_from": r[6], "created_at": r[7],
+                        "superseded_by": r[8],
+                    })
+                return out
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug("read_memory_facts failed: %s", e)
+            return []

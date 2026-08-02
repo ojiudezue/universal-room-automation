@@ -184,6 +184,8 @@ async def async_setup_entry(
         )
         coordinator_sensors = [
             CoordinatorManagerSensor(hass, entry),
+            # Hierarchical Memory MVP Stage 1 — live write-volume watch.
+            URAMemoryStatusSensor(hass, entry),
             # House-State Rung 2a (v5.39.0): CM-device house-policy diagnostic
             # surface (INV-1/INV-3).
             HousePolicySensor(hass, entry),
@@ -4049,6 +4051,128 @@ class CoordinatorManagerSensor(AggregationEntity, SensorEntity):
             ),
             "decisions_today": manager.decisions_today,
             "conflicts_resolved_today": manager.conflicts_resolved_today,
+        }
+
+
+class URAMemoryStatusSensor(AggregationEntity, SensorEntity):
+    """Hierarchical Memory MVP Stage 1 diagnostic sensor.
+
+    Entity: sensor.ura_memory_status
+    Device: URA: Coordinator Manager
+    Category: diagnostic
+
+    State: total episode count (cached — refreshed on the 5-min baseline
+    fold and on episode insert). Attributes surface the writer's stats
+    so operators can watch write volume BEFORE flipping the allowlist
+    to house-wide (write-flood postmortem).
+    """
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:database-search"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_memory_status"
+        self._attr_name = "Memory Status"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+        # Cached counts (updated by _refresh; kept cheap for
+        # extra_state_attributes reads on HA polling).
+        self._episode_total = 0
+        self._episodes_by_type: dict = {}
+        self._facts_count = 0
+        self._baseline_row_count = 0
+
+    async def _refresh(self) -> None:
+        db = self.hass.data.get(DOMAIN, {}).get("database")
+        if db is None:
+            return
+        try:
+            async with db._db() as conn:  # noqa: SLF001 — internal DAO
+                cur = await conn.execute(
+                    "SELECT COUNT(*), episode_type FROM memory_episodes "
+                    "GROUP BY episode_type"
+                )
+                rows = await cur.fetchall()
+                by_type: dict = {}
+                total = 0
+                for r in rows:
+                    by_type[r[1]] = int(r[0])
+                    total += int(r[0])
+                self._episodes_by_type = by_type
+                self._episode_total = total
+
+                cur = await conn.execute(
+                    "SELECT COUNT(*) FROM memory_facts "
+                    "WHERE superseded_by IS NULL"
+                )
+                r = await cur.fetchone()
+                self._facts_count = int(r[0]) if r else 0
+
+                cur = await conn.execute(
+                    "SELECT COUNT(*) FROM metric_baselines "
+                    "WHERE coordinator_id='memory'"
+                )
+                r = await cur.fetchone()
+                self._baseline_row_count = int(r[0]) if r else 0
+        except Exception:  # noqa: BLE001
+            pass
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from datetime import timedelta as _timedelta  # noqa: PLC0415
+        from homeassistant.helpers.event import (  # noqa: PLC0415
+            async_track_time_interval,
+        )
+        # Kick an immediate refresh + a 5-min cadence tick.
+        await self._refresh()
+
+        async def _tick(_now):
+            await self._refresh()
+            self.async_write_ha_state()
+
+        self._unsub_refresh = async_track_time_interval(
+            self.hass, _tick, _timedelta(minutes=5),
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        unsub = getattr(self, "_unsub_refresh", None)
+        if unsub is not None:
+            unsub()
+        await super().async_will_remove_from_hass()
+
+    @property
+    def native_value(self) -> int:
+        return self._episode_total
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        from .const import (
+            MEMORY_BASELINE_ALLOWLIST,
+            MEMORY_BASELINE_WRITER_ENABLED,
+        )
+        from .memory_baseline import _stats  # noqa: PLC0415
+        stats = _stats(self.hass)
+        return {
+            "episodes_by_type": dict(self._episodes_by_type),
+            "facts_count": self._facts_count,
+            "baseline_row_count": self._baseline_row_count,
+            "baseline_last_fold": stats.get("last_fold"),
+            "baseline_rows_written_last_cycle": stats.get(
+                "rows_written_last_cycle", 0,
+            ),
+            "baseline_writer_enabled": bool(
+                MEMORY_BASELINE_WRITER_ENABLED,
+            ),
+            "baseline_allowlist": list(MEMORY_BASELINE_ALLOWLIST),
         }
 
 

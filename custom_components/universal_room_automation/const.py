@@ -2705,3 +2705,123 @@ STUCK_SIGNAL_NM_HAZARD_TYPE: Final = "stuck_signal"
 STUCK_SIGNAL_NM_COORDINATOR_ID: Final = "stuck_signal"
 
 
+
+
+# ==========================================================================
+# Hierarchical Memory MVP — Stage 1 (feature/memory-mvp, 2026-08-02)
+# See docs/planning/ARCHITECTURE_hierarchical_memory.md,
+#     docs/planning/MVP_hierarchical_memory.md,
+#     docs/planning/AUDIT_memory_handbuild_study_a.md
+# ==========================================================================
+
+# --- Kill switches (rung 1 module constants; promote to entities only if
+#     operator tuning proves warranted, per Numbers Get Knobs). ---
+MEMORY_FACADE_ENABLED: Final = True
+MEMORY_BASELINE_WRITER_ENABLED: Final = True
+MEMORY_NM_CONDITIONING_ENABLED: Final = True
+
+# Baseline writer allowlist. Study-A-plus-4-siblings on ship; go house-wide
+# only after a full-day live write-volume check (write-flood postmortem).
+# Room slugs (snake_case). Empty tuple means "no rooms" — writer no-ops.
+MEMORY_BASELINE_ALLOWLIST: Final = (
+    "study_a",
+    "study_b",
+    "master_bedroom",
+    "jaya_bedroom",
+    "living_room",
+)
+
+# Welford sample-count clamp — exponential-decay-by-cap knob (arch §5).
+MEMORY_BASELINE_SAMPLE_CAP: Final = 2000
+
+# unusual() support threshold — below this we return insufficient_history.
+MEMORY_UNUSUAL_MIN_SUPPORT: Final = 30
+
+# NM humidity/CO2 conditioning: within this many SDs of the room-context
+# baseline counts as "normal-for-context" and demotes severity one notch.
+MEMORY_NM_CONDITIONING_SD_WINDOW: Final = 1.5
+
+# --- Registered vocabularies (arch §4 + audit §1). Adding a type is a
+#     reviewed change — this is the write-quality gate. ---
+MEMORY_EPISODE_TYPES: Final = frozenset({
+    "occupancy_phantom",
+    "comfort_fan_on",
+    "sensor_dropout",
+    "config_changed",
+    "systemic_dropout",
+    "hazard_recurrent",
+    "fan_transition_suppressed",
+    "comfort_fan_vetoed",
+})
+
+MEMORY_FACT_TOPICS: Final = frozenset({
+    "occupancy_reliability",
+    "sensor_trust",
+    "occupancy_baseline",
+    "notification_hygiene",
+    "adjacency_graph",
+})
+
+# Memory-ineligible decision classes (arch §8 — enforced by review + the
+# fact that memory access all goes through the facade). Consumers whose
+# hazard_type is on this list MUST NOT accept memory-driven severity
+# demotion. Life-safety hazards especially.
+MEMORY_INELIGIBLE_HAZARD_TYPES: Final = frozenset({
+    "smoke", "fire", "carbon_monoxide", "water_leak", "flooding",
+    "freeze_risk", "overheat", "hvac_failure",
+})
+
+# Seed facts (F1-F4 from AUDIT_memory_handbuild_study_a.md §3). Written
+# on first table creation only (idempotent INSERT-if-empty).
+MEMORY_SEED_FACTS: Final = (
+    {
+        "node_id": "room:study_a",
+        "topic": "occupancy_reliability",
+        "statement": (
+            "mmWave-sole occupancy onsets coincide to the second with fan "
+            "power/speed transitions; steady-state fans produce none."
+        ),
+        "confidence": 0.9,
+        "derived_from": (
+            "audit:AUDIT_memory_handbuild_study_a.md#F1;E3,E8;"
+            "AUDIT_fan_signature_separability_probe"
+        ),
+    },
+    {
+        "node_id": "room:study_a",
+        "topic": "sensor_trust",
+        "statement": (
+            "InvisOutlet (b7d0) holds presence without corroborating cause "
+            "and drops out device-locally; excluded from trusted set."
+        ),
+        "confidence": 0.9,
+        "derived_from": (
+            "audit:AUDIT_memory_handbuild_study_a.md#F2;E3,E4,E5"
+        ),
+    },
+    {
+        "node_id": "room:study_a",
+        "topic": "occupancy_baseline",
+        "statement": (
+            "Away-hours occupancy rate ~= 0.000 across all July daytime "
+            "away bins (n>=355, phantom-window samples excluded)."
+        ),
+        "confidence": 0.9,
+        "derived_from": (
+            "audit:AUDIT_memory_handbuild_study_a.md#F3;grid_section_2;"
+            "supersedes:F3-naive"
+        ),
+    },
+    {
+        "node_id": "room:study_a",
+        "topic": "notification_hygiene",
+        "statement": (
+            "high_co2 LOW hazard recurs ~15x/day while occupied "
+            "(462 in July); individually logged, no escalation warranted."
+        ),
+        "confidence": 0.6,
+        "derived_from": (
+            "audit:AUDIT_memory_handbuild_study_a.md#F4;E1"
+        ),
+    },
+)
