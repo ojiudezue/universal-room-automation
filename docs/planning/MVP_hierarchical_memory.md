@@ -57,7 +57,24 @@ notification, or correctly explained a real decision. Fewer than 4 →
 park the whole workstream with this doc as the record; the concept
 loses on evidence, not on taste.
 
-### Stage 1 — the thin slice (only after Stage 0 passes + operator go)
+### Stage 1 — the thin slice (gate PASSED 2026-08-02; operator: "every
+scope expansion earns its keep; lean to simple and reuse")
+
+**Parsimony pass (post-gate, pre-build) — three trims:**
+1. **Automated daily compaction batch DEFERRED.** A compactor needs
+   volume to compact; memory_episodes starts at ~0 rows. Ship the
+   memory_facts TABLE + facts() verb + the adjudication write path, and
+   SEED F1–F4 from the Stage-0 audit as initial rows. Evidence trigger
+   to build the compactor: any episode type exceeds 50 rows, or the
+   first baseline-correction need arises organically. (Distill/correct/
+   redact design stays in the architecture doc, unbuilt.)
+2. **Adjacency: no batch job.** Derived neighbors computed lazily on
+   first profile() read from room_transitions, cached in-process,
+   invalidated on restart. The "recompute in compaction" design
+   activates only when the compactor exists.
+3. **Declared-capability registry: minimal static dict** (~30 lines,
+   node-type → mechanism list), not a framework. It grows only when a
+   profile() consumer actually needs a missing entry.
 
 Build order and scope (one Tier 2-DB cycle):
 
@@ -74,8 +91,8 @@ Build order and scope (one Tier 2-DB cycle):
    enabling house-wide, per the write-flood postmortem).
 4. **`memory_facade.py`** — all seven verbs, MemoryAnswer, §8 access
    policy, kill switches. profile() is a live config read (cheap);
-   facts() reads the table; the daily compaction batch ships with its
-   distillation rules for the seeded types only. Verbs whose tier has no data yet return
+   facts() reads the table (seeded F1–F4; compactor deferred per
+   parsimony pass). Verbs whose tier has no data yet return
    honest `insufficient_history` (the facade ships complete; the DATA
    arrives incrementally — interface stability over feature count).
 5. **Two real consumers, zero actuation:**
