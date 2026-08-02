@@ -1,249 +1,231 @@
-# Universal Room Automation (URA)
+# Universal Room Automation — your house runs itself
 
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Integration-blue.svg)](https://www.home-assistant.io/)
-[![Version](https://img.shields.io/badge/version-4.6.15-green.svg)](https://github.com/ojiudezue/universal-room-automation/releases)
+[![Version](https://img.shields.io/badge/version-5.45.0-green.svg)](https://github.com/ojiudezue/universal-room-automation/releases)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-3800%2B-brightgreen.svg)](quality/tests)
 
-**The coordinator layer that turns Home Assistant into a self-managing house.**
+**Rooms · zones · house.** URA turns each room into software, aggregates
+them into zones, then runs the whole house as one system. Local,
+observable, reversible. Built on Home Assistant — it doesn't replace what
+you have.
 
-URA is a Home Assistant custom integration. It runs five domain coordinators (Presence, Safety, Security, Energy, HVAC) on a shared house-state machine, makes decisions every 5 minutes, and exposes everything as standard HA sensors + switches. Sub-second reactions where they matter (intrusion, smoke, motion-into-empty-room). Deliberate 5-min cycles where they don't (battery strategy, HVAC presets, load shedding).
+Project site: **https://universalroom.org/** · Live dashboard demo: **https://ura.phalanxmadrone.com**
 
-Production install: **18+ months in one home**. v4.6.15 current.
-
-Website: **https://universalroom.org/**
-Live dashboard demo: **https://ura.phalanxmadrone.com**
+Production install: 18+ months in one home. Current release: **v5.45.0**.
 
 ---
 
-## What URA actually does
+## 1. Stop thinking devices
 
-### The 9-state house-state machine
+Home automation platforms hand you a folder of devices and a trigger
+list. URA changes the unit of thought: a **room is a node** carrying 74+
+signals — occupancy, temperature, humidity, light, power, person count,
+predictions — not a place where devices happen to live. Rooms roll up
+into **zones** (physical areas that share a thermostat and a fate), and
+zones roll up into one **house**: a 9-state machine —
 
-Every URA decision starts from one of nine states: `home_day`, `home_evening`, `home_night`, `sleep`, `waking`, `arriving`, `away`, `guest`, `vacation`. Transitions are inferred from presence + clock + manual overrides. Every coordinator reads the current state and adjusts behavior.
+`home_day` · `home_evening` · `home_night` · `sleep` · `waking` ·
+`arriving` · `away` · `guest` · `vacation`
 
-Override the state manually when you need to (a select entity exposes the override).
+Every URA decision starts from that state. Transitions are inferred from
+presence + clock + manual overrides, and a select entity lets you
+override the state whenever you want.
 
-### Five domain coordinators
+## 2. Before and after
 
-| Coordinator | Picks decisions about |
+Before: 200 trigger-list automations, each blind to the others, each
+re-deriving "is anyone home" badly.
+
+After: one observable system. Music follows you, the AC stops
+overshooting, the battery saves money — because the right place knows
+what's going on.
+
+## 3. Vanilla HA underneath
+
+URA sits **on top of** your existing Home Assistant. Your YAML
+automations keep working. Your dashboards keep working. Toggle URA off
+and the house reverts to vanilla HA — nothing on your hardware is
+permanently changed. Every coordinator additionally has an
+**Observation Mode**: it computes decisions and logs what it *would*
+do while issuing zero service calls, so you can watch URA think about
+your house before letting it act.
+
+## 4. Five coordinators riding above the rooms
+
+| Coordinator | What it runs |
 |---|---|
-| **Presence** | Who's home, where they are, which zone they're in, what house state we're in |
-| **Safety** | 12 hazard types — smoke, CO, water leak, freeze, intrusion. Cascades to lights, locks, NM, never spams |
-| **Security** | Lock + camera + entry-sensor aggregation. Auto-arm on geofence. |
-| **Energy** | Enphase battery reserve SOC, EV pause/resume, pool pump speed, smart plugs, HVAC offsets — all keyed to live TOU rates + solar forecast |
-| **HVAC** | Per-zone thermostats keyed to house-state preset map. AC overshoot detection from kWh-rate. Solar gain cover management. |
+| **Presence** | House state, per-room and per-zone presence, multi-source fusion (motion, mmWave, Bermuda BLE, camera person detection) |
+| **Safety** | 12 hazard types — smoke, CO, water leak, freeze, intrusion — severity cascade to lights, locks, notifications. Never spams. |
+| **Security** | Locks + cameras + entry sensors as one armed picture. Auto-arm on geofence. |
+| **Energy** | Enphase battery, solar, EV, pool, smart plugs vs live TOU rates — with verifiable savings per cycle |
+| **HVAC** | Per-zone presets keyed to house state; waste detected from energy (kWh rate), not just temperature; solar-gain cover management |
 
-Each coordinator has a master enable switch, an observation mode (compute but don't actuate), and per-feature sub-toggles.
+Each coordinator has a master enable switch, Observation Mode, and
+per-feature sub-toggles. Priorities (Safety 100 > Energy 40 > HVAC 30 >
+Music Following 25 > Comfort 20) let higher coordinators preempt or
+constrain lower ones via signals.
 
-### Why "coordinator layer"
+## 5. The engine: two clocks
 
-URA does NOT replace your existing Home Assistant setup. Your YAML automations keep working. Your dashboards keep working. URA sits ON TOP, making decisions about high-level house behavior that no single automation can express. Disable URA tomorrow → HA reverts to vanilla. Nothing is permanently changed on your hardware.
+- **Reflexes in milliseconds** — an event bus for the things that must
+  be instant: intrusion, smoke, motion into an empty room.
+- **Strategy on a five-minute cycle** — battery strategy, HVAC presets,
+  load decisions, issued as **idempotent service calls** so a repeated
+  decision is a no-op, not a flap.
 
----
+State that matters (decisions, anomalies, energy snapshots, billing
+cycles) persists to URA's own SQLite DB at
+`/config/universal_room_automation/data/` through a managed, batched,
+observable write queue.
 
-## Architecture at a glance
+Architecture:
 
 ```
 URA Integration (parent entry)
 ├── Coordinator Manager
-│   ├── Presence Coordinator    — house state, zone presence, multi-source presence
-│   ├── Safety Coordinator      — hazard detection, cascading alerts
-│   ├── Security Coordinator    — locks + cameras + entry sensors, arming logic
-│   ├── Energy Coordinator      — battery strategy, TOU optimization, load shedding
-│   ├── HVAC Coordinator        — per-zone presets, AC ramp-down, solar gain mgmt
-│   ├── Music Following         — per-person room-following audio
-│   └── Notification Manager    — multi-channel routing (iMessage, BlueBubbles, Pushover)
+│   ├── Presence · Safety · Security · Energy · HVAC coordinators
+│   ├── Music Following — per-person room-following audio
+│   └── Notification Manager — per-person channels, digests, severity routing
 ├── Zone Manager
-│   └── Zones — physical zones with thermostat + rooms (Master Suite, Upstairs, etc.)
-└── Room Entries — per-room sensors, automation, occupancy
+│   └── Zones — thermostat-keyed areas grouping rooms
+└── Room Entries — per-room sensors, fusion, automation
 ```
 
-**Priorities:** Safety 100 > Energy 40 > HVAC 30 > Comfort 20 > Music Following 25. Higher-priority coordinators can preempt or constrain lower ones via signals.
+Diagrams (Mermaid + PDF) in [`docs/diagrams/`](docs/diagrams/):
+[system architecture](docs/diagrams/system_architecture.pdf),
+[house-state machine](docs/diagrams/house_state_machine.pdf),
+[coordinator signal flow](docs/diagrams/coordinator_signal_flow.pdf).
 
-**Storage:** Decisions, anomalies, energy daily snapshots, peak imports, billing cycles → all in URA's own SQLite DB at `/config/universal_room_automation/data/universal_room_automation.db`. URA writes through a managed write queue (batched, budgeted, observable).
+## 6. Recent highlights (v5.x)
 
-**Decision cadence:** 5 minutes for strategy coordinators (Energy, HVAC). Event-driven for reactive coordinators (Safety, Security, Presence). 30-second polling for low-stakes monitoring (lock status, camera availability).
+The site describes v4.6.15; the codebase has kept moving. Since then:
 
----
+- **Multi-modal presence fusion doctrines** — extend-not-create (new
+  sources extend existing fusions rather than spawning parallel truth),
+  divergence-aware confidence, and mmWave fan-corroboration demotion so
+  a ceiling fan can't impersonate a person.
+- **CameraResolver** (v5.45.0) — cross-integration physical-camera
+  resolution: one real camera seen by Frigate, UniFi Protect, and
+  Reolink resolves to one node via a correlation ladder (device → MAC →
+  identifiers → name-stem → operator declaration; ambiguity never
+  guesses).
+- **Notification Manager** — per-person channels (iMessage/BlueBubbles,
+  WhatsApp, Pushover), severity-aware digests, dedup, stuck-signal
+  watchdog.
+- **Exterior-person escalation** — perimeter camera person detection
+  escalates through the security/notification pipeline.
+- **Savings + forecast sensor families** — peak-avoidance and AC-ramp
+  savings accounted per cycle in dollars, plus Bayesian occupancy
+  forecasts per room.
 
-## What's in the box (v4.6.15)
+Full release ledger: [`docs/readmes/`](docs/readmes/) — one README per
+version, each carrying its post-deploy live-validation table.
 
-- **5 active domain coordinators** (above), all with observation mode + master kill-switches
-- **30+ config entries** typical install (1 integration + 1 CM + 1 Zone Manager + N rooms)
-- **600+ entities** typical install across 6 platforms (sensor, binary_sensor, switch, button, number, select)
-- **HACS-installable** via custom repository
-- **Test suite:** 3,800+ tests in `quality/tests/`. Runs in <30 seconds.
-- **Documentation:** 4 user manuals + 2 technical explainers (see `docs/`)
-- **Standalone PWA dashboard** (separate repo: `ura-dashboard-pwa`) — React + Vite + Zustand, installable on iOS/Android, served from a homelab. Optional.
-
----
-
-## Installation
+## 7. Installation
 
 ### HACS (recommended)
 
 1. HACS → Integrations → ⋮ → Custom repositories
 2. Add `https://github.com/ojiudezue/universal-room-automation` as Integration
-3. Install Universal Room Automation
-4. Restart Home Assistant
-5. Settings → Devices & Services → Add Integration → "Universal Room Automation"
-6. Follow the config flow: create the integration, add a Zone Manager, add zones, add rooms
+3. Install Universal Room Automation, restart Home Assistant
+4. Settings → Devices & Services → Add Integration → "Universal Room Automation"
+5. Follow the config flow: create the integration, add a Zone Manager, add zones, add rooms
 
 ### Manual
 
-1. Download the latest release tarball
-2. Copy `custom_components/universal_room_automation/` to your HA `config/custom_components/`
-3. Restart HA
-4. Add via Settings → Devices & Services
+Copy `custom_components/universal_room_automation/` into your HA
+`config/custom_components/`, restart, add via Settings → Devices &
+Services.
 
 ### Requirements
 
-- **Home Assistant** 2024.6.0 or newer (2026.5.x recommended; uses modern Coroutinefunction-aware schedulers)
-- **Python** 3.12+ (HA OS default)
-- **SQLite** (HA built-in)
+- Home Assistant 2024.6.0+ (recent releases recommended)
+- Python 3.12+ (HA OS default), SQLite (HA built-in)
 
-### Recommended companion integrations
+### Recommended companions
 
-- **Bermuda BLE Trilateration** (`agittins/bermuda`) — precise per-room BLE presence
-- **Enphase Envoy** (HA built-in) — battery + solar + grid data for Energy Coordinator
-- **Solcast PV Forecast** — solar forecast for Energy Coordinator's strategy
-- **UniFi Protect / Frigate** — camera-based presence + safety
-- **HACS** — for distribution
+- **Bermuda BLE Trilateration** — per-room BLE presence
+- **Enphase Envoy** — battery + solar + grid data for the Energy coordinator
+- **Solcast PV Forecast** — solar forecast for battery strategy
+- **UniFi Protect / Frigate / Reolink** — camera-based presence + safety
 
-Energy Coordinator features are gated on Envoy + Solcast being configured. HVAC's solar-gain features are gated on Envoy too. Both degrade gracefully when those integrations are unavailable (Coordinator refuses to start + raises a Repair issue; rest of URA continues normally).
+Energy features gate on Envoy + Solcast and degrade gracefully when
+absent; the rest of URA continues normally.
 
----
+## 8. Engineering discipline
 
-## Documentation
+URA is one production house, run like a product:
 
-### User manuals (lived-with documentation)
+- **Tiered adversarial reviews** — hotfixes get one staff-engineer
+  adversarial pass; feature cycles get two parallel reviewers with
+  disjoint framings; regression-prone and invariant-critical cycles get
+  three or four framing-disjoint reviews so blind spots can't converge.
+- **Mutation-anchored tests** — for load-bearing invariants (battery
+  reserve floors, clamps, gates), reviewers neuter one production site
+  at a time and confirm a specific test fails. A site whose bypass
+  leaves the suite green is an untested site.
+- **Probe-first cycles** — when a cycle's value depends on empirical
+  data properties, a one-shot read-only measurement probe over existing
+  history runs *before* the plan, and gates each deliverable.
+- **Live-validation write-backs** — after every deploy, observed
+  results (entity values, log scans, DB reads) are written back into
+  that version's README as a validation table. The git history of the
+  release READMEs *is* the validation ledger.
 
-- **[Energy Coordinator user manual](docs/user-manual/ENERGY_COORDINATOR.md)** — battery strategy, TOU, arbitrage, load shedding, grid import cap, all knobs
-- **[HVAC Coordinator user manual](docs/user-manual/HVAC_COORDINATOR.md)** — per-zone presets, AC ramp-down, solar covers, energy constraint integration
+The receipts: [`docs/reviews/`](docs/reviews/) (per-cycle review
+records), [`docs/readmes/`](docs/readmes/) (release + validation
+ledger), [`docs/QUALITY_CONTEXT.md`](docs/QUALITY_CONTEXT.md) (the
+documented bug-class catalog the reviews hunt against).
 
-### Technical explainers (architecture-level)
-
-- **[Energy Management Explainer](docs/ENERGY_MANAGEMENT_EXPLAINER.md)** — concise reference: hardware, control levers, TOU table, decision cycle, sensors, entities
-- **[HVAC Management Explainer](docs/HVAC_MANAGEMENT_EXPLAINER.md)** — same shape for HVAC: hardware, levers, preset model, AC ramp state machine, sensors, entities
-
-### Architecture + vision
-
-- **[Vision v7](docs/VISION_v7.md)** — what URA is and isn't
-- **[Roadmap v11](docs/ROADMAP_v11.md)** — current near-term queue (v4.7.x Guest Mode Actuation, Dynamic Preset Management, Appliance Coordinator)
-- **[Architecture Overview](docs/architecture-overview.md)** — system diagrams
-- **[Quality Context](docs/QUALITY_CONTEXT.md)** — the 42 bug classes URA's review process guards against
-
-### Release notes
-
-Most recent in [`docs/readmes/`](docs/readmes/):
-- **[v4.6.15](docs/readmes/README_v4.6.15.md)** — thread-safety hotfix (Bug Class #42)
-- **[v4.6.14](docs/readmes/README_v4.6.14.md)** — Dashboard Sensor Sweep
-- **[v4.6.8](docs/readmes/README_v4.6.8.md)** — EC TOU rate reconciliation + cost surface
-
-Full list: see [GitHub releases](https://github.com/ojiudezue/universal-room-automation/releases).
-
----
-
-## Quality discipline
-
-URA ships under a tiered review protocol depending on scope:
-
-| Tier | Scope | Review |
-|---|---|---|
-| Tier 1 | Hotfix; 1-3 files; no new features | 1 staff-engineer adversarial review |
-| Tier 2 | Feature cycle; new sensors/entities; multi-file | 2 parallel reviewers + live validation |
-| Tier 2-DB | DB-sensitive feature cycle (schema, DAO migration, persisted payload changes) | 3 parallel reviewers with disjoint risk framings |
-
-Every cycle tags a `pre-review` baseline before applying fixes so review-fix diffs are isolated. Live-validation acceptance criteria are mandatory for Tier 2+.
-
-Bug-class catalog in [`docs/QUALITY_CONTEXT.md`](docs/QUALITY_CONTEXT.md) — 42 documented classes from "Lambda + async_create_task in HA scheduler callback" (Bug Class #42, fixed v4.6.15) to "Schema mirror drift in test fixtures" (#39, fixed v4.6.3).
-
----
-
-## Running tests
+Tests:
 
 ```bash
-# Full suite
 PYTHONPATH=quality python3 -m pytest quality/tests/ -v
-
-# Just a focused module
-PYTHONPATH=quality python3 -m pytest quality/tests/test_v4615_threadsafety.py -v
 ```
 
-3,800+ tests. ~30 second runtime on a modern laptop.
+3,800+ tests, ~30s on a modern laptop.
 
----
+## 9. Privacy + control
 
-## Current focus (post-v4.6.15)
+URA runs **locally** inside Home Assistant. No URA cloud, no telemetry,
+no accounts. The only network calls URA initiates are solar/weather
+forecast fetches; every decision happens on your hardware. Every
+coordinator has Observation Mode, a master kill-switch, and per-feature
+sub-toggles — granular off-ramps at every level.
 
-The active queue at the time of this README:
+## 10. Documentation
 
-| Cycle | Status | Notes |
-|---|---|---|
-| **v4.7.x Guest Mode Actuation Phase 1** | Plan filed | HVAC zone preset range overrides under `guest` house state; owns the shared per-(zone, preset, range) override schema |
-| **v4.7.x Dynamic Preset Management** | Plan filed | Weather-forecast-driven daily preset adjustment (2 cycles: weather redundancy + preset application). Composes on Guest Mode's override schema. |
-| **v4.7.x Appliance Coordinator v3** | Plan filed | Cost-deferral + interrupt-at-start for LG ThinQ + Rainbird; PWA-consumable surfaces |
-| **AnomalyType discriminator** | On-tap | Tier 2-DB schema migration for `point_in_time` vs `regime_shift` classification |
+- **Project site:** https://universalroom.org/
+- **Coordinator manuals:** [`docs/Coordinator/`](docs/Coordinator/) —
+  design + operator manuals per coordinator (Energy, HVAC, Presence,
+  Safety, Security, Music Following, Notification Manager)
+- **User manuals:** [`docs/user-manual/`](docs/user-manual/) —
+  [Energy](docs/user-manual/ENERGY_COORDINATOR.md),
+  [HVAC](docs/user-manual/HVAC_COORDINATOR.md),
+  [Dynamic Presets](docs/user-manual/DYNAMIC_PRESET.md)
+- **Explainers:** [Energy](docs/ENERGY_MANAGEMENT_EXPLAINER.md) ·
+  [HVAC](docs/HVAC_MANAGEMENT_EXPLAINER.md)
+- **Vision + roadmap:** [`docs/VISION_v7.md`](docs/VISION_v7.md) ·
+  [`docs/ROADMAP_v11.md`](docs/ROADMAP_v11.md)
 
-See [`docs/ROADMAP_v11.md`](docs/ROADMAP_v11.md) for full near-term roadmap including dependency ordering.
+## 11. Contributing
 
----
+URA is maintained by one developer for one production house. It's not a
+community project (yet), but questions and ideas are welcome:
 
-## Project stats
+1. Check the [manuals](docs/user-manual/) first — they're current
+2. Open a [Discussion](https://github.com/ojiudezue/universal-room-automation/discussions) for questions
+3. For bugs, open an [issue](https://github.com/ojiudezue/universal-room-automation/issues) with relevant logs
 
-- **Current production:** v4.6.15
-- **Code:** ~57,000 LoC across 48 Python modules
-- **Tests:** 3,800+ across 60+ test files
-- **Entities (typical install):** ~600 across 6 platforms
-- **Domain coordinators:** 5 active + base framework + manager
-- **Config entry types:** 5 (Integration, Coordinator Manager, Zone Manager, Zone, Room)
-- **Development:** ~21 months
-- **Architecture evolution:** v2.0 → v4.6.15
-
----
-
-## Privacy + control
-
-URA runs **locally** inside your Home Assistant. No URA cloud. No telemetry. No accounts. No outside dependency for any decision — once Solcast + weather data are fetched (the only network calls URA itself initiates), every decision happens on your hardware. Disable the integration → HA reverts to default behavior.
-
-Every coordinator has an **Observation Mode** — compute decisions, log what they would do, but issue zero service calls. Use it to evaluate URA on your house before letting it actually touch anything.
-
-Every coordinator has a **master kill-switch** + sub-feature switches. Granular off-ramps.
-
----
-
-## Contributing
-
-URA is currently maintained by one developer for one production house. The architecture is solid; the test coverage is real; the documentation is current. But it's not a community project (yet).
-
-If you're using URA and have a question or improvement idea:
-
-1. Check the [user manuals](docs/user-manual/) first — they're current
-2. Open a [GitHub Discussion](https://github.com/ojiudezue/universal-room-automation/discussions) — not an issue
-3. For bugs, open an [issue](https://github.com/ojiudezue/universal-room-automation/issues) with the relevant `ha_get_logs` output
-
-PRs welcome but expect a careful review (see "Quality discipline" above).
-
----
+PRs welcome, but expect a careful review (see §8).
 
 ## License
 
 MIT — see [LICENSE](LICENSE).
 
----
-
 ## Acknowledgments
 
-- **Home Assistant** community for the platform that makes URA possible
-- **Bermuda BLE Trilateration** + **Enphase Envoy** + **Solcast** integrations — URA's data backbone
-- **Claude (Anthropic)** for development assistance throughout the v3 → v4 evolution
-
----
-
-## Support
-
-- **Website:** https://universalroom.org/
-- **Documentation:** [docs/](docs/) folder in this repo
-- **Issues:** [GitHub Issues](https://github.com/ojiudezue/universal-room-automation/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/ojiudezue/universal-room-automation/discussions)
+- The **Home Assistant** community, for the platform URA rides on
+- **Bermuda BLE**, **Enphase Envoy**, **Solcast** — URA's data backbone
+- **Claude (Anthropic)** for development assistance throughout the v3 → v5 evolution
