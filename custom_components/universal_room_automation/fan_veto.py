@@ -462,6 +462,30 @@ def _record_veto(hass: HomeAssistant, room_name: str) -> None:
         bucket[room_name] = int(bucket.get(room_name, 0)) + 1
     except Exception:  # noqa: BLE001 — never fail actuation on counter I/O
         pass
+    # Hierarchical memory (Stage 1): record the veto fire as an episode.
+    try:
+        _db = hass.data.get(DOMAIN, {}).get("database")
+        if _db is not None and hasattr(_db, "log_memory_episode"):
+            _slug = room_name.lower().replace(" ", "_").replace("-", "_")
+            hass.async_create_task(
+                _db.log_memory_episode(
+                    node_id=f"room:{_slug}",
+                    episode_type="comfort_fan_vetoed",
+                    adjudication="confirmed",
+                    adjudicated_by="fan_veto",
+                    attrs={
+                        "count": int(
+                            hass.data.get(DOMAIN, {})
+                            .get(_COUNTS_KEY, {})
+                            .get(room_name, 0),
+                        ),
+                        "house_state": _get_house_state(hass),
+                    },
+                    source_ref="fan_veto.py:_record_veto",
+                ),
+            )
+    except Exception:  # noqa: BLE001 — never fail actuation on memory I/O
+        pass
 
 
 def get_veto_count(hass: HomeAssistant, room_name: str) -> int:

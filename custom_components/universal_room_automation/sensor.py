@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.46.1
+# Universal Room Automation vv5.47.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -184,6 +184,8 @@ async def async_setup_entry(
         )
         coordinator_sensors = [
             CoordinatorManagerSensor(hass, entry),
+            # Hierarchical Memory MVP Stage 1 — live write-volume watch.
+            URAMemoryStatusSensor(hass, entry),
             # House-State Rung 2a (v5.39.0): CM-device house-policy diagnostic
             # surface (INV-1/INV-3).
             HousePolicySensor(hass, entry),
@@ -1681,7 +1683,73 @@ class UnavailableEntitiesSensor(UniversalRoomEntity, SensorEntity):
     @property
     def native_value(self) -> int:
         """Return count of unavailable configured entities (inputs + actuators)."""
-        return len(self._get_unavailable_entities())
+        eids = self._get_unavailable_entities()
+        # NEW (item 15): sensor_dropout episode on empty→non-empty
+        # transition. No new detection machinery — hooks the EXISTING
+        # unavailable-entities tracking. Dedup gate in log_memory_episode
+        # (MED B4) prevents storm bursts. Systemic events (cross-node) are
+        # answerable at read time by observer-tier queries.
+        try:
+            prev = int(self.__dict__.get(
+                "_memory_dropout_prev_count", 0,
+            ))
+        except Exception:  # noqa: BLE001
+            prev = 0
+        cur = len(eids)
+        if prev == 0 and cur > 0:
+            try:
+                _db = self.coordinator.hass.data.get(DOMAIN, {}).get(
+                    "database",
+                )
+                if _db is not None and hasattr(
+                    _db, "log_memory_episode",
+                ):
+                    _room = getattr(self.coordinator, "room_name", None) or (
+                        getattr(self.coordinator, "_room_name", None)
+                    )
+                    if _room:
+                        _slug = _room.lower().replace(
+                            " ", "_",
+                        ).replace("-", "_")
+                        # Best-effort house_state stamp — never blocks.
+                        _hs = None
+                        try:
+                            mgr = self.coordinator.hass.data.get(
+                                DOMAIN, {},
+                            ).get("coordinator_manager")
+                            pres = (
+                                getattr(mgr, "coordinators", {}).get(
+                                    "presence",
+                                )
+                                if mgr is not None else None
+                            )
+                            _hs = (
+                                str(getattr(pres, "house_state", None))
+                                if pres is not None else None
+                            )
+                        except Exception:  # noqa: BLE001
+                            _hs = None
+                        # untracked-ok: observational; failure silent.
+                        self.coordinator.hass.async_create_task(  # noqa: untracked-ok
+                            _db.log_memory_episode(
+                                node_id=f"room:{_slug}",
+                                episode_type="sensor_dropout",
+                                adjudication="unadjudicated",
+                                adjudicated_by="unavailable_entities_sensor",
+                                attrs={
+                                    "entities": list(eids),
+                                    "count": cur,
+                                    "house_state": _hs,
+                                },
+                                source_ref=(
+                                    "sensor.py:UnavailableEntitiesSensor"
+                                ),
+                            ),
+                        )
+            except Exception:  # noqa: BLE001
+                pass
+        self.__dict__["_memory_dropout_prev_count"] = cur
+        return cur
 
     def _iter_configured(self):
         """Yield (entity_id, role, category) for every configured entity."""
@@ -4049,6 +4117,111 @@ class CoordinatorManagerSensor(AggregationEntity, SensorEntity):
             ),
             "decisions_today": manager.decisions_today,
             "conflicts_resolved_today": manager.conflicts_resolved_today,
+        }
+
+
+class URAMemoryStatusSensor(AggregationEntity, SensorEntity):
+    """Hierarchical Memory MVP Stage 1 diagnostic sensor.
+
+    Entity: sensor.ura_memory_status
+    Device: URA: Coordinator Manager
+    Category: diagnostic
+
+    State: total episode count (cached — refreshed on the 5-min baseline
+    fold and on episode insert). Attributes surface the writer's stats
+    so operators can watch write volume BEFORE flipping the allowlist
+    to house-wide (write-flood postmortem).
+    """
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:database-search"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_memory_status"
+        self._attr_name = "Memory Status"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+        # Cached counts (updated by _refresh; kept cheap for
+        # extra_state_attributes reads on HA polling).
+        self._episode_total = 0
+        self._episodes_by_type: dict = {}
+        self._facts_count = 0
+        self._baseline_row_count = 0
+
+    async def _refresh(self) -> None:
+        db = self.hass.data.get(DOMAIN, {}).get("database")
+        if db is None:
+            return
+        # LOW B9: use the public read-only accessor — never touch db._db()
+        # (write queue) or db._db_read() (crossing a private) from a
+        # diagnostic sensor. See database.get_memory_status_counts.
+        try:
+            counts = await db.get_memory_status_counts()
+            self._episodes_by_type = counts.get("episodes_by_type") or {}
+            self._episode_total = int(counts.get("episode_total", 0))
+            self._facts_count = int(counts.get("facts_count", 0))
+            self._baseline_row_count = int(
+                counts.get("baseline_row_count", 0),
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from datetime import timedelta as _timedelta  # noqa: PLC0415
+        from homeassistant.helpers.event import (  # noqa: PLC0415
+            async_track_time_interval,
+        )
+        # Kick an immediate refresh + a 5-min cadence tick.
+        await self._refresh()
+
+        async def _tick(_now):
+            await self._refresh()
+            self.async_write_ha_state()
+
+        self._unsub_refresh = async_track_time_interval(
+            self.hass, _tick, _timedelta(minutes=5),
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        unsub = getattr(self, "_unsub_refresh", None)
+        if unsub is not None:
+            unsub()
+        await super().async_will_remove_from_hass()
+
+    @property
+    def native_value(self) -> int:
+        return self._episode_total
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        from .const import (
+            MEMORY_BASELINE_ALLOWLIST,
+            MEMORY_BASELINE_WRITER_ENABLED,
+        )
+        from .memory_baseline import _stats  # noqa: PLC0415
+        stats = _stats(self.hass)
+        return {
+            "episodes_by_type": dict(self._episodes_by_type),
+            "facts_count": self._facts_count,
+            "baseline_row_count": self._baseline_row_count,
+            "baseline_last_fold": stats.get("last_fold"),
+            "baseline_rows_written_last_cycle": stats.get(
+                "rows_written_last_cycle", 0,
+            ),
+            "baseline_writer_enabled": bool(
+                MEMORY_BASELINE_WRITER_ENABLED,
+            ),
+            "baseline_allowlist": list(MEMORY_BASELINE_ALLOWLIST),
         }
 
 

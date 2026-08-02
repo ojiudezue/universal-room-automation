@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.46.1
+# Universal Room Automation vv5.47.0
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -670,6 +670,18 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
             attrs.setdefault("control_humidity_fans", [])
             attrs.setdefault("control_covers", [])
             attrs.setdefault("control_climate_entity", None)
+        # Memory MVP Stage 1: unusual_today annotation. Facade failure
+        # ⇒ attr absent (never blocks state writes). Read is cached in
+        # coordinator via a small piggyback field to avoid hitting the
+        # facade on every extra_state_attributes call (HA polls a lot).
+        try:
+            cached = self.coordinator.__dict__.get(
+                "_memory_unusual_today_cached",
+            )
+            if cached is not None:
+                attrs["unusual_today"] = cached
+        except Exception:  # noqa: BLE001
+            pass
         return attrs
 
 

@@ -87,6 +87,8 @@ _EXPECTED_SERVICE_NAMES = (
     "acknowledge_notification",
     "test_notification",
     "test_inbound",
+    # _async_register_memory_services (Memory MVP Stage 1, 2026-08-02)
+    "memory_query",
 )
 
 

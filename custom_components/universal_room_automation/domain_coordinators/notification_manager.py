@@ -1159,6 +1159,102 @@ class NotificationManager:
             )
             return
 
+        # Hierarchical memory MVP (Stage 1) — NM severity conditioning
+        # (deliverable 5a). Demote LOW hazard severity one notch when
+        # the reading is within MEMORY_NM_CONDITIONING_SD_WINDOW of the
+        # room-context baseline. Safety floor: MEMORY_INELIGIBLE_HAZARD_
+        # TYPES are NEVER conditioned. Both the module const AND the
+        # runtime switch entity must be True. Facade insufficient_history
+        # → NO change (bias toward keeping severity).
+        try:
+            from ..const import (  # noqa: PLC0415
+                MEMORY_INELIGIBLE_HAZARD_TYPES,
+                MEMORY_NM_CONDITIONING_ENABLED,
+                MEMORY_NM_CONDITIONING_SD_WINDOW,
+            )
+            if (
+                MEMORY_NM_CONDITIONING_ENABLED
+                and severity in (Severity.LOW, Severity.MEDIUM)
+                and hazard_type
+                and hazard_type not in MEMORY_INELIGIBLE_HAZARD_TYPES
+                and hazard_type in ("high_humidity", "high_co2", "high_tvoc")
+                and location
+            ):
+                # Runtime switch guard (default ON) — see
+                # switch.ura_memory_nm_conditioning.
+                _sw = self.hass.states.get(
+                    "switch.ura_memory_nm_conditioning",
+                )
+                # MED B3: _sw is None (entity not yet registered — boot
+                # window) must mean NO conditioning (fall through unchanged),
+                # not ON. Only condition when the switch exists AND reads on.
+                if _sw is not None and str(_sw.state).lower() == "on":
+                    facade = self.hass.data.get(DOMAIN, {}).get(
+                        "memory_facade",
+                    )
+                    if facade is not None:
+                        _slug = str(location).lower().replace(
+                            " ", "_",
+                        ).replace("-", "_")
+                        _signal_map = {
+                            "high_humidity": "humidity",
+                            "high_co2": "co2",
+                            "high_tvoc": "tvoc",
+                        }
+                        _signal = _signal_map[hazard_type]
+                        ans = await facade.baseline(
+                            f"room:{_slug}", _signal,
+                            caller_id="observer",
+                        )
+                        if ans.verdict == "insufficient_history":
+                            _LOGGER.debug(
+                                "memory conditioning skipped: insufficient "
+                                "history for %s/%s",
+                                f"room:{_slug}", _signal,
+                            )
+                        if ans.verdict == "ok" and ans.value:
+                            live = self.hass.states.get(
+                                f"sensor.{_slug}_{_signal}",
+                            )
+                            try:
+                                live_val = (
+                                    float(live.state) if live else None
+                                )
+                            except (TypeError, ValueError):
+                                live_val = None
+                            if live_val is not None:
+                                mean = ans.value["mean"]
+                                sd = max(ans.value["sd"], 1e-6)
+                                z = abs(live_val - mean) / sd
+                                if z <= MEMORY_NM_CONDITIONING_SD_WINDOW:
+                                    # Demote one notch — never below LOW
+                                    # (the floor), never suppress.
+                                    if severity == Severity.MEDIUM:
+                                        _LOGGER.info(
+                                            "NM memory-conditioning: "
+                                            "%s=%.2f in %s is normal-"
+                                            "for-context (z=%.2f, "
+                                            "mean=%.2f, sd=%.2f) — "
+                                            "demoting MEDIUM->LOW",
+                                            _signal, live_val, location,
+                                            z, mean, sd,
+                                        )
+                                        severity = Severity.LOW
+                                    else:
+                                        _LOGGER.debug(
+                                            "NM memory-conditioning: "
+                                            "%s=%.2f in %s normal (z="
+                                            "%.2f) — already at LOW "
+                                            "floor, no change",
+                                            _signal, live_val, location,
+                                            z,
+                                        )
+        except Exception:  # noqa: BLE001 — never fail a notify on memory I/O
+            _LOGGER.debug(
+                "NM memory conditioning raised (non-fatal)",
+                exc_info=True,
+            )
+
         severity_str = severity.name
         database = self.hass.data.get(DOMAIN, {}).get("database")
         now_str = dt_util.utcnow().isoformat()

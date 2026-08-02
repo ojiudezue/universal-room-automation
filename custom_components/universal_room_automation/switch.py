@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.46.1
+# Universal Room Automation vv5.47.0
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -297,6 +297,13 @@ async def async_setup_entry(
             # (restart-persistent via entry.options write-back AND
             # RestoreEntity; modeled on EnergyObservationModeSwitch:396).
             OptimizerKillSwitch(hass, entry),
+            # Hierarchical Memory MVP Stage 1 — NM severity-conditioning
+            # runtime gate. Default ON. When OFF, NM conditioning is a
+            # byte-identical no-op regardless of MEMORY_NM_CONDITIONING_
+            # ENABLED (code const is master). Kill-switch semantics:
+            # OFF here = feature disabled at runtime; const False =
+            # feature dead in the build.
+            MemoryNMConditioningSwitch(hass, entry),
         ])
         # v5.10.0 D5: per-person MF DND switches. Read tracked_persons
         # from the INTEGRATION entry (source of truth for persons).
@@ -571,6 +578,58 @@ class EnergyObservationModeSwitch(SwitchEntity, RestoreEntity):
     def available(self) -> bool:
         """Only available when energy coordinator is active."""
         return self._get_energy() is not None
+
+
+class MemoryNMConditioningSwitch(SwitchEntity, RestoreEntity):
+    """Hierarchical Memory MVP Stage 1 — runtime gate for NM severity
+    conditioning consumer.
+
+    Entity: switch.ura_memory_nm_conditioning
+    Device: URA: Coordinator Manager
+    Default: ON. When OFF, NM behaves byte-identically to today
+    (no memory-driven demotion, no facade calls from the NM path).
+
+    Kill-switch semantics: this switch is the operator-facing runtime
+    gate. The module-level ``MEMORY_NM_CONDITIONING_ENABLED`` constant
+    is the code-level master. BOTH must be True for conditioning to
+    fire; either False disables it.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:brain"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_memory_nm_conditioning"
+        self._attr_name = "Memory NM Conditioning"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+        self._is_on = True  # default ON
+
+    @property
+    def is_on(self) -> bool:
+        return self._is_on
+
+    async def async_turn_on(self, **kwargs) -> None:
+        self._is_on = True
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        self._is_on = False
+        self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state in ("on", "off"):
+            self._is_on = last_state.state == "on"
 
 
 
