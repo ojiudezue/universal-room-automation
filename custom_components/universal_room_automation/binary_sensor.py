@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.44.0
+# Universal Room Automation vv5.45.0
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -59,6 +59,8 @@ from .const import (
     DEFAULT_HUMIDITY_FAN_CONTROL_ENABLED,
     # v3.5.0 Camera Census
     CONF_CAMERA_PERSON_ENTITIES,
+    CONF_ROOM_CAMERAS,
+    CONF_DISABLE_CAMERA_PRESENCE,
     CONF_TRACKED_PERSONS,
     ENTRY_TYPE_INTEGRATION,
     ENTRY_TYPE_ROOM,
@@ -1111,11 +1113,16 @@ class AutomationConflictBinarySensor(UniversalRoomEntity, BinarySensorEntity):
 
 
 class CameraPersonDetectedSensor(UniversalRoomEntity, BinarySensorEntity):
-    """Per-room binary sensor: true when any configured camera sees a person.
+    """Per-room binary sensor: true when any fused camera source sees a person.
 
-    Reads CONF_CAMERA_PERSON_ENTITIES from room config and checks if any
-    of them are currently in state 'on'. Gracefully returns False if no
-    cameras are configured for this room.
+    2026-08-01 fusion rewrite: reads NEW room key CONF_ROOM_CAMERAS (D1),
+    resolves via CameraResolver (D2), and OR-fuses the resolved per-integration
+    person binary_sensors with per-source attribution + agreement/confidence
+    attrs.
+
+    - Respects CONF_DISABLE_CAMERA_PRESENCE (forces off; disabled_by_config).
+    - Empty CONF_ROOM_CAMERAS -> is_on=False (not unavailable).
+    - Falsifiable invariant (Review D): is_on iff any resolved source == "on".
     """
 
     _attr_device_class = BinarySensorDeviceClass.OCCUPANCY
@@ -1124,35 +1131,266 @@ class CameraPersonDetectedSensor(UniversalRoomEntity, BinarySensorEntity):
     def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator, "camera_person_detected", "Camera Person Detected")
+        # Fix #7: fusion is now a LIST of RoomCameraFusion (one per physical camera).
+        self._fusions: list | None = None
+        self._source_entity_ids: list[str] = []
+        self._unsub_state = None
+        self._unsub_lifecycle = None
+
+    # Fix #5 (A-M2/B-MED-1): use HA slugify for the fused entity_id derivation
+    # (via the base class default). Keep the resolver-derived object_id stable
+    # across renames by relying on unique_id from super().__init__.
+
+    def _get_fusion(self):
+        """Return list[RoomCameraFusion] for this room's configured cameras.
+
+        Lazily resolves on first read; cached on the entity, re-resolved on
+        the room entry's lifecycle signal (A-M1/E-MED-1 cache invalidation).
+        """
+        if self._fusions is not None:
+            return self._fusions
+        try:
+            from .camera_resolver import CameraResolver  # noqa: PLC0415
+            from homeassistant.helpers import (  # noqa: PLC0415
+                entity_registry as er, device_registry as dr,
+            )
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.warning(
+                "CameraPersonDetectedSensor: resolver import failed: %s", exc
+            )
+            return None
+        config = {**self.coordinator.entry.data, **self.coordinator.entry.options}
+        room_cams = config.get(CONF_ROOM_CAMERAS, []) or []
+        if not room_cams:
+            # Fix #5 warn-once when a covered-by-config room resolves to None.
+            _LOGGER.debug(
+                "CameraPersonDetectedSensor(%s): CONF_ROOM_CAMERAS empty",
+                self.coordinator.entry.title,
+            )
+            return None
+        try:
+            resolver = CameraResolver(
+                er.async_get(self.hass),
+                dr.async_get(self.hass),
+                state_getter=self.hass.states.get,
+            )
+            self._fusions = resolver.resolve_operator_declaration(room_cams)
+            self._source_entity_ids = [
+                eid for f in self._fusions for eid in f.person_binary_sensor_entity_ids()
+            ]
+            total_sources = sum(len(f.sources) for f in self._fusions)
+            _LOGGER.info(
+                "CameraPersonDetectedSensor(%s): resolved %d cameras / %d sources "
+                "from %d configured entities: %s",
+                self.coordinator.entry.title, len(self._fusions), total_sources,
+                len(room_cams), self._source_entity_ids,
+            )
+            if not self._fusions:
+                _LOGGER.warning(
+                    "CameraPersonDetectedSensor(%s): configured cameras %s resolved "
+                    "to zero fusion sources (covered_by_config but None)",
+                    self.coordinator.entry.title, room_cams,
+                )
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.warning(
+                "CameraPersonDetectedSensor(%s): fusion resolve failed: %s",
+                self.coordinator.entry.title, exc,
+            )
+            return None
+        return self._fusions
+
+    async def async_added_to_hass(self) -> None:
+        """Wire event-driven refresh — A-H1/B-HIGH-1/E-MED-2 fix.
+
+        On added: resolve fusion, subscribe to source entity state-change
+        events, and subscribe to the room-entry lifecycle signal for cache
+        invalidation on options-update / reload (A-M1/E-MED-1).
+        """
+        await super().async_added_to_hass()
+        from homeassistant.helpers.event import (  # noqa: PLC0415
+            async_track_state_change_event,
+        )
+        from homeassistant.helpers.dispatcher import (  # noqa: PLC0415
+            async_dispatcher_connect,
+        )
+        from .domain_coordinators.signals import (  # noqa: PLC0415
+            SIGNAL_ROOM_ENTRY_LIFECYCLE,
+        )
+        from homeassistant.core import callback  # noqa: PLC0415
+
+        def _subscribe_sources():
+            # Clean previous state subscription (if any) then re-subscribe.
+            if self._unsub_state is not None:
+                try:
+                    self._unsub_state()
+                except Exception:  # noqa: BLE001
+                    pass
+                self._unsub_state = None
+            self._get_fusion()
+            # D'-MED-1: also watch F2-collapse losers so a loser's recovery
+            # (winner picked while both hosts were down) triggers re-resolve.
+            _dropped = [
+                d for f in (self._fusions or [])
+                for d in getattr(f, "dropped_person_sensors", [])
+            ]
+            eids = list(self._source_entity_ids) + _dropped
+            if not eids:
+                return
+
+            _dropped_set = set(_dropped)
+
+            @callback
+            def _on_state_change(event):
+                # D'-MED-1: a collapse-loser transitioning out of
+                # unavailable/unknown means the deterministic winner pick may
+                # be stale — re-resolve so a recovered host can win.
+                try:
+                    eid = event.data.get("entity_id", "")
+                    new_st = event.data.get("new_state")
+                    if (eid in _dropped_set and new_st is not None
+                            and new_st.state not in ("unavailable", "unknown")):
+                        self._fusions = None
+                        self._source_entity_ids = []
+                        _subscribe_sources()
+                except Exception:  # noqa: BLE001 — never break state writes
+                    pass
+                self.async_write_ha_state()
+
+            self._unsub_state = async_track_state_change_event(
+                self.hass, eids, _on_state_change,
+            )
+
+        _subscribe_sources()
+
+        @callback
+        def _on_lifecycle(entry_id, room_name, event):
+            # Re-resolve + re-subscribe on THIS room entry's update/reload.
+            if entry_id != self.coordinator.entry.entry_id:
+                return
+            _LOGGER.info(
+                "CameraPersonDetectedSensor(%s): lifecycle=%s — re-resolving fusion",
+                self.coordinator.entry.title, event,
+            )
+            self._fusions = None
+            self._source_entity_ids = []
+            _subscribe_sources()
+            self.async_write_ha_state()
+
+        self._unsub_lifecycle = async_dispatcher_connect(
+            self.hass, SIGNAL_ROOM_ENTRY_LIFECYCLE, _on_lifecycle,
+        )
+        self.async_on_remove(self._unsub_lifecycle)
+
+        @callback
+        def _cleanup_state():
+            if self._unsub_state is not None:
+                try:
+                    self._unsub_state()
+                except Exception:  # noqa: BLE001
+                    pass
+                self._unsub_state = None
+        self.async_on_remove(_cleanup_state)
+
+    def _all_sources(self):
+        """Fix #7: flatten sources across all resolved physical cameras."""
+        fusions = self._get_fusion() or []
+        return [s for f in fusions for s in f.sources]
 
     @property
     def is_on(self) -> bool:
-        """Return True if any room camera detects a person."""
+        """Return True if ANY resolved source binary_sensor across ALL fused
+        physical cameras is on (Fix #7: OR across the list)."""
         config = {**self.coordinator.entry.data, **self.coordinator.entry.options}
-        camera_entities = config.get(CONF_CAMERA_PERSON_ENTITIES, [])
-        if not camera_entities:
+        if config.get(CONF_DISABLE_CAMERA_PRESENCE):
             return False
-
-        for entity_id in camera_entities:
-            state = self.hass.states.get(entity_id)
-            if state and state.state == "on":
+        for src in self._all_sources():
+            eid = src.person_binary_sensor
+            if not eid:
+                continue
+            try:
+                state = self.hass.states.get(eid)
+            except Exception:  # noqa: BLE001
+                continue
+            if state is not None and state.state == "on":
                 return True
         return False
 
     @property
     def extra_state_attributes(self) -> dict:
-        """Return which cameras are active."""
+        """Attribution + agreement/confidence + disabled_by_config."""
         config = {**self.coordinator.entry.data, **self.coordinator.entry.options}
-        camera_entities = config.get(CONF_CAMERA_PERSON_ENTITIES, [])
-        active = []
-        for entity_id in camera_entities:
-            state = self.hass.states.get(entity_id)
-            if state and state.state == "on":
-                active.append(entity_id)
+        disabled = bool(config.get(CONF_DISABLE_CAMERA_PRESENCE))
+        fusions = self._get_fusion()
+        if not fusions:
+            return {
+                "sources": [],
+                "agreement": "no_sources",
+                "confidence": "none",
+                "resolved_camera_devices": [],
+                "disabled_by_config": disabled,
+                "configured_cameras": config.get(CONF_ROOM_CAMERAS, []) or [],
+            }
+        sources_out: list[dict] = []
+        on_count = 0
+        avail_count = 0
+        on_integrations: set[str] = set()
+        for src in self._all_sources():
+            eid = src.person_binary_sensor
+            state = self.hass.states.get(eid) if eid else None
+            state_val = state.state if state is not None else "unknown"
+            if state_val in ("on", "off"):
+                avail_count += 1
+                if state_val == "on":
+                    on_count += 1
+                    if src.integration:
+                        on_integrations.add(src.integration)
+            sources_out.append({
+                "integration": src.integration,
+                "entity_id": eid,
+                "state": state_val,
+                "correlation_basis": src.correlation_basis,
+                "face_capability": src.face_capability,
+                "physical_camera_id": next(
+                    (f.physical_camera_id for f in fusions if src in f.sources), ""
+                ),
+            })
+        # Agreement classification.
+        if not sources_out:
+            agreement = "no_sources"
+        elif len(sources_out) == 1:
+            agreement = "single_source"
+        elif on_count == avail_count and on_count > 0:
+            agreement = "unanimous_on"
+        elif on_count == 0:
+            agreement = "unanimous_off"
+        else:
+            agreement = "split"
+        # Confidence classification.
+        if avail_count == 0:
+            confidence = "low" if sources_out else "none"
+        elif on_count >= 2:
+            confidence = "high"
+        elif agreement == "split" or on_count == 1:
+            confidence = "medium"
+        else:
+            confidence = "high"  # unanimous_off with >=2 available
+        # Fix #9 (D-MED-3/E-HIGH-2): doctrine deferral — family-independence
+        # minimal rule. If ALL ON sources share the same integration, the
+        # corroborators aren't truly independent; downgrade high→medium.
+        # TODO(plan amendment §corroboration doctrine): implement half-weight
+        # per-family, ~3 heterogeneous families cap, capability-diversity
+        # preference. Evidence trigger to graduate: multi-family live data
+        # showing per-family false-positive rates + a golden-master diff.
+        if confidence == "high" and len(on_integrations) <= 1:
+            confidence = "medium"
         return {
-            "configured_cameras": camera_entities,
-            "active_cameras": active,
-            "camera_count": len(camera_entities),
+            "sources": sources_out,
+            "agreement": agreement,
+            "confidence": confidence,
+            "resolved_camera_devices": [s.device_id for s in self._all_sources()],
+            "disabled_by_config": disabled,
+            "configured_cameras": config.get(CONF_ROOM_CAMERAS, []) or [],
+            "resolved_physical_cameras": len(fusions),
         }
 
 

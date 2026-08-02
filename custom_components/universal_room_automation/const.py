@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.44.0
+# Universal Room Automation vv5.45.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.44.0"
+VERSION: Final = "v5.45.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -699,6 +699,18 @@ DEFAULT_COMFORT_FAN_AWAY_VETO_ENABLED: Final = True
 # room-name spellings against live config before adding. Changing this
 # constant should require code review, not a dashboard toggle.
 CAMERA_COVERED_ROOMS: Final = frozenset({"Study A"})
+
+# --- Room-camera fusion cycle (2026-08-01) ---
+# NEW per-room key: multi-select of any camera-related entities. Resolved
+# to physical camera devices by camera_resolver.CameraResolver. Sidesteps
+# the v3.4.5 CONF_CAMERA_PERSON_ENTITIES migration (which strips its own
+# key from room entries) by intentionally using a distinct identifier.
+CONF_ROOM_CAMERAS: Final = "room_cameras"
+
+# D4 auto-enable of per-integration person-detect switches. Person YES,
+# face NEVER (invariant).
+CONF_AUTO_ENABLE_PERSON_DETECTION: Final = "auto_enable_person_detection"
+DEFAULT_AUTO_ENABLE_PERSON_DETECTION: Final = True
 
 # --- Bathroom-exhaust intelligence (humidity-fan unification cycle) ---
 # Toggle #3: master enable for humidity-fan automation (D4/D5).
