@@ -712,3 +712,11 @@ def test_missing_entity_warns_and_skips():
     r = _mk([], [])
     fusions = r.resolve_operator_declaration(["camera.does_not_exist"])
     assert fusions == []
+
+
+def test_stem_disambiguation_suffix_stripped():
+    """Bench finding 2026-08-01: camera.armcrestash41b_2 (HA _N suffix)
+    must still stem-match Frigate object 'armcrestash11b'-style names."""
+    assert _mod._strip_disambiguation_suffix("armcrestash41b_2") == "armcrestash41b"
+    assert _mod._strip_disambiguation_suffix("playroom") == "playroom"
+    assert _mod._strip_disambiguation_suffix("g3_instant") == "g3_instant"[:len("g3_instant")]
