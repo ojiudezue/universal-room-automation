@@ -647,22 +647,35 @@ async def test_baseline_writer_quality_gate_excludes_suppressed(
         },
     }
     hass.data = _fake_hass_data
+    # Orchestrator-drill fix (2026-08-02): the original fixture returned
+    # None for every state, so zero rows folded REGARDLESS of the gate —
+    # a dead-limb anchor (bug class #62; neutering _is_room_suppressed
+    # left this test green). Provide a REAL humidity sample so that an
+    # ungated fold WOULD write, making the gate the discriminator.
+    _hum = MagicMock()
+    _hum.state = "61.5"
     hass.states = MagicMock()
-    hass.states.get = MagicMock(return_value=None)
+    hass.states.get = MagicMock(
+        side_effect=lambda eid: _hum if eid.endswith("_humidity") else None
+    )
     monkeypatch.setattr(mb, "MEMORY_BASELINE_ALLOWLIST", ("study_a",))
     # Simulate a prior suppression count so the "increment since last
     # tick" gate fires. Coordinator dict already carries no prev, so
     # first call registers 5 as a jump above 0.
     try:
         n = await mb.async_fold_samples(hass)
-        # No live samples (states.get returned None) AND the room was
-        # gated — so zero rows written regardless of samples.
+        # Samples EXIST (humidity=61.5) but the room is gated → zero rows.
         assert n == 0
-        # Baseline row must not exist.
-        row = await db.read_memory_baseline(
-            "room:study_a", "humidity:h12:home",
-        )
-        assert row is None
+        rows = await db.read_memory_baselines_for_node("room:study_a")
+        assert not rows
+        # Sanity leg: second fold with an UNCHANGED suppression count (no
+        # new delta) and no latch flags → gate releases → same fixture
+        # MUST write. Proves the sample was real and the gate was the
+        # only thing standing between the room and the table.
+        n2 = await mb.async_fold_samples(hass)
+        assert n2 >= 1, "ungated fold with real samples must write"
+        rows2 = await db.read_memory_baselines_for_node("room:study_a")
+        assert rows2
     finally:
         await db.stop_write_worker()
 
