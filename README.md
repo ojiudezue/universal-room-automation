@@ -5,10 +5,12 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-3800%2B-brightgreen.svg)](quality/tests)
 
-**Rooms · zones · house.** URA turns each room into software, aggregates
-them into zones, then runs the whole house as one system. Local,
-observable, reversible. Built on Home Assistant — it doesn't replace what
-you have.
+**Rooms · zones · house.** URA manages your home at three tiers — every
+room runs itself (lighting, fans, covers, comfort), rooms aggregate into
+zones, and the whole house runs as one system under a nine-state machine —
+with domain coordinators (presence, safety, security, energy, HVAC) riding
+across all three. Local, observable, reversible. Built on Home Assistant —
+it doesn't replace what you have.
 
 Project site: **https://universalroom.org/** · Live dashboard demo: **https://ura.phalanxmadrone.com**
 
@@ -32,7 +34,36 @@ Every URA decision starts from that state. Transitions are inferred from
 presence + clock + manual overrides, and a select entity lets you
 override the state whenever you want.
 
-## 2. Before and after
+## 2. Three tiers of management
+
+URA is not a bundle of coordinators — the tiers do the work; the
+coordinators serve them.
+
+**Room tier — every room runs itself.** Each room entry fuses its own
+sensors (PIR, mmWave, BLE, cameras, door/window, temperature, humidity,
+lux, power) into one occupancy truth, then acts on it: lighting with
+dark-aware thresholds and night-light modes, comfort fans with
+temperature ladders and trust guards, humidity fans, covers on schedules
+and solar gain, per-room timeouts and overrides. A room is useful on its
+own — 40+ of them run this way in the reference install.
+
+**Zone tier — rooms that share a fate.** Zones group rooms around a
+thermostat and a physical area: zone presence modes, zone-level cameras
+and occupancy confidence, HVAC zone coupling. (House zones and HVAC
+zones are deliberately distinct — one thermostat can serve several
+living areas.)
+
+**House tier — one system, nine states.** The house state machine
+(`home_day` → … → `vacation`) is the single source of truth that room
+and zone behavior keys off: presets follow it, security arming can
+follow it, notification severity follows it, guest mode is a first-class
+state with real policy behind it.
+
+The domain coordinators in §5 are the cross-cutting layer that reads all
+three tiers and answers the questions no single room can — who's home,
+what's safe, what to spend, what to heat.
+
+## 3. Before and after
 
 Before: 200 trigger-list automations, each blind to the others, each
 re-deriving "is anyone home" badly.
@@ -41,7 +72,7 @@ After: one observable system. Music follows you, the AC stops
 overshooting, the battery saves money — because the right place knows
 what's going on.
 
-## 3. Vanilla HA underneath
+## 4. Vanilla HA underneath
 
 URA sits **on top of** your existing Home Assistant. Your YAML
 automations keep working. Your dashboards keep working. Toggle URA off
@@ -51,7 +82,7 @@ permanently changed. Every coordinator additionally has an
 do while issuing zero service calls, so you can watch URA think about
 your house before letting it act.
 
-## 4. Five coordinators riding above the rooms
+## 5. Five coordinators riding across the tiers
 
 | Coordinator | What it runs |
 |---|---|
@@ -66,7 +97,7 @@ per-feature sub-toggles. Priorities (Safety 100 > Energy 40 > HVAC 30 >
 Music Following 25 > Comfort 20) let higher coordinators preempt or
 constrain lower ones via signals.
 
-## 5. The engine: two clocks
+## 6. The engine: two clocks
 
 - **Reflexes in milliseconds** — an event bus for the things that must
   be instant: intrusion, smoke, motion into an empty room.
@@ -97,7 +128,7 @@ Diagrams (Mermaid + PDF) in [`docs/diagrams/`](docs/diagrams/):
 [house-state machine](docs/diagrams/house_state_machine.pdf),
 [coordinator signal flow](docs/diagrams/coordinator_signal_flow.pdf).
 
-## 6. Recent highlights (v5.x)
+## 7. Recent highlights (v5.x)
 
 The site describes v4.6.15; the codebase has kept moving. Since then:
 
@@ -122,7 +153,7 @@ The site describes v4.6.15; the codebase has kept moving. Since then:
 Full release ledger: [`docs/readmes/`](docs/readmes/) — one README per
 version, each carrying its post-deploy live-validation table.
 
-## 7. Installation
+## 8. Installation
 
 ### HACS (recommended)
 
@@ -153,7 +184,7 @@ Services.
 Energy features gate on Envoy + Solcast and degrade gracefully when
 absent; the rest of URA continues normally.
 
-## 8. Engineering discipline
+## 9. Engineering discipline
 
 URA is one production house, run like a product:
 
@@ -186,7 +217,7 @@ PYTHONPATH=quality python3 -m pytest quality/tests/ -v
 
 3,800+ tests, ~30s on a modern laptop.
 
-## 9. Privacy + control
+## 10. Privacy + control
 
 URA runs **locally** inside Home Assistant. No URA cloud, no telemetry,
 no accounts. The only network calls URA initiates are solar/weather
@@ -194,7 +225,7 @@ forecast fetches; every decision happens on your hardware. Every
 coordinator has Observation Mode, a master kill-switch, and per-feature
 sub-toggles — granular off-ramps at every level.
 
-## 10. Documentation
+## 11. Documentation
 
 - **Project site:** https://universalroom.org/
 - **Coordinator manuals:** [`docs/Coordinator/`](docs/Coordinator/) —
@@ -209,7 +240,7 @@ sub-toggles — granular off-ramps at every level.
 - **Vision + roadmap:** [`docs/VISION_v7.md`](docs/VISION_v7.md) ·
   [`docs/ROADMAP_v11.md`](docs/ROADMAP_v11.md)
 
-## 11. Contributing
+## 12. Contributing
 
 URA is maintained by one developer for one production house. It's not a
 community project (yet), but questions and ideas are welcome:
