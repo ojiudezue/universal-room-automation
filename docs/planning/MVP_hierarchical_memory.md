@@ -41,9 +41,14 @@ study_a.md`, containing:
    episodes justify (expected: the fan-transition fact, an InvisOutlet
    trust fact), each with derived_from and one worked CORRECTION (a
    fact superseded by later evidence) to prove the lineage model.
-5. **A hand-written profile answer** — `profile(room:study_a)` from
-   live config, plus the July `config_changed` episodes (the operator
-   reconfigured Study A sensors this period — real data exists).
+5. **A hand-written profile answer** — `profile(room:study_a)` with
+   BOTH halves: composition from live config, AND the capability ladder
+   (declared mechanisms × enabled state × actionable-now, e.g. the
+   comfort fan: declared with veto/D2/gate, enabled, actuator
+   available) — plus the July `config_changed` episodes (the operator
+   reconfigured Study A sensors this period — real data exists). One
+   coordinator profile too (`coordinator:energy`) since its "can do"
+   half is the stress test of the capability registry shape.
 
 **Stage-0 pass criteria (the kill gate):** at least 4 of 7 answers are
 judged by the operator to have earned their keep — concretely: would

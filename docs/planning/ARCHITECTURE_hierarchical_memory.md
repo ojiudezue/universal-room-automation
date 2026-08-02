@@ -159,9 +159,33 @@ lesson, structurally enforced).
 ## 5b. Identity tier — profile() reads live, episodes record change
 
 `profile(node)` is computed from config entries + registries at call
-time (composition: configured sensors/actuators per bucket; capability:
-mechanisms enabled, actuation surface). NO new storage — duplicating
-config into memory would create a second source of truth. What memory
+time and answers BOTH halves:
+
+**"What do I contain"** — composition: configured sensors/actuators per
+bucket (room), member rooms + thermostat (zone), zones (house).
+
+**"What can I do"** — capability, three layers multiplied together:
+1. *Declared* — a static capability registry per node type, code-owned:
+   which mechanisms exist (room: lighting, comfort-fan w/ away-veto +
+   D2 + transition gate, humidity-fan, covers, night-light; coordinator:
+   its decision/action surface — e.g. energy: reserve strategy, TOU
+   arbitrage, load proposals). This is the piece config alone cannot
+   answer and the reason profile() is not just a config echo.
+2. *Enabled* — the live enablement state of each declared mechanism
+   (master switches, observation mode, per-feature toggles, kill-switch
+   constants).
+3. *Actionable now* — whether the actuators behind an enabled mechanism
+   are currently available (the AV-Closet lesson: a dead actuator makes
+   a capability nominal; profile() surfaces "can, but actuator
+   unavailable" distinctly).
+
+So a coordinator's profile is dominated by the "can do" half (its
+contain half is thin), a room's carries both, and the answer
+distinguishes designed / enabled / currently-actionable — which is
+exactly the triage ladder of every "why didn't X happen" diagnosis.
+
+NO new storage — duplicating config into memory would create a second
+source of truth. What memory
 OWNS is change: a `config_changed` episode (registered type) written on
 options-update/reload with a before/after delta in attrs. "What do I
 contain" = live read; "when did that change" = episodes.
