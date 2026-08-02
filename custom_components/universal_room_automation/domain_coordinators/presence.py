@@ -495,6 +495,18 @@ class ZonePresenceTracker:
         # mmwave-sole hold can be demoted. Sibling shape to
         # ``_fan_on_rooms`` (membership) but carries a datetime.
         self._fan_on_since: Dict[str, "datetime"] = {}
+        # Fan-transition coincidence gate (AUDIT probe 2026-08-01):
+        # per-room UTC timestamp of the most recent fan power OR speed
+        # transition on any configured CONF_FANS entity mapped to the
+        # room. Stamped by ``_handle_fan_change`` on every observed
+        # transition (on/off edge OR percentage attribute change).
+        # Consumed by the room-tier coordinator to gate mmwave-sole
+        # occupancy CREATION within FAN_TRANSITION_SUSPECT_WINDOW_S of
+        # the transition. Sibling shape to ``_fan_on_since`` (same key,
+        # same value type) but has different lifetime — persists across
+        # fan-off (last transition is not cleared on off; the off edge
+        # is itself a transition and stamps the field).
+        self._fan_last_transition: Dict[str, "datetime"] = {}
         self._camera_occupied: Dict[str, bool] = {}  # entity_id -> detection active
         self._camera_last_seen: Dict[str, datetime] = {}  # entity_id -> last detection time
         # Fan-noise mitigation D1 (Layer-1 silent gate): per-room hold
@@ -3106,6 +3118,10 @@ class PresenceCoordinator(BaseCoordinator):
             # a re-seeded "on" fan gets a fresh grace clock (mirrors
             # `_fan_on_rooms` reset above).
             tracker._fan_on_since.clear()
+            # Fan-transition gate: clear per-room transition stamps on
+            # re-discovery so a re-seeded fan does not carry a stale
+            # transition timestamp into the new listener wiring.
+            tracker._fan_last_transition.clear()
         if self._fan_listener_unsub is not None:
             try:
                 self._fan_listener_unsub()
@@ -3209,12 +3225,39 @@ class PresenceCoordinator(BaseCoordinator):
         """
         entity_id = event.data.get("entity_id", "")
         new_state = event.data.get("new_state")
+        old_state = event.data.get("old_state")
         if not entity_id or new_state is None:
             return
         if new_state.state in _UNAVAILABLE_STATES:
             is_on = False
         else:
             is_on = new_state.state == "on"
+        # Fan-transition coincidence gate (AUDIT probe 2026-08-01):
+        # detect ANY transition — the on/off state edge OR a
+        # percentage attribute change (speed step, e.g. 33% -> 55%).
+        # HA's async_track_state_change_event fires the state_changed
+        # event for BOTH state and attribute changes, so a bare
+        # attribute-only change (state string unchanged, percentage
+        # changed) still reaches this callback with distinct
+        # old_state / new_state objects.
+        transition_now: "datetime | None" = None
+        try:
+            state_changed = (
+                old_state is None or old_state.state != new_state.state
+            )
+            old_pct = (
+                old_state.attributes.get("percentage")
+                if old_state is not None else None
+            )
+            new_pct = new_state.attributes.get("percentage")
+            pct_changed = old_pct != new_pct
+            if state_changed or pct_changed:
+                transition_now = dt_util.utcnow()
+        except Exception:  # noqa: BLE001 — defensive: partial state objects
+            # A-LOW-2: fail OPEN on the gate (never stamp on garbage).
+            # A stamped-on-exception transition would falsely suppress a
+            # legitimate mmwave-sole creation on the very next tick.
+            transition_now = None
         for tracker in self._zone_trackers.values():
             # H1 fix-up: `_fan_entity_to_room` is now declared in
             # `ZonePresenceTracker.__init__`, so this is a stable dict
@@ -3222,6 +3265,18 @@ class PresenceCoordinator(BaseCoordinator):
             room_name = tracker._fan_entity_to_room.get(entity_id)
             if not room_name:
                 continue
+            # Fan-transition coincidence gate: stamp the room's most
+            # recent fan transition on ANY change (state edge OR
+            # percentage attribute change). Consumed by the room
+            # coordinator via `get_fan_last_transition` to gate
+            # mmwave-sole occupancy CREATION within a small window.
+            if transition_now is not None:
+                # Defensive: sibling test fakes may not declare this
+                # attribute. Production ZonePresenceTracker always
+                # declares it in __init__.
+                lt = getattr(tracker, "_fan_last_transition", None)
+                if lt is not None:
+                    lt[room_name] = transition_now
             if is_on:
                 tracker._fan_on_rooms.add(room_name)
                 # Tier-3 D2: stamp the False→True edge for the
@@ -3788,6 +3843,53 @@ class PresenceCoordinator(BaseCoordinator):
         return room_name in getattr(
             self, "_mmwave_fan_demoted_snapshot", frozenset(),
         )
+
+    def get_fan_last_transition(self, room_name: str):
+        """Return the room's most recent fan-transition UTC datetime, or None.
+
+        Fan-transition coincidence gate (AUDIT probe 2026-08-01):
+        stamped by ``_handle_fan_change`` on any observed transition
+        (on/off state edge OR percentage attribute change) of a
+        configured CONF_FANS entity mapped to the room. Consumed by
+        the room-tier coordinator to gate mmwave-sole occupancy
+        CREATION within FAN_TRANSITION_SUSPECT_WINDOW_S.
+
+        Off-cadence read is intentional and safe: the dict is only
+        written from `_handle_fan_change` (state-change listener),
+        never mutated mid-iteration here. Returns None when no
+        transition has been observed for the room since boot / last
+        discovery (kill-switch friendly — caller treats None as "no
+        fan transition, admit normally").
+
+        B-LOW-4 fix-up: when a room appears in multiple trackers
+        (multi-tracker deployments), return the MAX (newest) stamp
+        across all trackers — not the first-hit. Newest wins because
+        the gate cares about "any transition within the window", and
+        the newest stamp is the one most likely to satisfy `Δt <= W`.
+
+        MED-B2 (same-tick event-ordering race): HA fires state_changed
+        events synchronously in listener-registration order. If the
+        room coordinator's mmWave-triggered refresh runs BEFORE
+        `_handle_fan_change` stamps for the same underlying tick, this
+        method returns the stale/prior stamp (or None) for that tick
+        and the gate misses. The sibling D2 sustain-demotion backstops
+        this one-tick miss on the next cadence — deliberate per
+        three-mechanism complementarity (creation gate + sustain
+        demotion + actuation veto).
+        """
+        if not room_name:
+            return None
+        newest = None
+        for tracker in self._zone_trackers.values():
+            lt = getattr(tracker, "_fan_last_transition", None)
+            if lt is None:
+                continue
+            stamp = lt.get(room_name)
+            if stamp is None:
+                continue
+            if newest is None or stamp > newest:
+                newest = stamp
+        return newest
 
     def _discover_zone_cameras(self) -> None:
         """Discover cameras in each zone using CameraIntegrationManager.

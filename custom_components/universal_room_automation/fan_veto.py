@@ -284,13 +284,32 @@ def _has_camera_person(
     # (fusion is active). Allowlist-only rooms without room_cameras stay on
     # the legacy per-entity read path.
     if covered_by_config:
-        # Fix #5: use HA slugify for the fused entity_id derivation.
+        # Bench finding 2026-08-01 (Study A): actual entity_ids are
+        # DEVICE-NAME-derived (e.g. binary_sensor.studya_room_device_
+        # camera_person_detected), so a room-name slug guess misses.
+        # Resolve authoritatively via the entity registry unique_id
+        # ({entry_id}_camera_person_detected); slugify stays as fallback.
+        fused_id = None
         try:
-            from homeassistant.util import slugify  # noqa: PLC0415
-            slug = slugify(room_name)
-        except Exception:  # noqa: BLE001
-            slug = room_name.strip().lower().replace(" ", "_")
-        fused_id = f"binary_sensor.{slug}_camera_person_detected"
+            from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+            ent_reg = er.async_get(hass)
+            for _entry in hass.config_entries.async_entries("universal_room_automation"):
+                _merged = {**_entry.data, **_entry.options}
+                if _merged.get("room_name") == room_name or _entry.title == room_name:
+                    fused_id = ent_reg.async_get_entity_id(
+                        "binary_sensor", "universal_room_automation",
+                        f"{_entry.entry_id}_camera_person_detected",
+                    )
+                    break
+        except Exception:  # noqa: BLE001 — registry unavailable in tests
+            fused_id = None
+        if not fused_id:
+            try:
+                from homeassistant.util import slugify  # noqa: PLC0415
+                slug = slugify(room_name)
+            except Exception:  # noqa: BLE001
+                slug = room_name.strip().lower().replace(" ", "_")
+            fused_id = f"binary_sensor.{slug}_camera_person_detected"
         try:
             fused_state = hass.states.get(fused_id)
         except Exception as exc:  # noqa: BLE001

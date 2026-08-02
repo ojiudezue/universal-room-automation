@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.45.0
+# Universal Room Automation vv5.46.0
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -386,6 +386,14 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
             "failsafe_fired": self.coordinator._failsafe_fired,
             "last_trigger_source": self.coordinator._last_trigger_source,
             "last_lux_zone": self.coordinator._last_lux_zone,
+            # Fan-transition coincidence gate observability (AUDIT probe
+            # 2026-08-01). Since-boot count of mmwave-sole creations
+            # suppressed because a fan power/speed transition fell
+            # within FAN_TRANSITION_SUSPECT_WINDOW_S. Non-persisted;
+            # resets on restart (mirrors mmwave_fan_demotions_since_boot).
+            "fan_transition_suppressed_count": getattr(
+                self.coordinator, "_fan_transition_suppressed_count", 0,
+            ),
         }
         if self.coordinator.data:
             attrs["occupancy_source"] = self.coordinator.data.get(

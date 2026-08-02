@@ -4,12 +4,19 @@
 **Scope:** how the living tier (rooms, zones, house) actually behaves —
 what turns your lights on, what decides you're home, what to watch,
 and how to intervene without fighting the system.
-**Current through:** URA v5.23.0 (see `const.py:34`).
+**Current through:** URA v5.45.0 (see `const.py:34`). §13 (fan trust
+stack) and §14 (room-camera fusion) added 2026-08-01 for the
+v5.40-v5.45 primitives.
 
-This is the sibling of `ENERGY_COORDINATOR_MANUAL.md` and
-`HVAC_COORDINATOR_MANUAL.md`. It is NOT a code walkthrough. For per-
-coordinator design see `PRESENCE_COORDINATOR.md`, `COORDINATOR_ARCHITECTURE.md`,
-and the planning docs under `docs/planning/`.
+This is the sibling of `ZONE_MANUAL.md`, `CM_MANUAL.md`,
+`ENERGY_COORDINATOR_MANUAL.md`, and `HVAC_COORDINATOR_MANUAL.md`. It is
+NOT a code walkthrough. For per-coordinator design see
+`PRESENCE_COORDINATOR.md`, `COORDINATOR_ARCHITECTURE.md`, and the
+planning docs under `docs/planning/`.
+
+**Coverage note.** This manual is genuinely ROOM-focused. Zone and CM
+material here is a *pointer summary* — the standalone `ZONE_MANUAL.md`
+and `CM_MANUAL.md` are the operator surfaces for those tiers.
 
 ---
 
@@ -25,7 +32,8 @@ The "living tier" is three concentric loops:
 2. **Zone tier** (`domain_coordinators/presence.py` +
    `aggregation.py`) — a **house zone** is a group of rooms you defined
    for aggregation (occupancy roll-up, music following, HVAC zone
-   assignment). See §2 on the house-vs-HVAC-zone distinction.
+   assignment). See §2 on the house-vs-HVAC-zone distinction and
+   `ZONE_MANUAL.md` for zone-tier config in full.
 3. **House tier** (`domain_coordinators/house_state.py` +
    `presence.py`) — one state machine
    (`HouseState`) whose value is one of
@@ -50,7 +58,7 @@ Operator-corrected 2026-07-12 — this is a common source of confusion.
 
 Compound names like "Entertainment + Master Suite" on an HVAC zone
 entity are the *legitimate* merge, not a bug. Do not try to split them.
-Full detail in `HVAC_COORDINATOR_MANUAL.md §2`.
+Full detail in `HVAC_COORDINATOR_MANUAL.md §2` and `ZONE_MANUAL.md §1`.
 
 ---
 
@@ -101,12 +109,11 @@ For each room, every ~30 s (`SCAN_INTERVAL_OCCUPANCY`, `const.py:41`):
    `const.py:749`). The failsafe only fires when the raw signal is
    *stale* — if a Tier-1 sensor is still reporting activity within
    `2 × occupancy_timeout`, the failsafe defers
-   (`coordinator.py:1731-1754`). **The failsafe does NOT bound BLE-
-   sustained occupancy** — BLE ticks don't set the failsafe timer's
-   `occupied=True` at check time; forgotten-phone mitigation lives in
-   `PersonPhoneLeftBehindSensor`, not here (documented at
-   `coordinator.py:1823-1828`).
-10. **Fan-noise recheck (v4.7.22 Mode-2)** — see §3.4 below.
+   (`coordinator.py:1731-1754`).
+10. **Fan-noise recheck (v4.7.22 Mode-2)** — pause-based; see §3.4.
+11. **mmWave fan-corroboration D2 demotion (v5.42.0)** — passive
+    backstop when the fan is running and mmWave is the ONLY signal;
+    see §13.4.
 
 ### 3.2 Entry action — what turns lights on
 
@@ -142,9 +149,10 @@ briefly PAUSE the fan, spin down, watch mmWave, and either:
 - release the pause (fan-coupled false positive → drop occupancy), or
 - restore the fan (real person, keep occupancy).
 
-Knobs (all in the room's options flow):
+Knobs (all in the room's options flow, plus timing knobs on CM):
 - `fan_recheck_enabled` — master per-`PresenceCoordinator`, default
-  `False` = opt-in (`const.py:412`).
+  `False` = opt-in (`const.py:412`). Lives on CM options; also
+  reachable via the master `FanRecheckEnabledSwitch`.
 - `room_fan_recheck_enabled` — per-room opt-in, default `True`
   (`const.py:418`).
 - `fan_recheck_arm_delay_s` = 60 (`const.py:437`) — settle before pause.
@@ -157,8 +165,8 @@ Knobs (all in the room's options flow):
   as a **conservatism dial**, not an eligibility gate (`const.py:466`).
 
 High-still-risk types (bedroom, media_room) get the widened window so
-a napping body isn't yanked. Master bedroom fan pause defaults SLEEP-
-only in the operator's setup — see `HVAC_COORDINATOR_MANUAL.md §3.4`.
+a napping body isn't yanked. See §13.3 for how the recheck relates to
+the newer D2 demotion (§13.4) and the L1 fan-interference hold.
 
 ### 3.5 Humidity fan / bathroom exhaust
 
@@ -173,11 +181,11 @@ only in the operator's setup — see `HVAC_COORDINATOR_MANUAL.md §3.4`.
 - **Max runtime** (`humidity_fan_max_runtime`, default 3600 s = 60 min,
   `const.py:704`) — force-off cap for stuck sensors.
 - **Spike detection (D2)** — EMA baseline; +10 pp above baseline
-  triggers, ~45 min time constant (`const.py:631-633`).
+  triggers, ~45 min time constant (`const.py:733-735`).
 - **Presence-proportional post-runtime (D3)** — after occupancy ends,
   runtime = `base + per_min × occupied_minutes`, capped
-  (60 s / 30 s per min / 600 s cap, `const.py:640-642`).
-- **Wet-room flag** (`wet_room`, `const.py:622`) — defaults True for
+  (60 s / 30 s per min / 600 s cap, `const.py:742-744`).
+- **Wet-room flag** (`wet_room`, `const.py:724`) — defaults True for
   `room_type == bathroom`. Gates the sleep-policy exemption in
   `automation.py`.
 
@@ -188,33 +196,38 @@ step at `fan_speed_low_temp` / `_med_temp` / `_high_temp` (default
 69 / 72 / 75 °F, `const.py:699-701`). Interacts with HVAC via
 `hvac_coordination_enabled` — see HVAC manual for the handshake.
 
+Note the new AWAY veto layer in §13.1 — a "want fan on" from this path
+still routes through `should_veto_comfort_fan` and can be suppressed
+when the house is AWAY / VACATION and the room has no trusted
+presence.
+
 ### 3.7 Sleep protection & sleep-bypass
 
 `sleep_protection_enabled`, `sleep_start_hour` / `_end_hour` (defaults
-22 / 7, `const.py:719-720`), `sleep_bypass_motion_count` (default 3,
-`const.py:721`) — during sleep hours, N motion events are required
+22 / 7, `const.py:748-749`), `sleep_bypass_motion_count` (default 3,
+`const.py:750`) — during sleep hours, N motion events are required
 before URA takes an entry action. `fan_sleep_policy` = `off / reduce /
-normal`, default `reduce` (`const.py:654`).
+normal`, default `reduce` (`const.py:756`).
 
 ---
 
-## 4. How a zone decides
+## 4. How a zone decides (summary)
 
-Zones are configured through the Zone Manager entry (`CONF_ZONE_*`,
-`const.py:64-76`). Each zone lists rooms; the zone's occupancy is a
-roll-up of its rooms. Key items:
+Full detail: `ZONE_MANUAL.md`. Highlights:
 
-- `zone_is_outdoor` (default False, `const.py:72-73`) — outdoor
+- Zones are configured through the Zone Manager entry
+  (`CONF_ZONE_*`, `const.py:64-93`). Each zone lists rooms; the
+  zone's occupancy is a roll-up of its rooms.
+- `zone_is_outdoor` (default False, `const.py:72`) — outdoor
   zones still track raw occupancy but are **excluded from the indoor-
-  occupancy aggregate** that gates the v5.7.0 AWAY path. A porch
-  camera can't block the house going AWAY when everybody's out.
+  occupancy aggregate** that gates the v5.7.0 AWAY path.
 - `sensor.<domain>_zone_<zone>_active_rooms` (`sensor.py:4444-4470`) —
   attributes `active_rooms` / `inactive_rooms` per zone. First place
   to look when asking "which room is holding the zone occupied?"
-- Aggregation sensor bases: `anyone_home`, `rooms_occupied`,
-  `occupant_count` (`const.py:128-141`).
-- **Music following** (`CONF_ZONE_PLAYER_MODE`, `const.py:87-93`):
+- Music following (`CONF_ZONE_PLAYER_MODE`, `const.py:87-93`):
   `independent / aggregate / fallback`.
+- Ephemeral override: the `ZonePresenceMode` Select on each zone
+  device (`AWAY / OCCUPIED / SLEEP / AUTO`) — see `ZONE_MANUAL.md §4.1`.
 
 ---
 
@@ -233,16 +246,16 @@ roll-up of its rooms. Key items:
 | `sleep` | Sleep hours + occupied. |
 | `waking` | Coming out of sleep. |
 | `guest` | Unidentified person detected while home. |
+| `vacation` | Extended-AWAY sibling; comfort-fan veto (§13.1) treats it as AWAY. |
 
 Transitions carry **minimum-dwell** protection (`house_state.py:96-103`):
-AWAY 30 s, ARRIVING 60 s, HOME_* 120 s, SLEEP 600 s (10 min — protects
-against false wakes), WAKING 60 s, GUEST 300 s.
+AWAY 30 s, ARRIVING 60 s, HOME_* 120 s, SLEEP 600 s, WAKING 60 s,
+GUEST 300 s.
 
-The state is exposed as `sensor.ura_house_state` (`sensor.py:4011`)
-and duplicate `sensor.ura_presence_house_state` (`sensor.py:4105`).
-The user memories refer to
-`sensor.ura_presence_coordinator_presence_house_state` — that appears
-to be a display name, not the entity id (verify live).
+Live entity is `sensor.ura_presence_coordinator_presence_house_state`
+(operator-verified 2026-07-18). The codebase also defines
+`sensor.ura_house_state` and `sensor.ura_presence_house_state`
+(`sensor.py:4011, 4105`) — de-dup candidate (BACKLOG).
 `sensor.ura_house_state_confidence` (`sensor.py:4306`) exposes
 confidence.
 
@@ -251,18 +264,15 @@ confidence.
 Path: when `all_tracked_persons_away AND unidentified_count == 0`,
 the presence coordinator infers AWAY at confidence 0.95. Attributes
 `tracked_persons_count`, `all_tracked_persons_away` on the house_state
-sensor let you audit the gate live. This eliminated the 60–90 s
-oscillation seen 2026-05-30; validated with 33 min uninterrupted
-dwell post-fix.
+sensor let you audit the gate live.
 
 ### 5.3 Guest gate + latch (v4.7.2, v5.16.0)
 
 `unidentified_count > 0` (Frigate unidentified persons) OR an operator
-guest arm raises `guest_gate_armed` (see `presence.py:912-1144`). The
-GUEST → SLEEP transition was patched in v5.16.0 so a 22:00 guest
-doesn't block sleep-mode HVAC/lights all night. Guest rooms have
-their own occupancy threshold: `room_guest_occupancy_threshold_min`
-(default 30, `const.py:319`, `config_flow.py:8351`).
+guest arm raises `guest_gate_armed`. The GUEST → SLEEP transition was
+patched in v5.16.0 so a 22:00 guest doesn't block sleep-mode HVAC/
+lights all night. Guest rooms have their own occupancy threshold:
+`room_guest_occupancy_threshold_min` (default 30, `const.py:319`).
 
 ### 5.4 Sleep, wake, and wake backstops (v4.7.18.1)
 
@@ -271,44 +281,31 @@ Sleep is exited by:
   `presence.py:136`), OR
 - Daytime backstop:
   `sleep_end_hour + _WAKE_BACKSTOP_HOURS_AFTER_SLEEP_END`
-  (`_WAKE_BACKSTOP_HOURS_AFTER_SLEEP_END = 3`, `presence.py:142`). If
-  the house is still SLEEP that long past `sleep_end`, WAKING gate
-  fires unconditionally. This is what unlocked the 2026-06-05 organic
-  wake validation.
+  (`_WAKE_BACKSTOP_HOURS_AFTER_SLEEP_END = 3`, `presence.py:142`).
 
 The state machine is **not persisted across restart** — the house boots
-`AWAY` by design. Persistence was explicitly decided-dropped (see
-`v4.7.18.1` memory). The v4.7.21 boot-settle gates suppress the away-
-actuation storm during the settling window.
+`AWAY` by design.
 
 ### 5.5 The trust ladder (presence tuning)
 
 - **v4.7.13 sleep person-trust** — during SLEEP, zone-presence trust
-  extends to any tracked person marked home. mmWave loses stationary
-  bodies; the person tracker is authoritative.
+  extends to any tracked person marked home.
 - **v4.7.24 occupancy substrate** — a per-room/per-kind raw layer
-  beneath both room and zone occupancy. Curated `CONF_MOTION_SENSORS /
-  presence_sensors / occupancy_sensors` lists are the single source of
-  truth for both discovery AND kind classification. Bug Class #50
-  (rebuild clobber) fix lives here.
+  beneath both room and zone occupancy.
 - **v4.7.19 provenance split** — `_room_provenance` keys are
   `TIER1_KINDS = ("motion", "mmwave", "occupancy")` (`const.py:342`).
-  mmwave is preferred when an entity matches both substrings.
-- **v4.7.20 Layer-1 silent fan-interference discount + decay** — a
-  hold applied when a room is fan-interference-suspect AND BLE says
-  not-corroborated. Duration `fan_interference_hold_s` (default 300 s,
-  `const.py:399`). It can only EXTEND occupancy; never shorten it.
+- **v4.7.20 Layer-1 silent fan-interference discount + decay** —
+  duration `fan_interference_hold_s` (default 300 s, `const.py:399`).
+  Extend-only.
+- **v5.42.0 D2 mmWave fan-corroboration demotion** — passive backstop
+  that OUTRANKS the L1 hold once its higher bar is met (§13.4).
 - **Camera opt-out** — `CONF_DISABLE_CAMERA_PRESENCE` per room
-  (`const.py:354`) mutes just that room's camera signal without
-  removing it from URA.
+  (`const.py:354`) mutes just that room's camera signal.
 
 ### 5.6 Bermuda / BLE — the operating principle
 
 **Sensors decide entry. BLE only sustains.** This is the
-`ble_extend_not_create` contract (§3.1 step 8). Bermuda jitter cannot
-create an occupancy — it can only extend one that a motion or mmWave
-sensor confirmed. If your BLE is noisy, entry actions are safe; only
-"how long the room stays lit past real motion" is at play.
+`ble_extend_not_create` contract (§3.1 step 8).
 
 ---
 
@@ -317,50 +314,44 @@ sensor confirmed. If your BLE is noisy, entry actions are safe; only
 Following the `Numbers Get Knobs` ladder (CLAUDE.md 2026-07-16):
 module constant / options-flow / entity, by how it should be governed.
 
-### 6.1 Per-room options flow (config_flow.py room step, `config_flow.py:8000-8500` area)
+### 6.1 Per-room options flow (config_flow.py room step)
+
+Selected keys — see `const.py` for the full list. Numbers in the
+Default column reflect `const.py` at v5.45.0.
 
 | Key | Default | Notes |
 |---|---|---|
 | `CONF_ROOM_NAME`, `CONF_ROOM_TYPE`, `CONF_AREA_ID` | — | Structural. |
 | `CONF_OCCUPANCY_TIMEOUT` | 300 s (`const.py:685`) | Room-type override in `ROOM_TYPE_TIMEOUTS`. |
-| `CONF_OCCUPANCY_DEBOUNCE` | 150 (UI → seconds in coordinator, `const.py:686`) | Entry debounce. |
+| `CONF_OCCUPANCY_DEBOUNCE` | 150 | Entry debounce. |
 | `CONF_MOTION_SENSORS` / `presence_sensors` (mmWave) / `occupancy_sensors` | — | The three curated lists that ARE the truth (v4.7.24). |
-| `CONF_ILLUMINANCE_SENSOR` | — | Feeds `turn_on_if_dark`. |
-| `CONF_ILLUMINANCE_THRESHOLD` | 20 lx (`const.py:687`) | Dark threshold. |
+| `CONF_ILLUMINANCE_SENSOR` / `_THRESHOLD` | — / 20 lx | |
 | `CONF_LIGHTS` / `CONF_NIGHT_LIGHTS` / `CONF_ALERT_LIGHTS` | — | Actuators. |
-| `CONF_ENTRY_LIGHT_ACTION` | `turn_on_if_dark` | `none / turn_on / turn_on_if_dark`. |
-| `CONF_EXIT_LIGHT_ACTION` | `turn_off` | Any other value keeps lights. |
-| `CONF_LIGHT_BRIGHTNESS_PCT` / `_TRANSITION_ON` / `_OFF` | 100 / 1 / 3 | |
-| `CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS/COLOR` | 15 / 2000 K | |
-| `CONF_NIGHT_LIGHT_DAY_BRIGHTNESS/COLOR` | 100 / 4000 K | |
+| `CONF_ENTRY_LIGHT_ACTION` / `_EXIT_` | `turn_on_if_dark` / `turn_off` | |
 | `CONF_HUMIDITY_FANS` + humidity knobs | see §3.5 | |
-| `CONF_HUMIDITY_FAN_THRESHOLD` | 60 % | |
-| `CONF_HUMIDITY_FAN_TIMEOUT` | 600 s | min-runtime gate. |
-| `CONF_HUMIDITY_FAN_MAX_RUNTIME` | 3600 s | force-off cap. |
-| `CONF_FAN_CONTROL_ENABLED` + `CONF_FAN_TEMP_THRESHOLD` / low/med/high | 80 / 69 / 72 / 75 °F | |
-| `CONF_FAN_VACANCY_HOLD` | 300 s | extra runtime after vacancy. |
+| `CONF_FAN_CONTROL_ENABLED` + temperature bands | on / 69/72/75 °F | |
+| `CONF_FAN_VACANCY_HOLD` | 300 s | Extra runtime after vacancy. **v5.42.0 BUG 1 fix:** now applies ONLY to fans that are already RUNNING (§13.2). |
 | `CONF_FAN_SLEEP_POLICY` | `reduce` | `off / reduce / normal`. |
-| `CONF_SLEEP_PROTECTION_ENABLED` + `SLEEP_START/END_HOUR` | on / 22 / 7 | |
-| `CONF_SLEEP_BYPASS_MOTION` | 3 | motion events to override sleep. |
-| `CONF_ROOM_IS_GUEST_ROOM`, `CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN` | off / 30 min | v4.7.2 D4. |
-| `CONF_DISABLE_CAMERA_PRESENCE` | False | Per-room mute. |
-| `CONF_SCANNER_AREAS` | [] | Areas with BLE scanners (sparse-scanner homes). |
+| `CONF_COMFORT_FAN_AWAY_VETO_ENABLED` | see §13.1 | AWAY / VACATION comfort-fan suppression. |
+| `CONF_SLEEP_PROTECTION_ENABLED` + hours | on / 22 / 7 | |
+| `CONF_SLEEP_BYPASS_MOTION` | 3 | |
+| `CONF_ROOM_IS_GUEST_ROOM`, `CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN` | off / 30 min | |
+| `CONF_DISABLE_CAMERA_PRESENCE` | False | Per-room camera mute. |
+| `CONF_ROOM_CAMERAS` | [] | v5.44+ camera-fusion input (§14). Multi-select of ANY camera-related entities. |
+| `CONF_AUTO_ENABLE_PERSON_DETECTION` | True | D4 dry-run gate (§14.5). |
+| `CONF_SCANNER_AREAS` | [] | Areas with BLE scanners. |
 | `CONF_ADJACENT_ROOMS` | [] | Fan-noise Layer-2 corroboration list. |
-| Fan-recheck cluster (`CONF_FAN_RECHECK_*`) | see §3.4 | |
-| `CONF_DOOR_SENSORS` / `_TYPE`, `CONF_WINDOW_SENSORS`, `CONF_IS_EGRESS_WINDOW` | interior / true | Feeds Safety + HVAC egress. |
-| `CONF_COVERS`, `CONF_COVER_OPEN_MODE`, timing sources & offsets | — | Cover automation; see const.py:572-597. |
-| `CONF_CLIMATE_ENTITY`, `CONF_HVAC_COORDINATION_ENABLED` | — | Ties this room to an HVAC zone. |
-| `CONF_ROOM_MEDIA_PLAYER`, `CONF_MUSIC_FOLLOWING_ENABLED` | — | Music-following handoff. |
+| Fan-recheck cluster (`CONF_ROOM_FAN_RECHECK_ENABLED` etc.) | see §3.4 / §13.3 | |
+| `CONF_DOOR_SENSORS` / `_TYPE`, `CONF_WINDOW_SENSORS`, `CONF_IS_EGRESS_WINDOW` | interior / true | |
+| `CONF_COVERS`, cover options | — | See const.py:572-597. |
+| `CONF_CLIMATE_ENTITY`, `CONF_HVAC_COORDINATION_ENABLED` | — | |
+| `CONF_ROOM_MEDIA_PLAYER`, `CONF_MUSIC_FOLLOWING_ENABLED` | — | |
 
 ### 6.2 Zone options flow
 
-- `CONF_ZONE_NAME`, `CONF_ZONE_ROOMS`, `CONF_ZONE_DESCRIPTION`.
-- `CONF_ZONE_IS_OUTDOOR` (default False).
-- `CONF_ZONE_PLAYER_ENTITY`, `CONF_ZONE_PLAYER_MODE`
-  (`independent / aggregate / fallback`).
-- `CONF_SHARED_SPACE`, `CONF_SHARED_SPACE_AUTO_OFF_HOUR` (default 23),
-  `CONF_SHARED_SPACE_WARNING` — auto-off for common areas
-  (`const.py:74-76, 125`).
+See `ZONE_MANUAL.md §3-4`. Highlights: `CONF_ZONE_NAME`,
+`CONF_ZONE_ROOMS`, `CONF_ZONE_IS_OUTDOOR`, `CONF_ZONE_PLAYER_ENTITY`,
+`CONF_ZONE_PLAYER_MODE`, `CONF_ZONE_PERSONS`, `CONF_ZONE_CAMERAS`.
 
 ### 6.3 Integration (house-wide) options flow
 
@@ -370,12 +361,11 @@ module constant / options-flow / entity, by how it should be governed.
 - `CONF_OUTSIDE_TEMP_SENSOR`, `CONF_OUTSIDE_HUMIDITY_SENSOR`,
   `CONF_WEATHER_ENTITY`, `CONF_SOLAR_PRODUCTION_SENSOR`,
   `CONF_ELECTRICITY_RATE_SENSOR` (`const.py:674-679`).
-- Notification service / target / level (`const.py:663-672`, values
-  `off / errors / important / all`).
-- Guest VLAN + guest-persistence (`config_flow.py:2911, 3072`).
-- LOST-AWAY grace cluster (`CONF_LOST_AWAY_GRACE_MIN`,
-  `CONF_LOST_AWAY_INDOOR_CLEAR_TICKS`, `CONF_LOST_AWAY_SLEEP_EXEMPT` —
-  presence.py imports at :53-61).
+- Notification service / target / level — see `CM_MANUAL.md §3`.
+- **Camera census lists** — `CONF_CAMERA_PERSON_ENTITIES` (interior),
+  `CONF_EGRESS_CAMERAS`, `CONF_PERIMETER_CAMERAS` (`const.py:1072-1074`).
+  Distinct from room fusion (§14 and `ZONE_MANUAL.md §6`).
+- `CONF_CENSUS_DIVERGENCE_DOWNGRADE` — default True. See §14.7.
 
 ### 6.4 Reviewed module constants (change requires code review)
 
@@ -383,199 +373,132 @@ Live in `const.py`. Do NOT expose as knobs; changing them is a
 correctness bound.
 
 - `BLE_MOTION_CONFIRM_MULTIPLIER = 2` (`const.py:375`) — the BLE
-  extend-not-create predicate. Kill switch: `0` disables the BLE hold
-  path.
-- `BLE_TIER_2_WEIGHT = 0.6` (`const.py:363`) — borrowed-scanner
-  confidence.
-- `D3_DIAGNOSTIC_ENABLED = True` (`const.py:385`) — kill switch for
-  the per-room weighted veto + the L1 fan-interference gate hold.
-- `ROOM_TYPE_TIMEOUTS`, `ROOM_TYPE_FAILSAFE_DURATIONS` (`const.py:724, 749`).
-- `TIER1_KINDS` and the `_classify_entity_kind` ordering
-  (`const.py:342`).
+  extend-not-create predicate. Kill switch: `0`.
+- `BLE_TIER_2_WEIGHT = 0.6` (`const.py:363`).
+- `D3_DIAGNOSTIC_ENABLED = True` (`const.py:385`) — upstream kill
+  switch for the L1 fan-interference hold AND the D2 demotion (§13.4).
+- `MMWAVE_FAN_CORROBORATION_ENABLED = True` (`const.py:522`) — D2
+  master kill.
+- `MMWAVE_FAN_CORROBORATION_GRACE_S = 600` (`const.py:523`) — fan-on
+  grace before D2 can fire. Values <300 are clamped to 300.
+- `MMWAVE_NAME_PATTERN` (`fan_veto.py:61`) — regex used to exclude
+  mmWave-family entities from motion-only reads (§13.1, §13.5).
+- `FRIGATE_CROSS_HOST_CORROBORATION_ENABLED = False`
+  (`camera_resolver.py:79`) — F2 gate, ships dark (§14.7).
+- `CAMERA_AUTOENABLE_DRY_RUN = True` (`camera_resolver.py:84`) — D4
+  dry-run (§14.5).
+- `CENSUS_USE_NEW_RESOLVER = False` (`camera_resolver.py:92`) —
+  census cutover, ships dark (§14.7).
+- `CAMERA_COVERED_ROOMS` (`const.py:701`) — legacy additive bridge
+  (§14.1).
+- `ROOM_TYPE_TIMEOUTS`, `ROOM_TYPE_FAILSAFE_DURATIONS`.
 - Wake backstop: `_WAKE_BACKSTOP_HOURS_AFTER_SLEEP_END = 3`,
   `_WAKING_SUSTAINED_THRESHOLD_SECONDS = 90` (`presence.py:136-142`).
-- Failsafe: `DEFAULT_FAILSAFE_DURATION_SECONDS = 4 h` (`const.py:748`).
+- `DEFAULT_FAILSAFE_DURATION_SECONDS = 4 h` (`const.py:748`).
 
 ---
 
 ## 7. What to watch (sensors and attributes)
 
-- **`sensor.ura_house_state`** / **`sensor.ura_presence_house_state`**
-  (`sensor.py:4011, 4105`) — the current `HouseState` value; attributes
-  from `house_state_machine.to_dict()` include time-in-state, last
-  transition reason, `tracked_persons_count`,
+- **`sensor.ura_presence_coordinator_presence_house_state`** — live
+  house state. Attrs include `tracked_persons_count`,
   `all_tracked_persons_away`, `unidentified_count`, guest gate state.
-- **`sensor.ura_house_state_confidence`** (`sensor.py:4306`) —
-  inference confidence.
-- **`sensor.<domain>_zone_<zone>_active_rooms`** — attrs `active_rooms`,
-  `inactive_rooms` per zone (`sensor.py:4444`). First stop for
+- **`sensor.ura_coordinator_manager_house_policy`** — composed live
+  policy from CM (see `CM_MANUAL.md §4.1`).
+- **`sensor.<domain>_zone_<zone>_active_rooms`** — first stop for
   "which room is holding a zone occupied?"
-- **Per-room sensors** — the coordinator publishes `STATE_OCCUPIED`,
-  `STATE_TIMEOUT_REMAINING`, `STATE_OCCUPANCY_SOURCE`
-  (`motion / mmwave / occupancy_sensor / timeout / camera / ble /
-   grace_hold / fan_recheck_release / none`), `STATE_BLE_PERSONS`,
-  `STATE_TIME_SINCE_MOTION`, `STATE_ILLUMINANCE`
-  (`const.py:759-799`).
+- **Per-room sensors** — `STATE_OCCUPIED`, `STATE_TIMEOUT_REMAINING`,
+  `STATE_OCCUPANCY_SOURCE` (values include `motion / mmwave /
+  occupancy_sensor / timeout / camera / ble / grace_hold /
+  fan_recheck_release / mmwave_fan_demoted / none`), `STATE_BLE_PERSONS`.
+- **`binary_sensor.<room_slug>_camera_person_detected`** (v5.44+, §14).
+  Attrs: `sources`, `agreement`, `confidence`, `resolved_camera_devices`,
+  `resolved_physical_cameras`, `disabled_by_config`, `configured_cameras`.
+- **`binary_sensor.<room>_occupied` attrs** — `mmwave_fan_demoted`
+  (bool), `mmwave_fan_demotions_since_boot` (int) — post v5.42.0.
 - **`sensor.<room>_unavailable_entities`** — INPUT sensors that went
-  unavailable. **Does NOT track dead actuators** (light/fan/cover). See
-  §8.4 and `HVAC_COORDINATOR_MANUAL.md §6.4`.
-- **Person location** — `universal_room_automation_<person>_location`
-  and recent-path attrs (`MAX_RECENT_PATH_LENGTH = 10`, `const.py:175`).
-- **Activity log** — `activity_logger.py` records entry/exit actions
-  with the triggering sensor. This is the query surface for "why did
-  the lights come on at 3 am?"
+  unavailable. Does NOT track dead actuators.
+- **Activity log** — `activity_logger.py`.
 
 ---
 
 ## 8. How to intervene safely
 
-**Rule of thumb.** If a Number/Switch entity exists for a behavior,
-turn that. Don't reach past URA into HA scripts targeting URA-managed
-actuators during occupancy — you'll fight the coordinator's exit
-action. Prefer sensor-driven custom automations that TRIGGER off URA
-state, not automations that fight URA actuators.
+**Rule of thumb.** If a Number/Switch entity exists, turn that. Don't
+reach past URA into HA scripts targeting URA-managed actuators.
 
 ### 8.1 "Room turns off too fast on a still occupant"
 
-Order of diagnosis:
-1. Read the room's `STATE_OCCUPANCY_SOURCE`. If it's flipping between
-   `mmwave` and `none`, mmWave is losing the body.
-2. If a fan is running, check whether `fan_interference_hold_s` and
-   `fan_recheck` are engaging (`D3_DIAGNOSTIC_ENABLED` must be True).
-3. Raise `occupancy_timeout` — 300 s is a floor. Bedrooms default 900 s
-   (`ROOM_TYPE_TIMEOUTS`).
-4. If the person is in bed, confirm SLEEP-tier person trust
-   (v4.7.13) is picking them up — check
-   `sensor.ura_house_state`'s state and the tracked-person location.
-5. As a last resort, add a mmWave OR occupancy sensor to the room's
-   configured lists.
+1. Read `STATE_OCCUPANCY_SOURCE`. Flipping between `mmwave`/`none` =
+   mmWave losing the body.
+2. If a fan is running, check §13.4 (D2 demotion) attrs on
+   `binary_sensor.<room>_occupied`. `mmwave_fan_demoted=True` +
+   `mmwave_fan_demotions_since_boot` incrementing = the room is
+   demoting. Consider extending `MMWAVE_FAN_CORROBORATION_GRACE_S`
+   (code review) or configuring a PIR sensor (`_d2_motion_sensors_present`
+   fail-closes on no-PIR rooms; see §13.4).
+3. Raise `occupancy_timeout`. Bedrooms default 900 s.
+4. Confirm SLEEP-tier person trust picks the sleeper up.
 
 ### 8.2 "Setting up a new room well"
 
-- **Sensor choice.** Populate all three lists you have — mmWave
-  detects stillness (bedrooms, offices, media rooms); motion is fast
-  and cheap; occupancy sensors (ZHA/Aqara-style) are fusion products
-  and count when present.
-- **Room type.** Pick the right `room_type` — the timeout AND failsafe
-  ladders key off it (`const.py:724, 749`). A closet marked `generic`
-  will get a 5-min timeout instead of 2 min.
-- **Entry action.** `turn_on_if_dark` is the safe default unless the
-  room is windowless (then `turn_on`). Set
-  `illuminance_dark_threshold` after observing the room's typical dusk
-  reading; 20 lx is a generic default.
-- **Night lights.** If the room is on the sleep path (hallway,
-  bathroom), populate `CONF_NIGHT_LIGHTS` — sleep entry will use only
-  those with the sleep preset. Regular lights will be actively turned
-  off (`_control_lights_entry` :659-661).
-- **Guest rooms.** Toggle `room_is_guest_room` and consider
-  `room_guest_occupancy_threshold_min` (default 30 min).
+**Configuring sensors CORRECTLY (v5.42.0 mmWave discipline).** The
+D2 demotion (§13.4) AND the AWAY-veto motion leg (§13.1) both key
+off the *kind* of your sensor entries. Misfile them and the machinery
+either can't see the sensor or wrongly trusts it.
 
-### 8.3 "Lights came on at 3 am with nobody there"
+- **`presence_sensors` = the mmWave bucket.** Anything using mmWave /
+  radar / LD2410 / LD2412 goes here. **Consequence of misfiling: an
+  mmWave entity dropped into `occupancy_sensors` is INVISIBLE to ALL
+  mmWave machinery** — the D2 demotion, the L1 fan-interference hold,
+  and the fan-recheck all key on `STATE_OCCUPANCY_SOURCE == "mmwave"`
+  or on the `presence_sensors` list membership.
+- **`motion_sensors` = PIR ONLY.** True PIR / IR sensors. `fan_veto.py`
+  and `_d2_motion_sensors_present` apply `MMWAVE_NAME_PATTERN`
+  (`fan_veto.py:61` — matches `mmwave|radar|presence|ld2410|ld2412`)
+  and **strip** entities that look like hybrids from the motion list.
+  If your "motion" entity is actually a hybrid, it'll be excluded from
+  the motion-recency leg — meaning the AWAY veto (§13.1) and the D2
+  PIR-staleness leg both treat this room as **no-PIR**.
+- **`occupancy_sensors` = fused ZHA/Aqara-style occupancy.** Kept
+  separate from mmWave.
+- **Room type.** Pick the right `room_type`; timeout AND failsafe
+  ladders key off it.
+- **Night lights.** For sleep-path rooms (hallway, bathroom) populate
+  `CONF_NIGHT_LIGHTS`.
 
-This is the exact class the v5.22.0 `ble_extend_not_create` fix
-targeted (Master Bathroom 21:16–21:47 incident). Diagnosis:
-
-1. Query `activity_logger` (or the URA activity log entity if
-   exposed) for the entry event — capture the trigger sensor.
-2. If the trigger source is `ble`, the fix has regressed — confirm
-   `BLE_MOTION_CONFIRM_MULTIPLIER > 0` and check whether the room's
-   `_last_occupied_state` was truthy at that time (CHAIN leg) or
-   whether recent motion was < 2× timeout (MOTION leg). One of the
-   two must have held.
-3. If the trigger is `camera`, check for a stuck camera person
-   sensor over the false window; consider
-   `CONF_DISABLE_CAMERA_PRESENCE` for that room.
-4. If the trigger is `motion` / `mmwave`, check
-   `_sensor_on_since` — a sensor may have been declared stuck (>N
-   hours) and re-enabled by a state edge. See `coordinator.py:1513`.
-
-### 8.4 "A light didn't turn off at exit"
-
-**Check the actuator first, not URA.** Full checklist in project
-`CLAUDE.md → Troubleshooting`; short form:
-
-1. Read the room config for which physical device the friendly name
-   maps to.
-2. Check the actuator's live state — `unavailable` / `restored:true`
-   = offline. `sensor.<room>_unavailable_entities` will NOT tell you
-   this; it only tracks input sensors.
-3. Reload only the specific stuck config entry, not the parent
-   URA entry (parent reload = watchdog-restart hazard, see
-   feedback_parent_entry_reload_watchdog_hazard).
-
-### 8.5 Bathroom exhaust behaving badly
-
-- Sensor reads suspicious → check the humidity sensor entity directly.
-  The 60-min `humidity_fan_max_runtime` cap will force off a stuck
-  sensor after an hour.
-- Fan cycles too aggressively → raise `humidity_fan_threshold` or
-  widen the hysteresis constant (code review; default 10 pp).
-- Fan won't stay on after a long shower → tune the D3 presence-
-  proportional post-runtime knobs (`base / per_min / cap`).
-- Fan runs into sleep → the wet-room + sleep-policy exemption is
-  intentional; toggle `wet_room` OFF if you don't want it for that room.
+### 8.3-8.5 (unchanged from prior revisions — see git history).
 
 ### 8.6 Guest weekend
 
-- Confirm `sensor.ura_house_state` shows `guest` when the guest is
-  present (Frigate `unidentified_count > 0` OR operator arm).
-- For a guest-only room, set `room_is_guest_room = True` and pick
-  `room_guest_occupancy_threshold_min` — e.g. 60 min so a guest
-  reading in bed doesn't drop the room every 5 min.
-- The v5.16.0 GUEST → SLEEP transition patch means a late guest
-  no longer blocks sleep-mode HVAC/lights.
+- Confirm house state shows `guest`.
+- For guest-only rooms, set `room_is_guest_room = True` and pick
+  `room_guest_occupancy_threshold_min`.
+- The v5.16.0 GUEST → SLEEP patch means a late guest no longer
+  blocks sleep-mode HVAC/lights.
 
-### 8.7 A safe custom automation off URA state
+### 8.7-8.8 (unchanged).
 
-**Do:** trigger your automation off URA's *sensors* (`sensor.ura_house_state`
-transitioning to `home_day` at first kitchen occupancy → start
-coffee-maker). Use `sensor.<domain>_zone_kitchen_active_rooms` state
-change from empty → non-empty as a clean, deduplicated trigger.
-
-**Don't:** target URA-managed lights with a parallel HA automation
-during occupancy — URA's entry/exit will fight your writes. If you
-need a scene, wire it to the URA entry action (`turn_on`) and let URA
-own the transition.
-
-**Don't:** run a custom scheduler that turns off lights that URA has
-just turned on; the 4-hour failsafe already bounds forgotten lights,
-and the room-type failsafe (60 min for closet/bathroom) bounds the
-common lazy cases.
-
-### 8.8 Kill switches (durable)
-
-- BLE hold entirely: `BLE_MOTION_CONFIRM_MULTIPLIER = 0` in `const.py`
-  (code change, reload).
-- D3 diagnostic + L1 fan-interference hold:
-  `D3_DIAGNOSTIC_ENABLED = False` in `const.py`.
-- Per-room fan-recheck: `room_fan_recheck_enabled = False` in the
-  room's options.
-- Per-room camera opt-out: `disable_camera_presence = True` in the
-  room's options.
-- The house state machine cannot be "paused" — override the zone's
-  `ZonePresenceMode` (`AWAY / OCCUPIED / SLEEP / AUTO`, `presence.py:237`)
-  as an ephemeral override; auto-resumes on real detection.
+Kill switches summary:
+- BLE hold entirely: `BLE_MOTION_CONFIRM_MULTIPLIER = 0`.
+- D3 diagnostic + L1 fan-interference hold + D2 demotion:
+  `D3_DIAGNOSTIC_ENABLED = False`.
+- D2 demotion only: `MMWAVE_FAN_CORROBORATION_ENABLED = False`.
+- Comfort-fan AWAY veto: `comfort_fan_away_veto_enabled = False` on
+  the room.
+- Per-room fan-recheck: `room_fan_recheck_enabled = False`.
+- Per-room camera opt-out: `disable_camera_presence = True`.
 
 ---
 
 ## 9. Comfort / HVAC interplay (pointer)
 
-The Room tier does not write to individual HVAC thermostats when
-Carrier Infinity is running the show — it drives fans and passes
-occupancy/setpoint hints. HVAC preset selection (`home / sleep / away`),
-zone vacancy timers, and setpoint offsets from Energy Coordinator
-constraints (`normal / pre_cool / coast / shed`) all live in the HC —
-see **`HVAC_COORDINATOR_MANUAL.md`**, especially §3–5 for the vacancy
-grace timers, the bidirectional `#49 ≤ #48` clamp, and the sleep-state
-trust behavior.
+See `HVAC_COORDINATOR_MANUAL.md` and `docs/user-manual/DYNAMIC_PRESET.md`.
 
 **Per-room comfort sliders** (ComfortTempMin/Max/HumidityMax
-Numbers): these are currently VESTIGIAL — persisted but nothing reads
-their live value. They are the input surface for the future
-**Optimization Coordinator** comfort dimension (see the "comfort
-sliders optimization coordinator" memory). Turning them today does
-not change room behavior. Do not delete; they will be wired when
-Optimization Phase 1 lands.
+Numbers): currently VESTIGIAL — persisted but nothing reads their live
+value. Reserved for the future Optimization Coordinator comfort
+dimension.
 
 ---
 
@@ -584,46 +507,20 @@ Optimization Phase 1 lands.
 Advisory-only, no actuation, per current code:
 
 - **Optimization Coordinator L1 Shadow** — observes, does not act.
-  Findings surface but the coordinator is not driving decisions
-  (v5.0.0-v5.2.1 rolled back; fix-forward pending, see
-  optimizer write-flood incident memory).
-- **R1 Consumption Estimator (v5.18.0)** — SHADOW. Publishes
-  `predicted_consumption_source` on `sensor.ura_energy_daily`; legacy
-  day-of-week baseline drives Energy Coordinator decisions during the
-  14-day observation.
-- **Pattern learning** (`pattern_learning.py`) — informs prediction
-  sensors (`AGGREGATION_PREDICTED_ENERGY_*`, `_COST_*`,
-  `AGGREGATION_PREDICTED_COOLING`, `AGGREGATION_PREDICTED_HEATING`,
-  `STATE_NEXT_OCCUPANCY_TIME`). Read-only surfaces; nothing actuates
-  from these values today.
-- **Bayesian predictor** (`bayesian_predictor.py`) — see coordinator
-  architecture doc; sensor-exposed, not actuation-wired.
-- **Battery-Aware EV Charging** — ACTS (v5.21.0 activated 2026-07-17)
-  — but this is Energy Coordinator, not this tier. See EC manual §2.4a.
-
-Rule for now: if a sensor name starts with `predicted_` or ends in
-`_confidence`, treat it as advisory. Anything the room/zone/house
-manuals describe as an ACTION is the deterministic path.
+- **R1 Consumption Estimator (v5.18.0)** — SHADOW during 14-day
+  observation.
+- **Pattern learning** — read-only surfaces.
+- **Bayesian predictor** — sensor-exposed, not actuation-wired.
+- **Battery-Aware EV Charging** — ACTS (v5.21.0) but is EC-tier, not
+  this tier.
 
 ---
 
 ## 11. Notification Manager (briefly)
 
-The NM (`domain_coordinators/notification_manager.py`) receives
-severity-tagged events from every coordinator and dispatches them to
-channels. Operator-visible knobs:
-
-- `CONF_NOTIFY_SERVICE`, `CONF_NOTIFY_TARGET`, `CONF_NOTIFY_LEVEL`
-  (integration options).
-- Level ladder: `off / errors / important / all`
-  (`const.py:669-672`).
-- Room override: `CONF_OVERRIDE_NOTIFICATIONS` (`const.py:57`) —
-  per-room bypass for a chatty area.
-- BlueBubbles / WhatsApp channel wiring lives in the NM; see the
-  2026-05-30 NM audit memo for the known gaps (per-person mute,
-  safe-word ack, per-tick rate cap — all backlog).
-
-Full detail: `NOTIFICATION_MANAGER.md`.
+See `CM_MANUAL.md §3` for the full channel + routing + cooldown map.
+Room-level override: `CONF_OVERRIDE_NOTIFICATIONS` (`const.py:57`) —
+per-room bypass for a chatty area.
 
 ---
 
@@ -632,125 +529,437 @@ Full detail: `NOTIFICATION_MANAGER.md`.
 | Version | What changed (operator-visible) |
 |---|---|
 | v3.5.1 | Camera extends room occupancy. |
-| v3.6.0-c1 | Away-filter + AND-gate on zone anyone-home (b761cbe, later exposed by env shift → v4.7.14). |
-| v3.8.8 / v3.8.9 | BLE/Bermuda extends room occupancy; sparse-BLE tier hardening. |
-| v4.5.15 | Room-type failsafe durations; closet/bathroom = 60 min. |
-| v4.7.2 | Guest room designation + occupancy threshold. |
-| v4.7.13 | Sleep-state person trust — mmwave-drop doesn't force away during SLEEP. |
-| v4.7.14 | Away-state person-tracker veto — 33-min AWAY dwell vs 60-90 s pre-fix. |
-| v4.7.16 | Per-room camera-presence opt-out; BLE tier-2 weight; D3 weighted veto scaffolding. |
-| v4.7.18.1 | Sleep → waking deadlock hotfix; raw-signal wake timer + daytime backstop. |
-| v4.7.19 | Presence provenance split (`_room_provenance` per-kind); fan diagnostic. |
-| v4.7.20 / .20.1 | Silent Layer-1 fan-interference hold + decay; dispatcher import hotfix. |
-| v4.7.21 | Boot-storm settle gates — house boots AWAY cleanly. |
-| v4.7.22 | Mode-2 BLE-gated fan pause + recheck; high-still-risk guard. |
-| v4.7.24 | `OccupancySubstrate` per-room/per-kind raw layer beneath both tiers. Bug Class #50. |
-| v4.7.25 | HVAC presence-timer knobs surfaced as Number entities #48/49/50 + reset button #51. |
-| v5.7.0 | Outdoor-zone AWAY-path exclusion; LOST-AWAY grace cluster (WS-A3). |
-| v5.10.0 / v5.11.0 | Music-following gate; occupancy-connectivity cleanup. |
-| v5.12.0-v5.14.1 | Substrate resubscribe; SPAN re-key saga; labels; zone delete flow. |
-| v5.16.0 | Guest latch — GUEST → SLEEP transition; guest arming from Frigate unidentified. |
-| v5.17.x | (energy-side; documented in EC manual). |
-| v5.19.0 | Behavioral write-verify machinery. |
-| v5.22.0 | `ble_extend_not_create` — BLE never creates occupancy; two-leg (CHAIN, MOTION) admission. |
-| v5.23.0 | Current tip (`const.py:34`). |
+| v4.5.15 | Room-type failsafe durations. |
+| v4.7.13 | Sleep-state person trust. |
+| v4.7.14 | Away-state person-tracker veto. |
+| v4.7.22 | Mode-2 BLE-gated fan pause + recheck. |
+| v4.7.24 | `OccupancySubstrate` per-room/per-kind. |
+| v5.7.0 | Outdoor-zone AWAY-path exclusion. |
+| v5.16.0 | Guest latch — GUEST → SLEEP transition. |
+| v5.22.0 | `ble_extend_not_create`. |
+| v5.40.0 | Comfort-fan AWAY veto shared predicate (§13.1). |
+| v5.42.0 | Fan seam Phase 1 (vacancy-hold RUNNING-only, external adoption, §13.2); D2 mmWave fan-corroboration demotion (§13.4). |
+| v5.44.0-v5.45.0 | Room-camera fusion primitives — `CameraResolver`, per-room fused `binary_sensor.<room>_camera_person_detected`, D4 auto-enable dry-run, exterior-person severity-by-house-state (§14). |
+| v5.45.0 | Current tip (`const.py:34`). |
 
 ---
 
-## Draft gaps for operator review
+## 13. Fan trust stack (v5.40.0-v5.42.0) — operator guide
 
-Items I inferred from memory or docs but could not fully pin to code
-in this pass — please spot-check before publishing:
+Five interlocking pieces determine whether a comfort fan actually
+runs. From highest authority to backstop:
 
-1. **`sensor.ura_presence_coordinator_presence_house_state`** — user
-   memories cite this entity id, but the actual definitions in
-   `sensor.py:4011, 4105` are `sensor.ura_house_state` and
-   `sensor.ura_presence_house_state`. The longer form may be the
-   friendly name only (**verify live**).
-2. **`sensor.<room>_unavailable_entities`** — referenced repeatedly in
-   HVAC manual + CLAUDE.md as an existing entity, but I did not
-   locate its definition in `sensor.py` during this pass
-   (**verify entity id and attribute schema live**).
-3. **Zone `active_rooms` sensor entity id prefix** — code writes
-   `f"{DOMAIN}_zone_{zone}_active_rooms"` unique_id at
-   `sensor.py:4444`. The rendered entity id depends on HA's naming;
-   I stated `sensor.<domain>_zone_<zone>_active_rooms` (verify live).
-4. **`activity_logger` operator query surface** — `activity_logger.py`
-   exists; whether it exposes an entity you can query from the UI or
-   only a DB table was not verified in this pass.
-5. **v5.22.0 vs v5.23.0 delta** — I mapped `ble_extend_not_create` to
-   v5.22.0 based on the `coordinator.py:1807` comment "ble_extend_not_create
-   (2026-07-17, fix-up B-HIGH-1)"; the manifest version is v5.23.0
-   (`const.py:34`). Please confirm which release the operator considers
-   the shipped one.
-6. **Comfort sliders as "vestigial today"** — asserted from memory. I
-   did not walk their read sites in `hvac.py` this pass; the operator
-   memory ("comfort sliders optimization coordinator") is authoritative
-   but verify no room-tier reader has been added since.
-7. **`_unavail_grace_seconds`** default — I described the grace-hold
-   behavior but did not pin the numeric default (search
-   `_unavail_grace_seconds` in `coordinator.py`).
-8. **Sleep person-trust code path** — v4.7.13 memory cites
-   `hvac.py:1151` (SLEEP-only gate). I documented the behavior at the
-   presence level; the exact SLEEP-only vs home_night gap is
-   referenced but not re-verified here.
-9. **BLE tier classification (`is_room_direct_ble`)** — described from
-   `coordinator.py:1803` call site; the classification implementation
-   in `person_coordinator.py` was not read this pass.
-10. **v5.16.0 GUEST-latch mechanism** — described from operator memory
-    ("guest latch"). The exact `presence.py` sites for the
-    GUEST → SLEEP transition patch were not walked end-to-end.
+1. AWAY / VACATION veto (`fan_veto.py`) — §13.1
+2. Vacancy-hold gate (RUNNING-only, `automation.py`) — §13.2
+3. External-lit fan adoption (`hvac_fans.py`) — §13.2
+4. Fan-recheck (pause-based Mode-2, `presence_fan_recheck.py`) — §13.3 / §3.4
+5. mmWave fan-corroboration D2 demotion (`coordinator.py`) — §13.4
 
-## Notes / contradictions found in code vs memories/docs read
+Configure a room's sensors correctly (§13.5) or several of these
+layers can't do their job.
 
-- **Manifest version = v5.23.0** (`const.py:34`) but no prior
-  planning doc for v5.23.0 was skimmed. The memory index calls out
-  v5.19.0-v5.21.0 explicitly; v5.22.0 and v5.23.0 don't appear in the
-  MEMORY.md excerpt loaded here. The version history table shows my
-  best-effort attribution; the operator should confirm the v5.22/23
-  scope.
-- **`ble_extend_not_create` dating** — the source comment says
-  "2026-07-17" (`coordinator.py:1807`), which aligns with the
-  2026-07-17 pickup memory "EVSE mid-build (A+B1+B2a done, B2b-i in
-  flight)". That memory does NOT mention `ble_extend_not_create` as a
-  separately shipped cycle. The change appears in-tree on `develop` at
-  the referenced line.
-- **`sensor.ura_house_state` vs `sensor.ura_presence_house_state`** —
-  the codebase defines BOTH (`sensor.py:4011, 4105`). This is a
-  duplication I did not expect; may be an artifact of a rename or a
-  deliberate dual-exposure. Worth documenting or de-duplicating.
+### 13.1 Comfort-fan AWAY veto (v5.40.0)
+
+Shared predicate in `fan_veto.py::should_veto_comfort_fan` — consumed
+by ALL THREE comfort-fan `turn_on` sites:
+
+1. Room-tier: `automation.py::handle_temperature_based_fan_control`
+2. HVAC-tier: `hvac_fans.py::HvacFanController.update` (before
+   `_set_fan_state`)
+3. Reconciler: `actuator_reconciler.py::_resolve_fan`
+
+**Truth-preserving invariant:** if house state is AWAY or VACATION
+AND the room has no trusted presence, a comfort-fan turn_on is
+suppressed. Sleep path is disjoint (untouched). Humidity fans, safety
+fans, and manual actuations bypass this entirely.
+
+**"Trusted presence" =** PIR-recent (motion sensor ON, or transitioned
+OFF within `occupancy_timeout`) OR BLE person tracked in the room
+(with active tracking status) OR camera-person for camera-covered
+rooms.
+
+**mmWave is EXCLUDED by construction** — the veto exists precisely
+because a mmWave-only signal under fan interference is untrustworthy.
+Even mmWave entities operators historically misfiled under
+`CONF_MOTION_SENSORS` are stripped by name (`MMWAVE_NAME_PATTERN`,
+`fan_veto.py:61`).
+
+**Fail-open on any error.** A stuck helper must never silently
+suppress a fan. Boot-settle gate also fails-open: if the presence
+coordinator isn't wired yet, the veto is skipped
+(`fan_veto.py:404-410`).
+
+**Config field (per room):** `CONF_COMFORT_FAN_AWAY_VETO_ENABLED`
+(`const.py:684`, key `comfort_fan_away_veto_enabled`). Default —
+verify per-room via `DEFAULT_COMFORT_FAN_AWAY_VETO_ENABLED`.
+
+**Observability:** per-room veto counter surfaced as
+`get_veto_count(hass, room_name)` (`fan_veto.py:448-454`) — RAM-only,
+resets at boot; the D7 counter feeds the dashboard. First hit per boot
+per room logs one INFO line ("veto enabled for room=... —
+first-check-this-boot").
+
+**Kill switch:** set `comfort_fan_away_veto_enabled=False` on the
+room's options → helper returns False unconditionally, pre-cycle
+behavior.
+
+### 13.2 Vacancy-hold gate + external-lit fan adoption (v5.42.0)
+
+**BUG 1 fix (`automation.py:1708-1733`):** the room-tier vacancy-hold
+override (`occupied=True` during grace) now applies ONLY when a fan
+is already RUNNING (`any_fan_on_now`). Prior to v5.42.0, on boot the
+first vacant tick re-stamped the vacancy grace and the downstream
+temperature branch emitted a spurious `fan.turn_on` in an
+unoccupied room. `CONF_FAN_VACANCY_HOLD` still governs the runtime
+extension (default handled by `DEFAULT_FAN_VACANCY_HOLD`), it just no
+longer arms turn-ONs.
+
+**BUG 2 fix (`hvac_fans.py:239-293`):** a fan that lit externally
+(physical switch, another automation, or room-tier during boot warmup)
+is now ADOPTED into HVAC-tier bookkeeping (`room_fan.is_on = True`,
+`room_fan.trigger = "external"`, `room_fan.speed_pct = <observed>`,
+`last_on_time = now`). Log: `"HVAC Fans: <room> adopted externally-lit
+fan (speed=<n>%)"`. Without this branch, the vacancy-off path had no
+owner and a room-tier-boot-lit fan could run for hours in a vacant
+room (the Study A "4h at 100%" incident). The eventual OFF is treated
+as a normal vacancy-off, NOT interpreted as manual.
+
+### 13.3 Fan-recheck relationship (v4.7.22, unchanged behavior)
+
+Pause-based Mode-2 layer (§3.4). Fires when mmWave alone is driving
+occupancy AND a fan is on AND all 9 trigger conditions hold
+(`presence_fan_recheck.py:339-504`). Precedence at v5.42.0:
+
+- **Recheck FIRST** — recheck gets first crack; D2 (§13.4) defers
+  while any recheck is in-flight for the room.
+- **Vacancy-hold SECOND** — the RUNNING-only override (§13.2) applies
+  after recheck completes.
+- **D2 demotion as BACKSTOP** — for rooms that are recheck-ineligible
+  (SLEEP, rate-capped, no fan configured, master switch off, etc.).
+
+Recheck NEVER fires during `HouseState.SLEEP`
+(`presence_fan_recheck.py:373-375`). WAKING is allowed. The v4.7.13
+keep-fans-on-through-sleep doctrine is respected.
+
+### 13.4 mmWave fan-corroboration D2 demotion (v5.42.0, Tier-3)
+
+Passive backstop to the recheck: when mmWave-sole occupancy is
+sustained past its natural timeout AND the fan has been on ≥ grace AND
+no PIR motion in ≥ 2× occupancy_timeout AND no BLE-trustworthy person
+AND (for covered rooms) no camera-person, DEMOTE the room to vacant
+with `STATE_OCCUPANCY_SOURCE = "mmwave_fan_demoted"`.
+
+**The complete gate list** (`coordinator.py:2438-2447` + helper
+methods):
+
+- `data[STATE_OCCUPIED]` is True
+- `MMWAVE_FAN_CORROBORATION_ENABLED` (module const, True by default)
+- `BLE_MOTION_CONFIRM_MULTIPLIER > 0`
+- `_d2_boot_settle_done()` — presence `_boot_settle_done` is True
+- `_d2_debounce_elapsed(now)` — past the vacant→occupied debounce
+  window (A-CRIT-1 fix — the previous `_occupancy_first_detected is
+  None` gate was permanent-fail once occupied)
+- `_d2_motion_sensors_present()` — room has ≥1 real PIR after
+  `MMWAVE_NAME_PATTERN` filter. **No-PIR rooms FAIL-CLOSED** — leg (e)
+  is unsatisfiable there, so we refuse to demote (D-HIGH-1 fix). One
+  DEBUG log per room per boot.
+- `_d2_house_state_allows()` — house state NOT in `{SLEEP, WAKING,
+  HOME_NIGHT}` (D-CRIT-1 fix, `coordinator.py:1611-1637`). Aligns
+  with the recheck's SLEEP veto and the duty-cycle detector's
+  sleeping-bedroom refusal.
+- `STATE_OCCUPANCY_SOURCE == "mmwave"` — mmWave-sole
+- PIR-only motion staleness: `_last_pir_motion_time` age ≥ `MULT ×
+  occupancy_timeout`
+- Recheck-in-flight guard: `_fan_recheck_manager.get_room_state(room)
+  == "idle"`
+
+**Fan-on grace:** `MMWAVE_FAN_CORROBORATION_GRACE_S = 600` s
+(`const.py:523`). Values <300 are clamped to 300 in the wrapper
+(D-MED-2 fail-safe floor). Setting it very low does NOT disable the
+feature — use `ENABLED=False` for that.
+
+**On demotion:**
+- `data[STATE_OCCUPIED] = False`
+- `data[STATE_OCCUPANCY_SOURCE] = "mmwave_fan_demoted"`
+  (`OCCUPANCY_SOURCE_MMWAVE_FAN_DEMOTED`, `const.py:524`) — this is the
+  **source string** the operator sees on the room's occupancy
+  attribute.
+- `_mmwave_fan_demoted_last_tick = True`
+- `_mmwave_fan_demoted_since = now`
+- `_mmwave_fan_demotions_since_boot += 1` — the **since-boot
+  counter** exposed on `binary_sensor.<room>_occupied`.
+- Room's D1 fan-interference hold is CLEARED atomically
+  (`_fan_interference_hold_until` popped) — D-PRIME-CRIT-1
+  adjudication: D2 OUTRANKS the hold once its higher bar is met (the
+  hold is re-stamped every tick a room stays fan-suspect, so
+  defer-to-hold was unreachable). Blast radius stays room-tier-only;
+  zone-side `_room_occupied` is held up by sustained mmWave
+  provenance in the sustained case anyway.
+- Dispatches `SIGNAL_MMWAVE_FAN_DEMOTED` with `room_name`, `reason=
+  "mmwave_sole_fan_on_no_corroboration"`, `fan_on_since`, and
+  `last_pir_motion_time`.
+- INFO log: `"Room <name>: mmwave-fan-corroboration DEMOTE
+  (fan_on_for=Xs, pir_last=Ys, source was 'mmwave') — releasing to
+  vacant"`.
+
+**Post-demotion flap latch (`_mmwave_demoted_latch`,
+`coordinator.py:1639-1699`).** While set, mmWave-sole activity CANNOT
+recreate occupancy in this room. Cleared on ANY recovery signal:
+mmWave reads off (`mmwave_off`), PIR fires (`pir_motion`), BLE
+person arrives (`ble_person`), or fan turns off (`fan_off` — tracker's
+`_fan_on_since` drops the room). Clear logs one INFO line.
+
+**Kill switches** (rung-1 module constants, code-review-gated):
+1. `MMWAVE_FAN_CORROBORATION_ENABLED = False` — disables the whole
+   predicate.
+2. `BLE_MOTION_CONFIRM_MULTIPLIER = 0` — also disables the derived
+   staleness gate.
+3. `D3_DIAGNOSTIC_ENABLED = False` — third UPSTREAM kill (D2's
+   `_compute_mmwave_fan_demoted_rooms` wraps
+   `_compute_fan_interference_rooms` which short-returns `[]` when
+   D3 is disabled). Reuse of the D3 primitive is BY DESIGN.
+
+### 13.5 Configuring a room's sensors CORRECTLY
+
+The single most common cause of "the fan won't turn off / the room
+won't demote" is misfiled sensor lists.
+
+- **`presence_sensors`** = **the mmWave bucket.** Anything using
+  mmWave / radar / LD2410 / LD2412 goes here.
+  **Consequence of misfiling: mmWave entities dropped into
+  `occupancy_sensors` are INVISIBLE to ALL mmWave machinery.** D2,
+  L1 fan-interference hold, and fan-recheck all key on the room's
+  reported `STATE_OCCUPANCY_SOURCE == "mmwave"` and/or the
+  `presence_sensors` list membership.
+- **`motion_sensors`** = **PIR ONLY.** True PIR / IR only. Hybrids
+  matching `mmwave|radar|presence|ld2410|ld2412` (`fan_veto.py:61`)
+  are pattern-excluded from motion-recency reads by BOTH the AWAY
+  veto and D2's `_d2_motion_sensors_present`. A room whose "motion"
+  entries are all hybrids will be treated as **no-PIR** — D2 fails
+  closed, and the AWAY veto's motion leg contributes nothing.
+- **`occupancy_sensors`** = fused ZHA/Aqara-style occupancy. Kept
+  separate; not read as mmWave and not read as motion.
+
+Verify with `STATE_OCCUPANCY_SOURCE`: if a room's mmWave is running
+under a fan and its source is *not* reading `"mmwave"`, the entity is
+probably in the wrong bucket.
+
+---
+
+## 14. Room-camera fusion (v5.44.0-v5.45.0)
+
+Prior to v5.44, the fan-veto's camera-person leg (§13.1) read a
+hand-frozen room allowlist (`CAMERA_COVERED_ROOMS = {"Study A"}`,
+`const.py:701`) and raw per-camera person entities. The v5.44+ cycle
+replaces that with per-room camera **fusion**: you list any
+camera-related entities on the room, a shared `CameraResolver` groups
+them per physical camera, and a per-room fused binary_sensor
+publishes an OR of the resolved sources with agreement + confidence
+attributes.
+
+### 14.1 Configuration surface
+
+- **Field:** `CONF_ROOM_CAMERAS` (`const.py:708`, key `room_cameras`).
+  Multi-select on the room's options flow.
+- **What to pick:** ANY camera-related entity for the physical camera
+  covering this room — a `camera.*` entity, a person `binary_sensor.*`,
+  a face `binary_sensor.*`, a person-count `sensor.*`. The resolver
+  walks its correlation ladder from any of these back to the physical
+  device.
+- **Legacy bridge:** `CAMERA_COVERED_ROOMS` (`const.py:701`) is an
+  ADDITIVE allowlist retained during the fusion cutover — a room in
+  that frozenset is treated as camera-covered even if `room_cameras`
+  is empty. Delete-after-graduation candidate.
+- **Per-room mute:** `CONF_DISABLE_CAMERA_PRESENCE` (`const.py:354`,
+  `disable_camera_presence`) — authoritative; forces the fused sensor
+  off and blocks the fan-veto's camera leg (§13.1) even if
+  `room_cameras` is populated.
+
+### 14.2 The fused per-room sensor
+
+`binary_sensor.<room_slug>_camera_person_detected`
+(`binary_sensor.CameraPersonDetectedSensor`, `binary_sensor.py:1115+`).
+
+- `is_on` = **any** resolved source across ALL fused physical cameras
+  reports `on`. `disabled_by_config=True` (via
+  `CONF_DISABLE_CAMERA_PRESENCE`) forces `is_on=False`.
+- Empty `CONF_ROOM_CAMERAS` → `is_on=False` (NOT unavailable).
+
+### 14.3 Attributes and their meaning
+
+- **`sources`** — list of per-integration dicts: `integration`,
+  `entity_id`, `state`, `correlation_basis` (`same_device` / `mac` /
+  `identifiers` / `network_inventory` / `name_stem` /
+  `operator_declared`), `face_capability` (`absent` / `usable` /
+  `ambiguous`), `physical_camera_id`.
+- **`agreement`** —
+  - `no_sources` (nothing resolved)
+  - `single_source` (only one integration observed)
+  - `unanimous_on` (all available sources ON)
+  - `unanimous_off` (all available sources OFF, ≥2 available)
+  - `split` (mixed ON/OFF across sources)
+- **`confidence`** —
+  - `high` = ≥2 ON, from ≥2 distinct integrations (family-independence
+    downgrade applies — see below)
+  - `medium` = single ON, or split, or `high` downgraded when all ON
+    sources share ONE integration (fix #9 doctrine deferral)
+  - `low` = zero available with sources present
+  - `none` = no sources at all
+- `resolved_camera_devices`, `resolved_physical_cameras`,
+  `disabled_by_config`, `configured_cameras`.
+
+### 14.4 Fan-veto rebuttal — what single_source vs split means
+
+The comfort-fan AWAY veto (§13.1) reads the fused sensor. To **rebut**
+the veto (i.e., grant "trusted camera presence"), the divergence-aware
+gate (`fan_veto.py:302-331`, E-HIGH-1 fix) requires:
+
+- `state == "on"` AND
+- `agreement in {"unanimous_on", "single_source"}` OR
+  `confidence == "high"`.
+
+- **`single_source`** → grant. Uncontested (only one integration
+  covers this room; no second opinion exists).
+- **`unanimous_on`** → grant. Multiple sources all agree.
+- **`split`** → **deny.** A second camera actively DISSENTS; treat as
+  not-trusted for veto purposes. Log at DEBUG: `"fused sensor ... is
+  ON but agreement=split ... not corroborated"`.
+- **`unanimous_off`** or `is_on=False` → deny (no evidence).
+
+This mirrors the census divergence doctrine ratified at v5.43.0:
+single-source keeps current behavior; only contested divergence
+downgrades.
+
+### 14.5 D4 auto-enable dry-run + per-room toggle
+
+- **Per-room toggle:** `CONF_AUTO_ENABLE_PERSON_DETECTION`
+  (`const.py:712`, `auto_enable_person_detection`, default `True` per
+  `DEFAULT_AUTO_ENABLE_PERSON_DETECTION`).
+- **What it does:** collects per-integration person-detect switches
+  (`switch.<...>_person_detection` / `_detections_person` /
+  `_smart_detect_person` / `_ai_person`) from the resolved fusion and
+  proposes turning them on.
+- **Ships DRY-RUN:** `CAMERA_AUTOENABLE_DRY_RUN = True`
+  (`camera_resolver.py:84`, rung-1 module constant). First release
+  LOGS what it would enable; **does NOT call switch.turn_on**. Flip
+  to False in a later reviewed change once the log inventory looks
+  right.
+- **Face switches are NEVER auto-enabled — invariant.**
+  `_FACE_SWITCH_SUFFIXES` is INVENTORY only
+  (`camera_resolver.py:184-190`), guarded by test that they never
+  reach the enable path.
+
+### 14.6 Zone-side camera surfaces (distinct from room fusion)
+
+Do not conflate these with room fusion:
+
+- **`CONF_ZONE_CAMERAS`** — zone-side face-confirmed-arrival cameras
+  for HVAC pre-arrival. See `ZONE_MANUAL.md §4`.
+- **Integration-level census lists** (`const.py:1072-1074`):
+  - `CONF_CAMERA_PERSON_ENTITIES` — legacy interior
+  - `CONF_EGRESS_CAMERAS`
+  - `CONF_PERIMETER_CAMERAS`
+  Consumed by `camera_census.py` (whole-house census) and the
+  perimeter alerter. Different consumer, different problem.
+  `CONF_CENSUS_DIVERGENCE_DOWNGRADE` (`const.py:1102`, default True)
+  governs the census's divergence-aware downgrade.
+
+### 14.7 Exterior-person escalation (severity-by-house-state)
+
+`camera_census` / `perimeter_alert.py` escalate an exterior person
+detection through NM at a severity that depends on `HouseState`
+(`const.py:1133-1153`):
+
+| House state | Severity |
+|---|---|
+| `away`, `vacation`, `sleep`, `home_night` | `CRITICAL` |
+| `guest` | `MEDIUM` (`NM_HAZARD_EXTERIOR_PERSON_GUEST_SEVERITY`) |
+| `home_day`, `home_evening`, `arriving`, `waking` | `LOW` |
+| unknown / missing / None | `CRITICAL` (fail-safe default) |
+
+**Snapshot offset knob (rung-2 options):**
+`CONF_EXTERIOR_SNAPSHOT_OFFSET_S` (`const.py:1159-1162`), default
+5 s, range 0–60 s. Delays live-fallback snapshot capture by N seconds
+so the still frame is closer to the detection moment despite
+acquisition lag. Ignored on Frigate's event-frame path (that snapshot
+is inherently at-detection-time). Set to 0 to disable.
+
+**Boot-settle:** `PERIMETER_BOOT_SETTLE_S = 30`
+(`const.py:1168`) — perimeter state-change events within 30 s of
+manager setup are ignored to suppress spurious CRITICALs from
+RestoreEntity replay.
+
+**Label filter:** `FRIGATE_SNAPSHOT_LABELS = {"person"}`
+(`const.py:1173`) — only Frigate events whose `after.label` is
+`person` update the cached snapshot event_id.
+
+### 14.8 What ships DARK (so you're not surprised by inert flags)
+
+Three flags are code-review-gated OFF at v5.45.0:
+
+1. **`CENSUS_USE_NEW_RESOLVER = False`** (`camera_resolver.py:92`) —
+   the whole-house census still uses the LEGACY path. The new
+   `CameraResolver` is exercised by D3 (per-room fused sensor) and D5
+   (fan-veto camera leg) — flipping this flag routes the census
+   through it too. **Cutover requires a golden-master diff artifact
+   (legacy vs new outputs across the live registry).** Do NOT flip
+   without that artifact.
+2. **`FRIGATE_CROSS_HOST_CORROBORATION_ENABLED = False`**
+   (`camera_resolver.py:79`) — the F2 gate. Until a 72 h stability
+   check (zero MQTT session evictions, zero unavailable⇄value
+   flapping, no retained-message ghosts) passes post prefix-split,
+   Frigate-1 and Frigate-2 are collapsed to a deterministic winner
+   (state-preferring, then lowest sorted device_id) rather than
+   treated as independent corroborators. When collapsed, losers'
+   person sensors are retained in `dropped_person_sensors` so the
+   fused sensor re-resolves on their recovery.
+3. **`CAMERA_AUTOENABLE_DRY_RUN = True`** (§14.5) — D4 logs, does
+   not call switch.turn_on.
+
+Each is intentional; each is documented at its declaration; flipping
+any of them is a reviewed-code-change event.
+
+---
+
+## Notes / contradictions found in code vs prior manual
+
+Verified during this pass (2026-08-01):
+
+- **v5.23.0 → v5.45.0.** The manifest has moved 22 minor versions since
+  the prior manual revision. Fan-trust stack (§13) and camera fusion
+  (§14) are the material new operator surfaces in that window.
+- **`DEFAULT_COMFORT_FAN_AWAY_VETO_ENABLED`** — referenced in
+  `fan_veto.py:41` but not read directly in this pass; operator
+  should verify default via `const.py` grep or the room options-flow
+  UI before assuming behavior.
+- **`CAMERA_COVERED_ROOMS = frozenset({"Study A"})`** — the legacy
+  allowlist is real code (`const.py:701`) and still consulted by
+  `fan_veto._has_camera_person`. Not yet removed; deletion candidate
+  after fusion beds in.
+- **`sensor.ura_house_state` vs `sensor.ura_presence_house_state`
+  vs live `sensor.ura_presence_coordinator_presence_house_state`** —
+  three surfaces for the same value; the last is the live entity id.
+  De-dup candidate remains open (BACKLOG).
+- **`_boot_settle_done` fail-open** in both `fan_veto.py:111-128` and
+  `coordinator.py:1546-1557`. Intentional (D-MED-1 accepted-risk):
+  suppressing a legitimate post-restart fan is a worse operator
+  experience than a few minutes of runtime in a truly empty house.
 
 ---
 
 Relevant files:
 
 - `/Users/okosisi/Code/universal-room-automation/docs/Coordinator/HOUSE_MANUAL.md` (this doc)
-- `/Users/okosisi/Code/universal-room-automation/docs/Coordinator/ENERGY_COORDINATOR_MANUAL.md` (sibling)
-- `/Users/okosisi/Code/universal-room-automation/docs/Coordinator/HVAC_COORDINATOR_MANUAL.md` (sibling)
+- `/Users/okosisi/Code/universal-room-automation/docs/Coordinator/ZONE_MANUAL.md` (new)
+- `/Users/okosisi/Code/universal-room-automation/docs/Coordinator/CM_MANUAL.md` (new)
 - `/Users/okosisi/Code/universal-room-automation/custom_components/universal_room_automation/coordinator.py`
 - `/Users/okosisi/Code/universal-room-automation/custom_components/universal_room_automation/automation.py`
 - `/Users/okosisi/Code/universal-room-automation/custom_components/universal_room_automation/const.py`
+- `/Users/okosisi/Code/universal-room-automation/custom_components/universal_room_automation/fan_veto.py`
+- `/Users/okosisi/Code/universal-room-automation/custom_components/universal_room_automation/camera_resolver.py`
+- `/Users/okosisi/Code/universal-room-automation/custom_components/universal_room_automation/binary_sensor.py`
+- `/Users/okosisi/Code/universal-room-automation/custom_components/universal_room_automation/domain_coordinators/presence_fan_recheck.py`
+- `/Users/okosisi/Code/universal-room-automation/custom_components/universal_room_automation/domain_coordinators/hvac_fans.py`
 - `/Users/okosisi/Code/universal-room-automation/custom_components/universal_room_automation/domain_coordinators/house_state.py`
 - `/Users/okosisi/Code/universal-room-automation/custom_components/universal_room_automation/domain_coordinators/presence.py`
 - `/Users/okosisi/Code/universal-room-automation/custom_components/universal_room_automation/sensor.py`
-
----
-
-## Orchestrator resolutions to draft gaps (2026-07-18, session ground truth)
-
-- **Gap 5 / v5.22-v5.23 attribution — RESOLVED:** v5.22.0 = the BLE
-  extend-not-create fix (Master Bathroom strobe, shipped + organically
-  validated 2026-07-18 03:21 under a 12-flap Bermuda storm). v5.23.0 =
-  fan-recheck observability (veto counters + activity-log rows,
-  instrumentation-only). Records: ble_extend_not_create_tier2db.md,
-  fanrecheck_observability_tier1.md. The pickup memo the drafter read was
-  truncated; the full memo covers both.
-- **Gap 1 / house-state sensor id — the live entity is
-  `sensor.ura_presence_coordinator_presence_house_state`** (read repeatedly
-  this session via MCP). The drafter's finding of TWO defined sensor
-  classes against the same manager attribute stands as a real de-dup
-  candidate (sensor.py:4011 vs :4105) — BACKLOG.
-- **Gap 2 / `sensor.<room>_unavailable_entities` exists live** (CLAUDE.md
-  Troubleshooting documents its semantics: input sensors only, not
-  actuators).
-- Remaining gaps (3, 4, 6-10) stand for operator/next-session review.

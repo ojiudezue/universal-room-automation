@@ -208,6 +208,16 @@ def _strip_camera_resolution_suffix(name: str) -> str:
     return name
 
 
+def _strip_disambiguation_suffix(name: str) -> str:
+    """Strip HA's _N entity-id disambiguation suffix (bench finding
+    2026-08-01: operator-picked camera.armcrestash41b_2 failed the
+    name-stem match against Frigate object 'armcrestash41b')."""
+    if not isinstance(name, str) or not name:
+        return name
+    import re as _re
+    return _re.sub(r"_\d+$", "", name)
+
+
 def _entity_name(entity_id: str) -> str:
     return entity_id.split(".", 1)[1] if "." in entity_id else entity_id
 
@@ -486,7 +496,7 @@ class CameraResolver:
             # D-HIGH-1: try both raw stem and resolution-suffix-stripped stem
             # (the compute already strips, but be defensive against callers
             # passing raw values).
-            for lookup in ([stem] if stem in self._frigate_stem_to_device_ids else [stem, _strip_camera_resolution_suffix(stem)]):  # D'-LOW-1: stripped fallback only on raw miss
+            for lookup in ([stem] if stem in self._frigate_stem_to_device_ids else [stem, _strip_camera_resolution_suffix(stem), _strip_disambiguation_suffix(_strip_camera_resolution_suffix(stem))]):  # D'-LOW-1: stripped fallback only on raw miss
                 for sibling_did in self._frigate_stem_to_device_ids.get(lookup, []):
                     if sibling_did not in expanded:
                         expanded[sibling_did] = BASIS_NAME_STEM

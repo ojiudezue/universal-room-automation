@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.45.0
+# Universal Room Automation vv5.46.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.45.0"
+VERSION: Final = "v5.46.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -522,6 +522,27 @@ OCCUPANCY_SOURCE_FAN_RECHECK_RELEASE: Final = "fan_recheck_release"
 MMWAVE_FAN_CORROBORATION_ENABLED: Final = True
 MMWAVE_FAN_CORROBORATION_GRACE_S: Final = 600
 OCCUPANCY_SOURCE_MMWAVE_FAN_DEMOTED: Final = "mmwave_fan_demoted"
+
+# Fan-transition coincidence gate (rung-1 module constant).
+#
+# Separability probe (docs/planning/AUDIT_fan_signature_separability_probe.md,
+# 2026-08-01) found that mmWave phantom-occupancy onsets align to the exact
+# second (Δt ≤ 1-2s) of a fan power/speed TRANSITION, while steady-state fan
+# runtime of 20+ hours produces zero phantom edges. Two independent rooms,
+# two fan types, exact-second alignment.
+#
+# Semantics: when a room's occupancy would be NEWLY CREATED with source =
+# mmwave (mmwave-sole rising edge) AND (now - fan_last_transition) <=
+# FAN_TRANSITION_SUSPECT_WINDOW_S, the CREATION is suppressed. PIR / BLE /
+# camera evidence inside the window still creates occupancy normally — only
+# the mmwave-sole creation path is gated. The suppression does NOT extend
+# an existing occupancy hold and does NOT interfere with D2 (sustain) or
+# fan-recheck (test-under-fan). It gates CREATION only — the one direction
+# nothing else covers.
+#
+# Kill switch: 0.0 disables the gate (matches other rung-1 kill-switch
+# semantics in this file).
+FAN_TRANSITION_SUSPECT_WINDOW_S: Final = 5.0
 
 CONF_DOOR_SENSORS: Final = "door_sensor"
 CONF_DOOR_TYPE: Final = "door_type"
