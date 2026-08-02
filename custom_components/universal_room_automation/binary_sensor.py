@@ -1144,6 +1144,11 @@ class CameraPersonDetectedSensor(UniversalRoomEntity, BinarySensorEntity):
         self._source_entity_ids: list[str] = []
         self._unsub_state = None
         self._unsub_lifecycle = None
+        # 2026-08-01 boot re-resolve: if camera integrations set up AFTER this
+        # entity, initial resolution can return zero fusions/sources — cache
+        # the empty result, and stay inert until manual reload. The started-
+        # listener path clears that cache once HA finishes booting.
+        self._unsub_started = None
 
     # Fix #5 (A-M2/B-MED-1): use HA slugify for the fused entity_id derivation
     # (via the base class default). Keep the resolver-derived object_id stable
@@ -1269,6 +1274,67 @@ class CameraPersonDetectedSensor(UniversalRoomEntity, BinarySensorEntity):
             )
 
         _subscribe_sources()
+
+        # 2026-08-01 boot re-resolve: if CONF_ROOM_CAMERAS is configured but
+        # initial resolution produced no fusions / no source entity_ids AND
+        # HA is still booting, the camera integrations (Frigate MQTT, UniFi
+        # Protect) likely haven't finished setup yet. Register a one-shot
+        # listener on EVENT_HOMEASSISTANT_STARTED that clears the cache and
+        # re-runs _subscribe_sources(). If HA is already running, keep the
+        # current behavior — the lifecycle signal covers options-updated
+        # paths and re-registering here would just churn.
+        config_boot = {**self.coordinator.entry.data, **self.coordinator.entry.options}
+        room_cams_boot = config_boot.get(CONF_ROOM_CAMERAS, []) or []
+        empty_resolve = not self._fusions or not self._source_entity_ids
+        ha_running = bool(getattr(self.hass, "is_running", False))
+        if room_cams_boot and empty_resolve and not ha_running:
+            try:
+                from homeassistant.const import (  # noqa: PLC0415
+                    EVENT_HOMEASSISTANT_STARTED,
+                )
+            except Exception:  # noqa: BLE001
+                EVENT_HOMEASSISTANT_STARTED = "homeassistant_started"
+
+            @callback
+            def _on_ha_started(event):
+                _prior_cams = len(self._fusions or [])
+                _prior_sources = len(self._source_entity_ids or [])
+                self._fusions = None
+                self._source_entity_ids = []
+                _subscribe_sources()
+                _new_cams = len(self._fusions or [])
+                _new_sources = len(self._source_entity_ids or [])
+                _LOGGER.info(
+                    "CameraPersonDetectedSensor(%s): re-resolved after HA "
+                    "started: %d cameras / %d sources (was %d/%d)",
+                    self.coordinator.entry.title,
+                    _new_cams, _new_sources, _prior_cams, _prior_sources,
+                )
+                self._unsub_started = None
+                self.async_write_ha_state()
+
+            self._unsub_started = self.hass.bus.async_listen_once(
+                EVENT_HOMEASSISTANT_STARTED, _on_ha_started,
+            )
+            _LOGGER.info(
+                "CameraPersonDetectedSensor(%s): empty resolution during "
+                "boot (%d configured cameras); scheduled re-resolve on "
+                "EVENT_HOMEASSISTANT_STARTED",
+                self.coordinator.entry.title, len(room_cams_boot),
+            )
+
+            @callback
+            def _cleanup_started():
+                # async_listen_once auto-clears after firing, but if the
+                # entity is removed BEFORE HA finishes starting we must
+                # unsubscribe explicitly.
+                if self._unsub_started is not None:
+                    try:
+                        self._unsub_started()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    self._unsub_started = None
+            self.async_on_remove(_cleanup_started)
 
         @callback
         def _on_lifecycle(entry_id, room_name, event):
