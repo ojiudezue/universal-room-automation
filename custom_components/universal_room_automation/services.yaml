@@ -218,3 +218,74 @@ nm_mute_person_channel:
           max: 1440
           step: 1
           unit_of_measurement: min
+
+memory_query:
+  name: Memory Query (MVP Stage 1)
+  description: >
+    Query the hierarchical-memory facade. Returns a MemoryAnswer dict:
+    {verdict, value, support, provenance, as_of}. Verbs: baseline,
+    episodes, unusual, outcome, narrative, profile, facts. See
+    docs/planning/MVP_hierarchical_memory.md deliverable 6.
+  fields:
+    verb:
+      name: Verb
+      description: One of the seven facade verbs.
+      required: true
+      example: "narrative"
+      selector:
+        select:
+          options:
+            - "baseline"
+            - "episodes"
+            - "unusual"
+            - "outcome"
+            - "narrative"
+            - "profile"
+            - "facts"
+    node:
+      name: Node id
+      description: Node identity, e.g. room:study_a, zone:upstairs, house, coordinator:energy.
+      required: true
+      example: "room:study_a"
+      selector:
+        text:
+    signal:
+      name: Signal
+      description: For baseline() — signal name (occupied, temperature, humidity, co2, ...).
+      required: false
+      example: "humidity"
+      selector:
+        text:
+    pattern:
+      name: Pattern / decision type
+      description: For episodes()/outcome() — registered episode type or decision type.
+      required: false
+      selector:
+        text:
+    topic:
+      name: Topic
+      description: For facts() — registered fact topic.
+      required: false
+      selector:
+        text:
+    context:
+      name: Context dict
+      description: For baseline() — optional {hour_bin, family, season}.
+      required: false
+      selector:
+        object:
+    window_s:
+      name: Window (seconds)
+      description: For episodes()/unusual()/outcome()/narrative() — lookback window in seconds.
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 31536000
+          step: 60
+    caller_id:
+      name: Caller id
+      description: Caller identity for §8 access-policy enforcement.
+      required: false
+      selector:
+        text:

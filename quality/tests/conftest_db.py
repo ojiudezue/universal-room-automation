@@ -51,6 +51,9 @@ _REQUIRED_TABLES = {
     "optimization_daily_digest",
     # Energy Savings Unification (cycle #7) — lifetime baseline table.
     "savings_lifetime_baseline",
+    # Hierarchical Memory MVP Stage 1 (feature/memory-mvp 2026-08-02).
+    "memory_episodes",
+    "memory_facts",
 }
 
 

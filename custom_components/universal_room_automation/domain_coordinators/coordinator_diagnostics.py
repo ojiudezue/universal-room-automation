@@ -13,7 +13,7 @@ import json
 import logging
 import math
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 try:
@@ -175,7 +175,9 @@ class MetricBaseline:
             (self.variance * (effective_n - 1) + delta * delta2)
             / effective_n
         )) if effective_n > 1 else 0.0
-        self.last_updated = datetime.utcnow().isoformat()
+        # A-M2 LOW: timezone-aware UTC (naive utcnow deprecated in 3.12+
+        # and confuses downstream ISO parsers that expect an offset).
+        self.last_updated = datetime.now(timezone.utc).isoformat()
 
     def z_score(self, value: float) -> float:
         """Compute z-score for a given value."""

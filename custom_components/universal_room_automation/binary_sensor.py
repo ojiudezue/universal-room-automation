@@ -670,6 +670,18 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
             attrs.setdefault("control_humidity_fans", [])
             attrs.setdefault("control_covers", [])
             attrs.setdefault("control_climate_entity", None)
+        # Memory MVP Stage 1: unusual_today annotation. Facade failure
+        # ⇒ attr absent (never blocks state writes). Read is cached in
+        # coordinator via a small piggyback field to avoid hitting the
+        # facade on every extra_state_attributes call (HA polls a lot).
+        try:
+            cached = self.coordinator.__dict__.get(
+                "_memory_unusual_today_cached",
+            )
+            if cached is not None:
+                attrs["unusual_today"] = cached
+        except Exception:  # noqa: BLE001
+            pass
         return attrs
 
 

@@ -1505,6 +1505,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         activity_logger = ActivityLogger(hass)
                         hass.data[DOMAIN]["activity_logger"] = activity_logger
 
+                        # Hierarchical memory MVP (Stage 1) — facade +
+                        # baseline writer + service. See
+                        # docs/planning/MVP_hierarchical_memory.md
+                        try:
+                            from .memory_facade import MemoryFacade  # noqa: PLC0415
+                            hass.data[DOMAIN]["memory_facade"] = (
+                                MemoryFacade(hass)
+                            )
+                            await _async_register_memory_services(hass)
+                            await _async_start_memory_baseline_writer(hass, entry)
+                            _LOGGER.info(
+                                "Memory MVP: facade + baseline writer "
+                                "wired (Stage 1)",
+                            )
+                        except Exception as _mem_err:  # noqa: BLE001
+                            _LOGGER.warning(
+                                "Memory MVP wiring failed (non-fatal): %s",
+                                _mem_err,
+                            )
+
                         # v5.17.0 — Observability WS surface. Registration
                         # is process-global and idempotent (guarded by
                         # ``_WS_REGISTERED`` inside the module). Safe to
@@ -3214,6 +3234,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # unload cleans it up (matches its now-central registration
             # in `_async_register_notification_services`).
             "nm_mute_person_channel",
+            # _async_register_memory_services (Memory MVP Stage 1)
+            "memory_query",
         ):
             # default-arg binding pins _service_name into each lambda's
             # closure so the loop variable doesn't capture-by-reference
@@ -3987,6 +4009,22 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             unsub_catchup()
         hass.data[DOMAIN].pop("activity_logger", None)
 
+        # Hierarchical memory MVP (Stage 1) teardown — release the 5-min
+        # baseline-writer listener + drop the facade instance (v-review
+        # HIGH A1=B1). The unsub is also entry.async_on_unload-registered,
+        # but pop-and-call here matches the pattern used by neighboring
+        # timer cleanups above.
+        _mem_unsub = hass.data[DOMAIN].pop("memory_baseline_unsub", None)
+        if _mem_unsub is not None:
+            try:
+                _mem_unsub()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "memory_baseline_unsub call failed on unload",
+                    exc_info=True,
+                )
+        hass.data[DOMAIN].pop("memory_facade", None)
+
         # v3.22.7: Close persistent DB connections on unload
         database = hass.data[DOMAIN].get("database")
         if database and hasattr(database, "async_close"):
@@ -4266,6 +4304,162 @@ async def _async_register_presence_services(hass: HomeAssistant) -> None:
             }),
         )
         _LOGGER.info("Registered fan_recheck_force_restore service")
+
+
+async def _async_register_memory_services(hass: HomeAssistant) -> None:
+    """Register the memory_query service (SupportsResponse.ONLY).
+
+    Fields: verb (str), node (str), plus optional signal/context/window/
+    pattern/topic. Returns a MemoryAnswer serialized to dict.
+    See docs/planning/MVP_hierarchical_memory.md deliverable 6.
+    """
+    import voluptuous as vol  # noqa: PLC0415
+    from datetime import timedelta as _timedelta  # noqa: PLC0415
+    try:
+        from homeassistant.core import SupportsResponse  # noqa: PLC0415
+    except Exception:  # noqa: BLE001 — older HA fallback (harness)
+        SupportsResponse = None  # type: ignore[assignment]
+
+    async def _handle_memory_query(call):
+        facade = hass.data.get(DOMAIN, {}).get("memory_facade")
+        if facade is None:
+            return {
+                "verdict": "no_data", "value": None, "support": 0,
+                "provenance": ["facade_not_initialized"],
+                "as_of": None,
+            }
+        verb = str(call.data.get("verb") or "")
+        node = str(call.data.get("node") or "")
+        signal = call.data.get("signal")
+        pattern = call.data.get("pattern")
+        topic = call.data.get("topic")
+        context = call.data.get("context") or {}
+        window_s = call.data.get("window_s")
+        window = _timedelta(seconds=int(window_s)) if window_s else None
+        # MED C-M5: default to explicit "observer" for the service caller
+        # so unknown-tier deny doesn't fire against dashboard/operator use.
+        caller_id = call.data.get("caller_id") or "observer"
+        try:
+            if verb == "baseline":
+                ans = await facade.baseline(
+                    node, str(signal or ""), context=context,
+                    caller_id=caller_id,
+                )
+            elif verb == "episodes":
+                ans = await facade.episodes(
+                    node, pattern=pattern, window=window,
+                    caller_id=caller_id,
+                )
+            elif verb == "unusual":
+                ans = await facade.unusual(
+                    node, window=window, caller_id=caller_id,
+                )
+            elif verb == "outcome":
+                ans = await facade.outcome(
+                    node, decision_type=pattern, window=window,
+                    caller_id=caller_id,
+                )
+            elif verb == "narrative":
+                ans = await facade.narrative(
+                    node, window=window, caller_id=caller_id,
+                )
+            elif verb == "profile":
+                ans = await facade.profile(node, caller_id=caller_id)
+            elif verb == "facts":
+                ans = await facade.facts(
+                    node, topic=topic, caller_id=caller_id,
+                )
+            else:
+                return {
+                    "verdict": "no_data", "value": None, "support": 0,
+                    "provenance": [f"unknown_verb:{verb}"],
+                    "as_of": None,
+                }
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning("memory_query verb=%s failed: %s", verb, e)
+            return {
+                "verdict": "no_data", "value": None, "support": 0,
+                "provenance": [f"exception:{type(e).__name__}"],
+                "as_of": None,
+            }
+        return {
+            "verdict": ans.verdict,
+            "value": ans.value,
+            "support": ans.support,
+            "provenance": list(ans.provenance),
+            "as_of": ans.as_of.isoformat() if ans.as_of else None,
+        }
+
+    if hass.services.has_service(DOMAIN, "memory_query"):
+        return
+    kw: dict = {
+        "schema": vol.Schema({
+            vol.Required("verb"): vol.In([
+                "baseline", "episodes", "unusual",
+                "outcome", "narrative", "profile", "facts",
+            ]),
+            vol.Required("node"): str,
+            vol.Optional("signal"): str,
+            vol.Optional("pattern"): str,
+            vol.Optional("topic"): str,
+            vol.Optional("context"): dict,
+            vol.Optional("window_s"): vol.Coerce(int),
+            vol.Optional("caller_id"): str,
+        }),
+    }
+    if SupportsResponse is not None:
+        kw["supports_response"] = SupportsResponse.ONLY
+    hass.services.async_register(
+        DOMAIN, "memory_query", _handle_memory_query, **kw,
+    )
+    _LOGGER.info("Registered memory_query service (MVP Stage 1)")
+
+
+async def _async_start_memory_baseline_writer(
+    hass: HomeAssistant, entry: ConfigEntry | None = None,
+) -> None:
+    """Kick off the 5-min baseline-writer time interval, guarded by the
+    kill switch. Handle stored in hass.data[DOMAIN]["memory_baseline_unsub"].
+
+    When ``entry`` is provided, the unsub is also registered with
+    ``entry.async_on_unload`` (v-review HIGH A1=B1) so a config-entry
+    unload deterministically releases the listener.
+    """
+    from datetime import timedelta as _timedelta  # noqa: PLC0415
+    from homeassistant.helpers.event import (  # noqa: PLC0415
+        async_track_time_interval,
+    )
+    from .const import MEMORY_BASELINE_WRITER_ENABLED  # noqa: PLC0415
+    from .memory_baseline import async_fold_samples  # noqa: PLC0415
+
+    if not MEMORY_BASELINE_WRITER_ENABLED:
+        _LOGGER.info(
+            "memory_baseline_writer disabled by kill switch — skipping",
+        )
+        return
+    if hass.data.get(DOMAIN, {}).get("memory_baseline_unsub") is not None:
+        return  # already armed
+
+    async def _tick(_now):
+        try:
+            await async_fold_samples(hass)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "memory_baseline tick raised (non-fatal): %s", e,
+            )
+
+    unsub = async_track_time_interval(
+        hass, _tick, _timedelta(minutes=5),
+    )
+    hass.data[DOMAIN]["memory_baseline_unsub"] = unsub
+    if entry is not None:
+        try:
+            entry.async_on_unload(unsub)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "memory_baseline_writer: async_on_unload registration "
+                "failed (non-fatal)", exc_info=True,
+            )
 
 
 async def _async_register_safety_services(hass: HomeAssistant) -> None:

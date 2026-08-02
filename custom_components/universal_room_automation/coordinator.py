@@ -148,6 +148,27 @@ from ._humidity_gate import humidity_venting_enabled
 _LOGGER = logging.getLogger(__name__)
 
 
+def _read_house_state_str(hass) -> str | None:
+    """Best-effort read of the current house_state (memory-episode attr).
+
+    Returns None on any failure — episode-writer sites treat this as
+    additive context, never as a control input.
+    """
+    try:
+        manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        presence = (
+            getattr(manager, "coordinators", {}).get("presence")
+            if manager is not None else None
+        )
+        if presence is not None:
+            state = getattr(presence, "house_state", None)
+            if state:
+                return str(state)
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
 async def _fire_stuck_sensor_nm(
     hass: HomeAssistant, room_name: str, entity_id: str, kind: str,
     hours: float | None = None,
@@ -2172,6 +2193,59 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                         )
                         any_sensor_active = False
                         _fan_gate_suppressed = True
+                        # Hierarchical memory (Stage 1) — record the
+                        # suppression event as an adjudicated phantom
+                        # (the gate IS the adjudicator: mmwave-sole
+                        # rising edge coincident with fan transition).
+                        try:
+                            _db = self.hass.data.get(
+                                DOMAIN, {},
+                            ).get("database")
+                            if _db is not None and hasattr(
+                                _db, "log_memory_episode",
+                            ):
+                                _slug = (
+                                    room_name or ""
+                                ).lower().replace(
+                                    " ", "_",
+                                ).replace("-", "_")
+                                # untracked-ok: memory-episode write is
+                                # observational; failure is silent and
+                                # never blocks the actuation gate.
+                                self.hass.async_create_task(  # noqa: untracked-ok
+                                    _db.log_memory_episode(
+                                        node_id=f"room:{_slug}",
+                                        episode_type=(
+                                            "fan_transition_suppressed"
+                                        ),
+                                        adjudication="phantom",
+                                        adjudicated_by=(
+                                            "fan_transition_gate"
+                                        ),
+                                        attrs={
+                                            "delta_s": delta,
+                                            "window_s": float(
+                                                FAN_TRANSITION_SUSPECT_WINDOW_S
+                                            ),
+                                            "count": (
+                                                self._fan_transition_suppressed_count
+                                            ),
+                                            "house_state": (
+                                                _read_house_state_str(
+                                                    self.hass,
+                                                )
+                                            ),
+                                        },
+                                        source_ref=(
+                                            "coordinator.py:fan_transition_gate"
+                                        ),
+                                    ),
+                                )
+                        except Exception:  # noqa: BLE001 — defensive
+                            _LOGGER.debug(
+                                "memory episode write failed "
+                                "(non-fatal)", exc_info=True,
+                            )
         except Exception:  # noqa: BLE001 — defensive: never let gate crash update
             # MED-B3: one-shot WARNING with exc_info on first crash per
             # boot (mirrors `_d2_no_pir_logged` sibling pattern);
@@ -2752,6 +2826,64 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                                 _LOGGER.debug(
                                     "D2 dispatch failed (non-fatal)",
                                     exc_info=True,
+                                )
+                            # Hierarchical memory (Stage 1): the D2
+                            # demotion IS the phantom-adjudication event.
+                            # Fire-and-forget through the DB write queue.
+                            try:
+                                _db = self.hass.data.get(
+                                    DOMAIN, {},
+                                ).get("database")
+                                if _db is not None and hasattr(
+                                    _db, "log_memory_episode",
+                                ):
+                                    _slug = (
+                                        room_name or ""
+                                    ).lower().replace(
+                                        " ", "_",
+                                    ).replace("-", "_")
+                                    # untracked-ok: D2-demotion memory-
+                                    # episode write is observational
+                                    # (adjudication of the phantom); a
+                                    # queue failure must not block the
+                                    # dispatch/demotion path.
+                                    self.hass.async_create_task(  # noqa: untracked-ok
+                                        _db.log_memory_episode(
+                                            node_id=f"room:{_slug}",
+                                            episode_type=(
+                                                "occupancy_phantom"
+                                            ),
+                                            adjudication="phantom",
+                                            adjudicated_by="d2_demotion",
+                                            attrs={
+                                                "reason": (
+                                                    "mmwave_sole_fan_on_"
+                                                    "no_corroboration"
+                                                ),
+                                                "fan_on_since": (
+                                                    fan_since_iso
+                                                ),
+                                                "fan_on_duration_s": (
+                                                    _fan_on_duration_s
+                                                ),
+                                                "prior_source": (
+                                                    _pre_source
+                                                ),
+                                                "house_state": (
+                                                    _read_house_state_str(
+                                                        self.hass,
+                                                    )
+                                                ),
+                                            },
+                                            source_ref=(
+                                                "coordinator.py:d2_demotion"
+                                            ),
+                                        ),
+                                    )
+                            except Exception:  # noqa: BLE001 — defensive
+                                _LOGGER.debug(
+                                    "memory episode write failed "
+                                    "(non-fatal)", exc_info=True,
                                 )
                         else:
                             self._mmwave_fan_demoted_last_tick = False
