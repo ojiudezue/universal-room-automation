@@ -917,3 +917,48 @@ async def test_episode_writer_site_fan_veto_lands_row(tmp_path):
         assert "fan_veto" in by
     finally:
         await db.stop_write_worker()
+
+
+# ---------------------------------------------------------------------------
+# v5.47.1 hotfix — memory wiring must survive the DB-init race.
+# ---------------------------------------------------------------------------
+
+def _init_source():
+    from pathlib import Path
+    return (Path(__file__).resolve().parents[2] /
+            "custom_components/universal_room_automation/__init__.py").read_text()
+
+
+def test_wire_memory_called_from_both_db_init_sites():
+    """v5.47.0 shipped wiring at ONE of the two DB-init sites; a room
+    entry winning the boot race silently skipped facade+service+writer
+    (live incident 2026-08-02). Anchor: _async_wire_memory is invoked at
+    least twice outside its definition, and the room-path common re-read
+    guards a call."""
+    src = _init_source()
+    calls = src.count("await _async_wire_memory(hass, entry)")
+    assert calls >= 3, f"expected >=3 call sites (CM-guarded, CM-reload, room-path), found {calls}"
+    assert "if database is not None:\n        await _async_wire_memory(hass, entry)" in src
+
+
+def test_wire_memory_idempotent_guard_and_failure_cleanup():
+    """_async_wire_memory guards on the facade key and pops it on
+    failure so a partial wire can retry from a later entry."""
+    src = _init_source()
+    i = src.find("async def _async_wire_memory(")
+    assert i > 0
+    body = src[i:src.find("\nasync def ", i + 10)]
+    assert 'get("memory_facade") is not None:\n        return' in body
+    assert 'pop("memory_facade", None)' in body  # failure-path cleanup
+
+
+def test_unload_cleanup_pops_wiring_keys():
+    """The owning entry's unload callback must pop BOTH hass.data keys
+    (stale guard keys after a single-room reload would leave memory dead
+    until restart)."""
+    src = _init_source()
+    i = src.find("def _cleanup_memory_wiring()")
+    assert i > 0
+    body = src[i:i+900]
+    assert '"memory_baseline_unsub", None' in body
+    assert 'pop("memory_facade", None)' in body
