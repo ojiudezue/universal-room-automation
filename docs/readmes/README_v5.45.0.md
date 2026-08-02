@@ -75,3 +75,13 @@ OR-fusion doctrine regression, and four hollow test anchors.
   cycles' semantics).
 - **Live:** no zone-snapshot/resolver WARN storms; resolver logs only at
   resolution events.
+
+### Validated 2026-08-01 (~19:20 CDT, first post-deploy boot)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Clean boot | **PASS** | Zero URA ERRORs post-settle. |
+| Census unchanged (cutover flag dark) | **PASS** | census_snapshots continuous across the deploy boundary (one 12-min warmup gap on first tick, then normal cadence; row shape and counts identical — legacy path confirmed live). |
+| No fan actions in boot window | **PASS** | Zero fan rows (v5.42.0 BUG-1, 4th consecutive clean boot). |
+| D4 dry-run inventory + zero actuation | **PASS-structural** | No switch.turn_on exists in the code path (grep-guardrail test); zero rooms have room_cameras yet so per-room lines are correctly absent (B-MED-2 early-return). |
+| Fused sensor + attribution | pending-config | Appears when the first room (Study A bench) gets room_cameras configured. |
+| Veto unchanged for camera-less rooms | **PASS** | No veto-related log changes; legacy allowlist path in force. |
