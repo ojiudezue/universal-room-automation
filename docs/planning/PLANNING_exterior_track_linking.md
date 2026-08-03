@@ -73,6 +73,50 @@ track, utilities→rear→front-side→utilities→front→rear, 16 min.)
    negative signal; daytime = ignore. Config: label list + per-label
    severity map. Rides the same primitive, deferred to a second cycle.
 
+## Track typing, representation, and surfaces (operator 2026-08-03)
+
+**Per-identification-type tracks.** A track is keyed by Frigate label —
+person, car, dog/cat (animal family) — and events only link WITHIN a
+label (a car event never extends a person track; two labels moving
+together produce two parallel tracks, which is correct: "person + car
+arriving" is richer than either). Frigate `sub_label` (recognized
+plate, face name if ever enabled) rides in attrs when present and can
+PROMOTE a track's identity (sub-labeled track = identified, exits the
+unidentified count). Severity policy is a (label × house-state × path
+class) map: person/circling/away = highest; car/deep-night/away = high
+(the operator's negative-signal case); animal/* = digest-only default.
+
+**Path representation.** A track is an ordered hop list:
+`[(camera, t_first, t_last, best_score, best_event_id), ...]` with
+derived fields: duration, camera_count, revisit_count, direction
+(computed against the declared adjacency ring: clockwise / counter /
+inbound-toward-egress), and classification (pass_by / approach /
+circling). Persisted verbatim in the `exterior_track` episode's
+attrs_json; rendered compactly everywhere else as
+`"utilities → rear → front-side · 16 min · person"` with the best
+event_id per hop giving snapshot deep-links (the NM alert attaches the
+LATEST hop's snapshot; the episode keeps them all).
+
+**Census surface.** Interior census machinery is untouched. The
+security/census sensors gain exterior counters derived from OPEN
+tracks, not raw events: `exterior_person_tracks_active`,
+`exterior_vehicle_tracks_active`, `exterior_animal_tracks_active`, plus
+`exterior_unidentified_persons` (open person tracks without sub_label —
+the number that replaces today's implicit per-camera overcount). One
+walker = 1 everywhere, for the whole track lifetime.
+
+**Dashboard surfaces (ura-v8).**
+- Security tab, above the camera zones: an "Exterior activity" section —
+  a markdown card listing OPEN tracks (label icon · path string · age ·
+  last camera, tap → that camera's view) and, below it, last-24h closed
+  tracks pulled via memory_query episodes(exterior_track) (path string +
+  classification + time). Empty state: "perimeter quiet".
+- Now/People census card gains one line: "Exterior: N tracks (M
+  unidentified)" from the new counters.
+- The NM CRITICAL/digest message body carries the path string — the
+  operator sees "1 person, utilities → rear → front-side, 16 min"
+  instead of four independent camera alerts.
+
 ## Parsimony guards
 
 - No re-identification / appearance matching — space-time only. If two
