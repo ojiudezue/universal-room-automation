@@ -1191,13 +1191,22 @@ class WriteVerifier:
     async def _maybe_fire_nm(
         self, surface: str, title: str, message: str,
         alert_type: str = "mismatch",
+        severity: str = "critical",
     ) -> None:
-        """Fire NM CRITICAL once per (surface, alert_type) per calendar day.
+        """Fire NM alert once per (surface, alert_type) per calendar day.
 
         Fix-up B-MED-3: latch is per (surface, alert_type) so that a
         mismatch alert and a subsequent reversion alert on the SAME
         surface do not share a latch — they represent distinct operator
         events and each deserves at most one notification per day.
+
+        Notification Hygiene FIX 3: ``severity`` is now caller-controlled
+        (default preserves legacy CRITICAL behavior). The pending-write
+        stuck ladder demotes intermediate attempts to "high" so only the
+        FINAL attempt + pending_write_standdown page the operator at
+        CRITICAL and thus enter the repeat/safe-word/footer machinery
+        (which is severity-derived in NM — line 1338 gate on
+        Severity.CRITICAL).
         """
         today = dt_util.utcnow().date().isoformat()
         key = f"{surface}:{alert_type}"
@@ -1214,7 +1223,7 @@ class WriteVerifier:
                 await send(
                     title=title,
                     message=message,
-                    severity="critical",
+                    severity=severity,
                     hazard_type="envoy_write_verification",
                     location="battery",
                 )
@@ -2076,6 +2085,16 @@ class WriteVerifier:
                 "pending_write_stuck"
                 if attempt_no < CONF_PENDING_MAX_ATTEMPTS
                 else "pending_write_stuck_final"
+            ),
+            # Notification Hygiene FIX 3: attempts 1..(MAX-1) fire at
+            # HIGH so they don't enter the CRITICAL repeat engine — the
+            # per-day latch remains (once per alert_type per day). The
+            # FINAL attempt escalates to CRITICAL so the operator gets
+            # the safe-word/repeat treatment.
+            severity=(
+                "high"
+                if attempt_no < CONF_PENDING_MAX_ATTEMPTS
+                else "critical"
             ),
         )
         # Fire the retry — via BatteryStrategy.force_redispatch, which

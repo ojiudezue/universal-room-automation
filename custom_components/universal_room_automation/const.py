@@ -1557,6 +1557,65 @@ NM_LIFE_SAFETY_HAZARDS: Final = frozenset({
 # override). Capacity = burst budget; refill = tokens/minute.
 NM_BUCKET_CAPACITY_DEFAULT: Final = 10
 NM_BUCKET_REFILL_PER_MIN_DEFAULT: Final = 6.0
+
+# =========================================================================
+# Notification Hygiene cycle (2026-08-03): B-2026-08-03-3(c) suppression
+# stale-restore gate + repeat-decay ladder. Rung 1 (module const) — these
+# are safety/observability contracts, not per-deployment operator knobs.
+# Each has kill-switch semantics: value 0 disables the new behavior and
+# restores legacy semantics exactly.
+# =========================================================================
+
+# FIX 1: Max age (seconds) for a persisted NM suppression flag to survive
+# an HA restart. If the restored suppressed_since is OLDER than this,
+# NM comes up UNSUPPRESSED and a one-shot MEDIUM notification is emitted
+# so the operator knows to re-engage intentionally. Default 24h.
+# Kill: 0 disables the gate — legacy always-restore behavior.
+NM_SUPPRESSION_RESTORE_MAX_AGE_S: Final = 86400
+
+# FIX 2: CRITICAL repeat decay ladder for non-life-safety hazards.
+# Phase 1: cadence PHASE1_S for the first PHASE1_WINDOW_S of unacked age.
+# Phase 2: cadence PHASE2_S until DAILY_AFTER_S of unacked age.
+# Phase 3: one repeat per day (86400s) after DAILY_AFTER_S.
+# Kill: PHASE1_WINDOW_S == 0 → flat legacy cadence
+# (NM_REPEAT_INTERVAL_NON_LIFE_SAFETY) for the whole life of the alert.
+# Life-safety cadence is UNCHANGED (30s flat) — the ladder targets the
+# non-life-safety storm (2026-08-03 reserve_soc every-5-min-for-hours).
+NM_REPEAT_PHASE1_S: Final = 300
+NM_REPEAT_PHASE1_WINDOW_S: Final = 3600
+NM_REPEAT_PHASE2_S: Final = 1800
+NM_REPEAT_DAILY_AFTER_S: Final = 86400
+
+# FIX 5: per-person safe words + ack-authority.
+# (a) Per-person safe word — optional field on each entry in
+# CONF_NM_PERSONS. Empty/absent → the person uses CONF_NM_SAFE_WORD
+# (global fallback, unchanged).
+CONF_NM_PERSON_SAFE_WORD: Final = "nm_person_safe_word"
+
+# (b) Ack authority — persons allowed to ack a security-family
+# CRITICAL. List of person entity_ids. When empty, the fallback is
+# ``persons[0]`` (the FIRST entry in CONF_NM_PERSONS as stored) —
+# this is NOT necessarily the operator. Live household ordering may
+# place the spouse first. Verify the resolved fallback and configure
+# ``nm_security_ack_persons`` explicitly if not intended. NM logs a
+# one-shot WARNING at init naming the resolved fallback.
+CONF_NM_SECURITY_ACK_PERSONS: Final = "nm_security_ack_persons"
+
+# Security-family hazard vocabulary. Alerts with these hazard_types
+# require an authorized person on the CONF_NM_SECURITY_ACK_PERSONS list
+# to ack (via safe word). Derived from the emitted tokens:
+#   - security.py:1022  "intruder"
+#   - security.py:1347  "security_state_change"
+#   - perimeter_alert.py + const NM_HAZARD_EXTERIOR_PERSON  "exterior_person"
+#   - energy_write_verify.py:1218  "envoy_write_verification"
+# The last covers both the mid-ladder stuck alerts and the
+# pending_write_standdown alert (same hazard_type, different alert_type).
+NM_SECURITY_ACK_HAZARDS: Final = frozenset({
+    "intruder",
+    "security_state_change",
+    "exterior_person",
+    "envoy_write_verification",
+})
 # Bounded FIFO — safety valve against unbounded memory growth under storm.
 NM_OVERFLOW_QUEUE_MAX: Final = 50
 
