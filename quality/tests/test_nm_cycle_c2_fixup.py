@@ -350,16 +350,21 @@ def test_helper_call_count_at_all_eight_sites():
     a pure black-box test (the returned value is either unused — site 3 —
     or short-circuited by another gate — sites 1, 6). Asserts the exact
     number of `is_life_safety_hazard(self.hass,` call sites in
-    notification_manager.py equals 8. Any grep-evading bypass that
+    notification_manager.py equals 9. Any grep-evading bypass that
     silently drops a call at one site flips this count and fails.
+
+    Notification Hygiene cycle (2026-08-03): bumped 8→9 for the new
+    ``_repeat_phase()`` diagnostics helper — it CORRECTLY consumes the
+    union helper (does not bypass) to select the "life_safety" phase
+    label, which is the invariant this test defends.
     """
     import pathlib
     src = (pathlib.Path(__file__).resolve().parents[2]
            / "custom_components/universal_room_automation/domain_coordinators"
            / "notification_manager.py").read_text()
     calls = src.count("is_life_safety_hazard(self.hass,")
-    assert calls == 8, (
-        f"Expected 8 helper call sites, found {calls}. A grep-evading "
+    assert calls == 9, (
+        f"Expected 9 helper call sites, found {calls}. A grep-evading "
         "inline-literal bypass has likely been introduced at one of the "
         "sites (I-C2-LS invariant regression)."
     )

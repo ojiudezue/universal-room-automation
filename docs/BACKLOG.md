@@ -1566,10 +1566,30 @@ suppressed) sat ON for 6+ days, silently swallowing ALL notifications
 incl. would-be exterior CRITICALs. It logs one WARNING at flip time and
 is then invisible. Fix: (a) NM heartbeat/diagnostics sensor exposes
 messaging_suppressed prominently; (b) a daily WARNING log while
-suppressed ("messaging suppressed for N days"); (c) candidate: NM
-refuses to restore suppressed=ON across restart older than 24h without
-re-confirmation (operator decision needed on (c) — it changes kill-
-switch semantics). (a)+(b) are unambiguous; file (c) as a question.
+suppressed ("messaging suppressed for N days"); (c) NM refuses to
+restore suppressed=ON across restart older than 24h — comes up
+unsuppressed + one-shot MEDIUM.
+
+Status: (a)+(b) SHIPPED in v5.48.0. (c) APPROVED + BUILT in the
+notification-hygiene cycle (feature/notification-hygiene, 2026-08-03).
+Rung-1 const NM_SUPPRESSION_RESTORE_MAX_AGE_S=86400 with kill-semantic
+(0 → legacy always-restore). Gate lives in NMMessagingSuppressSwitch
+_sync_to_nm on the restore-triggered sync path only; operator toggles
+bypass. Companion FIXES 2 (repeat-decay ladder), 3 (write-verify
+severity split), 4 (ack audit row), 5 (per-person safe words + ack
+authority) shipped together — see README_v<version>.md for details.
+
+### B-2026-08-03-5 (OPEN QUESTION): finer per-person ack authority
+FIX 5(b) split "security-family" ack authority from everything else,
+but the categorization is currently binary (security vs. all-else).
+Future work: per-hazard-class authority lists (e.g. energy-write may
+be acked by the operator OR a technician role; comfort by any adult;
+minors excluded from safety-critical acks). Requires:
+- role/group primitive on the person entry (not just entity_id list)
+- per-hazard authority mapping (config schema; migration)
+- audit-row schema extension to record role at time of ack
+Non-urgent; the current binary split covers the observed incident.
+File as OPEN QUESTION — operator to decide granularity + timing.
 
 ### B-2026-08-03-4: Sweep-audit follow-ups (from af audit, post fan-sweep-trio hotfix)
 - **Group D #52 guard sweep** (~8 switches: HVACZoneSweepSwitch, SecurityDelegateLights, per-room Automation/Override/Climate/Cover/AutoRecovery switches) — add `in ("on","off")` restore guard; extract URARestoreMixin so future switches can't drift. Small cycle, 3-review (touches many switches).

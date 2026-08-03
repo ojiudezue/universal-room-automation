@@ -6200,6 +6200,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_NM_PERSON_DIGEST_EVENING_ENABLED, CONF_NM_PERSON_DIGEST_EVENING,
             CONF_NM_PERSON_DIGEST_CHANNELS, NM_DIGEST_CHANNELS,
             NM_DELIVERY_IMMEDIATE, NM_DELIVERY_DIGEST, NM_DELIVERY_OFF,
+            CONF_NM_PERSON_SAFE_WORD,
         )
 
         if user_input is not None:
@@ -6218,6 +6219,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_NM_PERSON_DIGEST_EVENING_ENABLED: user_input.get(CONF_NM_PERSON_DIGEST_EVENING_ENABLED, False),
                 CONF_NM_PERSON_DIGEST_EVENING: user_input.get(CONF_NM_PERSON_DIGEST_EVENING, "18:00"),
                 CONF_NM_PERSON_DIGEST_CHANNELS: user_input.get(CONF_NM_PERSON_DIGEST_CHANNELS, []),
+                # Notification Hygiene FIX 5(a): per-person safe word.
+                # Empty → global CONF_NM_SAFE_WORD is used for this person.
+                CONF_NM_PERSON_SAFE_WORD: user_input.get(CONF_NM_PERSON_SAFE_WORD, ""),
             }
             # Replace existing entry for same person or add new
             entity_id = person_entry[CONF_NM_PERSON_ENTITY]
@@ -6289,6 +6293,15 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.SelectSelectorMode.LIST,
                 )
             ),
+            # Notification Hygiene FIX 5(a): optional per-person safe word.
+            # Password selector — value is not shown in UI on re-entry.
+            # Empty falls back to CONF_NM_SAFE_WORD (global).
+            vol.Optional(
+                CONF_NM_PERSON_SAFE_WORD,
+                default="",
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+            ),
         })
 
         return self.async_show_form(
@@ -6308,6 +6321,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_NM_SAFE_WORD,
             CONF_NM_SILENCE_DURATION,
             DEFAULT_NM_SILENCE_DURATION,
+            CONF_NM_SECURITY_ACK_PERSONS,
         )
 
         if user_input is not None:
@@ -6340,6 +6354,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_current(CONF_NM_SILENCE_DURATION, DEFAULT_NM_SILENCE_DURATION),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=5, max=120, step=5, unit_of_measurement="min")
+            ),
+            # Notification Hygiene FIX 5(b): persons authorized to ack
+            # security-family CRITICALs (intruder, exterior_person,
+            # security_state_change, envoy_write_verification). Empty →
+            # defaults to first tracked person (the operator).
+            vol.Optional(
+                CONF_NM_SECURITY_ACK_PERSONS,
+                default=self._get_current(CONF_NM_SECURITY_ACK_PERSONS, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="person", multiple=True)
             ),
         })
 

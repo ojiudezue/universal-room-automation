@@ -105,6 +105,13 @@ from ..const import (
     NM_BUCKET_CAPACITY_DEFAULT,
     NM_BUCKET_REFILL_PER_MIN_DEFAULT,
     NM_CRITICAL_REPEAT_INTERVAL,
+    NM_REPEAT_PHASE1_S,
+    NM_REPEAT_PHASE1_WINDOW_S,
+    NM_REPEAT_PHASE2_S,
+    NM_REPEAT_DAILY_AFTER_S,
+    NM_SECURITY_ACK_HAZARDS,
+    CONF_NM_PERSON_SAFE_WORD,
+    CONF_NM_SECURITY_ACK_PERSONS,
     NM_DEDUP_CRITICAL,
     NM_DEDUP_HIGH,
     NM_DEDUP_LOW,
@@ -707,6 +714,12 @@ class NotificationManager:
             "bucket_capacity": self._bucket_capacity,
             "bucket_refill_per_min": self._bucket_refill_per_min,
             "active_ack_registry_size": len(self._ack_registry),
+            # Notification Hygiene FIX 2: expose ladder state so the
+            # operator can SEE the current cadence phase + the age that
+            # drove it. Both are attribute-only (no recorder churn — the
+            # sensor's _unrecorded_attributes covers per-tick fields).
+            "unacked_critical_age_s": self._unacked_critical_age_s(),
+            "repeat_phase": self._repeat_phase(),
             # NM Cycle C-2 D4 (fix-up M-B1): bounded routing-decision ring
             # for the audit card. `_unrecorded_attributes` on the sensor
             # keeps this out of the recorder (per-tick churn otherwise).
@@ -2125,6 +2138,10 @@ class NotificationManager:
             "hazard_type": hazard_type,
             "location": location,
             "episode_id": episode_id,
+            # Notification Hygiene FIX 2: stamp the alert's creation time
+            # so the repeat-decay ladder can compute unacked-age. Survives
+            # restart via persistence (get/restore_persistence_state).
+            "created_at": dt_util.utcnow().isoformat(),
         }
 
         async_dispatcher_send(self.hass, SIGNAL_NM_ALERT_STATE_CHANGED)
@@ -2152,6 +2169,13 @@ class NotificationManager:
         """Return the repeat cadence (seconds) for the current alert.
 
         Extracted so tests + review-C mutation can anchor on ONE site.
+
+        Notification Hygiene FIX 2: non-life-safety CRITICALs use a
+        decay ladder based on unacked age so a stuck alert (e.g.
+        reserve_soc storm) doesn't page every 5 minutes for hours.
+        Life-safety cadence is UNCHANGED (30s flat) — safety contract.
+        Ladder is disabled (falls back to legacy 300s flat) when
+        ``NM_REPEAT_PHASE1_WINDOW_S == 0``.
         """
         hazard = ""
         if self._active_alert_data:
@@ -2159,7 +2183,57 @@ class NotificationManager:
         # NM Cycle C-2 D2: union helper — extras promoted to 30s cadence.
         if is_life_safety_hazard(self.hass, hazard):
             return NM_REPEAT_INTERVAL_LIFE_SAFETY
-        return NM_REPEAT_INTERVAL_NON_LIFE_SAFETY
+        # Kill switch: window=0 → legacy flat cadence.
+        if int(NM_REPEAT_PHASE1_WINDOW_S) <= 0:
+            return NM_REPEAT_INTERVAL_NON_LIFE_SAFETY
+        age = self._unacked_critical_age_s()
+        if age < int(NM_REPEAT_PHASE1_WINDOW_S):
+            return int(NM_REPEAT_PHASE1_S)
+        if age < int(NM_REPEAT_DAILY_AFTER_S):
+            return int(NM_REPEAT_PHASE2_S)
+        return 86400
+
+    def _unacked_critical_age_s(self) -> int:
+        """Return the age (seconds) of the active CRITICAL alert.
+
+        Returns 0 when no alert is active or the created_at is missing /
+        unparseable (fail-safe: use the tightest cadence).
+        """
+        if not self._active_alert_data:
+            return 0
+        created = self._active_alert_data.get("created_at")
+        if not created:
+            return 0
+        try:
+            ts = datetime.fromisoformat(str(created))
+            age = (dt_util.utcnow() - ts).total_seconds()
+            return max(0, int(age))
+        except (TypeError, ValueError):
+            return 0
+
+    def _repeat_phase(self) -> str:
+        """Return the current repeat-phase label for diagnostics.
+
+        - "idle"       : no active CRITICAL
+        - "life_safety": 30s cadence (hazard vocabulary)
+        - "phase1"     : first PHASE1_WINDOW_S of unacked age
+        - "phase2"     : until DAILY_AFTER_S
+        - "daily"      : one repeat per day
+        - "legacy"     : ladder disabled via kill switch
+        """
+        if not self._active_alert_data:
+            return "idle"
+        hazard = str(self._active_alert_data.get("hazard_type") or "").lower()
+        if is_life_safety_hazard(self.hass, hazard):
+            return "life_safety"
+        if int(NM_REPEAT_PHASE1_WINDOW_S) <= 0:
+            return "legacy"
+        age = self._unacked_critical_age_s()
+        if age < int(NM_REPEAT_PHASE1_WINDOW_S):
+            return "phase1"
+        if age < int(NM_REPEAT_DAILY_AFTER_S):
+            return "phase2"
+        return "daily"
 
     async def _repeat_alert(self, _now: Any = None) -> None:
         """Repeat the active CRITICAL alert."""
@@ -2265,7 +2339,75 @@ class NotificationManager:
         # Schedule next repeat
         self._schedule_repeat()
 
-    async def async_acknowledge(self, safe_word_verified: bool = False) -> None:
+    def _get_person_safe_word(self, person_id: str | None) -> str:
+        """Return the personal safe word for ``person_id`` if configured.
+
+        FIX 5(a): each entry in CONF_NM_PERSONS may carry
+        CONF_NM_PERSON_SAFE_WORD (optional). Empty/absent → the person
+        uses the global CONF_NM_SAFE_WORD (returned by caller as the
+        fallback). Case-insensitive comparison happens at the caller.
+        """
+        if not person_id:
+            return ""
+        persons = self._config.get(CONF_NM_PERSONS, [])
+        for p in persons:
+            if p.get(CONF_NM_PERSON_ENTITY) == person_id:
+                word = str(p.get(CONF_NM_PERSON_SAFE_WORD, "") or "").strip()
+                return word
+        return ""
+
+    def _match_safe_word(
+        self, text: str, person_id: str | None,
+    ) -> tuple[bool, str]:
+        """Return (matched, source) for a safe-word attempt.
+
+        Source is "personal" when the sender's personal word matched,
+        "global" when the global word matched, else "". Minimum length
+        4 chars — mirrors legacy guard against trivial words.
+        """
+        text_l = (text or "").strip().lower()
+        if len(text_l) < 4:
+            return (False, "")
+        personal = self._get_person_safe_word(person_id).strip().lower()
+        if personal and text_l == personal:
+            return (True, "personal")
+        global_word = str(
+            self._config.get(CONF_NM_SAFE_WORD, "") or ""
+        ).strip().lower()
+        if global_word and len(global_word) >= 4 and text_l == global_word:
+            return (True, "global")
+        return (False, "")
+
+    def _is_authorized_to_ack(
+        self, person_id: str | None, hazard_type: str | None,
+    ) -> tuple[bool, str]:
+        """Return (allowed, reason) for ack authority on this hazard.
+
+        FIX 5(b): security-family hazards (NM_SECURITY_ACK_HAZARDS) may
+        only be acked by persons on CONF_NM_SECURITY_ACK_PERSONS. Empty
+        list defaults to the first tracked person in CONF_NM_PERSONS
+        (the operator). Non-security hazards: any recipient may ack.
+        """
+        hz = str(hazard_type or "").lower()
+        if hz not in NM_SECURITY_ACK_HAZARDS:
+            return (True, "any")
+        allowed = list(self._config.get(CONF_NM_SECURITY_ACK_PERSONS, []) or [])
+        if not allowed:
+            persons = self._config.get(CONF_NM_PERSONS, [])
+            if persons:
+                first = persons[0].get(CONF_NM_PERSON_ENTITY, "")
+                if first:
+                    allowed = [first]
+        if person_id and person_id in allowed:
+            return (True, "authorized_security")
+        return (False, "unauthorized_security")
+
+    async def async_acknowledge(
+        self,
+        safe_word_verified: bool = False,
+        acked_by_person: str | None = None,
+        acked_by_channel: str | None = None,
+    ) -> None:
         """Acknowledge the active alert — stops repeating, starts cooldown.
 
         NM Cycle B B2: on ack, write the current episode into
@@ -2277,7 +2419,13 @@ class NotificationManager:
             _LOGGER.debug("No active alert to acknowledge")
             return
 
-        _LOGGER.info("Alert acknowledged (safe_word_verified=%s)", safe_word_verified)
+        _LOGGER.info(
+            "Alert acknowledged (safe_word_verified=%s, by=%s via=%s)",
+            safe_word_verified, acked_by_person, acked_by_channel,
+        )
+        # Snapshot alert data BEFORE cooldown/teardown clears it — the
+        # audit row is emitted after DB ack (below).
+        _snap = dict(self._active_alert_data) if self._active_alert_data else None
 
         # NM Cycle B B2: record ack in registry (survives restart via
         # persistence dict → RestoreEntity round-trip in NMDiagnosticsSensor).
@@ -2309,6 +2457,36 @@ class NotificationManager:
         database = self.hass.data.get(DOMAIN, {}).get("database")
         if database:
             await database.acknowledge_notification()
+
+        # Notification Hygiene FIX 4 + FIX 5(c): write an audit row for
+        # the ack itself (who acked, via which channel, when, against
+        # which alert). Reuses `_emit_audit_row` so the ack rides the
+        # existing notification-audit surface — no new table. The alert's
+        # original title + created-at are threaded into the row's title
+        # for lightweight traceability without a schema change.
+        if _snap:
+            try:
+                orig_title = str(_snap.get("title") or "")
+                created_at = str(_snap.get("created_at") or "")
+                await self._emit_audit_row(
+                    coordinator_id=str(_snap.get("coordinator_id") or "unknown"),
+                    severity=Severity.CRITICAL,
+                    title=f"[ACK] {orig_title} (created_at={created_at})",
+                    hazard_type=_snap.get("hazard_type"),
+                    location=_snap.get("location"),
+                    recipient_id=acked_by_person,
+                    channel=acked_by_channel or "unknown",
+                    route_reason=(
+                        "ack_safe_word" if safe_word_verified else "ack"
+                    ),
+                    dnd_bypass_applied=False,
+                    bucket_outcome="ack",
+                    matrix_branch="ack",
+                    delivered=1,
+                    dry_run=0,
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("ack audit row emit failed (swallowed)", exc_info=True)
 
         # Start cooldown
         await self._start_cooldown()
@@ -2429,7 +2607,9 @@ class NotificationManager:
         """Handle companion app notification action button press."""
         action = event.data.get("action", "")
         if action == "ACKNOWLEDGE_URA":
-            self.hass.async_create_task(self.async_acknowledge())
+            self.hass.async_create_task(
+                self.async_acknowledge(acked_by_channel="companion")
+            )
         elif action == "STATUS_URA":
             self.hass.async_create_task(
                 self._process_inbound_reply(None, "companion", "status")
@@ -2575,12 +2755,10 @@ class NotificationManager:
 
         # Parse command
         command = RESPONSE_COMMANDS.get(text)
-        safe_word = self._config.get(CONF_NM_SAFE_WORD, "")
-        is_safe_word = (
-            safe_word
-            and len(safe_word.strip()) >= 4
-            and text == safe_word.strip().lower()
-        )
+        # FIX 5(a): personal-first safe-word match (per-person word
+        # takes precedence; global word is the fallback for persons
+        # without a personal one).
+        is_safe_word, _sw_source = self._match_safe_word(text, person_id)
 
         # Check if currently silenced
         if self._silence_until and dt_util.utcnow() < self._silence_until:
@@ -2610,11 +2788,41 @@ class NotificationManager:
                 person_name = self._get_person_name(person_id)
                 hazard_type = self._active_alert_data.get("hazard_type", "")
                 location = self._active_alert_data.get("location", "")
-                await self.async_acknowledge(safe_word_verified=True)
+                # FIX 5(b): ack-authority for security-family CRITICALs.
+                # Unauthorized senders get a polite reply and the repeat
+                # keeps running — repeat is NOT cleared.
+                allowed, auth_reason = self._is_authorized_to_ack(
+                    person_id, hazard_type,
+                )
+                if not allowed:
+                    response = (
+                        "Acknowledged receipt, but this alert class "
+                        "needs an authorized person to ack — still "
+                        "repeating."
+                    )
+                    _LOGGER.warning(
+                        "NM ack DENIED (unauthorized security ack): "
+                        "person=%s hazard=%s channel=%s",
+                        person_id, hazard_type, channel,
+                    )
+                    await self._log_and_reply(
+                        database, person_id, channel, "[safe_word]",
+                        "safe_word_unauthorized", response, success=False,
+                    )
+                    return response
+                await self.async_acknowledge(
+                    safe_word_verified=True,
+                    acked_by_person=person_id,
+                    acked_by_channel=channel,
+                )
                 await self._announce_ack(person_name, hazard_type, location)
                 response = f"CRITICAL alert acknowledged by {person_name}."
             elif has_active_alert:
-                await self.async_acknowledge(safe_word_verified=True)
+                await self.async_acknowledge(
+                    safe_word_verified=True,
+                    acked_by_person=person_id,
+                    acked_by_channel=channel,
+                )
                 response = "Alert acknowledged."
             else:
                 response = "No active alert to acknowledge."
@@ -2629,7 +2837,10 @@ class NotificationManager:
             if is_critical:
                 response = "CRITICAL alert requires safe word. Reply with your safe word to acknowledge."
             elif has_active_alert:
-                await self.async_acknowledge()
+                await self.async_acknowledge(
+                    acked_by_person=person_id,
+                    acked_by_channel=channel,
+                )
                 response = "Alert acknowledged."
             else:
                 response = "No active alerts."
@@ -3891,6 +4102,12 @@ class NotificationManager:
                 "message": active.get("message", ""),
                 "hazard_type": active.get("hazard_type"),
                 "location": active.get("location"),
+                # Notification Hygiene FIX 2: unacked-age survives restart —
+                # pull the alert's insert timestamp so the ladder
+                # continues from the true age, not from zero. The
+                # notification_log.timestamp column is written at insert
+                # time by `log_notification` (database.py:3806).
+                "created_at": active.get("timestamp") or dt_util.utcnow().isoformat(),
             }
             self._schedule_repeat()
             async_dispatcher_send(self.hass, SIGNAL_NM_ALERT_STATE_CHANGED)
