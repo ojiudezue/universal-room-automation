@@ -4781,6 +4781,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA,
             DEFAULT_HVAC_OCCUPIED_COVER_CLOSE_DELTA,
             # v4.5.10: HVAC tunables (master + 9 thresholds)
+        from .const import (  # noqa: PLC0415
+            CONF_SLEEP_FAN_ON_TEMP_F,
+            DEFAULT_SLEEP_FAN_ON_TEMP_F,
+        )
             CONF_HVAC_SOLAR_GAIN_COVER_ENABLED,
             DEFAULT_HVAC_SOLAR_GAIN_COVER_ENABLED,
             CONF_HVAC_COVER_CLOSE_TEMP,
