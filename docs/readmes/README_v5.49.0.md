@@ -48,3 +48,12 @@ red). +32 tests, 19-failure baseline, zero drift.
   security-family alert gets the polite refusal (test with
   test_safety_hazard hazard_type=intruder... use care: intruder is
   life-safety cadence — prefer a test_notification-based check).
+
+### Validated 2026-08-03 (~13:20 CDT, first post-deploy boot)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Clean boot | **PASS** | Zero URA ERRORs; NM loaded; CM reloaded post-options. |
+| nm_security_ack_persons configured | **PASS** | Set to ['person.oji_udezue'] via options flow driven end-to-end with exact current values — person credentials, cooldowns, global safe word all verified intact post-save. NOTE: the persons[0] fallback would ALSO have resolved correctly here (nm_persons contains only the operator; review A's concern keyed off tracked_persons order — real risk in multi-recipient households, moot in this one). |
+| Fallback WARNING absent | **PASS** | Not present post-config in the boot window. |
+| Age-gate live proof | **pending-next-restart** | Procedure: turn suppression ON, backdate suppressed_since (switch attr), restart → expect WARNING + HIGH one-shot + switch OFF. Deliberately NOT burning a family-daytime restart for it; behavioral tests + switch-attr persistence cover the mechanics; rides the next natural deploy restart. |
+| Repeat decay on old alerts | **PASS-structural** | The 7/26 reserve_soc alert was acked earlier today (repeat chain ended); next unacked CRITICAL exercises the ladder organically. |

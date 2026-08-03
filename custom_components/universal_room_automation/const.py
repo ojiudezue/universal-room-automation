@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.49.0
+# Universal Room Automation vv5.50.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.49.0"
+VERSION: Final = "v5.50.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -775,6 +775,34 @@ FAN_SLEEP_OFF: Final = "off"
 FAN_SLEEP_REDUCE: Final = "reduce"
 FAN_SLEEP_NORMAL: Final = "normal"
 DEFAULT_FAN_SLEEP_POLICY: Final = "reduce"
+
+# --- feature/sleep-fans-and-flash: sleep-onset bedroom fan activation ---
+# CM/HVAC-level threshold. On house-state transition INTO "sleep", each
+# HVAC-managed bedroom room that is (a) OCCUPIED and (b) at/above this
+# room-temp threshold gets its comfort fan turned ON at the policy-capped
+# speed with trigger="sleep_onset". Master kill switch: 0 disables the
+# feature entirely. One-shot per sleep entry (latched until house leaves
+# FAN_TRUST_STATES). Per-room opt-out is CONF_FAN_SLEEP_POLICY=off
+# (which the sleep-onset activator already respects).
+CONF_SLEEP_FAN_ON_TEMP_F: Final = "sleep_fan_on_temp_f"
+DEFAULT_SLEEP_FAN_ON_TEMP_F: Final = 72.0
+
+# feature/sleep-fans-and-flash rung-1 module constants ("Numbers Get Knobs").
+# Scar-cited by operator 2026-08-03:
+#   - SLEEP_FAN_ON_REARM_S: minimum seconds between successive sleep-onset
+#     fires per FanController / per RoomAutomation instance. Guards against
+#     the 2026-08-03 06:00-class spurious sleep->waking->home_day->sleep
+#     dawn re-entry re-transitioning every bedroom fan. 0 disables the
+#     re-arm guard (fires on every sleep edge). Default 6h.
+#   - SLEEP_FAN_ON_STAGGER_S: sequential delay between per-room fan
+#     turn-ons during a single sleep-onset burst. mmWave fan-transition
+#     excitation is exact-second — simultaneous multi-room transitions
+#     are the worst radar case. 0 disables the stagger (simultaneous
+#     activation, mirrors pre-cycle behavior).
+# Rung-1 rationale: changing either affects mmWave-radar interaction and
+# should require review (not a dashboard-level tune).
+SLEEP_FAN_ON_REARM_S: Final = 21600  # 6 hours
+SLEEP_FAN_ON_STAGGER_S: Final = 5
 
 # --- Step 7: Energy Monitoring ---
 CONF_POWER_SENSORS: Final = "power_sensors"
