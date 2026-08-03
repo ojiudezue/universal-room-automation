@@ -1605,3 +1605,9 @@ to arm security-family ack-gating at all when the list is empty
 (fail-loud), forcing the operator to configure it explicitly. Trade-off:
 loud safety vs. friction. Deferred; revisit if the WARNING is ignored
 across restarts.
+
+### B-2026-08-03-7: Duty-cycle-stuck WARNING log cadence (TINY)
+`jaya_3_presence duty-cycle stuck` NOTIFY-ONLY warning logs every ~10s
+while the condition holds (dozens/minute in journald). Add a one-shot-
+per-condition-episode latch (log once on entry, once on clear) — the
+condition itself is already surfaced; the spam is pure log hygiene.
