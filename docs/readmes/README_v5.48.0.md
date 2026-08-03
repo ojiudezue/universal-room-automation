@@ -52,3 +52,13 @@ builder AND orchestrator mutation drills red on every load-bearing line.
   an actuation_conflict episode (memory status sensor).
 - **Live:** no away<->arriving flap storm on outdoor-only evidence
   (suppressed counter increments instead).
+
+### Validated 2026-08-03 (~11:10 CDT, first post-deploy boot)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Fan-control OFF survives boot | **PASS** | switch.ura_hvac_coordinator_fan_control = off post-restart — first boot since 7/29 where the operator's OFF survived (the resurrection class is closed). Then deliberately turned back ON with the adopted-fan protections live. |
+| arriving_rearm_* attrs live | **PASS** | House-state sensor carries suppressed=0 / bypassed=0 / active=false. |
+| Clean boot | **PASS** | House correctly home_day (real morning occupants); no URA errors. |
+| No occupied-bedroom fan sweep | pending-tonight | The wife-facing criterion; first sleep cycle with fixes live. |
+| actuation_conflict episodes | pending-organic | Any future occupied-room fan-off writes an episode. |
+| No outdoor-only flap storm | pending-organic | Next away evening; suppressed counter is the signal. |
