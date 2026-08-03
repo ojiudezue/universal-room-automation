@@ -244,10 +244,19 @@ class NotificationManager:
         # B-2026-08-03-3(a): timestamp of the current suppression episode.
         # Set on suppress, cleared on resume. Restored across HA restart via
         # NMDiagnosticsSensor RestoreEntity so the "N days suppressed" figure
-        # survives restarts. If restore is missing (e.g. first boot after this
-        # fix ships and the switch was already ON from a prior restart), the
-        # suppress-on-resync path leaves this None → the daily-warning hook
-        # falls back to the switch's last_changed as an honest approximation.
+        # survives restarts.
+        #
+        # LOW-A3 (Reviewer A) fix-up: correct the reachability wording.
+        # First boot AFTER this fix ships (switch was ON from a prior
+        # restart, no persisted _suppressed_since exists) the resync path
+        # stamps the current restart time — this is a TRANSITIONAL
+        # UNDERREPORT of the true suppression duration and SELF-HEALS on
+        # the next OFF→ON flip cycle. The switch-`last_changed` fallback
+        # in `_log_nm_suppression_daily_warning` is therefore only
+        # reachable when BOTH the NMDiagnosticsSensor restore AND the
+        # resync-stamp path miss (a rare cold-boot ordering race), which
+        # is why it exists as an honest approximation rather than a
+        # primary source.
         self._suppressed_since: datetime | None = None
         self._alert_state = AlertState.IDLE
         self._active_alert_data: dict[str, Any] | None = None

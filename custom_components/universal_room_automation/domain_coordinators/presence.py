@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Set
@@ -1449,6 +1450,14 @@ class PresenceCoordinator(BaseCoordinator):
         # Flap-diagnostic counters for the suppressed / bypassed paths.
         self._arriving_rearm_suppressed: int = 0
         self._arriving_rearm_bypassed: int = 0
+        # B-2026-08-03-2 fix-up MED-A1: narrow arming — only arm the cooldown
+        # after an ARRIVING→AWAY collapse if the ARRIVING attempt itself was
+        # triggered by OUTDOOR-only evidence (no interior tier1, no census /
+        # camera / egress person, no tracker-home). Set at the moment the
+        # AWAY→ARRIVING transition is accepted; consulted at the collapse
+        # site. False (or absent) → do NOT arm; the cooldown must never delay
+        # a real interior/camera/tracker-fired arrival's re-attempt.
+        self._arriving_last_was_outdoor_only: bool = False
         # Outcome measurement
         self._outcome_true_positives: int = 0
         self._outcome_false_positives: int = 0
@@ -4760,6 +4769,33 @@ class PresenceCoordinator(BaseCoordinator):
             persistence_secs + 5,
         )
 
+    @staticmethod
+    def _arriving_rearm_bypass(
+        *,
+        any_indoor_zone_occupied: bool,
+        census_count: int,
+        tracked_count: int,
+        all_tracked_persons_away: bool,
+    ) -> bool:
+        """B-2026-08-03-2 fix-up C-CRIT-1: extracted bypass predicate.
+
+        The arriving re-arm cooldown must NEVER delay a real arrival. Any
+        of the following counts as new (non-flap) evidence and bypasses an
+        active cooldown:
+
+        - ``any_indoor_zone_occupied`` — interior tier1 zone occupied.
+        - ``census_count > 0``           — camera / egress person detection.
+        - ``tracked_count > 0`` AND NOT ``all_tracked_persons_away`` —
+          a tracked person is no longer reported "away" (tracker-home).
+
+        Pure predicate; tests drive this method directly.
+        """
+        return (
+            bool(any_indoor_zone_occupied)
+            or census_count > 0
+            or (tracked_count > 0 and not all_tracked_persons_away)
+        )
+
     async def _run_inference(self, trigger: str) -> None:
         """Run state inference and apply transitions.
 
@@ -5829,13 +5865,15 @@ class PresenceCoordinator(BaseCoordinator):
             and current_state == HouseState.AWAY
             and self._arriving_rearm_until > 0.0
         ):
-            import time as _time_mod
-            _now_mono = _time_mod.monotonic()
+            _now_mono = time.monotonic()
             if _now_mono < self._arriving_rearm_until:
-                bypass = (
-                    bool(any_indoor_zone_occupied)
-                    or self._census_count > 0
-                    or (tracked_count > 0 and not all_tracked_persons_away)
+                # ARRIVING_REARM_CALLSITE_ANCHOR — do not remove without
+                # updating test_arriving_rearm_cooldown.py's call-site anchor.
+                bypass = self._arriving_rearm_bypass(
+                    any_indoor_zone_occupied=bool(any_indoor_zone_occupied),
+                    census_count=self._census_count,
+                    tracked_count=tracked_count,
+                    all_tracked_persons_away=all_tracked_persons_away,
                 )
                 if bypass:
                     self._arriving_rearm_bypassed += 1
@@ -5871,23 +5909,48 @@ class PresenceCoordinator(BaseCoordinator):
                     self._retry_unsub()
                     self._retry_unsub = None
 
+                # B-2026-08-03-2 fix-up MED-A1: on AWAY→ARRIVING acceptance,
+                # record whether the attempt was OUTDOOR-ONLY (no interior
+                # tier1, no census/camera/egress, no tracker-home). Only an
+                # outdoor-only attempt should later arm the cooldown on
+                # collapse — an ARRIVING attempt that had real interior /
+                # camera / tracker evidence is NOT a flap and its future
+                # counterpart must not be delayed.
+                if (
+                    current_state == HouseState.AWAY
+                    and new_state == HouseState.ARRIVING
+                ):
+                    self._arriving_last_was_outdoor_only = (
+                        not self._arriving_rearm_bypass(
+                            any_indoor_zone_occupied=bool(any_indoor_zone_occupied),
+                            census_count=self._census_count,
+                            tracked_count=tracked_count,
+                            all_tracked_persons_away=all_tracked_persons_away,
+                        )
+                    )
+
                 # B-2026-08-03-2: on ARRIVING→AWAY collapse, arm the cooldown
                 # so outdoor-only motion cannot immediately re-trigger ARRIVING.
+                # MED-A1 narrowing: only arm if the collapsing ARRIVING attempt
+                # was outdoor-only at the moment it was accepted.
                 if (
                     ARRIVING_REARM_COOLDOWN_S > 0
                     and current_state == HouseState.ARRIVING
                     and new_state == HouseState.AWAY
+                    and self._arriving_last_was_outdoor_only
                 ):
-                    import time as _time_mod
                     self._arriving_rearm_until = (
-                        _time_mod.monotonic() + ARRIVING_REARM_COOLDOWN_S
+                        time.monotonic() + ARRIVING_REARM_COOLDOWN_S
                     )
                     _LOGGER.info(
                         "Arriving re-arm cooldown armed (%ds) after "
-                        "ARRIVING→AWAY collapse (trigger=%s)",
+                        "outdoor-only ARRIVING→AWAY collapse (trigger=%s)",
                         ARRIVING_REARM_COOLDOWN_S,
                         trigger,
                     )
+                # Reset the marker whenever we exit ARRIVING (either direction).
+                if current_state == HouseState.ARRIVING and new_state != HouseState.ARRIVING:
+                    self._arriving_last_was_outdoor_only = False
 
                 # v4.6.2.2: If we just transitioned INTO guest mode, clear the
                 # arm state (gate fired successfully — no need to keep the timer).

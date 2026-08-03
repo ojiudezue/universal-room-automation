@@ -85,14 +85,23 @@ def _log_nm_suppression_daily_warning(hass: HomeAssistant) -> None:
     suppressed, so a long-forgotten kill switch is visible in journald
     (previously logged one WARN at flip time only).
 
-    Duration is derived from ``nm._suppressed_since`` when available. If
-    NM has no stamp yet (e.g. first boot after this fix ships, or the
-    suppress-on-resync path ran with restore missing), we fall back to
-    ``switch.ura_nm_messaging_suppressed.last_changed`` as an HONEST
-    APPROXIMATION — the switch's RestoreEntity round-trip preserves the
-    ON state across restart, and `last_changed` is the closest surrogate
-    for "when did suppression start". If both are unavailable, we log the
-    warning without a duration.
+    Duration is derived from ``nm._suppressed_since`` when available.
+
+    LOW-A3 (Reviewer A) fix-up: correct the reachability wording. The
+    happy path is:
+      1. Steady-state — `_suppressed_since` was stamped on the OFF→ON
+         flip and persisted via NMDiagnosticsSensor RestoreEntity.
+      2. First boot AFTER this fix ships (switch ON from a prior
+         restart, no persisted stamp) — the resync-on-startup path
+         stamps the current restart time. This is a TRANSITIONAL
+         UNDERREPORT that SELF-HEALS on the next flip cycle.
+
+    The ``switch.ura_nm_messaging_suppressed.last_changed`` fallback
+    below is therefore only reachable when BOTH NMDiagnosticsSensor
+    restore AND the resync stamp are missing (rare cold-boot ordering
+    race) — an honest approximation, not the primary source. If even
+    the switch state is unavailable, we log the warning without a
+    duration.
     """
     nm = hass.data.get(DOMAIN, {}).get("notification_manager")
     if nm is None or not getattr(nm, "messaging_suppressed", False):

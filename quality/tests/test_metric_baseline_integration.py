@@ -41,6 +41,7 @@ _mods = {
     "homeassistant.helpers.event": {
         "async_track_time_interval": MagicMock(),
         "async_call_later": MagicMock(),
+        "async_track_state_change_event": MagicMock(),
     },
     "homeassistant.helpers.dispatcher": {
         "async_dispatcher_connect": MagicMock(),
