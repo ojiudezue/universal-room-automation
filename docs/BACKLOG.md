@@ -1611,3 +1611,14 @@ across restarts.
 while the condition holds (dozens/minute in journald). Add a one-shot-
 per-condition-episode latch (log once on entry, once on clear) — the
 condition itself is already surfaced; the spam is pure log hygiene.
+
+### B-2026-08-03-8 (feature/sleep-fans-and-flash B-L1): per-room CONF_FLASH_ON_SWITCH_LIGHTS opt-out
+The D2 warning-flash extension now cycles switch.* lighting relays via
+off/on to signal upcoming auto-off. For rooms whose "lights" list is a
+switch-relay (e.g. Kitchen, Game Room), that IS a physical blink of the
+room's lighting — the intended behavior. Default-on is defensible for
+shared-space warning UX (silent no-op was the pre-fix bug). Backlog: add
+a per-room `CONF_FLASH_ON_SWITCH_LIGHTS` opt-out for the sensitive-room
+class (e.g. media rooms mid-movie, nursery relays) so operators can
+suppress the physical blink for a room while keeping the warning
+observability path (activity log row) intact.

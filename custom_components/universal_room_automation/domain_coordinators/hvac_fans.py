@@ -235,9 +235,16 @@ class FanController:
         # setting is_on=True right before the guard reads hass.states.get
         # (which hasn't caught up with the just-dispatched turn_on) would
         # incorrectly open a manual-off cooldown on this very tick.
+        # Boot-edge guard (Review A-HIGH-1 fix-up): require an OBSERVED
+        # prior state. Empty prior means this is our first update() call
+        # since construction — treat it as pure seeding of _house_state
+        # (already assigned above) and do NOT fire, even if the house is
+        # already in sleep. The NEXT genuine non-sleep -> sleep edge
+        # fires normally because prior_state will be a real value.
         should_fire_sleep_onset = (
             house_state == "sleep"
             and prior_state != "sleep"
+            and prior_state != ""
             and not self._sleep_onset_fired
         )
 
@@ -511,9 +518,11 @@ class FanController:
           - room_temp >= threshold
           - fan not already on
           - per-room fan_sleep_policy != off
-        Speed is computed from the standard temp-delta ladder then run
-        through _apply_night_trust_speed_cap so policy=reduce still caps
-        to LOW. Trigger label "sleep_onset" surfaces the path in logs.
+        Speed is computed by ``fan_veto.sleep_onset_fan_target`` — the
+        standard temp-delta ladder (FAN_SPEED_*_DELTA over
+        room_temp - threshold, same thresholds as ``_compute_speed``),
+        then policy-capped (reduce -> min(speed, LOW); normal -> uncapped
+        ladder). Trigger label "sleep_onset" surfaces the path in logs.
         Latch (self._sleep_onset_fired) is set by the caller.
         """
         threshold = self._resolve_sleep_fan_on_temp_f()
@@ -834,8 +843,10 @@ class FanController:
             #       — the operator contract is "running fans are
             #       untouchable"; any speed transition excites mmWave
             #       radar, and a running fan is already radar-adapted).
-            # Speed = standard temp-delta ladder, then policy-capped
-            # (reduce -> LOW cap) — never a fixed unconditional LOW.
+            # Speed = standard temp-delta ladder shared with
+            # ``_compute_speed`` via fan_veto.sleep_onset_fan_target,
+            # then policy-capped (reduce -> min(speed, LOW); normal
+            # uncapped) — never a fixed unconditional LOW.
             # Off-before-sleep no longer stays off unconditionally;
             # instead it stays off UNLESS the room is a warm occupied
             # bedroom at sleep entry (the exact class the operator now

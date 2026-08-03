@@ -2450,6 +2450,13 @@ class RoomAutomation:
         if prior == "sleep":
             # No edge — still in sleep from a prior tick.
             return
+        if prior == "":
+            # Boot-edge guard (Review A-HIGH-1 fix-up): empty prior means
+            # this is the first observation since construction. Treat as
+            # pure seeding of _last_seen_house_state (assigned above) and
+            # skip activation — even if the house is already in sleep. The
+            # next genuine non-sleep -> sleep edge fires normally.
+            return
         if self._sleep_onset_fired:
             return
         # Re-arm guard: dawn-class flap protection. 0 disables.

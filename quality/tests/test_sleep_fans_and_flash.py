@@ -185,10 +185,42 @@ class TestD1_SharedHelper:
         ) == FAN_SPEED_LOW_PCT
 
     def test_normal_policy_returns_med_speed(self):
+        # A-MED-1 fix-up 2026-08-03: ladder — delta=4 (MED tier: >= 3, < 5).
         assert sleep_onset_fan_target(
             self._bedroom(),
-            occupied=True, room_temp=74.0, threshold=72.0, policy="normal",
+            occupied=True, room_temp=76.0, threshold=72.0, policy="normal",
         ) == FAN_SPEED_MED_PCT
+
+    # --- A-MED-1 fix-up 2026-08-03: temp-delta ladder anchors ---
+    # These tests DRIVE the shared ladder mapping in
+    # fan_veto.sleep_onset_fan_target. Mutation-red: break any rung of the
+    # ladder (e.g. return FAN_SPEED_LOW_PCT unconditionally) — at least one
+    # of these tests fails.
+
+    def test_normal_ladder_low_tier_marginal_above_threshold(self):
+        # delta=0.5 (eligible — >= threshold) → below LOW_DELTA (2) → LOW
+        assert sleep_onset_fan_target(
+            self._bedroom(),
+            occupied=True, room_temp=72.5, threshold=72.0, policy="normal",
+        ) == FAN_SPEED_LOW_PCT
+
+    def test_normal_ladder_high_tier(self):
+        # delta=6 (>= HIGH_DELTA=5) normal → HIGH
+        from custom_components.universal_room_automation.domain_coordinators.hvac_const import (  # noqa: E402
+            FAN_SPEED_HIGH_PCT,
+        )
+        assert sleep_onset_fan_target(
+            self._bedroom(),
+            occupied=True, room_temp=78.0, threshold=72.0, policy="normal",
+        ) == FAN_SPEED_HIGH_PCT
+
+    def test_reduce_policy_caps_high_ladder_to_low(self):
+        # delta=6 reduce → capped at LOW despite ladder-HIGH.
+        assert sleep_onset_fan_target(
+            self._bedroom(FAN_SLEEP_REDUCE),
+            occupied=True, room_temp=78.0, threshold=72.0,
+            policy=FAN_SLEEP_REDUCE,
+        ) == FAN_SPEED_LOW_PCT
 
     def test_off_policy_skipped(self):
         assert sleep_onset_fan_target(
@@ -757,53 +789,427 @@ class TestD2_WarningFlash:
 # ==========================================================================
 
 
-@_skip_no_automation
-class TestD3_AutoOffWarning_SwitchLightsOn:
-    def test_lights_on_check_recognizes_switch_state(self):
-        """Auto-off warning must fire when the room's lights are entirely
-        switch.* entries in the ON state.
+# NOTE: The prior TestD3_AutoOffWarning_SwitchLightsOn source-grep test
+# was replaced by TestFixup_CheckAutoOffWarning_Drive (below) per C-M3 —
+# production-driving fixture that patches _warning_flash and asserts the
+# invocation, rather than reading source text.
 
-        The wall-clock gate inside check_auto_off_warning is exercised
-        by other tests; here we anchor the exact FIX — that the
-        ``lights_on`` any() considers switch.* states. Read the check
-        directly from source (byte-anchor) + reproduce the any() over a
-        mocked hass.states.get to prove the observed shape.
-        """
-        # Byte anchor: the check_auto_off_warning source must NOT
-        # filter to light.* only for the lights_on any() (that was
-        # the pre-fix bug — silently False for switch-only rooms).
-        import custom_components.universal_room_automation.automation as autom_mod
-        with open(autom_mod.__file__) as f:
-            src = f.read()
-        check_slice = src.split("async def check_auto_off_warning", 1)[1]
-        check_slice = check_slice.split("async def ", 1)[0]
-        # No filter to `light.*` inside the lights_on comprehension —
-        # the fix intentionally counts ALL entries (which by config
-        # convention are lighting relays: light.* + switch.*).
-        assert "for lid in lights" in check_slice
-        assert 'startswith("light.")' not in check_slice, (
-            "lights_on gate must not filter to light.* — the fix "
-            "extends the check to switch.* relays"
+
+# ==========================================================================
+# Fix-up 2026-08-03 (A/B/C review adjudication)
+# ==========================================================================
+
+
+def _fans_mod():
+    return sys.modules[_FANS_NAME]
+
+
+def _autom_mod():
+    return sys.modules[_AUTOMATION_NAME]
+
+
+@_skip_no_fans
+class TestFixup_BootEdgeAndLatch_HVAC:
+    """A-HIGH-1 (boot-edge storm), B-M1/C-H2 (latch isolation),
+    C-H1 (latch-on-skip), C-M1 (stagger), C-M2 (dual-tier).
+    """
+
+    def _setup(self, *, room_type=ROOM_TYPE_BEDROOM,
+               policy=FAN_SLEEP_REDUCE, temp=74.0, occupied=True,
+               threshold=72.0):
+        # Mirror of TestD1_HVACTier._setup so we exercise the same paths.
+        zone = _FakeZone()
+        zone.room_conditions = [_FakeRoomCond("master_bedroom", temp, occupied)]
+        zone.rooms = ["master_bedroom"]
+        cm_opts = {CONF_SLEEP_FAN_ON_TEMP_F: threshold}
+        hass = _make_hass(cm_options=cm_opts)
+        zm = _FakeZoneManager()
+        zm.zones[zone.zone_id] = zone
+        ctrl = _FanController(hass, zm)
+        ctrl._room_fans["master_bedroom"] = _RoomFanState(
+            room_name="master_bedroom",
+            zone_id=zone.zone_id,
+            room_type=room_type,
+            fan_entities=["fan.master"],
+            fan_sleep_policy=policy,
+        )
+        return hass, ctrl
+
+    def _turn_ons(self, hass):
+        return [
+            c for c in hass.services.async_call.await_args_list
+            if c.args[:2] == ("fan", "turn_on")
+        ]
+
+    # ---- A-HIGH-1 boot-edge -------------------------------------------------
+
+    def test_boot_during_sleep_no_activation(self):
+        """First observation with empty prior + house=sleep MUST NOT fire
+        (boot-edge storm guard). A subsequent genuine home_night->sleep
+        edge fires normally."""
+        hass, ctrl = self._setup()
+        # Do NOT seed ctrl._house_state — leave it as "" from construction.
+        _run(ctrl.update(None, house_state="sleep"))
+        assert self._turn_ons(hass) == [], (
+            "Boot-edge sleep must not fire — prior_state was empty (unseen)"
+        )
+        # Now leave trust states and re-enter via a genuine edge.
+        _run(ctrl.update(None, house_state="home_day"))
+        _run(ctrl.update(None, house_state="home_night"))
+        _run(ctrl.update(None, house_state="sleep"))
+        assert len(self._turn_ons(hass)) == 1, (
+            "Genuine home_night->sleep edge after boot-seed must fire once"
         )
 
-        # Behavior anchor: replay the any() shape against a live
-        # states.get returning ON for the switch entity.
-        lights = ["switch.kitchen_main"]
+    # ---- B-M1 / C-H2 latch isolation ---------------------------------------
 
-        def _state_get(entity_id):
+    def test_latch_alone_blocks_second_burst_when_rearm_disabled(self, monkeypatch):
+        """With SLEEP_FAN_ON_REARM_S=0 AND last_fire_at reset, the latch
+        (self._sleep_onset_fired) alone must block a second burst across a
+        sleep->waking->sleep flap. Mutation-red: remove the latch-set line
+        in update() (line 475-ish `self._sleep_onset_fired = True`) → this
+        test fails (would see a second turn_on).
+        """
+        monkeypatch.setattr(_fans_mod(), "SLEEP_FAN_ON_REARM_S", 0)
+        hass, ctrl = self._setup()
+        ctrl._house_state = "home_night"
+        _run(ctrl.update(None, house_state="sleep"))
+        # Wipe the re-arm timestamp too so ONLY the latch can block.
+        ctrl._sleep_onset_last_fire_at = None
+        # Flap through waking (stays in trust states — latch persists) and
+        # reset is_on so a naive re-fire would produce a second turn_on.
+        ctrl._room_fans["master_bedroom"].is_on = False
+        _run(ctrl.update(None, house_state="waking"))
+        _run(ctrl.update(None, house_state="sleep"))
+        assert len(self._turn_ons(hass)) == 1, (
+            "Latch alone must block second burst (re-arm neutralized)"
+        )
+
+    def test_rearm_alone_blocks_second_burst_when_latch_cleared(self, monkeypatch):
+        """Converse: with SLEEP_FAN_ON_REARM_S > 0 and latch manually
+        cleared, the re-arm window alone must block a second burst.
+        Mutation-red: remove the re-arm check in _sleep_onset_activation
+        → this test fails (would see a second turn_on).
+        """
+        monkeypatch.setattr(_fans_mod(), "SLEEP_FAN_ON_REARM_S", 21600)
+        hass, ctrl = self._setup()
+        ctrl._house_state = "home_night"
+        _run(ctrl.update(None, house_state="sleep"))
+        assert len(self._turn_ons(hass)) == 1
+        # Manually clear the latch (simulating the latch-reset branch that
+        # runs when house exits FAN_TRUST_STATES) WITHOUT going through
+        # home_day (that would open a manual-off cooldown from the
+        # external-off detector and mask the re-arm guard we want to test).
+        ctrl._sleep_onset_fired = False
+        ctrl._room_fans["master_bedroom"].is_on = False
+        ctrl._room_fans["master_bedroom"].manual_off_cooldown_until = ""
+        # Prior stays "sleep" (from the last update above) — force an
+        # explicit prior=home_night so the next sleep call is a genuine
+        # edge. _sleep_onset_last_fire_at is still set from the burst.
+        ctrl._house_state = "home_night"
+        _run(ctrl.update(None, house_state="sleep"))
+        assert len(self._turn_ons(hass)) == 1, (
+            "Re-arm window alone must block second burst (latch cleared)"
+        )
+
+    # ---- C-H1 latch-on-skip contract ---------------------------------------
+
+    def test_skip_below_threshold_still_latches(self):
+        """Sleep entry at temp below threshold: no turn_on but the
+        latch MUST be set (one-shot semantics — don't retry every tick
+        within the same sleep session)."""
+        hass, ctrl = self._setup(temp=70.0)  # below threshold=72
+        ctrl._house_state = "home_night"
+        _run(ctrl.update(None, house_state="sleep"))
+        assert self._turn_ons(hass) == []
+        assert ctrl._sleep_onset_fired is True, (
+            "Latch must be set even when sleep-onset skipped (below threshold)"
+        )
+
+    def test_warmup_after_skip_activates_via_temp_path_not_sleep_onset(self):
+        """After a below-threshold sleep entry (latch set), a mid-night
+        warm-up crosses threshold. The temp-hysteresis path may activate
+        the fan — but the trigger MUST NOT be 'sleep_onset' (that path
+        is latched)."""
+        hass, ctrl = self._setup(temp=70.0)
+        ctrl._house_state = "home_night"
+        _run(ctrl.update(None, house_state="sleep"))
+        assert ctrl._sleep_onset_fired is True
+        # Warm up: raise the room condition temp above setpoint high
+        # (zone.target_temp_high=74.0, activation_delta default ~2).
+        # Simulate 80°F.
+        zone = ctrl._zone_manager.zones["z1"]
+        zone.room_conditions[0] = _FakeRoomCond("master_bedroom", 80.0, True)
+        _run(ctrl.update(None, house_state="sleep"))
+        rf = ctrl._room_fans["master_bedroom"]
+        # Any activation must be via the temp path (or fan_assist/etc.),
+        # NOT sleep_onset.
+        assert rf.trigger != "sleep_onset", (
+            "Warm-up after skip must not attribute activation to sleep_onset"
+        )
+
+    # ---- C-M1 two-room stagger ---------------------------------------------
+
+    def test_two_room_stagger_between_activations(self, monkeypatch):
+        """With two eligible bedrooms, both activate but stagger is
+        invoked between them. Patch asyncio.sleep to record. Mutation-
+        red: set SLEEP_FAN_ON_STAGGER_S=0 (or delete the stagger block)
+        → the recorded sleep list is empty."""
+        # Set up a zone with two bedrooms.
+        zone = _FakeZone()
+        zone.room_conditions = [
+            _FakeRoomCond("bed_a", 74.0, True),
+            _FakeRoomCond("bed_b", 74.0, True),
+        ]
+        zone.rooms = ["bed_a", "bed_b"]
+        hass = _make_hass(cm_options={CONF_SLEEP_FAN_ON_TEMP_F: 72.0})
+        zm = _FakeZoneManager()
+        zm.zones[zone.zone_id] = zone
+        ctrl = _FanController(hass, zm)
+        for name in ("bed_a", "bed_b"):
+            ctrl._room_fans[name] = _RoomFanState(
+                room_name=name, zone_id=zone.zone_id,
+                room_type=ROOM_TYPE_BEDROOM,
+                fan_entities=[f"fan.{name}"],
+                fan_sleep_policy=FAN_SLEEP_REDUCE,
+            )
+        ctrl._house_state = "home_night"
+
+        # Capture asyncio.sleep calls — the production path uses
+        # `import asyncio as _asyncio` locally then `_asyncio.sleep(...)`.
+        # Patching asyncio.sleep at the module level covers this.
+        recorded: list[float] = []
+
+        async def _fake_sleep(dt):
+            recorded.append(dt)
+
+        monkeypatch.setattr("asyncio.sleep", _fake_sleep)
+
+        _run(ctrl.update(None, house_state="sleep"))
+
+        turn_ons = self._turn_ons(hass)
+        assert len(turn_ons) == 2, "Both bedrooms should activate"
+        # Stagger invoked at least once (between activations).
+        assert len(recorded) >= 1, (
+            "Stagger asyncio.sleep must be invoked between per-room turn_ons"
+        )
+
+    # ---- C-M2 dual-tier exactly-one (HVAC + room-tier) ---------------------
+
+    def test_dual_tier_hvac_owned_room_activates_only_via_hvac(self):
+        """A room in HVAC's _room_fans set that is ALSO exposed to the
+        room-tier code path must activate exactly once via HVAC — the
+        room-tier defer must prevent a cross-fire."""
+        # HVAC side: standard bedroom setup, fires once.
+        hass, ctrl = self._setup()
+        ctrl._house_state = "home_night"
+        _run(ctrl.update(None, house_state="sleep"))
+        assert len(self._turn_ons(hass)) == 1
+
+        # Room-tier side: same room name, hvac_manages=True (Ziri-class
+        # ownership check must defer). We drive
+        # handle_temperature_based_fan_control and assert ZERO extra
+        # turn_ons landed on this hass mock's async_call.
+        if not _REAL_AUTOMATION:
+            pytest.skip("automation module not importable")
+        room_hass = _make_room_hass(
+            cm_options={CONF_SLEEP_FAN_ON_TEMP_F: 72.0},
+            hvac_manages=True,
+        )
+        # Rebind the coordinator_manager to include the same master_bedroom
+        # name in HVAC's _room_fans set — this is what triggers the defer.
+        cm = room_hass.data["universal_room_automation"]["coordinator_manager"]
+        cm.coordinators["hvac"].fan_controller._room_fans = {"master_bedroom": object()}
+        room = _make_room(
+            room_hass, room_name="master_bedroom",
+            hvac_coordination_enabled=True,
+        )
+        room._last_seen_house_state = "home_night"
+        _run(room.handle_temperature_based_fan_control(74.0, True))
+        room_turn_ons = [
+            c for c in room_hass.services.async_call.await_args_list
+            if c.args[0] in ("fan", "homeassistant") and c.args[1] == "turn_on"
+        ]
+        assert room_turn_ons == [], (
+            "Room-tier must defer when HVAC owns the room (no cross-fire)"
+        )
+
+
+@_skip_no_automation
+class TestFixup_BootEdgeAndRunning_RoomTier:
+    """A-HIGH-1 room-tier boot guard + C-L1 running-fan-untouched mirror."""
+
+    def _turn_ons(self, hass):
+        return [
+            c for c in hass.services.async_call.await_args_list
+            if c.args[0] in ("fan", "homeassistant") and c.args[1] == "turn_on"
+        ]
+
+    def test_room_tier_boot_during_sleep_no_activation(self):
+        hass = _make_room_hass(cm_options={CONF_SLEEP_FAN_ON_TEMP_F: 72.0})
+        room = _make_room(hass)
+        # Do NOT seed _last_seen_house_state — leave as "".
+        _run(room.handle_temperature_based_fan_control(74.0, True))
+        assert self._turn_ons(hass) == [], (
+            "Room-tier boot-edge sleep must not fire — prior empty"
+        )
+        assert room._sleep_onset_fired is False
+        # Now drive a genuine edge.
+        room._last_seen_house_state = "home_night"
+        _run(room.handle_temperature_based_fan_control(74.0, True))
+        assert len(self._turn_ons(hass)) == 1, (
+            "Genuine home_night->sleep edge after boot-seed must fire once"
+        )
+
+    def test_room_tier_running_fan_untouched(self):
+        """Room-tier mirror of the HVAC running-fan-untouched contract."""
+        hass = _make_room_hass(cm_options={CONF_SLEEP_FAN_ON_TEMP_F: 72.0})
+        room = _make_room(hass)
+        room._last_seen_house_state = "home_night"
+
+        # State says fan.ziri is already ON.
+        def _get(entity_id):
+            if entity_id == "fan.ziri":
+                st = MagicMock()
+                st.state = "on"
+                return st
+            return None
+        hass.states.get = _get
+
+        _run(room.handle_temperature_based_fan_control(74.0, True))
+        # Running-fan guard latches (skip) and dispatches no turn_on.
+        turn_ons = self._turn_ons(hass)
+        for c in turn_ons:
+            entity_id = c.args[2].get("entity_id")
+            if isinstance(entity_id, list):
+                assert "fan.ziri" not in entity_id
+            else:
+                assert entity_id != "fan.ziri"
+
+
+# ==========================================================================
+# C-M3 — check_auto_off_warning production-driving test
+# ==========================================================================
+
+
+@_skip_no_automation
+class TestFixup_CheckAutoOffWarning_Drive:
+    """C-M3: drive real check_auto_off_warning with mocked hass.states
+    where only a switch.* light is on at the warning minute → assert
+    _warning_flash invoked. This replaces the source-grep half of the
+    original D3 test with a production-driving fixture."""
+
+    def test_switch_only_room_triggers_warning_flash(self, monkeypatch):
+        # Test-suite pollution guard: some sibling tests stub
+        # homeassistant.const to MagicMocks, which mangles STATE_ON,
+        # CONF_* keys, and (transitively) the module-level bindings this
+        # test drives production against. In isolation the test drives
+        # the full check_auto_off_warning path; in a polluted full-suite
+        # run, skip cleanly rather than assert a false-negative on the
+        # cycle's actual guarantee (the test still fires as an anchor in
+        # every fresh-process run, and the mutation M8 red is
+        # reproducible from the isolated test file).
+        _autom_probe = _autom_mod()
+        if not isinstance(getattr(_autom_probe, "STATE_ON", None), str):
+            pytest.skip(
+                "Skipped under polluted homeassistant.const stubs "
+                "(STATE_ON not a string); run this file in isolation "
+                "for the full drive."
+            )
+        hass = _make_room_hass()
+        coordinator = MagicMock()
+        coordinator.entry = MagicMock()
+        # Use the automation module's OWN CONF_* references as dict keys.
+        # Under test-suite pollution the module may have been loaded with
+        # stubbed const values (MagicMocks) — a real string literal here
+        # would not match the module's config.get(...) lookup.
+        _autom = _autom_mod()
+        config = {
+            _autom.CONF_ROOM_NAME: "Kitchen",
+            _autom.CONF_LIGHTS: ["switch.kitchen_main"],
+            _autom.CONF_SHARED_SPACE: True,
+            _autom.CONF_SHARED_SPACE_WARNING: True,
+            _autom.CONF_SHARED_SPACE_AUTO_OFF_HOUR: 23,  # 11 PM
+        }
+        room = _RoomAutomation(hass, config, coordinator)
+        # Bypass config-driven predicates directly on the instance so this
+        # test is pollution-immune. We're driving the WARNING-FLASH
+        # DECISION (lights_on + dedup + _warning_flash invocation) — not
+        # the shared-space or hour-lookup config reads (those are
+        # exercised by other tests).
+        room.is_shared_space = lambda: True
+        room.should_warn_before_auto_off = lambda: True
+        room.get_auto_off_hour = lambda: 23
+
+        # Force the lights list read to return our switch entity even if
+        # the CONF_LIGHTS key resolves to a MagicMock at import time.
+        # Subclass dict so .get() can be overridden per-instance.
+        class _ConfigDict(dict):
+            def get(self, key, default=None):  # noqa: D401
+                # Match on either the string "lights" (real const key),
+                # any string ending in "lights", or a MagicMock whose
+                # spec/name mentions LIGHTS (test-pollution: const may
+                # resolve as a MagicMock at automation.py import time).
+                if key == "lights" or "lights" in str(key).lower():
+                    return ["switch.kitchen_main"]
+                mock_name = getattr(key, "_mock_name", "") or ""
+                if "light" in str(mock_name).lower():
+                    return ["switch.kitchen_main"]
+                return super().get(key, default)
+        room.config = _ConfigDict(config)
+
+        # states.get for switch is ON. Under test-suite pollution
+        # automation.STATE_ON may be a MagicMock (not the string "on") —
+        # comparing an inequal MagicMock to `st.state="on"` silently
+        # returns False. Neutralize by pinning automation.STATE_ON to
+        # the real "on" string for this test's duration.
+        autom_pre = _autom_mod()
+        orig_state_on = autom_pre.STATE_ON
+        autom_pre.STATE_ON = "on"
+
+        def _get(entity_id):
             st = MagicMock()
             st.state = "on" if entity_id.startswith("switch.") else "off"
             return st
+        hass.states.get = _get
 
-        # Reproduce the any() shape from check_auto_off_warning. Use
-        # the string literal "on" (matches what HA emits) so this
-        # assertion is immune to homeassistant.const stubbing under
-        # test-suite pollution.
-        lights_on = any(
-            (s := _state_get(lid)) is not None and s.state == "on"
-            for lid in lights
+        # Wall-clock at 22:55 (warning window for 23:00 auto-off). Patch
+        # the module attribute directly — pollution-robust (some sibling
+        # tests replace dt_util on the module wholesale). Save + restore
+        # rather than rely on monkeypatch introspecting a possibly-
+        # replaced object.
+        autom = _autom_mod()
+        orig_dt_util = autom.dt_util
+
+        class _FakeDT:
+            @staticmethod
+            def now():
+                from datetime import datetime as _dt
+                try:
+                    from zoneinfo import ZoneInfo
+                    return _dt(2026, 8, 3, 22, 55, 0, tzinfo=ZoneInfo("UTC"))
+                except Exception:
+                    return _dt(2026, 8, 3, 22, 55, 0)
+
+        autom.dt_util = _FakeDT
+
+        called = {"n": 0}
+
+        async def _fake_flash():
+            called["n"] += 1
+
+        room._warning_flash = _fake_flash
+
+        try:
+            _run(room.check_auto_off_warning())
+        finally:
+            autom.dt_util = orig_dt_util
+            autom_pre.STATE_ON = orig_state_on
+
+        assert called["n"] == 1, (
+            "check_auto_off_warning must invoke _warning_flash for "
+            "switch-only rooms at the warning minute"
         )
-        assert lights_on is True
 
 
 if __name__ == "__main__":
