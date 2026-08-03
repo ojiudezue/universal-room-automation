@@ -41,6 +41,24 @@ import pytest
 # path — the same production-code paths this hotfix is instrumenting.
 import quality.tests.test_fan_incident_2026_08_01_replay  # noqa: F401
 
+# LOW-B3 / HIGH-B2 fix-up (2026-08-03): load the real memory_facade
+# module so the shared _slugify import in hvac_fans works and the
+# slug-parity test can compare against it. memory_facade only imports
+# from .const + stdlib — safe to load once the HA-mock preamble above
+# has installed the mocked homeassistant.* modules.
+import importlib.util as _iu  # noqa: E402
+import os as _os  # noqa: E402
+import sys as _sys  # noqa: E402
+_mf_key = "custom_components.universal_room_automation.memory_facade"
+if _mf_key not in _sys.modules:
+    _mf_path = _os.path.join(
+        "custom_components", "universal_room_automation", "memory_facade.py",
+    )
+    _spec = _iu.spec_from_file_location(_mf_key, _mf_path)
+    _mod = _iu.module_from_spec(_spec)
+    _sys.modules[_mf_key] = _mod
+    _spec.loader.exec_module(_mod)
+
 
 SWITCH_PY_PATH = os.path.join(
     "custom_components", "universal_room_automation", "switch.py",
@@ -447,10 +465,14 @@ class TestFixCOccupiedRoomFanOffEmitsEpisode:
         )
 
 
-class TestFixCTurnOffAllManagedInstrumented:
-    """The bulk-sweep path passes room_name through to the observer."""
+class TestFixCTurnOffAllManagedSuppressed:
+    """LOW-A fix-up (2026-08-03): operator-commanded global sweep is NOT
+    a controller-decided conflict — it must NOT emit an episode even
+    when the room is occupied. Controller-decided OFF paths still emit
+    (covered by TestFixCOccupiedRoomFanOffEmitsEpisode).
+    """
 
-    def test_turn_off_all_managed_emits_episode_when_room_occupied(self):
+    def test_turn_off_all_managed_does_NOT_emit_episode(self):
         base = datetime(2026, 8, 3, 12, 0, 0)
         _set_now(base)
         ctrl, room_fan, _svc, writes = _make_controller(
@@ -464,8 +486,232 @@ class TestFixCTurnOffAllManagedInstrumented:
         conflict_writes = [
             w for w in writes if w.get("episode_type") == "actuation_conflict"
         ]
-        assert len(conflict_writes) >= 1, (
-            "FIX C: turn_off_all_managed against an occupied room must "
-            "emit actuation_conflict"
+        assert conflict_writes == [], (
+            "LOW-A: turn_off_all_managed is operator-commanded, not a "
+            "controller conflict — must NOT emit actuation_conflict "
+            "(even in an occupied room)"
         )
-        assert conflict_writes[0]["attrs"]["trigger"] == "turn_off_all_managed"
+
+
+# ---------------------------------------------------------------------------
+# LOW-B3 fix-up — slugify parity between memory_facade and any inline slug
+# ---------------------------------------------------------------------------
+
+
+class TestLowB3SlugifyParity:
+    """LOW-B3: pin that hvac_fans and memory_facade produce identical
+    slugs across the room-name alphabet actually observed in prod. If
+    they diverge on any of these, the inline copy must be replaced by
+    an import of the shared helper (which is what the fix-up does).
+    """
+
+    def test_slug_parity_across_room_alphabet(self):
+        from custom_components.universal_room_automation.memory_facade import (
+            _slugify as facade_slug,
+        )
+
+        # Inline shape historically used at hvac_fans._record_actuation_conflict:
+        def inline(text: str) -> str:
+            return (text or "").lower().replace(" ", "_").replace("-", "_")
+
+        alphabet = [
+            "Ziri Bedroom (Bedroom 5)",
+            "Study A",
+            "Jaya-Bedroom",
+            "Master  Bedroom",  # deliberate double space
+            "",  # empty-string boundary
+            "AV Closet",
+        ]
+        for name in alphabet:
+            assert facade_slug(name) == inline(name), (
+                f"LOW-B3: slug divergence for {name!r} — "
+                f"facade={facade_slug(name)!r} inline={inline(name)!r}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# FIX A behavioral tests — HIGH-B2 fix-up
+# ---------------------------------------------------------------------------
+#
+# Reviewer complaint: FIX A had zero behavioral tests; source-mutation of
+# the apply line in _handle_hvac_ready left all 5 static anchors green.
+# Approach: parse switch.py, extract the _handle_hvac_ready method body,
+# exec it in a controlled namespace, and drive it against a shim instance.
+# This is genuinely mutation-sensitive — removing / altering the
+# `hvac.fan_control_enabled = self._deferred_value` line changes what
+# runs, and the assertions below will fail.
+#
+# Modeled on test_v4731_hvac_switches_restore.py (mirror pattern for
+# lifecycle coverage) but with real production-source extraction for the
+# critical apply line.
+
+
+import ast  # noqa: E402
+import textwrap  # noqa: E402
+
+
+def _extract_method_body(class_name: str, method_name: str, path: str) -> str:
+    src = open(path).read()
+    tree = ast.parse(src)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
+            for m in node.body:
+                if (
+                    isinstance(m, (ast.AsyncFunctionDef, ast.FunctionDef))
+                    and m.name == method_name
+                ):
+                    seg = ast.get_source_segment(src, m)
+                    # Strip leading decorators (get_source_segment includes
+                    # only the def, not the @callback line, but be defensive).
+                    return textwrap.dedent(seg)
+    raise AssertionError(f"{class_name}.{method_name} not found in {path}")
+
+
+class _FanSwitchShim:
+    """Minimal object with the attributes _handle_hvac_ready reaches for."""
+
+    def __init__(self, get_hvac):
+        self._get_hvac = get_hvac
+        self._deferred_value = None
+        self.state_writes = 0
+
+    def async_write_ha_state(self):
+        self.state_writes += 1
+
+
+def _load_handle_hvac_ready():
+    """Extract + compile the real production _handle_hvac_ready as a
+    plain function bound to a shim. Mutation-sensitive: source changes
+    to the method flow through to the compiled function.
+    """
+    body = _extract_method_body(
+        "HVACFanControlSwitch", "_handle_hvac_ready", SWITCH_PY_PATH,
+    )
+    # exec expects the def at module level with no decorators.
+    ns: dict = {"_LOGGER": MagicMock()}
+    exec(compile(body, "<extracted _handle_hvac_ready>", "exec"), ns)
+    return ns["_handle_hvac_ready"]
+
+
+class TestFixAHandleHVACReadyBehavioral:
+    """Behavioral tests over REAL production _handle_hvac_ready source."""
+
+    def test_deferred_off_lands_when_signal_fires(self):
+        """Deferred OFF (fan-control-was-off) — signal fires after coord
+        arrives → hvac.fan_control_enabled must flip to False.
+        """
+        _handle_hvac_ready = _load_handle_hvac_ready()
+
+        hvac = MagicMock()
+        hvac.fan_control_enabled = True  # constructor default
+        shim = _FanSwitchShim(get_hvac=lambda: hvac)
+        shim._deferred_value = False
+
+        _handle_hvac_ready(shim)
+
+        assert hvac.fan_control_enabled is False, (
+            "HIGH-B2: deferred restore must apply — mutation of the "
+            "apply line (e.g. `pass`) makes this assertion fail"
+        )
+        assert shim._deferred_value is None, (
+            "deferred value must be cleared after apply"
+        )
+        assert shim.state_writes >= 1, "state must be written after apply"
+
+    def test_deferred_on_lands_when_signal_fires(self):
+        """Symmetric ON — deferred True is applied on signal."""
+        _handle_hvac_ready = _load_handle_hvac_ready()
+
+        hvac = MagicMock()
+        hvac.fan_control_enabled = False
+        shim = _FanSwitchShim(get_hvac=lambda: hvac)
+        shim._deferred_value = True
+
+        _handle_hvac_ready(shim)
+
+        assert hvac.fan_control_enabled is True
+        assert shim._deferred_value is None
+
+    def test_no_deferred_value_is_safe_noop(self):
+        """If no defer pending, _handle_hvac_ready must NOT touch hvac."""
+        _handle_hvac_ready = _load_handle_hvac_ready()
+
+        hvac = MagicMock()
+        hvac.fan_control_enabled = True
+        shim = _FanSwitchShim(get_hvac=lambda: hvac)
+        shim._deferred_value = None
+
+        _handle_hvac_ready(shim)
+
+        assert hvac.fan_control_enabled is True, (
+            "no-op path must not mutate hvac"
+        )
+
+    def test_coord_still_missing_leaves_defer_intact(self):
+        """Signal fires but coord still not in hass.data → defer preserved."""
+        _handle_hvac_ready = _load_handle_hvac_ready()
+
+        shim = _FanSwitchShim(get_hvac=lambda: None)
+        shim._deferred_value = False
+
+        _handle_hvac_ready(shim)
+
+        assert shim._deferred_value is False, (
+            "coord-missing path must preserve deferred value for a later "
+            "retry (not silently clear it)"
+        )
+
+    def test_operator_turn_on_during_defer_wins(self):
+        """Operator toggle-on before signal fires — deferred OFF must be
+        discarded so the signal handler is a no-op when it later fires.
+
+        Simulates the async_turn_on() path which sets
+        hvac.fan_control_enabled=True and nulls _deferred_value. Then the
+        signal fires — the no-op branch runs, leaving True in place.
+        """
+        _handle_hvac_ready = _load_handle_hvac_ready()
+
+        hvac = MagicMock()
+        hvac.fan_control_enabled = False
+        shim = _FanSwitchShim(get_hvac=lambda: hvac)
+        shim._deferred_value = False  # queued to restore OFF
+
+        # Operator turns ON before coord ready (mirrors async_turn_on
+        # semantics from switch.py:3304-3311).
+        hvac.fan_control_enabled = True
+        shim._deferred_value = None
+
+        # Signal now fires — must be a no-op, leaving ON intact.
+        _handle_hvac_ready(shim)
+
+        assert hvac.fan_control_enabled is True, (
+            "operator ON must win — deferred restore must not overwrite"
+        )
+
+
+class TestFixAAsyncAddedToHassSourceAnchors:
+    """Static contract for async_added_to_hass — signal wiring + defer
+    stamping + fast-path apply must be present. These stay lightweight
+    because the async method is harder to exec (super().async_added...).
+    """
+
+    @pytest.fixture
+    def method_src(self) -> str:
+        return _extract_method_body(
+            "HVACFanControlSwitch", "async_added_to_hass", SWITCH_PY_PATH,
+        )
+
+    def test_dispatcher_connect_wired(self, method_src: str) -> None:
+        assert "async_dispatcher_connect" in method_src
+        assert "SIGNAL_HVAC_COORDINATOR_READY" in method_src
+        assert "async_on_remove" in method_src
+
+    def test_fast_path_applies_to_hvac(self, method_src: str) -> None:
+        assert "hvac.fan_control_enabled = target" in method_src, (
+            "fast path must write target to hvac.fan_control_enabled"
+        )
+
+    def test_deferred_path_stamps_target(self, method_src: str) -> None:
+        assert "self._deferred_value = target" in method_src, (
+            "deferred path must stamp target onto self._deferred_value"
+        )

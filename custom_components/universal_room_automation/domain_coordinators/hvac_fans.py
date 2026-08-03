@@ -626,6 +626,14 @@ class FanController:
             # timing to URA-lit fans. Applied via multiplier so
             # DEFAULT_FAN_VACANCY_HOLD remains the single source of truth
             # for the URA-lit path.
+            # LOW-A fix-up (2026-08-03): note — a legitimate URA
+            # re-actuation while the fan is adopted (trigger=="external")
+            # rewrites `room_fan.trigger` to the URA reason at the
+            # actuation site above (~line 406) and thereby collapses this
+            # hold back to base on the next tick. That is intentional:
+            # once URA re-decides to run the fan for its own reason, the
+            # co-managed timing applies. The 2x hold is scoped to a fan
+            # URA has NOT (yet) chosen to command.
             effective_hold = DEFAULT_FAN_VACANCY_HOLD
             if room_fan.trigger == "external":
                 effective_hold = int(
@@ -746,12 +754,20 @@ class FanController:
         shared slugify, DAO handles dedup, exception-contained. Missing
         DB, missing memory_facade, or absent occupancy sensor all no-op.
         """
+        # LOW-A fix-up (2026-08-03): turn_off_all_managed is an operator-
+        # commanded global sweep (Fan Control switch turned OFF), not a
+        # controller-decided actuation into an occupied room. Suppress the
+        # episode for this trigger only — controller-decided OFFs
+        # (vacancy_off / sleep / veto) still emit.
+        if trigger_path == "turn_off_all_managed":
+            return
         try:
-            # Shared slugify shape (memory_facade._slugify at
-            # memory_facade.py:247). Inlined to keep this observer usable
-            # even when memory_facade hasn't been imported (test harnesses,
-            # early-boot ordering).
-            slug = (room_name or "").lower().replace(" ", "_").replace("-", "_")
+            # LOW-B3 fix-up (2026-08-03): use the shared memory_facade
+            # slugifier (single source of truth) rather than an inline copy.
+            # No import cycle: memory_facade only imports from .const +
+            # stdlib (verified 2026-08-03).
+            from ..memory_facade import _slugify
+            slug = _slugify(room_name or "")
             occ_state = self.hass.states.get(f"binary_sensor.{slug}_occupied")
             if occ_state is None or occ_state.state != "on":
                 return
