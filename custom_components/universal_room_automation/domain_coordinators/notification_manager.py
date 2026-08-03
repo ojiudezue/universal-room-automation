@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import defaultdict, deque
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 # functools.partial used for digest scheduling. HA's
 # get_hassjob_callable_job_type() explicitly unwraps partials before
 # checking iscoroutinefunction (verified Reviewer B 2026-05-26), so this
@@ -1030,6 +1030,31 @@ class NotificationManager:
             minute=0,
             second=0,
         )
+
+        # HIGH-A2(b): if security-ack gating is active (FIX 5(b)) and
+        # CONF_NM_SECURITY_ACK_PERSONS is empty, name the resolved
+        # fallback person in a one-shot WARNING so the operator can
+        # verify or configure the authority list explicitly.
+        try:
+            allowed = list(
+                self._config.get(CONF_NM_SECURITY_ACK_PERSONS, []) or []
+            )
+            if not allowed:
+                _persons = self._config.get(CONF_NM_PERSONS, []) or []
+                if _persons:
+                    _fallback = _persons[0].get(CONF_NM_PERSON_ENTITY, "")
+                    if _fallback:
+                        _LOGGER.warning(
+                            "NM security-alert ack authority defaulting "
+                            "to %s — configure nm_security_ack_persons "
+                            "if this is not intended.",
+                            _fallback,
+                        )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "NM security-ack fallback warning skipped (swallowed)",
+                exc_info=True,
+            )
 
         _LOGGER.info(
             "Notification Manager ready (state=%s, today=%d)",
@@ -2205,7 +2230,20 @@ class NotificationManager:
         if not created:
             return 0
         try:
-            ts = datetime.fromisoformat(str(created))
+            # LOW-A5 hardening: prefer dt_util.parse_datetime (returns
+            # None on invalid input rather than raising); fall back to
+            # datetime.fromisoformat when a stub environment (tests)
+            # lacks parse_datetime. Coerce tz-naive → UTC so subtract
+            # never raises against dt_util.utcnow (aware).
+            _parse = getattr(dt_util, "parse_datetime", None)
+            if _parse is not None:
+                ts = _parse(str(created))
+                if ts is None:
+                    return 0
+            else:
+                ts = datetime.fromisoformat(str(created))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=getattr(dt_util, "UTC", timezone.utc))
             age = (dt_util.utcnow() - ts).total_seconds()
             return max(0, int(age))
         except (TypeError, ValueError):
@@ -2407,6 +2445,8 @@ class NotificationManager:
         safe_word_verified: bool = False,
         acked_by_person: str | None = None,
         acked_by_channel: str | None = None,
+        safe_word_source: str | None = None,
+        authority_reason: str | None = None,
     ) -> None:
         """Acknowledge the active alert — stops repeating, starts cooldown.
 
@@ -2477,7 +2517,20 @@ class NotificationManager:
                     recipient_id=acked_by_person,
                     channel=acked_by_channel or "unknown",
                     route_reason=(
-                        "ack_safe_word" if safe_word_verified else "ack"
+                        # LOW-A7 + C-MED-2: encode safe-word source and
+                        # ack authority into route_reason so the audit
+                        # row records who / how (personal|global,
+                        # companion_trusted|authorized_security|any).
+                        (
+                            "ack_safe_word"
+                            + (f":{safe_word_source}" if safe_word_source else "")
+                            + (f":{authority_reason}" if authority_reason else "")
+                        )
+                        if safe_word_verified
+                        else (
+                            "ack"
+                            + (f":{authority_reason}" if authority_reason else "")
+                        )
                     ),
                     dnd_bypass_applied=False,
                     bucket_outcome="ack",
@@ -2607,8 +2660,14 @@ class NotificationManager:
         """Handle companion app notification action button press."""
         action = event.data.get("action", "")
         if action == "ACKNOWLEDGE_URA":
+            # C-MED-2: companion route is operator-grade — stamp the
+            # authority reason so the ack audit row records it.
             self.hass.async_create_task(
-                self.async_acknowledge(acked_by_channel="companion")
+                self.async_acknowledge(
+                    acked_by_person="companion_user",
+                    acked_by_channel="companion",
+                    authority_reason="companion_trusted",
+                )
             )
         elif action == "STATUS_URA":
             self.hass.async_create_task(
@@ -2794,6 +2853,17 @@ class NotificationManager:
                 allowed, auth_reason = self._is_authorized_to_ack(
                     person_id, hazard_type,
                 )
+                # C-MED-2 (adjudicated): the authenticated companion
+                # route is operator-grade — an ack arriving via the
+                # companion action pipeline (channel=="companion") is
+                # AUTHORIZED for every hazard class. This applies only
+                # to the companion route; inbound message channels with
+                # unresolvable senders remain denied for security
+                # hazards. Companion-route acks record acked_by_person
+                # as "companion_user" for the audit trail.
+                if channel == "companion":
+                    allowed = True
+                    auth_reason = "companion_trusted"
                 if not allowed:
                     response = (
                         "Acknowledged receipt, but this alert class "
@@ -2810,18 +2880,28 @@ class NotificationManager:
                         "safe_word_unauthorized", response, success=False,
                     )
                     return response
+                _ack_person = person_id or (
+                    "companion_user" if channel == "companion" else None
+                )
                 await self.async_acknowledge(
                     safe_word_verified=True,
-                    acked_by_person=person_id,
+                    acked_by_person=_ack_person,
                     acked_by_channel=channel,
+                    safe_word_source=_sw_source or None,
+                    authority_reason=auth_reason,
                 )
                 await self._announce_ack(person_name, hazard_type, location)
                 response = f"CRITICAL alert acknowledged by {person_name}."
             elif has_active_alert:
+                _ack_person = person_id or (
+                    "companion_user" if channel == "companion" else None
+                )
                 await self.async_acknowledge(
                     safe_word_verified=True,
-                    acked_by_person=person_id,
+                    acked_by_person=_ack_person,
                     acked_by_channel=channel,
+                    safe_word_source=_sw_source or None,
+                    authority_reason=auth_reason,
                 )
                 response = "Alert acknowledged."
             else:

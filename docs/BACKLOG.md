@@ -1596,3 +1596,12 @@ File as OPEN QUESTION — operator to decide granularity + timing.
 - **enablement_changed memory episodes** — writer at the switch base/mixin so operator kill-switch flips + resurrections are episodic (the 7/29 fan_control resurrection would have been one query). Rides the mixin cycle naturally.
 - **turn_off_all_managed redesign (S1)** — disable switch should stop ACTING, not force global OFF; never sweep external/adopted-trigger fans; occupied-room guard. Tier 3 candidate w/ falsifiable invariant: "under fan_control toggled OFF or a preset transition, no fan in an occupied room is turned off by HVAC within one cycle."
 - **6AM waking→home_day promotion** — sleep→waking fired on an occupancy DECREASE (kid's room release) and deferred_retry PROMOTED to home_day 61s later with everyone in bed. Same deferred_retry machinery as the arriving flapping (fix in flight covers the away side only). State-machine cycle: waking inference evidence classes + promotion guard (e.g. require interior wake evidence: master exit, kitchen entry, tracker activity — not sibling-room release).
+
+### B-2026-08-03-6 (FOLLOW-UP): fail-loud option for empty security-ack list
+Notification-hygiene review A option (c): the current default for an
+empty ``CONF_NM_SECURITY_ACK_PERSONS`` resolves to ``persons[0]`` (with
+a one-shot init WARNING naming the fallback). A future option: refuse
+to arm security-family ack-gating at all when the list is empty
+(fail-loud), forcing the operator to configure it explicitly. Trade-off:
+loud safety vs. friction. Deferred; revisit if the WARNING is ignored
+across restarts.

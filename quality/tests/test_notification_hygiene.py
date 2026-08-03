@@ -67,11 +67,12 @@ def test_fix1_gate_reads_const_and_uses_since_or_last_changed_fallback():
     assert "last_changed" in SWITCH_SRC
 
 
-def test_fix1_gate_emits_one_shot_medium_and_flips_off():
-    # On stale restore: flip _is_on to False, WARNING log, send MEDIUM notify.
+def test_fix1_gate_emits_one_shot_high_and_flips_off():
+    # On stale restore: flip _is_on to False, WARNING log, send HIGH notify
+    # (MED-A4: promoted from MEDIUM so it bypasses digest preferences).
     assert "self._is_on = False" in SWITCH_SRC
     assert "NM messaging suppression NOT restored on startup" in SWITCH_SRC
-    assert "Severity.MEDIUM" in SWITCH_SRC
+    assert "Severity.HIGH" in SWITCH_SRC
 
 
 def test_fix1_kill_switch_zero_skips_gate():
@@ -235,7 +236,7 @@ def test_fix4_ack_audit_row_uses_emit_audit_row_with_ack_reason():
     # Reuses _emit_audit_row — NOT a new table.
     idx = NM_SRC.find("write an audit row for")
     assert idx > 0
-    body = NM_SRC[idx: idx + 1500]
+    body = NM_SRC[idx: idx + 2500]
     assert "await self._emit_audit_row(" in body
     assert "route_reason=" in body
     assert '"ack_safe_word"' in body
@@ -371,12 +372,235 @@ _MUTATION_ANCHORS = {
 }
 
 
-def test_mutation_anchors_are_load_bearing():
-    """Sanity: every anchor is present in its file. Removing any of these
-    from source will cause one of the tests above to fail. Documented so
-    the mutation exercise in the cycle report is anchor-explicit."""
+def test_mutation_anchor_strings_present():
+    """Smoke check (C-MED-1 rename): assert every documented mutation
+    anchor string exists in its source file. This is NOT proof of
+    load-bearing behavior — string presence alone cannot show that a
+    site is actually exercised. The behavioral tests above
+    (``test_fix2_phase_boundaries_are_correct``,
+    ``test_fix5_authority_gate_behavior``,
+    ``test_fix5_match_safe_word_behavior``) are the proof; this test
+    only guards against silent renames that would break the cycle's
+    documented mutation exercise."""
     for name, (rel, needle) in _MUTATION_ANCHORS.items():
         src = _read(f"custom_components/universal_room_automation/{rel}")
         assert needle in src, (
             f"Mutation anchor {name} missing needle {needle!r} in {rel}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Fix-up (2026-08-03): C-HIGH-1 — behavioral authority gate
+# ---------------------------------------------------------------------------
+def _load_fn(src: str, name: str, *, is_async: bool = False):
+    """Extract a top-level def/async-def source segment by name."""
+    tree = ast.parse(src)
+    for node in ast.walk(tree):
+        if (
+            (is_async and isinstance(node, ast.AsyncFunctionDef))
+            or (not is_async and isinstance(node, ast.FunctionDef))
+        ) and node.name == name:
+            return ast.get_source_segment(src, node)
+    return None
+
+
+def test_fix5_authority_gate_behavior():
+    """C-HIGH-1: exec _is_authorized_to_ack into a namespace and assert
+    the four functional contracts. MUST go red under mutation
+    ``return (True, "any")`` — verified out-of-band per fix-up protocol."""
+    fn_src = _load_fn(NM_SRC, "_is_authorized_to_ack")
+    assert fn_src is not None
+
+    ns: dict = {
+        "NM_SECURITY_ACK_HAZARDS": frozenset({
+            "intruder", "security_state_change",
+            "exterior_person", "envoy_write_verification",
+        }),
+        "CONF_NM_SECURITY_ACK_PERSONS": "nm_security_ack_persons",
+        "CONF_NM_PERSONS": "nm_persons",
+        "CONF_NM_PERSON_ENTITY": "entity_id",
+    }
+    # De-indent so the def parses as a top-level function.
+    import textwrap
+    exec(textwrap.dedent(fn_src), ns)
+    fn = ns["_is_authorized_to_ack"]
+
+    class _Fake:
+        def __init__(self, config):
+            self._config = config
+
+    # (a) unauthorized security hazard
+    f_a = _Fake({
+        "nm_security_ack_persons": ["alice"],
+        "nm_persons": [{"entity_id": "alice"}],
+    })
+    assert fn(f_a, "bob", "intruder") == (False, "unauthorized_security")
+
+    # (b) authorized security hazard
+    assert fn(f_a, "alice", "intruder") == (True, "authorized_security")
+
+    # (c) non-security hazard: any person allowed
+    assert fn(f_a, "bob", "reserve_soc") == (True, "any")
+
+    # (d) empty allow-list falls back to persons[0]
+    f_d = _Fake({
+        "nm_security_ack_persons": [],
+        "nm_persons": [{"entity_id": "carol"}, {"entity_id": "dave"}],
+    })
+    assert fn(f_d, "carol", "intruder") == (True, "authorized_security")
+    assert fn(f_d, "dave", "intruder") == (False, "unauthorized_security")
+
+
+def test_fix5_match_safe_word_behavior():
+    """C-HIGH-2: exec _match_safe_word into a namespace with a stubbed
+    personal-word lookup. MUST go red under mutation
+    ``return (True, "personal")`` at the top — verified out-of-band."""
+    fn_src = _load_fn(NM_SRC, "_match_safe_word")
+    assert fn_src is not None
+
+    ns: dict = {"CONF_NM_SAFE_WORD": "nm_safe_word"}
+    import textwrap
+    exec(textwrap.dedent(fn_src), ns)
+    fn = ns["_match_safe_word"]
+
+    class _Fake:
+        def __init__(self, personal_by_person, global_word):
+            self._personal = personal_by_person
+            self._config = {"nm_safe_word": global_word}
+
+        def _get_person_safe_word(self, person_id):
+            return self._personal.get(person_id, "")
+
+    # No global, no personal — no match.
+    f = _Fake({"alice": ""}, "")
+    assert fn(f, "gargle", "alice") == (False, "")
+
+    # Personal match beats global.
+    f = _Fake({"alice": "peachtree"}, "orangeblossom")
+    assert fn(f, "peachtree", "alice") == (True, "personal")
+
+    # Global fallback when no personal is set.
+    f = _Fake({"alice": ""}, "orangeblossom")
+    assert fn(f, "orangeblossom", "alice") == (True, "global")
+
+    # < 4 char guard.
+    f = _Fake({"alice": "abc"}, "abc")
+    assert fn(f, "abc", "alice") == (False, "")
+
+    # Person A cannot auth with person B's personal word
+    # (unless it also happens to be the global — here it does not).
+    f = _Fake({"alice": "peachtree", "bob": "figleaf"}, "")
+    assert fn(f, "figleaf", "alice") == (False, "")
+    assert fn(f, "figleaf", "bob") == (True, "personal")
+
+
+# ---------------------------------------------------------------------------
+# Fix-up (2026-08-03): C-MED-2 — companion trusted path in inbound reply
+# ---------------------------------------------------------------------------
+def test_companion_ack_bypasses_security_authority_gate():
+    """Companion-channel ack overrides the security-authority gate.
+    Denied-branch text ("needs an authorized person to ack") must NOT
+    be reachable when channel == 'companion'."""
+    fn_src = _load_fn(NM_SRC, "_process_inbound_reply", is_async=True)
+    assert fn_src is not None
+    # The override must apply BEFORE the denial branch.
+    override_idx = fn_src.find('if channel == "companion":')
+    deny_idx = fn_src.find("needs an authorized person to ack")
+    assert 0 < override_idx < deny_idx, (
+        "companion trusted override must precede the denial branch"
+    )
+    # And it sets the authority reason.
+    between = fn_src[override_idx:deny_idx]
+    assert 'auth_reason = "companion_trusted"' in between
+    assert "allowed = True" in between
+    # Unresolvable inbound sender is still denied — the override only
+    # triggers on the companion channel; other channels with person_id=None
+    # fall through to _is_authorized_to_ack which returns unauthorized.
+    assert 'return (False, "unauthorized_security")' in NM_SRC
+
+
+def test_companion_ack_records_companion_user_person():
+    # The direct ACKNOWLEDGE_URA companion action stamps person + authority.
+    assert 'acked_by_person="companion_user"' in NM_SRC
+    assert 'authority_reason="companion_trusted"' in NM_SRC
+
+
+# ---------------------------------------------------------------------------
+# Fix-up (2026-08-03): MED-A3 — switch attribute round-trip
+# ---------------------------------------------------------------------------
+def test_med_a3_switch_persists_and_restores_suppressed_since():
+    # Attribute exposed via extra_state_attributes.
+    assert '"suppressed_since": self._suppressed_since_attr' in SWITCH_SRC
+    # Set on turn_on, cleared on turn_off.
+    assert "self._suppressed_since_attr = _dtu.utcnow().isoformat()" in SWITCH_SRC
+    assert "self._suppressed_since_attr = None" in SWITCH_SRC
+    # Restored from last_state.attributes.
+    assert 'attrs.get("suppressed_since")' in SWITCH_SRC
+    # Wired into the stale gate (earliest-wins parse branch).
+    assert "getattr(self, \"_suppressed_since_attr\", None)" in SWITCH_SRC
+
+
+# ---------------------------------------------------------------------------
+# Fix-up (2026-08-03): HIGH-A1 — toggle clears restore-pending + cancels sync
+# ---------------------------------------------------------------------------
+def test_high_a1_toggle_clears_restore_pending_and_cancels_pending_sync():
+    # Both async_turn_on and async_turn_off must set _restore_pending=False
+    # BEFORE mutating _is_on / calling NM, and cancel any pending
+    # _sync_unsub timer so a deferred restore-sync can't fire the age
+    # gate against a fresh toggle.
+    tree = ast.parse(SWITCH_SRC)
+    for name in ("async_turn_on", "async_turn_off"):
+        body = None
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.AsyncFunctionDef)
+                and node.name == name
+            ):
+                seg = ast.get_source_segment(SWITCH_SRC, node)
+                if "async_suppress_messaging" in seg or "async_resume_messaging" in seg:
+                    body = seg
+                    break
+        assert body is not None, f"{name} not found in NMMessagingSuppressSwitch"
+        rp_idx = body.find("self._restore_pending = False")
+        cancel_idx = body.find("self._sync_unsub = None")
+        is_on_idx = body.find("self._is_on")
+        # Restore-clear must appear before is_on flip.
+        assert 0 < rp_idx < is_on_idx, (
+            f"{name}: _restore_pending clear must precede _is_on flip"
+        )
+        # Cancel must appear (in the same body).
+        assert cancel_idx > 0, f"{name}: pending sync cancel missing"
+
+
+# ---------------------------------------------------------------------------
+# Fix-up (2026-08-03): HIGH-A2(b) — init WARNING when ack list empty
+# ---------------------------------------------------------------------------
+def test_high_a2b_init_warning_names_fallback_person():
+    # Text lives in async_setup NM path.
+    assert (
+        "NM security-alert ack authority defaulting" in NM_SRC
+    )
+    assert "configure nm_security_ack_persons" in NM_SRC
+
+
+# ---------------------------------------------------------------------------
+# Fix-up (2026-08-03): LOW-A7 — safe-word source stamped in ack audit row
+# ---------------------------------------------------------------------------
+def test_low_a7_ack_audit_row_encodes_safe_word_source_and_authority():
+    # async_acknowledge signature accepts the two new fields.
+    assert "safe_word_source: str | None = None" in NM_SRC
+    assert "authority_reason: str | None = None" in NM_SRC
+    # And they compose into route_reason.
+    assert 'f":{safe_word_source}"' in NM_SRC
+    assert 'f":{authority_reason}"' in NM_SRC
+
+
+# ---------------------------------------------------------------------------
+# Fix-up (2026-08-03): LOW-A5 — tz-aware coercion in age helper
+# ---------------------------------------------------------------------------
+def test_low_a5_unacked_age_helper_uses_parse_datetime_and_tz_coerce():
+    fn_src = _load_fn(NM_SRC, "_unacked_critical_age_s")
+    assert fn_src is not None
+    assert "parse_datetime" in fn_src
+    assert "tzinfo is None" in fn_src
+    assert "dt_util.UTC" in fn_src or "timezone.utc" in fn_src

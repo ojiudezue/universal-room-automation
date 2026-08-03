@@ -1593,9 +1593,12 @@ NM_REPEAT_DAILY_AFTER_S: Final = 86400
 CONF_NM_PERSON_SAFE_WORD: Final = "nm_person_safe_word"
 
 # (b) Ack authority — persons allowed to ack a security-family
-# CRITICAL. List of person entity_ids. Empty list = legacy behavior
-# (any recipient may ack). Populated by options flow; default =
-# first tracked person (the operator).
+# CRITICAL. List of person entity_ids. When empty, the fallback is
+# ``persons[0]`` (the FIRST entry in CONF_NM_PERSONS as stored) —
+# this is NOT necessarily the operator. Live household ordering may
+# place the spouse first. Verify the resolved fallback and configure
+# ``nm_security_ack_persons`` explicitly if not intended. NM logs a
+# one-shot WARNING at init naming the resolved fallback.
 CONF_NM_SECURITY_ACK_PERSONS: Final = "nm_security_ack_persons"
 
 # Security-family hazard vocabulary. Alerts with these hazard_types
