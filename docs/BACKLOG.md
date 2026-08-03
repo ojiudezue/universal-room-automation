@@ -1570,3 +1570,9 @@ suppressed ("messaging suppressed for N days"); (c) candidate: NM
 refuses to restore suppressed=ON across restart older than 24h without
 re-confirmation (operator decision needed on (c) — it changes kill-
 switch semantics). (a)+(b) are unambiguous; file (c) as a question.
+
+### B-2026-08-03-4: Sweep-audit follow-ups (from af audit, post fan-sweep-trio hotfix)
+- **Group D #52 guard sweep** (~8 switches: HVACZoneSweepSwitch, SecurityDelegateLights, per-room Automation/Override/Climate/Cover/AutoRecovery switches) — add `in ("on","off")` restore guard; extract URARestoreMixin so future switches can't drift. Small cycle, 3-review (touches many switches).
+- **enablement_changed memory episodes** — writer at the switch base/mixin so operator kill-switch flips + resurrections are episodic (the 7/29 fan_control resurrection would have been one query). Rides the mixin cycle naturally.
+- **turn_off_all_managed redesign (S1)** — disable switch should stop ACTING, not force global OFF; never sweep external/adopted-trigger fans; occupied-room guard. Tier 3 candidate w/ falsifiable invariant: "under fan_control toggled OFF or a preset transition, no fan in an occupied room is turned off by HVAC within one cycle."
+- **6AM waking→home_day promotion** — sleep→waking fired on an occupancy DECREASE (kid's room release) and deferred_retry PROMOTED to home_day 61s later with everyone in bed. Same deferred_retry machinery as the arriving flapping (fix in flight covers the away side only). State-machine cycle: waking inference evidence classes + promotion guard (e.g. require interior wake evidence: master exit, kitchen entry, tracker activity — not sibling-room release).

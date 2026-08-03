@@ -41,6 +41,7 @@ _mods = {
     "homeassistant.helpers.event": {
         "async_track_time_interval": MagicMock(),
         "async_call_later": MagicMock(),
+        "async_track_state_change_event": MagicMock(),
     },
     "homeassistant.helpers.dispatcher": {
         "async_dispatcher_connect": MagicMock(),
@@ -245,6 +246,73 @@ class TestCircuitZScoreDetection:
         assert len(consumption_anomalies) == 1
         assert consumption_anomalies[0]["circuit"] == "Kitchen"
         assert consumption_anomalies[0]["z_score"] > 4
+
+    def test_abs_floor_suppresses_low_variance_false_positive(self):
+        """B-2026-08-03-1: dryer standby jitter (mean~0.3W sd~0.3W, obs 3.4W)
+        should NOT fire anomaly despite z=10.4 because |obs - mean| < ANOMALY_ABS_FLOOR_W.
+        """
+        monitor, hass = self._make_circuit_monitor()
+        from custom_components.universal_room_automation.domain_coordinators.energy_circuits import (
+            CircuitInfo, CIRCUIT_MIN_SAMPLES, ANOMALY_ABS_FLOOR_W,
+        )
+        assert ANOMALY_ABS_FLOOR_W > 3.4, "test assumes floor > standby jitter magnitude"
+
+        monitor._circuits = {
+            "sensor.span_dryer_power": CircuitInfo(
+                "sensor.span_dryer_power", "Dryer", "left"
+            ),
+        }
+        monitor._discovered = True
+
+        # Feed near-zero standby jitter (mean ~0.3, sd ~0.3)
+        import random
+        random.seed(0)
+        for _ in range(CIRCUIT_MIN_SAMPLES + 5):
+            power = max(0.01, random.gauss(0.3, 0.3))
+            state_map = {"sensor.span_dryer_power": MagicMock(state=str(power))}
+            hass.states.get = lambda eid, sm=state_map: sm.get(eid)
+            monitor.check_anomalies()
+
+        bl = monitor._power_baselines["sensor.span_dryer_power"]
+        # z will be huge, but abs deviation is only ~3W (< 50W floor)
+        assert bl.z_score(3.4) >= 4.0
+
+        state_map = {"sensor.span_dryer_power": MagicMock(state="3.4")}
+        hass.states.get = lambda eid: state_map.get(eid)
+        anomalies = monitor.check_anomalies()
+        consumption = [a for a in anomalies if a["type"] == "consumption_anomaly"]
+        assert consumption == [], "abs-floor should suppress low-magnitude z spike"
+
+    def test_abs_floor_allows_genuine_large_deviation(self):
+        """B-2026-08-03-1: a real 3000W anomaly against near-zero baseline
+        (|obs - mean| >> floor) MUST still fire.
+        """
+        monitor, hass = self._make_circuit_monitor()
+        from custom_components.universal_room_automation.domain_coordinators.energy_circuits import (
+            CircuitInfo, CIRCUIT_MIN_SAMPLES,
+        )
+
+        monitor._circuits = {
+            "sensor.span_dryer_power": CircuitInfo(
+                "sensor.span_dryer_power", "Dryer", "left"
+            ),
+        }
+        monitor._discovered = True
+
+        import random
+        random.seed(0)
+        for _ in range(CIRCUIT_MIN_SAMPLES + 5):
+            power = max(0.01, random.gauss(0.3, 0.3))
+            state_map = {"sensor.span_dryer_power": MagicMock(state=str(power))}
+            hass.states.get = lambda eid, sm=state_map: sm.get(eid)
+            monitor.check_anomalies()
+
+        state_map = {"sensor.span_dryer_power": MagicMock(state="3000")}
+        hass.states.get = lambda eid: state_map.get(eid)
+        anomalies = monitor.check_anomalies()
+        consumption = [a for a in anomalies if a["type"] == "consumption_anomaly"]
+        assert len(consumption) == 1
+        assert consumption[0]["circuit"] == "Dryer"
 
     def test_normal_reading_no_anomaly(self):
         """Normal readings within expected range should not trigger anomaly."""
