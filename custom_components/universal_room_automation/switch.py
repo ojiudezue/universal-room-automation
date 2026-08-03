@@ -3252,6 +3252,12 @@ class HVACFanControlSwitch(SwitchEntity, RestoreEntity):
 
     v4.0.15: Added to address fan flapping with external leave automations.
 
+    hotfix/fan-sweep-trio (2026-08-03): deferred-restore via
+    SIGNAL_HVAC_COORDINATOR_READY (Bug Class #5/#38). Replaces the
+    prior one-shot 5-second timer retry that dropped the restored
+    value if the HVAC coord was still not registered after that window.
+    Mirrors the v4.7.3.1 HVACOverrideArresterSwitch pattern.
+
     Entity: switch.ura_hvac_coordinator_fan_control
     Device: URA: HVAC Coordinator
     """
@@ -3274,6 +3280,11 @@ class HVACFanControlSwitch(SwitchEntity, RestoreEntity):
             sw_version=VERSION,
             via_device=(DOMAIN, "coordinator_manager"),
         )
+        # hotfix/fan-sweep-trio (2026-08-03): deferred-restore state
+        # (Bug Class #5). Mirrors ECSwitch factory line ~707 hygiene:
+        # explicit None sentinel; explicit user toggles null it out;
+        # the signal handler nulls it after applying.
+        self._deferred_value: bool | None = None
 
     def _get_hvac(self):
         """Get the HVAC coordinator instance."""
@@ -3295,6 +3306,8 @@ class HVACFanControlSwitch(SwitchEntity, RestoreEntity):
         hvac = self._get_hvac()
         if hvac is not None:
             hvac.fan_control_enabled = True
+            # Explicit user toggle wins over any pending deferred restore.
+            self._deferred_value = None
             self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs) -> None:
@@ -3302,36 +3315,83 @@ class HVACFanControlSwitch(SwitchEntity, RestoreEntity):
         hvac = self._get_hvac()
         if hvac is not None:
             hvac.fan_control_enabled = False
+            self._deferred_value = None
             self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
-        """Restore previous state on startup."""
-        await super().async_added_to_hass()
-        last_state = await self.async_get_last_state()
-        # Bug Class #52 — skip unavailable/unknown to preserve constructor default.
-        if last_state is not None and last_state.state in ("on", "off"):
-            hvac = self._get_hvac()
-            if hvac is not None:
-                hvac.fan_control_enabled = last_state.state == "on"
-            else:
-                # HVAC coordinator may not be registered yet — retry after 5s
-                self._deferred_restore_state = last_state.state
-                self.async_on_remove(
-                    async_call_later(self.hass, 5, self._retry_restore)
-                )
+        """Restore previous state — deferred via SIGNAL_HVAC_COORDINATOR_READY
+        if the HVAC coordinator isn't in hass.data yet.
 
-    @callback
-    def _retry_restore(self, _now=None) -> None:
-        """Deferred restore if HVAC coordinator wasn't ready at startup."""
-        state = getattr(self, "_deferred_restore_state", None)
-        if state is None:
+        hotfix/fan-sweep-trio (2026-08-03): Bug Class #5 fix. Old code
+        used a single 5-second one-shot retry — if the HVAC coord
+        still hadn't registered after that window (real-world observed
+        on cold boots when the operator had turned Fan Control OFF),
+        the restored OFF was silently dropped and Fan Control came up
+        ON (the constructor default). Now the switch subscribes to
+        SIGNAL_HVAC_COORDINATOR_READY (Bug Class #38: unsub tracked
+        via async_on_remove) — the deferred value applies whenever
+        the HVAC coord actually finishes setup, no matter how long
+        that takes.
+        """
+        await super().async_added_to_hass()
+
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_HVAC_COORDINATOR_READY
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_HVAC_COORDINATOR_READY,
+                self._handle_hvac_ready,
+            )
+        )
+
+        last_state = await self.async_get_last_state()
+        # Bug Class #52 / MED-1 — skip unavailable/unknown to preserve
+        # constructor default (matches v4.7.3.1 pattern across all HVAC
+        # switches).
+        if last_state is None or last_state.state not in ("on", "off"):
             return
+        target = last_state.state == "on"
         hvac = self._get_hvac()
         if hvac is not None:
-            hvac.fan_control_enabled = state == "on"
-            self._deferred_restore_state = None
-        else:
-            _LOGGER.debug("HVAC still not ready for fan control restore")
+            # Fast path: HVAC coord already registered.
+            hvac.fan_control_enabled = target
+            self._deferred_value = None
+            self.async_write_ha_state()
+            return
+        # Deferred path: HVAC coord not yet registered.
+        self._deferred_value = target
+        _LOGGER.debug(
+            "HVACFanControlSwitch: HVAC coord not ready — deferring "
+            "restore (value=%s)",
+            target,
+        )
+
+    @callback
+    def _handle_hvac_ready(self) -> None:
+        """Handle SIGNAL_HVAC_COORDINATOR_READY — complete deferred restore.
+
+        Bug Class #42: bound method, not lambda.
+        Bug Class #19: @callback fires synchronously on the event loop.
+        """
+        if self._deferred_value is None:
+            return
+        hvac = self._get_hvac()
+        if hvac is None:
+            _LOGGER.warning(
+                "HVACFanControlSwitch: SIGNAL_HVAC_COORDINATOR_READY "
+                "fired but HVAC coord still not in hass.data — restore "
+                "deferred",
+            )
+            return
+        hvac.fan_control_enabled = self._deferred_value
+        _LOGGER.info(
+            "HVACFanControlSwitch: deferred restore landed via "
+            "SIGNAL_HVAC_COORDINATOR_READY (value=%s)",
+            self._deferred_value,
+        )
+        self._deferred_value = None
+        self.async_write_ha_state()
 
     @property
     def available(self) -> bool:
