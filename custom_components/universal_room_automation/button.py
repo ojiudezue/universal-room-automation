@@ -1,6 +1,6 @@
 """Button platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.48.0
+# Universal Room Automation vv5.49.0
 # Build: 2026-01-04
 # File: button.py
 #
@@ -564,7 +564,7 @@ class NMAcknowledgeButton(ButtonEntity):
         """Handle button press — acknowledge the active alert."""
         nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
         if nm:
-            await nm.async_acknowledge()
+            await nm.async_acknowledge(acked_by_channel="button")
             _LOGGER.info("Alert acknowledged via dashboard button")
         else:
             _LOGGER.warning("Notification Manager not available")

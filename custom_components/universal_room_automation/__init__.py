@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.48.0
+# Universal Room Automation vv5.49.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -4736,7 +4736,9 @@ async def _async_register_notification_services(hass: HomeAssistant) -> None:
         """Handle acknowledge_notification service call."""
         nm = hass.data.get(DOMAIN, {}).get("notification_manager")
         if nm:
-            await nm.async_acknowledge()
+            # FIX 4: label service-triggered acks so the audit row can
+            # distinguish them from inbound-channel + button acks.
+            await nm.async_acknowledge(acked_by_channel="service")
         else:
             _LOGGER.warning("Notification Manager not available for acknowledge")
 

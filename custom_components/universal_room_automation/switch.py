@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.48.0
+# Universal Room Automation vv5.49.0
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -3426,6 +3426,13 @@ class NMMessagingSuppressSwitch(SwitchEntity, RestoreEntity):
         self._is_on = False  # Self-contained state — survives NM not yet ready
         self._sync_retries = 0
         self._sync_unsub = None  # Cancel handle for deferred sync timer
+        # Notification Hygiene FIX 1: mark that the current pending sync
+        # was triggered by RestoreEntity (not an operator toggle) so
+        # _sync_to_nm can apply the stale-restore age gate.
+        self._restore_pending = False
+        # MED-A3: authoritative suppression origin timestamp maintained
+        # on the switch itself; restored from RestoreEntity attrs.
+        self._suppressed_since_attr: str | None = None
         self._attr_unique_id = f"{DOMAIN}_nm_messaging_suppressed"
         self._attr_name = "Messaging Suppressed"
         self._attr_device_info = DeviceInfo(
@@ -3443,6 +3450,18 @@ class NMMessagingSuppressSwitch(SwitchEntity, RestoreEntity):
         last_state = await self.async_get_last_state()
         if last_state and last_state.state == "on":
             self._is_on = True
+            self._restore_pending = True  # FIX 1: age-gate on next sync
+            # MED-A3: recover the suppression origin attribute if the
+            # RestoreEntity round-trip preserved it. Non-string / absent →
+            # leave None (stale gate then falls back to nm._suppressed_since
+            # or last_changed).
+            try:
+                attrs = getattr(last_state, "attributes", None) or {}
+                sus = attrs.get("suppressed_since")
+                if isinstance(sus, str) and sus:
+                    self._suppressed_since_attr = sus
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("suppressed_since restore failed (swallowed)", exc_info=True)
             _LOGGER.info("Restored messaging suppression flag from previous state")
             # Try to sync to NM immediately (may not exist yet)
             await self._sync_to_nm()
@@ -3480,11 +3499,92 @@ class NMMessagingSuppressSwitch(SwitchEntity, RestoreEntity):
             return
         self._sync_retries = 0
         if self._is_on and not nm.messaging_suppressed:
+            # Notification Hygiene FIX 1 (B-2026-08-03-3(c)): if the
+            # restored ON state is older than the max-age gate, refuse
+            # to restore — come up unsuppressed and emit a one-shot
+            # MEDIUM so the operator can re-engage intentionally. Only
+            # applies to the restore-triggered sync path; operator
+            # toggles (async_turn_on) bypass this gate.
+            if self._restore_pending:
+                self._restore_pending = False
+                from .const import NM_SUPPRESSION_RESTORE_MAX_AGE_S
+                from homeassistant.util import dt as _dtu
+                max_age = int(NM_SUPPRESSION_RESTORE_MAX_AGE_S)
+                stale = False
+                age_s: float | None = None
+                if max_age > 0:
+                    # MED-A3: earliest-wins across (nm._suppressed_since,
+                    # switch attribute, last_changed). Removes the
+                    # dependence on NM restoring _suppressed_since before
+                    # the sync fires. Any source may be absent / invalid.
+                    candidates: list = []
+                    nm_since = getattr(nm, "_suppressed_since", None)
+                    if nm_since is not None:
+                        candidates.append(nm_since)
+                    sw_iso = getattr(self, "_suppressed_since_attr", None)
+                    if isinstance(sw_iso, str) and sw_iso:
+                        try:
+                            candidates.append(_dtu.parse_datetime(sw_iso))
+                        except Exception:  # noqa: BLE001
+                            _LOGGER.debug(
+                                "switch suppressed_since parse failed (swallowed)",
+                                exc_info=True,
+                            )
+                    st = self.hass.states.get(self.entity_id) if self.entity_id else None
+                    lc = getattr(st, "last_changed", None) if st else None
+                    if lc is not None:
+                        candidates.append(lc)
+                    # Drop Nones from parse failures; require tz-aware for compare.
+                    candidates = [c for c in candidates if c is not None]
+                    since = min(candidates) if candidates else None
+                    if since is not None:
+                        try:
+                            age_s = (_dtu.utcnow() - since).total_seconds()
+                            stale = age_s > max_age
+                        except (TypeError, ValueError):
+                            stale = False
+                if stale:
+                    self._is_on = False
+                    _LOGGER.warning(
+                        "NM messaging suppression NOT restored on startup — "
+                        "prior suppression was %.0fs old (max_age=%ds). Coming "
+                        "up unsuppressed. Re-enable via switch if intended.",
+                        age_s or 0.0, max_age,
+                    )
+                    self.async_write_ha_state()
+                    # One-shot MEDIUM notification (NM is unsuppressed so
+                    # this fires through normal channels).
+                    try:
+                        from .domain_coordinators.base import Severity
+                        days = int((age_s or 0) // 86400)
+                        await nm.async_notify(
+                            coordinator_id="notification_manager",
+                            # MED-A4: promote to HIGH so the stale-suppression
+                            # one-shot bypasses digest preferences (immediate).
+                            severity=Severity.HIGH,
+                            title="NM suppression not restored across restart",
+                            message=(
+                                f"NM messaging suppression was ON for "
+                                f"~{days}d before restart (older than "
+                                f"{max_age // 3600}h max). URA came up "
+                                "unsuppressed — re-enable if intended."
+                            ),
+                            hazard_type=None,
+                            location=None,
+                        )
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.debug(
+                            "One-shot stale-suppression notify failed (swallowed)",
+                            exc_info=True,
+                        )
+                    return
             await nm.async_suppress_messaging()
             _LOGGER.info("Synced messaging suppression to NM")
         elif not self._is_on and nm.messaging_suppressed:
             await nm.async_resume_messaging()
             _LOGGER.info("Synced messaging resume to NM")
+        # Clear restore flag on any successful sync (idempotent).
+        self._restore_pending = False
 
     def _get_nm(self):
         """Get the notification manager instance."""
@@ -3497,7 +3597,22 @@ class NMMessagingSuppressSwitch(SwitchEntity, RestoreEntity):
 
     async def async_turn_on(self, **kwargs) -> None:
         """Suppress all outbound messaging."""
+        # HIGH-A1: operator intent supersedes any pending restore-sync.
+        # Cancel a deferred restore-sync so its stale age gate can't run
+        # against a fresh toggle, and clear the restore-pending flag.
+        self._restore_pending = False
+        if self._sync_unsub:
+            try:
+                self._sync_unsub()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("cancel pending sync raised (swallowed)", exc_info=True)
+            self._sync_unsub = None
         self._is_on = True
+        # MED-A3: stamp suppression origin on the switch itself so the
+        # stale gate has an authoritative earliest-wins source that does
+        # not depend on NM restore ordering.
+        from homeassistant.util import dt as _dtu
+        self._suppressed_since_attr = _dtu.utcnow().isoformat()
         nm = self._get_nm()
         if nm is not None:
             await nm.async_suppress_messaging()
@@ -3508,7 +3623,17 @@ class NMMessagingSuppressSwitch(SwitchEntity, RestoreEntity):
 
     async def async_turn_off(self, **kwargs) -> None:
         """Resume outbound messaging."""
+        # HIGH-A1: operator intent supersedes any pending restore-sync.
+        self._restore_pending = False
+        if self._sync_unsub:
+            try:
+                self._sync_unsub()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("cancel pending sync raised (swallowed)", exc_info=True)
+            self._sync_unsub = None
         self._is_on = False
+        # MED-A3: clear suppression origin attribute on operator resume.
+        self._suppressed_since_attr = None
         nm = self._get_nm()
         if nm is not None:
             await nm.async_resume_messaging()
@@ -3516,6 +3641,16 @@ class NMMessagingSuppressSwitch(SwitchEntity, RestoreEntity):
             self._sync_retries = 0
             await self._sync_to_nm()
         self.async_write_ha_state()
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """MED-A3: expose suppression origin timestamp for the stale gate.
+
+        Persisted via RestoreEntity and read back in
+        ``async_added_to_hass`` so the earliest-wins gate does not depend
+        on NM having repopulated ``_suppressed_since`` yet.
+        """
+        return {"suppressed_since": self._suppressed_since_attr}
 
     @property
     def available(self) -> bool:
