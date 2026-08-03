@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.47.2
+# Universal Room Automation vv5.48.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -4642,6 +4642,18 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
                 }
             # v4.7.15 D3: WAKING-gate diagnostic counter.
             attrs["wake_blocked_ticks"] = getattr(presence, "_wake_blocked_ticks", 0)
+            # B-2026-08-03-2 fix-up MED-B: arriving re-arm cooldown counters
+            # + active state. `arriving_rearm_active` is a bool derived from
+            # `_arriving_rearm_until > 0` (0.0 = inactive/expired).
+            attrs["arriving_rearm_suppressed"] = getattr(
+                presence, "_arriving_rearm_suppressed", 0
+            )
+            attrs["arriving_rearm_bypassed"] = getattr(
+                presence, "_arriving_rearm_bypassed", 0
+            )
+            attrs["arriving_rearm_active"] = bool(
+                getattr(presence, "_arriving_rearm_until", 0.0) > 0.0
+            )
             # v4.7.18.1 D2: Daytime wake-backstop diagnostic counter.
             attrs["wake_backstop_fires"] = getattr(presence, "_wake_backstop_fires", 0)
             # Cold-boot away-actuation storm mitigation — gate observability.

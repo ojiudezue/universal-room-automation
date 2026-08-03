@@ -37,6 +37,7 @@ from .hvac_const import (
     DEFAULT_FAN_HYSTERESIS,
     DEFAULT_FAN_MIN_RUNTIME,
     DEFAULT_FAN_VACANCY_HOLD,
+    FAN_ADOPTED_VACANCY_HOLD_MULT,
     FAN_SPEED_HIGH_DELTA,
     FAN_SPEED_HIGH_PCT,
     FAN_SPEED_LOW_DELTA,
@@ -166,9 +167,12 @@ class FanController:
         Called when fan_control_enabled is toggled off so fans don't
         stay running indefinitely. Idempotent — safe to call every cycle.
         """
-        for room_fan in self._room_fans.values():
+        for room_name, room_fan in self._room_fans.items():
             if room_fan.is_on:
-                await self._set_fan_state(room_fan.fan_entities, False, 0)
+                await self._set_fan_state(
+                    room_fan.fan_entities, False, 0,
+                    room_name=room_name, trigger_path="turn_off_all_managed",
+                )
             room_fan.is_on = False
             room_fan.trigger = ""
             room_fan.speed_pct = 0
@@ -287,9 +291,22 @@ class FanController:
                 room_fan.trigger = "external"
                 room_fan.speed_pct = observed_speed
                 room_fan.last_on_time = now.isoformat()
+                # hotfix/fan-sweep-trio (2026-08-03): externally-adopted
+                # fans get the same manual-off cooldown gate a URA-lit fan
+                # gets after an external OFF (lines 219-222 reuse). This
+                # blocks HVAC from immediately sweeping an operator-lit
+                # fan on the next tick before genuine vacancy criteria
+                # accrue. Kill switch: DEFAULT_FAN_MANUAL_OFF_COOLDOWN_S=0
+                # disables (matches existing pattern).
+                if DEFAULT_FAN_MANUAL_OFF_COOLDOWN_S:
+                    room_fan.manual_off_cooldown_until = (
+                        now + timedelta(seconds=DEFAULT_FAN_MANUAL_OFF_COOLDOWN_S)
+                    ).isoformat()
                 _LOGGER.info(
-                    "HVAC Fans: %s adopted externally-lit fan (speed=%d%%)",
+                    "HVAC Fans: %s adopted externally-lit fan (speed=%d%%, "
+                    "cooldown_until=%s)",
                     room_name, observed_speed,
+                    room_fan.manual_off_cooldown_until or "disabled",
                 )
 
             zone = self._zone_manager.zones.get(room_fan.zone_id)
@@ -380,7 +397,9 @@ class FanController:
                             # unaffected.
                             continue
                     await self._set_fan_state(
-                        room_fan.fan_entities, should_on, speed
+                        room_fan.fan_entities, should_on, speed,
+                        room_name=room_name,
+                        trigger_path=f"update:{trigger or 'vacancy_off'}",
                     )
                     room_fan.is_on = should_on
                     room_fan.speed_pct = speed if should_on else 0
@@ -488,8 +507,15 @@ class FanController:
         """
         delta = room_temp - setpoint_high
 
-        # v4.0.18: Manual off cooldown — skip all activation triggers
-        if room_fan.manual_off_cooldown_until:
+        # v4.0.18: Manual off cooldown — skip all activation triggers.
+        # hotfix/fan-sweep-trio (2026-08-03): gate is scoped to `not is_on`
+        # to preserve its original semantic (block URA re-activation of a
+        # fan that an external actor turned OFF). The adoption branch now
+        # sets manual_off_cooldown_until on an is_on=True fan as a marker;
+        # returning False here for an ON fan would have the caller sweep
+        # the adopted fan on the very next tick — exactly the class the
+        # cycle is instrumenting against.
+        if room_fan.manual_off_cooldown_until and not room_fan.is_on:
             try:
                 cooldown_until = datetime.fromisoformat(room_fan.manual_off_cooldown_until)
                 if now < cooldown_until:
@@ -592,7 +618,28 @@ class FanController:
                         "HVAC Fans: %s night-trust person check errored: %s",
                         room_fan.room_name, exc,
                     )
-            if vacancy_seconds >= DEFAULT_FAN_VACANCY_HOLD:
+            # hotfix/fan-sweep-trio (2026-08-03): externally-adopted fans
+            # get a longer hold (FAN_ADOPTED_VACANCY_HOLD_MULT * base).
+            # Rationale: something-not-URA lit this fan; give the operator
+            # more grace before HVAC sweeps it off in a vacant room. Kill
+            # switch: FAN_ADOPTED_VACANCY_HOLD_MULT=1.0 restores identical
+            # timing to URA-lit fans. Applied via multiplier so
+            # DEFAULT_FAN_VACANCY_HOLD remains the single source of truth
+            # for the URA-lit path.
+            # LOW-A fix-up (2026-08-03): note — a legitimate URA
+            # re-actuation while the fan is adopted (trigger=="external")
+            # rewrites `room_fan.trigger` to the URA reason at the
+            # actuation site above (~line 406) and thereby collapses this
+            # hold back to base on the next tick. That is intentional:
+            # once URA re-decides to run the fan for its own reason, the
+            # co-managed timing applies. The 2x hold is scoped to a fan
+            # URA has NOT (yet) chosen to command.
+            effective_hold = DEFAULT_FAN_VACANCY_HOLD
+            if room_fan.trigger == "external":
+                effective_hold = int(
+                    DEFAULT_FAN_VACANCY_HOLD * FAN_ADOPTED_VACANCY_HOLD_MULT,
+                )
+            if vacancy_seconds >= effective_hold:
                 return False, "", 0
             # Hold on during vacancy window at current speed
             return True, room_fan.trigger, room_fan.speed_pct
@@ -649,8 +696,22 @@ class FanController:
 
     async def _set_fan_state(
         self, entities: list[str], on: bool, speed_pct: int,
+        *,
+        room_name: str | None = None,
+        trigger_path: str | None = None,
     ) -> None:
-        """Set fan entities on/off with speed."""
+        """Set fan entities on/off with speed.
+
+        hotfix/fan-sweep-trio (2026-08-03): OFF dispatches now emit an
+        ``actuation_conflict`` memory episode when the target room's
+        occupancy binary_sensor is ``on`` at dispatch time. Observation-
+        only — never blocks or defers actuation. Copy of the fan_veto.py
+        writer shape (shared slugify, exception-contained, DAO dedup).
+        room_name and trigger_path are keyword-only so existing callers
+        (and any that intentionally pass None) don't get instrumented.
+        """
+        if not on and room_name:
+            self._record_actuation_conflict_if_occupied(room_name, trigger_path)
         for entity_id in entities:
             try:
                 if on:
@@ -681,6 +742,64 @@ class FanController:
                         )
             except Exception as e:
                 _LOGGER.error("HVAC Fans: failed to control %s: %s", entity_id, e)
+
+    def _record_actuation_conflict_if_occupied(
+        self, room_name: str, trigger_path: str | None,
+    ) -> None:
+        """Emit ``actuation_conflict`` memory episode if room is occupied.
+
+        hotfix/fan-sweep-trio (2026-08-03): observe-only writer for the
+        2026-08-03 incident class (HVAC fan turn-off dispatched into an
+        occupied room). Copies the fan_veto.py:_record_veto shape:
+        shared slugify, DAO handles dedup, exception-contained. Missing
+        DB, missing memory_facade, or absent occupancy sensor all no-op.
+        """
+        # LOW-A fix-up (2026-08-03): turn_off_all_managed is an operator-
+        # commanded global sweep (Fan Control switch turned OFF), not a
+        # controller-decided actuation into an occupied room. Suppress the
+        # episode for this trigger only — controller-decided OFFs
+        # (vacancy_off / sleep / veto) still emit.
+        if trigger_path == "turn_off_all_managed":
+            return
+        try:
+            # LOW-B3 fix-up (2026-08-03): use the shared memory_facade
+            # slugifier (single source of truth) rather than an inline copy.
+            # No import cycle: memory_facade only imports from .const +
+            # stdlib (verified 2026-08-03).
+            from ..memory_facade import _slugify
+            slug = _slugify(room_name or "")
+            occ_state = self.hass.states.get(f"binary_sensor.{slug}_occupied")
+            if occ_state is None or occ_state.state != "on":
+                return
+            db = self.hass.data.get(DOMAIN, {}).get("database")
+            if db is None or not hasattr(db, "log_memory_episode"):
+                return
+            # House state — read via memory_facade helper if available,
+            # else best-effort attribute.
+            house_state = ""
+            try:
+                from ..fan_veto import _get_house_state as _ghs
+                house_state = _ghs(self.hass) or ""
+            except Exception:  # noqa: BLE001
+                # Fallback: cached in-cycle house state if the helper is
+                # unavailable (test harnesses may not import fan_veto).
+                house_state = self._house_state or ""
+            self.hass.async_create_task(
+                db.log_memory_episode(
+                    node_id=f"room:{slug}",
+                    episode_type="actuation_conflict",
+                    adjudication="unadjudicated",
+                    adjudicated_by="hvac_fan_controller",
+                    attrs={
+                        "action": "fan_off",
+                        "trigger": trigger_path or "unknown",
+                        "house_state": house_state,
+                    },
+                    source_ref="hvac_fans.py:_set_fan_state",
+                ),
+            )
+        except Exception:  # noqa: BLE001 — never fail actuation on memory I/O
+            pass
 
     def suppress_room_until(self, room_name: str, until_iso: str) -> None:
         """Set HVAC suppression window for a room (fan-recheck handshake)."""

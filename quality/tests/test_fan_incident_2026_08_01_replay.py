@@ -512,8 +512,62 @@ class TestBug2SyncAdoptExternalOn:
             svc != "turn_on" for (_d, svc, _dat) in svc_log
         ), "Adoption must NOT emit a turn_on service call"
 
-    def test_externally_adopted_fan_turns_off_on_vacancy(self):
-        """Full incident replay chain: adopt → vacancy grace → OFF."""
+    def test_ura_lit_fan_turns_off_at_base_vacancy_hold(self):
+        """URA-lit (trigger != 'external') fan is swept OFF at base
+        vacancy hold — incident-class boundary pin (lower edge).
+
+        Fix-up B1 split: previously this test used the adoption path AND
+        asserted OFF at base+hold+60s, but fan-sweep-trio FIX B doubled
+        the hold for adopted fans (multiplier=2.0). The incident class
+        must stay pinned at BOTH boundaries — this test now covers the
+        URA-lit boundary; the split sibling below covers adopted.
+        """
+        from custom_components.universal_room_automation.domain_coordinators.hvac_const import (  # noqa: E501
+            FAN_ADOPTED_VACANCY_HOLD_MULT as _MULT,  # noqa: F401
+        )
+        base = datetime(2026, 8, 1, 8, 6, 0)
+        _set_now(base)
+
+        ctrl, room_fan, svc_log, _ = _make_hvac_controller_and_fan(
+            entity_on=True, entity_speed=100,
+        )
+        # Prime as URA-lit (bypass adoption).
+        room_fan.is_on = True
+        room_fan.trigger = "temperature"
+        room_fan.speed_pct = 66
+        room_fan.last_on_time = base.isoformat()
+
+        turn_off_before = sum(
+            1 for (_d, svc, _dat) in svc_log if svc == "turn_off"
+        )
+
+        # Tick 1: anchor vacancy_detected_time.
+        _set_now(base + timedelta(seconds=1))
+        _run(ctrl.update(energy_constraint=None, house_state="home_day"))
+        assert room_fan.trigger != "external", (
+            "trigger must remain URA-lit (base-hold applies)"
+        )
+        assert room_fan.vacancy_detected_time != ""
+
+        # Tick 2: past base vacancy hold → OFF fires.
+        _set_now(base + timedelta(seconds=DEFAULT_FAN_VACANCY_HOLD + 60))
+        _run(ctrl.update(energy_constraint=None, house_state="home_day"))
+        turn_off_after = sum(
+            1 for (_d, svc, _dat) in svc_log if svc == "turn_off"
+        )
+        assert turn_off_after > turn_off_before, (
+            "URA-lit fan must be swept OFF at base vacancy hold"
+        )
+
+    def test_adopted_fan_turns_off_only_after_doubled_vacancy_hold(self):
+        """Fix-up B1 split (upper boundary): adopted (trigger='external')
+        fan is NOT swept at base hold + margin, but IS swept past
+        2 * base hold. Pins the incident class at the adopted boundary
+        so FIX B's multiplier can't drift silently.
+        """
+        from custom_components.universal_room_automation.domain_coordinators.hvac_const import (  # noqa: E501
+            FAN_ADOPTED_VACANCY_HOLD_MULT,
+        )
         base = datetime(2026, 8, 1, 8, 6, 0)
         _set_now(base)
 
@@ -524,28 +578,28 @@ class TestBug2SyncAdoptExternalOn:
         # Tick 1: adopt.
         _run(ctrl.update(energy_constraint=None, house_state="home_day"))
         assert room_fan.is_on is True and room_fan.trigger == "external"
-        turn_off_before = sum(
+
+        # Tick 2: base+hold+60 — adopted fan must NOT be swept yet.
+        _set_now(base + timedelta(seconds=DEFAULT_FAN_VACANCY_HOLD + 60))
+        _run(ctrl.update(energy_constraint=None, house_state="home_day"))
+        turn_offs_at_base = sum(
             1 for (_d, svc, _dat) in svc_log if svc == "turn_off"
         )
-
-        # Tick 2: vacancy hold anchor gets stamped.
-        _set_now(base + timedelta(seconds=60))
-        _run(ctrl.update(energy_constraint=None, house_state="home_day"))
-        assert room_fan.vacancy_detected_time != "", (
-            "Vacancy-off machinery must anchor after adoption"
+        assert turn_offs_at_base == 0, (
+            "B1: adopted fan must NOT be swept at base vacancy hold "
+            "(FIX B doubles hold for external trigger)"
         )
 
-        # Tick 3: past vacancy hold → OFF fires.
-        _set_now(base + timedelta(
-            seconds=60 + DEFAULT_FAN_VACANCY_HOLD + 60,
-        ))
+        # Tick 3: past 2x hold → OFF fires (incident-class guard).
+        doubled = int(DEFAULT_FAN_VACANCY_HOLD * FAN_ADOPTED_VACANCY_HOLD_MULT)
+        _set_now(base + timedelta(seconds=doubled + 60))
         _run(ctrl.update(energy_constraint=None, house_state="home_day"))
-        turn_off_after = sum(
+        turn_offs_at_doubled = sum(
             1 for (_d, svc, _dat) in svc_log if svc == "turn_off"
         )
-        assert turn_off_after > turn_off_before, (
-            "BUG 2 replay: adopted-external fan must be turned off after "
-            "vacancy hold expires (nobody-owns-the-off regression guard)"
+        assert turn_offs_at_doubled > 0, (
+            "BUG 2 replay (adopted boundary): adopted-external fan must "
+            "be swept OFF past 2x vacancy hold (nobody-owns-the-off guard)"
         )
 
 

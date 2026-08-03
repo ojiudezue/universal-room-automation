@@ -1530,3 +1530,49 @@ the single-source right or it's a dual-source drift bug. RestoreEntity must not 
 unavailable→OFF (Bug Class #52).
 
 **Tier:** likely Tier 2 (config flow + options flow + RestoreEntity round-trip). ~small.
+
+## 2026-08-03 — overnight findings (operator away, family home)
+
+### B-2026-08-03-1: Anomaly floor for near-zero-variance baselines (SMALL — worth it)
+The SPAN dryer standby jitter (3.4 W) fired a z=10.4 consumption anomaly
+because the away-baseline variance was near zero — z-scores explode on
+tight baselines regardless of absolute magnitude. Fix: a minimum
+absolute-deviation floor (per metric class, rung-1 const, e.g. watts
+floor for circuit anomalies) that must ALSO be exceeded before an
+anomaly emits. One guard + one const; kills an entire false-positive
+class. Marginal-benefit check: PASS (trivial cost, recurring noise
+source — same shape will fire on every idle circuit with a quiet week).
+Same guard belongs in memory's unusual() consumer path eventually
+(shared principle: |value-mean| floor AND z threshold).
+
+### B-2026-08-03-2: Arriving re-arm cooldown after failed deferred_retry (SMALL — worth it, with a check)
+2026-08-03 00:30–03:29Z: 15× away→arriving→away flaps, each lasting
+exactly 61 s, all driven by outdoor-zone (Patio) motion whose evidence
+is correctly EXCLUDED from occupancy confidence — so every arriving
+attempt failed its deferred-retry check and collapsed back. Fix: after
+a deferred_retry failure, suppress re-entering arriving from the SAME
+evidence class (outdoor-only) for a cooldown (e.g. 15 min, rung-1
+const); genuinely new evidence (interior tier1, tracker, egress camera)
+bypasses the cooldown immediately. Marginal-benefit check: PASS on
+state-churn grounds (each flap fires house-state signals into every
+coordinator — 30 spurious transitions/night is real churn), but builder
+MUST verify the arrival-latch path first: the real family arrival at
+05:43Z latched in ~3 min — the cooldown must not add latency to a real
+arrival (tracker/egress evidence bypass is the load-bearing clause).
+
+### B-2026-08-03-3: NM messaging-suppression visibility (TINY — worth it)
+The global kill switch (switch.ura_notification_manager_messaging_
+suppressed) sat ON for 6+ days, silently swallowing ALL notifications
+incl. would-be exterior CRITICALs. It logs one WARNING at flip time and
+is then invisible. Fix: (a) NM heartbeat/diagnostics sensor exposes
+messaging_suppressed prominently; (b) a daily WARNING log while
+suppressed ("messaging suppressed for N days"); (c) candidate: NM
+refuses to restore suppressed=ON across restart older than 24h without
+re-confirmation (operator decision needed on (c) — it changes kill-
+switch semantics). (a)+(b) are unambiguous; file (c) as a question.
+
+### B-2026-08-03-4: Sweep-audit follow-ups (from af audit, post fan-sweep-trio hotfix)
+- **Group D #52 guard sweep** (~8 switches: HVACZoneSweepSwitch, SecurityDelegateLights, per-room Automation/Override/Climate/Cover/AutoRecovery switches) — add `in ("on","off")` restore guard; extract URARestoreMixin so future switches can't drift. Small cycle, 3-review (touches many switches).
+- **enablement_changed memory episodes** — writer at the switch base/mixin so operator kill-switch flips + resurrections are episodic (the 7/29 fan_control resurrection would have been one query). Rides the mixin cycle naturally.
+- **turn_off_all_managed redesign (S1)** — disable switch should stop ACTING, not force global OFF; never sweep external/adopted-trigger fans; occupied-room guard. Tier 3 candidate w/ falsifiable invariant: "under fan_control toggled OFF or a preset transition, no fan in an occupied room is turned off by HVAC within one cycle."
+- **6AM waking→home_day promotion** — sleep→waking fired on an occupancy DECREASE (kid's room release) and deferred_retry PROMOTED to home_day 61s later with everyone in bed. Same deferred_retry machinery as the arriving flapping (fix in flight covers the away side only). State-machine cycle: waking inference evidence classes + promotion guard (e.g. require interior wake evidence: master exit, kitchen entry, tracker activity — not sibling-room release).

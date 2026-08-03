@@ -34,6 +34,16 @@ CIRCUIT_Z_ALERT = 4.0      # Generate anomaly alert
 CIRCUIT_MIN_SAMPLES = 60   # ~5 hours at 5min intervals
 CIRCUIT_ZSCORE_COOLDOWN_S = 1800  # 30min cooldown between repeated z-score alerts
 
+# B-2026-08-03-1: Minimum absolute-deviation floor (watts) for circuit
+# consumption anomalies. Prevents z-score explosions on near-zero-variance
+# baselines (e.g. SPAN dryer standby jitter mean~0.3W sd~0.3W observed 3.4W
+# → z=10.4 but only 3W above baseline). An anomaly emits only when BOTH
+# z >= CIRCUIT_Z_ALERT AND |observed - mean| >= this floor.
+# Kill-switch: 0.0 disables the floor (z-only behavior, pre-fix semantics).
+# Rung-1 constant (per Numbers-Get-Knobs): tunable only via reviewed code
+# change; not exposed as an operator knob.
+ANOMALY_ABS_FLOOR_W = 50.0
+
 # Generator status values
 GEN_RUNNING = "running"
 GEN_STANDBY = "standby"
@@ -277,7 +287,13 @@ class SPANCircuitMonitor:
             baseline = self._get_power_baseline(entity_id)
             if baseline.sample_count >= CIRCUIT_MIN_SAMPLES and power > 0:
                 z = baseline.z_score(power)
-                if z >= CIRCUIT_Z_ALERT:
+                # B-2026-08-03-1: absolute-deviation floor. On near-zero
+                # variance baselines z explodes on trivial deltas (dryer
+                # standby 3W above 0.3W mean → z=10.4). Suppress unless the
+                # observed value is at least ANOMALY_ABS_FLOOR_W away from
+                # mean. Kill-switch: floor == 0.0 → z-only (pre-fix) shape.
+                abs_dev = abs(power - baseline.mean)
+                if z >= CIRCUIT_Z_ALERT and abs_dev >= ANOMALY_ABS_FLOOR_W:
                     # v3.13.3: Dedup — only alert if cooldown has elapsed
                     last_alert = self._zscore_alerted.get(entity_id, 0)
                     if (now - last_alert) >= CIRCUIT_ZSCORE_COOLDOWN_S:
@@ -303,6 +319,17 @@ class SPANCircuitMonitor:
                     _LOGGER.debug(
                         "Circuit advisory: %s — elevated consumption %.0fW (z=%.1f)",
                         circuit.friendly_name, power, z,
+                    )
+                elif (
+                    z >= CIRCUIT_Z_ALERT
+                    and ANOMALY_ABS_FLOOR_W > 0.0
+                    and abs_dev < ANOMALY_ABS_FLOOR_W
+                ):
+                    _LOGGER.debug(
+                        "Circuit anomaly suppressed by abs-floor: %s power=%.1fW "
+                        "z=%.1f mean=%.2fW dev=%.1fW < floor=%.1fW",
+                        circuit.friendly_name, power, z,
+                        baseline.mean, abs_dev, ANOMALY_ABS_FLOOR_W,
                     )
             # Update baseline with current reading (after check)
             if power >= 0:

@@ -241,6 +241,23 @@ class NotificationManager:
 
         # State
         self._messaging_suppressed = False
+        # B-2026-08-03-3(a): timestamp of the current suppression episode.
+        # Set on suppress, cleared on resume. Restored across HA restart via
+        # NMDiagnosticsSensor RestoreEntity so the "N days suppressed" figure
+        # survives restarts.
+        #
+        # LOW-A3 (Reviewer A) fix-up: correct the reachability wording.
+        # First boot AFTER this fix ships (switch was ON from a prior
+        # restart, no persisted _suppressed_since exists) the resync path
+        # stamps the current restart time — this is a TRANSITIONAL
+        # UNDERREPORT of the true suppression duration and SELF-HEALS on
+        # the next OFF→ON flip cycle. The switch-`last_changed` fallback
+        # in `_log_nm_suppression_daily_warning` is therefore only
+        # reachable when BOTH the NMDiagnosticsSensor restore AND the
+        # resync-stamp path miss (a rare cold-boot ordering race), which
+        # is why it exists as an honest approximation rather than a
+        # primary source.
+        self._suppressed_since: datetime | None = None
         self._alert_state = AlertState.IDLE
         self._active_alert_data: dict[str, Any] | None = None
         self._repeat_unsub: CALLBACK_TYPE | None = None
@@ -565,7 +582,13 @@ class NotificationManager:
         Cancels all timers (repeat, cooldown, countdown) and alert lights.
         Preserves _silence_until so it can resume if messaging is re-enabled.
         """
+        was_suppressed = self._messaging_suppressed
         self._messaging_suppressed = True
+        # B-2026-08-03-3(a): stamp the suppression origin. Only set on the
+        # flip edge; a restart re-sync (switch.on → suppress_messaging) with
+        # a valid restored timestamp must NOT clobber the true origin.
+        if not was_suppressed and self._suppressed_since is None:
+            self._suppressed_since = dt_util.utcnow()
         _LOGGER.warning("Messaging suppressed — all outbound notifications halted")
 
         # Cancel repeat timer
@@ -597,6 +620,8 @@ class NotificationManager:
     async def async_resume_messaging(self) -> None:
         """Resume outbound messaging."""
         self._messaging_suppressed = False
+        # B-2026-08-03-3(a): clear suppression origin on resume.
+        self._suppressed_since = None
         _LOGGER.info("Messaging resumed — outbound notifications re-enabled")
 
     @property
@@ -650,6 +675,15 @@ class NotificationManager:
             "by_channel": dict(self._notifications_by_channel),
             "inbound_today": self._inbound_today_count,
             "messaging_suppressed": self._messaging_suppressed,
+            # B-2026-08-03-3(a): expose suppression origin timestamp (ISO
+            # string; None when messaging is not suppressed). Sensor surface
+            # promotes this to a top-level attribute so operator dashboards
+            # can render "suppressed since <date>" without introspection.
+            "suppressed_since": (
+                self._suppressed_since.isoformat()
+                if self._suppressed_since is not None
+                else None
+            ),
             "safe_word_configured": self.safe_word_configured,
             "inbound_channels_active": [
                 ch for ch, enabled in [
@@ -745,6 +779,13 @@ class NotificationManager:
                 f"{pid}::{ch}": exp.isoformat()
                 for (pid, ch), exp in self._person_channel_mutes.items()
             },
+            # B-2026-08-03-3(a): persist suppression origin so "N days
+            # suppressed" survives restart. ISO string or None.
+            "suppressed_since": (
+                self._suppressed_since.isoformat()
+                if self._suppressed_since is not None
+                else None
+            ),
         }
 
     def restore_persistence_state(self, state: dict[str, Any]) -> None:
@@ -790,6 +831,16 @@ class NotificationManager:
         active_ep = state.get("active_episode_id")
         if isinstance(active_ep, str):
             self._active_episode_id = active_ep
+        # B-2026-08-03-3(a): restore suppressed_since so post-restart
+        # "N days suppressed" is honest. Guarded — a malformed value falls
+        # through to None (daily-warning hook then approximates from the
+        # switch's last_changed).
+        sus = state.get("suppressed_since")
+        if isinstance(sus, str):
+            try:
+                self._suppressed_since = datetime.fromisoformat(sus)
+            except (TypeError, ValueError):
+                self._suppressed_since = None
         # NM Cycle C C4: restore mutes; drop past-expiry entries.
         mutes = state.get("person_channel_mutes")
         if isinstance(mutes, dict):
