@@ -372,6 +372,15 @@ FAN_SPEED_LOW_DELTA: Final = 2.0  # +2-3F -> low
 FAN_SPEED_MED_DELTA: Final = 3.0  # +3-5F -> med
 FAN_SPEED_HIGH_DELTA: Final = 5.0  # >+5F -> high
 DEFAULT_FAN_VACANCY_HOLD: Final = 300  # 5 min hold after vacancy
+# hotfix/fan-sweep-trio (2026-08-03): externally-adopted fans get a longer
+# vacancy hold before HVAC turns them off. Rationale: an adopted fan was
+# lit by something the operator (or another automation) chose — don't yank
+# it as aggressively as one URA itself put on. Multiplier applied ONLY to
+# room_fan.trigger == "external". Kill-switch: set to 1.0 to disable
+# (behaves identically to a URA-lit fan). Rung-1 module const per
+# "Numbers Get Knobs" — changing this affects sweep timing and should
+# require review.
+FAN_ADOPTED_VACANCY_HOLD_MULT: Final = 2.0
 # v4.6.2.1: Humidity-fan on/off thresholds moved to ..const as
 # DEFAULT_HUMIDITY_THRESHOLD and DEFAULT_HUMIDITY_FAN_HYSTERESIS.
 

@@ -2757,6 +2757,10 @@ MEMORY_EPISODE_TYPES: Final = frozenset({
     "hazard_recurrent",
     "fan_transition_suppressed",
     "comfort_fan_vetoed",
+    # hotfix/fan-sweep-trio (2026-08-03): HVAC fan turn-off dispatched
+    # against an occupied room — episodic record of the "who owns the OFF
+    # while the room is populated" class. Observe-only; no actuation change.
+    "actuation_conflict",
 })
 
 MEMORY_FACT_TOPICS: Final = frozenset({
