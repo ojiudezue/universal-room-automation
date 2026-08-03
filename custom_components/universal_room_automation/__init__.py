@@ -80,6 +80,51 @@ _LOGGER = logging.getLogger(__name__)
 # migration body makes it callable from tests without invoking the whole
 # HA startup path.
 # ---------------------------------------------------------------------------
+def _log_nm_suppression_daily_warning(hass: HomeAssistant) -> None:
+    """B-2026-08-03-3(b): emit one WARNING/day while NM messaging is
+    suppressed, so a long-forgotten kill switch is visible in journald
+    (previously logged one WARN at flip time only).
+
+    Duration is derived from ``nm._suppressed_since`` when available. If
+    NM has no stamp yet (e.g. first boot after this fix ships, or the
+    suppress-on-resync path ran with restore missing), we fall back to
+    ``switch.ura_nm_messaging_suppressed.last_changed`` as an HONEST
+    APPROXIMATION — the switch's RestoreEntity round-trip preserves the
+    ON state across restart, and `last_changed` is the closest surrogate
+    for "when did suppression start". If both are unavailable, we log the
+    warning without a duration.
+    """
+    nm = hass.data.get(DOMAIN, {}).get("notification_manager")
+    if nm is None or not getattr(nm, "messaging_suppressed", False):
+        return
+    from homeassistant.util import dt as _dtu
+    now = _dtu.utcnow()
+    since = getattr(nm, "_suppressed_since", None)
+    duration_source = "nm_suppressed_since"
+    if since is None:
+        state = hass.states.get("switch.ura_nm_messaging_suppressed")
+        if state is not None and getattr(state, "last_changed", None) is not None:
+            since = state.last_changed
+            duration_source = "switch_last_changed_approx"
+    if since is not None:
+        try:
+            days = max(0, int((now - since).total_seconds() // 86400))
+        except (TypeError, ValueError):
+            days = 0
+        _LOGGER.warning(
+            "NM messaging suppressed for %d days — all outbound "
+            "notifications are being dropped (source=%s)",
+            days,
+            duration_source,
+        )
+    else:
+        _LOGGER.warning(
+            "NM messaging suppressed — all outbound notifications are "
+            "being dropped (duration unknown: no _suppressed_since, no "
+            "switch.ura_nm_messaging_suppressed state)"
+        )
+
+
 def _is_phantom_compound(
     name: str, existing_zone_names_lower: set[str],
 ) -> tuple[bool, list[str]]:
@@ -1550,6 +1595,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                     al.clear_dedup_cache()
                             except Exception as exc:
                                 _LOGGER.debug("Daily activity prune failed: %s", exc)
+                            # B-2026-08-03-3(b): daily WARNING while NM
+                            # messaging is suppressed. Piggybacks this 2 AM
+                            # hook — no new timers. Falls back to the
+                            # switch's last_changed if NM has no
+                            # suppressed_since timestamp yet.
+                            try:
+                                _log_nm_suppression_daily_warning(hass)
+                            except Exception as exc:  # noqa: BLE001
+                                _LOGGER.debug(
+                                    "NM suppression daily-warning hook failed: %s",
+                                    exc,
+                                )
 
                         unsub_activity_prune = async_track_time_change(
                             hass, _daily_activity_prune, hour=2, minute=0, second=0
@@ -1678,6 +1735,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     if al:
                         al.clear_dedup_cache()
                 except Exception:
+                    pass
+                # B-2026-08-03-3(b): mirror the primary path — daily WARNING
+                # while NM messaging is suppressed.
+                try:
+                    _log_nm_suppression_daily_warning(hass)
+                except Exception:  # noqa: BLE001
                     pass
 
             unsub = _attc(hass, _daily_prune_deferred, hour=2, minute=0, second=0)
