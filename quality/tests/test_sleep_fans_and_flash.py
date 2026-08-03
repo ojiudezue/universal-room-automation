@@ -1214,3 +1214,21 @@ class TestFixup_CheckAutoOffWarning_Drive:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_config_flow_hvac_settings_step_names_resolve():
+    """v5.50.1 hotfix: CONF_SLEEP_FAN_ON_TEMP_F was referenced in the
+    coordinator_hvac_settings schema without an import — NameError at
+    form render (500 in the UI and the options-flow API). Pin: every
+    SLEEP_FAN name referenced in the step body has a matching import
+    line within the same step."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[2] /
+           "custom_components/universal_room_automation/config_flow.py").read_text()
+    i = src.find("async def async_step_coordinator_hvac_settings")
+    seg = src[i:src.find("\n    async def ", i + 10)]
+    for name in ("CONF_SLEEP_FAN_ON_TEMP_F", "DEFAULT_SLEEP_FAN_ON_TEMP_F"):
+        assert seg.count(name) >= 2, (
+            f"{name} referenced but not imported in the step (render 500)"
+        )
+    assert "from .const import" in seg
