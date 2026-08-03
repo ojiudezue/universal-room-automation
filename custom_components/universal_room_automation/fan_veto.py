@@ -488,6 +488,113 @@ def _record_veto(hass: HomeAssistant, room_name: str) -> None:
         pass
 
 
+# ------------------------------------------------------------------
+# feature/sleep-fans-and-flash — shared sleep-onset activation predicate
+# ------------------------------------------------------------------
+#
+# Consumed by BOTH fan-ownership tiers so bedroom sleep-onset activation
+# fires regardless of which tier owns a given room's comfort fan:
+#
+#     1. HVAC-tier: hvac_fans.py::FanController._sleep_onset_activation
+#        (rooms present in FanController._room_fans)
+#     2. Room-tier: automation.py::handle_temperature_based_fan_control
+#        (rooms whose _is_hvac_managing_fans() returns False — includes
+#        the operator-flagged Study-A class where
+#        hvac_coordination_enabled=True but the room isn't in the HVAC
+#        _room_fans dict due to Zone Manager wiring)
+#
+# Same shared-primitive pattern as should_veto_comfort_fan above: single
+# source of truth for the "is this room eligible + what speed?" decision.
+# Pure function — no HA/hass state reads — so both call sites can mutation-
+# anchor tests against it without spinning up a coordinator.
+
+
+def sleep_onset_fan_target(
+    room_config: dict[str, Any],
+    occupied: bool,
+    room_temp: float | None,
+    threshold: float,
+    policy: str,
+) -> int | None:
+    """Compute sleep-onset target speed% for a room, or None to skip.
+
+    Gates (all must hold, else returns None):
+      - threshold > 0 (master kill switch: CONF_SLEEP_FAN_ON_TEMP_F=0)
+      - room_config[CONF_ROOM_TYPE] == ROOM_TYPE_BEDROOM
+      - occupied is True (live presence)
+      - room_temp is not None and room_temp >= threshold
+      - policy != FAN_SLEEP_OFF (per-room opt-out)
+
+    Speed mapping (A-MED-1 fix-up 2026-08-03): operator contract is
+    "standard temp-delta ladder, policy-capped". Reuses the SAME ladder
+    thresholds FanController._compute_speed uses (FAN_SPEED_*_DELTA over
+    delta = room_temp - threshold) so both fan-decision surfaces share one
+    source of truth. Policy cap:
+      - FAN_SLEEP_NORMAL / default -> uncapped ladder (LOW/MED/HIGH)
+      - FAN_SLEEP_REDUCE           -> min(speed, FAN_SPEED_LOW_PCT)
+
+    Returns the target speed% (positive int) or None.
+    """
+    # Local imports keep the module import graph shallow and match the
+    # existing test-harness expectations for fan_veto.py (leaf module).
+    from .const import (
+        CONF_ROOM_TYPE,
+        DEFAULT_FAN_SLEEP_POLICY,
+        FAN_SLEEP_OFF,
+        FAN_SLEEP_REDUCE,
+        ROOM_TYPE_BEDROOM,
+        ROOM_TYPE_GENERIC,
+    )
+    from .domain_coordinators.hvac_const import (
+        FAN_SPEED_HIGH_DELTA,
+        FAN_SPEED_HIGH_PCT,
+        FAN_SPEED_LOW_DELTA,
+        FAN_SPEED_LOW_PCT,
+        FAN_SPEED_MED_DELTA,
+        FAN_SPEED_MED_PCT,
+    )
+
+    try:
+        if threshold is None or float(threshold) <= 0:
+            return None
+    except (TypeError, ValueError):
+        return None
+    if not occupied:
+        return None
+    if room_temp is None:
+        return None
+    try:
+        if float(room_temp) < float(threshold):
+            return None
+    except (TypeError, ValueError):
+        return None
+    room_type = (room_config or {}).get(CONF_ROOM_TYPE, ROOM_TYPE_GENERIC)
+    if room_type != ROOM_TYPE_BEDROOM:
+        return None
+    resolved_policy = policy or DEFAULT_FAN_SLEEP_POLICY
+    if resolved_policy == FAN_SLEEP_OFF:
+        return None
+
+    # Standard temp-delta ladder (same thresholds as
+    # FanController._compute_speed at hvac_fans.py::_compute_speed). A room
+    # that is only marginally above the sleep threshold (delta < LOW_DELTA)
+    # still gets LOW because we've already passed the eligibility gate
+    # (room_temp >= threshold) — this preserves the "warm bedroom at sleep
+    # entry" contract without over-driving the fan.
+    delta = float(room_temp) - float(threshold)
+    if delta >= FAN_SPEED_HIGH_DELTA:
+        speed = FAN_SPEED_HIGH_PCT
+    elif delta >= FAN_SPEED_MED_DELTA:
+        speed = FAN_SPEED_MED_PCT
+    elif delta >= FAN_SPEED_LOW_DELTA:
+        speed = FAN_SPEED_LOW_PCT
+    else:
+        speed = FAN_SPEED_LOW_PCT  # eligible but below LOW_DELTA — minimum
+    if resolved_policy == FAN_SLEEP_REDUCE:
+        return min(speed, FAN_SPEED_LOW_PCT)
+    return speed
+
+
 def get_veto_count(hass: HomeAssistant, room_name: str) -> int:
     """Return the current per-room comfort-fan veto count (D7)."""
     try:
