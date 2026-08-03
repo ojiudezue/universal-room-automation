@@ -4945,6 +4945,21 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.NumberSelectorMode.BOX,
                 )
             ),
+            # feature/sleep-fans-and-flash: sleep-onset bedroom fan on-temp.
+            # 0 disables the feature entirely (master kill switch). Per-room
+            # opt-out remains CONF_FAN_SLEEP_POLICY=off.
+            vol.Optional(
+                CONF_SLEEP_FAN_ON_TEMP_F,
+                default=self._get_current(
+                    CONF_SLEEP_FAN_ON_TEMP_F, DEFAULT_SLEEP_FAN_ON_TEMP_F,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=90, step=0.5,
+                    unit_of_measurement="°F",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
             # v4.5.9.2: Per-house occupancy-aware solar-gain cover close
             # threshold. When a room is occupied, HVAC only closes its
             # covers if room temp is at least this many °F above the

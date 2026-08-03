@@ -22,15 +22,20 @@ from ..const import (
     CONF_FANS,
     CONF_ROOM_NAME,
     CONF_ROOM_TYPE,
+    CONF_SLEEP_FAN_ON_TEMP_F,
     DEFAULT_FAN_MANUAL_OFF_COOLDOWN_S,
     DEFAULT_FAN_SLEEP_POLICY,
+    DEFAULT_SLEEP_FAN_ON_TEMP_F,
     DOMAIN,
+    ENTRY_TYPE_COORDINATOR_MANAGER,
     ENTRY_TYPE_ROOM,
     FAN_SLEEP_NORMAL,
     FAN_SLEEP_OFF,
     FAN_SLEEP_REDUCE,
     ROOM_TYPE_BEDROOM,
     ROOM_TYPE_GENERIC,
+    SLEEP_FAN_ON_REARM_S,
+    SLEEP_FAN_ON_STAGGER_S,
 )
 from .hvac_const import (
     DEFAULT_FAN_ACTIVATION_DELTA,
@@ -52,6 +57,7 @@ from .signals import EnergyConstraint
 # B-L1 fix: hoisted to module top (no import cycle — fan_veto imports only
 # .const + .domain_coordinators.house_state, no back-reference to hvac_fans).
 from ..fan_veto import should_veto_comfort_fan, is_veto_relevant  # noqa: E402
+from ..fan_veto import sleep_onset_fan_target  # noqa: E402
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -107,6 +113,17 @@ class FanController:
         self._room_fans: dict[str, RoomFanState] = {}
         self._fan_assist_active: bool = False
         self._house_state: str = ""
+        # feature/sleep-fans-and-flash: one-shot latch for sleep-onset
+        # bedroom fan activation. Set True after firing on a
+        # non-sleep -> sleep edge; cleared when house_state leaves
+        # FAN_TRUST_STATES so re-entry from a fully-outside state
+        # (e.g. day/away) re-arms the one-shot.
+        self._sleep_onset_fired: bool = False
+        # Re-arm guard timestamp (scar: 2026-08-03 06:00 spurious sleep-
+        # >waking->home_day flap). Once a sleep-onset burst fires, we
+        # cannot re-fire for SLEEP_FAN_ON_REARM_S even if the house
+        # briefly exits FAN_TRUST_STATES and re-enters. 0 disables.
+        self._sleep_onset_last_fire_at: datetime | None = None
 
     def discover_fans(self) -> int:
         """Discover fan entities from room config entries in HVAC zones.
@@ -186,13 +203,43 @@ class FanController:
         Called from the HVAC decision cycle every 5 minutes.
         """
         if not self._room_fans:
+            # Still track house-state so the latch can reset even if we
+            # currently have no discovered fans.
+            prior_state_empty = self._house_state
+            self._house_state = house_state
+            if house_state not in FAN_TRUST_STATES and prior_state_empty in FAN_TRUST_STATES:
+                self._sleep_onset_fired = False
             return
 
+        # feature/sleep-fans-and-flash: detect the non-sleep -> sleep edge
+        # BEFORE overwriting _house_state so the one-shot fires exactly
+        # once per sleep entry. Reset the latch whenever the house is not
+        # in the FAN_TRUST_STATES trio (i.e. genuinely out of the night
+        # window) — that guarantees the next sleep entry re-arms the shot.
+        prior_state = self._house_state
         self._house_state = house_state
         self._fan_assist_active = (
             energy_constraint is not None and energy_constraint.fan_assist
         )
         now = dt_util.now()
+
+        if house_state not in FAN_TRUST_STATES:
+            # Only clear when the house leaves the trust family entirely
+            # (home_day / away etc.). Sleep <-> waking flaps stay latched
+            # to defend against the 2026-08-03 06:00-class spurious
+            # transitions.
+            self._sleep_onset_fired = False
+        # NOTE: the sleep-onset activation runs AFTER the per-room loop
+        # below (see end of this method). Running it BEFORE would race
+        # against the loop's own "fan turned off externally" guard —
+        # setting is_on=True right before the guard reads hass.states.get
+        # (which hasn't caught up with the just-dispatched turn_on) would
+        # incorrectly open a manual-off cooldown on this very tick.
+        should_fire_sleep_onset = (
+            house_state == "sleep"
+            and prior_state != "sleep"
+            and not self._sleep_onset_fired
+        )
 
         for room_name, room_fan in self._room_fans.items():
             # Fan-noise Mode-2 mitigation: HVAC handshake. Skip this room
@@ -416,6 +463,211 @@ class FanController:
             # HVAC-coord ON + comfort-fan OFF, the humidity fan no longer
             # falls between owners).
 
+        # feature/sleep-fans-and-flash: sleep-onset activation runs AFTER
+        # the per-room loop so the loop's "fan turned off externally"
+        # detector doesn't race the just-dispatched turn_on and open a
+        # spurious manual-off cooldown. The one-shot latch is set
+        # unconditionally after the call so an ineligible edge still
+        # counts as "fired for this sleep session" (matches the room-tier
+        # semantics — the operator will retry on the next sleep entry).
+        if should_fire_sleep_onset:
+            await self._sleep_onset_activation(now)
+            self._sleep_onset_fired = True
+
+    def _resolve_sleep_fan_on_temp_f(self) -> float:
+        """Live-read CONF_SLEEP_FAN_ON_TEMP_F from the CM entry options.
+
+        Mirrors the read-through pattern used by
+        _resolve_live_fan_sleep_policy so an Options-Flow change takes
+        effect without a coordinator reload. Missing entry or read
+        failure falls back to DEFAULT_SLEEP_FAN_ON_TEMP_F. A value of
+        0 disables the feature (master kill switch).
+        """
+        try:
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_COORDINATOR_MANAGER:
+                    continue
+                merged = {**entry.data, **entry.options}
+                return float(
+                    merged.get(
+                        CONF_SLEEP_FAN_ON_TEMP_F, DEFAULT_SLEEP_FAN_ON_TEMP_F,
+                    ),
+                )
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "HVAC Fans: sleep_fan_on_temp_f live read failed (%s); "
+                "using default %.1f",
+                exc, DEFAULT_SLEEP_FAN_ON_TEMP_F,
+            )
+        return DEFAULT_SLEEP_FAN_ON_TEMP_F
+
+    async def _sleep_onset_activation(self, now: datetime) -> None:
+        """Turn ON comfort fans in warm, occupied bedrooms at sleep entry.
+
+        feature/sleep-fans-and-flash. Gated by:
+          - CONF_SLEEP_FAN_ON_TEMP_F > 0 (master kill switch: 0 disables)
+          - room_type == ROOM_TYPE_BEDROOM (bedroom-family only)
+          - live occupancy (room_cond.occupied)
+          - room_temp >= threshold
+          - fan not already on
+          - per-room fan_sleep_policy != off
+        Speed is computed from the standard temp-delta ladder then run
+        through _apply_night_trust_speed_cap so policy=reduce still caps
+        to LOW. Trigger label "sleep_onset" surfaces the path in logs.
+        Latch (self._sleep_onset_fired) is set by the caller.
+        """
+        threshold = self._resolve_sleep_fan_on_temp_f()
+        if threshold <= 0:
+            _LOGGER.debug(
+                "HVAC Fans: sleep-onset skipped — feature disabled (threshold=0)",
+            )
+            return
+
+        # Re-arm guard (scar: 2026-08-03 06:00 spurious flap): if the
+        # last fire is within SLEEP_FAN_ON_REARM_S, skip. Prevents a
+        # dawn-class exit + re-entry from re-transitioning every
+        # bedroom fan. 0 disables the guard.
+        if (
+            SLEEP_FAN_ON_REARM_S > 0
+            and self._sleep_onset_last_fire_at is not None
+        ):
+            elapsed = (now - self._sleep_onset_last_fire_at).total_seconds()
+            if elapsed < SLEEP_FAN_ON_REARM_S:
+                _LOGGER.info(
+                    "HVAC Fans: sleep-onset skipped — within re-arm window "
+                    "(%.0fs < %ds)", elapsed, SLEEP_FAN_ON_REARM_S,
+                )
+                return
+
+        # Collect eligible rooms first, THEN dispatch sequentially with
+        # SLEEP_FAN_ON_STAGGER_S between per-room turn-ons. Simultaneous
+        # multi-room transitions are the worst mmWave-radar case.
+        eligible: list[tuple[str, RoomFanState, int, str, float]] = []
+        for room_name, room_fan in self._room_fans.items():
+            if not room_fan.fan_entities:
+                continue
+            # Operator contract (2026-08-03): "running fans are
+            # untouchable" from the sleep-onset path — any power/speed
+            # transition excites mmWave radar (the fan-transition phantom
+            # class), and a fan already running is already comfortable
+            # AND already radar-adapted. Skip on either the tracked
+            # is_on flag OR live entity state so a physically-on fan
+            # that URA hasn't adopted yet is still protected.
+            if room_fan.is_on or any(
+                self._is_entity_on(e) for e in room_fan.fan_entities
+            ):
+                continue
+            # Manual-off cooldown respect (scar: THE incident — the wife's
+            # manual intent being fought). Someone who turned their fan
+            # OFF before bed made a choice; sleep-onset must not override
+            # it. Matches _evaluate_temp_fan's semantics.
+            if room_fan.manual_off_cooldown_until:
+                try:
+                    until = datetime.fromisoformat(
+                        room_fan.manual_off_cooldown_until,
+                    )
+                    if now < until:
+                        _LOGGER.info(
+                            "HVAC Fans: sleep-onset skipped %s — manual-off "
+                            "cooldown active until %s",
+                            room_name, until.isoformat(),
+                        )
+                        continue
+                except (ValueError, TypeError):
+                    room_fan.manual_off_cooldown_until = ""
+            zone = self._zone_manager.zones.get(room_fan.zone_id)
+            if zone is None:
+                continue
+            room_cond = None
+            for rc in zone.room_conditions:
+                if rc.room_name == room_name:
+                    room_cond = rc
+                    break
+            if room_cond is None:
+                continue
+            live_policy = self._resolve_live_fan_sleep_policy(room_name, room_fan)
+            # Delegate the eligibility + speed decision to the shared
+            # helper — same predicate the room-tier call site consumes.
+            speed = sleep_onset_fan_target(
+                room_config={"room_type": room_fan.room_type},
+                occupied=bool(room_cond.occupied),
+                room_temp=room_cond.temperature,
+                threshold=threshold,
+                policy=live_policy,
+            )
+            if speed is None or speed <= 0:
+                continue
+            eligible.append(
+                (room_name, room_fan, speed, live_policy,
+                 float(room_cond.temperature)),
+            )
+
+        if not eligible:
+            return
+
+        # Record the fire timestamp BEFORE the burst so any concurrent
+        # re-entry (via a second update() call) is guarded by the
+        # re-arm window.
+        self._sleep_onset_last_fire_at = now
+        activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+
+        import asyncio as _asyncio  # local — avoid top-of-file churn
+        for i, (room_name, room_fan, speed, live_policy, room_temp) in enumerate(
+            eligible,
+        ):
+            if i > 0 and SLEEP_FAN_ON_STAGGER_S > 0:
+                # Stagger between per-room fan turn-ons so mmWave radar
+                # never sees a simultaneous multi-room transition.
+                try:
+                    await _asyncio.sleep(SLEEP_FAN_ON_STAGGER_S)
+                except Exception:  # noqa: BLE001
+                    pass
+            try:
+                await self._set_fan_state(
+                    room_fan.fan_entities, True, speed,
+                    room_name=room_name,
+                    trigger_path="update:sleep_onset",
+                )
+            except Exception as exc:  # noqa: BLE001
+                _LOGGER.error(
+                    "HVAC Fans: sleep-onset activation failed for %s (%s)",
+                    room_name, exc,
+                )
+                continue
+            room_fan.is_on = True
+            room_fan.speed_pct = speed
+            room_fan.trigger = "sleep_onset"
+            room_fan.last_on_time = now.isoformat()
+            _LOGGER.info(
+                "HVAC Fans: sleep-onset activated %s (temp=%.1f>=%.1f, "
+                "policy=%s, speed=%d%%)",
+                room_name, room_temp, threshold, live_policy, speed,
+            )
+            # Activity-log row (scar: invisible actuations cost hours).
+            # Uses the existing fan_on shape (matches automation.py:1780).
+            if activity_logger is not None:
+                try:
+                    self.hass.async_create_task(activity_logger.log(
+                        coordinator="hvac",
+                        action="fan_on",
+                        description=(
+                            f"Sleep-onset fan on "
+                            f"({room_temp:.1f}°F >= {threshold:.1f}°F, "
+                            f"policy={live_policy}, speed={speed}%, "
+                            f"trigger=sleep_onset)"
+                        ),
+                        room=room_name,
+                        entity_id=(
+                            room_fan.fan_entities[0]
+                            if room_fan.fan_entities else None
+                        ),
+                    ))
+                except Exception as exc:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "HVAC Fans: activity-log write failed for %s (%s)",
+                        room_name, exc,
+                    )
+
     def _apply_night_trust_speed_cap(
         self, room_fan: RoomFanState, speed: int, live_policy: str | None,
     ) -> int:
@@ -556,16 +808,38 @@ class FanController:
                     room_fan.trigger or f"night_trust_hold:{self._house_state}",
                     room_fan.speed_pct,
                 )
-            # NO ACTIVATE path (operator decision 2026-06-11, second
-            # revision): fan ACTUATION is temperature-driven only, never
-            # house-state-driven — at sleep included. The former
-            # `sleep_occupied_activate` (early-June hotfix-B add-on; the
-            # June-1 incident itself was an OFF-side bug, fixed by the
-            # HOLD above) started bedroom fans at LOW unconditionally,
-            # which is seasonally wrong (winter) and fights manual-off
-            # after the cooldown. Manual-on is one tap and the HOLD then
-            # blip-protects it all night. Off-before-sleep stays off;
-            # the standard temp-driven evaluation below decides starts.
+            # DECISION HISTORY (this branch has no in-`_evaluate_temp_fan`
+            # activation).
+            # 2026-06-11 (operator, second revision): the former
+            # `sleep_occupied_activate` (early-June hotfix-B add-on) was
+            # REMOVED here because it started bedroom fans at LOW
+            # UNCONDITIONALLY on the sleep edge, which was (a) seasonally
+            # wrong (winter), and (b) fought manual-off after the
+            # cooldown expired. The June-1 incident itself was an
+            # OFF-side bug, addressed by the HOLD branch above.
+            # 2026-08-03 (feature/sleep-fans-and-flash, operator-
+            # approved REVISION): sleep-onset activation is REINTRODUCED,
+            # but relocated out of `_evaluate_temp_fan` (this method's
+            # FAN_TRUST_STATES trust block) and into a dedicated
+            # `_sleep_onset_activation` path invoked from `update()`
+            # on the non-sleep -> sleep edge only. Both
+            # 2026-06-11 objections are now addressed:
+            #   (a) seasonally-wrong-in-winter: activation is gated by
+            #       the operator knob CONF_SLEEP_FAN_ON_TEMP_F (default
+            #       72°F, 0 disables). Cool bedrooms in winter stay off.
+            #   (b) fights-manual-off-after-cooldown: the v5.48.0 fan
+            #       adoption + manual-off-cooldown machinery now
+            #       protects manual intent (an already-on fan, whether
+            #       URA-lit or externally-lit-then-adopted, is skipped
+            #       — the operator contract is "running fans are
+            #       untouchable"; any speed transition excites mmWave
+            #       radar, and a running fan is already radar-adapted).
+            # Speed = standard temp-delta ladder, then policy-capped
+            # (reduce -> LOW cap) — never a fixed unconditional LOW.
+            # Off-before-sleep no longer stays off unconditionally;
+            # instead it stays off UNLESS the room is a warm occupied
+            # bedroom at sleep entry (the exact class the operator now
+            # wants activated).
 
         # Occupancy gate: don't activate fans in unoccupied rooms
         if not occupied and not room_fan.is_on:
@@ -594,6 +868,9 @@ class FanController:
             # not-home during the trust window, vacancy expiry takes over.
             # Bidirectionality: with all trackers not-home this branch
             # falls through and the DEFAULT_FAN_VACANCY_HOLD timer fires.
+            # NOTE: scoped by the FAN_TRUST_STATES gate immediately below
+            # (line ~875); the bare-"sleep" literal here is the
+            # evidence-tier ternary inside that gate, not a bare check.
             person_evidence_ok = (
                 self._house_state == "sleep"
                 or room_fan.room_type == ROOM_TYPE_BEDROOM

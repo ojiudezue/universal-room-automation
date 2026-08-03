@@ -129,9 +129,14 @@ from .const import (
     CONF_SLEEP_BYPASS_MOTION,
     CONF_SLEEP_BLOCK_COVERS,
     CONF_FAN_SLEEP_POLICY,
+    CONF_SLEEP_FAN_ON_TEMP_F,
+    DEFAULT_SLEEP_FAN_ON_TEMP_F,
+    SLEEP_FAN_ON_REARM_S,
     FAN_SLEEP_OFF,
     FAN_SLEEP_REDUCE,
     DEFAULT_FAN_SLEEP_POLICY,
+    ENTRY_TYPE_COORDINATOR_MANAGER,
+    CONF_ENTRY_TYPE,
     # Devices
     CONF_LIGHTS,
     CONF_LIGHT_CAPABILITIES,
@@ -273,6 +278,18 @@ class RoomAutomation:
         self._fan_off_issued_this_tick: bool = False
         # FIX C D2: once-per-boot HVAC-managed-mismatch WARN gate.
         self._fan_hvac_mismatch_warned: bool = False
+        # feature/sleep-fans-and-flash: room-tier sleep-onset one-shot latch.
+        # Mirror of FanController._sleep_onset_fired for room-owned bedrooms
+        # (includes the Study-A class where hvac_coordination_enabled=True
+        # but the room isn't in HVAC's _room_fans dict). Reset when the
+        # house leaves FAN_TRUST_STATES so the next sleep entry re-arms.
+        self._sleep_onset_fired: bool = False
+        self._last_seen_house_state: str = ""
+        # Re-arm guard (scar: 2026-08-03 06:00 spurious flap). Once
+        # sleep-onset fires (or is skipped for ineligibility), no
+        # re-fire for SLEEP_FAN_ON_REARM_S even if the house flaps
+        # out-of-trust-states and back.
+        self._sleep_onset_last_fire_at: datetime | None = None
 
     def is_fan_in_manual_cooldown(self) -> bool:
         """True while the room-tier fan manual-off cooldown window is live.
@@ -1598,6 +1615,21 @@ class RoomAutomation:
         if hvac_manages:
             return
 
+        # feature/sleep-fans-and-flash: room-tier sleep-onset activation.
+        # Only reachable when HVAC is NOT managing this room's fans (the
+        # HVAC-tier hook in hvac_fans.py::_sleep_onset_activation covers
+        # HVAC-owned rooms). Same shared predicate as the HVAC-tier site
+        # via sleep_onset_fan_target — single source of truth for the
+        # eligibility + speed decision. One-shot latch is per-instance;
+        # reset when the house leaves FAN_TRUST_STATES.
+        try:
+            await self._maybe_sleep_onset_activate(fans, temperature, occupied)
+        except Exception as exc:  # noqa: BLE001 — never break temp path
+            _LOGGER.debug(
+                "Room %s: sleep-onset activation errored (%s)",
+                self.config.get(CONF_ROOM_NAME, "Unknown"), exc,
+            )
+
         # FIX C D2: silent-mismatch diagnostic. Room believes it should be
         # HVAC-managed (hvac_coordination_enabled=True with a
         # climate_entity), but HVAC's fan_controller._room_fans doesn't
@@ -2334,6 +2366,198 @@ class RoomAutomation:
         return room in getattr(fan_ctrl, '_room_fans', {})
 
     # =========================================================================
+    # feature/sleep-fans-and-flash — room-tier sleep-onset fan activation
+    # =========================================================================
+
+    def _read_current_house_state(self) -> str:
+        """Return the current house_state string, or "" on any failure.
+
+        Reads through the CoordinatorManager (canonical HouseStateMachine
+        source) to stay consistent with the HVAC-tier read in
+        hvac.py:_handle_house_state_changed / boot-seed at
+        hvac.py:695. Never raises.
+        """
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if mgr is not None:
+                hs = getattr(mgr, "house_state", None)
+                if hs:
+                    return str(hs)
+        except Exception:  # noqa: BLE001
+            pass
+        return ""
+
+    def _resolve_sleep_fan_on_temp_f(self) -> float:
+        """Live-read CONF_SLEEP_FAN_ON_TEMP_F from the CM entry options.
+
+        Mirrors hvac_fans.FanController._resolve_sleep_fan_on_temp_f so
+        both call sites read the same knob. 0 = disabled; default =
+        72.0°F (feature enabled by default for bedroom-family rooms).
+        """
+        try:
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_COORDINATOR_MANAGER:
+                    continue
+                merged = {**entry.data, **entry.options}
+                return float(
+                    merged.get(
+                        CONF_SLEEP_FAN_ON_TEMP_F, DEFAULT_SLEEP_FAN_ON_TEMP_F,
+                    ),
+                )
+        except Exception:  # noqa: BLE001
+            pass
+        return DEFAULT_SLEEP_FAN_ON_TEMP_F
+
+    async def _maybe_sleep_onset_activate(
+        self, fans: list[str], temperature: float | None, occupied: bool,
+    ) -> None:
+        """Room-tier sleep-onset one-shot: activate on non-sleep -> sleep edge.
+
+        Preconditions upstream (caller):
+          - CONF_FAN_CONTROL_ENABLED is True
+          - `fans` non-empty
+          - `_is_hvac_managing_fans()` returned False (room-tier owns)
+        Local gates (via shared sleep_onset_fan_target predicate):
+          - room_type == ROOM_TYPE_BEDROOM
+          - occupied True
+          - temperature >= CONF_SLEEP_FAN_ON_TEMP_F (>0)
+          - policy != FAN_SLEEP_OFF
+        Latch semantics: fires ONCE per non-sleep -> sleep edge; the
+        latch resets when the house leaves FAN_TRUST_STATES so a fresh
+        sleep entry re-arms the shot.
+        """
+        # Local import — mirrors the deferred-import pattern used at
+        # automation.py:1832-ish for other veto sites; keeps module
+        # load graph unchanged.
+        from .fan_veto import sleep_onset_fan_target
+
+        # FAN_TRUST_STATES is the canonical night-window trio; kept local
+        # to avoid a top-level import of hvac_const from automation.
+        _FAN_TRUST_STATES = ("home_night", "sleep", "waking")
+
+        house_state = self._read_current_house_state()
+        prior = self._last_seen_house_state
+        self._last_seen_house_state = house_state
+        if house_state not in _FAN_TRUST_STATES:
+            # Genuinely out of the night window — re-arm the one-shot.
+            self._sleep_onset_fired = False
+            return
+        if house_state != "sleep":
+            # In home_night or waking — no activation, latch untouched
+            # (latch persists across flank states so we don't re-fire on
+            # a waking->sleep back-transition mid-window).
+            return
+        if prior == "sleep":
+            # No edge — still in sleep from a prior tick.
+            return
+        if self._sleep_onset_fired:
+            return
+        # Re-arm guard: dawn-class flap protection. 0 disables.
+        if (
+            SLEEP_FAN_ON_REARM_S > 0
+            and self._sleep_onset_last_fire_at is not None
+        ):
+            elapsed = (
+                dt_util.now() - self._sleep_onset_last_fire_at
+            ).total_seconds()
+            if elapsed < SLEEP_FAN_ON_REARM_S:
+                _LOGGER.info(
+                    "Room %s: sleep-onset skipped — within re-arm window "
+                    "(%.0fs < %ds)",
+                    self.config.get(CONF_ROOM_NAME, "Unknown"),
+                    elapsed, SLEEP_FAN_ON_REARM_S,
+                )
+                self._sleep_onset_fired = True
+                return
+        # Manual-off cooldown respect (scar: THE incident — the wife's
+        # manual intent was being fought). Someone who turned their fan
+        # OFF before bed made a choice; sleep-onset must not override.
+        if self.is_fan_in_manual_cooldown():
+            _LOGGER.info(
+                "Room %s: sleep-onset skipped — manual-off cooldown active",
+                self.config.get(CONF_ROOM_NAME, "Unknown"),
+            )
+            self._sleep_onset_fired = True
+            return
+        # Running-fans-untouchable contract: skip if the physical fan is
+        # already on (radar-adaptation preserved).
+        if any(
+            (s := self.hass.states.get(f)) is not None and s.state == STATE_ON
+            for f in fans
+        ):
+            self._sleep_onset_fired = True
+            return
+
+        threshold = self._resolve_sleep_fan_on_temp_f()
+        policy = str(
+            self.config.get(CONF_FAN_SLEEP_POLICY, DEFAULT_FAN_SLEEP_POLICY),
+        )
+        speed = sleep_onset_fan_target(
+            room_config=self.config,
+            occupied=occupied,
+            room_temp=temperature,
+            threshold=threshold,
+            policy=policy,
+        )
+        if speed is None or speed <= 0:
+            # Ineligible this edge; still latch so we don't retry every
+            # tick within the same sleep session (matches HVAC-tier
+            # one-shot semantics — the operator will retry on the next
+            # sleep entry).
+            self._sleep_onset_fired = True
+            return
+
+        room_name = self.config.get(CONF_ROOM_NAME, "Unknown")
+        # Split fan.* vs switch.*/other to mirror the standard actuation
+        # split used elsewhere in this file (see _shared_space_turn_off_all).
+        fan_entities = [f for f in fans if f.startswith("fan.")]
+        switch_entities = [f for f in fans if not f.startswith("fan.")]
+        try:
+            if fan_entities:
+                await self._safe_service_call(
+                    "fan", "turn_on",
+                    {"entity_id": fan_entities, "percentage": speed},
+                    blocking=False,
+                )
+            if switch_entities:
+                await self._safe_service_call(
+                    "homeassistant", "turn_on",
+                    {"entity_id": switch_entities},
+                    blocking=False,
+                )
+            self._sleep_onset_fired = True
+            self._sleep_onset_last_fire_at = dt_util.now()
+            _LOGGER.info(
+                "Room %s: sleep-onset fan activation (temp=%.1f>=%.1f, "
+                "policy=%s, speed=%d%%, trigger=sleep_onset)",
+                room_name, float(temperature or 0.0), threshold, policy, speed,
+            )
+            # Activity-log row (scar: invisible actuations cost hours).
+            activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+            if activity_logger is not None:
+                try:
+                    self.hass.async_create_task(activity_logger.log(
+                        coordinator="room",
+                        action="fan_on",
+                        description=(
+                            f"Sleep-onset fan on "
+                            f"({float(temperature):.1f}°F >= {threshold:.1f}°F, "
+                            f"policy={policy}, speed={speed}%, "
+                            f"trigger=sleep_onset)"
+                        ),
+                        room=room_name,
+                        entity_id=fans[0] if fans else None,
+                    ))
+                except Exception as exc:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "Room %s: activity-log write failed (%s)", room_name, exc,
+                    )
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.error(
+                "Room %s: sleep-onset actuation failed (%s)", room_name, exc,
+            )
+
+    # =========================================================================
     # v3.1.0: SHARED SPACE SCHEDULED AUTO-OFF
     # =========================================================================
 
@@ -2379,6 +2603,20 @@ class RoomAutomation:
             )
             await self._shared_space_turn_off_all()
             self._last_auto_off_date = current_date
+            # feature/sleep-fans-and-flash: observability write for the
+            # scheduled auto-off (previously logged only). Mirror of the
+            # room-tier fan_off activity write at automation.py:1780.
+            activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+            if activity_logger is not None:
+                room_name = self.config.get(CONF_ROOM_NAME, "Unknown")
+                self.hass.async_create_task(activity_logger.log(
+                    coordinator="room",
+                    action="shared_space_auto_off",
+                    description=(
+                        f"Shared space scheduled auto-off at {auto_off_hour}:00"
+                    ),
+                    room=room_name,
+                ))
 
     async def check_auto_off_warning(self) -> None:
         """Check if it's time to warn before auto-off (5 minutes before).
@@ -2403,7 +2641,13 @@ class RoomAutomation:
             warning_key = f"{now.date()}-{warning_hour}"
             if self._last_warning_date_hour == warning_key:
                 return
-            # Check if lights are actually on
+            # Check if lights are actually on. feature/sleep-fans-and-flash:
+            # switch.* entries in CONF_LIGHTS are lighting relays by
+            # definition of the config field (see live Kitchen / Game Room
+            # configs). The prior "actual light.* only" check silently
+            # suppressed the warning + flash for rooms whose lights are
+            # entirely on switches — extend to include switch-as-light
+            # states so the warning path fires there too.
             lights = self.config.get(CONF_LIGHTS, [])
             lights_on = any(
                 (s := self.hass.states.get(lid)) is not None and s.state == STATE_ON
@@ -2413,34 +2657,81 @@ class RoomAutomation:
                 _LOGGER.info("Shared space auto-off warning - flashing lights")
                 self._last_warning_date_hour = warning_key
                 await self._warning_flash()
+                # feature/sleep-fans-and-flash: observability write for the
+                # warning-flash fire (auto-off path is otherwise invisible
+                # in ura_activity_log). Mirror of the room-tier fan_off
+                # activity write at automation.py:1780.
+                activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+                if activity_logger is not None:
+                    room_name = self.config.get(CONF_ROOM_NAME, "Unknown")
+                    self.hass.async_create_task(activity_logger.log(
+                        coordinator="room",
+                        action="auto_off_warning_flash",
+                        description=(
+                            f"Auto-off warning flash "
+                            f"(warning at {warning_hour}:55, "
+                            f"auto-off at {auto_off_hour}:00)"
+                        ),
+                        room=room_name,
+                        entity_id=lights[0] if lights else None,
+                    ))
 
     async def _warning_flash(self) -> None:
-        """Flash lights briefly to warn of upcoming auto-off."""
+        """Flash lights briefly to warn of upcoming auto-off.
+
+        feature/sleep-fans-and-flash: switch.* entries in CONF_LIGHTS are
+        lighting relays by definition of that config field (live config:
+        Kitchen, Game Room). The prior implementation flashed light.*
+        only and silently no-op'd for switch-only rooms — extend to
+        flash switches via off/on cycling (2 cycles, 400ms off) while
+        keeping the existing dim-restore path for light.* entries.
+        Rooms with NO entries still no-op (nothing to flash).
+        """
         lights = self.config.get(CONF_LIGHTS, [])
         if not lights:
             return
 
-        # Bug Class #4 fix: only flash actual light.* entities (switches don't support brightness)
         actual_lights = [e for e in lights if e.startswith("light.")]
-        if not actual_lights:
+        switches_as_lights = [e for e in lights if e.startswith("switch.")]
+        if not actual_lights and not switches_as_lights:
             return
 
         try:
-            # Quick dim-restore cycle (2 flashes)
+            # Two-flash cycle. For light.* entities: dim-then-restore
+            # (preserves brightness capability). For switch.* entities:
+            # off then on (the only way to signal on a binary relay).
+            # Both paths execute in the same loop so a mixed-domain
+            # CONF_LIGHTS list still flashes coherently.
             for _ in range(2):
-                await self._safe_service_call(
-                    "light",
-                    SERVICE_TURN_ON,
-                    {"entity_id": actual_lights, "brightness": 50},
-                    blocking=True,
-                )
-                await asyncio.sleep(0.3)
-                await self._safe_service_call(
-                    "light",
-                    SERVICE_TURN_ON,
-                    {"entity_id": actual_lights, "brightness": 255},
-                    blocking=True,
-                )
+                if actual_lights:
+                    await self._safe_service_call(
+                        "light",
+                        SERVICE_TURN_ON,
+                        {"entity_id": actual_lights, "brightness": 50},
+                        blocking=True,
+                    )
+                if switches_as_lights:
+                    await self._safe_service_call(
+                        "switch",
+                        SERVICE_TURN_OFF,
+                        {"entity_id": switches_as_lights},
+                        blocking=True,
+                    )
+                await asyncio.sleep(0.4)
+                if actual_lights:
+                    await self._safe_service_call(
+                        "light",
+                        SERVICE_TURN_ON,
+                        {"entity_id": actual_lights, "brightness": 255},
+                        blocking=True,
+                    )
+                if switches_as_lights:
+                    await self._safe_service_call(
+                        "switch",
+                        SERVICE_TURN_ON,
+                        {"entity_id": switches_as_lights},
+                        blocking=True,
+                    )
                 await asyncio.sleep(0.3)
         except Exception as e:
             _LOGGER.error("Error during warning flash: %s", e)
