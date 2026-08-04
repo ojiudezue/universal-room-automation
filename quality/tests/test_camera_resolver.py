@@ -350,16 +350,21 @@ def test_f1_protect_nvr_device_defuses_by_entity_name_stem():
 # ============================================================================
 
 
-def test_f2_frigate_dual_host_same_object_collapsed_when_gate_closed():
-    """C-HIGH-1 rebuild: BOTH Frigate devices carry VALID person-suffix
-    entities with unique entity_ids. Both devices have the same identifier
-    OBJECT name "staircase" (different host prefix). The collapse is what
-    reduces `len(frigate_dids)` to 1 — verifiable by neutering the collapse
-    (delete the frigate_dropped skip in resolve_capabilities) → test red.
+def test_f2_frigate_dual_host_gate_semantics(monkeypatch):
+    """Gate OPENED 2026-08-04 (72h stability measured — see camera_resolver
+    const comment). Post-flip contract: BOTH hosts' same-object devices
+    contribute sources (corroboration). The closed-gate collapse behavior
+    remains pinned via monkeypatch so a regression of the gate mechanism
+    itself stays detectable.
     """
-    assert FRIGATE_CROSS_HOST_CORROBORATION_ENABLED is False, (
-        "Gate must remain rung-1 CLOSED until 72h stability measured"
+    import sys as _sys
+    cr = _sys.modules["camera_resolver_under_test"]
+    assert cr.FRIGATE_CROSS_HOST_CORROBORATION_ENABLED is True, (
+        "Gate opened by reviewed flip 2026-08-04; if deliberately re-closed, "
+        "update this test with the new gate rationale"
     )
+    # Closed-gate behavior still pinned:
+    monkeypatch.setattr(cr, "FRIGATE_CROSS_HOST_CORROBORATION_ENABLED", False)
     dev_f1 = FakeDevice(id="dev_f1", identifiers={(PLATFORM_FRIGATE, "host1:staircase")})
     dev_f2 = FakeDevice(id="dev_f2", identifiers={(PLATFORM_FRIGATE, "host2:staircase")})
     dev_u = FakeDevice(id="dev_u", identifiers={(PLATFORM_UNIFI, "u")})
@@ -375,6 +380,26 @@ def test_f2_frigate_dual_host_same_object_collapsed_when_gate_closed():
     frigate_dids = [s.device_id for s in fusion.sources if s.integration == PLATFORM_FRIGATE]
     assert len(frigate_dids) == 1, (
         f"F2: expected 1 Frigate device after collapse; got {frigate_dids}"
+    )
+
+
+def test_f2_frigate_dual_host_both_contribute_when_gate_open():
+    """Post-flip (2026-08-04): with the gate OPEN, both hosts' same-object
+    devices contribute person sources — cross-host corroboration."""
+    dev_f1 = FakeDevice(id="dev_f1", identifiers={(PLATFORM_FRIGATE, "host1:staircase")})
+    dev_f2 = FakeDevice(id="dev_f2", identifiers={(PLATFORM_FRIGATE, "host2:staircase")})
+    dev_u = FakeDevice(id="dev_u", identifiers={(PLATFORM_UNIFI, "u")})
+    ents = [
+        FakeEntity("camera.staircase", "dev_u", PLATFORM_UNIFI),
+        FakeEntity("binary_sensor.staircase_person_detected", "dev_u", PLATFORM_UNIFI),
+        FakeEntity("binary_sensor.staircase_person_occupancy", "dev_f1", PLATFORM_FRIGATE),
+        FakeEntity("binary_sensor.staircase_alt_person_occupancy", "dev_f2", PLATFORM_FRIGATE),
+    ]
+    r = _mk(ents, [dev_f1, dev_f2, dev_u])
+    fusion = _sole(r.resolve_operator_declaration(["camera.staircase"]))
+    frigate_dids = {s.device_id for s in fusion.sources if s.integration == PLATFORM_FRIGATE}
+    assert frigate_dids == {"dev_f1", "dev_f2"}, (
+        f"open gate: both Frigate hosts must contribute; got {frigate_dids}"
     )
 
 

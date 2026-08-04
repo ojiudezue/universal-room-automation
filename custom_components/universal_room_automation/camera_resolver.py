@@ -76,7 +76,7 @@ def _norm_mac(value: Any) -> str:
 # F2 gate: Frigate-1 <-> Frigate-2 corroboration. Off until the 72h stability
 # gate (a) zero MQTT session evictions, (b) zero unavailable<->value flapping,
 # (c) no retained-message ghosts — is measured PASS post prefix-split.
-FRIGATE_CROSS_HOST_CORROBORATION_ENABLED: bool = False
+FRIGATE_CROSS_HOST_CORROBORATION_ENABLED: bool = True  # gate PASSED 2026-08-04: 72h post prefix-split, 0 organic evictions/flaps/ghosts (all 15 unavailability events map to deploy restarts + homelab config work)
 
 # D4 dry-run: first release LOGS what it would enable, does NOT call
 # switch.turn_on. Flip to False in a later reviewed change once the log
