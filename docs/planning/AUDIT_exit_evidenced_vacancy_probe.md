@@ -111,3 +111,27 @@ If redesigned, the promising shape per this data: evidence-gated sweep **as a co
 ## Reproduction
 
 All queries run via `ssh ha "python3 -"` against the two DBs in `mode=ro`. Key steps: (1) effective room config = `{**entry.data, **entry.options}`; (2) motion edges = state rows per `states_meta.metadata_id` ordered by `last_updated_ts`, edge when `state=='on' and prev!='on'`; (3) exits from `ura_activity_log` `action='occupancy_exit'` clipped to recorder span; (4) bisect over pooled per-room edge lists.
+
+## Orchestrator addendum (2026-08-04)
+
+**Correction to (B):** the 7 false-sweep episodes ARE verifiable — they
+live in `memory_episodes` (type actuation_conflict, adjudicated_by
+hvac_fan_controller), a table this probe did not query, and are
+corroborated by recorder fan-off state transitions at matching times
+(00:18/00:43/00:58/01:23/01:43Z master; 01:53/04:43Z living; 03:18Z
+study_a). The 5-min timestamp alignment is the HVAC decision-cycle
+cadence — sweeps dispatch on ticks. Ground truth stands.
+
+**Adjudicated outcome:** NO-GO on the hard exit-evidence gate is
+ACCEPTED on coverage grounds. The occupied-sensor harm-stop guard (in
+build, hotfix/occupied-fan-off-guard) blocks 7/7 of the known false
+sweeps with universally-available signals and becomes the vacancy-
+confidence architecture for actuation-offs. Exit evidence is PARKED as
+a confidence-modifier refinement with evidence triggers: (a) any
+actuation_conflict where the occupied sensor had ALSO dropped (the
+class the guard cannot see), (b) adjacency sensor fleet repaired.
+
+**Infrastructure rot found (filed):** 5 dead/silent adjacent sensors
+incl. jayabath 100% unavailable; Master Bedroom logged ZERO
+occupancy_exit rows in 8 days (bed-sensor continuous hold — ties to
+B-2026-08-04-1 stuck-signal class).

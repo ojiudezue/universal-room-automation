@@ -1639,3 +1639,11 @@ evening-state occupants vacancy-swept because FAN_TRUST_STATES excludes
 home_evening/home_day. The memory instrumentation caught the class as
 designed. Promote to NEXT CYCLE: extend occupant-trust to evening states
 (or occupied-sensor check in the sweep path per the redesign invariant).
+
+### B-2026-08-04-2: Adjacent-sensor fleet rot (from exit-evidence probe)
+5 of 13 adjacency sensors dead/silent over 8 days: jayabath (100%
+unavailable), receiving room, study A closet, both media room units.
+Ops task: power/network check each; they gate any future exit-evidence
+refinement AND degrade room automation today. Also: Master Bedroom zero
+occupancy_exit in 8d (bed-sensor hold keeps room occupied continuously
+— correct for comfort, but exit/transition analytics blind; note only).
