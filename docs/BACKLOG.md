@@ -1622,3 +1622,20 @@ a per-room `CONF_FLASH_ON_SWITCH_LIGHTS` opt-out for the sensitive-room
 class (e.g. media rooms mid-movie, nursery relays) so operators can
 suppress the physical blink for a room while keeping the warning
 observability path (activity log row) intact.
+
+### B-2026-08-04-1: Stuck-signal watchdog needs house-state/sensor-class awareness (SMALL-MED — spam source)
+Overnight 2026-08-04: 10 "Stuck signal: continuous/dutycycle" MEDIUMs —
+bed-presence + bedroom mmWave sensors flagged duty-cycle-stuck because
+they were ON all night, which is what beds/occupied bedrooms DO during
+sleep. Fix: exempt (or widen windows for) sensor classes whose
+continuous-on is state-normal — bed_presence during sleep-family,
+bedroom mmWave during sleep — ideally via memory baseline (occupied:hXX:sleep
+mean ~1.0 = continuous-on is THIS room's normal) rather than a hardcoded
+class list. Also cap the class at one notification per condition episode.
+
+### ESCALATED B-2026-08-03-4 (S1/home_day-trust): 7 actuation_conflict episodes in ONE evening
+Master x4, Living x2, StudyA x1 between 19:43-23:43 CDT 2026-08-03 —
+evening-state occupants vacancy-swept because FAN_TRUST_STATES excludes
+home_evening/home_day. The memory instrumentation caught the class as
+designed. Promote to NEXT CYCLE: extend occupant-trust to evening states
+(or occupied-sensor check in the sweep path per the redesign invariant).
