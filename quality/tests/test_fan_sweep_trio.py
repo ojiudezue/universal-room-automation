@@ -510,9 +510,12 @@ class TestLowB3SlugifyParity:
             _slugify as facade_slug,
         )
 
-        # Inline shape historically used at hvac_fans._record_actuation_conflict:
+        # Inline fallback shape at hvac_fans/fan_veto (v5.51.0: HA-slugify
+        # semantics — the old space/hyphen-only transform left the guard
+        # blind in parenthetical-named rooms; M-1 audit 2026-08-04):
         def inline(text: str) -> str:
-            return (text or "").lower().replace(" ", "_").replace("-", "_")
+            import re as _re
+            return _re.sub(r"[^a-z0-9]+", "_", (text or "").lower()).strip("_")
 
         alphabet = [
             "Ziri Bedroom (Bedroom 5)",

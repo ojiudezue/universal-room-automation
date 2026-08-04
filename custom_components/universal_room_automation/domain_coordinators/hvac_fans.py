@@ -124,6 +124,11 @@ class FanController:
         # cannot re-fire for SLEEP_FAN_ON_REARM_S even if the house
         # briefly exits FAN_TRUST_STATES and re-enters. 0 disables.
         self._sleep_onset_last_fire_at: datetime | None = None
+        # hotfix/occupied-fan-off-guard (2026-08-04): per-room throttle for
+        # the "fan off suppressed: room occupied" INFO log. Emit once per
+        # hold-window (~10 min) per room so a long-lived dueling loop
+        # doesn't paper the log with the same suppression line every tick.
+        self._suppress_log_last_at: dict[str, datetime] = {}
 
     def discover_fans(self) -> int:
         """Discover fan entities from room config entries in HVAC zones.
@@ -450,18 +455,26 @@ class FanController:
                             # cleanly. Speed cap / vacancy anchors are
                             # unaffected.
                             continue
-                    await self._set_fan_state(
+                    dispatched = await self._set_fan_state(
                         room_fan.fan_entities, should_on, speed,
                         room_name=room_name,
                         trigger_path=f"update:{trigger or 'vacancy_off'}",
                     )
-                    room_fan.is_on = should_on
-                    room_fan.speed_pct = speed if should_on else 0
-                    room_fan.trigger = trigger if should_on else ""
-                    if should_on and not room_fan.last_on_time:
-                        room_fan.last_on_time = now.isoformat()
-                    elif not should_on:
-                        room_fan.last_on_time = ""
+                    # hotfix/occupied-fan-off-guard (2026-08-04): if the
+                    # OFF was suppressed by the occupied-guard, leave
+                    # RoomFanState UNCHANGED so subsequent ticks re-
+                    # evaluate cleanly (the fan stays physically on, the
+                    # controller stays consistent with it, no dueling
+                    # loop). Applies only to the OFF suppression path;
+                    # ON dispatches always return True.
+                    if dispatched:
+                        room_fan.is_on = should_on
+                        room_fan.speed_pct = speed if should_on else 0
+                        room_fan.trigger = trigger if should_on else ""
+                        if should_on and not room_fan.last_on_time:
+                            room_fan.last_on_time = now.isoformat()
+                        elif not should_on:
+                            room_fan.last_on_time = ""
 
             # D1 — Humidity fans are evaluated EXCLUSIVELY by the room-tier
             # path in automation.py::handle_humidity_based_fan_control. The
@@ -982,23 +995,83 @@ class FanController:
         state = self.hass.states.get(entity_id)
         return state is not None and state.state == "on"
 
+    def _resolve_room_occupied_slug(self, room_name: str) -> str:
+        """Shared slugifier — guard and observer MUST agree on the slug
+        used to derive ``binary_sensor.<slug>_occupied``. Same source as
+        _record_actuation_conflict_if_occupied. Falls back to an inline
+        transform if the memory_facade import fails (test harnesses).
+        """
+        try:
+            from ..memory_facade import _slugify
+            return _slugify(room_name or "")
+        except Exception:  # noqa: BLE001
+            return __import__("re").sub(r"[^a-z0-9]+","_",(room_name or "").lower()).strip("_")
+
+    def _read_room_occupied_state(self, room_name: str) -> str | None:
+        """Return the raw state of ``binary_sensor.<slug>_occupied`` or None.
+
+        Guarded — external state reads never raise into actuation paths.
+        Returns None if the sensor doesn't exist OR is unavailable/unknown
+        (guard fails open on those, per hotfix spec).
+        """
+        try:
+            slug = self._resolve_room_occupied_slug(room_name)
+            st = self.hass.states.get(f"binary_sensor.{slug}_occupied")
+            if st is None:
+                return None
+            if st.state in ("unavailable", "unknown", None, ""):
+                return None
+            return st.state
+        except Exception:  # noqa: BLE001
+            return None
+
     async def _set_fan_state(
         self, entities: list[str], on: bool, speed_pct: int,
         *,
         room_name: str | None = None,
         trigger_path: str | None = None,
-    ) -> None:
+    ) -> bool:
         """Set fan entities on/off with speed.
 
-        hotfix/fan-sweep-trio (2026-08-03): OFF dispatches now emit an
+        Returns True if actuation was dispatched to HA, False if the OFF
+        was SUPPRESSED by the occupied-fan-off harm-stop guard (caller
+        must NOT mutate room_fan.is_on when False is returned).
+
+        hotfix/fan-sweep-trio (2026-08-03): OFF dispatches emit an
         ``actuation_conflict`` memory episode when the target room's
-        occupancy binary_sensor is ``on`` at dispatch time. Observation-
-        only — never blocks or defers actuation. Copy of the fan_veto.py
-        writer shape (shared slugify, exception-contained, DAO dedup).
-        room_name and trigger_path are keyword-only so existing callers
-        (and any that intentionally pass None) don't get instrumented.
+        occupancy binary_sensor is ``on`` at dispatch time.
+
+        hotfix/occupied-fan-off-guard (2026-08-04): the observer becomes
+        a HARM-STOP. If occupancy=='on' at dispatch time — for any house
+        state, any room type — the OFF is SKIPPED (fan left as-is) and
+        the actuation_conflict episode is written with attrs.suppressed=
+        True (semantic flip: pre-guard the episode recorded harm done,
+        now it records harm prevented). Exemptions: turn_off_all_managed
+        (operator kill-switch), recheck paths (identified by callers not
+        passing room_name), and rooms whose occupancy sensor is
+        unavailable/unknown/missing (guard fails open — no live evidence).
+        Real OFF dispatches also write an ura_activity_log 'fan_off' row
+        so sweeps are visible (closes the 2026-08-04 false-PASS blind
+        spot).
         """
         if not on and room_name:
+            trigger_str = trigger_path or ""
+            is_exempt_from_guard = trigger_str == "turn_off_all_managed"
+            occ = self._read_room_occupied_state(room_name)
+            if occ == "on" and not is_exempt_from_guard:
+                # Guard fires — SUPPRESS the OFF. Write the episode with
+                # suppressed=True so the log-of-record captures a
+                # prevented conflict (the harm-stop worked).
+                self._record_actuation_conflict_if_occupied(
+                    room_name, trigger_path, suppressed=True,
+                )
+                self._log_off_suppressed_throttled(room_name, trigger_path)
+                return False
+            # Not suppressed — observer records harm-done for the OFF
+            # against an occupied room that fell under an exemption
+            # (turn_off_all_managed is exempted INSIDE the observer, so
+            # the call is a no-op there). Vacant / unavailable → observer
+            # sees occ != 'on' and returns without writing.
             self._record_actuation_conflict_if_occupied(room_name, trigger_path)
         for entity_id in entities:
             try:
@@ -1030,9 +1103,65 @@ class FanController:
                         )
             except Exception as e:
                 _LOGGER.error("HVAC Fans: failed to control %s: %s", entity_id, e)
+        # hotfix/occupied-fan-off-guard (2026-08-04): activity-log every
+        # real OFF dispatch. Closes the 2026-08-04 blind spot — sweep
+        # offs were previously invisible in the activity log (only ONs
+        # from sleep-onset logged), which produced a false PASS on
+        # validation. Mirrors the sleep-onset fan_on shape (line 659).
+        if not on and room_name:
+            self._log_fan_off_activity(room_name, trigger_path, entities)
+        return True
+
+    def _log_off_suppressed_throttled(
+        self, room_name: str, trigger_path: str | None,
+    ) -> None:
+        """INFO log a suppressed OFF, once per hold-window per room."""
+        try:
+            now = dt_util.utcnow()
+            last = self._suppress_log_last_at.get(room_name)
+            window_s = int(DEFAULT_FAN_VACANCY_HOLD * FAN_ADOPTED_VACANCY_HOLD_MULT)
+            if last is not None and (now - last).total_seconds() < window_s:
+                return
+            self._suppress_log_last_at[room_name] = now
+            _LOGGER.info(
+                "HVAC Fans: fan off suppressed: room occupied "
+                "(room=%s, trigger=%s)",
+                room_name, trigger_path or "unknown",
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _log_fan_off_activity(
+        self,
+        room_name: str,
+        trigger_path: str | None,
+        entities: list[str],
+    ) -> None:
+        """Write an ura_activity_log 'fan_off' row for a real OFF dispatch."""
+        try:
+            activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+            if activity_logger is None:
+                return
+            entity_id = entities[0] if entities else None
+            self.hass.async_create_task(activity_logger.log(
+                coordinator="hvac",
+                action="fan_off",
+                description=(
+                    f"Fan off (trigger={trigger_path or 'unknown'}, "
+                    f"house_state={self._house_state or 'unknown'})"
+                ),
+                room=room_name,
+                entity_id=entity_id,
+            ))
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "HVAC Fans: activity-log write failed for fan_off %s (%s)",
+                room_name, exc,
+            )
 
     def _record_actuation_conflict_if_occupied(
         self, room_name: str, trigger_path: str | None,
+        *, suppressed: bool = False,
     ) -> None:
         """Emit ``actuation_conflict`` memory episode if room is occupied.
 
@@ -1041,6 +1170,11 @@ class FanController:
         occupied room). Copies the fan_veto.py:_record_veto shape:
         shared slugify, DAO handles dedup, exception-contained. Missing
         DB, missing memory_facade, or absent occupancy sensor all no-op.
+        
+
+        NOTE (Review B M-2): suppressed=True is the only reachable label
+        while the guard early-returns on occ!=on; suppressed=False becomes
+        reachable only if the guard is ever removed.
         """
         # LOW-A fix-up (2026-08-03): turn_off_all_managed is an operator-
         # commanded global sweep (Fan Control switch turned OFF), not a
@@ -1082,6 +1216,7 @@ class FanController:
                         "action": "fan_off",
                         "trigger": trigger_path or "unknown",
                         "house_state": house_state,
+                        "suppressed": bool(suppressed),
                     },
                     source_ref="hvac_fans.py:_set_fan_state",
                 ),
@@ -1145,6 +1280,10 @@ class FanController:
         room_fan = self._room_fans[room_name]
         room_fan.fan_recheck_suppress_until = suppress_until_iso
         if snapshot["is_on"]:
+        # INTENTIONAL: no room_name — recheck OFFs bypass the occupied-fan
+        # guard AND the fan_off activity log by design (evidence-gathering
+        # pause, state restored after). Threading room_name here would
+        # break the recheck window. (Review A #3, 2026-08-04.)
             await self._set_fan_state(snapshot["entities"], False, 0)
         _LOGGER.info(
             "HVAC Fans: %s paused for fan-recheck (suppress_until=%s)",

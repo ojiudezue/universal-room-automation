@@ -36,3 +36,11 @@ docs/reviews/code-review/sleep_fans_and_flash_v5500.md — 3 reviews,
   physically observed blink; 23:00 auto-off rows.
 - **Live (carried):** v5.49.0 age-gate proof on this restart if
   feasible next boot.
+
+### Validated 2026-08-03 (~17:20 CDT, v5.50.2 boot — carries v5.50.0/1)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Clean boot | **PASS** | v5.50.2 up in ~30s, no URA errors. |
+| Feature DARK for attribution night | **PASS** | sleep_fan_on_temp_f=0.0 written via options API (the very API v5.50.0 broke — see below); all HVAC + NM options verified intact post-write. |
+| Options-form regression | **FOUND + FIXED in-train** | v5.50.0 shipped the settings-form field WITHOUT its import → NameError render 500 (UI + API). v5.50.1 hotfix itself shipped a SyntaxError (deploy-gate process violation — py_compile red but deploy chained in the same command block; never reached HA). v5.50.2 correct + compile-gated + name-resolution pin test. Process rule hardened: deploy.sh in its own call after visible gate pass. |
+| Tomorrow enable | pending | Flip knob 0→72 via same options call after tonight validates v5.48.0. |
