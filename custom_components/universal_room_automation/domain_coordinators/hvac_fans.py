@@ -1005,7 +1005,7 @@ class FanController:
             from ..memory_facade import _slugify
             return _slugify(room_name or "")
         except Exception:  # noqa: BLE001
-            return (room_name or "").lower().replace(" ", "_").replace("-", "_")
+            return __import__("re").sub(r"[^a-z0-9]+","_",(room_name or "").lower()).strip("_")
 
     def _read_room_occupied_state(self, room_name: str) -> str | None:
         """Return the raw state of ``binary_sensor.<slug>_occupied`` or None.
@@ -1170,6 +1170,11 @@ class FanController:
         occupied room). Copies the fan_veto.py:_record_veto shape:
         shared slugify, DAO handles dedup, exception-contained. Missing
         DB, missing memory_facade, or absent occupancy sensor all no-op.
+        
+
+        NOTE (Review B M-2): suppressed=True is the only reachable label
+        while the guard early-returns on occ!=on; suppressed=False becomes
+        reachable only if the guard is ever removed.
         """
         # LOW-A fix-up (2026-08-03): turn_off_all_managed is an operator-
         # commanded global sweep (Fan Control switch turned OFF), not a
@@ -1275,6 +1280,10 @@ class FanController:
         room_fan = self._room_fans[room_name]
         room_fan.fan_recheck_suppress_until = suppress_until_iso
         if snapshot["is_on"]:
+        # INTENTIONAL: no room_name — recheck OFFs bypass the occupied-fan
+        # guard AND the fan_off activity log by design (evidence-gathering
+        # pause, state restored after). Threading room_name here would
+        # break the recheck window. (Review A #3, 2026-08-04.)
             await self._set_fan_state(snapshot["entities"], False, 0)
         _LOGGER.info(
             "HVAC Fans: %s paused for fan-recheck (suppress_until=%s)",

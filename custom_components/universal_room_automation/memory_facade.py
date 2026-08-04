@@ -249,7 +249,14 @@ def _slugify(text: str) -> str:
     coordinator, and fan_veto so all writer sites produce identical
     node_id slugs. Also exported as ``slugify``.
     """
-    return (text or "").lower().replace(" ", "_").replace("-", "_")
+    # v5.51.0 (M-1 audit): match HA slugify semantics — the old transform
+    # left punctuation intact, so "Ziri Bedroom (Bedroom 5)" resolved to a
+    # nonexistent entity id and the occupied-fan guard + conflict observer
+    # were silently blind in both kids' bedrooms. Non-alphanumerics -> _,
+    # collapse runs, strip edges. One historical episode row remains under
+    # the old parenthetical node_id (not migrated).
+    import re as _re
+    return _re.sub(r"[^a-z0-9]+", "_", (text or "").lower()).strip("_")
 
 
 # Public alias so callers can import a stable name.

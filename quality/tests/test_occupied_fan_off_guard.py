@@ -285,3 +285,16 @@ class TestDuelingLoopReplay:
             f"({len(_fan_off_calls(svc_log))} times)"
         )
         assert room_fan.is_on is True
+
+
+def test_slugify_matches_ha_for_parenthetical_rooms():
+    """M-1 audit (2026-08-04): the kids' bedrooms carry parentheses and the
+    old slugifier produced nonexistent entity ids — the guard failed open
+    and the observer was blind in exactly those rooms. Pin HA-compatible
+    slugs for every live divergent name found by the offline audit."""
+    from custom_components.universal_room_automation.memory_facade import _slugify
+    assert _slugify("Ziri Bedroom (Bedroom 5)") == "ziri_bedroom_bedroom_5"
+    assert _slugify("Jaya Bedroom (Bedroom 4)") == "jaya_bedroom_bedroom_4"
+    assert _slugify("Study A") == "study_a"
+    assert _slugify("Master  Bedroom") == "master_bedroom"
+    assert _slugify("Jaya-Bedroom") == "jaya_bedroom"
