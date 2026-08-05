@@ -44,3 +44,13 @@ Suite 19-failure baseline, 8111 passed, zero drift.
   sleep-onset burst tonight (staggered fan_on rows, trigger
   sleep_onset); running/manual-off fans untouched.
 - **Live (carried):** v5.49.0 age-gate proof on this restart.
+
+### Validated 2026-08-04 (~04:25 CDT, first post-deploy boot)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Clean boot + re-latch | **PASS** | away→arriving→home_night by 04:20; boot settle released on real input. |
+| Running fans survive restart untouched | **PASS** | Master/Ziri/Game Room fans held state through the boot — zero fan actions. |
+| Guard live | **PASS-structural** | Deployed; first organic proof = tonight's evening window (previously 7 false sweeps/evening). |
+| Cross-host corroboration | **PASS-partial** | Gate open in code; Study A correctly stays single_source (F1-only camera); dual-host cameras prove organically. |
+| sleep_fan_on_temp_f = 72 | **PASS** | Set + verified via options API (live-read, no restart); TONIGHT is sleep-onset's first night. |
+| Age-gate (v5.49.0 carried) | not-triggered | Suppression switch was OFF at boot (nothing to gate); proof still awaits an organic stale-suppression scenario. |
