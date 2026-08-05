@@ -1500,6 +1500,22 @@ class PresenceCoordinator(BaseCoordinator):
         # v3.19.0: Face-confirmed arrival state
         self._face_arrival_cooldown: Dict[str, datetime] = {}
         self._face_recognition_enabled: bool = False
+
+        # build/pc-observability: three P1 kill switches (default ON).
+        # Each is bound to a switch entity that uses the v5.48.0 signal-
+        # deferred RestoreEntity pattern (SIGNAL_PRESENCE_COORDINATOR_READY).
+        # Load-bearing gate sites cite these fields in-line — see
+        # `_guest_gate_armed`, `_guest_room_gate_armed`, the arriving re-arm
+        # cooldown block in `_run_inference`, and the `all_tracked_persons_
+        # away` feed into `_inference_engine.infer(...)`.
+        # `_suppressed_since_*` is an ISO timestamp populated when the switch
+        # is flipped OFF (provenance attr surfaced by the switch entity).
+        self._guest_detection_enabled: bool = True
+        self._arriving_rearm_enabled: bool = True
+        self._away_veto_enabled: bool = True
+        self._guest_detection_suppressed_since: str | None = None
+        self._arriving_rearm_suppressed_since: str | None = None
+        self._away_veto_suppressed_since: str | None = None
         # v3.21.0 D2: Ready event for downstream coordinators (e.g., HVAC).
         # Initialized as None here; created in async_setup() to ensure it
         # binds to the correct event loop (review fix F3).
@@ -2528,6 +2544,22 @@ class PresenceCoordinator(BaseCoordinator):
         # v3.21.0 D2: Signal readiness so downstream coordinators (HVAC) can
         # safely read house state without racing startup ordering.
         self._ready_event.set()
+
+        # build/pc-observability: fire-and-forget dispatch so kill-switch
+        # entities using RestoreEntity + SIGNAL_PRESENCE_COORDINATOR_READY
+        # can land their deferred restores. Mirrors HVAC's post-setup
+        # dispatch in hvac.py (SIGNAL_HVAC_COORDINATOR_READY).
+        try:
+            # v4.7.20.1: async_dispatcher_send imported at module top —
+            # no function-local re-import (Bug Class #34 sibling avoided).
+            from .signals import SIGNAL_PRESENCE_COORDINATOR_READY
+            async_dispatcher_send(self.hass, SIGNAL_PRESENCE_COORDINATOR_READY)
+            _LOGGER.debug("SIGNAL_PRESENCE_COORDINATOR_READY dispatched")
+        except Exception:  # noqa: BLE001 — defensive; non-fatal
+            _LOGGER.debug(
+                "SIGNAL_PRESENCE_COORDINATOR_READY dispatch failed (non-fatal)",
+                exc_info=True,
+            )
 
         _LOGGER.info(
             "Presence Coordinator ready: %d zones tracked",
@@ -4651,6 +4683,11 @@ class PresenceCoordinator(BaseCoordinator):
         Exit is immediate: if the condition clears for all rooms, returns False.
         Bug Class #11: uses UTC-aware now parameter.
         """
+        # build/pc-observability: kill-switch guard (Path B).
+        # switch.ura_presence_guest_detection_enabled OFF also gates
+        # the sustained-room guest signal, mirroring Path A.
+        if not self._guest_detection_enabled:
+            return False
         for room_name, state_dict in self._guest_room_state.items():
             first_seen = state_dict.get("first_seen")
             if first_seen is None:
@@ -4685,6 +4722,12 @@ class PresenceCoordinator(BaseCoordinator):
         On non-qualifying tick: disarms (clears state + cancels timer).
         Returns True only when all guards pass.
         """
+        # build/pc-observability: kill-switch guard (Path A).
+        # switch.ura_presence_guest_detection_enabled OFF disarms and
+        # returns False so no guest-mode transition can fire via Path A.
+        if not self._guest_detection_enabled:
+            self._disarm_guest_gate()
+            return False
         # Guard 1: Existence
         if unidentified_count <= 0:
             _LOGGER.debug(
@@ -4795,6 +4838,39 @@ class PresenceCoordinator(BaseCoordinator):
             or census_count > 0
             or (tracked_count > 0 and not all_tracked_persons_away)
         )
+
+    def _emit_wake_backstop_anomaly(
+        self, backstop_hour: int, wake_reason: str
+    ) -> None:
+        """build/pc-observability: emit an NM anomaly when wake-backstop fires.
+
+        The wake-backstop is a must-never-fire-in-normal-operation safety
+        valve — every fire is a sev-2 signal that some upstream WAKING gate
+        regressed. Fires alongside ``sensor.ura_presence_wake_backstop_fires``
+        (total_increasing) so operators see it on both the recorder graph
+        AND in NM history. Extracted from the gate site so the surrounding
+        _run_inference block stays compact.
+        """
+        try:
+            nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+            if nm is None:
+                return
+            self.hass.async_create_task(
+                nm.async_notify(
+                    title="Presence wake-backstop fired",
+                    message=(
+                        f"WAKING backstop forced wake past {backstop_hour:02d}:00 "
+                        f"(census_count={self._census_count}, "
+                        f"reason={wake_reason}). Investigate upstream WAKING gate."
+                    ),
+                    severity="medium",
+                    source="presence_coordinator",
+                )
+            )
+        except Exception:  # noqa: BLE001 — defensive; non-fatal
+            _LOGGER.debug(
+                "wake_backstop NM anomaly emit failed (non-fatal)", exc_info=True,
+            )
 
     async def _run_inference(self, trigger: str) -> None:
         """Run state inference and apply transitions.
@@ -5550,6 +5626,16 @@ class PresenceCoordinator(BaseCoordinator):
             _grace_elapsed and _indoor_clear_debounced
         )
 
+        # build/pc-observability: away-veto kill switch. When
+        # switch.ura_presence_away_veto_enabled is OFF, coerce both AWAY-veto
+        # denominators (v4.7.14 path α + v5.7.0 WS-A path β) to False so the
+        # inference engine cannot veto to AWAY. Rebinding the existing local
+        # names preserves the canonical `<kwarg>=<local>` literal at the
+        # infer() call site (anchored by tests test_v4714 + test_v570).
+        # Load-bearing mutation: removing either assignment re-opens the veto.
+        if not self._away_veto_enabled:
+            all_tracked_persons_away = False
+            all_trusted_or_lost_away_persons_away = False
         new_state = self._inference_engine.infer(
             census_count=self._census_count,
             current_state=current_state,
@@ -5690,6 +5776,12 @@ class PresenceCoordinator(BaseCoordinator):
                         _backstop_hour,
                         self._census_count,
                         wake_decision.reason,
+                    )
+                    # build/pc-observability: sev-2 NM anomaly on every fire
+                    # (extracted to keep the surrounding gate block compact
+                    # for downstream source-anchor tests).
+                    self._emit_wake_backstop_anomaly(
+                        _backstop_hour, wake_decision.reason,
                     )
                     # fall through WITHOUT suppressing — allow WAKING transition
                 else:
@@ -5861,6 +5953,7 @@ class PresenceCoordinator(BaseCoordinator):
         # ARRIVING_REARM_COOLDOWN_S == 0 → disabled.
         if (
             ARRIVING_REARM_COOLDOWN_S > 0
+            and self._arriving_rearm_enabled  # build/pc-observability kill switch
             and new_state == HouseState.ARRIVING
             and current_state == HouseState.AWAY
             and self._arriving_rearm_until > 0.0
@@ -5935,6 +6028,7 @@ class PresenceCoordinator(BaseCoordinator):
                 # was outdoor-only at the moment it was accepted.
                 if (
                     ARRIVING_REARM_COOLDOWN_S > 0
+                    and self._arriving_rearm_enabled  # build/pc-observability
                     and current_state == HouseState.ARRIVING
                     and new_state == HouseState.AWAY
                     and self._arriving_last_was_outdoor_only
