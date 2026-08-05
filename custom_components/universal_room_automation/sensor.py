@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.51.0
+# Universal Room Automation vv5.51.1
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -7286,6 +7286,7 @@ class NMInboundTodaySensor(AggregationEntity, SensorEntity):
             "by_channel": nm.inbound_by_channel,
             "by_command": nm.inbound_by_command,
             "safe_word_configured": nm.safe_word_configured,
+            "echo_suppressed": nm.echo_suppressed_count,
         }
 
 

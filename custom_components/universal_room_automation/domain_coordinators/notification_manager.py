@@ -228,6 +228,27 @@ WEBHOOK_ID = f"{DOMAIN}_pushover_reply"
 # prior silent-skip behavior (reviewed-change rung).
 NM_DIGEST_HEARTBEAT_ENABLED = True
 
+# Echo-loop guard knobs (2026-08-05 BlueBubbles echo incident). Rung-1
+# module constants: changing these should require review — they bound a
+# spam-loop breaker, not operator policy. 0 for NM_ECHO_GUARD_TTL_S
+# disables the echo-match rail (kill switch); the reply min-interval has
+# no kill switch by design (a floor of seconds between auto-replies can
+# never suppress a legitimate command RESPONSE, only slow a machine loop).
+NM_ECHO_GUARD_TTL_S = 600
+# Review A H-1: sized for real fan-out (per-recipient sends + digest +
+# repeat-cycle bodies all record); dedup-on-append keeps identical
+# per-recipient bodies to one slot so eviction tracks distinct texts.
+NM_ECHO_GUARD_BUFFER_LEN = 100
+NM_REPLY_MIN_INTERVAL_S = 30.0
+# Review B B1: rail 2 scopes to the channels where the echo mechanism
+# exists (BB webhook sync-back). Companion/pushover cannot self-echo;
+# gating them would only degrade the interactive ack UX.
+NM_REPLY_RATE_LIMITED_CHANNELS = ("imessage", "whatsapp")
+# Review A H-2: reply kinds never swallowed by rail 2 — a security deny
+# must always be answered or a repeat unauthorized attempt reads as
+# success. Echo-safety holds: the deny text is rail-1 dropped on return.
+NM_REPLY_RATE_LIMIT_EXEMPT_COMMANDS = ("safe_word_unauthorized",)
+
 
 class NotificationManager:
     """Centralized notification delivery for all domain coordinators.
@@ -325,6 +346,20 @@ class NotificationManager:
         self._inbound_by_command: dict[str, int] = {
             "ack": 0, "status": 0, "silence": 0, "help": 0, "safe_word": 0, "unknown": 0,
         }
+        # Echo-loop guard (2026-08-05 incident): outbound sends synced back
+        # through the BlueBubbles webhook as inbound (isFromMe guard defeated
+        # by payload) and each auto-reply re-triggered itself — 12 replies in
+        # 7s, and an echo even matched the silence path. Two rails, both
+        # payload-shape-agnostic:
+        #   1. Ring buffer of recent outbound texts — any inbound exactly
+        #      matching a recent outbound is dropped as a self-echo.
+        #   2. Min interval between auto-replies per (person, channel) —
+        #      breaks any residual ping-pong regardless of content.
+        self._recent_outbound_texts: deque[tuple[str, datetime]] = deque(
+            maxlen=NM_ECHO_GUARD_BUFFER_LEN
+        )
+        self._echo_suppressed_count: int = 0
+        self._last_reply_at: dict[tuple[str, str], datetime] = {}
 
         # =====================================================================
         # NM Cycle B (2026-07-20): Safety rails
@@ -764,6 +799,11 @@ class NotificationManager:
     def inbound_by_command(self) -> dict[str, int]:
         """Return inbound message breakdown by parsed command."""
         return dict(self._inbound_by_command)
+
+    @property
+    def echo_suppressed_count(self) -> int:
+        """Return count of self-echo inbounds dropped since boot."""
+        return self._echo_suppressed_count
 
     # =========================================================================
     # v3.21.0 D4: Alert state persistence
@@ -1910,9 +1950,10 @@ class NotificationManager:
             await self._log_dry_run(channel="whatsapp", target=phone, title=title)
             return
         try:
+            outbound_text = f"*{title}*\n{message}"
             payload: dict[str, Any] = {
                 "number": phone,
-                "message": f"*{title}*\n{message}",
+                "message": outbound_text,
             }
             if snapshot_url:
                 payload["media_url"] = snapshot_url
@@ -1921,6 +1962,9 @@ class NotificationManager:
                 payload,
                 blocking=True,
             )
+            # Review B B2: record only AFTER a successful dispatch — a
+            # failed send must not seed the echo buffer (proof-of-send).
+            self._record_outbound_text(outbound_text)
             self._update_channel_health("whatsapp", True)
         except Exception as e:
             _LOGGER.error("WhatsApp send failed: %s", e)
@@ -1939,9 +1983,10 @@ class NotificationManager:
             await self._log_dry_run(channel="imessage", target=handle, title=title)
             return
         try:
+            outbound_text = f"{title}\n{message}"
             payload: dict[str, Any] = {
                 "addresses": handle,
-                "message": f"{title}\n{message}",
+                "message": outbound_text,
             }
             if snapshot_url:
                 payload["attachment"] = snapshot_url
@@ -1950,6 +1995,9 @@ class NotificationManager:
                 payload,
                 blocking=True,
             )
+            # Review B B2: record only AFTER a successful dispatch — a
+            # failed send must not seed the echo buffer (proof-of-send).
+            self._record_outbound_text(outbound_text)
             self._update_channel_health("imessage", True)
         except Exception as e:
             _LOGGER.error("iMessage send via BlueBubbles failed: %s", e)
@@ -2793,6 +2841,42 @@ class NotificationManager:
                 return p.get(CONF_NM_PERSON_ENTITY)
         return None
 
+    def _record_outbound_text(self, text: str) -> None:
+        """Remember an outbound message body for echo detection.
+
+        Dedup-on-append (Review A H-1): per-recipient fan-out sends the
+        identical body N times — refresh the existing slot's timestamp
+        instead of burning N slots, so eviction tracks DISTINCT texts.
+        """
+        candidate = text.strip()
+        now = dt_util.utcnow()
+        for i, (existing, _sent_at) in enumerate(self._recent_outbound_texts):
+            if existing == candidate:
+                self._recent_outbound_texts[i] = (candidate, now)
+                return
+        self._recent_outbound_texts.append((candidate, now))
+
+    def _is_self_echo(self, raw_text: str) -> bool:
+        """True when an inbound text is one of our own recent sends.
+
+        2026-08-05 incident: BB syncs our outbound back through the
+        new-message webhook with the isFromMe guard defeated, so every
+        auto-reply re-triggered itself. Exact-match against the outbound
+        ring buffer is payload-shape-agnostic and false-positive-safe: a
+        human typing our full multi-line message verbatim within the TTL
+        is not a plausible command.
+        """
+        if NM_ECHO_GUARD_TTL_S <= 0:
+            return False  # kill switch
+        candidate = raw_text.strip()
+        if not candidate:
+            return False
+        cutoff = dt_util.utcnow() - timedelta(seconds=NM_ECHO_GUARD_TTL_S)
+        return any(
+            text == candidate and sent_at >= cutoff
+            for text, sent_at in self._recent_outbound_texts
+        )
+
     async def _process_inbound_reply(
         self,
         person_id: str | None,
@@ -2800,6 +2884,25 @@ class NotificationManager:
         raw_text: str,
     ) -> str:
         """Process an inbound text reply. Returns response text."""
+        # Echo-loop rail 1: drop our own reflected sends before they can
+        # match any command (an echo once matched the silence path and
+        # silenced alerts without operator intent).
+        if channel in ("imessage", "whatsapp") and self._is_self_echo(raw_text):
+            self._echo_suppressed_count += 1
+            # Review A M-1: keep inbound totals consistent with what the
+            # channel actually delivered — the drop is visible both in
+            # the "echo" pseudo-command and the channel counter.
+            self._inbound_today_count += 1
+            if channel in self._inbound_by_channel:
+                self._inbound_by_channel[channel] += 1
+            self._inbound_by_command["echo"] = (
+                self._inbound_by_command.get("echo", 0) + 1
+            )
+            _LOGGER.debug(
+                "NM: dropped self-echo inbound on %s (%d suppressed)",
+                channel, self._echo_suppressed_count,
+            )
+            return ""
         text = raw_text.strip().lower()
         database = self.hass.data.get(DOMAIN, {}).get("database")
 
@@ -3057,9 +3160,34 @@ class NotificationManager:
                 parsed_command, response, alert_id, success,
             )
 
-        # Send reply back via originating channel
+        # Send reply back via originating channel.
+        # Echo-loop rail 2: floor between auto-reply SENDS per
+        # (person, channel), scoped to the echo-capable channels only
+        # (Review B B1: companion/pushover cannot self-echo — never gate
+        # them). Command PROCESSING above is never gated — ack/silence
+        # state mutation is complete BEFORE this point (Review A M-2
+        # invariant), so at worst a confirmation TEXT is swallowed, never
+        # the command's effect. Security denials are exempt (Review A
+        # H-2): a repeat unauthorized attempt must never look like
+        # success.
         if person_id:
-            await self._send_reply(person_id, channel, response)
+            key = (person_id, channel)
+            now = dt_util.utcnow()
+            last = self._last_reply_at.get(key)
+            rate_limited = (
+                channel in NM_REPLY_RATE_LIMITED_CHANNELS
+                and parsed_command not in NM_REPLY_RATE_LIMIT_EXEMPT_COMMANDS
+                and last is not None
+                and (now - last).total_seconds() < NM_REPLY_MIN_INTERVAL_S
+            )
+            if rate_limited:
+                _LOGGER.debug(
+                    "NM: reply to %s on %s suppressed by min-interval rail",
+                    person_id, channel,
+                )
+            else:
+                self._last_reply_at[key] = now
+                await self._send_reply(person_id, channel, response)
 
         async_dispatcher_send(self.hass, SIGNAL_NM_ENTITIES_UPDATE)
 
