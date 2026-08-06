@@ -355,20 +355,17 @@ def test_vehicle_in_flight_guard_dedups_fused_edges():
     _run(mgr._async_handle_vehicle_trigger(
         "binary_sensor.front_yard_vehicle_detected_2"
     ))
-    # First scheduled a delayed dispatch, second must be suppressed by
-    # in-flight guard. Drain scheduled callbacks.
-    for _delay, cb in list(_pa_mod._scheduled):
-        cb(None)
+    # Orchestrator-hardened anchor (was `await_count <= 1`, which passed
+    # even under a neutered guard because the drain never executed the
+    # delayed coroutines). The deterministic observable is SCHEDULING:
+    # with the in-flight guard, only the FIRST edge schedules a delayed
+    # dispatch; a neutered guard lets both schedule. MUTATION
+    # `_vehicle_in_flight.add(...)` -> pass MUST fail here.
+    assert len(_pa_mod._scheduled) == 1, (
+        f"expected exactly one scheduled vehicle dispatch, got "
+        f"{len(_pa_mod._scheduled)} — in-flight guard not load-bearing"
+    )
     _pa_mod._scheduled.clear()
-    # Let any created tasks resolve.
-    loop = asyncio.new_event_loop()
-    try:
-        pending = [t for t in asyncio.all_tasks(loop=loop)]
-        for t in pending:
-            loop.run_until_complete(t)
-    except Exception:
-        pass
-    assert nm.async_notify.await_count <= 1
 
 
 def test_snapshot_resolver_strips_underscore_2_before_person_suffix():
