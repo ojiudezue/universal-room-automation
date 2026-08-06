@@ -140,6 +140,10 @@ def test_vehicle_deep_night_away_dispatches_high():
     assert kw["severity"] == Severity.HIGH
     assert kw["location"] == "front_yard"
     assert "Vehicle" in kw["title"]
+    # Orchestrator anchor (A-H1/D-H1): vehicles must dispatch under their
+    # OWN hazard so NM dedup/boot-settle can never cross-throttle person
+    # alerts. MUTATION hazard_type -> NM_HAZARD_EXTERIOR_PERSON must fail.
+    assert kw["hazard_type"] == "exterior_vehicle", kw["hazard_type"]
 
 
 def test_vehicle_daytime_away_no_dispatch():
