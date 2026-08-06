@@ -83,13 +83,23 @@ FRIGATE_CROSS_HOST_CORROBORATION_ENABLED: bool = True  # gate PASSED 2026-08-04:
 # inventory looks right.
 CAMERA_AUTOENABLE_DRY_RUN: bool = True
 
-# Census cutover: default LEGACY census path (Fix #1, reviews A-H2 / B-HIGH-2
-# / D-HIGH-2 unanimous). The new resolver is still exercised by D3 (per-room
-# fused binary_sensor) and D5 (fan_veto camera-person leg); flipping this
-# flag routes the whole-house census path through it too. Cutover requires
-# a golden-master diff artifact (legacy vs new outputs across the live
-# registry) per the plan amendment — do NOT flip without that artifact.
-CENSUS_USE_NEW_RESOLVER: bool = False
+# Census cutover flag. Route
+# `CameraIntegrationManager.resolve_cross_platform_sensors` (the whole-house
+# census path) through the new CameraResolver when True; fall back to the
+# legacy name-stem-only path preserved in camera_census.py when False.
+#
+# B-MED-2 (2026-08-06): fire-axe scope note. Flipping this flag to False
+# reverts ONLY the census `resolve_cross_platform_sensors` code path. It
+# does NOT disable:
+#   - D3 CameraPersonDetectedSensor per-room fused sensor (always uses
+#     CameraResolver directly via `resolve_operator_declaration`)
+#   - D5 fan_veto camera-person leg (via the D3 sensor)
+#   - D4 auto-enable dry-run scan
+# The new resolver stays live in those consumers; only the census merges
+# fall back to legacy. Cutover requires a golden-master diff artifact
+# (legacy vs new outputs across the live registry) per the plan amendment
+# — do NOT flip without that artifact.
+CENSUS_USE_NEW_RESOLVER: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -234,6 +244,39 @@ def _has_any_suffix(entity_id: str, suffixes: Iterable[str]) -> bool:
     return any(name.endswith(s) for s in suffixes)
 
 
+def resolve_area_id_for_entity(entity_registry: Any, device_registry: Any, entity_id: str) -> str | None:
+    """B-MED-1: resolve an entity's area_id with legacy semantics.
+
+    Precedence (matches legacy `camera_census.resolve_camera_entity` and
+    the pre-cutover path, which used
+    `bs_entity.area_id or camera_entry.area_id`):
+      1. entity.area_id (registry override on the entity itself)
+      2. device.area_id via entity.device_id -> device registry
+      3. None (degrades on any registry error — legacy behavior)
+
+    Pure helper so it can be unit-tested against synthetic registries.
+    """
+    try:
+        ent = entity_registry.async_get(entity_id)
+    except Exception:  # noqa: BLE001
+        return None
+    if ent is None:
+        return None
+    area = getattr(ent, "area_id", None)
+    if area:
+        return area
+    did = getattr(ent, "device_id", None)
+    if not did:
+        return None
+    try:
+        dev = device_registry.async_get(did)
+    except Exception:  # noqa: BLE001
+        return None
+    if dev is None:
+        return None
+    return getattr(dev, "area_id", None)
+
+
 def _is_package_detector(entity_id: str) -> bool:
     """F3: exclude Frigate ``_package_*`` object detectors from person fusion.
 
@@ -297,6 +340,29 @@ class CameraResolver:
         self._mac_to_device_ids: dict[str, set[str]] = {}
         # Build a stem -> list[device_id] index for the same-Frigate-object collapse.
         self._frigate_stem_to_device_ids: dict[str, list[str]] = {}
+        # Census-cutover fix (2026-08-06): bidirectional camera-stem index.
+        # Maps camera-entity-name stem -> device_ids for ANY device that owns
+        # a `camera.*` entity or a person `binary_sensor.*` entity. This lets
+        # rung-5 traverse Frigate -> Protect (the direction the Frigate-object
+        # -keyed `_frigate_stem_to_device_ids` cannot serve because Protect
+        # devices have empty identifiers on this deployment). Chosen over
+        # options (b) integration-inference-based extended index and
+        # (c) operator-declared amendment per the GOLDEN_MASTER doc's fix
+        # options list: minimal surgery, no new inference machinery, no
+        # per-camera operator burden.
+        self._stem_to_device_ids: dict[str, set[str]] = {}
+        # A-MED-2 / C-MED-2 guard: keep a SEPARATE disambiguation-stripped
+        # index so a lookup only collapses `_N` when the two devices share
+        # evidence (MAC, identifier tuple, OR both are frigate — the
+        # explicit cross-host case). Prevents unrelated same-first-token
+        # cameras (e.g. `camera_a` vs `camera_a_2` that are physically
+        # distinct) from being fused. Consulted post-check in rung-5.
+        self._dstem_to_device_ids: dict[str, set[str]] = {}
+        # Cache of device_id -> integration-hint derived from any entity's
+        # `.platform`, used as a fallback when the device has no identifiers
+        # (Protect NVR devices on this deployment). Populated during index
+        # build in one pass so `_infer_integration` does not re-walk.
+        self._device_platform_hint: dict[str, str] = {}
         self._build_indices()
 
     # ---- Index construction ------------------------------------------------
@@ -333,6 +399,69 @@ class CameraResolver:
                 # Extract object name (portion after the last ':')
                 obj = key.rsplit(":", 1)[-1] if ":" in key else key
                 self._frigate_stem_to_device_ids.setdefault(obj, []).append(dev.id)
+
+        # Bidirectional stem index + platform-hint cache: walk the entity
+        # registry ONCE, extract a stem from every camera.* or person
+        # binary_sensor.* entity, key device_ids under that stem so a lookup
+        # of "doorbell_lite" returns BOTH the Frigate device AND the Protect
+        # device that own the same physical camera.
+        try:
+            entities = list(getattr(self._er, "entities", {}).values())
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.warning("CameraResolver: entity registry walk failed: %s", exc)
+            entities = []
+        for ent in entities:
+            did = getattr(ent, "device_id", None)
+            if not did:
+                continue
+            # A-MED-1: skip disabled entities — they never fire state changes
+            # and must not silently pull a device into a fusion. Matches the
+            # `disabled_by is None` gate already used in `_scan_device_entities`
+            # for the same reason (Bug Class #21: disabled-entity leakage).
+            if getattr(ent, "disabled_by", None) is not None:
+                continue
+            eid = getattr(ent, "entity_id", "") or ""
+            domain = getattr(ent, "domain", None) or (eid.split(".", 1)[0] if "." in eid else "")
+            name = _entity_name(eid)
+            stem: str | None = None
+            if domain == "camera":
+                stem = _strip_camera_resolution_suffix(name)
+            elif domain == "binary_sensor":
+                # B-HIGH-2: normalize in BOTH orders. HA's `_N` disambiguation
+                # can attach AFTER the person-suffix (live observation:
+                # `binary_sensor.back_yard_person_occupancy_2` carries `_2`
+                # after `_person_occupancy`, not before). Try person-suffix
+                # first; on miss, strip `_N` and retry. This lets F1's base
+                # and F2's `_2` variant both collapse to the same stem key.
+                stripped = _strip_suffix(name, _PERSON_SUFFIXES)
+                if stripped is None:
+                    _pre = _strip_disambiguation_suffix(name)
+                    if _pre != name:
+                        stripped = _strip_suffix(_pre, _PERSON_SUFFIXES)
+                if stripped:
+                    stem = stripped
+            if stem:
+                self._stem_to_device_ids.setdefault(stem, set()).add(did)
+                # Populate the SEPARATE dstem index (A-MED-2/C-MED-2 guard):
+                # lookups against this index in rung-5 gate on shared evidence
+                # before collapsing.
+                dstem = _strip_disambiguation_suffix(stem)
+                if dstem != stem:
+                    self._dstem_to_device_ids.setdefault(dstem, set()).add(did)
+            # Platform-hint cache: prefer known camera-integration platforms
+            # (unifiprotect, frigate, reolink, amcrest, dahua). Otherwise
+            # accept the first non-empty value as a weak fallback. This
+            # avoids co-resident non-camera integrations (e.g. the `unifi`
+            # Network integration sharing devices with `unifiprotect`)
+            # winning the hint and mislabeling the platform.
+            plat = getattr(ent, "platform", None)
+            if plat:
+                _KNOWN = (PLATFORM_UNIFI, PLATFORM_FRIGATE, PLATFORM_REOLINK, PLATFORM_AMCREST, PLATFORM_DAHUA)
+                cur = self._device_platform_hint.get(did)
+                if plat in _KNOWN:
+                    self._device_platform_hint[did] = plat
+                elif cur is None:
+                    self._device_platform_hint[did] = plat
 
     # ---- Public API --------------------------------------------------------
 
@@ -500,6 +629,29 @@ class CameraResolver:
                 for sibling_did in self._frigate_stem_to_device_ids.get(lookup, []):
                     if sibling_did not in expanded:
                         expanded[sibling_did] = BASIS_NAME_STEM
+            # Bidirectional stem lookup — reaches any device (Protect,
+            # Frigate, Reolink…) that owns a camera/person entity sharing
+            # this stem. Required for Frigate -> Protect direction (egress
+            # cameras: doorbell_lite, front_door_aerial, madrone_g6_entry —
+            # GOLDEN_MASTER BLOCK-1). EXACT-stem lookups are always safe
+            # (same-stem == same physical camera by construction).
+            for lookup in (stem, _strip_camera_resolution_suffix(stem)):
+                for sibling_did in self._stem_to_device_ids.get(lookup, ()):
+                    if sibling_did not in expanded:
+                        expanded[sibling_did] = BASIS_NAME_STEM
+            # A-MED-2/C-MED-2 GUARDED disambiguation collapse: only accept
+            # a `_N`-stripped sibling when it shares evidence with the input
+            # (MAC connection, identifier tuple, OR both devices are frigate
+            # — the explicit cross-host case). Unrelated cameras that happen
+            # to share a first token (e.g. `camera_a` vs a physically
+            # distinct `camera_a_2`) are NOT collapsed.
+            dstem = _strip_disambiguation_suffix(_strip_camera_resolution_suffix(stem))
+            if dstem and dstem in self._dstem_to_device_ids:
+                for sibling_did in self._dstem_to_device_ids.get(dstem, ()):
+                    if sibling_did in expanded:
+                        continue
+                    if self._shares_evidence_with_inputs(sibling_did, device_ids):
+                        expanded[sibling_did] = BASIS_NAME_STEM
 
         # ---- F2 collapse: pre-select the winning Frigate device per object-name
         # A-M3 fix — deterministic winner:
@@ -628,7 +780,48 @@ class CameraResolver:
                 continue
             if integ:
                 return integ
+        # GOLDEN_MASTER bonus finding: live UniFi Protect devices carry
+        # empty identifiers on this deployment, which made the F1 stem
+        # filter inert. Fall back to any owned entity's `.platform`
+        # (populated for both Protect and Frigate) so F1 becomes live.
+        did = getattr(dev, "id", None)
+        if did:
+            return self._device_platform_hint.get(did, "")
         return ""
+
+    def _shares_evidence_with_inputs(
+        self, candidate_did: str, input_device_ids: list[str]
+    ) -> bool:
+        """A-MED-2/C-MED-2 shared-evidence gate for disambiguation collapse.
+
+        Return True iff candidate device shares a MAC connection, an
+        identifier tuple with any input device, OR both candidate and any
+        input device are `frigate` (the explicit cross-host case: same
+        physical camera surfaced via two Frigate hosts).
+        """
+        cand = self._device(candidate_did)
+        if cand is None:
+            return False
+        cand_macs = {_norm_mac(c[1]) for c in (getattr(cand, "connections", None) or ())
+                     if isinstance(c, tuple) and len(c) == 2 and c[0] == "mac" and c[1]}
+        cand_idents = {tuple(i) for i in (getattr(cand, "identifiers", None) or ())
+                       if isinstance(i, tuple) and len(i) == 2}
+        cand_frigate = self._infer_integration(cand) == PLATFORM_FRIGATE
+        for did in input_device_ids:
+            dev = self._device(did)
+            if dev is None:
+                continue
+            in_macs = {_norm_mac(c[1]) for c in (getattr(dev, "connections", None) or ())
+                       if isinstance(c, tuple) and len(c) == 2 and c[0] == "mac" and c[1]}
+            if cand_macs & in_macs:
+                return True
+            in_idents = {tuple(i) for i in (getattr(dev, "identifiers", None) or ())
+                         if isinstance(i, tuple) and len(i) == 2}
+            if cand_idents & in_idents:
+                return True
+            if cand_frigate and self._infer_integration(dev) == PLATFORM_FRIGATE:
+                return True
+        return False
 
     def _frigate_object_name_for_device(self, dev: Any | None) -> str | None:
         if dev is None:

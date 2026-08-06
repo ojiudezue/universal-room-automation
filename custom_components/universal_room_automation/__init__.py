@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.53.0
+# Universal Room Automation vv5.54.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -4061,6 +4061,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # v3.10.1: Clean up event-driven census listeners
         for unsub in hass.data[DOMAIN].pop("unsub_census_events", []):
             unsub()
+        # B-HIGH-1: tear down the CameraResolver cache-invalidation listeners
+        # before dropping the manager reference (Bug Class #42: untracked
+        # listeners → stale invalidations against a torn-down manager).
+        _cm = hass.data[DOMAIN].get("camera_manager")
+        if _cm is not None:
+            try:
+                await _cm.async_shutdown()
+            except Exception as exc:  # noqa: BLE001
+                _LOGGER.warning("CameraIntegrationManager.async_shutdown failed: %s", exc)
         # setup/unload symmetry: defensive `pop(key, None)`.
         for key in ("camera_manager", "census"):
             hass.data[DOMAIN].pop(key, None)

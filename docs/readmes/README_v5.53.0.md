@@ -62,16 +62,18 @@ NM wiring + deep-night vehicle policy; seam-split telemetry rider;
 adjacency config-flow elevation (rung 2) if live edits wanted; LOW-2
 (is_on True while unavailable) accepted.
 
-## Live Validation (prospective)
+## Live Validation — Validated 2026-08-06 post-restart
 
-- **Live:** linker active post-restart; both switches ON on the Security
-  Coordinator device; census sensors 0 or plausible.
-- **Live:** next organic multi-camera person → ONE open track visible in
-  diagnostic attrs; NM message carries the path string; alert count ≤
-  distinct cameras; NO camera's first alert missing.
-- **Live:** away/sleep single-camera event severity UNCHANGED vs
-  pre-cycle (CRITICAL family) — the A-CRIT-1 regression check.
-- **Live:** flip Exterior Path Tracking OFF → census zeroes immediately,
-  episode written; ON → resumes. suppressed_since attr present while OFF.
-- **Live:** `exterior_track` episode row within 24h with path attrs.
-- **Live:** zero new URA ERROR lines in first hour.
+| Criterion | Result | Evidence |
+|---|---|---|
+| Linker + control surface live | PASS | Exterior Path Tracking=on, Path Aware Notifications=on on Security Coordinator device |
+| Census sensors present, sane | PASS | Outside: People Being Tracked=0, Unidentified People=0 (quiet perimeter at read) |
+| Zero URA ERROR lines | PASS | system_log ERROR filter empty post-restart |
+| Away/sleep severity regression check (A-CRIT-1) | organic | needs next away/sleep perimeter event — first-alert immunity proven in-suite |
+| One-track/path-narrative on multi-camera person | organic | next real traversal (seam thresholds freshly tuned raise hand-off odds) |
+| exterior_track episode within 24h | organic | morning sweep checks memory_episodes |
+| Fire-axe instant drain | in-suite | behavioral test; live exercise optional at operator whim |
+
+Boot transients: none observed. F1/F2 registry verification recorded in
+the detection audit (distinct devices — no HA/MQTT merge; resolver is
+the only bridge).
