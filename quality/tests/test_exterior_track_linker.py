@@ -120,7 +120,17 @@ class _FakeHass:
         self._tasks = []
 
         def _create_task(coro):
-            task = asyncio.get_event_loop().create_task(coro)
+            # Order-independence: an earlier test file may have consumed
+            # the ambient loop via asyncio.run(); create one if absent so
+            # this stub never depends on cross-file loop state.
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_closed():
+                    raise RuntimeError
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            task = loop.create_task(coro)
             self._tasks.append(task)
             return task
 
