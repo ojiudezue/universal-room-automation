@@ -78,6 +78,7 @@ class FakeEntity:
     platform: str = ""
     name: str = ""
     disabled_by: Any = None
+    area_id: str | None = None
 
     @property
     def domain(self) -> str:
@@ -89,6 +90,7 @@ class FakeDevice:
     id: str
     identifiers: set = field(default_factory=set)
     connections: set = field(default_factory=set)
+    area_id: str | None = None
 
 
 class FakeEntityRegistry:
@@ -814,3 +816,198 @@ def test_stem_disambiguation_suffix_stripped():
     assert _mod._strip_disambiguation_suffix("armcrestash41b_2") == "armcrestash41b"
     assert _mod._strip_disambiguation_suffix("playroom") == "playroom"
     assert _mod._strip_disambiguation_suffix("g3_instant") == "g3_instant"[:len("g3_instant")]
+
+
+# ============================================================================
+# C-HIGH-1 — device_platform_hint prefers KNOWN camera integrations regardless
+# of iteration order (e.g. co-resident `unifi` Network + `unifiprotect`).
+# Mutation drill: drop the known-camera preference block in `_build_indices`
+# and this test must go red.
+# ============================================================================
+
+
+def _hint_two_platforms(order: list[str]) -> str:
+    dev = FakeDevice(id="dev_x", identifiers=set())
+    ents = []
+    # Camera entity anchors the device to camera-domain discovery.
+    ents.append(FakeEntity("camera.foo", "dev_x", order[0]))
+    ents.append(FakeEntity("binary_sensor.foo_person_detected", "dev_x", order[1]))
+    r = _mk(ents, [dev])
+    return r._device_platform_hint.get("dev_x", "")
+
+
+def test_platform_hint_prefers_unifiprotect_over_unifi_network_forward():
+    """Device has entities from `unifi` (Network) and `unifiprotect`. The
+    known-camera preference MUST pick `unifiprotect` regardless of the
+    iteration order returned by the registry."""
+    got = _hint_two_platforms(["unifi", PLATFORM_UNIFI])
+    assert got == PLATFORM_UNIFI, (
+        f"expected unifiprotect to win the hint, got {got!r}"
+    )
+
+
+def test_platform_hint_prefers_unifiprotect_over_unifi_network_reverse():
+    got = _hint_two_platforms([PLATFORM_UNIFI, "unifi"])
+    assert got == PLATFORM_UNIFI
+
+
+def test_platform_hint_downstream_f1_infer_integration_uses_hint():
+    """The F1 stem filter consumes `_infer_integration`. With no
+    device identifiers (the live Protect NVR shape on this deployment),
+    the hint cache MUST make `_infer_integration` return `unifiprotect`.
+    """
+    dev = FakeDevice(id="dev_x", identifiers=set())
+    ents = [
+        FakeEntity("camera.foo", "dev_x", "unifi"),
+        FakeEntity("binary_sensor.foo_person_detected", "dev_x", PLATFORM_UNIFI),
+    ]
+    r = _mk(ents, [dev])
+    got = r._infer_integration(dev)
+    assert got == PLATFORM_UNIFI, (
+        f"F1 filter would go inert if this were {got!r}; hint cache must "
+        "override the empty-identifier device"
+    )
+
+
+# ============================================================================
+# C-HIGH-2 — area_id resolver: entity.area_id, else device.area_id, else None;
+# exception path degrades to None (legacy semantics).
+# Mutation: hardcode `return None` and both non-None tests go red.
+# ============================================================================
+
+
+def test_resolve_area_id_prefers_entity_area():
+    ents = [FakeEntity("binary_sensor.foo_person_detected", "dev_x", PLATFORM_UNIFI, area_id="area_room")]
+    devs = [FakeDevice(id="dev_x", area_id="area_device")]
+    got = _mod.resolve_area_id_for_entity(
+        FakeEntityRegistry(ents), FakeDeviceRegistry(devs), "binary_sensor.foo_person_detected"
+    )
+    assert got == "area_room"
+
+
+def test_resolve_area_id_falls_back_to_device_area():
+    ents = [FakeEntity("binary_sensor.foo_person_detected", "dev_x", PLATFORM_UNIFI, area_id=None)]
+    devs = [FakeDevice(id="dev_x", area_id="area_device")]
+    got = _mod.resolve_area_id_for_entity(
+        FakeEntityRegistry(ents), FakeDeviceRegistry(devs), "binary_sensor.foo_person_detected"
+    )
+    assert got == "area_device"
+
+
+def test_resolve_area_id_degrades_to_none_on_missing_entity():
+    got = _mod.resolve_area_id_for_entity(
+        FakeEntityRegistry([]), FakeDeviceRegistry([]), "binary_sensor.nonexistent"
+    )
+    assert got is None
+
+
+def test_resolve_area_id_degrades_to_none_on_registry_exception():
+    class _Boom:
+        def async_get(self, _):
+            raise RuntimeError("registry down")
+    got = _mod.resolve_area_id_for_entity(_Boom(), _Boom(), "binary_sensor.foo")
+    assert got is None
+
+
+# ============================================================================
+# B-HIGH-2 — cross-host `_2` collapse via both-orders stem normalization,
+# using the LIVE shape (`_2` appears AFTER `_person_occupancy`).
+# ============================================================================
+
+
+def test_cross_host_frigate_underscore_2_after_person_suffix_collapses():
+    """Live shape: `binary_sensor.back_yard_person_occupancy_2` (F2 host)
+    must index under stem `back_yard` alongside F1's
+    `binary_sensor.back_yard_person_occupancy`. Both hosts remain distinct
+    devices; rung-5 pulls both into one fusion via the exact-stem lookup."""
+    dev_f1 = FakeDevice(
+        id="dev_f1", identifiers={(PLATFORM_FRIGATE, "host1:back_yard")}
+    )
+    dev_f2 = FakeDevice(
+        id="dev_f2", identifiers={(PLATFORM_FRIGATE, "host2:back_yard")}
+    )
+    ents = [
+        FakeEntity("camera.back_yard", "dev_f1", PLATFORM_FRIGATE),
+        FakeEntity("binary_sensor.back_yard_person_occupancy", "dev_f1", PLATFORM_FRIGATE),
+        # F2 host: HA appended `_2` AFTER the person suffix.
+        FakeEntity("binary_sensor.back_yard_person_occupancy_2", "dev_f2", PLATFORM_FRIGATE),
+    ]
+    r = _mk(ents, [dev_f1, dev_f2])
+    # Both devices must be indexed under the `back_yard` stem.
+    assert "dev_f1" in r._stem_to_device_ids.get("back_yard", set())
+    assert "dev_f2" in r._stem_to_device_ids.get("back_yard", set())
+
+
+# ============================================================================
+# A-MED-1 — disabled entities excluded from the stem index.
+# ============================================================================
+
+
+def test_stem_index_skips_disabled_entities():
+    dev_a = FakeDevice(id="dev_a", identifiers={(PLATFORM_UNIFI, "a")})
+    dev_b = FakeDevice(id="dev_b", identifiers={(PLATFORM_UNIFI, "b")})
+    ents = [
+        FakeEntity("camera.same_stem", "dev_a", PLATFORM_UNIFI),
+        # Disabled sibling on dev_b sharing the stem — MUST NOT get indexed.
+        FakeEntity(
+            "binary_sensor.same_stem_person_detected", "dev_b", PLATFORM_UNIFI,
+            disabled_by="user",
+        ),
+    ]
+    r = _mk(ents, [dev_a, dev_b])
+    dids = r._stem_to_device_ids.get("same_stem", set())
+    assert "dev_a" in dids
+    assert "dev_b" not in dids, "disabled entity leaked into the stem index"
+
+
+# ============================================================================
+# A-MED-2 / C-MED-2 — `_N` disambiguation collapse is GUARDED by shared
+# evidence. Two physically distinct cameras with `_N`-similar names but NO
+# shared MAC / identifier / not-both-frigate MUST NOT collapse.
+# ============================================================================
+
+
+def test_disambiguation_collapse_gated_when_no_shared_evidence():
+    """`_2` sibling with NO MAC / identifier overlap and DIFFERENT
+    integration (Reolink vs UniFi) must not be pulled in."""
+    dev_a = FakeDevice(id="dev_a", identifiers={(PLATFORM_UNIFI, "unifi-a")})
+    dev_b = FakeDevice(id="dev_b", identifiers={(PLATFORM_REOLINK, "reo-b")})
+    ents = [
+        FakeEntity("camera.driveway", "dev_a", PLATFORM_UNIFI),
+        FakeEntity("binary_sensor.driveway_person_detected", "dev_a", PLATFORM_UNIFI),
+        # Physically distinct camera whose HA name happens to carry `_2`.
+        FakeEntity("camera.driveway_2", "dev_b", PLATFORM_REOLINK),
+        FakeEntity("binary_sensor.driveway_2_person", "dev_b", PLATFORM_REOLINK),
+    ]
+    r = _mk(ents, [dev_a, dev_b])
+    fusion = _sole(r.resolve_operator_declaration(["camera.driveway"]))
+    dids = {s.device_id for s in fusion.sources}
+    assert "dev_b" not in dids, (
+        "unrelated `_2` camera collapsed without shared evidence — the "
+        "dstem guard is broken"
+    )
+
+
+def test_disambiguation_collapse_allowed_when_shared_mac():
+    """`_2` sibling with a shared MAC connection is legitimately the same
+    physical camera — must be pulled in."""
+    mac = "aa:bb:cc:11:22:33"
+    dev_a = FakeDevice(
+        id="dev_a", identifiers={(PLATFORM_UNIFI, "unifi-a")},
+        connections={("mac", mac)},
+    )
+    dev_b = FakeDevice(
+        id="dev_b", identifiers={(PLATFORM_REOLINK, "reo-b")},
+        connections={("mac", mac)},
+    )
+    ents = [
+        FakeEntity("camera.driveway", "dev_a", PLATFORM_UNIFI),
+        FakeEntity("binary_sensor.driveway_person_detected", "dev_a", PLATFORM_UNIFI),
+        FakeEntity("camera.driveway_2", "dev_b", PLATFORM_REOLINK),
+        FakeEntity("binary_sensor.driveway_2_person", "dev_b", PLATFORM_REOLINK),
+    ]
+    r = _mk(ents, [dev_a, dev_b])
+    fusion = _sole(r.resolve_operator_declaration(["camera.driveway"]))
+    dids = {s.device_id for s in fusion.sources}
+    # MAC rung + guarded dstem rung both admit dev_b.
+    assert "dev_b" in dids

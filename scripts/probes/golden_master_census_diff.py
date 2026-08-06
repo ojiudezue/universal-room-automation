@@ -146,6 +146,10 @@ def _install_ha_stubs(ent_reg: FakeEntityRegistry, dev_reg: FakeDeviceRegistry) 
     ha = _mod("homeassistant")
     core = _mod("homeassistant.core")
     core.HomeAssistant = object
+    # `callback` decorator is a no-op in the real HA core; in this probe we
+    # only need it to be a passthrough so `from homeassistant.core import
+    # callback` succeeds and decorated functions remain callable.
+    core.callback = lambda fn: fn
     helpers = _mod("homeassistant.helpers")
     er_mod = _mod("homeassistant.helpers.entity_registry")
     er_mod.async_get = lambda hass: ent_reg
@@ -244,7 +248,7 @@ def main() -> int:
     if args.activity:
         activity = json.loads(args.activity.read_text())
 
-    total = identical = differing = 0
+    total = identical = differing = platform_differing = 0
     for label in CAMERA_LISTS:
         l_rows = legacy[label]
         n_rows = new[label]
@@ -267,7 +271,11 @@ def main() -> int:
                 # platform label comparison for shared entities
                 lp = next(r["platform"] for r in l_rows if r["person_binary_sensor"] == eid)
                 np_ = next(r["platform"] for r in n_rows if r["person_binary_sensor"] == eid)
-                flag = "" if lp == np_ else f"  PLATFORM-DIFF legacy={lp} new={np_}"
+                if lp != np_:
+                    platform_differing += 1
+                    flag = f"  PLATFORM-DIFF legacy={lp} new={np_}"
+                else:
+                    flag = ""
                 print(f"  BOTH   {eid}  (7d_on={act}){flag}")
             else:
                 differing += 1
@@ -285,7 +293,16 @@ def main() -> int:
                 side = "LEGACY-ONLY" if in_l else "RESOLVER-ONLY"
                 print(f"  {side}  {cid}  [count]")
 
-    print(f"\nTOTAL compared={total} identical={identical} differing={differing}")
+    # C-MED-1: platform_differing is a first-class row-count. A PLATFORM-DIFF
+    # (both sides emit the same person_bs but with different `platform`
+    # labels) is a resolver mislabel bug the entity-id-set diff hides. The
+    # GO/NO-GO verdict MUST reference this counter alongside `differing`:
+    #   GO iff differing == 0 AND platform_differing == 0
+    #   NO-GO if either > 0 (or any BLOCK row not explained in the doc).
+    print(
+        f"\nTOTAL compared={total} identical={identical} "
+        f"differing={differing} platform_differing={platform_differing}"
+    )
     print(json.dumps({"legacy": legacy, "new": new}, indent=1))
     return 0
 
