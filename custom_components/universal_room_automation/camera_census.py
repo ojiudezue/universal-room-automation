@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
@@ -219,6 +219,85 @@ class CameraIntegrationManager:
         self._platform_by_entity: dict[str, str] = {}
         # device_id -> list[CameraInfo]  (cache to avoid re-resolving same device)
         self._resolved_devices: dict[str, list[CameraInfo]] = {}
+        # B-HIGH-1 (2026-08-06): cache a SINGLE CameraResolver per manager;
+        # invalidate via a dirty flag on registry-updated events instead of
+        # re-constructing (and re-walking the entity+device registries) on
+        # every `resolve_cross_platform_sensors` call. See `_get_resolver`
+        # and `_register_registry_listeners`.
+        self._resolver: Any = None
+        self._resolver_dirty: bool = True
+        self._resolver_unsubs: list = []
+        self._resolver_listeners_registered: bool = False
+        # B-LOW-1: crash counter for the broad resolver-crash fallback. First
+        # crash is logged at ERROR (once per manager lifetime), subsequent
+        # crashes at WARNING to avoid log flood while surfacing the initial
+        # regression signal.
+        self._resolver_crash_count: int = 0
+
+    def _register_registry_listeners(self) -> None:
+        """B-HIGH-1: register EVENT_ENTITY/DEVICE_REGISTRY_UPDATED listeners
+        that flip `_resolver_dirty=True`. Unsubs tracked (Bug Class #42:
+        untracked listeners) — cleaned up in `async_shutdown`.
+        """
+        if self._resolver_listeners_registered:
+            return
+        try:
+            from homeassistant.helpers.entity_registry import (  # noqa: PLC0415
+                EVENT_ENTITY_REGISTRY_UPDATED,
+            )
+            from homeassistant.helpers.device_registry import (  # noqa: PLC0415
+                EVENT_DEVICE_REGISTRY_UPDATED,
+            )
+        except Exception:  # noqa: BLE001 — running under test stubs w/o these
+            return
+
+        @callback
+        def _invalidate(_evt) -> None:
+            self._resolver_dirty = True
+
+        try:
+            self._resolver_unsubs.append(
+                self.hass.bus.async_listen(EVENT_ENTITY_REGISTRY_UPDATED, _invalidate)
+            )
+            self._resolver_unsubs.append(
+                self.hass.bus.async_listen(EVENT_DEVICE_REGISTRY_UPDATED, _invalidate)
+            )
+            self._resolver_listeners_registered = True
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.warning(
+                "CameraIntegrationManager: could not register registry-updated "
+                "listeners for resolver cache invalidation: %s",
+                exc,
+            )
+
+    def _get_resolver(self):
+        """Return a cached CameraResolver, rebuilding on first use or when a
+        registry-updated event has marked it dirty. See B-HIGH-1 note.
+        """
+        # Register listeners lazily on first use so pure-function unit tests
+        # that never call this path aren't forced to stand up hass.bus.
+        self._register_registry_listeners()
+        if self._resolver is None or self._resolver_dirty:
+            from .camera_resolver import CameraResolver  # noqa: PLC0415
+            from homeassistant.helpers import device_registry as dr  # noqa: PLC0415
+            self._resolver = CameraResolver(
+                er.async_get(self.hass),
+                dr.async_get(self.hass),
+                state_getter=lambda eid: self.hass.states.get(eid),
+            )
+            self._resolver_dirty = False
+        return self._resolver
+
+    async def async_shutdown(self) -> None:
+        """Tear down cache-invalidation listeners (called from integration unload)."""
+        for unsub in self._resolver_unsubs:
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                pass
+        self._resolver_unsubs = []
+        self._resolver_listeners_registered = False
+        self._resolver = None
 
     def resolve_camera_entity(self, camera_entity_id: str) -> list[CameraInfo]:
         """Resolve a camera.* entity ID to its person detection binary_sensors.
@@ -426,37 +505,82 @@ class CameraIntegrationManager:
         # name-stem-only path preserved below.
         try:
             from .camera_resolver import (  # noqa: PLC0415
-                CENSUS_USE_NEW_RESOLVER, CameraResolver, PLATFORM_FRIGATE, PLATFORM_UNIFI,
+                CENSUS_USE_NEW_RESOLVER, PLATFORM_FRIGATE, PLATFORM_UNIFI,
+                resolve_area_id_for_entity, _strip_disambiguation_suffix,
+                _strip_suffix, _entity_name, _PERSON_SUFFIXES,
             )
         except Exception:  # noqa: BLE001
             CENSUS_USE_NEW_RESOLVER = False
         if CENSUS_USE_NEW_RESOLVER:
             try:
                 from homeassistant.helpers import device_registry as dr  # noqa: PLC0415
-                resolver = CameraResolver(er.async_get(self.hass), dr.async_get(self.hass), state_getter=lambda eid: self.hass.states.get(eid))
+                # B-HIGH-1: reuse the cached resolver; do NOT reconstruct.
+                resolver = self._get_resolver()
                 merged_infos: list[CameraInfo] = []
-                seen: set[str] = set()
+                # B-HIGH-2: dedup by (integration, resolved-device-id,
+                # normalized-stem). Entity-id keyed dedup let F1 base
+                # (`..._person_occupancy`) and F2 `_2`
+                # (`..._person_occupancy_2`) emit as SEPARATE rows even
+                # though they represent the same physical camera. Keying
+                # off (integration, device_id, stem) collapses these while
+                # preserving legitimate cross-integration siblings.
+                seen_keys: set[tuple[str, str, str]] = set()
+                ent_reg = er.async_get(self.hass)
+                dev_reg = dr.async_get(self.hass)
                 for cam_eid in camera_entity_ids:
-                    # Fix #7 caller migration (D'-HIGH-1): the resolver
-                    # returns list[RoomCameraFusion]; flatten.
                     _fusions = resolver.resolve_operator_declaration([cam_eid])
                     for src in [s for f in _fusions for s in f.sources]:
-                        # person binary_sensor -> CameraInfo
-                        for eid in (src.person_binary_sensor,):
-                            if eid and eid not in seen:
-                                seen.add(eid)
-                                plat = (CAMERA_PLATFORM_FRIGATE
-                                        if src.integration == PLATFORM_FRIGATE
-                                        else CAMERA_PLATFORM_UNIFI
-                                        if src.integration == PLATFORM_UNIFI
-                                        else src.integration or CAMERA_PLATFORM_UNIFI)
-                                merged_infos.append(CameraInfo(
-                                    entity_id=eid,
-                                    platform=plat,
-                                    area_id=None,
-                                    person_binary_sensor=eid,
-                                    person_count_sensor=src.person_count_sensor,
-                                ))
+                        eid = src.person_binary_sensor
+                        if not eid:
+                            continue
+                        # Normalize the stem (both orders: person-suffix
+                        # first, then strip `_N`, then person-suffix again
+                        # if the `_N` came after the person suffix).
+                        _name = _entity_name(eid)
+                        _stem = _strip_suffix(_name, _PERSON_SUFFIXES)
+                        if _stem is None:
+                            _pre = _strip_disambiguation_suffix(_name)
+                            _stem = _strip_suffix(_pre, _PERSON_SUFFIXES) or _pre
+                        _stem_norm = _strip_disambiguation_suffix(_stem or _name)
+                        key = (src.integration or "", src.device_id or "", _stem_norm)
+                        if key in seen_keys:
+                            continue
+                        seen_keys.add(key)
+                        # B-LOW-2 residual: default to CAMERA_PLATFORM_UNIFI
+                        # only when integration is empty AND we cannot infer
+                        # from the person_bs entity's `.platform`. This
+                        # narrows the "unknown-integration → UNIFI" fallback
+                        # to true unknowns; a Reolink/Dahua/Amcrest sibling
+                        # is correctly labeled from its own `.platform`.
+                        if src.integration == PLATFORM_FRIGATE:
+                            plat = CAMERA_PLATFORM_FRIGATE
+                        elif src.integration == PLATFORM_UNIFI:
+                            plat = CAMERA_PLATFORM_UNIFI
+                        elif src.integration:
+                            plat = src.integration
+                        else:
+                            _ent = None
+                            try:
+                                _ent = ent_reg.async_get(eid)
+                            except Exception:  # noqa: BLE001
+                                _ent = None
+                            _plat_attr = getattr(_ent, "platform", None) if _ent else None
+                            # Residual: unknown-integration → UNIFI. This
+                            # matches legacy's `platform or CAMERA_PLATFORM_UNIFI`
+                            # default; kept for parity, narrowed to true
+                            # unknowns by the branches above.
+                            plat = _plat_attr or CAMERA_PLATFORM_UNIFI
+                        # B-MED-1: legacy area precedence — entity.area_id,
+                        # else device.area_id (via entity.device_id), else
+                        # None. Guarded by helper.
+                        _area = resolve_area_id_for_entity(ent_reg, dev_reg, eid)
+                        merged_infos.append(CameraInfo(
+                            entity_id=eid,
+                            platform=plat,
+                            area_id=_area,
+                            person_binary_sensor=eid,
+                            person_count_sensor=src.person_count_sensor,
+                        ))
                 if merged_infos:
                     _LOGGER.info(
                         "Cross-platform resolution (new-resolver): %d entities from %d cameras",
@@ -466,9 +590,24 @@ class CameraIntegrationManager:
                 # Fall through to legacy if resolver returned nothing.
                 _LOGGER.debug("CameraResolver returned no sources; falling back to legacy name-stem path")
             except Exception as exc:  # noqa: BLE001
-                _LOGGER.warning(
-                    "CameraResolver census cutover failed (%s); using legacy path", exc,
-                )
+                # B-LOW-1: escalate the FIRST resolver crash to ERROR (once
+                # per manager lifetime), subsequent to WARNING. This surfaces
+                # a resolver regression without flooding logs on repeated
+                # bad-registry ticks.
+                self._resolver_crash_count += 1
+                if self._resolver_crash_count == 1:
+                    _LOGGER.error(
+                        "CameraResolver census cutover failed (%s); "
+                        "using legacy path. Further crashes will log at WARNING "
+                        "(count so far: %d).",
+                        exc, self._resolver_crash_count,
+                    )
+                else:
+                    _LOGGER.warning(
+                        "CameraResolver census cutover failed (%s); "
+                        "using legacy path (crash #%d this session).",
+                        exc, self._resolver_crash_count,
+                    )
 
         # Legacy path (preserved as fire-axe): standard resolution (same-device sensors)
         base_infos = self.resolve_configured_cameras(camera_entity_ids)
