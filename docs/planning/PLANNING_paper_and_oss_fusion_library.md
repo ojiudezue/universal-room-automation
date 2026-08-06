@@ -22,6 +22,30 @@ Not any single detector — the **cross-modal arbitration layer** built across 2
 5. **Verification methodology as part of the IP**: falsifiable invariants + per-limb mutation
    anchoring + probe-first acceptance fixtures (the D0 dry-run pattern).
 
+## Doctrine additions (operator, 2026-08-06 — Ziri gym incident)
+
+6. **Manual action as a fusion vector.** A human actuation (switch/fan
+   flipped at the wall or app) is presence EVIDENCE: spatially anchored,
+   instantaneous, unforgeable, decaying. Enters fusion like a motion
+   edge (can extend/create occupancy with decay). Motivated by the
+   2026-08-05/06 Exercise Room incident: mmWave-sole + fan-on demotion
+   (D2) repeatedly released a still occupant to vacant and swept his fan
+   — while his manual fan-on minutes earlier was ignored as evidence.
+7. **Intent vs evidence separation (operator axis).** Split human-action
+   signals into EVIDENCE (where people are: manual actuation, PIR edge,
+   BLE direct) vs INTENT (what people want: media playing —
+   `music_following_enabled` plumbing exists as prior art — scene
+   selection, override switches). Doctrine: evidence may extend/create
+   occupancy; intent NEVER creates occupancy but raises the bar for
+   off-decisions (sweep veto weight) — extend-not-create generalized.
+   Music-in-empty-room is the spoof case that forces the split.
+8. **Sole-witness corollary (accused-witness sharpened).** Upgrading the
+   accused witness (cheap wave-motion mmWave → zone-masked LD2450/FP2)
+   fixes the physics, not the doctrine: one witness is still one
+   witness, and D2 keys on room fan state, not sensor zones. Remedies
+   are a second failure-mode-independent witness (BLE proxy, CO2) or an
+   explicit per-room trust upgrade — never silent exemption.
+
 ## Deliverables (to scope when dequeued)
 - **D-PAPER:** whitepaper/preprint-style write-up: architecture, doctrines with incident-grounded
   motivation (playroom phantom ×3, Study A fan loop, guest-laundering), evaluation from live data
