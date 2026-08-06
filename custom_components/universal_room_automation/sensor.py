@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.54.0
+# Universal Room Automation vv5.55.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -3897,6 +3897,20 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
             try:
                 attrs["unlinked_events_by_camera"] = (
                     linker.unlinked_events_snapshot()
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            # Cycle 2 seam-split telemetry rider: per-(A,B) missed-intermediate
+            # candidate counts (observability only; edges never change
+            # automatically). Empty dict when nothing to report.
+            # Fix-up (2026-08-06, B-LOW-2): counters are SINCE-BOOT — not
+            # persisted across restart; cap at 64 keys with drop-oldest.
+            # Frigate `_frigate_last_event_id` cache is PERSON-ONLY
+            # (B-LOW-3): vehicle/animal snapshot events do not enter this
+            # cache; vehicle NM uses the entity_picture live-fallback path.
+            try:
+                attrs["seam_split_candidates"] = (
+                    linker.seam_split_snapshot()
                 )
             except Exception:  # noqa: BLE001
                 pass

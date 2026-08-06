@@ -83,6 +83,8 @@ from .const import (
     CONF_ENTRY_TYPE,
     CAMERA_PLATFORM_FRIGATE,
     NM_HAZARD_EXTERIOR_PERSON,
+    NM_HAZARD_EXTERIOR_VEHICLE,
+    EXTERIOR_CAMERA_KEY_ALIASES,
     NM_HAZARD_EXTERIOR_PERSON_SEVERITY_BY_HOUSE_STATE,
     NM_HAZARD_EXTERIOR_PERSON_DEFAULT_SEVERITY,
     NM_HAZARD_EXTERIOR_TRACK_SEVERITY_MAP,
@@ -93,6 +95,12 @@ from .const import (
     PERIMETER_BOOT_SETTLE_S,
     FRIGATE_SNAPSHOT_LABELS,
     TRACK_LINK_WINDOW_S,
+    EXTERIOR_VEHICLE_NIGHT_START,
+    EXTERIOR_VEHICLE_NIGHT_END,
+    EXTERIOR_VEHICLE_ALERT_STATES,
+    EXTERIOR_VEHICLE_ALERT_COOLDOWN_SECONDS,
+    EXTERIOR_VEHICLE_SENSOR_SUFFIXES,
+    EXTERIOR_ANIMAL_SENSOR_SUFFIXES,
 )
 from .domain_coordinators.base import Severity
 
@@ -115,9 +123,16 @@ class PerimeterAlertManager:
         self.hass = hass
         self._unsub_perimeter: list[Any] = []
         self._unsub_egress: list[Any] = []
+        self._unsub_vehicle: list[Any] = []
+        self._unsub_animal: list[Any] = []
         self._unsub_frigate_events: Any = None
-        # Timestamps of last alert per camera person-binary-sensor entity_id
+        # Timestamps of last alert per CAMERA KEY (cycle 2 fused-sourcing).
+        # Was entity_id — changed so a physical event visible on both the
+        # F1 base sensor AND the F2 `_2` sibling produces at most ONE alert.
         self._last_alert: dict[str, datetime] = {}
+        # Independent cooldown namespace for the vehicle alert path so a
+        # vehicle alert can never mute a person alert on the same camera.
+        self._last_vehicle_alert: dict[str, datetime] = {}
         # Timestamp of most recent egress camera activation
         self._last_egress_time: datetime | None = None
         # person_binary_sensor entity_id -> resolved platform (frigate/unifiprotect/...)
@@ -135,6 +150,16 @@ class PerimeterAlertManager:
         self._pending_dispatches: list[Any] = []
         # A-M1 / C-mut-a: in-flight guard (per person-sensor entity_id)
         self._dispatch_in_flight: set[str] = set()
+        # Fix-up (2026-08-06, A-H3/B-HIGH-1/D-M1): vehicle path mirror.
+        # Add BEFORE any await/scheduling so 2 edges (base + `_2`) 5ms apart
+        # produce exactly ONE emit even when snapshot resolution defers.
+        self._vehicle_in_flight: set[str] = set()
+        # Fix-up (2026-08-06, A-L5, C-L1): one-shot WARN gates.
+        self._severity_map_miss_warned: set[tuple[str, str, str]] = set()
+        self._feed_linker_warn_gates: set[str] = set()
+        # Fix-up (2026-08-06, #12): late-registration re-scan (EVENT_
+        # HOMEASSISTANT_STARTED) cleanup handle.
+        self._unsub_started: Any = None
         # B-HIGH-2: perimeter-local settle timestamp
         self._setup_time: datetime | None = None
 
@@ -149,13 +174,35 @@ class PerimeterAlertManager:
         perimeter_infos = self._resolve_camera_infos(CONF_PERIMETER_CAMERAS)
         egress_infos = self._resolve_camera_infos(CONF_EGRESS_CAMERAS)
 
-        # Flatten to sensor lists + cache platforms / camera-entity mapping
+        # Flatten to sensor lists + cache platforms / camera-entity mapping.
+        # Cycle 2 fused-sourcing (F1-retirement insurance): also accept the
+        # rising edge from the `_2` sibling person sensor (F2 parallel host).
+        # Per-camera cooldown + in-flight gates dedup so one physical event
+        # visible on both hosts still yields ONE alert.
         perimeter_sensors: list[str] = []
         for cam_entity_id, info in perimeter_infos:
-            if info.person_binary_sensor:
-                perimeter_sensors.append(info.person_binary_sensor)
-                self._sensor_platforms[info.person_binary_sensor] = info.platform or ""
-                self._sensor_to_camera[info.person_binary_sensor] = cam_entity_id
+            base_bs = info.person_binary_sensor
+            if not base_bs:
+                continue
+            perimeter_sensors.append(base_bs)
+            self._sensor_platforms[base_bs] = info.platform or ""
+            self._sensor_to_camera[base_bs] = cam_entity_id
+            sibling = self._fused_sibling(base_bs)
+            if sibling:
+                perimeter_sensors.append(sibling)
+                self._sensor_platforms[sibling] = info.platform or ""
+                self._sensor_to_camera[sibling] = cam_entity_id
+                _LOGGER.info(
+                    "PerimeterAlertManager: fused source for %s — also "
+                    "watching %s (both hosts feed the same camera key)",
+                    base_bs, sibling,
+                )
+            else:
+                _LOGGER.warning(
+                    "PerimeterAlertManager: no `_2` sibling found for %s — "
+                    "F2 host detections will not alert; F1 retirement will "
+                    "silence this camera until sourcing is refit.", base_bs,
+                )
 
         egress_sensors = [
             info.person_binary_sensor
@@ -245,6 +292,160 @@ class PerimeterAlertManager:
             FRIGATE_EVENTS_BUS_EVENT, _on_frigate_event
         )
 
+        # Cycle 2: vehicle + animal ingress paths. Vehicle rising edges may
+        # dispatch a deep-night alert (_async_handle_vehicle_trigger); animal
+        # rising edges only feed the linker for census/episode. Both use
+        # binary sensors on the same perimeter cameras.
+        vehicle_sensors: list[str] = []
+        animal_sensors: list[str] = []
+        for cam_entity_id, info in perimeter_infos:
+            base_bs = info.person_binary_sensor or ""
+            if not base_bs:
+                continue
+            v = self._derive_sibling_sensor(
+                base_bs, EXTERIOR_VEHICLE_SENSOR_SUFFIXES,
+            )
+            if v:
+                vehicle_sensors.append(v)
+                self._sensor_to_camera[v] = cam_entity_id
+                v2 = self._fused_sibling(v)
+                if v2:
+                    vehicle_sensors.append(v2)
+                    self._sensor_to_camera[v2] = cam_entity_id
+                else:
+                    _LOGGER.warning(
+                        "PerimeterAlertManager: no `_2` sibling found for "
+                        "vehicle sensor %s — F2 host vehicle events will "
+                        "not dispatch.", v,
+                    )
+            else:
+                _LOGGER.warning(
+                    "PerimeterAlertManager: no vehicle sibling sensor "
+                    "found for %s (searched suffixes=%s)",
+                    base_bs, EXTERIOR_VEHICLE_SENSOR_SUFFIXES,
+                )
+            a = self._derive_sibling_sensor(
+                base_bs, EXTERIOR_ANIMAL_SENSOR_SUFFIXES,
+            )
+            if a:
+                animal_sensors.append(a)
+                self._sensor_to_camera[a] = cam_entity_id
+                a2 = self._fused_sibling(a)
+                if a2:
+                    animal_sensors.append(a2)
+                    self._sensor_to_camera[a2] = cam_entity_id
+                else:
+                    _LOGGER.warning(
+                        "PerimeterAlertManager: no `_2` sibling found for "
+                        "animal sensor %s — F2 host animal events will "
+                        "not feed the linker.", a,
+                    )
+            else:
+                _LOGGER.warning(
+                    "PerimeterAlertManager: no animal sibling sensor "
+                    "found for %s (searched suffixes=%s)",
+                    base_bs, EXTERIOR_ANIMAL_SENSOR_SUFFIXES,
+                )
+
+        if vehicle_sensors:
+            @callback
+            def _on_vehicle_state_change(event: Event) -> None:
+                try:
+                    new_state = event.data.get("new_state")
+                    old_state = event.data.get("old_state")
+                    if not (new_state and new_state.state == "on"):
+                        return
+                    if old_state is None or old_state.state == "on":
+                        return
+                    ent = event.data.get("entity_id", "")
+                    self.hass.async_create_task(
+                        self._async_handle_vehicle_trigger(ent)
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "PerimeterAlertManager: vehicle state change raised",
+                        exc_info=True,
+                    )
+
+            self._unsub_vehicle.append(
+                async_track_state_change_event(
+                    self.hass, vehicle_sensors, _on_vehicle_state_change,
+                )
+            )
+            _LOGGER.info(
+                "PerimeterAlertManager: monitoring %d vehicle sensor(s) "
+                "(deep-night alert window %02d-%02d, states=%s)",
+                len(vehicle_sensors),
+                EXTERIOR_VEHICLE_NIGHT_START,
+                EXTERIOR_VEHICLE_NIGHT_END,
+                sorted(EXTERIOR_VEHICLE_ALERT_STATES),
+            )
+
+        if animal_sensors:
+            @callback
+            def _on_animal_state_change(event: Event) -> None:
+                try:
+                    new_state = event.data.get("new_state")
+                    old_state = event.data.get("old_state")
+                    if not (new_state and new_state.state == "on"):
+                        return
+                    if old_state is None or old_state.state == "on":
+                        return
+                    # Fix-up (2026-08-06, B-M2): boot-settle gate on the
+                    # animal path — RestoreEntity replay must NOT synthesize
+                    # phantom animal census bumps.
+                    if self._setup_time is not None:
+                        elapsed = (
+                            dt_util.now() - self._setup_time
+                        ).total_seconds()
+                        if elapsed < PERIMETER_BOOT_SETTLE_S:
+                            return
+                    ent = event.data.get("entity_id", "")
+                    self._feed_linker(ent, "animal")
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "PerimeterAlertManager: animal state change raised",
+                        exc_info=True,
+                    )
+
+            self._unsub_animal.append(
+                async_track_state_change_event(
+                    self.hass, animal_sensors, _on_animal_state_change,
+                )
+            )
+            _LOGGER.info(
+                "PerimeterAlertManager: monitoring %d animal sensor(s) "
+                "(digest-only — feeds linker, no NM dispatch)",
+                len(animal_sensors),
+            )
+
+        # Fix-up (2026-08-06, item 12): one-shot post-start re-scan so any
+        # sensors that register their entity_registry entry AFTER our setup
+        # (late MQTT discovery, integration reload) get picked up. The
+        # `_fused_sibling` / `_derive_sibling_sensor` calls now consult the
+        # entity registry directly (not just hass.states), so this listener
+        # covers the residual "registered strictly after async_setup" case.
+        try:
+            try:
+                from homeassistant.const import (  # noqa: PLC0415
+                    EVENT_HOMEASSISTANT_STARTED,
+                )
+            except Exception:  # noqa: BLE001
+                EVENT_HOMEASSISTANT_STARTED = "homeassistant_started"
+
+            @callback
+            def _on_started(_event: Any) -> None:
+                self._rescan_siblings(perimeter_infos)
+
+            self._unsub_started = self.hass.bus.async_listen_once(
+                EVENT_HOMEASSISTANT_STARTED, _on_started
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "PerimeterAlertManager: HA_STARTED re-scan listener "
+                "registration failed", exc_info=True,
+            )
+
         self._setup_time = dt_util.now()
         self._active = True
 
@@ -257,6 +458,26 @@ class PerimeterAlertManager:
         for unsub in self._unsub_egress:
             unsub()
         self._unsub_egress.clear()
+
+        for unsub in self._unsub_vehicle:
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                pass
+        self._unsub_vehicle.clear()
+        for unsub in self._unsub_animal:
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                pass
+        self._unsub_animal.clear()
+
+        if self._unsub_started is not None:
+            try:
+                self._unsub_started()
+            except Exception:  # noqa: BLE001
+                pass
+            self._unsub_started = None
 
         if self._unsub_frigate_events is not None:
             try:
@@ -303,7 +524,11 @@ class PerimeterAlertManager:
                 return
 
         # --- 3. Check per-camera cooldown (outer, authoritative rate limit) ---
-        last_alert = self._last_alert.get(entity_id)
+        # Cycle 2 (fused-sourcing dedup): key by camera, not sensor entity_id,
+        # so an event visible on both the F1 base sensor and the F2 `_2`
+        # sibling still consumes ONE cooldown slot -> ONE alert.
+        cooldown_key = self._camera_key_for_sensor(entity_id) or entity_id
+        last_alert = self._last_alert.get(cooldown_key)
         if last_alert is not None:
             seconds_since_alert = (now - last_alert).total_seconds()
             if seconds_since_alert < PERIMETER_ALERT_COOLDOWN_SECONDS:
@@ -321,11 +546,12 @@ class PerimeterAlertManager:
         # without touching cooldown. Cooldown reservation is deferred to
         # AFTER successful dispatch so a failed notify does not mute the
         # camera for 5 minutes.
-        if entity_id in self._dispatch_in_flight:
+        # Cycle 2: key in-flight by camera (fused-sourcing).
+        if cooldown_key in self._dispatch_in_flight:
             _LOGGER.debug(
                 "PerimeterAlertManager: %s trigger suppressed — dispatch "
-                "already in flight",
-                entity_id,
+                "already in flight for camera %s",
+                entity_id, cooldown_key,
             )
             return
 
@@ -502,12 +728,12 @@ class PerimeterAlertManager:
             )
             return
 
-        self._dispatch_in_flight.add(entity_id)
+        self._dispatch_in_flight.add(cooldown_key)
 
         async def _do_dispatch(_now: Any = None) -> None:
             # A-M3: don't run after teardown / during HA shutdown
             if not self._active or getattr(self.hass, "is_stopping", False):
-                self._dispatch_in_flight.discard(entity_id)
+                self._dispatch_in_flight.discard(cooldown_key)
                 return
             dispatched_ok = False
             try:
@@ -558,7 +784,8 @@ class PerimeterAlertManager:
                 # A failed notify leaves the camera unmuted so the next
                 # trigger within 5min can still alert.
                 if dispatched_ok:
-                    self._last_alert[entity_id] = now
+                    # Cycle 2: reserve cooldown by camera_key (fused-sourcing).
+                    self._last_alert[cooldown_key] = now
                     # build/exterior-track: attribute the alert to the
                     # owning open track so future events on the same track
                     # can refine cadence (approach/circling still alert;
@@ -578,7 +805,7 @@ class PerimeterAlertManager:
                                 exc_info=True,
                             )
             finally:
-                self._dispatch_in_flight.discard(entity_id)
+                self._dispatch_in_flight.discard(cooldown_key)
 
         if delay_s > 0:
             @callback
@@ -656,6 +883,13 @@ class PerimeterAlertManager:
             cam_name = None
             if sensor_entity_id.startswith("binary_sensor."):
                 base = sensor_entity_id[len("binary_sensor."):]
+                # Fix-up (2026-08-06, D-H2): strip `_2` fused-sourcing
+                # disambiguation FIRST so the `_2` sibling shares the same
+                # Frigate cache key as the base sensor. Otherwise post-F1
+                # retirement the `_2` events lose snapshots + eat the full
+                # entity_picture delay.
+                if base.endswith("_2"):
+                    base = base[:-2]
                 if base.endswith("_person_occupancy"):
                     cam_name = base[: -len("_person_occupancy")]
                 else:
@@ -684,20 +918,515 @@ class PerimeterAlertManager:
         return self._absolutize(picture_url), offset_s
 
     def _camera_key_for_sensor(self, sensor_entity_id: str) -> str | None:
-        """Return the Frigate camera name (linker key) for a person binary_sensor.
+        """Return the Frigate camera name (linker key) for a binary_sensor.
 
-        Matches _resolve_snapshot_url_and_delay's derivation so linker keys
-        line up with the Frigate event bus's `after.camera` field.
+        Cycle 2: also strips vehicle/animal suffixes and the trailing `_2`
+        HA disambiguation (fused-sourcing) so ALL sensor families collapse
+        to a single camera key (`_last_alert` / `_dispatch_in_flight` /
+        vehicle cooldown are all host-independent).
         """
         try:
             if not sensor_entity_id.startswith("binary_sensor."):
                 return None
             base = sensor_entity_id[len("binary_sensor."):]
-            if base.endswith("_person_occupancy"):
-                return base[: -len("_person_occupancy")]
-            return base
+            if base.endswith("_2"):
+                base = base[:-2]
+            slug: str | None = None
+            for suf in ("_person_occupancy", "_person_detected", "_person"):
+                if base.endswith(suf):
+                    slug = base[: -len(suf)]
+                    break
+            if slug is None:
+                for suf in EXTERIOR_VEHICLE_SENSOR_SUFFIXES:
+                    if base.endswith(suf):
+                        slug = base[: -len(suf)]
+                        break
+            if slug is None:
+                for suf in EXTERIOR_ANIMAL_SENSOR_SUFFIXES:
+                    if base.endswith(suf):
+                        slug = base[: -len(suf)]
+                        break
+            if slug is None:
+                slug = base
+            # Fix-up (2026-08-06, item 14): alias live sensor prefix onto
+            # the adjacency-graph key (e.g. armcrestpooloverhead → armcrest).
+            return EXTERIOR_CAMERA_KEY_ALIASES.get(slug, slug)
         except Exception:  # noqa: BLE001
             return None
+
+    # ------------------------------------------------------------------
+    # Cycle 2 helpers: fused sourcing + vehicle/animal derivation
+    # ------------------------------------------------------------------
+
+    def _rescan_siblings(self, perimeter_infos: list) -> None:
+        """Fix-up (2026-08-06, item 12): one-shot re-scan after HA_STARTED.
+
+        Re-derives vehicle/animal siblings; if any are now discoverable via
+        the entity registry that weren't at setup, subscribes to them and
+        logs the recovery. Does NOT drop existing subscriptions.
+        """
+        try:
+            existing = set(self._sensor_to_camera.keys())
+            added_vehicle: list[str] = []
+            added_animal: list[str] = []
+            for cam_entity_id, info in perimeter_infos:
+                base_bs = getattr(info, "person_binary_sensor", "") or ""
+                if not base_bs:
+                    continue
+                # Late-registered `_2` person sibling.
+                sib = self._fused_sibling(base_bs)
+                if sib and sib not in existing:
+                    self._sensor_to_camera[sib] = cam_entity_id
+                    self._sensor_platforms[sib] = getattr(info, "platform", "") or ""
+                    self._unsub_perimeter.append(
+                        async_track_state_change_event(
+                            self.hass, [sib],
+                            lambda ev: self._on_perimeter_event(ev),
+                        )
+                    )
+                    _LOGGER.info(
+                        "PerimeterAlertManager: late-registered person "
+                        "sibling %s subscribed post-HA_STARTED.", sib,
+                    )
+                # Vehicle / animal are logged only — new subscriptions
+                # need the callback closures set up at async_setup; we log
+                # and let the operator reload if a late-registered
+                # vehicle/animal sensor needs live wiring.
+                v = self._derive_sibling_sensor(
+                    base_bs, EXTERIOR_VEHICLE_SENSOR_SUFFIXES,
+                )
+                if v and v not in existing:
+                    added_vehicle.append(v)
+                a = self._derive_sibling_sensor(
+                    base_bs, EXTERIOR_ANIMAL_SENSOR_SUFFIXES,
+                )
+                if a and a not in existing:
+                    added_animal.append(a)
+            if added_vehicle or added_animal:
+                _LOGGER.warning(
+                    "PerimeterAlertManager: late-registered vehicle/animal "
+                    "sensors detected post-HA_STARTED (vehicle=%s, "
+                    "animal=%s); reload perimeter alerting to subscribe.",
+                    added_vehicle, added_animal,
+                )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "PerimeterAlertManager: _rescan_siblings raised",
+                exc_info=True,
+            )
+
+    def _entity_exists(self, entity_id: str) -> bool:
+        """True if entity is in the entity registry OR has a live state.
+
+        Fix-up (2026-08-06, A-M2/B-LOW-1): the entity registry carries the
+        entity even before its first state publication, so late-boot
+        subscription no longer requires a live state snapshot. Falls back
+        to hass.states so behavior degrades gracefully when the registry
+        stub is unavailable (tests / early boot).
+        """
+        try:
+            from homeassistant.helpers import (  # noqa: PLC0415
+                entity_registry as er,
+            )
+            reg = er.async_get(self.hass)
+            if reg is not None and reg.async_get(entity_id) is not None:
+                return True
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            return self.hass.states.get(entity_id) is not None
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _fused_sibling(self, entity_id: str) -> str | None:
+        """Return the `_2` sibling binary sensor if it exists.
+
+        Cycle 2 fused-sourcing: F1/F2 are parallel MQTT devices since the
+        2026-08-01 prefix split; F2 sensors are HA-disambiguated with `_2`.
+        Uses the entity registry (durable across restart / pre-state
+        publication) via _entity_exists.
+        """
+        if not entity_id or not entity_id.startswith("binary_sensor."):
+            return None
+        candidate = f"{entity_id}_2"
+        return candidate if self._entity_exists(candidate) else None
+
+    def _derive_sibling_sensor(
+        self, person_bs: str, suffixes: tuple[str, ...]
+    ) -> str | None:
+        """Derive a vehicle/animal binary sensor id from a person sensor id."""
+        if not person_bs or not person_bs.startswith("binary_sensor."):
+            return None
+        base = person_bs[len("binary_sensor."):]
+        stem = None
+        for p in ("_person_occupancy", "_person_detected", "_person"):
+            if base.endswith(p):
+                stem = base[: -len(p)]
+                break
+        if stem is None:
+            stem = base
+        for suf in suffixes:
+            cand = f"binary_sensor.{stem}{suf}"
+            if self._entity_exists(cand):
+                return cand
+        return None
+
+    def _feed_linker(self, sensor_entity_id: str, label: str) -> None:
+        """Feed ExteriorTrackLinker.observe() from a rising-edge binary sensor.
+
+        Kill-switch gated (TRACK_LINK_WINDOW_S <= 0 → no-op, mirrors
+        linker's own gate). Used for animal (digest-only, no NM) and
+        vehicle (deep-night NM gate lives in _async_handle_vehicle_trigger,
+        called BEFORE this feed for vehicles). Best-effort — failures are
+        WARN-once per sensor (C-L1) then debug.
+        """
+        if TRACK_LINK_WINDOW_S <= 0:
+            return
+        try:
+            linker = self.hass.data.get(DOMAIN, {}).get(
+                "exterior_track_linker"
+            )
+            if linker is None:
+                return
+            cam_key = self._camera_key_for_sensor(sensor_entity_id)
+            if not cam_key:
+                return
+            linker.observe(
+                camera=cam_key,
+                label=label,
+                event_id=None,
+                score=0.0,
+                sub_label=None,
+                now=dt_util.now(),
+            )
+        except Exception:  # noqa: BLE001
+            # Fix-up (2026-08-06, C-L1): WARN-once per sensor, then debug.
+            gate_key = f"{label}:{sensor_entity_id}"
+            if gate_key not in self._feed_linker_warn_gates:
+                self._feed_linker_warn_gates.add(gate_key)
+                _LOGGER.warning(
+                    "PerimeterAlertManager: first linker feed (%s) failed "
+                    "for %s — subsequent failures at debug.",
+                    label, sensor_entity_id, exc_info=True,
+                )
+            else:
+                _LOGGER.debug(
+                    "PerimeterAlertManager: linker feed (%s) failed for %s",
+                    label, sensor_entity_id, exc_info=True,
+                )
+
+    def _in_vehicle_night_window(self, now: datetime) -> bool:
+        """True when `now` is inside the deep-night vehicle-alert window.
+
+        Window semantics match _is_in_alert_hours: start < end is same-day,
+        start >= end wraps at midnight. Rung-1 module constants.
+        """
+        start = EXTERIOR_VEHICLE_NIGHT_START
+        end = EXTERIOR_VEHICLE_NIGHT_END
+        h = now.hour
+        if start == end:
+            return True
+        if start < end:
+            return start <= h < end
+        return h >= start or h < end
+
+    async def _async_handle_vehicle_trigger(
+        self, sensor_entity_id: str
+    ) -> None:
+        """Deep-night vehicle alert path (cycle 2).
+
+        Always feeds the linker (census + episode) — subject to the kill
+        switch. Dispatches an NM alert ONLY when (a) inside the deep-night
+        window AND (b) house_state ∈ EXTERIOR_VEHICLE_ALERT_STATES AND
+        (c) linker.tracking_enabled AND TRACK_LINK_WINDOW_S > 0 (fix-up
+        item 8: kill-switch mutes the vehicle emitter — byte-identical
+        backout to no-linker baseline) AND (d) the OWNING track has not
+        yet dispatched a vehicle alert (item 7 first-alert-per-track:
+        bounds parked-car storm to one page per track).
+
+        Per-camera cooldown uses its own namespace so it can never mute
+        the person alert. In-flight guard mirrors the person path (item 2).
+        """
+        now = dt_util.now()
+        # Fix-up (2026-08-06, item 9): snapshot house_state ONCE at handler
+        # entry so gate + severity see identical values (no split-brain).
+        # Transient "" / unknown fails CLOSED for vehicles (bias: silence a
+        # potentially-legit alert during boot rather than emit a mis-scoped
+        # HIGH).
+        house_state = self._get_house_state()
+        if self._setup_time is not None:
+            elapsed = (now - self._setup_time).total_seconds()
+            if elapsed < PERIMETER_BOOT_SETTLE_S:
+                _LOGGER.debug(
+                    "PerimeterAlertManager: ignoring vehicle trigger for %s "
+                    "within boot settle (%.1fs of %ds)",
+                    sensor_entity_id, elapsed, PERIMETER_BOOT_SETTLE_S,
+                )
+                return
+        # Always feed the linker (census / episode / narrative).
+        self._feed_linker(sensor_entity_id, "car")
+
+        # Fix-up (2026-08-06, item 8): kill-switch gates the ENTIRE vehicle
+        # emitter — TRACK_LINK_WINDOW_S<=0 OR linker.tracking_enabled=False
+        # mutes NM dispatch (linker feed already gated above; symmetrical).
+        linker_kill = self.hass.data.get(DOMAIN, {}).get(
+            "exterior_track_linker"
+        )
+        if TRACK_LINK_WINDOW_S <= 0 or (
+            linker_kill is not None
+            and not getattr(linker_kill, "tracking_enabled", True)
+        ):
+            _LOGGER.debug(
+                "PerimeterAlertManager: vehicle emitter muted by "
+                "kill-switch (window=%d, tracking_enabled=%s) — %s",
+                TRACK_LINK_WINDOW_S,
+                getattr(linker_kill, "tracking_enabled", None),
+                sensor_entity_id,
+            )
+            return
+
+        if not self._in_vehicle_night_window(now):
+            _LOGGER.debug(
+                "PerimeterAlertManager: vehicle on %s outside deep-night "
+                "window (%02d-%02d) — digest-only, no NM dispatch.",
+                sensor_entity_id,
+                EXTERIOR_VEHICLE_NIGHT_START,
+                EXTERIOR_VEHICLE_NIGHT_END,
+            )
+            return
+        # Fix-up item 9: use the SNAPSHOT taken at handler entry; transient
+        # "" / unknown does not satisfy the state set → fails CLOSED.
+        if house_state not in EXTERIOR_VEHICLE_ALERT_STATES:
+            _LOGGER.debug(
+                "PerimeterAlertManager: vehicle on %s deep-night but "
+                "house_state=%s (need %s) — no NM dispatch.",
+                sensor_entity_id, house_state,
+                sorted(EXTERIOR_VEHICLE_ALERT_STATES),
+            )
+            return
+        cooldown_key = (
+            self._camera_key_for_sensor(sensor_entity_id) or sensor_entity_id
+        )
+        last = self._last_vehicle_alert.get(cooldown_key)
+        if last is not None:
+            seconds_since = (now - last).total_seconds()
+            if seconds_since < EXTERIOR_VEHICLE_ALERT_COOLDOWN_SECONDS:
+                _LOGGER.debug(
+                    "PerimeterAlertManager: vehicle alert suppressed for %s "
+                    "— cooldown (%.0fs of %ds)",
+                    cooldown_key, seconds_since,
+                    EXTERIOR_VEHICLE_ALERT_COOLDOWN_SECONDS,
+                )
+                return
+
+        # Fix-up (2026-08-06, item 2): in-flight guard SYNCHRONOUS BEFORE
+        # any await/scheduling, mirroring the person path. Two edges 5ms
+        # apart (base + `_2`) with a delayed snapshot must yield exactly
+        # ONE NM emit. Discarded in _do_vehicle_dispatch's finally.
+        if cooldown_key in self._vehicle_in_flight:
+            _LOGGER.debug(
+                "PerimeterAlertManager: vehicle trigger for %s suppressed "
+                "— dispatch already in flight for camera %s",
+                sensor_entity_id, cooldown_key,
+            )
+            return
+
+        # Fix-up (2026-08-06, item 7): FIRST alert per track. Once the
+        # owning open track has any alert_count, subsequent vehicle events
+        # on the same track are digest-only (linker feed already ran).
+        # Bounds parked-car storm (worst case ~96 pages/night observed) and
+        # a returning-family arriving at 23:30 to ONE page (treated as
+        # confirmation). The RESIDUAL is a family arrival during 'away' at
+        # 23:30 — accepted as legitimate first-alert confirmation.
+        linker_gate = self.hass.data.get(DOMAIN, {}).get(
+            "exterior_track_linker"
+        )
+        if linker_gate is not None:
+            try:
+                owning = linker_gate.find_owning_track(
+                    cooldown_key, "car", now,
+                )
+                if owning is not None and owning.alert_count > 0:
+                    _LOGGER.debug(
+                        "PerimeterAlertManager: vehicle first-alert-per-"
+                        "track gate — track %s already alerted (count=%d), "
+                        "digest-only.",
+                        owning.track_id, owning.alert_count,
+                    )
+                    return
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "PerimeterAlertManager: vehicle first-alert-per-track "
+                    "check raised — proceeding (fail-open).",
+                    exc_info=True,
+                )
+
+        # Resolve severity + path narrative.
+        severity = Severity.HIGH
+        classification = "pass_by"
+        path_narrative: str | None = None
+        try:
+            linker = self.hass.data.get(DOMAIN, {}).get(
+                "exterior_track_linker"
+            )
+            if linker is not None and cooldown_key:
+                track = linker.find_owning_track(cooldown_key, "car", now)
+                if track is not None:
+                    classification = linker.classify(track)
+                    if len(track.hops) > 1:
+                        path_narrative = linker.path_string(track)
+            label_map = NM_HAZARD_EXTERIOR_TRACK_SEVERITY_MAP.get("car", {})
+            state_map = label_map.get(house_state, {})
+            sev_name = state_map.get(classification)
+            if sev_name and sev_name != "DIGEST":
+                try:
+                    severity = Severity[sev_name]
+                except KeyError:
+                    pass
+            elif not sev_name:
+                # Fix-up (2026-08-06, A-L5): WARN-once per (label, state,
+                # classification) so unmapped combinations surface without
+                # log-flooding. Falls through to the default HIGH severity.
+                miss_key = ("car", house_state or "", classification)
+                if miss_key not in self._severity_map_miss_warned:
+                    self._severity_map_miss_warned.add(miss_key)
+                    _LOGGER.warning(
+                        "PerimeterAlertManager: severity map miss for "
+                        "car/%s/%s — defaulting to %s.",
+                        house_state, classification, severity.name,
+                    )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "PerimeterAlertManager: vehicle severity resolve raised",
+                exc_info=True,
+            )
+
+        snapshot_url, delay_s = self._resolve_snapshot_url_and_delay(
+            sensor_entity_id
+        )
+
+        title = "Perimeter Alert — Vehicle (deep-night)"
+        if path_narrative:
+            message = (
+                f"Vehicle: {path_narrative}. Latest camera: {cooldown_key} "
+                f"at {now.strftime('%H:%M:%S')} (house_state={house_state})."
+            )
+        else:
+            message = (
+                f"Vehicle detected on {cooldown_key} at "
+                f"{now.strftime('%H:%M:%S')} (deep-night, "
+                f"house_state={house_state})."
+            )
+
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        legacy_service, legacy_target = self._get_notify_config()
+        if (nm is None or not getattr(nm, "enabled", False)) and not legacy_service:
+            _LOGGER.warning(
+                "PerimeterAlertManager: vehicle on %s but no NM/legacy "
+                "notify configured — skipping.", sensor_entity_id,
+            )
+            return
+
+        # Fix-up (2026-08-06, item 2): reserve BEFORE any await/scheduling.
+        self._vehicle_in_flight.add(cooldown_key)
+
+        async def _do_vehicle_dispatch(_now: Any = None) -> None:
+            # Track handle for pruning (item D-L2).
+            _handle_ref = getattr(_do_vehicle_dispatch, "_handle", None)
+            if not self._active or getattr(self.hass, "is_stopping", False):
+                self._vehicle_in_flight.discard(cooldown_key)
+                if _handle_ref is not None:
+                    try:
+                        self._pending_dispatches.remove(_handle_ref)
+                    except ValueError:
+                        pass
+                return
+            dispatched_ok = False
+            try:
+                if nm is not None and getattr(nm, "enabled", False):
+                    try:
+                        await nm.async_notify(
+                            coordinator_id="perimeter_alert",
+                            severity=severity,
+                            title=title,
+                            message=message,
+                            # Fix-up (2026-08-06, A-H1/D-H1): distinct
+                            # hazard_type so vehicle never collapses a
+                            # subsequent person emission via NM boot-settle
+                            # partitioning (keyed on (coord, hazard)).
+                            hazard_type=NM_HAZARD_EXTERIOR_VEHICLE,
+                            location=cooldown_key,
+                            snapshot_url=snapshot_url,
+                        )
+                        dispatched_ok = True
+                        _LOGGER.info(
+                            "PerimeterAlertManager: vehicle NM dispatched "
+                            "for %s (severity=%s, class=%s, state=%s)",
+                            cooldown_key, severity.name, classification,
+                            house_state,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        _LOGGER.error(
+                            "PerimeterAlertManager: vehicle NM failed for "
+                            "%s: %s", cooldown_key, exc,
+                        )
+                elif legacy_service:
+                    try:
+                        # Fix-up (2026-08-06, A-H2): legacy fallback must
+                        # be labeled Vehicle, not Person.
+                        await self._async_send_legacy_notification(
+                            legacy_service, legacy_target,
+                            cooldown_key, now,
+                            label_family="vehicle",
+                        )
+                        dispatched_ok = True
+                    except Exception as exc:  # noqa: BLE001
+                        _LOGGER.error(
+                            "PerimeterAlertManager: vehicle legacy dispatch "
+                            "raised for %s: %s", cooldown_key, exc,
+                        )
+                if dispatched_ok:
+                    # Fix-up (2026-08-06, A-M3): stamp with dispatch-time
+                    # `now` (not the earlier handler-entry `now`) so a
+                    # long snapshot delay does not undercount cooldown.
+                    self._last_vehicle_alert[cooldown_key] = dt_util.now()
+                    try:
+                        _lk = self.hass.data.get(DOMAIN, {}).get(
+                            "exterior_track_linker"
+                        )
+                        if _lk is not None:
+                            _lk.note_alert_dispatched(
+                                cooldown_key, "car", dt_util.now(),
+                            )
+                    except Exception:  # noqa: BLE001
+                        pass
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "PerimeterAlertManager: vehicle dispatch loop raised",
+                    exc_info=True,
+                )
+            finally:
+                self._vehicle_in_flight.discard(cooldown_key)
+                # Fix-up (2026-08-06, D-L2): prune the pending-dispatch
+                # handle on successful fire so the list does not grow.
+                if _handle_ref is not None:
+                    try:
+                        self._pending_dispatches.remove(_handle_ref)
+                    except ValueError:
+                        pass
+
+        if delay_s > 0:
+            @callback
+            def _scheduled_vehicle_dispatch(_now: Any) -> None:
+                self.hass.async_create_task(_do_vehicle_dispatch())
+
+            unsub = async_call_later(
+                self.hass, delay_s, _scheduled_vehicle_dispatch
+            )
+            _do_vehicle_dispatch._handle = unsub  # type: ignore[attr-defined]
+            self._pending_dispatches.append(unsub)
+        else:
+            await _do_vehicle_dispatch()
 
     def _absolutize(self, url: str | None) -> str | None:
         """A-H1: normalize a relative HA URL to absolute for external channels.
@@ -754,8 +1483,16 @@ class PerimeterAlertManager:
         target: str | None,
         camera_entity_id: str,
         timestamp: datetime,
+        label_family: str = "person",
     ) -> None:
-        """Call the legacy notify service."""
+        """Call the legacy notify service.
+
+        Fix-up (2026-08-06, A-H2): parameterized by label family so the
+        vehicle path fallback no longer mislabels the alert as Person.
+        `camera_entity_id` is expected to be a camera key or display slug
+        — displayed as-is (the caller passes cooldown_key for the vehicle
+        path, which is the linker/graph key, not the raw sensor slug).
+        """
         parts = service.split(".", 1)
         if len(parts) != 2:
             _LOGGER.error(
@@ -766,11 +1503,16 @@ class PerimeterAlertManager:
             return
 
         service_domain, service_name = parts
+        if label_family == "vehicle":
+            title = "Perimeter Alert — Vehicle (deep-night)"
+            noun = "Vehicle"
+        else:
+            title = "Perimeter Alert — Person Detected"
+            noun = "Person"
         message = (
-            f"Person detected on perimeter camera {camera_entity_id} "
+            f"{noun} detected on perimeter camera {camera_entity_id} "
             f"at {timestamp.strftime('%H:%M:%S')}."
         )
-        title = "Perimeter Alert — Person Detected"
 
         service_data: dict[str, Any] = {
             "message": message,
