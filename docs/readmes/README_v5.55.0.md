@@ -47,3 +47,8 @@ anchored red/green personally. #62 ledger +2.
 - **Live:** seam_split_candidates attr present (empty until organic).
 - **Live:** WARN inventory at boot for cameras missing `_2` siblings
   matches the known F2 coverage.
+
+## Validated 2026-08-06 post-restart
+v5.55.0 live on HA; zero URA ERROR lines; both switches ON, census sensors present (0), house cycled arriving normally. Organic criteria
+(first egress event legs / first deep-night vehicle, seam counters)
+ride the next natural events — morning sweep checks.

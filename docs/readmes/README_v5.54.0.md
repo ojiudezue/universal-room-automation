@@ -33,3 +33,8 @@ D3/D5 resolver consumers unaffected).
 - **Live:** no resolver-crash counter increments; zero URA ERROR lines.
 - **Live:** presence census_count parity with the PC People Home sensor
   maintained across the flip.
+
+## Validated 2026-08-06 post-restart
+v5.54.0 live on HA; zero URA ERROR lines; census values sane post-restart (People Home=2 pre-restart parity held); resolver-crash counter silent. Organic criteria
+(first egress event legs / first deep-night vehicle, seam counters)
+ride the next natural events — morning sweep checks.
