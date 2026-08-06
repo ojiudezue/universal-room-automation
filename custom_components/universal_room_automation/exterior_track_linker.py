@@ -148,6 +148,21 @@ class ExteriorTrackLinker:
             label: [] for label in EXTERIOR_TRACK_LABELS
         }
         self._closed_recent: list[ExteriorTrack] = []
+        # Operator control surface (2026-08-06): two live switches.
+        #   tracking_enabled — the fire axe. OFF = observe() creates no
+        #     tracks; find_owning_track/note_alert_dispatched inert;
+        #     per-camera alerting byte-identical to no-linker baseline
+        #     (same contract as TRACK_LINK_WINDOW_S == 0).
+        #   smart_alerts_enabled — governs ONLY the severity judgment
+        #     layer in perimeter_alert (demotion/escalation). OFF = every
+        #     camera alerts at classic severity while tracking/census/
+        #     narrative continue. OFF makes alerting LOUDER, never silent.
+        # suppressed_since timestamps carry operator-off provenance
+        # (notification-hygiene precedent).
+        self.tracking_enabled: bool = True
+        self.smart_alerts_enabled: bool = True
+        self.tracking_suppressed_since: str | None = None
+        self.smart_alerts_suppressed_since: str | None = None
         self._unsub_frigate: Any = None
         self._unsub_sweep: Any = None
         self._active = False
@@ -320,7 +335,7 @@ class ExteriorTrackLinker:
         same (camera,label) within a couple seconds of the first is folded
         into the existing hop (idempotent), never opens a new track.
         """
-        if TRACK_LINK_WINDOW_S <= 0:
+        if TRACK_LINK_WINDOW_S <= 0 or not self.tracking_enabled:
             return None
         if label not in self._tracks:
             self._tracks[label] = []
@@ -674,9 +689,10 @@ class ExteriorTrackLinker:
         means the track whose most-recent hop is this camera; if multiple
         such tracks exist, the one with the newest hop wins.
 
-        Kill switch: TRACK_LINK_WINDOW_S == 0 → always None.
+        Kill switch: TRACK_LINK_WINDOW_S == 0 or Exterior Path Tracking
+        switch OFF → always None.
         """
-        if TRACK_LINK_WINDOW_S <= 0:
+        if TRACK_LINK_WINDOW_S <= 0 or not self.tracking_enabled:
             return None
         best: ExteriorTrack | None = None
         best_t: datetime | None = None

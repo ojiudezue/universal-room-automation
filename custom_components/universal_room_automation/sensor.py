@@ -3758,10 +3758,19 @@ class PerimeterAlertStatusSensor(AggregationEntity, SensorEntity):
 
 
 class _ExteriorTrackCensusBase(AggregationEntity, SensorEntity):
-    """Base for exterior-track census counters — reads from the linker."""
+    """Base for exterior-track census counters — reads from the linker.
+
+    Device placement (operator-ratified 2026-08-06): the Security
+    Coordinator device — exterior tracking is security-domain. Overrides
+    AggregationEntity's whole-house default.
+    """
 
     _attr_has_entity_name = True
     _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, hass, entry) -> None:
+        super().__init__(hass, entry)
+        self._attr_device_info = _security_device_info()
     # C-MED-1: dimensionless counter — no unit string. HA will not offer
     # unit conversion on a bare integer count.
     _counter_key: str = ""
@@ -3833,6 +3842,8 @@ class ExteriorUnidentifiedPersonsSensor(_ExteriorTrackCensusBase):
 
 
 class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
+    # NOTE: device placement override to Security Coordinator applied in
+    # __init__ below (operator-ratified 2026-08-06).
     """Diagnostic — full snapshot of OPEN exterior tracks (JSON in attrs).
 
     State = total open-track count across all labels; attributes carry the
@@ -3848,6 +3859,7 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_exterior_open_tracks"
         self._attr_name = "Outside: Open Tracks (diagnostic)"
+        self._attr_device_info = _security_device_info()
 
     @property
     def available(self) -> bool:

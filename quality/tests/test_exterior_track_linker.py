@@ -383,3 +383,66 @@ def test_set_adjacency_symmetrizes():
     lk.set_adjacency({"a": ["b"]})
     assert "b" in lk._adjacency["a"]
     assert "a" in lk._adjacency["b"]
+
+
+# ------------------------------------------------------- control surface ---
+# Operator-named switches (2026-08-06): "Exterior Path Tracking" (fire axe)
+# + "Path Aware Notifications" (judgment layer only).
+
+
+def test_tracking_switch_off_creates_no_tracks(linker):
+    linker.tracking_enabled = False
+    t0 = datetime(2026, 8, 2, 20, 0, 0)
+    assert _obs(linker, "utilities", now=t0) is None
+    assert linker.census_counts()["exterior_person_tracks_active"] == 0
+    assert linker.find_owning_track("utilities", "person", t0) is None
+    # Flip back on → behavior restored.
+    linker.tracking_enabled = True
+    assert _obs(linker, "utilities", now=t0) is not None
+
+
+def test_smart_alerts_gate_wired_in_severity_block_only():
+    """Path Aware Notifications gates ONLY the severity coercion block;
+    the enrichment block (narrative) must NOT check it."""
+    src = open(
+        __file__.replace(
+            "quality/tests/test_exterior_track_linker.py",
+            "custom_components/universal_room_automation/perimeter_alert.py",
+        )
+    ).read()
+    sev_at = src.index("is_first_alert")
+    gate_at = src.index("smart_alerts_enabled")
+    assert gate_at < sev_at, "smart-alerts gate must precede severity logic"
+    # Exactly one consumer site in perimeter_alert (the severity block).
+    assert src.count("smart_alerts_enabled") == 1
+
+
+def test_switch_classes_restore_and_placement_anchors():
+    src = open(
+        __file__.replace(
+            "quality/tests/test_exterior_track_linker.py",
+            "custom_components/universal_room_automation/switch.py",
+        )
+    ).read()
+    blk = src[src.index("class _ExteriorLinkerSwitchBase"):]
+    # Restore-"off"-only (#52: unavailable/unknown never poisons).
+    assert 'last_state.state != "off"' in blk
+    # suppressed_since preserved from restore when present.
+    assert 'last_state.attributes.get("suppressed_since")' in blk
+    # Security Coordinator device placement.
+    assert '(DOMAIN, "security_coordinator")' in blk
+    # Operator names.
+    assert '"Exterior Path Tracking"' in blk
+    assert '"Path Aware Notifications"' in blk
+
+
+def test_census_sensors_on_security_device():
+    src = open(
+        __file__.replace(
+            "quality/tests/test_exterior_track_linker.py",
+            "custom_components/universal_room_automation/sensor.py",
+        )
+    ).read()
+    blk = src[src.index("class _ExteriorTrackCensusBase"):
+              src.index("class ExteriorPersonTracksActiveSensor")]
+    assert "_security_device_info()" in blk

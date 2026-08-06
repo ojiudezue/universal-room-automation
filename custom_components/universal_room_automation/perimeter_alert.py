@@ -370,6 +370,10 @@ class PerimeterAlertManager:
             linker is not None
             and _linker_camera
             and TRACK_LINK_WINDOW_S > 0  # kill-switch gate
+            # "Path Aware Notifications" switch — judgment layer only.
+            # OFF → classic per-camera severity (LOUDER, never silent);
+            # tracking/census/narrative unaffected.
+            and getattr(linker, "smart_alerts_enabled", True)
         ):
             try:
                 track = linker.find_owning_track(
