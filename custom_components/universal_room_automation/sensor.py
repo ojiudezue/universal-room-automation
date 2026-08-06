@@ -3762,7 +3762,8 @@ class _ExteriorTrackCensusBase(AggregationEntity, SensorEntity):
 
     _attr_has_entity_name = True
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = "tracks"
+    # C-MED-1: dimensionless counter — no unit string. HA will not offer
+    # unit conversion on a bare integer count.
     _counter_key: str = ""
 
     @property
@@ -3822,7 +3823,7 @@ class ExteriorUnidentifiedPersonsSensor(_ExteriorTrackCensusBase):
     """OPEN person tracks without a Frigate sub_label promotion."""
 
     _attr_icon = "mdi:account-question"
-    _attr_native_unit_of_measurement = "persons"
+    # C-MED-1: dimensionless counter — drop the "persons" unit.
     _counter_key = "exterior_unidentified_persons"
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -3874,10 +3875,20 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
         if linker is None:
             return {"status": "not_initialized"}
         try:
-            return {
+            attrs = {
                 "open_tracks": linker.open_tracks_snapshot(),
                 "counts": linker.census_counts(),
             }
+            # B-M3: per-camera unlinked-events counter (events that opened a
+            # fresh single-hop track rather than extending an existing one —
+            # diagnostic proxy for adjacency gaps).
+            try:
+                attrs["unlinked_events_by_camera"] = (
+                    linker.unlinked_events_snapshot()
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            return attrs
         except Exception as exc:  # noqa: BLE001
             return {"status": "error", "error": str(exc)}
 

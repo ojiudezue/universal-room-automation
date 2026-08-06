@@ -1217,7 +1217,72 @@ TRACK_CLOSE_IDLE_S: Final = 300   # close an idle track after 5 min silence
 # a follow-up config surface OR the runtime setter. Same-camera linking
 # works with an empty graph; cross-camera linking requires at least one
 # declared edge. Tests inject their own graph via set_adjacency().
-EXTERIOR_ADJACENCY_GRAPH: Final[dict[str, tuple[str, ...]]] = {}
+# Provenance: AUDIT_exterior_camera_adjacency_probe.md "Operator ratification
+# (2026-08-06)". Base = probe's 24 proposed pairs (threshold: symmetric filtered
+# count ≥ 3). Removals per ratification §3,§4: pool_equipment↔rear_ptz and
+# rear_ptz↔utilities_ptz (physically impossible / missed-intermediate
+# artifacts). Additions per ratification §1,§2 (pool service chain +
+# back_yard↔hot_tub confirmed): rear_ptz↔armcrest, rear_ptz↔back_yard,
+# g5_bullet↔armcrest (already in probe), g5_bullet↔back_yard, armcrest↔hot_tub
+# (already in probe), back_yard↔hot_tub, hot_tub↔pool_equipment. Symmetrized
+# in ExteriorTrackLinker constructor — declaring A→B is sufficient.
+EXTERIOR_ADJACENCY_GRAPH: Final[dict[str, tuple[str, ...]]] = {
+    # Probe pairs kept (22 after the two removals).
+    "front_side_ptz": (
+        "utilities_ptz", "rear_ptz", "g5_bullet", "hot_tub",
+        "reolinkstudybporchptz", "madrone_g6_entry", "front_door_aerial",
+        "back_yard",
+    ),
+    "front_door_aerial": (
+        "madrone_g6_entry", "hot_tub", "front_side_ptz", "rear_ptz",
+    ),
+    "madrone_g6_entry": (
+        "front_door_aerial", "utilities_ptz", "g5_bullet", "front_side_ptz",
+        "rear_ptz",
+    ),
+    "armcrest": (
+        "back_yard", "doorbell_lite", "reolinkstudybporchptz", "hot_tub",
+        "g5_bullet",
+        # Ratified additions (pool service chain).
+        "rear_ptz",
+    ),
+    "doorbell_lite": (
+        "g5_bullet", "armcrest", "rear_ptz",
+    ),
+    "g5_bullet": (
+        "front_side_ptz", "doorbell_lite", "armcrest", "rear_ptz",
+        "madrone_g6_entry",
+        # Ratified addition (pool service chain enters via g5_bullet).
+        "back_yard",
+    ),
+    "rear_ptz": (
+        "front_side_ptz", "g5_bullet", "doorbell_lite", "front_door_aerial",
+        "madrone_g6_entry",
+        # Ratified additions (pool service chain).
+        "armcrest", "back_yard",
+    ),
+    "hot_tub": (
+        "front_side_ptz", "front_door_aerial", "armcrest",
+        # Ratified additions.
+        "back_yard", "pool_equipment",
+    ),
+    "back_yard": (
+        "armcrest", "front_side_ptz",
+        # Ratified additions.
+        "rear_ptz", "g5_bullet", "hot_tub",
+    ),
+    "pool_equipment": (
+        # Only chain-terminal edge: pool_equipment↔hot_tub. The probe's
+        # rear_ptz co-firings were missed-intermediate artifacts.
+        "hot_tub",
+    ),
+    "utilities_ptz": (
+        "front_side_ptz", "madrone_g6_entry",
+    ),
+    "reolinkstudybporchptz": (
+        "armcrest", "front_side_ptz",
+    ),
+}
 
 # Labels bucketed by the linker (one track family per label). Frigate raw
 # labels are normalized by _bucket_label: person, {car,truck,bus,motorcycle,
@@ -1232,7 +1297,19 @@ EXTERIOR_TRACK_CLASSIFY_CIRCLING_CAMERAS: Final = 3
 # — operator-declared. Any track touching one of these classifies as
 # `approach` (unless already `circling`). Empty default; safe fallback is
 # the camera-count heuristic.
-EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS: Final[tuple[str, ...]] = ()
+# Egress cameras (operator config): madrone_g6_entry, doorbell_lite,
+# front_door_aerial. Egress-adjacent = perimeter cameras with an edge in the
+# ratified EXTERIOR_ADJACENCY_GRAPH to ANY of those three. Provenance:
+# AUDIT_exterior_camera_adjacency_probe.md "Operator ratification (2026-08-06)".
+EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS: Final[tuple[str, ...]] = (
+    # Adjacent to madrone_g6_entry.
+    "front_door_aerial", "utilities_ptz", "g5_bullet", "front_side_ptz",
+    "rear_ptz",
+    # Adjacent to doorbell_lite (add-only unique).
+    "armcrest",
+    # Adjacent to front_door_aerial (unique add).
+    "hot_tub",
+)
 
 # (label × house-state × classification) severity map.
 # Value = Severity name string (perimeter_alert coerces via Severity[<name>]).

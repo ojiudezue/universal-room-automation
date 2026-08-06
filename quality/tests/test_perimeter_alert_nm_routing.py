@@ -63,6 +63,7 @@ _mods = {
     "homeassistant.helpers.event": {
         "async_track_state_change_event": _fake_async_track_state_change_event,
         "async_call_later": _fake_async_call_later,
+        "async_track_time_interval": lambda *a, **kw: (lambda: None),
     },
     "homeassistant.util": {},
     "homeassistant.util.dt": {
@@ -787,158 +788,72 @@ def _multi_cam_hass(cams: list[str], house_state: str = "away"):
     return hass, nm
 
 
-def test_INV_XT_walker_replay_one_track_at_most_one_alert():
-    """2026-08-02 replay: 10 events across 6 hops → 1 track AND ≤ 1 alert.
+def _wire_linker(hass, cams: list[str]):
+    """Wire a real linker + full-ring adjacency into hass.data."""
+    linker = ExteriorTrackLinker(hass)
+    # Symmetrized in constructor; declare each cam adjacent to every other.
+    adj = {c: [x for x in cams if x != c] for c in cams}
+    linker.set_adjacency(adj)
+    hass.data[_const.DOMAIN]["exterior_track_linker"] = linker
+    return linker
 
-    Drives the REAL PerimeterAlertManager gate logic (per-camera cooldown,
-    in-flight guard, same-track suppression). No test-file reimplementation.
+
+def _bootstrap_mgr(hass):
+    """Set up the manager and drop the boot-settle gate for tests."""
+    mgr = _run(_setup_mgr(hass))
+    _dt = _perimeter.dt_util
+    mgr._setup_time = _dt.now() - timedelta(seconds=600)
+    mgr._last_alert.clear()
+    return mgr
+
+
+def test_INV_XT_walker_replay_one_track_all_events_dispatch_at_cooldown_bound():
+    """Redesign: 10 events across 4 cameras yield ONE track. The dispatch
+    count equals the number of cameras that fired within the outer
+    per-camera cooldown gate (no silencing). Every dispatch is a real
+    NM.async_notify call — no covert suppression path exists.
     """
     cams = ["utilities", "rear", "front_side", "front"]
     hass, nm = _multi_cam_hass(cams, house_state="away")
-    # Wire a real linker into hass.data — perimeter_alert.py reads it via
-    # hass.data[DOMAIN]["exterior_track_linker"].
-    linker = ExteriorTrackLinker(hass)
-    linker.set_adjacency(
-        {
-            "utilities":  ["rear", "front", "front_side"],
-            "rear":       ["utilities", "front_side", "front"],
-            "front_side": ["rear", "front", "utilities"],
-            "front":      ["front_side", "utilities", "rear"],
-        }
-    )
-    hass.data[_const.DOMAIN]["exterior_track_linker"] = linker
+    linker = _wire_linker(hass, cams)
+    mgr = _bootstrap_mgr(hass)
+    _dt = _perimeter.dt_util
 
-    mgr = _run(_setup_mgr(hass))
-    _dt = _perimeter.dt_util  # pinned production clock
-    # Drop boot-settle so triggers dispatch.
-    mgr._setup_time = _dt.now() - timedelta(seconds=600)
-    # Also pre-clear per-camera cooldowns.
-    mgr._last_alert.clear()
-
-    # 10 events sequenced back-to-back in real time (all within link window).
-    # The invariant asserted is ORDERING + adjacency, not durations.
     seq_cams = [
         "utilities", "utilities", "rear", "rear",
         "front_side", "front_side", "utilities",
         "front", "rear", "rear",
     ]
-
     for cam in seq_cams:
-        # Feed the linker at ~real-now so the production trigger's
-        # dt_util.now() call is >= the observed hop time.
         linker.observe(
-            camera=cam,
-            label="person",
-            event_id=None,
-            score=0.9,
-            sub_label=None,
-            now=_dt.now(),
+            camera=cam, label="person", event_id=None, score=0.9,
+            sub_label=None, now=_dt.now(),
         )
         _run(mgr._async_handle_perimeter_trigger(
             f"binary_sensor.{cam}_person_occupancy"
         ))
 
-    # INV-XT: exactly ONE track.
-    open_tracks = linker._tracks["person"]
-    assert len(open_tracks) == 1, (
-        f"expected 1 track, got {len(open_tracks)}: "
-        f"{[t.cameras for t in open_tracks]}"
-    )
-    # INV-XT: at most ONE alert thread. In practice the FIRST event on
-    # each of 4 distinct cameras is not yet gated by the linker (the
-    # linker's suppression path only kicks in AFTER an alert has been
-    # note_alert_dispatched'd AND classification is pass_by). By the time
-    # the track crosses ≥3 cameras it classifies as circling, which by
-    # design does NOT suppress (escalation must land). So the "≤ 1 alert
-    # thread" invariant applies to the *thread lineage*, not the raw
-    # dispatch count — asserted via alert_count on the single track.
-    assert open_tracks[0].alert_count >= 1, (
-        "at least one alert must have dispatched"
-    )
-    # The 10 raw events must NEVER produce 10 alerts (per-camera cooldown
-    # + same-track suppression must collapse the stream).
-    assert nm.async_notify.await_count < 10
-    # And in the pass_by phase (first 2 events, single-cam then adjacent
-    # rear) the suppression demonstrably reduces the dispatch count vs
-    # the naive per-camera baseline (4 distinct cameras → without
-    # suppression we'd expect 4 dispatches, one per camera's cooldown
-    # window). With suppression, we expect FEWER.
-    # (Circling reappearance may re-alert; the ceiling asserted below.)
-    assert nm.async_notify.await_count <= 4
+    # Exactly ONE track.
+    assert len(linker._tracks["person"]) == 1
+    tr = linker._tracks["person"][0]
+    # Each of the 4 distinct cameras fires at most once within its 5-minute
+    # cooldown — the raw stream of 10 events collapses to 4 dispatches.
+    # (Under the redesign there is NO additional silencing.)
+    assert nm.async_notify.await_count == 4
+    assert tr.alert_count == 4
 
 
-def test_MUTATION_same_track_suppression_load_bearing():
-    """Neuter same_track_should_suppress → the walker fires MORE alerts.
-
-    Confirms the suppression call in perimeter_alert.py is on the hot path
-    (Bug Class #53 anchor: computed-but-not-consumed).
-    """
-    cams = ["utilities", "rear"]
+def test_DCRIT1_loiterer_cooldown_expired_repeat_dispatches():
+    """D-CRIT-1: a loiterer on the SAME camera whose per-camera cooldown
+    has expired MUST dispatch again. Under the deleted suppress-and-return
+    path this repeat was silenced; under the redesign it is a first alert
+    for the (post-close) track's cycle."""
+    cams = ["utilities"]
     hass, nm = _multi_cam_hass(cams, house_state="away")
-    linker = ExteriorTrackLinker(hass)
-    linker.set_adjacency({"utilities": ["rear"], "rear": ["utilities"]})
-    hass.data[_const.DOMAIN]["exterior_track_linker"] = linker
-
-    orig = ExteriorTrackLinker.same_track_should_suppress
-    try:
-        # Force NEVER suppress.
-        ExteriorTrackLinker.same_track_should_suppress = (
-            lambda self, camera, label, now: False
-        )
-        mgr = _run(_setup_mgr(hass))
-        _dt = _perimeter.dt_util
-        mgr._setup_time = _dt.now() - timedelta(seconds=600)
-        mgr._last_alert.clear()
-        for cam in ["utilities", "rear"]:
-            linker.observe(
-                camera=cam, label="person", event_id=None, score=0.9,
-                sub_label=None, now=_dt.now(),
-            )
-            _run(mgr._async_handle_perimeter_trigger(
-                f"binary_sensor.{cam}_person_occupancy"
-            ))
-        neutered = nm.async_notify.await_count
-    finally:
-        ExteriorTrackLinker.same_track_should_suppress = orig
-
-    # Restored: same scenario must dispatch FEWER (suppression active).
-    hass2, nm2 = _multi_cam_hass(cams, house_state="away")
-    linker2 = ExteriorTrackLinker(hass2)
-    linker2.set_adjacency({"utilities": ["rear"], "rear": ["utilities"]})
-    hass2.data[_const.DOMAIN]["exterior_track_linker"] = linker2
-    mgr2 = _run(_setup_mgr(hass2))
+    linker = _wire_linker(hass, cams)
+    mgr = _bootstrap_mgr(hass)
     _dt = _perimeter.dt_util
-    mgr2._setup_time = _dt.now() - timedelta(seconds=600)
-    mgr2._last_alert.clear()
-    for cam in ["utilities", "rear"]:
-        linker2.observe(
-            camera=cam, label="person", event_id=None, score=0.9,
-            sub_label=None, now=_dt.now(),
-        )
-        _run(mgr2._async_handle_perimeter_trigger(
-            f"binary_sensor.{cam}_person_occupancy"
-        ))
-    with_suppression = nm2.async_notify.await_count
-    assert with_suppression < neutered, (
-        f"suppression not load-bearing: neutered={neutered} "
-        f"vs restored={with_suppression}"
-    )
 
-
-def test_MUTATION_severity_map_coercion_load_bearing():
-    """Force map to hardcode CRITICAL for pass_by → demotion test fails.
-
-    Confirms the severity coercion actually consumes
-    NM_HAZARD_EXTERIOR_TRACK_SEVERITY_MAP at dispatch.
-    """
-    hass, nm = _multi_cam_hass(["utilities"], house_state="away")
-    linker = ExteriorTrackLinker(hass)
-    hass.data[_const.DOMAIN]["exterior_track_linker"] = linker
-
-    # Sanity: with default map, single-hop away/pass_by demotes to MEDIUM.
-    mgr = _run(_setup_mgr(hass))
-    _dt = _perimeter.dt_util
-    mgr._setup_time = _dt.now() - timedelta(seconds=600)
     linker.observe(
         camera="utilities", label="person", event_id=None, score=0.9,
         sub_label=None, now=_dt.now(),
@@ -946,38 +861,285 @@ def test_MUTATION_severity_map_coercion_load_bearing():
     _run(mgr._async_handle_perimeter_trigger(
         "binary_sensor.utilities_person_occupancy"
     ))
-    default_sev = nm.async_notify.await_args.kwargs["severity"]
-    assert default_sev == Severity.MEDIUM, (
-        f"expected pass_by/away → MEDIUM under real map, got {default_sev}"
+    assert nm.async_notify.await_count == 1
+    # Expire the per-camera cooldown by rewinding _last_alert.
+    mgr._last_alert.clear()
+    linker.observe(
+        camera="utilities", label="person", event_id=None, score=0.9,
+        sub_label=None, now=_dt.now(),
+    )
+    _run(mgr._async_handle_perimeter_trigger(
+        "binary_sensor.utilities_person_occupancy"
+    ))
+    assert nm.async_notify.await_count == 2, (
+        "loiterer repeat must dispatch once its cooldown expires"
     )
 
-    # Neuter: hardcode CRITICAL everywhere.
+
+def test_DCRIT2_distinct_second_person_same_camera_dispatches():
+    """D-CRIT-2: a distinct SECOND person on the same camera after the
+    first alert dispatched must still dispatch (the linker cannot re-id,
+    but the outer cooldown is per-camera not per-person — under the
+    redesign the cooldown is the only silencing gate, and once it expires,
+    a fresh dispatch fires)."""
+    cams = ["utilities"]
+    hass, nm = _multi_cam_hass(cams, house_state="away")
+    linker = _wire_linker(hass, cams)
+    mgr = _bootstrap_mgr(hass)
+    _dt = _perimeter.dt_util
+
+    linker.observe(camera="utilities", label="person", event_id=None,
+                   score=0.9, sub_label=None, now=_dt.now())
+    _run(mgr._async_handle_perimeter_trigger(
+        "binary_sensor.utilities_person_occupancy"))
+    # Simulate cooldown expiry then a "different person" reading.
+    mgr._last_alert.clear()
+    linker.observe(camera="utilities", label="person", event_id=None,
+                   score=0.9, sub_label=None, now=_dt.now())
+    _run(mgr._async_handle_perimeter_trigger(
+        "binary_sensor.utilities_person_occupancy"))
+    assert nm.async_notify.await_count == 2
+
+
+def test_DCRIT3_adjacent_camera_first_alert_never_silenced():
+    """D-CRIT-3: the FIRST alert on an adjacent camera must dispatch, no
+    matter what a same-track owner would classify as. Under the deleted
+    suppress-and-return path, a pass_by-classified track could delete the
+    adjacent camera's first-ever alert. Redesign: never silence."""
+    cams = ["utilities", "rear"]
+    hass, nm = _multi_cam_hass(cams, house_state="away")
+    linker = _wire_linker(hass, cams)
+    mgr = _bootstrap_mgr(hass)
+    _dt = _perimeter.dt_util
+
+    linker.observe(camera="utilities", label="person", event_id=None,
+                   score=0.9, sub_label=None, now=_dt.now())
+    _run(mgr._async_handle_perimeter_trigger(
+        "binary_sensor.utilities_person_occupancy"))
+    assert nm.async_notify.await_count == 1
+    # Adjacent camera — same track continues; first alert on `rear` MUST
+    # dispatch (redesign: no silencing).
+    linker.observe(camera="rear", label="person", event_id=None, score=0.9,
+                   sub_label=None, now=_dt.now())
+    _run(mgr._async_handle_perimeter_trigger(
+        "binary_sensor.rear_person_occupancy"))
+    assert nm.async_notify.await_count == 2
+
+
+def test_ACRIT1_empty_adjacency_single_hop_away_keeps_todays_severity():
+    """A-CRIT-1 / D-HIGH-1: empty adjacency + single-hop away event keeps
+    TODAY's severity (CRITICAL) — first-alert-of-track never demotes. This
+    guards against the day-one demote-everything regression that would
+    fire if the coercion block ran on alert_count == 0."""
+    cams = ["utilities"]
+    hass, nm = _multi_cam_hass(cams, house_state="away")
+    linker = _wire_linker(hass, [])  # empty adjacency
+    mgr = _bootstrap_mgr(hass)
+    _dt = _perimeter.dt_util
+
+    linker.observe(camera="utilities", label="person", event_id=None,
+                   score=0.9, sub_label=None, now=_dt.now())
+    _run(mgr._async_handle_perimeter_trigger(
+        "binary_sensor.utilities_person_occupancy"))
+    assert nm.async_notify.await_count == 1
+    assert nm.async_notify.await_args.kwargs["severity"] == Severity.CRITICAL
+
+
+def test_confident_passby_continuation_demotes_only_after_first_alert():
+    """Continuation with confident pass_by (camera_count>=2, class=pass_by)
+    demotes per map. Requires the FIRST alert to have already dispatched
+    against today's severity."""
+    cams = ["utilities", "rear"]
+    hass, nm = _multi_cam_hass(cams, house_state="away")
+    linker = _wire_linker(hass, cams)
+    mgr = _bootstrap_mgr(hass)
+    _dt = _perimeter.dt_util
+
+    # First alert (utilities) — no coercion (first alert).
+    linker.observe(camera="utilities", label="person", event_id=None,
+                   score=0.9, sub_label=None, now=_dt.now())
+    _run(mgr._async_handle_perimeter_trigger(
+        "binary_sensor.utilities_person_occupancy"))
+    assert nm.async_notify.await_args.kwargs["severity"] == Severity.CRITICAL
+    # Second alert (rear) — track now has camera_count==2, still pass_by.
+    # Continuation → severity demoted per map (away/pass_by → MEDIUM).
+    linker.observe(camera="rear", label="person", event_id=None, score=0.9,
+                   sub_label=None, now=_dt.now())
+    _run(mgr._async_handle_perimeter_trigger(
+        "binary_sensor.rear_person_occupancy"))
+    assert nm.async_notify.await_args.kwargs["severity"] == Severity.MEDIUM
+
+
+def test_severity_floor_never_below_LOW():
+    """The floor is Severity.LOW; the map may never produce total silence.
+    An animal/away/pass_by (map value DIGEST) coerces to LOW, not below."""
+    cams = ["utilities", "rear"]
+    hass, nm = _multi_cam_hass(cams, house_state="away")
+    linker = _wire_linker(hass, cams)
+    mgr = _bootstrap_mgr(hass)
+    _dt = _perimeter.dt_util
+
+    # First alert to arm continuation semantics.
+    linker.observe(camera="utilities", label="person", event_id=None,
+                   score=0.9, sub_label=None, now=_dt.now())
+    _run(mgr._async_handle_perimeter_trigger(
+        "binary_sensor.utilities_person_occupancy"))
+    # Second alert (confident pass_by continuation) with an overridden
+    # map returning DIGEST — must coerce to LOW, never lower.
     orig = _perimeter.NM_HAZARD_EXTERIOR_TRACK_SEVERITY_MAP
     try:
         _perimeter.NM_HAZARD_EXTERIOR_TRACK_SEVERITY_MAP = {
-            "person": {
-                "away": {
-                    "pass_by": "CRITICAL",
-                    "approach": "CRITICAL",
-                    "circling": "CRITICAL",
-                },
-            },
+            "person": {"away": {
+                "pass_by": "DIGEST", "approach": "DIGEST",
+                "circling": "DIGEST",
+            }},
         }
-        hass2, nm2 = _multi_cam_hass(["utilities"], house_state="away")
-        linker2 = ExteriorTrackLinker(hass2)
-        hass2.data[_const.DOMAIN]["exterior_track_linker"] = linker2
-        mgr2 = _run(_setup_mgr(hass2))
-        _dt = _perimeter.dt_util
-        mgr2._setup_time = _dt.now() - timedelta(seconds=600)
-        linker2.observe(
-            camera="utilities", label="person", event_id=None, score=0.9,
-            sub_label=None, now=_dt.now(),
+        linker.observe(camera="rear", label="person", event_id=None,
+                       score=0.9, sub_label=None, now=_dt.now())
+        _run(mgr._async_handle_perimeter_trigger(
+            "binary_sensor.rear_person_occupancy"))
+    finally:
+        _perimeter.NM_HAZARD_EXTERIOR_TRACK_SEVERITY_MAP = orig
+    assert nm.async_notify.await_args.kwargs["severity"] == Severity.LOW
+
+
+def test_MUTATION_find_owning_track_load_bearing_on_enrichment():
+    """C-HIGH-2: neuter find_owning_track → the NM message loses the
+    arrow-path narrative. Anchors the unified lookup on the enrichment path.
+    """
+    cams = ["utilities", "rear"]
+    hass, nm = _multi_cam_hass(cams, house_state="away")
+    linker = _wire_linker(hass, cams)
+    mgr = _bootstrap_mgr(hass)
+    _dt = _perimeter.dt_util
+
+    # Build a real track (2 hops).
+    linker.observe(camera="utilities", label="person", event_id=None,
+                   score=0.9, sub_label=None, now=_dt.now())
+    _run(mgr._async_handle_perimeter_trigger(
+        "binary_sensor.utilities_person_occupancy"))
+    linker.observe(camera="rear", label="person", event_id=None, score=0.9,
+                   sub_label=None, now=_dt.now())
+    _run(mgr._async_handle_perimeter_trigger(
+        "binary_sensor.rear_person_occupancy"))
+    ok_msg = nm.async_notify.await_args.kwargs["message"]
+    assert "→" in ok_msg, (
+        f"expected arrow-path narrative, got: {ok_msg!r}"
+    )
+
+    # Neuter — force enrichment to find no owning track. (Note: the
+    # coercion path also calls find_owning_track; this test only asserts
+    # the enrichment surface.)
+    orig = ExteriorTrackLinker.find_owning_track
+    try:
+        ExteriorTrackLinker.find_owning_track = (
+            lambda self, camera, label, now: None
         )
+        hass2, nm2 = _multi_cam_hass(cams, house_state="away")
+        linker2 = _wire_linker(hass2, cams)
+        mgr2 = _bootstrap_mgr(hass2)
+        linker2.observe(camera="utilities", label="person", event_id=None,
+                        score=0.9, sub_label=None, now=_dt.now())
         _run(mgr2._async_handle_perimeter_trigger(
-            "binary_sensor.utilities_person_occupancy"
-        ))
-        neutered_sev = nm2.async_notify.await_args.kwargs["severity"]
-        assert neutered_sev == Severity.CRITICAL
+            "binary_sensor.utilities_person_occupancy"))
+        linker2.observe(camera="rear", label="person", event_id=None,
+                        score=0.9, sub_label=None, now=_dt.now())
+        _run(mgr2._async_handle_perimeter_trigger(
+            "binary_sensor.rear_person_occupancy"))
+        neut_msg = nm2.async_notify.await_args.kwargs["message"]
+        assert "→" not in neut_msg
+    finally:
+        ExteriorTrackLinker.find_owning_track = orig
+
+
+def test_MUTATION_kill_switch_gates_dispatch_byte_identical():
+    """C-MED-5: TRACK_LINK_WINDOW_S == 0 → dispatch counts + severities are
+    byte-identical to the no-linker baseline."""
+    cams = ["utilities", "rear"]
+
+    # Baseline: linker absent.
+    hass_a, nm_a = _multi_cam_hass(cams, house_state="away")
+    hass_a.data[_const.DOMAIN].pop("exterior_track_linker", None)
+    mgr_a = _bootstrap_mgr(hass_a)
+    _dt = _perimeter.dt_util
+    for cam in ["utilities", "rear"]:
+        _run(mgr_a._async_handle_perimeter_trigger(
+            f"binary_sensor.{cam}_person_occupancy"))
+    baseline_sevs = [c.kwargs["severity"] for c in nm_a.async_notify.await_args_list]
+    baseline_msgs = [c.kwargs["message"] for c in nm_a.async_notify.await_args_list]
+
+    # Kill switch: linker present but TRACK_LINK_WINDOW_S == 0.
+    hass_b, nm_b = _multi_cam_hass(cams, house_state="away")
+    linker_b = _wire_linker(hass_b, cams)
+    orig = _perimeter.TRACK_LINK_WINDOW_S
+    orig_link = _linker_mod.TRACK_LINK_WINDOW_S
+    try:
+        _perimeter.TRACK_LINK_WINDOW_S = 0
+        _linker_mod.TRACK_LINK_WINDOW_S = 0
+        mgr_b = _bootstrap_mgr(hass_b)
+        for cam in ["utilities", "rear"]:
+            linker_b.observe(camera=cam, label="person", event_id=None,
+                             score=0.9, sub_label=None, now=_dt.now())
+            _run(mgr_b._async_handle_perimeter_trigger(
+                f"binary_sensor.{cam}_person_occupancy"))
+    finally:
+        _perimeter.TRACK_LINK_WINDOW_S = orig
+        _linker_mod.TRACK_LINK_WINDOW_S = orig_link
+
+    kill_sevs = [c.kwargs["severity"] for c in nm_b.async_notify.await_args_list]
+    kill_msgs = [c.kwargs["message"] for c in nm_b.async_notify.await_args_list]
+    assert baseline_sevs == kill_sevs, (
+        f"kill switch not byte-identical: baseline={baseline_sevs} "
+        f"kill={kill_sevs}"
+    )
+    # Messages should also match (no path enrichment when linker inactive).
+    assert baseline_msgs == kill_msgs
+    # And census is zero under kill switch.
+    assert linker_b.census_counts()["exterior_person_tracks_active"] == 0
+
+
+def test_MUTATION_severity_coercion_load_bearing():
+    """Force the map to a distinct value; confirm a confident-pass_by
+    continuation actually consumes it."""
+    cams = ["utilities", "rear"]
+    hass, nm = _multi_cam_hass(cams, house_state="away")
+    linker = _wire_linker(hass, cams)
+    mgr = _bootstrap_mgr(hass)
+    _dt = _perimeter.dt_util
+
+    # First alert to arm continuation semantics.
+    linker.observe(camera="utilities", label="person", event_id=None,
+                   score=0.9, sub_label=None, now=_dt.now())
+    _run(mgr._async_handle_perimeter_trigger(
+        "binary_sensor.utilities_person_occupancy"))
+    # Default map value for person/away/pass_by is MEDIUM.
+    linker.observe(camera="rear", label="person", event_id=None, score=0.9,
+                   sub_label=None, now=_dt.now())
+    _run(mgr._async_handle_perimeter_trigger(
+        "binary_sensor.rear_person_occupancy"))
+    default_sev = nm.async_notify.await_args.kwargs["severity"]
+    assert default_sev == Severity.MEDIUM
+
+    # Now neuter the map to LOW → coercion demotes to LOW.
+    orig = _perimeter.NM_HAZARD_EXTERIOR_TRACK_SEVERITY_MAP
+    try:
+        _perimeter.NM_HAZARD_EXTERIOR_TRACK_SEVERITY_MAP = {
+            "person": {"away": {
+                "pass_by": "LOW", "approach": "LOW", "circling": "LOW"
+            }},
+        }
+        hass2, nm2 = _multi_cam_hass(cams, house_state="away")
+        linker2 = _wire_linker(hass2, cams)
+        mgr2 = _bootstrap_mgr(hass2)
+        linker2.observe(camera="utilities", label="person", event_id=None,
+                        score=0.9, sub_label=None, now=_dt.now())
+        _run(mgr2._async_handle_perimeter_trigger(
+            "binary_sensor.utilities_person_occupancy"))
+        linker2.observe(camera="rear", label="person", event_id=None,
+                        score=0.9, sub_label=None, now=_dt.now())
+        _run(mgr2._async_handle_perimeter_trigger(
+            "binary_sensor.rear_person_occupancy"))
+        assert nm2.async_notify.await_args.kwargs["severity"] == Severity.LOW
     finally:
         _perimeter.NM_HAZARD_EXTERIOR_TRACK_SEVERITY_MAP = orig
 
@@ -985,11 +1147,9 @@ def test_MUTATION_severity_map_coercion_load_bearing():
 def test_MUTATION_fail_open_when_linker_absent():
     """Linker missing from hass.data → dispatch path byte-identical to today.
 
-    Severity is today's (CRITICAL for away); suppression path is a no-op;
-    no exceptions raised.
+    Severity is today's (CRITICAL for away); no exceptions raised.
     """
     hass, nm = _multi_cam_hass(["utilities"], house_state="away")
-    # Explicitly ensure no linker registered.
     hass.data[_const.DOMAIN].pop("exterior_track_linker", None)
     mgr = _run(_setup_mgr(hass))
     _run(mgr._async_handle_perimeter_trigger(
@@ -997,3 +1157,39 @@ def test_MUTATION_fail_open_when_linker_absent():
     ))
     assert nm.async_notify.await_count == 1
     assert nm.async_notify.await_args.kwargs["severity"] == Severity.CRITICAL
+
+
+# --- C-HIGH-1: behavioral episode-writer test --------------------------------
+
+def test_CHIGH1_episode_writer_shape():
+    """C-HIGH-1: closing a track writes a memory_episode with the expected
+    episode_type + attrs shape (path, classification, duration_s, hops,
+    path_string, identified)."""
+    import asyncio as _asyncio
+    hass, _nm = _multi_cam_hass(["utilities", "rear"], house_state="away")
+    linker = _wire_linker(hass, ["utilities", "rear"])
+    db = MagicMock()
+    db.log_memory_episode = AsyncMock(return_value=42)
+    hass.data[_const.DOMAIN]["database"] = db
+
+    async def _run_scenario():
+        _dt = _perimeter.dt_util
+        t0 = _dt.now()
+        linker.observe(camera="utilities", label="person", event_id="e1",
+                       score=0.8, sub_label=None, now=t0)
+        linker.observe(camera="rear", label="person", event_id="e2",
+                       score=0.9, sub_label=None,
+                       now=t0 + timedelta(seconds=30))
+        # MagicMock hass.async_create_task doesn't run coroutines — call
+        # the writer directly on the OPEN track to exercise the shape path.
+        track = linker._tracks["person"][0]
+        await linker._write_episode(track)
+
+    _asyncio.run(_run_scenario())
+    assert db.log_memory_episode.await_count >= 1
+    call_kwargs = db.log_memory_episode.await_args.kwargs
+    assert call_kwargs["episode_type"] == "exterior_track"
+    attrs = call_kwargs["attrs"]
+    for k in ("path", "classification", "duration_s", "hops",
+              "path_string", "identified"):
+        assert k in attrs, f"missing attrs key: {k}"

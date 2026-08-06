@@ -40,6 +40,10 @@ _mods = {
         "callback": _ident,
         "Event": MagicMock,
     },
+    "homeassistant.helpers": {},
+    "homeassistant.helpers.event": {
+        "async_track_time_interval": lambda *a, **kw: (lambda: None),
+    },
     "homeassistant.util": {},
     "homeassistant.util.dt": {
         "utcnow": datetime.utcnow,
@@ -253,10 +257,15 @@ def test_labels_partition_person_vs_car(linker):
     assert counts["exterior_vehicle_tracks_active"] == 1
 
 
-def test_sub_label_promotes_to_identified(linker):
+def test_sub_label_promotes_only_on_two_hops(linker):
+    """D-MED-1: sub_label promotes to identified ONLY when seen on ≥ 2 hops
+    (or the same sub_label twice). A single-hop sub_label is provisional."""
     t0 = datetime(2026, 8, 2, 20, 0, 0)
-    _obs(linker, "utilities", now=t0)
+    _obs(linker, "utilities", sub_label="oji", now=t0)
+    # Provisional — first sighting alone must NOT promote.
+    assert linker.census_counts()["exterior_unidentified_persons"] == 1
     _obs(linker, "rear", sub_label="oji", now=t0 + timedelta(seconds=30))
+    # Confirmed on the second hop → identified.
     assert linker.census_counts()["exterior_unidentified_persons"] == 0
     assert linker.census_counts()["exterior_person_tracks_active"] == 1
 
@@ -270,51 +279,51 @@ def test_idle_close_writes_episode_and_drops_track(linker):
     assert linker.census_counts()["exterior_person_tracks_active"] == 0
 
 
-def test_kill_switch_link_window_zero_disables_linking(linker, monkeypatch):
+def test_kill_switch_link_window_zero_creates_no_tracks(linker, monkeypatch):
+    """Tier-3 fix-up: TRACK_LINK_WINDOW_S == 0 → observe() creates NO
+    tracks (byte-identical to no-linker baseline). census stays at 0."""
     monkeypatch.setattr(etl, "TRACK_LINK_WINDOW_S", 0)
     t0 = datetime(2026, 8, 2, 20, 0, 0)
     a = _obs(linker, "utilities", now=t0)
     b = _obs(linker, "utilities", now=t0 + timedelta(seconds=5))
-    # No linking at all — even same-camera repeats open new tracks.
-    assert a is not b
-    # And same_track_should_suppress ALWAYS returns False under kill switch.
-    assert linker.same_track_should_suppress(
-        "utilities", "person", t0 + timedelta(seconds=6)
-    ) is False
+    assert a is None and b is None
+    assert linker.census_counts()["exterior_person_tracks_active"] == 0
+    # find_owning_track / note_alert_dispatched are inert under kill switch.
+    assert linker.find_owning_track("utilities", "person", t0) is None
+    linker.note_alert_dispatched("utilities", "person", t0)  # no-op, no raise
 
 
-# ---------------------------------------------------------------- INV-XT: ≤1 alert per track ---
+# ---------------------------------------------------------------- classify + bookkeeping ---
 
 
-def test_inv_xt_same_track_passby_suppression(linker):
-    """A pass_by track after first alert dispatched → subsequent same-track
-    cameras suppress via linker (REFINEMENT). Approach/circling do NOT."""
+def test_classify_single_hop_is_passby(linker):
+    """First-alert / single-hop is always pass_by (no promotion pressure)."""
     t0 = datetime(2026, 8, 2, 20, 0, 0)
-    _obs(linker, "utilities", now=t0)
-    # Only one camera so far → pass_by.
-    linker.note_alert_dispatched("utilities", "person", t0)
-    # Next adjacent event still owned by same track — should suppress.
-    tr = _obs(linker, "rear", now=t0 + timedelta(seconds=30))
+    tr = _obs(linker, "utilities", now=t0)
     assert linker.classify(tr) == "pass_by"
-    assert linker.same_track_should_suppress(
-        "rear", "person", t0 + timedelta(seconds=31)
-    ) is True
 
 
-def test_inv_xt_circling_does_not_suppress(linker):
-    """Once a track crosses into circling/approach, refinement does NOT
-    suppress — approach/circling MUST re-alert (escalation)."""
+def test_classify_circling_requires_revisit_or_nonmonotonic(linker):
+    """A-MED-2: 3 monotonic hops on distinct cameras (no loop) do NOT
+    classify as circling — only revisits or non-monotonic sequences do."""
     t0 = datetime(2026, 8, 2, 20, 0, 0)
-    for i, cam in enumerate(["utilities", "rear", "front_side", "utilities"]):
+    for i, cam in enumerate(["utilities", "rear", "front_side"]):
         _obs(linker, cam, now=t0 + timedelta(seconds=30 * i))
-    # Track now has 4 hops with a revisit → circling.
-    tracks = linker._tracks["person"]
-    assert len(tracks) == 1
-    assert linker.classify(tracks[0]) == "circling"
-    linker.note_alert_dispatched("utilities", "person", t0 + timedelta(seconds=120))
-    assert linker.same_track_should_suppress(
-        "utilities", "person", t0 + timedelta(seconds=150)
-    ) is False
+    tr = linker._tracks["person"][0]
+    # 3 distinct cameras in monotonic order — not circling per A-MED-2.
+    assert linker.classify(tr) != "circling"
+    # Revisit utilities → circling.
+    _obs(linker, "utilities", now=t0 + timedelta(seconds=120))
+    assert linker.classify(tr) == "circling"
+
+
+def test_note_alert_dispatched_bumps_owning_track(linker):
+    t0 = datetime(2026, 8, 2, 20, 0, 0)
+    tr = _obs(linker, "utilities", now=t0)
+    assert tr.alert_count == 0
+    linker.note_alert_dispatched("utilities", "person", t0)
+    assert tr.alert_count == 1
+    assert tr.first_alert_at == t0
 
 
 # ---------------------------------------------------------------- INV-XP mutation-anchor ---

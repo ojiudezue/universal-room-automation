@@ -2311,6 +2311,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # itself. Kill switch: TRACK_LINK_WINDOW_S == 0 in const.py disables
         # linking (per-camera alert behavior is byte-identical to today).
         try:
+            # B-M1: double-setup guard. If a prior linker instance is still
+            # registered (e.g. a partially-failed reload), tear it down
+            # before installing the new one so timers/subscriptions don't
+            # leak.
+            _existing_linker = hass.data.get(DOMAIN, {}).pop(
+                "exterior_track_linker", None
+            )
+            if _existing_linker is not None:
+                try:
+                    await _existing_linker.async_teardown()
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "prior ExteriorTrackLinker teardown raised",
+                        exc_info=True,
+                    )
             exterior_track_linker = ExteriorTrackLinker(hass)
             await exterior_track_linker.async_setup()
             hass.data[DOMAIN]["exterior_track_linker"] = exterior_track_linker

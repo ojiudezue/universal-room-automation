@@ -29,7 +29,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from datetime import timedelta
+
 from homeassistant.core import HomeAssistant, callback, Event
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -49,8 +52,19 @@ _LOGGER = logging.getLogger(__name__)
 # Frigate HA-bus event name (same as perimeter_alert.py — subscribe defensively).
 FRIGATE_EVENTS_BUS_EVENT = "frigate_events"
 
-# Bucketing for Frigate labels into track families.
-_ANIMAL_LABELS = {"dog", "cat", "animal", "bird", "raccoon", "deer"}
+# Bucketing for Frigate labels into track families. Extended per review
+# A-MED-4 (dog, cat, bird, squirrel, rabbit, fox, coyote, deer, raccoon,
+# possum, bear). "vehicle" retained under the car bucket in _bucket_label.
+_ANIMAL_LABELS = {
+    "dog", "cat", "animal", "bird", "squirrel", "rabbit",
+    "fox", "coyote", "deer", "raccoon", "possum", "bear",
+}
+
+# Dedup window for observe() dispatch across the two ingress paths (frigate
+# events bus vs perimeter binary_sensor fallback). Two calls for the same
+# (camera,label) within this window fold to one hop. Keep small so a real
+# fresh detection is never dropped.
+_OBSERVE_DEDUP_S: float = 2.5
 
 
 def _bucket_label(raw: str) -> str | None:
@@ -135,13 +149,28 @@ class ExteriorTrackLinker:
         }
         self._closed_recent: list[ExteriorTrack] = []
         self._unsub_frigate: Any = None
+        self._unsub_sweep: Any = None
         self._active = False
         # Adjacency table — module constant by default, mutable per install
-        # via set_adjacency (tests + operator).
-        self._adjacency: dict[str, set[str]] = {
-            k: set(v) for k, v in EXTERIOR_ADJACENCY_GRAPH.items()
-        }
+        # via set_adjacency (tests + operator). Symmetrized in constructor
+        # (review B-L1 / D-MED-2) so declaring A→B in the module dict is
+        # enough — B→A is auto-added.
+        self._adjacency: dict[str, set[str]] = {}
+        for a, neigh in EXTERIOR_ADJACENCY_GRAPH.items():
+            self._adjacency.setdefault(a, set()).update(neigh)
+            for b in neigh:
+                self._adjacency.setdefault(b, set()).add(a)
         self._id_gen = itertools.count(1)
+        # In-flight episode-write tasks (B-H2). done_callback discards on
+        # completion; teardown gathers with bounded wait.
+        self._episode_tasks: set[Any] = set()
+        # (camera,label) → last-observed timestamp for cross-source dedup.
+        self._last_observed: dict[tuple[str, str], datetime] = {}
+        # Per-camera events that failed to link into any existing track
+        # (B-M3 diagnostic). "Failed to link" here means opened a NEW
+        # single-hop track rather than extending one — surfaced via the
+        # diagnostic sensor's attrs.
+        self._unlinked_events: dict[str, int] = {}
 
     # ---------------- setup / teardown ----------------
     async def async_setup(self) -> None:
@@ -180,6 +209,33 @@ class ExteriorTrackLinker:
         self._unsub_frigate = self.hass.bus.async_listen(
             FRIGATE_EVENTS_BUS_EVENT, _on_frigate
         )
+        # B-H1: periodic idle sweep so tracks close even in the absence of
+        # further events (frigate quiet after a walker leaves). Cadence =
+        # TRACK_CLOSE_IDLE_S / 2 to guarantee close within one extra window.
+        try:
+            interval = timedelta(
+                seconds=max(1, TRACK_CLOSE_IDLE_S // 2)
+            )
+
+            @callback
+            def _sweep_tick(_now: Any) -> None:
+                try:
+                    self._sweep_closed(dt_util.now())
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "ExteriorTrackLinker: sweep tick raised",
+                        exc_info=True,
+                    )
+
+            self._unsub_sweep = async_track_time_interval(
+                self.hass, _sweep_tick, interval
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "ExteriorTrackLinker: sweep timer registration failed",
+                exc_info=True,
+            )
+            self._unsub_sweep = None
         self._active = True
         _LOGGER.info(
             "ExteriorTrackLinker: active (link_window=%ds, close_idle=%ds, "
@@ -194,11 +250,37 @@ class ExteriorTrackLinker:
             except Exception:  # noqa: BLE001
                 pass
             self._unsub_frigate = None
+        if self._unsub_sweep is not None:
+            try:
+                self._unsub_sweep()
+            except Exception:  # noqa: BLE001
+                pass
+            self._unsub_sweep = None
         # Flush every open track as a close (so no data is lost across restart
-        # for in-flight walks — episode dedup gate will drop repeats).
+        # for in-flight walks — episode source_ref dedup drops repeats).
         for label in list(self._tracks.keys()):
             for t in list(self._tracks[label]):
                 self._close_track(t, reason="teardown")
+            self._tracks[label] = []
+        # B-H2: wait for outstanding episode-write tasks with a bounded
+        # timeout so shutdown never hangs on a stuck DB.
+        pending = [t for t in self._episode_tasks if not t.done()]
+        if pending:
+            import asyncio as _asyncio  # noqa: PLC0415
+            try:
+                await _asyncio.wait_for(
+                    _asyncio.gather(*pending, return_exceptions=True),
+                    timeout=2.0,
+                )
+            except _asyncio.TimeoutError:
+                _LOGGER.debug(
+                    "ExteriorTrackLinker: %d episode task(s) still pending "
+                    "after 2s wait — abandoning at teardown.",
+                    len(pending),
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        self._episode_tasks.clear()
         self._active = False
         _LOGGER.debug("ExteriorTrackLinker: torn down")
 
@@ -228,10 +310,44 @@ class ExteriorTrackLinker:
         score: float,
         sub_label: str | None,
         now: datetime,
-    ) -> ExteriorTrack:
-        """Link event to an open track (or open a new one). Returns the track."""
+    ) -> ExteriorTrack | None:
+        """Link event to an open track (or open a new one). Returns the track.
+
+        Kill switch: TRACK_LINK_WINDOW_S == 0 → NO tracks are created, no
+        state is mutated (byte-identical to no-linker baseline). Returns None.
+
+        Cross-source dedup (_OBSERVE_DEDUP_S): a second observation for the
+        same (camera,label) within a couple seconds of the first is folded
+        into the existing hop (idempotent), never opens a new track.
+        """
+        if TRACK_LINK_WINDOW_S <= 0:
+            return None
         if label not in self._tracks:
             self._tracks[label] = []
+        key = (camera, label)
+        last_obs = self._last_observed.get(key)
+        if last_obs is not None:
+            dt = (now - last_obs).total_seconds()
+            if 0 <= dt < _OBSERVE_DEDUP_S:
+                # Fold into the current owning track's last hop if it is on
+                # this camera; otherwise drop silently (the other-source
+                # already recorded it).
+                owning = self.find_owning_track(camera, label, now)
+                if owning is not None and owning.hops and owning.hops[-1].camera == camera:
+                    hop = owning.hops[-1]
+                    hop.t_last = now
+                    if score > hop.best_score:
+                        hop.best_score = score
+                        if event_id:
+                            hop.best_event_id = event_id
+                    if sub_label and not owning.sub_label:
+                        # Sub-label promotion still needs ≥2 confirmations
+                        # (see below), so record on the track but do not
+                        # short-circuit it here.
+                        pass
+                return owning
+        self._last_observed[key] = now
+
         # First, close anything idle past the window (this may include the
         # candidate track before we look for a match — correct: past-idle
         # tracks should not swallow a fresh event).
@@ -245,18 +361,48 @@ class ExteriorTrackLinker:
                 started_at=now,
             )
             self._tracks[label].append(track)
+            # B-M3: bump per-camera unlinked-events counter — a fresh
+            # single-hop track opened when we could not link to any existing
+            # open track.
+            self._unlinked_events[camera] = (
+                self._unlinked_events.get(camera, 0) + 1
+            )
             _LOGGER.info(
                 "ExteriorTrackLinker: new %s track %s opened at camera=%s",
                 label, track.track_id, camera,
             )
 
         self._append_hop(track, camera, event_id, score, now)
-        if sub_label and not track.sub_label:
-            track.sub_label = str(sub_label)
-            _LOGGER.info(
-                "ExteriorTrackLinker: track %s promoted to identified via "
-                "sub_label=%s", track.track_id, sub_label,
-            )
+        # D-MED-1: sub_label promotes identity only when observed on ≥2 hops
+        # OR the same sub_label seen twice. First sub_label sighting is
+        # provisional (stored on the track as _pending_sub_label) — the
+        # second matching sighting confirms.
+        if sub_label:
+            sl = str(sub_label)
+            pending = getattr(track, "_pending_sub_label", None)
+            if track.sub_label is None:
+                if pending is None:
+                    track._pending_sub_label = sl
+                    track._pending_sub_label_hops = {len(track.hops) - 1}
+                elif pending == sl:
+                    # Confirmed either by a different hop OR a second sighting.
+                    seen_hops = getattr(
+                        track, "_pending_sub_label_hops", set()
+                    )
+                    seen_hops.add(len(track.hops) - 1)
+                    if len(seen_hops) >= 2 or track.camera_count >= 2:
+                        track.sub_label = sl
+                        _LOGGER.info(
+                            "ExteriorTrackLinker: track %s promoted to "
+                            "identified via sub_label=%s (≥2 hops)",
+                            track.track_id, sl,
+                        )
+                    else:
+                        track._pending_sub_label_hops = seen_hops
+                else:
+                    # Disagreement — reset provisional sub_label.
+                    track._pending_sub_label = sl
+                    track._pending_sub_label_hops = {len(track.hops) - 1}
         return track
 
     def _append_hop(
@@ -338,8 +484,15 @@ class ExteriorTrackLinker:
         # Trim closed_recent buffer.
         if len(self._closed_recent) > 50:
             self._closed_recent = self._closed_recent[-50:]
-        # Persist as memory_episode (best-effort).
-        self.hass.async_create_task(self._write_episode(track))
+        # Persist as memory_episode (best-effort). B-H2: keep a handle so
+        # teardown can await outstanding writes.
+        task = self.hass.async_create_task(self._write_episode(track))
+        try:
+            self._episode_tasks.add(task)
+            task.add_done_callback(self._episode_tasks.discard)
+        except Exception:  # noqa: BLE001
+            # A MagicMock hass in tests may return non-Future; ignore.
+            pass
 
     async def _write_episode(self, track: ExteriorTrack) -> None:
         db = self.hass.data.get(DOMAIN, {}).get("database")
@@ -370,6 +523,10 @@ class ExteriorTrackLinker:
                 "path_string": self.path_string(track),
             }
             ended_dt = track.hops[-1].t_last if track.hops else track.started_at
+            # B-H3: real dedup via `dedup_source_ref=True` — database.py
+            # performs a SELECT-by-source_ref existence check under this
+            # flag and skips the INSERT on match. Backwards-compat: callers
+            # not passing the flag get the pre-existing dedup semantics.
             await db.log_memory_episode(
                 node_id="exterior:perimeter",
                 episode_type="exterior_track",
@@ -379,6 +536,7 @@ class ExteriorTrackLinker:
                 source_ref=f"exterior_track:{track.track_id}",
                 started_at=track.started_at.isoformat(),
                 ended_at=ended_dt.isoformat(),
+                dedup_source_ref=True,
             )
         except Exception as exc:  # noqa: BLE001
             _LOGGER.warning(
@@ -388,20 +546,27 @@ class ExteriorTrackLinker:
 
     # ---------------- classification / rendering ----------------
     def classify(self, track: ExteriorTrack) -> str:
-        """pass_by / approach / circling — space-time only, no ML."""
+        """pass_by / approach / circling — space-time only, no ML.
+
+        Review A-MED-2: circling requires EITHER a revisit
+        (revisit_count >= 1, i.e. a camera appears as a non-consecutive
+        hop twice) OR camera_count >= EXTERIOR_TRACK_CLASSIFY_CIRCLING_CAMERAS
+        with a non-monotonic sequence (i.e. the traversal loops rather
+        than proceeds in a single arc). Purely-monotonic wide traversals
+        (e.g. a delivery driver walking across N adjacent cameras once)
+        classify as `approach` when egress-adjacent, `pass_by` otherwise
+        — reduces the false-circling rate.
+        """
         cams = track.cameras
         if not cams:
             return "pass_by"
-        # Circling: revisits OR ≥N distinct cameras.
-        if track.revisit_count > 0 or (
+        non_monotonic = self._is_non_monotonic(cams)
+        if track.revisit_count >= 1 or (
             track.camera_count >= EXTERIOR_TRACK_CLASSIFY_CIRCLING_CAMERAS
+            and non_monotonic
         ):
             return "circling"
         # Approach: touches an operator-declared egress-adjacent camera.
-        # (Camera-count-only heuristic left as an OPT-IN backstop via
-        # EXTERIOR_TRACK_CLASSIFY_APPROACH_CAMERAS; default 0 disables it so
-        # pass_by remains the default until either an egress-adjacent camera
-        # is declared OR the backstop is explicitly raised.)
         egress_adj = set(EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS)
         if egress_adj and any(c in egress_adj for c in cams):
             return "approach"
@@ -412,6 +577,20 @@ class ExteriorTrackLinker:
             return "approach"
         return "pass_by"
 
+    def _is_non_monotonic(self, cams: list[str]) -> bool:
+        """A track is non-monotonic if a camera appears again after a
+        different camera intervened (i.e. the walker looped back)."""
+        seen: set[str] = set()
+        prev: str | None = None
+        for c in cams:
+            if c == prev:
+                continue
+            if c in seen:
+                return True
+            seen.add(c)
+            prev = c
+        return False
+
     def path_string(self, track: ExteriorTrack) -> str:
         cams = track.cameras
         # Compact: dedupe consecutive repeats for display.
@@ -419,8 +598,13 @@ class ExteriorTrackLinker:
         for c in cams:
             if not compact or compact[-1] != c:
                 compact.append(c)
-        minutes = int(track.duration_s // 60)
-        return f"{' → '.join(compact)} · {minutes} min · {track.label}"
+        # A-MED-6: sub-minute → "just now" (reads more naturally than "0 min").
+        if track.duration_s < 60:
+            when = "just now"
+        else:
+            minutes = int(track.duration_s // 60)
+            when = f"{minutes} min"
+        return f"{' → '.join(compact)} · {when} · {track.label}"
 
     # ---------------- surfaces ----------------
     def census_counts(self) -> dict[str, int]:
@@ -456,50 +640,44 @@ class ExteriorTrackLinker:
                 )
         return out
 
-    # ---------------- alert-cadence refinement (INV-XP-preserving) ----------------
+    # ---------------- alert bookkeeping (redesign: demote, never silence) ---
     def note_alert_dispatched(
         self, camera: str, label: str, now: datetime
     ) -> None:
-        """Record that PerimeterAlertManager successfully dispatched an alert.
+        """Record that PerimeterAlertManager dispatched an alert.
 
-        Attributes the alert to the OPEN track that owns the last hop on this
-        camera (best-effort — first match wins). Used by the same-track
-        suppression check.
-        """
-        for t in self._tracks.get(label, []):
-            if t.hops and t.hops[-1].camera == camera:
-                t.alert_count += 1
-                if t.first_alert_at is None:
-                    t.first_alert_at = now
-                return
+        Attributes the dispatch to the OWNING open track (last hop on this
+        camera). "Real dispatches" only — the redesign kills the silent
+        suppress-and-return path, so alert_count now measures real NM
+        deliveries (A-MED-1 dissolved: no more "attributed-but-not-dispatched"
+        confounding).
 
-    def same_track_should_suppress(
-        self, camera: str, label: str, now: datetime
-    ) -> bool:
-        """REFINEMENT-only cadence check.
-
-        Returns True iff there is an OPEN track T (adjacent-or-same to
-        `camera`, within link window) that has already dispatched >= 1 alert
-        AND is classified pass_by. In every other case returns False — the
-        default is "let the alert through" so INV-XP is not weakened by a
-        classification error or a stale track.
-
-        Kill switch: TRACK_LINK_WINDOW_S == 0 → always False.
+        Kill switch: TRACK_LINK_WINDOW_S == 0 → no tracks exist → no-op.
         """
         if TRACK_LINK_WINDOW_S <= 0:
-            return False
-        t = self._find_link_target(label, camera, now)
-        if t is None or t.alert_count < 1:
-            return False
-        cls = self.classify(t)
-        # Only pass_by demotes. Approach/circling MUST re-alert (escalate).
-        return cls == "pass_by"
+            return
+        t = self.find_owning_track(camera, label, now)
+        if t is None:
+            return
+        t.alert_count += 1
+        if t.first_alert_at is None:
+            t.first_alert_at = now
 
-    # NM message enrichment
-    def latest_track_for_camera(
-        self, camera: str, label: str = "person"
+    def find_owning_track(
+        self, camera: str, label: str, now: datetime
     ) -> ExteriorTrack | None:
-        """Return the most-recent OPEN track whose last hop matches this camera."""
+        """Return the OPEN track that owns the last hop on `camera` for `label`.
+
+        Unified lookup used by BOTH the demotion decision AND the narrative
+        enrichment path in perimeter_alert.py (A-HIGH-2 — kills the
+        _find_link_target vs latest_track_for_camera divergence). "Owning"
+        means the track whose most-recent hop is this camera; if multiple
+        such tracks exist, the one with the newest hop wins.
+
+        Kill switch: TRACK_LINK_WINDOW_S == 0 → always None.
+        """
+        if TRACK_LINK_WINDOW_S <= 0:
+            return None
         best: ExteriorTrack | None = None
         best_t: datetime | None = None
         for t in self._tracks.get(label, []):
@@ -509,3 +687,18 @@ class ExteriorTrackLinker:
                 best_t = t.hops[-1].t_last
                 best = t
         return best
+
+    # Back-compat alias. Old name preserved for any external consumer; the
+    # implementation now routes through find_owning_track (one lookup path).
+    def latest_track_for_camera(
+        self, camera: str, label: str = "person"
+    ) -> ExteriorTrack | None:
+        return self.find_owning_track(camera, label, dt_util.now())
+
+    # ---------------- surface: unlinked-events counter (B-M3) ----------------
+    def unlinked_events_snapshot(self) -> dict[str, int]:
+        """Return {camera: count} of events that opened a NEW single-hop
+        track rather than extending an existing one — a diagnostic proxy
+        for cross-camera link failures (missing adjacency edge, walker gap
+        exceeded TRACK_LINK_WINDOW_S, or non-perimeter noise)."""
+        return dict(self._unlinked_events)
