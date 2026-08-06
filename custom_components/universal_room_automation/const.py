@@ -1324,9 +1324,16 @@ NM_HAZARD_EXTERIOR_TRACK_SEVERITY_MAP: Final[dict[str, dict[str, dict[str, str]]
         "home_day": {"pass_by": "DIGEST",   "approach": "LOW",      "circling": "MEDIUM"},
     },
     "car": {
-        "away":     {"pass_by": "DIGEST",   "approach": "MEDIUM",   "circling": "HIGH"},
-        "sleep":    {"pass_by": "MEDIUM",   "approach": "HIGH",     "circling": "HIGH"},
-        "home_night": {"pass_by": "DIGEST", "approach": "LOW",      "circling": "MEDIUM"},
+        # Exterior cycle 2 (2026-08-06 operator GO): deep-night vehicle
+        # while unoccupied is the negative-signal case — HIGH first-alert,
+        # with narrative. The night-window gate (EXTERIOR_VEHICLE_NIGHT_*)
+        # lives in perimeter_alert.py; outside the window vehicle events
+        # feed the linker (census/episode) but do NOT dispatch NM.
+        # Continuation coercion may still demote/escalate via cycle-1 rules.
+        "away":     {"pass_by": "HIGH",     "approach": "HIGH",     "circling": "HIGH"},
+        "sleep":    {"pass_by": "HIGH",     "approach": "HIGH",     "circling": "HIGH"},
+        "vacation": {"pass_by": "HIGH",     "approach": "HIGH",     "circling": "HIGH"},
+        "home_night": {"pass_by": "LOW",    "approach": "LOW",      "circling": "MEDIUM"},
         "home_day": {"pass_by": "DIGEST",   "approach": "DIGEST",   "circling": "LOW"},
     },
     "animal": {
@@ -1358,6 +1365,29 @@ PERIMETER_BOOT_SETTLE_S: Final = 30
 # set update the cached snapshot event_id. Prevents e.g. car detections from
 # supplying the URL for a later person alert.
 FRIGATE_SNAPSHOT_LABELS: Final = frozenset({"person"})
+
+# ----------------------------------------------------------------------------
+# Exterior cycle 2 (2026-08-06): deep-night vehicle policy + fused sourcing
+# + animal ingress. Rung-1 module constants (Numbers Get Knobs). Hour values
+# are house-local; window wraps at midnight when start >= end.
+# ----------------------------------------------------------------------------
+EXTERIOR_VEHICLE_NIGHT_START: Final = 22   # inclusive (10pm)
+EXTERIOR_VEHICLE_NIGHT_END: Final = 6      # exclusive (6am)
+EXTERIOR_VEHICLE_ALERT_STATES: Final = frozenset({"away", "sleep", "vacation"})
+EXTERIOR_VEHICLE_ALERT_COOLDOWN_SECONDS: Final = 300
+# No animal alert dispatched today (recorder probe 2026-08-06: top animal
+# sensor fires 42/wk = 6/day; well under a 20/day cap). Kept as a knob for
+# when someone wires an animal alert; 0 = disabled.
+EXTERIOR_ANIMAL_ALERT_DAILY_CAP: Final = 0
+EXTERIOR_VEHICLE_SENSOR_SUFFIXES: Final = (
+    "_vehicle_detected",     # UniFi Protect smart-detect
+    "_smart_motion_vehicle", # Amcrest / some Reolink
+    "_vehicle",              # generic
+)
+EXTERIOR_ANIMAL_SENSOR_SUFFIXES: Final = (
+    "_animal_detected",      # UniFi Protect smart-detect
+    "_animal",
+)
 
 # Zone aggregation sensor keys
 SENSOR_ZONE_IDENTIFIED_PERSONS: Final = "zone_identified_persons"

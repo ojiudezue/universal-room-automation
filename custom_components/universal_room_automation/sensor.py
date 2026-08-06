@@ -3900,6 +3900,15 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
                 )
             except Exception:  # noqa: BLE001
                 pass
+            # Cycle 2 seam-split telemetry rider: per-(A,B) missed-intermediate
+            # candidate counts (observability only; edges never change
+            # automatically). Empty dict when nothing to report.
+            try:
+                attrs["seam_split_candidates"] = (
+                    linker.seam_split_snapshot()
+                )
+            except Exception:  # noqa: BLE001
+                pass
             return attrs
         except Exception as exc:  # noqa: BLE001
             return {"status": "error", "error": str(exc)}
