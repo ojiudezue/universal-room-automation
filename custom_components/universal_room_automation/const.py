@@ -1180,6 +1180,18 @@ PERIMETER_ALERT_COOLDOWN_SECONDS: Final = 300  # 5 minutes
 # Severity[<name>] at emit time. Unknown / missing keys fail-safe to CRITICAL.
 # ----------------------------------------------------------------------------
 NM_HAZARD_EXTERIOR_PERSON: Final = "exterior_person"
+# Fix-up (2026-08-06, A-H1/D-H1): distinct hazard for vehicle path so it
+# CANNOT collapse a subsequent person emission via NM's boot-settle guard
+# (which keys on (coord_id, hazard_type)). Dedup is (coord,title,location)
+# which already differs. Token buckets are PER-CHANNEL (see NM Cycle B B3)
+# — NOT partitioned by hazard — so a non-life-safety vehicle emit still
+# consumes 1 channel token that a subsequent non-life-safety person emit
+# would need. INV-XP mitigation: the first-alert-per-track gate for
+# vehicles bounds volume so channel contention is negligible in practice;
+# person CRITICAL and vehicle HIGH remain independent by title/hazard for
+# dedup and boot-settle. Not a life-safety hazard (base frozenset
+# unchanged) — operators may promote via CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS.
+NM_HAZARD_EXTERIOR_VEHICLE: Final = "exterior_vehicle"
 
 # GUEST default extracted so a follow-up cycle can flip it without churning
 # the full mapping table (plan D2).
@@ -1375,10 +1387,15 @@ EXTERIOR_VEHICLE_NIGHT_START: Final = 22   # inclusive (10pm)
 EXTERIOR_VEHICLE_NIGHT_END: Final = 6      # exclusive (6am)
 EXTERIOR_VEHICLE_ALERT_STATES: Final = frozenset({"away", "sleep", "vacation"})
 EXTERIOR_VEHICLE_ALERT_COOLDOWN_SECONDS: Final = 300
-# No animal alert dispatched today (recorder probe 2026-08-06: top animal
-# sensor fires 42/wk = 6/day; well under a 20/day cap). Kept as a knob for
-# when someone wires an animal alert; 0 = disabled.
-EXTERIOR_ANIMAL_ALERT_DAILY_CAP: Final = 0
+# Fix-up (2026-08-06, item 14): the ratified adjacency graph uses `armcrest`
+# as the linker/camera key, but the live sensor entities are prefixed
+# `armcrestpooloverhead_*` (operator-cited; verify against ~/ha-config
+# entity_registry). Alias is applied AFTER suffix stripping in
+# _camera_key_for_sensor so both source entities collapse to the graph key.
+# Extendable — key = base slug after suffix strip; value = adjacency-graph key.
+EXTERIOR_CAMERA_KEY_ALIASES: Final = {
+    "armcrestpooloverhead": "armcrest",
+}
 EXTERIOR_VEHICLE_SENSOR_SUFFIXES: Final = (
     "_vehicle_detected",     # UniFi Protect smart-detect
     "_smart_motion_vehicle", # Amcrest / some Reolink

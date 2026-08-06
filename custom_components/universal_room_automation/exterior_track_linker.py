@@ -773,6 +773,13 @@ class ExteriorTrackLinker:
                 self._seam_split_counts[key] = (
                     self._seam_split_counts.get(key, 0) + 1
                 )
+                # Fix-up (2026-08-06, L2): cap at 64 keys with drop-oldest
+                # (dict-insertion-order eviction) so a pathological graph
+                # cannot grow this dict unbounded.
+                if len(self._seam_split_counts) > 64:
+                    _oldest = next(iter(self._seam_split_counts))
+                    if _oldest != key:
+                        self._seam_split_counts.pop(_oldest, None)
                 _LOGGER.info(
                     "ExteriorTrackLinker: seam-split candidate on "
                     "(%s→%s) label=%s (2-hop, Δt=%.0fs) — count now %d",
