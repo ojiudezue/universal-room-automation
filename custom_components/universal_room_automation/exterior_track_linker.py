@@ -186,6 +186,12 @@ class ExteriorTrackLinker:
         # single-hop track rather than extending one — surfaced via the
         # diagnostic sensor's attrs.
         self._unlinked_events: dict[str, int] = {}
+        # Exterior cycle 2 (seam-split telemetry rider, 2026-08-06). When a
+        # NEW same-label track opens on camera B while an existing open track's
+        # last hop A is EXACTLY 2 graph-hops from B (and within
+        # TRACK_LINK_WINDOW_S), count (A,B) as a candidate missed-intermediate
+        # observation. Observability only — never mutates edges or dispatch.
+        self._seam_split_counts: dict[tuple[str, str], int] = {}
 
     # ---------------- setup / teardown ----------------
     async def async_setup(self) -> None:
@@ -370,6 +376,17 @@ class ExteriorTrackLinker:
 
         track = self._find_link_target(label, camera, now)
         if track is None:
+            # Seam-split telemetry (cycle 2): before opening a new track,
+            # check whether an open same-label track's last hop is exactly
+            # 2 graph-hops from this camera (plausible missed intermediate).
+            # Purely observational — no behavior change.
+            try:
+                self._record_seam_split_if_any(label, camera, now)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "ExteriorTrackLinker: seam-split telemetry raised",
+                    exc_info=True,
+                )
             track = ExteriorTrack(
                 track_id=f"xt-{next(self._id_gen):06d}-{uuid.uuid4().hex[:6]}",
                 label=label,
@@ -722,6 +739,60 @@ class ExteriorTrackLinker:
         self, camera: str, label: str = "person"
     ) -> ExteriorTrack | None:
         return self.find_owning_track(camera, label, dt_util.now())
+
+    # ---------------- surface: seam-split telemetry (cycle 2 rider) ----------
+    def _record_seam_split_if_any(
+        self, label: str, camera: str, now: datetime
+    ) -> None:
+        """Count a (A,B) seam when a NEW track opens on B while an open
+        same-label track has its last hop A exactly 2 graph-hops from B.
+
+        "2 graph-hops" means A and B are NOT directly adjacent, but there
+        exists some intermediate camera M adjacent to both. We record the
+        endpoint seam (A,B) because M is not always unambiguous.
+        """
+        neigh_b = self._adjacency.get(camera, set())
+        if not neigh_b:
+            return
+        for t in self._tracks.get(label, []):
+            if not t.hops:
+                continue
+            last = t.hops[-1]
+            a = last.camera
+            if a == camera:
+                continue
+            dt = (now - last.t_last).total_seconds()
+            if dt < 0 or dt > TRACK_LINK_WINDOW_S:
+                continue
+            neigh_a = self._adjacency.get(a, set())
+            if camera in neigh_a:
+                # Directly adjacent — would have linked; defensive skip.
+                continue
+            if neigh_a & neigh_b:
+                key = (a, camera)
+                self._seam_split_counts[key] = (
+                    self._seam_split_counts.get(key, 0) + 1
+                )
+                # Fix-up (2026-08-06, L2): cap at 64 keys with drop-oldest
+                # (dict-insertion-order eviction) so a pathological graph
+                # cannot grow this dict unbounded.
+                if len(self._seam_split_counts) > 64:
+                    _oldest = next(iter(self._seam_split_counts))
+                    if _oldest != key:
+                        self._seam_split_counts.pop(_oldest, None)
+                _LOGGER.info(
+                    "ExteriorTrackLinker: seam-split candidate on "
+                    "(%s→%s) label=%s (2-hop, Δt=%.0fs) — count now %d",
+                    a, camera, label, dt, self._seam_split_counts[key],
+                )
+                return
+
+    def seam_split_snapshot(self) -> dict[str, int]:
+        """Return {"A→B": count} for the diagnostic sensor attrs."""
+        return {
+            f"{a}→{b}": n
+            for (a, b), n in self._seam_split_counts.items()
+        }
 
     # ---------------- surface: unlinked-events counter (B-M3) ----------------
     def unlinked_events_snapshot(self) -> dict[str, int]:

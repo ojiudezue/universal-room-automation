@@ -3900,6 +3900,20 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
                 )
             except Exception:  # noqa: BLE001
                 pass
+            # Cycle 2 seam-split telemetry rider: per-(A,B) missed-intermediate
+            # candidate counts (observability only; edges never change
+            # automatically). Empty dict when nothing to report.
+            # Fix-up (2026-08-06, B-LOW-2): counters are SINCE-BOOT — not
+            # persisted across restart; cap at 64 keys with drop-oldest.
+            # Frigate `_frigate_last_event_id` cache is PERSON-ONLY
+            # (B-LOW-3): vehicle/animal snapshot events do not enter this
+            # cache; vehicle NM uses the entity_picture live-fallback path.
+            try:
+                attrs["seam_split_candidates"] = (
+                    linker.seam_split_snapshot()
+                )
+            except Exception:  # noqa: BLE001
+                pass
             return attrs
         except Exception as exc:  # noqa: BLE001
             return {"status": "error", "error": str(exc)}
