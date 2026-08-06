@@ -85,6 +85,7 @@ from .const import (
     NM_HAZARD_EXTERIOR_PERSON,
     NM_HAZARD_EXTERIOR_PERSON_SEVERITY_BY_HOUSE_STATE,
     NM_HAZARD_EXTERIOR_PERSON_DEFAULT_SEVERITY,
+    NM_HAZARD_EXTERIOR_TRACK_SEVERITY_MAP,
     CONF_EXTERIOR_SNAPSHOT_OFFSET_S,
     DEFAULT_EXTERIOR_SNAPSHOT_OFFSET_S,
     MIN_EXTERIOR_SNAPSHOT_OFFSET_S,
@@ -327,6 +328,44 @@ class PerimeterAlertManager:
             )
             return
 
+        # --- 3b. Same-track suppression (build/exterior-track REFINEMENT
+        # under INV-XP). Runs AFTER the per-camera cooldown gate so it can
+        # only REDUCE the alert stream — a suppressed thread is one the
+        # cooldown gate would have let through. Fail-open: linker
+        # missing/absent/exception → NEVER suppress.
+        # INV-XP invariant preserved: nothing in this block enables an
+        # alert the cooldown gate would have blocked.
+        linker = self.hass.data.get(DOMAIN, {}).get("exterior_track_linker")
+        _linker_camera = self._camera_key_for_sensor(entity_id)
+        if linker is not None and _linker_camera:
+            try:
+                if linker.same_track_should_suppress(
+                    _linker_camera, "person", now
+                ):
+                    _LOGGER.info(
+                        "PerimeterAlertManager: %s alert suppressed — "
+                        "same-track (pass_by) refinement (INV-XT).",
+                        entity_id,
+                    )
+                    # Still record the hop on the ORIGINAL thread's track so
+                    # its path narrative + repeat machinery stay current.
+                    try:
+                        linker.note_alert_dispatched(
+                            _linker_camera, "person", now
+                        )
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.debug(
+                            "linker note_alert_dispatched (suppressed path) "
+                            "failed", exc_info=True,
+                        )
+                    return
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "PerimeterAlertManager: same_track_should_suppress "
+                    "raised — falling through (fail-open, no suppression).",
+                    exc_info=True,
+                )
+
         # --- 4. Resolve severity from house state (D2, fail-safe) ---
         # C-mut-d: if the resolver itself raises, fall back to CRITICAL so
         # the docstring guarantee ("any exception → CRITICAL") holds even
@@ -339,6 +378,64 @@ class PerimeterAlertManager:
                 "coercing to CRITICAL (fail-safe).", exc,
             )
             severity = Severity.CRITICAL
+
+        # --- 4b. Severity-map coercion (build/exterior-track).
+        # When a linker track exists AND we have a house_state AND the
+        # (label × state × classification) tuple resolves to a known
+        # Severity name, coerce. Any miss → keep today's severity
+        # (fail-open: person/unclassified defaults preserve today's
+        # behavior exactly, per plan).
+        #
+        # Rationale for the map defaults (const.py NM_HAZARD_EXTERIOR_
+        # TRACK_SEVERITY_MAP):
+        #  - person/away/circling = CRITICAL (matches today; escalation
+        #    room via repeat machinery + path narrative).
+        #  - person/away/approach = HIGH (still alarming but headed toward
+        #    an egress-adjacent camera vs a plain perimeter drift).
+        #  - person/away/pass_by = MEDIUM (a single boundary hop while
+        #    away is noisier than useful at CRITICAL — the last-night
+        #    walker case the operator flagged).
+        #  - car/away/circling = HIGH (deep-night vehicle circling while
+        #    away is the operator's negative signal).
+        #  - animal/* = DIGEST across the board (no CRITICAL urgency).
+        # DIGEST has no Severity enum member; treated as Severity.LOW
+        # (our lowest tier) so the map's demotion intent still applies.
+        if linker is not None and _linker_camera:
+            try:
+                track = linker.latest_track_for_camera(
+                    _linker_camera, "person"
+                )
+                house_state = self._get_house_state()
+                if track is not None and house_state:
+                    classification = linker.classify(track)
+                    label_map = NM_HAZARD_EXTERIOR_TRACK_SEVERITY_MAP.get(
+                        track.label, {}
+                    )
+                    state_map = label_map.get(house_state, {})
+                    sev_name = state_map.get(classification)
+                    if sev_name:
+                        if sev_name == "DIGEST":
+                            coerced = Severity.LOW
+                        else:
+                            try:
+                                coerced = Severity[sev_name]
+                            except KeyError:
+                                coerced = None
+                        if coerced is not None and coerced != severity:
+                            _LOGGER.info(
+                                "PerimeterAlertManager: severity coerced "
+                                "%s→%s via track map (label=%s, "
+                                "state=%s, class=%s)",
+                                severity.name, coerced.name, track.label,
+                                house_state, classification,
+                            )
+                            severity = coerced
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "PerimeterAlertManager: severity map coercion raised "
+                    "— keeping today's severity (fail-open).",
+                    exc_info=True,
+                )
 
         # --- 5. Resolve snapshot URL (D4) ---
         snapshot_url, delay_s = self._resolve_snapshot_url_and_delay(entity_id)
