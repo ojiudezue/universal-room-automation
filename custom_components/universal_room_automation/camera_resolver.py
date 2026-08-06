@@ -89,7 +89,7 @@ CAMERA_AUTOENABLE_DRY_RUN: bool = True
 # flag routes the whole-house census path through it too. Cutover requires
 # a golden-master diff artifact (legacy vs new outputs across the live
 # registry) per the plan amendment — do NOT flip without that artifact.
-CENSUS_USE_NEW_RESOLVER: bool = True
+CENSUS_USE_NEW_RESOLVER: bool = False
 
 
 # ---------------------------------------------------------------------------
