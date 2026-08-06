@@ -287,6 +287,75 @@ def test_rung_name_stem_frigate_device_pulled_in():
 
 
 # ============================================================================
+# Rung 5 — bidirectional stem lookup (Frigate input -> Protect sibling)
+# GOLDEN_MASTER census-cutover BLOCK-1 (2026-08-06): the Frigate-object-keyed
+# `_frigate_stem_to_device_ids` served only UniFi->Frigate direction; egress
+# cameras are listed as the FRIGATE entity, so a Frigate input needed a
+# reverse rung to reach its Protect sibling (Protect devices carry no MAC
+# and no identifiers on the live deployment). Pinned here.
+# ============================================================================
+
+
+def test_rung_name_stem_bidirectional_frigate_to_protect():
+    """Frigate camera input reaches its Protect sibling via the reverse
+    (camera-entity-keyed) stem index. Mirrors the live doorbell_lite /
+    front_door_aerial / madrone_g6_entry egress case."""
+    dev_frig = FakeDevice(
+        id="dev_f",
+        identifiers={(PLATFORM_FRIGATE, "host1:doorbell_lite")},
+    )
+    # Live Protect devices on this deployment carry NEITHER identifiers
+    # NOR a MAC that matches Frigate (Frigate has no MAC). The only
+    # cross-integration link is the camera-entity stem.
+    dev_prot = FakeDevice(id="dev_p", identifiers=set(), connections=set())
+    ents = [
+        FakeEntity("camera.doorbell_lite", "dev_f", PLATFORM_FRIGATE),
+        FakeEntity("binary_sensor.doorbell_lite_person_occupancy", "dev_f", PLATFORM_FRIGATE),
+        FakeEntity("camera.doorbell_lite_high_resolution_channel", "dev_p", PLATFORM_UNIFI),
+        FakeEntity("binary_sensor.doorbell_lite_person_detected", "dev_p", PLATFORM_UNIFI),
+    ]
+    r = _mk(ents, [dev_frig, dev_prot])
+    fusion = _sole(r.resolve_operator_declaration(["camera.doorbell_lite"]))
+    dids = {s.device_id for s in fusion.sources}
+    bases = {s.correlation_basis for s in fusion.sources}
+    assert "dev_p" in dids, "Protect sibling must be reachable from Frigate input"
+    assert BASIS_NAME_STEM in bases
+    # Both person BSes must be surfaced.
+    person_bses = {s.person_binary_sensor for s in fusion.sources}
+    assert "binary_sensor.doorbell_lite_person_occupancy" in person_bses
+    assert "binary_sensor.doorbell_lite_person_detected" in person_bses
+
+
+def test_rung_name_stem_bidirectional_mutation_drill_one_way_regresses():
+    """Mutation drill: re-one-way the stem index (drop the bidirectional
+    `_stem_to_device_ids` lookup in rung-5). The Frigate->Protect case
+    must then FAIL to reach the Protect sibling. Guards against a future
+    refactor silently dropping the reverse rung."""
+    dev_frig = FakeDevice(
+        id="dev_f",
+        identifiers={(PLATFORM_FRIGATE, "host1:doorbell_lite")},
+    )
+    dev_prot = FakeDevice(id="dev_p", identifiers=set(), connections=set())
+    ents = [
+        FakeEntity("camera.doorbell_lite", "dev_f", PLATFORM_FRIGATE),
+        FakeEntity("binary_sensor.doorbell_lite_person_occupancy", "dev_f", PLATFORM_FRIGATE),
+        FakeEntity("camera.doorbell_lite_high_resolution_channel", "dev_p", PLATFORM_UNIFI),
+        FakeEntity("binary_sensor.doorbell_lite_person_detected", "dev_p", PLATFORM_UNIFI),
+    ]
+    r = _mk(ents, [dev_frig, dev_prot])
+    # Neuter the bidirectional index -> simulates a regression that reverts
+    # the fix. The Frigate-keyed index alone cannot reach dev_p.
+    r._stem_to_device_ids = {}
+    fusion = _sole(r.resolve_operator_declaration(["camera.doorbell_lite"]))
+    dids = {s.device_id for s in fusion.sources}
+    assert "dev_p" not in dids, (
+        "Regression check: without the bidirectional stem index, the "
+        "Frigate->Protect reverse rung MUST be unreachable — this is the "
+        "exact failure mode the fix repairs."
+    )
+
+
+# ============================================================================
 # Rung 6 — operator-declared (Frigate ingests Reolink, no MAC/stem parity)
 # ============================================================================
 

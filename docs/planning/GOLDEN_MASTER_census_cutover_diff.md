@@ -6,11 +6,15 @@
 legacy resolution vs resolver output, every difference explained"*).
 **Probe:** `scripts/probes/golden_master_census_diff.py` (re-runnable; see §1).
 
-## Verdict up front: **NO-GO**
+## Verdict up front: **NO-GO** (superseded — see §9 **GO** post-fix)
 
 3 of 5 differences are **resolver-wrong**: flipping the flag today silently
 drops the entire UniFi Protect leg of the egress transit census (84–117
 real ON-events per camera per week). Blocking findings in §5.
+
+**UPDATE 2026-08-06:** BLOCK-1 remediated by cycle `build/census-cutover-fix`
+(bidirectional stem-index reverse lookup + F1 platform-hint fallback +
+`area_id` carry-through). See §9 for the re-run and final **GO**.
 
 ---
 
@@ -164,3 +168,82 @@ python3 scripts/probes/golden_master_census_diff.py \
 ```
 (Refresh the `CAMERA_LISTS` constant from `core.config_entries` if the
 integration entry's camera lists have changed.)
+
+---
+
+## 9. Re-run after fix (2026-08-06 — cycle `build/census-cutover-fix`)
+
+### Fix applied
+
+**Option (a) from §5 — reverse rung-5 lookup via a bidirectional stem
+index.** Chosen over (b) integration-inference-based extended index and (c)
+operator-config amendment because it is the minimal surgery: one additional
+one-pass walk of the entity registry at resolver construction time, one
+additional lookup inside the existing rung-5 loop. No new inference
+machinery, no operator burden.
+
+- `CameraResolver` now builds `_stem_to_device_ids: dict[str, set[str]]`
+  keyed by camera-entity-name-stem for ANY device owning a `camera.*` or
+  person `binary_sensor.*` entity (`camera_resolver.py` `_build_indices`).
+- Rung-5 additionally consults this bidirectional index, so a Frigate input
+  reaches its Protect sibling (the direction the Frigate-object-keyed index
+  cannot serve because Protect devices have no MAC and empty identifiers on
+  this deployment).
+
+### Bonus finding remediation (both in-scope, ≤30 LoC each)
+
+- **§4 F1 stem filter inertness — FIXED.** `_infer_integration` now falls
+  back to any owned entity's `.platform` (populated for both Protect and
+  Frigate) when device identifiers are empty. A `_device_platform_hint`
+  cache is populated during index build and PREFERS known camera-integration
+  platforms (`unifiprotect`, `frigate`, `reolink`, `amcrest`, `dahua`) over
+  the first arbitrary platform, so co-resident non-camera integrations
+  (notably `unifi` Network on the same physical device as `unifiprotect`)
+  cannot mislabel the hint. Consequence: the F1 stem filter documented at
+  §F1 of the AUDIT is now *live* — the pre-existing mis-fusion of
+  `camera_protect_garagehallway_person_detected` onto the staircase input is
+  correctly excluded (see re-run row #3 below — a resolver-correct
+  improvement, not a regression).
+- **§4 `area_id=None` hard-code — FIXED** in the cutover branch of
+  `camera_census.resolve_cross_platform_sensors` (~10 LoC): the entity's
+  registered `area_id` is now carried through instead of `None`. Guarded
+  with try/except so a registry read failure degrades to `None` (legacy
+  behavior).
+
+### Probe re-run
+
+Command:
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/probes/golden_master_census_diff.py \
+  --entity-registry /tmp/er.json --device-registry /tmp/dr.json \
+  --activity /tmp/activity.json
+```
+
+Snapshots re-captured 2026-08-06 (same day as the NO-GO probe).
+
+Result: **TOTAL compared=24 identical=21 differing=3.**
+
+| Row | Entity | Side | 7d ON | Verdict vs original | Note |
+|---|---|---|---|---|---|
+| 1 | `binary_sensor.doorbell_lite_person_detected` | **BOTH** | 86 | **RESOLVED** (was LEGACY-ONLY, BLOCK-1 #3) | bidirectional rung-5 pulled Protect from Frigate input |
+| 2 | `binary_sensor.front_door_aerial_person_detected` | **BOTH** | 105 | **RESOLVED** (was LEGACY-ONLY, BLOCK-1 #4) | ditto |
+| 3 | `binary_sensor.madrone_g6_entry_person_detected` | **BOTH** | 119 | **RESOLVED** (was LEGACY-ONLY, BLOCK-1 #5) | ditto |
+| 4 | `binary_sensor.staircase_person_occupancy` | RESOLVER-ONLY | 138 | **PRESERVED** (§3 #1 resolver-correct win) | still recovered via camera-stem stripping |
+| 5 | `sensor.staircase_person_count` | RESOLVER-ONLY | n/a | **PRESERVED** (§3 #2) | rides recovered Frigate staircase device |
+| 6 | `binary_sensor.camera_protect_garagehallway_person_detected` | **LEGACY-ONLY** | 463 | **NEW — resolver-correct** | F1 filter now live: this pre-existing mis-fusion (documented §4 as *"the resolver's F1 stem filter SHOULD exclude it"*) is finally excluded. The sensor is legitimately owned by the STAIRCASE Protect NVR device; on the legacy path it was pulled into the interior census on the staircase input via same-device rung despite belonging to a different physical camera. Its exclusion is the F1 fix delivering its designed behavior; the AUDIT-documented follow-up (§4) is thus discharged as part of this cycle. |
+
+- **PLATFORM-DIFF label mismatches** observed in the interim between
+  bonus-fix drafts (legacy `unifiprotect` vs new `unifi`) are gone — the
+  known-camera-platform preference in the hint cache eliminates them.
+- **Egress leg UniFi coverage restored** (~310 ON/week across the 3 egress
+  cameras — BLOCK-1 remediated).
+
+### Verdict: **GO**
+
+The three BLOCK-1 rows are IDENTICAL, the two resolver-correct wins are
+preserved, and the one additional difference is a resolver-correct
+improvement (F1 filter delivering its documented purpose). No differences
+remain unexplained.
+
+Flip `CENSUS_USE_NEW_RESOLVER = True` in a separate reviewable commit; the
+flag remains the documented fire axe.

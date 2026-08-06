@@ -450,10 +450,22 @@ class CameraIntegrationManager:
                                         else CAMERA_PLATFORM_UNIFI
                                         if src.integration == PLATFORM_UNIFI
                                         else src.integration or CAMERA_PLATFORM_UNIFI)
+                                # GOLDEN_MASTER bonus finding: carry the
+                                # entity's registered area_id rather than
+                                # hard-coding None (legacy path uses the
+                                # registry area; sensors gaining area
+                                # assignments must not silently diverge).
+                                _area = None
+                                try:
+                                    _ent = er.async_get(self.hass).async_get(eid)
+                                    if _ent is not None:
+                                        _area = getattr(_ent, "area_id", None)
+                                except Exception:  # noqa: BLE001
+                                    _area = None
                                 merged_infos.append(CameraInfo(
                                     entity_id=eid,
                                     platform=plat,
-                                    area_id=None,
+                                    area_id=_area,
                                     person_binary_sensor=eid,
                                     person_count_sensor=src.person_count_sensor,
                                 ))

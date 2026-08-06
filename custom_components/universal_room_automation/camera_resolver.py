@@ -297,6 +297,22 @@ class CameraResolver:
         self._mac_to_device_ids: dict[str, set[str]] = {}
         # Build a stem -> list[device_id] index for the same-Frigate-object collapse.
         self._frigate_stem_to_device_ids: dict[str, list[str]] = {}
+        # Census-cutover fix (2026-08-06): bidirectional camera-stem index.
+        # Maps camera-entity-name stem -> device_ids for ANY device that owns
+        # a `camera.*` entity or a person `binary_sensor.*` entity. This lets
+        # rung-5 traverse Frigate -> Protect (the direction the Frigate-object
+        # -keyed `_frigate_stem_to_device_ids` cannot serve because Protect
+        # devices have empty identifiers on this deployment). Chosen over
+        # options (b) integration-inference-based extended index and
+        # (c) operator-declared amendment per the GOLDEN_MASTER doc's fix
+        # options list: minimal surgery, no new inference machinery, no
+        # per-camera operator burden.
+        self._stem_to_device_ids: dict[str, set[str]] = {}
+        # Cache of device_id -> integration-hint derived from any entity's
+        # `.platform`, used as a fallback when the device has no identifiers
+        # (Protect NVR devices on this deployment). Populated during index
+        # build in one pass so `_infer_integration` does not re-walk.
+        self._device_platform_hint: dict[str, str] = {}
         self._build_indices()
 
     # ---- Index construction ------------------------------------------------
@@ -333,6 +349,52 @@ class CameraResolver:
                 # Extract object name (portion after the last ':')
                 obj = key.rsplit(":", 1)[-1] if ":" in key else key
                 self._frigate_stem_to_device_ids.setdefault(obj, []).append(dev.id)
+
+        # Bidirectional stem index + platform-hint cache: walk the entity
+        # registry ONCE, extract a stem from every camera.* or person
+        # binary_sensor.* entity, key device_ids under that stem so a lookup
+        # of "doorbell_lite" returns BOTH the Frigate device AND the Protect
+        # device that own the same physical camera.
+        try:
+            entities = list(getattr(self._er, "entities", {}).values())
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.warning("CameraResolver: entity registry walk failed: %s", exc)
+            entities = []
+        for ent in entities:
+            did = getattr(ent, "device_id", None)
+            if not did:
+                continue
+            eid = getattr(ent, "entity_id", "") or ""
+            domain = getattr(ent, "domain", None) or (eid.split(".", 1)[0] if "." in eid else "")
+            name = _entity_name(eid)
+            stem: str | None = None
+            if domain == "camera":
+                stem = _strip_camera_resolution_suffix(name)
+            elif domain == "binary_sensor":
+                stripped = _strip_suffix(name, _PERSON_SUFFIXES)
+                if stripped:
+                    stem = stripped
+            if stem:
+                self._stem_to_device_ids.setdefault(stem, set()).add(did)
+                # Also register the disambiguation-stripped stem so
+                # `camera.armcrestash41b_2` cross-hits `armcrestash41b`.
+                dstem = _strip_disambiguation_suffix(stem)
+                if dstem != stem:
+                    self._stem_to_device_ids.setdefault(dstem, set()).add(did)
+            # Platform-hint cache: prefer known camera-integration platforms
+            # (unifiprotect, frigate, reolink, amcrest, dahua). Otherwise
+            # accept the first non-empty value as a weak fallback. This
+            # avoids co-resident non-camera integrations (e.g. the `unifi`
+            # Network integration sharing devices with `unifiprotect`)
+            # winning the hint and mislabeling the platform.
+            plat = getattr(ent, "platform", None)
+            if plat:
+                _KNOWN = (PLATFORM_UNIFI, PLATFORM_FRIGATE, PLATFORM_REOLINK, PLATFORM_AMCREST, PLATFORM_DAHUA)
+                cur = self._device_platform_hint.get(did)
+                if plat in _KNOWN:
+                    self._device_platform_hint[did] = plat
+                elif cur is None:
+                    self._device_platform_hint[did] = plat
 
     # ---- Public API --------------------------------------------------------
 
@@ -500,6 +562,15 @@ class CameraResolver:
                 for sibling_did in self._frigate_stem_to_device_ids.get(lookup, []):
                     if sibling_did not in expanded:
                         expanded[sibling_did] = BASIS_NAME_STEM
+            # Bidirectional stem lookup — reaches any device (Protect,
+            # Frigate, Reolink…) that owns a camera/person entity sharing
+            # this stem. Required for Frigate -> Protect direction (egress
+            # cameras: doorbell_lite, front_door_aerial, madrone_g6_entry —
+            # GOLDEN_MASTER BLOCK-1).
+            for lookup in (stem, _strip_camera_resolution_suffix(stem), _strip_disambiguation_suffix(_strip_camera_resolution_suffix(stem))):
+                for sibling_did in self._stem_to_device_ids.get(lookup, ()):
+                    if sibling_did not in expanded:
+                        expanded[sibling_did] = BASIS_NAME_STEM
 
         # ---- F2 collapse: pre-select the winning Frigate device per object-name
         # A-M3 fix — deterministic winner:
@@ -628,6 +699,13 @@ class CameraResolver:
                 continue
             if integ:
                 return integ
+        # GOLDEN_MASTER bonus finding: live UniFi Protect devices carry
+        # empty identifiers on this deployment, which made the F1 stem
+        # filter inert. Fall back to any owned entity's `.platform`
+        # (populated for both Protect and Frigate) so F1 becomes live.
+        did = getattr(dev, "id", None)
+        if did:
+            return self._device_platform_hint.get(did, "")
         return ""
 
     def _frigate_object_name_for_device(self, dev: Any | None) -> str | None:
