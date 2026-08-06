@@ -53,3 +53,100 @@ Platform legend: F = Frigate (both F1+F2 unless noted) / P = Protect stream sour
 3. **Verify PTZ parking/patrol in the Protect UI** for `front_side_ptz` (and secondarily `rear_ptz`/`utilities_ptz`): confirm the idle preset actually frames the side-yard traversal corridor. This is unreadable from Frigate/MCP and could single-handedly explain the front-route rear↔utilities co-fires. Also check, in the same UI session, the Protect smart-detect zone geometry for the middles (only zone COUNTS were readable here).
 
 Secondary (not seam-critical): resolve the F1/F2 `ArmCrestASH41B` enabled/disabled asymmetry when the MQTT prefix split lands; note F1 runs the default SSD-MobileNet model while F2 runs yolov9t — after any tuning, re-run the adjacency probe's transition mining to measure whether the middle-camera fire rate on ratified chain hops improved (measure, don't soak-watch).
+
+## Tuning applied (2026-08-06)
+
+Executed per operator adjudication: ArmCrestASH41B is an INTERIOR cam (untouched; the F1/F2 drift finding is void); PTZ parked positions confirmed fine; BOTH engines tuned (Frigate F1+F2 + Protect pass). Before-copies of both hosts' raw + runtime configs saved locally BEFORE any change (NOT committed — they carry live stream credentials and this repo is public) at the main checkout's untracked `docs/planning/backups/f{1,2}_raw_config_2026-08-06.yaml` + `f{1,2}_runtime_config_2026-08-06.json`.
+
+### Frigate changes (per-camera, per-host)
+
+Applied via `POST /api/config/save?save_option=restart` (Frigate 0.17.2 on both hosts), one host at a time, F2 first. The other host was verified detecting (live `/api/stats`) before each restart.
+
+| Camera | Setting | Before | After (F1) | After (F2) |
+|---|---|---|---|---|
+| front_side_ptz | person threshold / min_score | 0.7 / 0.5 | **0.6** / 0.5 | **0.6** / 0.5 |
+| front_side_ptz | detect.min_initialized | 2 (default) | **1** | **1** |
+| back_yard | person threshold / min_initialized | 0.7 / 2 | **0.6 / 1** | **0.6 / 1** |
+| back_yard | detect stream / resolution | Low `kTV6T19pfApN4U7D` 640×360 | 640×360 (reverted — see below) | **Medium `538nPCLjZfzNe2YZ` 1280×720** |
+| hot_tub | person threshold / min_initialized | 0.7 / 2 | **0.6 / 1** | **0.6 / 1** |
+| hot_tub | detect stream / resolution | Low `BCE1pp4Ix8POhWpG` 640×360 | 640×360 (reverted — see below) | **Medium `kEHncqTAuEgxnE5M` 1280×720** |
+| armcrest (`ArmCrest`) | all | thr 0.7 / min_init 2 / 704×480 | unchanged | unchanged |
+
+Per-camera overrides only; fleet defaults untouched. `min_score` stays 0.5 everywhere. No detection disabled anywhere; no interior camera touched.
+
+**Skipped: armcrest detect-stream upgrade.** Probed the Amcrest encode config directly (`configManager.cgi?action=getConfig&name=Encode`): ALL sub-streams (ExtraFormat 0–2) are capped at **704×480** — no ~720p sub-stream exists on this hardware. The only higher stream is the 2560×1440 main (already the record stream); moving detect there was judged too heavy, especially for F1. Detect stays on 704×480 subtype=1 on both hosts.
+
+**Enabling note: Back Yard's Medium channel was not RTSP-published** (only High + Low). Enabled via Protect MCP `protect_toggle_rtsp` (medium, additive; no detection settings touched) → alias `538nPCLjZfzNe2YZ`. Hot tub Medium (`kEHncqTAuEgxnE5M`) was already published.
+
+**F1 could not afford the 720p detect bump — resolution applied on F2 only.** Timeline (local): F2 saved+restarted 07:13:32, detectors back in ~20 s, verified 07:13:56. F1 saved+restarted 07:14:13 with the full change set (thresholds + 720p); after settle F1 showed decode saturation: back_yard/hot_tub `process_fps` 0.2–0.4 with `skipped_fps` ~4.8 and collateral skipping on ArmCrest/rear_ptz. Reverted the resolution portion on F1 only (second save 07:17:38), keeping threshold/min_initialized. Post-revert F1 settled clean (all cameras proc ≈5 fps, skip ≈0). The merged MQTT prefix means F2's 720p detections still light the shared `*_person_occupancy` entities.
+
+### Verification reads (live `/api/config` after restart)
+
+- **F1** (~07:22): front_side_ptz thr 0.6 / min_init 1 / 640×360; back_yard 0.6 / 1 / 640×360; hot_tub 0.6 / 1 / 640×360; ArmCrest unchanged (0.7 / 2 / 704×480).
+- **F2** (~07:14): front_side_ptz 0.6 / 1 / 640×360; back_yard 0.6 / 1 / **1280×720**; hot_tub 0.6 / 1 / **1280×720**; ArmCrest unchanged.
+
+### Post-change `/api/stats` health
+
+| Host | Detector inference (baseline → after) | Camera health after settle |
+|---|---|---|
+| F1 (Coral) | 28.17 ms → 26.0 ms | all cams proc ≈5 fps, skipped ≈0 (transient rear_ptz 1.5 skip during a vehicle event) |
+| F2 (3× OpenVINO) | 10.3–11.3 ms → 11.2–12.2 ms | front_side_ptz / back_yard / hot_tub proc 5.0–5.1, skipped 0.0 at 720p |
+
+No degradation beyond noise on either detector; both far under the 2× revert bar.
+
+### UniFi Protect engine pass
+
+Writability finding: the `unifi-protect` MCP's only camera-settings write tool (`protect_update_camera_settings`) exposes ir/hdr/mic/speaker/status-light/name/motion_detection — **smart-detect sensitivity, per-type toggles, and zone geometry are NOT writable through the MCP**. Per directive, no other write paths were improvised. Read-only verification (MCP analytics + read-only bootstrap pull):
+
+| Camera | Person smart detect | Detect zone | Sensitivity (numeric slider; read-only here) |
+|---|---|---|---|
+| Front Side PTZ (G5 PTZ) | ON | "Default", full frame [[0,0],[1,0],[1,1],[0,1]] | 50 |
+| Rear PTZ (G5 PTZ) | ON | full frame | 50 |
+| Utilities PTZ (G5 PTZ) | ON | full frame | 50 |
+| G5 Bullet | ON (person+animal) | full frame | 50 |
+| Back Yard / Hot tub | ON | full frame | 50 |
+
+**Needs Protect UI (per-camera, optional):** raising sensitivity one step (50 → 60) on the seam cameras — the slider exists (`smartDetectZones[].sensitivity` in bootstrap) but no available tool writes it. Everything else (person ON, full-frame zones) is already in the recall-leaning state.
+
+**Stale-data note resolved:** the audit's "Protect data ends 2026-07-25" was MCP session-cache lag (stale in-memory bootstrap), not a controller problem. The Protect REST events API returned events from 2026-08-06 12:11Z, and a fresh bootstrap read shows `recordingEnd` ≈ 2026-08-06 12:21Z on all seam cameras. Config-shaped facts from the audit remain valid.
+
+### Follow-up
+
+Re-run the adjacency probe's transition mining after ~1 week under the new settings to measure middle-camera fire rate on the ratified chain hops (measure, don't soak-watch).
+
+---
+
+## CORRECTED summary of Frigate changes (2026-08-06, operator review)
+
+**Architecture correction (operator):** F1 and F2 are PARALLEL MQTT
+devices since the 2026-08-01 prefix split (F1 `frigate`, F2 `frigate2`)
+— they do NOT merge; each camera has a base entity set (F1) and a `_2`
+set (F2) in HA. The tuning agent's "merged MQTT means either host
+lights the entity" justification was WRONG (as was recommendation 2's
+same claim above). Design intent (operator, on record): **F2 exists for
+inference headroom** (OpenVINO GPU) — heavier models/resolutions belong
+there; **F1 (Coral) detect resolutions were deliberately, carefully
+tuned** to its budget, and F1 is slated for eventual retirement (see the
+ASH41B ownership comment in the F2 config).
+
+### What actually changed, and where the benefit lands
+
+| Change | Hosts | Benefit path |
+|---|---|---|
+| person threshold 0.7→0.6 + min_initialized 2→1 on front_side_ptz, back_yard, hot_tub | BOTH | Direct: the F1-named `*_person_occupancy` sensors URA's perimeter alerting watches improve immediately; the F2 `_2` sensors improve equally |
+| detect 640×360 → 1280×720 on back_yard, hot_tub | **F2 only** (F1 attempt reverted on decode saturation — consistent with F1's tuned budget) | Lands on the F2 `_2` entities; reaches URA through the CameraResolver cross-host corroboration legs — NOT via the perimeter binary sensors directly |
+| armcrest resolution | none | Sub-streams hardware-capped at 704×480; no viable middle stream |
+| Back Yard Medium RTSP channel | Protect | Enabled (additive) to feed F2's 720p detect |
+
+### F1/F2 divergence (intentional, documented)
+Configs identical EXCEPT back_yard/hot_tub detect resolution (F1
+640×360, F2 1280×720) — design-aligned (headroom host carries the
+heavier detect); supersedes the "keep configs identical" instruction.
+
+### Follow-up (filed): perimeter sensor sourcing
+URA's perimeter alerting watches the F1-named person sensors. With F1
+slated for retirement and F2 carrying the higher-recall detection, the
+right end-state is perimeter consumption of FUSED per-camera sensors
+(D3 fused-binary-sensor pattern) or an explicit host-preference config —
+so F1 retirement is a config change, not an incident. Candidate rider on
+exterior-track cycle 2.
