@@ -150,3 +150,11 @@ right end-state is perimeter consumption of FUSED per-camera sensors
 (D3 fused-binary-sensor pattern) or an explicit host-preference config —
 so F1 retirement is a config change, not an incident. Candidate rider on
 exterior-track cycle 2.
+
+### Registry verification (2026-08-06)
+Operator raised the possibility of HA device-registry merging across
+the five camera integrations (Frigate1/2, Protect, Reolink, Amcrest).
+Checked: F1 and F2 `*_person_occupancy` entities occupy DISTINCT device
+ids (e.g. back_yard F1 2065… vs F2 4ab5…) — no HA merge. The only
+bridge between the instances is URA's CameraResolver correlation
+ladder, reinforcing the fused-perimeter-sourcing follow-up above.
