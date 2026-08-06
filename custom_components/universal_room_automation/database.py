@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.52.0
+# Universal Room Automation vv5.53.0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -8272,11 +8272,18 @@ class UniversalRoomDatabase:
         source_ref: str | None = None,
         started_at: str | None = None,
         ended_at: str | None = None,
+        dedup_source_ref: bool = False,
     ) -> int | None:
         """Insert a memory_episodes row. Returns row id or None on failure.
 
         Never raises: episode logging is observational, not on any control
         path.
+
+        If `dedup_source_ref` is True and `source_ref` is provided, a row
+        with the same source_ref that already exists causes the insert to
+        be skipped and None returned (B-H3 real per-track dedup — used by
+        ExteriorTrackLinker so teardown-flush + a subsequent idle-sweep
+        close on the same track do not double-write).
         """
         import json as _json  # noqa: PLC0415
         try:
@@ -8318,6 +8325,33 @@ class UniversalRoomDatabase:
                 now_iso if adjudication != "unadjudicated" else None
             )
             async with self._db() as db:
+                if dedup_source_ref and source_ref:
+                    # B-H3: existence check on source_ref — cheap SELECT,
+                    # skip INSERT on match. Not a UNIQUE constraint (would
+                    # require a schema migration); relying on this check
+                    # is sufficient for the linker's teardown/idle-sweep
+                    # race, and legacy callers get the pre-existing
+                    # (node_id, episode_type) window dedup.
+                    try:
+                        existing = await db.execute(
+                            "SELECT 1 FROM memory_episodes "
+                            "WHERE source_ref = ? LIMIT 1",
+                            (source_ref,),
+                        )
+                        row = await existing.fetchone()
+                        if row is not None:
+                            _LOGGER.debug(
+                                "log_memory_episode: dedup_source_ref hit "
+                                "(source_ref=%s) — dropping repeat.",
+                                source_ref,
+                            )
+                            return None
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.debug(
+                            "dedup_source_ref existence check failed "
+                            "(source_ref=%s) — falling through to insert.",
+                            source_ref, exc_info=True,
+                        )
                 cursor = await db.execute(
                     """INSERT INTO memory_episodes (
                         node_id, episode_type, started_at, ended_at,

@@ -22,6 +22,87 @@ Not any single detector — the **cross-modal arbitration layer** built across 2
 5. **Verification methodology as part of the IP**: falsifiable invariants + per-limb mutation
    anchoring + probe-first acceptance fixtures (the D0 dry-run pattern).
 
+## Doctrine additions (operator, 2026-08-06 — Ziri gym incident)
+
+6. **Manual action as a fusion vector.** A human actuation (switch/fan
+   flipped at the wall or app) is presence EVIDENCE: spatially anchored,
+   instantaneous, unforgeable, decaying. Enters fusion like a motion
+   edge (can extend/create occupancy with decay). Motivated by the
+   2026-08-05/06 Exercise Room incident: mmWave-sole + fan-on demotion
+   (D2) repeatedly released a still occupant to vacant and swept his fan
+   — while his manual fan-on minutes earlier was ignored as evidence.
+7. **Intent vs evidence separation (operator axis).** Split human-action
+   signals into EVIDENCE (where people are: manual actuation, PIR edge,
+   BLE direct) vs INTENT (what people want: media playing —
+   `music_following_enabled` plumbing exists as prior art — scene
+   selection, override switches). Doctrine: evidence may extend/create
+   occupancy; intent NEVER creates occupancy but raises the bar for
+   off-decisions (sweep veto weight) — extend-not-create generalized.
+   Music-in-empty-room is the spoof case that forces the split.
+7b. **Decay is first-class for BOTH classes (operator, 2026-08-06).**
+   Evidence and intent both decay, and the ideas are only useful with
+   well-chosen decay functions — likely different shapes per signal:
+   a manual actuation decays from its event time over an
+   expected-activity horizon (step-at-timeout or exponential); PIR
+   edges already have timeout decay; media-intent anchors on the last
+   human INTERACTION (start/skip/volume — each itself a manual-action
+   evidence event), NOT on playback state: playback-continuing is a
+   weak prior that decays even while playing (operator counterexample
+   2026-08-06: Jaya's room plays music while empty), re-anchored by
+   every interaction, and room-conditioned — strong in shared/activity
+   spaces (gym), weak in bedrooms; per-room media-while-away priors
+   are learnable from memory baselines;
+   a CO2 rise would be a slow-onset/slow-decay sustain witness with
+   ventilation confounds. The library's sensor-event interface should
+   carry (class: evidence|intent, decay_fn, anchor_time) per signal —
+   decay curves are where the tuning lives, so they must be explicit,
+   named, and per-signal, not implied by code structure. NOTE: CO2 as
+   witness is UNBUILT today (exists only in the safety-alert path);
+   listing it here is design, not prior art.
+
+8. **Sole-witness corollary (accused-witness sharpened).** Upgrading the
+   accused witness (cheap wave-motion mmWave → zone-masked LD2450/FP2)
+   fixes the physics, not the doctrine: one witness is still one
+   witness, and D2 keys on room fan state, not sensor zones. Remedies
+   are a second failure-mode-independent witness (BLE proxy, CO2) or an
+   explicit per-room trust upgrade — never silent exemption.
+
+## Signal inventory for the evidence/intent taxonomy (2026-08-06)
+
+Pattern (paper-worthy one-liner): **interactions are evidence; states are
+intent.**
+
+EVIDENCE candidates (presence at a time+place, decaying; ✓ = hardware or
+partial code exists):
+- Manual actuation of any control (✓ everywhere) — the founding vector.
+- Door open/close edges (✓ Aqara fleet) — spatial + direction-hinting.
+- Appliance circuit power edges (✓ SPAN/Vue; dryer already used in
+  2026-08-02 arrival forensics; treadmill draw = gym-specific).
+- Bathroom humidity spike (✓ humidity_fan_spike_enabled shipping code).
+- Bed pressure (✓ BedPresence).
+- Media INTERACTIONS start/skip/volume; voice-assistant queries.
+- Lock/alarm manual actuation.
+- CO2 rise (UNBUILT — safety path only; slow, unspoofable).
+- NEGATIVE evidence class: all-phones-away, vehicle absent (exterior
+  track plan), armed-away.
+
+INTENT candidates (raise the bar for off-decisions; never create):
+- Per-room override_occupied switches (✓ ALREADY EXIST in config,
+  currently unfused — e.g. switch.exercise_room_override_occupied).
+- Manual HVAC overrides (✓ alerted on organically 2026-08-05).
+- Scene/preset selection.
+- Media playing (weak decaying prior per 7b).
+- Calendar/schedule priors (learnable via memory baselines).
+
+## IP posture — DECIDED 2026-08-06
+
+Operator: patent-track is OUT; stance will be one of publish-paper-only /
+open-core / permissive OSS / copyleft+dual — exact pick deferred until
+drafting. Consistent with existing public disclosure posture
+(universalroom.org + the fan-alignment probe article prepared for the
+Reddit post, docs/articles/mmwave_fan_alignment_probe_results.md). No
+filing deadline constrains drafting — paper work may begin.
+
 ## Deliverables (to scope when dequeued)
 - **D-PAPER:** whitepaper/preprint-style write-up: architecture, doctrines with incident-grounded
   motivation (playroom phantom ×3, Study A fan loop, guest-laundering), evaluation from live data
@@ -35,8 +116,12 @@ Not any single detector — the **cross-modal arbitration layer** built across 2
   decision before any publishing.
 
 ## Gates
-- CameraResolver cycle deployed + census cutover flipped + ≥2 weeks live validation (the paper's
-  evaluation section needs the live numbers).
+- CameraResolver cycle deployed + census cutover flipped + ≥2 weeks live validation for the
+  YOUNGEST surfaces only (census cutover, dual-host corroboration). Operator ruling 2026-08-06:
+  accelerate via probe-first backfill — demotion counters (v5.42+), divergence rows (v5.43+),
+  veto counters, transit rates, memory episodes are already weeks-old in the URA DB/recorder;
+  one-shot read-only probes can build the evaluation tables NOW, architecture/doctrine sections
+  need no numbers, and only the census-cutover column lands last.
 - Operator go on IP posture (what is gifted vs retained).
 
 Recall: "fusion paper queue"

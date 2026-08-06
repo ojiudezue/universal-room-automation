@@ -85,12 +85,14 @@ from .const import (
     NM_HAZARD_EXTERIOR_PERSON,
     NM_HAZARD_EXTERIOR_PERSON_SEVERITY_BY_HOUSE_STATE,
     NM_HAZARD_EXTERIOR_PERSON_DEFAULT_SEVERITY,
+    NM_HAZARD_EXTERIOR_TRACK_SEVERITY_MAP,
     CONF_EXTERIOR_SNAPSHOT_OFFSET_S,
     DEFAULT_EXTERIOR_SNAPSHOT_OFFSET_S,
     MIN_EXTERIOR_SNAPSHOT_OFFSET_S,
     MAX_EXTERIOR_SNAPSHOT_OFFSET_S,
     PERIMETER_BOOT_SETTLE_S,
     FRIGATE_SNAPSHOT_LABELS,
+    TRACK_LINK_WINDOW_S,
 )
 from .domain_coordinators.base import Severity
 
@@ -327,6 +329,13 @@ class PerimeterAlertManager:
             )
             return
 
+        # --- 3b. Redesign (Tier 3 fix-up): NO same-track suppression path.
+        # Every event that passes the per-camera cooldown gate DISPATCHES.
+        # Same-track continuations may be severity-DEMOTED (only when
+        # CONFIDENT) or ESCALATED (approach/circling); they are never
+        # silenced. INV-XT reduces to "≤ 1 dispatch per camera per cooldown"
+        # which is exactly INV-XP — no separate silencing gate.
+
         # --- 4. Resolve severity from house state (D2, fail-safe) ---
         # C-mut-d: if the resolver itself raises, fall back to CRITICAL so
         # the docstring guarantee ("any exception → CRITICAL") holds even
@@ -339,6 +348,95 @@ class PerimeterAlertManager:
                 "coercing to CRITICAL (fail-safe).", exc,
             )
             severity = Severity.CRITICAL
+
+        # --- 4b. Severity-map coercion (Tier 3 fix-up: DEMOTE, NEVER SILENCE).
+        # Rules (kill switch gates the whole block — TRACK_LINK_WINDOW_S == 0
+        # means no coercion, byte-identical to no-linker baseline):
+        #   * FIRST alert of any track (alert_count == 0)   → today's severity, no map lookup.
+        #   * CONTINUATION with confident pass_by classification
+        #     (camera_count >= 2 AND classification == "pass_by")
+        #                                                    → map value may DEMOTE, floor = LOW.
+        #   * CONTINUATION with approach/circling            → map value may only RAISE
+        #                                                     (never below today's severity).
+        #   * Any other continuation (unclassified / single-hop / unconfident)
+        #                                                    → today's severity untouched.
+        #   * Map miss / unknown severity name               → today's severity untouched.
+        # The severity floor is Severity.LOW — the map may never produce
+        # total silence (DIGEST → LOW). The path narrative + latest snapshot
+        # ride every dispatch (see enrichment block below).
+        linker = self.hass.data.get(DOMAIN, {}).get("exterior_track_linker")
+        _linker_camera = self._camera_key_for_sensor(entity_id)
+        if (
+            linker is not None
+            and _linker_camera
+            and TRACK_LINK_WINDOW_S > 0  # kill-switch gate
+            # "Path Aware Notifications" switch — judgment layer only.
+            # OFF → classic per-camera severity (LOUDER, never silent);
+            # tracking/census/narrative unaffected.
+            and getattr(linker, "smart_alerts_enabled", True)
+        ):
+            try:
+                track = linker.find_owning_track(
+                    _linker_camera, "person", now
+                )
+                house_state = self._get_house_state()
+                if track is not None and house_state:
+                    is_first_alert = track.alert_count == 0
+                    classification = linker.classify(track)
+                    confident_passby = (
+                        classification == "pass_by"
+                        and track.camera_count >= 2
+                    )
+                    label_map = NM_HAZARD_EXTERIOR_TRACK_SEVERITY_MAP.get(
+                        track.label, {}
+                    )
+                    state_map = label_map.get(house_state, {})
+                    sev_name = state_map.get(classification)
+                    coerced = None
+                    if sev_name:
+                        if sev_name == "DIGEST":
+                            coerced = Severity.LOW
+                        else:
+                            try:
+                                coerced = Severity[sev_name]
+                            except KeyError:
+                                coerced = None
+                    if coerced is None or is_first_alert:
+                        # First alert OR map miss → keep today's severity.
+                        pass
+                    elif confident_passby:
+                        # Continuation + confident pass_by → allow demotion.
+                        new_sev = max(coerced, Severity.LOW)
+                        if new_sev != severity:
+                            _LOGGER.info(
+                                "PerimeterAlertManager: severity DEMOTED "
+                                "%s→%s (track %s, label=%s, state=%s, "
+                                "class=%s, camera_count=%d, alerts=%d)",
+                                severity.name, new_sev.name,
+                                track.track_id, track.label, house_state,
+                                classification, track.camera_count,
+                                track.alert_count,
+                            )
+                            severity = new_sev
+                    elif classification in ("approach", "circling"):
+                        # Continuation + approach/circling → only RAISE.
+                        if coerced > severity:
+                            _LOGGER.info(
+                                "PerimeterAlertManager: severity ESCALATED "
+                                "%s→%s (track %s, label=%s, state=%s, "
+                                "class=%s)",
+                                severity.name, coerced.name,
+                                track.track_id, track.label, house_state,
+                                classification,
+                            )
+                            severity = coerced
+                    # else: unconfident classification → today's severity.
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "PerimeterAlertManager: severity map coercion raised "
+                    "— keeping today's severity (fail-open).",
+                    exc_info=True,
+                )
 
         # --- 5. Resolve snapshot URL (D4) ---
         snapshot_url, delay_s = self._resolve_snapshot_url_and_delay(entity_id)
@@ -363,6 +461,36 @@ class PerimeterAlertManager:
             f"Person detected on perimeter camera {entity_id} "
             f"at {now.strftime('%H:%M:%S')}."
         )
+
+        # build/exterior-track: enrich the message with the linker's path
+        # narrative when a track owns this camera hop. Best-effort only —
+        # linker absent / no track / any exception falls through to the
+        # per-camera message above. Kill-switch gated.
+        #
+        # Note (B-M2): fresh narrative rides EACH new camera's dispatch
+        # under the redesign — every dispatch re-renders path_string against
+        # the latest owning track, so repeats do NOT reuse a stale message.
+        linker = self.hass.data.get(DOMAIN, {}).get("exterior_track_linker")
+        _linker_camera = self._camera_key_for_sensor(entity_id)
+        if (
+            linker is not None
+            and _linker_camera
+            and TRACK_LINK_WINDOW_S > 0  # kill-switch gate
+        ):
+            try:
+                track = linker.find_owning_track(
+                    _linker_camera, "person", now
+                )
+                if track is not None and len(track.hops) > 1:
+                    message = (
+                        f"Person track — {linker.path_string(track)}. "
+                        f"Latest camera: {entity_id} at {now.strftime('%H:%M:%S')}."
+                    )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "PerimeterAlertManager: linker path enrichment failed",
+                    exc_info=True,
+                )
 
         # A-M1 short-circuit: no channels at all → don't reserve, don't
         # add in-flight, WARN and return.
@@ -431,6 +559,24 @@ class PerimeterAlertManager:
                 # trigger within 5min can still alert.
                 if dispatched_ok:
                     self._last_alert[entity_id] = now
+                    # build/exterior-track: attribute the alert to the
+                    # owning open track so future events on the same track
+                    # can refine cadence (approach/circling still alert;
+                    # pass_by demotes). REFINEMENT ONLY — never bypasses
+                    # the per-camera cooldown gate above (INV-XP).
+                    _linker = self.hass.data.get(DOMAIN, {}).get(
+                        "exterior_track_linker"
+                    )
+                    _cam_key = self._camera_key_for_sensor(entity_id)
+                    if _linker is not None and _cam_key:
+                        try:
+                            _linker.note_alert_dispatched(_cam_key, "person", now)
+                        except Exception:  # noqa: BLE001
+                            _LOGGER.debug(
+                                "PerimeterAlertManager: linker "
+                                "note_alert_dispatched failed",
+                                exc_info=True,
+                            )
             finally:
                 self._dispatch_in_flight.discard(entity_id)
 
@@ -536,6 +682,22 @@ class PerimeterAlertManager:
             except Exception:  # noqa: BLE001
                 picture_url = None
         return self._absolutize(picture_url), offset_s
+
+    def _camera_key_for_sensor(self, sensor_entity_id: str) -> str | None:
+        """Return the Frigate camera name (linker key) for a person binary_sensor.
+
+        Matches _resolve_snapshot_url_and_delay's derivation so linker keys
+        line up with the Frigate event bus's `after.camera` field.
+        """
+        try:
+            if not sensor_entity_id.startswith("binary_sensor."):
+                return None
+            base = sensor_entity_id[len("binary_sensor."):]
+            if base.endswith("_person_occupancy"):
+                return base[: -len("_person_occupancy")]
+            return base
+        except Exception:  # noqa: BLE001
+            return None
 
     def _absolutize(self, url: str | None) -> str | None:
         """A-H1: normalize a relative HA URL to absolute for external channels.
@@ -666,6 +828,30 @@ class PerimeterAlertManager:
                     entity_id, elapsed, PERIMETER_BOOT_SETTLE_S,
                 )
                 return
+        # A-HIGH-3 (liveness fix): feed the linker off the rising edge as a
+        # fallback for installs where `frigate_events` is not wired. The
+        # linker's own observe() dedups per (camera,label) within a few
+        # seconds so this is a no-op when the frigate_events subscriber
+        # already fired.
+        try:
+            linker = self.hass.data.get(DOMAIN, {}).get(
+                "exterior_track_linker"
+            )
+            cam_key = self._camera_key_for_sensor(entity_id)
+            if linker is not None and cam_key:
+                linker.observe(
+                    camera=cam_key,
+                    label="person",
+                    event_id=None,
+                    score=0.0,
+                    sub_label=None,
+                    now=dt_util.now(),
+                )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "PerimeterAlertManager: linker fallback observe failed",
+                exc_info=True,
+            )
         self.hass.async_create_task(
             self._async_handle_perimeter_trigger(entity_id)
         )

@@ -39,11 +39,16 @@ retrofitted from the racy 5s timer onto the same signal.
 Tests: cycle file 27 (from 22); full suite 8145+ passed, 21 pre-existing
 failures name-identical develop↔branch (zero regressions).
 
-## Live Validation (prospective)
+## Live Validation — Validated 2026-08-05 19:35 CDT (post-restart)
 
-- **Live:** all 10 entities exist on the URA Presence Coordinator device post-restart; sensors non-unknown within one inference cycle.
-- **Live:** census sensor equals house-state attr `census_count` at the same instant.
-- **Live:** flip Guest Detection OFF → suppressed_since ISO appears; house continues normal inference; flip back ON.
-- **Live:** switch OFF survives an HA restart with ORIGINAL suppressed_since (if operator exercises it).
-- **Live:** diagnostic sensor stays disabled/absent by default; no recorder volume change.
-- **Live:** zero new URA ERROR log lines through first hour.
+| Criterion | Result | Evidence |
+|---|---|---|
+| All 10 entities exist on PC device | PASS | Entity IDs derived from device+friendly names (e.g. sensor.ura_presence_coordinator_people_home_census) — README table's short IDs corrected by this ledger; all present via registry search |
+| Sensors non-unknown within one cycle | PASS | census=2, wake_blocked=0, backstop_fires=0, rearm muted/skipped=0, cooldown=off (fresh-boot zeros expected) |
+| Census parity vs house-state attr | PASS | sensor=2 == house-state census_count=2 at same read |
+| Switches default ON post-boot | PASS | Guest Detection=on, Arrival Re-Alerts=on, Away Confirmation Veto=on; observation mode restored off (retrofit path exercised) |
+| Diagnostic sensor absent by default | PASS | not in registry state machine (entity_registry_enabled_default=False) |
+| Zero URA ERROR lines | PASS | system_log ERROR filter empty post-restart |
+| Switch-OFF restart w/ preserved suppressed_since | in-suite only | proven by behavioral tests (C-M3 set); live proof awaits first operator use of a kill switch |
+
+Boot transients: none observed this restart (Envoy loaded cleanly).

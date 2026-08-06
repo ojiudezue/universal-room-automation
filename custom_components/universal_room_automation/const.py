@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.52.0
+# Universal Room Automation vv5.53.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.52.0"
+VERSION: Final = "v5.53.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1200,6 +1200,144 @@ NM_HAZARD_EXTERIOR_PERSON_SEVERITY_BY_HOUSE_STATE: Final = {
     "waking": "LOW",
 }
 NM_HAZARD_EXTERIOR_PERSON_DEFAULT_SEVERITY: Final = "CRITICAL"  # fail-safe
+
+# ----------------------------------------------------------------------------
+# ExteriorTrackLinker (build/exterior-track — PLANNING_exterior_track_linking.md)
+# Rung-1 module constants. All are named knobs (Numbers Get Knobs);
+# adjacency + severity map ship as reviewed module tables (operator declares).
+# Kill switch: TRACK_LINK_WINDOW_S = 0 → linker never links, cross-camera
+# suppression disabled → per-camera behavior is byte-identical to today.
+# ----------------------------------------------------------------------------
+TRACK_LINK_WINDOW_S: Final = 180  # link an event to an open track if Δt ≤ 180s
+TRACK_CLOSE_IDLE_S: Final = 300   # close an idle track after 5 min silence
+
+# Operator-DECLARED adjacency for the 9 perimeter cameras (Frigate camera
+# names as keys). Symmetric: declaring A→B implies B→A at load time via
+# ExteriorTrackLinker.set_adjacency. Empty default — operator populates via
+# a follow-up config surface OR the runtime setter. Same-camera linking
+# works with an empty graph; cross-camera linking requires at least one
+# declared edge. Tests inject their own graph via set_adjacency().
+# Provenance: AUDIT_exterior_camera_adjacency_probe.md "Operator ratification
+# (2026-08-06)". Base = probe's 24 proposed pairs (threshold: symmetric filtered
+# count ≥ 3). Removals per ratification §3,§4: pool_equipment↔rear_ptz and
+# rear_ptz↔utilities_ptz (physically impossible / missed-intermediate
+# artifacts). Additions per ratification §1,§2 (pool service chain +
+# back_yard↔hot_tub confirmed): rear_ptz↔armcrest, rear_ptz↔back_yard,
+# g5_bullet↔armcrest (already in probe), g5_bullet↔back_yard, armcrest↔hot_tub
+# (already in probe), back_yard↔hot_tub, hot_tub↔pool_equipment. Symmetrized
+# in ExteriorTrackLinker constructor — declaring A→B is sufficient.
+EXTERIOR_ADJACENCY_GRAPH: Final[dict[str, tuple[str, ...]]] = {
+    # Probe pairs kept (22 after the two removals).
+    "front_side_ptz": (
+        "utilities_ptz", "rear_ptz", "g5_bullet", "hot_tub",
+        "reolinkstudybporchptz", "madrone_g6_entry", "front_door_aerial",
+        "back_yard",
+    ),
+    "front_door_aerial": (
+        "madrone_g6_entry", "hot_tub", "front_side_ptz", "rear_ptz",
+    ),
+    "madrone_g6_entry": (
+        "front_door_aerial", "utilities_ptz", "g5_bullet", "front_side_ptz",
+        "rear_ptz",
+    ),
+    "armcrest": (
+        "back_yard", "doorbell_lite", "reolinkstudybporchptz", "hot_tub",
+        "g5_bullet",
+        # Ratified additions (pool service chain).
+        "rear_ptz",
+    ),
+    "doorbell_lite": (
+        "g5_bullet", "armcrest", "rear_ptz",
+    ),
+    "g5_bullet": (
+        "front_side_ptz", "doorbell_lite", "armcrest", "rear_ptz",
+        "madrone_g6_entry",
+        # Ratified addition (pool service chain enters via g5_bullet).
+        "back_yard",
+    ),
+    "rear_ptz": (
+        "front_side_ptz", "g5_bullet", "doorbell_lite", "front_door_aerial",
+        "madrone_g6_entry",
+        # Ratified additions (pool service chain).
+        "armcrest", "back_yard",
+    ),
+    "hot_tub": (
+        "front_side_ptz", "front_door_aerial", "armcrest",
+        # Ratified additions.
+        "back_yard", "pool_equipment",
+    ),
+    "back_yard": (
+        "armcrest", "front_side_ptz",
+        # Ratified additions.
+        "rear_ptz", "g5_bullet", "hot_tub",
+    ),
+    "pool_equipment": (
+        # Only chain-terminal edge: pool_equipment↔hot_tub. The probe's
+        # rear_ptz co-firings were missed-intermediate artifacts.
+        "hot_tub",
+    ),
+    "utilities_ptz": (
+        "front_side_ptz", "madrone_g6_entry",
+    ),
+    "reolinkstudybporchptz": (
+        "armcrest", "front_side_ptz",
+    ),
+}
+
+# Labels bucketed by the linker (one track family per label). Frigate raw
+# labels are normalized by _bucket_label: person, {car,truck,bus,motorcycle,
+# vehicle} → car, {dog,cat,animal,bird,raccoon,deer} → animal.
+EXTERIOR_TRACK_LABELS: Final = ("person", "car", "animal")
+
+# Classification thresholds (space-time only — no re-identification).
+EXTERIOR_TRACK_CLASSIFY_APPROACH_CAMERAS: Final = 0  # 0 = disabled; primary approach signal is EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS
+EXTERIOR_TRACK_CLASSIFY_CIRCLING_CAMERAS: Final = 3
+
+# Cameras that are "one hop from an egress" (front door / back door zones)
+# — operator-declared. Any track touching one of these classifies as
+# `approach` (unless already `circling`). Empty default; safe fallback is
+# the camera-count heuristic.
+# Egress cameras (operator config): madrone_g6_entry, doorbell_lite,
+# front_door_aerial. Egress-adjacent = perimeter cameras with an edge in the
+# ratified EXTERIOR_ADJACENCY_GRAPH to ANY of those three. Provenance:
+# AUDIT_exterior_camera_adjacency_probe.md "Operator ratification (2026-08-06)".
+EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS: Final[tuple[str, ...]] = (
+    # Adjacent to madrone_g6_entry.
+    "front_door_aerial", "utilities_ptz", "g5_bullet", "front_side_ptz",
+    "rear_ptz",
+    # Adjacent to doorbell_lite (add-only unique).
+    "armcrest",
+    # Adjacent to front_door_aerial (unique add).
+    "hot_tub",
+)
+
+# (label × house-state × classification) severity map.
+# Value = Severity name string (perimeter_alert coerces via Severity[<name>]).
+# Missing key falls back to NM_HAZARD_EXTERIOR_PERSON severity (existing behavior).
+# animal/* defaults to DIGEST (below CRITICAL/HIGH/MEDIUM/LOW/DIGEST hierarchy).
+NM_HAZARD_EXTERIOR_TRACK_SEVERITY_MAP: Final[dict[str, dict[str, dict[str, str]]]] = {
+    "person": {
+        "away":     {"pass_by": "MEDIUM",   "approach": "HIGH",     "circling": "CRITICAL"},
+        "sleep":    {"pass_by": "MEDIUM",   "approach": "HIGH",     "circling": "CRITICAL"},
+        "vacation": {"pass_by": "MEDIUM",   "approach": "HIGH",     "circling": "CRITICAL"},
+        "home_night": {"pass_by": "LOW",    "approach": "MEDIUM",   "circling": "HIGH"},
+        "home_day": {"pass_by": "DIGEST",   "approach": "LOW",      "circling": "MEDIUM"},
+    },
+    "car": {
+        "away":     {"pass_by": "DIGEST",   "approach": "MEDIUM",   "circling": "HIGH"},
+        "sleep":    {"pass_by": "MEDIUM",   "approach": "HIGH",     "circling": "HIGH"},
+        "home_night": {"pass_by": "DIGEST", "approach": "LOW",      "circling": "MEDIUM"},
+        "home_day": {"pass_by": "DIGEST",   "approach": "DIGEST",   "circling": "LOW"},
+    },
+    "animal": {
+        # Digest-only default across the board — vehicle/person land above
+        # this in the severity ladder. Escalation ships in a follow-up cycle.
+        "away":     {"pass_by": "DIGEST",   "approach": "DIGEST",   "circling": "DIGEST"},
+        "sleep":    {"pass_by": "DIGEST",   "approach": "DIGEST",   "circling": "DIGEST"},
+        "home_night": {"pass_by": "DIGEST", "approach": "DIGEST",   "circling": "DIGEST"},
+        "home_day": {"pass_by": "DIGEST",   "approach": "DIGEST",   "circling": "DIGEST"},
+    },
+}
 
 # Rung-2 options knob (plan D4). Delays live-fallback snapshot capture by N
 # seconds so the still frame is closer to the detection moment despite
@@ -2848,6 +2986,9 @@ MEMORY_EPISODE_TYPES: Final = frozenset({
     # against an occupied room — episodic record of the "who owns the OFF
     # while the room is populated" class. Observe-only; no actuation change.
     "actuation_conflict",
+    # build/exterior-track: exterior person/car/animal track linker
+    # (space-time only, no re-identification). One episode per closed track.
+    "exterior_track",
 })
 
 MEMORY_FACT_TOPICS: Final = frozenset({
