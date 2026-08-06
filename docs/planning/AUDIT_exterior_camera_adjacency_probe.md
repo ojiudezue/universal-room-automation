@@ -10,8 +10,7 @@ both directions:
    operator confirms).
 2. **Pool service chain declared** (explains the pool_equipment oddity):
    service enters via rear_ptz and/or g5_bullet → picked up by the pool
-   overhead camera (armcrest — orchestrator inference from "pool
-   overhead", operator to correct if wrong) and back_yard → traverses
+   overhead camera (armcrest — operator CONFIRMED 2026-08-06) and back_yard → traverses
    hot_tub → then pool_equipment. Edges added: rear_ptz↔armcrest,
    rear_ptz↔back_yard, g5_bullet↔armcrest, g5_bullet↔back_yard,
    armcrest↔hot_tub, back_yard↔hot_tub, hot_tub↔pool_equipment.
