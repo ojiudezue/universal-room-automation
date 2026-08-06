@@ -39,6 +39,21 @@ Not any single detector — the **cross-modal arbitration layer** built across 2
    occupancy; intent NEVER creates occupancy but raises the bar for
    off-decisions (sweep veto weight) — extend-not-create generalized.
    Music-in-empty-room is the spoof case that forces the split.
+7b. **Decay is first-class for BOTH classes (operator, 2026-08-06).**
+   Evidence and intent both decay, and the ideas are only useful with
+   well-chosen decay functions — likely different shapes per signal:
+   a manual actuation decays from its event time over an
+   expected-activity horizon (step-at-timeout or exponential); PIR
+   edges already have timeout decay; media-intent is a HOLD while
+   actively playing, then decays after stop (paused vs stopped differ);
+   a CO2 rise would be a slow-onset/slow-decay sustain witness with
+   ventilation confounds. The library's sensor-event interface should
+   carry (class: evidence|intent, decay_fn, anchor_time) per signal —
+   decay curves are where the tuning lives, so they must be explicit,
+   named, and per-signal, not implied by code structure. NOTE: CO2 as
+   witness is UNBUILT today (exists only in the safety-alert path);
+   listing it here is design, not prior art.
+
 8. **Sole-witness corollary (accused-witness sharpened).** Upgrading the
    accused witness (cheap wave-motion mmWave → zone-masked LD2450/FP2)
    fixes the physics, not the doctrine: one witness is still one
