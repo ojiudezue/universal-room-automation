@@ -67,6 +67,42 @@ Not any single detector — the **cross-modal arbitration layer** built across 2
    are a second failure-mode-independent witness (BLE proxy, CO2) or an
    explicit per-room trust upgrade — never silent exemption.
 
+## Signal inventory for the evidence/intent taxonomy (2026-08-06)
+
+Pattern (paper-worthy one-liner): **interactions are evidence; states are
+intent.**
+
+EVIDENCE candidates (presence at a time+place, decaying; ✓ = hardware or
+partial code exists):
+- Manual actuation of any control (✓ everywhere) — the founding vector.
+- Door open/close edges (✓ Aqara fleet) — spatial + direction-hinting.
+- Appliance circuit power edges (✓ SPAN/Vue; dryer already used in
+  2026-08-02 arrival forensics; treadmill draw = gym-specific).
+- Bathroom humidity spike (✓ humidity_fan_spike_enabled shipping code).
+- Bed pressure (✓ BedPresence).
+- Media INTERACTIONS start/skip/volume; voice-assistant queries.
+- Lock/alarm manual actuation.
+- CO2 rise (UNBUILT — safety path only; slow, unspoofable).
+- NEGATIVE evidence class: all-phones-away, vehicle absent (exterior
+  track plan), armed-away.
+
+INTENT candidates (raise the bar for off-decisions; never create):
+- Per-room override_occupied switches (✓ ALREADY EXIST in config,
+  currently unfused — e.g. switch.exercise_room_override_occupied).
+- Manual HVAC overrides (✓ alerted on organically 2026-08-05).
+- Scene/preset selection.
+- Media playing (weak decaying prior per 7b).
+- Calendar/schedule priors (learnable via memory baselines).
+
+## IP posture — DECIDED 2026-08-06
+
+Operator: patent-track is OUT; stance will be one of publish-paper-only /
+open-core / permissive OSS / copyleft+dual — exact pick deferred until
+drafting. Consistent with existing public disclosure posture
+(universalroom.org + the fan-alignment probe article prepared for the
+Reddit post, docs/articles/mmwave_fan_alignment_probe_results.md). No
+filing deadline constrains drafting — paper work may begin.
+
 ## Deliverables (to scope when dequeued)
 - **D-PAPER:** whitepaper/preprint-style write-up: architecture, doctrines with incident-grounded
   motivation (playroom phantom ×3, Study A fan loop, guest-laundering), evaluation from live data
