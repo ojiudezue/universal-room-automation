@@ -200,6 +200,14 @@ async def async_setup_entry(
             SignalConsensusConfidenceSensor(hass, entry),
             PresenceAnomalySensor(hass, entry),
             PresenceComplianceSensor(hass, entry),
+            # build/pc-observability: attribute-to-sensor promotions +
+            # diagnostic COPY sensor (disabled by default). Additive only.
+            PresenceCensusCountSensor(hass, entry),
+            PresenceWakeBlockedTicksSensor(hass, entry),
+            PresenceWakeBackstopFiresSensor(hass, entry),
+            PresenceArrivingRearmSuppressedSensor(hass, entry),
+            PresenceArrivingRearmBypassedSensor(hass, entry),
+            PresenceDiagnosticSensor(hass, entry),
             # v4.6.9 D1: Routine awareness next-state prediction
             PresenceNextStateSensor(hass, entry),
             # v3.6.0-c2: Safety Coordinator sensors
@@ -4889,6 +4897,329 @@ class SignalConsensusConfidenceSensor(AggregationEntity, SensorEntity):
             "consensus_low_since": (
                 low_since.isoformat() if low_since is not None else None
             ),
+        }
+
+
+# ============================================================================
+# build/pc-observability: attribute-to-sensor promotions on the Presence
+# Coordinator device. Each new sensor lazy-reads the SAME underlying counter/
+# state on the presence coordinator that the giant house-state sensor's
+# attrs payload already exposes — additive only, no attrs are removed from
+# `sensor.ura_presence_house_state`. Sources cited on each class.
+# ============================================================================
+
+
+class PresenceCensusCountSensor(AggregationEntity, SensorEntity):
+    """People count from the camera-census pipeline.
+
+    Promotes the ``census_count`` attribute on
+    ``sensor.ura_presence_house_state`` (sensor.py:~4566) to a graphable
+    integer sensor. Reads ``PresenceCoordinator._census_count`` — same
+    field the attr reads.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:account-multiple"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_presence_census_count"
+        # Operator-directive: friendly names in plain English, geek term in parens.
+        self._attr_name = "People Home (census)"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "presence_coordinator")},
+            name="URA: Presence Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Presence Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    @property
+    def native_value(self) -> int | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        presence = manager.coordinators.get("presence")
+        if presence is None:
+            return None
+        try:
+            return int(getattr(presence, "_census_count", 0))
+        except (TypeError, ValueError):
+            return None
+
+
+class PresenceWakeBlockedTicksSensor(AggregationEntity, SensorEntity):
+    """Monotonic counter of WAKING-transition ticks blocked by the sustained-signal gate.
+
+    Promotes the ``wake_blocked_ticks`` attribute on
+    ``sensor.ura_presence_house_state`` (sensor.py:~4644) to a
+    total_increasing sensor. Reads ``PresenceCoordinator._wake_blocked_ticks``.
+    Primary diagnostic for "why is the house still SLEEP at 10am".
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:sleep-off"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_presence_wake_blocked_ticks"
+        self._attr_name = "Mornings Blocked From Waking"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "presence_coordinator")},
+            name="URA: Presence Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Presence Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    @property
+    def native_value(self) -> int | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        presence = manager.coordinators.get("presence")
+        if presence is None:
+            return None
+        try:
+            return int(getattr(presence, "_wake_blocked_ticks", 0))
+        except (TypeError, ValueError):
+            return None
+
+
+class PresenceWakeBackstopFiresSensor(AggregationEntity, SensorEntity):
+    """Monotonic counter of wake-backstop safety-valve fires.
+
+    Promotes the ``wake_backstop_fires`` attribute on
+    ``sensor.ura_presence_house_state`` (sensor.py:~4658). Reads
+    ``PresenceCoordinator._wake_backstop_fires``. Any non-zero rate is
+    a sev-2 signal that some upstream WAKING gate regressed — NM anomaly
+    is emitted at each fire site (presence.py wake-backstop block).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:alert-octagon"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_presence_wake_backstop_fires"
+        self._attr_name = "Wake Safety Valve Fires"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "presence_coordinator")},
+            name="URA: Presence Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Presence Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    @property
+    def native_value(self) -> int | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        presence = manager.coordinators.get("presence")
+        if presence is None:
+            return None
+        try:
+            return int(getattr(presence, "_wake_backstop_fires", 0))
+        except (TypeError, ValueError):
+            return None
+
+
+class PresenceArrivingRearmSuppressedSensor(AggregationEntity, SensorEntity):
+    """Monotonic counter of ARRIVING attempts suppressed by the flap-guard cooldown.
+
+    Promotes the ``arriving_rearm_suppressed`` attribute on
+    ``sensor.ura_presence_house_state`` (sensor.py:~4648). Reads
+    ``PresenceCoordinator._arriving_rearm_suppressed``. Flap-detector KPI
+    (2026-08-03 patio-flap incident).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:timer-sand"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_presence_arriving_rearm_suppressed"
+        self._attr_name = "Arrival Re-Alerts Muted (flap guard)"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "presence_coordinator")},
+            name="URA: Presence Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Presence Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    @property
+    def native_value(self) -> int | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        presence = manager.coordinators.get("presence")
+        if presence is None:
+            return None
+        try:
+            return int(getattr(presence, "_arriving_rearm_suppressed", 0))
+        except (TypeError, ValueError):
+            return None
+
+
+class PresenceArrivingRearmBypassedSensor(AggregationEntity, SensorEntity):
+    """Monotonic counter of cooldown bypasses due to new (non-flap) evidence.
+
+    Promotes the ``arriving_rearm_bypassed`` attribute on
+    ``sensor.ura_presence_house_state`` (sensor.py:~4651). Reads
+    ``PresenceCoordinator._arriving_rearm_bypassed``. Sibling to the
+    suppressed counter; ratio bypassed/suppressed reveals cooldown
+    correctness (mostly-bypassed = cooldown is too eager).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:timer-check"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_presence_arriving_rearm_bypassed"
+        self._attr_name = "Arrival Re-Alerts Skipped (real arrivals)"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "presence_coordinator")},
+            name="URA: Presence Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Presence Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    @property
+    def native_value(self) -> int | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        presence = manager.coordinators.get("presence")
+        if presence is None:
+            return None
+        try:
+            return int(getattr(presence, "_arriving_rearm_bypassed", 0))
+        except (TypeError, ValueError):
+            return None
+
+
+class PresenceDiagnosticSensor(AggregationEntity, SensorEntity):
+    """Diagnostic COPY of dark presence-internals (disabled by default).
+
+    Operator directive (AUDIT §Operator adjudication #3): ADDITIVE ONLY —
+    this sensor is a COPY surface; nothing is removed from
+    ``sensor.ura_presence_house_state``.
+
+    Exposes as attrs:
+      - ``last_veto_decision`` (dict) — from ``_last_veto_decision``
+      - ``signal_consensus_inputs`` (dict) — from ``_signal_consensus_inputs``
+      - ``excluded_persons`` (dict) — from ``_excluded_persons``
+      - ``zone_verdicts`` (dict) — from the DARK ``_v4716_zone_verdicts``
+        (presence.py:~1383) — computed each cycle, previously never
+        surfaced anywhere.
+
+    Entity is disabled_by_default=True and entity_category=DIAGNOSTIC so it
+    only lands on the device page when the operator opts in.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:magnify-scan"
+    _attr_entity_registry_enabled_default = False
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    # C-L5: opt-in only. When enabled, this sensor writes state on every
+    # inference-driven refresh; the recorder cost is non-trivial because
+    # the attrs (last_veto_decision, signal_consensus_inputs, zone_verdicts)
+    # can be O(rooms) each. Left OFF by default; operator opts in during
+    # active diagnosis and disables again afterwards. Explicit
+    # _attr_should_poll = False (documented, matches AggregationEntity
+    # push-only behavior — no recorder poll cost).
+    _attr_should_poll = False
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_presence_diagnostics"
+        self._attr_name = "Presence Diagnostics"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "presence_coordinator")},
+            name="URA: Presence Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Presence Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    @property
+    def native_value(self) -> str | None:
+        """State = the veto-decision scope, useful as an at-a-glance token."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        presence = manager.coordinators.get("presence")
+        if presence is None:
+            return None
+        _lv = getattr(presence, "_last_veto_decision", None)
+        # A-LOW-5: None when nothing has been computed yet (not empty string).
+        if _lv is None:
+            return None
+        _scope = getattr(_lv, "scope", None)
+        return str(_scope) if _scope else None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        presence = manager.coordinators.get("presence")
+        if presence is None:
+            return {}
+        _lv = getattr(presence, "_last_veto_decision", None)
+        if _lv is not None:
+            last_veto_decision = {
+                "fired": bool(getattr(_lv, "fired", False)),
+                "confidence": float(getattr(_lv, "confidence", 0.0)),
+                "reason": str(getattr(_lv, "reason", "")),
+                "scope": str(getattr(_lv, "scope", "")),
+            }
+        else:
+            last_veto_decision = {
+                "fired": False, "confidence": 0.0, "reason": "", "scope": "",
+            }
+        try:
+            zone_verdicts = dict(
+                getattr(presence, "_v4716_zone_verdicts", {}) or {}
+            )
+        except Exception:  # noqa: BLE001 — defensive: stale coord data
+            zone_verdicts = {}
+        return {
+            "last_veto_decision": last_veto_decision,
+            "signal_consensus_inputs": dict(
+                getattr(presence, "_signal_consensus_inputs", {}) or {}
+            ),
+            "excluded_persons": dict(
+                getattr(presence, "_excluded_persons", {}) or {}
+            ),
+            "zone_verdicts": zone_verdicts,
         }
 
 

@@ -138,6 +138,8 @@ async def async_setup_entry(
             HouseOccupiedBinarySensor(hass, entry),
             HouseSleepingBinarySensor(hass, entry),
             GuestModeBinarySensor(hass, entry),
+            # build/pc-observability: cooldown-active promotion (additive).
+            PresenceArrivingRearmActiveBinarySensor(hass, entry),
             # v3.6.0-c2: Safety Coordinator
             SafetyAlertBinarySensor(hass, entry),
             # v3.6.0.3: Glanceable safety binary sensors
@@ -1861,6 +1863,66 @@ class HouseSleepingBinarySensor(BinarySensorEntity):
             return False
         from .domain_coordinators.house_state import HouseState
         return manager.house_state == HouseState.SLEEP
+
+
+class PresenceArrivingRearmActiveBinarySensor(BinarySensorEntity):
+    """True when the arriving re-arm cooldown is currently suppressing.
+
+    build/pc-observability: promotes the ``arriving_rearm_active`` attribute
+    on ``sensor.ura_presence_house_state`` (sensor.py:~4654) to a dedicated
+    binary sensor. Derived from ``PresenceCoordinator._arriving_rearm_until``
+    (0.0 = inactive/expired) via the SAME predicate the attr uses.
+
+    Entity: binary_sensor.ura_presence_arriving_rearm_active
+    Device: URA: Presence Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:timer-sand"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self.entry = entry
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import DOMAIN, VERSION
+        self._attr_unique_id = f"{DOMAIN}_presence_arriving_rearm_active"
+        # Operator-directive: friendly plain-English label.
+        self._attr_name = "Arrival Re-Alert Cooldown Active"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "presence_coordinator")},
+            name="URA: Presence Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Presence Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_presence(self):
+        from .const import DOMAIN
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("presence")
+
+    @property
+    def available(self) -> bool:
+        # A-LOW-2: mirror the kill-switch base — unavailable until the
+        # presence coordinator is registered.
+        return self._get_presence() is not None
+
+    @property
+    def is_on(self) -> bool:
+        presence = self._get_presence()
+        if presence is None:
+            return False
+        # Mirror the exact predicate at sensor.py:~4654 attr —
+        # `bool(getattr(presence, "_arriving_rearm_until", 0.0) > 0.0)`.
+        try:
+            return bool(
+                float(getattr(presence, "_arriving_rearm_until", 0.0) or 0.0) > 0.0
+            )
+        except (TypeError, ValueError):
+            return False
 
 
 class GuestModeBinarySensor(BinarySensorEntity):

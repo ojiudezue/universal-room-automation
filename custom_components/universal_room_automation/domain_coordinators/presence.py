@@ -79,6 +79,7 @@ from .signals import (
     SIGNAL_OPTIMIZER_INTENT,
     SIGNAL_OPTIMIZER_INTENT_VETO,
     SIGNAL_PERSON_ARRIVING,
+    SIGNAL_PRESENCE_COORDINATOR_READY,
     SIGNAL_PRESENCE_ENTITIES_UPDATE,
     SIGNAL_ZM_ZONES_UPDATED,
 )
@@ -1500,6 +1501,26 @@ class PresenceCoordinator(BaseCoordinator):
         # v3.19.0: Face-confirmed arrival state
         self._face_arrival_cooldown: Dict[str, datetime] = {}
         self._face_recognition_enabled: bool = False
+
+        # build/pc-observability: three P1 kill switches (default ON).
+        # Each is bound to a switch entity that uses the v5.48.0 signal-
+        # deferred RestoreEntity pattern (SIGNAL_PRESENCE_COORDINATOR_READY).
+        # Load-bearing gate sites cite these fields in-line — see
+        # `_guest_gate_armed`, `_guest_room_gate_armed`, the arriving re-arm
+        # cooldown block in `_run_inference`, and the `all_tracked_persons_
+        # away` feed into `_inference_engine.infer(...)`.
+        # `_suppressed_since_*` is an ISO timestamp populated when the switch
+        # is flipped OFF (provenance attr surfaced by the switch entity).
+        self._guest_detection_enabled: bool = True
+        self._arriving_rearm_enabled: bool = True
+        self._away_veto_enabled: bool = True
+        self._guest_detection_suppressed_since: str | None = None
+        self._arriving_rearm_suppressed_since: str | None = None
+        self._away_veto_suppressed_since: str | None = None
+        # A-MED-2: per-calendar-day dedup guard for the wake-backstop NM emit.
+        # The counter (`_wake_backstop_fires`) still increments every tick;
+        # only the NM notification is deduped to at most once per local day.
+        self._wake_backstop_notified_on = None  # type: ignore[assignment]  # date | None
         # v3.21.0 D2: Ready event for downstream coordinators (e.g., HVAC).
         # Initialized as None here; created in async_setup() to ensure it
         # binds to the correct event loop (review fix F3).
@@ -2116,423 +2137,455 @@ class PresenceCoordinator(BaseCoordinator):
         self._release_boot_settle("timeout")
 
     async def async_setup(self) -> None:
-        """Set up the Presence Coordinator.
+        """Set up the Presence Coordinator (B-H2 wrapper).
 
-        Discovers zones and their rooms, sets up zone trackers,
-        subscribes to Census and occupancy signals, discovers zone cameras.
+        Wraps the real setup body in try/finally so the READY signal is
+        dispatched exactly once per call — even when setup raises. This
+        lets kill-switch entities using signal-deferred RestoreEntity
+        converge rather than get stuck in their deferred state.
         """
         import asyncio
         # v3.21.0 D2: Create ready event on the event loop (not in __init__)
         self._ready_event = asyncio.Event()
-
-        _LOGGER.info("Setting up Presence Coordinator")
-
-        # Cold-boot away-actuation storm mitigation — Gate 1 init.
-        # Scope strictly to genuine HA startup: if HA core has already
-        # reached RUNNING (i.e. this is an options-flow reload, not a cold
-        # boot), the gate is born already-released so the reload actuates
-        # normally. Otherwise schedule both release paths (Predicate B) and
-        # let Predicate A flip the gate from inside _run_inference.
         try:
-            _ha_running = bool(getattr(self.hass, "is_running", False))
-        except Exception:  # noqa: BLE001 — defensive against stub hass
-            _ha_running = False
-        if _ha_running:
-            self._boot_settle_done = True
-            self._boot_settle_release_reason = "not_cold_boot"
-            _LOGGER.info(
-                "Boot-settle: HA already RUNNING — gate released at setup "
-                "(reload path, not cold boot)"
-            )
-        else:
-            self._boot_settle_started_utc = dt_util.utcnow()
-            from homeassistant.helpers.event import async_call_later  # noqa: PLC0415
+            _LOGGER.info("Setting up Presence Coordinator")
+
+            # Cold-boot away-actuation storm mitigation — Gate 1 init.
+            # Scope strictly to genuine HA startup: if HA core has already
+            # reached RUNNING (i.e. this is an options-flow reload, not a cold
+            # boot), the gate is born already-released so the reload actuates
+            # normally. Otherwise schedule both release paths (Predicate B) and
+            # let Predicate A flip the gate from inside _run_inference.
             try:
-                from homeassistant.const import EVENT_HOMEASSISTANT_STARTED  # noqa: PLC0415
-            except Exception:  # noqa: BLE001 — defensive (older HA shapes / test stubs)
-                EVENT_HOMEASSISTANT_STARTED = "homeassistant_started"
-            # Predicate B path 1: EVENT_HOMEASSISTANT_STARTED.
-            try:
-                _unsub_ha_started = self.hass.bus.async_listen_once(
-                    EVENT_HOMEASSISTANT_STARTED,
-                    self._on_ha_started_release_boot_settle,
-                )
-                self._unsub_listeners.append(_unsub_ha_started)
-            except Exception:  # noqa: BLE001 — defensive (bus may be a stub in tests)
-                _LOGGER.debug(
-                    "Boot-settle: failed to register EVENT_HOMEASSISTANT_STARTED listener",
-                    exc_info=True,
-                )
-            # Predicate B path 2: failsafe timeout — guarantees release
-            # within BOOT_SETTLE_TIMEOUT_SECONDS even if Predicate A and
-            # the HA-started event both fail to fire (empty house cold boot
-            # with no sensors changing state).
-            try:
-                _unsub_timeout = async_call_later(
-                    self.hass,
-                    BOOT_SETTLE_TIMEOUT_SECONDS,
-                    self._timeout_release_boot_settle,
-                )
-                self._unsub_listeners.append(_unsub_timeout)
-            except Exception:  # noqa: BLE001 — defensive
-                _LOGGER.debug(
-                    "Boot-settle: failed to register failsafe timeout",
-                    exc_info=True,
-                )
-
-        # v3.6.0.3: Instantiate anomaly detector FIRST so it's always available
-        # even if discovery fails. Minimum 24 samples (~1 day of hourly
-        # observations) before activation.
-        # v4.6.3 D10: sensitivity bucket from CM entry options.
-        from .coordinator_diagnostics import AnomalyDetector
-        from ..const import (  # noqa: PLC0415
-            CONF_PRESENCE_ANOMALY_SENSITIVITY,
-            DEFAULT_ANOMALY_SENSITIVITY,
-            ANOMALY_SENSITIVITY_MULTIPLIERS,
-            ENTRY_TYPE_COORDINATOR_MANAGER,
-        )
-        _presence_sensitivity = DEFAULT_ANOMALY_SENSITIVITY
-        try:
-            for _ce in self.hass.config_entries.async_entries(DOMAIN):
-                if _ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
-                    _presence_sensitivity = {**_ce.data, **_ce.options}.get(
-                        CONF_PRESENCE_ANOMALY_SENSITIVITY, DEFAULT_ANOMALY_SENSITIVITY
-                    )
-                    break
-        except Exception:
-            pass
-        self.anomaly_detector = AnomalyDetector(
-            hass=self.hass,
-            coordinator_id="presence",
-            metric_names=self.PRESENCE_METRICS,
-            minimum_samples=24,
-            sensitivity_multiplier=ANOMALY_SENSITIVITY_MULTIPLIERS.get(_presence_sensitivity, 1.0),
-            # v4.6.5.3 surface fix: census_count + zone_occupied_count fire
-            # in-memory (degenerate-shape per v4.6.3.1 / v4.6.3.3 doctrine) but
-            # are suppressed from persistence — exclude them from the sensor's
-            # severity calculation so it doesn't permanently show critical.
-            suppressed_metric_names=PRESENCE_SUPPRESSED_FROM_PERSISTENCE,
-        )
-        try:
-            await self.anomaly_detector.load_baselines()
-        except Exception:
-            _LOGGER.debug("Could not load presence anomaly baselines (non-fatal)", exc_info=True)
-
-        # v4.6.5.1 P4 (M3 fix from v4.6.4 review): hydrate _transitions_today
-        # from house_state_log so the daily counter survives reload/restart.
-        # Without this, the counter resets to 0 on every restart and the
-        # transition_count_daily baseline distribution skews low —
-        # biasing future thrashy-day anomalies to fire more than they should.
-        try:
-            db = self.hass.data.get(DOMAIN, {}).get("database")
-            if db is not None:
-                today_iso = dt_util.now().date().isoformat()
-                count = await db.count_house_state_changes_since(today_iso)
-                self._transitions_today = count
-                self._transition_reset_date = today_iso
+                _ha_running = bool(getattr(self.hass, "is_running", False))
+            except Exception:  # noqa: BLE001 — defensive against stub hass
+                _ha_running = False
+            if _ha_running:
+                self._boot_settle_done = True
+                self._boot_settle_release_reason = "not_cold_boot"
                 _LOGGER.info(
-                    "Hydrated _transitions_today=%d from house_state_log (since %s)",
-                    count, today_iso,
-                )
-        except Exception:
-            _LOGGER.debug(
-                "Could not hydrate _transitions_today from house_state_log (non-fatal)",
-                exc_info=True,
-            )
-
-        # Routine-Awareness Next-State Forecaster — replaces the
-        # placeholder_v0 stub behind sensor.ura_presence_coordinator_next_state.
-        # In-memory frequency/recency aggregate over house_state_log;
-        # bounded read, no new DB writes. See
-        # docs/planning/PLANNING_routine_awareness_next_state_forecaster.md.
-        try:
-            db = self.hass.data.get(DOMAIN, {}).get("database")
-            if db is not None:
-                from .routine_forecaster import RoutineForecaster  # noqa: PLC0415
-                # B-3 (review): re-setup leak guard. If a forecaster was
-                # already attached (re-entrant setup path), shut it down
-                # first so its timer + dispatcher subscription release
-                # cleanly before we install a new instance — otherwise
-                # the prior one keeps ticking against the same hass
-                # (untracked-background-tasks bug class #19).
-                existing = getattr(self, "_routine_forecaster", None)
-                if existing is not None:
-                    try:
-                        await existing.async_shutdown()
-                    except Exception:  # noqa: BLE001
-                        _LOGGER.debug(
-                            "RoutineForecaster: shutdown of prior instance "
-                            "raised during re-setup (non-fatal)",
-                            exc_info=True,
-                        )
-                    self._routine_forecaster = None
-                forecaster = RoutineForecaster(self.hass, db)
-                await forecaster.async_setup()
-                self._routine_forecaster = forecaster
-                _LOGGER.info(
-                    "RoutineForecaster: attached to PresenceCoordinator"
+                    "Boot-settle: HA already RUNNING — gate released at setup "
+                    "(reload path, not cold boot)"
                 )
             else:
-                _LOGGER.debug(
-                    "RoutineForecaster: database not yet available — "
-                    "next-state prediction will degrade to placeholder shape"
-                )
-        except Exception:
-            _LOGGER.debug(
-                "RoutineForecaster: setup failed (non-fatal); "
-                "next-state prediction will degrade to placeholder shape",
-                exc_info=True,
-            )
-
-        # v3.19.0: Read face recognition toggle from integration config
-        try:
-            from ..const import CONF_FACE_RECOGNITION_ENABLED, ENTRY_TYPE_INTEGRATION, CONF_ENTRY_TYPE
-            for config_entry in self.hass.config_entries.async_entries(DOMAIN):
-                if config_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
-                    merged = {**config_entry.data, **config_entry.options}
-                    self._face_recognition_enabled = merged.get(CONF_FACE_RECOGNITION_ENABLED, False)
-                    break
-        except Exception:
-            self._face_recognition_enabled = False
-
-        # v3.6.0.3: Wrap discovery/subscription in try/except so partial
-        # failures don't prevent the coordinator from functioning.
-        try:
-            # Build room → area_id mapping from room config entries
-            self._build_room_area_map()
-
-            # Discover zones and create trackers
-            self._discover_zones()
-
-            # Occupancy substrate unification cycle (D1 + D2):
-            # Build the substrate BEFORE the zone-tier Tier-1 discovery
-            # call so the substrate's CONF-list-driven discovery is the
-            # single source of truth for which entities are subscribed.
-            # The zone tier no longer area-sweeps — it subscribes to
-            # SIGNAL_SUBSTRATE_KIND_CHANGED and routes per-kind edges
-            # into ``tracker.update_room_occupancy`` with the same call
-            # shape the prior state-change callback used.
-            from .occupancy_substrate import OccupancySubstrate  # noqa: PLC0415
-            self._substrate = OccupancySubstrate(self.hass)
-            # v5.10.0 fix-up FIX-2 (A-CRIT-1): register the substrate in
-            # hass.data so cross-coordinator readers (e.g. MusicFollowing
-            # D3 guest-in-source-room guard at music_following.py:452)
-            # have a real writer to bind to. Mirrors the MusicFollowing
-            # singleton registration at __init__.py:1910. Cleared in
-            # async_teardown alongside self._substrate = None (see below).
-            try:
-                self.hass.data.setdefault(DOMAIN, {})["occupancy_substrate"] = self._substrate
-            except Exception:  # noqa: BLE001
-                _LOGGER.debug(
-                    "OccupancySubstrate hass.data registration failed",
-                    exc_info=True,
-                )
-            # Mirror the boot-settle gate state: if HA is already RUNNING
-            # (options-flow reload, not cold boot) the gate is born
-            # released, so the substrate must also dispatch immediately.
-            if self._boot_settle_done:
-                # release_boot_settle() is idempotent and emits synthetic
-                # True-slot signals AFTER discovery; do it after setup
-                # below so the seed has already populated ``_raw_state``.
-                pass
-            await self._substrate.async_setup()
-            # If the coordinator's own boot-settle gate has already
-            # released (reload path), release the substrate's gate now
-            # too so live edges dispatch immediately.
-            if self._boot_settle_done:
+                self._boot_settle_started_utc = dt_util.utcnow()
+                from homeassistant.helpers.event import async_call_later  # noqa: PLC0415
                 try:
-                    self._substrate.release_boot_settle()
-                except Exception:  # noqa: BLE001 — defensive
+                    from homeassistant.const import EVENT_HOMEASSISTANT_STARTED  # noqa: PLC0415
+                except Exception:  # noqa: BLE001 — defensive (older HA shapes / test stubs)
+                    EVENT_HOMEASSISTANT_STARTED = "homeassistant_started"
+                # Predicate B path 1: EVENT_HOMEASSISTANT_STARTED.
+                try:
+                    _unsub_ha_started = self.hass.bus.async_listen_once(
+                        EVENT_HOMEASSISTANT_STARTED,
+                        self._on_ha_started_release_boot_settle,
+                    )
+                    self._unsub_listeners.append(_unsub_ha_started)
+                except Exception:  # noqa: BLE001 — defensive (bus may be a stub in tests)
                     _LOGGER.debug(
-                        "OccupancySubstrate: reload-path release raised",
+                        "Boot-settle: failed to register EVENT_HOMEASSISTANT_STARTED listener",
                         exc_info=True,
                     )
-            # Zone-tier subscription (D2): replace the prior state-change
-            # listener path with a substrate signal subscription.
-            # B-H1 fix-up: async_dispatcher_connect imported at module top
-            # (alongside async_dispatcher_send) to avoid Bug Class #34
-            # function-local shadow-binding hazard.
-            from .signals import (  # noqa: PLC0415
-                SIGNAL_ROOM_ENTRY_LIFECYCLE,
-                SIGNAL_SUBSTRATE_KIND_CHANGED,
-            )
-            self._substrate_signal_unsub = async_dispatcher_connect(
-                self.hass,
-                SIGNAL_SUBSTRATE_KIND_CHANGED,
-                self._on_substrate_kind_changed,
-            )
-            self._unsub_listeners.append(self._substrate_signal_unsub)
+                # Predicate B path 2: failsafe timeout — guarantees release
+                # within BOOT_SETTLE_TIMEOUT_SECONDS even if Predicate A and
+                # the HA-started event both fail to fire (empty house cold boot
+                # with no sensors changing state).
+                try:
+                    _unsub_timeout = async_call_later(
+                        self.hass,
+                        BOOT_SETTLE_TIMEOUT_SECONDS,
+                        self._timeout_release_boot_settle,
+                    )
+                    self._unsub_listeners.append(_unsub_timeout)
+                except Exception:  # noqa: BLE001 — defensive
+                    _LOGGER.debug(
+                        "Boot-settle: failed to register failsafe timeout",
+                        exc_info=True,
+                    )
 
-            # Substrate re-subscribe cycle (D3): subscribe to per-ROOM
-            # lifecycle events dispatched from ROOM async_setup_entry /
-            # async_unload_entry / _async_update_listener suppressed
-            # writes (WRITER sites: __init__.py:~3505 loaded / ~3830
-            # unloaded / ~4860 options_updated). Restores the pre-v4.7.24
-            # (commit e165e1cb) per-room-onboarding guarantee: a room
-            # added WITHOUT restart is event-driven immediately.
-            # Bug Class #50 guardrail: unsub appended to
-            # ``_unsub_listeners``, which — per 2026-07-10 grep of this
-            # file — is only cleared by ``async_teardown``. No periodic
-            # rebuild path clears it (see :2811-2836 fan re-arm which
-            # uses selective .remove(), and :3423-3433 camera re-arm
-            # which does the same; both patterns leave sibling unsubs
-            # intact). Discipline mirrors v5.10.0 reconciler wiring.
-            self._unsub_listeners.append(
-                async_dispatcher_connect(
-                    self.hass,
-                    SIGNAL_ROOM_ENTRY_LIFECYCLE,
-                    self._on_room_entry_lifecycle,
-                )
+            # v3.6.0.3: Instantiate anomaly detector FIRST so it's always available
+            # even if discovery fails. Minimum 24 samples (~1 day of hourly
+            # observations) before activation.
+            # v4.6.3 D10: sensitivity bucket from CM entry options.
+            from .coordinator_diagnostics import AnomalyDetector
+            from ..const import (  # noqa: PLC0415
+                CONF_PRESENCE_ANOMALY_SENSITIVITY,
+                DEFAULT_ANOMALY_SENSITIVITY,
+                ANOMALY_SENSITIVITY_MULTIPLIERS,
+                ENTRY_TYPE_COORDINATOR_MANAGER,
             )
-
-            # F5 fix-up (C-LOW-1): sweep any room that loaded BETWEEN
-            # the substrate's discovery walk and the subscriber attach
-            # above — its lifecycle dispatch would have been missed
-            # otherwise. refresh_subscriptions() is a no-op if nothing
-            # actually diffs. Tracked per F3.
+            _presence_sensitivity = DEFAULT_ANOMALY_SENSITIVITY
             try:
-                _sweep_task = self.hass.async_create_task(
-                    self._substrate.refresh_subscriptions()
-                )
-                self._substrate_refresh_tasks.add(_sweep_task)
-                _sweep_task.add_done_callback(
-                    self._substrate_refresh_tasks.discard
-                )
-            except Exception:  # noqa: BLE001 — defensive
+                for _ce in self.hass.config_entries.async_entries(DOMAIN):
+                    if _ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                        _presence_sensitivity = {**_ce.data, **_ce.options}.get(
+                            CONF_PRESENCE_ANOMALY_SENSITIVITY, DEFAULT_ANOMALY_SENSITIVITY
+                        )
+                        break
+            except Exception:
+                pass
+            self.anomaly_detector = AnomalyDetector(
+                hass=self.hass,
+                coordinator_id="presence",
+                metric_names=self.PRESENCE_METRICS,
+                minimum_samples=24,
+                sensitivity_multiplier=ANOMALY_SENSITIVITY_MULTIPLIERS.get(_presence_sensitivity, 1.0),
+                # v4.6.5.3 surface fix: census_count + zone_occupied_count fire
+                # in-memory (degenerate-shape per v4.6.3.1 / v4.6.3.3 doctrine) but
+                # are suppressed from persistence — exclude them from the sensor's
+                # severity calculation so it doesn't permanently show critical.
+                suppressed_metric_names=PRESENCE_SUPPRESSED_FROM_PERSISTENCE,
+            )
+            try:
+                await self.anomaly_detector.load_baselines()
+            except Exception:
+                _LOGGER.debug("Could not load presence anomaly baselines (non-fatal)", exc_info=True)
+
+            # v4.6.5.1 P4 (M3 fix from v4.6.4 review): hydrate _transitions_today
+            # from house_state_log so the daily counter survives reload/restart.
+            # Without this, the counter resets to 0 on every restart and the
+            # transition_count_daily baseline distribution skews low —
+            # biasing future thrashy-day anomalies to fire more than they should.
+            try:
+                db = self.hass.data.get(DOMAIN, {}).get("database")
+                if db is not None:
+                    today_iso = dt_util.now().date().isoformat()
+                    count = await db.count_house_state_changes_since(today_iso)
+                    self._transitions_today = count
+                    self._transition_reset_date = today_iso
+                    _LOGGER.info(
+                        "Hydrated _transitions_today=%d from house_state_log (since %s)",
+                        count, today_iso,
+                    )
+            except Exception:
                 _LOGGER.debug(
-                    "Cold-boot substrate refresh sweep failed to schedule",
+                    "Could not hydrate _transitions_today from house_state_log (non-fatal)",
                     exc_info=True,
                 )
 
-            # Discover and subscribe to room occupancy sensors (Tier 1).
-            # Post-substrate this is a thin compatibility shim — the actual
-            # state-change subscription lives in the substrate. We keep the
-            # call so the legacy `register_entity` hooks still fire for any
-            # consumer reading `tracker._entity_to_room`.
-            self._discover_room_sensors()
-
-            # Discover and subscribe to zone cameras (Tier 2)
-            self._discover_zone_cameras()
-
-            # Provenance-split cycle (D3): subscribe to per-room CONF_FANS
-            # state-change events so the fan-interference diagnostic
-            # has live `_fan_on_rooms` truth before the next
-            # _run_inference tick. Observation-only — zone-tracker
-            # `mode` output is unchanged. See module-level docstring on
-            # `_compute_fan_interference_rooms` for the primitive.
-            self._discover_room_fans()
-
-            # v4.7.2 D5: Discover and subscribe to guest rooms (Feature B)
-            self._discover_guest_rooms()
-
-            # Subscribe to geofence (person entity state changes)
-            self._subscribe_geofence()
-
-            # Subscribe to census updates
-            # B-H1 fix-up: async_dispatcher_connect now imported at
-            # module top — no function-local import needed.
-            self._unsub_listeners.append(
-                async_dispatcher_connect(
-                    self.hass,
-                    SIGNAL_CENSUS_UPDATED,
-                    self._handle_census_update,
-                )
-            )
-
-            # Zone Delete Flow (fix-up R4 / B-HIGH-2): presence lives on
-            # the parent entry and does NOT reload when a ZM options
-            # mutation fires, so the ``_discover_zones`` prune block is
-            # dead code on the delete path. Subscribe here so the prune
-            # runs whenever the config_flow deletes a zone. Unsub tracked
-            # via ``_unsub_listeners`` per Bug Class #50.
-            self._unsub_listeners.append(
-                async_dispatcher_connect(
-                    self.hass,
-                    SIGNAL_ZM_ZONES_UPDATED,
-                    self._handle_zm_zones_updated,
-                )
-            )
-
-            # OC Phase 5 Pillar A: subscribe to SIGNAL_OPTIMIZER_INTENT so
-            # this coordinator can veto Optimizer actuation on presence
-            # input sensors (mmWave, occupancy). Bug Class #50 guardrail:
-            # the unsub is appended to ``_unsub_listeners`` AND tracked
-            # separately for double-subscribe protection on re-setup.
-            if self._optimizer_intent_unsub is None:
-                self._optimizer_intent_unsub = async_dispatcher_connect(
-                    self.hass,
-                    SIGNAL_OPTIMIZER_INTENT,
-                    self._on_optimizer_intent,
-                )
-                self._unsub_listeners.append(self._optimizer_intent_unsub)
-
-            # Periodic inference (every 60 seconds for time-based transitions + camera timeouts)
-            self._unsub_listeners.append(
-                async_track_time_interval(
-                    self.hass,
-                    self._periodic_inference,
-                    timedelta(seconds=60),
-                )
-            )
-        except Exception:
-            _LOGGER.exception("Error during presence discovery (non-fatal)")
-
-        # v3.6.0-c2.3: Seed census count from existing data before first
-        # inference. Without this, _census_count=0 → infers "away" even
-        # when people are home. Read from census manager if available,
-        # else fall back to the identified_persons sensor state.
-        try:
-            census_mgr = self.hass.data.get(DOMAIN, {}).get(
-                "camera_integration_manager"
-            )
-            if census_mgr and hasattr(census_mgr, "last_result"):
-                last = census_mgr.last_result
-                if last is not None:
-                    self._census_count = last.house.total_persons
+            # Routine-Awareness Next-State Forecaster — replaces the
+            # placeholder_v0 stub behind sensor.ura_presence_coordinator_next_state.
+            # In-memory frequency/recency aggregate over house_state_log;
+            # bounded read, no new DB writes. See
+            # docs/planning/PLANNING_routine_awareness_next_state_forecaster.md.
+            try:
+                db = self.hass.data.get(DOMAIN, {}).get("database")
+                if db is not None:
+                    from .routine_forecaster import RoutineForecaster  # noqa: PLC0415
+                    # B-3 (review): re-setup leak guard. If a forecaster was
+                    # already attached (re-entrant setup path), shut it down
+                    # first so its timer + dispatcher subscription release
+                    # cleanly before we install a new instance — otherwise
+                    # the prior one keeps ticking against the same hass
+                    # (untracked-background-tasks bug class #19).
+                    existing = getattr(self, "_routine_forecaster", None)
+                    if existing is not None:
+                        try:
+                            await existing.async_shutdown()
+                        except Exception:  # noqa: BLE001
+                            _LOGGER.debug(
+                                "RoutineForecaster: shutdown of prior instance "
+                                "raised during re-setup (non-fatal)",
+                                exc_info=True,
+                            )
+                        self._routine_forecaster = None
+                    forecaster = RoutineForecaster(self.hass, db)
+                    await forecaster.async_setup()
+                    self._routine_forecaster = forecaster
                     _LOGGER.info(
-                        "Seeded census count from manager: %d",
-                        self._census_count,
+                        "RoutineForecaster: attached to PresenceCoordinator"
                     )
-            if self._census_count == 0:
-                # Fallback: read from sensor state
-                state = self.hass.states.get(
-                    f"sensor.{DOMAIN}_identified_persons_in_house"
+                else:
+                    _LOGGER.debug(
+                        "RoutineForecaster: database not yet available — "
+                        "next-state prediction will degrade to placeholder shape"
+                    )
+            except Exception:
+                _LOGGER.debug(
+                    "RoutineForecaster: setup failed (non-fatal); "
+                    "next-state prediction will degrade to placeholder shape",
+                    exc_info=True,
                 )
-                if state and state.state not in ("unknown", "unavailable"):
+
+            # v3.19.0: Read face recognition toggle from integration config
+            try:
+                from ..const import CONF_FACE_RECOGNITION_ENABLED, ENTRY_TYPE_INTEGRATION, CONF_ENTRY_TYPE
+                for config_entry in self.hass.config_entries.async_entries(DOMAIN):
+                    if config_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                        merged = {**config_entry.data, **config_entry.options}
+                        self._face_recognition_enabled = merged.get(CONF_FACE_RECOGNITION_ENABLED, False)
+                        break
+            except Exception:
+                self._face_recognition_enabled = False
+
+            # v3.6.0.3: Wrap discovery/subscription in try/except so partial
+            # failures don't prevent the coordinator from functioning.
+            try:
+                # Build room → area_id mapping from room config entries
+                self._build_room_area_map()
+
+                # Discover zones and create trackers
+                self._discover_zones()
+
+                # Occupancy substrate unification cycle (D1 + D2):
+                # Build the substrate BEFORE the zone-tier Tier-1 discovery
+                # call so the substrate's CONF-list-driven discovery is the
+                # single source of truth for which entities are subscribed.
+                # The zone tier no longer area-sweeps — it subscribes to
+                # SIGNAL_SUBSTRATE_KIND_CHANGED and routes per-kind edges
+                # into ``tracker.update_room_occupancy`` with the same call
+                # shape the prior state-change callback used.
+                from .occupancy_substrate import OccupancySubstrate  # noqa: PLC0415
+                self._substrate = OccupancySubstrate(self.hass)
+                # v5.10.0 fix-up FIX-2 (A-CRIT-1): register the substrate in
+                # hass.data so cross-coordinator readers (e.g. MusicFollowing
+                # D3 guest-in-source-room guard at music_following.py:452)
+                # have a real writer to bind to. Mirrors the MusicFollowing
+                # singleton registration at __init__.py:1910. Cleared in
+                # async_teardown alongside self._substrate = None (see below).
+                try:
+                    self.hass.data.setdefault(DOMAIN, {})["occupancy_substrate"] = self._substrate
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "OccupancySubstrate hass.data registration failed",
+                        exc_info=True,
+                    )
+                # Mirror the boot-settle gate state: if HA is already RUNNING
+                # (options-flow reload, not cold boot) the gate is born
+                # released, so the substrate must also dispatch immediately.
+                if self._boot_settle_done:
+                    # release_boot_settle() is idempotent and emits synthetic
+                    # True-slot signals AFTER discovery; do it after setup
+                    # below so the seed has already populated ``_raw_state``.
+                    pass
+                await self._substrate.async_setup()
+                # If the coordinator's own boot-settle gate has already
+                # released (reload path), release the substrate's gate now
+                # too so live edges dispatch immediately.
+                if self._boot_settle_done:
                     try:
-                        self._census_count = int(state.state)
+                        self._substrate.release_boot_settle()
+                    except Exception:  # noqa: BLE001 — defensive
+                        _LOGGER.debug(
+                            "OccupancySubstrate: reload-path release raised",
+                            exc_info=True,
+                        )
+                # Zone-tier subscription (D2): replace the prior state-change
+                # listener path with a substrate signal subscription.
+                # B-H1 fix-up: async_dispatcher_connect imported at module top
+                # (alongside async_dispatcher_send) to avoid Bug Class #34
+                # function-local shadow-binding hazard.
+                from .signals import (  # noqa: PLC0415
+                    SIGNAL_ROOM_ENTRY_LIFECYCLE,
+                    SIGNAL_SUBSTRATE_KIND_CHANGED,
+                )
+                self._substrate_signal_unsub = async_dispatcher_connect(
+                    self.hass,
+                    SIGNAL_SUBSTRATE_KIND_CHANGED,
+                    self._on_substrate_kind_changed,
+                )
+                self._unsub_listeners.append(self._substrate_signal_unsub)
+
+                # Substrate re-subscribe cycle (D3): subscribe to per-ROOM
+                # lifecycle events dispatched from ROOM async_setup_entry /
+                # async_unload_entry / _async_update_listener suppressed
+                # writes (WRITER sites: __init__.py:~3505 loaded / ~3830
+                # unloaded / ~4860 options_updated). Restores the pre-v4.7.24
+                # (commit e165e1cb) per-room-onboarding guarantee: a room
+                # added WITHOUT restart is event-driven immediately.
+                # Bug Class #50 guardrail: unsub appended to
+                # ``_unsub_listeners``, which — per 2026-07-10 grep of this
+                # file — is only cleared by ``async_teardown``. No periodic
+                # rebuild path clears it (see :2811-2836 fan re-arm which
+                # uses selective .remove(), and :3423-3433 camera re-arm
+                # which does the same; both patterns leave sibling unsubs
+                # intact). Discipline mirrors v5.10.0 reconciler wiring.
+                self._unsub_listeners.append(
+                    async_dispatcher_connect(
+                        self.hass,
+                        SIGNAL_ROOM_ENTRY_LIFECYCLE,
+                        self._on_room_entry_lifecycle,
+                    )
+                )
+
+                # F5 fix-up (C-LOW-1): sweep any room that loaded BETWEEN
+                # the substrate's discovery walk and the subscriber attach
+                # above — its lifecycle dispatch would have been missed
+                # otherwise. refresh_subscriptions() is a no-op if nothing
+                # actually diffs. Tracked per F3.
+                try:
+                    _sweep_task = self.hass.async_create_task(
+                        self._substrate.refresh_subscriptions()
+                    )
+                    self._substrate_refresh_tasks.add(_sweep_task)
+                    _sweep_task.add_done_callback(
+                        self._substrate_refresh_tasks.discard
+                    )
+                except Exception:  # noqa: BLE001 — defensive
+                    _LOGGER.debug(
+                        "Cold-boot substrate refresh sweep failed to schedule",
+                        exc_info=True,
+                    )
+
+                # Discover and subscribe to room occupancy sensors (Tier 1).
+                # Post-substrate this is a thin compatibility shim — the actual
+                # state-change subscription lives in the substrate. We keep the
+                # call so the legacy `register_entity` hooks still fire for any
+                # consumer reading `tracker._entity_to_room`.
+                self._discover_room_sensors()
+
+                # Discover and subscribe to zone cameras (Tier 2)
+                self._discover_zone_cameras()
+
+                # Provenance-split cycle (D3): subscribe to per-room CONF_FANS
+                # state-change events so the fan-interference diagnostic
+                # has live `_fan_on_rooms` truth before the next
+                # _run_inference tick. Observation-only — zone-tracker
+                # `mode` output is unchanged. See module-level docstring on
+                # `_compute_fan_interference_rooms` for the primitive.
+                self._discover_room_fans()
+
+                # v4.7.2 D5: Discover and subscribe to guest rooms (Feature B)
+                self._discover_guest_rooms()
+
+                # Subscribe to geofence (person entity state changes)
+                self._subscribe_geofence()
+
+                # Subscribe to census updates
+                # B-H1 fix-up: async_dispatcher_connect now imported at
+                # module top — no function-local import needed.
+                self._unsub_listeners.append(
+                    async_dispatcher_connect(
+                        self.hass,
+                        SIGNAL_CENSUS_UPDATED,
+                        self._handle_census_update,
+                    )
+                )
+
+                # Zone Delete Flow (fix-up R4 / B-HIGH-2): presence lives on
+                # the parent entry and does NOT reload when a ZM options
+                # mutation fires, so the ``_discover_zones`` prune block is
+                # dead code on the delete path. Subscribe here so the prune
+                # runs whenever the config_flow deletes a zone. Unsub tracked
+                # via ``_unsub_listeners`` per Bug Class #50.
+                self._unsub_listeners.append(
+                    async_dispatcher_connect(
+                        self.hass,
+                        SIGNAL_ZM_ZONES_UPDATED,
+                        self._handle_zm_zones_updated,
+                    )
+                )
+
+                # OC Phase 5 Pillar A: subscribe to SIGNAL_OPTIMIZER_INTENT so
+                # this coordinator can veto Optimizer actuation on presence
+                # input sensors (mmWave, occupancy). Bug Class #50 guardrail:
+                # the unsub is appended to ``_unsub_listeners`` AND tracked
+                # separately for double-subscribe protection on re-setup.
+                if self._optimizer_intent_unsub is None:
+                    self._optimizer_intent_unsub = async_dispatcher_connect(
+                        self.hass,
+                        SIGNAL_OPTIMIZER_INTENT,
+                        self._on_optimizer_intent,
+                    )
+                    self._unsub_listeners.append(self._optimizer_intent_unsub)
+
+                # Periodic inference (every 60 seconds for time-based transitions + camera timeouts)
+                self._unsub_listeners.append(
+                    async_track_time_interval(
+                        self.hass,
+                        self._periodic_inference,
+                        timedelta(seconds=60),
+                    )
+                )
+            except Exception:
+                _LOGGER.exception("Error during presence discovery (non-fatal)")
+
+            # v3.6.0-c2.3: Seed census count from existing data before first
+            # inference. Without this, _census_count=0 → infers "away" even
+            # when people are home. Read from census manager if available,
+            # else fall back to the identified_persons sensor state.
+            try:
+                census_mgr = self.hass.data.get(DOMAIN, {}).get(
+                    "camera_integration_manager"
+                )
+                if census_mgr and hasattr(census_mgr, "last_result"):
+                    last = census_mgr.last_result
+                    if last is not None:
+                        self._census_count = last.house.total_persons
                         _LOGGER.info(
-                            "Seeded census count from sensor: %d",
+                            "Seeded census count from manager: %d",
                             self._census_count,
                         )
-                    except (ValueError, TypeError):
-                        pass
-        except Exception as e:
-            _LOGGER.warning("Failed to seed census count: %s", e)
+                if self._census_count == 0:
+                    # Fallback: read from sensor state
+                    state = self.hass.states.get(
+                        f"sensor.{DOMAIN}_identified_persons_in_house"
+                    )
+                    if state and state.state not in ("unknown", "unavailable"):
+                        try:
+                            self._census_count = int(state.state)
+                            _LOGGER.info(
+                                "Seeded census count from sensor: %d",
+                                self._census_count,
+                            )
+                        except (ValueError, TypeError):
+                            pass
+            except Exception as e:
+                _LOGGER.warning("Failed to seed census count: %s", e)
 
-        # Fan-noise Mode-2 mitigation: build + rehydrate the state machine.
-        try:
-            from .presence_fan_recheck import FanRecheckManager  # noqa: PLC0415
-            self._fan_recheck_manager = FanRecheckManager(self.hass, self)
-            await self._fan_recheck_manager.async_setup()
-        except Exception:  # noqa: BLE001 — defensive
+            # Fan-noise Mode-2 mitigation: build + rehydrate the state machine.
+            try:
+                from .presence_fan_recheck import FanRecheckManager  # noqa: PLC0415
+                self._fan_recheck_manager = FanRecheckManager(self.hass, self)
+                await self._fan_recheck_manager.async_setup()
+            except Exception:  # noqa: BLE001 — defensive
+                _LOGGER.warning(
+                    "FanRecheck: manager setup failed (Mode-2 disabled)",
+                    exc_info=True,
+                )
+                self._fan_recheck_manager = None
+
+            # Run initial inference with seeded census count
+            await self._run_inference("startup")
+
+            # v3.21.0 D2: Signal readiness so downstream coordinators (HVAC) can
+            # safely read house state without racing startup ordering.
+            self._ready_event.set()
+            # B-H2: the SIGNAL_PRESENCE_COORDINATOR_READY dispatch happens in
+            # the async_setup() wrapper's finally: block — one dispatch per
+            # setup call, guaranteed even on partial failure.
+
+            _LOGGER.info(
+                "Presence Coordinator ready: %d zones tracked",
+                len(self._zone_trackers),
+            )
+
+        except Exception:
             _LOGGER.warning(
-                "FanRecheck: manager setup failed (Mode-2 disabled)",
+                "Presence Coordinator setup raised — dispatching "
+                "SIGNAL_PRESENCE_COORDINATOR_READY anyway so downstream "
+                "entities converge",
                 exc_info=True,
             )
-            self._fan_recheck_manager = None
-
-        # Run initial inference with seeded census count
-        await self._run_inference("startup")
-
-        # v3.21.0 D2: Signal readiness so downstream coordinators (HVAC) can
-        # safely read house state without racing startup ordering.
-        self._ready_event.set()
-
-        _LOGGER.info(
-            "Presence Coordinator ready: %d zones tracked",
-            len(self._zone_trackers),
-        )
+            raise
+        finally:
+            # B-H2: exactly-once READY dispatch, guaranteed even on partial
+            # setup failure. `_ready_event.set()` is idempotent.
+            try:
+                if not self._ready_event.is_set():
+                    self._ready_event.set()
+            except Exception:  # noqa: BLE001 — defensive
+                pass
+            try:
+                async_dispatcher_send(
+                    self.hass, SIGNAL_PRESENCE_COORDINATOR_READY,
+                )
+                _LOGGER.debug("SIGNAL_PRESENCE_COORDINATOR_READY dispatched")
+            except Exception:  # noqa: BLE001 — non-fatal
+                _LOGGER.debug(
+                    "SIGNAL_PRESENCE_COORDINATOR_READY dispatch failed",
+                    exc_info=True,
+                )
 
     def _build_room_area_map(self) -> None:
         """Build room_name → area_id mapping from room config entries.
@@ -4651,6 +4704,11 @@ class PresenceCoordinator(BaseCoordinator):
         Exit is immediate: if the condition clears for all rooms, returns False.
         Bug Class #11: uses UTC-aware now parameter.
         """
+        # build/pc-observability Path B kill switch + A-MED-1: clear stale
+        # first_seen on OFF (symmetric to Path A `_disarm_guest_gate()`).
+        if not self._guest_detection_enabled:
+            self._clear_guest_room_first_seen()
+            return False
         for room_name, state_dict in self._guest_room_state.items():
             first_seen = state_dict.get("first_seen")
             if first_seen is None:
@@ -4685,6 +4743,12 @@ class PresenceCoordinator(BaseCoordinator):
         On non-qualifying tick: disarms (clears state + cancels timer).
         Returns True only when all guards pass.
         """
+        # build/pc-observability: kill-switch guard (Path A).
+        # switch.ura_presence_guest_detection_enabled OFF disarms and
+        # returns False so no guest-mode transition can fire via Path A.
+        if not self._guest_detection_enabled:
+            self._disarm_guest_gate()
+            return False
         # Guard 1: Existence
         if unidentified_count <= 0:
             _LOGGER.debug(
@@ -4796,6 +4860,65 @@ class PresenceCoordinator(BaseCoordinator):
             or (tracked_count > 0 and not all_tracked_persons_away)
         )
 
+    def _clear_guest_room_first_seen(self) -> None:
+        """A-MED-1: symmetric to Path A's `_disarm_guest_gate()` — clears any
+        per-room `first_seen` timestamps so re-enabling the guest-detection
+        kill switch after an OFF window cannot trip on stale evidence.
+        """
+        for _sd in self._guest_room_state.values():
+            if _sd.get("first_seen") is not None:
+                _sd["first_seen"] = None
+
+    def _emit_wake_backstop_anomaly(
+        self, backstop_hour: int, wake_reason: str
+    ) -> None:
+        """build/pc-observability: emit an NM anomaly when wake-backstop fires.
+
+        The wake-backstop is a must-never-fire-in-normal-operation safety
+        valve — every fire is a sev-2 signal that some upstream WAKING gate
+        regressed. Fires alongside ``sensor.ura_presence_wake_backstop_fires``
+        (total_increasing) so operators see it on both the recorder graph
+        AND in NM history. Extracted from the gate site so the surrounding
+        _run_inference block stays compact.
+        """
+        try:
+            # A-MED-2: dedup NM emit to at most once per LOCAL calendar day.
+            # The counter (_wake_backstop_fires) still ticks every fire.
+            from homeassistant.util import dt as _dtu
+            try:
+                _today = _dtu.now().date()
+            except Exception:  # noqa: BLE001
+                from datetime import datetime as _dt
+                _today = _dt.utcnow().date()
+            if self._wake_backstop_notified_on == _today:
+                return
+            nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+            if nm is None:
+                return
+            # B-H3 / A-LOW-3: track the fire-and-forget task so a GC race
+            # can't drop it silently (Bug Class #19).
+            if not hasattr(self, "_pending_nm_tasks"):
+                self._pending_nm_tasks = set()
+            _task = self.hass.async_create_task(
+                nm.async_notify(
+                    title="Presence wake-backstop fired",
+                    message=(
+                        f"WAKING backstop forced wake past {backstop_hour:02d}:00 "
+                        f"(census_count={self._census_count}, "
+                        f"reason={wake_reason}). Investigate upstream WAKING gate."
+                    ),
+                    severity="medium",
+                    source="presence_coordinator",
+                )
+            )
+            self._pending_nm_tasks.add(_task)
+            _task.add_done_callback(self._pending_nm_tasks.discard)
+            self._wake_backstop_notified_on = _today
+        except Exception:  # noqa: BLE001 — defensive; non-fatal
+            _LOGGER.debug(
+                "wake_backstop NM anomaly emit failed (non-fatal)", exc_info=True,
+            )
+
     async def _run_inference(self, trigger: str) -> None:
         """Run state inference and apply transitions.
 
@@ -4807,6 +4930,16 @@ class PresenceCoordinator(BaseCoordinator):
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
         if manager is None:
             return
+
+        # B-M1: snapshot the three kill flags into locals ONCE at tick start
+        # so a concurrent operator toggle mid-tick cannot cause a torn read
+        # between the arriving-rearm suppression and arming sites (which
+        # sandwich an `await`). Downstream guards read the locals below.
+        # Guest-detection is read here for symmetry but is consumed inside
+        # `_guest_gate_armed` / `_guest_room_gate_armed` (method-local read).
+        _ks_guest_detection_enabled = bool(self._guest_detection_enabled)  # noqa: F841
+        _ks_arriving_rearm_enabled = bool(self._arriving_rearm_enabled)
+        _ks_away_veto_enabled = bool(self._away_veto_enabled)
 
         # Cold-boot settle gate — Predicate A (input-driven release).
         # Flip BEFORE the dispatch decision so the first inference tick that
@@ -5550,6 +5683,23 @@ class PresenceCoordinator(BaseCoordinator):
             _grace_elapsed and _indoor_clear_debounced
         )
 
+        # build/pc-observability: away-veto kill switch. When
+        # switch.ura_presence_away_veto_enabled is OFF, coerce both AWAY-veto
+        # denominators (v4.7.14 path α + v5.7.0 WS-A path β) to False so the
+        # inference engine cannot veto to AWAY. Rebinding the existing local
+        # names preserves the canonical `<kwarg>=<local>` literal at the
+        # infer() call site (anchored by tests test_v4714 + test_v570).
+        # Load-bearing mutation: removing either assignment re-opens the veto.
+        if not _ks_away_veto_enabled:
+            all_tracked_persons_away = False
+            all_trusted_or_lost_away_persons_away = False
+            # A-HIGH-1: also coerce the INSTANCE attribute — sensor.py
+            # surfaces `self._all_tracked_persons_away` on the house-state
+            # sensor and left un-coerced it would surface a lie ("veto
+            # armed") while the switch is OFF. Assigned at ~5132 above; we
+            # rebind here after the fact so the sensor read matches the
+            # engine input actually used this tick.
+            self._all_tracked_persons_away = False
         new_state = self._inference_engine.infer(
             census_count=self._census_count,
             current_state=current_state,
@@ -5690,6 +5840,12 @@ class PresenceCoordinator(BaseCoordinator):
                         _backstop_hour,
                         self._census_count,
                         wake_decision.reason,
+                    )
+                    # build/pc-observability: sev-2 NM anomaly on every fire
+                    # (extracted to keep the surrounding gate block compact
+                    # for downstream source-anchor tests).
+                    self._emit_wake_backstop_anomaly(
+                        _backstop_hour, wake_decision.reason,
                     )
                     # fall through WITHOUT suppressing — allow WAKING transition
                 else:
@@ -5861,6 +6017,7 @@ class PresenceCoordinator(BaseCoordinator):
         # ARRIVING_REARM_COOLDOWN_S == 0 → disabled.
         if (
             ARRIVING_REARM_COOLDOWN_S > 0
+            and _ks_arriving_rearm_enabled  # B-M1 snapshot (kill switch)
             and new_state == HouseState.ARRIVING
             and current_state == HouseState.AWAY
             and self._arriving_rearm_until > 0.0
@@ -5935,6 +6092,7 @@ class PresenceCoordinator(BaseCoordinator):
                 # was outdoor-only at the moment it was accepted.
                 if (
                     ARRIVING_REARM_COOLDOWN_S > 0
+                    and _ks_arriving_rearm_enabled  # B-M1 snapshot (kill switch)
                     and current_state == HouseState.ARRIVING
                     and new_state == HouseState.AWAY
                     and self._arriving_last_was_outdoor_only
