@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.51.1
+# Universal Room Automation vv5.52.0
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -293,6 +293,12 @@ async def async_setup_entry(
             SafetyObservationModeSwitch(hass, entry),
             SecurityObservationModeSwitch(hass, entry),
             PresenceObservationModeSwitch(hass, entry),
+            # build/pc-observability: three P1 presence kill switches.
+            # All default ON; each is load-bearing at a specific decision
+            # path (see class docstring for citation).
+            PresenceGuestDetectionEnabledSwitch(hass, entry),
+            PresenceArrivingRearmEnabledSwitch(hass, entry),
+            PresenceAwayVetoEnabledSwitch(hass, entry),
             # v4.7.34 Phase 1 D7: Optimization Coordinator kill switch
             # (restart-persistent via entry.options write-back AND
             # RestoreEntity; modeled on EnergyObservationModeSwitch:396).
@@ -2734,37 +2740,327 @@ class PresenceObservationModeSwitch(SwitchEntity, RestoreEntity):
         presence = self._get_presence()
         if presence is not None:
             presence.observation_mode = False
+            # A-LOW-4: an explicit operator OFF must clear any pending
+            # deferred restore, otherwise a later READY dispatch would
+            # override the operator intent by re-applying the restored
+            # "on" value.
+            self._deferred_restore = False
             self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
-        """Restore previous state on startup."""
-        await super().async_added_to_hass()
-        last_state = await self.async_get_last_state()
-        if last_state is not None and last_state.state == "on":
-            presence = self._get_presence()
-            if presence is not None:
-                presence.observation_mode = True
-            else:
-                # Deferred retry: coordinator may not be initialized yet
-                self._deferred_restore = True
-                self.async_on_remove(async_call_later(self.hass, 5, self._retry_restore))
+        """Restore previous state — deferred via SIGNAL_PRESENCE_COORDINATOR_READY
+        if the Presence coordinator isn't in hass.data yet.
 
-    def _retry_restore(self, _now=None) -> None:
-        """Retry setting observation mode after coordinator initializes."""
-        if not self._deferred_restore:
+        build/pc-observability retrofit: replaces the prior one-shot
+        5-second deferred-retry (Bug Class #5 — AUDIT §A.3 concern #1)
+        with the v4.7.3.1 signal-deferred pattern that mirrors
+        HVACFanControlSwitch (switch.py:~3321).
+        Restore-on-"on"-only semantics: default is OFF so we only apply
+        a restored non-default (``on``) value.
+        """
+        await super().async_added_to_hass()
+
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_PRESENCE_COORDINATOR_READY
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_PRESENCE_COORDINATOR_READY,
+                self._handle_presence_ready,
+            )
+        )
+
+        last_state = await self.async_get_last_state()
+        # Bug Class #52: skip unavailable/unknown; restore-on-non-default only.
+        if last_state is None or last_state.state != "on":
             return
         presence = self._get_presence()
         if presence is not None:
             presence.observation_mode = True
             self._deferred_restore = False
-            _LOGGER.info("Presence observation mode restored (deferred)")
-        else:
-            _LOGGER.warning("Presence observation mode restore failed — coordinator still unavailable after 5s")
+            self.async_write_ha_state()
+            return
+        # Deferred path — presence coord not yet registered.
+        self._deferred_restore = True
+        _LOGGER.debug(
+            "PresenceObservationModeSwitch: presence coord not ready — "
+            "deferring restore",
+        )
+
+    @callback
+    def _handle_presence_ready(self) -> None:
+        """Complete deferred restore when SIGNAL_PRESENCE_COORDINATOR_READY fires.
+
+        Bug Class #42 / #19: bound @callback, runs synchronously on the loop.
+        """
+        if not self._deferred_restore:
+            return
+        presence = self._get_presence()
+        if presence is None:
+            _LOGGER.warning(
+                "PresenceObservationModeSwitch: SIGNAL_PRESENCE_COORDINATOR_"
+                "READY fired but presence coord still missing — restore deferred",
+            )
+            return
+        presence.observation_mode = True
+        self._deferred_restore = False
+        _LOGGER.info(
+            "PresenceObservationModeSwitch: deferred restore landed via "
+            "SIGNAL_PRESENCE_COORDINATOR_READY",
+        )
+        self.async_write_ha_state()
 
     @property
     def available(self) -> bool:
         """Only available when Presence coordinator is active."""
         return self._get_presence() is not None
+
+
+# ============================================================================
+# build/pc-observability: three P1 kill switches on the Presence Coordinator
+# device. All default ON. All follow the v5.48.0 HVACFanControlSwitch hygiene
+# EXACTLY:
+#   - SwitchEntity + RestoreEntity
+#   - signal-deferred restore via SIGNAL_PRESENCE_COORDINATOR_READY
+#   - restore-on-"off"-only semantics (default ON — only restore the non-
+#     default value) — mirrors NMMessagingSuppressSwitch's "restore only
+#     the non-default" precedent.
+#   - `_deferred_value` sentinel cleared by explicit operator toggles.
+#   - `suppressed_since` ISO timestamp attr when OFF (provenance).
+# Each switch is LOAD-BEARING against a specific presence-coord decision
+# path — see the per-switch docstring for the citation.
+# ============================================================================
+
+
+class _PresenceKillSwitchBase(SwitchEntity, RestoreEntity):
+    """Base for the three presence kill switches (default ON).
+
+    Subclasses set:
+      * ``_unique_slug``     — used to build unique_id + attr slug
+      * ``_friendly_name``   — plain-English label
+      * ``_backing_field``   — attribute on presence coord that gates behavior
+      * ``_since_field``     — provenance timestamp attribute on presence coord
+      * ``_icon``            — mdi icon
+    """
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
+
+    _unique_slug: str = ""
+    _friendly_name: str = ""
+    _backing_field: str = ""
+    _since_field: str = ""
+    _icon: str = "mdi:toggle-switch"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_{self._unique_slug}"
+        self._attr_name = self._friendly_name
+        self._attr_icon = self._icon
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "presence_coordinator")},
+            name="URA: Presence Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Presence Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        # Deferred restore sentinel (bool target or None).
+        self._deferred_value: bool | None = None
+        # B-H1: stash of `suppressed_since` from last_state so a deferred
+        # restore preserves the ORIGINAL OFF timestamp (matching the fast
+        # path). None → deferred handler falls back to utcnow().
+        self._deferred_since: str | None = None
+
+    def _get_presence(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("presence")
+
+    @property
+    def available(self) -> bool:
+        return self._get_presence() is not None
+
+    @property
+    def is_on(self) -> bool:
+        presence = self._get_presence()
+        if presence is None:
+            return True  # default ON
+        return bool(getattr(presence, self._backing_field, True))
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        presence = self._get_presence()
+        if presence is None:
+            return {}
+        return {
+            "suppressed_since": getattr(presence, self._since_field, None),
+        }
+
+    async def async_turn_on(self, **kwargs) -> None:
+        presence = self._get_presence()
+        if presence is not None:
+            setattr(presence, self._backing_field, True)
+            setattr(presence, self._since_field, None)
+            self._deferred_value = None
+            self.async_write_ha_state()
+            _LOGGER.info("Presence: %s enabled", self._friendly_name)
+
+    async def async_turn_off(self, **kwargs) -> None:
+        presence = self._get_presence()
+        if presence is not None:
+            setattr(presence, self._backing_field, False)
+            try:
+                from homeassistant.util import dt as _dtu
+                setattr(presence, self._since_field, _dtu.utcnow().isoformat())
+            except Exception:  # noqa: BLE001 — defensive
+                setattr(presence, self._since_field, None)
+            self._deferred_value = None
+            self.async_write_ha_state()
+            _LOGGER.info("Presence: %s disabled", self._friendly_name)
+
+    async def async_added_to_hass(self) -> None:
+        """Signal-deferred restore. Restore-on-'off'-only (default ON)."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_PRESENCE_COORDINATOR_READY
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_PRESENCE_COORDINATOR_READY,
+                self._handle_presence_ready,
+            )
+        )
+        last_state = await self.async_get_last_state()
+        # Bug Class #52: skip unavailable/unknown; restore only the non-default
+        # value ("off" here since default is ON). Matches NMMessagingSuppress
+        # precedent at switch.py:~3451.
+        if last_state is None or last_state.state != "off":
+            return
+        presence = self._get_presence()
+        if presence is not None:
+            setattr(presence, self._backing_field, False)
+            try:
+                from homeassistant.util import dt as _dtu
+                # Prefer preserved suppressed_since; fall back to now.
+                attrs = getattr(last_state, "attributes", None) or {}
+                sus = attrs.get("suppressed_since")
+                if isinstance(sus, str) and sus:
+                    setattr(presence, self._since_field, sus)
+                else:
+                    setattr(presence, self._since_field, _dtu.utcnow().isoformat())
+            except Exception:  # noqa: BLE001 — defensive
+                pass
+            self._deferred_value = None
+            self.async_write_ha_state()
+            return
+        # Presence coord not registered — defer.
+        self._deferred_value = False
+        # B-H1: stash restored suppressed_since so the deferred path applies
+        # it verbatim (mirrors the fast path above).
+        try:
+            attrs = getattr(last_state, "attributes", None) or {}
+            _sus = attrs.get("suppressed_since")
+            self._deferred_since = _sus if isinstance(_sus, str) and _sus else None
+        except Exception:  # noqa: BLE001
+            self._deferred_since = None
+        _LOGGER.debug(
+            "%s: presence coord not ready — deferring restore (value=False, "
+            "suppressed_since=%s)",
+            type(self).__name__,
+            self._deferred_since,
+        )
+
+    @callback
+    def _handle_presence_ready(self) -> None:
+        """Bug Class #42 / #19: bound @callback synchronous handler."""
+        if self._deferred_value is None:
+            return
+        presence = self._get_presence()
+        if presence is None:
+            _LOGGER.warning(
+                "%s: SIGNAL_PRESENCE_COORDINATOR_READY fired but presence "
+                "coord still missing — restore deferred",
+                type(self).__name__,
+            )
+            # B-M4: clear the deferred sentinels so a second READY dispatch
+            # (or a later successful path) can't apply a stale target.
+            self._deferred_value = None
+            self._deferred_since = None
+            return
+        setattr(presence, self._backing_field, self._deferred_value)
+        if self._deferred_value is False:
+            # B-H1: prefer the stashed `_deferred_since` so the OFF
+            # timestamp restored from the recorder is preserved verbatim;
+            # fall back to now only when nothing was preserved.
+            try:
+                from homeassistant.util import dt as _dtu
+                _since = self._deferred_since or _dtu.utcnow().isoformat()
+                setattr(presence, self._since_field, _since)
+            except Exception:  # noqa: BLE001
+                pass
+        _LOGGER.info(
+            "%s: deferred restore landed via SIGNAL_PRESENCE_COORDINATOR_READY "
+            "(value=%s, since=%s)",
+            type(self).__name__,
+            self._deferred_value,
+            self._deferred_since,
+        )
+        self._deferred_value = None
+        self._deferred_since = None
+        self.async_write_ha_state()
+
+
+class PresenceGuestDetectionEnabledSwitch(_PresenceKillSwitchBase):
+    """Kill switch for guest detection (Paths A + B). Default ON.
+
+    Load-bearing: gates ``_guest_gate_armed`` (Path A, presence.py) AND
+    ``_guest_room_gate_armed`` (Path B, presence.py). When OFF, both
+    return False early and no HouseState.GUEST transition can fire from
+    presence-driven paths.
+    """
+
+    _unique_slug = "presence_guest_detection_enabled"
+    _friendly_name = "Guest Detection"
+    _backing_field = "_guest_detection_enabled"
+    _since_field = "_guest_detection_suppressed_since"
+    _icon = "mdi:account-question"
+
+
+class PresenceArrivingRearmEnabledSwitch(_PresenceKillSwitchBase):
+    """Kill switch for the arriving re-arm cooldown. Default ON.
+
+    Load-bearing: gates the cooldown-suppression block in
+    ``_run_inference`` AND the cooldown-arming site (both in presence.py).
+    OFF is equivalent to ``ARRIVING_REARM_COOLDOWN_S = 0`` at runtime.
+    """
+
+    _unique_slug = "presence_arriving_rearm_enabled"
+    _friendly_name = "Arrival Re-Alerts"
+    _backing_field = "_arriving_rearm_enabled"
+    _since_field = "_arriving_rearm_suppressed_since"
+    _icon = "mdi:timer-refresh"
+
+
+class PresenceAwayVetoEnabledSwitch(_PresenceKillSwitchBase):
+    """Kill switch for the person-tracker AWAY veto (v4.7.14 shared helper). Default ON.
+
+    Load-bearing: when OFF, coerces the ``all_tracked_persons_away`` +
+    ``all_trusted_or_lost_away_persons_away`` locals AND the
+    ``self._all_tracked_persons_away`` instance attribute to ``False`` at
+    the top of the ``_inference_engine.infer(...)`` call block in
+    presence.py, so both the v4.7.14 (α) and v5.7.0 WS-A (β) AWAY-veto
+    paths — AND the house-state-sensor surface that reads the instance
+    attr — reflect the disabled state (A-HIGH-1 fix-up).
+    """
+
+    _unique_slug = "presence_away_veto_enabled"
+    _friendly_name = "Away Confirmation Veto"
+    _backing_field = "_away_veto_enabled"
+    _since_field = "_away_veto_suppressed_since"
+    _icon = "mdi:home-remove"
 
 
 class HVACZoneIntelligenceSwitch(SwitchEntity, RestoreEntity):
