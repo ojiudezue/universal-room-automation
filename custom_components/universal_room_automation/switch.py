@@ -5488,7 +5488,7 @@ class _ExteriorLinkerSwitchBase(SwitchEntity, RestoreEntity):
     def _on_turned_off(self, linker) -> None:
         """Subclass hook — fire-axe drains open tracks (MEDIUM-1)."""
 
-    def _apply_off(self, linker, prior_since: str | None) -> None:
+    def _apply_off(self, linker, prior_since=None) -> None:
         setattr(linker, self._flag_attr, False)
         if prior_since:
             setattr(linker, self._since_attr, prior_since)
@@ -5524,7 +5524,7 @@ class _ExteriorLinkerSwitchBase(SwitchEntity, RestoreEntity):
             return
         self._apply_off(linker, prior_since)
 
-    _deferred_off_since: str | None = None
+    _deferred_off_since = None  # str | None (py39-exec-safe: no PEP604 at class level)
 
     def _handle_linker_ready(self) -> None:
         if self._deferred_off_since is None:
