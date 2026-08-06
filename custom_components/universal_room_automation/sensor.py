@@ -5145,6 +5145,14 @@ class PresenceDiagnosticSensor(AggregationEntity, SensorEntity):
     _attr_icon = "mdi:magnify-scan"
     _attr_entity_registry_enabled_default = False
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    # C-L5: opt-in only. When enabled, this sensor writes state on every
+    # inference-driven refresh; the recorder cost is non-trivial because
+    # the attrs (last_veto_decision, signal_consensus_inputs, zone_verdicts)
+    # can be O(rooms) each. Left OFF by default; operator opts in during
+    # active diagnosis and disables again afterwards. Explicit
+    # _attr_should_poll = False (documented, matches AggregationEntity
+    # push-only behavior — no recorder poll cost).
+    _attr_should_poll = False
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
@@ -5171,7 +5179,11 @@ class PresenceDiagnosticSensor(AggregationEntity, SensorEntity):
         if presence is None:
             return None
         _lv = getattr(presence, "_last_veto_decision", None)
-        return str(getattr(_lv, "scope", "")) if _lv is not None else ""
+        # A-LOW-5: None when nothing has been computed yet (not empty string).
+        if _lv is None:
+            return None
+        _scope = getattr(_lv, "scope", None)
+        return str(_scope) if _scope else None
 
     @property
     def extra_state_attributes(self) -> dict:

@@ -267,3 +267,22 @@ Priority: **P1** = must (closes a diagnostic blind spot or a hygiene-parity gap 
    watchdog state-awareness backlog (B-2026-08-04-1): add
    transient-state max-dwell (arriving/waking/guest) fed by the
    house-state sensor's existing dwell_seconds.
+
+---
+
+## Fix-up pass deferrals (2026-08-05, three-review closure)
+
+- **C-L4 — AggregationEntity 60s room-retry loop on the 5 promoted sensors.**
+  DEFERRED. The `AggregationEntity` base class retries subscription every
+  60s until the coordinator surfaces its room set; on the 5 new
+  PC-device promotion sensors (which are attached to the presence
+  coordinator, not a room), this loop runs indefinitely without ever
+  finding rooms to subscribe to.
+  Rationale for deferral: fixing at the base class touches all
+  aggregation-derived entities across coordinators (~dozens of
+  consumers). Scope is a base-class change, not a per-cycle patch;
+  landing it here would elevate a Tier-2-DB cycle to a shared-primitive
+  change (Tier-3). Evidence needed before undertaking: measure the
+  actual overhead of the 60s no-op loop on live URA — if <1% CPU on
+  the presence-coord tick budget the fix has no user-visible payoff.
+  Tracked for the next Aggregation-primitive cycle.

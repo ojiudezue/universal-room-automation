@@ -84,6 +84,8 @@ SIGNAL_ENERGY_COORDINATOR_READY: Final = "ura_energy_coordinator_ready"
 # pattern (Bug Class #5).
 SIGNAL_PRESENCE_COORDINATOR_READY: Final = "ura_presence_coordinator_ready"
 
+# (module-top import used by presence.py — see B-M2 fix-up.)
+
 # v4.7.3.1: dispatched from HVACCoordinator.async_setup() after init
 # completes (zone discovery + first decision cycle).  Bespoke HVAC switches
 # (HVACGuestModeActuationSwitch, HVACOverrideArresterSwitch,

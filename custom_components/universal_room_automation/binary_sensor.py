@@ -1897,13 +1897,22 @@ class PresenceArrivingRearmActiveBinarySensor(BinarySensorEntity):
             via_device=(DOMAIN, "coordinator_manager"),
         )
 
-    @property
-    def is_on(self) -> bool:
+    def _get_presence(self):
         from .const import DOMAIN
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
         if manager is None:
-            return False
-        presence = manager.coordinators.get("presence")
+            return None
+        return manager.coordinators.get("presence")
+
+    @property
+    def available(self) -> bool:
+        # A-LOW-2: mirror the kill-switch base — unavailable until the
+        # presence coordinator is registered.
+        return self._get_presence() is not None
+
+    @property
+    def is_on(self) -> bool:
+        presence = self._get_presence()
         if presence is None:
             return False
         # Mirror the exact predicate at sensor.py:~4654 attr —

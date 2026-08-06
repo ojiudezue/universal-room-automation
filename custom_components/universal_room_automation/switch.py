@@ -2740,6 +2740,11 @@ class PresenceObservationModeSwitch(SwitchEntity, RestoreEntity):
         presence = self._get_presence()
         if presence is not None:
             presence.observation_mode = False
+            # A-LOW-4: an explicit operator OFF must clear any pending
+            # deferred restore, otherwise a later READY dispatch would
+            # override the operator intent by re-applying the restored
+            # "on" value.
+            self._deferred_restore = False
             self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
@@ -2863,6 +2868,10 @@ class _PresenceKillSwitchBase(SwitchEntity, RestoreEntity):
         )
         # Deferred restore sentinel (bool target or None).
         self._deferred_value: bool | None = None
+        # B-H1: stash of `suppressed_since` from last_state so a deferred
+        # restore preserves the ORIGINAL OFF timestamp (matching the fast
+        # path). None → deferred handler falls back to utcnow().
+        self._deferred_since: str | None = None
 
     def _get_presence(self):
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
@@ -2949,9 +2958,19 @@ class _PresenceKillSwitchBase(SwitchEntity, RestoreEntity):
             return
         # Presence coord not registered — defer.
         self._deferred_value = False
+        # B-H1: stash restored suppressed_since so the deferred path applies
+        # it verbatim (mirrors the fast path above).
+        try:
+            attrs = getattr(last_state, "attributes", None) or {}
+            _sus = attrs.get("suppressed_since")
+            self._deferred_since = _sus if isinstance(_sus, str) and _sus else None
+        except Exception:  # noqa: BLE001
+            self._deferred_since = None
         _LOGGER.debug(
-            "%s: presence coord not ready — deferring restore (value=False)",
+            "%s: presence coord not ready — deferring restore (value=False, "
+            "suppressed_since=%s)",
             type(self).__name__,
+            self._deferred_since,
         )
 
     @callback
@@ -2966,21 +2985,31 @@ class _PresenceKillSwitchBase(SwitchEntity, RestoreEntity):
                 "coord still missing — restore deferred",
                 type(self).__name__,
             )
+            # B-M4: clear the deferred sentinels so a second READY dispatch
+            # (or a later successful path) can't apply a stale target.
+            self._deferred_value = None
+            self._deferred_since = None
             return
         setattr(presence, self._backing_field, self._deferred_value)
         if self._deferred_value is False:
+            # B-H1: prefer the stashed `_deferred_since` so the OFF
+            # timestamp restored from the recorder is preserved verbatim;
+            # fall back to now only when nothing was preserved.
             try:
                 from homeassistant.util import dt as _dtu
-                setattr(presence, self._since_field, _dtu.utcnow().isoformat())
+                _since = self._deferred_since or _dtu.utcnow().isoformat()
+                setattr(presence, self._since_field, _since)
             except Exception:  # noqa: BLE001
                 pass
         _LOGGER.info(
             "%s: deferred restore landed via SIGNAL_PRESENCE_COORDINATOR_READY "
-            "(value=%s)",
+            "(value=%s, since=%s)",
             type(self).__name__,
             self._deferred_value,
+            self._deferred_since,
         )
         self._deferred_value = None
+        self._deferred_since = None
         self.async_write_ha_state()
 
 
@@ -3018,10 +3047,13 @@ class PresenceArrivingRearmEnabledSwitch(_PresenceKillSwitchBase):
 class PresenceAwayVetoEnabledSwitch(_PresenceKillSwitchBase):
     """Kill switch for the person-tracker AWAY veto (v4.7.14 shared helper). Default ON.
 
-    Load-bearing: coerces the ``all_tracked_persons_away`` +
-    ``all_trusted_or_lost_away_persons_away`` inputs to ``False`` at the
-    ``_inference_engine.infer(...)`` call site in presence.py, which
-    neuters both the v4.7.14 (α) and v5.7.0 WS-A (β) AWAY-veto paths.
+    Load-bearing: when OFF, coerces the ``all_tracked_persons_away`` +
+    ``all_trusted_or_lost_away_persons_away`` locals AND the
+    ``self._all_tracked_persons_away`` instance attribute to ``False`` at
+    the top of the ``_inference_engine.infer(...)`` call block in
+    presence.py, so both the v4.7.14 (α) and v5.7.0 WS-A (β) AWAY-veto
+    paths — AND the house-state-sensor surface that reads the instance
+    attr — reflect the disabled state (A-HIGH-1 fix-up).
     """
 
     _unique_slug = "presence_away_veto_enabled"
