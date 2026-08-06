@@ -44,8 +44,14 @@ Not any single detector — the **cross-modal arbitration layer** built across 2
    well-chosen decay functions — likely different shapes per signal:
    a manual actuation decays from its event time over an
    expected-activity horizon (step-at-timeout or exponential); PIR
-   edges already have timeout decay; media-intent is a HOLD while
-   actively playing, then decays after stop (paused vs stopped differ);
+   edges already have timeout decay; media-intent anchors on the last
+   human INTERACTION (start/skip/volume — each itself a manual-action
+   evidence event), NOT on playback state: playback-continuing is a
+   weak prior that decays even while playing (operator counterexample
+   2026-08-06: Jaya's room plays music while empty), re-anchored by
+   every interaction, and room-conditioned — strong in shared/activity
+   spaces (gym), weak in bedrooms; per-room media-while-away priors
+   are learnable from memory baselines;
    a CO2 rise would be a slow-onset/slow-decay sustain witness with
    ventilation confounds. The library's sensor-event interface should
    carry (class: evidence|intent, decay_fn, anchor_time) per signal —
@@ -74,8 +80,12 @@ Not any single detector — the **cross-modal arbitration layer** built across 2
   decision before any publishing.
 
 ## Gates
-- CameraResolver cycle deployed + census cutover flipped + ≥2 weeks live validation (the paper's
-  evaluation section needs the live numbers).
+- CameraResolver cycle deployed + census cutover flipped + ≥2 weeks live validation for the
+  YOUNGEST surfaces only (census cutover, dual-host corroboration). Operator ruling 2026-08-06:
+  accelerate via probe-first backfill — demotion counters (v5.42+), divergence rows (v5.43+),
+  veto counters, transit rates, memory episodes are already weeks-old in the URA DB/recorder;
+  one-shot read-only probes can build the evaluation tables NOW, architecture/doctrine sections
+  need no numbers, and only the census-cutover column lands last.
 - Operator go on IP posture (what is gifted vs retained).
 
 Recall: "fusion paper queue"
