@@ -138,3 +138,12 @@ walker = 1 everywhere, for the whole track lifetime.
 - **Test:** INV-XP unweakened (mutation-anchored on the alert gate).
 - **Live:** next organic multi-camera person → one NM thread with path
   narrative; `exterior_track` episode written with event ids.
+
+## Follow-up rider (operator, 2026-08-06): seam-split telemetry + periodic re-probe
+
+Whenever a new track opens on camera B within TRACK_LINK_WINDOW_S while
+an open same-label track's last hop is exactly 2 graph-hops from B, count
+a candidate missed-intermediate on that (A,B) seam (per-seam counter in
+the diagnostic sensor attrs). Evidence consumer: monthly re-run of the
+adjacency probe + camera-detection-reliability fixes. Adjacency edges
+change only on evidence + operator ratification — never automatically.

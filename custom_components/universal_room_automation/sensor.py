@@ -159,6 +159,12 @@ async def async_setup_entry(
             LastPersonEntrySensor(hass, entry),
             LastPersonExitSensor(hass, entry),
             UnidentifiedPersonsSensor(hass, entry),
+            # build/exterior-track: exterior-track census counters + diagnostic
+            ExteriorPersonTracksActiveSensor(hass, entry),
+            ExteriorVehicleTracksActiveSensor(hass, entry),
+            ExteriorAnimalTracksActiveSensor(hass, entry),
+            ExteriorUnidentifiedPersonsSensor(hass, entry),
+            ExteriorOpenTracksDiagnosticSensor(hass, entry),
             # v3.6.0-c1: House state on integration device
             IntegrationHouseStateSensor(hass, entry),
             # v3.6.21: Music following health sensor
@@ -3744,6 +3750,159 @@ class PerimeterAlertStatusSensor(AggregationEntity, SensorEntity):
             "status": "active" if manager.is_active else "inactive",
             "last_alert_time": last_time.isoformat() if last_time else None,
         }
+
+
+# ============================================================================
+# build/exterior-track: ExteriorTrackLinker census counters (open-track derived)
+# ============================================================================
+
+
+class _ExteriorTrackCensusBase(AggregationEntity, SensorEntity):
+    """Base for exterior-track census counters — reads from the linker.
+
+    Device placement (operator-ratified 2026-08-06): the Security
+    Coordinator device — exterior tracking is security-domain. Overrides
+    AggregationEntity's whole-house default.
+    """
+
+    _attr_has_entity_name = True
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, hass, entry) -> None:
+        super().__init__(hass, entry)
+        self._attr_device_info = _security_device_info()
+    # C-MED-1: dimensionless counter — no unit string. HA will not offer
+    # unit conversion on a bare integer count.
+    _counter_key: str = ""
+
+    @property
+    def available(self) -> bool:
+        linker = self.hass.data.get(DOMAIN, {}).get("exterior_track_linker")
+        return linker is not None and getattr(linker, "is_active", False)
+
+    @property
+    def native_value(self) -> int:
+        linker = self.hass.data.get(DOMAIN, {}).get("exterior_track_linker")
+        if linker is None:
+            return 0
+        try:
+            return int(linker.census_counts().get(self._counter_key, 0))
+        except Exception:  # noqa: BLE001
+            return 0
+
+
+class ExteriorPersonTracksActiveSensor(_ExteriorTrackCensusBase):
+    """Number of OPEN exterior person tracks (one walker = 1, for the whole track)."""
+
+    _attr_icon = "mdi:walk"
+    _counter_key = "exterior_person_tracks_active"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_exterior_person_tracks_active"
+        self._attr_name = "Outside: People Being Tracked"
+
+
+class ExteriorVehicleTracksActiveSensor(_ExteriorTrackCensusBase):
+    """Number of OPEN exterior vehicle tracks."""
+
+    _attr_icon = "mdi:car"
+    _counter_key = "exterior_vehicle_tracks_active"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_exterior_vehicle_tracks_active"
+        self._attr_name = "Outside: Vehicles Being Tracked"
+
+
+class ExteriorAnimalTracksActiveSensor(_ExteriorTrackCensusBase):
+    """Number of OPEN exterior animal tracks (dog/cat/wildlife family)."""
+
+    _attr_icon = "mdi:paw"
+    _counter_key = "exterior_animal_tracks_active"
+    _attr_entity_registry_enabled_default = False  # digest-only default cycle 1
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_exterior_animal_tracks_active"
+        self._attr_name = "Outside: Animals Being Tracked"
+
+
+class ExteriorUnidentifiedPersonsSensor(_ExteriorTrackCensusBase):
+    """OPEN person tracks without a Frigate sub_label promotion."""
+
+    _attr_icon = "mdi:account-question"
+    # C-MED-1: dimensionless counter — drop the "persons" unit.
+    _counter_key = "exterior_unidentified_persons"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_exterior_unidentified_persons"
+        self._attr_name = "Outside: Unidentified People"
+
+
+class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
+    # NOTE: device placement override to Security Coordinator applied in
+    # __init__ below (operator-ratified 2026-08-06).
+    """Diagnostic — full snapshot of OPEN exterior tracks (JSON in attrs).
+
+    State = total open-track count across all labels; attributes carry the
+    per-track path strings + classifications for dashboard consumption.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:map-marker-path"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_exterior_open_tracks"
+        self._attr_name = "Outside: Open Tracks (diagnostic)"
+        self._attr_device_info = _security_device_info()
+
+    @property
+    def available(self) -> bool:
+        linker = self.hass.data.get(DOMAIN, {}).get("exterior_track_linker")
+        return linker is not None and getattr(linker, "is_active", False)
+
+    @property
+    def native_value(self) -> int:
+        linker = self.hass.data.get(DOMAIN, {}).get("exterior_track_linker")
+        if linker is None:
+            return 0
+        try:
+            counts = linker.census_counts()
+            return int(
+                counts.get("exterior_person_tracks_active", 0)
+                + counts.get("exterior_vehicle_tracks_active", 0)
+                + counts.get("exterior_animal_tracks_active", 0)
+            )
+        except Exception:  # noqa: BLE001
+            return 0
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        linker = self.hass.data.get(DOMAIN, {}).get("exterior_track_linker")
+        if linker is None:
+            return {"status": "not_initialized"}
+        try:
+            attrs = {
+                "open_tracks": linker.open_tracks_snapshot(),
+                "counts": linker.census_counts(),
+            }
+            # B-M3: per-camera unlinked-events counter (events that opened a
+            # fresh single-hop track rather than extending an existing one —
+            # diagnostic proxy for adjacency gaps).
+            try:
+                attrs["unlinked_events_by_camera"] = (
+                    linker.unlinked_events_snapshot()
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            return attrs
+        except Exception as exc:  # noqa: BLE001
+            return {"status": "error", "error": str(exc)}
 
 
 # ============================================================================

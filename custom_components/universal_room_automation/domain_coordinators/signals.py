@@ -83,6 +83,10 @@ SIGNAL_ENERGY_COORDINATOR_READY: Final = "ura_energy_coordinator_ready"
 # Mirrors the SIGNAL_HVAC_COORDINATOR_READY / SIGNAL_ENERGY_COORDINATOR_READY
 # pattern (Bug Class #5).
 SIGNAL_PRESENCE_COORDINATOR_READY: Final = "ura_presence_coordinator_ready"
+# Exterior track linker ready (2026-08-06): dispatched after the linker
+# lands in hass.data — the control-surface switches live on the CM entry
+# (sibling, concurrent setup), so restore must be able to defer on it.
+SIGNAL_EXTERIOR_LINKER_READY: Final = "ura_exterior_linker_ready"
 
 # (module-top import used by presence.py — see B-M2 fix-up.)
 

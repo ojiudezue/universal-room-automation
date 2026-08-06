@@ -231,6 +231,9 @@ async def async_setup_entry(
             ),
             # v3.15.3: NM messaging kill switch
             NMMessagingSuppressSwitch(hass, entry),
+            # Exterior track linker control surface (2026-08-06, operator-named)
+            ExteriorPathTrackingSwitch(hass, entry),
+            PathAwareNotificationsSwitch(hass, entry),
             # NM Cycle B (2026-07-20) B0: minimal dry-run gate. When ON,
             # every emit-path service call is short-circuited to a
             # `notification_log` dry-run row. Enables safe live exercise
@@ -5409,3 +5412,162 @@ class MFPersonFollowSwitch(SwitchEntity, RestoreEntity):
                 "MFPersonFollowSwitch(%s) restore→singleton failed",
                 self._person_id, exc_info=True,
             )
+
+
+# ============================================================================
+# Exterior track linker control surface (build/exterior-track, 2026-08-06)
+# ============================================================================
+
+
+class _ExteriorLinkerSwitchBase(SwitchEntity, RestoreEntity):
+    """Base for the two exterior-linker switches (operator-named).
+
+    Default ON. Restore-"off"-only (unavailable/unknown never poisons —
+    Bug Class #52). The linker is created in async_setup_entry BEFORE
+    platforms forward (see __init__.py ordering), so restore applies
+    directly — no deferred-signal machinery needed (unlike the presence
+    kill switches, whose coordinator races platform setup).
+    suppressed_since carries the operator's original OFF time across
+    restarts (notification-hygiene precedent).
+    """
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
+    # Subclasses set: unique-id suffix, name, icon, backing flag + since attr.
+    _flag_attr: str = ""
+    _since_attr: str = ""
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "security_coordinator")},
+            name="URA: Security Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Security Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_linker(self):
+        return self.hass.data.get(DOMAIN, {}).get("exterior_track_linker")
+
+    @property
+    def available(self) -> bool:
+        return self._get_linker() is not None
+
+    @property
+    def is_on(self) -> bool:
+        linker = self._get_linker()
+        if linker is None:
+            return True  # default-ON story; available=False masks this anyway
+        return bool(getattr(linker, self._flag_attr, True))
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        linker = self._get_linker()
+        since = getattr(linker, self._since_attr, None) if linker else None
+        return {"suppressed_since": since} if since else {}
+
+    async def async_turn_on(self, **kwargs) -> None:
+        linker = self._get_linker()
+        if linker is not None:
+            setattr(linker, self._flag_attr, True)
+            setattr(linker, self._since_attr, None)
+            self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        linker = self._get_linker()
+        if linker is not None:
+            setattr(linker, self._flag_attr, False)
+            from homeassistant.util import dt as _dtu
+            setattr(linker, self._since_attr, _dtu.utcnow().isoformat())
+            self._on_turned_off(linker)
+            self.async_write_ha_state()
+
+    def _on_turned_off(self, linker) -> None:
+        """Subclass hook — fire-axe drains open tracks (MEDIUM-1)."""
+
+    def _apply_off(self, linker, prior_since=None) -> None:
+        setattr(linker, self._flag_attr, False)
+        if prior_since:
+            setattr(linker, self._since_attr, prior_since)
+        else:
+            from homeassistant.util import dt as _dtu
+            setattr(linker, self._since_attr, _dtu.utcnow().isoformat())
+        self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        # LOW-1: the linker lives on the INTEGRATION entry; these switches
+        # live on the CM entry — sibling entries can set up concurrently,
+        # so a persisted OFF must be able to defer on the ready signal.
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_EXTERIOR_LINKER_READY
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_EXTERIOR_LINKER_READY,
+                self._handle_linker_ready,
+            )
+        )
+        last_state = await self.async_get_last_state()
+        # Restore-"off"-only: ON is the coordinator default; unavailable /
+        # unknown / missing restore never flips the feature off (#52).
+        if last_state is None or last_state.state != "off":
+            return
+        prior_since = last_state.attributes.get("suppressed_since")
+        linker = self._get_linker()
+        if linker is None:
+            # Defer: apply when SIGNAL_EXTERIOR_LINKER_READY fires.
+            self._deferred_off_since = prior_since or ""
+            return
+        self._apply_off(linker, prior_since)
+
+    _deferred_off_since = None  # str | None (py39-exec-safe: no PEP604 at class level)
+
+    def _handle_linker_ready(self) -> None:
+        if self._deferred_off_since is None:
+            return
+        linker = self._get_linker()
+        if linker is None:
+            return  # stay armed for a later dispatch
+        prior = self._deferred_off_since or None
+        self._deferred_off_since = None
+        self._apply_off(linker, prior)
+
+
+class ExteriorPathTrackingSwitch(_ExteriorLinkerSwitchBase):
+    """Fire axe: OFF = no tracks, census zeroed, narrative/severity inert —
+    per-camera alerting byte-identical to the no-linker baseline."""
+
+    _attr_icon = "mdi:map-marker-path"
+    _flag_attr = "tracking_enabled"
+    _since_attr = "tracking_suppressed_since"
+
+    def _on_turned_off(self, linker) -> None:
+        # MEDIUM-1: fire axe is instantaneous — drain all open tracks so
+        # census zeroes NOW and in-flight tracks write their episodes.
+        try:
+            linker.drain_open_tracks(reason="operator_off")
+        except Exception:  # noqa: BLE001 — switch flip must never raise
+            pass
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_exterior_path_tracking"
+        self._attr_name = "Exterior Path Tracking"
+
+
+class PathAwareNotificationsSwitch(_ExteriorLinkerSwitchBase):
+    """Judgment layer only: OFF = classic per-camera severity (LOUDER,
+    never silent); tracking, census and path narratives keep running."""
+
+    _attr_icon = "mdi:bell-badge"
+    _flag_attr = "smart_alerts_enabled"
+    _since_attr = "smart_alerts_suppressed_since"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_path_aware_notifications"
+        self._attr_name = "Path Aware Notifications"
