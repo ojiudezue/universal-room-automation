@@ -364,6 +364,27 @@ class PerimeterAlertManager:
             f"at {now.strftime('%H:%M:%S')}."
         )
 
+        # build/exterior-track: enrich the message with the linker's path
+        # narrative when a track owns this camera hop. Best-effort only —
+        # linker absent / no track / any exception falls through to the
+        # per-camera message above. INV-XP unweakened: this is message
+        # enrichment, not a suppression/dispatch change.
+        linker = self.hass.data.get(DOMAIN, {}).get("exterior_track_linker")
+        _linker_camera = self._camera_key_for_sensor(entity_id)
+        if linker is not None and _linker_camera:
+            try:
+                track = linker.latest_track_for_camera(_linker_camera, "person")
+                if track is not None and len(track.hops) > 1:
+                    message = (
+                        f"Person track — {linker.path_string(track)}. "
+                        f"Latest camera: {entity_id} at {now.strftime('%H:%M:%S')}."
+                    )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "PerimeterAlertManager: linker path enrichment failed",
+                    exc_info=True,
+                )
+
         # A-M1 short-circuit: no channels at all → don't reserve, don't
         # add in-flight, WARN and return.
         if (nm is None or not getattr(nm, "enabled", False)) and not legacy_service:
@@ -431,6 +452,24 @@ class PerimeterAlertManager:
                 # trigger within 5min can still alert.
                 if dispatched_ok:
                     self._last_alert[entity_id] = now
+                    # build/exterior-track: attribute the alert to the
+                    # owning open track so future events on the same track
+                    # can refine cadence (approach/circling still alert;
+                    # pass_by demotes). REFINEMENT ONLY — never bypasses
+                    # the per-camera cooldown gate above (INV-XP).
+                    _linker = self.hass.data.get(DOMAIN, {}).get(
+                        "exterior_track_linker"
+                    )
+                    _cam_key = self._camera_key_for_sensor(entity_id)
+                    if _linker is not None and _cam_key:
+                        try:
+                            _linker.note_alert_dispatched(_cam_key, "person", now)
+                        except Exception:  # noqa: BLE001
+                            _LOGGER.debug(
+                                "PerimeterAlertManager: linker "
+                                "note_alert_dispatched failed",
+                                exc_info=True,
+                            )
             finally:
                 self._dispatch_in_flight.discard(entity_id)
 
@@ -536,6 +575,22 @@ class PerimeterAlertManager:
             except Exception:  # noqa: BLE001
                 picture_url = None
         return self._absolutize(picture_url), offset_s
+
+    def _camera_key_for_sensor(self, sensor_entity_id: str) -> str | None:
+        """Return the Frigate camera name (linker key) for a person binary_sensor.
+
+        Matches _resolve_snapshot_url_and_delay's derivation so linker keys
+        line up with the Frigate event bus's `after.camera` field.
+        """
+        try:
+            if not sensor_entity_id.startswith("binary_sensor."):
+                return None
+            base = sensor_entity_id[len("binary_sensor."):]
+            if base.endswith("_person_occupancy"):
+                return base[: -len("_person_occupancy")]
+            return base
+        except Exception:  # noqa: BLE001
+            return None
 
     def _absolutize(self, url: str | None) -> str | None:
         """A-H1: normalize a relative HA URL to absolute for external channels.

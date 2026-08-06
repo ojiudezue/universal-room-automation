@@ -69,6 +69,7 @@ from .database import UniversalRoomDatabase
 from .person_coordinator import PersonTrackingCoordinator  # v3.2.0
 from .camera_census import CameraIntegrationManager, PersonCensus  # v3.5.0
 from .perimeter_alert import PerimeterAlertManager  # v3.5.1
+from .exterior_track_linker import ExteriorTrackLinker  # build/exterior-track
 from .activity_logger import ActivityLogger  # Activity log
 
 _LOGGER = logging.getLogger(__name__)
@@ -2305,6 +2306,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception as e:
             _LOGGER.error("Failed to initialize perimeter alert manager: %s", e)
 
+        # build/exterior-track: Initialize exterior track linker.
+        # Independent of PerimeterAlertManager — subscribes to `frigate_events`
+        # itself. Kill switch: TRACK_LINK_WINDOW_S == 0 in const.py disables
+        # linking (per-camera alert behavior is byte-identical to today).
+        try:
+            exterior_track_linker = ExteriorTrackLinker(hass)
+            await exterior_track_linker.async_setup()
+            hass.data[DOMAIN]["exterior_track_linker"] = exterior_track_linker
+            _LOGGER.info(
+                "Exterior track linker initialized (active: %s)",
+                exterior_track_linker.is_active,
+            )
+        except Exception as e:
+            _LOGGER.error("Failed to initialize exterior track linker: %s", e)
+
         # v3.6.0: Initialize domain coordinator manager if enabled
         # NOTE: Zone Manager and Coordinator Manager devices are now registered
         # under their own config entries (not under the integration entry).
@@ -4035,6 +4051,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if perimeter_alert_manager:
             await perimeter_alert_manager.async_teardown()
             hass.data[DOMAIN].pop("perimeter_alert_manager", None)
+
+        # build/exterior-track: tear down exterior track linker
+        exterior_track_linker = hass.data[DOMAIN].get("exterior_track_linker")
+        if exterior_track_linker:
+            await exterior_track_linker.async_teardown()
+            hass.data[DOMAIN].pop("exterior_track_linker", None)
 
         # v3.5.2: Tear down transit validator and egress tracker
         transit_validator = hass.data[DOMAIN].get("transit_validator")
