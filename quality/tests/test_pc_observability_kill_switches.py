@@ -340,6 +340,19 @@ def test_away_veto_kill_switch_coerces_infer_kwargs_when_off():
         "when OFF (path α + path β). MUTATION removes either assignment "
         "→ re-opens the veto."
     )
+    # A-HIGH-1 (orchestrator-added anchor): the guard block must ALSO
+    # coerce the INSTANCE attribute — sensor.py surfaces
+    # `_all_tracked_persons_away` on the house-state sensor, and an
+    # un-coerced instance attr lies ("veto armed") while the switch is
+    # OFF. MUTATION `pass`-ing out the assignment must fail HERE.
+    guard_start = src.index("if not _ks_away_veto_enabled:")
+    infer_at = src.index("self._inference_engine.infer", guard_start)
+    guard_block = src[guard_start:infer_at]
+    assert "self._all_tracked_persons_away = False" in guard_block, (
+        "Away-veto kill switch must coerce the instance attr "
+        "self._all_tracked_persons_away inside the guard block so the "
+        "house-state sensor surface matches the engine input."
+    )
 
 
 # ---------------------------------------------------------------------------
