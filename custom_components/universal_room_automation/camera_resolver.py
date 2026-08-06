@@ -99,7 +99,7 @@ CAMERA_AUTOENABLE_DRY_RUN: bool = True
 # fall back to legacy. Cutover requires a golden-master diff artifact
 # (legacy vs new outputs across the live registry) per the plan amendment
 # — do NOT flip without that artifact.
-CENSUS_USE_NEW_RESOLVER: bool = False
+CENSUS_USE_NEW_RESOLVER: bool = True
 
 
 # ---------------------------------------------------------------------------
