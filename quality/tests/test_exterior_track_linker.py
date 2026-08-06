@@ -446,3 +446,36 @@ def test_census_sensors_on_security_device():
     blk = src[src.index("class _ExteriorTrackCensusBase"):
               src.index("class ExteriorPersonTracksActiveSensor")]
     assert "_security_device_info()" in blk
+
+
+def test_drain_open_tracks_zeroes_census_immediately(linker):
+    """MEDIUM-1: fire-axe turn_off drains instantly, not asymptotically."""
+    t0 = datetime(2026, 8, 2, 20, 0, 0)
+    _obs(linker, "utilities", now=t0)
+    _obs(linker, "front", now=t0 + timedelta(seconds=30))
+    assert linker.census_counts()["exterior_person_tracks_active"] >= 1
+    linker.drain_open_tracks(reason="operator_off")
+    assert linker.census_counts()["exterior_person_tracks_active"] == 0
+
+
+def test_switch_deferred_restore_anchors():
+    src = open(
+        __file__.replace(
+            "quality/tests/test_exterior_track_linker.py",
+            "custom_components/universal_room_automation/switch.py",
+        )
+    ).read()
+    blk = src[src.index("class _ExteriorLinkerSwitchBase"):]
+    # LOW-1: cross-entry race — deferred restore on the ready signal.
+    assert "SIGNAL_EXTERIOR_LINKER_READY" in blk
+    assert "_deferred_off_since" in blk
+    # Fire axe drains on turn_off (MEDIUM-1).
+    assert 'drain_open_tracks(reason="operator_off")' in blk
+    # Signal is dispatched from integration setup.
+    init_src = open(
+        __file__.replace(
+            "quality/tests/test_exterior_track_linker.py",
+            "custom_components/universal_room_automation/__init__.py",
+        )
+    ).read()
+    assert "SIGNAL_EXTERIOR_LINKER_READY" in init_src

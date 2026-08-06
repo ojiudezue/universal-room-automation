@@ -5482,26 +5482,59 @@ class _ExteriorLinkerSwitchBase(SwitchEntity, RestoreEntity):
             setattr(linker, self._flag_attr, False)
             from homeassistant.util import dt as _dtu
             setattr(linker, self._since_attr, _dtu.utcnow().isoformat())
+            self._on_turned_off(linker)
             self.async_write_ha_state()
 
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        last_state = await self.async_get_last_state()
-        # Restore-"off"-only: ON is the coordinator default; unavailable /
-        # unknown / missing restore never flips the feature off (#52).
-        if last_state is None or last_state.state != "off":
-            return
-        linker = self._get_linker()
-        if linker is None:
-            return  # linker absent (setup failure) — stay default-ON truth
+    def _on_turned_off(self, linker) -> None:
+        """Subclass hook — fire-axe drains open tracks (MEDIUM-1)."""
+
+    def _apply_off(self, linker, prior_since: str | None) -> None:
         setattr(linker, self._flag_attr, False)
-        prior_since = last_state.attributes.get("suppressed_since")
         if prior_since:
             setattr(linker, self._since_attr, prior_since)
         else:
             from homeassistant.util import dt as _dtu
             setattr(linker, self._since_attr, _dtu.utcnow().isoformat())
         self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        # LOW-1: the linker lives on the INTEGRATION entry; these switches
+        # live on the CM entry — sibling entries can set up concurrently,
+        # so a persisted OFF must be able to defer on the ready signal.
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_EXTERIOR_LINKER_READY
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_EXTERIOR_LINKER_READY,
+                self._handle_linker_ready,
+            )
+        )
+        last_state = await self.async_get_last_state()
+        # Restore-"off"-only: ON is the coordinator default; unavailable /
+        # unknown / missing restore never flips the feature off (#52).
+        if last_state is None or last_state.state != "off":
+            return
+        prior_since = last_state.attributes.get("suppressed_since")
+        linker = self._get_linker()
+        if linker is None:
+            # Defer: apply when SIGNAL_EXTERIOR_LINKER_READY fires.
+            self._deferred_off_since = prior_since or ""
+            return
+        self._apply_off(linker, prior_since)
+
+    _deferred_off_since: str | None = None
+
+    def _handle_linker_ready(self) -> None:
+        if self._deferred_off_since is None:
+            return
+        linker = self._get_linker()
+        if linker is None:
+            return  # stay armed for a later dispatch
+        prior = self._deferred_off_since or None
+        self._deferred_off_since = None
+        self._apply_off(linker, prior)
 
 
 class ExteriorPathTrackingSwitch(_ExteriorLinkerSwitchBase):
@@ -5511,6 +5544,14 @@ class ExteriorPathTrackingSwitch(_ExteriorLinkerSwitchBase):
     _attr_icon = "mdi:map-marker-path"
     _flag_attr = "tracking_enabled"
     _since_attr = "tracking_suppressed_since"
+
+    def _on_turned_off(self, linker) -> None:
+        # MEDIUM-1: fire axe is instantaneous — drain all open tracks so
+        # census zeroes NOW and in-flight tracks write their episodes.
+        try:
+            linker.drain_open_tracks(reason="operator_off")
+        except Exception:  # noqa: BLE001 — switch flip must never raise
+            pass
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)

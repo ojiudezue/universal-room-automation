@@ -2328,6 +2328,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     )
             exterior_track_linker = ExteriorTrackLinker(hass)
             await exterior_track_linker.async_setup()
+            # Control-surface restore fallback (focused-review LOW-1): the
+            # switches live on the CM entry which may set up concurrently;
+            # announce readiness so a deferred restore can apply.
+            from homeassistant.helpers.dispatcher import async_dispatcher_send as _ads
+            from .domain_coordinators.signals import SIGNAL_EXTERIOR_LINKER_READY
+            _ads(hass, SIGNAL_EXTERIOR_LINKER_READY)
             hass.data[DOMAIN]["exterior_track_linker"] = exterior_track_linker
             _LOGGER.info(
                 "Exterior track linker initialized (active: %s)",

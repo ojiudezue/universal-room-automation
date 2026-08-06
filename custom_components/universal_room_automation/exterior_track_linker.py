@@ -484,6 +484,18 @@ class ExteriorTrackLinker:
                     still_open.append(t)
             self._tracks[label] = still_open
 
+    def drain_open_tracks(self, reason: str = "operator_off") -> None:
+        """Close ALL open tracks immediately (focused-review MEDIUM-1).
+
+        Called by the Exterior Path Tracking switch on turn_off so the
+        fire-axe framing is instantaneous: census zeroes NOW, episodes
+        for in-flight tracks are written with the operator-off reason.
+        """
+        for label in list(self._tracks):
+            for track in list(self._tracks[label]):
+                self._close_track(track, reason)
+            self._tracks[label] = []
+
     def sweep_closed(self, now: datetime | None = None) -> None:
         """Public wrapper — callable from a periodic tick."""
         self._sweep_closed(now or dt_util.now())
