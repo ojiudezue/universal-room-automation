@@ -243,6 +243,28 @@ that would revive it) · **DROP** (not worth solving). Reaching "yeah, good idea
 it → park" is a *success* of the gate, not a failure — it is the outcome we most often miss by
 only doing this organically. Every Pre-planning card shows its verdict before promotion.
 
+## Ranking & sequencing — batch by affinity, order by dependency
+
+Cards are not a flat list. Rank/sequence by, in priority:
+
+1. **Dependency (hard order)** — X precedes Y when Y trusts X's output. Record as `blocks:`/`after:`.
+2. **Affinity / batch** — cards touching the same primitive, review cycle, or surface ship as one
+   `batch:` (one build, one Tier-2DB review, shared context) — not scattered across cycles.
+3. **Leverage** — foundational / shared-primitive work first; it de-risks everything downstream.
+4. **Unblocked-ness** — prefer `implied`/`explicit` cards with no pending decision; `blocked` waits.
+5. **Freshness / cost-of-delay** — a live-broken bug jumps the queue *unless* it folds into a
+   batched cycle (then it rides that cycle rather than spawning a one-off).
+
+Record `batch:` (named group) and optional `seq:` (order within/among batches) on cards. Do not
+start a card whose `after:` dependency is unmet, or a `blocked` card, no matter how appealing.
+
+**Current batches:**
+- `resolver-correctness` (foundation, largely autonomous): RESACC-1 → TEST-1 → TRANSIT-1.
+- `perimeter-delivery` (one Tier-2DB cycle; needs SNAP-1 decisions): CONSOL-1 + SNAP-1 +
+  FRIG2SNAP-1 + TEST-2 + KP-ESCALATE-1 (KP-ESCALATE-1 gates the doorbell retirement).
+- `overnight`: KHOST-1 (do NOT pull into collaborative daytime).
+- standalone: SECC-1 (quick read-only verify).
+
 ## Relationship to other systems
 
 - **vibememo** = WHY (decision trail, reasoning-in-motion). **This** = WHAT / WHERE / NEXT.
