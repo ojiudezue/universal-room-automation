@@ -1389,7 +1389,21 @@ PERIMETER_BOOT_SETTLE_S: Final = 30
 # only). No coverage log line is emitted for Protect legs, `_protect_person_legs`
 # returns [] unconditionally, and `_rescan_siblings` skips the Protect-leg
 # probe. Reversion is a one-line toggle here — no other code change required.
-PERIMETER_PROTECT_PERSON_LEGS_ENABLED: Final = True
+#
+# Cycle-3 resolver-legs (2026-08-07) RENAME: `PERIMETER_PROTECT_PERSON_LEGS_
+# ENABLED` -> `PERIMETER_MULTI_ENGINE_LEGS_ENABLED`. Kill-switch semantics
+# generalized from "Protect person legs only" to "every integration's
+# family (person/vehicle/animal) sensor for a configured camera, sourced
+# via CameraResolver.resolve_detection_legs()". False collapses the
+# subscription set to the configured base + `_2` sibling ONLY (byte-
+# identical to pre-cycle behavior for the person path; vehicle/animal
+# paths degrade to base+`_2` derived via legacy suffix search retained
+# only as a fallback in this mode). Reversion is a one-line toggle here.
+# The old constant name is retained as a passthrough alias below for one
+# release so any out-of-tree consumers do not break; new code MUST read
+# the MULTI_ENGINE name.
+PERIMETER_MULTI_ENGINE_LEGS_ENABLED: Final = True
+PERIMETER_PROTECT_PERSON_LEGS_ENABLED: Final = PERIMETER_MULTI_ENGINE_LEGS_ENABLED  # DEPRECATED alias — remove one release post-cycle-3
 
 # 2026-08-06 protect-person-legs fix-up (A-L2 + operator ruling): UniFi Protect
 # exposes the raw camera as `camera.<slug>` while the resolution-channel

@@ -3922,6 +3922,17 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
                 )
             except Exception:  # noqa: BLE001
                 pass
+            # Cycle-3 resolver-legs (2026-08-07): per-camera engine
+            # table + sole-firing ratio (detector-reliability accused-
+            # witness signal, observability only).
+            try:
+                mgr = self.hass.data.get(DOMAIN, {}).get(
+                    "perimeter_alert_manager"
+                )
+                if mgr is not None and hasattr(mgr, "leg_firing_stats"):
+                    attrs["leg_firing_by_camera"] = mgr.leg_firing_stats()
+            except Exception:  # noqa: BLE001
+                pass
             return attrs
         except Exception as exc:  # noqa: BLE001
             return {"status": "error", "error": str(exc)}

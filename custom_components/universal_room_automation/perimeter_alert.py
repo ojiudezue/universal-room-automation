@@ -93,7 +93,8 @@ from .const import (
     MIN_EXTERIOR_SNAPSHOT_OFFSET_S,
     MAX_EXTERIOR_SNAPSHOT_OFFSET_S,
     PERIMETER_BOOT_SETTLE_S,
-    PERIMETER_PROTECT_PERSON_LEGS_ENABLED,
+    PERIMETER_MULTI_ENGINE_LEGS_ENABLED,
+    PERIMETER_PROTECT_PERSON_LEGS_ENABLED,  # DEPRECATED alias — retained one release
     CAMERA_RESOLUTION_CHANNEL_SUFFIXES,
     FRIGATE_SNAPSHOT_LABELS,
     FRIGATE_SNAPSHOT_ID_TTL_S,
@@ -167,6 +168,21 @@ class PerimeterAlertManager:
         self._unsub_started: Any = None
         # B-HIGH-2: perimeter-local settle timestamp
         self._setup_time: datetime | None = None
+        # Cycle-3 resolver-legs (2026-08-07): per-sensor engine tag from
+        # CameraResolver.resolve_detection_legs(); consumed by the
+        # disagreement telemetry. entity_id -> engine label
+        # (frigate/frigate2/protect/protect2/reolink/amcrest/dahua).
+        self._sensor_engine: dict[str, str] = {}
+        # Disagreement telemetry: per-(camera_key, engine) cumulative
+        # rising-edge counter + per-camera event counter for sole-firing
+        # ratio. Observability only — never gates dispatch.
+        self._leg_fire_counts: dict[tuple[str, str], int] = {}
+        self._leg_sole_fire_counts: dict[tuple[str, str], int] = {}
+        # Recent-fires log for sole-firing detection: per camera, a
+        # bounded deque of (engine, ts) pairs within the last window.
+        # Kept small — 32 entries per camera; sole-firing determined by
+        # scan of the last WINDOW_S seconds. Reset lazily at fire time.
+        self._recent_fires: dict[str, list[tuple[str, datetime]]] = {}
 
     async def async_setup(self) -> None:
         """Set up perimeter camera listeners.
@@ -233,49 +249,71 @@ class PerimeterAlertManager:
             if not base_bs:
                 return
             legs_found: list[str] = []
-            # A-L1: tag only on successful append (dedup can absorb the base).
-            if _append_sensor(target, seen, base_bs, info.platform or "", cam_entity_id):
-                legs_found.append(_leg_tag(base_bs, sibling=False))
-            sibling = self._fused_sibling(base_bs)
-            if sibling and _append_sensor(
-                target, seen, sibling, info.platform or "", cam_entity_id,
-            ):
-                legs_found.append(_leg_tag(sibling, sibling=True))
-                _LOGGER.info(
-                    "PerimeterAlertManager: fused source for %s — also "
-                    "watching %s (both hosts feed the same camera key)",
-                    base_bs, sibling,
+            engine_by_leg: dict[str, str] = {}
+            # Cycle-3 resolver-legs (2026-08-07): multi-integration leg
+            # discovery via CameraResolver. Falls back to legacy base+`_2`
+            # only when the kill switch is OFF or the resolver is
+            # unavailable (early boot / test fixture without camera_manager).
+            resolver_legs = self._resolve_legs(cam_entity_id, "person")
+            if resolver_legs:
+                # Union the resolver legs with the configured base so a
+                # configured entity the resolver did not surface is still
+                # subscribed (defensive dedup — cooldown/in-flight collapse
+                # yields ONE alert regardless).
+                base_engine = "frigate" if base_bs.endswith("_person_occupancy") else (
+                    "protect" if base_bs.endswith("_person_detected") else "legacy"
                 )
-            elif not sibling and role == "perimeter":
-                _LOGGER.warning(
-                    "PerimeterAlertManager: no `_2` sibling found for %s — "
-                    "F2 host detections will not alert; F1 retirement will "
-                    "silence this camera until sourcing is refit.", base_bs,
-                )
-            # 2026-08-06 protect-person-legs: add the Protect smart-detect
-            # legs where present. Kill-switch gated inside _protect_person_legs.
-            # Dedup absorbs the case where the configured base already IS
-            # the Protect leg (or its `_2`).
-            for protect_leg in self._protect_person_legs(
-                base_bs, camera_entity_id=cam_entity_id,
-            ):
-                # Platform tag is intentionally NOT Frigate so
-                # _resolve_snapshot_url_and_delay falls through to the
-                # entity_picture fallback for Protect legs.
-                if _append_sensor(
-                    target, seen, protect_leg, "unifiprotect", cam_entity_id,
-                ):
-                    legs_found.append(
-                        "protect2" if protect_leg.endswith("_2") else "protect"
+                if _append_sensor(target, seen, base_bs, info.platform or "", cam_entity_id):
+                    legs_found.append(base_engine)
+                    engine_by_leg[base_bs] = base_engine
+                for leg in resolver_legs:
+                    plat = leg.integration or ""
+                    if _append_sensor(target, seen, leg.entity_id, plat, cam_entity_id):
+                        legs_found.append(leg.engine)
+                        engine_by_leg[leg.entity_id] = leg.engine
+                # Safety net for entities that exist in hass.states but not
+                # the entity_registry (test fixtures + some late-boot
+                # scenarios): probe the direct `_2` sibling of the
+                # configured base sensor and add it if `_entity_exists`
+                # confirms it. Preserves the "no `_2` sibling found" WARN
+                # semantic for the legacy fused-sourcing observability.
+                sibling = f"{base_bs}_2"
+                try:
+                    if self._entity_exists(sibling) and sibling not in seen:
+                        _e2 = "frigate2" if base_bs.endswith("_person_occupancy") else (
+                            "protect2" if base_bs.endswith("_person_detected") else "legacy2"
+                        )
+                        if _append_sensor(target, seen, sibling, info.platform or "", cam_entity_id):
+                            legs_found.append(_e2)
+                            engine_by_leg[sibling] = _e2
+                    elif not self._entity_exists(sibling) and role == "perimeter":
+                        _LOGGER.warning(
+                            "PerimeterAlertManager: no `_2` sibling found "
+                            "for %s — F2 host detections will not alert.",
+                            base_bs,
+                        )
+                except Exception:  # noqa: BLE001
+                    pass
+            else:
+                # Legacy fallback path (kill switch OFF / no manager).
+                for eid, engine in self._legacy_leg_fallback(base_bs, cam_entity_id, "person"):
+                    if _append_sensor(target, seen, eid, info.platform or "", cam_entity_id):
+                        legs_found.append(engine)
+                        engine_by_leg[eid] = engine
+                if role == "perimeter" and len(legs_found) < 2:
+                    _LOGGER.warning(
+                        "PerimeterAlertManager: no `_2` sibling found for "
+                        "%s — F2 host detections will not alert.", base_bs,
                     )
-            # A-L4 / B-LOW-B4: coverage inventory at setup only, INFO level,
-            # gated on the kill switch (so a byte-identical reversion also
-            # skips the new log surface).
-            if PERIMETER_PROTECT_PERSON_LEGS_ENABLED:
+            # Record engine tags for the disagreement telemetry.
+            self._sensor_engine.update(engine_by_leg)
+            # A-L4 / B-LOW-B4: coverage inventory — grouped BY ENGINE per
+            # the cycle-3 headline scope.
+            if PERIMETER_MULTI_ENGINE_LEGS_ENABLED:
                 _LOGGER.info(
                     "PerimeterAlertManager: %s camera %s person-leg "
-                    "coverage: %s (base=%s)",
-                    role, cam_entity_id, legs_found, base_bs,
+                    "coverage by engine: %s (base=%s)",
+                    role, cam_entity_id, sorted(set(legs_found)), base_bs,
                 )
 
         for cam_entity_id, info in perimeter_infos:
@@ -429,53 +467,51 @@ class PerimeterAlertManager:
         # binary sensors on the same perimeter cameras.
         vehicle_sensors: list[str] = []
         animal_sensors: list[str] = []
+        # Cycle-3 resolver-legs (2026-08-07): vehicle+animal legs sourced
+        # per-integration via CameraResolver instead of the retired
+        # _derive_sibling_sensor + _fused_sibling pair.
+        _v_seen: set[str] = set()
+        _a_seen: set[str] = set()
         for cam_entity_id, info in perimeter_infos:
             base_bs = info.person_binary_sensor or ""
-            if not base_bs:
-                continue
-            v = self._derive_sibling_sensor(
-                base_bs, EXTERIOR_VEHICLE_SENSOR_SUFFIXES,
-            )
-            if v:
-                vehicle_sensors.append(v)
-                self._sensor_to_camera[v] = cam_entity_id
-                v2 = self._fused_sibling(v)
-                if v2:
-                    vehicle_sensors.append(v2)
-                    self._sensor_to_camera[v2] = cam_entity_id
-                else:
-                    _LOGGER.warning(
-                        "PerimeterAlertManager: no `_2` sibling found for "
-                        "vehicle sensor %s — F2 host vehicle events will "
-                        "not dispatch.", v,
-                    )
-            else:
-                _LOGGER.warning(
-                    "PerimeterAlertManager: no vehicle sibling sensor "
-                    "found for %s (searched suffixes=%s)",
-                    base_bs, EXTERIOR_VEHICLE_SENSOR_SUFFIXES,
-                )
-            a = self._derive_sibling_sensor(
-                base_bs, EXTERIOR_ANIMAL_SENSOR_SUFFIXES,
-            )
-            if a:
-                animal_sensors.append(a)
-                self._sensor_to_camera[a] = cam_entity_id
-                a2 = self._fused_sibling(a)
-                if a2:
-                    animal_sensors.append(a2)
-                    self._sensor_to_camera[a2] = cam_entity_id
-                else:
-                    _LOGGER.warning(
-                        "PerimeterAlertManager: no `_2` sibling found for "
-                        "animal sensor %s — F2 host animal events will "
-                        "not feed the linker.", a,
-                    )
-            else:
-                _LOGGER.warning(
-                    "PerimeterAlertManager: no animal sibling sensor "
-                    "found for %s (searched suffixes=%s)",
-                    base_bs, EXTERIOR_ANIMAL_SENSOR_SUFFIXES,
+            v_legs = self._resolve_legs(cam_entity_id, "vehicle")
+            a_legs = self._resolve_legs(cam_entity_id, "animal")
+            if not v_legs and base_bs:
+                v_legs = [type("L", (), {"entity_id": eid, "engine": eng,
+                                          "integration": "", "device_id": ""})()
+                          for (eid, eng) in self._legacy_leg_fallback(
+                              base_bs, cam_entity_id, "vehicle")
+                          if eid != base_bs]
+            if not a_legs and base_bs:
+                a_legs = [type("L", (), {"entity_id": eid, "engine": eng,
+                                          "integration": "", "device_id": ""})()
+                          for (eid, eng) in self._legacy_leg_fallback(
+                              base_bs, cam_entity_id, "animal")
+                          if eid != base_bs]
+            v_engines: list[str] = []
+            for leg in v_legs:
+                if leg.entity_id in _v_seen:
+                    continue
+                _v_seen.add(leg.entity_id)
+                vehicle_sensors.append(leg.entity_id)
+                self._sensor_to_camera[leg.entity_id] = cam_entity_id
+                self._sensor_engine[leg.entity_id] = leg.engine
+                v_engines.append(leg.engine)
+            a_engines: list[str] = []
+            for leg in a_legs:
+                if leg.entity_id in _a_seen:
+                    continue
+                _a_seen.add(leg.entity_id)
+                animal_sensors.append(leg.entity_id)
+                self._sensor_to_camera[leg.entity_id] = cam_entity_id
+                self._sensor_engine[leg.entity_id] = leg.engine
+                a_engines.append(leg.engine)
+            if PERIMETER_MULTI_ENGINE_LEGS_ENABLED and (v_engines or a_engines):
+                _LOGGER.info(
+                    "PerimeterAlertManager: perimeter camera %s "
+                    "vehicle-leg engines=%s animal-leg engines=%s",
+                    cam_entity_id, sorted(set(v_engines)),
+                    sorted(set(a_engines)),
                 )
 
         if vehicle_sensors:
@@ -1125,6 +1161,167 @@ class PerimeterAlertManager:
     # Cycle 2 helpers: fused sourcing + vehicle/animal derivation
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Cycle-3 resolver-legs (2026-08-07): retired _fused_sibling +
+    # _protect_person_legs + _derive_sibling_sensor. All multi-engine
+    # discovery now flows through CameraResolver.resolve_detection_legs.
+    # Sensor-side dedup + cooldown/in-flight camera-key collapse stays.
+    # ------------------------------------------------------------------
+
+    # Sole-firing observation window (seconds). Two engines' rising
+    # edges on the same camera within this window are considered the
+    # SAME physical event; if only one engine fires in the window, it
+    # counts as sole. Rung-1 module-scoped: only observability semantics.
+    _SOLE_FIRE_WINDOW_S = 60
+
+    def _resolve_legs(
+        self, camera_entity_id: str, family: str,
+    ) -> list[Any]:
+        """Return DetectionLegs for a configured camera + family.
+
+        Kill-switch semantics (PERIMETER_MULTI_ENGINE_LEGS_ENABLED=False):
+        return []; caller falls back to legacy base-only + `_2` sibling
+        discovery (byte-identical pre-cycle behavior for the person path).
+        """
+        if not PERIMETER_MULTI_ENGINE_LEGS_ENABLED:
+            return []
+        try:
+            camera_manager = self.hass.data.get(DOMAIN, {}).get("camera_manager")
+            if camera_manager is None:
+                return []
+            resolver = camera_manager._get_resolver()
+            if resolver is None:
+                return []
+            return resolver.resolve_detection_legs(
+                camera_entity_id, family,
+                stem_aliases=EXTERIOR_CAMERA_KEY_ALIASES,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "PerimeterAlertManager._resolve_legs failed for %s (%s)",
+                camera_entity_id, family, exc_info=True,
+            )
+            return []
+
+    def _legacy_leg_fallback(
+        self, base_bs: str, camera_entity_id: str, family: str,
+    ) -> list[tuple[str, str]]:
+        """Byte-identical pre-cycle-3 fallback: base + `_2` sibling only.
+
+        Returns [(entity_id, engine_tag)]. Used ONLY when the kill
+        switch is OFF or the resolver returns [] (no camera_manager /
+        early boot). Engine tag is best-effort ("legacy") — sufficient
+        for coverage log; disagreement telemetry gets a coarser view
+        but the kill switch is expected to be exceptional.
+        """
+        out: list[tuple[str, str]] = []
+        if not base_bs:
+            return out
+        out.append((base_bs, "legacy"))
+        candidate = f"{base_bs}_2"
+        try:
+            if self._entity_exists(candidate):
+                out.append((candidate, "legacy2"))
+        except Exception:  # noqa: BLE001
+            pass
+        # Legacy family derivation for vehicle/animal fallback: reuse
+        # the retired-shape suffix search inline (no separate helper —
+        # this is the exceptional kill-switch-off path).
+        if family in ("vehicle", "animal") and base_bs.startswith("binary_sensor."):
+            suffixes = (EXTERIOR_VEHICLE_SENSOR_SUFFIXES if family == "vehicle"
+                        else EXTERIOR_ANIMAL_SENSOR_SUFFIXES)
+            base = base_bs[len("binary_sensor."):]
+            stem = base
+            for p in ("_person_occupancy", "_person_detected", "_person"):
+                if base.endswith(p):
+                    stem = base[: -len(p)]
+                    break
+            for suf in suffixes:
+                cand = f"binary_sensor.{stem}{suf}"
+                try:
+                    if self._entity_exists(cand):
+                        out.append((cand, "legacy"))
+                        cand2 = f"{cand}_2"
+                        if self._entity_exists(cand2):
+                            out.append((cand2, "legacy2"))
+                        break
+                except Exception:  # noqa: BLE001
+                    pass
+        return out
+
+    def leg_firing_stats(self) -> dict[str, dict[str, Any]]:
+        """Return per-camera engine table + sole-firing ratios.
+
+        Shape (dashboard-friendly):
+          {
+            "<camera_key>": {
+              "engines": ["frigate", "frigate2", "protect", ...],
+              "fire_counts_by_engine": {"frigate": 12, ...},
+              "sole_firing_counts_by_engine": {"frigate": 1, ...},
+              "sole_firing_ratio_by_engine": {"frigate": 0.083, ...},
+            }, ...
+          }
+
+        Observability-only — the "accused-witness" signal for engine
+        reliability (cycle-3 scope note). Never gates dispatch.
+        """
+        cameras: dict[str, dict[str, Any]] = {}
+        for (cam, engine), count in self._leg_fire_counts.items():
+            entry = cameras.setdefault(cam, {
+                "engines": [],
+                "fire_counts_by_engine": {},
+                "sole_firing_counts_by_engine": {},
+                "sole_firing_ratio_by_engine": {},
+            })
+            if engine not in entry["engines"]:
+                entry["engines"].append(engine)
+            entry["fire_counts_by_engine"][engine] = count
+        for (cam, engine), sole in self._leg_sole_fire_counts.items():
+            entry = cameras.setdefault(cam, {
+                "engines": [engine],
+                "fire_counts_by_engine": {},
+                "sole_firing_counts_by_engine": {},
+                "sole_firing_ratio_by_engine": {},
+            })
+            entry["sole_firing_counts_by_engine"][engine] = sole
+            total = entry["fire_counts_by_engine"].get(engine, 0) or 1
+            entry["sole_firing_ratio_by_engine"][engine] = round(sole / total, 3)
+        for entry in cameras.values():
+            entry["engines"].sort()
+        return cameras
+
+    def _record_leg_fire(self, entity_id: str) -> None:
+        """Increment per-(camera, engine) counters + sole-firing decision.
+
+        Called from _on_perimeter_event on every rising edge that passes
+        the boot-settle gate. Bounded per-camera recent-fires list keeps
+        memory constant. Fails silent on any registry / dict error.
+        """
+        try:
+            engine = self._sensor_engine.get(entity_id)
+            cam_key = self._camera_key_for_sensor(entity_id)
+            if not engine or not cam_key:
+                return
+            now = dt_util.now()
+            self._leg_fire_counts[(cam_key, engine)] = (
+                self._leg_fire_counts.get((cam_key, engine), 0) + 1
+            )
+            recent = self._recent_fires.setdefault(cam_key, [])
+            # Prune stale + bound size.
+            cutoff = now.timestamp() - self._SOLE_FIRE_WINDOW_S
+            recent = [(e, t) for (e, t) in recent if t.timestamp() >= cutoff][-32:]
+            other_engines = {e for (e, _t) in recent if e != engine}
+            recent.append((engine, now))
+            self._recent_fires[cam_key] = recent
+            if not other_engines:
+                self._leg_sole_fire_counts[(cam_key, engine)] = (
+                    self._leg_sole_fire_counts.get((cam_key, engine), 0) + 1
+                )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "PerimeterAlertManager: _record_leg_fire failed", exc_info=True,
+            )
+
     def _rescan_siblings(self, perimeter_infos: list) -> None:
         """Fix-up (2026-08-06, item 12): one-shot re-scan after HA_STARTED.
 
@@ -1138,62 +1335,35 @@ class PerimeterAlertManager:
             added_animal: list[str] = []
             for cam_entity_id, info in perimeter_infos:
                 base_bs = getattr(info, "person_binary_sensor", "") or ""
-                if not base_bs:
-                    continue
-                # Late-registered `_2` person sibling.
-                sib = self._fused_sibling(base_bs)
-                if sib and sib not in existing:
-                    self._sensor_to_camera[sib] = cam_entity_id
-                    self._sensor_platforms[sib] = getattr(info, "platform", "") or ""
+                # Cycle-3 resolver-legs (2026-08-07): late-registered
+                # person legs from ANY integration (frigate `_2`, protect
+                # base/`_2`, native AI) picked up via resolver.
+                for leg in self._resolve_legs(cam_entity_id, "person"):
+                    if leg.entity_id in existing:
+                        continue
+                    self._sensor_to_camera[leg.entity_id] = cam_entity_id
+                    self._sensor_platforms[leg.entity_id] = leg.integration or ""
+                    self._sensor_engine[leg.entity_id] = leg.engine
                     self._unsub_perimeter.append(
                         async_track_state_change_event(
-                            self.hass, [sib],
+                            self.hass, [leg.entity_id],
                             lambda ev: self._on_perimeter_event(ev),
                         )
                     )
+                    existing.add(leg.entity_id)
                     _LOGGER.info(
                         "PerimeterAlertManager: late-registered person "
-                        "sibling %s subscribed post-HA_STARTED.", sib,
+                        "leg %s (engine=%s) subscribed post-HA_STARTED.",
+                        leg.entity_id, leg.engine,
                     )
-                # A-M2 fix-up: also re-probe Protect person legs so any
-                # UniFi Protect entity whose registry entry appears AFTER
-                # our async_setup (integration reload, late discovery) is
-                # picked up. Dedup guard is the existing `existing` set —
-                # same one used by the person `_2` sibling above — so a
-                # leg already subscribed at setup is not re-subscribed.
-                for protect_leg in self._protect_person_legs(
-                    base_bs, camera_entity_id=cam_entity_id,
-                ):
-                    if protect_leg in existing:
-                        continue
-                    self._sensor_to_camera[protect_leg] = cam_entity_id
-                    self._sensor_platforms[protect_leg] = "unifiprotect"
-                    self._unsub_perimeter.append(
-                        async_track_state_change_event(
-                            self.hass, [protect_leg],
-                            lambda ev: self._on_perimeter_event(ev),
-                        )
-                    )
-                    existing.add(protect_leg)
-                    _LOGGER.info(
-                        "PerimeterAlertManager: late-registered Protect "
-                        "person leg %s subscribed post-HA_STARTED.",
-                        protect_leg,
-                    )
-                # Vehicle / animal are logged only — new subscriptions
-                # need the callback closures set up at async_setup; we log
-                # and let the operator reload if a late-registered
-                # vehicle/animal sensor needs live wiring.
-                v = self._derive_sibling_sensor(
-                    base_bs, EXTERIOR_VEHICLE_SENSOR_SUFFIXES,
-                )
-                if v and v not in existing:
-                    added_vehicle.append(v)
-                a = self._derive_sibling_sensor(
-                    base_bs, EXTERIOR_ANIMAL_SENSOR_SUFFIXES,
-                )
-                if a and a not in existing:
-                    added_animal.append(a)
+                # Vehicle / animal logged only — closures set at
+                # async_setup; operator reload picks them up live.
+                for leg in self._resolve_legs(cam_entity_id, "vehicle"):
+                    if leg.entity_id not in existing:
+                        added_vehicle.append(leg.entity_id)
+                for leg in self._resolve_legs(cam_entity_id, "animal"):
+                    if leg.entity_id not in existing:
+                        added_animal.append(leg.entity_id)
             if added_vehicle or added_animal:
                 _LOGGER.warning(
                     "PerimeterAlertManager: late-registered vehicle/animal "
@@ -1240,110 +1410,17 @@ class PerimeterAlertManager:
         except Exception:  # noqa: BLE001
             return False
 
-    def _fused_sibling(self, entity_id: str) -> str | None:
-        """Return the `_2` sibling binary sensor if it exists.
-
-        Cycle 2 fused-sourcing: F1/F2 are parallel MQTT devices since the
-        2026-08-01 prefix split; F2 sensors are HA-disambiguated with `_2`.
-        Uses the entity registry (durable across restart / pre-state
-        publication) via _entity_exists.
-        """
-        if not entity_id or not entity_id.startswith("binary_sensor."):
-            return None
-        candidate = f"{entity_id}_2"
-        return candidate if self._entity_exists(candidate) else None
-
-    def _protect_person_legs(
-        self,
-        person_bs: str,
-        camera_entity_id: str | None = None,
-    ) -> list[str]:
-        """Return the Protect person legs for a base person binary_sensor.
-
-        2026-08-06 protect-person-legs cycle. UniFi Protect exposes an
-        independent person smart-detect binary_sensor whose entity slug
-        follows `<camera_slug>_person_detected` (+ `_2` when the camera has
-        two sensor entities registered). We derive candidate stems from
-        BOTH the base person sensor's slug AND (fix-up A-L2) the configured
-        camera entity id — the latter with the resolution-channel suffix
-        stripped so `camera.rear_ptz_high_resolution_channel` yields
-        `rear_ptz` and recovers `binary_sensor.rear_ptz_person_detected`.
-        `EXTERIOR_CAMERA_KEY_ALIASES` is applied on each stem so an alias
-        registered for the linker key (armcrestpooloverhead → armcrest)
-        also aliases the Protect-leg probe. Registry-based via
-        `_entity_exists`, matching the cycle-2 fused-sourcing durability
-        rule (survives pre-state-publication and filters disabled entries).
-
-        Returns [] when the kill switch is off, when no stem can be
-        derived, or when neither the base nor `_2` Protect leg exists in
-        the registry for any candidate stem. Never re-returns the base
-        sensor itself — the caller dedups against the already-subscribed
-        set.
-        """
-        if not PERIMETER_PROTECT_PERSON_LEGS_ENABLED:
-            return []
-        stems: list[str] = []
-
-        def _add_stem(raw: str | None) -> None:
-            if not raw:
-                return
-            aliased = EXTERIOR_CAMERA_KEY_ALIASES.get(raw, raw)
-            for candidate in (raw, aliased):
-                if candidate and candidate not in stems:
-                    stems.append(candidate)
-
-        # Stem 1: from the person binary_sensor slug (as before).
-        if person_bs and person_bs.startswith("binary_sensor."):
-            base = person_bs[len("binary_sensor."):]
-            stem_bs, _matched = self._strip_person_family_suffixes(base)
-            _add_stem(stem_bs)
-
-        # Stem 2 (A-L2 fix-up): from the configured camera entity id, with
-        # resolution-channel suffixes stripped. Recovers rear_ptz /
-        # utilities_ptz whose Frigate person_bs slug diverges from the
-        # camera slug.
-        if camera_entity_id and camera_entity_id.startswith("camera."):
-            cam_slug = camera_entity_id[len("camera."):]
-            for suf in CAMERA_RESOLUTION_CHANNEL_SUFFIXES:
-                if cam_slug.endswith(suf):
-                    cam_slug = cam_slug[: -len(suf)]
-                    break
-            _add_stem(cam_slug)
-
-        if not stems:
-            return []
-        legs: list[str] = []
-        seen: set[str] = set()
-        for stem in stems:
-            primary = f"binary_sensor.{stem}_person_detected"
-            if primary not in seen and self._entity_exists(primary):
-                legs.append(primary)
-                seen.add(primary)
-            secondary = f"{primary}_2"
-            if secondary not in seen and self._entity_exists(secondary):
-                legs.append(secondary)
-                seen.add(secondary)
-        return legs
-
-    def _derive_sibling_sensor(
-        self, person_bs: str, suffixes: tuple[str, ...]
-    ) -> str | None:
-        """Derive a vehicle/animal binary sensor id from a person sensor id."""
-        if not person_bs or not person_bs.startswith("binary_sensor."):
-            return None
-        base = person_bs[len("binary_sensor."):]
-        stem = None
-        for p in ("_person_occupancy", "_person_detected", "_person"):
-            if base.endswith(p):
-                stem = base[: -len(p)]
-                break
-        if stem is None:
-            stem = base
-        for suf in suffixes:
-            cand = f"binary_sensor.{stem}{suf}"
-            if self._entity_exists(cand):
-                return cand
-        return None
+    # RETIRED 2026-08-07 (cycle-3 resolver-legs):
+    #   _fused_sibling(), _protect_person_legs(), _derive_sibling_sensor()
+    # — three generations of hand-rolled slug logic (fused-sibling `_2`
+    # probe, protect-legs stem+alias probe, vehicle/animal suffix
+    # derivation) replaced wholesale by
+    # CameraResolver.resolve_detection_legs() (see _resolve_legs above).
+    # These names are asserted ABSENT by
+    # quality/tests/test_resolver_legs.py's retirement anchors — do not
+    # add methods with these names to this class. The sensor-side
+    # dedup + camera-key cooldown/in-flight collapse machinery
+    # (_camera_key_for_sensor, _last_alert, _dispatch_in_flight) stays.
 
     def _feed_linker(self, sensor_entity_id: str, label: str) -> None:
         """Feed ExteriorTrackLinker.observe() from a rising-edge binary sensor.
@@ -1844,6 +1921,10 @@ class PerimeterAlertManager:
                     entity_id, elapsed, PERIMETER_BOOT_SETTLE_S,
                 )
                 return
+        # Cycle-3 resolver-legs: disagreement telemetry — record every
+        # rising edge that survived the boot-settle gate. Observability
+        # only; never gates dispatch.
+        self._record_leg_fire(entity_id)
         # A-HIGH-3 (liveness fix): feed the linker off the rising edge as a
         # fallback for installs where `frigate_events` is not wired. The
         # linker's own observe() dedups per (camera,label) within a few
