@@ -107,6 +107,9 @@ from .const import (
     EXTERIOR_ANIMAL_SENSOR_SUFFIXES,
 )
 from .domain_coordinators.base import Severity
+# F1 (cycle-3 fix-up): single source of truth for person-family suffix
+# vocabulary — perimeter dedup MUST NOT drift from resolver discovery.
+from .camera_resolver import _PERSON_SUFFIXES as _RESOLVER_PERSON_SUFFIXES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -117,6 +120,14 @@ EGRESS_SUPPRESSION_WINDOW_SECONDS = 120  # 2 minutes
 # MQTT-to-event automation OR the mqtt-fires-event bridge). Not fired by the
 # frigate custom component itself; degrades gracefully when absent.
 FRIGATE_EVENTS_BUS_EVENT = "frigate_events"
+
+# F15 (cycle-3 fix-up 2026-08-07): pre-lowered alias table so lookups are
+# case-insensitive on both sides at O(1) build cost.
+_EXTERIOR_CAMERA_KEY_ALIASES_LC: dict[str, str] = {
+    (k.lower() if isinstance(k, str) else k):
+        (v.lower() if isinstance(v, str) else v)
+    for k, v in EXTERIOR_CAMERA_KEY_ALIASES.items()
+}
 
 
 class PerimeterAlertManager:
@@ -286,7 +297,14 @@ class PerimeterAlertManager:
                         if _append_sensor(target, seen, sibling, info.platform or "", cam_entity_id):
                             legs_found.append(_e2)
                             engine_by_leg[sibling] = _e2
-                    elif not self._entity_exists(sibling) and role == "perimeter":
+                    elif (
+                        not self._entity_exists(sibling)
+                        and role == "perimeter"
+                        # F8 (cycle-3 fix-up 2026-08-07): only Frigate has
+                        # `_N` sibling semantics; native-AI bases have none,
+                        # so WARN-ing on them was a boot-storm.
+                        and base_bs.endswith("_person_occupancy")
+                    ):
                         _LOGGER.warning(
                             "PerimeterAlertManager: no `_2` sibling found "
                             "for %s — F2 host detections will not alert.",
@@ -300,7 +318,14 @@ class PerimeterAlertManager:
                     if _append_sensor(target, seen, eid, info.platform or "", cam_entity_id):
                         legs_found.append(engine)
                         engine_by_leg[eid] = engine
-                if role == "perimeter" and len(legs_found) < 2:
+                if (
+                    role == "perimeter"
+                    and len(legs_found) < 2
+                    # F8 (cycle-3 fix-up 2026-08-07): only warn when the
+                    # configured base is a Frigate `_person_occupancy`
+                    # entity; native-AI bases have no `_N` sibling shape.
+                    and base_bs.endswith("_person_occupancy")
+                ):
                     _LOGGER.warning(
                         "PerimeterAlertManager: no `_2` sibling found for "
                         "%s — F2 host detections will not alert.", base_bs,
@@ -315,6 +340,22 @@ class PerimeterAlertManager:
                     "coverage by engine: %s (base=%s)",
                     role, cam_entity_id, sorted(set(legs_found)), base_bs,
                 )
+            # F7 (cycle-3 fix-up 2026-08-07): missing-alias tripwire — if
+            # two subscribed legs produce DIFFERENT camera keys, the
+            # cooldown/in-flight collapse breaks and both fire. WARN so
+            # the operator sees the alias gap immediately.
+            _distinct_keys: set[str] = set()
+            for _eid in engine_by_leg.keys():
+                _k = self._camera_key_for_sensor(_eid)
+                if _k:
+                    _distinct_keys.add(_k)
+            if len(_distinct_keys) > 1:
+                _LOGGER.warning(
+                    "PerimeterAlertManager: %s camera %s legs resolve to "
+                    ">1 camera key %s — cooldown/dedup will not collapse. "
+                    "Add an EXTERIOR_CAMERA_KEY_ALIASES entry.",
+                    role, cam_entity_id, sorted(_distinct_keys),
+                )
 
         for cam_entity_id, info in perimeter_infos:
             _wire_camera(cam_entity_id, info, perimeter_sensors,
@@ -328,28 +369,8 @@ class PerimeterAlertManager:
         # exterior camera allowlist on the linker so the frigate_events bus
         # cannot open tracks for interior cameras (playroom incident).
         # Keys derived the same way every consumer derives them.
-        try:
-            _linker = self.hass.data.get(DOMAIN, {}).get(
-                "exterior_track_linker"
-            )
-            if _linker is not None:
-                _allowed = set()
-                for _sensor in perimeter_sensors + egress_sensors:
-                    _k = self._camera_key_for_sensor(_sensor)
-                    if _k:
-                        _allowed.add(_k)
-                if _allowed:
-                    _linker.set_allowed_cameras(_allowed)
-        except Exception:  # noqa: BLE001 — allowlist install must not break setup
-            _LOGGER.warning(
-                "PerimeterAlertManager: linker allowlist install failed",
-                exc_info=True,
-            )
-
-        # Hotfix 2026-08-06 (operator-reported interior leak): install the
-        # exterior camera allowlist on the linker so the frigate_events bus
-        # cannot open tracks for interior cameras (playroom incident).
-        # Keys derived the same way every consumer derives them.
+        # F9 (cycle-3 fix-up 2026-08-07): duplicated block below removed —
+        # kept exactly one install site.
         try:
             _linker = self.hass.data.get(DOMAIN, {}).get(
                 "exterior_track_linker"
@@ -1095,10 +1116,12 @@ class PerimeterAlertManager:
                 picture_url = None
         return self._absolutize(picture_url), offset_s
 
-    _PERSON_FAMILY_SUFFIXES: tuple[str, ...] = (
-        "_person_occupancy",
-        "_person_detected",
-        "_person",
+    # F1 (cycle-3 fix-up 2026-08-07): derive the person-family suffix set
+    # FROM the resolver's vocabulary (imported at module load) so this
+    # class cannot drift again. Sort LONGEST-FIRST so `_smart_motion_human`
+    # strips before shorter matches would incorrectly claim the suffix.
+    _PERSON_FAMILY_SUFFIXES: tuple[str, ...] = tuple(
+        sorted(_RESOLVER_PERSON_SUFFIXES, key=len, reverse=True)
     )
 
     @classmethod
@@ -1153,7 +1176,9 @@ class PerimeterAlertManager:
                 slug = base
             # Fix-up (2026-08-06, item 14): alias live sensor prefix onto
             # the adjacency-graph key (e.g. armcrestpooloverhead → armcrest).
-            return EXTERIOR_CAMERA_KEY_ALIASES.get(slug, slug)
+            # F15 (cycle-3 fix-up 2026-08-07): case-insensitive both sides.
+            slug_lc = slug.lower() if isinstance(slug, str) else slug
+            return _EXTERIOR_CAMERA_KEY_ALIASES_LC.get(slug_lc, slug)
         except Exception:  # noqa: BLE001
             return None
 
@@ -1224,6 +1249,50 @@ class PerimeterAlertManager:
                 out.append((candidate, "legacy2"))
         except Exception:  # noqa: BLE001
             pass
+        # F3 (cycle-3 fix-up 2026-08-07): OFF path must preserve v5.58.0
+        # Protect stem-probed leg so kill-switch pull does NOT silently
+        # drop Protect coverage. Recovers the retired _protect_person_legs
+        # shape (Frigate base -> Protect `_person_detected` sibling, plus
+        # `_2`). Also recognizes a Dahua `_smart_motion_human` base so an
+        # operator whose configured base is native-AI keeps person
+        # detection under the OFF/fallback path.
+        if family == "person" and base_bs.startswith("binary_sensor."):
+            base_slug = base_bs[len("binary_sensor."):]
+            stem, _matched = self._strip_person_family_suffixes(base_slug)
+            if stem is None:
+                stem = base_slug
+            # Camera-side stem recovery (channel-suffix strip + alias) so
+            # rear_ptz_high_resolution_channel yields rear_ptz.
+            cam_stem = None
+            if camera_entity_id and camera_entity_id.startswith("camera."):
+                cam_slug = camera_entity_id[len("camera."):]
+                for suf in CAMERA_RESOLUTION_CHANNEL_SUFFIXES:
+                    if cam_slug.endswith(suf):
+                        cam_slug = cam_slug[: -len(suf)]
+                        break
+                cam_stem = cam_slug
+            stems: list[str] = []
+            for raw in (stem, cam_stem):
+                if not raw:
+                    continue
+                aliased = EXTERIOR_CAMERA_KEY_ALIASES.get(raw, raw)
+                for s in (raw, aliased):
+                    if s and s not in stems:
+                        stems.append(s)
+            seen_out = {eid for eid, _ in out}
+            for s in stems:
+                for probe, tag in (
+                    (f"binary_sensor.{s}_person_detected", "legacy"),
+                    (f"binary_sensor.{s}_person_detected_2", "legacy2"),
+                ):
+                    if probe in seen_out:
+                        continue
+                    try:
+                        if self._entity_exists(probe):
+                            out.append((probe, tag))
+                            seen_out.add(probe)
+                    except Exception:  # noqa: BLE001
+                        pass
         # Legacy family derivation for vehicle/animal fallback: reuse
         # the retired-shape suffix search inline (no separate helper —
         # this is the exceptional kill-switch-off path).
@@ -1311,9 +1380,14 @@ class PerimeterAlertManager:
             cutoff = now.timestamp() - self._SOLE_FIRE_WINDOW_S
             recent = [(e, t) for (e, t) in recent if t.timestamp() >= cutoff][-32:]
             other_engines = {e for (e, _t) in recent if e != engine}
+            # F14 (cycle-3 fix-up 2026-08-07): only increment the sole
+            # counter ONCE per sole EPISODE. If the previous fire in the
+            # window is same-engine, this is a continuation of the same
+            # sole episode — do not double-count.
+            same_engine_recent = any(e == engine for (e, _t) in recent)
             recent.append((engine, now))
             self._recent_fires[cam_key] = recent
-            if not other_engines:
+            if not other_engines and not same_engine_recent:
                 self._leg_sole_fire_counts[(cam_key, engine)] = (
                     self._leg_sole_fire_counts.get((cam_key, engine), 0) + 1
                 )

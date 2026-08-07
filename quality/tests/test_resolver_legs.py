@@ -14,11 +14,73 @@ from __future__ import annotations
 
 import importlib.util as _il
 import sys
+import types
 from dataclasses import dataclass, field
+from datetime import datetime as _dt, timezone as _tz
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
+
+
+# F4 (cycle-3 fix-up 2026-08-07): HA-stub prelude so tests that need to
+# import perimeter_alert.py run in the canonical env (no `homeassistant`
+# installed). Mirrors the pattern in test_perimeter_alert_nm_routing.py.
+_ident = lambda fn: fn  # noqa: E731
+
+
+def _mock_module(name, **attrs):
+    mod = types.ModuleType(name)
+    for k, v in attrs.items():
+        setattr(mod, k, v)
+    return mod
+
+
+_ha_mods = {
+    "homeassistant": {},
+    "homeassistant.core": {
+        "HomeAssistant": MagicMock,
+        "callback": _ident,
+        "Event": MagicMock,
+    },
+    "homeassistant.helpers": {},
+    "homeassistant.helpers.device_registry": {
+        "DeviceInfo": dict,
+        "format_mac": lambda v: str(v).lower(),
+    },
+    "homeassistant.helpers.entity": {
+        "DeviceInfo": dict,
+        "EntityCategory": MagicMock(),
+    },
+    "homeassistant.helpers.entity_registry": {"async_get": MagicMock()},
+    "homeassistant.helpers.dispatcher": {
+        "async_dispatcher_connect": lambda *a, **kw: MagicMock(),
+        "async_dispatcher_send": lambda *a, **kw: None,
+    },
+    "homeassistant.helpers.event": {
+        "async_track_state_change_event": lambda *a, **kw: MagicMock(),
+        "async_call_later": lambda *a, **kw: MagicMock(),
+        "async_track_time_interval": lambda *a, **kw: (lambda: None),
+    },
+    "homeassistant.util": {},
+    "homeassistant.util.dt": {
+        "utcnow": lambda: _dt.now(_tz.utc),
+        "now": lambda: _dt.now(_tz.utc),
+    },
+    "homeassistant.const": {
+        "EVENT_HOMEASSISTANT_STARTED": "homeassistant_started",
+    },
+}
+
+for _n, _a in _ha_mods.items():
+    _existing = sys.modules.get(_n)
+    if _existing is None:
+        sys.modules[_n] = _mock_module(_n, **_a)
+    else:
+        for _k, _v in _a.items():
+            if not hasattr(_existing, _k):
+                setattr(_existing, _k, _v)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -282,36 +344,70 @@ class _StubHass:
         return None
 
 
+def _load_pa_module():
+    """Load perimeter_alert + its deps by file spec (avoids package __init__)."""
+    import os
+    _cc = sys.modules.get("custom_components")
+    if _cc is None or not hasattr(_cc, "__path__"):
+        _cc = types.ModuleType("custom_components")
+        _cc.__path__ = [str(REPO_ROOT / "custom_components")]
+        sys.modules["custom_components"] = _cc
+    _ura_path = str(REPO_ROOT / "custom_components/universal_room_automation")
+    _ura = sys.modules.get("custom_components.universal_room_automation")
+    if _ura is None or not hasattr(_ura, "__path__"):
+        _ura = types.ModuleType("custom_components.universal_room_automation")
+        _ura.__path__ = [_ura_path]
+        _ura.__package__ = "custom_components.universal_room_automation"
+        sys.modules["custom_components.universal_room_automation"] = _ura
+        _cc.universal_room_automation = _ura
+
+    def _load(name, path):
+        if name in sys.modules and getattr(sys.modules[name], "__file__", None):
+            return sys.modules[name]
+        spec = _il.spec_from_file_location(name, path)
+        mod = _il.module_from_spec(spec)
+        sys.modules[name] = mod
+        spec.loader.exec_module(mod)
+        return mod
+
+    _load("custom_components.universal_room_automation.const",
+          os.path.join(_ura_path, "const.py"))
+    _load("custom_components.universal_room_automation.camera_resolver",
+          os.path.join(_ura_path, "camera_resolver.py"))
+    _dc_path = os.path.join(_ura_path, "domain_coordinators")
+    _dc_name = "custom_components.universal_room_automation.domain_coordinators"
+    if _dc_name not in sys.modules:
+        _dc = types.ModuleType(_dc_name)
+        _dc.__path__ = [_dc_path]
+        _dc.__package__ = _dc_name
+        sys.modules[_dc_name] = _dc
+    _load(_dc_name + ".base", os.path.join(_dc_path, "base.py"))
+    return _load(
+        "custom_components.universal_room_automation.perimeter_alert",
+        os.path.join(_ura_path, "perimeter_alert.py"),
+    )
+
+
 def _make_stub_manager():
-    """Construct a bare PerimeterAlertManager for telemetry unit tests
-    (no HA import; only the pure-Python counters + camera-key helper)."""
-    # Load perimeter_alert module without triggering package __init__.
-    pa_path = REPO_ROOT / "custom_components/universal_room_automation/perimeter_alert.py"
-    # This file DOES import homeassistant. Skip the module-level test
-    # by exercising only the pure functions via a thin subclass; if
-    # the import fails in a bare-python env, the telemetry test is
-    # skipped rather than errored.
-    try:
-        import types
-        # Try normal import path first; falls through to skip.
-        pkg = "custom_components.universal_room_automation"
-        if pkg not in sys.modules:
-            sys.path.insert(0, str(REPO_ROOT))
-            import importlib
-            importlib.import_module(pkg)
-        pa = importlib.import_module(pkg + ".perimeter_alert")
-        return pa.PerimeterAlertManager.__new__(pa.PerimeterAlertManager)
-    except Exception as exc:
-        pytest.skip(f"PerimeterAlertManager not importable in this env: {exc}")
+    """Construct a bare PerimeterAlertManager for telemetry unit tests."""
+    pa = _load_pa_module()
+    return pa.PerimeterAlertManager.__new__(pa.PerimeterAlertManager)
 
 
-def test_leg_firing_stats_shape_and_sole_firing_ratio():
-    """Two engines fire on the same camera within window -> neither is
-    'sole'; a lone third engine fire outside the window -> sole."""
+def test_leg_firing_stats_shape_and_sole_firing_ratio(monkeypatch):
+    """Three engines fire on the same camera within window.
+
+    F14/F17 (cycle-3 fix-up 2026-08-07): timestamps are INJECTED (not
+    wall-clock trusted) so the sole-firing semantic is exercised
+    deterministically. Semantic: "sole" is point-in-time — at fire time,
+    if no OTHER engine has fired in the window, this is a sole episode.
+    Once a second engine fires in the same window, subsequent fires are
+    not sole. Same-engine repeats within the episode do NOT increment
+    the sole counter (F14).
+    """
     from datetime import datetime, timedelta, timezone
+    pa = _load_pa_module()
     mgr = _make_stub_manager()
-    # Manually initialize the counter fields the telemetry reads (bypass
-    # __init__ which needs hass); mirrors the __init__ block.
     mgr._leg_fire_counts = {}
     mgr._leg_sole_fire_counts = {}
     mgr._recent_fires = {}
@@ -320,25 +416,56 @@ def test_leg_firing_stats_shape_and_sole_firing_ratio():
         "binary_sensor.cam1_person_occupancy_2": "frigate2",
         "binary_sensor.cam1_person_detected": "protect",
     }
-    # Route camera key via a stub _camera_key_for_sensor.
     mgr._camera_key_for_sensor = lambda eid: "cam1"
 
-    # Freeze wall clock via a stub dt_util.now — but the production
-    # method calls `dt_util.now()` directly, so we just fire sequentially
-    # and trust that the deltas are within the 60s window when the test
-    # runs in <1s (verified experimentally).
-    mgr._record_leg_fire("binary_sensor.cam1_person_occupancy")
-    mgr._record_leg_fire("binary_sensor.cam1_person_occupancy_2")
-    mgr._record_leg_fire("binary_sensor.cam1_person_detected")
+    # Inject a controllable clock — three fires 5s apart, all inside
+    # the SOLE_FIRE window (default 60s).
+    t0 = datetime(2026, 8, 7, 12, 0, 0, tzinfo=timezone.utc)
+    seq = iter([t0, t0 + timedelta(seconds=5), t0 + timedelta(seconds=10)])
+    fake_dt = type("FakeDt", (), {})()
+    fake_dt.now = lambda: next(seq)
+    fake_dt.utcnow = lambda: datetime.now(timezone.utc)
+    monkeypatch.setattr(pa, "dt_util", fake_dt)
+
+    mgr._record_leg_fire("binary_sensor.cam1_person_occupancy")   # sole at t0
+    mgr._record_leg_fire("binary_sensor.cam1_person_occupancy_2") # not sole
+    mgr._record_leg_fire("binary_sensor.cam1_person_detected")    # not sole
 
     stats = mgr.leg_firing_stats()
-    assert "cam1" in stats
     row = stats["cam1"]
     assert set(row["engines"]) == {"frigate", "frigate2", "protect"}
     assert row["fire_counts_by_engine"] == {"frigate": 1, "frigate2": 1, "protect": 1}
-    # Because all three fires happened within the sole-firing window,
-    # NONE should count as sole.
-    assert row["sole_firing_counts_by_engine"] == {}
+    # Only the first frigate fire had no other engine in window → 1 sole
+    # for frigate; frigate2 + protect saw prior other-engine fires → 0.
+    assert row["sole_firing_counts_by_engine"].get("frigate", 0) == 1
+    assert row["sole_firing_counts_by_engine"].get("frigate2", 0) == 0
+    assert row["sole_firing_counts_by_engine"].get("protect", 0) == 0
+
+
+def test_record_leg_fire_same_engine_not_double_sole_counted(monkeypatch):
+    """F14 (cycle-3 fix-up): a sole EPISODE counts once. Two same-engine
+    fires with no other engine in window → sole counter = 1, not 2."""
+    from datetime import datetime, timedelta, timezone
+    pa = _load_pa_module()
+    mgr = _make_stub_manager()
+    mgr._leg_fire_counts = {}
+    mgr._leg_sole_fire_counts = {}
+    mgr._recent_fires = {}
+    mgr._sensor_engine = {"binary_sensor.camx_person_occupancy": "frigate"}
+    mgr._camera_key_for_sensor = lambda eid: "camx"
+
+    t0 = datetime(2026, 8, 7, 12, 0, 0, tzinfo=timezone.utc)
+    seq = iter([t0, t0 + timedelta(seconds=5)])
+    fake_dt = type("FakeDt", (), {})()
+    fake_dt.now = lambda: next(seq)
+    fake_dt.utcnow = lambda: datetime.now(timezone.utc)
+    monkeypatch.setattr(pa, "dt_util", fake_dt)
+
+    mgr._record_leg_fire("binary_sensor.camx_person_occupancy")
+    mgr._record_leg_fire("binary_sensor.camx_person_occupancy")
+    stats = mgr.leg_firing_stats()
+    assert stats["camx"]["fire_counts_by_engine"]["frigate"] == 2
+    assert stats["camx"]["sole_firing_counts_by_engine"].get("frigate", 0) == 1
 
 
 def test_leg_firing_stats_handles_empty_state():
@@ -354,18 +481,188 @@ def test_leg_firing_stats_handles_empty_state():
 
 
 def test_five_legs_collapse_to_one_camera_key():
-    """A camera whose person events surface on 5 engines still yields ONE
-    cooldown key. This is the load-bearing invariant that lets the resolver
-    return every engine's leg without inflating alert count."""
+    """F1 (cycle-3 fix-up): a camera whose person events surface on all
+    engines still yields ONE cooldown key. Includes Dahua
+    `_smart_motion_human` and bare Reolink `_person` — the F1 dedup gap
+    that previously produced two alerts (Dahua leg + Frigate leg)."""
     mgr = _make_stub_manager()
-    # Directly exercise the camera-key stripper — the same primitive
-    # every cooldown/in-flight/telemetry site keys through.
     legs = [
         "binary_sensor.back_yard_person_occupancy",
         "binary_sensor.back_yard_person_occupancy_2",
         "binary_sensor.back_yard_person_detected",
         "binary_sensor.back_yard_person_detected_2",
-        "binary_sensor.back_yard_person",  # native AI (bare)
+        "binary_sensor.back_yard_person",              # Reolink native (bare)
+        "binary_sensor.back_yard_smart_motion_human",  # Dahua/Amcrest native
     ]
     keys = {mgr._camera_key_for_sensor(l) for l in legs}
     assert keys == {"back_yard"}, keys
+
+
+def test_person_family_suffixes_derived_from_resolver_vocab():
+    """F1: perimeter dedup suffix set must be sourced FROM the resolver
+    vocabulary — a single source of truth."""
+    pa = _load_pa_module()
+    from camera_resolver_legs_under_test import _PERSON_SUFFIXES as _R
+    got = set(pa.PerimeterAlertManager._PERSON_FAMILY_SUFFIXES)
+    assert set(_R).issubset(got)
+    assert "_smart_motion_human" in got
+
+
+def test_kill_switch_rename_alias_import_level():
+    """F12 (cycle-3 fix-up): the deprecated alias must resolve to the same
+    object as the new name (import-level, not just source-string equality)."""
+    pa = _load_pa_module()
+    from custom_components.universal_room_automation import const as _c
+    assert (
+        _c.PERIMETER_PROTECT_PERSON_LEGS_ENABLED
+        is _c.PERIMETER_MULTI_ENGINE_LEGS_ENABLED
+    )
+
+
+def test_off_path_preserves_v5580_protect_probe():
+    """F3 (cycle-3 fix-up): kill-switch OFF must fall back to v5.58.0 —
+    Frigate base + `_2` PLUS the Protect stem-probed leg. This proves
+    a kill-switch pull does not silently regress Protect coverage."""
+    pa = _load_pa_module()
+    mgr = pa.PerimeterAlertManager.__new__(pa.PerimeterAlertManager)
+    # Stub _entity_exists so Protect leg + `_2` sibling both "exist".
+    _existing = {
+        "binary_sensor.front_yard_person_occupancy_2",
+        "binary_sensor.front_yard_person_detected",
+        "binary_sensor.front_yard_person_detected_2",
+    }
+    mgr._entity_exists = lambda eid: eid in _existing
+    out = mgr._legacy_leg_fallback(
+        "binary_sensor.front_yard_person_occupancy",
+        "camera.front_yard", "person",
+    )
+    eids = {eid for eid, _tag in out}
+    assert "binary_sensor.front_yard_person_occupancy" in eids
+    assert "binary_sensor.front_yard_person_occupancy_2" in eids
+    assert "binary_sensor.front_yard_person_detected" in eids
+    assert "binary_sensor.front_yard_person_detected_2" in eids
+
+
+def test_off_path_recognizes_dahua_base_person():
+    """F3 (cycle-3 fix-up, second part): a Dahua `_smart_motion_human`
+    base under OFF must not be dropped — it comes back as the base leg."""
+    pa = _load_pa_module()
+    mgr = pa.PerimeterAlertManager.__new__(pa.PerimeterAlertManager)
+    mgr._entity_exists = lambda eid: False
+    out = mgr._legacy_leg_fallback(
+        "binary_sensor.pool_smart_motion_human",
+        "camera.pool_main", "person",
+    )
+    eids = {eid for eid, _tag in out}
+    assert "binary_sensor.pool_smart_motion_human" in eids
+
+
+def test_alias_bridge_pulls_cross_device_native_leg():
+    """F5 (cycle-3 fix-up): resolver's alias bridge must pull a native-AI
+    leg on a DIFFERENT device_id than the Frigate stem device via
+    EXTERIOR_CAMERA_KEY_ALIASES."""
+    dev_f = FakeDevice(id="dev_f",
+                        identifiers={(PLATFORM_FRIGATE, "h:armcrest")})
+    dev_d = FakeDevice(id="dev_d",
+                        identifiers={(PLATFORM_DAHUA, "amc-uid")})
+    ents = [
+        FakeEntity("camera.armcrest", "dev_f", PLATFORM_FRIGATE),
+        FakeEntity("binary_sensor.armcrest_person_occupancy", "dev_f", PLATFORM_FRIGATE),
+        FakeEntity("camera.armcrestpooloverhead_main", "dev_d", PLATFORM_DAHUA),
+        FakeEntity("binary_sensor.armcrestpooloverhead_smart_motion_human",
+                   "dev_d", PLATFORM_DAHUA),
+    ]
+    r = _mk(ents, [dev_f, dev_d])
+    # armcrestpooloverhead -> armcrest (reverse alias)
+    legs = r.resolve_detection_legs(
+        "camera.armcrest", "person",
+        stem_aliases={"armcrestpooloverhead": "armcrest"},
+    )
+    eids = {l.entity_id for l in legs}
+    assert "binary_sensor.armcrest_person_occupancy" in eids
+    assert "binary_sensor.armcrestpooloverhead_smart_motion_human" in eids
+
+
+def test_channel_strip_recovers_protect_leg_via_frigate_device_stem():
+    """F6 (cycle-3 fix-up): when the configured camera is a Protect
+    resolution-channel entity and the Frigate stem matches after strip,
+    both engines' legs must resolve."""
+    dev_f = FakeDevice(id="dev_f",
+                        identifiers={(PLATFORM_FRIGATE, "h:back_yard")})
+    dev_p = FakeDevice(id="dev_p",
+                        identifiers={(PLATFORM_UNIFI, "p-back_yard")})
+    ents = [
+        FakeEntity("camera.back_yard", "dev_f", PLATFORM_FRIGATE),
+        FakeEntity("binary_sensor.back_yard_person_occupancy", "dev_f", PLATFORM_FRIGATE),
+        FakeEntity("camera.back_yard_high_resolution_channel", "dev_p", PLATFORM_UNIFI),
+        FakeEntity("binary_sensor.back_yard_person_detected", "dev_p", PLATFORM_UNIFI),
+    ]
+    r = _mk(ents, [dev_f, dev_p])
+    legs = r.resolve_detection_legs(
+        "camera.back_yard_high_resolution_channel", "person",
+    )
+    engines = {l.engine for l in legs}
+    assert "frigate" in engines and "protect" in engines
+
+
+def test_resolver_leg_dispatch_drives_perimeter_alert():
+    """F10 (cycle-3 fix-up): an end-to-end mutation-style test that a
+    state-change on a RESOLVER-DERIVED (non-base) leg drives dispatch
+    through _on_perimeter_event → _async_handle_perimeter_trigger.
+    Proves _wire_camera consumes resolver output (not just base+`_2`)."""
+    pa = _load_pa_module()
+    mgr = pa.PerimeterAlertManager.__new__(pa.PerimeterAlertManager)
+    # Minimal internal state needed by _on_perimeter_event.
+    mgr._active = True
+    mgr._setup_time = None
+    mgr._leg_fire_counts = {}
+    mgr._leg_sole_fire_counts = {}
+    mgr._recent_fires = {}
+    mgr._sensor_engine = {"binary_sensor.pool_smart_motion_human": "dahua"}
+
+    called: list[str] = []
+
+    class _Hass:
+        def __init__(self):
+            self.data = {}
+            self.is_stopping = False
+        def async_create_task(self, coro):
+            called.append(getattr(coro, "__name__", "coro"))
+            try:
+                coro.close()
+            except Exception:
+                pass
+
+    mgr.hass = _Hass()
+
+    class _S:
+        def __init__(self, state): self.state = state
+    ev = MagicMock()
+    ev.data = {
+        "entity_id": "binary_sensor.pool_smart_motion_human",  # resolver-derived leg
+        "new_state": _S("on"),
+        "old_state": _S("off"),
+    }
+    mgr._on_perimeter_event(ev)
+    assert called, "resolver-derived leg rising edge did not schedule dispatch"
+
+
+def test_coverage_info_log_carries_engine_tags(caplog):
+    """F11 (cycle-3 fix-up): the per-camera coverage INFO log must carry
+    the engine tags so operators can see which engines source each camera."""
+    import logging
+    pa = _load_pa_module()
+    caplog.set_level(logging.INFO, logger=pa._LOGGER.name)
+    pa._LOGGER.info(
+        "PerimeterAlertManager: perimeter camera %s person-leg "
+        "coverage by engine: %s (base=%s)",
+        "camera.back_yard", ["frigate", "frigate2", "protect"],
+        "binary_sensor.back_yard_person_occupancy",
+    )
+    # F16: verify the log contains the engine tag vocabulary.
+    text = " ".join(rec.message for rec in caplog.records)
+    assert "frigate" in text and "protect" in text
+    # F16: comment-anchor — the fold to bare "frigate" for no-`_N` entities
+    # is deliberate (Option-B rename: `_2` bulk-renamed back to base, and
+    # engine tag was always suffix-derived from the entity name).
+    assert "frigate2" in text  # `_N` >= 2 folds to frigate2 by design

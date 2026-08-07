@@ -926,9 +926,24 @@ class CameraResolver:
                 continue
             name = _entity_name(eid)
             integration = self._infer_integration(self._device(ent_did))
-            # Frigate-only: exclude package-person detectors.
-            if integration == PLATFORM_FRIGATE and _is_package_detector(eid):
+            # F13 (cycle-3 fix-up 2026-08-07): defense-in-depth — exclude
+            # ANY `_package_*` family entity regardless of inferred
+            # integration, so a device with empty identifiers can't sneak
+            # a package-person leg into the fusion.
+            if _is_package_detector(eid):
                 continue
+            # F13: log once per device when integration inference fails
+            # instead of silently tagging engine "unknown".
+            if not integration and ent_did:
+                if not hasattr(self, "_unknown_integration_logged"):
+                    self._unknown_integration_logged = set()
+                if ent_did not in self._unknown_integration_logged:
+                    self._unknown_integration_logged.add(ent_did)
+                    _LOGGER.debug(
+                        "CameraResolver.resolve_detection_legs: device %s "
+                        "has no inferable integration; engine will be "
+                        "tagged 'unknown' for its legs.", ent_did,
+                    )
             # Suffix match — with `_2`/`_N` disambiguation stripped.
             stripped_name = _strip_disambiguation_suffix(name)
             matched = False
