@@ -324,19 +324,30 @@ class TestD2PresetGuardSourceShape:
     def test_guard_uses_continue_to_skip_write(self, hvac_src: str):
         """Guard must continue the loop so set_preset_mode is never dispatched.
 
-        Re-anchor 2026-06-11 fix-up (decision 5(d)): anchor on the
-        FAN_TRUST_STATES trust predicate then take a SMALL trailing
-        window — so a future guard removal fails the test again. The
-        prior 4000-char window was wide enough to swallow any nearby
-        `continue` and would not catch the regression.
+        B-M2 (2026-08-06 fix-up): re-anchor tightly. The Writer-B removal
+        cycle inserted a synthetic `preset_change_suppressed` activity_logger
+        row inside the trust body, which had bumped the trust-predicate
+        anchor window to 4200 chars — wide enough that a future guard
+        removal could still find a `continue` from an unrelated branch.
+        Re-anchor on the suppressed-row emit itself (`preset_change_suppressed`
+        action literal, which lives INSIDE the trust body) and take a narrow
+        ~800 char trailing window so the `continue` must live within the
+        trust predicate's own body.
         """
-        anchor = "effective_preset == \"away\" and self._house_state in FAN_TRUST_STATES"
+        anchor = '"preset_change_suppressed"'
         idx = hvac_src.find(anchor)
-        assert idx >= 0, "Trust predicate anchor missing"
-        # Small window: just the guard body (~600 chars covers the
-        # try/except + `if home_persons:` log + continue; pre-fix-up
-        # this region's continue is ~22 lines down).
-        window = hvac_src[idx : idx + 2400]
+        if idx < 0:
+            idx = hvac_src.find("'preset_change_suppressed'")
+        assert idx >= 0, (
+            "Suppressed-row anchor (`preset_change_suppressed`) missing — "
+            "the trust body's activity_logger emit was removed or renamed"
+        )
+        # ~1200-char window: covers the suppressed-row activity_logger.log
+        # kwargs + closing brackets + the `continue`. Measured 1100 chars
+        # between anchor and continue on the 2026-08-06 fix-up commit; a
+        # 100-char headroom absorbs cosmetic reformatting without swallowing
+        # any unrelated `continue`.
+        window = hvac_src[idx : idx + 1200]
         assert "continue" in window, (
             "Trust predicate must continue the loop within its own body; "
             "guard removal regression."
