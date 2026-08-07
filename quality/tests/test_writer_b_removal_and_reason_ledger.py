@@ -595,6 +595,79 @@ class TestReasonLadderPrecedence:
                     return collected
         raise AssertionError("reason ladder not located in _apply_house_state_presets")
 
+    # Orchestrator hardening (post-fix-up): order alone is not enough — a
+    # mutation that swaps the CONDITIONS while leaving the assigned
+    # literals in place (mispairing condition -> reason) passed the order
+    # test silently. Pin the PAIRING: each reason literal's own branch
+    # condition must reference its expected input identifier.
+    PAIRING = {
+        "stale_occupancy": "stale_occupancy",
+        "vacant_past_grace": "zone_vacant_past_grace",
+        "runtime_exceeded": "runtime_exceeded",
+        "pre_arrival": "_pre_arrival_zones",
+    }
+
+    def test_ladder_condition_reason_pairing(self, hvac_src: str):
+        import ast as _ast
+        tree = _ast.parse(hvac_src)
+        target = None
+        for node in _ast.walk(tree):
+            if (
+                isinstance(node, _ast.AsyncFunctionDef)
+                and node.name == "_apply_house_state_presets"
+            ):
+                target = node
+                break
+        assert target is not None
+        pairs: dict[str, str] = {}
+
+        def _lit(if_node):
+            for stmt in if_node.body:
+                if (
+                    isinstance(stmt, _ast.Assign)
+                    and any(
+                        isinstance(t, _ast.Name)
+                        and t.id == "preset_change_reason"
+                        for t in stmt.targets
+                    )
+                    and isinstance(stmt.value, _ast.Constant)
+                    and isinstance(stmt.value.value, str)
+                ):
+                    return stmt.value.value
+            return None
+
+        def _walk(if_node):
+            lit = _lit(if_node)
+            if lit is not None:
+                pairs[lit] = _ast.unparse(if_node.test)
+            if len(if_node.orelse) == 1 and isinstance(
+                if_node.orelse[0], _ast.If
+            ):
+                _walk(if_node.orelse[0])
+
+        for node in _ast.walk(target):
+            if isinstance(node, _ast.If):
+                probe: list[str] = []
+                n = node
+                while True:
+                    l = _lit(n)
+                    if l:
+                        probe.append(l)
+                    if len(n.orelse) == 1 and isinstance(n.orelse[0], _ast.If):
+                        n = n.orelse[0]
+                    else:
+                        break
+                if "vacant_past_grace" in probe:
+                    _walk(node)
+                    break
+        for reason, ident in self.PAIRING.items():
+            assert reason in pairs, f"branch for {reason!r} missing"
+            assert ident in pairs[reason], (
+                f"reason {reason!r} is assigned under condition "
+                f"{pairs[reason]!r} which does not reference {ident!r} — "
+                f"condition/reason MISPAIRED"
+            )
+
     def test_ladder_order_is_pinned(self, hvac_src: str):
         got = self._collect_ladder(hvac_src)
         assert got == self.EXPECTED_ORDER, (
