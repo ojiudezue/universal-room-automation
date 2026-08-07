@@ -350,7 +350,7 @@ def test_legacy_and_nm_both_set_prefers_nm_with_deprecation_warning(caplog):
 def test_frigate_snapshot_url_when_event_cached():
     hass, nm = _make_hass(house_state="away")
     mgr = _run(_setup_mgr(hass))
-    mgr._frigate_last_event_id["front_yard"] = "1735000000.123456-abcdef"
+    mgr._frigate_last_event_id["front_yard"] = ("1735000000.123456-abcdef", _perimeter.dt_util.utcnow())
     _scheduled.clear()
     _run(mgr._async_handle_perimeter_trigger("binary_sensor.front_yard_person_occupancy"))
     # Frigate event snapshot → no scheduled delay (offset ignored)
@@ -437,7 +437,7 @@ def test_MUTATION_snapshot_threading_load_bearing():
         Mgr._resolve_snapshot_url_and_delay = lambda self, sid: (None, 0)
         hass, nm = _make_hass(house_state="away")
         mgr = asyncio.run(_setup_neutered(Mgr, hass))
-        mgr._frigate_last_event_id["front_yard"] = "evt-1"
+        mgr._frigate_last_event_id["front_yard"] = ("evt-1", _perimeter.dt_util.utcnow())
         asyncio.run(mgr._async_handle_perimeter_trigger(
             "binary_sensor.front_yard_person_occupancy"))
         assert nm.async_notify.await_args.kwargs["snapshot_url"] is None
@@ -473,7 +473,7 @@ def test_absolutize_uses_external_url_when_set():
         house_state="away", external_url="https://ura.example.com/"
     )
     mgr = _run(_setup_mgr(hass))
-    mgr._frigate_last_event_id["front_yard"] = "evt-A"
+    mgr._frigate_last_event_id["front_yard"] = ("evt-A", _perimeter.dt_util.utcnow())
     _run(mgr._async_handle_perimeter_trigger(
         "binary_sensor.front_yard_person_occupancy"))
     assert nm.async_notify.await_args.kwargs["snapshot_url"] == (
@@ -486,7 +486,7 @@ def test_absolutize_falls_back_to_internal_url():
         house_state="away", internal_url="http://homeassistant.local:8123"
     )
     mgr = _run(_setup_mgr(hass))
-    mgr._frigate_last_event_id["front_yard"] = "evt-B"
+    mgr._frigate_last_event_id["front_yard"] = ("evt-B", _perimeter.dt_util.utcnow())
     _run(mgr._async_handle_perimeter_trigger(
         "binary_sensor.front_yard_person_occupancy"))
     assert nm.async_notify.await_args.kwargs["snapshot_url"] == (
@@ -497,7 +497,7 @@ def test_absolutize_falls_back_to_internal_url():
 def test_absolutize_no_urls_leaves_relative_and_logs_once(caplog):
     hass, nm = _make_hass(house_state="away")
     mgr = _run(_setup_mgr(hass))
-    mgr._frigate_last_event_id["front_yard"] = "evt-C"
+    mgr._frigate_last_event_id["front_yard"] = ("evt-C", _perimeter.dt_util.utcnow())
     with caplog.at_level("DEBUG"):
         _run(mgr._async_handle_perimeter_trigger(
             "binary_sensor.front_yard_person_occupancy"))
@@ -509,7 +509,7 @@ def test_absolutize_no_urls_leaves_relative_and_logs_once(caplog):
     # Second trigger (clear cooldown) → no re-log
     mgr._last_alert.clear()
     caplog.clear()
-    mgr._frigate_last_event_id["front_yard"] = "evt-D"
+    mgr._frigate_last_event_id["front_yard"] = ("evt-D", _perimeter.dt_util.utcnow())
     with caplog.at_level("DEBUG"):
         _run(mgr._async_handle_perimeter_trigger(
             "binary_sensor.front_yard_person_occupancy"))
@@ -1649,3 +1649,76 @@ def test_MUTATION_camera_key_dedup_load_bearing(monkeypatch):
         _run(mgr._async_handle_perimeter_trigger(sensor))
     # Dedup neutered → all four legs alert independently.
     assert nm.async_notify.await_count == 4
+
+
+# ------------------------------------------ snapshot cache TTL hotfix ---
+# Operator report 2026-08-07 ~23:56 CDT: perimeter iMessage alerts with no
+# picture while Frigate held has_snapshot=True events. Cause: cache popped
+# the event id on Frigate 'end' (a walk-past ends before dispatch), plus
+# CamelCase camera names never matched the lowercase stem lookup.
+
+
+def _setup_mgr_with_frigate(sensor=None):
+    """Helper for the snapshot-cache TTL hotfix tests: manager set up with
+    one Frigate-platform perimeter camera; returns (mgr, hass, nm). The
+    frigate-events bus handler is captured off hass.bus.async_listen."""
+    cam = "camera.front_side_ptz"
+    if sensor:
+        cam = "camera." + sensor[len("binary_sensor."):].rsplit(
+            "_person_occupancy", 1)[0]
+    hass, nm = _make_hass(perimeter_cameras=[cam])
+    mgr = _run(_setup_mgr(hass))
+    return mgr, hass, nm
+
+
+def _mk_frigate_event(camera, etype="new", eid="ev-1", label="person"):
+    import types as _t
+    return _t.SimpleNamespace(data={
+        "after": {"camera": camera, "label": label, "id": eid},
+        "type": etype,
+    })
+
+
+def test_snapshot_id_survives_event_end(perimeter_mgr_factory=None):
+    mgr, hass, nm = _setup_mgr_with_frigate()
+    handler = hass.bus.async_listen.call_args[0][1]
+    handler(_mk_frigate_event("front_side_ptz", "new", "ev-99"))
+    handler(_mk_frigate_event("front_side_ptz", "end", "ev-99"))
+    url, delay = mgr._resolve_snapshot_url_and_delay(
+        "binary_sensor.front_side_ptz_person_occupancy"
+    )
+    assert url is not None and "ev-99" in url and delay == 0, (
+        "event id must survive 'end' — snapshots outlive the event"
+    )
+
+
+def test_snapshot_id_ttl_expires(monkeypatch):
+    mgr, hass, nm = _setup_mgr_with_frigate()
+    handler = hass.bus.async_listen.call_args[0][1]
+    handler(_mk_frigate_event("front_side_ptz", "new", "ev-77"))
+    import datetime as _dt
+    real_now = _perimeter.dt_util.utcnow()
+    import sys as _sys
+    _mod = _sys.modules[type(mgr).__module__]
+    monkeypatch.setattr(
+        _mod.dt_util, "utcnow",
+        lambda: real_now + _dt.timedelta(seconds=999),
+    )
+    url, _ = mgr._resolve_snapshot_url_and_delay(
+        "binary_sensor.front_side_ptz_person_occupancy"
+    )
+    assert url is None or "ev-77" not in str(url), "stale id must expire"
+
+
+def test_snapshot_cache_key_case_insensitive():
+    mgr, hass, nm = _setup_mgr_with_frigate(
+        sensor="binary_sensor.reolinkstudybporchptz_person_occupancy",
+    )
+    handler = hass.bus.async_listen.call_args[0][1]
+    handler(_mk_frigate_event("ReolinkStudyBPorchPTZ", "new", "ev-55"))
+    url, delay = mgr._resolve_snapshot_url_and_delay(
+        "binary_sensor.reolinkstudybporchptz_person_occupancy"
+    )
+    assert url is not None and "ev-55" in url, (
+        "CamelCase Frigate camera names must match lowercase stems"
+    )

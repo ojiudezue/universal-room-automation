@@ -30,3 +30,6 @@ pre-existing failures name-stable.
 - **Live:** next organic perimeter person → ONE alert regardless of
   which engine(s) fired; diagnostic shows one track.
 - **Live:** zero URA ERROR lines first hour.
+
+## Validated 2026-08-07 post-restart
+v5.58.0 live; zero URA ERROR lines. clean boot, exterior census 0, house home_night; leg-coverage inventory + one-alert proof ride the next organic event.

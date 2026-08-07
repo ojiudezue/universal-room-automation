@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.58.0
+# Universal Room Automation vv5.58.1
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.58.0"
+VERSION: Final = "v5.58.1"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1407,6 +1407,12 @@ CAMERA_RESOLUTION_CHANNEL_SUFFIXES: Final = (
 # set update the cached snapshot event_id. Prevents e.g. car detections from
 # supplying the URL for a later person alert.
 FRIGATE_SNAPSHOT_LABELS: Final = frozenset({"person"})
+# Hotfix 2026-08-07: how long a cached Frigate event id stays valid for
+# snapshot attachment after its last update. Rung-1: bounds a race-fix,
+# not operator policy. Frigate retains event snapshots far longer; 120s
+# covers dispatch latency + NM channel sends. 0 disables caching (always
+# entity_picture fallback) — documented kill semantics.
+FRIGATE_SNAPSHOT_ID_TTL_S: Final = 120
 
 # ----------------------------------------------------------------------------
 # Exterior cycle 2 (2026-08-06): deep-night vehicle policy + fused sourcing
