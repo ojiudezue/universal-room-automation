@@ -166,14 +166,6 @@ from .const import (
     ICON_TRACKING_ACTIVE,
     ICON_TRACKING_STALE,
     ICON_TRACKING_LOST,
-    # HVAC Zone Preset Triggers (v3.3.5.9)
-    CONF_CLIMATE_ENTITY,
-    CONF_ZONE_THERMOSTAT,
-    CONF_ZONE_VACANT_PRESET,
-    CONF_ZONE_OCCUPIED_PRESET,
-    DEFAULT_ZONE_VACANT_PRESET,
-    DEFAULT_ZONE_OCCUPIED_PRESET,
-    HVAC_PRESET_SKIP,
     # v3.5.1: Zone aggregation sensor keys
     SENSOR_ZONE_IDENTIFIED_PERSONS,
     SENSOR_ZONE_GUEST_COUNT,
@@ -3900,167 +3892,30 @@ class ZoneAnyoneBinarySensor(ZoneSensorBase, BinarySensorEntity):
         super().__init__(hass, entry, zone)
         self._attr_unique_id = f"{DOMAIN}_zone_{zone}_anyone"
         self._attr_name = f"Anyone"
-        self._last_zone_occupied: bool | None = None
-        self._hvac_unsub_listeners: list = []
 
-    async def async_added_to_hass(self) -> None:
-        """Set up HVAC zone preset trigger after entity is added."""
-        await super().async_added_to_hass()
-        self._schedule_hvac_listener_setup()
-
-    def _schedule_hvac_listener_setup(self) -> None:
-        """Schedule HVAC listener setup once coordinators are ready."""
-        if self._coordinators_ready:
-            self.hass.async_create_task(self._setup_hvac_occupancy_listeners())
-        else:
-            # Coordinators not ready yet — hook into the existing retry mechanism
-            # by scheduling a one-shot check after the base retry timer fires
-            async def _delayed_setup() -> None:
-                # Wait up to 65s for coordinators (base class retries for 60s)
-                for _ in range(13):
-                    await asyncio.sleep(5)
-                    if self._coordinators_ready:
-                        await self._setup_hvac_occupancy_listeners()
-                        return
-            self.hass.async_create_task(_delayed_setup())
-
-    async def _setup_hvac_occupancy_listeners(self) -> None:
-        """Watch room occupancy binary sensor entities for zone HVAC preset control.
-
-        HVAC Zone Preset Triggers (v3.3.5.9):
-        When all rooms in the zone become vacant -> set thermostat to 'away' preset.
-        When any room becomes occupied          -> set thermostat to 'home' preset.
-        Skips if current preset is in HVAC_PRESET_SKIP ('manual', 'sleep').
-        """
-        coordinators = self._get_zone_coordinators()
-        if not coordinators:
-            return
-
-        # Build list of occupancy binary sensor entity_ids to watch.
-        # URA names them: binary_sensor.<room_name_snake>_occupied
-        occupancy_entity_ids = []
-        for coord in coordinators:
-            room_name = coord.entry.data.get("room_name", "")
-            if room_name:
-                entity_id = (
-                    "binary_sensor."
-                    + room_name.lower().replace(" ", "_")
-                    + "_occupied"
-                )
-                occupancy_entity_ids.append(entity_id)
-
-        if not occupancy_entity_ids:
-            return
-
-        # Set initial tracking state
-        self._last_zone_occupied = self.is_on
-
-        @callback
-        def _on_room_occupancy_changed(event: Event) -> None:
-            """Handle a room occupancy state change — trigger HVAC preset if needed."""
-            self.hass.async_create_task(self._handle_zone_occupancy_change())
-
-        unsub = async_track_state_change_event(
-            self.hass, occupancy_entity_ids, _on_room_occupancy_changed
-        )
-        self._hvac_unsub_listeners.append(unsub)
-
-        _LOGGER.debug(
-            "Zone '%s': HVAC preset trigger active — watching %d room sensor(s)",
-            self.zone, len(occupancy_entity_ids),
-        )
-
-    async def _handle_zone_occupancy_change(self) -> None:
-        """Evaluate zone occupancy and set HVAC preset mode if it changed."""
-        zone_occupied_now = self.is_on
-
-        if zone_occupied_now == self._last_zone_occupied:
-            return  # No change in zone-level occupancy
-
-        self._last_zone_occupied = zone_occupied_now
-
-        # Find a climate entity from any room in this zone
-        climate_entity = self._get_zone_climate_entity()
-        if not climate_entity:
-            return
-
-        # Determine target preset
-        vacant_preset = self.entry.options.get(
-            CONF_ZONE_VACANT_PRESET,
-            self.entry.data.get(CONF_ZONE_VACANT_PRESET, DEFAULT_ZONE_VACANT_PRESET),
-        )
-        occupied_preset = self.entry.options.get(
-            CONF_ZONE_OCCUPIED_PRESET,
-            self.entry.data.get(CONF_ZONE_OCCUPIED_PRESET, DEFAULT_ZONE_OCCUPIED_PRESET),
-        )
-        target_preset = occupied_preset if zone_occupied_now else vacant_preset
-
-        # Read current preset and skip if it's in HVAC_PRESET_SKIP
-        climate_state = self.hass.states.get(climate_entity)
-        if climate_state:
-            current_preset = climate_state.attributes.get("preset_mode", "")
-            if current_preset in HVAC_PRESET_SKIP:
-                _LOGGER.debug(
-                    "Zone '%s': Skipping HVAC preset change — current preset is '%s'",
-                    self.zone, current_preset,
-                )
-                return
-
-        _LOGGER.info(
-            "Zone '%s': %s — setting %s to preset '%s'",
-            self.zone,
-            "occupied" if zone_occupied_now else "all vacant",
-            climate_entity,
-            target_preset,
-        )
-
-        try:
-            await self.hass.services.async_call(
-                "climate",
-                "set_preset_mode",
-                {"entity_id": climate_entity, "preset_mode": target_preset},
-                blocking=False,
-            )
-        except Exception as e:
-            _LOGGER.error(
-                "Zone '%s': Failed to set HVAC preset '%s' on %s: %s",
-                self.zone, target_preset, climate_entity, e,
-            )
-
-    def _get_zone_config(self, key, default=None):
-        """Read a zone-specific config value from the zones dict."""
-        merged = {**self.entry.data, **self.entry.options}
-        zone_data = merged.get("zones", {}).get(self.zone, {})
-        return zone_data.get(key, default)
-
-    def _get_zone_climate_entity(self) -> str | None:
-        """Return the zone's climate entity.
-
-        Priority:
-        1. Zone-level thermostat (CONF_ZONE_THERMOSTAT) — deterministic
-        2. First room in zone with a climate entity — fallback
-        """
-        # 1. Check zone-level config (v3.6.23)
-        zone_thermostat = self._get_zone_config(CONF_ZONE_THERMOSTAT)
-        if zone_thermostat:
-            return zone_thermostat
-
-        # 2. Fallback: traverse rooms
-        for coord in self._get_zone_coordinators():
-            climate = coord.entry.options.get(
-                CONF_CLIMATE_ENTITY,
-                coord.entry.data.get(CONF_CLIMATE_ENTITY),
-            )
-            if climate:
-                return climate
-        return None
-
-    async def async_will_remove_from_hass(self) -> None:
-        """Clean up HVAC listeners."""
-        for unsub in self._hvac_unsub_listeners:
-            unsub()
-        self._hvac_unsub_listeners.clear()
-        await super().async_will_remove_from_hass()
+    # NOTE (Writer B removal, 2026-08-06): The HVAC preset write path that
+    # formerly lived here (`_schedule_hvac_listener_setup`,
+    # `_setup_hvac_occupancy_listeners`, `_handle_zone_occupancy_change`,
+    # `_get_zone_climate_entity`) has been deleted outright. It was the v3.3.5.9
+    # "Writer B" of `climate.set_preset_mode` — a second, event-driven writer
+    # that raced Writer A (HVACCoordinator._apply_house_state_presets) on the
+    # same thermostats without honoring the arrester, night-trust suppression,
+    # D1 grace, D5 duty-cycle, or D6 stale-sensor gates. Removal spec:
+    # docs/planning/AUDIT_writer_b_removal_study.md (Option a). Removal implication
+    # / reason-ledger context: docs/planning/AUDIT_hvac_preset_flap_fix_implications.md
+    # §Cross-cutting Finding X.
+    #
+    # Flap measurement anchor (pre-removal baseline): 2026-08-06 zone_1
+    # (Entertainment + Master Suite / Study B thermostat) preset oscillated
+    # home <-> away 6 times between 16:05 and 17:45 CDT while zone-anyone was
+    # continuously ON. The post-deploy acceptance signal for this removal is
+    # zero URA-initiated home<->away oscillations on that same thermostat over
+    # an equivalent occupied window, with Writer A's 5-min cadence unchanged.
+    #
+    # The ZoneAnyoneBinarySensor SENSOR itself (is_on rollup + Layer 2 sleep-
+    # trust fallback + Layer 3 non-sleep-trust fallback) is kept byte-identical
+    # — the Lovelace dashboard consumes `binary_sensor.zone_*_anyone` and the
+    # flap audit's P2 predicate is expected to consume it in future work.
 
     @property
     def is_on(self) -> bool:

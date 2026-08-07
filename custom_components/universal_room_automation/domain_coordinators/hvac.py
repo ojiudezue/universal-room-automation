@@ -1409,6 +1409,35 @@ class HVACCoordinator(BaseCoordinator):
                             "(zone_persons home: %s) [subsequent suppressed]",
                             zone.zone_name, self._house_state, home_persons,
                         )
+                    # Reason-ledger (Writer-B removal cycle 2026-08-06):
+                    # log the suppression as a synthetic preset_change_suppressed
+                    # row so the ledger shows WHY the coordinator didn't flip
+                    # to away. Reason: night_trust_suppressed. Inputs echoed
+                    # so mixed causes remain visible.
+                    activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+                    if activity_logger:
+                        self.hass.async_create_task(
+                            activity_logger.log(
+                                coordinator="hvac",
+                                action="preset_change_suppressed",
+                                description=(
+                                    f"{zone.zone_name} preset flip -> away suppressed "
+                                    f"during {self._house_state} (zone_persons home: {home_persons})"
+                                ),
+                                zone=zone_id,
+                                importance="notable",
+                                entity_id=zone.climate_entity,
+                                details={
+                                    "old_preset": zone.preset_mode,
+                                    "new_preset": zone.preset_mode,
+                                    "house_state": self._house_state,
+                                    "reason": "night_trust_suppressed",
+                                    "zone_vacant_past_grace": zone_vacant_past_grace,
+                                    "runtime_exceeded": bool(zone.runtime_exceeded),
+                                    "home_persons": list(home_persons),
+                                },
+                            )
+                        )
                     continue
 
             # --- Determine if preset change is needed ---
@@ -1420,6 +1449,26 @@ class HVACCoordinator(BaseCoordinator):
                 zone.preset_mode, effective_preset
             ):
                 continue
+
+            # Reason-ledger derivation (Writer-B removal cycle 2026-08-06):
+            # tag each preset_change with WHY the coordinator wrote it. Derived
+            # from the actual decision branch that produced effective_preset,
+            # not post-hoc inference. Approved vocabulary (per audit §reason-
+            # ledger): house_state_transition | vacant_past_grace |
+            # runtime_exceeded | night_trust_suppressed | manual_detected |
+            # pre_arrival. Precedence for concurrent inputs:
+            #   vacant_past_grace > runtime_exceeded > pre_arrival >
+            #   house_state_transition.
+            # Both underlying booleans are recorded in details so mixed causes
+            # remain visible even though `reason` is single-valued.
+            if effective_preset == "away" and zone_vacant_past_grace:
+                preset_change_reason = "vacant_past_grace"
+            elif effective_preset == "away" and zone.runtime_exceeded:
+                preset_change_reason = "runtime_exceeded"
+            elif zone_id in self._pre_arrival_zones:
+                preset_change_reason = "pre_arrival"
+            else:
+                preset_change_reason = "house_state_transition"
 
             # Suppress arrester for URA-initiated changes
             if self._override_arrester:
@@ -1471,6 +1520,9 @@ class HVACCoordinator(BaseCoordinator):
                                 "old_preset": zone.preset_mode,
                                 "new_preset": effective_preset,
                                 "house_state": self._house_state,
+                                "reason": preset_change_reason,
+                                "zone_vacant_past_grace": zone_vacant_past_grace,
+                                "runtime_exceeded": bool(zone.runtime_exceeded),
                             },
                         )
                     )
@@ -1501,6 +1553,7 @@ class HVACCoordinator(BaseCoordinator):
                             "new_preset": effective_preset,
                             "vacancy_override": zone_vacant_past_grace,
                             "runtime_exceeded": zone.runtime_exceeded,
+                            "reason": preset_change_reason,
                         },
                         action={"preset_mode": effective_preset},
                         devices_commanded=[zone.climate_entity],
