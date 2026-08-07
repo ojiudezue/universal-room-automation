@@ -136,9 +136,13 @@ cards:
     why: transit_validator checkpoints fire from ~one integration; multi-engine legs = denser/earlier checkpoints = more path_confirmed
     refinement:
       - {challenge: "I said path tracking is exterior-only", sharpened: "we built it inspired by interior traversal - find it -> located transit_validator; already half-uses census cross-platform; framing corrected"}
-    parsimony: {problem: "interior room-to-room path confirmation misses checkpoints seen only by a non-configured engine", verdict: BUILD, note: small change - seam already exists}
-    next: decide fold-into-SNAP-1-cycle vs own follow-on
-    refs: [transit_validator.py]
+      - {challenge: "operator - the quickest most trustworthy camera inventory is Protect; it sees every camera reliably", sharpened: "TRANSIT-1 should SOURCE its checkpoint inventory from Protect (authoritative), not the hand-maintained CONF_CAMERA_PERSON_ENTITIES list - which is exactly why upstairs_hallway + stairs silently drifted out of coverage"}
+    findings:
+      - "OPERATOR: it's 5 cameras. By the real bar (produces a room-attributed signal transit can use) only garage_hallway works. master_hallway + entry(foyer) are in camera_person_entities but have NO fused sensor; upstairs_hallway + stairs aren't in the list at all. All 5 need it."
+      - "Root cause: camera_person_entities is a hand-maintained list (drift). Protect sees every camera reliably (operator) -> source checkpoints from Protect + resolver area-attribution (areas now fixed) covers all 5 at once and is drift-proof."
+    parsimony: {problem: "4 of 5 traversal checkpoints produce no usable room signal; hand-list drifts", verdict: BUILD, note: Protect-sourced resolver inventory fixes all 5 + prevents recurrence - the area work was the prerequisite}
+    next: build - resolver enumerates checkpoint cameras from Protect, attributes each by area, transit consumes that instead of camera_person_entities
+    refs: [transit_validator.py, config_flow.py async_step_camera_census]
 
   - id: FRIG2SNAP-1
     title: frigate2 instance-id snapshot URL
