@@ -3900,6 +3900,14 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
                 )
             except Exception:  # noqa: BLE001
                 pass
+            # Hotfix 2026-08-06: dropped off-allowlist (interior) events —
+            # visible so a leak like the playroom incident is diagnosable.
+            try:
+                attrs["ignored_offlist_events"] = dict(
+                    getattr(linker, "_ignored_offlist_events", {})
+                )
+            except Exception:  # noqa: BLE001
+                pass
             # Cycle 2 seam-split telemetry rider: per-(A,B) missed-intermediate
             # candidate counts (observability only; edges never change
             # automatically). Empty dict when nothing to report.

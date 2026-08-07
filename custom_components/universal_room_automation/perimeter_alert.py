@@ -210,6 +210,28 @@ class PerimeterAlertManager:
             if info.person_binary_sensor
         ]
 
+        # Hotfix 2026-08-06 (operator-reported interior leak): install the
+        # exterior camera allowlist on the linker so the frigate_events bus
+        # cannot open tracks for interior cameras (playroom incident).
+        # Keys derived the same way every consumer derives them.
+        try:
+            _linker = self.hass.data.get(DOMAIN, {}).get(
+                "exterior_track_linker"
+            )
+            if _linker is not None:
+                _allowed = set()
+                for _sensor in perimeter_sensors + egress_sensors:
+                    _k = self._camera_key_for_sensor(_sensor)
+                    if _k:
+                        _allowed.add(_k)
+                if _allowed:
+                    _linker.set_allowed_cameras(_allowed)
+        except Exception:  # noqa: BLE001 — allowlist install must not break setup
+            _LOGGER.warning(
+                "PerimeterAlertManager: linker allowlist install failed",
+                exc_info=True,
+            )
+
         if not perimeter_sensors:
             _LOGGER.debug(
                 "PerimeterAlertManager: no perimeter cameras configured — alerting disabled"
