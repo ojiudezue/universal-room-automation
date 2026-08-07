@@ -50,6 +50,25 @@ foundation this feature stands on (`AUDIT_resolver_ground_truth_manual.md`).
   sighting (not two) despite Protect+Frigate legs both being subscribed.
 - **Live:** no presence-trust anomaly — `path_validated` rate not inflated vs the prior day.
 
-## Live Validation
+## Live Validation — Validated 2026-08-07 (restart ~14:40 CDT)
 
-(prospective — replaced with the Validated table post-restart)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Integration loaded @ v5.60.0 | PASS | `manifest.json` = `v5.60.0` on the live `/config` |
+| **All five checkpoint areas populated** | **PASS** | Live INFO: `TransitValidator Protect-sourced checkpoints:` → `garage_hallway`, `entry_way`, `master_hallway`, `stairs`, `upstairs_hallway` — all 5 present; `protect_sourced=13` of 24 subscribed |
+| Multi-leg collapse per camera (F2 input) | PASS | Each checkpoint lists its Protect + Frigate + F2 legs under ONE area (stairs → `stairs_top_person_detected` + `_person_occupancy` + `_person_occupancy_2`), all keyed to one physical camera for dedup |
+| **Registry-update self-heal (F5)** | **PASS — proven live** | Touched a Protect checkpoint entity's registry; the debounced rebuild fired and re-emitted the full inventory at 14:44:05. This is the fix for "Protect loads after URA → checkpoints freeze empty until restart" |
+| Enumeration errors | PASS | No enumeration-failure log; `protect_sourced=13` non-zero |
+| Kill switch / knobs live-changeable (F6) | IN-SUITE ONLY | Signal path pinned by tests; not exercised live (needs an options write — deliberately avoided until the parent-reload hazard fix lands) |
+| One logical sighting per crossing (F2) | ORGANIC (open) | Needs a real crossing; assert one sighting despite Protect+Frigate legs both subscribed |
+| No presence-trust inflation | ORGANIC (open) | Compare `path_validated` rate vs prior day once traversals accumulate |
+
+**Method note:** `checkpoint_cameras_by_area` is a Python attribute, not an entity, and URA's logger
+runs at WARNING — so validation required temporarily raising `transit_validator` to INFO and touching
+a Protect entity's registry to force a rebuild. Log level restored to WARNING afterward.
+*Residue:* that registry touch set `icon: mdi:stairs` on `binary_sensor.stairs_top_person_detected`
+and was not cleared (tool-call issue); cosmetic only — operator may clear it in the UI.
+
+**Follow-up worth doing:** expose `checkpoint_cameras_by_area` on a diagnostic sensor so this is
+observable without log-level surgery. The build deliberately scoped that out; validation showed the
+cost of that choice.

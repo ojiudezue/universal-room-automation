@@ -215,7 +215,7 @@ cards:
 - id: TRANSIT-1
   title: Interior traversal — Protect-sourced checkpoints via resolver
   thread: presence
-  status: review
+  status: shipped_organic
   batch: resolver-correctness
   seq: 3
   approval: explicit
@@ -234,6 +234,10 @@ cards:
     filter to CONF_TRANSIT_CHECKPOINT_AREAS, kill switch CONF_TRANSIT_PROTECT_SOURCED_ENABLED. Drift-proof
     acceptance test.'
   - '2026-08-07: BUILT (commit 4ee912805, 7 tests, suite baseline-clean). 3 reviews dispatched.'
+  - '2026-08-07: SHIPPED v5.60.0 + LIVE VALIDATED. All 5 checkpoint areas populated (protect_sourced=13/24
+    subscribed); F5 registry self-heal PROVEN live (touched a Protect entity -> debounced rebuild re-emitted
+    inventory 14:44:05). Reviews found 1 CRIT + 8 HIGH, all fixed; orchestrator re-ran the 2 load-bearing
+    drills independently (both RED, restored clean).'
   review_findings:
   - 'A-CRIT-1 (Review A): Protect-sourced entities are subscribed + sightings recorded, but validate_transition
     filters via _get_shared_space_cameras() = hand-list ONLY -> the superset coverage is recorded then
@@ -308,6 +312,13 @@ cards:
   refs:
   - transit_validator.py
   - config_flow.py async_step_camera_census
+  organic_open: one logical sighting per real crossing (F2 dedup, despite Protect+Frigate legs) + no path_validated
+    inflation vs prior day
+  followups:
+  - expose checkpoint_cameras_by_area on a diagnostic sensor (validation needed log-level surgery - build
+    scoped it out)
+  - 'residue: icon mdi:stairs left on binary_sensor.stairs_top_person_detected from the registry-touch
+    test (cosmetic)'
 - id: FRIG2SNAP-1
   title: frigate2 instance-id snapshot URL
   thread: camera
