@@ -32,3 +32,10 @@ suite 8243 passed, 21 pre-existing failures name-identical to develop.
   night-trust suppression appears as at most ONE row per episode.
 - **Live:** ZoneAnyoneBinarySensor states unchanged across the deploy;
   dashboard zone cards unaffected; zero URA ERROR lines.
+
+## Validated 2026-08-06 19:50 CDT post-restart
+v5.56.0 live; zero URA ERROR lines. ZoneAnyoneBinarySensor states intact
+(zone_entertainment anyone=on). Zone 1 observed in operator-set `manual`
+(cooling, 77°) — correctly untouched. Flap-elimination + reason-field
+criteria ride the next occupied evening window (organic; ledger query
+scheduled for the morning sweep).
