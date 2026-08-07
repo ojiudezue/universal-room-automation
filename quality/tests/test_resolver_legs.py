@@ -647,22 +647,69 @@ def test_resolver_leg_dispatch_drives_perimeter_alert():
     assert called, "resolver-derived leg rising edge did not schedule dispatch"
 
 
-def test_coverage_info_log_carries_engine_tags(caplog):
-    """F11 (cycle-3 fix-up): the per-camera coverage INFO log must carry
-    the engine tags so operators can see which engines source each camera."""
-    import logging
+def test_coverage_info_log_site_in_production_source():
+    """F11 (cycle-3 fix-up, orchestrator rewrite): pin the PRODUCTION
+    coverage-log site — the engine-grouped INFO log must exist in
+    perimeter_alert.py, gated on the multi-engine kill switch, and must
+    format the engine set (not the raw sensor list). The prior version of
+    this test emitted the log line itself and asserted on its own output
+    (a tautology); this version anchors the production call site.
+    """
+    src = (
+        Path(__file__).resolve().parents[2]
+        / "custom_components/universal_room_automation/perimeter_alert.py"
+    ).read_text()
+    # The log call and its engine grouping expression.
+    assert "coverage by engine: %s (base=%s)" in src
+    assert "sorted(set(legs_found))" in src
+    # The log is gated on the kill switch (byte-identical OFF contract).
+    gate_idx = src.index("coverage by engine")
+    gate_window = src[max(0, gate_idx - 400):gate_idx]
+    assert "if PERIMETER_MULTI_ENGINE_LEGS_ENABLED" in gate_window
+    # F16: the fold to bare "frigate" for no-`_N` entities is deliberate
+    # (Option-B rename: `_2` bulk-renamed to base ids; engine tag is
+    # suffix-derived, so both hosts fold to "frigate" post-rename).
+
+
+def test_kill_switch_default_on_and_gates_resolve_legs():
+    """Orchestrator drill-gap fix (2026-08-07): flipping the SHIPPED
+    default of PERIMETER_MULTI_ENGINE_LEGS_ENABLED left the entire suite
+    green (drill C re-run post-fix-up). Two pins:
+      1. The shipped default is ON — a silent default flip goes red here.
+      2. The _resolve_legs gate consumes the module-level flag: with the
+         flag as-imported (True), a working camera_manager resolver is
+         consulted; with the module attr forced False, [] comes back
+         without touching the resolver (legacy fallback contract).
+    """
     pa = _load_pa_module()
-    caplog.set_level(logging.INFO, logger=pa._LOGGER.name)
-    pa._LOGGER.info(
-        "PerimeterAlertManager: perimeter camera %s person-leg "
-        "coverage by engine: %s (base=%s)",
-        "camera.back_yard", ["frigate", "frigate2", "protect"],
-        "binary_sensor.back_yard_person_occupancy",
-    )
-    # F16: verify the log contains the engine tag vocabulary.
-    text = " ".join(rec.message for rec in caplog.records)
-    assert "frigate" in text and "protect" in text
-    # F16: comment-anchor — the fold to bare "frigate" for no-`_N` entities
-    # is deliberate (Option-B rename: `_2` bulk-renamed back to base, and
-    # engine tag was always suffix-derived from the entity name).
-    assert "frigate2" in text  # `_N` >= 2 folds to frigate2 by design
+    from custom_components.universal_room_automation import const as _c
+    # Pin 1: shipped default.
+    assert _c.PERIMETER_MULTI_ENGINE_LEGS_ENABLED is True
+    assert pa.PERIMETER_MULTI_ENGINE_LEGS_ENABLED is True
+
+    # Pin 2: the gate site routes through the flag.
+    mgr = pa.PerimeterAlertManager.__new__(pa.PerimeterAlertManager)
+    leg = ("binary_sensor.back_yard_person_detected", "protect")
+
+    class _Resolver:
+        def resolve_detection_legs(self, cam, family, stem_aliases=None):
+            _o = MagicMock()
+            _o.entity_id, _o.engine = leg
+            return [_o]
+
+    class _CamMgr:
+        resolver = _Resolver()
+        def _get_resolver(self):
+            return self.resolver
+
+    mgr.hass = MagicMock()
+    mgr.hass.data = {pa.DOMAIN: {"camera_manager": _CamMgr()}}
+    on_legs = mgr._resolve_legs("camera.back_yard", "person")
+    assert on_legs, "gate ON must consult the resolver and return legs"
+
+    saved = pa.PERIMETER_MULTI_ENGINE_LEGS_ENABLED
+    try:
+        pa.PERIMETER_MULTI_ENGINE_LEGS_ENABLED = False
+        assert mgr._resolve_legs("camera.back_yard", "person") == []
+    finally:
+        pa.PERIMETER_MULTI_ENGINE_LEGS_ENABLED = saved
