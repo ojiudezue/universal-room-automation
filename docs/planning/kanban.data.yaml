@@ -127,11 +127,17 @@ cards:
     next: button entity -> canned snapshot through all 4 channels
 
   - id: TRANSIT-1
-    title: Interior traversal -> resolve_detection_legs
+    title: Interior traversal — Protect-sourced checkpoints via resolver
     thread: presence
-    status: pre_planning
-    approval: implied
-    tags: [institutional-context]
+    status: planned
+    batch: resolver-correctness
+    seq: 3
+    approval: explicit
+    tags: [institutional-context, tier-2db, hand-build-fixture, numbers-get-knobs]
+    plan: docs/planning/PLANNING_transit_protect_sourced_checkpoints.md
+    progress:
+      - "2026-08-07: INTERIM - all 5 checkpoints now wired in camera_person_entities (operator added upstairs_hall + stairs_top via Camera Census UI; count 9->11; both area-map correctly). NOTE stairs uses Frigate F2 entity (stairs_top_2) not Protect - sunset-exposed but TRANSIT-1 makes moot."
+      - "2026-08-07: PLAN written (Tier 2-DB). enumerate_platform_cameras('unifiprotect','person') -> collapse F1/F2 via resolve_detection_legs -> attribute by area -> transit/egress union with hand-list, filter to CONF_TRANSIT_CHECKPOINT_AREAS, kill switch CONF_TRANSIT_PROTECT_SOURCED_ENABLED. Drift-proof acceptance test. Awaiting operator go to build."
     origin: {date: 2026-08-07, gist: "we built exterior tracking inspired by interior census/known-persons traversal - find it; can resolver improve it"}
     why: transit_validator checkpoints fire from ~one integration; multi-engine legs = denser/earlier checkpoints = more path_confirmed
     refinement:
