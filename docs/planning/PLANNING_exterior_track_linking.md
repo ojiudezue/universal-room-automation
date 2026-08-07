@@ -147,3 +147,22 @@ a candidate missed-intermediate on that (A,B) seam (per-seam counter in
 the diagnostic sensor attrs). Evidence consumer: monthly re-run of the
 adjacency probe + camera-detection-reliability fixes. Adjacency edges
 change only on evidence + operator ratification — never automatically.
+
+## Adjacency-as-data (operator-approved 2026-08-06): infer→edit→upload
+
+Config-flow UI REJECTED (rung-1 concern: security-relevant structure,
+no tuning cadence). Approved shape instead mirrors tou_rates.json:
+`/config/universal_room_automation/exterior_adjacency.json` —
+- EXPORT service/button dumps the PROPOSED file: live graph + per-edge
+  evidence (probe obs counts, provenance probe|operator|const,
+  `confirmed` flag, seam-split counters since last review) + header
+  metadata (generated_at, probe window, ratification date).
+- Operator edits on the Samba share; `confirmed: true` edges are
+  exempt from re-litigation by future probe proposals.
+- IMPORT at linker setup + explicit reload service/button only (no
+  silent hot-reload). Validation: camera keys must exist (unknowns
+  WARN-listed + rejected), auto-symmetrize, fall back to the module
+  const on absent/invalid file — linker never dark on a typo.
+  Diagnostic attrs echo file provenance.
+Small Tier-2 cycle, queued behind the arrester cycle. Pattern
+generalizes to future operator-ratified structures (BLE floor portals).

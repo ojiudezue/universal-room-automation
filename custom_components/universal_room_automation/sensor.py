@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.56.0
+# Universal Room Automation vv5.57.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -3897,6 +3897,14 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
             try:
                 attrs["unlinked_events_by_camera"] = (
                     linker.unlinked_events_snapshot()
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            # Hotfix 2026-08-06: dropped off-allowlist (interior) events —
+            # visible so a leak like the playroom incident is diagnosable.
+            try:
+                attrs["ignored_offlist_events"] = dict(
+                    getattr(linker, "_ignored_offlist_events", {})
                 )
             except Exception:  # noqa: BLE001
                 pass

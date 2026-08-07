@@ -161,6 +161,109 @@ DEFAULT_HVAC_PREHEAT_FORECAST_LOW: Final = 35.0  # °F
 COVER_HYSTERESIS_MIN_GAP: Final = 3.0  # °F
 CONF_HVAC_ARRESTER_ENABLED: Final = "hvac_arrester_enabled"
 CONF_HVAC_AC_RESET_ENABLED: Final = "hvac_ac_reset_enabled"
+
+# =============================================================================
+# Arrester Operator-Immunity Cycle (2026-08-06)
+# =============================================================================
+# Livability gap: the OverrideArrester (compromise/severe/revert paths in
+# hvac_override.py) and the AC-ramp (soft-nudge in the same file) can shave
+# the operator's OWN manual quick-cool during peak. The arrester was designed
+# to catch guest/child manual holds; shaving the operator is undocumented
+# behavior. This cycle adds:
+#   1. Person-scoped hold immunity — an operator-listed person's manual holds
+#      are stamped immune=True and every shave path SKIPS with a ledger row.
+#   2. Comfort Override — a house-wide switch that suppresses ALL corrective
+#      writes for the operator when they explicitly want no interference.
+#   3. Sunset — immune status and Comfort Override auto-expire on the first
+#      of: durable-state transition / next_activity boundary / max-age
+#      backstop; then governance resumes without force-clearing anything.
+
+# Config-flow list (person entity_ids) of users whose manual holds are
+# arrester-immune. Empty default = resolved at runtime to the first tracked
+# person (the operator) — mirrors CONF_NM_SECURITY_ACK_PERSONS semantics.
+CONF_HVAC_ARRESTER_IMMUNE_PERSONS: Final = "hvac_arrester_immune_persons"
+
+# ARRESTER_IMMUNE_HOLD_MAX_S — RUNG 1 (module constant, review-required).
+# Safety backstop capping how long an operator's manual hold can bypass
+# arrester governance. Not a routinely-tuned knob: changing it changes the
+# SAFETY envelope of the immunity feature (an accidentally-left manual
+# would sit uncontrolled indefinitely otherwise). 4h ≈ typical peak-window
+# comfort push duration; longer holds are more likely a "forgot to reset"
+# than an active intent worth respecting.
+ARRESTER_IMMUNE_HOLD_MAX_S: Final = 4 * 3600  # seconds; 4 hours
+
+# COMFORT_OVERRIDE_MAX_S — RUNG 1 (module constant, review-required).
+# House-wide "please leave me alone" sunset. 6h ≈ one evening / peak window.
+# Same rationale as ARRESTER_IMMUNE_HOLD_MAX_S: safety envelope, not a
+# live-tunable comfort dial. Kill-switch semantics: setting to 0 disables
+# the max-age sunset (durable-state sunset still fires).
+COMFORT_OVERRIDE_MAX_S: Final = 6 * 3600  # seconds; 6 hours
+
+# DURABLE_HOUSE_STATES — house states that represent a change of context
+# significant enough to sunset an earlier operator intent. Transition INTO
+# any of these means the manual quick-cool the operator set 3h ago no
+# longer reflects what they're currently doing.
+DURABLE_HOUSE_STATES: Final = frozenset({"sleep", "away", "vacation"})
+
+# Marker option (persisted in entry.options) recording whether Temp Arrester
+# Override was ACTIVE when HA shut down / reloaded. Read at setup:
+# * If True → Temp Arrester Override was ON pre-restart. Because the switch
+#   is deliberately NOT a RestoreEntity (default-OFF is the safe state), the
+#   post-restart value is OFF. Fire a one-time LOW NM note at setup so the
+#   operator knows their engagement was dropped, and clear the marker.
+# * If absent/False → nothing to do.
+# Written by set_comfort_override() (via the switch) on every toggle.
+CONF_HVAC_TEMP_ARRESTER_OVERRIDE_MARKER: Final = (
+    "hvac_temp_arrester_override_was_active"
+)
+
+# ARRESTER_IMMUNITY_VOICE_CONTEXTS — RUNG 1 (module constant, review-required).
+# Operator-ruled 2026-08-06 (default False): voice/Assist-originated calls
+# that happen to carry an immune user's user_id MUST NOT inherit immunity.
+# The arrester's manual-hold detection SHOULD only respect immunity for
+# direct operator actions (frontend touch of the thermostat card, physical
+# thermostat dial that the operator's account authored — the "I meant it"
+# moment). Voice pipelines running under the operator's HA user are NOT
+# a reliable expression of the operator's intent to override arrester
+# governance for hours.
+#
+# ==== HONEST DISCRIMINATOR INVESTIGATION (2026-08-06) ====
+# HA's ``homeassistant.core.Context`` exposes: ``id``, ``user_id``,
+# ``parent_id`` (+ deprecated ``origin_event``). There is NO explicit
+# "originated from voice pipeline" flag. The only usable signals are:
+#   1. ``user_id``: identifies the HA user; useless for voice-vs-app
+#      when both share the operator account.
+#   2. ``parent_id``: the id of the context that STARTED this chain
+#      (e.g. an automation trigger event, or the conversation intent
+#      event from the assist pipeline).
+#
+# Direct frontend UI calls (Lovelace card tap, thermostat entity card,
+# Developer Tools -> Services) generally arrive via the WebSocket API
+# with ``parent_id == None`` — they are USER-initiated with no chained
+# origin. Voice/Assist calls, automation-triggered calls, script calls,
+# scene activations, and any recovered-from-event chain generally have
+# a non-None ``parent_id`` (the pipeline / automation / script id).
+#
+# LANDING TIER: **Tier 3 — documented best-effort.** With False, we
+# additionally require ``context.parent_id is None`` before stamping
+# immunity. This EXCLUDES voice pipelines (parent_id references the
+# conversation intent context), automation-driven writes, and any
+# chained call. It DOES NOT exclude a voice agent that happens to
+# issue a direct service call with no parent — no such pattern is
+# known in current HA, but it is not architecturally forbidden. The
+# strict guarantee therefore requires an operational discipline: keep
+# voice/Assist authenticated as a DEDICATED HA user (not the operator).
+# See ``hvac_override._is_immunity_context_eligible`` and the setup
+# WARNING emitted from ``__init__.async_setup_entry`` when this
+# constant is False.
+#
+# True = permissive — any context whose user resolves to an immune
+#        person stamps immunity (voice pipelines included). The
+#        documented escape hatch, retained for the operator's option.
+# False = restrictive (SHIPPED DEFAULT) — additionally require
+#        ``context.parent_id is None`` as described above.
+ARRESTER_IMMUNITY_VOICE_CONTEXTS: Final = False
+
 # v4.7.7 A1: AC Nudge decouple — standalone soft-nudge feature toggle, paired
 # with (not gated by) AC Reset. Default ON. See hvac_override.py Gate 0a/0b.
 CONF_HVAC_AC_NUDGE_ENABLED: Final = "hvac_ac_nudge_enabled"
@@ -595,6 +698,16 @@ HVAC_ANOMALY_MIN_SAMPLES: Final = 336
 # ============================================================================
 
 SIGNAL_HVAC_ENTITIES_UPDATE: Final = "ura_hvac_entities_update"
+
+# Arrester Operator-Immunity (2026-08-06): dedicated dispatcher signal
+# fired by every Temp Arrester Override engage/release/sunset path so the
+# HVACTempArresterOverrideSwitch entity refreshes its UI state without
+# relying on the coarse SIGNAL_HVAC_ENTITIES_UPDATE tick (which fires once
+# per decision cycle — ~5 min lag between an operator toggle and the
+# switch card visibly reflecting reality; noticeable on sunset).
+SIGNAL_HVAC_TEMP_ARRESTER_OVERRIDE_UPDATE: Final = (
+    "ura_hvac_temp_arrester_override_update"
+)
 
 
 # ============================================================================

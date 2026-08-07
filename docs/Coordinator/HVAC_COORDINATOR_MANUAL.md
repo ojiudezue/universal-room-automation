@@ -101,6 +101,188 @@ a diagnostic, not an actuation.
   occupancy hold+decay — provenance-OR short-circuits first so
   mmwave-only signals get a confidence discount when a fan is running.
 
+### 3.4b Override Arrester — manual-hold governance (with 2026-08-06 operator-immunity)
+
+**Source of truth:** `custom_components/universal_room_automation/domain_coordinators/hvac_override.py`
+
+**What the arrester does.** It watches every zone's climate entity for
+manual thermostat holds — either an explicit switch to `preset_mode ==
+"manual"`, or (on some Carrier/Bryant models) a setpoint touch that
+induces the same. When it detects one, it computes the DELTA from what
+URA "expected" (the setpoints active immediately before the hold),
+classifies severity, and schedules a governance response:
+
+| Severity | Trigger delta | Response | Code |
+|---|---|---|---|
+| **Severe** | `abs(delta) >= OVERRIDE_SEVERE_DELTA` (3°F, +1°F if energy-coast) | 2-min grace → revert preset | `OverrideArrester._handle_severe_override` |
+| **Normal** | `abs(delta) >= OVERRIDE_NORMAL_DELTA` (1°F, +1°F if energy-coast) | 5-min grace → 30-min compromise (halfway between hold and expected) → revert preset | `OverrideArrester._handle_normal_override` + `_apply_compromise` + `_revert_override` |
+| **Startup audit** | zone was in `manual` when HA (re)started | short grace → revert (in-memory timers were lost across the restart) | `OverrideArrester.async_startup_audit` |
+
+Additionally, the same file owns the **AC-ramp soft-nudge**
+(`OverrideArrester._perform_soft_nudge`) — a small `+°F` setpoint bump when a zone
+has been "at setpoint but still burning kW" for the detection window.
+The nudge is a corrective write against the operator's current
+setpoint even when no `manual` preset is involved.
+
+**Why this cycle happened (2026-08-06 livability gap).** The arrester was
+designed to correct guest / child / accidental manual holds. In
+practice it can ALSO shave the operator's own manual quick-cool during
+a peak window (severe path reverts within 2 minutes; normal path
+half-restores within 5). This behavior was **undocumented** and
+routinely surprised the operator on hot afternoons — the "cool it
+down NOW" quick-cool got half-taken-away by URA. The 2026-08-06 cycle
+adds two governed exit ramps.
+
+#### 3.4b.1 Person-scoped hold immunity (default: operator only)
+
+When the arrester detects a manual hold, it now reads
+`event.context.user_id` (the HA user who triggered the state change),
+resolves it to a `person.*` entity, and checks whether that person is
+on the operator-configured immune list (`Options → HVAC → Persons
+whose holds are arrester-immune`). **CRIT-A1 fix (2026-08-06):** absent
+OR empty list = feature is DORMANT (nobody is immune; governance
+byte-identical to pre-cycle). A WARNING fires at every setup while the
+arrester is ENABLED and the list is empty so the operator sees that
+their manual holds are unprotected until they configure the list. There
+is NO alphabetical fallback — silently designating whoever sorts first
+as immune was ruled a safety hazard. The prior docstring language
+claiming this "mirrors CONF_NM_SECURITY_ACK_PERSONS default resolution"
+is superseded; that mirror was abandoned as unsafe.
+
+**If the user is immune:**
+- The hold is stamped `immune=True` on an in-memory record keyed by
+  zone_id (`OverrideArrester._immune_holds[zone_id]`).
+- **No** grace timer is scheduled. **No** `_override_active[zone_id]`
+  flag flips. **No** NM alert fires.
+- Every subsequent shave path additionally consults
+  `_corrective_writes_suppressed(zone_id)` as **defense-in-depth**:
+  `_handle_severe_override`, `_handle_normal_override`,
+  `_apply_compromise`, `_revert_override`, `async_startup_audit`,
+  `async_startup_ramp_audit` (HIGH-A2 ninth-site fix 2026-08-06),
+  `HVACCoordinator._async_apply_preset_overrides` (DPM shaver — MED-A1
+  promoted 2026-08-06; the "operator holds are untouchable" claim now
+  includes DPM writes), and the AC-ramp
+  `_handle_overshoot_detected` / `_perform_hard_reset` dispatch all
+  short-circuit with an `Arrester shave_skipped: zone=... path=...
+  reason=immune_hold user=...` INFO ledger line. The DELIBERATE
+  runtime exception is `_restore_after_nudge` — the un-shaving path
+  that puts the operator's original target back on the wire after a
+  bounded soft-nudge (documented on the method + the
+  `_corrective_writes_suppressed` docstring).
+
+**If the user is NOT resolvable or NOT listed** (physical thermostat
+dial, guest, kid, unknown, or a person-lookup exception):
+- Behavior is byte-identical to the pre-cycle arrester. Governance
+  runs normally.
+- This is the **fail-open direction**: uncertainty → governance (the
+  safe default for the "someone we don't know did something" case).
+
+**Sunset (first-of).** An immune hold is not permanent. It expires on
+the first of:
+1. A `SIGNAL_HOUSE_STATE_CHANGED` transition INTO a **durable house
+   state** — `DURABLE_HOUSE_STATES = {"sleep", "away", "vacation"}`.
+   Rationale: the operator's manual intent set 3h ago no longer
+   reflects what they're currently doing if they've gone to sleep,
+   left the house, or started a vacation.
+2. The thermostat's own `next_activity_time` attribute captured at
+   stamp time (verified live on the operator's Bryant thermostat as
+   the correct attribute name; also accepts bare `"HH:MM"` house-local
+   wall-clock strings via `OverrideArrester._parse_next_activity`,
+   rolling forward to tomorrow if already past today).
+3. `ARRESTER_IMMUNE_HOLD_MAX_S` (rung-1 module constant, default 4h)
+   elapsed since the hold was stamped. A safety backstop for the
+   "accidentally left in manual" case.
+
+**Sunset does not force-clear the hold.** The manual preset and
+elevated setpoint stay live on the thermostat. Sunset only removes
+the `_immune_holds` record so the arrester's normal detection path
+re-engages the next time the climate entity emits a state event. The
+operator's setpoint is not clobbered by sunset — governance simply
+regains jurisdiction going forward.
+
+#### 3.4b.2 Temp Arrester Override switch (house-wide arrester suspension)
+
+Entity: `switch.ura_hvac_temp_arrester_override` (HVAC
+Coordinator device, `EntityCategory.CONFIG`).
+
+**Default OFF.** When ON, **every** arrester corrective write is
+suppressed house-wide (every zone, every path — severe, normal,
+compromise, revert, startup audit, AC-ramp soft-nudge, AC-reset
+escalation). Both axes route through the same
+`_corrective_writes_suppressed` helper so no site can silently
+forget one axis.
+
+**Auto-sunset (first-of):**
+1. `SIGNAL_HOUSE_STATE_CHANGED` transition INTO `sleep` — the "please
+   leave me alone tonight" intent decays when the operator actually
+   goes to sleep (sleep-preset schedule takes over).
+2. `COMFORT_OVERRIDE_MAX_S` (rung-1, default 6h) elapsed since
+   engagement — safety backstop for the "left it on" case.
+
+On sunset the switch flips OFF and a **LOW** NM note fires:
+`"Temp Arrester Override ended (auto)"`. The `suppressed_since` attribute
+on the switch entity is available while ON for provenance.
+
+**Intentional inversion: NOT restored across restart.** Unlike the
+sibling HVAC switches (which default ON and restore OFF), Temp
+Arrester Override deliberately does not persist to `RestoreEntity`.
+Default-OFF is the safe state — an accidental "leave it on" across an
+outage should not persistently disable governance. The operator can
+always re-engage after restart if intended. **B-M2 mitigation
+(2026-08-06):** the switch writes a marker option
+`hvac_temp_arrester_override_was_active` on every toggle so a reload
+that would otherwise silently drop the engagement is surfaced at the
+next setup as a LOW NM note ("Temp Arrester Override released across
+restart"); the marker is then cleared.
+
+#### 3.4b.3 Doctrine: durable-state context decay
+
+The arrester's intent model is now: **an operator's manual intent
+decays when the durable house-state context changes**. Two separate
+axes (per-hold immunity, house-wide Temp Arrester Override) that share the
+same sunset shape:
+- Durable-state transition (context change).
+- Hardware-supplied boundary (`next_activity_time` on the immune-hold
+  axis only; the operator's own switch on the Temp Arrester Override axis).
+- Max-age safety backstop (a rung-1 module constant on each axis).
+
+This mirrors CLAUDE.md's "state-machine × time seam" warning: **the
+sunset is the seam.** All three trigger conditions are unit-tested;
+each is bound to its effect by a semantic-binding assertion in
+`quality/tests/test_arrester_operator_immunity.py` (see the mutation
+table in the file docstring).
+
+#### 3.4b.4 Voice-channel discriminator (best-effort)
+
+`ARRESTER_IMMUNITY_VOICE_CONTEXTS` (rung-1, shipped default **False**
+per operator ruling 2026-08-06). Voice / Assist-pipeline calls that
+happen to carry an immune user's HA `user_id` MUST NOT inherit
+immunity — a voice command "make it cool" running under the operator's
+user is not the "I meant it" moment the immunity feature is meant to
+protect.
+
+**Honest discriminator investigation (2026-08-06).** HA's `Context`
+has `id`, `user_id`, `parent_id` — no explicit voice/origin marker.
+With `False`, the arrester additionally requires `context.parent_id
+is None` before stamping immunity. Direct frontend UI calls (Lovelace
+thermostat card, Developer Tools → Services) and physical dial state
+changes typically arrive with `parent_id == None`; automation-,
+script-, scene-, and Assist-pipeline-mediated calls carry a non-None
+`parent_id` and are therefore excluded from immunity.
+
+**This is best-effort — it is NOT strictly enforceable via HA Context
+alone.** A hypothetical voice agent that issues a direct service call
+with no parent context would still inherit immunity. The fully-reliable
+enforcement is operational: **keep voice / Assist agents on a
+DEDICATED HA user (not the operator's user)**. A one-time WARNING
+fires at every setup while `ARRESTER_IMMUNITY_VOICE_CONTEXTS=False`,
+telling the operator this residual exists.
+
+Setting `ARRESTER_IMMUNITY_VOICE_CONTEXTS = True` in `hvac_const.py`
+disables the `parent_id` gate (permissive — any call by the immune
+user stamps immunity, voice included). This is the documented escape
+hatch, retained for operator choice.
+
 ### 3.5 Sleep-state trust (v4.7.13, v4.7.14)
 
 During SLEEP:
@@ -133,6 +315,8 @@ During SLEEP:
 | # | Entity | What it does |
 |---|---|---|
 | 46 | `switch.ura_hvac_coordinator_vacancy_sweep_enabled` | **Vacancy Auto-Off.** When ON, vacancy sweeps turn lights/fans off after the delay. When OFF, they stay as-is (delay still runs, but no actuation). |
+| — | `switch.ura_hvac_ac_ramp_master` | **AC Ramp-Down (Energy-Aware).** Default OFF (invasive feature — user opts in per zone). **Persistence (2026-08-06 fix):** the toggle write-through updates `entry.options[hvac_ac_ramp_master_enabled]`; the arrester seeds from this option at init so the setting SURVIVES config-entry reload. RestoreEntity is a belt-and-braces fallback for the fresh-install case only. |
+| — | `switch.ura_hvac_temp_arrester_override` | **Temp Arrester Override** (2026-08-06). Default OFF. When ON, suspends **all** arrester corrective writes house-wide. Auto-sunsets on `sleep` transition OR `COMFORT_OVERRIDE_MAX_S` (6h) — flips OFF + LOW NM note. Does NOT restore ON across restart (default-OFF is safe). See §3.4b.2. |
 | — | Zone Intelligence master switch | When ON (default): per-zone vacancy management, duty cycle, presets by house state. When OFF: no zone-level intelligence — coarse manual mode. |
 
 ### 4.4 Options flow
@@ -142,11 +326,29 @@ During SLEEP:
 - Sleep window boundaries (also consumed by presence).
 - Presence-timing cluster (persisted; live-attr-pushed — v4.7.25).
 
+| Persons whose holds are arrester-immune (2026-08-06) | `hvac_arrester_immune_persons` (person selector, multiple) | Person entities whose manual thermostat holds are IMMUNE to arrester compromise/revert and AC-ramp shaving (§3.4b.1). Empty default → resolved at runtime to the first tracked person (the operator). |
+
 ### 4.5 Reviewed constants
 
 - Sleep-window offset limits (how much the energy coordinator can
   offset a setpoint during sleep).
 - Fan-pause recheck intervals.
+- **Arrester operator-immunity backstops (2026-08-06):**
+  - `ARRESTER_IMMUNE_HOLD_MAX_S` — 4h. Safety cap on how long an
+    operator's manual hold can bypass arrester governance. Rung-1
+    (module constant): changing it changes the SAFETY envelope of
+    the immunity feature.
+  - `COMFORT_OVERRIDE_MAX_S` — 6h. Safety cap on how long Temp
+    Arrester Override can suspend house-wide corrective writes. Same
+    rung rationale. (Constant name unchanged for grep continuity;
+    the operator-facing feature is Temp Arrester Override.)
+  - `ARRESTER_IMMUNITY_VOICE_CONTEXTS` — False (SHIPPED default).
+    Enables the best-effort `context.parent_id is None` gate that
+    excludes voice/Assist-pipeline calls from inheriting immunity.
+    See §3.4b.4 for the operational caveat.
+  - `DURABLE_HOUSE_STATES` — `{"sleep", "away", "vacation"}`.
+    House states significant enough to sunset an earlier operator
+    intent (§3.4b.3).
 Live in `hvac_const.py`. Not dashboard knobs.
 
 ---

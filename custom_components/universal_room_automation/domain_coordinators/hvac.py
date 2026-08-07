@@ -183,6 +183,17 @@ class HVACCoordinator(BaseCoordinator):
         # HVACPreConditioningSwitch is the runtime source of truth via
         # options-write-back.
         pre_conditioning_enabled: bool = True,
+        # Arrester Operator-Immunity (2026-08-06). Empty default = feature
+        # dormant (no user's holds immune). CM __init__.py resolves the
+        # operator's actual list from options; passing here keeps the
+        # HVAC coord unaware of options schema (mirror of other CONFs).
+        arrester_immune_persons: list[str] | None = None,
+        # AC-ramp master persistence (2026-08-06). Seeded from
+        # entry.options[hvac_ac_ramp_master_enabled]; the switch write-
+        # through keeps this in sync on toggle. Fixes the reload→OFF
+        # regression where a config-entry reload silently reset the
+        # arrester's ramp master to DEFAULT=False.
+        ac_ramp_master_enabled: bool | None = None,
     ) -> None:
         """Initialize HVAC Coordinator."""
         super().__init__(
@@ -205,6 +216,17 @@ class HVACCoordinator(BaseCoordinator):
             enabled=arrester_enabled,
         )
         self._override_arrester.ac_reset_enabled = ac_reset_enabled
+        # Arrester Operator-Immunity: seed immune-persons list. Options-flow
+        # edits refresh via set_immune_persons() from the options update
+        # handler (mirrors the CM options-write-back pattern).
+        self._override_arrester.set_immune_persons(arrester_immune_persons)
+        # AC-ramp master seed from CM option (reload-safe path). If
+        # None is passed, retain the arrester's DEFAULT (False) so
+        # fresh installs with no persisted option behave as before.
+        if ac_ramp_master_enabled is not None:
+            self._override_arrester._ramp_master_enabled = bool(
+                ac_ramp_master_enabled
+            )
         self._fan_controller = FanController(
             hass, self._zone_manager,
             activation_delta=fan_activation_delta,
@@ -1016,6 +1038,28 @@ class HVACCoordinator(BaseCoordinator):
             # D3: Clear stale pre-arrival zones
             self._expire_pre_arrival_zones(now_utc)
 
+        # Arrester Operator-Immunity: periodic sweep — max-age +
+        # next_activity boundary sunsets that are not triggered by a
+        # house-state signal. Comfort Override max-age auto-release
+        # + LOW NM note run here as well. Called every decision cycle
+        # (5 min) — safe cadence given the max-age is measured in hours.
+        try:
+            self._override_arrester.sunset_immune_holds(
+                reason="max_age_or_boundary",
+            )
+            if self._override_arrester.sunset_temp_arrester_override(
+                reason="max_age_or_boundary",
+            ):
+                _sunset_task = self.hass.async_create_task(
+                    self._notify_temp_arrester_override_ended("max_age")
+                )
+                self._pending_tasks.add(_sunset_task)
+                _sunset_task.add_done_callback(self._pending_tasks.discard)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning(
+                "Arrester periodic sunset sweep failed: %s", e,
+            )
+
         if not self._observation_mode:
             # Apply presets based on house state (includes D1 vacancy + D6 failsafe)
             await self._apply_house_state_presets()
@@ -1744,6 +1788,24 @@ class HVACCoordinator(BaseCoordinator):
                     and self._egress_manager.is_paused(zone_id)
                 ):
                     continue
+                # MED-A1 (promoted): DPM preset-override apply is a
+                # corrective set_temperature over a zone the operator
+                # may currently be holding manually (immunity) or the
+                # house-wide Temp Arrester Override may be engaged. In
+                # either case the DPM write would overwrite an intent
+                # the operator explicitly asked us to leave alone. Third
+                # shaver: gate here through the same helper as every
+                # other shave path so the "operator holds are
+                # untouchable" claim is complete.
+                _arr = self._override_arrester
+                _gate = getattr(
+                    _arr, "_corrective_writes_suppressed", None,
+                )
+                if _arr is not None and callable(_gate) and _gate(zone_id):
+                    _log = getattr(_arr, "_log_shave_skipped", None)
+                    if callable(_log):
+                        _log(zone.zone_name, zone_id, "dpm_preset_override")
+                    continue
                 zone_overrides = all_overrides.get(zone_id, [])
 
                 # Get baseline from preset manager
@@ -1836,10 +1898,60 @@ class HVACCoordinator(BaseCoordinator):
             old_state, new_state,
         )
 
+        # Arrester Operator-Immunity: sunset immune holds + Comfort
+        # Override on durable-state transitions. Runs BEFORE the decision
+        # cycle so any resumed governance shows up in the same tick.
+        try:
+            self._override_arrester.sunset_immune_holds(
+                reason="durable_state", house_state=new_state,
+            )
+            if self._override_arrester.sunset_temp_arrester_override(
+                reason="durable_state", house_state=new_state,
+            ):
+                _sunset_task = self.hass.async_create_task(
+                    self._notify_temp_arrester_override_ended(
+                        "sleep_transition"
+                    )
+                )
+                self._pending_tasks.add(_sunset_task)
+                _sunset_task.add_done_callback(self._pending_tasks.discard)
+        except Exception as e:  # noqa: BLE001 — never crash signal handler
+            _LOGGER.warning(
+                "Arrester sunset processing failed on house-state change: %s",
+                e,
+            )
+
         # Trigger immediate decision cycle
         task = self.hass.async_create_task(self._async_decision_cycle())
         self._pending_tasks.add(task)
         task.add_done_callback(self._pending_tasks.discard)
+
+    async def _notify_temp_arrester_override_ended(self, reason: str) -> None:
+        """LOW NM note when Temp Arrester Override auto-sunsets.
+
+        ``reason`` is threaded through unmodified from the sunset caller
+        (e.g. ``sleep_transition``, ``max_age``) — LOW-A4: no more
+        hard-coded reason strings; the arrester tells us why.
+        """
+        try:
+            from ..const import DOMAIN
+            nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+            if nm is None:
+                return
+            from .base import Severity
+            await nm.async_notify(
+                coordinator_id="hvac",
+                severity=Severity.LOW,
+                title="Temp Arrester Override ended (auto)",
+                message=(
+                    f"Temp Arrester Override auto-released "
+                    f"(reason={reason}); arrester governance resumed "
+                    f"house-wide."
+                ),
+                hazard_type="hvac_temp_arrester_override",
+            )
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug("Temp Arrester Override NM note failed: %s", e)
 
     @callback
     def _handle_energy_constraint(self, constraint: EnergyConstraint) -> None:
