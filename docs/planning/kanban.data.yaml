@@ -89,9 +89,6 @@ cards:
       - "A-1 (CORRECTED per operator): armcrest (pool overhead: F2 frigate + dahua) and armcrestash41b (interior Study-A, F1) are DIFFERENT cameras. Precision hazard, NOT a recall gap - the accuracy test must assert they do NOT fuse. armcrestash41b moves to F2 later; discount now."
       - "A-2 (FIXED 2026-08-07): armcrest dahua area balcony->pool applied. Canonical=pool."
       - "A-3 (FIXED AT SOURCE 2026-08-07): set 8 Frigate exterior/interior camera devices area None->sibling value (outside_perimeter/garage_a/patio). Resolver now gets real area from Frigate legs. Code-robustness (cross-leg area fallback) still worth adding in the perimeter cycle for future None cases, but the live symptom is gone."
-    refinement:
-      - {challenge: "operator - F1 armcrest is the interior Study-A cam, not the pool overhead", sharpened: "A-1 flipped: assert armcrest and armcrestash41b do NOT fuse (precision), not that they collapse (recall)"}
-      - {challenge: "operator - edit the area ids directly across all cam integrations", sharpened: "fixed A-2/A-3 at the DATA source (10 device area corrections) rather than only a resolver code workaround; sent an FE review sheet"}
     origin: {date: 2026-08-07, gist: "much more interested in accuracy of the task of the resolver; accuracy means alerting will be better"}
     why: the resolver feeds census + transit + perimeter; one accuracy suite validates all three
     design:
@@ -101,6 +98,8 @@ cards:
     refinement:
       - {challenge: "my tests were delivery-focused", sharpened: "accuracy of the resolver's task, not alerting -> precision/recall vs ground truth"}
       - {challenge: "scope", sharpened: "same resolver feeds census+transit+perimeter -> one suite validates all three"}
+      - {challenge: "operator - F1 armcrest is the interior Study-A cam, not the pool overhead", sharpened: "A-1 flipped: assert armcrest and armcrestash41b do NOT fuse (precision), not that they collapse (recall)"}
+      - {challenge: "operator - edit the area ids directly across all cam integrations", sharpened: "fixed A-2/A-3 at the DATA source (10 device area corrections) rather than only a resolver code workaround; sent an FE review sheet"}
     parsimony: {problem: "resolver mis-maps a camera silently -> wrong alerts/room across 3 consumers", verdict: BUILD, note: highest-leverage test - guards the shared primitive}
     next: hand-build ground-truth from live registry, commit as fixture, then build the diff
 
