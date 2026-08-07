@@ -524,26 +524,44 @@ def test_allowlist_drops_interior_cameras(linker):
     assert _obs(linker, "Utilities", now=t0) is not None
 
 
-def test_allowlist_empty_rejects_and_counts():
-    """SECC-1 (2026-08-07): empty allowlist is fail-CLOSED — the empty
-    bootstrap window used to admit everything and only WARN once, which
-    let interior cameras (playroom/master_hallway/upstairs_hall) open
-    exterior tracks while ignored_offlist_events stayed 0. Now every
-    event during the empty window is dropped AND counted.
+def test_allowlist_empty_bootstrap_window_admits_with_warning():
+    """F1(c) (2026-08-07 fix-up cycle-4): the naive fail-closed on empty
+    allowlist was replaced with design (i) — admit-all with a one-shot
+    WARN until set_allowed_cameras() is called at least once.
 
-    Uses a raw linker (not the `linker` fixture, which pre-installs a
-    permissive allowlist) — this is the bootstrap-window case.
+    Why: SECC-1 root cause was that PerimeterAlertManager's inline
+    install runs BEFORE __init__.py registers the linker in hass.data.
+    Fail-closed at the pre-install moment would have REJECTED EVERY
+    perimeter event on every boot — a much worse regression than the
+    original playroom-tracks leak. The correct fix is (a) close the
+    dead-code install via SIGNAL_EXTERIOR_LINKER_READY, and (b) preserve
+    the shipped admit-all behavior during the (now-narrow) bootstrap
+    window, then flip to fail-CLOSED after first install.
+
+    Post-install: see ``test_allowlist_drops_interior_cameras`` below —
+    off-list cameras ARE rejected and counted.
     """
     lk = ExteriorTrackLinker(_FakeHass())
     assert lk._allowed_cameras == set(), "precondition: no allowlist"
+    assert lk._allowlist_installed is False, (
+        "precondition: not yet installed"
+    )
     t0 = datetime(2026, 8, 2, 20, 0, 0)
+    # Pre-install: admit-all (bootstrap window). Interior cams open
+    # spurious tracks — documented + warned; the real fix is the
+    # perimeter_alert wiring to READY-signal, not the linker gate.
+    track = _obs(lk, "playroom", now=t0)
+    assert track is not None, (
+        "F1(c) regression: pre-install observe() rejected a real event"
+    )
+    assert lk._allowlist_warned is True, "one-shot WARN must have fired"
+    # After install, the fail-closed policy applies.
+    lk.set_allowed_cameras({"utilities", "rear"})
+    assert lk._allowlist_installed is True
+    # F10: install clears the transient bootstrap-window counters.
+    assert lk._ignored_offlist_events == {}
     assert _obs(lk, "playroom", now=t0) is None
-    assert _obs(lk, "master_hallway", now=t0) is None
-    assert lk.census_counts()["exterior_person_tracks_active"] == 0
     assert lk._ignored_offlist_events.get("playroom") == 1
-    assert lk._ignored_offlist_events.get("master_hallway") == 1
-    # Warn is one-shot.
-    assert lk._allowlist_warned is True
 
 
 def test_allowlist_gated_on_bus_ingress_path(linker):

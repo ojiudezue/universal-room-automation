@@ -701,53 +701,55 @@ def test_presence_diagnostic_sensor_exposes_checkpoint_cameras_source_anchor():
     )
 
 
-def test_presence_diagnostic_attrs_empty_when_transit_validator_absent():
-    """Behavioral: with no transit_validator wired (kill-switch OFF, or
-    setup order pre-wire), the two new attrs must be empty/zero — not
-    raise. This drives the real extra_state_attributes property."""
-    # Load sensor module lazily — avoid perturbing the module-level HA stubs
-    # for the whole file. If imports fail (missing HA surfaces), skip: the
-    # source anchor above still pins the wiring.
-    import importlib
-    try:
-        sensor_mod = importlib.import_module(
-            "custom_components.universal_room_automation.sensor"
-        )
-    except Exception:
-        import pytest as _pytest
-        _pytest.skip("sensor module cannot be imported in this stub env")
-    cls = getattr(sensor_mod, "PresenceDiagnosticSensor", None)
-    if cls is None:
-        import pytest as _pytest
-        _pytest.skip("PresenceDiagnosticSensor not importable")
-    inst = cls.__new__(cls)
-    inst.hass = types.SimpleNamespace(
-        data={"universal_room_automation": {"coordinator_manager": None}}
-    )
-    attrs = cls.extra_state_attributes.fget(inst)
-    # coordinator_manager is None → attrs {} short-circuit; no new keys.
-    # Now wire a manager + presence coord so the real path runs.
-    class _P:
-        _last_veto_decision = None
-        _v4716_zone_verdicts = {}
-        _signal_consensus_inputs = {}
-        _excluded_persons = {}
-    class _CM:
-        coordinators = {"presence": _P()}
-    inst.hass.data["universal_room_automation"]["coordinator_manager"] = _CM()
-    attrs = cls.extra_state_attributes.fget(inst)
-    assert attrs["checkpoint_cameras_by_area"] == {}
-    assert attrs["protect_sourced_count"] == 0
-    # Now wire a fake transit_validator with a real mapping — mapping surfaces.
-    class _TV:
-        checkpoint_cameras_by_area = {
-            "kitchen": {"binary_sensor.a", "binary_sensor.b"},
-            "hall": ["binary_sensor.c"],
-        }
-    inst.hass.data["universal_room_automation"]["transit_validator"] = _TV()
-    attrs = cls.extra_state_attributes.fget(inst)
-    assert attrs["checkpoint_cameras_by_area"] == {
+def test_transit_validator_build_diagnostic_attrs_populated_shape():
+    """F4 (2026-08-07 fix-up cycle-4): behavioral test drives the REAL
+    production population path — ``TransitValidator.build_diagnostic_attrs``
+    — with a populated checkpoint_cameras_by_area, then asserts the
+    shape/count that sensor.py's PresenceDiagnosticSensor surfaces.
+
+    Mutation drill (F4 spec): replacing ``raw = self.checkpoint_cameras_by_area or {}``
+    with ``raw = {}`` in transit_validator.py MUST make this test go RED.
+    (Anchored by test_transit_validator_build_diagnostic_attrs_raw_empty_mutation.)
+    """
+    tv_mod = _load_transit_validator_module()
+    TransitValidator = tv_mod.TransitValidator
+    inst = TransitValidator.__new__(TransitValidator)
+    # Simulate a populated map — set-of-eids and list-of-eids are both
+    # legal input shapes (production writers use both).
+    inst.checkpoint_cameras_by_area = {
+        "kitchen": {"binary_sensor.a", "binary_sensor.b"},
+        "hall": ["binary_sensor.c"],
+    }
+    payload = inst.build_diagnostic_attrs()
+    assert payload["checkpoint_cameras_by_area"] == {
         "kitchen": ["binary_sensor.a", "binary_sensor.b"],
         "hall": ["binary_sensor.c"],
     }
-    assert attrs["protect_sourced_count"] == 3
+    assert payload["protect_sourced_count"] == 3
+
+
+def test_transit_validator_build_diagnostic_attrs_empty_when_absent():
+    """Kill-switch / boot-transient: an unset (empty) map yields
+    ``{}, 0`` — not a raise."""
+    tv_mod = _load_transit_validator_module()
+    TransitValidator = tv_mod.TransitValidator
+    inst = TransitValidator.__new__(TransitValidator)
+    inst.checkpoint_cameras_by_area = {}
+    payload = inst.build_diagnostic_attrs()
+    assert payload["checkpoint_cameras_by_area"] == {}
+    assert payload["protect_sourced_count"] == 0
+
+
+def test_sensor_reader_routes_through_transit_validator_helper_source_anchor():
+    """F4 source-anchor: sensor.py's reader MUST route through
+    ``build_diagnostic_attrs`` so a mutation to that helper is
+    load-bearing on the runtime attr as well."""
+    root = Path(__file__).resolve().parents[2]
+    src = (root / "custom_components" / "universal_room_automation"
+                / "sensor.py").read_text()
+    idx = src.index("class PresenceDiagnosticSensor")
+    blk = src[idx:idx + 8000]
+    assert "build_diagnostic_attrs" in blk, (
+        "PresenceDiagnosticSensor must route through "
+        "TransitValidator.build_diagnostic_attrs (F4)"
+    )

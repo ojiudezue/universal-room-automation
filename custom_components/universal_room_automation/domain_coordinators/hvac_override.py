@@ -297,6 +297,19 @@ class OverrideArrester:
         # (6h). Documented, not persisted — see planning ARREST-SUNSET-1.
         self._temp_arrester_override_pending_sunset: str | None = None
         self._temp_arrester_override_pending_sunset_unsub: Any = None
+        # F8 (2026-08-07 fix-up cycle-4): sunset-notify callback so the
+        # timer-precise discharge path (`_pending_sunset_timer_cb`) can
+        # fire the operator-facing "override ended (auto)" NM note
+        # WITHOUT reaching into HVACCoordinator internals. HVACCoordinator
+        # registers this at construction; sunset invokes it exactly once
+        # per fire (guarded by the release branch's own idempotency, so
+        # sweep + timer cannot double-notify for one engagement).
+        self._on_sunset_notify: Any = None
+        # Dedup per engagement — an engagement_id ticks on every OFF→ON
+        # so a stale scheduled notification cannot cross-fire against a
+        # subsequent engagement.
+        self._temp_arrester_override_engagement_id: int = 0
+        self._last_notified_engagement_id: int = -1
 
     # -------------------------------------------------------------------------
     # Arrester Operator-Immunity — public wiring (called by HVACCoordinator)
@@ -484,7 +497,14 @@ class OverrideArrester:
           * periodic decision cycle sweep (reason="max_age_or_boundary")
 
         Sunset first-of (per hold):
-          1. Transition INTO a DURABLE_HOUSE_STATES value.
+          1. Transition INTO any house_state for which
+             ``house_state_invalidates_arrester_hold`` returns True — the
+             denylist source of truth (ARRESTER_HOLD_PRESERVING_STATES;
+             only ``arriving``/``guest``/``waking`` preserve). Sibling
+             ``sunset_temp_arrester_override`` routes through the SAME
+             predicate; the previous split (this method: DURABLE_HOUSE_
+             STATES set; sibling: hardcoded "sleep") was the original
+             ARREST-SUNSET-1 bug — F9(a) docstring correction 2026-08-07.
           2. Thermostat next_activity_ts boundary reached.
           3. ARRESTER_IMMUNE_HOLD_MAX_S elapsed since started_ts.
 
@@ -630,6 +650,15 @@ class OverrideArrester:
                 "Temp Arrester Override dispatcher send failed: %s", e,
             )
 
+    def set_on_sunset_notify(self, cb) -> None:
+        """Register a callback fired once per sunset with the reason string.
+
+        F8 (2026-08-07 fix-up cycle-4): consolidates NM-note dispatch so
+        BOTH the periodic sweep AND the timer-precise discharge path
+        produce exactly one operator-facing note per engagement.
+        """
+        self._on_sunset_notify = cb
+
     def set_temp_arrester_override(self, value: bool) -> None:
         """Set Temp Arrester Override state (called by the switch).
 
@@ -643,7 +672,15 @@ class OverrideArrester:
             return
         self._temp_arrester_override_active = value
         if value:
+            # F6 (2026-08-07 fix-up cycle-4): defensive clear on engage.
+            # If a stale pending-sunset flag or timer survives (e.g. a
+            # partial teardown left one dangling), we DO NOT want a
+            # fresh engagement to be sunset early by a leftover discharge
+            # scheduled against the previous engagement's started_ts.
+            self._temp_arrester_override_pending_sunset = None
+            self._cancel_pending_sunset_timer()
             self._temp_arrester_override_started_ts = dt_util.now()
+            self._temp_arrester_override_engagement_id += 1
             _LOGGER.info(
                 "Temp Arrester Override ENGAGED — arrester corrective writes "
                 "suppressed house-wide until sunset (sleep transition or "
@@ -701,7 +738,13 @@ class OverrideArrester:
             >= ARRESTER_OVERRIDE_MIN_LIFE_S
         ):
             fire = True
-            sunset_reason = f"durable_state->{pending}(deferred)"
+            # F9(b): make the deferred sunset reason explicit. The
+            # PENDING state is the one that triggered the sunset (the
+            # invalidating transition that arrived during MIN_LIFE
+            # grace); we discharge NOW at (or after) grace expiry.
+            # Suffix (deferred@discharge) distinguishes from an
+            # instantaneous durable_state->X sunset in NM/logs.
+            sunset_reason = f"durable_state->{pending}(deferred@discharge)"
         if not fire and (
             reason == "durable_state"
             and house_state_invalidates_arrester_hold(house_state)
@@ -785,6 +828,28 @@ class OverrideArrester:
             self._temp_arrester_override_pending_sunset = None
             self._cancel_pending_sunset_timer()
             self._fire_temp_arrester_override_update()
+            # F8 (2026-08-07 fix-up cycle-4): notify the operator via NM
+            # regardless of which path (sweep / state-change / timer)
+            # discharged the override. Engagement-id dedup guarantees at
+            # most one notify per engagement even if multiple sunset
+            # paths race — sweep-return-value + timer-path used to be
+            # able to double-fire on paper (sweep observes True, timer
+            # calls sunset which observes True from a different reason).
+            try:
+                cb = self._on_sunset_notify
+                eng_id = self._temp_arrester_override_engagement_id
+                if cb is not None and eng_id != self._last_notified_engagement_id:
+                    self._last_notified_engagement_id = eng_id
+                    # Strip the deferred/backstop suffix for the operator
+                    # message so both timer-path and sweep-path produce a
+                    # comparable reason string.
+                    _reason_out = sunset_reason
+                    cb(_reason_out)
+            except Exception:  # noqa: BLE001 — best-effort notify
+                _LOGGER.debug(
+                    "Temp Arrester Override: on_sunset_notify callback "
+                    "raised", exc_info=True,
+                )
             return True
         return False
 
@@ -1228,6 +1293,18 @@ class OverrideArrester:
             cancel()
         self._nudge_eval_timers.clear()
         self._nudge_in_flight.clear()
+
+        # F5 (2026-08-07 fix-up cycle-4): cancel any pending deferred-
+        # sunset async_call_later so a late-fire cannot land on a torn-
+        # down arrester. Also clear the pending flag and force-release
+        # the override so a racing callback that beats the unsub is a
+        # no-op (its `_temp_arrester_override_active` guard trips).
+        try:
+            self._cancel_pending_sunset_timer()
+        except Exception:  # noqa: BLE001
+            pass
+        self._temp_arrester_override_pending_sunset = None
+        self._temp_arrester_override_active = False
 
     def update_energy_state(self, offset: float, coast: bool) -> None:
         """Update energy constraint state for tolerance adjustment."""

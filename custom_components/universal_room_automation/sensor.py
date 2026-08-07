@@ -5416,14 +5416,29 @@ class PresenceDiagnosticSensor(AggregationEntity, SensorEntity):
         try:
             tv = self.hass.data.get(DOMAIN, {}).get("transit_validator")
             if tv is not None:
-                raw = getattr(tv, "checkpoint_cameras_by_area", None) or {}
-                # Copy shallowly; sort camera lists for stable rendering.
-                checkpoint_cameras_by_area = {
-                    a: sorted(list(eids)) for a, eids in raw.items()
-                }
-                protect_sourced_count = sum(
-                    len(v) for v in checkpoint_cameras_by_area.values()
-                )
+                # F4 (2026-08-07 fix-up cycle-4): route through the
+                # validator's own helper so behavioral tests can
+                # mutation-drill the population path without importing
+                # sensor.py (which pulls the whole package). Fallback
+                # to legacy in-line read if the helper is absent (e.g.
+                # a stale coord instance mid-reload).
+                _builder = getattr(tv, "build_diagnostic_attrs", None)
+                if callable(_builder):
+                    _payload = _builder() or {}
+                    checkpoint_cameras_by_area = (
+                        _payload.get("checkpoint_cameras_by_area") or {}
+                    )
+                    protect_sourced_count = int(
+                        _payload.get("protect_sourced_count") or 0
+                    )
+                else:
+                    raw = getattr(tv, "checkpoint_cameras_by_area", None) or {}
+                    checkpoint_cameras_by_area = {
+                        a: sorted(list(eids)) for a, eids in raw.items()
+                    }
+                    protect_sourced_count = sum(
+                        len(v) for v in checkpoint_cameras_by_area.values()
+                    )
         except Exception:  # noqa: BLE001 — defensive: transit_validator absent/torn down
             checkpoint_cameras_by_area = {}
             protect_sourced_count = 0

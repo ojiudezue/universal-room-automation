@@ -489,6 +489,32 @@ class TestComfortOverride:
         assert a.sunset_temp_arrester_override(reason="max_age") is True
         assert a.temp_arrester_override_active is False
 
+    # F2 (2026-08-07 fix-up cycle-4): these two tests were previously
+    # nested (indented) inside the module-level function
+    # ``test_no_inline_house_state_literal_comparisons_in_hvac_override``
+    # by a stray re-indent, so pytest COLLECTED ZERO of them — including
+    # the only test that pinned the post-restart default-OFF invariant.
+    # Reflowed here as real TestComfortOverride methods so they run.
+    def test_max_age_sunsets(self, fake_clock):
+        a = _make_arrester()
+        a.set_temp_arrester_override(True)
+        fake_clock.advance(COMFORT_OVERRIDE_MAX_S - 60)
+        assert a.sunset_temp_arrester_override(reason="max_age") is False
+        fake_clock.advance(120)
+        assert a.sunset_temp_arrester_override(reason="max_age") is True
+        assert a.temp_arrester_override_active is False
+
+    def test_restart_leaves_off(self):
+        """Post-restart, a freshly-constructed arrester has Comfort OFF
+        by default. No RestoreEntity in play; the switch does not
+        persist. This test just pins the invariant on the arrester
+        primitive itself."""
+        a = _make_arrester()
+        assert a.temp_arrester_override_active is False
+        # Even if user was mid-ON before restart, the new object has no
+        # trace of it (nothing is serialized in the arrester).
+        assert a._temp_arrester_override_started_ts is None
+
 
 # ===========================================================================
 # ARREST-SUNSET-1 (2026-08-07) — table-driven denylist coverage.
@@ -507,12 +533,38 @@ from custom_components.universal_room_automation.domain_coordinators.hvac_const 
     house_state_invalidates_arrester_hold,
 )
 
-# Expected classification per operator's rule (2026-08-07): only
-# `arriving` and `guest` preserve arrester-family holds.
-_EXPECTED_INVALIDATES = {
-    s: (s not in ARRESTER_HOLD_PRESERVING_STATES)
-    for s in HOUSE_STATE_TRIGGER_VALUES
+# F3 (2026-08-07 fix-up cycle-4): HAND-AUTHORED expectation — deliberately
+# independent of the production predicate (was: derived from
+# ARRESTER_HOLD_PRESERVING_STATES, which made this table restate the
+# predicate under test, so the test was tautological). Appending a fake
+# state (e.g. "party") to HOUSE_STATE_TRIGGER_VALUES now trips the
+# vocabulary-key guard below and FAILS every parametrized test until a
+# human classifies it here.
+#
+# Each row is written out explicitly with a one-line rationale. The two
+# preserving states are ``arriving``/``guest``; ``waking`` is grouped
+# with them per the transient-state ruling (2026-08-07 amendment).
+_EXPECTED_INVALIDATES: dict[str, bool] = {
+    "away":         True,   # durable — arrester regains governance
+    "arriving":     False,  # PRESERVING — transient (60s hysteresis)
+    "home_day":     True,   # durable — a real context change
+    "home_evening": True,   # durable
+    "home_night":   True,   # durable
+    "sleep":        True,   # durable — the ORIGINAL sunset trigger
+    "waking":       False,  # PRESERVING — morning-twin of arriving
+    "guest":        False,  # PRESERVING — operator-declared exception
+    "vacation":     True,   # durable — long-away
 }
+# Vocabulary guard: adding a NEW state to HOUSE_STATE_TRIGGER_VALUES
+# without classifying it here MUST fail the collection. F3 mutation
+# drill: appending "party" to HOUSE_STATE_TRIGGER_VALUES and rerunning
+# the tests trips this assertion. Restore.
+assert set(_EXPECTED_INVALIDATES) == set(HOUSE_STATE_TRIGGER_VALUES), (
+    "House-state vocabulary drift: hand-authored _EXPECTED_INVALIDATES "
+    f"disagrees with HOUSE_STATE_TRIGGER_VALUES. Missing classification "
+    f"for: {set(HOUSE_STATE_TRIGGER_VALUES) - set(_EXPECTED_INVALIDATES)}, "
+    f"stale entries: {set(_EXPECTED_INVALIDATES) - set(HOUSE_STATE_TRIGGER_VALUES)}"
+)
 # Belt-and-braces: pin the exact preserving set so a silent widening of
 # ARRESTER_HOLD_PRESERVING_STATES also breaks a test. Includes ``waking``
 # (2026-08-07 amendment) — the morning-twin of ``arriving``, transient
@@ -717,26 +769,9 @@ def test_no_inline_house_state_literal_comparisons_in_hvac_override():
         f"route through house_state_invalidates_arrester_hold instead. "
         f"Found {len(hits)} occurrence(s)."
     )
-
-    def test_max_age_sunsets(self, fake_clock):
-        a = _make_arrester()
-        a.set_temp_arrester_override(True)
-        fake_clock.advance(COMFORT_OVERRIDE_MAX_S - 60)
-        assert a.sunset_temp_arrester_override(reason="max_age") is False
-        fake_clock.advance(120)
-        assert a.sunset_temp_arrester_override(reason="max_age") is True
-        assert a.temp_arrester_override_active is False
-
-    def test_restart_leaves_off(self):
-        """Post-restart, a freshly-constructed arrester has Comfort OFF
-        by default. No RestoreEntity in play; the switch does not
-        persist. This test just pins the invariant on the arrester
-        primitive itself."""
-        a = _make_arrester()
-        assert a.temp_arrester_override_active is False
-        # Even if user was mid-ON before restart, the new object has no
-        # trace of it (nothing is serialized in the arrester).
-        assert a._temp_arrester_override_started_ts is None
+    # F2: (previously two orphan def test_* methods were nested here at
+    # this indentation and were never collected. Reflowed into
+    # TestComfortOverride above.)
 
 
 # ===========================================================================
