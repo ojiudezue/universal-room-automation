@@ -141,6 +141,30 @@ class FusionSource:
     correlation_basis: str = BASIS_SAME_DEVICE
 
 
+@dataclass(frozen=True)
+class DetectionLeg:
+    """One (entity_id, engine) pair for a physical camera + detection family.
+
+    Cycle-3 resolver-legs (2026-08-07). Consumed by PerimeterAlertManager
+    (replaces the retired ``_fused_sibling`` / ``_protect_person_legs`` /
+    ``_derive_sibling_sensor`` helper triplet — three generations of
+    hand-rolled slug logic) and by observability surfaces that need to
+    attribute a firing to a specific engine.
+
+    ``engine`` is the observability tag emitted in coverage logs + the
+    disagreement telemetry. Value space:
+        frigate, frigate2, protect, protect2, reolink, amcrest, dahua
+
+    ``integration`` is the raw HA platform (frigate, unifiprotect,
+    reolink, amcrest, dahua) — kept separately from ``engine`` because
+    F1 vs F2 both share the frigate platform but need distinct engines.
+    """
+    entity_id: str
+    engine: str
+    integration: str
+    device_id: str
+
+
 @dataclass
 class RoomCameraFusion:
     """All per-integration sources for one physical camera."""
@@ -170,8 +194,34 @@ class RoomCameraFusion:
 _PERSON_SUFFIXES = (
     "_person_occupancy",     # Frigate
     "_person_detected",      # UniFi Protect / generic
-    "_person",               # some Reolink/Dahua
+    "_person",               # Reolink native AI (bare)
+    "_smart_motion_human",   # Dahua / Amcrest native AI (verified live 2026-08-07)
 )
+
+# Cycle-3 resolver-legs (2026-08-07): family suffix vocabulary widened from
+# the perimeter_alert.py-local sets. Native-AI shapes verified via live
+# entity registry (ssh ha probe 2026-08-07):
+#   Reolink porch PTZ  -> binary_sensor.<slug>_person / _vehicle / _animal
+#   Dahua pool overhead-> binary_sensor.<slug>_smart_motion_human / _vehicle
+#   UniFi Protect       -> binary_sensor.<slug>_person_detected / _vehicle_detected / _animal_detected
+#   Frigate             -> binary_sensor.<slug>_person_occupancy (+ HA `_2` on second host)
+_VEHICLE_SUFFIXES = (
+    "_vehicle_detected",     # UniFi Protect smart-detect
+    "_smart_motion_vehicle", # Dahua / Amcrest native
+    "_vehicle",              # Reolink native (bare)
+)
+
+_ANIMAL_SUFFIXES = (
+    "_animal_detected",      # UniFi Protect smart-detect
+    "_smart_motion_animal",  # Dahua / Amcrest native (defensive; not seen live)
+    "_animal",               # Reolink native (bare)
+)
+
+_FAMILY_SUFFIXES: dict[str, tuple[str, ...]] = {
+    "person": _PERSON_SUFFIXES,
+    "vehicle": _VEHICLE_SUFFIXES,
+    "animal": _ANIMAL_SUFFIXES,
+}
 
 _FACE_SUFFIXES = (
     "_face_recognized",
@@ -761,6 +811,185 @@ class CameraResolver:
             sources=sources,
             dropped_person_sensors=dropped_sensors,
         )
+
+    # ---- Cycle-3 resolver-legs: multi-integration family sensor lookup ----
+
+    def resolve_detection_legs(
+        self,
+        camera_entity_id: str,
+        family: str,
+        *,
+        stem_aliases: dict[str, str] | None = None,
+    ) -> list[DetectionLeg]:
+        """Return every integration's detection sensors for ``family``.
+
+        Cycle-3 resolver-legs (2026-08-07). Consumed by PerimeterAlertManager
+        setup + rescan; replaces the retired ``_fused_sibling`` /
+        ``_protect_person_legs`` / ``_derive_sibling_sensor`` triplet.
+
+        Uses the existing correlation ladder (rungs 1-5) to expand the
+        camera device into its correlated device set, then scans every
+        device's entities for binary_sensors matching ``family``'s suffix
+        set. HA disambiguation (``_2``, ``_3``, ...) is treated as a
+        second engine leg for the same integration (frigate ``_2`` =
+        frigate2 host, protect ``_2`` = protect2 leg).
+
+        ``stem_aliases`` bridges native-AI stems whose slug diverges from
+        the Frigate object name (verified live 2026-08-07:
+        ``ptzcamreolinktmixpstudybporch`` vs Frigate ``reolinkstudybporchptz``;
+        ``armcrestpooloverhead`` vs Frigate ``armcrest``). Applied both
+        directions: a resolved Frigate stem alias-maps to the native slug
+        for entity lookup; an operator-configured native camera alias-
+        maps to the Frigate stem for cross-engine discovery. Frigate
+        devices carry no MAC connections on this deployment (verified
+        via device_registry probe 2026-08-07), so MAC-rung joins cannot
+        bridge them.
+
+        Returns DetectionLegs in deterministic (entity_id) order — so
+        the setup coverage log + telemetry key order are byte-stable.
+        Never raises on registry errors; degrades to empty list.
+        """
+        family = (family or "").lower()
+        suffixes = _FAMILY_SUFFIXES.get(family)
+        if suffixes is None:
+            _LOGGER.debug(
+                "CameraResolver.resolve_detection_legs: unknown family %r "
+                "(known: %s)",
+                family, sorted(_FAMILY_SUFFIXES.keys()),
+            )
+            return []
+
+        try:
+            did = self.resolve_entity_to_device_id(camera_entity_id)
+        except Exception:  # noqa: BLE001
+            return []
+        if not did:
+            return []
+
+        # Correlated device set via the existing ladder.
+        try:
+            fusion = self.resolve_capabilities([did])
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "CameraResolver.resolve_detection_legs: capabilities "
+                "resolve failed for %s", camera_entity_id, exc_info=True,
+            )
+            return []
+        device_ids: set[str] = {s.device_id for s in fusion.sources}
+        device_ids.add(did)
+
+        # Stem-alias bridge for native-AI cameras whose slug diverges
+        # from the Frigate object name (MAC rung cannot bridge because
+        # Frigate devices carry no MAC connections on this deployment).
+        # Consult the bidirectional stem index built at construction.
+        try:
+            stems = self._compute_device_stems([did])
+        except Exception:  # noqa: BLE001
+            stems = {}
+        base_stem = stems.get(did) or _strip_camera_resolution_suffix(
+            _entity_name(camera_entity_id)
+        )
+        candidate_stems: set[str] = set()
+        if base_stem:
+            candidate_stems.add(base_stem)
+            candidate_stems.add(_strip_disambiguation_suffix(base_stem))
+        if stem_aliases:
+            for stem in list(candidate_stems):
+                aliased = stem_aliases.get(stem)
+                if aliased:
+                    candidate_stems.add(aliased)
+                # Reverse-alias: if base_stem is the alias TARGET, pull
+                # in every native slug that maps to it (armcrest ->
+                # armcrestpooloverhead).
+                for native, canonical in stem_aliases.items():
+                    if canonical == stem and native:
+                        candidate_stems.add(native)
+        for stem in candidate_stems:
+            for extra_did in self._stem_to_device_ids.get(stem, ()):
+                device_ids.add(extra_did)
+
+        # Scan each device for family-suffixed binary sensors.
+        legs: list[DetectionLeg] = []
+        seen_eids: set[str] = set()
+        try:
+            entities = list(self._er.entities.values())
+        except Exception:  # noqa: BLE001
+            entities = []
+        for ent in entities:
+            ent_did = getattr(ent, "device_id", None)
+            if ent_did not in device_ids:
+                continue
+            if getattr(ent, "disabled_by", None) is not None:
+                continue
+            eid = getattr(ent, "entity_id", "") or ""
+            if not eid.startswith("binary_sensor."):
+                continue
+            name = _entity_name(eid)
+            integration = self._infer_integration(self._device(ent_did))
+            # F13 (cycle-3 fix-up 2026-08-07): defense-in-depth — exclude
+            # ANY `_package_*` family entity regardless of inferred
+            # integration, so a device with empty identifiers can't sneak
+            # a package-person leg into the fusion.
+            if _is_package_detector(eid):
+                continue
+            # F13: log once per device when integration inference fails
+            # instead of silently tagging engine "unknown".
+            if not integration and ent_did:
+                if not hasattr(self, "_unknown_integration_logged"):
+                    self._unknown_integration_logged = set()
+                if ent_did not in self._unknown_integration_logged:
+                    self._unknown_integration_logged.add(ent_did)
+                    _LOGGER.debug(
+                        "CameraResolver.resolve_detection_legs: device %s "
+                        "has no inferable integration; engine will be "
+                        "tagged 'unknown' for its legs.", ent_did,
+                    )
+            # Suffix match — with `_2`/`_N` disambiguation stripped.
+            stripped_name = _strip_disambiguation_suffix(name)
+            matched = False
+            for suf in suffixes:
+                if name.endswith(suf) or stripped_name.endswith(suf):
+                    matched = True
+                    break
+            if not matched:
+                continue
+            if eid in seen_eids:
+                continue
+            seen_eids.add(eid)
+            engine = self._engine_tag(integration, name, ent_did)
+            legs.append(DetectionLeg(
+                entity_id=eid,
+                engine=engine,
+                integration=integration,
+                device_id=ent_did or "",
+            ))
+        legs.sort(key=lambda l: l.entity_id)
+        return legs
+
+    def _engine_tag(self, integration: str, entity_name: str, device_id: str | None) -> str:
+        """Map (integration, entity_name, device_id) -> engine label.
+
+        Engines: frigate, frigate2, protect, protect2, reolink, amcrest,
+        dahua. F1 vs F2 (both platform=frigate) split by HA `_N`
+        disambiguation on the entity name — F2 sensors were registered
+        second so HA minted `_2` at registration time (verified in
+        AUDIT_frigate1_sunset.md §4). Native-AI + Protect follow the
+        same suffix convention on their `_2` siblings.
+        """
+        import re as _re
+        m = _re.search(r"_(\d+)$", entity_name)
+        suffix_n: int | None = int(m.group(1)) if m else None
+        if integration == PLATFORM_FRIGATE:
+            return "frigate2" if suffix_n and suffix_n >= 2 else "frigate"
+        if integration == PLATFORM_UNIFI:
+            return "protect2" if suffix_n and suffix_n >= 2 else "protect"
+        if integration == PLATFORM_REOLINK:
+            return "reolink"
+        if integration == PLATFORM_AMCREST:
+            return "amcrest"
+        if integration == PLATFORM_DAHUA:
+            return "dahua"
+        return integration or "unknown"
 
     # ---- Internals ---------------------------------------------------------
 

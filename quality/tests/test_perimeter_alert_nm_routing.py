@@ -1231,7 +1231,21 @@ def _patch_registry(monkeypatch, present: set[str]):
     return fake_reg
 
 
-def test_protect_person_legs_derives_from_registry_when_present(monkeypatch):
+# ---------------------------------------------------------------------------
+# RETIRED 2026-08-07 (cycle-3 resolver-legs). The tests below directly
+# exercised `_protect_person_legs()` (a retired helper) or asserted a
+# coverage-log/subscription shape tied to that retired helper. Their
+# replacements — anchored on `CameraResolver.resolve_detection_legs()` +
+# the retirement anchor test — live in `test_resolver_legs.py`. The
+# camera-key collapse invariant (multi-leg -> ONE alert) is still
+# covered by test_triple_fire_across_all_legs_produces_one_alert +
+# test_protect_leg_alone_can_alert above (both pass unchanged since
+# they exercise `_async_handle_perimeter_trigger`, not the retired
+# derivation helper).
+# ---------------------------------------------------------------------------
+
+
+def _RETIRED_protect_person_legs_derives_from_registry_when_present(monkeypatch):
     """When BOTH `_person_detected` and `_person_detected_2` are in the
     registry, both are returned; other candidates are skipped."""
     _patch_registry(monkeypatch, {
@@ -1247,7 +1261,7 @@ def test_protect_person_legs_derives_from_registry_when_present(monkeypatch):
     ]
 
 
-def test_protect_person_legs_absent_returns_empty(monkeypatch):
+def _RETIRED_2026_08_07_test_protect_person_legs_absent_returns_empty(monkeypatch):
     """No `_person_detected` registration → empty list (nothing subscribed)."""
     _patch_registry(monkeypatch, set())
     hass, _nm = _make_hass()
@@ -1257,7 +1271,7 @@ def test_protect_person_legs_absent_returns_empty(monkeypatch):
     ) == []
 
 
-def test_protect_person_legs_only_2_variant(monkeypatch):
+def _RETIRED_2026_08_07_test_protect_person_legs_only_2_variant(monkeypatch):
     """Only the `_2` variant registered → return just it (no base)."""
     _patch_registry(monkeypatch, {
         "binary_sensor.front_yard_person_detected_2",
@@ -1269,7 +1283,7 @@ def test_protect_person_legs_only_2_variant(monkeypatch):
     ) == ["binary_sensor.front_yard_person_detected_2"]
 
 
-def test_protect_person_legs_kill_switch_off(monkeypatch):
+def _RETIRED_2026_08_07_test_protect_person_legs_kill_switch_off(monkeypatch):
     """Kill switch False → empty list even if registry has both."""
     _patch_registry(monkeypatch, {
         "binary_sensor.front_yard_person_detected",
@@ -1321,7 +1335,7 @@ def test_protect_leg_alone_can_alert(monkeypatch):
     assert nm.async_notify.await_count == 1
 
 
-def test_kill_switch_gives_byte_identical_subscription_set(monkeypatch):
+def _RETIRED_2026_08_07_test_kill_switch_gives_byte_identical_subscription_set(monkeypatch):
     """With Protect legs OFF, setup produces the exact pre-cycle subscription
     set (Frigate base + `_2` only)."""
     _patch_registry(monkeypatch, {
@@ -1341,7 +1355,7 @@ def test_kill_switch_gives_byte_identical_subscription_set(monkeypatch):
     }
 
 
-def test_setup_logs_per_camera_leg_coverage(monkeypatch, caplog):
+def _RETIRED_2026_08_07_test_setup_logs_per_camera_leg_coverage(monkeypatch, caplog):
     """Setup must emit a WARN inventory line per perimeter camera listing
     which legs (frigate/frigate2/protect/protect2) were found — the boot
     coverage map an operator can read at boot."""
@@ -1391,7 +1405,7 @@ def _fire_if_subscribed(mgr, hass, entity_id: str, new: str = "on", old: str = "
     return True
 
 
-def test_MUTATION_protect_leg_derivation_load_bearing_end_to_end(monkeypatch):
+def _RETIRED_2026_08_07_test_MUTATION_protect_leg_derivation_load_bearing_end_to_end(monkeypatch):
     """B-MED-B2: end-to-end drill through the REAL listener path.
 
     Working derivation → the Protect leg is subscribed at setup, a state
@@ -1435,7 +1449,7 @@ def test_MUTATION_protect_leg_derivation_load_bearing_end_to_end(monkeypatch):
     assert nm2.async_notify.await_count == 0
 
 
-def test_MUTATION_protect_leg_primary_rewrite_caught_end_to_end(monkeypatch):
+def _RETIRED_2026_08_07_test_MUTATION_protect_leg_primary_rewrite_caught_end_to_end(monkeypatch):
     """B-MED-B2 mutation N2: rewrite `primary` in `_protect_person_legs` to
     build `_person_occupancy` instead of `_person_detected`. Under this
     mutation `primary` collides with the Frigate BASE sensor (already
@@ -1480,7 +1494,7 @@ def test_MUTATION_protect_leg_primary_rewrite_caught_end_to_end(monkeypatch):
     assert nm.async_notify.await_count == 0
 
 
-def test_A_M1_disabled_registry_entry_treated_as_absent(monkeypatch):
+def _RETIRED_2026_08_07_test_A_M1_disabled_registry_entry_treated_as_absent(monkeypatch):
     """A-M1: an entity_registry entry with `disabled_by` set is treated as
     ABSENT — HA does not publish state for it, so subscribing is a silent
     no-op. `_protect_person_legs` must skip it and fall through to the live
@@ -1499,7 +1513,7 @@ def test_A_M1_disabled_registry_entry_treated_as_absent(monkeypatch):
     ) == []
 
 
-def test_A_L2_camera_slug_recovers_protect_leg_via_channel_strip(monkeypatch):
+def _RETIRED_2026_08_07_test_A_L2_camera_slug_recovers_protect_leg_via_channel_strip(monkeypatch):
     """A-L2: camera configured as `camera.rear_ptz_high_resolution_channel`;
     Frigate person_bs slug (`rear`) differs from Protect leg slug (`rear_ptz`).
     Stripping the channel suffix off the camera slug MUST recover the
@@ -1515,7 +1529,7 @@ def test_A_L2_camera_slug_recovers_protect_leg_via_channel_strip(monkeypatch):
     assert legs == ["binary_sensor.rear_ptz_person_detected"]
 
 
-def test_A_L2_alias_applied_to_stem(monkeypatch):
+def _RETIRED_2026_08_07_test_A_L2_alias_applied_to_stem(monkeypatch):
     """A-L2: EXTERIOR_CAMERA_KEY_ALIASES applied inside stem derivation
     (e.g. armcrestpooloverhead → armcrest) so an aliased Protect leg is
     reachable from a non-aliased base person sensor."""
@@ -1528,7 +1542,7 @@ def test_A_L2_alias_applied_to_stem(monkeypatch):
     assert "binary_sensor.armcrest_person_detected" in legs
 
 
-def test_A_L1_perimeter_legs_tag_only_on_successful_append(monkeypatch, caplog):
+def _RETIRED_2026_08_07_test_A_L1_perimeter_legs_tag_only_on_successful_append(monkeypatch, caplog):
     """A-L1: when two perimeter cameras resolve to the SAME base
     person_binary_sensor, the SECOND camera's coverage log MUST NOT list
     a spurious 'frigate' tag (dedup absorbed the base — no new
@@ -1570,7 +1584,7 @@ def test_A_L1_perimeter_legs_tag_only_on_successful_append(monkeypatch, caplog):
     )
 
 
-def test_A_L4_coverage_log_gated_on_kill_switch(monkeypatch, caplog):
+def _RETIRED_2026_08_07_test_A_L4_coverage_log_gated_on_kill_switch(monkeypatch, caplog):
     """A-L4 / B-LOW-B4: with the kill switch OFF, no per-camera
     person-leg coverage log line is emitted (subscription set collapses
     byte-identical to pre-cycle behavior; no new log surface either).

@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.58.1
+# Universal Room Automation vv5.59.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -3920,6 +3920,17 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
                 attrs["seam_split_candidates"] = (
                     linker.seam_split_snapshot()
                 )
+            except Exception:  # noqa: BLE001
+                pass
+            # Cycle-3 resolver-legs (2026-08-07): per-camera engine
+            # table + sole-firing ratio (detector-reliability accused-
+            # witness signal, observability only).
+            try:
+                mgr = self.hass.data.get(DOMAIN, {}).get(
+                    "perimeter_alert_manager"
+                )
+                if mgr is not None and hasattr(mgr, "leg_firing_stats"):
+                    attrs["leg_firing_by_camera"] = mgr.leg_firing_stats()
             except Exception:  # noqa: BLE001
                 pass
             return attrs
