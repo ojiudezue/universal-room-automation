@@ -46,6 +46,39 @@ cards:
   - domain_coordinators/hvac_override.py:584-624
   - domain_coordinators/hvac_const.py:206
   - domain_coordinators/hvac.py:1908
+  refinement:
+  - challenge: 'operator: "Home evening should also cancel it. Its a durable house state"'
+    sharpened: verified home_evening IS in the canonical vocabulary and DURABLE_HOUSE_STATES has only
+      ONE consumer (contained ripple) -> widened the allowlist
+  - challenge: 'operator: "basically Arriving, and Guest are the things that should leave it alone"'
+    sharpened: INVERTED allowlist->denylist. ARRESTER_HOLD_PRESERVING_STATES={arriving,guest}; everything
+      else invalidates. Omission was the original bug, so enumerate only the 2 exceptions, not the 7 cancellers.
+  - challenge: 'I warned home_evening cancelling might recreate the cold master right as he settles in;
+      operator: "No. Predictability is better than guessing here"'
+    sharpened: 'DESIGN PRINCIPLE: a temporary override releases on ANY real context change - one rule
+      you can hold in your head. Rejected the heuristic that guesses when the operator still wants it.
+      Do NOT re-complicate this with per-state special cases.'
+  - challenge: 'operator: "Why not add home_night?"'
+    sharpened: 'moot under the inversion - home_night is not in the preserve set so it already cancels.
+      My earlier "do not add" was allowlist-era conservatism. Demonstrates the denylist virtue: no enumeration
+      of cancellers = no omission risk.'
+  bug_precise: hvac_override.py:603 `if reason == 'durable_state' and house_state == 'sleep'` (INLINE
+    LITERAL) vs its sibling hvac_override.py:487 `house_state in DURABLE_HOUSE_STATES` (SHARED CONSTANT).
+    Both invoked from the SAME call site hvac.py:1908 with the SAME new_state, answering the SAME policy
+    question. They diverge; nothing forces agreement.
+  bug_class: 'DIVERGENT DUPLICATE PREDICATE (policy fork) - one policy expressed in two places, one drifts.
+    THIRD instance in 2 days: v5.59.0 CRITICAL (resolver learned _smart_motion_human, dedup stripper kept
+    its own narrower tuple) and SNAP-1 (media_url vs media_path). Recurring skeleton: a second site RE-IMPLEMENTS
+    a rule instead of CONSUMING it.'
+  guard:
+  - '1. Policy exists ONCE: house_state_invalidates_arrester_hold() called by both sites.'
+  - '2. Anti-fork source test: no `house_state == "` literal in hvac_override.py - the fork becomes unwritable,
+    not merely absent.'
+  - 3. Table-driven test parametrized FROM HOUSE_STATE_TRIGGER_VALUES over all 9 states for BOTH functions
+    -> adding a 10th state FAILS until classified. Guards against reintroduction-by-omission, which is
+    exactly how this bug appeared.
+  - '4. Fail-safe default: unclassified state INVALIDATES (arrester regains governance) rather than holding
+    a suppression forever.'
 - id: TRANSIT-DIAG-1
   title: Expose checkpoint_cameras_by_area on a diagnostic sensor
   thread: presence
