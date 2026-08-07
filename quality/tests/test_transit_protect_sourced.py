@@ -207,12 +207,12 @@ def test_enumerate_drift_proof_new_protect_camera_picked_up_without_edits():
     assert new_row.area_id == "master_hallway"
 
 
-def test_enumerate_area_falls_back_across_legs_when_primary_leg_area_is_none():
-    """A Protect leg with no area_id on the entity OR its device still gets
-    an area from a cross-integration sibling leg (defensive against A-3 recurring).
+def test_enumerate_area_fallback_restricted_to_platform_legs_no_cross_integration_import():
+    """F4 fix: cross-leg area fallback MUST NOT import a foreign integration's
+    area (a Frigate sibling's area could reflect a different physical camera
+    when the F3 grouping fails). Only same-platform legs contribute to fallback.
     """
-    # Protect device with NO area_id on the device — but a Frigate sibling
-    # device carries the area on its entity.
+    # Protect device with NO area_id on device or entity; Frigate sibling has area.
     dev_pr = FakeDevice(id="dev_pr",
                         identifiers={(PLATFORM_UNIFI, "pr-cam-x")},
                         area_id=None)
@@ -228,7 +228,12 @@ def test_enumerate_area_falls_back_across_legs_when_primary_leg_area_is_none():
     r = _mk(ents, [dev_pr, dev_f])
     result = r.enumerate_platform_cameras(PLATFORM_UNIFI, "person")
     assert len(result) == 1
-    assert result[0].area_id == "upstairs_hallway", result[0]
+    # Post F4 fix: area stays None because no Protect leg carries an area.
+    assert result[0].area_id is None, (
+        f"F4: cross-integration area import regressed: {result[0]}"
+    )
+
+
 
 
 def test_enumerate_precision_armcrest_and_armcrestash41b_do_not_collapse():
@@ -319,3 +324,348 @@ def test_kill_switch_off_equivalent_yields_hand_list_only_byte_identical():
     subscribed_off = set(hand_list) | set(protect_off)
     subscribed_baseline = set(hand_list)
     assert subscribed_off == subscribed_baseline
+
+
+# ---------------------------------------------------------------------------
+# F3: NVR-hosted multi-camera collapse regression.
+# ---------------------------------------------------------------------------
+
+
+def test_f3_nvr_multi_camera_device_surfaces_one_row_per_stem_with_own_area():
+    """A Protect NVR device hosts multiple physical cameras (staircase +
+    garagehallway on the same device); each must produce its OWN
+    EnumeratedCamera with its OWN area attribution. Grouping-by-device_id
+    alone collapses them to one row and silently drops coverage.
+    """
+    # ONE device carries two physical cameras. Distinct area_id per entity.
+    dev = FakeDevice(id="dev_nvr", identifiers={(PLATFORM_UNIFI, "pr-nvr")},
+                     area_id="garage_hallway")
+    ents = [
+        FakeEntity("camera.staircase_high_resolution_channel", "dev_nvr", PLATFORM_UNIFI,
+                   area_id="stairs"),
+        FakeEntity("binary_sensor.staircase_person_detected", "dev_nvr", PLATFORM_UNIFI,
+                   area_id="stairs"),
+        FakeEntity("camera.garagehallway_high_resolution_channel", "dev_nvr", PLATFORM_UNIFI,
+                   area_id="garage_hallway"),
+        FakeEntity("binary_sensor.garagehallway_person_detected", "dev_nvr", PLATFORM_UNIFI,
+                   area_id="garage_hallway"),
+    ]
+    r = _mk(ents, [dev])
+    result = r.enumerate_platform_cameras(PLATFORM_UNIFI, "person")
+    stems = sorted(_entity_stem_from_legs(c.legs) for c in result)
+    assert stems == ["garagehallway", "staircase"], stems
+    areas = {_entity_stem_from_legs(c.legs): c.area_id for c in result}
+    assert areas["staircase"] == "stairs"
+    assert areas["garagehallway"] == "garage_hallway"
+
+
+def _entity_stem_from_legs(legs: tuple[str, ...]) -> str:
+    # Pick the shortest leg's name up to `_person_detected`.
+    primary = sorted(legs, key=lambda e: (len(e), e))[0]
+    name = primary.split(".", 1)[1]
+    for suf in ("_person_detected", "_person_occupancy"):
+        if name.endswith(suf):
+            return name[: -len(suf)]
+    return name
+
+
+# ---------------------------------------------------------------------------
+# F7: empty-tuple checkpoint areas + scalar input normalization.
+# ---------------------------------------------------------------------------
+
+
+import importlib.util as _il2  # noqa: E402
+_TV_PATH = REPO_ROOT / "custom_components/universal_room_automation/transit_validator.py"
+
+
+def _load_transit_validator_module():
+    """Load the real transit_validator module for helper-level tests. Const
+    import via `.const` needs the package on sys.path; the HA stubs above
+    already gate the HA imports."""
+    # Ensure the const module is importable as a sibling (package-style import).
+    # Load the const module first under the package name so `from .const` works.
+    pkg_name = "custom_components.universal_room_automation"
+    if pkg_name not in sys.modules:
+        pkg = types.ModuleType(pkg_name)
+        pkg.__path__ = [str(REPO_ROOT / "custom_components/universal_room_automation")]
+        sys.modules[pkg_name] = pkg
+    # Const submodule
+    const_name = pkg_name + ".const"
+    if const_name not in sys.modules:
+        cspec = _il2.spec_from_file_location(
+            const_name,
+            REPO_ROOT / "custom_components/universal_room_automation/const.py",
+        )
+        cmod = _il2.module_from_spec(cspec)
+        sys.modules[const_name] = cmod
+        cspec.loader.exec_module(cmod)
+    # camera_resolver submodule (transit imports it lazily inside a fn but
+    # still uses `.camera_resolver` — provide it under the package name).
+    cr_name = pkg_name + ".camera_resolver"
+    if cr_name not in sys.modules:
+        crspec = _il2.spec_from_file_location(
+            cr_name,
+            REPO_ROOT / "custom_components/universal_room_automation/camera_resolver.py",
+        )
+        crmod = _il2.module_from_spec(crspec)
+        sys.modules[cr_name] = crmod
+        crspec.loader.exec_module(crmod)
+    tv_name = pkg_name + ".transit_validator"
+    if tv_name in sys.modules:
+        return sys.modules[tv_name]
+    tvspec = _il2.spec_from_file_location(tv_name, _TV_PATH)
+    tvmod = _il2.module_from_spec(tvspec)
+    sys.modules[tv_name] = tvmod
+    tvspec.loader.exec_module(tvmod)
+    return tvmod
+
+
+class _FakeConfigEntry:
+    def __init__(self, data=None, options=None):
+        self.data = data or {}
+        self.options = options or {}
+
+
+class _FakeConfigEntries:
+    def __init__(self, entries):
+        self._entries = entries
+
+    def async_entries(self, domain):
+        return list(self._entries)
+
+
+class _FakeHass:
+    def __init__(self, entries, er, dr):
+        self.config_entries = _FakeConfigEntries(entries)
+        self._er = er
+        self._dr = dr
+        self.data = {}
+
+        class _States:
+            def get(self, eid):
+                return None
+        self.states = _States()
+
+    # er/dr accessors mimicking helpers.async_get pattern
+    def er(self):
+        return self._er
+
+    def dr(self):
+        return self._dr
+
+
+def _install_registry_stubs(monkeypatch, er, dr, tvmod):
+    # Patch helper module functions to return our fakes.
+    import homeassistant.helpers.entity_registry as ha_er  # noqa: PLC0415
+    import homeassistant.helpers.device_registry as ha_dr  # noqa: PLC0415
+    monkeypatch.setattr(ha_er, "async_get", lambda hass: er, raising=False)
+    monkeypatch.setattr(ha_dr, "async_get", lambda hass: dr, raising=False)
+
+
+def _integration_entry(**merged):
+    from custom_components.universal_room_automation.const import (  # noqa: PLC0415
+        ENTRY_TYPE_INTEGRATION, CONF_ENTRY_TYPE,
+    )
+    data = {CONF_ENTRY_TYPE: ENTRY_TYPE_INTEGRATION}
+    return _FakeConfigEntry(data=data, options=merged)
+
+
+def test_helper_kill_switch_false_returns_empty_triple(monkeypatch):
+    """F9-adjacent: kill-switch OFF returns ([], {}, {}) — NO registry walk
+    (fake resolver would blow up if invoked; we prove it isn't via the
+    triviality of the return + zero entities)."""
+    tv = _load_transit_validator_module()
+    from custom_components.universal_room_automation.const import (
+        CONF_TRANSIT_PROTECT_SOURCED_ENABLED,
+    )
+    ents, devs = _five_checkpoint_registry()
+    er, dr = FakeER(ents), FakeDR(devs)
+    hass = _FakeHass([_integration_entry(**{CONF_TRANSIT_PROTECT_SOURCED_ENABLED: False})], er, dr)
+    _install_registry_stubs(monkeypatch, er, dr, tv)
+    eids, by_area, e2p = tv._protect_sourced_checkpoint_entities(hass)
+    assert eids == []
+    assert by_area == {}
+    assert e2p == {}
+
+
+def test_helper_kill_switch_on_with_registry_returns_checkpoints(monkeypatch):
+    """Kill-switch ON + Protect cameras at checkpoint areas => enumerated."""
+    tv = _load_transit_validator_module()
+    from custom_components.universal_room_automation.const import (
+        CONF_TRANSIT_PROTECT_SOURCED_ENABLED,
+    )
+    ents, devs = _five_checkpoint_registry()
+    er, dr = FakeER(ents), FakeDR(devs)
+    hass = _FakeHass([_integration_entry(**{CONF_TRANSIT_PROTECT_SOURCED_ENABLED: True})], er, dr)
+    _install_registry_stubs(monkeypatch, er, dr, tv)
+    eids, by_area, e2p = tv._protect_sourced_checkpoint_entities(hass)
+    assert set(by_area.keys()) == CHECKPOINT_AREAS
+    # Every enumerated entity_id is mapped to a physical device_id.
+    for eid in eids:
+        assert e2p.get(eid), f"F2 map missing physical for {eid}"
+
+
+def test_helper_non_checkpoint_area_excluded(monkeypatch):
+    """A Protect person camera in a NON-checkpoint area is excluded."""
+    tv = _load_transit_validator_module()
+    from custom_components.universal_room_automation.const import (
+        CONF_TRANSIT_PROTECT_SOURCED_ENABLED,
+    )
+    # Only one device, in a non-checkpoint area.
+    dev = FakeDevice(id="d_lr", identifiers={(PLATFORM_UNIFI, "pr-lr")},
+                     area_id="living_room")
+    ents = [
+        FakeEntity("camera.lr_high_resolution_channel", "d_lr", PLATFORM_UNIFI),
+        FakeEntity("binary_sensor.lr_person_detected", "d_lr", PLATFORM_UNIFI),
+    ]
+    er, dr = FakeER(ents), FakeDR([dev])
+    hass = _FakeHass([_integration_entry(**{CONF_TRANSIT_PROTECT_SOURCED_ENABLED: True})], er, dr)
+    _install_registry_stubs(monkeypatch, er, dr, tv)
+    eids, by_area, e2p = tv._protect_sourced_checkpoint_entities(hass)
+    assert eids == []
+    assert by_area == {}
+
+
+def test_helper_empty_tuple_checkpoint_areas_is_kill_mode(monkeypatch):
+    """F7 fix: an operator setting `CONF_TRANSIT_CHECKPOINT_AREAS = ()`
+    means 'no checkpoint areas' (kill mode). Pre-fix `if areas_val:` was
+    falsy on `()` and silently collapsed to the 5 defaults."""
+    tv = _load_transit_validator_module()
+    from custom_components.universal_room_automation.const import (
+        CONF_TRANSIT_PROTECT_SOURCED_ENABLED,
+        CONF_TRANSIT_CHECKPOINT_AREAS,
+    )
+    ents, devs = _five_checkpoint_registry()
+    er, dr = FakeER(ents), FakeDR(devs)
+    hass = _FakeHass([_integration_entry(**{
+        CONF_TRANSIT_PROTECT_SOURCED_ENABLED: True,
+        CONF_TRANSIT_CHECKPOINT_AREAS: (),
+    })], er, dr)
+    _install_registry_stubs(monkeypatch, er, dr, tv)
+    eids, by_area, e2p = tv._protect_sourced_checkpoint_entities(hass)
+    assert eids == []
+    assert by_area == {}
+
+
+def test_helper_scalar_string_checkpoint_area_normalized(monkeypatch):
+    """F7 fix: a bare-string CONF_TRANSIT_CHECKPOINT_AREAS is treated as a
+    single-element tuple, NOT per-character expansion via tuple('foo')."""
+    tv = _load_transit_validator_module()
+    from custom_components.universal_room_automation.const import (
+        CONF_TRANSIT_PROTECT_SOURCED_ENABLED,
+        CONF_TRANSIT_CHECKPOINT_AREAS,
+    )
+    ents, devs = _five_checkpoint_registry()
+    er, dr = FakeER(ents), FakeDR(devs)
+    hass = _FakeHass([_integration_entry(**{
+        CONF_TRANSIT_PROTECT_SOURCED_ENABLED: True,
+        CONF_TRANSIT_CHECKPOINT_AREAS: "master_hallway",
+    })], er, dr)
+    _install_registry_stubs(monkeypatch, er, dr, tv)
+    eids, by_area, e2p = tv._protect_sourced_checkpoint_entities(hass)
+    # Only master_hallway should be enumerated (scalar => single-elem tuple).
+    assert set(by_area.keys()) == {"master_hallway"}
+
+
+# ---------------------------------------------------------------------------
+# F1: shared-space cameras union.
+# ---------------------------------------------------------------------------
+
+
+def test_f1_get_shared_space_cameras_unions_legacy_and_protect_sourced():
+    """F1 fix: _get_shared_space_cameras must UNION the Protect-sourced
+    entity set with the legacy hand-list. Without this, sightings recorded
+    from Protect entities are filtered out at validate_transition."""
+    tv = _load_transit_validator_module()
+
+    class _CM:
+        def _get_interior_camera_entities(self):
+            return ["binary_sensor.legacy_only_hallway_person_detected"]
+
+    validator = tv.TransitValidator.__new__(tv.TransitValidator)
+    validator.hass = types.SimpleNamespace(
+        data={"universal_room_automation": {"camera_manager": _CM()}}
+    )
+    # Constructor-like init of just the fields the method reads.
+    validator._protect_entity_set = {"binary_sensor.staircase_person_detected"}
+    from custom_components.universal_room_automation.const import DOMAIN as _D  # noqa: PLC0415
+    validator.hass = types.SimpleNamespace(data={_D: {"camera_manager": _CM()}})
+    result = set(validator._get_shared_space_cameras())
+    assert "binary_sensor.legacy_only_hallway_person_detected" in result
+    assert "binary_sensor.staircase_person_detected" in result
+
+
+def test_f1_kill_switch_reduces_to_legacy_only():
+    """F1 corollary: empty Protect entity set => reduces exactly to legacy list."""
+    tv = _load_transit_validator_module()
+
+    class _CM:
+        def _get_interior_camera_entities(self):
+            return ["binary_sensor.hand_a", "binary_sensor.hand_b"]
+
+    from custom_components.universal_room_automation.const import DOMAIN as _D  # noqa: PLC0415
+    validator = tv.TransitValidator.__new__(tv.TransitValidator)
+    validator.hass = types.SimpleNamespace(data={_D: {"camera_manager": _CM()}})
+    validator._protect_entity_set = set()
+    result = validator._get_shared_space_cameras()
+    assert result == ["binary_sensor.hand_a", "binary_sensor.hand_b"]
+
+
+# ---------------------------------------------------------------------------
+# F2: physical-camera dedup on double-fire.
+# ---------------------------------------------------------------------------
+
+
+class _FakeState:
+    def __init__(self, entity_id, state="on", attributes=None):
+        self.entity_id = entity_id
+        self.state = state
+        self.attributes = attributes or {}
+
+
+class _FakeEvent:
+    def __init__(self, new_state):
+        self.data = {"new_state": new_state}
+
+
+def test_f2_double_fire_one_physical_camera_records_one_sighting():
+    """F2 fix: Protect leg + Frigate leg for the SAME physical camera fire
+    within the dedup window -> exactly ONE sighting is recorded."""
+    tv = _load_transit_validator_module()
+    validator = tv.TransitValidator.__new__(tv.TransitValidator)
+    validator.hass = types.SimpleNamespace(
+        data={"universal_room_automation": {}}
+    )
+    validator._camera_sightings = {}
+    validator._face_recognition_enabled = False
+    validator._entity_to_physical = {
+        "binary_sensor.stairs_person_detected": "dev_stairs",  # Protect
+        "binary_sensor.stairs_person_occupancy": "dev_stairs",  # Frigate leg
+    }
+    validator._last_physical_sighting = {}
+    # Fire Protect first.
+    validator._on_camera_state_change(_FakeEvent(_FakeState("binary_sensor.stairs_person_detected")))
+    # Fire Frigate leg ~1 sec later.
+    validator._on_camera_state_change(_FakeEvent(_FakeState("binary_sensor.stairs_person_occupancy")))
+    total = sum(len(v) for v in validator._camera_sightings.values())
+    assert total == 1, f"F2 dedup regressed: {validator._camera_sightings}"
+
+
+def test_f2_two_physical_cameras_both_record():
+    """Different physical cameras firing at the same time => both recorded."""
+    tv = _load_transit_validator_module()
+    validator = tv.TransitValidator.__new__(tv.TransitValidator)
+    validator.hass = types.SimpleNamespace(
+        data={"universal_room_automation": {}}
+    )
+    validator._camera_sightings = {}
+    validator._face_recognition_enabled = False
+    validator._entity_to_physical = {
+        "binary_sensor.stairs_person_detected": "dev_stairs",
+        "binary_sensor.master_person_detected": "dev_master",
+    }
+    validator._last_physical_sighting = {}
+    validator._on_camera_state_change(_FakeEvent(_FakeState("binary_sensor.stairs_person_detected")))
+    validator._on_camera_state_change(_FakeEvent(_FakeState("binary_sensor.master_person_detected")))
+    total = sum(len(v) for v in validator._camera_sightings.values())
+    assert total == 2

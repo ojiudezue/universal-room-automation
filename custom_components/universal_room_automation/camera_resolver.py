@@ -1033,10 +1033,27 @@ class CameraResolver:
             )
             return []
 
-        # device_id -> primary entity_id (prefer shortest / base entity for
-        # stable ordering and to avoid picking a `_2` disambiguated variant
+        # F3 fix (TRANSIT-1 fix-up): a Protect NVR device can host MULTIPLE
+        # physical cameras (e.g. `staircase_person_detected` +
+        # `garagehallway_person_detected` on the same NVR). Group by
+        # (device_id, stem) — the stem is the entity name with the family
+        # suffix and any `_N` disambiguation stripped — so each physical
+        # camera surfaces as its OWN EnumeratedCamera row with its OWN
+        # area attribution. Grouping by device_id alone silently collapses
+        # them into one row and drops coverage.
+        def _stem_of(name: str) -> str | None:
+            for suf in suffixes:
+                if name.endswith(suf):
+                    return name[: -len(suf)]
+                stripped = _strip_disambiguation_suffix(name)
+                if stripped.endswith(suf):
+                    return stripped[: -len(suf)]
+            return None
+
+        # (device_id, stem) -> primary entity_id (prefer shortest / base entity
+        # for stable ordering and to avoid picking a `_2` disambiguated variant
         # as the representative).
-        devices_of_platform: dict[str, str] = {}
+        groups: dict[tuple[str, str], str] = {}
         for ent in entities:
             if getattr(ent, "platform", None) != platform:
                 continue
@@ -1051,34 +1068,72 @@ class CameraResolver:
             if _is_package_detector(eid):
                 continue
             name = _entity_name(eid)
-            stripped = _strip_disambiguation_suffix(name)
-            if not any(name.endswith(s) or stripped.endswith(s) for s in suffixes):
+            stem = _stem_of(name)
+            if not stem:
                 continue
-            prev = devices_of_platform.get(did)
+            key = (did, stem)
+            prev = groups.get(key)
             if prev is None or len(eid) < len(prev) or (len(eid) == len(prev) and eid < prev):
-                devices_of_platform[did] = eid
+                groups[key] = eid
 
         results: list[EnumeratedCamera] = []
-        for did, primary_eid in devices_of_platform.items():
+        for (did, stem), primary_eid in groups.items():
             try:
-                legs = self.resolve_detection_legs(primary_eid, family)
+                all_legs = self.resolve_detection_legs(primary_eid, family)
             except Exception:  # noqa: BLE001
-                legs = []
-            leg_eids = tuple(l.entity_id for l in legs) if legs else (primary_eid,)
+                all_legs = []
 
-            # Area precedence: primary (same-platform) leg first,
-            # then cross-leg fallback. Never raises.
+            # F3 fix continued: filter legs to this stem so an NVR device's
+            # other physical cameras don't bleed into this row. A leg's
+            # entity-name (with family suffix + `_N` stripped) must equal or
+            # start with `<stem>` (word-boundary — same semantics as the
+            # `_scan_device_entities` stem filter).
+            def _leg_matches_stem(leg_eid: str) -> bool:
+                nm = _entity_name(leg_eid)
+                # Strip family suffix (any) then `_N`
+                inner: str | None = None
+                for suf in suffixes:
+                    if nm.endswith(suf):
+                        inner = nm[: -len(suf)]
+                        break
+                if inner is None:
+                    stripped = _strip_disambiguation_suffix(nm)
+                    for suf in suffixes:
+                        if stripped.endswith(suf):
+                            inner = stripped[: -len(suf)]
+                            break
+                if inner is None:
+                    return False
+                inner_stripped = _strip_disambiguation_suffix(inner)
+                base = _strip_disambiguation_suffix(stem)
+                return (
+                    inner == stem or inner_stripped == base
+                    or inner.startswith(stem + "_")
+                    or inner_stripped.startswith(base + "_")
+                )
+
+            filtered_legs = [l for l in all_legs if _leg_matches_stem(l.entity_id)]
+            leg_eids = tuple(l.entity_id for l in filtered_legs) if filtered_legs else (primary_eid,)
+
+            # F4 fix (TRANSIT-1 fix-up): restrict the cross-leg area fallback
+            # to legs sharing the primary's integration (i.e. Protect-only
+            # when platform=unifiprotect). The unrestricted fallback could
+            # import a Frigate sibling's area when the two legs actually map
+            # to different physical cameras (F3 grouping should prevent this
+            # now, but the guard is defense-in-depth).
             area: str | None = None
             try:
                 area = resolve_area_id_for_entity(self._er, self._dr, primary_eid)
             except Exception:  # noqa: BLE001
                 area = None
             if not area:
-                for eid in leg_eids:
-                    if eid == primary_eid:
+                for leg in filtered_legs:
+                    if leg.entity_id == primary_eid:
+                        continue
+                    if leg.integration != platform:
                         continue
                     try:
-                        a = resolve_area_id_for_entity(self._er, self._dr, eid)
+                        a = resolve_area_id_for_entity(self._er, self._dr, leg.entity_id)
                     except Exception:  # noqa: BLE001
                         a = None
                     if a:

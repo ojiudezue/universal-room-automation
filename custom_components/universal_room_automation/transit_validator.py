@@ -37,28 +37,58 @@ from .const import (
     DEFAULT_TRANSIT_CHECKPOINT_AREAS,
     CONF_TRANSIT_PROTECT_SOURCED_ENABLED,
     TRANSIT_PROTECT_SOURCED_ENABLED_DEFAULT,
+    TRANSIT_DOUBLE_FIRE_DEDUP_SECONDS,
+    SIGNAL_URA_TRANSIT_CONFIG_CHANGED,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
 
+def _normalize_checkpoint_areas(
+    areas_val: Any,
+) -> tuple[str, ...] | None:
+    """F7 fix (TRANSIT-1 fix-up): normalize the CONF_TRANSIT_CHECKPOINT_AREAS
+    option value.
+
+    Semantics:
+      - ``None`` (absent)         -> return None (caller falls back to default)
+      - ``()`` / ``[]`` (empty)   -> return ``()`` (KILL mode: operator meant
+        "no checkpoint areas"; must NOT collapse to default)
+      - list/tuple of strings     -> tuple(strings)
+      - bare string (scalar)      -> single-element tuple (guards against
+        ``tuple("foo")`` per-char expansion)
+      - anything else             -> None (defensive; treat as absent)
+    """
+    if areas_val is None:
+        return None
+    if isinstance(areas_val, (list, tuple)):
+        return tuple(str(a) for a in areas_val)
+    if isinstance(areas_val, str):
+        return (areas_val,)
+    return None
+
+
 def _protect_sourced_checkpoint_entities(
     hass: HomeAssistant,
-) -> tuple[list[str], dict[str, list[str]]]:
+) -> tuple[list[str], dict[str, list[str]], dict[str, str]]:
     """TRANSIT-1 (2026-08-07): enumerate Protect person cameras at checkpoint areas.
 
-    Returns ``(entity_ids, by_area)``:
+    Returns ``(entity_ids, by_area, entity_to_physical)``:
       - ``entity_ids``: flat list of ``binary_sensor.*`` entity_ids to
         subscribe (superset across every leg of every physical camera whose
         Protect device area_id is in ``CONF_TRANSIT_CHECKPOINT_AREAS``).
       - ``by_area``: diagnostic mapping ``area_id -> [entity_id, ...]`` for
         the ``checkpoint_cameras_by_area`` observability attribute.
+      - ``entity_to_physical``: ``entity_id -> physical device_id`` map,
+        used by F2 double-fire dedup so a single physical camera crossing
+        does not fire twice (once for Protect leg, once for Frigate leg).
 
     Kill-switch: ``CONF_TRANSIT_PROTECT_SOURCED_ENABLED``. When False,
-    returns ``([], {})`` so callers UNION nothing — subscription set is
-    byte-identical to the pre-cycle hand-list-only path.
+    returns ``([], {}, {})`` so callers UNION nothing — subscription set
+    is byte-identical to the pre-cycle hand-list-only path. Empty
+    checkpoint-areas tuple (F7 fix) is honored as "no Protect enumeration".
 
-    Never raises; degrades to ``([], {})``.
+    Never raises; degrades to ``([], {}, {})``.
     """
     try:
         # Kill-switch: check integration config entry first.
@@ -71,13 +101,21 @@ def _protect_sourced_checkpoint_entities(
                     CONF_TRANSIT_PROTECT_SOURCED_ENABLED,
                     TRANSIT_PROTECT_SOURCED_ENABLED_DEFAULT,
                 )
-                areas_val = merged.get(CONF_TRANSIT_CHECKPOINT_AREAS)
-                if areas_val:
-                    checkpoint_areas = tuple(areas_val)
+                # F7 fix: `is not None` (empty tuple is a valid KILL setting;
+                # falsy-check would silently expand to defaults). Also
+                # normalizes scalar input to avoid `tuple("foo")` per-char.
+                normalized = _normalize_checkpoint_areas(
+                    merged.get(CONF_TRANSIT_CHECKPOINT_AREAS)
+                )
+                if normalized is not None:
+                    checkpoint_areas = normalized
                 break
         if not enabled:
-            return [], {}
+            return [], {}, {}
         checkpoint_set = set(checkpoint_areas)
+        # Empty checkpoint areas => nothing to enumerate (KILL mode).
+        if not checkpoint_set:
+            return [], {}, {}
 
         from homeassistant.helpers import (  # noqa: PLC0415
             device_registry as dr_helper,
@@ -93,17 +131,22 @@ def _protect_sourced_checkpoint_entities(
             "TRANSIT-1: Protect enumeration failed; falling back to hand-list only",
             exc_info=True,
         )
-        return [], {}
+        return [], {}, {}
 
     by_area: dict[str, list[str]] = {}
     entity_ids: list[str] = []
+    entity_to_physical: dict[str, str] = {}
     for cam in enumerated:
         if cam.area_id not in checkpoint_set:
             continue
         for eid in cam.legs:
             entity_ids.append(eid)
             by_area.setdefault(cam.area_id, []).append(eid)
-    return entity_ids, by_area
+            # F2 fix: every leg of the same physical camera keys to the
+            # SAME device_id so `_on_camera_state_change` can dedup a
+            # double-fire (Protect leg + Frigate leg both firing).
+            entity_to_physical[eid] = cam.device_id
+    return entity_ids, by_area, entity_to_physical
 
 
 @dataclass
@@ -143,11 +186,32 @@ class TransitValidator:
         # Map: person_id -> list of {camera_entity_id, timestamp, room}
         self._camera_sightings: dict[str, list[dict[str, Any]]] = {}
         self._unsub: list = []
+        # F5/F6 fix: subscriptions to state changes vs meta listeners
+        # (registry-updated + config-change dispatcher) tracked separately
+        # so `async_rebuild_subscriptions` can tear down/re-do the former
+        # without dropping the latter.
+        self._sub_unsub: list = []
         self._face_recognition_enabled = False
         # TRANSIT-1 diagnostic: area_id -> subscribed entity_ids from the
         # Protect enumeration path. Exposed as `checkpoint_cameras_by_area`
         # for observability (dashboard / diagnostics consumers).
         self.checkpoint_cameras_by_area: dict[str, list[str]] = {}
+        # F1 fix: the set of Protect-sourced entity_ids that must be
+        # UNIONed into `_get_shared_space_cameras()` — otherwise a
+        # camera subscribed via Protect enumeration would have its
+        # sightings recorded then filtered out at validate_transition.
+        self._protect_entity_set: set[str] = set()
+        # F2 fix: entity_id -> physical device_id map (Protect-sourced legs
+        # share a device_id across their Protect + Frigate legs). Used to
+        # collapse double-fires to ONE sighting per physical camera.
+        self._entity_to_physical: dict[str, str] = {}
+        # F2 fix: per-physical-camera last-sighting timestamp for dedup.
+        self._last_physical_sighting: dict[str, datetime] = {}
+        # F5 fix: debounce timer for registry-updated rebuilds.
+        self._rebuild_timer_unsub = None
+        # F6 fix: dispatcher listener for options-change signal (kept
+        # across rebuilds so a re-init doesn't drop this hook).
+        self._config_signal_unsub = None
 
     async def async_init(self) -> None:
         """Subscribe to camera person detection entities.
@@ -167,17 +231,115 @@ class TransitValidator:
                 self._face_recognition_enabled = merged.get(CONF_FACE_RECOGNITION_ENABLED, False)
                 break
 
-        # Gather all camera entities to subscribe to.
+        # Build camera-entity subscription set (rebuildable path).
+        self._build_and_subscribe()
+
+        # Schedule periodic cleanup of old sightings (every 30 minutes)
+        unsub_cleanup = async_track_time_interval(
+            self.hass,
+            self._async_cleanup_sightings,
+            timedelta(minutes=30),
+        )
+        self._unsub.append(unsub_cleanup)
+
+        # F5 fix: self-heal on registry changes. If UniFi Protect wasn't
+        # loaded at initial async_init (empty enumeration), a later Protect
+        # entity registration triggers a debounced rebuild — no full restart
+        # required. Filter by entity platform so unrelated churn is ignored.
+        try:
+            from homeassistant.helpers.entity_registry import (  # noqa: PLC0415
+                EVENT_ENTITY_REGISTRY_UPDATED,
+            )
+
+            @callback
+            def _on_registry_updated(evt: Event) -> None:
+                data = evt.data or {}
+                eid = data.get("entity_id")
+                if not eid:
+                    return
+                try:
+                    er = er_helper.async_get(self.hass)
+                    entry = er.async_get(eid)
+                except Exception:  # noqa: BLE001
+                    return
+                if entry is None:
+                    return
+                if getattr(entry, "platform", None) != "unifiprotect":
+                    return
+                self._schedule_rebuild()
+
+            self._unsub.append(
+                self.hass.bus.async_listen(
+                    EVENT_ENTITY_REGISTRY_UPDATED, _on_registry_updated
+                )
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "TransitValidator: could not register EVENT_ENTITY_REGISTRY_UPDATED listener",
+                exc_info=True,
+            )
+
+        # F6 fix: dispatcher signal so an options-change on the transit
+        # knobs (kill switch, checkpoint areas) triggers a local re-init
+        # without a parent-entry reload (RELOAD-WATCHDOG-HAZARD). The
+        # options flow is expected to `async_dispatcher_send(hass,
+        # SIGNAL_URA_TRANSIT_CONFIG_CHANGED)` on any transit-related change.
+        # The re-init path exists regardless of wire-up; when wired it
+        # avoids the parent-reload allowlist requirement.
+        try:
+            from homeassistant.helpers.dispatcher import (  # noqa: PLC0415
+                async_dispatcher_connect,
+            )
+
+            @callback
+            def _on_config_changed(*_a) -> None:
+                _LOGGER.info(
+                    "TransitValidator: transit-config signal received; rebuilding subscriptions"
+                )
+                self._schedule_rebuild()
+
+            self._config_signal_unsub = async_dispatcher_connect(
+                self.hass, SIGNAL_URA_TRANSIT_CONFIG_CHANGED, _on_config_changed
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "TransitValidator: could not connect config-change dispatcher",
+                exc_info=True,
+            )
+
+    def _build_and_subscribe(self) -> None:
+        """(Re)build camera entity subscription set. F5/F6 idempotent path.
+
+        Tears down any existing per-entity subscriptions in ``self._sub_unsub``
+        and re-registers based on current census + Protect enumeration state.
+        """
+        # Tear down prior state-change subscriptions (but keep meta listeners).
+        for unsub in self._sub_unsub:
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                pass
+        self._sub_unsub.clear()
+
         camera_entities: list[str] = []
 
         # TRANSIT-1: PREPEND Protect-sourced checkpoint enumeration in front
         # of the hand-list. UNIONed via the set() dedup at subscription time.
         # Kill-switch (CONF_TRANSIT_PROTECT_SOURCED_ENABLED=False) returns
-        # ([], {}) making this a byte-identical no-op vs legacy.
-        protect_entities, by_area = _protect_sourced_checkpoint_entities(self.hass)
+        # ([], {}, {}) making this a byte-identical no-op vs legacy.
+        protect_entities, by_area, entity_to_physical = (
+            _protect_sourced_checkpoint_entities(self.hass)
+        )
         if protect_entities:
             camera_entities.extend(protect_entities)
         self.checkpoint_cameras_by_area = by_area
+        # F1 fix: expose the Protect-sourced entity set so
+        # `_get_shared_space_cameras()` can UNION it with the legacy
+        # hand-list — otherwise sightings from these entities are recorded
+        # then filtered out at validate_transition (the cycle's value).
+        self._protect_entity_set = set(protect_entities)
+        # F2 fix: keep the entity->physical mapping fresh for dedup.
+        self._entity_to_physical = dict(entity_to_physical)
 
         census = self.hass.data.get(DOMAIN, {}).get("census")
         camera_manager = self.hass.data.get(DOMAIN, {}).get("camera_manager")
@@ -215,33 +377,54 @@ class TransitValidator:
         # Subscribe to state changes for each camera entity
         from homeassistant.helpers.event import async_track_state_change_event
 
-        for entity_id in set(camera_entities):
+        subscribed = set(camera_entities)
+        for entity_id in subscribed:
             unsub = async_track_state_change_event(
                 self.hass,
                 [entity_id],
                 self._on_camera_state_change,
             )
-            self._unsub.append(unsub)
-
-        # Schedule periodic cleanup of old sightings (every 30 minutes)
-        unsub_cleanup = async_track_time_interval(
-            self.hass,
-            self._async_cleanup_sightings,
-            timedelta(minutes=30),
-        )
-        self._unsub.append(unsub_cleanup)
+            self._sub_unsub.append(unsub)
 
         _LOGGER.info(
-            "TransitValidator initialized: subscribed to %d camera entities, "
-            "face_recognition_enabled=%s",
-            len(set(camera_entities)),
+            "TransitValidator subscriptions built: %d camera entities, "
+            "face_recognition_enabled=%s, protect_sourced=%d",
+            len(subscribed),
             self._face_recognition_enabled,
+            len(self._protect_entity_set),
         )
         if self.checkpoint_cameras_by_area:
             _LOGGER.info(
                 "TransitValidator Protect-sourced checkpoints: %s",
                 {a: sorted(eids) for a, eids in self.checkpoint_cameras_by_area.items()},
             )
+
+    @callback
+    def _schedule_rebuild(self) -> None:
+        """Debounce rebuild to coalesce churn (e.g. bulk registry ops)."""
+        # Cancel prior pending rebuild if any.
+        try:
+            if self._rebuild_timer_unsub is not None:
+                self._rebuild_timer_unsub()
+        except Exception:  # noqa: BLE001
+            pass
+        self._rebuild_timer_unsub = None
+
+        from homeassistant.helpers.event import async_call_later  # noqa: PLC0415
+
+        @callback
+        def _fire(_now) -> None:
+            self._rebuild_timer_unsub = None
+            try:
+                self._build_and_subscribe()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("TransitValidator: rebuild failed", exc_info=True)
+
+        try:
+            self._rebuild_timer_unsub = async_call_later(self.hass, 5.0, _fire)
+        except Exception:  # noqa: BLE001
+            # If timer scheduling fails (test stubs), rebuild synchronously.
+            _fire(None)
 
     async def validate_transition(
         self,
@@ -399,14 +582,32 @@ class TransitValidator:
         cameras by definition (users configure only common-area cameras there).
         """
         camera_manager = self.hass.data.get(DOMAIN, {}).get("camera_manager")
-        if not camera_manager:
-            return []
-
-        try:
-            return camera_manager._get_interior_camera_entities()
-        except Exception as e:
-            _LOGGER.debug("Could not get shared-space cameras: %s", e)
-            return []
+        legacy: list[str] = []
+        if camera_manager:
+            try:
+                legacy = camera_manager._get_interior_camera_entities() or []
+            except Exception as e:
+                _LOGGER.debug("Could not get shared-space cameras: %s", e)
+                legacy = []
+        # F1 fix (TRANSIT-1 fix-up): UNION the Protect-sourced entity set.
+        # Same kill-switch — when disabled, `_protect_entity_set` is empty
+        # and this reduces to the legacy hand-list byte-identically. Without
+        # this union, sightings recorded from Protect-sourced entities are
+        # filtered out here and the entire cycle's value is discarded.
+        if not self._protect_entity_set:
+            return legacy
+        # Dedup while preserving legacy order.
+        seen: set[str] = set()
+        out: list[str] = []
+        for eid in legacy:
+            if eid not in seen:
+                seen.add(eid)
+                out.append(eid)
+        for eid in self._protect_entity_set:
+            if eid not in seen:
+                seen.add(eid)
+                out.append(eid)
+        return out
 
     def _are_shared_space_cameras_active(self, shared_cameras: list[str]) -> bool:
         """Check if any shared-space camera has fired in the last 10 minutes."""
@@ -500,6 +701,27 @@ class TransitValidator:
         entity_id = new_state.entity_id
         timestamp = dt_util.now()
 
+        # F2 fix (TRANSIT-1 fix-up): dedup double-fire by physical camera.
+        # When both Protect and Frigate legs subscribe for the same physical
+        # camera, a single crossing emits ≥2 state changes. Left unchecked,
+        # `_correlate_sighting_to_transition` sees n_sightings >= n_transitions
+        # from ONE camera's evidence -> wrong path_plausible/path_validated
+        # feeds presence trust. Collapse to ONE logical sighting per physical
+        # camera within TRANSIT_DOUBLE_FIRE_DEDUP_SECONDS.
+        physical = self._entity_to_physical.get(entity_id)
+        if physical:
+            last = self._last_physical_sighting.get(physical)
+            if last is not None:
+                age = (timestamp - last).total_seconds()
+                if 0 <= age < TRANSIT_DOUBLE_FIRE_DEDUP_SECONDS:
+                    _LOGGER.debug(
+                        "TransitValidator: F2 dedup — dropping sighting %s "
+                        "(physical=%s, %.2fs after prior leg)",
+                        entity_id, physical, age,
+                    )
+                    return
+            self._last_physical_sighting[physical] = timestamp
+
         # Determine room from entity area_id
         room = None
         try:
@@ -556,12 +778,25 @@ class TransitValidator:
 
     async def async_teardown(self) -> None:
         """Unsubscribe all listeners."""
-        for unsub in self._unsub:
+        for unsub in list(self._sub_unsub) + list(self._unsub):
             try:
                 unsub()
             except Exception:
                 pass
+        self._sub_unsub.clear()
         self._unsub.clear()
+        try:
+            if self._rebuild_timer_unsub is not None:
+                self._rebuild_timer_unsub()
+        except Exception:  # noqa: BLE001
+            pass
+        self._rebuild_timer_unsub = None
+        try:
+            if self._config_signal_unsub is not None:
+                self._config_signal_unsub()
+        except Exception:  # noqa: BLE001
+            pass
+        self._config_signal_unsub = None
         _LOGGER.debug("TransitValidator torn down")
 
 
@@ -648,9 +883,15 @@ class EgressDirectionTracker:
         # TransitValidator; UNIONed with the existing set. `_get_interior_
         # cameras_near` returns `_interior_entities`, so appending here is
         # sufficient — subscription dedup happens via `set()` below.
-        protect_entities, _by_area = _protect_sourced_checkpoint_entities(self.hass)
+        protect_entities, _by_area, _e2p = _protect_sourced_checkpoint_entities(self.hass)
         if protect_entities:
-            self._interior_entities = list(self._interior_entities) + protect_entities
+            # F8 fix (TRANSIT-1 fix-up): dedup + idempotent. Rebuilding via
+            # re-init (F6 config change) must not accrete duplicates in
+            # `_interior_entities`, and `_get_interior_cameras_near` returns
+            # `list(self._interior_entities)` verbatim so dupes would leak.
+            self._interior_entities = list(dict.fromkeys(
+                list(self._interior_entities) + list(protect_entities)
+            ))
 
         # Subscribe to egress binary sensors
         if self._egress_entities:

@@ -1507,6 +1507,20 @@ DEFAULT_TRANSIT_CHECKPOINT_AREAS: Final = (
 CONF_TRANSIT_PROTECT_SOURCED_ENABLED: Final = "transit_protect_sourced_enabled"
 TRANSIT_PROTECT_SOURCED_ENABLED_DEFAULT: Final = True
 
+# TRANSIT-1 fix-up (F2 double-fire dedup): when both Protect and Frigate
+# legs subscribe for the same physical camera, a single crossing emits
+# ≥2 sightings. We collapse to ONE logical sighting per physical camera
+# within this window (chosen to be shorter than any legitimate two-crossings
+# interval but longer than any observed cross-integration jitter — 5s
+# matches EgressDirectionTracker's stem dedup window).
+TRANSIT_DOUBLE_FIRE_DEDUP_SECONDS: Final = 5.0
+
+# TRANSIT-1 fix-up (F6): dispatcher signal that TransitValidator +
+# EgressDirectionTracker listen for so an options-change on the
+# transit knobs (kill switch, checkpoint areas) can trigger a local
+# re-init instead of a parent-entry reload (RELOAD-WATCHDOG-HAZARD).
+SIGNAL_URA_TRANSIT_CONFIG_CHANGED: Final = "ura_transit_config_changed"
+
 # v3.5.2 Egress Direction Tracking
 EGRESS_ENTRY_WINDOW_SECONDS: Final = 45
 EGRESS_EXIT_WINDOW_SECONDS: Final = 30
