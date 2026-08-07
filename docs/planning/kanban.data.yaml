@@ -81,7 +81,10 @@ cards:
     progress:
       - "2026-08-07: hand-built ground-truth fixture from live registry (86 detection sensors, 20 multi-engine cameras) -> AUDIT_resolver_ground_truth_manual.md"
       - "2026-08-07: A-2 + A-3 FIXED AT SOURCE - applied 10 device area corrections to live registry (all copy-from-sibling), FE review sheet https://claude.ai/code/artifact/ef6dc227-8488-4b59-b745-f71e946da6a8"
-      - "2026-08-07: INTERIOR (TRANSIT-1 prep) - interior physical cameras already correctly area'd (~50 clean); fixed 4 roomless URA per-room FUSED sensors (game_room/master_bedroom/receiving_room/ziri_bedroom) via entity area. kitchen_pantry pending (no such area). FE updated."
+      - "2026-08-07: INTERIOR (TRANSIT-1 prep) - interior physical cameras already correctly area'd; fixed 4 roomless URA per-room FUSED sensors (game_room/master_bedroom/receiving_room/ziri_bedroom) via entity area."
+      - "2026-08-07: CAMERAS DONE - 39 area corrections total (10 exterior devices + 4 interior fused + 3 Madrone->front_porch + 22 F2-host twins). F2 twins matched to primary so cameras survive F1-sunset. Only 1 left roomless by design: armcrestash41b_person_occupancy_2 (Study-A, discounted, moves to F2). FE: https://claude.ai/code/artifact/ef6dc227-8488-4b59-b745-f71e946da6a8"
+      - "NOTE: armcrestash41b primary area=pool is WRONG (it's the interior Study-A camera) - fix to study_a when it moves to F2 (F1-SUNSET). Left per operator 'discount it now'."
+      - "GAP (operator-flagged): master_hallway, entry_way(foyer), upstairs_hallway, stairs have physical cameras but NO URA D3 fused sensor -> the traversal checkpoints are unwired. TRANSIT-1 (resolver) recovers them for free. living_room + garage_hallway already have D3."
     findings:
       - "A-1 (CORRECTED per operator): armcrest (pool overhead: F2 frigate + dahua) and armcrestash41b (interior Study-A, F1) are DIFFERENT cameras. Precision hazard, NOT a recall gap - the accuracy test must assert they do NOT fuse. armcrestash41b moves to F2 later; discount now."
       - "A-2 (FIXED 2026-08-07): armcrest dahua area balcony->pool applied. Canonical=pool."
@@ -196,16 +199,15 @@ cards:
     next: (overnight) design data->view generator; screenshot-iterate; wire homelab serve + post-commit rebuild hook
 
   - id: CAM-AREA-PENDING
-    title: Camera area corrections — pending operator input
+    title: Camera area corrections — RESOLVED
     thread: camera
-    status: waiting_operator
-    approval: blocked
+    status: shipped_organic
+    approval: explicit
     origin: {date: 2026-08-07, gist: found during the exterior+interior camera area-id correction sweep}
-    items:
-      - "Madrone G6 Entry (front entry) - no room on Frigate OR Protect. front_porch? entry_way? own area?"
-      - "Kitchen Pantry fused sensor roomless AND no kitchen_pantry area exists (have pantry, butler_pantry). Which, or create?"
-      - "Area-id typos to clean: guest_bedroom_1_clo_set, guest_bedoom_2_bath"
-      - "Sanity-check applied: Doorbell Lite->garage_a (from Protect), Reolink->patio"
+    resolved:
+      - "Madrone G6 Entry -> front_porch (operator: front porch/entry; sits with front_door_aerial door overhead). DONE."
+      - "Kitchen Pantry -> operator: NO camera here; the D3 fused sensor is an ORPHAN (no backing camera). Leave roomless; candidate for removal."
+      - "Typos guest_bedroom_1_clo_set / guest_bedoom_2_bath -> operator: NO cameras; general registry hygiene, out of camera scope."
     refs: [https://claude.ai/code/artifact/ef6dc227-8488-4b59-b745-f71e946da6a8]
 
   - id: D3-AREA-INHERIT
