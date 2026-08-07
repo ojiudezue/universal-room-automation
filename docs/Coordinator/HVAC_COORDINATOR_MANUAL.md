@@ -182,9 +182,9 @@ re-engages the next time the climate entity emits a state event. The
 operator's setpoint is not clobbered by sunset — governance simply
 regains jurisdiction going forward.
 
-#### 3.4b.2 Comfort Override switch (house-wide arrester suspension)
+#### 3.4b.2 Temp Arrester Override switch (house-wide arrester suspension)
 
-Entity: `switch.ura_hvac_coordinator_comfort_override` (HVAC
+Entity: `switch.ura_hvac_temp_arrester_override` (HVAC
 Coordinator device, `EntityCategory.CONFIG`).
 
 **Default OFF.** When ON, **every** arrester corrective write is
@@ -202,7 +202,7 @@ forget one axis.
    engagement — safety backstop for the "left it on" case.
 
 On sunset the switch flips OFF and a **LOW** NM note fires:
-`"Comfort Override ended (auto)"`. The `suppressed_since` attribute
+`"Temp Arrester Override ended (auto)"`. The `suppressed_since` attribute
 on the switch entity is available while ON for provenance.
 
 **Intentional inversion: NOT restored across restart.** Unlike the
@@ -216,7 +216,7 @@ re-engage after restart if intended.
 
 The arrester's intent model is now: **an operator's manual intent
 decays when the durable house-state context changes**. Two separate
-axes (per-hold immunity, house-wide Comfort Override) that share the
+axes (per-hold immunity, house-wide Temp Arrester Override) that share the
 same sunset shape:
 - Durable-state transition (context change).
 - Hardware-supplied boundary (`next_activity` on the immune-hold axis
@@ -261,7 +261,7 @@ During SLEEP:
 | # | Entity | What it does |
 |---|---|---|
 | 46 | `switch.ura_hvac_coordinator_vacancy_sweep_enabled` | **Vacancy Auto-Off.** When ON, vacancy sweeps turn lights/fans off after the delay. When OFF, they stay as-is (delay still runs, but no actuation). |
-| — | `switch.ura_hvac_coordinator_comfort_override` | **Comfort Override** (2026-08-06). Default OFF. When ON, suspends **all** arrester corrective writes house-wide. Auto-sunsets on `sleep` transition OR `COMFORT_OVERRIDE_MAX_S` (6h) — flips OFF + LOW NM note. Does NOT restore ON across restart (default-OFF is safe). See §3.4b.2. |
+| — | `switch.ura_hvac_temp_arrester_override` | **Temp Arrester Override** (2026-08-06). Default OFF. When ON, suspends **all** arrester corrective writes house-wide. Auto-sunsets on `sleep` transition OR `COMFORT_OVERRIDE_MAX_S` (6h) — flips OFF + LOW NM note. Does NOT restore ON across restart (default-OFF is safe). See §3.4b.2. |
 | — | Zone Intelligence master switch | When ON (default): per-zone vacancy management, duty cycle, presets by house state. When OFF: no zone-level intelligence — coarse manual mode. |
 
 ### 4.4 Options flow

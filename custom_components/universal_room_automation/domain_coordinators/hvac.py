@@ -1894,7 +1894,12 @@ class HVACCoordinator(BaseCoordinator):
         task.add_done_callback(self._pending_tasks.discard)
 
     async def _notify_comfort_override_ended(self, reason: str) -> None:
-        """LOW NM note when Comfort Override auto-sunsets."""
+        """LOW NM note when Temp Arrester Override auto-sunsets.
+
+        (Internal method name retains ``comfort_override`` for arrester-
+        primitive alignment; operator-visible title uses the ruled name
+        "Temp Arrester Override".)
+        """
         try:
             from ..const import DOMAIN
             nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
@@ -1904,10 +1909,11 @@ class HVACCoordinator(BaseCoordinator):
             await nm.async_notify(
                 coordinator_id="hvac",
                 severity=Severity.LOW,
-                title="Comfort Override ended (auto)",
+                title="Temp Arrester Override ended (auto)",
                 message=(
-                    f"Comfort Override auto-released (reason={reason}); "
-                    f"arrester governance resumed house-wide."
+                    f"Temp Arrester Override auto-released "
+                    f"(reason={reason}); arrester governance resumed "
+                    f"house-wide."
                 ),
                 hazard_type="hvac_comfort_override",
             )

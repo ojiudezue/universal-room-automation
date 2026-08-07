@@ -267,12 +267,16 @@ async def async_setup_entry(
             HVACPreConditioningSwitch(hass, entry),
             # v3.9.0: HVAC transparency switches
             HVACOverrideArresterSwitch(hass, entry),
-            # Arrester Operator-Immunity (2026-08-06). Comfort Override —
-            # house-wide suspension of ALL arrester corrective writes for
-            # the operator's "please leave me alone" case. Default OFF;
-            # deliberately NOT restored across restart (default-OFF is the
-            # safe state); auto-sunsets on sleep transition or max-age.
-            HVACComfortOverrideSwitch(hass, entry),
+            # Arrester Operator-Immunity (2026-08-06). Temp Arrester
+            # Override — arrester-scoped temporary stand-down: suspends
+            # ALL arrester corrective writes house-wide for the
+            # operator's "please leave me alone" case. Default OFF;
+            # deliberately NOT restored across restart (default-OFF is
+            # the safe state); auto-sunsets on sleep transition or
+            # max-age. Operator naming ruling 2026-08-06 (arrester
+            # family; NOT "Comfort Override" — that would suggest a
+            # comfort dial, this is an override of arrester governance).
+            HVACTempArresterOverrideSwitch(hass, entry),
             HVACACResetSwitch(hass, entry),
             # v4.7.7 A1: AC Nudge decouple — sibling toggle for soft-nudge
             # detection, independent of AC Reset.
@@ -1952,8 +1956,13 @@ class HVACOverrideArresterSwitch(SwitchEntity, RestoreEntity):
         return self._get_hvac() is not None
 
 
-class HVACComfortOverrideSwitch(SwitchEntity):
-    """Comfort Override — house-wide arrester suspension.
+class HVACTempArresterOverrideSwitch(SwitchEntity):
+    """Temp Arrester Override — arrester-scoped temporary stand-down.
+
+    Operator naming (2026-08-06): the switch belongs to the arrester
+    family and OVERRIDES arrester governance temporarily; it is NOT a
+    "comfort" dial. Friendly name is exactly "Temp Arrester Override";
+    unique_id slug is ``ura_hvac_temp_arrester_override``.
 
     Operator-facing kill switch for arrester corrective writes. When ON,
     the OverrideArrester skips EVERY compromise/severe/revert/AC-ramp
@@ -1970,7 +1979,7 @@ class HVACComfortOverrideSwitch(SwitchEntity):
     through an outage should NOT persistently disable governance —
     the operator can always re-engage after restart if intended.
 
-    Entity: switch.ura_hvac_coordinator_comfort_override
+    Entity: switch.ura_hvac_temp_arrester_override
     Device: URA: HVAC Coordinator
     """
 
@@ -1981,8 +1990,8 @@ class HVACComfortOverrideSwitch(SwitchEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.hass = hass
         self._entry = entry
-        self._attr_unique_id = f"{DOMAIN}_hvac_coordinator_comfort_override"
-        self._attr_name = "Comfort Override"
+        self._attr_unique_id = f"{DOMAIN}_hvac_temp_arrester_override"
+        self._attr_name = "Temp Arrester Override"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",
