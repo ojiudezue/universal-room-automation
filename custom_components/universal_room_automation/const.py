@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.55.0
+# Universal Room Automation vv5.56.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.55.0"
+VERSION: Final = "v5.56.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1097,13 +1097,13 @@ IDLE_POWER_THRESHOLD: Final = 5  # Watts (below this is considered idle waste)
 HVAC_COOLING_THRESHOLD: Final = 5  # degrees above comfort max
 HVAC_HEATING_THRESHOLD: Final = 5  # degrees below comfort min
 
-# HVAC Zone Preset Triggers (v3.3.5.9)
-CONF_ZONE_THERMOSTAT: Final = "zone_thermostat"  # v3.6.23: Zone-level climate entity
-CONF_ZONE_VACANT_PRESET: Final = "zone_vacant_preset"
-CONF_ZONE_OCCUPIED_PRESET: Final = "zone_occupied_preset"
-DEFAULT_ZONE_VACANT_PRESET: Final = "away"
-DEFAULT_ZONE_OCCUPIED_PRESET: Final = "home"
-HVAC_PRESET_SKIP: Final = ("manual", "sleep")
+# Zone-level thermostat (v3.6.23): consumed by HVACCoordinator zone
+# auto-discovery (Writer A). NOTE 2026-08-06: the v3.3.5.9 Writer-B preset
+# override constants (CONF_ZONE_VACANT_PRESET / CONF_ZONE_OCCUPIED_PRESET /
+# DEFAULT_ZONE_*_PRESET / HVAC_PRESET_SKIP) were deleted with the Writer-B
+# code path — none were set in live config, none had a config-flow surface,
+# and their only consumer was `ZoneAnyoneBinarySensor._handle_zone_occupancy_change`.
+CONF_ZONE_THERMOSTAT: Final = "zone_thermostat"
 
 # Alert type to color mapping
 ALERT_TYPE_COLORS: Final = {
