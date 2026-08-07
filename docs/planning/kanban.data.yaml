@@ -184,6 +184,29 @@ cards:
     next: verify display-leak vs observe-scope leak past the allowlist
     refs: [exterior_track_linker.py, sensor.py]
 
+  - id: RELOAD-WATCHDOG-HAZARD
+    title: URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
+    thread: lifecycle
+    status: pre_planning
+    approval: explicit
+    approved_by: operator
+    approved_on: 2026-08-07
+    autonomy: overnight-agentic   # diagnose + fix autonomously tonight
+    tags: [tier-2db, no-fabrication-verify]
+    origin: {date: 2026-08-07, gist: "options-flow submit (camera_person_entities) reloaded the URA parent entry and blipped HA -> diagnose and fix this autonomously tonight"}
+    why: routine options saves (Camera Census etc.) reload the integration/parent entry, which cascades to all ~40 room + coordinator entries synchronously, stalling the event loop until the supervisor watchdog restarts core (~5min outage). A config save must not cause an outage.
+    diagnosis:
+      - "CONFIRMED (2026-08-07): _async_update_listener (__init__.py:5984) - for the INTEGRATION entry, if changed_keys NOT subset of OPTIONS_RELOAD_SUPPRESS_KEYS -> hass.config_entries.async_reload(entry.entry_id). Reloading the INTEGRATION (parent) entry cascades to ~40 room + coordinator entries -> event-loop stall -> supervisor watchdog restart (~5min)."
+      - "camera_person_entities / egress_cameras / perimeter_cameras are NOT in the suppress allowlist -> Camera Census save takes the full-reload path. This is the blip."
+      - "Consumers: camera_census reads the list LIVE (_get_integration_camera_list each call -> safe to suppress). transit_validator SUBSCRIBES at async_init (cached -> needs a re-subscribe signal, not a full reload)."
+    fix:
+      - "Add Camera Census keys to an INTEGRATION-entry suppress set (mirror the CM/ROOM reload-suppression). Persistence already done by async_update_entry."
+      - "Dispatch a lightweight SIGNAL_CAMERA_LIST_CHANGED that transit_validator (and any cached consumer) subscribes to -> re-subscribe listeners in-place, no full integration reload."
+      - "Kill switch / rung-1 constant for the suppress set. Verify each suppressed key's consumers refresh (live-read or signal) before adding - do NOT suppress a key whose consumer caches with no refresh path."
+    parsimony: {problem: "a routine config save causes a ~5min house outage", verdict: BUILD, note: safety/usability - config changes must be non-disruptive; fix mirrors existing CM/ROOM suppression pattern}
+    next: (tonight) build - INTEGRATION suppress set + SIGNAL_CAMERA_LIST_CHANGED re-subscribe path; Tier 2-DB (lifecycle + presence)
+    refs: [__init__.py:5984 _async_update_listener, OPTIONS_RELOAD_SUPPRESS_KEYS, transit_validator.py async_init, feedback_parent_entry_reload_watchdog_hazard memory]
+
   - id: KHOST-1
     title: Homelab-hosted board, generated from data
     thread: dashboarding
