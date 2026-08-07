@@ -56,7 +56,25 @@ re-raises them.
 
 `📥 Inbox` (raw capture) · `🧭 Pre-planning` (idea being decomposed) · `📝 Planned` (has a
 plan / acceptance criteria) · `🔨 In progress` · `🔍 Review` · `🚀 Shipped — organic open` ·
-`⏸️ Waiting on operator` · `🅿️ Parked` (deliberate, with a revisit-trigger).
+`⏸️ Waiting on operator` · `⏳ Waiting on me (Claude)` · `🅿️ Parked` (deliberate, with a
+revisit-trigger).
+
+**Two waiting lanes, symmetric.** Track obligations on *both* sides. "Waiting on operator" =
+decisions/actions only the operator can take (physical fixes, go/no-go, design choices).
+"Waiting on me (Claude)" = things I owe (a promised re-measurement, a verification, a sweep).
+Do not file my own debt under the operator's lane — that hides it and reads as if the ball is
+in their court when it is in mine.
+
+## Architecture — data vs representation (KHOST-1 target)
+
+The board is **data**, not prose. The source of truth is a structured file; every view — the
+committed markdown, the Artifact, the homelab page — is **generated** from it, so no view can
+drift from the data (editing a rendered view is the drift anti-pattern). **Done cards age out**
+to a history file rather than bloating the active board — this reuses the existing doctrine that
+the git history of shipped-work docs (READMEs / validation ledgers) is the durable record.
+Until the KHOST-1 generator ships, `docs/planning/KANBAN.md` serves as both data and view; when
+it ships, the markdown becomes a generated artifact like the others and the history file holds
+aged-out cards.
 
 ## Card schema — the fields ARE the decay vectors
 

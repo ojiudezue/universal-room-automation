@@ -12,9 +12,11 @@ even when terse:
 - **Refinement** (append-only `challenge → sharpened form` — the dialectic that improved the surviving idea; stops backsliding to the naive version)
 - **Knobs** (named configurables — Numbers-Get-Knobs ledger) · **Next** (single next action) · **Refs**
 
-Columns: 📥 Inbox · 🧭 Pre-planning · 📝 Planned · 🔨 In progress · 🔍 Review · 🚀 Shipped(organic-open) · ⏸️ Waiting-on-operator · 🅿️ Parked
+Columns: 📥 Inbox · 🧭 Pre-planning · 📝 Planned · 🔨 In progress · 🔍 Review · 🚀 Shipped(organic-open) · ⏸️ Waiting-on-operator · ⏳ Waiting-on-me(Claude) · 🅿️ Parked
 
-_Last reconciled: 2026-08-07 (SECC-1 promoted; refinement trails added to SNAP-1/RESACC-1/TRANSIT-1)._
+**Architecture (KHOST-1 target):** the source of truth is *data*; every view (this markdown, the Artifact, the homelab page) is *generated* from it; done cards *age out* to a history file. Until KHOST-1 ships, this file is both data and view.
+
+_Last reconciled: 2026-08-07 (added Waiting-on-me lane, moved P1/P3 there; KHOST-1 data/representation refinement)._
 
 ---
 
@@ -95,8 +97,10 @@ _(none)_
 - **Why:** the Artifact is hand-maintained HTML that can drift from KANBAN.md (the exact anti-pattern this skill warns against). A **generated** board (KANBAN.md → HTML, pure function of the source) can't drift; homelab-hosted = durable, bookmarkable, infra-native.
 - **Design:** generator (pandoc or a small script) KANBAN.md → static board; serve on homelab (follow `~/Code/ura-dashboard-pwa` / gitea-pages pattern; candidate `kanban.phalanxmadrone.com`); auto-rebuild on KANBAN.md change; **Playwright for self-iterated visual design** (node v25 + playwright 1.62 present; needs `npx playwright install chromium`).
 - **Constraints:** the generated page must be a pure function of KANBAN.md (no hand-editing the output — kills the drift anti-pattern); refinement trails + all columns render.
-- **Decisions pending (operator):** hosting mechanism (reuse the PWA/Vercel path vs homelab static via caddy/nginx)? subdomain?
-- **Next:** install playwright chromium; prototype the MD→board generator; screenshot-iterate the design; then wire homelab serve.
+- **Refinement:**
+  - operator "separate work data from its representation… should just be data or a file; done things age out to a history file / existing README doctrine" → source of truth becomes **structured data** (file); markdown view + Artifact + homelab page all GENERATED from it (page = pure function of data, can't drift); done cards age to a **history file** (folds into the README-is-the-validation-ledger doctrine). Playwright eyes confirmed working (rendered board headless; spotted a column-balance gap to fix in the generated design).
+- **Decisions pending (operator):** hosting mechanism (reuse the PWA/Vercel path vs homelab static via caddy/nginx)? subdomain? regen trigger (git-hook on KANBAN change vs manual `make board`)?
+- **Next:** install playwright chromium ✅; design the data schema (data → generator → {md view, html board, history}); prototype generator; screenshot-iterate; then wire homelab serve.
 
 ### SECC-1 — Interior cams in the exterior open-tracks diagnostic
 - **Thread:** camera/security · **Origin:** 2026-08-07 "Saw the outside open tracks diagnostic in SecC has interior cameras in it. Mistake?" (dropped for hours; recovered via the kanban — the canonical capture-failure example).
@@ -104,12 +108,18 @@ _(none)_
 - **Next:** verify against `sensor.ura_security_coordinator_outside_open_tracks_diagnostic` whether interior cams still surface post-allowlist; if display-only, scope the attr; if observe-scope, it's a linker allowlist gap.
 - **Refs:** exterior_track_linker.py `set_allowed_cameras`; sensor.py `ExteriorOpenTracksDiagnosticSensor`.
 
-## ⏸️ Waiting on operator
+## ⏸️ Waiting on operator (you)
 
 - **F1-SUNSET** — go/no-go (reminder Aug 8). Steps 1–6 remote (mine), step 7 = unplug NUC. Readiness = organic one-alert-per-multi-engine-traversal (now readable via coverage-by-engine). Ref: AUDIT_frigate1_sunset.md.
-- **P1/P3 preset verdict** — I owe the post-Writer-B flap re-measurement, then re-eval. Origin: "Yes re evaluate and come back."
 - **SNAP-1 decisions** — dir / retention default / transit fold-in (see SNAP-1).
+- **KHOST-1 decisions** — hosting mechanism / subdomain / regen trigger (see KHOST-1).
 - **Physical:** Envoy power-cycle (daily reserve wedge, self-heals but recurs); Ziri-3 sensor power-cycle (off-network since Aug 4); optional Protect sensitivity 50→60 on seam cams; DB VACUUM button press (~900MB reclaim awaits).
+
+## ⏳ Waiting on me (Claude) — my obligations, symmetric to yours
+
+- **P1/P3 preset verdict** — *I* owe the post-Writer-B flap re-measurement across occupied evenings → then the re-eval. Origin: "Yes re evaluate and come back." (Was mis-filed under your list — it's mine.)
+- **Morning sweep** — reason-ledger first night, Frigate car/dog/cat first events, snapshot-fix organic proof, v5.57/58 organic criteria. Mine to check and report.
+- **SECC-1 verify** — the interior-cams-in-exterior-diagnostic check (see Pre-planning). Mine.
 
 ## 🅿️ Parked (deliberate, with revisit-trigger)
 
