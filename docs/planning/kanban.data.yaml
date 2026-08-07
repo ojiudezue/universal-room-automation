@@ -79,23 +79,44 @@ cards:
     sharpened: retention + privacy (out of web-served www)
   - challenge: one snapshot, multiple integrations - which?
     sharpened: at-detection engine precedence, not identity order
+  - challenge: operator - whatever is best practice / 1 week / your call
+    sharpened: verified /media/llmvision/snapshots is the existing HA convention -> /media/ura/snapshots
+      (auth-gated, not web-served); age-primary 168h; SHIP STANDALONE FIRST since SNAP-1 is the prerequisite
+      for CONSOL-1 universal-llmvision
   knobs:
   - name: PERIMETER_SNAPSHOT_ENGINE_PRECEDENCE
     rung: 1
-    why: Frigate-event > Protect-thumb > live
-  - name: PERIMETER_SNAPSHOT_RETENTION_COUNT
-    rung: 1
-    why: prune-on-write (~200)
+    why: Frigate event-snapshot > Protect thumb > native rising-edge (at-detection fidelity)
   - name: PERIMETER_SNAPSHOT_RETENTION_AGE_H
     rung: 1
-    why: age sweep (~48)
+    why: 168 (1 week) - age-primary per operator
+  - name: PERIMETER_SNAPSHOT_RETENTION_COUNT
+    rung: 1
+    why: generous runaway backstop only, not routine pruning
+  - name: PERIMETER_SNAPSHOT_DIR
+    rung: 1
+    why: /media/ura/snapshots - auth-gated, matches llmvision convention
   parsimony:
     problem: perimeter alerts arrive with no photo / a stale photo
     verdict: BUILD
-  next: fold into CONSOL-1; awaiting SNAP-1 decisions
+  next: decisions RESOLVED - ready to build standalone (Tier 2-DB) after TRANSIT-1 fix-up + SECC-1
   refs:
   - perimeter_alert.py
   - domain_coordinators/notification_manager.py
+  decisions:
+    snapshot_dir: '/media/ura/snapshots — operator: ''whatever is best practice''. VERIFIED convention:
+      llmvision already uses /media/llmvision/snapshots. /media is HA''s auth-gated media dir (media browser),
+      NOT the anonymous web-served /local//config/www — fixes the privacy exposure. Proven path for llmvision
+      image_file + whatsapp media_path.'
+    retention: 'operator: ''plenty of space, 1 week'' -> AGE-PRIMARY 168h (PERIMETER_SNAPSHOT_RETENTION_AGE_H=168).
+      Count cap raised to a generous backstop only (guards runaway, not routine). 322GB free on /share
+      verified.'
+    sequencing: 'MY CALL: ship SNAP-1 STANDALONE FIRST, before CONSOL-1. Reasons: (1) it fixes a LIVE
+      user-visible defect (alerts with no photo) - CONSOL-1 is a larger retirement cycle that would delay
+      it; (2) SNAP-1 is a PREREQUISITE for CONSOL-1''s universal-llmvision ruling - llmvision needs a
+      local image_file, which is exactly what SNAP-1 produces, so building it first DE-RISKS CONSOL-1
+      rather than duplicating work; (3) folding in saves no meaningful review cost (both Tier 2-DB on
+      perimeter_alert+NM).'
 - id: RESACC-1
   title: Resolver accuracy test suite
   thread: resolver
