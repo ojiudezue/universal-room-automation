@@ -333,10 +333,13 @@ class TestD2PresetGuardSourceShape:
         anchor = "effective_preset == \"away\" and self._house_state in FAN_TRUST_STATES"
         idx = hvac_src.find(anchor)
         assert idx >= 0, "Trust predicate anchor missing"
-        # Small window: just the guard body (~600 chars covers the
-        # try/except + `if home_persons:` log + continue; pre-fix-up
-        # this region's continue is ~22 lines down).
-        window = hvac_src[idx : idx + 2400]
+        # Small window: just the guard body. Bumped 2400 -> 4200 in the
+        # Writer-B removal cycle (2026-08-06) when the night-trust branch
+        # gained a synthetic `preset_change_suppressed` activity_logger row
+        # (reason=night_trust_suppressed) — roughly +1400 chars. Honest
+        # re-baseline; the `continue` still lives inside the trust
+        # predicate's own body.
+        window = hvac_src[idx : idx + 4200]
         assert "continue" in window, (
             "Trust predicate must continue the loop within its own body; "
             "guard removal regression."
