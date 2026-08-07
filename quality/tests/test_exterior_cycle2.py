@@ -96,6 +96,18 @@ def _make_linker(adjacency=None):
     lk = _etl.ExteriorTrackLinker(_FakeLinkerHass())
     if adjacency is not None:
         lk.set_adjacency(adjacency)
+        # SECC-1 (2026-08-07): fail-CLOSED default requires an installed
+        # allowlist. Derive from the declared adjacency (test's implicit
+        # camera universe) so behavioral tests exercise link/adjacency
+        # logic, not the allowlist gate.
+        cams: set[str] = set()
+        for a, neigh in adjacency.items():
+            cams.add(a)
+            for b in neigh:
+                cams.add(b)
+        # Include the small extra cameras used by cycle-2 tests.
+        cams.update({"front_yard", "playroom"})
+        lk.set_allowed_cameras(cams)
     return lk
 
 

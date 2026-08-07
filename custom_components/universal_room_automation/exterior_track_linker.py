@@ -376,19 +376,31 @@ class ExteriorTrackLinker:
         camera = self.normalize_camera(camera)
         if not camera:
             return None
-        if self._allowed_cameras:
-            if camera not in self._allowed_cameras:
-                self._ignored_offlist_events[camera] = (
-                    self._ignored_offlist_events.get(camera, 0) + 1
+        # SECC-1 (2026-08-07): narrow the observation — an empty allowlist
+        # now REJECTS (was: admitted with a one-shot WARN). The empty
+        # bootstrap window let interior cameras open exterior tracks
+        # (playroom / master_hallway / upstairs_hall / armcrestash41b in
+        # live evidence 2026-08-07) while ignored_offlist_events stayed 0.
+        # Fail-closed pins the invariant: only perimeter+egress cams reach
+        # the linker, and any drop is counted for post-hoc verification.
+        if not self._allowed_cameras:
+            if not self._allowlist_warned:
+                self._allowlist_warned = True
+                _LOGGER.warning(
+                    "ExteriorTrackLinker: no camera allowlist installed — "
+                    "REJECTING all Frigate events until "
+                    "set_allowed_cameras() runs (perimeter_alert setup). "
+                    "Counted under ignored_offlist_events."
                 )
-                return None
-        elif not self._allowlist_warned:
-            self._allowlist_warned = True
-            _LOGGER.warning(
-                "ExteriorTrackLinker: no camera allowlist installed — "
-                "observing ALL Frigate cameras (interior leak possible). "
-                "perimeter_alert setup should call set_allowed_cameras()."
+            self._ignored_offlist_events[camera] = (
+                self._ignored_offlist_events.get(camera, 0) + 1
             )
+            return None
+        if camera not in self._allowed_cameras:
+            self._ignored_offlist_events[camera] = (
+                self._ignored_offlist_events.get(camera, 0) + 1
+            )
+            return None
         if label not in self._tracks:
             self._tracks[label] = []
         key = (camera, label)

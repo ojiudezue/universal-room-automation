@@ -5403,6 +5403,30 @@ class PresenceDiagnosticSensor(AggregationEntity, SensorEntity):
             )
         except Exception:  # noqa: BLE001 — defensive: stale coord data
             zone_verdicts = {}
+        # TRANSIT-DIAG-1 (2026-08-07): surface the transit-validator
+        # Protect-sourced checkpoint map read-only on this existing
+        # presence-diagnostic host (REUSED — no new sensor needed).
+        # v5.60.0 shipped ``checkpoint_cameras_by_area`` as a Python attr
+        # only; verifying it live required raising the log level. Now
+        # exposed as attrs: ``checkpoint_cameras_by_area`` (mapping) and
+        # ``protect_sourced_count`` (int). Purely additive; kill-switch
+        # off yields an empty mapping / zero count.
+        checkpoint_cameras_by_area: dict[str, list[str]] = {}
+        protect_sourced_count = 0
+        try:
+            tv = self.hass.data.get(DOMAIN, {}).get("transit_validator")
+            if tv is not None:
+                raw = getattr(tv, "checkpoint_cameras_by_area", None) or {}
+                # Copy shallowly; sort camera lists for stable rendering.
+                checkpoint_cameras_by_area = {
+                    a: sorted(list(eids)) for a, eids in raw.items()
+                }
+                protect_sourced_count = sum(
+                    len(v) for v in checkpoint_cameras_by_area.values()
+                )
+        except Exception:  # noqa: BLE001 — defensive: transit_validator absent/torn down
+            checkpoint_cameras_by_area = {}
+            protect_sourced_count = 0
         return {
             "last_veto_decision": last_veto_decision,
             "signal_consensus_inputs": dict(
@@ -5412,6 +5436,8 @@ class PresenceDiagnosticSensor(AggregationEntity, SensorEntity):
                 getattr(presence, "_excluded_persons", {}) or {}
             ),
             "zone_verdicts": zone_verdicts,
+            "checkpoint_cameras_by_area": checkpoint_cameras_by_area,
+            "protect_sourced_count": protect_sourced_count,
         }
 
 

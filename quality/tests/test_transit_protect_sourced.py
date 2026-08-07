@@ -669,3 +669,85 @@ def test_f2_two_physical_cameras_both_record():
     validator._on_camera_state_change(_FakeEvent(_FakeState("binary_sensor.master_person_detected")))
     total = sum(len(v) for v in validator._camera_sightings.values())
     assert total == 2
+
+
+# ---------------------------------------------------------------------------
+# TRANSIT-DIAG-1 (2026-08-07): PresenceDiagnosticSensor exposes the
+# checkpoint_cameras_by_area mapping + protect_sourced_count as read-only
+# attrs. Prior to this fix the mapping lived only as a Python attribute
+# on TransitValidator — verifying it live required raising the log level
+# AND forcing a rebuild. Now it rides an EXISTING diagnostic surface.
+# ---------------------------------------------------------------------------
+
+
+def test_presence_diagnostic_sensor_exposes_checkpoint_cameras_source_anchor():
+    """Source-anchor: the extra_state_attributes payload of
+    PresenceDiagnosticSensor MUST include ``checkpoint_cameras_by_area``
+    AND ``protect_sourced_count``, sourced from
+    hass.data[DOMAIN]['transit_validator']."""
+    root = Path(__file__).resolve().parents[2]
+    src = (root / "custom_components" / "universal_room_automation"
+                / "sensor.py").read_text()
+    idx = src.index("class PresenceDiagnosticSensor")
+    blk = src[idx:idx + 6000]
+    assert "checkpoint_cameras_by_area" in blk, (
+        "PresenceDiagnosticSensor must surface checkpoint_cameras_by_area"
+    )
+    assert "protect_sourced_count" in blk, (
+        "PresenceDiagnosticSensor must surface protect_sourced_count"
+    )
+    assert 'get("transit_validator"' in blk, (
+        "attribute source must be hass.data[DOMAIN]['transit_validator']"
+    )
+
+
+def test_presence_diagnostic_attrs_empty_when_transit_validator_absent():
+    """Behavioral: with no transit_validator wired (kill-switch OFF, or
+    setup order pre-wire), the two new attrs must be empty/zero — not
+    raise. This drives the real extra_state_attributes property."""
+    # Load sensor module lazily — avoid perturbing the module-level HA stubs
+    # for the whole file. If imports fail (missing HA surfaces), skip: the
+    # source anchor above still pins the wiring.
+    import importlib
+    try:
+        sensor_mod = importlib.import_module(
+            "custom_components.universal_room_automation.sensor"
+        )
+    except Exception:
+        import pytest as _pytest
+        _pytest.skip("sensor module cannot be imported in this stub env")
+    cls = getattr(sensor_mod, "PresenceDiagnosticSensor", None)
+    if cls is None:
+        import pytest as _pytest
+        _pytest.skip("PresenceDiagnosticSensor not importable")
+    inst = cls.__new__(cls)
+    inst.hass = types.SimpleNamespace(
+        data={"universal_room_automation": {"coordinator_manager": None}}
+    )
+    attrs = cls.extra_state_attributes.fget(inst)
+    # coordinator_manager is None → attrs {} short-circuit; no new keys.
+    # Now wire a manager + presence coord so the real path runs.
+    class _P:
+        _last_veto_decision = None
+        _v4716_zone_verdicts = {}
+        _signal_consensus_inputs = {}
+        _excluded_persons = {}
+    class _CM:
+        coordinators = {"presence": _P()}
+    inst.hass.data["universal_room_automation"]["coordinator_manager"] = _CM()
+    attrs = cls.extra_state_attributes.fget(inst)
+    assert attrs["checkpoint_cameras_by_area"] == {}
+    assert attrs["protect_sourced_count"] == 0
+    # Now wire a fake transit_validator with a real mapping — mapping surfaces.
+    class _TV:
+        checkpoint_cameras_by_area = {
+            "kitchen": {"binary_sensor.a", "binary_sensor.b"},
+            "hall": ["binary_sensor.c"],
+        }
+    inst.hass.data["universal_room_automation"]["transit_validator"] = _TV()
+    attrs = cls.extra_state_attributes.fget(inst)
+    assert attrs["checkpoint_cameras_by_area"] == {
+        "kitchen": ["binary_sensor.a", "binary_sensor.b"],
+        "hall": ["binary_sensor.c"],
+    }
+    assert attrs["protect_sourced_count"] == 3
