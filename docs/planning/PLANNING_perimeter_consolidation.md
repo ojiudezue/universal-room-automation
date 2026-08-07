@@ -498,3 +498,23 @@ consumed anywhere.
   diagnostics coverage is not fully proven for these).
 - Any change to NM persons/channels/severity gates themselves; this cycle
   only CONSUMES them.
+
+---
+
+## Operator rulings (2026-08-07)
+
+1. **Surfacing: OPTION C** (ratified as "A plus the explicit
+   detection/delivery boundary + cross-references" — same dialog
+   location, same discoverability).
+2. **llmvision enrichment is UNIVERSAL** across camera-based alerting
+   (perimeter + egress, all severity tiers), not a daytime feature.
+   Cost guard: enrich per DISPATCHED alert (post-cooldown/dedup), never
+   per raw detection.
+3. **Day/night is not a valid boundary for person alerting.** The 23-5
+   existence window is REMOVED entirely; severity derives from the
+   contextual model (house state × camera class × track classification)
+   — "where and how it's used to advance the goal." The alert-hours
+   fields migrate to severity-schedule semantics or are dropped.
+   Exception retained: the deep-night VEHICLE window (operator's own
+   negative-signal design, where the hour IS the signal) — standing
+   unless separately reconsidered.
