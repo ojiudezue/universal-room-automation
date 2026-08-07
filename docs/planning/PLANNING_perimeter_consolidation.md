@@ -518,3 +518,12 @@ consumed anywhere.
    Exception retained: the deep-night VEHICLE window (operator's own
    negative-signal design, where the hour IS the signal) — standing
    unless separately reconsidered.
+
+4. **Config-home ruling (operator, 2026-08-07): Perimeter Alerting stays
+   a specific top-level step** ("specific generally better than general
+   with caveats"). NAMED TRIGGER for the future move: when a SECOND
+   security-config surface would otherwise join the top menu (vehicle
+   policy knobs, ack authority, arming config), create the Security
+   settings home and re-parent Perimeter Alerting into it as its
+   detection subsection — Option C's internal field partition makes that
+   re-parenting cheap. Do not build the umbrella for one tenant.
