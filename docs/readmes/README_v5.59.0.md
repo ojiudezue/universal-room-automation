@@ -43,6 +43,16 @@ orchestrator drills). Review record: `docs/reviews/code-review/v5.59.0_resolver_
 - **Live (organic):** first real traversal seen by ≥2 engines produces exactly ONE alert;
   `leg_firing_by_camera` attr populates non-empty within 24h of organic exterior activity.
 
-## Live Validation
+## Live Validation — Validated 2026-08-07 (restart 07:18 CDT)
 
-(prospective — to be replaced with the Validated table post-restart)
+| Criterion | Result | Evidence |
+|---|---|---|
+| HA up, integration loaded @ v5.59.0 | PASS | `manifest.json` version `v5.59.0` on `/config`; `sensor.ura_presence_coordinator_presence_house_state` = `away` (last_changed 07:19:48 CDT) |
+| No "legs resolve to >1 camera key" WARN | PASS | journald core scan post-restart: zero matches (URA WARNs ARE visible in the feed — e.g. Envoy deferred re-validation at 07:20:48 — so absence is meaningful) |
+| No "no `_2` sibling found" boot WARN-storm | PASS | same scan: zero matches |
+| Zero URA ERROR lines post-restart | PASS | journald scan: none |
+| Diagnostic sensor carries new telemetry surface | PASS | `sensor.ura_security_coordinator_outside_open_tracks_diagnostic` state `0`, attrs include `leg_firing_by_camera: {}` (new key present; empty pending organic fires) |
+| Per-camera "coverage by engine" INFO log shows ≥2 engines | IN-SUITE ONLY | URA logger runs at WARNING (confirmed via logger/log_info), so the INFO line is suppressed live. The invariant is pinned in-suite (`test_coverage_info_log_site_in_production_source`) and the live risk (missing alias → duplicate alerts) is covered by the >1-camera-key WARN tripwire, which is at WARNING and silent = healthy. |
+| One alert per multi-engine traversal; `leg_firing_by_camera` populates | ORGANIC (open) | first real exterior traversal; check attr + single NM alert |
+
+Boot transients observed and dismissed: Envoy deferred re-validation (known daily wedge, operator power-cycle pending); stale-override startup audit reverting Entertainment+Master to `home` (arrester machinery working as designed); master-bath fan entity briefly missing during boot settle.
