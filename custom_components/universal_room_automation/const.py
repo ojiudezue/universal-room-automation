@@ -1373,6 +1373,18 @@ MAX_EXTERIOR_SNAPSHOT_OFFSET_S: Final = 60
 # publication after HA restart.
 PERIMETER_BOOT_SETTLE_S: Final = 30
 
+# Rung-1 kill switch (2026-08-06 protect-person-legs cycle). When True,
+# PerimeterAlertManager additionally subscribes the UniFi-Protect
+# `binary_sensor.<camera_slug>_person_detected` (+ `_2`) sibling of each
+# configured perimeter/egress person sensor, giving perimeter/egress alerting
+# a second independent detection engine (Protect smart-detect) alongside the
+# existing Frigate `_person_occupancy` (+ `_2`) legs. Camera-key collapse
+# (cooldown + in-flight, keyed via `_camera_key_for_sensor` which strips
+# `_person_detected` / `_person_occupancy` and `_2`) guarantees a triple-fire
+# across all legs yields exactly ONE alert. Set False for a byte-identical
+# backout to pre-cycle subscription behavior.
+PERIMETER_PROTECT_PERSON_LEGS_ENABLED: Final = True
+
 # Review A-M2 label filter. Only Frigate events whose `after.label` is in this
 # set update the cached snapshot event_id. Prevents e.g. car detections from
 # supplying the URL for a later person alert.

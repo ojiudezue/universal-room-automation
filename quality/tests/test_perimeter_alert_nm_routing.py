@@ -1193,3 +1193,203 @@ def test_CHIGH1_episode_writer_shape():
     for k in ("path", "classification", "duration_s", "hops",
               "path_string", "identified"):
         assert k in attrs, f"missing attrs key: {k}"
+
+
+# --- 2026-08-06 protect-person-legs cycle -----------------------------------
+# Adds subscription to the UniFi-Protect `<slug>_person_detected` (+`_2`)
+# sibling of each perimeter/egress camera's Frigate person sensor. Camera-key
+# collapse (cooldown + in-flight) must render triple-fires (frigate base +
+# frigate _2 + protect) as ONE alert.
+
+
+def _make_fake_registry(present: set[str]):
+    """Return an object mimicking entity_registry with async_get(entity_id)."""
+    reg = MagicMock()
+    reg.async_get = lambda eid: MagicMock() if eid in present else None
+    return reg
+
+
+def _patch_registry(monkeypatch, present: set[str]):
+    """Force _perimeter's entity_registry.async_get(hass) -> a fake registry."""
+    fake_reg = _make_fake_registry(present)
+    er_mod = sys.modules["homeassistant.helpers.entity_registry"]
+    monkeypatch.setattr(er_mod, "async_get", lambda _hass: fake_reg)
+    return fake_reg
+
+
+def test_protect_person_legs_derives_from_registry_when_present(monkeypatch):
+    """When BOTH `_person_detected` and `_person_detected_2` are in the
+    registry, both are returned; other candidates are skipped."""
+    _patch_registry(monkeypatch, {
+        "binary_sensor.front_yard_person_detected",
+        "binary_sensor.front_yard_person_detected_2",
+    })
+    hass, _nm = _make_hass()
+    mgr = PerimeterAlertManager(hass)
+    legs = mgr._protect_person_legs("binary_sensor.front_yard_person_occupancy")
+    assert legs == [
+        "binary_sensor.front_yard_person_detected",
+        "binary_sensor.front_yard_person_detected_2",
+    ]
+
+
+def test_protect_person_legs_absent_returns_empty(monkeypatch):
+    """No `_person_detected` registration → empty list (nothing subscribed)."""
+    _patch_registry(monkeypatch, set())
+    hass, _nm = _make_hass()
+    mgr = PerimeterAlertManager(hass)
+    assert mgr._protect_person_legs(
+        "binary_sensor.front_yard_person_occupancy"
+    ) == []
+
+
+def test_protect_person_legs_only_2_variant(monkeypatch):
+    """Only the `_2` variant registered → return just it (no base)."""
+    _patch_registry(monkeypatch, {
+        "binary_sensor.front_yard_person_detected_2",
+    })
+    hass, _nm = _make_hass()
+    mgr = PerimeterAlertManager(hass)
+    assert mgr._protect_person_legs(
+        "binary_sensor.front_yard_person_occupancy"
+    ) == ["binary_sensor.front_yard_person_detected_2"]
+
+
+def test_protect_person_legs_kill_switch_off(monkeypatch):
+    """Kill switch False → empty list even if registry has both."""
+    _patch_registry(monkeypatch, {
+        "binary_sensor.front_yard_person_detected",
+        "binary_sensor.front_yard_person_detected_2",
+    })
+    monkeypatch.setattr(
+        _perimeter, "PERIMETER_PROTECT_PERSON_LEGS_ENABLED", False,
+    )
+    hass, _nm = _make_hass()
+    mgr = PerimeterAlertManager(hass)
+    assert mgr._protect_person_legs(
+        "binary_sensor.front_yard_person_occupancy"
+    ) == []
+
+
+def test_triple_fire_across_all_legs_produces_one_alert(monkeypatch):
+    """Frigate base + Frigate `_2` + Protect legs all fire → ONE NM alert.
+
+    Camera-key collapse (in-flight + cooldown, keyed via
+    `_camera_key_for_sensor`) is what makes this work.
+    """
+    _patch_registry(monkeypatch, {
+        "binary_sensor.front_yard_person_detected",
+        "binary_sensor.front_yard_person_detected_2",
+    })
+    hass, nm = _make_hass(house_state="away")
+    mgr = _run(_setup_mgr(hass))
+    for sensor in (
+        "binary_sensor.front_yard_person_occupancy",       # Frigate base
+        "binary_sensor.front_yard_person_occupancy_2",     # Frigate `_2`
+        "binary_sensor.front_yard_person_detected",        # Protect
+        "binary_sensor.front_yard_person_detected_2",      # Protect `_2`
+    ):
+        _run(mgr._async_handle_perimeter_trigger(sensor))
+    assert nm.async_notify.await_count == 1
+
+
+def test_protect_leg_alone_can_alert(monkeypatch):
+    """A rising edge that arrives ONLY via the Protect leg still alerts —
+    proves the Protect leg is not silently dropped."""
+    _patch_registry(monkeypatch, {
+        "binary_sensor.front_yard_person_detected",
+    })
+    hass, nm = _make_hass(house_state="away")
+    mgr = _run(_setup_mgr(hass))
+    _run(mgr._async_handle_perimeter_trigger(
+        "binary_sensor.front_yard_person_detected"
+    ))
+    assert nm.async_notify.await_count == 1
+
+
+def test_kill_switch_gives_byte_identical_subscription_set(monkeypatch):
+    """With Protect legs OFF, setup produces the exact pre-cycle subscription
+    set (Frigate base + `_2` only)."""
+    _patch_registry(monkeypatch, {
+        "binary_sensor.front_yard_person_occupancy_2",
+        "binary_sensor.front_yard_person_detected",
+        "binary_sensor.front_yard_person_detected_2",
+    })
+    monkeypatch.setattr(
+        _perimeter, "PERIMETER_PROTECT_PERSON_LEGS_ENABLED", False,
+    )
+    hass, _nm = _make_hass(house_state="away")
+    mgr = _run(_setup_mgr(hass))
+    subscribed = set(mgr._sensor_to_camera.keys())
+    assert subscribed == {
+        "binary_sensor.front_yard_person_occupancy",
+        "binary_sensor.front_yard_person_occupancy_2",
+    }
+
+
+def test_setup_logs_per_camera_leg_coverage(monkeypatch, caplog):
+    """Setup must emit a WARN inventory line per perimeter camera listing
+    which legs (frigate/frigate2/protect/protect2) were found — the boot
+    coverage map an operator can read at boot."""
+    _patch_registry(monkeypatch, {
+        "binary_sensor.front_yard_person_occupancy_2",
+        "binary_sensor.front_yard_person_detected",
+        "binary_sensor.front_yard_person_detected_2",
+    })
+    hass, _nm = _make_hass(house_state="away")
+    with caplog.at_level("WARNING"):
+        _run(_setup_mgr(hass))
+    coverage = [
+        r for r in caplog.records
+        if "person-leg coverage" in r.getMessage()
+        and "camera.front_yard" in r.getMessage()
+    ]
+    assert coverage, "expected per-camera coverage WARN at setup"
+    msg = coverage[0].getMessage()
+    for leg in ("frigate", "frigate2", "protect", "protect2"):
+        assert leg in msg, f"leg tag {leg!r} missing from coverage log: {msg}"
+
+
+# --- Mutation drills for the new pairing rule --------------------------------
+
+
+def test_MUTATION_protect_leg_derivation_load_bearing(monkeypatch):
+    """Neuter `_protect_person_legs` → the Protect-only alert test goes RED,
+    proving derivation is actually load-bearing (not just decorative)."""
+    _patch_registry(monkeypatch, {
+        "binary_sensor.front_yard_person_detected",
+    })
+    monkeypatch.setattr(
+        PerimeterAlertManager, "_protect_person_legs",
+        lambda self, _bs: [],
+    )
+    hass, nm = _make_hass(house_state="away")
+    mgr = _run(_setup_mgr(hass))
+    # Protect leg was NOT subscribed and NOT tagged in _sensor_to_camera; but
+    # _async_handle_perimeter_trigger runs regardless. To prove derivation is
+    # load-bearing at SETUP we assert subscription coverage:
+    assert "binary_sensor.front_yard_person_detected" not in mgr._sensor_to_camera
+
+
+def test_MUTATION_camera_key_dedup_load_bearing(monkeypatch):
+    """Neuter `_camera_key_for_sensor` (returns raw entity_id per sensor)
+    → the triple-fire test goes RED (2+ alerts instead of 1)."""
+    _patch_registry(monkeypatch, {
+        "binary_sensor.front_yard_person_detected",
+        "binary_sensor.front_yard_person_detected_2",
+    })
+    monkeypatch.setattr(
+        PerimeterAlertManager, "_camera_key_for_sensor",
+        lambda self, sid: sid,  # each sensor gets its own cooldown key
+    )
+    hass, nm = _make_hass(house_state="away")
+    mgr = _run(_setup_mgr(hass))
+    for sensor in (
+        "binary_sensor.front_yard_person_occupancy",
+        "binary_sensor.front_yard_person_occupancy_2",
+        "binary_sensor.front_yard_person_detected",
+        "binary_sensor.front_yard_person_detected_2",
+    ):
+        _run(mgr._async_handle_perimeter_trigger(sensor))
+    # Dedup neutered → all four legs alert independently.
+    assert nm.async_notify.await_count == 4

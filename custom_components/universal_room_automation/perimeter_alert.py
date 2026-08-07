@@ -93,6 +93,7 @@ from .const import (
     MIN_EXTERIOR_SNAPSHOT_OFFSET_S,
     MAX_EXTERIOR_SNAPSHOT_OFFSET_S,
     PERIMETER_BOOT_SETTLE_S,
+    PERIMETER_PROTECT_PERSON_LEGS_ENABLED,
     FRIGATE_SNAPSHOT_LABELS,
     TRACK_LINK_WINDOW_S,
     EXTERIOR_VEHICLE_NIGHT_START,
@@ -179,19 +180,32 @@ class PerimeterAlertManager:
         # rising edge from the `_2` sibling person sensor (F2 parallel host).
         # Per-camera cooldown + in-flight gates dedup so one physical event
         # visible on both hosts still yields ONE alert.
+        # Dedup subscription set across configured/base/`_2`/Protect legs so
+        # a camera whose configured `person_binary_sensor` IS ALREADY the
+        # Protect leg (or the `_2` sibling) does not get double-subscribed.
         perimeter_sensors: list[str] = []
+        _perimeter_seen: set[str] = set()
+
+        def _append_perimeter(sensor: str, platform: str, cam: str) -> bool:
+            if not sensor or sensor in _perimeter_seen:
+                return False
+            perimeter_sensors.append(sensor)
+            _perimeter_seen.add(sensor)
+            self._sensor_platforms[sensor] = platform
+            self._sensor_to_camera[sensor] = cam
+            return True
+
         for cam_entity_id, info in perimeter_infos:
             base_bs = info.person_binary_sensor
             if not base_bs:
                 continue
-            perimeter_sensors.append(base_bs)
-            self._sensor_platforms[base_bs] = info.platform or ""
-            self._sensor_to_camera[base_bs] = cam_entity_id
+            _append_perimeter(base_bs, info.platform or "", cam_entity_id)
+            legs_found = ["frigate" if not base_bs.endswith("_person_detected") else "protect"]
             sibling = self._fused_sibling(base_bs)
-            if sibling:
-                perimeter_sensors.append(sibling)
-                self._sensor_platforms[sibling] = info.platform or ""
-                self._sensor_to_camera[sibling] = cam_entity_id
+            if sibling and _append_perimeter(sibling, info.platform or "", cam_entity_id):
+                legs_found.append(
+                    "frigate2" if not sibling.endswith("_person_detected_2") else "protect2"
+                )
                 _LOGGER.info(
                     "PerimeterAlertManager: fused source for %s — also "
                     "watching %s (both hosts feed the same camera key)",
@@ -203,12 +217,59 @@ class PerimeterAlertManager:
                     "F2 host detections will not alert; F1 retirement will "
                     "silence this camera until sourcing is refit.", base_bs,
                 )
+            # 2026-08-06 protect-person-legs: add the Protect smart-detect
+            # legs where present. Kill-switch gated inside _protect_person_legs.
+            # Dedup absorbs the case where the configured base already IS
+            # the Protect leg (or its `_2`).
+            for protect_leg in self._protect_person_legs(base_bs):
+                # Platform tag is intentionally NOT Frigate so
+                # _resolve_snapshot_url_and_delay falls through to the
+                # entity_picture fallback for Protect legs.
+                if _append_perimeter(protect_leg, "unifiprotect", cam_entity_id):
+                    legs_found.append(
+                        "protect2" if protect_leg.endswith("_2") else "protect"
+                    )
+            _LOGGER.warning(
+                "PerimeterAlertManager: perimeter camera %s person-leg "
+                "coverage: %s (base=%s)",
+                cam_entity_id, legs_found, base_bs,
+            )
 
-        egress_sensors = [
-            info.person_binary_sensor
-            for _, info in egress_infos
-            if info.person_binary_sensor
-        ]
+        # Egress: same treatment (dedup + Protect legs). The configured
+        # sensor for an egress camera may ALREADY be a Protect leg — the
+        # dedup set collapses that case.
+        egress_sensors: list[str] = []
+        _egress_seen: set[str] = set()
+        for cam_entity_id, info in egress_infos:
+            base_bs = info.person_binary_sensor
+            if not base_bs:
+                continue
+            legs_found: list[str] = []
+            if base_bs not in _egress_seen:
+                egress_sensors.append(base_bs)
+                _egress_seen.add(base_bs)
+                legs_found.append(
+                    "frigate" if not base_bs.endswith("_person_detected") else "protect"
+                )
+            sibling = self._fused_sibling(base_bs)
+            if sibling and sibling not in _egress_seen:
+                egress_sensors.append(sibling)
+                _egress_seen.add(sibling)
+                legs_found.append(
+                    "frigate2" if not sibling.endswith("_person_detected_2") else "protect2"
+                )
+            for protect_leg in self._protect_person_legs(base_bs):
+                if protect_leg not in _egress_seen:
+                    egress_sensors.append(protect_leg)
+                    _egress_seen.add(protect_leg)
+                    legs_found.append(
+                        "protect2" if protect_leg.endswith("_2") else "protect"
+                    )
+            _LOGGER.warning(
+                "PerimeterAlertManager: egress camera %s person-leg "
+                "coverage: %s (base=%s)",
+                cam_entity_id, legs_found, base_bs,
+            )
 
         # Hotfix 2026-08-06 (operator-reported interior leak): install the
         # exterior camera allowlist on the linker so the frigate_events bus
@@ -1072,6 +1133,46 @@ class PerimeterAlertManager:
             return None
         candidate = f"{entity_id}_2"
         return candidate if self._entity_exists(candidate) else None
+
+    def _protect_person_legs(self, person_bs: str) -> list[str]:
+        """Return the Protect person legs for a base person binary_sensor.
+
+        2026-08-06 protect-person-legs cycle. UniFi Protect exposes an
+        independent person smart-detect binary_sensor whose entity slug
+        follows `<camera_slug>_person_detected` (+ `_2` when the camera has
+        two sensor entities registered). We derive the camera slug from the
+        base person sensor's stem (stripping the same set of person suffixes
+        `_camera_key_for_sensor` strips + trailing `_2`) and probe the
+        entity registry for the Protect leg. Registry-based, matching the
+        cycle-2 fused-sourcing durability rule.
+
+        Returns [] when the kill switch is off, when the stem can't be
+        derived, or when neither the base nor `_2` Protect leg exists in
+        the registry. Never returns the base sensor itself — the caller
+        dedups against the already-subscribed set.
+        """
+        if not PERIMETER_PROTECT_PERSON_LEGS_ENABLED:
+            return []
+        if not person_bs or not person_bs.startswith("binary_sensor."):
+            return []
+        base = person_bs[len("binary_sensor."):]
+        if base.endswith("_2"):
+            base = base[:-2]
+        stem = None
+        for suf in ("_person_occupancy", "_person_detected", "_person"):
+            if base.endswith(suf):
+                stem = base[: -len(suf)]
+                break
+        if stem is None:
+            return []
+        legs: list[str] = []
+        primary = f"binary_sensor.{stem}_person_detected"
+        if self._entity_exists(primary):
+            legs.append(primary)
+        secondary = f"{primary}_2"
+        if self._entity_exists(secondary):
+            legs.append(secondary)
+        return legs
 
     def _derive_sibling_sensor(
         self, person_bs: str, suffixes: tuple[str, ...]

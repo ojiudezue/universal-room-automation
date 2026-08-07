@@ -526,7 +526,11 @@ def test_perimeter_setup_installs_allowlist_anchor():
             "custom_components/universal_room_automation/perimeter_alert.py",
         )
     ).read()
-    blk = src[src.index("egress_sensors = ["):]
-    assert "set_allowed_cameras" in blk[:2000], (
+    # 2026-08-06 protect-person-legs: the pre-cycle list-comprehension
+    # `egress_sensors = [...]` was rewritten as an imperative loop
+    # (`egress_sensors: list[str] = []`) to accommodate dedup + Protect-leg
+    # subscription; the allowlist install still lives right after.
+    blk = src[src.index("egress_sensors: list[str] = []"):]
+    assert "set_allowed_cameras" in blk[:3000], (
         "perimeter setup must install the linker camera allowlist"
     )
