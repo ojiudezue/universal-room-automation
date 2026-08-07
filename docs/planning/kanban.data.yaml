@@ -244,6 +244,17 @@ cards:
     only). Consolidated fix-up: (1) union the sighting-filter with Protect set; (2) collapse by device_id
     (H1); (3) registry-update self-heal (H3); (4) signal-driven kill/knob (H4); (5) NVR multi-cam per-area
     rows (A-H1); (6) same-integration area fallback (A-H2). Await Review C (test authority) before fix-up.'
+  - 'Review C (test authority): 3 of 6 mutation drills stayed GREEN - kill-switch, checkpoint-area filter,
+    and enumerator package/disabled exclusion are UNTESTED. kill-switch test is a pure tautology (set
+    arithmetic, never calls production). ENTIRE transit_validator.py diff untested (C-H4). Confirms double-fire
+    (C-M2) + empty-tuple checkpoint_areas silently reverts to defaults (adversarial #3).'
+  - 'CONSOLIDATED FIX-UP (all 3 reviews): (1) union sighting-filter _get_shared_space_cameras + activity-check
+    with Protect set [A-CRIT-1/B-L1 - THE core value]; (2) collapse sightings by device_id at record time
+    [B-H1/C-M2 double-fire->presence inflation]; (3) enumerate one row per physical camera not per device
+    (NVR multi-cam) [A-H1]; (4) same-integration area fallback [A-H2]; (5) registry-update self-heal [B-H3];
+    (6) signal-driven kill/knob no parent-reload [B-H4]; (7) empty-tuple=kill via is-not-None + isinstance
+    guard [C adv#3/A-MED-1]; (8) egress idempotency [C-M1]; (9) REAL behavioral tests driving _protect_sourced_checkpoint_entities
+    + TransitValidator.async_init - every mutation drill must go red [C-H1..H4].'
   origin:
     date: 2026-08-07
     gist: we built exterior tracking inspired by interior census/known-persons traversal - find it; can
