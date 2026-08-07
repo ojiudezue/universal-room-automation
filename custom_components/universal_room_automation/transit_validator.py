@@ -33,9 +33,77 @@ from .const import (
     EGRESS_ENTRY_WINDOW_SECONDS,
     EGRESS_EXIT_WINDOW_SECONDS,
     EGRESS_AMBIGUOUS_COOLDOWN_SECONDS,
+    CONF_TRANSIT_CHECKPOINT_AREAS,
+    DEFAULT_TRANSIT_CHECKPOINT_AREAS,
+    CONF_TRANSIT_PROTECT_SOURCED_ENABLED,
+    TRANSIT_PROTECT_SOURCED_ENABLED_DEFAULT,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _protect_sourced_checkpoint_entities(
+    hass: HomeAssistant,
+) -> tuple[list[str], dict[str, list[str]]]:
+    """TRANSIT-1 (2026-08-07): enumerate Protect person cameras at checkpoint areas.
+
+    Returns ``(entity_ids, by_area)``:
+      - ``entity_ids``: flat list of ``binary_sensor.*`` entity_ids to
+        subscribe (superset across every leg of every physical camera whose
+        Protect device area_id is in ``CONF_TRANSIT_CHECKPOINT_AREAS``).
+      - ``by_area``: diagnostic mapping ``area_id -> [entity_id, ...]`` for
+        the ``checkpoint_cameras_by_area`` observability attribute.
+
+    Kill-switch: ``CONF_TRANSIT_PROTECT_SOURCED_ENABLED``. When False,
+    returns ``([], {})`` so callers UNION nothing — subscription set is
+    byte-identical to the pre-cycle hand-list-only path.
+
+    Never raises; degrades to ``([], {})``.
+    """
+    try:
+        # Kill-switch: check integration config entry first.
+        enabled = TRANSIT_PROTECT_SOURCED_ENABLED_DEFAULT
+        checkpoint_areas: tuple[str, ...] = DEFAULT_TRANSIT_CHECKPOINT_AREAS
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                merged = {**entry.data, **entry.options}
+                enabled = merged.get(
+                    CONF_TRANSIT_PROTECT_SOURCED_ENABLED,
+                    TRANSIT_PROTECT_SOURCED_ENABLED_DEFAULT,
+                )
+                areas_val = merged.get(CONF_TRANSIT_CHECKPOINT_AREAS)
+                if areas_val:
+                    checkpoint_areas = tuple(areas_val)
+                break
+        if not enabled:
+            return [], {}
+        checkpoint_set = set(checkpoint_areas)
+
+        from homeassistant.helpers import (  # noqa: PLC0415
+            device_registry as dr_helper,
+        )
+        from .camera_resolver import CameraResolver, PLATFORM_UNIFI  # noqa: PLC0415
+
+        er = er_helper.async_get(hass)
+        dr = dr_helper.async_get(hass)
+        resolver = CameraResolver(er, dr, state_getter=hass.states.get)
+        enumerated = resolver.enumerate_platform_cameras(PLATFORM_UNIFI, "person")
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug(
+            "TRANSIT-1: Protect enumeration failed; falling back to hand-list only",
+            exc_info=True,
+        )
+        return [], {}
+
+    by_area: dict[str, list[str]] = {}
+    entity_ids: list[str] = []
+    for cam in enumerated:
+        if cam.area_id not in checkpoint_set:
+            continue
+        for eid in cam.legs:
+            entity_ids.append(eid)
+            by_area.setdefault(cam.area_id, []).append(eid)
+    return entity_ids, by_area
 
 
 @dataclass
@@ -76,6 +144,10 @@ class TransitValidator:
         self._camera_sightings: dict[str, list[dict[str, Any]]] = {}
         self._unsub: list = []
         self._face_recognition_enabled = False
+        # TRANSIT-1 diagnostic: area_id -> subscribed entity_ids from the
+        # Protect enumeration path. Exposed as `checkpoint_cameras_by_area`
+        # for observability (dashboard / diagnostics consumers).
+        self.checkpoint_cameras_by_area: dict[str, list[str]] = {}
 
     async def async_init(self) -> None:
         """Subscribe to camera person detection entities.
@@ -95,8 +167,17 @@ class TransitValidator:
                 self._face_recognition_enabled = merged.get(CONF_FACE_RECOGNITION_ENABLED, False)
                 break
 
-        # Gather all camera entities to subscribe to
+        # Gather all camera entities to subscribe to.
         camera_entities: list[str] = []
+
+        # TRANSIT-1: PREPEND Protect-sourced checkpoint enumeration in front
+        # of the hand-list. UNIONed via the set() dedup at subscription time.
+        # Kill-switch (CONF_TRANSIT_PROTECT_SOURCED_ENABLED=False) returns
+        # ([], {}) making this a byte-identical no-op vs legacy.
+        protect_entities, by_area = _protect_sourced_checkpoint_entities(self.hass)
+        if protect_entities:
+            camera_entities.extend(protect_entities)
+        self.checkpoint_cameras_by_area = by_area
 
         census = self.hass.data.get(DOMAIN, {}).get("census")
         camera_manager = self.hass.data.get(DOMAIN, {}).get("camera_manager")
@@ -156,6 +237,11 @@ class TransitValidator:
             len(set(camera_entities)),
             self._face_recognition_enabled,
         )
+        if self.checkpoint_cameras_by_area:
+            _LOGGER.info(
+                "TransitValidator Protect-sourced checkpoints: %s",
+                {a: sorted(eids) for a, eids in self.checkpoint_cameras_by_area.items()},
+            )
 
     async def validate_transition(
         self,
@@ -556,6 +642,15 @@ class EgressDirectionTracker:
         elif not census and not camera_manager:
             _LOGGER.debug("EgressDirectionTracker: no camera_manager or census, skipping subscription")
             return
+
+        # TRANSIT-1: PREPEND Protect-sourced interior enumeration in front of
+        # the hand-list-derived _interior_entities. Same kill-switch as
+        # TransitValidator; UNIONed with the existing set. `_get_interior_
+        # cameras_near` returns `_interior_entities`, so appending here is
+        # sufficient — subscription dedup happens via `set()` below.
+        protect_entities, _by_area = _protect_sourced_checkpoint_entities(self.hass)
+        if protect_entities:
+            self._interior_entities = list(self._interior_entities) + protect_entities
 
         # Subscribe to egress binary sensors
         if self._egress_entities:
