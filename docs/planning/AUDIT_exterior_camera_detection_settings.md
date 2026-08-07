@@ -158,3 +158,62 @@ Checked: F1 and F2 `*_person_occupancy` entities occupy DISTINCT device
 ids (e.g. back_yard F1 2065… vs F2 4ab5…) — no HA merge. The only
 bridge between the instances is URA's CameraResolver correlation
 ladder, reinforcing the fused-perimeter-sourcing follow-up above.
+
+---
+
+## Object expansion (2026-08-07)
+
+Operator-approved objects.track additions on BOTH Frigate hosts (F1
+192.168.13.16 Coral/SSD-MobileNet, F2 192.168.13.18 OpenVINO/yolov9t)
+via the same API pipeline as the 2026-08-06 threshold tuning
+(`POST /api/config/save?save_option=restart`, one host at a time, F2
+first, other host's `/api/stats` verified healthy before each restart).
+Post-inference filter change only — both models are COCO-class, so zero
+added inference cost. Before-backups saved locally (NOT committed —
+credentials) at untracked `docs/planning/backups/f{1,2}_raw_config_2026-08-07.yaml`
++ `f{1,2}_runtime_config_2026-08-07.json`.
+
+- `car` added to objects.track: rear_ptz, front_side_ptz, g5_bullet,
+  doorbell_lite, madrone_g6_entry, utilities_ptz (driveway/street set —
+  pool chain excluded).
+- `dog` + `cat` added to objects.track: all 9 perimeter cameras
+  (ReolinkStudyBPorchPTZ, rear_ptz, utilities_ptz, front_side_ptz,
+  ArmCrest, hot_tub, pool_equipment, g5_bullet, back_yard).
+- `person` explicitly retained in every track list (specifying `track`
+  overrides the default). Person filters/thresholds, interior cameras,
+  and ArmCrestASH41B untouched (verified in post-restart `/api/config`
+  reads on both hosts: interior cams still track `['person']` only;
+  seam-camera person thresholds still 0.6/0.7 as tuned 2026-08-06).
+
+### Applied (per camera, per host — identical F1/F2, verified via live `/api/config` after each restart)
+
+| Camera | track after | F1 | F2 |
+|---|---|---|---|
+| rear_ptz | person, car, dog, cat | ✓ | ✓ |
+| front_side_ptz | person, car, dog, cat | ✓ | ✓ |
+| g5_bullet | person, car, dog, cat | ✓ | ✓ |
+| utilities_ptz | person, car, dog, cat | ✓ | ✓ |
+| doorbell_lite | person, car | ✓ | ✓ |
+| madrone_g6_entry | person, car | ✓ | ✓ |
+| ReolinkStudyBPorchPTZ | person, dog, cat | ✓ | ✓ |
+| ArmCrest | person, dog, cat | ✓ | ✓ |
+| hot_tub | person, dog, cat | ✓ | ✓ |
+| pool_equipment | person, dog, cat | ✓ | ✓ |
+| back_yard | person, dog, cat | ✓ | ✓ |
+
+### Post-change `/api/stats` health (settled)
+
+| Host | Detector inference (baseline → after) | Camera health |
+|---|---|---|
+| F1 (Coral) | 29.77 ms → 26.4 ms | proc ≈5 fps fleet-wide; residual skip ≤0.6 on 3 untouched interior/package cams (baseline-level noise) |
+| F2 (3× OpenVINO) | 13.3–14.5 ms → 11.3–12.2 ms | proc ≈5 fps; only ReolinkStudyBPorchPTZ 1.3 skip transient (had 0.2 at baseline) |
+
+Both hosts at/below baseline inference — far under the 1.5× revert bar;
+no reverts. Nothing skipped from the approved change set.
+
+### URA-side note
+No URA code change needed: the track linker's `frigate_events`
+subscriber already buckets car/dog/cat labels, and the camera allowlist
+(commit a5b2dbc00) scopes cameras. Until the linker hotfix branch
+deploys, the LIVE URA version observes the new car events through the
+old unfiltered bus — acceptable (perimeter cameras, label-bucketed).
