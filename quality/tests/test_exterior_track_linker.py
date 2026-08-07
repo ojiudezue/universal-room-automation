@@ -479,3 +479,54 @@ def test_switch_deferred_restore_anchors():
         )
     ).read()
     assert "SIGNAL_EXTERIOR_LINKER_READY" in init_src
+
+
+# ----------------------------------------------- ingress hotfix 2026-08-06 ---
+# Operator-reported live: playroom (interior) opened an "exterior" track via
+# the frigate_events bus, and ReolinkStudyBPorchPTZ vs reolinkstudybporchptz
+# case-split one person into two tracks.
+
+
+def test_normalize_camera_case_and_alias(linker):
+    assert linker.normalize_camera("ReolinkStudyBPorchPTZ") == "reolinkstudybporchptz"
+    assert linker.normalize_camera("  Rear_PTZ ") == "rear_ptz"
+    # Alias map applies post-lowercase (armcrestpooloverhead -> armcrest).
+    assert linker.normalize_camera("ArmCrestPoolOverhead") == "armcrest"
+
+
+def test_case_variants_collapse_to_one_track(linker):
+    t0 = datetime(2026, 8, 2, 20, 0, 0)
+    a = _obs(linker, "ReolinkStudyBPorchPTZ", now=t0)
+    b = _obs(linker, "reolinkstudybporchptz", now=t0 + timedelta(seconds=30))
+    assert a is not None and b is not None
+    assert a.track_id == b.track_id, "case variants must not split tracks"
+    assert linker.census_counts()["exterior_person_tracks_active"] == 1
+
+
+def test_allowlist_drops_interior_cameras(linker):
+    linker.set_allowed_cameras({"utilities", "rear", "front", "front_side"})
+    t0 = datetime(2026, 8, 2, 20, 0, 0)
+    assert _obs(linker, "playroom", now=t0) is None
+    assert linker.census_counts()["exterior_person_tracks_active"] == 0
+    assert linker._ignored_offlist_events.get("playroom") == 1
+    # Allowed camera still tracks (allowlist normalized).
+    assert _obs(linker, "Utilities", now=t0) is not None
+
+
+def test_allowlist_empty_allows_all_with_warning(linker):
+    # Fail-open bring-up semantics: no allowlist installed -> observe works.
+    t0 = datetime(2026, 8, 2, 20, 0, 0)
+    assert _obs(linker, "playroom", now=t0) is not None
+
+
+def test_perimeter_setup_installs_allowlist_anchor():
+    src = open(
+        __file__.replace(
+            "quality/tests/test_exterior_track_linker.py",
+            "custom_components/universal_room_automation/perimeter_alert.py",
+        )
+    ).read()
+    blk = src[src.index("egress_sensors = ["):]
+    assert "set_allowed_cameras" in blk[:2000], (
+        "perimeter setup must install the linker camera allowlist"
+    )
