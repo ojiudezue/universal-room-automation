@@ -188,6 +188,12 @@ class HVACCoordinator(BaseCoordinator):
         # operator's actual list from options; passing here keeps the
         # HVAC coord unaware of options schema (mirror of other CONFs).
         arrester_immune_persons: list[str] | None = None,
+        # AC-ramp master persistence (2026-08-06). Seeded from
+        # entry.options[hvac_ac_ramp_master_enabled]; the switch write-
+        # through keeps this in sync on toggle. Fixes the reload→OFF
+        # regression where a config-entry reload silently reset the
+        # arrester's ramp master to DEFAULT=False.
+        ac_ramp_master_enabled: bool | None = None,
     ) -> None:
         """Initialize HVAC Coordinator."""
         super().__init__(
@@ -214,6 +220,13 @@ class HVACCoordinator(BaseCoordinator):
         # edits refresh via set_immune_persons() from the options update
         # handler (mirrors the CM options-write-back pattern).
         self._override_arrester.set_immune_persons(arrester_immune_persons)
+        # AC-ramp master seed from CM option (reload-safe path). If
+        # None is passed, retain the arrester's DEFAULT (False) so
+        # fresh installs with no persisted option behave as before.
+        if ac_ramp_master_enabled is not None:
+            self._override_arrester._ramp_master_enabled = bool(
+                ac_ramp_master_enabled
+            )
         self._fan_controller = FanController(
             hass, self._zone_manager,
             activation_delta=fan_activation_delta,

@@ -3086,6 +3086,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 "hvac_arrester_immune_persons",
                             ) or _default_immune_persons(hass)
                         ),
+                        # AC-ramp master persisted option (2026-08-06 fix).
+                        # None passthrough retains the arrester's default
+                        # for fresh installs; a stored True/False survives
+                        # config-entry reload (which recreates the arrester).
+                        ac_ramp_master_enabled=cm_config.get(
+                            _CONF_HVAC_AC_RAMP_MASTER_ENABLED,
+                        ),
                     )
                     coordinator_manager.register_coordinator(hvac)
                 else:
@@ -4966,6 +4973,11 @@ from .domain_coordinators.hvac_const import (
     # Part 2 — DPM hysteresis (D5) and egress thresholds (D5)
     CONF_HVAC_EGRESS_THRESHOLD_MIN as _CONF_HVAC_EGRESS_THRESHOLD_MIN,
     CONF_HVAC_EGRESS_RESUME_DELAY_MIN as _CONF_HVAC_EGRESS_RESUME_DELAY_MIN,
+    # Arrester operator-immunity cycle (2026-08-06): AC-ramp master
+    # option-persistence key. Add to OPTIONS_RELOAD_SUPPRESS_KEYS so a
+    # switch write-through does not trigger a CM reload (which would
+    # RE-create the arrester and reset the field to its default False).
+    CONF_HVAC_AC_RAMP_MASTER_ENABLED as _CONF_HVAC_AC_RAMP_MASTER_ENABLED,
 )
 from .domain_coordinators.energy_const import (
     CONF_DYNAMIC_PRESET_DWELL_MINUTES as _CONF_DYNAMIC_PRESET_DWELL_MINUTES,
@@ -5223,6 +5235,15 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     # v4.7.35 fix-up (B-B2) — deny-list read fresh on every chokepoint
     # invocation; no live-attr push needed.
     _CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
+    # Arrester operator-immunity cycle (2026-08-06): AC-ramp master
+    # option-persistence. The HVACACRampMasterSwitch is the SOLE write
+    # path (no config-flow field); on toggle it applies the value
+    # DIRECTLY to arrester._ramp_master_enabled AND write-throughs to
+    # entry.options. So a subsequent options-update listener firing for
+    # this key has no live-attr work to do — the switch already applied
+    # it. The option only matters at INIT (arrester construction) to
+    # survive config-entry reload. NO_LIVE_ATTR = correct classification.
+    _CONF_HVAC_AC_RAMP_MASTER_ENABLED,
     # v5.21.0 fix-up (B-HIGH-1): `_CONF_ENERGY_DP_ENABLE` used to live
     # here on the (incorrect) rationale that the switch entity is the
     # sole write path. The BAEC config-flow step (v5.21.0 D1) is a
@@ -5282,6 +5303,15 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     _CONF_DYNAMIC_PRESET_HYSTERESIS_F,
     _CONF_HVAC_EGRESS_THRESHOLD_MIN,
     _CONF_HVAC_EGRESS_RESUME_DELAY_MIN,
+    # Arrester operator-immunity cycle (2026-08-06): AC-ramp master
+    # persistence. The HVACACRampMasterSwitch write-through updates
+    # entry.options[hvac_ac_ramp_master_enabled] on every toggle; the
+    # arrester seeds `_ramp_master_enabled` from this option at init
+    # (fixes the reload→OFF regression the operator hit 2026-08-06
+    # 20:36/20:39 CDT during options-flow saves — RestoreEntity's
+    # last_state was 'unavailable' during the reload so its restore
+    # path skipped, and the arrester was re-created at DEFAULT=False).
+    _CONF_HVAC_AC_RAMP_MASTER_ENABLED,
     _CONF_FAN_INTERFERENCE_HOLD_S,
     # v4.7.34 — Optimization Coordinator CM-level keys (C-CRIT-1).
     # OptimizationCoordinator reads entry.options fresh every cycle via

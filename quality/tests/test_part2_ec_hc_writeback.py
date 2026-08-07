@@ -167,6 +167,12 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     _extract_conf(CONST_SRC, "CONF_NM_MUTE_DEFAULT_DURATION_MINUTES"),
     # NM Cycle C-2 (2026-07-22, D2): additive-only life-safety extras.
     _extract_conf(CONST_SRC, "CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS"),
+    # Arrester operator-immunity cycle (2026-08-06): AC-ramp master
+    # option-persistence key. Added to OPTIONS_RELOAD_SUPPRESS_KEYS to
+    # prevent write-through reload loop; the arrester seeds from the
+    # option at init so a config-entry reload doesn't reset the master
+    # to DEFAULT=False (operator-reported regression 2026-08-06).
+    "hvac_ac_ramp_master_enabled",
 }
 
 
@@ -284,7 +290,9 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     # +1 CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS (NM C-2 D2)
     # (both cycles merged 2026-07-23 -> combined count 83)
     # +1 CONF_ENERGY_SOLAR_NAMEPLATE_W (LKG wave 1 D2, 2026-07-24) -> 84
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 84
+    # +1 CONF_HVAC_AC_RAMP_MASTER_ENABLED (Arrester operator-immunity
+    #    cycle 2026-08-06: reload-safe persistence for the ramp master) -> 85
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 85
 
 
 # ---------------------------------------------------------------------------
@@ -413,6 +421,10 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A":    "energy_dp_needed_kwh_garage_a",
         "_CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B":    "energy_dp_needed_kwh_garage_b",
         "_CONF_ENERGY_DP_HOUSE_LOAD_SOURCE":      "energy_dp_house_load_source",
+        # Arrester operator-immunity cycle (2026-08-06): AC-ramp master
+        # option-persistence key (reload-safe path). Added to
+        # OPTIONS_RELOAD_SUPPRESS_KEYS to prevent write-through reload loop.
+        "_CONF_HVAC_AC_RAMP_MASTER_ENABLED":       "hvac_ac_ramp_master_enabled",
         # v5.21.0 fix-up (SECOND OPERATOR ADDITION 2026-07-17) — D2 knobs.
         "_CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP": "energy_soc_divergence_threshold_pp",
         "_CONF_ENERGY_SOC_DIVERGENCE_DWELL_MIN":    "energy_soc_divergence_dwell_min",

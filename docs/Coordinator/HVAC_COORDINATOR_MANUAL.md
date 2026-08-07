@@ -261,6 +261,7 @@ During SLEEP:
 | # | Entity | What it does |
 |---|---|---|
 | 46 | `switch.ura_hvac_coordinator_vacancy_sweep_enabled` | **Vacancy Auto-Off.** When ON, vacancy sweeps turn lights/fans off after the delay. When OFF, they stay as-is (delay still runs, but no actuation). |
+| — | `switch.ura_hvac_ac_ramp_master` | **AC Ramp-Down (Energy-Aware).** Default OFF (invasive feature — user opts in per zone). **Persistence (2026-08-06 fix):** the toggle write-through updates `entry.options[hvac_ac_ramp_master_enabled]`; the arrester seeds from this option at init so the setting SURVIVES config-entry reload. RestoreEntity is a belt-and-braces fallback for the fresh-install case only. |
 | — | `switch.ura_hvac_temp_arrester_override` | **Temp Arrester Override** (2026-08-06). Default OFF. When ON, suspends **all** arrester corrective writes house-wide. Auto-sunsets on `sleep` transition OR `COMFORT_OVERRIDE_MAX_S` (6h) — flips OFF + LOW NM note. Does NOT restore ON across restart (default-OFF is safe). See §3.4b.2. |
 | — | Zone Intelligence master switch | When ON (default): per-zone vacancy management, duty cycle, presets by house state. When OFF: no zone-level intelligence — coarse manual mode. |
 

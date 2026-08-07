@@ -3479,10 +3479,49 @@ class HVACACRampMasterSwitch(SwitchEntity, RestoreEntity):
             return False
         return getattr(arr, "_ramp_master_enabled", False)
 
+    def _persist_master_option(self, value: bool) -> None:
+        """Write-through to entry.options — reload-safe persistence.
+
+        Fixes the 2026-08-06 reload→OFF regression: on config-entry reload,
+        the arrester is recreated at DEFAULT=False; RestoreEntity's
+        last_state during a quick reload is often `unavailable` (the
+        restore-only-if-'on'/'off' guard skips), so the switch UI came
+        back OFF and the ramp feature silently disabled itself.
+
+        We route the master through ``entry.options[hvac_ac_ramp_master
+        _enabled]`` — the same channel the CM already uses for live-tunable
+        options (see ``OPTIONS_RELOAD_SUPPRESS_KEYS`` in __init__.py, which
+        this key was added to so the write does NOT itself trigger a reload
+        loop). The HVAC coordinator init seeds ``_ramp_master_enabled`` from
+        this option, so the value survives every subsequent reload.
+
+        Only writes when the value actually changes (guards against
+        reload-loop feedback in case a future update_listener change
+        wires an unexpected reload for this key).
+        """
+        try:
+            current = bool(self._entry.options.get(
+                "hvac_ac_ramp_master_enabled",
+            ))
+            if current == value:
+                return
+            new_options = {**self._entry.options,
+                           "hvac_ac_ramp_master_enabled": value}
+            self.hass.config_entries.async_update_entry(
+                self._entry, options=new_options,
+            )
+        except Exception as e:  # noqa: BLE001 — persistence is belt+braces
+            _LOGGER.warning(
+                "HVACACRampMasterSwitch: entry.options write-through "
+                "failed for hvac_ac_ramp_master_enabled=%s: %s "
+                "(RestoreEntity is the fallback)", value, e,
+            )
+
     async def async_turn_on(self, **kwargs) -> None:
         arr = self._get_arrester()
         if arr is not None:
             arr.ramp_master_enabled = True
+            self._persist_master_option(True)
             self._deferred_value = None
             self.async_write_ha_state()
 
@@ -3490,6 +3529,7 @@ class HVACACRampMasterSwitch(SwitchEntity, RestoreEntity):
         arr = self._get_arrester()
         if arr is not None:
             arr.ramp_master_enabled = False  # setter cancels in-flight nudges
+            self._persist_master_option(False)
             self._deferred_value = None
             self.async_write_ha_state()
 
@@ -3512,11 +3552,21 @@ class HVACACRampMasterSwitch(SwitchEntity, RestoreEntity):
             )
         )
 
-        last_state = await self.async_get_last_state()
-        if last_state is None or last_state.state not in ("on", "off"):
-            # No prior state or transient state — default OFF is truth; nothing to restore.
-            return
-        target = last_state.state == "on"
+        # AUTHORITY ORDER (2026-08-06 fix): entry.options is now the
+        # primary source of truth. RestoreEntity's last_state is the
+        # belt-and-braces fallback ONLY when the option is absent (fresh
+        # install). Fixes the reload→OFF regression where last_state was
+        # 'unavailable' during a quick reload and the RestoreEntity path
+        # skipped, silently disabling the ramp feature.
+        opt_value = self._entry.options.get("hvac_ac_ramp_master_enabled")
+        if opt_value is not None:
+            target = bool(opt_value)
+        else:
+            last_state = await self.async_get_last_state()
+            if last_state is None or last_state.state not in ("on", "off"):
+                # No prior state, no option — default OFF is truth.
+                return
+            target = last_state.state == "on"
         arr = self._get_arrester()
         if arr is not None:
             # Fast path: HVAC coord already registered (arrester available).
@@ -3528,8 +3578,8 @@ class HVACACRampMasterSwitch(SwitchEntity, RestoreEntity):
         self._deferred_value = target
         _LOGGER.debug(
             "HVACACRampMasterSwitch: HVAC coord not ready — deferring restore "
-            "(value=%s)",
-            target,
+            "(value=%s, source=%s)",
+            target, "option" if opt_value is not None else "last_state",
         )
 
     @callback
