@@ -94,6 +94,7 @@ from .const import (
     MAX_EXTERIOR_SNAPSHOT_OFFSET_S,
     PERIMETER_BOOT_SETTLE_S,
     PERIMETER_PROTECT_PERSON_LEGS_ENABLED,
+    CAMERA_RESOLUTION_CHANNEL_SUFFIXES,
     FRIGATE_SNAPSHOT_LABELS,
     TRACK_LINK_WINDOW_S,
     EXTERIOR_VEHICLE_NIGHT_START,
@@ -183,35 +184,66 @@ class PerimeterAlertManager:
         # Dedup subscription set across configured/base/`_2`/Protect legs so
         # a camera whose configured `person_binary_sensor` IS ALREADY the
         # Protect leg (or the `_2` sibling) does not get double-subscribed.
+        # 2026-08-06 protect-person-legs fix-up (A-M3 assumption):
+        # Frigate's `<slug>_person_occupancy` slug and UniFi Protect's
+        # `<slug>_person_detected` slug are assumed to reference the SAME
+        # physical camera on THIS install (co-anchor via camera-key collapse).
+        # If a future install has a Frigate slug that ALIASES a Protect slug
+        # belonging to a DIFFERENT camera, camera-key collapse would silence
+        # a legitimate second-camera alert. The cycle-3 resolver co-anchoring
+        # is the structural fix for that case; today the assumption holds.
         perimeter_sensors: list[str] = []
         _perimeter_seen: set[str] = set()
+        egress_sensors: list[str] = []
+        _egress_seen: set[str] = set()
 
-        def _append_perimeter(sensor: str, platform: str, cam: str) -> bool:
-            if not sensor or sensor in _perimeter_seen:
+        def _append_sensor(
+            target: list[str],
+            seen: set[str],
+            sensor: str,
+            platform: str,
+            cam: str,
+        ) -> bool:
+            if not sensor or sensor in seen:
                 return False
-            perimeter_sensors.append(sensor)
-            _perimeter_seen.add(sensor)
+            target.append(sensor)
+            seen.add(sensor)
             self._sensor_platforms[sensor] = platform
             self._sensor_to_camera[sensor] = cam
             return True
 
-        for cam_entity_id, info in perimeter_infos:
+        def _leg_tag(sensor: str, sibling: bool) -> str:
+            protect = sensor.endswith("_person_detected_2") if sibling \
+                else sensor.endswith("_person_detected")
+            if sibling:
+                return "protect2" if protect else "frigate2"
+            return "protect" if protect else "frigate"
+
+        def _wire_camera(
+            cam_entity_id: str,
+            info: Any,
+            target: list[str],
+            seen: set[str],
+            role: str,  # "perimeter" | "egress"
+        ) -> None:
             base_bs = info.person_binary_sensor
             if not base_bs:
-                continue
-            _append_perimeter(base_bs, info.platform or "", cam_entity_id)
-            legs_found = ["frigate" if not base_bs.endswith("_person_detected") else "protect"]
+                return
+            legs_found: list[str] = []
+            # A-L1: tag only on successful append (dedup can absorb the base).
+            if _append_sensor(target, seen, base_bs, info.platform or "", cam_entity_id):
+                legs_found.append(_leg_tag(base_bs, sibling=False))
             sibling = self._fused_sibling(base_bs)
-            if sibling and _append_perimeter(sibling, info.platform or "", cam_entity_id):
-                legs_found.append(
-                    "frigate2" if not sibling.endswith("_person_detected_2") else "protect2"
-                )
+            if sibling and _append_sensor(
+                target, seen, sibling, info.platform or "", cam_entity_id,
+            ):
+                legs_found.append(_leg_tag(sibling, sibling=True))
                 _LOGGER.info(
                     "PerimeterAlertManager: fused source for %s — also "
                     "watching %s (both hosts feed the same camera key)",
                     base_bs, sibling,
                 )
-            else:
+            elif not sibling and role == "perimeter":
                 _LOGGER.warning(
                     "PerimeterAlertManager: no `_2` sibling found for %s — "
                     "F2 host detections will not alert; F1 retirement will "
@@ -221,55 +253,35 @@ class PerimeterAlertManager:
             # legs where present. Kill-switch gated inside _protect_person_legs.
             # Dedup absorbs the case where the configured base already IS
             # the Protect leg (or its `_2`).
-            for protect_leg in self._protect_person_legs(base_bs):
+            for protect_leg in self._protect_person_legs(
+                base_bs, camera_entity_id=cam_entity_id,
+            ):
                 # Platform tag is intentionally NOT Frigate so
                 # _resolve_snapshot_url_and_delay falls through to the
                 # entity_picture fallback for Protect legs.
-                if _append_perimeter(protect_leg, "unifiprotect", cam_entity_id):
+                if _append_sensor(
+                    target, seen, protect_leg, "unifiprotect", cam_entity_id,
+                ):
                     legs_found.append(
                         "protect2" if protect_leg.endswith("_2") else "protect"
                     )
-            _LOGGER.warning(
-                "PerimeterAlertManager: perimeter camera %s person-leg "
-                "coverage: %s (base=%s)",
-                cam_entity_id, legs_found, base_bs,
-            )
+            # A-L4 / B-LOW-B4: coverage inventory at setup only, INFO level,
+            # gated on the kill switch (so a byte-identical reversion also
+            # skips the new log surface).
+            if PERIMETER_PROTECT_PERSON_LEGS_ENABLED:
+                _LOGGER.info(
+                    "PerimeterAlertManager: %s camera %s person-leg "
+                    "coverage: %s (base=%s)",
+                    role, cam_entity_id, legs_found, base_bs,
+                )
 
-        # Egress: same treatment (dedup + Protect legs). The configured
-        # sensor for an egress camera may ALREADY be a Protect leg — the
-        # dedup set collapses that case.
-        egress_sensors: list[str] = []
-        _egress_seen: set[str] = set()
+        for cam_entity_id, info in perimeter_infos:
+            _wire_camera(cam_entity_id, info, perimeter_sensors,
+                         _perimeter_seen, "perimeter")
+
         for cam_entity_id, info in egress_infos:
-            base_bs = info.person_binary_sensor
-            if not base_bs:
-                continue
-            legs_found: list[str] = []
-            if base_bs not in _egress_seen:
-                egress_sensors.append(base_bs)
-                _egress_seen.add(base_bs)
-                legs_found.append(
-                    "frigate" if not base_bs.endswith("_person_detected") else "protect"
-                )
-            sibling = self._fused_sibling(base_bs)
-            if sibling and sibling not in _egress_seen:
-                egress_sensors.append(sibling)
-                _egress_seen.add(sibling)
-                legs_found.append(
-                    "frigate2" if not sibling.endswith("_person_detected_2") else "protect2"
-                )
-            for protect_leg in self._protect_person_legs(base_bs):
-                if protect_leg not in _egress_seen:
-                    egress_sensors.append(protect_leg)
-                    _egress_seen.add(protect_leg)
-                    legs_found.append(
-                        "protect2" if protect_leg.endswith("_2") else "protect"
-                    )
-            _LOGGER.warning(
-                "PerimeterAlertManager: egress camera %s person-leg "
-                "coverage: %s (base=%s)",
-                cam_entity_id, legs_found, base_bs,
-            )
+            _wire_camera(cam_entity_id, info, egress_sensors,
+                         _egress_seen, "egress")
 
         # Hotfix 2026-08-06 (operator-reported interior leak): install the
         # exterior camera allowlist on the linker so the frigate_events bus
@@ -966,16 +978,19 @@ class PerimeterAlertManager:
             cam_name = None
             if sensor_entity_id.startswith("binary_sensor."):
                 base = sensor_entity_id[len("binary_sensor."):]
-                # Fix-up (2026-08-06, D-H2): strip `_2` fused-sourcing
-                # disambiguation FIRST so the `_2` sibling shares the same
-                # Frigate cache key as the base sensor. Otherwise post-F1
-                # retirement the `_2` events lose snapshots + eat the full
-                # entity_picture delay.
-                if base.endswith("_2"):
-                    base = base[:-2]
-                if base.endswith("_person_occupancy"):
-                    cam_name = base[: -len("_person_occupancy")]
+                # Fix-up (2026-08-06, B-LOW-B3): route through the shared
+                # `_strip_person_family_suffixes` helper so this Frigate
+                # cache-key derivation cannot drift from
+                # `_camera_key_for_sensor`. Also strips trailing `_2`.
+                # Protect legs never reach this branch (platform check
+                # above short-circuits them), so behavior for Protect
+                # legs is unchanged.
+                stem, _matched = self._strip_person_family_suffixes(base)
+                if stem is not None:
+                    cam_name = stem
                 else:
+                    if base.endswith("_2"):
+                        base = base[:-2]
                     cam_name = base
             event_id = self._frigate_last_event_id.get(cam_name or "")
             if event_id:
@@ -1000,6 +1015,34 @@ class PerimeterAlertManager:
                 picture_url = None
         return self._absolutize(picture_url), offset_s
 
+    _PERSON_FAMILY_SUFFIXES: tuple[str, ...] = (
+        "_person_occupancy",
+        "_person_detected",
+        "_person",
+    )
+
+    @classmethod
+    def _strip_person_family_suffixes(
+        cls, base: str,
+    ) -> tuple[str | None, str | None]:
+        """Return (stem, matched_suffix) for a bare sensor slug.
+
+        Fix-up (2026-08-06, B-LOW-B3): single source of truth for the
+        person-family suffix set consumed by BOTH `_camera_key_for_sensor`
+        and `_resolve_snapshot_url_and_delay`. `base` MUST NOT include the
+        `binary_sensor.` prefix. Trailing `_2` (fused-sourcing) is stripped
+        first. When no person-family suffix matches, returns (None, None) —
+        the caller decides whether to fall through to another suffix family.
+        """
+        if not base:
+            return (None, None)
+        if base.endswith("_2"):
+            base = base[:-2]
+        for suf in cls._PERSON_FAMILY_SUFFIXES:
+            if base.endswith(suf):
+                return (base[: -len(suf)], suf)
+        return (None, None)
+
     def _camera_key_for_sensor(self, sensor_entity_id: str) -> str | None:
         """Return the Frigate camera name (linker key) for a binary_sensor.
 
@@ -1012,14 +1055,11 @@ class PerimeterAlertManager:
             if not sensor_entity_id.startswith("binary_sensor."):
                 return None
             base = sensor_entity_id[len("binary_sensor."):]
-            if base.endswith("_2"):
-                base = base[:-2]
-            slug: str | None = None
-            for suf in ("_person_occupancy", "_person_detected", "_person"):
-                if base.endswith(suf):
-                    slug = base[: -len(suf)]
-                    break
+            slug, _matched = self._strip_person_family_suffixes(base)
             if slug is None:
+                # Fall through for vehicle/animal families below.
+                if base.endswith("_2"):
+                    base = base[:-2]
                 for suf in EXTERIOR_VEHICLE_SENSOR_SUFFIXES:
                     if base.endswith(suf):
                         slug = base[: -len(suf)]
@@ -1071,6 +1111,31 @@ class PerimeterAlertManager:
                         "PerimeterAlertManager: late-registered person "
                         "sibling %s subscribed post-HA_STARTED.", sib,
                     )
+                # A-M2 fix-up: also re-probe Protect person legs so any
+                # UniFi Protect entity whose registry entry appears AFTER
+                # our async_setup (integration reload, late discovery) is
+                # picked up. Dedup guard is the existing `existing` set —
+                # same one used by the person `_2` sibling above — so a
+                # leg already subscribed at setup is not re-subscribed.
+                for protect_leg in self._protect_person_legs(
+                    base_bs, camera_entity_id=cam_entity_id,
+                ):
+                    if protect_leg in existing:
+                        continue
+                    self._sensor_to_camera[protect_leg] = cam_entity_id
+                    self._sensor_platforms[protect_leg] = "unifiprotect"
+                    self._unsub_perimeter.append(
+                        async_track_state_change_event(
+                            self.hass, [protect_leg],
+                            lambda ev: self._on_perimeter_event(ev),
+                        )
+                    )
+                    existing.add(protect_leg)
+                    _LOGGER.info(
+                        "PerimeterAlertManager: late-registered Protect "
+                        "person leg %s subscribed post-HA_STARTED.",
+                        protect_leg,
+                    )
                 # Vehicle / animal are logged only — new subscriptions
                 # need the callback closures set up at async_setup; we log
                 # and let the operator reload if a late-registered
@@ -1099,21 +1164,31 @@ class PerimeterAlertManager:
             )
 
     def _entity_exists(self, entity_id: str) -> bool:
-        """True if entity is in the entity registry OR has a live state.
+        """True if entity is in the entity registry (and enabled) OR has a live state.
 
         Fix-up (2026-08-06, A-M2/B-LOW-1): the entity registry carries the
         entity even before its first state publication, so late-boot
         subscription no longer requires a live state snapshot. Falls back
         to hass.states so behavior degrades gracefully when the registry
         stub is unavailable (tests / early boot).
+
+        Fix-up (2026-08-06, review-2 A-M1): a disabled registry entry is
+        treated as ABSENT — HA does not publish state for disabled entities,
+        so subscribing to one is a silent no-op. We fall through to the live
+        states check so a stub / operator override that still publishes a
+        state is honored. This same guard now covers `_fused_sibling` and
+        `_protect_person_legs` (both call through here) — the sibling gap
+        was pre-existing and is fixed in passing.
         """
         try:
             from homeassistant.helpers import (  # noqa: PLC0415
                 entity_registry as er,
             )
             reg = er.async_get(self.hass)
-            if reg is not None and reg.async_get(entity_id) is not None:
-                return True
+            if reg is not None:
+                entry = reg.async_get(entity_id)
+                if entry is not None and getattr(entry, "disabled_by", None) is None:
+                    return True
         except Exception:  # noqa: BLE001
             pass
         try:
@@ -1134,44 +1209,76 @@ class PerimeterAlertManager:
         candidate = f"{entity_id}_2"
         return candidate if self._entity_exists(candidate) else None
 
-    def _protect_person_legs(self, person_bs: str) -> list[str]:
+    def _protect_person_legs(
+        self,
+        person_bs: str,
+        camera_entity_id: str | None = None,
+    ) -> list[str]:
         """Return the Protect person legs for a base person binary_sensor.
 
         2026-08-06 protect-person-legs cycle. UniFi Protect exposes an
         independent person smart-detect binary_sensor whose entity slug
         follows `<camera_slug>_person_detected` (+ `_2` when the camera has
-        two sensor entities registered). We derive the camera slug from the
-        base person sensor's stem (stripping the same set of person suffixes
-        `_camera_key_for_sensor` strips + trailing `_2`) and probe the
-        entity registry for the Protect leg. Registry-based, matching the
-        cycle-2 fused-sourcing durability rule.
+        two sensor entities registered). We derive candidate stems from
+        BOTH the base person sensor's slug AND (fix-up A-L2) the configured
+        camera entity id — the latter with the resolution-channel suffix
+        stripped so `camera.rear_ptz_high_resolution_channel` yields
+        `rear_ptz` and recovers `binary_sensor.rear_ptz_person_detected`.
+        `EXTERIOR_CAMERA_KEY_ALIASES` is applied on each stem so an alias
+        registered for the linker key (armcrestpooloverhead → armcrest)
+        also aliases the Protect-leg probe. Registry-based via
+        `_entity_exists`, matching the cycle-2 fused-sourcing durability
+        rule (survives pre-state-publication and filters disabled entries).
 
-        Returns [] when the kill switch is off, when the stem can't be
+        Returns [] when the kill switch is off, when no stem can be
         derived, or when neither the base nor `_2` Protect leg exists in
-        the registry. Never returns the base sensor itself — the caller
-        dedups against the already-subscribed set.
+        the registry for any candidate stem. Never re-returns the base
+        sensor itself — the caller dedups against the already-subscribed
+        set.
         """
         if not PERIMETER_PROTECT_PERSON_LEGS_ENABLED:
             return []
-        if not person_bs or not person_bs.startswith("binary_sensor."):
-            return []
-        base = person_bs[len("binary_sensor."):]
-        if base.endswith("_2"):
-            base = base[:-2]
-        stem = None
-        for suf in ("_person_occupancy", "_person_detected", "_person"):
-            if base.endswith(suf):
-                stem = base[: -len(suf)]
-                break
-        if stem is None:
+        stems: list[str] = []
+
+        def _add_stem(raw: str | None) -> None:
+            if not raw:
+                return
+            aliased = EXTERIOR_CAMERA_KEY_ALIASES.get(raw, raw)
+            for candidate in (raw, aliased):
+                if candidate and candidate not in stems:
+                    stems.append(candidate)
+
+        # Stem 1: from the person binary_sensor slug (as before).
+        if person_bs and person_bs.startswith("binary_sensor."):
+            base = person_bs[len("binary_sensor."):]
+            stem_bs, _matched = self._strip_person_family_suffixes(base)
+            _add_stem(stem_bs)
+
+        # Stem 2 (A-L2 fix-up): from the configured camera entity id, with
+        # resolution-channel suffixes stripped. Recovers rear_ptz /
+        # utilities_ptz whose Frigate person_bs slug diverges from the
+        # camera slug.
+        if camera_entity_id and camera_entity_id.startswith("camera."):
+            cam_slug = camera_entity_id[len("camera."):]
+            for suf in CAMERA_RESOLUTION_CHANNEL_SUFFIXES:
+                if cam_slug.endswith(suf):
+                    cam_slug = cam_slug[: -len(suf)]
+                    break
+            _add_stem(cam_slug)
+
+        if not stems:
             return []
         legs: list[str] = []
-        primary = f"binary_sensor.{stem}_person_detected"
-        if self._entity_exists(primary):
-            legs.append(primary)
-        secondary = f"{primary}_2"
-        if self._entity_exists(secondary):
-            legs.append(secondary)
+        seen: set[str] = set()
+        for stem in stems:
+            primary = f"binary_sensor.{stem}_person_detected"
+            if primary not in seen and self._entity_exists(primary):
+                legs.append(primary)
+                seen.add(primary)
+            secondary = f"{primary}_2"
+            if secondary not in seen and self._entity_exists(secondary):
+                legs.append(secondary)
+                seen.add(secondary)
         return legs
 
     def _derive_sibling_sensor(

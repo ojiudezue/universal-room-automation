@@ -1383,7 +1383,25 @@ PERIMETER_BOOT_SETTLE_S: Final = 30
 # `_person_detected` / `_person_occupancy` and `_2`) guarantees a triple-fire
 # across all legs yields exactly ONE alert. Set False for a byte-identical
 # backout to pre-cycle subscription behavior.
+#
+# Kill-switch semantics: False → the subscription set collapses byte-identical
+# to the pre-cycle behavior (Frigate `_person_occupancy` base + `_2` sibling
+# only). No coverage log line is emitted for Protect legs, `_protect_person_legs`
+# returns [] unconditionally, and `_rescan_siblings` skips the Protect-leg
+# probe. Reversion is a one-line toggle here — no other code change required.
 PERIMETER_PROTECT_PERSON_LEGS_ENABLED: Final = True
+
+# 2026-08-06 protect-person-legs fix-up (A-L2 + operator ruling): UniFi Protect
+# exposes the raw camera as `camera.<slug>` while the resolution-channel
+# entities (which the operator commonly configures for Frigate ingest) carry a
+# suffix. Strip these when deriving the Protect person-leg slug from the
+# configured camera entity id so `camera.rear_ptz_high_resolution_channel`
+# resolves to the Protect leg `binary_sensor.rear_ptz_person_detected`.
+CAMERA_RESOLUTION_CHANNEL_SUFFIXES: Final = (
+    "_high_resolution_channel",
+    "_medium_resolution_channel",
+    "_low_resolution_channel",
+)
 
 # Review A-M2 label filter. Only Frigate events whose `after.label` is in this
 # set update the cached snapshot event_id. Prevents e.g. car detections from

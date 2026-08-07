@@ -1202,10 +1202,24 @@ def test_CHIGH1_episode_writer_shape():
 # frigate _2 + protect) as ONE alert.
 
 
-def _make_fake_registry(present: set[str]):
-    """Return an object mimicking entity_registry with async_get(entity_id)."""
+def _make_fake_registry(present: set[str], disabled: set[str] | None = None):
+    """Return an object mimicking entity_registry with async_get(entity_id).
+
+    Registry entries carry `disabled_by=None` for enabled entities; entries
+    in `disabled` return a truthy `disabled_by` (the A-M1 filter treats them
+    as absent).
+    """
+    disabled = disabled or set()
     reg = MagicMock()
-    reg.async_get = lambda eid: MagicMock() if eid in present else None
+
+    def _get(eid):
+        if eid not in present:
+            return None
+        entry = MagicMock()
+        entry.disabled_by = "user" if eid in disabled else None
+        return entry
+
+    reg.async_get = _get
     return reg
 
 
@@ -1337,14 +1351,14 @@ def test_setup_logs_per_camera_leg_coverage(monkeypatch, caplog):
         "binary_sensor.front_yard_person_detected_2",
     })
     hass, _nm = _make_hass(house_state="away")
-    with caplog.at_level("WARNING"):
+    with caplog.at_level("INFO"):
         _run(_setup_mgr(hass))
     coverage = [
         r for r in caplog.records
         if "person-leg coverage" in r.getMessage()
         and "camera.front_yard" in r.getMessage()
     ]
-    assert coverage, "expected per-camera coverage WARN at setup"
+    assert coverage, "expected per-camera coverage INFO at setup"
     msg = coverage[0].getMessage()
     for leg in ("frigate", "frigate2", "protect", "protect2"):
         assert leg in msg, f"leg tag {leg!r} missing from coverage log: {msg}"
@@ -1353,22 +1367,264 @@ def test_setup_logs_per_camera_leg_coverage(monkeypatch, caplog):
 # --- Mutation drills for the new pairing rule --------------------------------
 
 
-def test_MUTATION_protect_leg_derivation_load_bearing(monkeypatch):
-    """Neuter `_protect_person_legs` → the Protect-only alert test goes RED,
-    proving derivation is actually load-bearing (not just decorative)."""
+def _fire_if_subscribed(mgr, hass, entity_id: str, new: str = "on", old: str = "off"):
+    """End-to-end helper: simulate the real state-change listener.
+
+    The stubbed `async_track_state_change_event` doesn't route events, so we
+    check subscription membership (`_sensor_to_camera`) — the same gate the
+    real listener would enforce — before invoking `_on_perimeter_event`.
+    Returns True iff the event was dispatched.
+    """
+    if entity_id not in mgr._sensor_to_camera:
+        return False
+    mgr._on_perimeter_event(_mk_event(entity_id, new, old))
+    # Ensure the delayed dispatch coroutine (offset=0 → immediate) actually
+    # runs so nm.async_notify is awaited.
+    if hass.async_create_task.called:
+        for _call in list(hass.async_create_task.call_args_list):
+            coro = _call.args[0]
+            try:
+                _run(coro)
+            except Exception:
+                pass
+        hass.async_create_task.reset_mock()
+    return True
+
+
+def test_MUTATION_protect_leg_derivation_load_bearing_end_to_end(monkeypatch):
+    """B-MED-B2: end-to-end drill through the REAL listener path.
+
+    Working derivation → the Protect leg is subscribed at setup, a state
+    change routes through `_on_perimeter_event`, and NM fires exactly once.
+    Neutered derivation → the leg is NOT subscribed, the real listener would
+    not fire, and `nm.async_notify` await_count stays 0.
+
+    Also verifies the reviewer's `primary` rewrite mutation (swap the
+    derivation's `_person_detected` for `_person_occupancy`): with that
+    mutation the derived `primary` becomes the Frigate BASE sensor which is
+    already subscribed, so no NEW leg is added and firing the Protect leg
+    entity through the real-listener path yields 0 dispatches.
+    """
     _patch_registry(monkeypatch, {
         "binary_sensor.front_yard_person_detected",
     })
+    hass, nm = _make_hass(house_state="away")
+    mgr = _run(_setup_mgr(hass))
+    _dt = _perimeter.dt_util
+    mgr._setup_time = _dt.now() - timedelta(seconds=600)
+    fired = _fire_if_subscribed(
+        mgr, hass, "binary_sensor.front_yard_person_detected",
+    )
+    assert fired, "derivation must subscribe the Protect leg at setup"
+    assert nm.async_notify.await_count == 1
+
+    # Neuter derivation entirely.
     monkeypatch.setattr(
         PerimeterAlertManager, "_protect_person_legs",
-        lambda self, _bs: [],
+        lambda self, _bs, camera_entity_id=None: [],
+    )
+    hass2, nm2 = _make_hass(house_state="away")
+    mgr2 = _run(_setup_mgr(hass2))
+    mgr2._setup_time = _dt.now() - timedelta(seconds=600)
+    fired2 = _fire_if_subscribed(
+        mgr2, hass2, "binary_sensor.front_yard_person_detected",
+    )
+    assert not fired2, (
+        "neutered derivation must leave the Protect leg unsubscribed"
+    )
+    assert nm2.async_notify.await_count == 0
+
+
+def test_MUTATION_protect_leg_primary_rewrite_caught_end_to_end(monkeypatch):
+    """B-MED-B2 mutation N2: rewrite `primary` in `_protect_person_legs` to
+    build `_person_occupancy` instead of `_person_detected`. Under this
+    mutation `primary` collides with the Frigate BASE sensor (already
+    subscribed), so no Protect-leg subscription is added — firing the
+    real Protect entity via the listener path yields 0 dispatches.
+    """
+    _patch_registry(monkeypatch, {
+        "binary_sensor.front_yard_person_detected",
+        "binary_sensor.front_yard_person_occupancy",
+    })
+
+    def _mutated(self, person_bs, camera_entity_id=None):
+        # Simulate the mutation: derive the stem correctly but build the
+        # wrong suffix. Kill switch honored so the reviewer can prove the
+        # mutation is on this exact string, not the whole method.
+        if not _perimeter.PERIMETER_PROTECT_PERSON_LEGS_ENABLED:
+            return []
+        if not person_bs or not person_bs.startswith("binary_sensor."):
+            return []
+        base = person_bs[len("binary_sensor."):]
+        stem, _matched = self._strip_person_family_suffixes(base)
+        if stem is None:
+            return []
+        primary = f"binary_sensor.{stem}_person_occupancy"  # <-- mutation
+        legs = []
+        if self._entity_exists(primary):
+            legs.append(primary)
+        return legs
+
+    monkeypatch.setattr(
+        PerimeterAlertManager, "_protect_person_legs", _mutated,
     )
     hass, nm = _make_hass(house_state="away")
     mgr = _run(_setup_mgr(hass))
-    # Protect leg was NOT subscribed and NOT tagged in _sensor_to_camera; but
-    # _async_handle_perimeter_trigger runs regardless. To prove derivation is
-    # load-bearing at SETUP we assert subscription coverage:
-    assert "binary_sensor.front_yard_person_detected" not in mgr._sensor_to_camera
+    _dt = _perimeter.dt_util
+    mgr._setup_time = _dt.now() - timedelta(seconds=600)
+    # The Protect leg entity was NOT subscribed under the mutation.
+    fired = _fire_if_subscribed(
+        mgr, hass, "binary_sensor.front_yard_person_detected",
+    )
+    assert not fired
+    assert nm.async_notify.await_count == 0
+
+
+def test_A_M1_disabled_registry_entry_treated_as_absent(monkeypatch):
+    """A-M1: an entity_registry entry with `disabled_by` set is treated as
+    ABSENT — HA does not publish state for it, so subscribing is a silent
+    no-op. `_protect_person_legs` must skip it and fall through to the live
+    states check (returns empty here — no live state provided).
+    """
+    fake_reg = _make_fake_registry(
+        present={"binary_sensor.front_yard_person_detected"},
+        disabled={"binary_sensor.front_yard_person_detected"},
+    )
+    er_mod = sys.modules["homeassistant.helpers.entity_registry"]
+    monkeypatch.setattr(er_mod, "async_get", lambda _hass: fake_reg)
+    hass, _nm = _make_hass()
+    mgr = PerimeterAlertManager(hass)
+    assert mgr._protect_person_legs(
+        "binary_sensor.front_yard_person_occupancy"
+    ) == []
+
+
+def test_A_L2_camera_slug_recovers_protect_leg_via_channel_strip(monkeypatch):
+    """A-L2: camera configured as `camera.rear_ptz_high_resolution_channel`;
+    Frigate person_bs slug (`rear`) differs from Protect leg slug (`rear_ptz`).
+    Stripping the channel suffix off the camera slug MUST recover the
+    Protect leg.
+    """
+    _patch_registry(monkeypatch, {"binary_sensor.rear_ptz_person_detected"})
+    hass, _nm = _make_hass()
+    mgr = PerimeterAlertManager(hass)
+    legs = mgr._protect_person_legs(
+        "binary_sensor.rear_person_occupancy",
+        camera_entity_id="camera.rear_ptz_high_resolution_channel",
+    )
+    assert legs == ["binary_sensor.rear_ptz_person_detected"]
+
+
+def test_A_L2_alias_applied_to_stem(monkeypatch):
+    """A-L2: EXTERIOR_CAMERA_KEY_ALIASES applied inside stem derivation
+    (e.g. armcrestpooloverhead → armcrest) so an aliased Protect leg is
+    reachable from a non-aliased base person sensor."""
+    _patch_registry(monkeypatch, {"binary_sensor.armcrest_person_detected"})
+    hass, _nm = _make_hass()
+    mgr = PerimeterAlertManager(hass)
+    legs = mgr._protect_person_legs(
+        "binary_sensor.armcrestpooloverhead_person_occupancy",
+    )
+    assert "binary_sensor.armcrest_person_detected" in legs
+
+
+def test_A_L1_perimeter_legs_tag_only_on_successful_append(monkeypatch, caplog):
+    """A-L1: when two perimeter cameras resolve to the SAME base
+    person_binary_sensor, the SECOND camera's coverage log MUST NOT list
+    a spurious 'frigate' tag (dedup absorbed the base — no new
+    subscription). Under a mutation that tags unconditionally, the second
+    camera's coverage line would still carry 'frigate'.
+    """
+    _patch_registry(monkeypatch, set())
+    hass, _nm = _make_hass(house_state="away")
+    entry = hass.config_entries.async_entries.return_value[0]
+    # Both cameras resolve (via fixture _resolve) to different bs slugs.
+    # Force them to the same by monkey-patching the resolver.
+    cam_manager = hass.data[_const.DOMAIN]["camera_manager"]
+    shared_bs = "binary_sensor.shared_person_occupancy"
+
+    def _resolve(cam_id):
+        info = MagicMock()
+        info.person_binary_sensor = shared_bs
+        info.platform = _const.CAMERA_PLATFORM_FRIGATE
+        info.entity_id = shared_bs
+        return [info]
+
+    cam_manager.resolve_camera_entity = _resolve
+    entry.options[_const.CONF_PERIMETER_CAMERAS] = [
+        "camera.first", "camera.second",
+    ]
+    with caplog.at_level("INFO"):
+        _run(_setup_mgr(hass))
+    lines = [
+        r.getMessage() for r in caplog.records
+        if "perimeter camera" in r.getMessage()
+        and "person-leg coverage" in r.getMessage()
+    ]
+    # Find the SECOND camera's line — dedup absorbed the base, so legs_found
+    # must be empty.
+    second = [ln for ln in lines if "camera.second" in ln]
+    assert second, f"expected a coverage line for camera.second, got: {lines}"
+    assert "'frigate'" not in second[0] and "'protect'" not in second[0], (
+        f"A-L1 leaked: dedup-absorbed base still tagged: {second[0]}"
+    )
+
+
+def test_A_L4_coverage_log_gated_on_kill_switch(monkeypatch, caplog):
+    """A-L4 / B-LOW-B4: with the kill switch OFF, no per-camera
+    person-leg coverage log line is emitted (subscription set collapses
+    byte-identical to pre-cycle behavior; no new log surface either).
+    """
+    _patch_registry(monkeypatch, set())
+    monkeypatch.setattr(
+        _perimeter, "PERIMETER_PROTECT_PERSON_LEGS_ENABLED", False,
+    )
+    hass, _nm = _make_hass(house_state="away")
+    with caplog.at_level("INFO"):
+        _run(_setup_mgr(hass))
+    coverage = [
+        r for r in caplog.records
+        if "person-leg coverage" in r.getMessage()
+    ]
+    assert coverage == [], (
+        f"kill switch OFF must not emit coverage log: {coverage}"
+    )
+
+
+def test_egress_base_dedup_guard(monkeypatch):
+    """B-MED-B1: a camera whose configured egress `person_binary_sensor`
+    happens to be the SAME entity across two egress configs must yield
+    exactly ONE subscription (dedup guard). Under a mutation that removes
+    the `if not sensor or sensor in seen:` short-circuit (replace with
+    `if True:` / bypass `seen` check) the same entity would be subscribed
+    twice — verified by inspecting the entity LIST passed to
+    async_track_state_change_event (dict-view dedup would hide the leak).
+    """
+    _patch_registry(monkeypatch, set())
+    captured: list[list[str]] = []
+
+    def _cap(_hass, entities, _cb):
+        captured.append(list(entities))
+        return MagicMock()
+
+    monkeypatch.setattr(_perimeter, "async_track_state_change_event", _cap)
+
+    # Two egress cameras that resolve (per the fixture's _resolve function)
+    # to the SAME person_binary_sensor slug.
+    hass, _nm = _make_hass(house_state="away")  # default perimeter cam
+    entry = hass.config_entries.async_entries.return_value[0]
+    egress_cam = "camera.side_gate"
+    entry.options[_const.CONF_EGRESS_CAMERAS] = [egress_cam, egress_cam]
+
+    _run(_setup_mgr(hass))
+    # Union all subscribed entities across every recorded listener call.
+    egress_subs = [
+        e for group in captured for e in group
+        if e == "binary_sensor.side_gate_person_occupancy"
+    ]
+    assert len(egress_subs) == 1, (
+        f"dedup guard leaked: {egress_subs!r} across calls={captured!r}"
+    )
 
 
 def test_MUTATION_camera_key_dedup_load_bearing(monkeypatch):
