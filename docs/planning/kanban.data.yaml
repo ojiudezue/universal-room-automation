@@ -14,6 +14,60 @@ meta:
   - waiting_me
   - parked
 cards:
+- id: ARREST-SUNSET-1
+  title: Temp Arrester Override does not sunset on away/vacation (only sleep)
+  thread: hvac
+  status: pre_planning
+  approval: implied
+  tags:
+  - tier-2db
+  - no-fabrication-verify
+  origin:
+    date: '2026-08-07'
+    gist: operator turned Temp Arrester Override ON (master cold at home) 15:04 CDT; asked to watch the
+      next boundary -> found the gap while verifying
+  why: sunset_temp_arrester_override (hvac_override.py:606) hardcodes house_state == 'sleep'. Its SIBLING
+    sunset_immune_holds (line ~487) correctly uses `house_state in DURABLE_HOUSE_STATES` = {sleep, away,
+    vacation}. Both are invoked from the same call site (hvac.py:1908) with the same new_state. So going
+    AWAY or VACATION does NOT release the override -> arrester stays suppressed while the house is EMPTY
+    (wasted energy) and the toggle no longer matches reality.
+  operator_requirement: '''the toggle has to flip itself off when a house state invalidates it. So the
+    toggle always matches reality.'' - away/vacation invalidate a comfort override; current code honors
+    only sleep.'
+  fix: replace the hardcoded 'sleep' check with `house_state in DURABLE_HOUSE_STATES` (matching the sibling).
+    Keep the 6h COMFORT_OVERRIDE_MAX_S decay as the other first-of. Anchor with a test per durable state
+    + a mutation drill.
+  parsimony:
+    problem: override survives away/vacation -> arrester suppressed in an empty house
+    verdict: BUILD
+    note: one-predicate fix; sibling function already has the correct form
+  next: fold into the SECC-1 build batch; Tier 2-DB (HVAC governance)
+  refs:
+  - domain_coordinators/hvac_override.py:584-624
+  - domain_coordinators/hvac_const.py:206
+  - domain_coordinators/hvac.py:1908
+- id: TRANSIT-DIAG-1
+  title: Expose checkpoint_cameras_by_area on a diagnostic sensor
+  thread: presence
+  status: pre_planning
+  approval: implied
+  tags:
+  - numbers-get-knobs
+  origin:
+    date: '2026-08-07'
+    gist: 'operator: "Will you fix what the validation exposed?" - v5.60.0 live validation needed log-level
+      surgery + a registry touch just to read the checkpoint inventory'
+  why: checkpoint_cameras_by_area is a Python attribute only and URA logs at WARNING, so the feature is
+    unobservable without raising log level and forcing a rebuild. Validation should not require surgery.
+  fix: additive diagnostic sensor (or attrs on an existing presence diagnostic) exposing checkpoint_cameras_by_area
+    + protect_sourced count. Read-only.
+  parsimony:
+    problem: shipped feature is not observable live
+    verdict: BUILD
+    note: small additive read-only sensor; validation already paid the cost of not having it
+  next: fold into the SECC-1 build batch
+  refs:
+  - docs/readmes/README_v5.60.0.md live-validation method note
 - id: CONSOL-1
   title: Perimeter consolidation cycle
   thread: perimeter
