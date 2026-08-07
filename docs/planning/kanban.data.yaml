@@ -1,0 +1,249 @@
+# URA Kanban — DATA (source of truth). Representations (KANBAN.md, the Artifact,
+# urakanban.phalanxmadrone.com) are GENERATED from this file by KHOST-1. Do not
+# hand-edit a generated view; edit here. Done cards age out to kanban.history.yaml.
+#
+# Schema per card:
+#   id, title, thread, status(column)
+#   approval: unreviewed | implied | explicit | blocked   (+ approved_by/on when explicit)
+#   tags: [quality-practice gates the card must honor]
+#   origin: {date, gist}          # the pointer chat loses
+#   why, constraints[], parked_alts[]
+#   refinement: [{challenge, sharpened}]   # append-only dialectic
+#   parsimony: {problem, verdict: BUILD|SIMPLIFY|PARK|DROP, note}
+#   knobs[], next, refs[]
+
+meta:
+  last_reconciled: 2026-08-07
+  history_file: docs/planning/kanban.history.yaml
+  artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
+  target_host: urakanban.phalanxmadrone.com   # KHOST-1
+  columns: [inbox, pre_planning, planned, in_progress, review, shipped_organic, waiting_operator, waiting_me, parked]
+
+cards:
+  - id: CONSOL-1
+    title: Perimeter consolidation cycle
+    thread: perimeter
+    status: planned
+    approval: explicit
+    approved_by: operator
+    approved_on: 2026-08-07
+    tags: [tier-2db, institutional-context, audit-first]
+    origin: {date: 2026-08-07, gist: "retire redundant manager surface; I need to weigh in — usability"}
+    why: three parallel alerting stacks (URA NM, HA doorbell automation, zone_monitoring pagers) duplicate delivery
+    rulings:
+      - Option C surfacing (= A enhanced)
+      - universal llmvision on ALL camera alerting
+      - contextual severity replaces the day/night window (vehicle deep-night window retained)
+      - perimeter stays a specific top-level config step; Security home only when a 2nd security surface joins the menu
+    constraints:
+      - doorbell automation carries daytime front-door coverage + llmvision + vehicle/animal classes — migrate-then-retire, not delete
+    parsimony: {problem: "3 stacks page the same event with no shared cooldown/routing", verdict: BUILD}
+    next: fold SNAP-1 + TEST-1/2 in; Tier 2-DB
+    refs: [PLANNING_perimeter_consolidation.md, AUDIT_ha_side_alerting_reconciliation.md]
+
+  - id: SNAP-1
+    title: Snapshot mirror-and-improve
+    thread: perimeter
+    status: planned
+    approval: explicit
+    approved_by: operator
+    approved_on: 2026-08-07
+    tags: [tier-2db, numbers-get-knobs, no-fabrication-verify]
+    origin: {date: 2026-08-07, gist: "still no images -> Mirror and improve -> does it cleanup? -> I approve the purge"}
+    why: URA sends media_url (URL fetch) so images drop; any live grab is stale
+    design:
+      - mirror = snapshot to local file, attach as file to every channel (media_path / attachment / image)
+      - at-detection frame tiered - Frigate event-snapshot > Protect thumb > native rising-edge
+      - retention/cleanup + privacy - write OUTSIDE web-served /config/www
+    parked_alts:
+      - {alt: continuous pre-roll frame buffer, why: exact-timestamp even for native, revisit_if: rising-edge frames look late for fast walkers}
+    refinement:
+      - {challenge: "my read external_url unset", sharpened: "find how I do WhatsApp -> media_path local file; root cause is media_url-vs-media_path"}
+      - {challenge: "just mirror the automation", sharpened: "shot from when it fired -> mirror insufficient (camera.snapshot is a live grab too); at-detection event frame"}
+      - {challenge: "does it cleanup?", sharpened: "retention + privacy (out of web-served www)"}
+      - {challenge: "one snapshot, multiple integrations - which?", sharpened: "at-detection engine precedence, not identity order"}
+    knobs:
+      - {name: PERIMETER_SNAPSHOT_ENGINE_PRECEDENCE, rung: 1, why: Frigate-event > Protect-thumb > live}
+      - {name: PERIMETER_SNAPSHOT_RETENTION_COUNT, rung: 1, why: prune-on-write (~200)}
+      - {name: PERIMETER_SNAPSHOT_RETENTION_AGE_H, rung: 1, why: age sweep (~48)}
+    parsimony: {problem: "perimeter alerts arrive with no photo / a stale photo", verdict: BUILD}
+    next: fold into CONSOL-1; awaiting SNAP-1 decisions
+    refs: [perimeter_alert.py, domain_coordinators/notification_manager.py]
+
+  - id: RESACC-1
+    title: Resolver accuracy test suite
+    thread: resolver
+    status: pre_planning
+    approval: implied
+    tags: [hand-build-fixture, measure-before-build, no-fabrication-verify]
+    origin: {date: 2026-08-07, gist: "much more interested in accuracy of the task of the resolver; accuracy means alerting will be better"}
+    why: the resolver feeds census + transit + perimeter; one accuracy suite validates all three
+    design:
+      - hand-built ground-truth table (camera -> {sensor x engine x family, room}); precision/recall per camera
+      - adversarial near-miss pairs (armcrest vs armcrestpooloverhead; back_yard vs _2) -> no bleed
+      - registry-perturbation replay; live self-audit surface
+    refinement:
+      - {challenge: "my tests were delivery-focused", sharpened: "accuracy of the resolver's task, not alerting -> precision/recall vs ground truth"}
+      - {challenge: "scope", sharpened: "same resolver feeds census+transit+perimeter -> one suite validates all three"}
+    parsimony: {problem: "resolver mis-maps a camera silently -> wrong alerts/room across 3 consumers", verdict: BUILD, note: highest-leverage test - guards the shared primitive}
+    next: hand-build ground-truth from live registry, commit as fixture, then build the diff
+
+  - id: TEST-1
+    title: Boot-time shadow diff (legacy vs resolver leg set)
+    thread: resolver
+    status: pre_planning
+    approval: implied
+    tags: [mutation-drill]
+    origin: {date: 2026-08-07, gist: "we took hardened surface and gave it new methods; something is bound to fail"}
+    why: live tripwire for silent coverage shrinkage that unit tests miss
+    parsimony: {problem: "a camera's leg set silently shrank vs the retired helpers", verdict: BUILD, note: ~30 LoC, fold into CONSOL-1}
+    next: WARN if a camera's new leg set doesn't superset legacy base+_2
+
+  - id: TEST-2
+    title: '"Send Test Perimeter Alert" button'
+    thread: perimeter
+    status: pre_planning
+    approval: implied
+    tags: [numbers-get-knobs]
+    origin: {date: 2026-08-07, gist: same push as TEST-1}
+    why: delivery crosses into 3rd-party services; only a live end-to-end send proves it
+    parsimony: {problem: "no way to prove channel delivery without waiting for a real intrusion", verdict: BUILD, note: would have caught the media_url bug instantly}
+    next: button entity -> canned snapshot through all 4 channels
+
+  - id: TRANSIT-1
+    title: Interior traversal -> resolve_detection_legs
+    thread: presence
+    status: pre_planning
+    approval: implied
+    tags: [institutional-context]
+    origin: {date: 2026-08-07, gist: "we built exterior tracking inspired by interior census/known-persons traversal - find it; can resolver improve it"}
+    why: transit_validator checkpoints fire from ~one integration; multi-engine legs = denser/earlier checkpoints = more path_confirmed
+    refinement:
+      - {challenge: "I said path tracking is exterior-only", sharpened: "we built it inspired by interior traversal - find it -> located transit_validator; already half-uses census cross-platform; framing corrected"}
+    parsimony: {problem: "interior room-to-room path confirmation misses checkpoints seen only by a non-configured engine", verdict: BUILD, note: small change - seam already exists}
+    next: decide fold-into-SNAP-1-cycle vs own follow-on
+    refs: [transit_validator.py]
+
+  - id: FRIG2SNAP-1
+    title: frigate2 instance-id snapshot URL
+    thread: camera
+    status: pre_planning
+    approval: implied
+    tags: [no-fabrication-verify]
+    origin: {date: 2026-08-07, gist: found mid-investigation}
+    why: endpoint is instance-scoped; URA builds only default shape -> frigate2-hosted cameras can't resolve a snapshot at all (latent since prefix-split)
+    parsimony: {problem: "any camera on the 2nd Frigate host has never had a snapshot", verdict: BUILD, note: subsumed by SNAP-1 event-download}
+    next: fold into SNAP-1
+
+  - id: KP-ESCALATE-1
+    title: Known-person / face-alert path (no URA successor)
+    thread: security
+    status: pre_planning
+    approval: blocked
+    tags: [institutional-context, audit-first]
+    origin: {date: 2026-08-07, gist: "discovered via purged Frigate_KnownPerson_* files + AUDIT rec 5"}
+    why: face-recognition paging has no URA successor; lost when the doorbell automation retires unless built into perimeter NM
+    parsimony: {problem: "retiring the doorbell automation silently drops face-alert paging", verdict: BUILD, note: gates CONSOL-1's doorbell retirement - do not retire until this exists}
+    refs: [PLANNING_exterior_person_escalation.md]
+
+  - id: SECC-1
+    title: Interior cams in the exterior open-tracks diagnostic
+    thread: security
+    status: pre_planning
+    approval: implied
+    tags: [no-fabrication-verify]
+    origin: {date: 2026-08-07, gist: "Saw the outside open tracks diagnostic in SecC has interior cameras in it. Mistake? - dropped for hours, recovered via the board"}
+    why: the exterior diagnostic should reflect perimeter/egress cams only; interior cams there = display leak or observe-scope leak past the allowlist
+    parsimony: {problem: "interior cameras surface in the exterior open-tracks diagnostic", verdict: BUILD, note: canonical capture-failure example}
+    next: verify display-leak vs observe-scope leak past the allowlist
+    refs: [exterior_track_linker.py, sensor.py]
+
+  - id: KHOST-1
+    title: Homelab-hosted board, generated from data
+    thread: dashboarding
+    status: pre_planning
+    approval: explicit
+    approved_by: operator
+    approved_on: 2026-08-07
+    autonomy: overnight-agentic   # FIRST AGENTIC TASK - build while operator sleeps
+    tags: [hand-build-fixture]
+    origin: {date: 2026-08-07, gist: "make url live on webhost (homelab)... design it better... give yourself eyes like playwright... build it tonight while I'm sleeping"}
+    why: the Artifact is hand-maintained HTML that can drift; a GENERATED board (pure function of this data) can't; homelab-hosted = durable, infra-native
+    design:
+      - source = this data file; generator -> {KANBAN.md view, html board, history}; page is a pure function of the data
+      - Playwright (chromium installed) for self-iterated visual design - fix the column-balance gap seen in the interim Artifact
+      - done cards age out to kanban.history.yaml
+    decisions:
+      host: urakanban.phalanxmadrone.com
+      trigger: rebuild on every commit (self-hosted homelab = cheap; amortized compute/electricity/inet)
+    constraints:
+      - generated page must be a pure function of the data (no hand-editing output)
+      - homelab deploy (DNS/reverse-proxy/TLS for the subdomain) may need operator hardware/DNS access - investigate; automate if wildcard-DNS + auto-TLS caddy allow, else stage a one-step for operator
+    parsimony: {problem: "the reflected board is hand-maintained and can silently drift from the source", verdict: BUILD, note: eliminates the drift anti-pattern + gives a design surface}
+    next: (overnight) design data->view generator; screenshot-iterate; wire homelab serve + post-commit rebuild hook
+
+  - id: F1-SUNSET
+    title: Frigate-1 go/no-go
+    thread: camera
+    status: waiting_operator
+    approval: blocked
+    tags: [audit-first]
+    origin: {date: 2026-08-07, gist: "Remind me when we can go on f1 sunset tmr"}
+    why: steps 1-6 remote (mine), step 7 = operator unplugs NUC; readiness = organic one-alert-per-multi-engine-traversal
+    next: operator go/no-go (reminder Aug 8)
+    refs: [AUDIT_frigate1_sunset.md]
+
+  - id: PHYS
+    title: Physical operator actions
+    thread: ops
+    status: waiting_operator
+    approval: blocked
+    why: hardware only the operator can touch
+    items:
+      - Envoy power-cycle (daily reserve wedge, self-heals but recurs)
+      - Ziri-3 sensor power-cycle (off-network since Aug 4)
+      - optional Protect sensitivity 50->60 on seam cams
+      - DB VACUUM button press (~900MB reclaim awaits)
+
+  - id: P1P3
+    title: Preset verdict (flap re-measurement)
+    thread: hvac
+    status: waiting_me
+    approval: explicit
+    origin: {date: 2026-08-07, gist: "Yes re evaluate and come back"}
+    why: I owe the post-Writer-B flap re-measurement across occupied evenings, then the re-eval
+    note: was mis-filed under the operator's lane - it is MY debt
+    parsimony: {problem: "did removing Writer-B actually stop the preset flap - and do P1/P3 now earn their keep", verdict: BUILD}
+    next: pull flap numbers across occupied evenings, then re-eval P1/P3
+
+  - id: SWEEP
+    title: Morning sweep
+    thread: ops
+    status: waiting_me
+    approval: implied
+    why: reason-ledger first night, Frigate car/dog/cat first events, snapshot-fix organic proof, v5.57/58 organic criteria
+    next: check + report each
+
+  - id: v5.59.0
+    title: resolver-legs
+    thread: perimeter
+    status: shipped_organic
+    origin: {date: 2026-08-07, gist: shipped + live-validated}
+    note: "live PASS (zero multi-key WARN / _2 storm / URA ERROR; telemetry attr present)"
+    organic_open: one-alert-per-multi-engine-traversal + leg_firing_by_camera populate on first real event (= F1 readiness)
+    refs: [README_v5.59.0.md]
+
+parked:
+  - {title: Pre-roll frame buffer, revisit_if: rising-edge frames look late for fast walkers}
+  - {title: Anticipatory TOU tick, revisit_if: boundary-lag data shows real cost}
+  - {title: Adjacency config-flow (adjacency-as-data / TOU pattern), status: approved-queued}
+  - {title: Security config home, revisit_if: a 2nd security-config surface would join the top menu}
+
+broader_backlog_refs:
+  - EV drain-precedence (queued)
+  - Load-shedding foundations (vision doc first)
+  - Fusion paper (gated)
+  - Shipwatch v1.2.0 deploy.sh hook
+  - Forecaster wire-up (LightGBM + BatteryStrategy)
+  - Dashboarding workstream (ura-v6 rebuild + PWA)
+  - Memory week-one gate + first coordinator-consumer proposal

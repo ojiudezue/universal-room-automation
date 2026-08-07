@@ -38,9 +38,14 @@ Two observed failure modes this system exists to kill:
 
 ## Files
 
-- **Source of truth:** `docs/planning/KANBAN.md` (committed; versioned history *is* the ledger).
-- **Live reflection:** an Artifact board the operator keeps open. Redeploy the SAME file path
-  to keep the URL stable. URL recorded in the `kanban-capture-first` memory + KANBAN.md header.
+- **Source of truth (DATA):** `docs/planning/kanban.data.yaml` — structured cards. Edit HERE.
+  Must stay valid YAML (`python3 -c "import yaml;yaml.safe_load(open(...))"` before commit).
+- **Generated views (KHOST-1):** `docs/planning/KANBAN.md` (human view), the Artifact, and
+  `urakanban.phalanxmadrone.com` are all *generated* from the data — never hand-edit a view.
+  Until the generator ships, KANBAN.md is maintained alongside the data as an interim view.
+- **History:** done cards age out of the data into `docs/planning/kanban.history.yaml`.
+- **Live reflection:** the Artifact board (redeploy the SAME file path to keep the URL stable;
+  URL in the data `meta.artifact_url` + the `kanban-capture-first` memory).
 - **Discoverability:** a one-line pointer in MEMORY.md so the board is found at session start
   even after compaction.
 
@@ -186,6 +191,57 @@ principle, not more willpower:
 
 If the board is ever found lagging, that is itself a `feedback`-class memory event: record the
 missed hook so the trigger list gets tighter, the same way a caught bug tightens a test.
+
+## Approval & autonomy — so the board is drivable, not just visible
+
+Each card carries an **approval** state so I can plough independent work without waiting, while
+never ploughing into things that need a human call:
+
+- `unreviewed` — captured, not yet judged.
+- `implied` — reversible / low-blast-radius / inside an already-approved thread → **I may act
+  autonomously.**
+- `explicit` — operator said go (record who + date).
+- `blocked` — needs an operator decision before anything happens.
+
+**Implied-approval threshold — when I may proceed without an explicit go:** ALL of (a) reversible
+or a bug fix, (b) within a thread the operator already approved, (c) low blast radius (no
+destructive/outward-facing/cost-or-safety effect, no new cross-coordinator scope), (d) it has
+passed the parsimony test below. If any fails → `blocked`, surface it. **Always explicit,
+never implied:** destructive actions, outward-facing/published changes, cost- or safety-impacting
+logic, Tier-3 shared-primitive work, anything the operator flagged delicate. This is the CLAUDE.md
+"reversible → proceed; destructive/scope-change → ask" rule, made per-card.
+
+## Quality-practice tags — the gates a card must pass
+
+Tag each card with the arrived-at practices it must honor, so the gate travels with the work
+(controlled vocabulary; extend as we coin more):
+
+`audit-first` (read-only audit before building — e.g. the F1-sunset / HA-side audits) ·
+`measure-before-build` (one-shot read-only probe over existing data first) ·
+`hand-build-fixture` (construct the mapping by hand once, commit it as the acceptance fixture) ·
+`institutional-context` (exhaustive prior-art grep + REUSED/NEW before proposing) ·
+`no-fabrication-verify` (cite source/file:line, never a plausible mental model) ·
+`tier-2db` / `tier-3` (review tier) · `mutation-drill` (per-site source mutation must go red) ·
+`numbers-get-knobs` (every behavioral number gets a named configurable + rung) ·
+`probe-first` (empirically-gated — go/no-go on measured data).
+
+## Sharp-problem + parsimony test — systematized, not organic
+
+Before a card leaves Pre-planning it gets a **parsimony verdict** — the CLAUDE.md
+Marginal-Benefit Decomposition, applied per card and *recorded* so we stop re-deriving it
+organically. Two questions, then a verdict:
+
+1. **Is the problem sharp and real?** State it in one falsifiable sentence. A fuzzy problem is a
+   PARK, not a plan.
+2. **Is it worth solving vs. the simplest version?** How much does the simplest version capture;
+   what is the *marginal* benefit of the fancier one; does that margin pay for its ingredient
+   risk + review cost?
+
+Verdict (recorded on the card): **BUILD** · **SIMPLIFY** (build the simplest version, park the
+rest with a trigger) · **PARK** (good idea, problem not worth solving *now* — record the evidence
+that would revive it) · **DROP** (not worth solving). Reaching "yeah, good idea but not worth
+it → park" is a *success* of the gate, not a failure — it is the outcome we most often miss by
+only doing this organically. Every Pre-planning card shows its verdict before promotion.
 
 ## Relationship to other systems
 
