@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.59.0
+# Universal Room Automation vv5.60.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.59.0"
+VERSION: Final = "v5.60.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1478,6 +1478,48 @@ SENSOR_ZONE_GUEST_COUNT: Final = "zone_guest_count"
 TRANSIT_CHECKPOINT_STALE_SECONDS: Final = 90
 TRANSIT_CHECKPOINT_WINDOW_SECONDS: Final = 120
 TRANSIT_PHONE_LEFT_BEHIND_HOURS: Final = 4.0
+
+# ---------------------------------------------------------------------------
+# TRANSIT-1 (2026-08-07): Protect-sourced checkpoint inventory.
+#
+# `CONF_TRANSIT_CHECKPOINT_AREAS` — the set of HA area_id strings that qualify
+# as traversal transition zones. These are NOT URA rooms (no coordinator, no
+# D3 sensor); attribution is by AREA. Default = the 5 live checkpoints
+# (master_hallway, entry_way, garage_hallway, upstairs_hallway, stairs) per
+# PLANNING_transit_protect_sourced_checkpoints.md §3.2. Rung 2
+# (config/options-flow) knob — operator may add/rename a hallway.
+#
+# `CONF_TRANSIT_PROTECT_SOURCED_ENABLED` — kill switch. Rung 1 (module
+# constant); flipping to False reverts TransitValidator +
+# EgressDirectionTracker to the legacy hand-list-only subscription set
+# byte-identically. Ship default True (drift-proofing on).
+# ---------------------------------------------------------------------------
+
+CONF_TRANSIT_CHECKPOINT_AREAS: Final = "transit_checkpoint_areas"
+DEFAULT_TRANSIT_CHECKPOINT_AREAS: Final = (
+    "master_hallway",
+    "entry_way",
+    "garage_hallway",
+    "upstairs_hallway",
+    "stairs",
+)
+
+CONF_TRANSIT_PROTECT_SOURCED_ENABLED: Final = "transit_protect_sourced_enabled"
+TRANSIT_PROTECT_SOURCED_ENABLED_DEFAULT: Final = True
+
+# TRANSIT-1 fix-up (F2 double-fire dedup): when both Protect and Frigate
+# legs subscribe for the same physical camera, a single crossing emits
+# ≥2 sightings. We collapse to ONE logical sighting per physical camera
+# within this window (chosen to be shorter than any legitimate two-crossings
+# interval but longer than any observed cross-integration jitter — 5s
+# matches EgressDirectionTracker's stem dedup window).
+TRANSIT_DOUBLE_FIRE_DEDUP_SECONDS: Final = 5.0
+
+# TRANSIT-1 fix-up (F6): dispatcher signal that TransitValidator +
+# EgressDirectionTracker listen for so an options-change on the
+# transit knobs (kill switch, checkpoint areas) can trigger a local
+# re-init instead of a parent-entry reload (RELOAD-WATCHDOG-HAZARD).
+SIGNAL_URA_TRANSIT_CONFIG_CHANGED: Final = "ura_transit_config_changed"
 
 # v3.5.2 Egress Direction Tracking
 EGRESS_ENTRY_WINDOW_SECONDS: Final = 45

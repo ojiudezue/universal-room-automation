@@ -142,6 +142,26 @@ class FusionSource:
 
 
 @dataclass(frozen=True)
+class EnumeratedCamera:
+    """One physical camera enumerated by ``enumerate_platform_cameras``.
+
+    TRANSIT-1 (2026-08-07). Pairs a physical camera (one ``device_id``) with
+    every detection leg the resolver's ladder pulls in for a given family,
+    plus the area attribution (Protect-leg-first with cross-leg fallback per
+    AUDIT_resolver_ground_truth_manual.md §A-3).
+
+    ``legs`` is a list of ``binary_sensor`` entity_ids covering the family
+    across every integration attached to this physical camera (Frigate F1+F2
+    twins + Protect base+``_2`` + native-AI etc. — same behavior as
+    ``resolve_detection_legs``).
+    """
+    device_id: str
+    area_id: str | None
+    legs: tuple[str, ...]
+    primary_entity: str
+
+
+@dataclass(frozen=True)
 class DetectionLeg:
     """One (entity_id, engine) pair for a physical camera + detection family.
 
@@ -965,6 +985,170 @@ class CameraResolver:
             ))
         legs.sort(key=lambda l: l.entity_id)
         return legs
+
+    # ---- TRANSIT-1 (2026-08-07): platform-first enumeration --------------
+
+    def enumerate_platform_cameras(
+        self,
+        platform: str,
+        family: str = "person",
+    ) -> list[EnumeratedCamera]:
+        """Enumerate physical cameras of ``platform`` that expose a ``family`` detector.
+
+        Walks the entity registry, keeps enabled ``binary_sensor.*`` entities
+        whose ``.platform`` matches AND whose entity name carries a suffix in
+        ``_FAMILY_SUFFIXES[family]`` (with the ``_N`` disambiguation strip),
+        excluding ``_package_*`` detectors. Groups by ``device_id`` (one
+        ``EnumeratedCamera`` per physical camera).
+
+        For each grouped device the returned ``legs`` set is the union of
+        every detection leg ``resolve_detection_legs`` pulls in for the
+        primary entity — so Frigate F1/F2 twins and native-AI siblings of
+        the same physical camera collapse into ONE row with all their
+        entity_ids in ``.legs``.
+
+        Area attribution: prefer the platform's own leg (Protect is
+        authoritative per AUDIT_resolver_ground_truth_manual.md §A-3);
+        on ``None``, fall back across the sibling legs until a non-None
+        area is found. Pure — no HA API calls, drives off the duck-typed
+        registries the resolver was built with.
+
+        Never raises; degrades to ``[]`` on any registry error.
+        """
+        family = (family or "").lower()
+        suffixes = _FAMILY_SUFFIXES.get(family)
+        if suffixes is None:
+            _LOGGER.debug(
+                "CameraResolver.enumerate_platform_cameras: unknown family %r "
+                "(known: %s)", family, sorted(_FAMILY_SUFFIXES.keys()),
+            )
+            return []
+
+        try:
+            entities = list(getattr(self._er, "entities", {}).values())
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "CameraResolver.enumerate_platform_cameras: entity registry "
+                "walk failed", exc_info=True,
+            )
+            return []
+
+        # F3 fix (TRANSIT-1 fix-up): a Protect NVR device can host MULTIPLE
+        # physical cameras (e.g. `staircase_person_detected` +
+        # `garagehallway_person_detected` on the same NVR). Group by
+        # (device_id, stem) — the stem is the entity name with the family
+        # suffix and any `_N` disambiguation stripped — so each physical
+        # camera surfaces as its OWN EnumeratedCamera row with its OWN
+        # area attribution. Grouping by device_id alone silently collapses
+        # them into one row and drops coverage.
+        def _stem_of(name: str) -> str | None:
+            for suf in suffixes:
+                if name.endswith(suf):
+                    return name[: -len(suf)]
+                stripped = _strip_disambiguation_suffix(name)
+                if stripped.endswith(suf):
+                    return stripped[: -len(suf)]
+            return None
+
+        # (device_id, stem) -> primary entity_id (prefer shortest / base entity
+        # for stable ordering and to avoid picking a `_2` disambiguated variant
+        # as the representative).
+        groups: dict[tuple[str, str], str] = {}
+        for ent in entities:
+            if getattr(ent, "platform", None) != platform:
+                continue
+            if getattr(ent, "disabled_by", None) is not None:
+                continue
+            did = getattr(ent, "device_id", None)
+            if not did:
+                continue
+            eid = getattr(ent, "entity_id", "") or ""
+            if not eid.startswith("binary_sensor."):
+                continue
+            if _is_package_detector(eid):
+                continue
+            name = _entity_name(eid)
+            stem = _stem_of(name)
+            if not stem:
+                continue
+            key = (did, stem)
+            prev = groups.get(key)
+            if prev is None or len(eid) < len(prev) or (len(eid) == len(prev) and eid < prev):
+                groups[key] = eid
+
+        results: list[EnumeratedCamera] = []
+        for (did, stem), primary_eid in groups.items():
+            try:
+                all_legs = self.resolve_detection_legs(primary_eid, family)
+            except Exception:  # noqa: BLE001
+                all_legs = []
+
+            # F3 fix continued: filter legs to this stem so an NVR device's
+            # other physical cameras don't bleed into this row. A leg's
+            # entity-name (with family suffix + `_N` stripped) must equal or
+            # start with `<stem>` (word-boundary — same semantics as the
+            # `_scan_device_entities` stem filter).
+            def _leg_matches_stem(leg_eid: str) -> bool:
+                nm = _entity_name(leg_eid)
+                # Strip family suffix (any) then `_N`
+                inner: str | None = None
+                for suf in suffixes:
+                    if nm.endswith(suf):
+                        inner = nm[: -len(suf)]
+                        break
+                if inner is None:
+                    stripped = _strip_disambiguation_suffix(nm)
+                    for suf in suffixes:
+                        if stripped.endswith(suf):
+                            inner = stripped[: -len(suf)]
+                            break
+                if inner is None:
+                    return False
+                inner_stripped = _strip_disambiguation_suffix(inner)
+                base = _strip_disambiguation_suffix(stem)
+                return (
+                    inner == stem or inner_stripped == base
+                    or inner.startswith(stem + "_")
+                    or inner_stripped.startswith(base + "_")
+                )
+
+            filtered_legs = [l for l in all_legs if _leg_matches_stem(l.entity_id)]
+            leg_eids = tuple(l.entity_id for l in filtered_legs) if filtered_legs else (primary_eid,)
+
+            # F4 fix (TRANSIT-1 fix-up): restrict the cross-leg area fallback
+            # to legs sharing the primary's integration (i.e. Protect-only
+            # when platform=unifiprotect). The unrestricted fallback could
+            # import a Frigate sibling's area when the two legs actually map
+            # to different physical cameras (F3 grouping should prevent this
+            # now, but the guard is defense-in-depth).
+            area: str | None = None
+            try:
+                area = resolve_area_id_for_entity(self._er, self._dr, primary_eid)
+            except Exception:  # noqa: BLE001
+                area = None
+            if not area:
+                for leg in filtered_legs:
+                    if leg.entity_id == primary_eid:
+                        continue
+                    if leg.integration != platform:
+                        continue
+                    try:
+                        a = resolve_area_id_for_entity(self._er, self._dr, leg.entity_id)
+                    except Exception:  # noqa: BLE001
+                        a = None
+                    if a:
+                        area = a
+                        break
+
+            results.append(EnumeratedCamera(
+                device_id=did,
+                area_id=area,
+                legs=leg_eids,
+                primary_entity=primary_eid,
+            ))
+
+        results.sort(key=lambda c: c.primary_entity)
+        return results
 
     def _engine_tag(self, integration: str, entity_name: str, device_id: str | None) -> str:
         """Map (integration, entity_name, device_id) -> engine label.
