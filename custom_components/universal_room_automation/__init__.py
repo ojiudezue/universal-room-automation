@@ -81,6 +81,120 @@ _LOGGER = logging.getLogger(__name__)
 # migration body makes it callable from tests without invoking the whole
 # HA startup path.
 # ---------------------------------------------------------------------------
+def _warn_immunity_dormant(hass: HomeAssistant) -> None:
+    """Arrester Operator-Immunity DORMANT WARN (CRIT-A1 fix).
+
+    The prior _default_immune_persons alphabetical seeding was DELETED
+    per operator ruling 2026-08-06: silently designating whoever sorts
+    first as immune is a safety hazard (a fresh person entity registered
+    on a household member could shift immunity without the operator ever
+    touching options). New semantics: absent OR empty option list =
+    feature is DORMANT (no one is immune, arrester governance is
+    byte-identical to pre-cycle). At every setup while the arrester is
+    ENABLED but the immune list is empty, emit a WARNING telling the
+    operator that their manual holds are UNPROTECTED. This is emitted
+    every setup — the intent is that it stays visible in journald until
+    the operator either enables the list OR disables the arrester.
+    """
+    _LOGGER.warning(
+        "Arrester operator-immunity is DORMANT — set "
+        "hvac_arrester_immune_persons in HVAC options to protect your "
+        "manual holds. Without a list, the arrester will shave your own "
+        "quick-cool manual overrides during peak just as it does for "
+        "guests/kids. Set the list to the empty list explicitly to "
+        "silence this warning if that is the intended posture."
+    )
+
+
+def _warn_immunity_voice_default_best_effort(hass: HomeAssistant) -> None:
+    """One-time WARN when ARRESTER_IMMUNITY_VOICE_CONTEXTS is False.
+
+    Operator ruling 2026-08-06 landed on False as the shipped default —
+    voice/Assist pipeline calls MUST NOT inherit immunity. The
+    discriminator (see hvac_const.ARRESTER_IMMUNITY_VOICE_CONTEXTS
+    docstring) is best-effort (context.parent_id heuristic). Warn once
+    at setup so the operator is aware of the residual: a voice agent
+    authenticated as the operator's HA user could conceivably issue a
+    parent_id-less direct service call and inherit immunity. The
+    strict-enforcement mitigation is documented in HC manual §3.4b.4:
+    give voice/Assist agents a DEDICATED HA user (not the operator).
+    """
+    try:
+        from .domain_coordinators.hvac_const import (
+            ARRESTER_IMMUNITY_VOICE_CONTEXTS,
+        )
+        if not ARRESTER_IMMUNITY_VOICE_CONTEXTS:
+            _LOGGER.warning(
+                "Arrester operator-immunity: ARRESTER_IMMUNITY_VOICE_"
+                "CONTEXTS=False (shipped default). Voice pipelines "
+                "sharing the operator's HA user cannot be reliably "
+                "excluded from immunity by HA Context alone — the "
+                "discriminator uses context.parent_id (excludes chained "
+                "automation/script/assist calls but not hypothetical "
+                "parent-less voice-agent calls). Keep voice agents on a "
+                "DEDICATED HA user for strict enforcement (see HC manual "
+                "§3.4b.4)."
+            )
+    except Exception as e:  # noqa: BLE001
+        _LOGGER.debug("Voice-immunity warn failed: %s", e)
+
+
+def _fire_temp_arrester_override_lost_note(hass: HomeAssistant) -> None:
+    """B-M2 + LOW-A3: if a marker in entry.options indicates Temp
+    Arrester Override was ACTIVE pre-restart, emit a LOW NM note and
+    clear the marker.
+
+    Called from async_setup_entry AFTER the notification_manager exists.
+    Guarded — every branch tolerates missing keys / mid-teardown state.
+    """
+    try:
+        from .const import DOMAIN
+        entries = hass.config_entries.async_entries(DOMAIN)
+        for e in entries:
+            if not e.options.get("hvac_temp_arrester_override_was_active"):
+                continue
+            nm = hass.data.get(DOMAIN, {}).get("notification_manager")
+            if nm is None:
+                return
+            from .domain_coordinators.base import Severity
+
+            async def _emit(entry=e, notifier=nm):
+                try:
+                    await notifier.async_notify(
+                        coordinator_id="hvac",
+                        severity=Severity.LOW,
+                        title="Temp Arrester Override released across restart",
+                        message=(
+                            "Temp Arrester Override was ACTIVE when HA "
+                            "restarted/reloaded. It has been released to "
+                            "the default-OFF state (safe default); "
+                            "arrester governance has resumed. Re-engage "
+                            "if still intended."
+                        ),
+                        hazard_type="hvac_temp_arrester_override",
+                    )
+                except Exception as ex:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "Temp Arrester Override restart NM note failed: %s",
+                        ex,
+                    )
+                try:
+                    new_opts = dict(entry.options)
+                    new_opts.pop("hvac_temp_arrester_override_was_active", None)
+                    hass.config_entries.async_update_entry(
+                        entry, options=new_opts,
+                    )
+                except Exception as ex:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "Temp Arrester Override marker clear failed: %s",
+                        ex,
+                    )
+
+            hass.async_create_task(_emit())  # noqa: untracked-ok — best-effort one-shot LOW NM note at setup + marker clear; fire-and-forget by design (setup should not block on an NM channel).
+    except Exception as ex:  # noqa: BLE001
+        _LOGGER.debug("Marker-scan on setup failed: %s", ex)
+
+
 def _log_nm_suppression_daily_warning(hass: HomeAssistant) -> None:
     """B-2026-08-03-3(b): emit one WARNING/day while NM messaging is
     suppressed, so a long-forgotten kill switch is visible in journald
@@ -2896,6 +3010,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         CONF_HVAC_FAN_HYSTERESIS,
                         CONF_HVAC_FAN_MIN_RUNTIME,
                         CONF_HVAC_ARRESTER_ENABLED,
+                        CONF_HVAC_ARRESTER_IMMUNE_PERSONS,
                         CONF_HVAC_AC_RESET_ENABLED,
                         CONF_HVAC_VACANCY_GRACE_MINUTES,
                         CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
@@ -2961,8 +3076,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         fan_min_runtime=int(cm_config.get(
                             CONF_HVAC_FAN_MIN_RUNTIME, DEFAULT_FAN_MIN_RUNTIME
                         )),
-                        arrester_enabled=bool(cm_config.get(
-                            CONF_HVAC_ARRESTER_ENABLED, DEFAULT_ARRESTER_ENABLED
+                        arrester_enabled=(arrester_enabled_flag := bool(
+                            cm_config.get(
+                                CONF_HVAC_ARRESTER_ENABLED,
+                                DEFAULT_ARRESTER_ENABLED,
+                            )
                         )),
                         ac_reset_enabled=bool(cm_config.get(
                             CONF_HVAC_AC_RESET_ENABLED, DEFAULT_AC_RESET_ENABLED
@@ -3052,8 +3170,76 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         pre_conditioning_enabled=bool(cm_config.get(
                             "hvac_pre_conditioning_enabled", True,
                         )),
+                        # Arrester Operator-Immunity (2026-08-06 —
+                        # CRIT-A1 fix). Resolve to the operator's HA
+                        # user id at RUNTIME via the arrester's
+                        # context-user->person lookup. NO alphabetical
+                        # seeding: absent OR empty option = DORMANT
+                        # (feature disabled, byte-identical to pre-
+                        # cycle governance) with a WARN at every setup
+                        # so the operator can see their manual holds
+                        # are unprotected. Explicit list = verbatim.
+                        # We deliberately do NOT collapse an empty list
+                        # via `or` — an empty list is a distinct
+                        # operator posture ("dormant on purpose") and
+                        # gets threaded verbatim; the WARN below fires
+                        # regardless of absent-vs-empty because the
+                        # observable behavior (no protection) is the
+                        # same.
+                        arrester_immune_persons=list(
+                            cm_config.get(
+                                CONF_HVAC_ARRESTER_IMMUNE_PERSONS, [],
+                            ) or []
+                        ),
+                        # AC-ramp master persisted option (2026-08-06 fix).
+                        # None passthrough retains the arrester's default
+                        # for fresh installs; a stored True/False survives
+                        # config-entry reload (which recreates the arrester).
+                        ac_ramp_master_enabled=cm_config.get(
+                            _CONF_HVAC_AC_RAMP_MASTER_ENABLED,
+                        ),
                     )
                     coordinator_manager.register_coordinator(hvac)
+                    # CRIT-A1 dormant WARN + voice-default WARN. Emit
+                    # only when the arrester is ENABLED (dormant
+                    # immunity is only a problem if the arrester itself
+                    # is running).
+                    if arrester_enabled_flag:
+                        _immune_list = list(
+                            cm_config.get(
+                                CONF_HVAC_ARRESTER_IMMUNE_PERSONS, [],
+                            ) or []
+                        )
+                        if not _immune_list:
+                            _warn_immunity_dormant(hass)
+                        else:
+                            # B-M4: if the list references a person
+                            # entity that doesn't exist, WARN (seeding
+                            # was deleted so a stale reference is now
+                            # visible). Fail-open: don't drop, just warn.
+                            try:
+                                known = {
+                                    s.entity_id for s in
+                                    hass.states.async_all("person")
+                                }
+                                missing = [
+                                    p for p in _immune_list if p not in known
+                                ]
+                                if missing:
+                                    _LOGGER.warning(
+                                        "Arrester immunity: configured "
+                                        "person(s) not registered: %s "
+                                        "(no immunity will apply to "
+                                        "them until their person entity "
+                                        "exists)",
+                                        missing,
+                                    )
+                            except Exception as e:  # noqa: BLE001
+                                _LOGGER.debug(
+                                    "Arrester immunity person-existence "
+                                    "check failed: %s", e,
+                                )
+                        _warn_immunity_voice_default_best_effort(hass)
                 else:
                     _LOGGER.info("HVAC Coordinator disabled via config")
 
@@ -3069,6 +3255,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     # set, so NMAcknowledgeButton.available and the three NM
                     # service handlers always read None from hass.data[DOMAIN]).
                     hass.data[DOMAIN]["notification_manager"] = nm
+                    # B-M2 + LOW-A3: fire the "Temp Arrester Override was
+                    # active pre-restart" LOW NM note now that NM exists.
+                    _fire_temp_arrester_override_lost_note(hass)
                     # v4.6.9: notify NMAcknowledgeButton that NM is ready
                     try:
                         from homeassistant.helpers.dispatcher import async_dispatcher_send
@@ -4932,6 +5121,16 @@ from .domain_coordinators.hvac_const import (
     # Part 2 — DPM hysteresis (D5) and egress thresholds (D5)
     CONF_HVAC_EGRESS_THRESHOLD_MIN as _CONF_HVAC_EGRESS_THRESHOLD_MIN,
     CONF_HVAC_EGRESS_RESUME_DELAY_MIN as _CONF_HVAC_EGRESS_RESUME_DELAY_MIN,
+    # Arrester operator-immunity cycle (2026-08-06): AC-ramp master
+    # option-persistence key. Add to OPTIONS_RELOAD_SUPPRESS_KEYS so a
+    # switch write-through does not trigger a CM reload (which would
+    # RE-create the arrester and reset the field to its default False).
+    CONF_HVAC_AC_RAMP_MASTER_ENABLED as _CONF_HVAC_AC_RAMP_MASTER_ENABLED,
+    # Arrester operator-immunity cycle (2026-08-06): live-tunable
+    # options key for immune-person list. Wired through _apply_in_place
+    # via set_immune_persons() so options-flow edits take effect without
+    # a reload (docstring vs wiring alignment — MED-A2/B-L1).
+    CONF_HVAC_ARRESTER_IMMUNE_PERSONS as _CONF_HVAC_ARRESTER_IMMUNE_PERSONS,
 )
 from .domain_coordinators.energy_const import (
     CONF_DYNAMIC_PRESET_DWELL_MINUTES as _CONF_DYNAMIC_PRESET_DWELL_MINUTES,
@@ -5189,6 +5388,29 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     # v4.7.35 fix-up (B-B2) — deny-list read fresh on every chokepoint
     # invocation; no live-attr push needed.
     _CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
+    # Arrester operator-immunity cycle (2026-08-06): AC-ramp master
+    # option-persistence. The HVACACRampMasterSwitch is the SOLE write
+    # path (no config-flow field); on toggle it applies the value
+    # DIRECTLY to arrester._ramp_master_enabled AND write-throughs to
+    # entry.options. So a subsequent options-update listener firing for
+    # this key has no live-attr work to do — the switch already applied
+    # it. The option only matters at INIT (arrester construction) to
+    # survive config-entry reload. NO_LIVE_ATTR = correct classification.
+    _CONF_HVAC_AC_RAMP_MASTER_ENABLED,
+    # Arrester operator-immunity (2026-08-06 — MED-A2/B-L1):
+    # `hvac_arrester_immune_persons` is applied live via
+    # `set_immune_persons()` on the HVAC arrester in _apply_in_place;
+    # there is no plain-attribute push (the arrester keeps a list of
+    # its own that only the setter should mutate). Membership here
+    # documents "no direct live-attr push needed" AND keeps the
+    # snapshot-advance path clean — the explicit set_immune_persons
+    # branch below fires the actual side-effect, then falls through
+    # to the _NO_LIVE_ATTR_KEYS `applied.add` so the snapshot advances.
+    _CONF_HVAC_ARRESTER_IMMUNE_PERSONS,
+    # B-M2 marker: written by the switch on every toggle; no live-attr
+    # push consumer — the option only matters at NEXT setup (marker
+    # sweep in _fire_temp_arrester_override_lost_note).
+    "hvac_temp_arrester_override_was_active",
     # v5.21.0 fix-up (B-HIGH-1): `_CONF_ENERGY_DP_ENABLE` used to live
     # here on the (incorrect) rationale that the switch entity is the
     # sole write path. The BAEC config-flow step (v5.21.0 D1) is a
@@ -5248,6 +5470,26 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     _CONF_DYNAMIC_PRESET_HYSTERESIS_F,
     _CONF_HVAC_EGRESS_THRESHOLD_MIN,
     _CONF_HVAC_EGRESS_RESUME_DELAY_MIN,
+    # Arrester operator-immunity cycle (2026-08-06): AC-ramp master
+    # persistence. The HVACACRampMasterSwitch write-through updates
+    # entry.options[hvac_ac_ramp_master_enabled] on every toggle; the
+    # arrester seeds `_ramp_master_enabled` from this option at init
+    # (fixes the reload→OFF regression the operator hit 2026-08-06
+    # 20:36/20:39 CDT during options-flow saves — RestoreEntity's
+    # last_state was 'unavailable' during the reload so its restore
+    # path skipped, and the arrester was re-created at DEFAULT=False).
+    _CONF_HVAC_AC_RAMP_MASTER_ENABLED,
+    # Arrester operator-immunity (2026-08-06 — MED-A2/B-L1): options-flow
+    # writes must not trigger a CM reload (which recreates the arrester
+    # and drops any in-flight immune-hold records). Live update flows
+    # through `set_immune_persons()` in _apply_in_place.
+    _CONF_HVAC_ARRESTER_IMMUNE_PERSONS,
+    # Temp Arrester Override marker (B-M2): the switch write-through
+    # updates entry.options[hvac_temp_arrester_override_was_active] on
+    # every toggle. That write must NOT trigger a reload (which would
+    # recreate the arrester and clobber operator state mid-session).
+    # Suppress-only; no live-attr consumer.
+    "hvac_temp_arrester_override_was_active",
     _CONF_FAN_INTERFERENCE_HOLD_S,
     # v4.7.34 — Optimization Coordinator CM-level keys (C-CRIT-1).
     # OptimizationCoordinator reads entry.options fresh every cycle via
@@ -5377,6 +5619,8 @@ def _apply_in_place(
         # Part 2 D5 — egress thresholds (HVAC-owned via egress_manager)
         _CONF_HVAC_EGRESS_THRESHOLD_MIN,
         _CONF_HVAC_EGRESS_RESUME_DELAY_MIN,
+        # Arrester operator-immunity (2026-08-06 MED-A2/B-L1)
+        _CONF_HVAC_ARRESTER_IMMUNE_PERSONS,
     }
     _ec_owned_keys = {
         *_OFFPEAK_DRAIN_QUALITY.keys(),
@@ -5399,6 +5643,32 @@ def _apply_in_place(
         # EC-owned and fan-interference (presence-owned) keys are NOT
         # HVAC-owned: try to apply them below even if hvac is None.
         # Fall through to the EC + presence + no-live-attr branches.
+
+    # Arrester operator-immunity (2026-08-06 — MED-A2/B-L1). Live-apply
+    # the immune-person list by calling `set_immune_persons()` on the
+    # arrester. `_NO_LIVE_ATTR_KEYS` membership above already marked
+    # this key as "no plain-attr push"; here we do the actual method
+    # invocation. Snapshot advancement happens via that fallback.
+    if (
+        _CONF_HVAC_ARRESTER_IMMUNE_PERSONS in changed_keys
+        and hvac is not None
+        and getattr(hvac, "_override_arrester", None) is not None
+    ):
+        try:
+            new_list = list(
+                new_options.get(
+                    _CONF_HVAC_ARRESTER_IMMUNE_PERSONS, [],
+                ) or []
+            )
+            hvac._override_arrester.set_immune_persons(new_list)
+            applied.add(_CONF_HVAC_ARRESTER_IMMUNE_PERSONS)
+        except (AttributeError, TypeError, ValueError) as err:
+            _LOGGER.warning(
+                "CM in-place apply: arrester set_immune_persons failed "
+                "for value=%r: %s",
+                new_options.get(_CONF_HVAC_ARRESTER_IMMUNE_PERSONS),
+                err,
+            )
 
     # HIGH-1: per-key try/except so one bad value cannot suppress its
     # siblings. B-MED-2: widened to AttributeError (coordinator may be

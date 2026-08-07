@@ -6,6 +6,7 @@
 #
 
 import logging
+from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
@@ -266,6 +267,16 @@ async def async_setup_entry(
             HVACPreConditioningSwitch(hass, entry),
             # v3.9.0: HVAC transparency switches
             HVACOverrideArresterSwitch(hass, entry),
+            # Arrester Operator-Immunity (2026-08-06). Temp Arrester
+            # Override — arrester-scoped temporary stand-down: suspends
+            # ALL arrester corrective writes house-wide for the
+            # operator's "please leave me alone" case. Default OFF;
+            # deliberately NOT restored across restart (default-OFF is
+            # the safe state); auto-sunsets on sleep transition or
+            # max-age. Operator naming ruling 2026-08-06 (arrester
+            # family; NOT "Comfort Override" — that would suggest a
+            # comfort dial, this is an override of arrester governance).
+            HVACTempArresterOverrideSwitch(hass, entry),
             HVACACResetSwitch(hass, entry),
             # v4.7.7 A1: AC Nudge decouple — sibling toggle for soft-nudge
             # detection, independent of AC Reset.
@@ -1945,6 +1956,138 @@ class HVACOverrideArresterSwitch(SwitchEntity, RestoreEntity):
         return self._get_hvac() is not None
 
 
+class HVACTempArresterOverrideSwitch(SwitchEntity):
+    """Temp Arrester Override — arrester-scoped temporary stand-down.
+
+    Operator naming (2026-08-06): the switch belongs to the arrester
+    family and OVERRIDES arrester governance temporarily; it is NOT a
+    "comfort" dial. Friendly name is exactly "Temp Arrester Override";
+    unique_id slug is ``ura_hvac_temp_arrester_override``.
+
+    Operator-facing kill switch for arrester corrective writes. When ON,
+    the OverrideArrester skips EVERY compromise/severe/revert/AC-ramp
+    write across every zone (defense-in-depth via the
+    `_corrective_writes_suppressed` helper on the arrester). Default OFF.
+
+    Auto-sunset (first-of): transition INTO house_state == "sleep" OR
+    COMFORT_OVERRIDE_MAX_S elapsed since engagement. On sunset the switch
+    flips OFF and a LOW NM note fires ("Comfort Override ended (auto)").
+
+    Deliberately NOT a RestoreEntity: default-OFF is the safe state
+    (documented as intentional inversion of the sibling HVAC switches
+    which default ON and restore OFF). An accidental "leave it on"
+    through an outage should NOT persistently disable governance —
+    the operator can always re-engage after restart if intended.
+
+    Entity: switch.ura_hvac_temp_arrester_override
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:sofa-single"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_temp_arrester_override"
+        self._attr_name = "Temp Arrester Override"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_arrester(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        hvac = manager.coordinators.get("hvac")
+        return hvac.override_arrester if hvac is not None else None
+
+    @property
+    def available(self) -> bool:
+        return self._get_arrester() is not None
+
+    @property
+    def is_on(self) -> bool:
+        arrester = self._get_arrester()
+        if arrester is None:
+            return False
+        return arrester.temp_arrester_override_active
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        arrester = self._get_arrester()
+        if arrester is None:
+            return {}
+        started = arrester.temp_arrester_override_started_ts
+        return {
+            "suppressed_since": (
+                started.isoformat() if started is not None else None
+            ),
+        }
+
+    def _persist_marker(self, value: bool) -> None:
+        """B-M2: persist marker option so an unrelated reload doesn't
+        silently drop the operator's engagement without any signal.
+
+        On next setup, __init__.async_setup_entry reads the marker and
+        (if True) fires a LOW NM note explaining the override was
+        released to default-OFF, then clears the marker.
+        """
+        try:
+            new_options = {
+                **self._entry.options,
+                "hvac_temp_arrester_override_was_active": value,
+            }
+            self.hass.config_entries.async_update_entry(
+                self._entry, options=new_options,
+            )
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "Temp Arrester Override marker persist failed (%s): %s",
+                value, e,
+            )
+
+    async def async_turn_on(self, **kwargs) -> None:
+        arrester = self._get_arrester()
+        if arrester is not None:
+            arrester.set_temp_arrester_override(True)
+            self._persist_marker(True)
+            self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        arrester = self._get_arrester()
+        if arrester is not None:
+            arrester.set_temp_arrester_override(False)
+            self._persist_marker(False)
+            self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to the dedicated dispatcher signal (B-H2)."""
+        await super().async_added_to_hass()
+        from .domain_coordinators.hvac_const import (
+            SIGNAL_HVAC_TEMP_ARRESTER_OVERRIDE_UPDATE,
+        )
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+
+        @callback
+        def _handle_update() -> None:
+            self.async_write_ha_state()
+
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_HVAC_TEMP_ARRESTER_OVERRIDE_UPDATE,
+                _handle_update,
+            )
+        )
+
+
 class HVACACResetSwitch(SwitchEntity, RestoreEntity):
     """Toggle HVAC AC Reset.
 
@@ -3379,10 +3522,49 @@ class HVACACRampMasterSwitch(SwitchEntity, RestoreEntity):
             return False
         return getattr(arr, "_ramp_master_enabled", False)
 
+    def _persist_master_option(self, value: bool) -> None:
+        """Write-through to entry.options — reload-safe persistence.
+
+        Fixes the 2026-08-06 reload→OFF regression: on config-entry reload,
+        the arrester is recreated at DEFAULT=False; RestoreEntity's
+        last_state during a quick reload is often `unavailable` (the
+        restore-only-if-'on'/'off' guard skips), so the switch UI came
+        back OFF and the ramp feature silently disabled itself.
+
+        We route the master through ``entry.options[hvac_ac_ramp_master
+        _enabled]`` — the same channel the CM already uses for live-tunable
+        options (see ``OPTIONS_RELOAD_SUPPRESS_KEYS`` in __init__.py, which
+        this key was added to so the write does NOT itself trigger a reload
+        loop). The HVAC coordinator init seeds ``_ramp_master_enabled`` from
+        this option, so the value survives every subsequent reload.
+
+        Only writes when the value actually changes (guards against
+        reload-loop feedback in case a future update_listener change
+        wires an unexpected reload for this key).
+        """
+        try:
+            current = bool(self._entry.options.get(
+                "hvac_ac_ramp_master_enabled",
+            ))
+            if current == value:
+                return
+            new_options = {**self._entry.options,
+                           "hvac_ac_ramp_master_enabled": value}
+            self.hass.config_entries.async_update_entry(
+                self._entry, options=new_options,
+            )
+        except Exception as e:  # noqa: BLE001 — persistence is belt+braces
+            _LOGGER.warning(
+                "HVACACRampMasterSwitch: entry.options write-through "
+                "failed for hvac_ac_ramp_master_enabled=%s: %s "
+                "(RestoreEntity is the fallback)", value, e,
+            )
+
     async def async_turn_on(self, **kwargs) -> None:
         arr = self._get_arrester()
         if arr is not None:
             arr.ramp_master_enabled = True
+            self._persist_master_option(True)
             self._deferred_value = None
             self.async_write_ha_state()
 
@@ -3390,6 +3572,7 @@ class HVACACRampMasterSwitch(SwitchEntity, RestoreEntity):
         arr = self._get_arrester()
         if arr is not None:
             arr.ramp_master_enabled = False  # setter cancels in-flight nudges
+            self._persist_master_option(False)
             self._deferred_value = None
             self.async_write_ha_state()
 
@@ -3412,11 +3595,27 @@ class HVACACRampMasterSwitch(SwitchEntity, RestoreEntity):
             )
         )
 
-        last_state = await self.async_get_last_state()
-        if last_state is None or last_state.state not in ("on", "off"):
-            # No prior state or transient state — default OFF is truth; nothing to restore.
-            return
-        target = last_state.state == "on"
+        # AUTHORITY ORDER (2026-08-06 fix): entry.options is now the
+        # primary source of truth. RestoreEntity's last_state is the
+        # belt-and-braces fallback ONLY when the option is absent (fresh
+        # install). Fixes the reload→OFF regression where last_state was
+        # 'unavailable' during a quick reload and the RestoreEntity path
+        # skipped, silently disabling the ramp feature.
+        opt_value = self._entry.options.get("hvac_ac_ramp_master_enabled")
+        if opt_value is not None:
+            target = bool(opt_value)
+        else:
+            last_state = await self.async_get_last_state()
+            if last_state is None or last_state.state not in ("on", "off"):
+                # No prior state, no option — default OFF is truth.
+                return
+            target = last_state.state == "on"
+            # MED-A5 caveat 1: one-shot migration — copy the clean
+            # RestoreEntity on/off into the option so the NEXT reload
+            # doesn't lose the value through the RestoreEntity==unavailable
+            # gap. Guarded: if the write fails, we still applied `target`
+            # to the arrester below.
+            self._persist_master_option(target)
         arr = self._get_arrester()
         if arr is not None:
             # Fast path: HVAC coord already registered (arrester available).
@@ -3428,8 +3627,8 @@ class HVACACRampMasterSwitch(SwitchEntity, RestoreEntity):
         self._deferred_value = target
         _LOGGER.debug(
             "HVACACRampMasterSwitch: HVAC coord not ready — deferring restore "
-            "(value=%s)",
-            target,
+            "(value=%s, source=%s)",
+            target, "option" if opt_value is not None else "last_state",
         )
 
     @callback

@@ -256,6 +256,15 @@ def _load_init_listener_helpers():
         "_CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A":    "energy_dp_needed_kwh_garage_a",
         "_CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B":    "energy_dp_needed_kwh_garage_b",
         "_CONF_ENERGY_DP_HOUSE_LOAD_SOURCE":      "energy_dp_house_load_source",
+        # Arrester operator-immunity cycle (2026-08-06): AC-ramp master
+        # is now option-persisted to survive config-entry reload; the
+        # switch write-through updates entry.options and the arrester
+        # seeds from the option at init. Must be in reload-suppress list
+        # so the write does not trigger a CM reload loop.
+        "_CONF_HVAC_AC_RAMP_MASTER_ENABLED":       "hvac_ac_ramp_master_enabled",
+        # Fix-up 2026-08-06: immune-person list live-tunable + Temp
+        # Arrester Override marker (both reload-suppressed).
+        "_CONF_HVAC_ARRESTER_IMMUNE_PERSONS":      "hvac_arrester_immune_persons",
         # v5.21.0 fix-up (SECOND OPERATOR ADDITION 2026-07-17) — D2 knobs.
         "_CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP": "energy_soc_divergence_threshold_pp",
         "_CONF_ENERGY_SOC_DIVERGENCE_DWELL_MIN":    "energy_soc_divergence_dwell_min",

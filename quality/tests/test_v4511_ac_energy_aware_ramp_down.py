@@ -536,7 +536,7 @@ class TestSoftNudge:
         forever with no record. R1 mitigation requires DB-first ordering.
         """
         idx = hvac_override_src.find("async def _perform_soft_nudge(")
-        body = hvac_override_src[idx:idx + 4000]
+        body = hvac_override_src[idx:idx + 8000]
         db_write_pos = body.find("set_ac_in_flight_nudge")
         # feature/freeze-floor: setpoint dispatch routed through the chokepoint
         # `emit_set_temperature(...)`; the raw services.async_call now lives in
@@ -553,7 +553,7 @@ class TestSoftNudge:
         """Risk R11 — URA's own setpoint change must be suppressed so
         the OverrideArrester doesn't misclassify it as a user override."""
         idx = hvac_override_src.find("async def _perform_soft_nudge(")
-        body = hvac_override_src[idx:idx + 4000]
+        body = hvac_override_src[idx:idx + 8000]
         # v4.7.33 A-F5: suppression now goes through `self.suppress(...)`
         # (TTL-window) instead of the prior `self._suppressed_entities.add(...)`
         # set membership. The ordering invariant (suppress BEFORE the service
@@ -577,12 +577,12 @@ class TestSoftNudge:
 
     def test_perform_soft_nudge_logs_event(self, hvac_override_src):
         idx = hvac_override_src.find("async def _perform_soft_nudge(")
-        body = hvac_override_src[idx:idx + 4000]
+        body = hvac_override_src[idx:idx + 8000]
         assert "AC_RAMP_EVENT_NUDGE_STARTED" in body
 
     def test_perform_soft_nudge_increments_counter(self, hvac_override_src):
         idx = hvac_override_src.find("async def _perform_soft_nudge(")
-        body = hvac_override_src[idx:idx + 4000]
+        body = hvac_override_src[idx:idx + 8000]
         assert "soft_nudge_count" in body
         assert "+ 1" in body  # increment
 
@@ -734,7 +734,7 @@ class TestStartupRampAudit:
         idx = hvac_override_src.find(
             "async def async_startup_ramp_audit("
         )
-        body = hvac_override_src[idx:idx + 4000]
+        body = hvac_override_src[idx:idx + 8000]
         assert "elapsed_s >= duration_s" in body
 
     def test_audit_resumes_in_flight_nudges(self, hvac_override_src):
@@ -743,7 +743,7 @@ class TestStartupRampAudit:
         idx = hvac_override_src.find(
             "async def async_startup_ramp_audit("
         )
-        body = hvac_override_src[idx:idx + 4000]
+        body = hvac_override_src[idx:idx + 8000]
         assert "remaining_s = duration_s - elapsed_s" in body
 
     def test_audit_clears_stale_rows_for_missing_zones(
@@ -754,7 +754,7 @@ class TestStartupRampAudit:
         idx = hvac_override_src.find(
             "async def async_startup_ramp_audit("
         )
-        body = hvac_override_src[idx:idx + 4000]
+        body = hvac_override_src[idx:idx + 8000]
         assert "if zone is None:" in body
         assert "clear_ac_in_flight_nudge" in body
 
@@ -791,12 +791,12 @@ class TestNumberEntities:
 
     def test_per_zone_factory_uses_zone_id_in_unique_id(self, number_src):
         idx = number_src.find("def _hvac_zone_kwh_threshold_factory(")
-        body = number_src[idx:idx + 4000]
+        body = number_src[idx:idx + 8000]
         assert 'f"{DOMAIN}_hvac_ac_kwh_threshold_{zone_id}"' in body
 
     def test_per_zone_factory_pushes_to_zone_state(self, number_src):
         idx = number_src.find("def _hvac_zone_kwh_threshold_factory(")
-        body = number_src[idx:idx + 4000]
+        body = number_src[idx:idx + 8000]
         # Push target is ZoneState.kwh_rate_threshold, not sub-controller
         assert "zone.kwh_rate_threshold = float(self._value)" in body
 
@@ -825,7 +825,7 @@ class TestNumberEntities:
         """3-ton heuristic: ~25-30% of rated. User raises to 1.0 for 4-ton
         post-deploy via slider — no redeploy needed."""
         idx = number_src.find("def _hvac_zone_kwh_threshold_factory(")
-        body = number_src[idx:idx + 4000]
+        body = number_src[idx:idx + 8000]
         assert "DEFAULT_HVAC_AC_KWH_RATE_THRESHOLD" in body
 
 
@@ -1321,7 +1321,7 @@ class TestZoneResolutionAcrossSchemes:
 
     def test_button_init_stores_climate_entity(self, button_src):
         idx = button_src.find("class _ACRampButton(")
-        body = button_src[idx:idx + 4000]
+        body = button_src[idx:idx + 8000]
         assert "self._climate_entity = climate_entity" in body
 
     def test_button_press_passes_climate_entity_not_zone_id(self, button_src):

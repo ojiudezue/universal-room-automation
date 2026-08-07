@@ -148,6 +148,9 @@ class ExteriorTrackLinker:
             label: [] for label in EXTERIOR_TRACK_LABELS
         }
         self._closed_recent: list[ExteriorTrack] = []
+        self._allowed_cameras: set[str] = set()
+        self._allowlist_warned = False
+        self._ignored_offlist_events: dict[str, int] = {}
         # Operator control surface (2026-08-06): two live switches.
         #   tracking_enabled — the fire axe. OFF = observe() creates no
         #     tracks; find_owning_track/note_alert_dispatched inert;
@@ -306,6 +309,32 @@ class ExteriorTrackLinker:
         _LOGGER.debug("ExteriorTrackLinker: torn down")
 
     # ---------------- operator / test knobs ----------------
+    def normalize_camera(self, camera: str) -> str:
+        """Canonical camera key: lowercase slug + alias map.
+
+        Hotfix 2026-08-06 (operator-reported): the frigate_events bus
+        carries Frigate's display-case camera name (ReolinkStudyBPorchPTZ)
+        while the binary-sensor fallback derives lowercase slugs — the
+        same person split into TWO tracks. All ingress normalizes here.
+        """
+        from .const import EXTERIOR_CAMERA_KEY_ALIASES
+        slug = (camera or "").strip().lower()
+        return EXTERIOR_CAMERA_KEY_ALIASES.get(slug, slug)
+
+    def set_allowed_cameras(self, cameras: "set[str] | list[str]") -> None:
+        """Install the exterior camera allowlist (perimeter + egress keys).
+
+        Hotfix 2026-08-06: without this, the frigate_events subscription
+        observed EVERY Frigate person event house-wide — interior cameras
+        (playroom) opened "exterior" tracks and poisoned the census.
+        Empty/never-installed allowlist = allow-all with one-time WARNING.
+        """
+        self._allowed_cameras = {self.normalize_camera(c) for c in cameras}
+        _LOGGER.info(
+            "ExteriorTrackLinker: allowlist installed (%d cameras)",
+            len(self._allowed_cameras),
+        )
+
     def set_adjacency(self, graph: dict[str, list[str]] | dict[str, set[str]]) -> None:
         """Replace the adjacency table (operator-declared) at runtime.
 
@@ -343,6 +372,23 @@ class ExteriorTrackLinker:
         """
         if TRACK_LINK_WINDOW_S <= 0 or not self.tracking_enabled:
             return None
+        # Hotfix 2026-08-06: canonicalize + allowlist-gate every ingress.
+        camera = self.normalize_camera(camera)
+        if not camera:
+            return None
+        if self._allowed_cameras:
+            if camera not in self._allowed_cameras:
+                self._ignored_offlist_events[camera] = (
+                    self._ignored_offlist_events.get(camera, 0) + 1
+                )
+                return None
+        elif not self._allowlist_warned:
+            self._allowlist_warned = True
+            _LOGGER.warning(
+                "ExteriorTrackLinker: no camera allowlist installed — "
+                "observing ALL Frigate cameras (interior leak possible). "
+                "perimeter_alert setup should call set_allowed_cameras()."
+            )
         if label not in self._tracks:
             self._tracks[label] = []
         key = (camera, label)
@@ -723,6 +769,7 @@ class ExteriorTrackLinker:
         """
         if TRACK_LINK_WINDOW_S <= 0 or not self.tracking_enabled:
             return None
+        camera = self.normalize_camera(camera)
         best: ExteriorTrack | None = None
         best_t: datetime | None = None
         for t in self._tracks.get(label, []):

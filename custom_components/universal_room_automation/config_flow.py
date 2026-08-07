@@ -4760,6 +4760,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_FAN_HYSTERESIS,
             DEFAULT_FAN_MIN_RUNTIME,
             CONF_HVAC_ARRESTER_ENABLED,
+            CONF_HVAC_ARRESTER_IMMUNE_PERSONS,
             DEFAULT_ARRESTER_ENABLED,
             CONF_HVAC_AC_RESET_ENABLED,
             DEFAULT_AC_RESET_ENABLED,
@@ -5145,6 +5146,23 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_HVAC_ARRESTER_ENABLED,
                 default=self._get_current(CONF_HVAC_ARRESTER_ENABLED, DEFAULT_ARRESTER_ENABLED),
             ): selector.BooleanSelector(),
+            # Arrester Operator-Immunity (2026-08-06). Persons whose
+            # manual thermostat holds are IMMUNE to arrester compromise/
+            # revert/AC-ramp shaving. Empty = fallback to the first
+            # tracked person (typically the operator). Mirror of
+            # CONF_NM_SECURITY_ACK_PERSONS pattern (persons selector,
+            # multiple=True). Guests / kids / physical dial holds
+            # continue to be governed normally.
+            vol.Optional(
+                CONF_HVAC_ARRESTER_IMMUNE_PERSONS,
+                default=self._get_current(
+                    CONF_HVAC_ARRESTER_IMMUNE_PERSONS, [],
+                ),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="person", multiple=True,
+                )
+            ),
             # v3.17.9: AC Reset toggle
             vol.Optional(
                 CONF_HVAC_AC_RESET_ENABLED,
