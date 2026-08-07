@@ -128,7 +128,7 @@ cards:
   - id: TRANSIT-1
     title: Interior traversal — Protect-sourced checkpoints via resolver
     thread: presence
-    status: in_progress
+    status: review
     batch: resolver-correctness
     seq: 3
     approval: explicit
