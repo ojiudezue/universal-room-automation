@@ -1389,7 +1389,28 @@ PERIMETER_BOOT_SETTLE_S: Final = 30
 # only). No coverage log line is emitted for Protect legs, `_protect_person_legs`
 # returns [] unconditionally, and `_rescan_siblings` skips the Protect-leg
 # probe. Reversion is a one-line toggle here — no other code change required.
-PERIMETER_PROTECT_PERSON_LEGS_ENABLED: Final = True
+#
+# Cycle-3 resolver-legs (2026-08-07) RENAME: `PERIMETER_PROTECT_PERSON_LEGS_
+# ENABLED` -> `PERIMETER_MULTI_ENGINE_LEGS_ENABLED`. Kill-switch semantics
+# generalized from "Protect person legs only" to "every integration's
+# family (person/vehicle/animal) sensor for a configured camera, sourced
+# via CameraResolver.resolve_detection_legs()". False collapses the
+# subscription set to the configured base + `_2` sibling ONLY (byte-
+# identical to pre-cycle behavior for the person path; vehicle/animal
+# paths degrade to base+`_2` derived via legacy suffix search retained
+# only as a fallback in this mode). Reversion is a one-line toggle here.
+# The old constant name is retained as a passthrough alias below for one
+# release so any out-of-tree consumers do not break; new code MUST read
+# the MULTI_ENGINE name.
+# Cycle-3 fix-up (2026-08-07, F3): OFF now falls back to the v5.58.0-shipped
+# behavior — Frigate `_person_occupancy` base + `_2` sibling PLUS a Protect
+# stem-probed leg (recovered from the retired `_protect_person_legs`). This
+# preserves the Protect coverage v5.58.0 delivered, so a kill-switch pull
+# does NOT silently regress to pre-v5.58.0 Frigate-only wiring. The Dahua
+# `_smart_motion_human` base is also recognized so an operator whose
+# configured base is native-AI keeps person detection on OFF.
+PERIMETER_MULTI_ENGINE_LEGS_ENABLED: Final = True
+PERIMETER_PROTECT_PERSON_LEGS_ENABLED: Final = PERIMETER_MULTI_ENGINE_LEGS_ENABLED  # DEPRECATED alias — remove one release post-cycle-3
 
 # 2026-08-06 protect-person-legs fix-up (A-L2 + operator ruling): UniFi Protect
 # exposes the raw camera as `camera.<slug>` while the resolution-channel
@@ -1431,6 +1452,9 @@ EXTERIOR_VEHICLE_ALERT_COOLDOWN_SECONDS: Final = 300
 # Extendable — key = base slug after suffix strip; value = adjacency-graph key.
 EXTERIOR_CAMERA_KEY_ALIASES: Final = {
     "armcrestpooloverhead": "armcrest",
+    # F2 (cycle-3 fix-up): native Reolink PTZ slug ↔ Frigate object name.
+    # Same polarity as armcrest entry: native-AI slug → canonical Frigate key.
+    "ptzcamreolinktmixpstudybporch": "reolinkstudybporchptz",
 }
 EXTERIOR_VEHICLE_SENSOR_SUFFIXES: Final = (
     "_vehicle_detected",     # UniFi Protect smart-detect
@@ -1439,6 +1463,7 @@ EXTERIOR_VEHICLE_SENSOR_SUFFIXES: Final = (
 )
 EXTERIOR_ANIMAL_SENSOR_SUFFIXES: Final = (
     "_animal_detected",      # UniFi Protect smart-detect
+    "_smart_motion_animal",  # Dahua / Amcrest native AI (F1 fix-up 2026-08-07)
     "_animal",
 )
 
