@@ -72,6 +72,16 @@ cards:
       "flipping it on always buys at least 15 minutes; after that any real context change ends it." Solves
       the class without per-state cleverness (which the operator rejected). Grace never outranks the 6h
       max-age; 0 disables.'
+  - challenge: 'operator: "if the house state changes before 15, when that elapses, it recognizes it should
+      change immediately"'
+    sharpened: 'CAUGHT A BUG IN MY OWN SPEC: the grace as written SUPPRESSED an event-driven sunset =
+      DISCARDED it (nothing re-fires) -> override would silently survive to the 6h max-age. Grace must
+      DEFER (record pending obligation + one-shot timer at expiry + periodic-sweep backstop), not cancel.
+      Dropped-obligation class.'
+  - challenge: my own design check on the discharge mechanism
+    sharpened: discharge must NOT be "re-evaluate current state at expiry" - engaging during home_day
+      with NO transition would then kill EVERY override at exactly 15min. Must stay TRANSITION-triggered;
+      pinned by a dedicated regression-guard test.
   bug_precise: hvac_override.py:603 `if reason == 'durable_state' and house_state == 'sleep'` (INLINE
     LITERAL) vs its sibling hvac_override.py:487 `house_state in DURABLE_HOUSE_STATES` (SHARED CONSTANT).
     Both invoked from the SAME call site hvac.py:1908 with the SAME new_state, answering the SAME policy
@@ -100,6 +110,9 @@ cards:
   - name: COMFORT_OVERRIDE_MAX_S
     rung: 1
     why: existing 6h decay - the other first-of; min-life must never outrank it
+  known_limitations:
+  - restart mid-grace may lose the in-memory pending-sunset obligation unless persisted - builder instructed
+    to persist or explicitly document + report
 - id: TRANSIT-DIAG-1
   title: Expose checkpoint_cameras_by_area on a diagnostic sensor
   thread: presence
