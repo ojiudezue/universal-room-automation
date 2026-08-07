@@ -265,6 +265,14 @@ start a card whose `after:` dependency is unmet, or a `blocked` card, no matter 
 - `overnight`: KHOST-1 (do NOT pull into collaborative daytime).
 - standalone: SECC-1 (quick read-only verify).
 
+## Referencing cards in user-facing messages — always gloss
+
+Never name a card by its bare code in chat/reports. Append **problem → solution + scope** every
+time (operator rule 2026-08-07). Scope = size / what it touches / tier ("~30 LoC additive",
+"Tier 2-DB, touches presence", "config-only"). The code is the board index; the reader needs the
+meaning and the blast radius to act. Example: "SNAP-1 (alerts arrive with no/stale photo → attach
+an at-detection local file → Tier 2-DB, perimeter_alert + NM, folds into CONSOL-1)".
+
 ## Relationship to other systems
 
 - **vibememo** = WHY (decision trail, reasoning-in-motion). **This** = WHAT / WHERE / NEXT.
