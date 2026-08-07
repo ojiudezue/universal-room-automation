@@ -9,11 +9,12 @@ this file is not. Reflected live at the Artifact board (URL in MEMORY.md).
 even when terse:
 - **Status / Thread / Origin** (chat date + the originating push, the pointer I usually lose)
 - **Why** (rationale) · **Constraints** (stated-in-passing musts) · **Parked-alts** (+ why)
+- **Refinement** (append-only `challenge → sharpened form` — the dialectic that improved the surviving idea; stops backsliding to the naive version)
 - **Knobs** (named configurables — Numbers-Get-Knobs ledger) · **Next** (single next action) · **Refs**
 
 Columns: 📥 Inbox · 🧭 Pre-planning · 📝 Planned · 🔨 In progress · 🔍 Review · 🚀 Shipped(organic-open) · ⏸️ Waiting-on-operator · 🅿️ Parked
 
-_Last reconciled: 2026-08-07._
+_Last reconciled: 2026-08-07 (SECC-1 promoted; refinement trails added to SNAP-1/RESACC-1/TRANSIT-1)._
 
 ---
 
@@ -42,6 +43,11 @@ _(none)_
 - **Knobs:** `PERIMETER_SNAPSHOT_ENGINE_PRECEDENCE` (Frigate-event > Protect-thumb > live); `PERIMETER_SNAPSHOT_RETENTION_COUNT` (~200); `PERIMETER_SNAPSHOT_RETENTION_AGE_H` (~48).
 - **Constraints:** ONE snapshot per collapsed camera-key per alert even with N corroborating engines; llmvision runs on the local file.
 - **Parked-alts:** continuous pre-roll frame buffer (exact-timestamp even for native) — revisit if rising-edge frames still look late for fast walkers.
+- **Refinement:**
+  - my first read "external_url unset" → operator "find how I do it for WhatsApp" → found doorbell automation uses `media_path` (local file); root cause reframed to media_url-vs-media_path.
+  - "just mirror the automation" → operator "shot from when it fired, not seconds later" → mirroring alone insufficient (camera.snapshot is *also* a live grab); escalated to at-detection event frame.
+  - operator "does it cleanup? I bet we need to" → added retention + the privacy finding (out of web-served `/config/www`).
+  - operator "one snapshot even with multiple integrations — which one?" → snapshot engine precedence (at-detection fidelity, not identity order).
 - **Decisions pending (operator):** dir `/config/ura_snapshots`? retention 200/48h? fold TRANSIT-1 in or separate?
 - **Refs:** perimeter_alert.py `_resolve_snapshot_url_and_delay`, notification_manager.py `_send_whatsapp` (media_url), frigate views.py NotificationsProxyView.
 
@@ -51,6 +57,9 @@ _(none)_
 - **Thread:** camera/resolver · **Origin:** 2026-08-07 "much more interested in accuracy of the task of the resolver… accuracy means alerting will be better."
 - **Why:** the resolver feeds census (interior) + transit (traversal) + perimeter (exterior) — one accuracy suite validates all three.
 - **Design:** hand-built ground-truth table (camera → {sensor×engine×family, room}); measure **precision + recall per camera**; adversarial near-miss pairs (armcrest vs armcrestpooloverhead, back_yard vs _2, shared stems → no bleed); registry-perturbation replay (disable/rename/F1→F2/new-cam); live self-audit surface (0-leg camera, legs spanning >1 area, >1 camera-key).
+- **Refinement:**
+  - my testing proposals were delivery-focused (shadow diff, test button) → operator "much more interested in accuracy of the *task* of the resolver… accuracy means alerting will be better" → reframed to resolver-accuracy-first (precision/recall vs ground truth).
+  - realized the same resolver feeds census + transit + perimeter → one accuracy suite validates all three, not just alerting.
 - **Next:** hand-build the ground-truth table from live registry (fixture-before-automation), commit it, then build the diff.
 
 ### TEST-1 — Boot-time shadow diff (legacy vs resolver leg set)
@@ -67,6 +76,8 @@ _(none)_
 - **Thread:** presence/traversal · **Origin:** 2026-08-07 "we built exterior tracking in the inspiration of interior census/known-persons room traversal. Find it. See if resolver can improve it."
 - **Why:** transit_validator checkpoints fire from ~one integration's person sensor; multi-engine legs = denser/earlier checkpoints = more path_confirmed, fewer no_camera_data. Already half-wired (uses census.resolve_cross_platform_sensors).
 - **Refs:** transit_validator.py (v3.5.2); known-person face path writes `Frigate_KnownPerson_*` snapshots.
+- **Refinement:**
+  - I asserted "path tracking is exterior-only" → operator "we built exterior tracking in the *inspiration* of interior census / known-persons room traversal. Find it." → located transit_validator; corrected my framing and found it already half-uses the resolver (census cross-platform), so the upgrade is small.
 - **Next:** decide fold-into-SNAP-1-cycle vs own follow-on.
 
 ### FRIG2SNAP-1 — frigate2 instance-id snapshot URL
@@ -78,6 +89,12 @@ _(none)_
 - **Thread:** camera/security · **Origin:** 2026-08-07 (discovered via purged `Frigate_KnownPerson_*` files) + AUDIT rec #5.
 - **Why:** face-recognition paging has no URA successor; belongs in perimeter NM, not a revived Phase-1 automation.
 - **Refs:** PLANNING_exterior_person_escalation.md (follow-up).
+
+### SECC-1 — Interior cams in the exterior open-tracks diagnostic
+- **Thread:** camera/security · **Origin:** 2026-08-07 "Saw the outside open tracks diagnostic in SecC has interior cameras in it. Mistake?" (dropped for hours; recovered via the kanban — the canonical capture-failure example).
+- **Why:** the exterior open-tracks diagnostic should only reflect perimeter/egress cameras; interior cams appearing there is either a display leak or an observe-scope leak past the allowlist.
+- **Next:** verify against `sensor.ura_security_coordinator_outside_open_tracks_diagnostic` whether interior cams still surface post-allowlist; if display-only, scope the attr; if observe-scope, it's a linker allowlist gap.
+- **Refs:** exterior_track_linker.py `set_allowed_cameras`; sensor.py `ExteriorOpenTracksDiagnosticSensor`.
 
 ## ⏸️ Waiting on operator
 
@@ -100,7 +117,7 @@ _(none)_
 
 ## 📥 Inbox (raw, unprocessed)
 
-- Interior-camera-in-SecC open-tracks diagnostic — operator flagged as possibly a mistake; verify whether interior cams still leak into the exterior diagnostic post-allowlist.
+_(empty — SECC-1 promoted to Pre-planning 2026-08-07)_
 
 ## Broader backlog (own docs, not this session)
 

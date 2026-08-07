@@ -69,9 +69,23 @@ Fill Origin, Why, and Next even when terse. Each field maps to a thing that othe
 | **Why** | rationale — so a settled decision isn't re-litigated |
 | **Constraints** | musts stated in passing ("voice must NOT inherit immunity") |
 | **Parked-alts** (+ why) | rejected options resurfacing as fresh proposals |
+| **Refinement** (challenge → sharpened form) | the *dialectic* that improved the surviving idea — see below |
 | **Knobs** | verbally-proposed configurables reaching the Numbers-Get-Knobs ledger |
 | **Next** | the single next action — so a card is never inert |
 | **Refs** | planning doc / review record / commit / memory |
+
+### The Refinement trail (append-only)
+
+A card records its *final* shape but loses how it got there. The operator challenges ideas and
+the design sharpens through that push-back — and that trail is load-bearing: it is what stops a
+later session **backsliding to the naive version** ("just mirror the automation," "test the
+alert"). Capture it as an append-only list of `challenge → sharpened form` beats, newest last.
+
+Distinct from Parked-alts: Parked-alts are options we *rejected*; Refinement is the sequence of
+challenges that *improved the option we kept*. It is card-level WHY — the compact shape of the
+pivot — and points at the fuller **vibememo** entry for the depth. Board shows the shape;
+vibememo holds the reasoning. Every real challenge → refinement in chat becomes one line here
+the same turn (it is a "mid-turn idea" under capture-first).
 
 Card template:
 
@@ -79,6 +93,9 @@ Card template:
 ### [ID] Title
 - **Status:** column · **Thread:** area · **Origin:** <date> "<one-line gist of the push>"
 - **Why:** …  · **Constraints:** …  · **Parked-alts:** … (+ why)
+- **Refinement:**
+  - <challenge> → <how the idea sharpened>
+  - <next challenge> → <next sharpening>
 - **Knobs:** NAME (rung, one-line why)
 - **Next:** single next action · **Refs:** file / commit / doc
 ```
@@ -95,6 +112,46 @@ Card template:
    if anything material changed.
 5. **Reconciliation discipline:** when marking Waiting-on-operator or Shipped, verify against
    live state (config entry / sensor / DB) — do not carry a stale TODO forward.
+
+## Update hygiene — anti-drift (why vibememo lags, and how this must not)
+
+The vibememo failure pattern is a **clock-based cadence** ("catch up every ~30 min"): it
+relies on *remembering* to do a separate chore, so under bursty load it drifts, and a lagging
+capture system produces an inadequate backlog. This board must not inherit that. The fix is a
+principle, not more willpower:
+
+> **Bind the update to the work, not to the clock.** Every board update is a side-effect of a
+> checkpoint that *already has to happen* — never a standalone task to remember.
+
+### Event hooks (each is an existing mandatory checkpoint the update rides on)
+
+| Trigger (always happens) | Board action (same turn) |
+|---|---|
+| Operator sends a message | Capture card(s) + reconcile touched cards BEFORE substantive work — part of reading the message |
+| A tool result reveals a bug / knob / constraint | Card it before continuing — mid-turn finds are the most fragile |
+| About to write a planning doc | Harvest the relevant cards into the plan (the anti-entropy handoff) |
+| Pre-Deploy Zero-Bugs Gate / README write-back / commit | Reconcile In-progress → Review → Shipped as part of that ritual |
+| Turn end (same self-check as "check your last paragraph") | Move cards, write dispositions, **redeploy the Artifact if anything changed** |
+| Session start | Read board; if stale (below), reconcile before reporting status |
+
+### Enforcement — make drift visible, not silent
+
+1. **Turn-end gate (hard, not aspirational).** A turn that changed work state does not end until
+   the board reflects it. Treat a missing board update like a skipped Zero-Bugs Gate.
+2. **Staleness signal.** The KANBAN.md header carries `_Last reconciled: <date>_`. At session
+   start, compare it to `git log` / live state; if newer work shipped than the board shows,
+   reconcile first. A stale date is the tripwire the clock-based system lacks.
+3. **No silent moves.** Closing or moving a card writes a one-line disposition (done / deferred
+   + why), mirroring CLAUDE.md Plan-Completion-Tracking. A card never just disappears.
+4. **Redeploy-on-change, not on-timer.** The Artifact redeploys whenever a card changes column
+   or is added — bound to the change event, so the operator's always-open board is never stale
+   without a corresponding silent lag.
+5. **Backlog adequacy is a consequence, not a separate task.** Because capture is at birth
+   (capture-first) and reconciliation rides existing gates, the backlog stays current by
+   construction — there is no "go update the backlog later" step to fall behind on.
+
+If the board is ever found lagging, that is itself a `feedback`-class memory event: record the
+missed hook so the trigger list gets tighter, the same way a caught bug tightens a test.
 
 ## Relationship to other systems
 
