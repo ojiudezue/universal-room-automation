@@ -1407,6 +1407,12 @@ CAMERA_RESOLUTION_CHANNEL_SUFFIXES: Final = (
 # set update the cached snapshot event_id. Prevents e.g. car detections from
 # supplying the URL for a later person alert.
 FRIGATE_SNAPSHOT_LABELS: Final = frozenset({"person"})
+# Hotfix 2026-08-07: how long a cached Frigate event id stays valid for
+# snapshot attachment after its last update. Rung-1: bounds a race-fix,
+# not operator policy. Frigate retains event snapshots far longer; 120s
+# covers dispatch latency + NM channel sends. 0 disables caching (always
+# entity_picture fallback) — documented kill semantics.
+FRIGATE_SNAPSHOT_ID_TTL_S: Final = 120
 
 # ----------------------------------------------------------------------------
 # Exterior cycle 2 (2026-08-06): deep-night vehicle policy + fused sourcing
