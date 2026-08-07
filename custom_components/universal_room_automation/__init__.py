@@ -81,6 +81,28 @@ _LOGGER = logging.getLogger(__name__)
 # migration body makes it callable from tests without invoking the whole
 # HA startup path.
 # ---------------------------------------------------------------------------
+def _default_immune_persons(hass: HomeAssistant) -> list[str]:
+    """Arrester Operator-Immunity fallback seed.
+
+    When the operator has not explicitly configured
+    ``hvac_arrester_immune_persons`` in options, seed the list with the
+    FIRST tracked person (typically the operator). Mirror of
+    CONF_NM_SECURITY_ACK_PERSONS default resolution. Returns an empty
+    list if no person entities exist (feature stays dormant — nobody
+    is immune, byte-identical to pre-cycle behavior).
+    """
+    try:
+        persons = hass.states.async_all("person")
+        if not persons:
+            return []
+        # Deterministic pick: alphabetically-first entity_id so a re-
+        # register does not silently change who the operator is.
+        first = sorted(persons, key=lambda s: s.entity_id)[0]
+        return [first.entity_id]
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def _log_nm_suppression_daily_warning(hass: HomeAssistant) -> None:
     """B-2026-08-03-3(b): emit one WARNING/day while NM messaging is
     suppressed, so a long-forgotten kill switch is visible in journald
@@ -3052,6 +3074,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         pre_conditioning_enabled=bool(cm_config.get(
                             "hvac_pre_conditioning_enabled", True,
                         )),
+                        # Arrester Operator-Immunity (2026-08-06). Resolve
+                        # to the operator's HA user id at RUNTIME (i.e. by
+                        # the arrester's context-user->person lookup) —
+                        # not hardcoded here. Empty configured list falls
+                        # back to a single-entry seed of the first tracked
+                        # person (mirror of CONF_NM_SECURITY_ACK_PERSONS
+                        # semantics).
+                        arrester_immune_persons=(
+                            cm_config.get(
+                                "hvac_arrester_immune_persons",
+                            ) or _default_immune_persons(hass)
+                        ),
                     )
                     coordinator_manager.register_coordinator(hvac)
                 else:

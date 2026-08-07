@@ -161,6 +161,50 @@ DEFAULT_HVAC_PREHEAT_FORECAST_LOW: Final = 35.0  # °F
 COVER_HYSTERESIS_MIN_GAP: Final = 3.0  # °F
 CONF_HVAC_ARRESTER_ENABLED: Final = "hvac_arrester_enabled"
 CONF_HVAC_AC_RESET_ENABLED: Final = "hvac_ac_reset_enabled"
+
+# =============================================================================
+# Arrester Operator-Immunity Cycle (2026-08-06)
+# =============================================================================
+# Livability gap: the OverrideArrester (compromise/severe/revert paths in
+# hvac_override.py) and the AC-ramp (soft-nudge in the same file) can shave
+# the operator's OWN manual quick-cool during peak. The arrester was designed
+# to catch guest/child manual holds; shaving the operator is undocumented
+# behavior. This cycle adds:
+#   1. Person-scoped hold immunity — an operator-listed person's manual holds
+#      are stamped immune=True and every shave path SKIPS with a ledger row.
+#   2. Comfort Override — a house-wide switch that suppresses ALL corrective
+#      writes for the operator when they explicitly want no interference.
+#   3. Sunset — immune status and Comfort Override auto-expire on the first
+#      of: durable-state transition / next_activity boundary / max-age
+#      backstop; then governance resumes without force-clearing anything.
+
+# Config-flow list (person entity_ids) of users whose manual holds are
+# arrester-immune. Empty default = resolved at runtime to the first tracked
+# person (the operator) — mirrors CONF_NM_SECURITY_ACK_PERSONS semantics.
+CONF_HVAC_ARRESTER_IMMUNE_PERSONS: Final = "hvac_arrester_immune_persons"
+
+# ARRESTER_IMMUNE_HOLD_MAX_S — RUNG 1 (module constant, review-required).
+# Safety backstop capping how long an operator's manual hold can bypass
+# arrester governance. Not a routinely-tuned knob: changing it changes the
+# SAFETY envelope of the immunity feature (an accidentally-left manual
+# would sit uncontrolled indefinitely otherwise). 4h ≈ typical peak-window
+# comfort push duration; longer holds are more likely a "forgot to reset"
+# than an active intent worth respecting.
+ARRESTER_IMMUNE_HOLD_MAX_S: Final = 4 * 3600  # seconds; 4 hours
+
+# COMFORT_OVERRIDE_MAX_S — RUNG 1 (module constant, review-required).
+# House-wide "please leave me alone" sunset. 6h ≈ one evening / peak window.
+# Same rationale as ARRESTER_IMMUNE_HOLD_MAX_S: safety envelope, not a
+# live-tunable comfort dial. Kill-switch semantics: setting to 0 disables
+# the max-age sunset (durable-state sunset still fires).
+COMFORT_OVERRIDE_MAX_S: Final = 6 * 3600  # seconds; 6 hours
+
+# DURABLE_HOUSE_STATES — house states that represent a change of context
+# significant enough to sunset an earlier operator intent. Transition INTO
+# any of these means the manual quick-cool the operator set 3h ago no
+# longer reflects what they're currently doing.
+DURABLE_HOUSE_STATES: Final = frozenset({"sleep", "away", "vacation"})
+
 # v4.7.7 A1: AC Nudge decouple — standalone soft-nudge feature toggle, paired
 # with (not gated by) AC Reset. Default ON. See hvac_override.py Gate 0a/0b.
 CONF_HVAC_AC_NUDGE_ENABLED: Final = "hvac_ac_nudge_enabled"

@@ -32,6 +32,9 @@ from .hvac_const import (
     AC_NUDGE_EVALUATION_DELAY_S,
     AC_NUDGE_KWH_RATE_BEFORE_FLOOR,
     AC_NUDGE_OVERSHOOT_GAP,
+    ARRESTER_IMMUNE_HOLD_MAX_S,
+    COMFORT_OVERRIDE_MAX_S,
+    DURABLE_HOUSE_STATES,
     AC_RAMP_EVENT_CANCEL_INVOKED,
     AC_RAMP_EVENT_DETECTION_FIRED,
     AC_RAMP_EVENT_HARD_RESET_COMPLETED,
@@ -231,6 +234,278 @@ class OverrideArrester:
             "savings_lifetime": 0.0,
             "last_refresh_ts": None,
         }
+
+        # =====================================================================
+        # Arrester Operator-Immunity (2026-08-06)
+        # =====================================================================
+        # Person entity_ids (e.g. "person.oji_udezue") whose manual holds are
+        # immune to compromise/severe/revert/AC-ramp shaving. Seeded via
+        # set_immune_persons() from the HVACCoordinator on init and on
+        # options-flow update. Empty list = feature dormant (fail-safe: nobody
+        # is immune; original governance behavior byte-identical).
+        self._immune_persons: list[str] = []
+
+        # Per-zone active immune-hold ledger:
+        #   zone_id -> {
+        #       "user_id": HA user id (from event.context.user_id),
+        #       "user_name": friendly, resolved from person entity attrs,
+        #       "person_entity": "person.<slug>",
+        #       "started_ts": datetime (when the immune hold was stamped),
+        #       "next_activity_ts": Optional[datetime] (thermostat schedule
+        #           boundary at stamping time; used by sunset first-of).
+        #   }
+        # Presence of a zone key = arrester will SKIP shave paths on that zone.
+        # Sunset (durable-state / boundary / max-age) removes the key and lets
+        # arrester regain jurisdiction on the next state event (governance
+        # resumes; the operator's hold is NOT force-cleared — the manual
+        # preset & elevated setpoint stay live until arrester re-evaluates
+        # them in the normal way).
+        self._immune_holds: dict[str, dict[str, Any]] = {}
+
+        # Comfort Override — house-wide suspension of ALL corrective writes.
+        # Owned here (single point of truth) even though the operator-facing
+        # entity is a Switch on the HVAC Coordinator device. Default OFF.
+        # Deliberately NOT restored across restart (default-OFF is the safe
+        # state — an accidental "leave it on" through an outage should not
+        # persistently disable governance). Documented as intentional
+        # inversion of the restore-off-only pattern used by the other HVAC
+        # switches (which default ON and restore OFF).
+        self._comfort_override_active: bool = False
+        self._comfort_override_started_ts: datetime | None = None
+
+    # -------------------------------------------------------------------------
+    # Arrester Operator-Immunity — public wiring (called by HVACCoordinator)
+    # -------------------------------------------------------------------------
+
+    def set_immune_persons(self, persons: list[str] | None) -> None:
+        """Wire the operator-immunity person list (from options-flow).
+
+        ``persons`` is a list of person entity ids ("person.<slug>"). Empty
+        list / None disables the feature entirely (no user's holds are
+        immune; original governance behavior). Called from HVACCoordinator
+        init AND from options-flow update handler so live edits take effect
+        without restart.
+        """
+        self._immune_persons = list(persons or [])
+        _LOGGER.info(
+            "Arrester immunity: %d person(s) configured (%s)",
+            len(self._immune_persons),
+            ", ".join(self._immune_persons) if self._immune_persons else "none",
+        )
+
+    def _resolve_context_user_to_person(
+        self, user_id: str | None,
+    ) -> tuple[str | None, str | None]:
+        """Return (person_entity_id, friendly_name) for an HA context user_id.
+
+        Walks person.* states and matches attributes.user_id. Returns
+        (None, None) if the user cannot be resolved (physical thermostat
+        dial with no context user, unresolvable id, or exception).
+        Fail-open direction: unresolvable → NOT immune (governance is the
+        safe default). Guarded so a state-registry hiccup can never crash
+        the arrester's detection path.
+        """
+        if not user_id:
+            return None, None
+        try:
+            all_states = self.hass.states.async_all("person")
+        except Exception as e:  # noqa: BLE001 — defensive; never crash detection
+            _LOGGER.debug("Arrester immunity: person lookup failed: %s", e)
+            return None, None
+        for st in all_states:
+            try:
+                attrs = st.attributes or {}
+                if attrs.get("user_id") == user_id:
+                    friendly = attrs.get("friendly_name") or st.entity_id
+                    return st.entity_id, friendly
+            except Exception:  # noqa: BLE001
+                continue
+        return None, None
+
+    def _is_hold_immune(self, zone_id: str) -> bool:
+        """True iff this zone has an active immune-hold record."""
+        return zone_id in self._immune_holds
+
+    def _corrective_writes_suppressed(self, zone_id: str) -> bool:
+        """Master gate consulted by EVERY corrective-write site.
+
+        Returns True (SUPPRESS the write) when EITHER:
+          * Comfort Override is currently active (house-wide), OR
+          * this zone has an active immune-hold record (person-scoped).
+
+        Wire-once helper so no site can silently forget one axis. All
+        shave paths (severe / normal / compromise / revert / startup
+        audit / AC-ramp soft-nudge / AC-reset escalation) route through
+        this gate. Each caller must also emit a ledger row on skip so
+        the operator can see why nothing happened.
+        """
+        return self._comfort_override_active or self._is_hold_immune(zone_id)
+
+    def _log_shave_skipped(
+        self, zone_name: str, zone_id: str, path: str,
+    ) -> None:
+        """Structured ledger row for a suppressed shave (INFO)."""
+        reason_parts: list[str] = []
+        if self._comfort_override_active:
+            reason_parts.append("comfort_override_active")
+        rec = self._immune_holds.get(zone_id)
+        if rec is not None:
+            reason_parts.append(
+                f"immune_hold user={rec.get('user_name') or 'unknown'}"
+            )
+        _LOGGER.info(
+            "Arrester shave_skipped: zone=%s path=%s reason=%s",
+            zone_name, path, "|".join(reason_parts) or "unknown",
+        )
+
+    def _stamp_immune_hold(
+        self,
+        zone_id: str,
+        user_id: str,
+        user_name: str,
+        person_entity: str,
+        next_activity_ts: datetime | None = None,
+    ) -> None:
+        """Record an active immune hold on a zone."""
+        self._immune_holds[zone_id] = {
+            "user_id": user_id,
+            "user_name": user_name,
+            "person_entity": person_entity,
+            "started_ts": dt_util.now(),
+            "next_activity_ts": next_activity_ts,
+        }
+        _LOGGER.info(
+            "Arrester immunity: stamped immune hold on zone=%s by user=%s "
+            "(%s); shave paths will skip until sunset",
+            zone_id, user_name, person_entity,
+        )
+
+    def sunset_immune_holds(
+        self, reason: str, house_state: str | None = None,
+    ) -> int:
+        """Expire immune-hold records whose sunset condition has fired.
+
+        Called from HVACCoordinator on:
+          * SIGNAL_HOUSE_STATE_CHANGED transitions (reason="durable_state")
+          * periodic decision cycle sweep (reason="max_age_or_boundary")
+
+        Sunset first-of (per hold):
+          1. Transition INTO a DURABLE_HOUSE_STATES value.
+          2. Thermostat next_activity_ts boundary reached.
+          3. ARRESTER_IMMUNE_HOLD_MAX_S elapsed since started_ts.
+
+        Sunset does NOT force-clear the operator's manual — it just
+        removes the immunity record so the arrester regains jurisdiction
+        (governance resumes normally on the next state event).
+
+        Returns the count of records sunset this call.
+        """
+        if not self._immune_holds:
+            return 0
+        now = dt_util.now()
+        expired: list[tuple[str, str]] = []  # (zone_id, sunset_reason)
+        durable_transition = (
+            reason == "durable_state"
+            and house_state is not None
+            and house_state in DURABLE_HOUSE_STATES
+        )
+        for zone_id, rec in list(self._immune_holds.items()):
+            if durable_transition:
+                expired.append((zone_id, f"durable_state->{house_state}"))
+                continue
+            started = rec.get("started_ts")
+            if isinstance(started, datetime):
+                age_s = (now - started).total_seconds()
+                if (
+                    ARRESTER_IMMUNE_HOLD_MAX_S > 0
+                    and age_s >= ARRESTER_IMMUNE_HOLD_MAX_S
+                ):
+                    expired.append((zone_id, "max_age"))
+                    continue
+            nxt = rec.get("next_activity_ts")
+            if isinstance(nxt, datetime) and now >= nxt:
+                expired.append((zone_id, "next_activity_boundary"))
+                continue
+        for zone_id, sunset_reason in expired:
+            rec = self._immune_holds.pop(zone_id, None)
+            user_name = (rec or {}).get("user_name", "unknown")
+            _LOGGER.info(
+                "Arrester immunity: sunset zone=%s reason=%s user=%s "
+                "(governance resumes; hold not force-cleared)",
+                zone_id, sunset_reason, user_name,
+            )
+        return len(expired)
+
+    # -------------------------------------------------------------------------
+    # Comfort Override — public wiring
+    # -------------------------------------------------------------------------
+
+    @property
+    def comfort_override_active(self) -> bool:
+        """Return whether Comfort Override is currently suppressing writes."""
+        return self._comfort_override_active
+
+    def set_comfort_override(self, value: bool) -> None:
+        """Set Comfort Override state (called by HVACComfortOverrideSwitch).
+
+        Turning ON stamps `_comfort_override_started_ts` so the max-age
+        sunset can fire later; turning OFF clears it. Idempotent.
+        """
+        value = bool(value)
+        if value == self._comfort_override_active:
+            return
+        self._comfort_override_active = value
+        if value:
+            self._comfort_override_started_ts = dt_util.now()
+            _LOGGER.info(
+                "Comfort Override ENGAGED — arrester corrective writes "
+                "suppressed house-wide until sunset (sleep transition or "
+                "%ds max-age)",
+                COMFORT_OVERRIDE_MAX_S,
+            )
+        else:
+            self._comfort_override_started_ts = None
+            _LOGGER.info("Comfort Override RELEASED")
+
+    def sunset_comfort_override(
+        self, reason: str, house_state: str | None = None,
+    ) -> bool:
+        """Auto-release Comfort Override on the sunset first-of.
+
+        First-of:
+          * Transition INTO house_state == "sleep".
+          * COMFORT_OVERRIDE_MAX_S elapsed since engagement.
+
+        Returns True iff the sunset fired this call. Caller (HVAC coord)
+        is responsible for flipping the switch entity OFF + firing the
+        LOW NM note ("Comfort Override ended (auto)").
+        """
+        if not self._comfort_override_active:
+            return False
+        now = dt_util.now()
+        fire = False
+        sunset_reason = ""
+        if reason == "durable_state" and house_state == "sleep":
+            fire = True
+            sunset_reason = "sleep_transition"
+        else:
+            started = self._comfort_override_started_ts
+            if (
+                isinstance(started, datetime)
+                and COMFORT_OVERRIDE_MAX_S > 0
+                and (now - started).total_seconds() >= COMFORT_OVERRIDE_MAX_S
+            ):
+                fire = True
+                sunset_reason = "max_age"
+        if fire:
+            _LOGGER.info(
+                "Comfort Override: auto-sunset (reason=%s); releasing",
+                sunset_reason,
+            )
+            self._comfort_override_active = False
+            self._comfort_override_started_ts = None
+            return True
+        return False
 
     async def _refresh_impact_cache(self) -> None:
         """v4.5.12 D8: pull house-wide aggregates from DB once per
@@ -510,6 +785,18 @@ class OverrideArrester:
                 self._egress_manager is not None
                 and self._egress_manager.is_paused(zone.zone_id)
             ):
+                continue
+            # Arrester Operator-Immunity: an active immune hold survives
+            # restart in the sense that the manual preset survives (it is
+            # persisted on the thermostat itself). The in-memory immune
+            # record does NOT survive restart. Startup audit intentionally
+            # falls through to governance for those holds — the operator
+            # can re-establish immunity on their next manual touch. Comfort
+            # Override never survives restart by design (default-OFF).
+            if self._corrective_writes_suppressed(zone.zone_id):
+                self._log_shave_skipped(
+                    zone.zone_name, zone.zone_id, "startup_audit",
+                )
                 continue
             state = self.hass.states.get(zone.climate_entity)
             if state is None:
@@ -824,6 +1111,65 @@ class OverrideArrester:
             old_high, new_high,
         )
 
+        # ================================================================
+        # Arrester Operator-Immunity — DETECTION-TIME STAMP.
+        # Resolve the state-change's context.user_id to a person entity;
+        # if that person is on the operator-immune list, stamp the hold
+        # record and RETURN. No _override_active flag is set, no grace
+        # timer is scheduled, no NM alert fires. Every subsequent shave
+        # path additionally consults `_corrective_writes_suppressed` as
+        # defense-in-depth, but the detection-time skip is the primary
+        # short-circuit. Fail-open direction: user resolution errors,
+        # missing context (physical dial), and non-listed users all fall
+        # through to the normal (governed) path.
+        # ================================================================
+        ctx = getattr(event, "context", None)
+        ctx_user_id = getattr(ctx, "user_id", None) if ctx is not None else None
+        person_entity, user_name = self._resolve_context_user_to_person(
+            ctx_user_id,
+        )
+        if (
+            person_entity is not None
+            and person_entity in self._immune_persons
+        ):
+            # Capture thermostat's next_activity attribute (if the
+            # integration exposes it) for boundary-based sunset. Guarded:
+            # missing attribute → no boundary sunset, only durable-state
+            # + max-age remain (both still active).
+            nxt_dt: datetime | None = None
+            try:
+                nxt_raw = new_state.attributes.get("next_activity")
+                if isinstance(nxt_raw, str) and nxt_raw:
+                    nxt_dt = datetime.fromisoformat(nxt_raw)
+            except Exception:  # noqa: BLE001
+                nxt_dt = None
+            self._stamp_immune_hold(
+                zone_id=zone.zone_id,
+                user_id=ctx_user_id or "",
+                user_name=user_name or "operator",
+                person_entity=person_entity,
+                next_activity_ts=nxt_dt,
+            )
+            zone.override_count_today += 1
+            _LOGGER.info(
+                "Arrester shave_skipped: zone=%s path=detection reason="
+                "immune_hold user=%s (stamped; governance suspended for "
+                "this hold until sunset)",
+                zone.zone_name, user_name,
+            )
+            return
+
+        # Comfort Override — if the operator has flipped the house-wide
+        # switch ON, no arrester write should fire for anyone (guest,
+        # kid, physical dial, or listed operator). Skip with ledger row
+        # and count the override for diagnostics.
+        if self._comfort_override_active:
+            zone.override_count_today += 1
+            self._log_shave_skipped(
+                zone.zone_name, zone.zone_id, "detection_comfort_override",
+            )
+            return
+
         # Use the actual old setpoints from the event (what was active before override)
         # This is more accurate than seasonal defaults since presets may differ per thermostat
         if old_high is None and old_low is None:
@@ -894,6 +1240,15 @@ class OverrideArrester:
     ) -> None:
         """Handle severe override (>3F): short grace then revert."""
         zone_id = zone.zone_id
+        # Arrester Operator-Immunity: defense-in-depth. Detection-time
+        # short-circuit above SHOULD have handled this case, but any
+        # future caller into this method (e.g. a test harness, an out-of-
+        # band trigger, an audit path) must still respect immunity/comfort.
+        if self._corrective_writes_suppressed(zone_id):
+            self._log_shave_skipped(
+                zone.zone_name, zone_id, "severe_override",
+            )
+            return
         zone.override_count_today += 1
         self._override_active[zone_id] = True
 
@@ -945,6 +1300,12 @@ class OverrideArrester:
     ) -> None:
         """Handle normal override (1-3F): grace then compromise then revert."""
         zone_id = zone.zone_id
+        # Arrester Operator-Immunity: defense-in-depth (see _handle_severe_override).
+        if self._corrective_writes_suppressed(zone_id):
+            self._log_shave_skipped(
+                zone.zone_name, zone_id, "normal_override",
+            )
+            return
         zone.override_count_today += 1
         self._override_active[zone_id] = True
 
@@ -1005,6 +1366,16 @@ class OverrideArrester:
     ) -> None:
         """Apply compromise temperature, then schedule full revert."""
         zone_id = zone.zone_id
+        # Arrester Operator-Immunity: defense-in-depth. This runs from a
+        # timer scheduled several minutes ago; immunity or Comfort Override
+        # may have engaged in the interim (e.g. operator flipped the
+        # Comfort Override switch after the grace timer started).
+        if self._corrective_writes_suppressed(zone_id):
+            self._log_shave_skipped(
+                zone.zone_name, zone_id, "compromise",
+            )
+            self._grace_timers.pop(zone_id, None)
+            return
         self._compromise_active[zone_id] = True
 
         # Remove grace timer reference
@@ -1073,6 +1444,17 @@ class OverrideArrester:
         self._compromise_timers.pop(zone_id, None)
         self._override_active[zone_id] = False
         self._compromise_active[zone_id] = False
+
+        # Arrester Operator-Immunity: defense-in-depth. Revert is the
+        # LAST-CHANCE gate before we forcibly write preset back — if
+        # immunity or Comfort Override engaged between grace/compromise
+        # scheduling and this callback firing, we must not clobber the
+        # operator's setpoint.
+        if self._corrective_writes_suppressed(zone_id):
+            self._log_shave_skipped(
+                zone.zone_name, zone_id, "revert",
+            )
+            return
 
         _LOGGER.info(
             "Override revert on %s: restoring preset %s",
@@ -1572,6 +1954,14 @@ class OverrideArrester:
     ) -> None:
         """All detection gates passed — log + dispatch to soft nudge."""
         zone_id = zone.zone_id
+        # Arrester Operator-Immunity gate: Comfort Override + per-zone
+        # immune-hold suppress the soft-nudge dispatch (last chance before
+        # the +°F setpoint write). The manual entry point `force_nudge`
+        # bypasses this gate by design.
+        if self._corrective_writes_suppressed(zone_id):
+            zone.ramp_state = AC_RAMP_STATE_IDLE
+            self._log_shave_skipped(zone.zone_name, zone_id, "soft_nudge")
+            return
         self._track_zone_action(
             zone, AC_RAMP_EVENT_DETECTION_FIRED, "auto",
             kwh_before=kwh_rate,
@@ -2122,6 +2512,17 @@ class OverrideArrester:
                 "Hard reset on %s skipped — AC Reset feature disabled "
                 "(soft-nudge ran but escalation is decoupled-off)",
                 zone.zone_name,
+            )
+            return
+
+        # Arrester Operator-Immunity: hard reset is a corrective write
+        # (cycles compressor off/on). Comfort Override + per-zone
+        # immune-hold both must suppress. Escalation deferred until
+        # governance resumes.
+        if self._corrective_writes_suppressed(zone_id):
+            zone.ramp_state = AC_RAMP_STATE_IDLE
+            self._log_shave_skipped(
+                zone.zone_name, zone_id, "hard_reset_escalation",
             )
             return
 
@@ -2689,6 +3090,20 @@ class OverrideArrester:
             if zone.last_override_direction:
                 detail["last_direction"] = zone.last_override_direction
             zones_detail[zone.zone_name] = detail
+        # Arrester Operator-Immunity — surface state for the operator
+        # dashboard (per-zone immune-hold user + started_ts + Comfort
+        # Override state + started_ts). Cheap: two dict reads.
+        immune_holds = {
+            zid: {
+                "user": rec.get("user_name"),
+                "person_entity": rec.get("person_entity"),
+                "started_ts": (
+                    rec.get("started_ts").isoformat()
+                    if isinstance(rec.get("started_ts"), datetime) else None
+                ),
+            }
+            for zid, rec in self._immune_holds.items()
+        }
         return {
             "state": self.get_arrester_state(),
             "enabled": self._enabled,
@@ -2696,4 +3111,12 @@ class OverrideArrester:
             "zones": zones_detail,
             "energy_coast": self._energy_coast,
             "energy_offset": self._energy_offset,
+            "immune_persons_configured": list(self._immune_persons),
+            "immune_holds_active": immune_holds,
+            "comfort_override_active": self._comfort_override_active,
+            "comfort_override_suppressed_since": (
+                self._comfort_override_started_ts.isoformat()
+                if isinstance(self._comfort_override_started_ts, datetime)
+                else None
+            ),
         }

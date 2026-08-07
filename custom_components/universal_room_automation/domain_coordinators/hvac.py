@@ -183,6 +183,11 @@ class HVACCoordinator(BaseCoordinator):
         # HVACPreConditioningSwitch is the runtime source of truth via
         # options-write-back.
         pre_conditioning_enabled: bool = True,
+        # Arrester Operator-Immunity (2026-08-06). Empty default = feature
+        # dormant (no user's holds immune). CM __init__.py resolves the
+        # operator's actual list from options; passing here keeps the
+        # HVAC coord unaware of options schema (mirror of other CONFs).
+        arrester_immune_persons: list[str] | None = None,
     ) -> None:
         """Initialize HVAC Coordinator."""
         super().__init__(
@@ -205,6 +210,10 @@ class HVACCoordinator(BaseCoordinator):
             enabled=arrester_enabled,
         )
         self._override_arrester.ac_reset_enabled = ac_reset_enabled
+        # Arrester Operator-Immunity: seed immune-persons list. Options-flow
+        # edits refresh via set_immune_persons() from the options update
+        # handler (mirrors the CM options-write-back pattern).
+        self._override_arrester.set_immune_persons(arrester_immune_persons)
         self._fan_controller = FanController(
             hass, self._zone_manager,
             activation_delta=fan_activation_delta,
@@ -1015,6 +1024,28 @@ class HVACCoordinator(BaseCoordinator):
             self._accumulate_zone_runtime(now_utc)
             # D3: Clear stale pre-arrival zones
             self._expire_pre_arrival_zones(now_utc)
+
+        # Arrester Operator-Immunity: periodic sweep — max-age +
+        # next_activity boundary sunsets that are not triggered by a
+        # house-state signal. Comfort Override max-age auto-release
+        # + LOW NM note run here as well. Called every decision cycle
+        # (5 min) — safe cadence given the max-age is measured in hours.
+        try:
+            self._override_arrester.sunset_immune_holds(
+                reason="max_age_or_boundary",
+            )
+            if self._override_arrester.sunset_comfort_override(
+                reason="max_age_or_boundary",
+            ):
+                self._pending_tasks.add(
+                    self.hass.async_create_task(
+                        self._notify_comfort_override_ended("max_age")
+                    )
+                )
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning(
+                "Arrester periodic sunset sweep failed: %s", e,
+            )
 
         if not self._observation_mode:
             # Apply presets based on house state (includes D1 vacancy + D6 failsafe)
@@ -1836,10 +1867,52 @@ class HVACCoordinator(BaseCoordinator):
             old_state, new_state,
         )
 
+        # Arrester Operator-Immunity: sunset immune holds + Comfort
+        # Override on durable-state transitions. Runs BEFORE the decision
+        # cycle so any resumed governance shows up in the same tick.
+        try:
+            self._override_arrester.sunset_immune_holds(
+                reason="durable_state", house_state=new_state,
+            )
+            if self._override_arrester.sunset_comfort_override(
+                reason="durable_state", house_state=new_state,
+            ):
+                self._pending_tasks.add(
+                    self.hass.async_create_task(
+                        self._notify_comfort_override_ended("sleep_transition")
+                    )
+                )
+        except Exception as e:  # noqa: BLE001 — never crash signal handler
+            _LOGGER.warning(
+                "Arrester sunset processing failed on house-state change: %s",
+                e,
+            )
+
         # Trigger immediate decision cycle
         task = self.hass.async_create_task(self._async_decision_cycle())
         self._pending_tasks.add(task)
         task.add_done_callback(self._pending_tasks.discard)
+
+    async def _notify_comfort_override_ended(self, reason: str) -> None:
+        """LOW NM note when Comfort Override auto-sunsets."""
+        try:
+            from ..const import DOMAIN
+            nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+            if nm is None:
+                return
+            from .base import Severity
+            await nm.async_notify(
+                coordinator_id="hvac",
+                severity=Severity.LOW,
+                title="Comfort Override ended (auto)",
+                message=(
+                    f"Comfort Override auto-released (reason={reason}); "
+                    f"arrester governance resumed house-wide."
+                ),
+                hazard_type="hvac_comfort_override",
+            )
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug("Comfort Override NM note failed: %s", e)
 
     @callback
     def _handle_energy_constraint(self, constraint: EnergyConstraint) -> None:

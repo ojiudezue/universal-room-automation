@@ -6,6 +6,7 @@
 #
 
 import logging
+from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
@@ -266,6 +267,12 @@ async def async_setup_entry(
             HVACPreConditioningSwitch(hass, entry),
             # v3.9.0: HVAC transparency switches
             HVACOverrideArresterSwitch(hass, entry),
+            # Arrester Operator-Immunity (2026-08-06). Comfort Override —
+            # house-wide suspension of ALL arrester corrective writes for
+            # the operator's "please leave me alone" case. Default OFF;
+            # deliberately NOT restored across restart (default-OFF is the
+            # safe state); auto-sunsets on sleep transition or max-age.
+            HVACComfortOverrideSwitch(hass, entry),
             HVACACResetSwitch(hass, entry),
             # v4.7.7 A1: AC Nudge decouple — sibling toggle for soft-nudge
             # detection, independent of AC Reset.
@@ -1943,6 +1950,90 @@ class HVACOverrideArresterSwitch(SwitchEntity, RestoreEntity):
     def available(self) -> bool:
         """Only available when HVAC coordinator is active."""
         return self._get_hvac() is not None
+
+
+class HVACComfortOverrideSwitch(SwitchEntity):
+    """Comfort Override — house-wide arrester suspension.
+
+    Operator-facing kill switch for arrester corrective writes. When ON,
+    the OverrideArrester skips EVERY compromise/severe/revert/AC-ramp
+    write across every zone (defense-in-depth via the
+    `_corrective_writes_suppressed` helper on the arrester). Default OFF.
+
+    Auto-sunset (first-of): transition INTO house_state == "sleep" OR
+    COMFORT_OVERRIDE_MAX_S elapsed since engagement. On sunset the switch
+    flips OFF and a LOW NM note fires ("Comfort Override ended (auto)").
+
+    Deliberately NOT a RestoreEntity: default-OFF is the safe state
+    (documented as intentional inversion of the sibling HVAC switches
+    which default ON and restore OFF). An accidental "leave it on"
+    through an outage should NOT persistently disable governance —
+    the operator can always re-engage after restart if intended.
+
+    Entity: switch.ura_hvac_coordinator_comfort_override
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:sofa-single"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_coordinator_comfort_override"
+        self._attr_name = "Comfort Override"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_arrester(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        hvac = manager.coordinators.get("hvac")
+        return hvac.override_arrester if hvac is not None else None
+
+    @property
+    def available(self) -> bool:
+        return self._get_arrester() is not None
+
+    @property
+    def is_on(self) -> bool:
+        arrester = self._get_arrester()
+        if arrester is None:
+            return False
+        return arrester.comfort_override_active
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        arrester = self._get_arrester()
+        if arrester is None:
+            return {}
+        return {
+            "suppressed_since": (
+                arrester._comfort_override_started_ts.isoformat()
+                if arrester._comfort_override_started_ts is not None
+                else None
+            ),
+        }
+
+    async def async_turn_on(self, **kwargs) -> None:
+        arrester = self._get_arrester()
+        if arrester is not None:
+            arrester.set_comfort_override(True)
+            self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        arrester = self._get_arrester()
+        if arrester is not None:
+            arrester.set_comfort_override(False)
+            self.async_write_ha_state()
 
 
 class HVACACResetSwitch(SwitchEntity, RestoreEntity):
