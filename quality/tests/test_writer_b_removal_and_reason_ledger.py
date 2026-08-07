@@ -355,13 +355,28 @@ class TestPresetChangeReasonLedger:
         )
 
     def test_activity_details_carry_reason_and_inputs(self, apply_presets_src: str):
-        """The activity_logger.log details dict must include reason + inputs."""
-        # Locate the activity_logger.log call and inspect its details kwarg.
-        # We do a text-window scan to keep this robust across minor edits.
-        idx = apply_presets_src.find("activity_logger.log")
-        assert idx >= 0, "activity_logger.log call missing"
-        # 800 char window comfortably spans the log() kwargs block.
-        window = apply_presets_src[idx : idx + 1200]
+        """The main preset_change activity_logger.log details dict must include reason + inputs.
+
+        The night-trust branch also emits an activity row (action=
+        preset_change_suppressed) EARLIER in the function; we specifically
+        target the MAIN preset_change row (action='preset_change') so this
+        test is a tight anchor for THAT row's schema. If it silently drifts
+        to the suppressed row instead, mutation drills against the main
+        row's reason field would false-pass.
+        """
+        # Anchor on the main preset_change action literal so we key on the
+        # right activity_logger.log call.
+        anchor = "action='preset_change'"
+        idx = apply_presets_src.find(anchor)
+        assert idx >= 0, "main preset_change activity_logger.log call missing"
+        # The window MUST stop before the DecisionLog block that follows
+        # (DecisionLog also uses preset_change_reason and would false-satisfy
+        # this test if the window overshoots). Cut at the end of the details
+        # dict of this log() call, which is the first `})))` or `}))` after
+        # the anchor.
+        end = apply_presets_src.find("}))", idx)
+        assert end > idx, "could not find end of main preset_change details dict"
+        window = apply_presets_src[idx : end + 3]
         for key in ("'reason'", "'zone_vacant_past_grace'", "'runtime_exceeded'"):
             assert key in window, (
                 f"activity_logger.log details missing `{key}`"
