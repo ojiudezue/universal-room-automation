@@ -1231,6 +1231,9 @@ class HVACCoordinator(BaseCoordinator):
         )
 
         zi = self._zone_intelligence_enabled
+        # B-L1 (2026-08-06): hoist activity_logger lookup once per tick rather
+        # than re-fetching inside every zone iteration (two branches used it).
+        activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
         # snapshot: zones dict may be pruned by _handle_zm_zones_updated mid-await
         for zone_id, zone in list(self._zone_manager.zones.items()):
             # v4.7.8 D8: Skip preset apply for zones paused by EgressManager.
@@ -1240,6 +1243,11 @@ class HVACCoordinator(BaseCoordinator):
                 continue
             effective_preset = target_preset
             zone_vacant_past_grace = False
+            # B-H1 (2026-08-06): local flag set inside the D6 stuck-sensor
+            # branch below; consumed by the reason ladder so we emit
+            # `stale_occupancy` instead of `house_state_transition` when the
+            # coordinator forces "away" against a still-any_room_occupied zone.
+            stale_occupancy = False
 
             # --- D1/D5/D6: Zone Intelligence overrides (gated by toggle) ---
             if zi:
@@ -1300,7 +1308,13 @@ class HVACCoordinator(BaseCoordinator):
                             confirmed, possible, threshold,
                         )
                     else:
-                        # Insufficient confirmation — likely stuck sensor
+                        # Insufficient confirmation — likely stuck sensor.
+                        # B-H1 (2026-08-06 fix-up): tag the D6 stuck-sensor branch
+                        # so the reason ladder below can emit `stale_occupancy`
+                        # instead of mislabeling as `house_state_transition`
+                        # (this branch is triggered by any_room_occupied being
+                        # True while we force effective_preset -> "away").
+                        stale_occupancy = True
                         effective_preset = "away"
                         if not zone.vacancy_sweep_done and zone.vacancy_sweep_enabled:
                             await self._execute_vacancy_sweep(zone)
@@ -1396,17 +1410,18 @@ class HVACCoordinator(BaseCoordinator):
                         self._night_trust_logged.clear()
                         self._night_trust_logged_state = self._house_state
                     log_key = (zone_id, self._house_state)
-                    if log_key in self._night_trust_logged:
-                        _LOGGER.debug(
-                            "HVAC: Suppressing %s preset flip -> away during %s "
-                            "(zone_persons home: %s)",
-                            zone.zone_name, self._house_state, home_persons,
-                        )
-                    else:
+                    first_fire = log_key not in self._night_trust_logged
+                    if first_fire:
                         self._night_trust_logged.add(log_key)
                         _LOGGER.info(
                             "HVAC: Suppressing %s preset flip -> away during %s "
                             "(zone_persons home: %s) [subsequent suppressed]",
+                            zone.zone_name, self._house_state, home_persons,
+                        )
+                    else:
+                        _LOGGER.debug(
+                            "HVAC: Suppressing %s preset flip -> away during %s "
+                            "(zone_persons home: %s)",
                             zone.zone_name, self._house_state, home_persons,
                         )
                     # Reason-ledger (Writer-B removal cycle 2026-08-06):
@@ -1414,15 +1429,20 @@ class HVACCoordinator(BaseCoordinator):
                     # row so the ledger shows WHY the coordinator didn't flip
                     # to away. Reason: night_trust_suppressed. Inputs echoed
                     # so mixed causes remain visible.
-                    activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
-                    if activity_logger:
+                    # B-M1 (2026-08-06 fix-up): episode-gated on the existing
+                    # per-(zone,house_state) _night_trust_logged cache so a
+                    # standing suppression emits ONE row per episode, not one
+                    # per tick (~480/night/zone). Description omits the
+                    # home_persons list (kept in details_json) so the row's
+                    # dedup key is stable across membership churn.
+                    if first_fire and activity_logger:
                         self.hass.async_create_task(
                             activity_logger.log(
                                 coordinator="hvac",
                                 action="preset_change_suppressed",
                                 description=(
                                     f"{zone.zone_name} preset flip -> away suppressed "
-                                    f"during {self._house_state} (zone_persons home: {home_persons})"
+                                    f"during {self._house_state}"
                                 ),
                                 zone=zone_id,
                                 importance="notable",
@@ -1455,13 +1475,37 @@ class HVACCoordinator(BaseCoordinator):
             # from the actual decision branch that produced effective_preset,
             # not post-hoc inference. Approved vocabulary (per audit §reason-
             # ledger): house_state_transition | vacant_past_grace |
-            # runtime_exceeded | night_trust_suppressed | manual_detected |
-            # pre_arrival. Precedence for concurrent inputs:
-            #   vacant_past_grace > runtime_exceeded > pre_arrival >
-            #   house_state_transition.
-            # Both underlying booleans are recorded in details so mixed causes
-            # remain visible even though `reason` is single-valued.
-            if effective_preset == "away" and zone_vacant_past_grace:
+            # runtime_exceeded | stale_occupancy | night_trust_suppressed |
+            # pre_arrival.
+            # (`manual_detected` is a CANDIDATE future reason once URA gains a
+            # manual-detection code path that produces a write or suppression
+            # event — no site emits it today; do not add to derivations without
+            # a real branch.)
+            # Precedence for concurrent inputs (top wins, exact order pinned
+            # by TestReasonLadderPrecedence):
+            #   stale_occupancy > vacant_past_grace > runtime_exceeded >
+            #   pre_arrival > house_state_transition.
+            # A-L2/B-L2 (2026-08-06 fix-up) — precedence notes:
+            #   * vacant_past_grace / runtime_exceeded / stale_occupancy are
+            #     AWAY-gated (`effective_preset == "away"` predicate) because
+            #     each is a branch that FORCED away against target_preset;
+            #     they only make sense as the reason for an away write.
+            #   * pre_arrival is ORTHOGONAL to effective_preset — a zone in
+            #     the pre-arrival set may be written to any preset, and the
+            #     reason should reflect the pre-arrival lifecycle, not the
+            #     target preset value.
+            #   * B-H1 fix-up: stale_occupancy ranks FIRST because the D6
+            #     stuck-sensor branch (which sets both `stale_occupancy` and
+            #     `effective_preset = "away"` against any_room_occupied=True)
+            #     ALSO satisfies neither `zone_vacant_past_grace` nor
+            #     `runtime_exceeded` on its own — the ladder would otherwise
+            #     fall through to `house_state_transition` and mislabel.
+            # Both underlying booleans (vacant/runtime) are recorded in
+            # details so mixed causes remain visible even though `reason` is
+            # single-valued.
+            if stale_occupancy:
+                preset_change_reason = "stale_occupancy"
+            elif effective_preset == "away" and zone_vacant_past_grace:
                 preset_change_reason = "vacant_past_grace"
             elif effective_preset == "away" and zone.runtime_exceeded:
                 preset_change_reason = "runtime_exceeded"
@@ -1506,8 +1550,20 @@ class HVACCoordinator(BaseCoordinator):
                 # here would make DOMAIN function-local for the whole scope
                 # and break the earlier reference at line ~806 (v4.7.15.1 D6
                 # defer-gate path) with UnboundLocalError. Bug Class #34.
-                activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+                # activity_logger hoisted above the zone loop (B-L1 fix-up).
                 if activity_logger:
+                    # B-L3 (2026-08-06 fix-up): capture which zone_persons are
+                    # home at write time for episode correlation with the
+                    # night-trust suppressed rows above. Guarded — a state
+                    # read failure must not block the preset write's log.
+                    main_row_home_persons: list[str] = []
+                    try:
+                        for _p in (zone.zone_persons or []):
+                            _st = self.hass.states.get(_p)
+                            if _st is not None and _st.state == "home":
+                                main_row_home_persons.append(_p)
+                    except Exception:  # noqa: BLE001
+                        main_row_home_persons = []
                     self.hass.async_create_task(
                         activity_logger.log(
                             coordinator="hvac",
@@ -1523,6 +1579,7 @@ class HVACCoordinator(BaseCoordinator):
                                 "reason": preset_change_reason,
                                 "zone_vacant_past_grace": zone_vacant_past_grace,
                                 "runtime_exceeded": bool(zone.runtime_exceeded),
+                                "home_persons": main_row_home_persons,
                             },
                         )
                     )

@@ -3899,18 +3899,33 @@ class ZoneAnyoneBinarySensor(ZoneSensorBase, BinarySensorEntity):
     # `_get_zone_climate_entity`) has been deleted outright. It was the v3.3.5.9
     # "Writer B" of `climate.set_preset_mode` — a second, event-driven writer
     # that raced Writer A (HVACCoordinator._apply_house_state_presets) on the
-    # same thermostats without honoring the arrester, night-trust suppression,
-    # D1 grace, D5 duty-cycle, or D6 stale-sensor gates. Removal spec:
-    # docs/planning/AUDIT_writer_b_removal_study.md (Option a). Removal implication
-    # / reason-ledger context: docs/planning/AUDIT_hvac_preset_flap_fix_implications.md
+    # same thermostats. A-M1 (2026-08-06 fix-up) — accurate scope of Writer B's
+    # ONLY pre-write guard: it skipped the write when the CURRENT preset was
+    # already "manual" or "sleep" (see prior `_handle_zone_occupancy_change`
+    # implementation at git blame HEAD~ before removal). It did NOT consult the
+    # arrester, the night-trust suppression, the D1 vacancy grace, the D5 duty
+    # cycle, or the D6 stale-sensor logic — Writer A owns all of those. Removal
+    # spec: docs/planning/AUDIT_writer_b_removal_study.md (Option a). Removal
+    # implication / reason-ledger context:
+    # docs/planning/AUDIT_hvac_preset_flap_fix_implications.md
     # §Cross-cutting Finding X.
     #
-    # Flap measurement anchor (pre-removal baseline): 2026-08-06 zone_1
-    # (Entertainment + Master Suite / Study B thermostat) preset oscillated
-    # home <-> away 6 times between 16:05 and 17:45 CDT while zone-anyone was
-    # continuously ON. The post-deploy acceptance signal for this removal is
-    # zero URA-initiated home<->away oscillations on that same thermostat over
-    # an equivalent occupied window, with Writer A's 5-min cadence unchanged.
+    # Flap measurement anchor (pre-removal baseline, C-M1 fix-up 2026-08-06):
+    # zone_1 (Entertainment + Master Suite / Study B thermostat, entity_id
+    # `climate.study_b`) — two distinct fingerprints on 2026-08-06 CDT:
+    #   * 16:05-17:45 CDT (21:05-22:45 UTC): 5 home↔away oscillations,
+    #     seeded by an initial manual→away transition, while zone-anyone
+    #     was continuously ON. Cadence irregular (Writer-B event-driven).
+    #   * 11:59-13:19 CDT (16:59-18:19 UTC): 11 CONSECUTIVE away→home
+    #     re-issues at ~5-minute cadence — the second-writer stomp
+    #     fingerprint (Writer A re-asserting home every 5min against
+    #     Writer B's away). This is the stronger midday evidence and the
+    #     one to grep for in future regression checks.
+    # Re-query anchors: entity_id=`climate.study_b`, event_type=
+    # `state_changed`, restrict to the UTC windows above.
+    # The post-deploy acceptance signal for this removal is zero URA-initiated
+    # home<->away oscillations on that same thermostat over an equivalent
+    # occupied window, with Writer A's 5-min cadence unchanged.
     #
     # The ZoneAnyoneBinarySensor SENSOR itself (is_on rollup + Layer 2 sleep-
     # trust fallback + Layer 3 non-sleep-trust fallback) is kept byte-identical

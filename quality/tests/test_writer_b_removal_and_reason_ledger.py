@@ -297,7 +297,13 @@ class TestPresetChangeReasonLedger:
 
     Reason vocabulary approved 2026-08-06 (audit §reason-ledger):
       house_state_transition | vacant_past_grace | runtime_exceeded |
-      night_trust_suppressed | manual_detected | pre_arrival.
+      stale_occupancy | night_trust_suppressed | pre_arrival.
+
+    (`manual_detected` was dropped from the vocabulary in the 2026-08-06
+    fix-up: no site emits it today. It is retained only as a CANDIDATE
+    future reason for whenever URA gains a manual-detection code path
+    that produces a write or a suppression event — until then, tests must
+    not assert its presence.)
     """
 
     def test_reason_local_derived_before_write(self, apply_presets_src: str):
@@ -323,6 +329,7 @@ class TestPresetChangeReasonLedger:
     def test_reason_vocabulary_present(self, apply_presets_src: str):
         """Approved reason literals must appear in the derivation block."""
         for literal in (
+            "stale_occupancy",
             "vacant_past_grace",
             "runtime_exceeded",
             "pre_arrival",
@@ -415,6 +422,68 @@ class TestNightTrustSuppressedRow:
             "night-trust branch must log a `preset_change_suppressed` activity row"
         )
 
+    def test_suppressed_row_is_episode_gated(self, apply_presets_src: str):
+        """B-M1 (2026-08-06 fix-up): suppressed row emit MUST be episode-gated.
+
+        Without gating, a standing night-trust suppression emits ~480 rows
+        per zone per night (30s tick × 8h). The gate reuses the existing
+        per-(zone_id, house_state) `_night_trust_logged` cache: emit ONLY
+        on the first fire of the episode (i.e. when adding to the set).
+
+        We anchor on the `first_fire` local and require the
+        `preset_change_suppressed` activity_logger.log call to be gated on
+        it. Mutation drill: deleting `first_fire and` from the guard turns
+        this test RED. (See fix-up ledger row `B-M1-mutation`.)
+        """
+        assert "first_fire" in apply_presets_src, (
+            "episode gate: `first_fire` local must be introduced in the "
+            "night-trust branch to gate the synthetic suppressed row"
+        )
+        # The activity_logger call for preset_change_suppressed MUST live
+        # inside a branch predicated on `first_fire`. We locate the
+        # `action="preset_change_suppressed"` anchor and walk back to find
+        # a governing `if first_fire` in the preceding ~400 chars.
+        anchor = 'action="preset_change_suppressed"'
+        idx = apply_presets_src.find(anchor)
+        if idx < 0:
+            anchor = "action='preset_change_suppressed'"
+            idx = apply_presets_src.find(anchor)
+        assert idx >= 0, "preset_change_suppressed anchor missing"
+        pre_window = apply_presets_src[max(0, idx - 400) : idx]
+        assert "first_fire" in pre_window, (
+            "suppressed activity_logger emit must be gated on `first_fire` "
+            "(episode gate) — without the gate the row emits every tick "
+            "(~480/night/zone). Mutation drill: deleting `first_fire and` "
+            "from the guard MUST fail this test."
+        )
+
+    def test_suppressed_row_description_omits_home_persons(
+        self, apply_presets_src: str
+    ):
+        """B-M1: description string omits the volatile home_persons list.
+
+        The list still lives in details_json (see the details test below);
+        keeping it in the human description broke the row's natural dedup
+        key on any membership churn (adds/drops of a tracker during the
+        episode). We assert the description f-string does NOT interpolate
+        home_persons.
+        """
+        anchor = 'action="preset_change_suppressed"'
+        idx = apply_presets_src.find(anchor)
+        if idx < 0:
+            anchor = "action='preset_change_suppressed'"
+            idx = apply_presets_src.find(anchor)
+        assert idx >= 0
+        window = apply_presets_src[idx : idx + 500]
+        # Find `description=` slice and confirm home_persons is not in it.
+        d_idx = window.find("description=")
+        assert d_idx >= 0
+        desc_slice = window[d_idx : d_idx + 300]
+        assert "home_persons" not in desc_slice, (
+            "description must not embed home_persons (kept in details_json "
+            "for correlation, omitted from description for dedup stability)"
+        )
+
     def test_suppressed_row_details_carry_reason_and_inputs(
         self, apply_presets_src: str
     ):
@@ -432,3 +501,105 @@ class TestNightTrustSuppressedRow:
             assert key in window, (
                 f"night-trust suppressed row details missing `{key}`"
             )
+
+
+# ============================================================================
+# 4. C-H1: reason-ladder precedence — exact AST order pinned
+# ============================================================================
+
+
+class TestReasonLadderPrecedence:
+    """The reason ladder's if/elif order is load-bearing — pin exact order.
+
+    The C-M3 review flagged that if a future edit accidentally swaps two
+    branches (e.g. `vacant_past_grace` moved above `stale_occupancy`), the
+    stale-sensor D6 branch would be re-mislabeled as `vacant_past_grace`
+    and Bug Class #53 (computed-but-not-consumed) would resurface silently.
+
+    We AST-walk `_apply_house_state_presets` to find the CHAIN of if/elif
+    that terminates in `preset_change_reason = "house_state_transition"`
+    and assert its literal order.
+
+    Mutation drill: swapping any two entries in this list must turn the
+    test RED — verified in the review ledger under `C-M3-mutation`.
+    """
+
+    EXPECTED_ORDER = [
+        "stale_occupancy",
+        "vacant_past_grace",
+        "runtime_exceeded",
+        "pre_arrival",
+        "house_state_transition",
+    ]
+
+    def _collect_ladder(self, hvac_src: str) -> list[str]:
+        tree = ast.parse(hvac_src)
+        target = None
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.AsyncFunctionDef)
+                and node.name == "_apply_house_state_presets"
+            ):
+                target = node
+                break
+        assert target is not None, "_apply_house_state_presets not found"
+
+        # Walk statements looking for an If whose orelse chain terminates
+        # in an assignment of `preset_change_reason = "house_state_transition"`.
+        def _reason_literal(if_node: ast.If) -> str | None:
+            # Body should be a single assignment to preset_change_reason.
+            for stmt in if_node.body:
+                if (
+                    isinstance(stmt, ast.Assign)
+                    and any(
+                        isinstance(t, ast.Name) and t.id == "preset_change_reason"
+                        for t in stmt.targets
+                    )
+                    and isinstance(stmt.value, ast.Constant)
+                    and isinstance(stmt.value.value, str)
+                ):
+                    return stmt.value.value
+            return None
+
+        def _walk_chain(if_node: ast.If, out: list[str]) -> None:
+            lit = _reason_literal(if_node)
+            if lit is not None:
+                out.append(lit)
+            # orelse is either [If, ...] (elif) or terminal [Assign].
+            if (
+                len(if_node.orelse) == 1
+                and isinstance(if_node.orelse[0], ast.If)
+            ):
+                _walk_chain(if_node.orelse[0], out)
+            else:
+                for stmt in if_node.orelse:
+                    if (
+                        isinstance(stmt, ast.Assign)
+                        and any(
+                            isinstance(t, ast.Name)
+                            and t.id == "preset_change_reason"
+                            for t in stmt.targets
+                        )
+                        and isinstance(stmt.value, ast.Constant)
+                    ):
+                        out.append(stmt.value.value)
+
+        # Find the ladder: an If whose chain contains house_state_transition
+        # in its terminal else. Walk the whole function body (including nested
+        # loops) since the ladder lives inside a `for zone_id, zone in ...`.
+        for node in ast.walk(target):
+            if isinstance(node, ast.If):
+                collected: list[str] = []
+                _walk_chain(node, collected)
+                if "house_state_transition" in collected:
+                    return collected
+        raise AssertionError("reason ladder not located in _apply_house_state_presets")
+
+    def test_ladder_order_is_pinned(self, hvac_src: str):
+        got = self._collect_ladder(hvac_src)
+        assert got == self.EXPECTED_ORDER, (
+            f"reason ladder order drifted: expected {self.EXPECTED_ORDER!r}, "
+            f"got {got!r}. Any change to this order MUST be reviewed against "
+            f"the reason-ledger precedence comment in hvac.py and the "
+            f"C-M3-mutation drill in the review ledger."
+        )
