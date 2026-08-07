@@ -145,7 +145,7 @@ class PerimeterAlertManager:
         # Frigate camera name -> most recent event_id (updated via frigate_events bus)
         # (event_id, cached_at) per canonical camera key; TTL-gated at
         # read (hotfix 2026-08-07 — see _on_frigate_event).
-        self._frigate_last_event_id: dict[str, tuple[str, Any]] = {}
+        self._frigate_last_event_id: dict[str, tuple[str, datetime]] = {}
         # One-shot log gates
         self._legacy_deprecation_warned = False
         self._legacy_fallback_logged = False
@@ -1035,7 +1035,7 @@ class PerimeterAlertManager:
             if cached:
                 _eid, _ts = cached
                 _age = (dt_util.utcnow() - _ts).total_seconds()
-                if 0 <= _age <= FRIGATE_SNAPSHOT_ID_TTL_S:
+                if 0 <= _age < FRIGATE_SNAPSHOT_ID_TTL_S:
                     event_id = _eid
             if event_id:
                 # Verified URL shape — ~/ha-config/custom_components/frigate/
