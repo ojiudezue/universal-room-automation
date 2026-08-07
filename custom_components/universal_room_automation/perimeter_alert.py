@@ -96,6 +96,7 @@ from .const import (
     PERIMETER_PROTECT_PERSON_LEGS_ENABLED,
     CAMERA_RESOLUTION_CHANNEL_SUFFIXES,
     FRIGATE_SNAPSHOT_LABELS,
+    FRIGATE_SNAPSHOT_ID_TTL_S,
     TRACK_LINK_WINDOW_S,
     EXTERIOR_VEHICLE_NIGHT_START,
     EXTERIOR_VEHICLE_NIGHT_END,
@@ -142,7 +143,9 @@ class PerimeterAlertManager:
         # person_binary_sensor entity_id -> configured camera.* entity_id
         self._sensor_to_camera: dict[str, str] = {}
         # Frigate camera name -> most recent event_id (updated via frigate_events bus)
-        self._frigate_last_event_id: dict[str, str] = {}
+        # (event_id, cached_at) per canonical camera key; TTL-gated at
+        # read (hotfix 2026-08-07 — see _on_frigate_event).
+        self._frigate_last_event_id: dict[str, tuple[str, datetime]] = {}
         # One-shot log gates
         self._legacy_deprecation_warned = False
         self._legacy_fallback_logged = False
@@ -396,12 +399,23 @@ class PerimeterAlertManager:
                 msg_type = str(event.data.get("type") or "").lower()
                 if not camera or label not in FRIGATE_SNAPSHOT_LABELS:
                     return
-                cam_key = str(camera)
+                # Hotfix 2026-08-07 (operator: alerts with no picture):
+                # (a) canonical lowercase key — CamelCase Frigate names
+                #     (ReolinkStudyBPorchPTZ) could never match the
+                #     lowercase stem lookup (same case-split family as
+                #     the linker hotfix);
+                # (b) do NOT clear on 'end' — Frigate snapshots remain
+                #     fetchable after the event ends, and a brief
+                #     walk-past ends before dispatch resolves, which
+                #     erased the id exactly when it was needed. The id
+                #     now persists with FRIGATE_SNAPSHOT_ID_TTL_S.
+                cam_key = str(camera).strip().lower()
                 if msg_type == "end":
-                    self._frigate_last_event_id.pop(cam_key, None)
                     return
                 if event_id:
-                    self._frigate_last_event_id[cam_key] = str(event_id)
+                    self._frigate_last_event_id[cam_key] = (
+                        str(event_id), dt_util.utcnow(),
+                    )
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("Frigate event parse failed", exc_info=True)
 
@@ -1014,7 +1028,15 @@ class PerimeterAlertManager:
                     if base.endswith("_2"):
                         base = base[:-2]
                     cam_name = base
-            event_id = self._frigate_last_event_id.get(cam_name or "")
+            cached = self._frigate_last_event_id.get(
+                (cam_name or "").strip().lower()
+            )
+            event_id = None
+            if cached:
+                _eid, _ts = cached
+                _age = (dt_util.utcnow() - _ts).total_seconds()
+                if 0 <= _age < FRIGATE_SNAPSHOT_ID_TTL_S:
+                    event_id = _eid
             if event_id:
                 # Verified URL shape — ~/ha-config/custom_components/frigate/
                 # views.py:317 (`NotificationsProxyView`).
