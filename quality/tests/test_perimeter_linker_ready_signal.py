@@ -211,14 +211,242 @@ def test_perimeter_alert_subscribes_to_linker_ready_source_anchor():
     )
 
 
-def test_perimeter_alert_boot_sanity_warns_on_empty_allowlist():
-    """F1(e) source-anchor: perimeter_alert must emit a WARNING when the
-    linker exists post-setup but its allowlist is empty despite staged
-    cameras (SECC-1 regression tripwire)."""
-    src = (
-        REPO_ROOT
-        / "custom_components/universal_room_automation/perimeter_alert.py"
-    ).read_text()
-    assert "SECC-1 class" in src or "SECC-1 regression" in src, (
-        "F1(e) regression: boot-sanity SECC-1 tripwire WARNING missing"
+# ---------------------------------------------------------------------------
+# BEHAVIORAL tests (added 2026-08-07 straggler-batch): drive the real
+# PerimeterAlertManager.async_setup path end-to-end so the F1 CRITICAL
+# fix is pinned by observable behavior (allowlist actually installed on
+# the linker, off-list rejected, on-list admitted) rather than a
+# source-string grep of the subscription block.
+#
+# Orchestrator mutation drill that motivated this: replacing
+# ``_lk.set_allowed_cameras(self._perimeter_allowlist)`` with ``pass``
+# inside ``_install_on_ready`` left the pre-existing suite GREEN. These
+# tests neuter that mutation.
+# ---------------------------------------------------------------------------
+
+import asyncio as _asyncio
+import importlib.util as _il2
+import os as _os
+
+
+def _load_perimeter_module():
+    """Load perimeter_alert.py with just enough package plumbing.
+
+    Idempotent — if the module (or its sibling deps) is already loaded
+    (e.g. because ``test_perimeter_alert_nm_routing.py`` ran first) we
+    reuse the cached module.
+    """
+    _pa_name = _PKG + ".perimeter_alert"
+    if _pa_name in sys.modules:
+        return sys.modules[_pa_name]
+
+    # Ensure a few additional HA helper stubs perimeter_alert may pull.
+    for _n, _a in {
+        "homeassistant.helpers.entity": {"DeviceInfo": dict,
+                                          "EntityCategory": MagicMock()},
+        "homeassistant.helpers.entity_registry": {"async_get": MagicMock()},
+        "homeassistant.helpers.device_registry": {"DeviceInfo": dict},
+    }.items():
+        existing = sys.modules.get(_n)
+        if existing is None:
+            sys.modules[_n] = _mock(_n, **_a)
+        else:
+            for _k, _v in _a.items():
+                if not hasattr(existing, _k):
+                    setattr(existing, _k, _v)
+
+    _ura_path = REPO_ROOT / "custom_components/universal_room_automation"
+
+    # domain_coordinators.base is needed transitively
+    _dc_name = _PKG + ".domain_coordinators"
+    if _dc_name not in sys.modules:
+        _dc = types.ModuleType(_dc_name)
+        _dc.__path__ = [str(_ura_path / "domain_coordinators")]
+        sys.modules[_dc_name] = _dc
+    _base_name = _dc_name + ".base"
+    if _base_name not in sys.modules:
+        spec = _il2.spec_from_file_location(
+            _base_name, _ura_path / "domain_coordinators" / "base.py",
+        )
+        mod = _il2.module_from_spec(spec)
+        sys.modules[_base_name] = mod
+        spec.loader.exec_module(mod)
+
+    # camera_resolver — perimeter_alert imports _PERSON_SUFFIXES from it
+    _cr_name = _PKG + ".camera_resolver"
+    if _cr_name not in sys.modules:
+        spec = _il2.spec_from_file_location(
+            _cr_name, _ura_path / "camera_resolver.py",
+        )
+        mod = _il2.module_from_spec(spec)
+        sys.modules[_cr_name] = mod
+        spec.loader.exec_module(mod)
+
+    spec = _il2.spec_from_file_location(
+        _pa_name, _ura_path / "perimeter_alert.py",
+    )
+    mod = _il2.module_from_spec(spec)
+    sys.modules[_pa_name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _build_manager_captured(existing_linker=None):
+    """Construct a PerimeterAlertManager wired to capture the READY
+    subscription callback and stub out camera-resolution paths.
+
+    Returns (manager, hass, captured_callbacks_by_signal).
+    """
+    pa_mod = _load_perimeter_module()
+    from custom_components.universal_room_automation.const import (
+        DOMAIN, CONF_PERIMETER_CAMERAS,
+    )
+    import homeassistant.helpers.dispatcher as _disp_mod
+
+    hass = MagicMock()
+    hass.data = {DOMAIN: {}}
+    if existing_linker is not None:
+        hass.data[DOMAIN]["exterior_track_linker"] = existing_linker
+    hass.bus = MagicMock()
+    hass.bus.async_listen = MagicMock(return_value=MagicMock())
+    hass.bus.async_listen_once = MagicMock(return_value=MagicMock())
+    hass.config = MagicMock()
+    hass.is_stopping = False
+
+    mgr = pa_mod.PerimeterAlertManager(hass)
+
+    # Return one perimeter camera whose person_binary_sensor collapses
+    # to camera key "frontdoor" (via the _person_occupancy suffix).
+    info = types.SimpleNamespace(
+        person_binary_sensor="binary_sensor.frontdoor_person_occupancy",
+        platform="frigate",
+    )
+    mgr._resolve_camera_infos = lambda conf_key: (
+        [("camera.frontdoor", info)]
+        if conf_key == CONF_PERIMETER_CAMERAS else []
+    )
+    mgr._resolve_legs = lambda *a, **kw: []
+    mgr._entity_exists = lambda eid: False
+    mgr._get_integration_config = lambda: {}
+
+    # Capture dispatcher subscriptions on the module perimeter_alert.py
+    # imports at CALL time (`from homeassistant.helpers.dispatcher import
+    # async_dispatcher_connect` inside async_setup).
+    captured: dict = {}
+
+    def _fake_connect(_hass, signal, cb):
+        captured.setdefault(signal, []).append(cb)
+        return lambda: None
+
+    _orig = _disp_mod.async_dispatcher_connect
+    _disp_mod.async_dispatcher_connect = _fake_connect
+    try:
+        _asyncio.run(mgr.async_setup())
+    finally:
+        _disp_mod.async_dispatcher_connect = _orig
+    return mgr, hass, captured
+
+
+def test_ready_callback_installs_allowlist_on_late_linker():
+    """F1 BEHAVIORAL (mutation-anchored): reproduces the real boot ordering
+    where the exterior_track_linker is NOT in hass.data at async_setup()
+    time. The READY-signal callback captured by the dispatcher stub MUST,
+    when invoked after the linker registers, call set_allowed_cameras() so
+    the linker's allowlist is populated. Neutering the install line inside
+    ``_install_on_ready`` (e.g. ``_lk.set_allowed_cameras(...)`` -> ``pass``)
+    MUST make this test RED.
+    """
+    from custom_components.universal_room_automation.const import DOMAIN
+    from custom_components.universal_room_automation.domain_coordinators.signals import (
+        SIGNAL_EXTERIOR_LINKER_READY,
+    )
+
+    mgr, hass, captured = _build_manager_captured(existing_linker=None)
+
+    # (a) staged allowlist derived from the perimeter camera
+    assert mgr._perimeter_allowlist == {"frontdoor"}, (
+        "staged allowlist did not derive from _camera_key_for_sensor"
+    )
+    # (b) READY subscription captured
+    cbs = captured.get(SIGNAL_EXTERIOR_LINKER_READY) or []
+    assert cbs, (
+        "async_setup did not subscribe a callback to "
+        "SIGNAL_EXTERIOR_LINKER_READY"
+    )
+
+    # Now the linker REGISTERS (post-setup, as in real boot ordering).
+    linker = _fresh_linker()
+    assert not linker._allowed_cameras
+    assert linker._allowlist_installed is False
+    hass.data[DOMAIN]["exterior_track_linker"] = linker
+
+    # Fire the captured READY callback
+    for cb in cbs:
+        cb()
+
+    # F1 CORE ASSERTION — this is what the source-grep test missed.
+    assert linker._allowlist_installed is True, (
+        "F1 regression: READY callback ran but did not flip "
+        "_allowlist_installed — set_allowed_cameras() was NOT called on "
+        "the linker (SECC-1 dead-install returned)."
+    )
+    assert linker._allowed_cameras == {"frontdoor"}, (
+        "F1 regression: linker _allowed_cameras not populated from the "
+        f"staged perimeter allowlist (got {linker._allowed_cameras!r})"
+    )
+
+    # Behavioral tie-in: an off-list interior camera is rejected AND
+    # counted; the on-list perimeter camera is admitted. This proves the
+    # install is not just cosmetic — the observable fail-closed behavior
+    # the F1 fix exists to enable is actually enabled.
+    now = _dt.now(_tz.utc)
+    rejected = linker.observe(
+        camera="interior_playroom", label="person",
+        event_id="evX", score=0.9, sub_label=None, now=now,
+    )
+    assert rejected is None, "off-list interior camera must be rejected"
+    assert linker._ignored_offlist_events.get("interior_playroom", 0) == 1
+
+    admitted = linker.observe(
+        camera="frontdoor", label="person",
+        event_id="evY", score=0.9, sub_label=None, now=now,
+    )
+    assert admitted is not None, (
+        "on-list perimeter camera must be admitted after install"
+    )
+
+
+def test_perimeter_alert_boot_sanity_warns_on_empty_allowlist(caplog):
+    """F1(e) BEHAVIORAL: when the linker IS present at async_setup time
+    but somehow ends up with an empty allowlist (SECC-1 class regression
+    — silent no-op install), production must emit a WARNING record. This
+    used to be a source-grep; now it drives the real code path.
+
+    Neutering the ``_LOGGER.warning(...)`` inside the boot-sanity block
+    MUST make this test RED.
+    """
+    import logging as _logging
+    from custom_components.universal_room_automation.const import DOMAIN
+
+    # A stub linker whose set_allowed_cameras is a NO-OP — simulates the
+    # regression class where the install site was silently broken.
+    class _BrokenLinker:
+        _allowed_cameras: set = set()
+        _allowlist_installed: bool = False
+
+        def set_allowed_cameras(self, cams):
+            # Intentional no-op: the SECC-1 regression shape.
+            return
+
+    broken = _BrokenLinker()
+    with caplog.at_level(_logging.WARNING,
+                        logger="custom_components.universal_room_automation.perimeter_alert"):
+        _build_manager_captured(existing_linker=broken)
+
+    hits = [r for r in caplog.records
+            if "SECC-1" in r.getMessage() and r.levelno >= _logging.WARNING]
+    assert hits, (
+        "F1(e) regression: boot-sanity WARNING did not fire when the "
+        "linker was present post-setup but its allowlist stayed empty. "
+        f"Records seen: {[r.getMessage() for r in caplog.records]!r}"
     )
