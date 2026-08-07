@@ -80,10 +80,14 @@ cards:
     tags: [hand-build-fixture, measure-before-build, no-fabrication-verify]
     progress:
       - "2026-08-07: hand-built ground-truth fixture from live registry (86 detection sensors, 20 multi-engine cameras) -> AUDIT_resolver_ground_truth_manual.md"
+      - "2026-08-07: A-2 + A-3 FIXED AT SOURCE - applied 10 device area corrections to live registry (all copy-from-sibling), FE review sheet https://claude.ai/code/artifact/ef6dc227-8488-4b59-b745-f71e946da6a8"
     findings:
-      - "A-1 (confirmed): armcrestash41b (F1 armcrest) not in EXTERIOR_CAMERA_KEY_ALIASES and not a _N strip -> does NOT collapse to camera-key armcrest. Pre-sunset recall/precision gap; self-resolves at F1-SUNSET. Ties to F1-SUNSET."
-      - "A-2 (confirmed): armcrest area conflict - dahua leg area=balcony vs frigate area=pool; room attribution is non-deterministic if it takes first-leg area. Canonical=pool."
-      - "A-3 (HIGH, confirmed mechanism): resolve_area_id_for_entity resolves ONE entity's area (entity->device fallback) with NO cross-leg fallback. Frigate exterior legs all area=None; if room keys off the Frigate primary leg, ALL exterior cameras are roomless -> degrades census/transit. Verify which leg's area wins; fix = prefer non-None leg / camera entity area."
+      - "A-1 (CORRECTED per operator): armcrest (pool overhead: F2 frigate + dahua) and armcrestash41b (interior Study-A, F1) are DIFFERENT cameras. Precision hazard, NOT a recall gap - the accuracy test must assert they do NOT fuse. armcrestash41b moves to F2 later; discount now."
+      - "A-2 (FIXED 2026-08-07): armcrest dahua area balcony->pool applied. Canonical=pool."
+      - "A-3 (FIXED AT SOURCE 2026-08-07): set 8 Frigate exterior/interior camera devices area None->sibling value (outside_perimeter/garage_a/patio). Resolver now gets real area from Frigate legs. Code-robustness (cross-leg area fallback) still worth adding in the perimeter cycle for future None cases, but the live symptom is gone."
+    refinement:
+      - {challenge: "operator - F1 armcrest is the interior Study-A cam, not the pool overhead", sharpened: "A-1 flipped: assert armcrest and armcrestash41b do NOT fuse (precision), not that they collapse (recall)"}
+      - {challenge: "operator - edit the area ids directly across all cam integrations", sharpened: "fixed A-2/A-3 at the DATA source (10 device area corrections) rather than only a resolver code workaround; sent an FE review sheet"}
     origin: {date: 2026-08-07, gist: "much more interested in accuracy of the task of the resolver; accuracy means alerting will be better"}
     why: the resolver feeds census + transit + perimeter; one accuracy suite validates all three
     design:
@@ -189,6 +193,16 @@ cards:
       - homelab deploy (DNS/reverse-proxy/TLS for the subdomain) may need operator hardware/DNS access - investigate; automate if wildcard-DNS + auto-TLS caddy allow, else stage a one-step for operator
     parsimony: {problem: "the reflected board is hand-maintained and can silently drift from the source", verdict: BUILD, note: eliminates the drift anti-pattern + gives a design surface}
     next: (overnight) design data->view generator; screenshot-iterate; wire homelab serve + post-commit rebuild hook
+
+  - id: CAM-AREA-MADRONE
+    title: Madrone G6 Entry — no area on any integration
+    thread: camera
+    status: waiting_operator
+    approval: blocked
+    origin: {date: 2026-08-07, gist: found during the camera area-id correction sweep}
+    why: front entry camera has no room set on Frigate OR Protect; I left it untouched
+    next: operator names the room (front_porch? entry_way? own area?) and I set it
+    refs: [https://claude.ai/code/artifact/ef6dc227-8488-4b59-b745-f71e946da6a8]
 
   - id: F1-SUNSET
     title: Frigate-1 go/no-go

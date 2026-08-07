@@ -19,7 +19,8 @@ plus the **canonical room**. "camera-key" is the normalized stem after
 
 | camera-key | engines (legs) | canonical room | notes |
 |---|---|---|---|
-| **armcrest** (pool overhead) | frigate `armcrest_person_occupancy`, frigate `armcrestash41b_person_occupancy` (**F1**), dahua `armcrestpooloverhead_smart_motion_human/_vehicle` | **pool** | 3-name / 3-source, one camera. See A-1, A-2. |
+| **armcrest** (pool overhead) | frigate `armcrest_person_occupancy` (F2), dahua `armcrestpooloverhead_smart_motion_human/_vehicle` | **pool** | 2-source, one camera. See A-2. |
+| **armcrestash41b** (Study A interior — SEPARATE camera) | frigate `armcrestash41b_person_occupancy` (F1) | study_a | operator 2026-08-07: this is the INTERIOR Study-A armcrest, NOT the pool overhead. Moves to F2 later. Must NOT fuse with `armcrest`. See A-1 (corrected). |
 | back_yard | frigate `_person_occupancy`, protect `_person_detected` | outside_perimeter | frigate area=None (A-3) |
 | hot_tub | frigate, protect | outside_perimeter | frigate area=None |
 | pool_equipment | frigate, protect | outside_perimeter | frigate area=None |
@@ -45,12 +46,14 @@ accuracy risk lives entirely in the multi-engine fusion set above.
 
 ## Accuracy findings the resolver MUST get right (and RESACC-1 must assert)
 
-**A-1 — armcrest is a 3-source, 3-name single camera.** F2-frigate `armcrest`, **F1-frigate
-`armcrestash41b`** (the F1 host still live pre-sunset), and dahua `armcrestpooloverhead`. All the
-same physical pool-overhead camera. The resolver must collapse ALL THREE to camera-key `armcrest`
-(via `EXTERIOR_CAMERA_KEY_ALIASES` + the F1/F2 stem-collapse). **`armcrestash41b` is NOT currently
-in the alias map** — verify it collapses via the F1/F2 disambiguation path, or it's a missed leg
-(recall failure) AND, post-F1-sunset, a dangling reference. Ties directly to F1-SUNSET.
+**A-1 (CORRECTED 2026-08-07 per operator) — armcrest and armcrestash41b are DIFFERENT cameras.**
+`armcrest` (F2 frigate + dahua `armcrestpooloverhead`) = the **pool overhead**. `armcrestash41b`
+(F1 frigate) = the **interior Study-A** camera (moves to F2 later; discount for now). They share
+the "armcrest" brand prefix but are NOT the same camera. **Precision hazard, not a recall gap:**
+the adversarial near-miss test must assert `armcrest` and `armcrestash41b` **do NOT fuse** — a
+prefix/substring stem match would wrongly merge the pool camera with a Study-A interior camera
+(and mis-route an alert / mis-attribute a room). This is the single most important precision
+assertion in the fixture.
 
 **A-2 — armcrest area conflict.** dahua leg area=`balcony`, frigate legs area=`pool`. Same camera,
 two rooms. The resolver's room attribution must pick ONE canonically (pool is correct — it's the
