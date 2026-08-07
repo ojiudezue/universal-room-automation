@@ -46,3 +46,6 @@ fsck, no loss. Suite 8284 passed, 21 pre-existing.
   ignored_offlist_events counts any interior leak attempts; census
   case-splits gone.
 - **Live:** zero URA ERROR lines first hour.
+
+## Validated 2026-08-07 post-restart
+v5.57.0 live; zero URA ERROR lines. Temp Arrester Override present+OFF; AC Ramp master SURVIVED restart ON (fix proven live); exterior tracks 0 (allowlist active); immunity dormant pending operator persons-list.
