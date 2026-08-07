@@ -81,6 +81,7 @@ cards:
     progress:
       - "2026-08-07: hand-built ground-truth fixture from live registry (86 detection sensors, 20 multi-engine cameras) -> AUDIT_resolver_ground_truth_manual.md"
       - "2026-08-07: A-2 + A-3 FIXED AT SOURCE - applied 10 device area corrections to live registry (all copy-from-sibling), FE review sheet https://claude.ai/code/artifact/ef6dc227-8488-4b59-b745-f71e946da6a8"
+      - "2026-08-07: INTERIOR (TRANSIT-1 prep) - interior physical cameras already correctly area'd (~50 clean); fixed 4 roomless URA per-room FUSED sensors (game_room/master_bedroom/receiving_room/ziri_bedroom) via entity area. kitchen_pantry pending (no such area). FE updated."
     findings:
       - "A-1 (CORRECTED per operator): armcrest (pool overhead: F2 frigate + dahua) and armcrestash41b (interior Study-A, F1) are DIFFERENT cameras. Precision hazard, NOT a recall gap - the accuracy test must assert they do NOT fuse. armcrestash41b moves to F2 later; discount now."
       - "A-2 (FIXED 2026-08-07): armcrest dahua area balcony->pool applied. Canonical=pool."
@@ -194,15 +195,30 @@ cards:
     parsimony: {problem: "the reflected board is hand-maintained and can silently drift from the source", verdict: BUILD, note: eliminates the drift anti-pattern + gives a design surface}
     next: (overnight) design data->view generator; screenshot-iterate; wire homelab serve + post-commit rebuild hook
 
-  - id: CAM-AREA-MADRONE
-    title: Madrone G6 Entry — no area on any integration
+  - id: CAM-AREA-PENDING
+    title: Camera area corrections — pending operator input
     thread: camera
     status: waiting_operator
     approval: blocked
-    origin: {date: 2026-08-07, gist: found during the camera area-id correction sweep}
-    why: front entry camera has no room set on Frigate OR Protect; I left it untouched
-    next: operator names the room (front_porch? entry_way? own area?) and I set it
+    origin: {date: 2026-08-07, gist: found during the exterior+interior camera area-id correction sweep}
+    items:
+      - "Madrone G6 Entry (front entry) - no room on Frigate OR Protect. front_porch? entry_way? own area?"
+      - "Kitchen Pantry fused sensor roomless AND no kitchen_pantry area exists (have pantry, butler_pantry). Which, or create?"
+      - "Area-id typos to clean: guest_bedroom_1_clo_set, guest_bedoom_2_bath"
+      - "Sanity-check applied: Doorbell Lite->garage_a (from Protect), Reolink->patio"
     refs: [https://claude.ai/code/artifact/ef6dc227-8488-4b59-b745-f71e946da6a8]
+
+  - id: D3-AREA-INHERIT
+    title: URA D3 fused sensor should inherit room area on creation
+    thread: camera
+    status: pre_planning
+    approval: implied
+    tags: [numbers-get-knobs]
+    origin: {date: 2026-08-07, gist: 5 rooms had roomless CameraPersonDetectedSensor - manual entity-area set was a band-aid}
+    why: CameraPersonDetectedSensor (D3) does not set area_id from its room on creation, so new rooms silently ship roomless -> breaks resolver/transit room mapping. Durable fix so we do not hand-patch each new room.
+    parsimony: {problem: "per-room fused camera sensors ship with no area", verdict: BUILD, note: small - set area at entity creation from room config}
+    next: set _attr area / registry area from room area on D3 sensor creation
+    refs: [binary_sensor.py CameraPersonDetectedSensor]
 
   - id: F1-SUNSET
     title: Frigate-1 go/no-go
