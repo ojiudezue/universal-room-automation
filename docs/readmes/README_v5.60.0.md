@@ -25,7 +25,7 @@ Review record: `docs/reviews/code-review/v5.60.0_transit_protect_checkpoints.md`
   the Protect set, so recovered coverage actually counts in `validate_transition` (this was the
   cycle's CRITICAL review finding: previously recorded then filtered out).
 - **Double-fire collapse** — sightings dedup by physical `device_id` within
-  `TRANSIT_DOUBLE_FIRE_DEDUP_SECONDS` (5s), so a camera's Protect+Frigate legs can'tdouble-count and
+  `TRANSIT_DOUBLE_FIRE_DEDUP_SECONDS` (5s), so a camera's Protect+Frigate legs can't double-count and
   inflate presence trust.
 - **Self-heal** — `EVENT_ENTITY_REGISTRY_UPDATED` (unifiprotect) triggers a debounced rebuild, so a
   late-loading Protect integration no longer freezes the checkpoint set empty until restart.
