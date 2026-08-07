@@ -84,8 +84,23 @@ alert"). Capture it as an append-only list of `challenge → sharpened form` bea
 Distinct from Parked-alts: Parked-alts are options we *rejected*; Refinement is the sequence of
 challenges that *improved the option we kept*. It is card-level WHY — the compact shape of the
 pivot — and points at the fuller **vibememo** entry for the depth. Board shows the shape;
-vibememo holds the reasoning. Every real challenge → refinement in chat becomes one line here
-the same turn (it is a "mid-turn idea" under capture-first).
+vibememo holds the reasoning.
+
+**Hook-based capture (not remembered).** Like update hygiene, refinement is bound to an event,
+not to noticing. The trigger fires whenever an idea *already on the board* is challenged or
+sharpened. Detection signals:
+
+- Operator **pushes back / redirects / corrects**: "why not X", "I'm more interested in Y",
+  "that's not it", "mirror AND improve", a reframe of the goal, or a correction of one of my
+  claims ("we already have X — find it").
+- Operator **adds a constraint or a new angle** to a carded idea ("does it clean up?", "which
+  one when there are multiple?").
+- **I self-correct**: I asserted X, then evidence or the operator showed Y.
+
+On any of these: append one `challenge → sharpened form` line to that card's Refinement trail
+**the same turn, before acting on the new direction** — the append comes first, then the work.
+This is the same discipline as capture-first, scoped to the dialectic. A challenge that changes
+the design but leaves no trail line is a hygiene miss, logged like any other.
 
 Card template:
 
@@ -129,6 +144,7 @@ principle, not more willpower:
 |---|---|
 | Operator sends a message | Capture card(s) + reconcile touched cards BEFORE substantive work — part of reading the message |
 | A tool result reveals a bug / knob / constraint | Card it before continuing — mid-turn finds are the most fragile |
+| Operator challenges / redirects / corrects a carded idea (or I self-correct) | Append a Refinement beat (`challenge → sharpened form`) to that card the same turn, before acting on the new direction |
 | About to write a planning doc | Harvest the relevant cards into the plan (the anti-entropy handoff) |
 | Pre-Deploy Zero-Bugs Gate / README write-back / commit | Reconcile In-progress → Review → Shipped as part of that ritual |
 | Turn end (same self-check as "check your last paragraph") | Move cards, write dispositions, **redeploy the Artifact if anything changed** |

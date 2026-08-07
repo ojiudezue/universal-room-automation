@@ -90,6 +90,14 @@ _(none)_
 - **Why:** face-recognition paging has no URA successor; belongs in perimeter NM, not a revived Phase-1 automation.
 - **Refs:** PLANNING_exterior_person_escalation.md (follow-up).
 
+### KHOST-1 — Homelab-hosted board, generated from KANBAN.md
+- **Thread:** dashboarding/infra · **Origin:** 2026-08-07 "make url live on webhost (homelab) as a new simple page project… design it better… give yourself eyes like playwright so you can iterate the design yourself."
+- **Why:** the Artifact is hand-maintained HTML that can drift from KANBAN.md (the exact anti-pattern this skill warns against). A **generated** board (KANBAN.md → HTML, pure function of the source) can't drift; homelab-hosted = durable, bookmarkable, infra-native.
+- **Design:** generator (pandoc or a small script) KANBAN.md → static board; serve on homelab (follow `~/Code/ura-dashboard-pwa` / gitea-pages pattern; candidate `kanban.phalanxmadrone.com`); auto-rebuild on KANBAN.md change; **Playwright for self-iterated visual design** (node v25 + playwright 1.62 present; needs `npx playwright install chromium`).
+- **Constraints:** the generated page must be a pure function of KANBAN.md (no hand-editing the output — kills the drift anti-pattern); refinement trails + all columns render.
+- **Decisions pending (operator):** hosting mechanism (reuse the PWA/Vercel path vs homelab static via caddy/nginx)? subdomain?
+- **Next:** install playwright chromium; prototype the MD→board generator; screenshot-iterate the design; then wire homelab serve.
+
 ### SECC-1 — Interior cams in the exterior open-tracks diagnostic
 - **Thread:** camera/security · **Origin:** 2026-08-07 "Saw the outside open tracks diagnostic in SecC has interior cameras in it. Mistake?" (dropped for hours; recovered via the kanban — the canonical capture-failure example).
 - **Why:** the exterior open-tracks diagnostic should only reflect perimeter/egress cameras; interior cams appearing there is either a display leak or an observe-scope leak past the allowlist.
