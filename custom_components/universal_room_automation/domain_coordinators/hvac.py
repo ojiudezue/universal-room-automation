@@ -1047,14 +1047,14 @@ class HVACCoordinator(BaseCoordinator):
             self._override_arrester.sunset_immune_holds(
                 reason="max_age_or_boundary",
             )
-            if self._override_arrester.sunset_comfort_override(
+            if self._override_arrester.sunset_temp_arrester_override(
                 reason="max_age_or_boundary",
             ):
-                self._pending_tasks.add(
-                    self.hass.async_create_task(
-                        self._notify_comfort_override_ended("max_age")
-                    )
+                _sunset_task = self.hass.async_create_task(
+                    self._notify_temp_arrester_override_ended("max_age")
                 )
+                self._pending_tasks.add(_sunset_task)
+                _sunset_task.add_done_callback(self._pending_tasks.discard)
         except Exception as e:  # noqa: BLE001
             _LOGGER.warning(
                 "Arrester periodic sunset sweep failed: %s", e,
@@ -1788,6 +1788,24 @@ class HVACCoordinator(BaseCoordinator):
                     and self._egress_manager.is_paused(zone_id)
                 ):
                     continue
+                # MED-A1 (promoted): DPM preset-override apply is a
+                # corrective set_temperature over a zone the operator
+                # may currently be holding manually (immunity) or the
+                # house-wide Temp Arrester Override may be engaged. In
+                # either case the DPM write would overwrite an intent
+                # the operator explicitly asked us to leave alone. Third
+                # shaver: gate here through the same helper as every
+                # other shave path so the "operator holds are
+                # untouchable" claim is complete.
+                _arr = self._override_arrester
+                _gate = getattr(
+                    _arr, "_corrective_writes_suppressed", None,
+                )
+                if _arr is not None and callable(_gate) and _gate(zone_id):
+                    _log = getattr(_arr, "_log_shave_skipped", None)
+                    if callable(_log):
+                        _log(zone.zone_name, zone_id, "dpm_preset_override")
+                    continue
                 zone_overrides = all_overrides.get(zone_id, [])
 
                 # Get baseline from preset manager
@@ -1887,14 +1905,16 @@ class HVACCoordinator(BaseCoordinator):
             self._override_arrester.sunset_immune_holds(
                 reason="durable_state", house_state=new_state,
             )
-            if self._override_arrester.sunset_comfort_override(
+            if self._override_arrester.sunset_temp_arrester_override(
                 reason="durable_state", house_state=new_state,
             ):
-                self._pending_tasks.add(
-                    self.hass.async_create_task(
-                        self._notify_comfort_override_ended("sleep_transition")
+                _sunset_task = self.hass.async_create_task(
+                    self._notify_temp_arrester_override_ended(
+                        "sleep_transition"
                     )
                 )
+                self._pending_tasks.add(_sunset_task)
+                _sunset_task.add_done_callback(self._pending_tasks.discard)
         except Exception as e:  # noqa: BLE001 — never crash signal handler
             _LOGGER.warning(
                 "Arrester sunset processing failed on house-state change: %s",
@@ -1906,12 +1926,12 @@ class HVACCoordinator(BaseCoordinator):
         self._pending_tasks.add(task)
         task.add_done_callback(self._pending_tasks.discard)
 
-    async def _notify_comfort_override_ended(self, reason: str) -> None:
+    async def _notify_temp_arrester_override_ended(self, reason: str) -> None:
         """LOW NM note when Temp Arrester Override auto-sunsets.
 
-        (Internal method name retains ``comfort_override`` for arrester-
-        primitive alignment; operator-visible title uses the ruled name
-        "Temp Arrester Override".)
+        ``reason`` is threaded through unmodified from the sunset caller
+        (e.g. ``sleep_transition``, ``max_age``) — LOW-A4: no more
+        hard-coded reason strings; the arrester tells us why.
         """
         try:
             from ..const import DOMAIN
@@ -1928,10 +1948,10 @@ class HVACCoordinator(BaseCoordinator):
                     f"(reason={reason}); arrester governance resumed "
                     f"house-wide."
                 ),
-                hazard_type="hvac_comfort_override",
+                hazard_type="hvac_temp_arrester_override",
             )
         except Exception as e:  # noqa: BLE001
-            _LOGGER.debug("Comfort Override NM note failed: %s", e)
+            _LOGGER.debug("Temp Arrester Override NM note failed: %s", e)
 
     @callback
     def _handle_energy_constraint(self, constraint: EnergyConstraint) -> None:

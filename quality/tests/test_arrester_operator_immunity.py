@@ -79,6 +79,9 @@ _mods: dict[str, dict] = {
         "async_call_later": MagicMock(return_value=lambda: None),
         "async_track_state_change_event": MagicMock(return_value=lambda: None),
     },
+    "homeassistant.helpers.dispatcher": {
+        "async_dispatcher_send": MagicMock(),
+    },
     "homeassistant.util": {},
     "homeassistant.util.dt": {
         "utcnow": _utcnow_real,
@@ -440,7 +443,7 @@ class TestComfortOverride:
     def test_gate_suppresses_every_shave_site(self, fake_clock):
         """Comfort ON → every shave path skips regardless of user."""
         a = _make_arrester()
-        a.set_comfort_override(True)
+        a.set_temp_arrester_override(True)
         zone = a._zone_manager.zones[ZONE_ID]
 
         # detection path: even a physical dial (no user) is gated
@@ -457,24 +460,24 @@ class TestComfortOverride:
 
     def test_sleep_transition_sunsets(self, fake_clock):
         a = _make_arrester()
-        a.set_comfort_override(True)
-        assert a.sunset_comfort_override(
+        a.set_temp_arrester_override(True)
+        assert a.sunset_temp_arrester_override(
             reason="durable_state", house_state="home_day",
         ) is False
-        assert a.comfort_override_active is True
-        assert a.sunset_comfort_override(
+        assert a.temp_arrester_override_active is True
+        assert a.sunset_temp_arrester_override(
             reason="durable_state", house_state="sleep",
         ) is True
-        assert a.comfort_override_active is False
+        assert a.temp_arrester_override_active is False
 
     def test_max_age_sunsets(self, fake_clock):
         a = _make_arrester()
-        a.set_comfort_override(True)
+        a.set_temp_arrester_override(True)
         fake_clock.advance(COMFORT_OVERRIDE_MAX_S - 60)
-        assert a.sunset_comfort_override(reason="max_age") is False
+        assert a.sunset_temp_arrester_override(reason="max_age") is False
         fake_clock.advance(120)
-        assert a.sunset_comfort_override(reason="max_age") is True
-        assert a.comfort_override_active is False
+        assert a.sunset_temp_arrester_override(reason="max_age") is True
+        assert a.temp_arrester_override_active is False
 
     def test_restart_leaves_off(self):
         """Post-restart, a freshly-constructed arrester has Comfort OFF
@@ -482,10 +485,10 @@ class TestComfortOverride:
         persist. This test just pins the invariant on the arrester
         primitive itself."""
         a = _make_arrester()
-        assert a.comfort_override_active is False
+        assert a.temp_arrester_override_active is False
         # Even if user was mid-ON before restart, the new object has no
         # trace of it (nothing is serialized in the arrester).
-        assert a._comfort_override_started_ts is None
+        assert a._temp_arrester_override_started_ts is None
 
 
 # ===========================================================================
@@ -535,3 +538,105 @@ class TestFailOpenContract:
         a._handle_climate_change(ev)
         assert ZONE_ID in a._grace_timers
         assert ZONE_ID not in a._immune_holds
+
+
+# ===========================================================================
+# Fix-up 2026-08-06: dormant-default, boundary parse, rename, gates
+# ===========================================================================
+
+class TestDormantDefault:
+    """CRIT-A1 fix: alphabetical seeding is deleted. Explicit-empty
+    list must land as `[]` on the arrester (no silent fallback)."""
+
+    def test_explicit_empty_list_is_dormant(self):
+        a = _make_arrester(immune=())
+        assert a._immune_persons == []
+
+    def test_none_arg_is_dormant(self):
+        a = _make_arrester()
+        a.set_immune_persons(None)
+        assert a._immune_persons == []
+
+    def test_dormant_arrester_shaves_operator_hold(self, fake_clock):
+        """The whole point of CRIT-A1: with an empty immune list,
+        the operator's own hold IS shaved (byte-identical to pre-cycle)."""
+        a = _make_arrester(immune=())
+        ev = _make_event(user_id=OPERATOR_USER)
+        a._handle_climate_change(ev)
+        assert ZONE_ID not in a._immune_holds
+        assert ZONE_ID in a._grace_timers
+
+
+class TestNextActivityBoundaryParse:
+    """MED-A3: next_activity_time may be ISO-8601 OR bare 'HH:MM'."""
+
+    def test_iso_format_parses(self, fake_clock):
+        a = _make_arrester()
+        raw = "2026-08-06T18:00:00"
+        parsed = a._parse_next_activity(raw)
+        assert parsed is not None and parsed.hour == 18
+
+    def test_hhmm_future_today(self, fake_clock):
+        # fake_clock is 14:00 local; 18:00 is later today.
+        a = _make_arrester()
+        parsed = a._parse_next_activity("18:00")
+        assert parsed is not None
+        assert parsed.hour == 18 and parsed.minute == 0
+
+    def test_hhmm_past_rolls_tomorrow(self, fake_clock):
+        # fake_clock is 14:00; 09:00 is past today → tomorrow 09:00.
+        a = _make_arrester()
+        now_local = a._parse_next_activity("18:00")  # sentinel today
+        parsed = a._parse_next_activity("09:00")
+        assert parsed is not None
+        assert parsed.hour == 9
+        # date is tomorrow-vs-today: parsed > now (fake clock)
+        assert parsed > now_local.replace(hour=14, minute=0)
+
+    def test_garbage_returns_none(self, fake_clock):
+        a = _make_arrester()
+        assert a._parse_next_activity("garbage") is None
+        assert a._parse_next_activity("25:99") is None
+        assert a._parse_next_activity("") is None
+
+
+class TestGetStatsRenameCompleteness:
+    """B-M3: get_stats keys use temp_arrester_override_* (rename complete)."""
+
+    def test_temp_arrester_override_keys_present(self, fake_clock):
+        a = _make_arrester()
+        stats = a.get_arrester_detail()
+        assert "temp_arrester_override_active" in stats
+        assert "temp_arrester_override_suppressed_since" in stats
+        # And the old names are GONE (rename complete, no aliases).
+        assert "comfort_override_active" not in stats
+        assert "comfort_override_suppressed_since" not in stats
+
+
+class TestVoiceContextDiscriminator:
+    """HIGH-A1 (operator ruled False as default 2026-08-06). Voice
+    pipelines are approximated by non-None parent_id; direct UI /
+    physical calls have parent_id=None and remain eligible."""
+
+    def test_immune_when_parent_id_none(self, fake_clock):
+        a = _make_arrester()
+        ev = _make_event(user_id=OPERATOR_USER)  # parent_id absent → None
+        a._handle_climate_change(ev)
+        assert ZONE_ID in a._immune_holds
+
+    def test_not_immune_when_parent_id_set(self, fake_clock, monkeypatch):
+        """A context with a non-None parent_id (assist/automation chain)
+        must NOT stamp immunity when ARRESTER_IMMUNITY_VOICE_CONTEXTS
+        is False (the shipped default)."""
+        # Guard: skip if a future revision flips the constant permissive.
+        if hvac_const.ARRESTER_IMMUNITY_VOICE_CONTEXTS:
+            pytest.skip("permissive const — parent_id gate disabled")
+        a = _make_arrester()
+        ev = _make_event(user_id=OPERATOR_USER)
+        ev.context = types.SimpleNamespace(
+            user_id=OPERATOR_USER, parent_id="some-pipeline-context-id",
+        )
+        a._handle_climate_change(ev)
+        assert ZONE_ID not in a._immune_holds
+        # Falls through to shave — severe delta scheduled.
+        assert ZONE_ID in a._grace_timers

@@ -173,6 +173,11 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     # option at init so a config-entry reload doesn't reset the master
     # to DEFAULT=False (operator-reported regression 2026-08-06).
     "hvac_ac_ramp_master_enabled",
+    # Arrester operator-immunity fix-up (2026-08-06): live-tunable
+    # immune-person list; write-through calls set_immune_persons().
+    "hvac_arrester_immune_persons",
+    # Temp Arrester Override marker (B-M2): switch write-through key.
+    "hvac_temp_arrester_override_was_active",
 }
 
 
@@ -292,7 +297,12 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     # +1 CONF_ENERGY_SOLAR_NAMEPLATE_W (LKG wave 1 D2, 2026-07-24) -> 84
     # +1 CONF_HVAC_AC_RAMP_MASTER_ENABLED (Arrester operator-immunity
     #    cycle 2026-08-06: reload-safe persistence for the ramp master) -> 85
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 85
+    # +1 CONF_HVAC_ARRESTER_IMMUNE_PERSONS (fix-up 2026-08-06: live-tunable
+    #    immune-person list via set_immune_persons in _apply_in_place) -> 86
+    # +1 hvac_temp_arrester_override_was_active (fix-up 2026-08-06:
+    #    marker option so an unrelated reload doesn't silently drop the
+    #    operator's engagement without a signal) -> 87
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 87
 
 
 # ---------------------------------------------------------------------------
@@ -425,6 +435,10 @@ def _load_init_dispatch_namespace() -> dict:
         # option-persistence key (reload-safe path). Added to
         # OPTIONS_RELOAD_SUPPRESS_KEYS to prevent write-through reload loop.
         "_CONF_HVAC_AC_RAMP_MASTER_ENABLED":       "hvac_ac_ramp_master_enabled",
+        # Arrester operator-immunity fix-up (2026-08-06): live-tunable
+        # immune-person list; wired via set_immune_persons in
+        # _apply_in_place, so this shim mapping must be honoured.
+        "_CONF_HVAC_ARRESTER_IMMUNE_PERSONS":      "hvac_arrester_immune_persons",
         # v5.21.0 fix-up (SECOND OPERATOR ADDITION 2026-07-17) — D2 knobs.
         "_CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP": "energy_soc_divergence_threshold_pp",
         "_CONF_ENERGY_SOC_DIVERGENCE_DWELL_MIN":    "energy_soc_divergence_dwell_min",

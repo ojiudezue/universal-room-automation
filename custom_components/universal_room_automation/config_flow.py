@@ -4760,6 +4760,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_FAN_HYSTERESIS,
             DEFAULT_FAN_MIN_RUNTIME,
             CONF_HVAC_ARRESTER_ENABLED,
+            CONF_HVAC_ARRESTER_IMMUNE_PERSONS,
             DEFAULT_ARRESTER_ENABLED,
             CONF_HVAC_AC_RESET_ENABLED,
             DEFAULT_AC_RESET_ENABLED,
@@ -5153,9 +5154,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             # multiple=True). Guests / kids / physical dial holds
             # continue to be governed normally.
             vol.Optional(
-                "hvac_arrester_immune_persons",
+                CONF_HVAC_ARRESTER_IMMUNE_PERSONS,
                 default=self._get_current(
-                    "hvac_arrester_immune_persons", [],
+                    CONF_HVAC_ARRESTER_IMMUNE_PERSONS, [],
                 ),
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(

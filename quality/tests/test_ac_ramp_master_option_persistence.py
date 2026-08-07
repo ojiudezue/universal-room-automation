@@ -56,6 +56,9 @@ _mods = {
         "async_call_later": MagicMock(return_value=lambda: None),
         "async_track_state_change_event": MagicMock(return_value=lambda: None),
     },
+    "homeassistant.helpers.dispatcher": {
+        "async_dispatcher_send": MagicMock(),
+    },
     "homeassistant.util": {},
     "homeassistant.util.dt": {
         "utcnow": lambda: datetime.now(timezone.utc),

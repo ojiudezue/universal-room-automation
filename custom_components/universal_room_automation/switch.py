@@ -2017,32 +2017,75 @@ class HVACTempArresterOverrideSwitch(SwitchEntity):
         arrester = self._get_arrester()
         if arrester is None:
             return False
-        return arrester.comfort_override_active
+        return arrester.temp_arrester_override_active
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         arrester = self._get_arrester()
         if arrester is None:
             return {}
+        started = arrester.temp_arrester_override_started_ts
         return {
             "suppressed_since": (
-                arrester._comfort_override_started_ts.isoformat()
-                if arrester._comfort_override_started_ts is not None
-                else None
+                started.isoformat() if started is not None else None
             ),
         }
+
+    def _persist_marker(self, value: bool) -> None:
+        """B-M2: persist marker option so an unrelated reload doesn't
+        silently drop the operator's engagement without any signal.
+
+        On next setup, __init__.async_setup_entry reads the marker and
+        (if True) fires a LOW NM note explaining the override was
+        released to default-OFF, then clears the marker.
+        """
+        try:
+            new_options = {
+                **self._entry.options,
+                "hvac_temp_arrester_override_was_active": value,
+            }
+            self.hass.config_entries.async_update_entry(
+                self._entry, options=new_options,
+            )
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "Temp Arrester Override marker persist failed (%s): %s",
+                value, e,
+            )
 
     async def async_turn_on(self, **kwargs) -> None:
         arrester = self._get_arrester()
         if arrester is not None:
-            arrester.set_comfort_override(True)
+            arrester.set_temp_arrester_override(True)
+            self._persist_marker(True)
             self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs) -> None:
         arrester = self._get_arrester()
         if arrester is not None:
-            arrester.set_comfort_override(False)
+            arrester.set_temp_arrester_override(False)
+            self._persist_marker(False)
             self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to the dedicated dispatcher signal (B-H2)."""
+        await super().async_added_to_hass()
+        from .domain_coordinators.hvac_const import (
+            SIGNAL_HVAC_TEMP_ARRESTER_OVERRIDE_UPDATE,
+        )
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+
+        @callback
+        def _handle_update() -> None:
+            self.async_write_ha_state()
+
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_HVAC_TEMP_ARRESTER_OVERRIDE_UPDATE,
+                _handle_update,
+            )
+        )
 
 
 class HVACACResetSwitch(SwitchEntity, RestoreEntity):
@@ -3567,6 +3610,12 @@ class HVACACRampMasterSwitch(SwitchEntity, RestoreEntity):
                 # No prior state, no option — default OFF is truth.
                 return
             target = last_state.state == "on"
+            # MED-A5 caveat 1: one-shot migration — copy the clean
+            # RestoreEntity on/off into the option so the NEXT reload
+            # doesn't lose the value through the RestoreEntity==unavailable
+            # gap. Guarded: if the write fails, we still applied `target`
+            # to the arrester below.
+            self._persist_master_option(target)
         arr = self._get_arrester()
         if arr is not None:
             # Fast path: HVAC coord already registered (arrester available).
