@@ -73,9 +73,17 @@ cards:
   - id: RESACC-1
     title: Resolver accuracy test suite
     thread: resolver
-    status: pre_planning
+    status: in_progress
+    batch: resolver-correctness
+    seq: 1
     approval: implied
     tags: [hand-build-fixture, measure-before-build, no-fabrication-verify]
+    progress:
+      - "2026-08-07: hand-built ground-truth fixture from live registry (86 detection sensors, 20 multi-engine cameras) -> AUDIT_resolver_ground_truth_manual.md"
+    findings:
+      - "A-1 (confirmed): armcrestash41b (F1 armcrest) not in EXTERIOR_CAMERA_KEY_ALIASES and not a _N strip -> does NOT collapse to camera-key armcrest. Pre-sunset recall/precision gap; self-resolves at F1-SUNSET. Ties to F1-SUNSET."
+      - "A-2 (confirmed): armcrest area conflict - dahua leg area=balcony vs frigate area=pool; room attribution is non-deterministic if it takes first-leg area. Canonical=pool."
+      - "A-3 (HIGH, confirmed mechanism): resolve_area_id_for_entity resolves ONE entity's area (entity->device fallback) with NO cross-leg fallback. Frigate exterior legs all area=None; if room keys off the Frigate primary leg, ALL exterior cameras are roomless -> degrades census/transit. Verify which leg's area wins; fix = prefer non-None leg / camera entity area."
     origin: {date: 2026-08-07, gist: "much more interested in accuracy of the task of the resolver; accuracy means alerting will be better"}
     why: the resolver feeds census + transit + perimeter; one accuracy suite validates all three
     design:
