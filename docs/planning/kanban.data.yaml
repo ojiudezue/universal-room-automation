@@ -479,7 +479,7 @@ cards:
 - id: SECC-1
   title: Interior cams in the exterior open-tracks diagnostic
   thread: security
-  status: pre_planning
+  status: review
   approval: explicit
   tags:
   - no-fabrication-verify
@@ -507,6 +507,29 @@ cards:
     Phantom exterior tracks for interior movement.'
   fix: restrict linker allowed_cameras (set_allowed_cameras) to perimeter/egress only; observe() must
     drop off-list cams into ignored_offlist_events. Verify why interior cams are on the allowlist.
+  finding_ROOT_CAUSE_CORRECTED: 'VERIFIED 2026-08-07 (Review A CRIT-A1, orchestrator-confirmed): the allowlist
+    has NEVER been installed on any boot. set_allowed_cameras has exactly ONE caller (perimeter_alert.py:385)
+    inside PerimeterAlertManager.async_setup(), guarded by `hass.data[DOMAIN].get(''exterior_track_linker'')
+    is not None`. But __init__.py runs perimeter_alert.async_setup() at line 2414 and only registers the
+    linker in hass.data at line 2451 - 37 lines LATER. So _linker is always None and the install is silently
+    skipped. SIGNAL_EXTERIOR_LINKER_READY fires at 2450 but PerimeterAlertManager does NOT subscribe (only
+    switch.py:5705 does). => The real root cause of interior-camera leakage is a SETUP-ORDERING bug (dead
+    install), not the fail-open branch. My earlier diagnosis stopped one ''why'' short: I saw ignored_offlist_events
+    EMPTY + interior tracks and concluded ''the allowlist admits them'' instead of asking WHY the allowlist
+    was empty.'
+  fix_REVISED:
+  - 'MUST make the install actually happen: either subscribe PerimeterAlertManager to SIGNAL_EXTERIOR_LINKER_READY
+    and install there, or reorder __init__ (linker before perimeter_alert), or re-run the install after
+    linker registration.'
+  - Fail-closed is only SAFE once the install is guaranteed - shipping fail-closed with a dead install
+    would have turned 'admit everything' into 'REJECT EVERYTHING' = exterior tracking silently dead house-wide.
+  - 'Close the bootstrap window: allowlist must be set BEFORE the linker subscribes to frigate_events
+    (or linker defers observation until allowlist installed), else real perimeter events are dropped at
+    boot.'
+  - Add a test that drives the REAL setup ordering (not a fixture that injects the allowlist directly)
+    - the current tests pass because fixtures install it by hand.
+  bug_class: '#33 coordinator-setup ORDERING - hass.data sibling lookup inside async_setup with no READY-signal
+    fallback; the guard silently no-ops'
 - id: RELOAD-WATCHDOG-HAZARD
   title: URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
   thread: lifecycle
