@@ -237,6 +237,37 @@ class HVACCoordinator(BaseCoordinator):
             except Exception:  # noqa: BLE001
                 pass
         self._override_arrester.set_on_sunset_notify(_fire_sunset_note)
+
+        # OVERRIDE-NOTIFY-1 (2026-08-08, operator-approved): pre-warn +
+        # defer NM notes so the operator can re-engage before the auto-
+        # release. Wrap both as background tasks (arrester calls the cb
+        # sync from its timer / state-transition path).
+        def _fire_expiry_warn_note(remaining_minutes: int) -> None:
+            try:
+                _t = self.hass.async_create_task(
+                    self._notify_temp_arrester_override_expiring(
+                        remaining_minutes
+                    )
+                )
+                self._pending_tasks.add(_t)
+                _t.add_done_callback(self._pending_tasks.discard)
+            except Exception:  # noqa: BLE001
+                pass
+
+        def _fire_defer_note(remaining_minutes: int) -> None:
+            try:
+                _t = self.hass.async_create_task(
+                    self._notify_temp_arrester_override_deferred(
+                        remaining_minutes
+                    )
+                )
+                self._pending_tasks.add(_t)
+                _t.add_done_callback(self._pending_tasks.discard)
+            except Exception:  # noqa: BLE001
+                pass
+
+        self._override_arrester.set_on_expiry_warn_notify(_fire_expiry_warn_note)
+        self._override_arrester.set_on_defer_notify(_fire_defer_note)
         # AC-ramp master seed from CM option (reload-safe path). If
         # None is passed, retain the arrester's DEFAULT (False) so
         # fresh installs with no persisted option behave as before.
@@ -1963,6 +1994,68 @@ class HVACCoordinator(BaseCoordinator):
             )
         except Exception as e:  # noqa: BLE001
             _LOGGER.debug("Temp Arrester Override NM note failed: %s", e)
+
+    async def _notify_temp_arrester_override_expiring(
+        self, remaining_minutes: int,
+    ) -> None:
+        """LOW NM note: Temp Arrester Override auto-release approaching.
+
+        OVERRIDE-NOTIFY-1 (2026-08-08): fires ~ARRESTER_OVERRIDE_EXPIRY_
+        WARN_S seconds before COMFORT_OVERRIDE_MAX_S so the operator has
+        time to re-engage.
+        """
+        try:
+            from ..const import DOMAIN
+            nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+            if nm is None:
+                return
+            from .base import Severity
+            await nm.async_notify(
+                coordinator_id="hvac",
+                severity=Severity.LOW,
+                title="Temp Arrester Override expiring soon",
+                message=(
+                    f"Temp Arrester Override will auto-release in "
+                    f"~{remaining_minutes} minute(s); re-engage if still "
+                    f"needed."
+                ),
+                hazard_type="hvac_temp_arrester_override",
+            )
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "Temp Arrester Override expiry-warn NM note failed: %s", e,
+            )
+
+    async def _notify_temp_arrester_override_deferred(
+        self, remaining_minutes: int,
+    ) -> None:
+        """LOW NM note: an invalidating state transition deferred the sunset.
+
+        OVERRIDE-NOTIFY-1 (2026-08-08): the MIN_LIFE grace held the
+        sunset for the remaining grace window; the override will end at
+        the end of that window (~N minutes from now).
+        """
+        try:
+            from ..const import DOMAIN
+            nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+            if nm is None:
+                return
+            from .base import Severity
+            await nm.async_notify(
+                coordinator_id="hvac",
+                severity=Severity.LOW,
+                title="Temp Arrester Override ending soon (context changed)",
+                message=(
+                    f"House state changed while Temp Arrester Override was "
+                    f"active; override will end in ~{remaining_minutes} "
+                    f"minute(s) once the MIN_LIFE grace elapses."
+                ),
+                hazard_type="hvac_temp_arrester_override",
+            )
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "Temp Arrester Override defer NM note failed: %s", e,
+            )
 
     @callback
     def _handle_energy_constraint(self, constraint: EnergyConstraint) -> None:

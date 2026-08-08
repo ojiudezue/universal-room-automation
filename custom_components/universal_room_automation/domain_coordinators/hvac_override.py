@@ -35,6 +35,7 @@ from .hvac_const import (
     AC_NUDGE_OVERSHOOT_GAP,
     ARRESTER_IMMUNE_HOLD_MAX_S,
     ARRESTER_IMMUNITY_VOICE_CONTEXTS,
+    ARRESTER_OVERRIDE_EXPIRY_WARN_S,
     ARRESTER_OVERRIDE_MIN_LIFE_S,
     COMFORT_OVERRIDE_MAX_S,
     DURABLE_HOUSE_STATES,  # legacy, kept for import graph; do NOT read here
@@ -305,11 +306,21 @@ class OverrideArrester:
         # per fire (guarded by the release branch's own idempotency, so
         # sweep + timer cannot double-notify for one engagement).
         self._on_sunset_notify: Any = None
+        # OVERRIDE-NOTIFY-1 (2026-08-08): pre-warn + deferral callbacks
+        # + async_call_later unsub for the pre-warn timer. Both callbacks
+        # are optional (HVACCoordinator registers them at construction);
+        # unregistered callbacks are silently skipped.
+        self._on_expiry_warn_notify: Any = None
+        self._on_defer_notify: Any = None
+        self._temp_arrester_override_expiry_warn_unsub: Any = None
         # Dedup per engagement — an engagement_id ticks on every OFF→ON
         # so a stale scheduled notification cannot cross-fire against a
         # subsequent engagement.
         self._temp_arrester_override_engagement_id: int = 0
         self._last_notified_engagement_id: int = -1
+        # OVERRIDE-NOTIFY-1: per-engagement dedup for the pre-warn note
+        # so a re-scheduled or duplicate fire cannot double-notify.
+        self._last_expiry_warned_engagement_id: int = -1
 
     # -------------------------------------------------------------------------
     # Arrester Operator-Immunity — public wiring (called by HVACCoordinator)
@@ -650,6 +661,64 @@ class OverrideArrester:
                 "Temp Arrester Override dispatcher send failed: %s", e,
             )
 
+    def set_on_expiry_warn_notify(self, cb) -> None:
+        """Register the pre-warn NM-note callback (OVERRIDE-NOTIFY-1).
+
+        Fired once per engagement, ~ARRESTER_OVERRIDE_EXPIRY_WARN_S seconds
+        before the COMFORT_OVERRIDE_MAX_S auto-release. Callback signature:
+        ``cb(remaining_minutes: int) -> None`` (may be sync or return a
+        coroutine — HVACCoordinator wraps it as a task).
+        """
+        self._on_expiry_warn_notify = cb
+
+    def set_on_defer_notify(self, cb) -> None:
+        """Register the deferral NM-note callback (OVERRIDE-NOTIFY-1).
+
+        Fired at the moment a state-transition sunset is DEFERRED by the
+        MIN_LIFE grace: transitions are not schedulable so an immediate
+        "ends in ~N minutes" note is the correct analogue of a 5-min pre-
+        warn. Signature: ``cb(remaining_minutes: int) -> None``.
+        """
+        self._on_defer_notify = cb
+
+    def _cancel_expiry_warn_timer(self) -> None:
+        """Cancel the pre-warn async_call_later, if any."""
+        unsub = self._temp_arrester_override_expiry_warn_unsub
+        self._temp_arrester_override_expiry_warn_unsub = None
+        if unsub is None:
+            return
+        try:
+            unsub()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "Temp Arrester Override: expiry-warn timer unsub raised",
+                exc_info=True,
+            )
+
+    @callback
+    def _expiry_warn_timer_cb(self, _now: Any) -> None:
+        """One-shot pre-warn callback — fires the NM note if still armed."""
+        self._temp_arrester_override_expiry_warn_unsub = None
+        if not self._temp_arrester_override_active:
+            return
+        eng_id = self._temp_arrester_override_engagement_id
+        if eng_id == self._last_expiry_warned_engagement_id:
+            return
+        self._last_expiry_warned_engagement_id = eng_id
+        cb = self._on_expiry_warn_notify
+        if cb is None:
+            return
+        try:
+            remaining_min = max(
+                1, int(round(ARRESTER_OVERRIDE_EXPIRY_WARN_S / 60))
+            )
+            cb(remaining_min)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "Temp Arrester Override: expiry-warn callback raised",
+                exc_info=True,
+            )
+
     def set_on_sunset_notify(self, cb) -> None:
         """Register a callback fired once per sunset with the reason string.
 
@@ -679,6 +748,9 @@ class OverrideArrester:
             # scheduled against the previous engagement's started_ts.
             self._temp_arrester_override_pending_sunset = None
             self._cancel_pending_sunset_timer()
+            # OVERRIDE-NOTIFY-1: any prior pre-warn timer from a stale
+            # engagement must not carry forward into this fresh one.
+            self._cancel_expiry_warn_timer()
             self._temp_arrester_override_started_ts = dt_util.now()
             self._temp_arrester_override_engagement_id += 1
             _LOGGER.info(
@@ -687,6 +759,28 @@ class OverrideArrester:
                 "%ds max-age)",
                 COMFORT_OVERRIDE_MAX_S,
             )
+            # OVERRIDE-NOTIFY-1: schedule the pre-warn one-shot at
+            # (max_age - warn_lead). Kill-switch: warn_s == 0 disables.
+            # Also skipped when warn_s >= max_age (misconfigured pair —
+            # the warn would fire immediately or never, both useless).
+            if (
+                ARRESTER_OVERRIDE_EXPIRY_WARN_S > 0
+                and COMFORT_OVERRIDE_MAX_S > ARRESTER_OVERRIDE_EXPIRY_WARN_S
+            ):
+                delay = (
+                    COMFORT_OVERRIDE_MAX_S - ARRESTER_OVERRIDE_EXPIRY_WARN_S
+                )
+                try:
+                    self._temp_arrester_override_expiry_warn_unsub = (
+                        async_call_later(
+                            self.hass, delay, self._expiry_warn_timer_cb,
+                        )
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "Temp Arrester Override: expiry-warn timer "
+                        "schedule failed", exc_info=True,
+                    )
         else:
             self._temp_arrester_override_started_ts = None
             # Clear any pending deferred-sunset obligation + timer so a
@@ -694,6 +788,9 @@ class OverrideArrester:
             # engagement of the override later.
             self._temp_arrester_override_pending_sunset = None
             self._cancel_pending_sunset_timer()
+            # OVERRIDE-NOTIFY-1: manual OFF must cancel the pending
+            # pre-warn timer so it cannot fire against a released override.
+            self._cancel_expiry_warn_timer()
             _LOGGER.info("Temp Arrester Override RELEASED")
         self._fire_temp_arrester_override_update()
 
@@ -798,6 +895,24 @@ class OverrideArrester:
                             "schedule failed — sweep will backstop",
                             exc_info=True,
                         )
+                    # OVERRIDE-NOTIFY-1: immediate NM note on deferral.
+                    # Transitions are NOT schedulable so the analogue of
+                    # the pre-warn is an immediate "ends in ~N min" note
+                    # computed from the remaining grace. Cancel the
+                    # pre-warn timer — the deferral discharges BEFORE
+                    # max-age so a subsequent pre-warn fire would be
+                    # confusing (override already released by then).
+                    self._cancel_expiry_warn_timer()
+                    cb_defer = self._on_defer_notify
+                    if cb_defer is not None:
+                        try:
+                            remaining_min = max(1, int(round(remaining / 60)))
+                            cb_defer(remaining_min)
+                        except Exception:  # noqa: BLE001
+                            _LOGGER.debug(
+                                "Temp Arrester Override: defer callback raised",
+                                exc_info=True,
+                            )
                 else:
                     _LOGGER.debug(
                         "Temp Arrester Override: transition into %s ignored "
@@ -827,6 +942,10 @@ class OverrideArrester:
             # Clear any pending deferred-sunset obligation + timer.
             self._temp_arrester_override_pending_sunset = None
             self._cancel_pending_sunset_timer()
+            # OVERRIDE-NOTIFY-1: cancel the pending pre-warn so it
+            # cannot fire after release (all sunset paths, including
+            # sweep + timer-precise discharge + max-age, converge here).
+            self._cancel_expiry_warn_timer()
             self._fire_temp_arrester_override_update()
             # F8 (2026-08-07 fix-up cycle-4): notify the operator via NM
             # regardless of which path (sweep / state-change / timer)
@@ -1301,6 +1420,11 @@ class OverrideArrester:
         # no-op (its `_temp_arrester_override_active` guard trips).
         try:
             self._cancel_pending_sunset_timer()
+        except Exception:  # noqa: BLE001
+            pass
+        # OVERRIDE-NOTIFY-1: same discipline for the pre-warn timer.
+        try:
+            self._cancel_expiry_warn_timer()
         except Exception:  # noqa: BLE001
             pass
         self._temp_arrester_override_pending_sunset = None

@@ -450,3 +450,134 @@ def test_perimeter_alert_boot_sanity_warns_on_empty_allowlist(caplog):
         "linker was present post-setup but its allowlist stayed empty. "
         f"Records seen: {[r.getMessage() for r in caplog.records]!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# BOOTSANITY-1 (2026-08-08): the ONLY guard that fires on real cold-boot
+# ordering (linker registered AFTER PerimeterAlertManager.async_setup)
+# lives in the READY-signal callback, NOT at the end of async_setup. The
+# following two tests pin that. Mutation drills documented inline.
+# ---------------------------------------------------------------------------
+
+
+def test_bootsanity1_ready_path_warns_when_set_allowed_is_noop(caplog):
+    """BOOTSANITY-1: linker ABSENT at async_setup time (real cold boot),
+    then registers, READY callback fires — but set_allowed_cameras is a
+    silent no-op (SECC-1 class regression). Production must emit a
+    WARNING from the READY callback path.
+
+    Mutation drill: delete the ``if not getattr(_lk, "_allowed_cameras",
+    None): _LOGGER.warning(...)`` block inside ``_install_on_ready`` in
+    perimeter_alert.py -> this test goes RED. (End-of-setup guard cannot
+    fire in this scenario — linker was None then.)
+    """
+    import logging as _logging
+    from custom_components.universal_room_automation.const import DOMAIN
+    from custom_components.universal_room_automation.domain_coordinators.signals import (
+        SIGNAL_EXTERIOR_LINKER_READY,
+    )
+
+    # Setup with NO linker in hass.data (cold-boot ordering).
+    mgr, hass, captured = _build_manager_captured(existing_linker=None)
+    cbs = captured.get(SIGNAL_EXTERIOR_LINKER_READY) or []
+    assert cbs, "async_setup did not subscribe to READY"
+
+    class _BrokenLinker:
+        _allowed_cameras: set = set()
+        _allowlist_installed: bool = False
+
+        def set_allowed_cameras(self, cams):
+            return  # silent no-op — SECC-1 shape
+
+    broken = _BrokenLinker()
+    hass.data[DOMAIN]["exterior_track_linker"] = broken
+
+    with caplog.at_level(
+        _logging.WARNING,
+        logger="custom_components.universal_room_automation.perimeter_alert",
+    ):
+        for cb in cbs:
+            cb()
+
+    hits = [r for r in caplog.records
+            if "SECC-1" in r.getMessage() and r.levelno >= _logging.WARNING]
+    assert hits, (
+        "BOOTSANITY-1 regression: READY-path sanity WARNING did not fire "
+        "when set_allowed_cameras returned but the allowlist stayed empty. "
+        f"Records seen: {[r.getMessage() for r in caplog.records]!r}"
+    )
+
+
+def test_bootsanity1_diagnostic_sensor_exposes_allowlist_state():
+    """BOOTSANITY-1: ExteriorOpenTracksDiagnosticSensor.extra_state_attributes
+    must expose ``allowlist_installed`` (bool) and ``allowlist_camera_count``
+    (int) sourced from the live linker. This is the LIVE observable that
+    proves the install succeeded (log WARNING is silence-on-success).
+
+    Mutation drill: remove either attribute from the sensor's attrs dict
+    -> this test goes RED.
+    """
+    import importlib.util as _il3
+    import types as _types
+
+    # Ensure sensor.py deps are stubbed enough to source-load it.
+    for _n, _a in {
+        "homeassistant.helpers.restore_state": {"RestoreEntity": object},
+        "homeassistant.helpers.entity": {"DeviceInfo": dict,
+                                          "EntityCategory": MagicMock()},
+        "homeassistant.helpers.entity_platform": {
+            "AddEntitiesCallback": MagicMock(),
+        },
+        "homeassistant.components.sensor": {
+            "SensorEntity": object, "SensorStateClass": MagicMock(),
+            "SensorDeviceClass": MagicMock(),
+        },
+        "homeassistant.components.binary_sensor": {
+            "BinarySensorEntity": object,
+        },
+        "homeassistant.config_entries": {"ConfigEntry": object},
+        "homeassistant.const": {"PERCENTAGE": "%", "UnitOfEnergy": MagicMock(),
+                                 "UnitOfPower": MagicMock(),
+                                 "UnitOfTemperature": MagicMock(),
+                                 "STATE_ON": "on", "STATE_OFF": "off",
+                                 "STATE_UNAVAILABLE": "unavailable",
+                                 "STATE_UNKNOWN": "unknown",
+                                 "EntityCategory": MagicMock()},
+    }.items():
+        existing = sys.modules.get(_n)
+        if existing is None:
+            sys.modules[_n] = _mock(_n, **_a)
+        else:
+            for _k, _v in _a.items():
+                if not hasattr(existing, _k):
+                    setattr(existing, _k, _v)
+
+    # We DO NOT source-load the whole sensor.py (heavy). Instead we test
+    # the load-bearing attribute-computation snippet on a fake linker via
+    # a direct call to the property body. To avoid duplicating logic, we
+    # exercise the linker end and inline-mirror the two attrs the way the
+    # property builds them -- BUT to guard against attribute-name drift
+    # we ALSO grep the sensor source to prove the attrs are wired there.
+    src = (
+        REPO_ROOT
+        / "custom_components/universal_room_automation/sensor.py"
+    ).read_text()
+    assert '"allowlist_installed"' in src, (
+        "BOOTSANITY-1 regression: sensor.py does not expose "
+        "allowlist_installed attribute"
+    )
+    assert '"allowlist_camera_count"' in src, (
+        "BOOTSANITY-1 regression: sensor.py does not expose "
+        "allowlist_camera_count attribute"
+    )
+
+    # Now drive the REAL linker's public state to prove the values the
+    # sensor reads flip correctly on install.
+    lk = _fresh_linker()
+    # Before install
+    assert lk._allowlist_installed is False
+    assert len(lk._allowed_cameras) == 0
+    # After install
+    lk.set_allowed_cameras({"cam_a", "cam_b", "cam_c"})
+    assert lk._allowlist_installed is True
+    assert len(lk._allowed_cameras) == 3
