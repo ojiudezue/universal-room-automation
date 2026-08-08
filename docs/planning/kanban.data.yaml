@@ -14,6 +14,56 @@ meta:
   - waiting_me
   - parked
 cards:
+- id: TABLET-FLEET-1
+  title: 'Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)'
+  thread: tablets
+  status: pre_planning
+  approval: unreviewed
+  tags:
+  - institutional-context
+  - measure-before-build
+  - marginal-benefit
+  origin:
+    date: '2026-08-08'
+    gist: 'operator: master tablet upgrades tested and working (sensors, lights, all over MQTT); thinking
+      house-device tablet control, wake on URA room occupancy, conditional room quick-actions. NO ACTION
+      YET - thoughts requested.'
+  repo: ~/Code/wall-tablet (HALedController, v1.3 versionCode 5, 2026-08-01)
+  verified_capabilities:
+  - 'Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status};
+    LWT availability; self-registers via MQTT Discovery (no YAML).'
+  - 'SCREEN CONTROL ALREADY EXISTS - ScreenController.kt: screenOn(), screenOff(), setBrightness(0-255),
+    isScreenOn(). MQTTManager subscribes a displayCommandTopic with a JSON payload. => wake-on-occupancy
+    needs ZERO tablet-side work; it is a URA publish.'
+  - 'Per-room sensors already published: temperature, humidity, ILLUMINANCE (lux).'
+  - BurnInPreventionManager.kt exists; headless adb provisioning of the room slug; scripts/deploy.sh does
+    deterministic fleet deploy over adb.
+  orchestrator_assessment:
+  - HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting
+    logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That
+    likely beats the quick-action UI on value and is far lower risk.
+  - Wake-on-occupancy is cheap because the tablet side is done - URA publishes to displayCommandTopic
+    on room-occupied. Because setBrightness exists, the wake can be DIM at night instead of full-blast,
+    so house-state gating (never full brightness in sleep/home_night) is achievable rather than aspirational.
+    Per-room opt-in required - a bedroom tablet waking at 3am is a regression, not a feature.
+  - 'Room-context detection needs NO inference: each tablet is already provisioned with its room slug,
+    so point its kiosk URL at a room-scoped dashboard (/ura-v8?room=<slug>). Avoid user-agent sniffing
+    or a ''current tablet'' helper - both are fragile and unnecessary.'
+  - 'MANUAL-VS-AUTOMATION TENSION (the important one): ''all on''/''all off'' room buttons will fight
+    URA''s occupancy/arrester intent exactly like a manual thermostat change does. Per the 2026-08-08
+    ruling (''manual control should be short lived... manual is wasteful; easy to re-engage''), room quick-actions
+    should create a BOUNDED manual override with a visible expiry - reuse the Temp Arrester Override pattern
+    (min-life + decay + notify-before-lapse) rather than inventing an indefinite hold.'
+  - '''Manual night routine'': do NOT build a new routine concept. Wire it to the existing sleep house
+    state via the established HOUSE_STATE_OVERRIDE path (operator already floated this). ''Manual away''
+    likewise = existing away override.'
+  - 'FLEET GATE (measure-before-build): v1.3''s own README says LED control was ''on-device verify pending
+    first fleet deploy'' - the operator reports master tablet now working, which satisfies that gate.
+    Before fleet: confirm the pre-v1.2 shared-topic migration is done (README says delete the old manually-configured
+    home/ledcontroller entities in HA once) so discovery does not leave orphans.'
+  next: operator thoughts/ruling; then likely sequence = (1) consume tablet lux/temp/humidity in URA,
+    (2) wake-on-occupancy with night dimming + per-room opt-in, (3) room-scoped dashboard quick-actions
+    as bounded overrides
 - id: CIRCLING-SEVERITY-1
   title: A "circling" exterior person produced alert_count=0
   thread: perimeter
