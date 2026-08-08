@@ -391,15 +391,59 @@ def test_snap1_live_grab_captures_file_and_tags_engine():
         assert mgr._last_snapshot_capture[cam_key]["engine"] == "live_grab"
 
 
+def _seed_capture_capable(hass, mgr):
+    """F7: pre-seed a setup where capture WILL write a real file unless
+    the kill switch stops it. Wires the sensor→camera map + a service
+    side effect that writes bytes. Without this, the kill-switch test
+    would go green even if the guard were removed."""
+    async def _svc(domain, service, data, blocking=False):
+        if domain == "camera" and service == "snapshot":
+            with open(data["filename"], "wb") as fh:
+                fh.write(b"BYTES_FROM_CAM")
+    hass.services.async_call = AsyncMock(side_effect=_svc)
+    mgr._sensor_to_camera[
+        "binary_sensor.front_yard_person_occupancy"
+    ] = "camera.front_yard"
+    mgr._frigate_last_event_id.clear()
+
+
 def test_snap1_capture_returns_none_when_kill_switch_engaged():
+    """F7: kill-switch guard must block a capture that WOULD otherwise
+    succeed (pre-seeded). Without pre-seed the sensor map is empty and
+    the assertion passes trivially — that was the hollow-test bite."""
     with tempfile.TemporaryDirectory() as tmp:
         hass, _ = _make_hass()
         mgr = _mgr_with_dir(hass, tmp, kill=False)
-        mgr._snapshot_kill_legacy_url = True  # detach kill-switch flag
+        _seed_capture_capable(hass, mgr)
+        # Sanity: without the kill switch, this setup DOES write a file.
+        sanity = _run(mgr._capture_at_detection_snapshot(
+            "binary_sensor.front_yard_person_occupancy"
+        ))
+        assert sanity is not None and os.path.isfile(sanity)
+        os.remove(sanity)
+        # Now engage the kill switch — the INNER guard MUST short-circuit.
+        mgr._snapshot_kill_legacy_url = True
         path = _run(mgr._capture_at_detection_snapshot(
             "binary_sensor.front_yard_person_occupancy"
         ))
         assert path is None
+        # No new file appeared.
+        assert not any(f.startswith("front_yard_")
+                       for f in os.listdir(tmp))
+
+
+def test_snap1_kill_switch_blocks_edge_capture_start():
+    """F7 companion: OUTER guard in _maybe_start_edge_capture blocks
+    the edge-time task even when handler is not reached."""
+    with tempfile.TemporaryDirectory() as tmp:
+        hass, _ = _make_hass()
+        mgr = _mgr_with_dir(hass, tmp)
+        _seed_capture_capable(hass, mgr)
+        mgr._snapshot_kill_legacy_url = True
+        mgr._maybe_start_edge_capture(
+            "binary_sensor.front_yard_person_occupancy"
+        )
+        assert mgr._edge_captures == {}
 
 
 # --- D2: end-to-end — snapshot_path threaded through to NM ------------------
@@ -426,6 +470,10 @@ def test_snap1_perimeter_trigger_threads_snapshot_path_to_nm():
         kw = nm.async_notify.await_args.kwargs
         assert kw.get("snapshot_path") is not None
         assert kw["snapshot_path"].startswith(tmp)
+        # F9d: assert the returned path is an actual file (a stale
+        # path pointing at a deleted file would slip through without
+        # this check).
+        assert os.path.isfile(kw["snapshot_path"])
         # URL fallback field also present (defense in depth) but the
         # DELIVERY (NM channel builder) prefers snapshot_path — that
         # invariant is asserted in the channel-builder tests above.
@@ -511,3 +559,350 @@ def test_snap1_const_defaults_are_ratified_values():
     assert _perimeter.PERIMETER_SNAPSHOT_ENGINE_PRECEDENCE[0] == "frigate_event"
     # Kill switch default OFF (feature on) — ratified in plan §D5.
     assert _const.PERIMETER_SNAPSHOT_KILL_LEGACY_URL is False
+    # F9f: some healthy-path tests observe the DEFAULT (not overridden).
+    assert _perimeter.PERIMETER_SNAPSHOT_CAPTURE_BUDGET_S >= 1
+
+
+# --- F1: at-detection edge capture ------------------------------------------
+
+def test_snap1_edge_capture_started_at_rising_edge():
+    """F1 load-bearing: capture is INITIATED from the rising-edge
+    callback (`_maybe_start_edge_capture`), not from the handler.
+    The handler consumes the buffered entry."""
+    with tempfile.TemporaryDirectory() as tmp:
+        hass, nm = _make_hass()
+        mgr = _mgr_with_dir(hass, tmp)
+        _seed_capture_capable(hass, mgr)
+        cam_key = mgr._camera_key_for_sensor(
+            "binary_sensor.front_yard_person_occupancy"
+        )
+
+        async def _flow():
+            # Edge fires and handler consumes — both inside the same
+            # running loop so async_create_task binds correctly.
+            mgr._maybe_start_edge_capture(
+                "binary_sensor.front_yard_person_occupancy"
+            )
+            assert cam_key in mgr._edge_captures
+            await mgr._async_handle_perimeter_trigger(
+                "binary_sensor.front_yard_person_occupancy"
+            )
+        _run(_flow())
+        assert cam_key not in mgr._edge_captures
+        kw = nm.async_notify.await_args.kwargs
+        assert kw["snapshot_path"] is not None
+        # F1 measurability: delta recorded on the ledger.
+        led = mgr._last_snapshot_capture[cam_key]
+        assert "edge_to_consume_ms" in led
+        assert isinstance(led["edge_to_consume_ms"], int)
+
+
+def test_snap1_edge_dedup_second_leg_no_second_capture():
+    """F1: a second engine leg firing the same physical event
+    (collapsed by camera_key) does NOT start a second capture."""
+    with tempfile.TemporaryDirectory() as tmp:
+        hass, _ = _make_hass()
+        mgr = _mgr_with_dir(hass, tmp)
+        _seed_capture_capable(hass, mgr)
+        mgr._sensor_to_camera[
+            "binary_sensor.front_yard_person_occupancy_2"
+        ] = "camera.front_yard"
+
+        async def _flow():
+            mgr._maybe_start_edge_capture(
+                "binary_sensor.front_yard_person_occupancy"
+            )
+            key = mgr._camera_key_for_sensor(
+                "binary_sensor.front_yard_person_occupancy"
+            )
+            first = mgr._edge_captures[key]["task"]
+            mgr._maybe_start_edge_capture(
+                "binary_sensor.front_yard_person_occupancy_2"
+            )
+            assert len(mgr._edge_captures) == 1
+            second = list(mgr._edge_captures.values())[0]["task"]
+            assert first is second
+            await asyncio.wait_for(first, timeout=1.0)
+        _run(_flow())
+
+
+# --- F2: filename traversal ------------------------------------------------
+
+def test_snap1_sanitizer_rejects_traversal():
+    from custom_components.universal_room_automation.perimeter_alert import (
+        _sanitize_snapshot_token, _path_within,
+    )
+    assert ".." not in _sanitize_snapshot_token("../../etc/passwd")
+    assert "/" not in _sanitize_snapshot_token("a/b/c")
+    assert _sanitize_snapshot_token(None) == ""
+    assert _sanitize_snapshot_token("   ") == ""
+    # F3: containment guard
+    assert _path_within("/tmp/x/y.jpg", "/tmp/x") is True
+    assert _path_within("/tmp/x/../y.jpg", "/tmp/x") is False
+
+
+def test_snap1_frigate_capture_refuses_traversal_event_id():
+    """F2: a malicious `frigate_events` id must NOT escape the dir."""
+    with tempfile.TemporaryDirectory() as tmp:
+        hass, _ = _make_hass()
+        mgr = _mgr_with_dir(hass, tmp)
+        mgr._sensor_to_camera["binary_sensor.front_yard_person_occupancy"] = (
+            "camera.front_yard"
+        )
+        # Seed a malicious event id.
+        mgr._frigate_last_event_id["front_yard"] = (
+            "../../etc/passwd", datetime.now(timezone.utc),
+        )
+
+        async def _fake_http(url_path):
+            return b"POISON"
+        mgr._http_get_bytes = _fake_http  # type: ignore[assignment]
+        path = _run(mgr._try_capture_frigate_event(
+            "front_yard", "camera.front_yard", "frigate", int(time.time()),
+        ))
+        # Either sanitized to a safe token OR refused; in NO case does
+        # a file appear outside tmp.
+        parent = os.path.dirname(os.path.realpath(tmp))
+        for root, _dirs, files in os.walk(parent):
+            for f in files:
+                full = os.path.join(root, f)
+                if full.startswith(tmp + os.sep):
+                    continue
+                if "etc" in full and "passwd" in full and tmp not in full:
+                    raise AssertionError(
+                        f"traversal wrote outside tmp: {full}"
+                    )
+
+
+# --- F3: symlink www guard --------------------------------------------------
+
+def test_snap1_symlinked_snapshot_dir_into_www_engages_kill_switch():
+    with tempfile.TemporaryDirectory() as tmp:
+        www = os.path.join(tmp, "www")
+        target = os.path.join(www, "snaps")
+        os.makedirs(target)
+        # Symlink lives OUTSIDE www but points INTO it.
+        link = os.path.join(tmp, "media_snapshots")
+        os.symlink(target, link)
+        hass, _ = _make_hass(www_path=www)
+        # Point PERIMETER_SNAPSHOT_DIR at the symlink; abspath would
+        # pass the guard; realpath must NOT.
+        mgr = _mgr_with_dir(hass, link)
+        assert mgr._snapshot_kill_legacy_url is True
+
+
+def test_snap1_www_exact_equality_engages_kill_switch():
+    """F3: dir == www (exact match) also engages the guard."""
+    with tempfile.TemporaryDirectory() as tmp:
+        www = os.path.join(tmp, "www")
+        os.makedirs(www)
+        hass, _ = _make_hass(www_path=www)
+        mgr = _mgr_with_dir(hass, www)
+        assert mgr._snapshot_kill_legacy_url is True
+
+
+# --- F4: multi-instance Frigate — never try default URL --------------------
+
+def test_snap1_frigate_multi_instance_skips_default_url():
+    with tempfile.TemporaryDirectory() as tmp:
+        hass, _ = _make_hass()
+        mgr = _mgr_with_dir(hass, tmp)
+        mgr._frigate_instance_ids = ["frig_a", "frig_b"]
+        mgr._frigate_last_event_id["cam1"] = (
+            "abc123", datetime.now(timezone.utc),
+        )
+        seen: list[str] = []
+
+        async def _fake_http(url_path):
+            seen.append(url_path)
+            return None  # miss every candidate
+        mgr._http_get_bytes = _fake_http  # type: ignore[assignment]
+        _run(mgr._try_capture_frigate_event(
+            "cam1", "camera.cam1", "frigate", int(time.time()),
+        ))
+        assert seen, "no candidates tried"
+        # No default URL in candidate list.
+        for u in seen:
+            assert u.startswith("/api/frigate/frig_a/") or u.startswith(
+                "/api/frigate/frig_b/"
+            ), f"unexpected URL {u} (default-shape must be skipped)"
+
+
+def test_snap1_learned_instance_invalidated_on_miss():
+    with tempfile.TemporaryDirectory() as tmp:
+        hass, _ = _make_hass()
+        mgr = _mgr_with_dir(hass, tmp)
+        mgr._frigate_instance_ids = ["frig_a", "frig_b"]
+        mgr._camera_frigate_instance["cam1"] = "frig_a"
+        mgr._frigate_last_event_id["cam1"] = (
+            "abc123", datetime.now(timezone.utc),
+        )
+
+        async def _fake_http(url_path):
+            return None
+        mgr._http_get_bytes = _fake_http  # type: ignore[assignment]
+        _run(mgr._try_capture_frigate_event(
+            "cam1", "camera.cam1", "frigate", int(time.time()),
+        ))
+        # Learned instance was cleared because it 404'd.
+        assert "cam1" not in mgr._camera_frigate_instance
+
+
+# --- F5: capture budget ----------------------------------------------------
+
+def test_snap1_capture_budget_returns_none_on_hang():
+    with tempfile.TemporaryDirectory() as tmp:
+        hass, nm = _make_hass()
+        mgr = _mgr_with_dir(hass, tmp)
+        mgr._sensor_to_camera[
+            "binary_sensor.front_yard_person_occupancy"
+        ] = "camera.front_yard"
+        mgr._frigate_last_event_id.clear()
+
+        # Simulate a wedged camera.snapshot — never returns.
+        async def _hang(*a, **kw):
+            await asyncio.sleep(30)
+        hass.services.async_call = AsyncMock(side_effect=_hang)
+
+        # Shrink budget for the test — knob exists precisely for this.
+        orig = _perimeter.PERIMETER_SNAPSHOT_CAPTURE_BUDGET_S
+        _perimeter.PERIMETER_SNAPSHOT_CAPTURE_BUDGET_S = 0.2
+        try:
+            t0 = time.monotonic()
+            path = _run(mgr._capture_at_detection_snapshot(
+                "binary_sensor.front_yard_person_occupancy"
+            ))
+            elapsed = time.monotonic() - t0
+            assert path is None
+            # Well under the 30s hang — the budget bounded us.
+            assert elapsed < 2.0, f"budget did not bound (elapsed={elapsed})"
+        finally:
+            _perimeter.PERIMETER_SNAPSHOT_CAPTURE_BUDGET_S = orig
+
+
+# --- F6: vehicle path threads snapshot_path -------------------------------
+
+def test_snap1_vehicle_dispatch_threads_snapshot_path():
+    """F6: deep-night vehicle NM call includes snapshot_path."""
+    from custom_components.universal_room_automation import const as _c
+    with tempfile.TemporaryDirectory() as tmp:
+        hass, nm = _make_hass()
+        mgr = _mgr_with_dir(hass, tmp)
+
+        async def _svc(domain, service, data, blocking=False):
+            if domain == "camera" and service == "snapshot":
+                with open(data["filename"], "wb") as fh:
+                    fh.write(b"VEHICLE_JPG")
+        hass.services.async_call = AsyncMock(side_effect=_svc)
+
+        ent = "binary_sensor.front_yard_car_occupancy"
+        mgr._sensor_to_camera[ent] = "camera.front_yard"
+        mgr._frigate_last_event_id.clear()
+        # Force through the vehicle gates by neutering them.
+        mgr._in_vehicle_night_window = lambda now: True  # type: ignore
+        # Point coordinator-manager house_state at an alerting state.
+        hass.data[_c.DOMAIN]["coordinator_manager"].house_state = "away"
+        # Neuter boot-settle so the vehicle handler proceeds.
+        mgr._setup_time = None
+
+        async def _flow():
+            mgr._maybe_start_edge_capture(ent)
+            await mgr._async_handle_vehicle_trigger(ent)
+        _run(_flow())
+        assert nm.async_notify.await_count == 1
+        kw = nm.async_notify.await_args.kwargs
+        assert kw.get("snapshot_path") is not None
+        assert os.path.isfile(kw["snapshot_path"])
+
+
+# --- F8: real precedence iteration ----------------------------------------
+
+def test_snap1_precedence_reorder_changes_which_engine_wins():
+    """F8: reordering PERIMETER_SNAPSHOT_ENGINE_PRECEDENCE actually
+    changes which engine wins — proves iteration is by NAME, not
+    fixed source order with membership checks."""
+    with tempfile.TemporaryDirectory() as tmp:
+        hass, _ = _make_hass()
+        mgr = _mgr_with_dir(hass, tmp)
+        called: list[str] = []
+
+        async def _fake_frigate(cam, cam_id, plat, ts):
+            called.append("frigate")
+            return None  # let live_grab win
+
+        async def _fake_live(cam, cam_id, ts):
+            called.append("live_grab")
+            return os.path.join(tmp, "x.jpg")
+
+        mgr._try_capture_frigate_event = _fake_frigate  # type: ignore
+        mgr._try_capture_live_grab = _fake_live  # type: ignore
+
+        # Default order (frigate first).
+        orig = _perimeter.PERIMETER_SNAPSHOT_ENGINE_PRECEDENCE
+        try:
+            _perimeter.PERIMETER_SNAPSHOT_ENGINE_PRECEDENCE = (
+                "live_grab", "frigate_event",
+            )
+            called.clear()
+            _run(mgr._capture_precedence("c", "camera.c", "", 0))
+            assert called == ["live_grab"], (
+                f"reorder had no effect: {called}"
+            )
+            _perimeter.PERIMETER_SNAPSHOT_ENGINE_PRECEDENCE = (
+                "frigate_event", "live_grab",
+            )
+            called.clear()
+            _run(mgr._capture_precedence("c", "camera.c", "", 0))
+            assert called == ["frigate", "live_grab"], (
+                f"reorder had no effect: {called}"
+            )
+        finally:
+            _perimeter.PERIMETER_SNAPSHOT_ENGINE_PRECEDENCE = orig
+
+
+# --- F9a: ledger cam_key with underscored stem -----------------------------
+
+def test_snap1_ledger_cam_key_preserves_underscore_stem():
+    with tempfile.TemporaryDirectory() as tmp:
+        hass, _ = _make_hass()
+        mgr = _mgr_with_dir(hass, tmp)
+
+        async def _svc(domain, service, data, blocking=False):
+            if domain == "camera" and service == "snapshot":
+                with open(data["filename"], "wb") as fh:
+                    fh.write(b"X")
+        hass.services.async_call = AsyncMock(side_effect=_svc)
+
+        mgr._sensor_to_camera[
+            "binary_sensor.rear_ptz_person_occupancy"
+        ] = "camera.rear_ptz"
+        path = _run(mgr._capture_at_detection_snapshot(
+            "binary_sensor.rear_ptz_person_occupancy"
+        ))
+        assert path is not None
+        # 'rear_ptz' MUST remain intact in the ledger, not split to 'rear'.
+        assert "rear_ptz" in mgr._last_snapshot_capture
+        assert "rear" not in mgr._last_snapshot_capture
+
+
+# --- F9b: prune debounce ---------------------------------------------------
+
+def test_snap1_prune_debounced_on_write():
+    with tempfile.TemporaryDirectory() as tmp:
+        hass, _ = _make_hass()
+        mgr = _mgr_with_dir(hass, tmp)
+        calls = {"n": 0}
+
+        def _fake_prune():
+            calls["n"] += 1
+            return (0, 0)
+        mgr._prune_snapshot_dir = _fake_prune  # type: ignore
+
+        _run(mgr._async_prune_snapshot_dir())
+        _run(mgr._async_prune_snapshot_dir())
+        _run(mgr._async_prune_snapshot_dir())
+        # Debounced — only ONE actual prune within the window.
+        assert calls["n"] == 1
+        # force=True bypasses debounce (periodic sweep).
+        _run(mgr._async_prune_snapshot_dir(force=True))
+        assert calls["n"] == 2
