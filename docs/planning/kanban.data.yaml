@@ -14,6 +14,31 @@ meta:
   - waiting_me
   - parked
 cards:
+- id: CIRCLING-SEVERITY-1
+  title: A "circling" exterior person produced alert_count=0
+  thread: perimeter
+  status: pre_planning
+  approval: unreviewed
+  tags:
+  - no-fabrication-verify
+  origin:
+    date: '2026-08-08'
+    gist: observed during v5.62.1 live validation
+  why: 'Live track xt-000001-695c9e: back_yard -> front_side_ptz -> back_yard -> front_side_ptz -> back_yard,
+    classification=circling, 133s, alert_count=0 at 09:22 CDT. Track linking worked correctly (one track,
+    not five alerts). But CIRCLING is arguably the classification most deserving of a page, and it produced
+    none. Probably correct-by-design (daytime + occupied + outside the 23:00-05:00 window) - NOT VERIFIED,
+    do not assert. Needs the actual gating path traced.'
+  next: trace why alert_count=0 for a circling classification; decide whether circling should escape pure
+    clock-time gating
+  refs:
+  - exterior_track_linker.py classification
+  - perimeter_alert.py alert-hours gating
+  - CONSOL-1 contextual-severity ruling
+  parsimony:
+    problem: the most suspicious exterior behaviour may be silently unalerted outside night hours
+    verdict: BUILD
+    note: exactly what CONSOL-1 contextual severity is for - fold in rather than a separate cycle
 - id: XCORR-1
   title: 'Burst-demotion for isolated single-camera night alerts (was: cross-engine corroboration gate)'
   thread: perimeter
@@ -708,9 +733,11 @@ cards:
     - the current tests pass because fixtures install it by hand.
   bug_class: '#33 coordinator-setup ORDERING - hass.data sibling lookup inside async_setup with no READY-signal
     fallback; the guard silently no-ops'
-  organic_open: 'PROVE the allowlist actually installed: next interior-camera event must be COUNTED in
-    ignored_offlist_events (install ok + fail-closed active). If an interior camera opens a track instead,
-    the READY install did not happen. Boot-sanity guard cannot answer this (see BOOTSANITY-1).'
+  organic_open: 'CLOSED 2026-08-08 09:22 via v5.62.1: allowlist_installed=true, allowlist_camera_count=12
+    (matches the 12 staged+discarded cameras), and ignored_offlist_events={''garage_b'':2} proves the
+    gate is ENFORCING (was an empty dict for the entire life of the bug). Root cause was READY dispatched
+    one line before hass.data registration; took 4 cycles (v5.59-v5.62.1) because every failure mode was
+    SILENT.'
 - id: RELOAD-WATCHDOG-HAZARD
   title: URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
   thread: lifecycle
