@@ -74,30 +74,40 @@ cards:
   refs:
   - perimeter_alert.py leg_firing_by_camera / _record_leg_fire
   - v5.59.0 disagreement telemetry
-- id: DIMMER-THERMAL-1
-  title: Master bedroom Shelly Dimmer 2 running 117-130C, rebooting 89x since Aug 1
-  thread: safety
-  status: waiting_operator
-  approval: blocked
+- id: DIMMER-REBOOT-1
+  title: Master bedroom Shelly Dimmer 2 reboots 89x since Aug 1 and returns ON (NOT thermal)
+  thread: devices
+  status: pre_planning
+  approval: implied
   tags:
   - no-fabrication-verify
   origin:
     date: '2026-08-08'
     gist: 'operator: why is the master bedroom dimmer coming on in the morning?'
-  why: 'ROOT CAUSE FOUND, NOT SOFTWARE: light.shellydimmer2_24d7ebe93470 (area master_bedroom) sits at
-    117C, peak 129.6C since Aug 1 (Shelly Dimmer 2 self-protects ~95C). It reboots repeatedly - 89 unavailable
-    events since Aug 1, accelerating 6/day -> 23/day - consistent with thermal shutdown/restart, and 32
-    of those reboots came back ON. That is the ''comes on in the morning''. NO context_user_id/parent
-    on any transition => nothing in HA or URA commands it.'
-  safety: 'ENCLOSED DIMMER AT 117-130C IS A FIRE RISK. Recommended: kill the circuit at the breaker until
-    inspected. The device''s own `overheating` binary_sensor has NEVER fired - do not trust its silence
-    (same lesson as the boot-sanity guard).'
+  why: 'light.shellydimmer2_24d7ebe93470 (area master_bedroom) reboots repeatedly: 89 `unavailable` events
+    since Aug 1, accelerating 6/day -> 23/day, each ~33s (consistent = full device reboot, not a variable
+    WiFi blip). 32 of those reboots came back ON — THAT is the ''dimmer comes on in the morning''. No
+    context_user_id/parent on any transition => nothing in HA or URA commands it. Temperature is normal,
+    so the cause is NOT thermal.'
   likely_causes:
-  - load mismatch (LED fixture vs leading-edge dimmer)
-  - no neutral / poor heat dissipation in a deep box
-  - failing hardware - it is the ONLY Shelly in the house flapping like this
-  next: 'OPERATOR: breaker off + inspect (physical). Offered software stopgaps: force light off + NM alert
-    on the temperature sensor.'
+  - Shelly power-on-default set to ON (or restore-last with stale value) -> every reboot turns the light
+    on
+  - WiFi/network instability causing reboots — memory records a prior house-wide Shelly/Sonoff off-WiFi
+    event; this device is the only Shelly currently flapping
+  - power quality or firmware
+  next: set power-on-default OFF; then chase the reboot cause
+  CORRECTION: '2026-08-08: I FIRST REPORTED THIS AS A 117-130C FIRE RISK. THAT WAS WRONG — the sensor''s
+    unit_of_measurement is degF, not degC. 116.7F = 47C; peak 129.6F = 54C. That is NORMAL for a wall
+    dimmer and inside the Shelly Dimmer 2 range. NO fire risk; no breaker action needed. The device''s
+    `overheating` binary_sensor never firing was CORRECT, not a failed guard. Root error: asserted a mechanism
+    from an unlabeled number instead of reading the unit — violates the project''s no-fabrication/verify
+    rule.'
+  fix:
+  - 'PRIMARY: set the Shelly power-on default to OFF so a reboot cannot turn the light on (device setting,
+    operator or API)'
+  - 'THEN: investigate the reboot cause (WiFi signal at that box, firmware version, power quality)'
+  - 'optional: NM alert if reboot count per day exceeds a threshold — a device rebooting 23x/day is a
+    real signal we currently only see by asking'
 - id: BOOTSANITY-1
   title: Boot-sanity allowlist guard cannot fire on a cold boot
   thread: camera
