@@ -1109,21 +1109,20 @@ class PerimeterAlertManager:
         # from cooldown/dispatch/llmvision-delay because it runs BEFORE
         # the scheduler delay below — the operator's core requirement.
         # A capture failure NEVER blocks the alert.
-        snapshot_path: str | None = None
-        if not self._snapshot_kill_legacy_url:
-            # SNAP-1 fix-up (F1): consume the EDGE-initiated capture
-            # (started in _on_perimeter_event before this handler
-            # was scheduled). Fall back to inline capture only when
-            # no edge entry is present (e.g. tests calling the
-            # handler directly, or non-perimeter code paths).
-            snapshot_path = await self._await_edge_capture(entity_id)
-            # SNAP-1: when we successfully captured a local file, delay is 0
-            # (the file is already at-detection; no reason to defer for a
-            # subsequent live-fallback grab). Preserve delay for the URL
-            # fallback path — that keeps CONF_EXTERIOR_SNAPSHOT_OFFSET_S
-            # semantics unchanged.
-            if snapshot_path:
-                delay_s = 0
+        # SNAP-1 fix-up (F1+F7): consume the EDGE-initiated capture
+        # (started in _on_perimeter_event before this handler was
+        # scheduled). Fall back to inline capture only when no edge
+        # entry is present. The kill-switch check lives in ONE place
+        # (`_capture_at_detection_snapshot` and `_maybe_start_edge_capture`)
+        # so there is no duplicate-guard hollow-test surface here.
+        snapshot_path = await self._await_edge_capture(entity_id)
+        # SNAP-1: when we successfully captured a local file, delay is 0
+        # (the file is already at-detection; no reason to defer for a
+        # subsequent live-fallback grab). Preserve delay for the URL
+        # fallback path — that keeps CONF_EXTERIOR_SNAPSHOT_OFFSET_S
+        # semantics unchanged.
+        if snapshot_path:
+            delay_s = 0
 
         # --- 6. Dispatch (NM primary, legacy fallback) ---
         nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
@@ -2000,15 +1999,13 @@ class PerimeterAlertManager:
         snapshot_url, delay_s = self._resolve_snapshot_url_and_delay(
             sensor_entity_id
         )
-        # SNAP-1 fix-up (F6): thread the at-detection LOCAL FILE
+        # SNAP-1 fix-up (F6+F7): thread the at-detection LOCAL FILE
         # through the vehicle path exactly as the person path does.
-        # Consume the edge-initiated capture; fall back to inline only
-        # when no edge entry is present. Kill-switch respected.
-        snapshot_path: str | None = None
-        if not self._snapshot_kill_legacy_url:
-            snapshot_path = await self._await_edge_capture(sensor_entity_id)
-            if snapshot_path:
-                delay_s = 0
+        # Kill-switch check is centralized in the capture helper — no
+        # duplicate guard here.
+        snapshot_path = await self._await_edge_capture(sensor_entity_id)
+        if snapshot_path:
+            delay_s = 0
 
         title = "Perimeter Alert — Vehicle (deep-night)"
         if path_narrative:
