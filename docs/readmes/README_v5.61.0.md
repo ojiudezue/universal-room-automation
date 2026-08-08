@@ -60,6 +60,22 @@ level and forcing a rebuild just to read it.
 - **Live (organic):** the operator's engaged override releases on the next real context change
   (or its 6h decay), and the switch flips OFF to match.
 
-## Live Validation
+## Live Validation — Validated 2026-08-07 (restart 20:09 CDT)
 
-(prospective — replaced with the Validated table post-restart)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Integration loaded @ v5.61.0 | PASS | HACS install + restart 20:09; entities rebuilt |
+| **Ordering bug is REAL in production** | **CONFIRMED** | Live WARNING 20:11:18: `exterior_track_linker not yet registered — deferring allowlist install to SIGNAL_EXTERIOR_LINKER_READY (12 cameras staged)`. The new diagnostic names the condition instead of silently no-opping — this is the bug that existed unseen on every prior boot. |
+| No interior cameras in `open_tracks` | PASS (weak) | `open_tracks: []`. But `leg_firing_by_camera` and `unlinked_events_by_camera` are ALSO empty → no camera events since boot, so this is "nothing has happened yet", not proof. |
+| **Allowlist actually installed via READY** | **PENDING — not proven** | The INFO confirmation is suppressed (URA logs at WARNING) and, see below, the boot-sanity guard cannot fire on a cold boot. Organic check: on the next interior-camera event, `ignored_offlist_events` must COUNT it (allowlist installed, fail-closed active). If instead an interior camera opens a track, the install did not happen. |
+| Arrester switch healthy | PASS | `unavailable` at 20:11:23 was a boot transient; `off` by 20:11:48 with `suppressed_since: null`. Correct — the switch is deliberately not a RestoreEntity, so the pre-restart override did not persist (and house is `away`, which invalidates anyway). |
+| Presence diagnostic exposes checkpoints | PENDING | verify `checkpoint_cameras_by_area` on the presence diagnostic once transit re-populates |
+
+### Known weakness found during validation (not yet fixed)
+
+**The F1(e) boot-sanity WARNING cannot fire on a cold boot.** It is evaluated at the end of
+`PerimeterAlertManager.async_setup()` and guarded on `_linker_now` being present — but the linker is
+registered *after* that setup completes (that ordering IS the bug). So on every cold boot the guard
+short-circuits to False and never warns. It can only fire on a re-setup where the linker already
+exists. **Its silence must NOT be read as "install succeeded."** Fix: re-run the sanity check from
+the READY handler (after the install attempt), not at the end of setup. Carded.
