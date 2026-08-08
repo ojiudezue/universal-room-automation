@@ -326,7 +326,7 @@ cards:
 - id: SNAP-1
   title: Snapshot mirror-and-improve
   thread: perimeter
-  status: planned
+  status: review
   approval: explicit
   approved_by: operator
   approved_on: 2026-08-07
@@ -394,6 +394,28 @@ cards:
       local image_file, which is exactly what SNAP-1 produces, so building it first DE-RISKS CONSOL-1
       rather than duplicating work; (3) folding in saves no meaningful review cost (both Tier 2-DB on
       perimeter_alert+NM).'
+  build: build/snap-at-detection @ 7e28a2ea4 — 15 new tests, 6 detach-the-value drills all RED, gate 21/8405
+    name-diff 0
+  verification_results:
+  - 'VERIFIED: frigate2 instance-scoped snapshot URL — instance id = MQTT client_id from hass.data[''frigate''][entry_id][''config''][''mqtt''][''client_id''];
+    discovery tries each instance. Live: Frigate 1 (192.168.13.16:8971) + Frigate 2 (192.168.13.18:8971).
+    CLOSES FRIG2SNAP-1.'
+  - 'VERIFIED (real constraint): installed BlueBubbles integration exposes NO attachment field — bluebubbles/__init__.py:49-90
+    POSTs only {addresses,message,method} to /api/v1/chat/new. iMessage PHOTO DELIVERY IS NOT POSSIBLE
+    this cycle. WhatsApp media_path works. Acceptance criterion ''photo on BOTH WhatsApp AND iMessage''
+    must be amended to WhatsApp-only.'
+  - 'RUNTIME-ASSERTED: /media allowed-path checked via hass.config.is_allowed_path at setup; failure auto-engages
+    the kill switch.'
+  - 'WRONG — CORRECTED BY ORCHESTRATOR: builder concluded ''UniFi Protect NOT installed'' from absence
+    in /config/custom_components. Protect is a CORE HA integration (not a custom component). ha_get_integration
+    confirms domain=unifiprotect, title=''Phalanax NVR Pro'', state=LOADED. The Protect-thumb precedence
+    tier was therefore skipped on a false premise and must be revisited.'
+  followups:
+  - 'SNAP-1-followup-protect-thumb — REOPENED: Protect IS installed (core integration); verify the smart-detect
+    thumbnail API against HA core unifiprotect and implement the middle precedence tier'
+  - 'SNAP-1-followup-bluebubbles-attachment — GENUINE gap: needs BB integration attachment support or
+    a direct BB server-API upload path'
+  - SNAP-1-followup-sensor — formal capture sensor deferred; observability via structured log + _last_snapshot_capture
 - id: RESACC-1
   title: Resolver accuracy test suite
   thread: resolver
