@@ -669,3 +669,87 @@ def test_f2_two_physical_cameras_both_record():
     validator._on_camera_state_change(_FakeEvent(_FakeState("binary_sensor.master_person_detected")))
     total = sum(len(v) for v in validator._camera_sightings.values())
     assert total == 2
+
+
+# ---------------------------------------------------------------------------
+# TRANSIT-DIAG-1 (2026-08-07): PresenceDiagnosticSensor exposes the
+# checkpoint_cameras_by_area mapping + protect_sourced_count as read-only
+# attrs. Prior to this fix the mapping lived only as a Python attribute
+# on TransitValidator — verifying it live required raising the log level
+# AND forcing a rebuild. Now it rides an EXISTING diagnostic surface.
+# ---------------------------------------------------------------------------
+
+
+def test_presence_diagnostic_sensor_exposes_checkpoint_cameras_source_anchor():
+    """Source-anchor: the extra_state_attributes payload of
+    PresenceDiagnosticSensor MUST include ``checkpoint_cameras_by_area``
+    AND ``protect_sourced_count``, sourced from
+    hass.data[DOMAIN]['transit_validator']."""
+    root = Path(__file__).resolve().parents[2]
+    src = (root / "custom_components" / "universal_room_automation"
+                / "sensor.py").read_text()
+    idx = src.index("class PresenceDiagnosticSensor")
+    blk = src[idx:idx + 6000]
+    assert "checkpoint_cameras_by_area" in blk, (
+        "PresenceDiagnosticSensor must surface checkpoint_cameras_by_area"
+    )
+    assert "protect_sourced_count" in blk, (
+        "PresenceDiagnosticSensor must surface protect_sourced_count"
+    )
+    assert 'get("transit_validator"' in blk, (
+        "attribute source must be hass.data[DOMAIN]['transit_validator']"
+    )
+
+
+def test_transit_validator_build_diagnostic_attrs_populated_shape():
+    """F4 (2026-08-07 fix-up cycle-4): behavioral test drives the REAL
+    production population path — ``TransitValidator.build_diagnostic_attrs``
+    — with a populated checkpoint_cameras_by_area, then asserts the
+    shape/count that sensor.py's PresenceDiagnosticSensor surfaces.
+
+    Mutation drill (F4 spec): replacing ``raw = self.checkpoint_cameras_by_area or {}``
+    with ``raw = {}`` in transit_validator.py MUST make this test go RED.
+    (Anchored by test_transit_validator_build_diagnostic_attrs_raw_empty_mutation.)
+    """
+    tv_mod = _load_transit_validator_module()
+    TransitValidator = tv_mod.TransitValidator
+    inst = TransitValidator.__new__(TransitValidator)
+    # Simulate a populated map — set-of-eids and list-of-eids are both
+    # legal input shapes (production writers use both).
+    inst.checkpoint_cameras_by_area = {
+        "kitchen": {"binary_sensor.a", "binary_sensor.b"},
+        "hall": ["binary_sensor.c"],
+    }
+    payload = inst.build_diagnostic_attrs()
+    assert payload["checkpoint_cameras_by_area"] == {
+        "kitchen": ["binary_sensor.a", "binary_sensor.b"],
+        "hall": ["binary_sensor.c"],
+    }
+    assert payload["protect_sourced_count"] == 3
+
+
+def test_transit_validator_build_diagnostic_attrs_empty_when_absent():
+    """Kill-switch / boot-transient: an unset (empty) map yields
+    ``{}, 0`` — not a raise."""
+    tv_mod = _load_transit_validator_module()
+    TransitValidator = tv_mod.TransitValidator
+    inst = TransitValidator.__new__(TransitValidator)
+    inst.checkpoint_cameras_by_area = {}
+    payload = inst.build_diagnostic_attrs()
+    assert payload["checkpoint_cameras_by_area"] == {}
+    assert payload["protect_sourced_count"] == 0
+
+
+def test_sensor_reader_routes_through_transit_validator_helper_source_anchor():
+    """F4 source-anchor: sensor.py's reader MUST route through
+    ``build_diagnostic_attrs`` so a mutation to that helper is
+    load-bearing on the runtime attr as well."""
+    root = Path(__file__).resolve().parents[2]
+    src = (root / "custom_components" / "universal_room_automation"
+                / "sensor.py").read_text()
+    idx = src.index("class PresenceDiagnosticSensor")
+    blk = src[idx:idx + 8000]
+    assert "build_diagnostic_attrs" in blk, (
+        "PresenceDiagnosticSensor must route through "
+        "TransitValidator.build_diagnostic_attrs (F4)"
+    )

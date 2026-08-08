@@ -220,6 +220,23 @@ class HVACCoordinator(BaseCoordinator):
         # edits refresh via set_immune_persons() from the options update
         # handler (mirrors the CM options-write-back pattern).
         self._override_arrester.set_immune_persons(arrester_immune_persons)
+        # F8 (2026-08-07 fix-up cycle-4): register a single sunset-notify
+        # callback so the timer-precise discharge path fires the NM note
+        # instead of relying on the periodic sweep observing the return
+        # value (which is False by the time the sweep runs, because the
+        # timer already flipped OFF). Sweep + state-change paths no
+        # longer branch on the return value; the callback is the single
+        # dispatch site, with engagement-id dedup inside the arrester.
+        def _fire_sunset_note(reason: str) -> None:
+            try:
+                _t = self.hass.async_create_task(
+                    self._notify_temp_arrester_override_ended(reason)
+                )
+                self._pending_tasks.add(_t)
+                _t.add_done_callback(self._pending_tasks.discard)
+            except Exception:  # noqa: BLE001
+                pass
+        self._override_arrester.set_on_sunset_notify(_fire_sunset_note)
         # AC-ramp master seed from CM option (reload-safe path). If
         # None is passed, retain the arrester's DEFAULT (False) so
         # fresh installs with no persisted option behave as before.
@@ -1047,14 +1064,13 @@ class HVACCoordinator(BaseCoordinator):
             self._override_arrester.sunset_immune_holds(
                 reason="max_age_or_boundary",
             )
-            if self._override_arrester.sunset_temp_arrester_override(
+            # F8: sunset-notify callback registered on the arrester fires
+            # the NM note (dedup'd by engagement-id). Sweep just drives
+            # the periodic evaluation; the note routes via the callback
+            # so timer-precise discharges are covered too.
+            self._override_arrester.sunset_temp_arrester_override(
                 reason="max_age_or_boundary",
-            ):
-                _sunset_task = self.hass.async_create_task(
-                    self._notify_temp_arrester_override_ended("max_age")
-                )
-                self._pending_tasks.add(_sunset_task)
-                _sunset_task.add_done_callback(self._pending_tasks.discard)
+            )
         except Exception as e:  # noqa: BLE001
             _LOGGER.warning(
                 "Arrester periodic sunset sweep failed: %s", e,
@@ -1905,16 +1921,11 @@ class HVACCoordinator(BaseCoordinator):
             self._override_arrester.sunset_immune_holds(
                 reason="durable_state", house_state=new_state,
             )
-            if self._override_arrester.sunset_temp_arrester_override(
+            # F8: notify via the arrester's on_sunset_notify callback
+            # (single dispatch site, engagement-id dedup).
+            self._override_arrester.sunset_temp_arrester_override(
                 reason="durable_state", house_state=new_state,
-            ):
-                _sunset_task = self.hass.async_create_task(
-                    self._notify_temp_arrester_override_ended(
-                        "sleep_transition"
-                    )
-                )
-                self._pending_tasks.add(_sunset_task)
-                _sunset_task.add_done_callback(self._pending_tasks.discard)
+            )
         except Exception as e:  # noqa: BLE001 — never crash signal handler
             _LOGGER.warning(
                 "Arrester sunset processing failed on house-state change: %s",

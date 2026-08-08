@@ -207,6 +207,33 @@ class TransitValidator:
         self._entity_to_physical: dict[str, str] = {}
         # F2 fix: per-physical-camera last-sighting timestamp for dedup.
         self._last_physical_sighting: dict[str, datetime] = {}
+
+    def build_diagnostic_attrs(self) -> dict[str, Any]:
+        """F4 (2026-08-07 fix-up cycle-4): TRANSIT-DIAG-1 attr payload
+        as a driveable method so behavioral tests can mutation-verify
+        the population path without having to import sensor.py (which
+        pulls the full package __init__ and 40+ HA imports).
+
+        Returns a dict with two keys:
+          ``checkpoint_cameras_by_area`` — dict[area, sorted list[eid]]
+          ``protect_sourced_count`` — int (sum of camera counts)
+
+        Sensor's PresenceDiagnosticSensor.extra_state_attributes calls
+        this. Mutation drill (per F4 spec): forcing ``raw = {}`` in the
+        production path — either here OR in sensor.py's reader — makes
+        the behavioral test go RED.
+        """
+        raw = self.checkpoint_cameras_by_area or {}
+        checkpoint_cameras_by_area = {
+            a: sorted(list(eids)) for a, eids in raw.items()
+        }
+        protect_sourced_count = sum(
+            len(v) for v in checkpoint_cameras_by_area.values()
+        )
+        return {
+            "checkpoint_cameras_by_area": checkpoint_cameras_by_area,
+            "protect_sourced_count": protect_sourced_count,
+        }
         # F5 fix: debounce timer for registry-updated rebuilds.
         self._rebuild_timer_unsub = None
         # F6 fix: dispatcher listener for options-change signal (kept

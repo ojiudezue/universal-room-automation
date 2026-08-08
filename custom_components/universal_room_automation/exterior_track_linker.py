@@ -150,7 +150,22 @@ class ExteriorTrackLinker:
         self._closed_recent: list[ExteriorTrack] = []
         self._allowed_cameras: set[str] = set()
         self._allowlist_warned = False
+        # F1(c) (2026-08-07 fix-up cycle-4): fail-closed was too aggressive
+        # — perimeter_alert's inline install site is DEAD CODE (the linker
+        # doesn't exist at the moment PerimeterAlertManager.async_setup()
+        # runs — it's registered AFTER, in __init__.py). So a naive
+        # fail-closed would REJECT EVERYTHING house-wide on every boot.
+        # Design (i): admit-all with a one-shot WARN while
+        # ``_allowlist_installed`` is False (preserves shipped behavior);
+        # only flip to fail-CLOSED after set_allowed_cameras() has been
+        # invoked at least once. Wired up via SIGNAL_EXTERIOR_LINKER_READY
+        # on the perimeter_alert side so the install actually fires.
+        self._allowlist_installed: bool = False
         self._ignored_offlist_events: dict[str, int] = {}
+        # F10 (2026-08-07 fix-up cycle-4): cap unique keys in the ignored
+        # counter so a spurious burst of unknown cameras cannot grow the
+        # attr unbounded across a long uptime.
+        self._ignored_offlist_cap: int = 128
         # Operator control surface (2026-08-06): two live switches.
         #   tracking_enabled — the fire axe. OFF = observe() creates no
         #     tracks; find_owning_track/note_alert_dispatched inert;
@@ -330,8 +345,14 @@ class ExteriorTrackLinker:
         Empty/never-installed allowlist = allow-all with one-time WARNING.
         """
         self._allowed_cameras = {self.normalize_camera(c) for c in cameras}
+        self._allowlist_installed = True
+        # F10: on install, drop the transient reject counters — most were
+        # accrued during the admit-all bootstrap window and are not
+        # useful diagnostics past install.
+        self._ignored_offlist_events.clear()
         _LOGGER.info(
-            "ExteriorTrackLinker: allowlist installed (%d cameras)",
+            "ExteriorTrackLinker: allowlist installed (%d cameras) — "
+            "fail-closed active",
             len(self._allowed_cameras),
         )
 
@@ -376,19 +397,41 @@ class ExteriorTrackLinker:
         camera = self.normalize_camera(camera)
         if not camera:
             return None
-        if self._allowed_cameras:
-            if camera not in self._allowed_cameras:
-                self._ignored_offlist_events[camera] = (
-                    self._ignored_offlist_events.get(camera, 0) + 1
+        # SECC-1 (2026-08-07): narrow the observation — an empty allowlist
+        # now REJECTS (was: admitted with a one-shot WARN). The empty
+        # bootstrap window let interior cameras open exterior tracks
+        # (playroom / master_hallway / upstairs_hall / armcrestash41b in
+        # live evidence 2026-08-07) while ignored_offlist_events stayed 0.
+        # Fail-closed pins the invariant: only perimeter+egress cams reach
+        # the linker, and any drop is counted for post-hoc verification.
+        # F1(c) (2026-08-07 fix-up cycle-4): admit-all bootstrap window.
+        # Until set_allowed_cameras() has been called at least once
+        # (_allowlist_installed=True), fall back to the pre-fail-closed
+        # behavior — admit + one-shot WARN — so a linker that runs
+        # before perimeter_alert wires the allowlist cannot drop a real
+        # perimeter event during the bootstrap window. AFTER first
+        # install, an empty allowlist is a policy decision (operator
+        # disabled all perimeter cams) — legitimately reject.
+        if not self._allowlist_installed:
+            if not self._allowlist_warned:
+                self._allowlist_warned = True
+                _LOGGER.warning(
+                    "ExteriorTrackLinker: no camera allowlist installed yet "
+                    "— admitting all Frigate events (bootstrap window) until "
+                    "set_allowed_cameras() runs. Interior cameras may open "
+                    "spurious tracks during this window."
                 )
+            # fall through — admit
+        else:
+            if camera not in self._allowed_cameras:
+                if len(self._ignored_offlist_events) < self._ignored_offlist_cap:
+                    self._ignored_offlist_events[camera] = (
+                        self._ignored_offlist_events.get(camera, 0) + 1
+                    )
+                elif camera in self._ignored_offlist_events:
+                    self._ignored_offlist_events[camera] += 1
+                # else: cap reached, silently drop (bounded attr)
                 return None
-        elif not self._allowlist_warned:
-            self._allowlist_warned = True
-            _LOGGER.warning(
-                "ExteriorTrackLinker: no camera allowlist installed — "
-                "observing ALL Frigate cameras (interior leak possible). "
-                "perimeter_alert setup should call set_allowed_cameras()."
-            )
         if label not in self._tracks:
             self._tracks[label] = []
         key = (camera, label)

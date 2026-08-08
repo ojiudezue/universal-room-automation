@@ -194,6 +194,14 @@ class PerimeterAlertManager:
         # Kept small — 32 entries per camera; sole-firing determined by
         # scan of the last WINDOW_S seconds. Reset lazily at fire time.
         self._recent_fires: dict[str, list[tuple[str, datetime]]] = {}
+        # F1 (2026-08-07 fix-up cycle-4): remember the derived allowlist
+        # so the SIGNAL_EXTERIOR_LINKER_READY handler can (re)install it
+        # when the linker registers AFTER perimeter_alert.async_setup().
+        # This is the true root cause of SECC-1 — the inline install at
+        # setup time was DEAD CODE (linker not yet in hass.data).
+        self._perimeter_allowlist: set[str] = set()
+        # unsub for the linker-ready signal subscription.
+        self._unsub_linker_ready: Any = None
 
     async def async_setup(self) -> None:
         """Set up perimeter camera listeners.
@@ -371,23 +379,101 @@ class PerimeterAlertManager:
         # Keys derived the same way every consumer derives them.
         # F9 (cycle-3 fix-up 2026-08-07): duplicated block below removed —
         # kept exactly one install site.
+        # F1 (2026-08-07 fix-up cycle-4): derive the allowlist and REMEMBER
+        # it. Then attempt inline install (covers the case where the linker
+        # already exists — e.g. a re-setup after a reload). If the linker
+        # is not yet registered (the ORIGINAL setup ordering — linker is
+        # registered AFTER perimeter_alert.async_setup() in __init__.py),
+        # subscribe to SIGNAL_EXTERIOR_LINKER_READY to install when it
+        # fires. This closes the SECC-1 dead-code gap.
+        _allowed = set()
+        for _sensor in perimeter_sensors + egress_sensors:
+            _k = self._camera_key_for_sensor(_sensor)
+            if _k:
+                _allowed.add(_k)
+        self._perimeter_allowlist = _allowed
         try:
             _linker = self.hass.data.get(DOMAIN, {}).get(
                 "exterior_track_linker"
             )
             if _linker is not None:
-                _allowed = set()
-                for _sensor in perimeter_sensors + egress_sensors:
-                    _k = self._camera_key_for_sensor(_sensor)
-                    if _k:
-                        _allowed.add(_k)
                 if _allowed:
                     _linker.set_allowed_cameras(_allowed)
+            else:
+                _LOGGER.warning(
+                    "PerimeterAlertManager: exterior_track_linker not yet "
+                    "registered — deferring allowlist install to "
+                    "SIGNAL_EXTERIOR_LINKER_READY (%d cameras staged)",
+                    len(_allowed),
+                )
         except Exception:  # noqa: BLE001 — allowlist install must not break setup
             _LOGGER.warning(
                 "PerimeterAlertManager: linker allowlist install failed",
                 exc_info=True,
             )
+
+        # Wire the deferred install path unconditionally — the linker's
+        # __init__ dispatches READY after registering, and if the signal
+        # already fired before we got here, a subsequent linker re-setup
+        # (e.g. reload) will re-fire it. Idempotent.
+        try:
+            from homeassistant.helpers.dispatcher import async_dispatcher_connect
+            from .domain_coordinators.signals import (
+                SIGNAL_EXTERIOR_LINKER_READY,
+            )
+
+            @callback
+            def _install_on_ready() -> None:
+                try:
+                    _lk = self.hass.data.get(DOMAIN, {}).get(
+                        "exterior_track_linker"
+                    )
+                    if _lk is None or not self._perimeter_allowlist:
+                        return
+                    _lk.set_allowed_cameras(self._perimeter_allowlist)
+                    _LOGGER.info(
+                        "PerimeterAlertManager: allowlist installed on "
+                        "linker via READY signal (%d cameras)",
+                        len(self._perimeter_allowlist),
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.warning(
+                        "PerimeterAlertManager: deferred allowlist install "
+                        "failed",
+                        exc_info=True,
+                    )
+
+            self._unsub_linker_ready = async_dispatcher_connect(
+                self.hass, SIGNAL_EXTERIOR_LINKER_READY, _install_on_ready,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "PerimeterAlertManager: could not subscribe to "
+                "SIGNAL_EXTERIOR_LINKER_READY",
+                exc_info=True,
+            )
+
+        # F1(e) (2026-08-07 fix-up cycle-4): boot-sanity WARNING. If
+        # perimeter cameras are configured but the linker (once present)
+        # has NO cameras in its allowlist, log at WARNING so this class
+        # of bug (silent no-op install) surfaces to the operator.
+        try:
+            _linker_now = self.hass.data.get(DOMAIN, {}).get(
+                "exterior_track_linker"
+            )
+            if (
+                _allowed
+                and _linker_now is not None
+                and not getattr(_linker_now, "_allowed_cameras", None)
+            ):
+                _LOGGER.warning(
+                    "PerimeterAlertManager: linker present but allowlist "
+                    "empty after setup (%d cameras staged) — SECC-1 class "
+                    "regression suspected",
+                    len(_allowed),
+                )
+        except Exception:  # noqa: BLE001
+            pass
 
         if not perimeter_sensors:
             _LOGGER.debug(
@@ -673,6 +759,13 @@ class PerimeterAlertManager:
             except Exception:  # noqa: BLE001
                 pass
             self._unsub_frigate_events = None
+
+        if self._unsub_linker_ready is not None:
+            try:
+                self._unsub_linker_ready()
+            except Exception:  # noqa: BLE001
+                pass
+            self._unsub_linker_ready = None
 
         # A-M3: cancel any pending delayed dispatches
         for unsub in self._pending_dispatches:

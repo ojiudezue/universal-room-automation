@@ -199,11 +199,65 @@ ARRESTER_IMMUNE_HOLD_MAX_S: Final = 4 * 3600  # seconds; 4 hours
 # the max-age sunset (durable-state sunset still fires).
 COMFORT_OVERRIDE_MAX_S: Final = 6 * 3600  # seconds; 6 hours
 
-# DURABLE_HOUSE_STATES — house states that represent a change of context
-# significant enough to sunset an earlier operator intent. Transition INTO
-# any of these means the manual quick-cool the operator set 3h ago no
-# longer reflects what they're currently doing.
+# DURABLE_HOUSE_STATES — LEGACY. No longer the arrester policy source.
+# Kept ONLY so old imports don't crash. All arrester-family sunset sites
+# now consult ``house_state_invalidates_arrester_hold`` (defined below),
+# which uses ARRESTER_HOLD_PRESERVING_STATES as the single denylist source
+# of truth (ARREST-SUNSET-1, 2026-08-07). Do NOT add new readers of this
+# constant — they'll silently drift from the real policy.
 DURABLE_HOUSE_STATES: Final = frozenset({"sleep", "away", "vacation"})
+
+# ARRESTER_HOLD_PRESERVING_STATES — the DENYLIST source of truth for
+# whether a house-state transition sunsets an arrester-family hold (Temp
+# Arrester Override + operator immune-holds). Operator-directed rule
+# 2026-08-07: only ``arriving`` and ``guest`` preserve the hold; every
+# other transition invalidates it.
+#
+# Chosen as a denylist (not an allowlist) so that an UNCLASSIFIED future
+# house state defaults to INVALIDATING — the fail-safe direction: the
+# arrester regains governance rather than a stale suppression persisting
+# forever. Full house-state vocabulary lives in
+# const.py:HOUSE_STATE_TRIGGER_VALUES (imported by the tests to keep the
+# denylist honest — adding a 10th state breaks the parametrized coverage
+# test until it is classified).
+ARRESTER_HOLD_PRESERVING_STATES: Final = frozenset(
+    {"arriving", "guest", "waking"}
+)
+# ``waking`` is the morning-twin of ``arriving`` (see house_state.py): a
+# transient shim reachable ONLY from SLEEP (SLEEP: {WAKING, AWAY}) that
+# exits to HOME_DAY/AWAY within ~60s of hysteresis. Same non-durable
+# tier as ARRIVING (60s) — contrast with HOME_* (120s) / GUEST (300s) /
+# SLEEP (600s) / VACATION (7200s). The state machine itself classifies
+# it as transient, so it belongs in the preserve set.
+
+# ARRESTER_OVERRIDE_MIN_LIFE_S — RUNG 1 (module constant, review-required).
+# Minimum life grace for arrester-family holds: a state-transition sunset
+# cannot fire while (now - started_ts) < ARRESTER_OVERRIDE_MIN_LIFE_S.
+# Rationale: without this grace, preserving the transient states
+# (arriving/waking/guest) is decorative — an override engaged during
+# ``waking`` is nullified ~60s later when the house settles into
+# HOME_DAY, which invalidates. The grace makes the contract predictable
+# in one sentence: "flipping it on always buys at least 15 minutes;
+# after that, any real context change ends it."
+#
+# INVARIANT: min-life MUST NOT outrank max-age (COMFORT_OVERRIDE_MAX_S,
+# ARRESTER_IMMUNE_HOLD_MAX_S). 900 < 21600 today, but code defensively
+# so a future retune of either knob cannot let a hold outlive its cap.
+#
+# Kill-switch semantics: set to 0 to disable the grace entirely (a
+# state-transition sunset fires immediately regardless of age).
+ARRESTER_OVERRIDE_MIN_LIFE_S: Final = 15 * 60  # seconds; 15 minutes
+
+
+def house_state_invalidates_arrester_hold(state: str | None) -> bool:
+    """Return True iff transitioning INTO ``state`` should sunset an
+    arrester-family hold. Empty / None state → False (transient, no
+    decision yet). This is the SINGLE source of truth consulted by both
+    ``sunset_temp_arrester_override`` and ``sunset_immune_holds``; keeping
+    two independent expressions of the policy is exactly the fork that
+    was the original ARREST-SUNSET-1 bug.
+    """
+    return bool(state) and state not in ARRESTER_HOLD_PRESERVING_STATES
 
 # Marker option (persisted in entry.options) recording whether Temp Arrester
 # Override was ACTIVE when HA shut down / reloaded. Read at setup:
