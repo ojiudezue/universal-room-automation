@@ -1173,6 +1173,34 @@ DEFAULT_PERIMETER_ALERT_END: Final = 5      # 5 AM
 PERIMETER_ALERT_COOLDOWN_SECONDS: Final = 300  # 5 minutes
 
 # ----------------------------------------------------------------------------
+# XCORR-1: burst-demotion for isolated single-camera alerts.
+# Probe-grounded (docs/planning/AUDIT_xcorr_engine_corroboration_probe.md).
+# Cross-engine corroboration on the same camera CANNOT gate dispatch — solo
+# firing is the norm on the exterior cameras that matter (77–93% solo).
+# Instead: when a SECOND (or later) alert fires from the SAME collapsed
+# camera-key within a window, and there is (a) no sibling-engine
+# corroboration on that camera, (b) no adjacent-camera activity per the
+# linker's adjacency graph, (c) it is deep-night, DEMOTE severity to LOW
+# (never silence — composes with the demote-never-silence invariant INV-XP).
+# The FIRST alert from a camera always fires at full severity.
+# Rung-1 module constants — safety-adjacent; changes require code review.
+# ----------------------------------------------------------------------------
+# Kill switch: False = today's behavior byte-identical, feature disabled.
+PERIMETER_BURST_DEMOTE_ENABLED: Final = True
+# Burst window in seconds. Probe observed 2026-08-08 incident: 5 alerts in
+# 18 minutes; 30-minute window comfortably covers that pattern.
+PERIMETER_BURST_WINDOW_S: Final = 1800
+# Minimum dispatched-alert count within window (INCLUDING the current one)
+# before demotion applies. Value 2 = demote from the SECOND alert onwards
+# (first-alert-is-sacred invariant).
+PERIMETER_BURST_MIN_ALERTS: Final = 2
+# When True, demotion only applies inside the perimeter alert-hours window
+# (deep-night, default 23-05). Redundant today because dispatch is already
+# gated by _is_in_alert_hours, but preserved as an explicit kill for future
+# 24h alert coverage.
+PERIMETER_BURST_NIGHT_ONLY: Final = True
+
+# ----------------------------------------------------------------------------
 # Exterior-person NM escalation (D1/D2/D4 — PLANNING_exterior_person_escalation)
 # Rung-1 module consts (safety-adjacent; changes require code review).
 # Values are Severity NAMES (strings) to keep const.py independent of the

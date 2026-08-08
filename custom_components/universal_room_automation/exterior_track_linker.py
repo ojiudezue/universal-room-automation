@@ -884,6 +884,61 @@ class ExteriorTrackLinker:
             for (a, b), n in self._seam_split_counts.items()
         }
 
+    # ---------------- surface: adjacency neighbor lookup (XCORR-1) -----------
+    def adjacent_cameras(self, camera: str) -> set[str]:
+        """Return the set of cameras directly adjacent to `camera`.
+
+        REUSED private table `self._adjacency` (symmetrized at construction);
+        exposed as a read-only view for the burst-demotion helper in
+        perimeter_alert.py so it does not have to reach into a private dict.
+        Returns an empty set when the camera has no declared neighbors.
+        """
+        try:
+            return set(self._adjacency.get(self.normalize_camera(camera), set()))
+        except Exception:  # noqa: BLE001
+            return set()
+
+    def has_recent_adjacent_activity(
+        self, camera: str, window_s: float, now: datetime
+    ) -> bool:
+        """True iff any OPEN track (any label) has its last hop on a camera
+        adjacent to `camera` and observed within `window_s` seconds of `now`.
+
+        Used by PerimeterAlertManager's burst-demote helper to answer the
+        "no adjacent-camera activity" condition. Fail-open (True) is the
+        conservative choice for demotion (do NOT demote), so on any error
+        or missing kill-switch we return False so the CALLER treats "no
+        adjacency signal available" as "no adjacent activity" — matching
+        the classic-behavior fallback. Rationale: without a live linker
+        signal, the burst-demote decision should be conservative, and the
+        caller already gates on multiple independent conditions.
+
+        Kill switch: TRACK_LINK_WINDOW_S == 0 → no tracks exist → False.
+        """
+        if TRACK_LINK_WINDOW_S <= 0:
+            return False
+        try:
+            neigh = self.adjacent_cameras(camera)
+            if not neigh:
+                return False
+            for label in EXTERIOR_TRACK_LABELS:
+                for t in self._tracks.get(label, []):
+                    if not t.hops:
+                        continue
+                    last = t.hops[-1]
+                    if last.camera not in neigh:
+                        continue
+                    dt = (now - last.t_last).total_seconds()
+                    if 0 <= dt <= window_s:
+                        return True
+            return False
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "ExteriorTrackLinker: has_recent_adjacent_activity raised",
+                exc_info=True,
+            )
+            return False
+
     # ---------------- surface: unlinked-events counter (B-M3) ----------------
     def unlinked_events_snapshot(self) -> dict[str, int]:
         """Return {camera: count} of events that opened a NEW single-hop
