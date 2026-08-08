@@ -996,16 +996,23 @@ class NotificationManager:
         # registration silently. Wrapped in try/except so an unavailable
         # `hass.services` (test stubs) does not break setup.
         try:
-            def _mute_service_handler(call):
+            # v5.62.2 BUGFIX: this handler was a SYNC `def`, so HA ran it in an
+            # executor thread, where `hass.async_create_task()` is not
+            # thread-safe — the coroutine was created and dropped
+            # ("coroutine ... was never awaited") and the service call returned
+            # HTTP 500. The operator's mute escape hatch had therefore NEVER
+            # worked; discovered 2026-08-08 while trying to mute an alert loop
+            # in real time, which is the worst moment to find a broken kill
+            # switch. An `async def` handler runs on the event loop and can
+            # simply await the coroutine.
+            async def _mute_service_handler(call):
                 person_id = call.data.get("person_id")
                 channel = call.data.get("channel")
                 duration = call.data.get("duration_minutes")
-                self.hass.async_create_task(
-                    self.async_mute_person_channel(
-                        person_id=person_id,
-                        channel=channel,
-                        duration_minutes=duration,
-                    )
+                await self.async_mute_person_channel(
+                    person_id=person_id,
+                    channel=channel,
+                    duration_minutes=duration,
                 )
             self.hass.services.async_register(
                 DOMAIN,
