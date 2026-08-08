@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.62.2
+# Universal Room Automation vv5.63.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.62.2"
+VERSION: Final = "v5.63.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1434,6 +1434,66 @@ FRIGATE_SNAPSHOT_LABELS: Final = frozenset({"person"})
 # covers dispatch latency + NM channel sends. 0 disables caching (always
 # entity_picture fallback) — documented kill semantics.
 FRIGATE_SNAPSHOT_ID_TTL_S: Final = 120
+
+# ----------------------------------------------------------------------------
+# SNAP-1 (2026-08-08): at-detection perimeter snapshots — local-file delivery.
+# Numbers Get Knobs — rung-1 module constants. Rationale per knob below.
+# ----------------------------------------------------------------------------
+# On-disk write target. MUST be under an HA `media_dirs` root so
+# `hass.config.is_allowed_path()` admits it AND must NOT be under
+# `hass.config.path("www")` (that path is anonymously web-served — the
+# 682MB `/config/www/doorbell_alerts` pile purged 2026-08-07 is the
+# privacy invariant we are asserting away from).
+PERIMETER_SNAPSHOT_DIR: Final = "/media/ura/snapshots"
+# Age-primary retention: 1 week. Rung-1 because changing this weakens
+# a disk-hygiene bound; requires code review.
+PERIMETER_SNAPSHOT_RETENTION_AGE_H: Final = 168
+# Count backstop for pathological bursts. Rung-1 for the same reason
+# as age. Prune-on-write + 6h periodic sweep enforces both bounds.
+PERIMETER_SNAPSHOT_RETENTION_COUNT: Final = 5000
+# Image-fidelity precedence for the tiered capture (highest → lowest).
+# SEPARATE axis from the resolver's identity-preference order — this
+# orders by which engine's snapshot best represents the DETECTION MOMENT,
+# not which sensor is authoritative for identity.
+#   - frigate_event: Frigate's best-scoring frame of the event (best)
+#   - protect_thumb: UniFi Protect smart-detect event thumbnail
+#   - live_grab:     camera.snapshot at rising edge (native fallback)
+PERIMETER_SNAPSHOT_ENGINE_PRECEDENCE: Final = (
+    "frigate_event", "protect_thumb", "live_grab",
+)
+# Kill switch: True → revert to legacy `media_url`/`attachment=<url>`
+# delivery shape byte-for-byte (pre-SNAP-1 behavior). Auto-engages
+# when the setup-time allowed-path assertion or the www privacy
+# invariant fails.
+PERIMETER_SNAPSHOT_KILL_LEGACY_URL: Final = False
+# Periodic prune sweep interval (seconds). Safety net for low-traffic
+# days where no capture would trigger prune-on-write.
+PERIMETER_SNAPSHOT_SWEEP_INTERVAL_S: Final = 6 * 3600
+# SNAP-1 fix-up (F5): whole-capture budget. Bounds the time spent trying
+# to capture BEFORE dispatch proceeds — a stalled camera or wedged
+# Frigate cannot delay the security page more than this. 0 = no budget
+# (unsafe; documented kill semantics for debugging only).
+PERIMETER_SNAPSHOT_CAPTURE_BUDGET_S: Final = 3
+# Defence-in-depth timeout on the Frigate proxy HTTP GET (aiohttp
+# default is 300s). Kept < capture budget so a per-URL stall does not
+# eat the whole budget on a first candidate.
+PERIMETER_SNAPSHOT_HTTP_TIMEOUT_S: Final = 2
+# SNAP-1 fix-up (F1 at-detection edge capture): TTLs for the edge
+# capture buffer. EDGE_DEDUP_S — a second engine leg firing within
+# this window does NOT start a second capture (one-file-per-collapsed
+# -camera-key invariant). EDGE_TTL_S — orphan captures older than this
+# are dropped from the buffer (their files remain on disk and are
+# reaped by the periodic prune sweep). EDGE_CAPTURES_MAX — hard bound
+# on the buffer size (LRU eviction) so an unbounded burst cannot leak
+# task references. Rung-1: bounds a resource, not operator policy.
+PERIMETER_SNAPSHOT_EDGE_DEDUP_S: Final = 5
+PERIMETER_SNAPSHOT_EDGE_TTL_S: Final = 60
+PERIMETER_SNAPSHOT_EDGE_CAPTURES_MAX: Final = 64
+# SNAP-1 fix-up (F9b): on-write prune debounce. Prune is O(N) with
+# stat() per file; running it after every capture is wasteful. Skip
+# if the last prune ran within this many seconds — the 6h sweep is
+# the backstop.
+PERIMETER_SNAPSHOT_PRUNE_DEBOUNCE_S: Final = 60
 
 # ----------------------------------------------------------------------------
 # Exterior cycle 2 (2026-08-06): deep-night vehicle policy + fused sourcing
