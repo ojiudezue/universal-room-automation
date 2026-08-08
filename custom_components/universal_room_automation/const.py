@@ -1436,6 +1436,41 @@ FRIGATE_SNAPSHOT_LABELS: Final = frozenset({"person"})
 FRIGATE_SNAPSHOT_ID_TTL_S: Final = 120
 
 # ----------------------------------------------------------------------------
+# SNAP-1 (2026-08-08): at-detection perimeter snapshots — local-file delivery.
+# Numbers Get Knobs — rung-1 module constants. Rationale per knob below.
+# ----------------------------------------------------------------------------
+# On-disk write target. MUST be under an HA `media_dirs` root so
+# `hass.config.is_allowed_path()` admits it AND must NOT be under
+# `hass.config.path("www")` (that path is anonymously web-served — the
+# 682MB `/config/www/doorbell_alerts` pile purged 2026-08-07 is the
+# privacy invariant we are asserting away from).
+PERIMETER_SNAPSHOT_DIR: Final = "/media/ura/snapshots"
+# Age-primary retention: 1 week. Rung-1 because changing this weakens
+# a disk-hygiene bound; requires code review.
+PERIMETER_SNAPSHOT_RETENTION_AGE_H: Final = 168
+# Count backstop for pathological bursts. Rung-1 for the same reason
+# as age. Prune-on-write + 6h periodic sweep enforces both bounds.
+PERIMETER_SNAPSHOT_RETENTION_COUNT: Final = 5000
+# Image-fidelity precedence for the tiered capture (highest → lowest).
+# SEPARATE axis from the resolver's identity-preference order — this
+# orders by which engine's snapshot best represents the DETECTION MOMENT,
+# not which sensor is authoritative for identity.
+#   - frigate_event: Frigate's best-scoring frame of the event (best)
+#   - protect_thumb: UniFi Protect smart-detect event thumbnail
+#   - live_grab:     camera.snapshot at rising edge (native fallback)
+PERIMETER_SNAPSHOT_ENGINE_PRECEDENCE: Final = (
+    "frigate_event", "protect_thumb", "live_grab",
+)
+# Kill switch: True → revert to legacy `media_url`/`attachment=<url>`
+# delivery shape byte-for-byte (pre-SNAP-1 behavior). Auto-engages
+# when the setup-time allowed-path assertion or the www privacy
+# invariant fails.
+PERIMETER_SNAPSHOT_KILL_LEGACY_URL: Final = False
+# Periodic prune sweep interval (seconds). Safety net for low-traffic
+# days where no capture would trigger prune-on-write.
+PERIMETER_SNAPSHOT_SWEEP_INTERVAL_S: Final = 6 * 3600
+
+# ----------------------------------------------------------------------------
 # Exterior cycle 2 (2026-08-06): deep-night vehicle policy + fused sourcing
 # + animal ingress. Rung-1 module constants (Numbers Get Knobs). Hour values
 # are house-local; window wraps at midnight when start >= end.

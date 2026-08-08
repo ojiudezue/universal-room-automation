@@ -1182,6 +1182,7 @@ class NotificationManager:
         location: str | None = None,
         source_anomaly_id: int | None = None,
         snapshot_url: str | None = None,
+        snapshot_path: str | None = None,
     ) -> None:
         """Main notification entry point — called by coordinators.
 
@@ -1559,7 +1560,7 @@ class NotificationManager:
             _pushover_device = person_cfg.get(CONF_NM_PERSON_PUSHOVER_DEVICE, "")
             if _channel_gate.get("pushover", False) and "pushover" in _router_allowed:
                 if _pushover_key and effective_pref == NM_DELIVERY_IMMEDIATE:
-                    await self._send_pushover(title, message_with_dict, severity, _pushover_key, _pushover_device, snapshot_url=snapshot_url)
+                    await self._send_pushover(title, message_with_dict, severity, _pushover_key, _pushover_device, snapshot_url=snapshot_url, snapshot_path=snapshot_path)
                     channels_fired.append("pushover")
                     if database:
                         await database.log_notification(
@@ -1585,6 +1586,7 @@ class NotificationManager:
                         title, message, severity, _companion_svc,
                         is_critical=(severity == Severity.CRITICAL),
                         snapshot_url=snapshot_url,
+                        snapshot_path=snapshot_path,
                     )
                     channels_fired.append("companion")
                     if database:
@@ -1607,7 +1609,7 @@ class NotificationManager:
             _phone = person_cfg.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
             if _channel_gate.get("whatsapp", False) and "whatsapp" in _router_allowed:
                 if _phone and effective_pref == NM_DELIVERY_IMMEDIATE:
-                    await self._send_whatsapp(title, message_with_dict, _phone, snapshot_url=snapshot_url)
+                    await self._send_whatsapp(title, message_with_dict, _phone, snapshot_url=snapshot_url, snapshot_path=snapshot_path)
                     channels_fired.append("whatsapp")
                     if database:
                         await database.log_notification(
@@ -1629,7 +1631,7 @@ class NotificationManager:
             _imessage_handle = person_cfg.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "")
             if _channel_gate.get("imessage", False) and "imessage" in _router_allowed:
                 if _imessage_handle and effective_pref == NM_DELIVERY_IMMEDIATE:
-                    await self._send_imessage(title, message_with_dict, _imessage_handle, snapshot_url=snapshot_url)
+                    await self._send_imessage(title, message_with_dict, _imessage_handle, snapshot_url=snapshot_url, snapshot_path=snapshot_path)
                     channels_fired.append("imessage")
                     if database:
                         await database.log_notification(
@@ -1851,11 +1853,15 @@ class NotificationManager:
         user_key: str,
         device: str = "",
         snapshot_url: str | None = None,
+        snapshot_path: str | None = None,
     ) -> None:
         """Send notification via Pushover.
 
-        ``snapshot_url``: optional image attachment URL. Threaded into the
-        Pushover ``attachment_url`` data field when present; no-op when None.
+        SNAP-1: URL form retained (Pushover ``attachment_url`` — the
+        integration's URL fetch path). Local-file delivery
+        (``attachment`` w/ path) was not verified against the installed
+        pushover build during SNAP-1 planning, so we do not attempt it
+        here; the URL form remains the ratified path for this channel.
         """
         if self._dry_run_active:
             await self._log_dry_run(channel="pushover", target=device or user_key[:8], title=title)
@@ -1894,6 +1900,7 @@ class NotificationManager:
         service_name: str,
         is_critical: bool = False,
         snapshot_url: str | None = None,
+        snapshot_path: str | None = None,
     ) -> None:
         """Send notification via HA Companion App."""
         if self._dry_run_active:
@@ -1928,7 +1935,11 @@ class NotificationManager:
                         {"action": "SILENCE_URA", "title": "Silence 30min"},
                     ],
                 }
-            # Thread snapshot as HA Companion "image" attachment when present.
+            # SNAP-1: Companion `data.image` documented behavior is URL
+            # (http/https or `/local/…`). Local-file paths under `/media/`
+            # were NOT verified against the installed companion build;
+            # we therefore keep the URL form for this channel and only
+            # populate `image` when a URL is threaded.
             if snapshot_url:
                 data.setdefault("data", {})["image"] = snapshot_url
             await self.hass.services.async_call(domain, service, data, blocking=True)
@@ -1940,11 +1951,20 @@ class NotificationManager:
     async def _send_whatsapp(
         self, title: str, message: str, phone: str,
         snapshot_url: str | None = None,
+        snapshot_path: str | None = None,
     ) -> None:
         """Send notification via WhatsApp (ha-wa-bridge).
 
-        ``snapshot_url`` is threaded as ``media_url`` best-effort when the
-        underlying integration supports it; ignored (no-op) when None.
+        SNAP-1: prefer ``media_path`` (local file, verified accepted by
+        the installed whatsapp integration at
+        /config/custom_components/whatsapp/__init__.py:109-124 — gated
+        by ``hass.config.is_allowed_path``). URL form retained as
+        fallback / kill-switch. When BOTH are provided, ``media_path``
+        wins and ``media_url`` is dropped (the two are mutually
+        exclusive in the integration's ``get_media_data`` at
+        __init__.py:90-124, which reads path first if `media_url` is
+        absent, and reads url first when present — passing both would
+        make the server-side fetch the URL, defeating the point).
         """
         if self._dry_run_active:
             await self._log_dry_run(channel="whatsapp", target=phone, title=title)
@@ -1955,7 +1975,9 @@ class NotificationManager:
                 "number": phone,
                 "message": outbound_text,
             }
-            if snapshot_url:
+            if snapshot_path:
+                payload["media_path"] = snapshot_path
+            elif snapshot_url:
                 payload["media_url"] = snapshot_url
             await self.hass.services.async_call(
                 "whatsapp", "send_message",
@@ -1973,11 +1995,21 @@ class NotificationManager:
     async def _send_imessage(
         self, title: str, message: str, handle: str,
         snapshot_url: str | None = None,
+        snapshot_path: str | None = None,
     ) -> None:
         """Send notification via BlueBubbles (iMessage).
 
-        ``snapshot_url`` is threaded as an ``attachment`` best-effort when the
-        underlying integration supports it; ignored (no-op) when None.
+        SNAP-1 verification gap: the installed BlueBubbles integration
+        (/config/custom_components/bluebubbles/__init__.py:49-90) exposes
+        ONLY {addresses, message, method} and POSTs to
+        `/api/v1/chat/new` — it does NOT read `attachment`,
+        `attachment_path`, or any local-file key. Any attachment field
+        we set is silently DROPPED by the integration today. We still
+        pass `attachment_path` (local file) / `attachment` (URL) as
+        best-effort forward-compat keys AND log a one-shot WARN so the
+        operator sees that iMessage photo delivery requires a
+        BlueBubbles-side upload mechanism this integration doesn't
+        wrap. Tracked as follow-up: SNAP-1-followup-bluebubbles-attachment.
         """
         if self._dry_run_active:
             await self._log_dry_run(channel="imessage", target=handle, title=title)
@@ -1988,7 +2020,21 @@ class NotificationManager:
                 "addresses": handle,
                 "message": outbound_text,
             }
-            if snapshot_url:
+            if snapshot_path:
+                payload["attachment_path"] = snapshot_path
+                if not getattr(self, "_snap1_bb_attach_warned", False):
+                    _LOGGER.warning(
+                        "NM iMessage: BlueBubbles HA integration does not "
+                        "expose an attachment field (verified against "
+                        "/config/custom_components/bluebubbles/__init__.py). "
+                        "Passing attachment_path=%s best-effort — the photo "
+                        "will not be delivered until BB integration adds "
+                        "attachment support "
+                        "(SNAP-1-followup-bluebubbles-attachment).",
+                        snapshot_path,
+                    )
+                    self._snap1_bb_attach_warned = True
+            elif snapshot_url:
                 payload["attachment"] = snapshot_url
             await self.hass.services.async_call(
                 "bluebubbles", "send_message",

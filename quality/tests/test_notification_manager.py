@@ -1645,3 +1645,85 @@ class TestDigestHeartbeat:
         assert "Humidity high" in args[2]
         assert "All quiet" not in args[2]
 
+
+
+# ============================================================================
+# SNAP-1: at-detection perimeter snapshots — channel builder payload shape.
+# ============================================================================
+
+class TestSNAP1ChannelBuilders:
+    """WhatsApp / iMessage payload shape when snapshot_path is threaded.
+
+    Independent-authority: every expected payload is authored here, NOT
+    derived from the expression under test. Includes byte-identical kill-
+    switch equivalence.
+    """
+
+    def _hass_capturing(self):
+        h = _make_hass()
+        h.services = MagicMock()
+        h.services.async_call = AsyncMock()
+        return h
+
+    @pytest.mark.asyncio
+    async def test_whatsapp_uses_media_path_when_snapshot_path_present(self):
+        hass = self._hass_capturing()
+        nm = NotificationManager(hass, _make_config())
+        await nm._send_whatsapp(
+            "T", "M", "+1234",
+            snapshot_url="http://x/y.jpg",
+            snapshot_path="/media/ura/snapshots/cam_1.jpg",
+        )
+        payload = hass.services.async_call.await_args.args[2]
+        assert payload["media_path"] == "/media/ura/snapshots/cam_1.jpg"
+        assert "media_url" not in payload
+
+    @pytest.mark.asyncio
+    async def test_whatsapp_kill_switch_bytewise_legacy_url(self):
+        hass = self._hass_capturing()
+        nm = NotificationManager(hass, _make_config())
+        await nm._send_whatsapp(
+            "T", "M", "+1234", snapshot_url="http://x/y.jpg",
+        )
+        payload = hass.services.async_call.await_args.args[2]
+        assert payload == {
+            "number": "+1234",
+            "message": "*T*\nM",
+            "media_url": "http://x/y.jpg",
+        }
+
+    @pytest.mark.asyncio
+    async def test_whatsapp_no_snapshot_drops_both_media_keys(self):
+        hass = self._hass_capturing()
+        nm = NotificationManager(hass, _make_config())
+        await nm._send_whatsapp("T", "M", "+1234")
+        payload = hass.services.async_call.await_args.args[2]
+        assert "media_path" not in payload
+        assert "media_url" not in payload
+
+    @pytest.mark.asyncio
+    async def test_imessage_passes_attachment_path_and_warns_once(self):
+        hass = self._hass_capturing()
+        nm = NotificationManager(hass, _make_config())
+        await nm._send_imessage(
+            "T", "M", "user@icloud",
+            snapshot_path="/media/ura/snapshots/cam_2.jpg",
+        )
+        payload = hass.services.async_call.await_args.args[2]
+        assert payload.get("attachment_path") == "/media/ura/snapshots/cam_2.jpg"
+        assert "attachment" not in payload
+        assert getattr(nm, "_snap1_bb_attach_warned", False) is True
+
+    @pytest.mark.asyncio
+    async def test_imessage_kill_switch_bytewise_legacy_url(self):
+        hass = self._hass_capturing()
+        nm = NotificationManager(hass, _make_config())
+        await nm._send_imessage(
+            "T", "M", "user@icloud", snapshot_url="http://x/y.jpg",
+        )
+        payload = hass.services.async_call.await_args.args[2]
+        assert payload == {
+            "addresses": "user@icloud",
+            "message": "T\nM",
+            "attachment": "http://x/y.jpg",
+        }
