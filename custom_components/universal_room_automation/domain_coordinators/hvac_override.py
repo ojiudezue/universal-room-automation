@@ -704,10 +704,14 @@ class OverrideArrester:
         eng_id = self._temp_arrester_override_engagement_id
         if eng_id == self._last_expiry_warned_engagement_id:
             return
-        self._last_expiry_warned_engagement_id = eng_id
         cb = self._on_expiry_warn_notify
         if cb is None:
+            # F5 fix-up (2026-08-08): do NOT stamp dedup before we've
+            # actually notified — otherwise an unregistered callback
+            # would silently mark this engagement "warned" and no retry
+            # is possible. Dedup means "warned iff notified".
             return
+        self._last_expiry_warned_engagement_id = eng_id
         try:
             remaining_min = max(
                 1, int(round(ARRESTER_OVERRIDE_EXPIRY_WARN_S / 60))

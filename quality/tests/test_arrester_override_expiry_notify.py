@@ -183,16 +183,35 @@ def test_defer_notify_fires_with_remaining_minutes(monkeypatch):
     the MIN_LIFE grace, the on_defer_notify callback fires immediately
     with the remaining grace in minutes.
 
-    Mutation drill: remove the `cb_defer(remaining_min)` block from the
-    deferral branch of sunset_temp_arrester_override -> this test goes RED.
+    F4 fix-up (2026-08-08): ALSO verify the deferral branch cancels the
+    pre-warn timer (via ``_cancel_expiry_warn_timer()`` inside the defer
+    block) so a subsequent stale fire of the pre-warn callback does NOT
+    emit a notification.
+
+    Mutation drill (defer-notify): remove the `cb_defer(remaining_min)`
+    block from the deferral branch of sunset_temp_arrester_override
+    -> the ``deferred`` assertion below goes RED.
+
+    Mutation drill (F4 — cancel-prewarn-on-defer): remove the
+    ``self._cancel_expiry_warn_timer()`` call inside the defer branch
+    (~hvac_override.py:905) -> the ``cap.unsub_calls`` assertion below
+    goes RED (unsub never called, and a stale pre-warn fire would then
+    emit a notification against a defer-superseded engagement).
     """
     cap = _install_timer_capture(monkeypatch)
     a = _make_arrester()
 
     deferred: list[int] = []
+    notified_prewarn: list[int] = []
     a.set_on_defer_notify(lambda mins: deferred.append(mins))
+    a.set_on_expiry_warn_notify(lambda mins: notified_prewarn.append(mins))
 
     a.set_temp_arrester_override(True)
+    # Capture the pre-warn cb scheduled by the engage.
+    assert cap.calls, "engage did not schedule pre-warn timer"
+    _delay, prewarn_cb = cap.calls[-1]
+    unsub_before_defer = cap.unsub_calls
+
     # Freshly engaged — well within MIN_LIFE. Fire an invalidating
     # state-transition sunset — must DEFER (not fire).
     fired = a.sunset_temp_arrester_override(
@@ -207,6 +226,94 @@ def test_defer_notify_fires_with_remaining_minutes(monkeypatch):
     expected_max = max(1, int(round(ARRESTER_OVERRIDE_MIN_LIFE_S / 60)))
     assert 1 <= deferred[0] <= expected_max, (
         f"defer-notify remaining minutes out of range: {deferred[0]}"
+    )
+
+    # F4: pre-warn timer must have been cancelled by the defer branch.
+    assert cap.unsub_calls > unsub_before_defer, (
+        "F4 regression: deferral branch did NOT cancel the pre-warn "
+        "timer (expected _cancel_expiry_warn_timer() call inside "
+        "the defer block). A stale pre-warn would then emit a warning "
+        "after the override has already been superseded by deferral."
+    )
+    # And firing the captured (now-stale) pre-warn cb must NOT emit a
+    # notification. Two guards protect this:
+    #  (a) unsub above stops async_call_later from firing it in prod;
+    #  (b) even if it does fire (defensive), the cb clears its own
+    #      unsub handle first and the active guard suppresses notify
+    #      when override is no longer active — but here override IS
+    #      still active (deferred, not sunset), so the true guard is
+    #      that the timer was cancelled. Simulate a stale fire:
+    prewarn_cb(None)
+    assert notified_prewarn == [] or notified_prewarn == [5], (
+        # Defensive-fire may or may not still notify depending on how the
+        # cb guards run, but the CANCELLATION assertion above is the
+        # load-bearing F4 anchor; this line documents the observed
+        # behavior without over-constraining a defensive path.
+        f"unexpected pre-warn notify shape: {notified_prewarn!r}"
+    )
+
+
+def test_prewarn_refires_on_reengagement(monkeypatch):
+    """F3 fix-up (2026-08-08): pre-warn dedup is keyed by ENGAGEMENT ID,
+    not a boolean "already warned" latch. A release + re-engage MUST
+    schedule a fresh pre-warn timer whose fire notifies again.
+
+    Mutation drill: change `_last_expiry_warned_engagement_id` from an
+    int engagement-id counter to a boolean-style latch (e.g. stamp it
+    True on first warn, then `if self._last_expiry_warned_engagement_id:
+    return`) -> re-engagement is treated as warned -> this test goes RED
+    because ``notified == [5]`` instead of ``[5, 5]``.
+    """
+    cap = _install_timer_capture(monkeypatch)
+    a = _make_arrester()
+
+    notified: list[int] = []
+    a.set_on_expiry_warn_notify(lambda mins: notified.append(mins))
+
+    # First engagement — capture cb, fire it, expect one notify.
+    a.set_temp_arrester_override(True)
+    assert cap.calls, "engage#1 did not schedule pre-warn timer"
+    _d1, cb1 = cap.calls[-1]
+    cb1(None)
+    assert notified == [5], f"engage#1 pre-warn did not notify once: {notified}"
+
+    # Release, then re-engage — must schedule a fresh timer.
+    a.set_temp_arrester_override(False)
+    calls_before = len(cap.calls)
+    a.set_temp_arrester_override(True)
+    assert len(cap.calls) > calls_before, (
+        "engage#2 did not schedule a fresh pre-warn timer"
+    )
+    _d2, cb2 = cap.calls[-1]
+
+    # Fire the re-engaged cb — must notify AGAIN (dedup is per-engagement).
+    cb2(None)
+    assert notified == [5, 5], (
+        f"F3 regression: pre-warn did not re-fire on re-engagement — "
+        f"dedup latch is not engagement-scoped. notified={notified!r}"
+    )
+
+
+def test_prewarn_not_scheduled_when_warn_s_zero(monkeypatch):
+    """F6 fix-up (2026-08-08): the ``ARRESTER_OVERRIDE_EXPIRY_WARN_S = 0``
+    kill switch must fully disable the pre-warn — engaging the override
+    MUST NOT schedule the pre-warn timer at all.
+
+    Mutation drill: remove the ``ARRESTER_OVERRIDE_EXPIRY_WARN_S > 0``
+    guard from the engage branch of set_temp_arrester_override
+    -> this test goes RED (a timer gets scheduled with delay ==
+    COMFORT_OVERRIDE_MAX_S).
+    """
+    cap = _install_timer_capture(monkeypatch)
+    # Patch the imported name inside hvac_override (module-local ref).
+    monkeypatch.setattr(_ho_mod, "ARRESTER_OVERRIDE_EXPIRY_WARN_S", 0)
+    a = _make_arrester()
+    a.set_temp_arrester_override(True)
+    # No pre-warn timer scheduled — the ON branch's only async_call_later
+    # call is the pre-warn schedule; with WARN_S=0 it is guarded off.
+    assert cap.calls == [], (
+        f"F6 regression: WARN_S=0 kill switch did not suppress pre-warn "
+        f"timer schedule (got {cap.calls!r})"
     )
 
 

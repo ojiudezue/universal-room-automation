@@ -43,7 +43,19 @@ def _mock(name, **attrs):
 _HA = {
     "homeassistant": {},
     "homeassistant.core": {"HomeAssistant": MagicMock, "callback": _ident,
-                           "Event": MagicMock},
+                           "Event": MagicMock,
+                           # F2 fix-up (2026-08-08): stub must carry
+                           # CALLBACK_TYPE so a partial/reordered run
+                           # (this file BEFORE a sibling that uses
+                           # `from homeassistant.core import CALLBACK_TYPE`,
+                           # e.g. test_arrester_override_expiry_notify.py)
+                           # does not fail collection. The merge loop
+                           # below only fills MISSING attrs, so once we
+                           # register `homeassistant.core` any later
+                           # `sys.modules.setdefault` from a sibling is a
+                           # no-op and its CALLBACK_TYPE would be
+                           # discarded.
+                           "CALLBACK_TYPE": object},
     "homeassistant.helpers": {},
     "homeassistant.helpers.event": {
         "async_call_later": lambda *a, **kw: MagicMock(),
@@ -509,75 +521,115 @@ def test_bootsanity1_ready_path_warns_when_set_allowed_is_noop(caplog):
 
 
 def test_bootsanity1_diagnostic_sensor_exposes_allowlist_state():
-    """BOOTSANITY-1: ExteriorOpenTracksDiagnosticSensor.extra_state_attributes
-    must expose ``allowlist_installed`` (bool) and ``allowlist_camera_count``
-    (int) sourced from the live linker. This is the LIVE observable that
-    proves the install succeeded (log WARNING is silence-on-success).
+    """BOOTSANITY-1 (F1 fix-up 2026-08-08): the diagnostic sensor's
+    ``extra_state_attributes`` must SOURCE ``allowlist_installed`` and
+    ``allowlist_camera_count`` from the live linker in ``hass.data``.
+    This is the LIVE observable that proves the install succeeded on
+    cold-boot ordering (log WARNING is silence-on-success).
 
-    Mutation drill: remove either attribute from the sensor's attrs dict
-    -> this test goes RED.
+    Previously this was a source-grep + a separate linker exercise —
+    two halves that never connected. A mutation setting both attrs to
+    constant ``False``/``0`` (fully detached from the linker) left the
+    old test GREEN. Now the test constructs the sensor (via ``__new__``
+    to skip the AggregationEntity/SensorEntity import graph), wires it
+    to a REAL linker via ``hass.data``, and reads the property.
+
+    Mutation drills (verified in fix-up commit):
+      * Set ``attrs["allowlist_installed"] = False`` (constant, detached
+        from linker) -> post-install assertion goes RED.
+      * Set ``attrs["allowlist_camera_count"] = 0`` (constant) -> post-
+        install count assertion goes RED.
+      * Remove either attr from the dict entirely -> assertion RED.
     """
-    import importlib.util as _il3
-    import types as _types
+    # sensor.py's import graph (coordinator + entity + aggregation +
+    # energy_billing) is too heavy to source-load in this harness.
+    # Reviewer's approved fallback: extract the ExteriorOpenTracks-
+    # DiagnosticSensor.extra_state_attributes SOURCE via ast, exec it as
+    # a standalone function bound to a shim ``self`` holding hass.data,
+    # and invoke it against a REAL linker. This still drives the exact
+    # production expression (byte-identical to the source lines) — the
+    # mutation drills below are performed against that source.
+    import ast as _ast
+    import textwrap as _textwrap
 
-    # Ensure sensor.py deps are stubbed enough to source-load it.
-    for _n, _a in {
-        "homeassistant.helpers.restore_state": {"RestoreEntity": object},
-        "homeassistant.helpers.entity": {"DeviceInfo": dict,
-                                          "EntityCategory": MagicMock()},
-        "homeassistant.helpers.entity_platform": {
-            "AddEntitiesCallback": MagicMock(),
-        },
-        "homeassistant.components.sensor": {
-            "SensorEntity": object, "SensorStateClass": MagicMock(),
-            "SensorDeviceClass": MagicMock(),
-        },
-        "homeassistant.components.binary_sensor": {
-            "BinarySensorEntity": object,
-        },
-        "homeassistant.config_entries": {"ConfigEntry": object},
-        "homeassistant.const": {"PERCENTAGE": "%", "UnitOfEnergy": MagicMock(),
-                                 "UnitOfPower": MagicMock(),
-                                 "UnitOfTemperature": MagicMock(),
-                                 "STATE_ON": "on", "STATE_OFF": "off",
-                                 "STATE_UNAVAILABLE": "unavailable",
-                                 "STATE_UNKNOWN": "unknown",
-                                 "EntityCategory": MagicMock()},
-    }.items():
-        existing = sys.modules.get(_n)
-        if existing is None:
-            sys.modules[_n] = _mock(_n, **_a)
-        else:
-            for _k, _v in _a.items():
-                if not hasattr(existing, _k):
-                    setattr(existing, _k, _v)
+    from custom_components.universal_room_automation.const import DOMAIN
 
-    # We DO NOT source-load the whole sensor.py (heavy). Instead we test
-    # the load-bearing attribute-computation snippet on a fake linker via
-    # a direct call to the property body. To avoid duplicating logic, we
-    # exercise the linker end and inline-mirror the two attrs the way the
-    # property builds them -- BUT to guard against attribute-name drift
-    # we ALSO grep the sensor source to prove the attrs are wired there.
-    src = (
+    _sensor_src = (
         REPO_ROOT
         / "custom_components/universal_room_automation/sensor.py"
     ).read_text()
-    assert '"allowlist_installed"' in src, (
-        "BOOTSANITY-1 regression: sensor.py does not expose "
-        "allowlist_installed attribute"
+    _tree = _ast.parse(_sensor_src)
+
+    _prop_src = None
+    for _node in _ast.walk(_tree):
+        if (isinstance(_node, _ast.ClassDef)
+                and _node.name == "ExteriorOpenTracksDiagnosticSensor"):
+            for _item in _node.body:
+                if (isinstance(_item, _ast.FunctionDef)
+                        and _item.name == "extra_state_attributes"):
+                    _prop_src = _ast.get_source_segment(_sensor_src, _item)
+                    break
+            break
+    assert _prop_src is not None, (
+        "F1 fix-up: could not locate extra_state_attributes property "
+        "inside ExteriorOpenTracksDiagnosticSensor via AST — has the "
+        "class or method been renamed?"
     )
-    assert '"allowlist_camera_count"' in src, (
-        "BOOTSANITY-1 regression: sensor.py does not expose "
-        "allowlist_camera_count attribute"
+    # Sanity: the two load-bearing attribute keys must be present in the
+    # extracted source (byte-identical to production). This guards against
+    # the F1 regression class of "attr key was removed / renamed".
+    assert '"allowlist_installed"' in _prop_src, (
+        "F1 regression: extracted property source does not set "
+        "'allowlist_installed' (attr key missing / renamed)"
+    )
+    assert '"allowlist_camera_count"' in _prop_src, (
+        "F1 regression: extracted property source does not set "
+        "'allowlist_camera_count' (attr key missing / renamed)"
     )
 
-    # Now drive the REAL linker's public state to prove the values the
-    # sensor reads flip correctly on install.
-    lk = _fresh_linker()
-    # Before install
-    assert lk._allowlist_installed is False
-    assert len(lk._allowed_cameras) == 0
-    # After install
-    lk.set_allowed_cameras({"cam_a", "cam_b", "cam_c"})
-    assert lk._allowlist_installed is True
-    assert len(lk._allowed_cameras) == 3
+    # Strip the @property decorator + rename to a plain function so we
+    # can exec it and call it as ``fn(self)``.
+    _fn_src = _textwrap.dedent(_prop_src)
+    # Drop decorator lines
+    _fn_lines = [ln for ln in _fn_src.splitlines()
+                 if not ln.lstrip().startswith("@")]
+    _fn_src = "\n".join(_fn_lines)
+    # Rename the method so there's no property-descriptor confusion.
+    _fn_src = _fn_src.replace(
+        "def extra_state_attributes", "def _extract_attrs", 1,
+    )
+    _ns: dict = {"DOMAIN": DOMAIN}
+    exec(compile(_fn_src, "<extra_state_attributes-extracted>", "exec"), _ns)
+    _extract = _ns["_extract_attrs"]
+
+    # Drive with a REAL linker via hass.data.
+    linker = _fresh_linker()
+    hass = MagicMock()
+    hass.data = {DOMAIN: {"exterior_track_linker": linker}}
+    self_shim = types.SimpleNamespace(hass=hass)
+
+    # BEFORE install — installed=False, count=0
+    attrs_before = _extract(self_shim)
+    assert attrs_before.get("allowlist_installed") is False, (
+        f"F1 regression (pre-install): allowlist_installed not False "
+        f"(got {attrs_before.get('allowlist_installed')!r})"
+    )
+    assert attrs_before.get("allowlist_camera_count") == 0, (
+        f"F1 regression (pre-install): allowlist_camera_count not 0 "
+        f"(got {attrs_before.get('allowlist_camera_count')!r})"
+    )
+
+    # AFTER install — must reflect the live linker state
+    linker.set_allowed_cameras({"a", "b", "c"})
+    attrs_after = _extract(self_shim)
+    assert attrs_after.get("allowlist_installed") is True, (
+        f"F1 regression (post-install): allowlist_installed did not "
+        f"flip True (got {attrs_after.get('allowlist_installed')!r}). "
+        f"Mutation-drill guard: a constant-False attr would land here."
+    )
+    assert attrs_after.get("allowlist_camera_count") == 3, (
+        f"F1 regression (post-install): allowlist_camera_count did not "
+        f"reflect the 3 cameras installed on the linker (got "
+        f"{attrs_after.get('allowlist_camera_count')!r}). Mutation-drill "
+        f"guard: a constant-0 attr would land here."
+    )
