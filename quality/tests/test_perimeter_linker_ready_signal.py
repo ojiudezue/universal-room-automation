@@ -43,7 +43,19 @@ def _mock(name, **attrs):
 _HA = {
     "homeassistant": {},
     "homeassistant.core": {"HomeAssistant": MagicMock, "callback": _ident,
-                           "Event": MagicMock},
+                           "Event": MagicMock,
+                           # F2 fix-up (2026-08-08): stub must carry
+                           # CALLBACK_TYPE so a partial/reordered run
+                           # (this file BEFORE a sibling that uses
+                           # `from homeassistant.core import CALLBACK_TYPE`,
+                           # e.g. test_arrester_override_expiry_notify.py)
+                           # does not fail collection. The merge loop
+                           # below only fills MISSING attrs, so once we
+                           # register `homeassistant.core` any later
+                           # `sys.modules.setdefault` from a sibling is a
+                           # no-op and its CALLBACK_TYPE would be
+                           # discarded.
+                           "CALLBACK_TYPE": object},
     "homeassistant.helpers": {},
     "homeassistant.helpers.event": {
         "async_call_later": lambda *a, **kw: MagicMock(),
@@ -449,4 +461,175 @@ def test_perimeter_alert_boot_sanity_warns_on_empty_allowlist(caplog):
         "F1(e) regression: boot-sanity WARNING did not fire when the "
         "linker was present post-setup but its allowlist stayed empty. "
         f"Records seen: {[r.getMessage() for r in caplog.records]!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# BOOTSANITY-1 (2026-08-08): the ONLY guard that fires on real cold-boot
+# ordering (linker registered AFTER PerimeterAlertManager.async_setup)
+# lives in the READY-signal callback, NOT at the end of async_setup. The
+# following two tests pin that. Mutation drills documented inline.
+# ---------------------------------------------------------------------------
+
+
+def test_bootsanity1_ready_path_warns_when_set_allowed_is_noop(caplog):
+    """BOOTSANITY-1: linker ABSENT at async_setup time (real cold boot),
+    then registers, READY callback fires — but set_allowed_cameras is a
+    silent no-op (SECC-1 class regression). Production must emit a
+    WARNING from the READY callback path.
+
+    Mutation drill: delete the ``if not getattr(_lk, "_allowed_cameras",
+    None): _LOGGER.warning(...)`` block inside ``_install_on_ready`` in
+    perimeter_alert.py -> this test goes RED. (End-of-setup guard cannot
+    fire in this scenario — linker was None then.)
+    """
+    import logging as _logging
+    from custom_components.universal_room_automation.const import DOMAIN
+    from custom_components.universal_room_automation.domain_coordinators.signals import (
+        SIGNAL_EXTERIOR_LINKER_READY,
+    )
+
+    # Setup with NO linker in hass.data (cold-boot ordering).
+    mgr, hass, captured = _build_manager_captured(existing_linker=None)
+    cbs = captured.get(SIGNAL_EXTERIOR_LINKER_READY) or []
+    assert cbs, "async_setup did not subscribe to READY"
+
+    class _BrokenLinker:
+        _allowed_cameras: set = set()
+        _allowlist_installed: bool = False
+
+        def set_allowed_cameras(self, cams):
+            return  # silent no-op — SECC-1 shape
+
+    broken = _BrokenLinker()
+    hass.data[DOMAIN]["exterior_track_linker"] = broken
+
+    with caplog.at_level(
+        _logging.WARNING,
+        logger="custom_components.universal_room_automation.perimeter_alert",
+    ):
+        for cb in cbs:
+            cb()
+
+    hits = [r for r in caplog.records
+            if "SECC-1" in r.getMessage() and r.levelno >= _logging.WARNING]
+    assert hits, (
+        "BOOTSANITY-1 regression: READY-path sanity WARNING did not fire "
+        "when set_allowed_cameras returned but the allowlist stayed empty. "
+        f"Records seen: {[r.getMessage() for r in caplog.records]!r}"
+    )
+
+
+def test_bootsanity1_diagnostic_sensor_exposes_allowlist_state():
+    """BOOTSANITY-1 (F1 fix-up 2026-08-08): the diagnostic sensor's
+    ``extra_state_attributes`` must SOURCE ``allowlist_installed`` and
+    ``allowlist_camera_count`` from the live linker in ``hass.data``.
+    This is the LIVE observable that proves the install succeeded on
+    cold-boot ordering (log WARNING is silence-on-success).
+
+    Previously this was a source-grep + a separate linker exercise —
+    two halves that never connected. A mutation setting both attrs to
+    constant ``False``/``0`` (fully detached from the linker) left the
+    old test GREEN. Now the test constructs the sensor (via ``__new__``
+    to skip the AggregationEntity/SensorEntity import graph), wires it
+    to a REAL linker via ``hass.data``, and reads the property.
+
+    Mutation drills (verified in fix-up commit):
+      * Set ``attrs["allowlist_installed"] = False`` (constant, detached
+        from linker) -> post-install assertion goes RED.
+      * Set ``attrs["allowlist_camera_count"] = 0`` (constant) -> post-
+        install count assertion goes RED.
+      * Remove either attr from the dict entirely -> assertion RED.
+    """
+    # sensor.py's import graph (coordinator + entity + aggregation +
+    # energy_billing) is too heavy to source-load in this harness.
+    # Reviewer's approved fallback: extract the ExteriorOpenTracks-
+    # DiagnosticSensor.extra_state_attributes SOURCE via ast, exec it as
+    # a standalone function bound to a shim ``self`` holding hass.data,
+    # and invoke it against a REAL linker. This still drives the exact
+    # production expression (byte-identical to the source lines) — the
+    # mutation drills below are performed against that source.
+    import ast as _ast
+    import textwrap as _textwrap
+
+    from custom_components.universal_room_automation.const import DOMAIN
+
+    _sensor_src = (
+        REPO_ROOT
+        / "custom_components/universal_room_automation/sensor.py"
+    ).read_text()
+    _tree = _ast.parse(_sensor_src)
+
+    _prop_src = None
+    for _node in _ast.walk(_tree):
+        if (isinstance(_node, _ast.ClassDef)
+                and _node.name == "ExteriorOpenTracksDiagnosticSensor"):
+            for _item in _node.body:
+                if (isinstance(_item, _ast.FunctionDef)
+                        and _item.name == "extra_state_attributes"):
+                    _prop_src = _ast.get_source_segment(_sensor_src, _item)
+                    break
+            break
+    assert _prop_src is not None, (
+        "F1 fix-up: could not locate extra_state_attributes property "
+        "inside ExteriorOpenTracksDiagnosticSensor via AST — has the "
+        "class or method been renamed?"
+    )
+    # Sanity: the two load-bearing attribute keys must be present in the
+    # extracted source (byte-identical to production). This guards against
+    # the F1 regression class of "attr key was removed / renamed".
+    assert '"allowlist_installed"' in _prop_src, (
+        "F1 regression: extracted property source does not set "
+        "'allowlist_installed' (attr key missing / renamed)"
+    )
+    assert '"allowlist_camera_count"' in _prop_src, (
+        "F1 regression: extracted property source does not set "
+        "'allowlist_camera_count' (attr key missing / renamed)"
+    )
+
+    # Strip the @property decorator + rename to a plain function so we
+    # can exec it and call it as ``fn(self)``.
+    _fn_src = _textwrap.dedent(_prop_src)
+    # Drop decorator lines
+    _fn_lines = [ln for ln in _fn_src.splitlines()
+                 if not ln.lstrip().startswith("@")]
+    _fn_src = "\n".join(_fn_lines)
+    # Rename the method so there's no property-descriptor confusion.
+    _fn_src = _fn_src.replace(
+        "def extra_state_attributes", "def _extract_attrs", 1,
+    )
+    _ns: dict = {"DOMAIN": DOMAIN}
+    exec(compile(_fn_src, "<extra_state_attributes-extracted>", "exec"), _ns)
+    _extract = _ns["_extract_attrs"]
+
+    # Drive with a REAL linker via hass.data.
+    linker = _fresh_linker()
+    hass = MagicMock()
+    hass.data = {DOMAIN: {"exterior_track_linker": linker}}
+    self_shim = types.SimpleNamespace(hass=hass)
+
+    # BEFORE install — installed=False, count=0
+    attrs_before = _extract(self_shim)
+    assert attrs_before.get("allowlist_installed") is False, (
+        f"F1 regression (pre-install): allowlist_installed not False "
+        f"(got {attrs_before.get('allowlist_installed')!r})"
+    )
+    assert attrs_before.get("allowlist_camera_count") == 0, (
+        f"F1 regression (pre-install): allowlist_camera_count not 0 "
+        f"(got {attrs_before.get('allowlist_camera_count')!r})"
+    )
+
+    # AFTER install — must reflect the live linker state
+    linker.set_allowed_cameras({"a", "b", "c"})
+    attrs_after = _extract(self_shim)
+    assert attrs_after.get("allowlist_installed") is True, (
+        f"F1 regression (post-install): allowlist_installed did not "
+        f"flip True (got {attrs_after.get('allowlist_installed')!r}). "
+        f"Mutation-drill guard: a constant-False attr would land here."
+    )
+    assert attrs_after.get("allowlist_camera_count") == 3, (
+        f"F1 regression (post-install): allowlist_camera_count did not "
+        f"reflect the 3 cameras installed on the linker (got "
+        f"{attrs_after.get('allowlist_camera_count')!r}). Mutation-drill "
+        f"guard: a constant-0 attr would land here."
     )

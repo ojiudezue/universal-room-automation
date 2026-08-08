@@ -14,10 +14,164 @@ meta:
   - waiting_me
   - parked
 cards:
+- id: XCORR-1
+  title: 'Burst-demotion for isolated single-camera night alerts (was: cross-engine corroboration gate)'
+  thread: perimeter
+  status: pre_planning
+  approval: explicit
+  approved_by: operator
+  approved_on: '2026-08-08'
+  tags:
+  - tier-2db
+  - measure-before-build
+  - numbers-get-knobs
+  - no-fabrication-verify
+  origin:
+    date: '2026-08-08'
+    gist: operator got 12 notifications 01:01-01:25 CDT from hot_tub; "this is what x-correlation looks
+      like if we have multiple engines"
+  why: 'A single engine asserting person while a CO-LOCATED engine on the same physical camera stays silent
+    is strong false-positive evidence. Labelled example 2026-08-08: hot_tub frigate fired 5x in 18min;
+    protect leg NEVER fired; zero adjacent cameras fired. URA correctly alerted on bad input - the input
+    is the problem.'
+  evidence:
+  - 'hot_tub frigate _person_occupancy: 06:01:27, 06:06:10, 06:08:36, 06:10:29, 06:19:00 UTC'
+  - 'hot_tub PROTECT _person_detected: zero firings in the window'
+  - 'all other exterior cameras (pool_equipment, armcrest, back_yard, rear_ptz, front_side_ptz): zero'
+  - 'per-camera alert counts 2 days: hot_tub 24, front_side_ptz 7, pool_equipment 5 -> hot_tub dominates'
+  design_TRAP: 'DO NOT gate on corroboration generally - that would SUPPRESS REAL INTRUSIONS on single-engine
+    cameras (many cameras have only ONE engine; and a real prowler may only be seen by one). The gate
+    must be NARROW: only for cameras that HAVE >=2 engines (so silence from the sibling is meaningful),
+    only in the deep-night window, and it must DEMOTE/delay - never silence. Aligns with the existing
+    demote-never-silence invariant (INV-XP).'
+  design:
+  - 'REVISED: first alert ALWAYS fires at full severity (preserves intrusion guarantee).'
+  - 'Demote the 2nd..Nth alert from the SAME camera within a window when ALL of: no sibling-engine corroboration,
+    no adjacent-camera activity (linker adjacency), deep-night.'
+  - This is the pattern that was actually diagnostic on 2026-08-08 (burst + isolation), not single-event
+    corroboration.
+  - 'Second half of the spam is CHANNEL FAN-OUT: 4 channels x 3 events = 12 buzzes. Demoted repeats ->
+    single channel/digest (folds into CONSOL-1 contextual severity).'
+  knobs:
+  - name: PERIMETER_XCORR_REQUIRE_SECOND_ENGINE_NIGHT
+    rung: 1
+    why: enable the night corroboration gate; False = today behavior
+  - name: PERIMETER_XCORR_WINDOW_S
+    rung: 1
+    why: how long to wait for the sibling engine before deciding
+  - name: PERIMETER_XCORR_MIN_SOLO_RATIO
+    rung: 1
+    why: only gate cameras whose solo-firing ratio exceeds this (evidence-based, not blanket)
+  parsimony:
+    problem: one mis-tuned camera paged the operator 12x at 1am
+    verdict: SIMPLIFY
+    note: probe rejected the corroboration gate; the simple burst+isolation demotion captures the benefit
+      without the false-negative risk
+  next: build burst-demotion (first alert full severity, repeats demoted when isolated+uncorroborated+night);
+    fold channel reduction into CONSOL-1
+  refs:
+  - perimeter_alert.py leg_firing_by_camera / _record_leg_fire
+  - v5.59.0 disagreement telemetry
+  probe_result: 'PROBE RUN 2026-08-08 (8d, 30s window) -> AUDIT_xcorr_engine_corroboration_probe.md. The
+    naive corroboration gate is REJECTED: solo firing is the NORM on the exterior cameras that drive alerts
+    (front_side_ptz 92% solo, back_yard 91%, pool_equipment 93%, hot_tub 77%). Gating on sibling silence
+    would suppress 77-93% of exterior person detections INCLUDING REAL ONES. Engines do not share FOV/sensitivity
+    per camera, so ''sibling silent'' means different things per camera - no house-wide threshold exists.
+    Contrast: frigate on door cameras is near-perfectly corroborated (madrone_g6_entry 0% solo, front_door_aerial
+    3%).'
+  parked_alts:
+  - alt: per-camera adaptive solo-rate baselining
+    why: theoretically better than a global threshold
+    revisit_if: burst-demotion proves insufficient after a season
+- id: DIMMER-REBOOT-1
+  title: Master bedroom Shelly Dimmer 2 reboots 89x since Aug 1 and returns ON (NOT thermal)
+  thread: devices
+  status: pre_planning
+  approval: implied
+  tags:
+  - no-fabrication-verify
+  origin:
+    date: '2026-08-08'
+    gist: 'operator: why is the master bedroom dimmer coming on in the morning?'
+  why: 'light.shellydimmer2_24d7ebe93470 (area master_bedroom) reboots repeatedly: 89 `unavailable` events
+    since Aug 1, accelerating 6/day -> 23/day, each ~33s (consistent = full device reboot, not a variable
+    WiFi blip). 32 of those reboots came back ON — THAT is the ''dimmer comes on in the morning''. No
+    context_user_id/parent on any transition => nothing in HA or URA commands it. Temperature is normal,
+    so the cause is NOT thermal.'
+  likely_causes:
+  - Shelly power-on-default set to ON (or restore-last with stale value) -> every reboot turns the light
+    on
+  - WiFi/network instability causing reboots — memory records a prior house-wide Shelly/Sonoff off-WiFi
+    event; this device is the only Shelly currently flapping
+  - power quality or firmware
+  next: set power-on-default OFF; then chase the reboot cause
+  CORRECTION: '2026-08-08: I FIRST REPORTED THIS AS A 117-130C FIRE RISK. THAT WAS WRONG — the sensor''s
+    unit_of_measurement is degF, not degC. 116.7F = 47C; peak 129.6F = 54C. That is NORMAL for a wall
+    dimmer and inside the Shelly Dimmer 2 range. NO fire risk; no breaker action needed. The device''s
+    `overheating` binary_sensor never firing was CORRECT, not a failed guard. Root error: asserted a mechanism
+    from an unlabeled number instead of reading the unit — violates the project''s no-fabrication/verify
+    rule.'
+  fix:
+  - 'PRIMARY: set the Shelly power-on default to OFF so a reboot cannot turn the light on (device setting,
+    operator or API)'
+  - 'THEN: investigate the reboot cause (WiFi signal at that box, firmware version, power quality)'
+  - 'optional: NM alert if reboot count per day exceeds a threshold — a device rebooting 23x/day is a
+    real signal we currently only see by asking'
+- id: BOOTSANITY-1
+  title: Boot-sanity allowlist guard cannot fire on a cold boot
+  thread: camera
+  status: pre_planning
+  approval: implied
+  tags:
+  - no-fabrication-verify
+  - mutation-drill
+  origin:
+    date: '2026-08-07'
+    gist: found during v5.61.0 live validation — I nearly read its silence as proof of success
+  why: The F1(e) guard runs at the END of PerimeterAlertManager.async_setup() and is gated on `_linker_now`
+    being present — but the linker registers AFTER that setup returns, which IS the bug. So on every cold
+    boot it short-circuits and never warns. Its silence is not evidence of a successful install.
+  fix: 're-run the sanity check from the READY handler AFTER the install attempt (and/or on a delayed
+    post-boot check). Mutation drill: neuter the install -> the sanity WARNING must fire.'
+  parsimony:
+    problem: the tripwire for a CRITICAL class of bug is unreachable on the path that matters
+    verdict: BUILD
+    note: small; but it is the detector for a house-wide-outage bug
+  next: move the check into the READY handler; pin with a test that asserts the WARNING fires when install
+    fails
+- id: OVERRIDE-NOTIFY-1
+  title: Warn before the Temp Arrester Override expires
+  thread: hvac
+  status: pre_planning
+  approval: explicit
+  approved_by: operator
+  approved_on: '2026-08-07'
+  tags:
+  - numbers-get-knobs
+  origin:
+    date: '2026-08-07'
+    gist: '"The only real optimization is getting a text that says your override is about to expire 5
+      mins before a boundary"'
+  why: 'We built the release logic but never tell the operator it is coming — the override silently vanishes
+    and the setpoint drifts back. A heads-up makes it usable: re-engage in one tap instead of noticing
+    an hour later that the master went cold.'
+  design_note: '5-min-ahead warning is only possible for PREDICTABLE expiries. House-state transitions
+    are NOT scheduled - we cannot know home_evening is coming. So: (a) pre-warn the 6h decay at T-5min;
+    (b) on a grace DEFERRAL, warn immediately (''context changed; override ends in ~14 min'') - better
+    than 5 min notice; (c) notify on actual release. Operator to confirm the three-part shape.'
+  knobs:
+  - name: ARRESTER_OVERRIDE_EXPIRY_WARN_S
+    rung: 1
+    why: 300 (5 min) lead time; 0 disables
+  parsimony:
+    problem: override releases silently; operator discovers it by feeling cold
+    verdict: BUILD
+    note: small, additive, rides the existing NM note path added in v5.61.0
+  next: confirm the 3-part shape with operator, then build with the SNAP-1 batch or standalone
 - id: ARREST-SUNSET-1
   title: Temp Arrester Override does not sunset on away/vacation (only sleep)
   thread: hvac
-  status: pre_planning
+  status: shipped_organic
   approval: implied
   tags:
   - tier-2db
@@ -113,6 +267,8 @@ cards:
   known_limitations:
   - restart mid-grace may lose the in-memory pending-sunset obligation unless persisted - builder instructed
     to persist or explicitly document + report
+  organic_open: engage the override, then confirm it releases on the next real context change (or 6h decay)
+    and the switch flips OFF to match
 - id: TRANSIT-DIAG-1
   title: Expose checkpoint_cameras_by_area on a diagnostic sensor
   thread: presence
@@ -479,7 +635,7 @@ cards:
 - id: SECC-1
   title: Interior cams in the exterior open-tracks diagnostic
   thread: security
-  status: review
+  status: shipped_organic
   approval: explicit
   tags:
   - no-fabrication-verify
@@ -530,6 +686,9 @@ cards:
     - the current tests pass because fixtures install it by hand.
   bug_class: '#33 coordinator-setup ORDERING - hass.data sibling lookup inside async_setup with no READY-signal
     fallback; the guard silently no-ops'
+  organic_open: 'PROVE the allowlist actually installed: next interior-camera event must be COUNTED in
+    ignored_offlist_events (install ok + fail-closed active). If an interior camera opens a track instead,
+    the READY install did not happen. Boot-sanity guard cannot answer this (see BOOTSANITY-1).'
 - id: RELOAD-WATCHDOG-HAZARD
   title: URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
   thread: lifecycle

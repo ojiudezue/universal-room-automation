@@ -436,6 +436,21 @@ class PerimeterAlertManager:
                         "linker via READY signal (%d cameras)",
                         len(self._perimeter_allowlist),
                     )
+                    # BOOTSANITY-1 (2026-08-08): sanity check the install
+                    # actually took. On COLD BOOT the end-of-setup guard
+                    # cannot fire (linker registers AFTER async_setup
+                    # returns) — this READY-path check is the ONLY guard
+                    # that runs on the normal boot ordering. If
+                    # set_allowed_cameras returned but the linker's
+                    # allowlist is still empty, it's a SECC-1 class
+                    # regression (silent no-op install).
+                    if not getattr(_lk, "_allowed_cameras", None):
+                        _LOGGER.warning(
+                            "PerimeterAlertManager: linker allowlist STILL "
+                            "EMPTY after set_allowed_cameras() (%d cameras "
+                            "staged) — SECC-1 class regression suspected",
+                            len(self._perimeter_allowlist),
+                        )
                 except Exception:  # noqa: BLE001
                     _LOGGER.warning(
                         "PerimeterAlertManager: deferred allowlist install "

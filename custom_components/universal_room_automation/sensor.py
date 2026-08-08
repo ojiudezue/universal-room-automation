@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.61.0
+# Universal Room Automation vv5.62.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -3891,6 +3891,21 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
                 "open_tracks": linker.open_tracks_snapshot(),
                 "counts": linker.census_counts(),
             }
+            # BOOTSANITY-1 (2026-08-08): expose the allowlist install
+            # state so the perimeter-camera install can be verified LIVE
+            # from the dashboard (the boot-sanity WARNING alone is not
+            # sufficient — on cold boot the end-of-setup guard cannot
+            # fire, and a silent no-op install would otherwise be
+            # invisible until an interior camera leaks into the census).
+            try:
+                attrs["allowlist_installed"] = bool(
+                    getattr(linker, "_allowlist_installed", False)
+                )
+                attrs["allowlist_camera_count"] = len(
+                    getattr(linker, "_allowed_cameras", ()) or ()
+                )
+            except Exception:  # noqa: BLE001
+                pass
             # B-M3: per-camera unlinked-events counter (events that opened a
             # fresh single-hop track rather than extending an existing one —
             # diagnostic proxy for adjacency gaps).
