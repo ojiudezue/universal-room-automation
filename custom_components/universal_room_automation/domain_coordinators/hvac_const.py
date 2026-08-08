@@ -248,6 +248,16 @@ ARRESTER_HOLD_PRESERVING_STATES: Final = frozenset(
 # state-transition sunset fires immediately regardless of age).
 ARRESTER_OVERRIDE_MIN_LIFE_S: Final = 15 * 60  # seconds; 15 minutes
 
+# ARRESTER_OVERRIDE_EXPIRY_WARN_S — RUNG 1 (module constant, review-required).
+# OVERRIDE-NOTIFY-1 (operator-approved 2026-08-08): pre-warn lead time.
+# Schedules a one-shot LOW NM note at
+# (COMFORT_OVERRIDE_MAX_S - ARRESTER_OVERRIDE_EXPIRY_WARN_S) after
+# engagement so the operator has time to re-engage before the auto-
+# release. Operator: "the only real optimization is getting a text that
+# says your override is about to expire 5 mins before a boundary."
+# Kill-switch: set to 0 to disable pre-warn scheduling entirely.
+ARRESTER_OVERRIDE_EXPIRY_WARN_S: Final = 5 * 60  # seconds; 5 minutes
+
 
 def house_state_invalidates_arrester_hold(state: str | None) -> bool:
     """Return True iff transitioning INTO ``state`` should sunset an
