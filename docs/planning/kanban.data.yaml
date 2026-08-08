@@ -14,10 +14,61 @@ meta:
   - waiting_me
   - parked
 cards:
+- id: BOOTSANITY-1
+  title: Boot-sanity allowlist guard cannot fire on a cold boot
+  thread: camera
+  status: pre_planning
+  approval: implied
+  tags:
+  - no-fabrication-verify
+  - mutation-drill
+  origin:
+    date: '2026-08-07'
+    gist: found during v5.61.0 live validation — I nearly read its silence as proof of success
+  why: The F1(e) guard runs at the END of PerimeterAlertManager.async_setup() and is gated on `_linker_now`
+    being present — but the linker registers AFTER that setup returns, which IS the bug. So on every cold
+    boot it short-circuits and never warns. Its silence is not evidence of a successful install.
+  fix: 're-run the sanity check from the READY handler AFTER the install attempt (and/or on a delayed
+    post-boot check). Mutation drill: neuter the install -> the sanity WARNING must fire.'
+  parsimony:
+    problem: the tripwire for a CRITICAL class of bug is unreachable on the path that matters
+    verdict: BUILD
+    note: small; but it is the detector for a house-wide-outage bug
+  next: move the check into the READY handler; pin with a test that asserts the WARNING fires when install
+    fails
+- id: OVERRIDE-NOTIFY-1
+  title: Warn before the Temp Arrester Override expires
+  thread: hvac
+  status: pre_planning
+  approval: explicit
+  approved_by: operator
+  approved_on: '2026-08-07'
+  tags:
+  - numbers-get-knobs
+  origin:
+    date: '2026-08-07'
+    gist: '"The only real optimization is getting a text that says your override is about to expire 5
+      mins before a boundary"'
+  why: 'We built the release logic but never tell the operator it is coming — the override silently vanishes
+    and the setpoint drifts back. A heads-up makes it usable: re-engage in one tap instead of noticing
+    an hour later that the master went cold.'
+  design_note: '5-min-ahead warning is only possible for PREDICTABLE expiries. House-state transitions
+    are NOT scheduled - we cannot know home_evening is coming. So: (a) pre-warn the 6h decay at T-5min;
+    (b) on a grace DEFERRAL, warn immediately (''context changed; override ends in ~14 min'') - better
+    than 5 min notice; (c) notify on actual release. Operator to confirm the three-part shape.'
+  knobs:
+  - name: ARRESTER_OVERRIDE_EXPIRY_WARN_S
+    rung: 1
+    why: 300 (5 min) lead time; 0 disables
+  parsimony:
+    problem: override releases silently; operator discovers it by feeling cold
+    verdict: BUILD
+    note: small, additive, rides the existing NM note path added in v5.61.0
+  next: confirm the 3-part shape with operator, then build with the SNAP-1 batch or standalone
 - id: ARREST-SUNSET-1
   title: Temp Arrester Override does not sunset on away/vacation (only sleep)
   thread: hvac
-  status: pre_planning
+  status: shipped_organic
   approval: implied
   tags:
   - tier-2db
@@ -113,6 +164,8 @@ cards:
   known_limitations:
   - restart mid-grace may lose the in-memory pending-sunset obligation unless persisted - builder instructed
     to persist or explicitly document + report
+  organic_open: engage the override, then confirm it releases on the next real context change (or 6h decay)
+    and the switch flips OFF to match
 - id: TRANSIT-DIAG-1
   title: Expose checkpoint_cameras_by_area on a diagnostic sensor
   thread: presence
@@ -479,7 +532,7 @@ cards:
 - id: SECC-1
   title: Interior cams in the exterior open-tracks diagnostic
   thread: security
-  status: review
+  status: shipped_organic
   approval: explicit
   tags:
   - no-fabrication-verify
@@ -530,6 +583,9 @@ cards:
     - the current tests pass because fixtures install it by hand.
   bug_class: '#33 coordinator-setup ORDERING - hass.data sibling lookup inside async_setup with no READY-signal
     fallback; the guard silently no-ops'
+  organic_open: 'PROVE the allowlist actually installed: next interior-camera event must be COUNTED in
+    ignored_offlist_events (install ok + fail-closed active). If an interior camera opens a track instead,
+    the READY install did not happen. Boot-sanity guard cannot answer this (see BOOTSANITY-1).'
 - id: RELOAD-WATCHDOG-HAZARD
   title: URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
   thread: lifecycle
