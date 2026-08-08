@@ -633,3 +633,37 @@ def test_bootsanity1_diagnostic_sensor_exposes_allowlist_state():
         f"{attrs_after.get('allowlist_camera_count')!r}). Mutation-drill "
         f"guard: a constant-0 attr would land here."
     )
+
+
+def test_linker_registered_in_hass_data_BEFORE_ready_signal_dispatched():
+    """v5.62.1 ORDERING ANCHOR — the bug that defeated three cycles.
+
+    `__init__.py` used to dispatch SIGNAL_EXTERIOR_LINKER_READY on the line
+    ABOVE the `hass.data[DOMAIN]["exterior_track_linker"] = ...` assignment.
+    Every READY subscriber resolves the linker out of `hass.data`, so they all
+    found `None` and bailed — silently. The live diagnostic proved it after the
+    v5.62.0 deploy: `allowlist_installed: false, allowlist_camera_count: 0`.
+
+    This is a SOURCE-ORDER assertion by necessity: `async_setup_entry` is not
+    executable in this harness. Unlike a hollow "does the string exist" grep,
+    it pins a RELATIONSHIP (A precedes B) that fails the moment someone
+    reorders the two statements — which is exactly the regression to prevent.
+    """
+    from pathlib import Path
+
+    src = (
+        Path(__file__).resolve().parents[2]
+        / "custom_components/universal_room_automation/__init__.py"
+    ).read_text()
+
+    assign = src.find('hass.data[DOMAIN]["exterior_track_linker"] =')
+    dispatch = src.find("_ads(hass, SIGNAL_EXTERIOR_LINKER_READY)")
+
+    assert assign != -1, "linker hass.data registration not found in __init__.py"
+    assert dispatch != -1, "SIGNAL_EXTERIOR_LINKER_READY dispatch not found"
+    assert assign < dispatch, (
+        "SECC-1 ORDERING REGRESSION: SIGNAL_EXTERIOR_LINKER_READY is dispatched "
+        "BEFORE the linker is registered in hass.data. Every READY subscriber "
+        "resolves the linker from hass.data and will silently find None, so the "
+        "deferred allowlist install cannot run. Register first, then announce."
+    )

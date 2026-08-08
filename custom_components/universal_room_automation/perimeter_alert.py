@@ -429,6 +429,18 @@ class PerimeterAlertManager:
                         "exterior_track_linker"
                     )
                     if _lk is None or not self._perimeter_allowlist:
+                        # v5.62.1: this early return used to be SILENT, which is
+                        # exactly what hid the READY-dispatch-before-registration
+                        # ordering bug — the handler ran, found no linker, and
+                        # said nothing, so the SECC-1 sanity WARNING never fired
+                        # either. A guard that can no-op must say so.
+                        _LOGGER.warning(
+                            "PerimeterAlertManager: READY handler fired but "
+                            "cannot install allowlist (linker_present=%s, "
+                            "cameras_staged=%d) — allowlist NOT installed",
+                            _lk is not None,
+                            len(self._perimeter_allowlist or ()),
+                        )
                         return
                     _lk.set_allowed_cameras(self._perimeter_allowlist)
                     _LOGGER.info(

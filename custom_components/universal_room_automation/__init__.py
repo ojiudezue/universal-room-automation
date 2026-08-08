@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.62.0
+# Universal Room Automation vv5.62.1
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -2447,8 +2447,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # announce readiness so a deferred restore can apply.
             from homeassistant.helpers.dispatcher import async_dispatcher_send as _ads
             from .domain_coordinators.signals import SIGNAL_EXTERIOR_LINKER_READY
-            _ads(hass, SIGNAL_EXTERIOR_LINKER_READY)
+            # SECC-1 ORDERING FIX (2026-08-08, v5.62.1): REGISTER BEFORE DISPATCH.
+            # `_ads(...)` used to fire on the line ABOVE this assignment, so every
+            # SIGNAL_EXTERIOR_LINKER_READY subscriber that resolves the linker via
+            # `hass.data[DOMAIN]["exterior_track_linker"]` found None and bailed —
+            # silently. That defeated PerimeterAlertManager's deferred allowlist
+            # install across v5.59-v5.62: the live diagnostic read
+            # `allowlist_installed: false, allowlist_camera_count: 0` right after
+            # the v5.62.0 deploy, which is what finally exposed it. The linker MUST
+            # be resolvable from hass.data before readiness is announced.
+            # Pinned by test_linker_registered_in_hass_data_BEFORE_ready_signal_dispatched.
             hass.data[DOMAIN]["exterior_track_linker"] = exterior_track_linker
+            _ads(hass, SIGNAL_EXTERIOR_LINKER_READY)
             _LOGGER.info(
                 "Exterior track linker initialized (active: %s)",
                 exterior_track_linker.is_active,
