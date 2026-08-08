@@ -626,6 +626,168 @@ def test_snap1_edge_dedup_second_leg_no_second_capture():
         _run(_flow())
 
 
+# --- F1 (wiring pin): edge capture initiated by the REAL entry points ------
+#
+# These tests DRIVE the real HA state-change callbacks (`_on_perimeter_event`
+# and the vehicle closure registered via `async_track_state_change_event`)
+# rather than invoking `_maybe_start_edge_capture` directly. Replacing the
+# call to `self._maybe_start_edge_capture(...)` at either edge site with
+# `pass` MUST make these tests go red — the invariant is that the edge PATH
+# is what starts the capture, not the helper functioning in isolation.
+
+
+def _rising_edge_event(entity_id: str):
+    ev = MagicMock()
+    ev.data = {
+        "entity_id": entity_id,
+        "new_state": MagicMock(state="on"),
+        "old_state": MagicMock(state="off"),
+    }
+    return ev
+
+
+async def _drain_pending_tasks():
+    pending = [
+        t for t in asyncio.all_tasks() if t is not asyncio.current_task()
+    ]
+    for t in pending:
+        t.cancel()
+    for t in pending:
+        try:
+            await t
+        except BaseException:  # noqa: BLE001
+            pass
+
+
+def test_snap1_edge_capture_initiated_by_real_perimeter_callback():
+    """WIRING PIN: rising-edge Event through `_on_perimeter_event` MUST
+    populate `_edge_captures` synchronously (i.e. capture is initiated
+    by the edge path, not the handler and not the test itself).
+
+    Mutation drill: replace `self._maybe_start_edge_capture(entity_id)`
+    at ~line 2988 with `pass` — this test MUST go red.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        hass, _ = _make_hass()
+        mgr = _mgr_with_dir(hass, tmp)
+        _seed_capture_capable(hass, mgr)
+        # Bypass the boot-settle gate so the edge path proceeds.
+        mgr._setup_time = None
+        entity_id = "binary_sensor.front_yard_person_occupancy"
+        cam_key = mgr._camera_key_for_sensor(entity_id)
+
+        async def _flow():
+            event = _rising_edge_event(entity_id)
+            # Drive the REAL @callback synchronously.
+            mgr._on_perimeter_event(event)
+            # Ordering pin: buffer populated BEFORE the scheduled
+            # handler task has run — assert without yielding.
+            assert cam_key in mgr._edge_captures, (
+                "edge buffer not populated by _on_perimeter_event: "
+                f"{list(mgr._edge_captures.keys())}"
+            )
+            entry = mgr._edge_captures[cam_key]
+            assert entry.get("entity_id") == entity_id
+            assert entry.get("task") is not None
+            await _drain_pending_tasks()
+
+        _run(_flow())
+
+
+def test_snap1_edge_capture_initiated_by_real_vehicle_callback():
+    """WIRING PIN (vehicle path): a rising-edge Event delivered to the
+    vehicle closure registered in `async_setup` MUST populate
+    `_edge_captures`. The callback is captured by scope-limited
+    monkeypatch of `_perimeter.async_track_state_change_event`
+    (restored in finally so sibling test files are unaffected).
+
+    Mutation drill: replace `self._maybe_start_edge_capture(ent)` at
+    ~line 756 with `pass` — this test MUST go red.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        hass, _ = _make_hass()
+        # Arrange: vehicle sensor is discovered via the legacy fallback,
+        # which probes `_entity_exists`. Force it True for any candidate
+        # under vehicle suffixes so setup registers a vehicle listener.
+        vehicle_ent = "binary_sensor.front_yard_car_occupancy"
+        orig_entity_exists = PerimeterAlertManager._entity_exists
+        orig_track = _perimeter.async_track_state_change_event
+        captured: list[tuple[list, object]] = []
+
+        def _capturing_track(hass_, entities, cb):
+            try:
+                ents = list(entities)
+            except TypeError:
+                ents = [entities]
+            captured.append((ents, cb))
+            return MagicMock()
+
+        def _entity_exists_true(self, eid: str) -> bool:  # noqa: ARG001
+            return True
+
+        PerimeterAlertManager._entity_exists = _entity_exists_true
+        _perimeter.async_track_state_change_event = _capturing_track
+        # Force `_resolve_legs` to return [] so the legacy fallback runs
+        # and discovers a vehicle sensor via suffix-probing `_entity_exists`.
+        cam_manager = hass.data[_const.DOMAIN]["camera_manager"]
+        cam_manager._get_resolver = lambda: None
+        try:
+            _perimeter.PERIMETER_SNAPSHOT_DIR = tmp
+            mgr = PerimeterAlertManager(hass)
+            _run(mgr.async_setup())
+        finally:
+            PerimeterAlertManager._entity_exists = orig_entity_exists
+            _perimeter.async_track_state_change_event = orig_track
+
+        # Find the callback registered for a vehicle sensor.
+        vehicle_cb = None
+        vehicle_ent_registered = None
+        for ents, cb in captured:
+            for e in ents:
+                if isinstance(e, str) and (
+                    "_car_" in e or "_vehicle" in e or "_truck" in e
+                    or "_motorcycle" in e or "_bicycle" in e or "_bus" in e
+                ):
+                    vehicle_cb = cb
+                    vehicle_ent_registered = e
+                    break
+            if vehicle_cb is not None:
+                break
+        assert vehicle_cb is not None, (
+            f"no vehicle callback captured; registered entity lists: "
+            f"{[e for e, _ in captured]}"
+        )
+
+        # Wire the sensor→camera map + snapshot side effect so the
+        # kicked-off capture task can actually write a file (proves
+        # buffer registration, not just call).
+        mgr._sensor_to_camera[vehicle_ent_registered] = "camera.front_yard"
+
+        async def _svc(domain, service, data, blocking=False):  # noqa: ARG001
+            if domain == "camera" and service == "snapshot":
+                with open(data["filename"], "wb") as fh:
+                    fh.write(b"VEHICLE_JPG_EDGE")
+        hass.services.async_call = AsyncMock(side_effect=_svc)
+        mgr._frigate_last_event_id.clear()
+
+        cam_key = mgr._camera_key_for_sensor(vehicle_ent_registered)
+
+        async def _flow():
+            event = _rising_edge_event(vehicle_ent_registered)
+            vehicle_cb(event)
+            # Ordering pin — synchronous buffer registration.
+            assert cam_key in mgr._edge_captures, (
+                "edge buffer not populated by vehicle callback: "
+                f"{list(mgr._edge_captures.keys())}"
+            )
+            entry = mgr._edge_captures[cam_key]
+            assert entry.get("entity_id") == vehicle_ent_registered
+            assert entry.get("task") is not None
+            await _drain_pending_tasks()
+
+        _run(_flow())
+
+
 # --- F2: filename traversal ------------------------------------------------
 
 def test_snap1_sanitizer_rejects_traversal():
