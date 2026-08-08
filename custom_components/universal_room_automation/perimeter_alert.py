@@ -60,12 +60,19 @@ MEASURE-BEFORE-BUILD verification notes (recorded in this cycle):
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
+import re as _re
+import time as _time
 from datetime import datetime
 from typing import Any
 
 from homeassistant.core import HomeAssistant, callback, Event
-from homeassistant.helpers.event import async_track_state_change_event, async_call_later
+from homeassistant.helpers.event import (
+    async_track_state_change_event, async_call_later,
+    async_track_time_interval,
+)
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -98,6 +105,18 @@ from .const import (
     CAMERA_RESOLUTION_CHANNEL_SUFFIXES,
     FRIGATE_SNAPSHOT_LABELS,
     FRIGATE_SNAPSHOT_ID_TTL_S,
+    PERIMETER_SNAPSHOT_DIR,
+    PERIMETER_SNAPSHOT_RETENTION_AGE_H,
+    PERIMETER_SNAPSHOT_RETENTION_COUNT,
+    PERIMETER_SNAPSHOT_ENGINE_PRECEDENCE,
+    PERIMETER_SNAPSHOT_KILL_LEGACY_URL,
+    PERIMETER_SNAPSHOT_SWEEP_INTERVAL_S,
+    PERIMETER_SNAPSHOT_CAPTURE_BUDGET_S,
+    PERIMETER_SNAPSHOT_HTTP_TIMEOUT_S,
+    PERIMETER_SNAPSHOT_EDGE_DEDUP_S,
+    PERIMETER_SNAPSHOT_EDGE_TTL_S,
+    PERIMETER_SNAPSHOT_EDGE_CAPTURES_MAX,
+    PERIMETER_SNAPSHOT_PRUNE_DEBOUNCE_S,
     TRACK_LINK_WINDOW_S,
     EXTERIOR_VEHICLE_NIGHT_START,
     EXTERIOR_VEHICLE_NIGHT_END,
@@ -112,6 +131,52 @@ from .domain_coordinators.base import Severity
 from .camera_resolver import _PERSON_SUFFIXES as _RESOLVER_PERSON_SUFFIXES
 
 _LOGGER = logging.getLogger(__name__)
+
+# SNAP-1 fix-up (F2): sanitize any token that will be interpolated into
+# a filesystem path or URL. Only allow character classes safe for both:
+# ascii letters, digits, dot, underscore, hyphen. os.path.join does
+# NOT strip '..' — any attacker-controlled component (Frigate event id
+# from the bus, camera name from the resolver) must be filtered here.
+_SNAPSHOT_TOKEN_RE = _re.compile(r"[^A-Za-z0-9._\-]")
+
+
+def _sanitize_snapshot_token(raw: Any, max_len: int = 96) -> str:
+    """Return a filesystem-safe token or '' if the input is unusable."""
+    if raw is None:
+        return ""
+    s = str(raw).strip()
+    if not s:
+        return ""
+    s = _SNAPSHOT_TOKEN_RE.sub("_", s)
+    # Collapse any run of dots (>=2) — '..' is the traversal primitive.
+    # '.' is preserved singly (needed for '.jpg' extensions).
+    s = _re.sub(r"\.{2,}", "_", s)
+    # Reject dot-only / leading-dot shapes outright.
+    if s in (".", "..") or s.startswith("."):
+        s = "_" + s.lstrip(".")
+    return s[:max_len]
+
+
+def _path_within(child: str, parent: str) -> bool:
+    """True iff realpath(child) is at-or-under realpath(parent).
+
+    SNAP-1 fix-up (F2 + F3): containment guard for every filesystem
+    write, and for the www-privacy setup guard. Uses realpath on both
+    sides so symlinks cannot escape the parent directory.
+    """
+    try:
+        child_real = os.path.realpath(child)
+        parent_real = os.path.realpath(parent)
+    except Exception:  # noqa: BLE001
+        return False
+    if not parent_real:
+        return False
+    try:
+        common = os.path.commonpath([child_real, parent_real])
+    except ValueError:
+        # Different drives on Windows; refuse.
+        return False
+    return common == parent_real
 
 # Window in seconds within which an egress crossing suppresses a perimeter alert
 EGRESS_SUPPRESSION_WINDOW_SECONDS = 120  # 2 minutes
@@ -202,6 +267,39 @@ class PerimeterAlertManager:
         self._perimeter_allowlist: set[str] = set()
         # unsub for the linker-ready signal subscription.
         self._unsub_linker_ready: Any = None
+        # SNAP-1 (2026-08-08): at-detection snapshot state.
+        # Setup-time assertion result. When True, delivery falls back
+        # to the legacy `media_url`/`attachment=<url>` shape byte-for-
+        # byte (kill-switch semantics, auto-engaged on allowed-path or
+        # www-privacy assertion failure).
+        self._snapshot_kill_legacy_url: bool = bool(
+            PERIMETER_SNAPSHOT_KILL_LEGACY_URL
+        )
+        # Frigate instance ids discovered from loaded config entries
+        # (list of MQTT client_ids). Cached at setup; refreshed lazily.
+        self._frigate_instance_ids: list[str] = []
+        # camera_key -> chosen instance_id (learned on first success).
+        self._camera_frigate_instance: dict[str, str] = {}
+        # Structured last-capture ledger — observability signal exposed
+        # to future dashboard/sensor without requiring a new entity now.
+        # camera_key -> {"path", "engine", "wrote_at", "bytes"}.
+        self._last_snapshot_capture: dict[str, dict[str, Any]] = {}
+        # Periodic prune sweep unsub.
+        self._unsub_snapshot_sweep: Any = None
+        # One-shot log gates.
+        self._snapshot_setup_error_logged: bool = False
+        # SNAP-1 fix-up (F1): at-detection edge-capture buffer, keyed by
+        # collapsed camera_key. Value: {"task": Task, "started_ts": float
+        # (monotonic), "started_at": datetime, "entity_id": str}.
+        # The rising-edge callback kicks off capture as a task BEFORE
+        # scheduling the handler task; the handler awaits (with budget)
+        # and consumes. This is the load-bearing site for the cycle's
+        # stated invariant "capture at the sensor edge, not seconds
+        # later when handler code runs".
+        self._edge_captures: dict[str, dict[str, Any]] = {}
+        # SNAP-1 fix-up (F9b): last on-write prune wall-time to debounce
+        # the O(N) sweep. Periodic 6h sweep is the age backstop.
+        self._last_prune_ts: float = 0.0
 
     async def async_setup(self) -> None:
         """Set up perimeter camera listeners.
@@ -211,6 +309,11 @@ class PerimeterAlertManager:
         resolved person-detection binary_sensors. Returns immediately if no
         perimeter cameras are configured.
         """
+        # SNAP-1: prepare on-disk snapshot dir + assert invariants BEFORE
+        # any capture is possible. On any failure, engage the kill switch
+        # so delivery reverts to legacy URL form (never crashes setup).
+        await self._async_setup_snapshot_dir()
+
         perimeter_infos = self._resolve_camera_infos(CONF_PERIMETER_CAMERAS)
         egress_infos = self._resolve_camera_infos(CONF_EGRESS_CAMERAS)
 
@@ -659,6 +762,10 @@ class PerimeterAlertManager:
                     if old_state is None or old_state.state == "on":
                         return
                     ent = event.data.get("entity_id", "")
+                    # SNAP-1 fix-up (F6): capture at the vehicle rising
+                    # edge too — deep-night vehicle alerts must also
+                    # ride an at-detection frame.
+                    self._maybe_start_edge_capture(ent)
                     self.hass.async_create_task(
                         self._async_handle_vehicle_trigger(ent)
                     )
@@ -747,6 +854,22 @@ class PerimeterAlertManager:
                 "registration failed", exc_info=True,
             )
 
+        # SNAP-1: periodic prune sweep (safety net for low-traffic days
+        # where no capture-write triggers the on-write prune).
+        try:
+            from datetime import timedelta as _td
+            self._unsub_snapshot_sweep = async_track_time_interval(
+                self.hass,
+                self._on_snapshot_sweep_tick,
+                _td(seconds=PERIMETER_SNAPSHOT_SWEEP_INTERVAL_S),
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "PerimeterAlertManager: snapshot sweep listener registration"
+                " failed",
+                exc_info=True,
+            )
+
         self._setup_time = dt_util.now()
         self._active = True
 
@@ -787,6 +910,13 @@ class PerimeterAlertManager:
                 pass
             self._unsub_frigate_events = None
 
+        if self._unsub_snapshot_sweep is not None:
+            try:
+                self._unsub_snapshot_sweep()
+            except Exception:  # noqa: BLE001
+                pass
+            self._unsub_snapshot_sweep = None
+
         if self._unsub_linker_ready is not None:
             try:
                 self._unsub_linker_ready()
@@ -802,6 +932,16 @@ class PerimeterAlertManager:
                 pass
         self._pending_dispatches.clear()
         self._dispatch_in_flight.clear()
+
+        # SNAP-1 fix-up (F1): cancel any in-flight edge-capture tasks.
+        for _key, _entry in list(self._edge_captures.items()):
+            try:
+                t = _entry.get("task")
+                if t is not None and not t.done():
+                    t.cancel()
+            except Exception:  # noqa: BLE001
+                pass
+        self._edge_captures.clear()
 
         self._active = False
         _LOGGER.debug("PerimeterAlertManager: torn down")
@@ -974,6 +1114,27 @@ class PerimeterAlertManager:
 
         # --- 5. Resolve snapshot URL (D4) ---
         snapshot_url, delay_s = self._resolve_snapshot_url_and_delay(entity_id)
+        # SNAP-1: capture an at-detection snapshot to a LOCAL FILE (best
+        # effort). When kill switch is engaged (const, or setup-time
+        # assertion failure) this returns None and delivery keeps the
+        # legacy URL shape byte-for-byte. Capture time is decoupled
+        # from cooldown/dispatch/llmvision-delay because it runs BEFORE
+        # the scheduler delay below — the operator's core requirement.
+        # A capture failure NEVER blocks the alert.
+        # SNAP-1 fix-up (F1+F7): consume the EDGE-initiated capture
+        # (started in _on_perimeter_event before this handler was
+        # scheduled). Fall back to inline capture only when no edge
+        # entry is present. The kill-switch check lives in ONE place
+        # (`_capture_at_detection_snapshot` and `_maybe_start_edge_capture`)
+        # so there is no duplicate-guard hollow-test surface here.
+        snapshot_path = await self._await_edge_capture(entity_id)
+        # SNAP-1: when we successfully captured a local file, delay is 0
+        # (the file is already at-detection; no reason to defer for a
+        # subsequent live-fallback grab). Preserve delay for the URL
+        # fallback path — that keeps CONF_EXTERIOR_SNAPSHOT_OFFSET_S
+        # semantics unchanged.
+        if snapshot_path:
+            delay_s = 0
 
         # --- 6. Dispatch (NM primary, legacy fallback) ---
         nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
@@ -1055,6 +1216,7 @@ class PerimeterAlertManager:
                             hazard_type=NM_HAZARD_EXTERIOR_PERSON,
                             location=entity_id,
                             snapshot_url=snapshot_url,
+                            snapshot_path=snapshot_path,
                         )
                         dispatched_ok = True
                         _LOGGER.info(
@@ -1849,6 +2011,13 @@ class PerimeterAlertManager:
         snapshot_url, delay_s = self._resolve_snapshot_url_and_delay(
             sensor_entity_id
         )
+        # SNAP-1 fix-up (F6+F7): thread the at-detection LOCAL FILE
+        # through the vehicle path exactly as the person path does.
+        # Kill-switch check is centralized in the capture helper — no
+        # duplicate guard here.
+        snapshot_path = await self._await_edge_capture(sensor_entity_id)
+        if snapshot_path:
+            delay_s = 0
 
         title = "Perimeter Alert — Vehicle (deep-night)"
         if path_narrative:
@@ -1902,6 +2071,7 @@ class PerimeterAlertManager:
                             hazard_type=NM_HAZARD_EXTERIOR_VEHICLE,
                             location=cooldown_key,
                             snapshot_url=snapshot_url,
+                            snapshot_path=snapshot_path,
                         )
                         dispatched_ok = True
                         _LOGGER.info(
@@ -2001,6 +2171,707 @@ class PerimeterAlertManager:
                 self._absolutize_relative_logged = True
             return url
         return str(base).rstrip("/") + url
+
+    # ------------------------------------------------------------------
+    # SNAP-1: at-detection local-file snapshot capture + retention
+    # ------------------------------------------------------------------
+
+    async def _async_setup_snapshot_dir(self) -> None:
+        """Create the snapshot dir and assert privacy + allowed-path.
+
+        Auto-engages the kill switch on ANY failure. Never raises.
+        """
+        try:
+            dir_path = PERIMETER_SNAPSHOT_DIR
+            # Privacy invariant: never write under `hass.config.path("www")`
+            # (anonymously web-served). D4 load-bearing check.
+            www_path = None
+            try:
+                www_path = self.hass.config.path("www")
+            except Exception:  # noqa: BLE001
+                www_path = None
+            # Try executor-jobbed mkdir; fall back to sync if the hass
+            # test double doesn't provide an awaitable executor helper
+            # (test fixtures often use MagicMock — we still want the dir
+            # to exist so isolation tests pass; production path always
+            # uses the executor).
+            try:
+                await self.hass.async_add_executor_job(
+                    os.makedirs, dir_path, 0o755, True,
+                )
+            except TypeError:
+                os.makedirs(dir_path, 0o755, exist_ok=True)
+
+            # SNAP-1 fix-up (F3): resolve symlinks BOTH sides AFTER
+            # makedirs so the created leaf is real. os.path.abspath only
+            # normalizes '..' — it does NOT follow symlinks, so a
+            # snapshot dir that (or whose parent) symlinks into www
+            # would pass the old guard. realpath() closes that hole.
+            if www_path:
+                try:
+                    www_real = os.path.realpath(www_path)
+                    dir_real = os.path.realpath(dir_path)
+                except Exception:  # noqa: BLE001
+                    www_real = None
+                    dir_real = None
+                if www_real and dir_real and (
+                    dir_real == www_real
+                    or dir_real.startswith(www_real + os.sep)
+                ):
+                    self._snapshot_kill_legacy_url = True
+                    _LOGGER.error(
+                        "SNAP-1: snapshot dir %s (real=%s) is under HA www "
+                        "path %s (real=%s) — refusing to write (web-served "
+                        "privacy invariant). Engaging legacy URL fallback.",
+                        dir_path, dir_real, www_path, www_real,
+                    )
+                    return
+
+            allowed = True
+            try:
+                allowed = bool(
+                    self.hass.config.is_allowed_path(dir_path)
+                )
+            except Exception:  # noqa: BLE001
+                allowed = False
+            if not allowed:
+                self._snapshot_kill_legacy_url = True
+                if not self._snapshot_setup_error_logged:
+                    _LOGGER.error(
+                        "SNAP-1: snapshot dir %s is not an HA allowed_path "
+                        "— WhatsApp media_path delivery would be refused. "
+                        "Engaging legacy URL fallback. Configure `media_dirs`"
+                        " so this path is admitted.",
+                        dir_path,
+                    )
+                    self._snapshot_setup_error_logged = True
+                return
+
+            # Discover Frigate instance ids (best-effort, from loaded
+            # config entries; empty when frigate integration is absent
+            # or single-instance — default URL shape covers that case).
+            try:
+                self._frigate_instance_ids = (
+                    self._discover_frigate_instance_ids()
+                )
+            except Exception:  # noqa: BLE001
+                self._frigate_instance_ids = []
+
+            _LOGGER.info(
+                "SNAP-1: snapshot dir ready at %s (allowed_path=True, "
+                "kill_legacy_url=%s, frigate_instances=%d)",
+                dir_path, self._snapshot_kill_legacy_url,
+                len(self._frigate_instance_ids),
+            )
+        except Exception:  # noqa: BLE001
+            self._snapshot_kill_legacy_url = True
+            if not self._snapshot_setup_error_logged:
+                _LOGGER.error(
+                    "SNAP-1: snapshot dir setup failed — engaging legacy "
+                    "URL fallback.", exc_info=True,
+                )
+                self._snapshot_setup_error_logged = True
+
+    def _discover_frigate_instance_ids(self) -> list[str]:
+        """Return list of MQTT client_ids for loaded frigate integrations.
+
+        Instance id derivation matches the frigate custom_component's
+        own get_frigate_instance_id() (views.py:60-68) — MQTT client_id
+        from `hass.data['frigate'][entry_id]['config']['mqtt']['client_id']`.
+        Fails-silent to [] (single-instance / not installed / fixture).
+        """
+        out: list[str] = []
+        try:
+            frigate_data = self.hass.data.get("frigate", {}) or {}
+            for entry_id, blob in frigate_data.items():
+                try:
+                    cfg = (blob or {}).get("config") or {}
+                    client_id = (cfg.get("mqtt") or {}).get("client_id")
+                    if client_id and client_id not in out:
+                        out.append(str(client_id))
+                except Exception:  # noqa: BLE001
+                    continue
+        except Exception:  # noqa: BLE001
+            return []
+        return out
+
+    # ------------------------------------------------------------------
+    # SNAP-1 fix-up (F1): at-detection edge-capture
+    # ------------------------------------------------------------------
+
+    def _maybe_start_edge_capture(self, sensor_entity_id: str) -> None:
+        """Kick off at-detection capture at the sensor RISING EDGE.
+
+        Called from `_on_perimeter_event` and `_on_vehicle_state_change`
+        BEFORE the handler task is scheduled — this is the site the
+        cycle's stated invariant depends on ("a shot from when it
+        happened/fired, not seconds later when code runs for
+        alerting"). Dedup by collapsed camera_key so a second engine
+        leg firing the same physical event does NOT start a second
+        capture. Bounded buffer (LRU-ish: evict oldest when over cap).
+        """
+        try:
+            if self._snapshot_kill_legacy_url:
+                return
+            if not sensor_entity_id:
+                return
+            cam_key = (
+                self._camera_key_for_sensor(sensor_entity_id)
+                or sensor_entity_id
+            )
+            now_mono = _time.monotonic()
+            existing = self._edge_captures.get(cam_key)
+            if existing is not None:
+                age = now_mono - float(existing.get("started_ts") or 0.0)
+                if age < PERIMETER_SNAPSHOT_EDGE_DEDUP_S:
+                    return
+                # Stale entry — drop and start fresh.
+                self._edge_captures.pop(cam_key, None)
+                try:
+                    task = existing.get("task")
+                    if task is not None and not task.done():
+                        task.cancel()
+                except Exception:  # noqa: BLE001
+                    pass
+            # LRU-ish bound: if at cap, drop the OLDEST entry (and
+            # cancel its task) so buffer size cannot grow without
+            # limit even if capture consistently outpaces handler
+            # consumption (e.g. under a stall).
+            if (
+                len(self._edge_captures)
+                >= PERIMETER_SNAPSHOT_EDGE_CAPTURES_MAX
+            ):
+                try:
+                    oldest_key = min(
+                        self._edge_captures,
+                        key=lambda k: float(
+                            self._edge_captures[k].get("started_ts") or 0.0
+                        ),
+                    )
+                    dropped = self._edge_captures.pop(oldest_key, None)
+                    if dropped is not None:
+                        t = dropped.get("task")
+                        if t is not None and not t.done():
+                            t.cancel()
+                except Exception:  # noqa: BLE001
+                    pass
+            task = self.hass.async_create_task(
+                self._capture_at_detection_snapshot(sensor_entity_id)
+            )
+            self._edge_captures[cam_key] = {
+                "task": task,
+                "started_ts": now_mono,
+                "started_at": dt_util.now(),
+                "entity_id": sensor_entity_id,
+            }
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "SNAP-1: edge-capture start failed for %s",
+                sensor_entity_id, exc_info=True,
+            )
+
+    async def _await_edge_capture(
+        self, sensor_entity_id: str,
+    ) -> str | None:
+        """Consume the edge-initiated capture for this sensor's camera.
+
+        Handler consumes the buffered result and records the
+        edge->consumption delta into the capture ledger so the
+        "at-detection" property is MEASURABLE. If no edge entry
+        exists (e.g. tests calling the handler directly, or an entry
+        was already consumed by a sibling engine leg), fall back to
+        an inline capture inside the same budget.
+        """
+        cam_key = (
+            self._camera_key_for_sensor(sensor_entity_id)
+            or sensor_entity_id
+        )
+        entry = self._edge_captures.pop(cam_key, None)
+        if entry is None:
+            # Fallback path — inline capture (also budget-bounded).
+            return await self._capture_at_detection_snapshot(
+                sensor_entity_id
+            )
+        task = entry.get("task")
+        started_ts = float(entry.get("started_ts") or 0.0)
+        # Drop stale entries silently — file (if any) will be reaped
+        # by the periodic prune sweep.
+        if (
+            started_ts
+            and (_time.monotonic() - started_ts)
+            > PERIMETER_SNAPSHOT_EDGE_TTL_S
+        ):
+            try:
+                if task is not None and not task.done():
+                    task.cancel()
+            except Exception:  # noqa: BLE001
+                pass
+            return None
+        budget = max(0.1, float(PERIMETER_SNAPSHOT_CAPTURE_BUDGET_S))
+        try:
+            path = await asyncio.wait_for(task, timeout=budget)
+        except asyncio.TimeoutError:
+            _LOGGER.debug(
+                "SNAP-1: edge-capture await budget (%.1fs) exceeded "
+                "for %s — dispatch proceeds without image.",
+                budget, sensor_entity_id,
+            )
+            return None
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "SNAP-1: edge-capture task raised for %s",
+                sensor_entity_id, exc_info=True,
+            )
+            return None
+        # Record edge->consumption delta (F1 measurability requirement).
+        try:
+            delta_ms = int(
+                (_time.monotonic() - started_ts) * 1000
+            )
+            entry_ref = self._last_snapshot_capture.get(
+                cam_key or "camera"
+            )
+            if isinstance(entry_ref, dict):
+                entry_ref["edge_started_at"] = (
+                    entry.get("started_at").isoformat()
+                    if entry.get("started_at") is not None
+                    else None
+                )
+                entry_ref["edge_to_consume_ms"] = delta_ms
+        except Exception:  # noqa: BLE001
+            pass
+        return path
+
+    async def _capture_at_detection_snapshot(
+        self, sensor_entity_id: str,
+    ) -> str | None:
+        """Capture an at-detection snapshot for a perimeter sensor.
+
+        Returns the absolute local path on success, or None on any
+        failure (delivery degrades to no-image; alert is never
+        blocked). ONE file per collapsed camera key per alert —
+        secondary engines that fire within cooldown are dropped by the
+        existing camera-key `_dispatch_in_flight` collapse.
+
+        Tiered per PERIMETER_SNAPSHOT_ENGINE_PRECEDENCE:
+          1. frigate_event — HTTP GET the stored EVENT snapshot from
+             the frigate notification proxy (best-scoring frame OF the
+             event; NOT a live grab). Instance-aware.
+          2. protect_thumb — UniFi Protect smart-detect event thumbnail.
+             VERIFIED 2026-08-08 as NOT VIABLE at the detection edge and
+             deliberately falls through to (3):
+               - No registered service, no `image` platform, and no
+                 camera-entity attribute expose thumbnail bytes.
+                 `services.yaml` declares no thumbnail service; the smart-
+                 detect binary sensors expose only `event_id`/`event_score`
+                 (`homeassistant/components/unifiprotect/entity.py:461-466`).
+               - The only byte-returning API is
+                 `data.api.get_event_thumbnail(event_id, ...)` reached via
+                 the integration's private `async_get_data_for_nvr_id`
+                 (`views.py:17, 145, 205-207`) — internal, unstable.
+               - Even accepting the private API, the thumbnail is
+                 asynchronous. The integration itself buffers with a
+                 timer waiting for `EventDetectedThumbnail` messages
+                 over WS (`event.py:258-302`); at the moment
+                 `binary_sensor.*_person_detected` transitions ON,
+                 `get_event_thumbnail` will typically return None
+                 (`views.py:211-212` → 404). Marginal benefit over
+                 `live_grab` on the same camera does not pay for the
+                 private-API ingredient risk.
+             Revisit trigger: HA core exposes a stable public API that
+             returns thumbnail bytes AND a mechanism to wait for the
+             thumbnail to become available, OR live_grab is measured
+             to consistently miss the subject.
+          3. live_grab — `camera.snapshot` service on the mapped
+             camera entity at the rising edge (native Reolink /
+             Amcrest / Dahua / anything without an event API).
+        """
+        if self._snapshot_kill_legacy_url:
+            return None
+        cam_key = self._camera_key_for_sensor(sensor_entity_id) or ""
+        camera_entity_id = self._sensor_to_camera.get(sensor_entity_id, "")
+        platform = self._sensor_platforms.get(sensor_entity_id, "")
+        now_ts = int(_time.time())
+
+        # SNAP-1 fix-up (F5): whole-capture budget. A stalled camera
+        # or wedged Frigate must NOT delay the security page more
+        # than PERIMETER_SNAPSHOT_CAPTURE_BUDGET_S seconds; on
+        # timeout, dispatch proceeds without an image (URL fallback
+        # remains).
+        try:
+            if PERIMETER_SNAPSHOT_CAPTURE_BUDGET_S > 0:
+                return await asyncio.wait_for(
+                    self._capture_precedence(
+                        cam_key, camera_entity_id, platform, now_ts,
+                    ),
+                    timeout=PERIMETER_SNAPSHOT_CAPTURE_BUDGET_S,
+                )
+            return await self._capture_precedence(
+                cam_key, camera_entity_id, platform, now_ts,
+            )
+        except asyncio.TimeoutError:
+            _LOGGER.debug(
+                "SNAP-1: capture budget (%ds) exceeded for %s — "
+                "dispatch proceeds without image.",
+                PERIMETER_SNAPSHOT_CAPTURE_BUDGET_S, sensor_entity_id,
+            )
+            return None
+
+    async def _capture_precedence(
+        self, cam_key: str, camera_entity_id: str,
+        platform: str, now_ts: int,
+    ) -> str | None:
+        """Iterate PERIMETER_SNAPSHOT_ENGINE_PRECEDENCE in order.
+
+        SNAP-1 fix-up (F8): REAL precedence — dispatch by name in the
+        order the tuple lists them (was fixed source order with
+        membership checks; reordering the tuple had zero runtime
+        effect). Unknown engine names are skipped with a DEBUG log.
+        """
+        for engine in PERIMETER_SNAPSHOT_ENGINE_PRECEDENCE:
+            if engine == "frigate_event":
+                path = await self._try_capture_frigate_event(
+                    cam_key, camera_entity_id, platform, now_ts,
+                )
+                if path:
+                    return path
+            elif engine == "protect_thumb":
+                # Verified NOT VIABLE at the detection edge — see
+                # docstring on _capture_at_detection_snapshot.
+                continue
+            elif engine == "live_grab":
+                path = await self._try_capture_live_grab(
+                    cam_key, camera_entity_id, now_ts,
+                )
+                if path:
+                    return path
+            else:
+                _LOGGER.debug(
+                    "SNAP-1: unknown engine '%s' in precedence — skipped.",
+                    engine,
+                )
+        return None
+
+    async def _try_capture_frigate_event(
+        self, cam_key: str, camera_entity_id: str,
+        platform: str, now_ts: int,
+    ) -> str | None:
+        """Download the stored Frigate event snapshot to a local file."""
+        # Fresh event id (existing TTL logic).
+        cached = self._frigate_last_event_id.get(
+            (cam_key or "").strip().lower()
+        )
+        if not cached:
+            return None
+        eid, ts = cached
+        try:
+            age = (dt_util.utcnow() - ts).total_seconds()
+        except Exception:  # noqa: BLE001
+            return None
+        if not (0 <= age < FRIGATE_SNAPSHOT_ID_TTL_S):
+            return None
+        # SNAP-1 fix-up (F2): sanitize the event id before it is ever
+        # interpolated into a filesystem path OR a URL. os.path.join
+        # does NOT neutralize '..'; a malicious `frigate_events`
+        # publisher could write outside PERIMETER_SNAPSHOT_DIR without
+        # this guard. Sanitize cam_key too (same interpolation risk).
+        eid_safe = _sanitize_snapshot_token(eid)
+        cam_safe = _sanitize_snapshot_token(cam_key) or "camera"
+        if not eid_safe:
+            _LOGGER.debug(
+                "SNAP-1: refusing Frigate capture — event id sanitizer "
+                "rejected %r (cam_key=%r)", eid, cam_key,
+            )
+            return None
+
+        # SNAP-1 fix-up (F4): when Frigate is multi-instance, do NOT
+        # try the default (non-instance-scoped) URL first. With
+        # `armcrest*` on both hosts + known cross-host MQTT topic
+        # collision, the default URL can silently return ANOTHER
+        # camera's image. Wrong image is worse than no image.
+        candidates: list[str] = []
+        learned = self._camera_frigate_instance.get(cam_key)
+        if learned:
+            candidates.append(
+                f"/api/frigate/{learned}/notifications/{eid_safe}/snapshot.jpg"
+            )
+        for inst in self._frigate_instance_ids:
+            u = f"/api/frigate/{inst}/notifications/{eid_safe}/snapshot.jpg"
+            if u not in candidates:
+                candidates.append(u)
+        if not self._frigate_instance_ids:
+            # Single-instance (or Frigate integration absent) — default
+            # URL shape is safe.
+            candidates.append(
+                f"/api/frigate/notifications/{eid_safe}/snapshot.jpg"
+            )
+
+        for url_path in candidates:
+            data = await self._http_get_bytes(url_path)
+            if not data:
+                # SNAP-1 fix-up (F4): invalidate learned instance on
+                # miss — a camera migrating between hosts must not
+                # keep hitting the wrong Frigate.
+                if learned and url_path.startswith(
+                    f"/api/frigate/{learned}/"
+                ):
+                    self._camera_frigate_instance.pop(cam_key, None)
+                continue
+            # Learn instance if the successful URL was instance-scoped.
+            if url_path.startswith("/api/frigate/") and "notifications" in url_path:
+                parts = url_path.split("/")
+                if len(parts) >= 4 and parts[3] != "notifications":
+                    self._camera_frigate_instance[cam_key] = parts[3]
+            file_path = os.path.join(
+                PERIMETER_SNAPSHOT_DIR,
+                f"{cam_safe}_{eid_safe}.jpg",
+            )
+            if not _path_within(file_path, PERIMETER_SNAPSHOT_DIR):
+                _LOGGER.error(
+                    "SNAP-1: refusing frigate write — target %s escapes "
+                    "%s", file_path, PERIMETER_SNAPSHOT_DIR,
+                )
+                return None
+            if await self._write_snapshot_file(
+                file_path, data, "frigate_event", cam_safe,
+            ):
+                return file_path
+        return None
+
+    async def _try_capture_live_grab(
+        self, cam_key: str, camera_entity_id: str, now_ts: int,
+    ) -> str | None:
+        """Call `camera.snapshot` service on the mapped camera."""
+        if not camera_entity_id:
+            return None
+        # SNAP-1 fix-up (F2): sanitize cam_key. SNAP-1 fix-up (F9e):
+        # append short random suffix so two captures in the same second
+        # do not collide.
+        cam_safe = _sanitize_snapshot_token(cam_key) or "camera"
+        rnd = os.urandom(3).hex()
+        file_path = os.path.join(
+            PERIMETER_SNAPSHOT_DIR,
+            f"{cam_safe}_{now_ts}_{rnd}.jpg",
+        )
+        # SNAP-1 fix-up (F2 + F3): containment check before we ask HA
+        # to write.
+        if not _path_within(file_path, PERIMETER_SNAPSHOT_DIR):
+            _LOGGER.error(
+                "SNAP-1: refusing live-grab write — target %s escapes %s",
+                file_path, PERIMETER_SNAPSHOT_DIR,
+            )
+            return None
+        try:
+            await self.hass.services.async_call(
+                "camera", "snapshot",
+                {
+                    "entity_id": camera_entity_id,
+                    "filename": file_path,
+                },
+                blocking=True,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "SNAP-1: camera.snapshot failed for %s",
+                camera_entity_id, exc_info=True,
+            )
+            return None
+        # Verify file was written; capture size for ledger.
+        try:
+            size = await self.hass.async_add_executor_job(
+                self._stat_size, file_path,
+            )
+        except Exception:  # noqa: BLE001
+            size = 0
+        if not size:
+            return None
+        self._note_capture(cam_safe, file_path, "live_grab", size)
+        await self._async_prune_snapshot_dir()
+        return file_path
+
+    @staticmethod
+    def _stat_size(path: str) -> int:
+        try:
+            return os.path.getsize(path)
+        except OSError:
+            return 0
+
+    async def _http_get_bytes(self, url_path: str) -> bytes | None:
+        """HTTP GET a relative HA URL, return bytes or None on failure."""
+        abs_url = self._absolutize(url_path)
+        if not abs_url:
+            return None
+        try:
+            from homeassistant.helpers.aiohttp_client import (
+                async_get_clientsession,
+            )
+            session = async_get_clientsession(self.hass)
+            # SNAP-1 fix-up (F5): explicit ClientTimeout (aiohttp
+            # default 300s would let a wedged Frigate stall well past
+            # the whole-capture budget). Import lazily so the test
+            # stub prelude does not have to provide aiohttp.
+            try:
+                import aiohttp  # noqa: PLC0415
+                timeout = aiohttp.ClientTimeout(
+                    total=max(1, PERIMETER_SNAPSHOT_HTTP_TIMEOUT_S)
+                )
+                async with session.get(abs_url, timeout=timeout) as resp:
+                    if resp.status != 200:
+                        return None
+                    return await resp.read()
+            except ImportError:
+                async with session.get(abs_url) as resp:
+                    if resp.status != 200:
+                        return None
+                    return await resp.read()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "SNAP-1: http GET %s failed", abs_url, exc_info=True,
+            )
+            return None
+
+    async def _write_snapshot_file(
+        self, file_path: str, data: bytes, engine: str,
+        cam_key: str | None = None,
+    ) -> bool:
+        """Write bytes to file in executor; record + prune on success.
+
+        SNAP-1 fix-up (F9a): callers now pass `cam_key` explicitly. The
+        previous derivation `basename.split('_')[0]` corrupted names
+        with an underscore stem (`rear_ptz` → `rear`) and collided two
+        cameras sharing a first segment in the ledger.
+        SNAP-1 fix-up (F3 defence-in-depth): re-check containment
+        before writing.
+        """
+        if not data:
+            return False
+        if not _path_within(file_path, PERIMETER_SNAPSHOT_DIR):
+            _LOGGER.error(
+                "SNAP-1: refusing write — %s escapes %s",
+                file_path, PERIMETER_SNAPSHOT_DIR,
+            )
+            return False
+        try:
+            def _write():
+                with open(file_path, "wb") as fh:
+                    fh.write(data)
+                return len(data)
+
+            size = await self.hass.async_add_executor_job(_write)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "SNAP-1: write %s failed", file_path, exc_info=True,
+            )
+            return False
+        if cam_key is None:
+            cam_key = os.path.basename(file_path).split("_")[0]
+        self._note_capture(cam_key, file_path, engine, size)
+        await self._async_prune_snapshot_dir()
+        return True
+
+    def _note_capture(
+        self, cam_key: str, file_path: str, engine: str, size: int,
+    ) -> None:
+        """Record last-capture ledger + emit structured log line (D4)."""
+        try:
+            self._last_snapshot_capture[cam_key or "camera"] = {
+                "path": file_path,
+                "engine": engine,
+                "wrote_at": dt_util.now().isoformat(),
+                "bytes": int(size or 0),
+            }
+        except Exception:  # noqa: BLE001
+            pass
+        _LOGGER.info(
+            "PerimeterSnapshot: wrote=%s bytes=%d engine=%s",
+            file_path, int(size or 0), engine,
+        )
+
+    async def _async_prune_snapshot_dir(self, force: bool = False) -> None:
+        """Prune snapshot dir by age (primary) + count (backstop).
+
+        SNAP-1 fix-up (F9b): on-write prune is debounced —
+        PERIMETER_SNAPSHOT_PRUNE_DEBOUNCE_S seconds between per-write
+        runs. `force=True` bypasses the debounce (used by the periodic
+        sweep tick).
+        """
+        try:
+            now = _time.time()
+            if not force:
+                if (
+                    self._last_prune_ts
+                    and (now - self._last_prune_ts)
+                    < PERIMETER_SNAPSHOT_PRUNE_DEBOUNCE_S
+                ):
+                    return
+            self._last_prune_ts = now
+            await self.hass.async_add_executor_job(self._prune_snapshot_dir)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("SNAP-1: prune failed", exc_info=True)
+
+    def _prune_snapshot_dir(self) -> tuple[int, int]:
+        """Synchronous prune — executor-jobbed by callers.
+
+        Returns (files_deleted, bytes_freed). Age-primary; count is a
+        backstop for pathological bursts.
+        """
+        dir_path = PERIMETER_SNAPSHOT_DIR
+        try:
+            names = os.listdir(dir_path)
+        except OSError:
+            return (0, 0)
+        cutoff = _time.time() - PERIMETER_SNAPSHOT_RETENTION_AGE_H * 3600
+        files: list[tuple[str, float, int]] = []
+        for name in names:
+            full = os.path.join(dir_path, name)
+            try:
+                st = os.stat(full)
+                if not (st.st_mode & 0o170000) == 0o100000:
+                    # not a regular file
+                    continue
+                files.append((full, st.st_mtime, st.st_size))
+            except OSError:
+                continue
+        deleted = 0
+        freed = 0
+        keep: list[tuple[str, float, int]] = []
+        for full, mtime, size in files:
+            if mtime < cutoff:
+                try:
+                    os.remove(full)
+                    deleted += 1
+                    freed += size
+                except OSError:
+                    pass
+            else:
+                keep.append((full, mtime, size))
+        # Count backstop — oldest first.
+        if len(keep) > PERIMETER_SNAPSHOT_RETENTION_COUNT:
+            keep.sort(key=lambda t: t[1])
+            over = len(keep) - PERIMETER_SNAPSHOT_RETENTION_COUNT
+            for full, _mtime, size in keep[:over]:
+                try:
+                    os.remove(full)
+                    deleted += 1
+                    freed += size
+                except OSError:
+                    pass
+        if deleted:
+            _LOGGER.info(
+                "PerimeterSnapshot: prune deleted=%d bytes_freed=%d "
+                "(age_h=%d count_cap=%d)",
+                deleted, freed,
+                PERIMETER_SNAPSHOT_RETENTION_AGE_H,
+                PERIMETER_SNAPSHOT_RETENTION_COUNT,
+            )
+        return (deleted, freed)
+
+    @callback
+    def _on_snapshot_sweep_tick(self, _now: Any) -> None:
+        """Periodic prune sweep (safety net)."""
+        self.hass.async_create_task(
+            self._async_prune_snapshot_dir(force=True)
+        )
 
     def _get_snapshot_offset(self) -> int:
         """Read and clamp CONF_EXTERIOR_SNAPSHOT_OFFSET_S from config."""
@@ -2119,6 +2990,14 @@ class PerimeterAlertManager:
         # rising edge that survived the boot-settle gate. Observability
         # only; never gates dispatch.
         self._record_leg_fire(entity_id)
+        # SNAP-1 fix-up (F1): kick off at-detection capture NOW, at the
+        # sensor rising edge — before alert-hours / egress / cooldown /
+        # in-flight / severity / linker checks. The handler consumes
+        # the buffered result inside its own budget. One-file-per-
+        # collapsed-camera-key dedup is enforced by keying the buffer
+        # by cam_key (a second engine leg fires the same physical
+        # event and finds the buffer entry).
+        self._maybe_start_edge_capture(entity_id)
         # A-HIGH-3 (liveness fix): feed the linker off the rising edge as a
         # fallback for installs where `frigate_events` is not wired. The
         # linker's own observe() dedups per (camera,label) within a few
