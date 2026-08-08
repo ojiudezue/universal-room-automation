@@ -15,7 +15,7 @@ meta:
   - parked
 cards:
 - id: XCORR-1
-  title: Cross-engine corroboration gate for deep-night person alerts
+  title: 'Burst-demotion for isolated single-camera night alerts (was: cross-engine corroboration gate)'
   thread: perimeter
   status: pre_planning
   approval: explicit
@@ -45,14 +45,13 @@ cards:
     only in the deep-night window, and it must DEMOTE/delay - never silence. Aligns with the existing
     demote-never-silence invariant (INV-XP).'
   design:
-  - use leg_firing_by_camera sole_firing_ratio (already shipped v5.59.0) as the per-camera solo-firing
-    history
-  - gate applies ONLY when the camera has >=2 registered engines AND the sibling engine did not corroborate
-    within a short window
-  - effect = DEMOTE (e.g. CRITICAL->digest / single channel) or a short hold-for-corroboration delay,
-    NOT suppression
-  - 'channel fan-out is the other half of the spam: 4 channels x 3 events = 12 buzzes. Consider single-channel
-    for demoted alerts (ties to CONSOL-1 contextual severity)'
+  - 'REVISED: first alert ALWAYS fires at full severity (preserves intrusion guarantee).'
+  - 'Demote the 2nd..Nth alert from the SAME camera within a window when ALL of: no sibling-engine corroboration,
+    no adjacent-camera activity (linker adjacency), deep-night.'
+  - This is the pattern that was actually diagnostic on 2026-08-08 (burst + isolation), not single-event
+    corroboration.
+  - 'Second half of the spam is CHANNEL FAN-OUT: 4 channels x 3 events = 12 buzzes. Demoted repeats ->
+    single channel/digest (folds into CONSOL-1 contextual severity).'
   knobs:
   - name: PERIMETER_XCORR_REQUIRE_SECOND_ENGINE_NIGHT
     rung: 1
@@ -64,16 +63,26 @@ cards:
     rung: 1
     why: only gate cameras whose solo-firing ratio exceeds this (evidence-based, not blanket)
   parsimony:
-    problem: a single mis-tuned camera can page the operator 12x at 1am and there is no corroboration
-      check
-    verdict: BUILD
-    note: 'MEASURE FIRST: probe the recorder for per-camera solo-vs-corroborated firing rates over >=1
-      week before choosing thresholds - the ratio decides whether this is worth building and at what setting'
-  next: 'PROBE FIRST (measure-before-build): one-shot recorder query - per exterior camera, count firings
-    that had a same-camera sibling-engine agreement within N seconds vs solo. That table gates the design.'
+    problem: one mis-tuned camera paged the operator 12x at 1am
+    verdict: SIMPLIFY
+    note: probe rejected the corroboration gate; the simple burst+isolation demotion captures the benefit
+      without the false-negative risk
+  next: build burst-demotion (first alert full severity, repeats demoted when isolated+uncorroborated+night);
+    fold channel reduction into CONSOL-1
   refs:
   - perimeter_alert.py leg_firing_by_camera / _record_leg_fire
   - v5.59.0 disagreement telemetry
+  probe_result: 'PROBE RUN 2026-08-08 (8d, 30s window) -> AUDIT_xcorr_engine_corroboration_probe.md. The
+    naive corroboration gate is REJECTED: solo firing is the NORM on the exterior cameras that drive alerts
+    (front_side_ptz 92% solo, back_yard 91%, pool_equipment 93%, hot_tub 77%). Gating on sibling silence
+    would suppress 77-93% of exterior person detections INCLUDING REAL ONES. Engines do not share FOV/sensitivity
+    per camera, so ''sibling silent'' means different things per camera - no house-wide threshold exists.
+    Contrast: frigate on door cameras is near-perfectly corroborated (madrone_g6_entry 0% solo, front_door_aerial
+    3%).'
+  parked_alts:
+  - alt: per-camera adaptive solo-rate baselining
+    why: theoretically better than a global threshold
+    revisit_if: burst-demotion proves insufficient after a season
 - id: DIMMER-REBOOT-1
   title: Master bedroom Shelly Dimmer 2 reboots 89x since Aug 1 and returns ON (NOT thermal)
   thread: devices
