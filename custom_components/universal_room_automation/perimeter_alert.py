@@ -118,6 +118,10 @@ from .const import (
     PERIMETER_SNAPSHOT_EDGE_CAPTURES_MAX,
     PERIMETER_SNAPSHOT_PRUNE_DEBOUNCE_S,
     TRACK_LINK_WINDOW_S,
+    PERIMETER_BURST_DEMOTE_ENABLED,
+    PERIMETER_BURST_WINDOW_S,
+    PERIMETER_BURST_MIN_ALERTS,
+    PERIMETER_BURST_NIGHT_ONLY,
     EXTERIOR_VEHICLE_NIGHT_START,
     EXTERIOR_VEHICLE_NIGHT_END,
     EXTERIOR_VEHICLE_ALERT_STATES,
@@ -259,6 +263,16 @@ class PerimeterAlertManager:
         # Kept small — 32 entries per camera; sole-firing determined by
         # scan of the last WINDOW_S seconds. Reset lazily at fire time.
         self._recent_fires: dict[str, list[tuple[str, datetime]]] = {}
+        # XCORR-1: dispatched-alert timestamps per collapsed camera_key.
+        # Used by the burst-demotion helper to count prior alerts within
+        # PERIMETER_BURST_WINDOW_S. Only successful dispatches are recorded.
+        self._recent_alerts_by_camera: dict[str, list[datetime]] = {}
+        # XCORR-1: per-camera_key record of the most recent demotion decision
+        # (whether or not demotion actually applied). Surfaced via
+        # burst_demotion_stats() for the exterior open-tracks diagnostic
+        # sensor so the operator can see WHY something was demoted without
+        # log-level surgery. Bounded to one entry per camera.
+        self._last_burst_decision: dict[str, dict[str, Any]] = {}
         # F1 (2026-08-07 fix-up cycle-4): remember the derived allowlist
         # so the SIGNAL_EXTERIOR_LINKER_READY handler can (re)install it
         # when the linker registers AFTER perimeter_alert.async_setup().
@@ -1112,6 +1126,39 @@ class PerimeterAlertManager:
                     exc_info=True,
                 )
 
+        # --- 4c. XCORR-1: burst-demotion for isolated single-camera alerts.
+        # Runs AFTER severity-map coercion so the map's escalation on
+        # approach/circling can still raise; we only DEMOTE (floor at LOW).
+        # Composes with, does not bypass, the demote-never-silence
+        # invariant (INV-XP): the alert always dispatches.
+        try:
+            should_demote, burst_decision = self._evaluate_burst_demotion(
+                cooldown_key, entity_id, now,
+            )
+            burst_decision["severity_before"] = severity.name
+            if should_demote:
+                new_sev = max(Severity.LOW, min(severity, Severity.LOW))
+                if new_sev != severity:
+                    _LOGGER.info(
+                        "PerimeterAlertManager: severity DEMOTED %s→%s "
+                        "(XCORR-1 burst: camera=%s, prior_alerts=%d/%ds, "
+                        "sibling_corroborated=%s, adjacent_activity=%s)",
+                        severity.name, new_sev.name, cooldown_key,
+                        burst_decision["prior_alerts_in_window"],
+                        int(PERIMETER_BURST_WINDOW_S),
+                        burst_decision["sibling_corroborated"],
+                        burst_decision["adjacent_activity"],
+                    )
+                    severity = new_sev
+            burst_decision["severity_after"] = severity.name
+            self._last_burst_decision[cooldown_key] = burst_decision
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "PerimeterAlertManager: XCORR-1 burst-demote evaluation "
+                "raised — keeping today's severity (fail-open).",
+                exc_info=True,
+            )
+
         # --- 5. Resolve snapshot URL (D4) ---
         snapshot_url, delay_s = self._resolve_snapshot_url_and_delay(entity_id)
         # SNAP-1: capture an at-detection snapshot to a LOCAL FILE (best
@@ -1256,6 +1303,10 @@ class PerimeterAlertManager:
                 if dispatched_ok:
                     # Cycle 2: reserve cooldown by camera_key (fused-sourcing).
                     self._last_alert[cooldown_key] = now
+                    # XCORR-1: record dispatched alert timestamp for the
+                    # burst-count denominator. Failed dispatches never
+                    # count (they don't reach this branch).
+                    self._record_burst_alert(cooldown_key, now)
                     # build/exterior-track: attribute the alert to the
                     # owning open track so future events on the same track
                     # can refine cadence (approach/circling still alert;
@@ -1598,6 +1649,168 @@ class PerimeterAlertManager:
                         break
                 except Exception:  # noqa: BLE001
                     pass
+        return out
+
+    # ------------------------------------------------------------------
+    # XCORR-1: burst-demotion for isolated single-camera alerts.
+    # ------------------------------------------------------------------
+    def _evaluate_burst_demotion(
+        self, cam_key: str, entity_id: str, now: datetime,
+    ) -> tuple[bool, dict[str, Any]]:
+        """Return (should_demote, decision_dict).
+
+        Decision rule (all must hold to demote):
+          1. Kill switch (PERIMETER_BURST_DEMOTE_ENABLED) is True.
+          2. If PERIMETER_BURST_NIGHT_ONLY, we are in the alert-hours window.
+          3. At least (PERIMETER_BURST_MIN_ALERTS - 1) prior dispatched
+             alerts for this camera_key exist inside PERIMETER_BURST_WINDOW_S.
+             (i.e. this alert would be the Nth where N >= MIN.)
+          4. No sibling-engine corroboration for this camera in the
+             recent-fires window (REUSED self._recent_fires — an entry
+             with a different engine than the current sensor's).
+          5. No adjacent-camera activity per the linker.
+
+        The FIRST alert is sacred: condition 3 alone guarantees we never
+        demote when this is the first alert in the window.
+
+        Never silences: caller applies severity = max(severity, LOW).
+        """
+        decision: dict[str, Any] = {
+            "camera": cam_key,
+            "entity_id": entity_id,
+            "at": now.isoformat(),
+            "enabled": bool(PERIMETER_BURST_DEMOTE_ENABLED),
+            "prior_alerts_in_window": 0,
+            "sibling_corroborated": False,
+            "adjacent_activity": False,
+            "night_only": bool(PERIMETER_BURST_NIGHT_ONLY),
+            "in_alert_hours": False,
+            "demoted": False,
+            "reason": "",
+        }
+        if not PERIMETER_BURST_DEMOTE_ENABLED:
+            decision["reason"] = "disabled"
+            return False, decision
+
+        try:
+            in_hours = bool(self._is_in_alert_hours(now))
+        except Exception:  # noqa: BLE001
+            in_hours = False
+        decision["in_alert_hours"] = in_hours
+        if PERIMETER_BURST_NIGHT_ONLY and not in_hours:
+            decision["reason"] = "outside_night_window"
+            return False, decision
+
+        # Count prior dispatched alerts for this camera inside window.
+        window_s = float(PERIMETER_BURST_WINDOW_S)
+        cutoff = now.timestamp() - window_s
+        try:
+            history = self._recent_alerts_by_camera.get(cam_key, [])
+            prior = [ts for ts in history if ts.timestamp() >= cutoff]
+        except Exception:  # noqa: BLE001
+            prior = []
+        decision["prior_alerts_in_window"] = len(prior)
+        if len(prior) < max(0, PERIMETER_BURST_MIN_ALERTS - 1):
+            decision["reason"] = "first_alert"
+            return False, decision
+
+        # Sibling-engine corroboration on THIS camera: consult _recent_fires
+        # (bounded to _SOLE_FIRE_WINDOW_S) — if any entry from an engine
+        # different than the current sensor's is present, we treat this
+        # camera as corroborated and DO NOT demote.
+        current_engine = self._sensor_engine.get(entity_id) or ""
+        sibling = False
+        try:
+            fires_cutoff = now.timestamp() - float(self._SOLE_FIRE_WINDOW_S)
+            recent = self._recent_fires.get(cam_key, [])
+            for (eng, ts) in recent:
+                if ts.timestamp() < fires_cutoff:
+                    continue
+                if eng and eng != current_engine:
+                    sibling = True
+                    break
+        except Exception:  # noqa: BLE001
+            sibling = False
+        decision["sibling_corroborated"] = sibling
+        if sibling:
+            decision["reason"] = "sibling_corroborated"
+            return False, decision
+
+        # Adjacent-camera activity via linker.
+        adj = False
+        try:
+            linker = self.hass.data.get(DOMAIN, {}).get(
+                "exterior_track_linker"
+            )
+            if linker is not None and hasattr(
+                linker, "has_recent_adjacent_activity"
+            ):
+                adj = bool(linker.has_recent_adjacent_activity(
+                    cam_key, window_s, now,
+                ))
+        except Exception:  # noqa: BLE001
+            adj = False
+        decision["adjacent_activity"] = adj
+        if adj:
+            decision["reason"] = "adjacent_activity"
+            return False, decision
+
+        decision["demoted"] = True
+        decision["reason"] = "burst_isolated"
+        return True, decision
+
+    def _record_burst_alert(self, cam_key: str, now: datetime) -> None:
+        """Append a dispatched-alert timestamp and prune stale entries.
+
+        Called from the dispatch path AFTER dispatched_ok so failed alerts
+        do not count toward the burst-count denominator (same principle as
+        the cooldown reservation).
+        """
+        try:
+            history = self._recent_alerts_by_camera.setdefault(cam_key, [])
+            cutoff = now.timestamp() - float(PERIMETER_BURST_WINDOW_S)
+            history = [ts for ts in history if ts.timestamp() >= cutoff]
+            history.append(now)
+            # Bounded — the cooldown floor guarantees << 64 entries per
+            # window in practice; guard against pathological config.
+            self._recent_alerts_by_camera[cam_key] = history[-64:]
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "PerimeterAlertManager: _record_burst_alert failed",
+                exc_info=True,
+            )
+
+    def burst_demotion_stats(self) -> dict[str, dict[str, Any]]:
+        """Return per-camera burst-demotion decisions + counts.
+
+        Consumed by the exterior open-tracks diagnostic sensor
+        (`attrs["burst_demotions_by_camera"]`) so the operator can see WHY
+        an alert was demoted (or not) without log-level surgery.
+
+        Shape (dashboard-friendly):
+          {
+            "<camera_key>": {
+              "last_decision": {...decision_dict...},
+              "alerts_in_window": int,
+              "window_s": int,
+            }, ...
+          }
+        """
+        now = dt_util.now()
+        cutoff = now.timestamp() - float(PERIMETER_BURST_WINDOW_S)
+        out: dict[str, dict[str, Any]] = {}
+        cams = set(self._last_burst_decision) | set(
+            self._recent_alerts_by_camera
+        )
+        for cam in cams:
+            last = self._last_burst_decision.get(cam)
+            history = self._recent_alerts_by_camera.get(cam, [])
+            count = sum(1 for ts in history if ts.timestamp() >= cutoff)
+            out[cam] = {
+                "last_decision": last,
+                "alerts_in_window": count,
+                "window_s": int(PERIMETER_BURST_WINDOW_S),
+            }
         return out
 
     def leg_firing_stats(self) -> dict[str, dict[str, Any]]:

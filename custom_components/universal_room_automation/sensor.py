@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.63.0
+# Universal Room Automation vv5.64.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -3946,6 +3946,20 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
                 )
                 if mgr is not None and hasattr(mgr, "leg_firing_stats"):
                     attrs["leg_firing_by_camera"] = mgr.leg_firing_stats()
+            except Exception:  # noqa: BLE001
+                pass
+            # XCORR-1 (2026-08-08): per-camera burst-demotion decision
+            # ledger — the operator can see WHY a repeat alert was
+            # demoted (reason, prior-alert count, sibling/adjacent flags)
+            # without log-level surgery.
+            try:
+                mgr = self.hass.data.get(DOMAIN, {}).get(
+                    "perimeter_alert_manager"
+                )
+                if mgr is not None and hasattr(mgr, "burst_demotion_stats"):
+                    attrs["burst_demotions_by_camera"] = (
+                        mgr.burst_demotion_stats()
+                    )
             except Exception:  # noqa: BLE001
                 pass
             return attrs
