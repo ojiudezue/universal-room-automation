@@ -2207,9 +2207,30 @@ class PerimeterAlertManager:
              the frigate notification proxy (best-scoring frame OF the
              event; NOT a live grab). Instance-aware.
           2. protect_thumb — UniFi Protect smart-detect event thumbnail.
-             UNVERIFIED against the installed integration on this
-             deployment — falls through to (3). Tracked as
-             SNAP-1-followup-protect-thumb.
+             VERIFIED 2026-08-08 as NOT VIABLE at the detection edge and
+             deliberately falls through to (3):
+               - No registered service, no `image` platform, and no
+                 camera-entity attribute expose thumbnail bytes.
+                 `services.yaml` declares no thumbnail service; the smart-
+                 detect binary sensors expose only `event_id`/`event_score`
+                 (`homeassistant/components/unifiprotect/entity.py:461-466`).
+               - The only byte-returning API is
+                 `data.api.get_event_thumbnail(event_id, ...)` reached via
+                 the integration's private `async_get_data_for_nvr_id`
+                 (`views.py:17, 145, 205-207`) — internal, unstable.
+               - Even accepting the private API, the thumbnail is
+                 asynchronous. The integration itself buffers with a
+                 timer waiting for `EventDetectedThumbnail` messages
+                 over WS (`event.py:258-302`); at the moment
+                 `binary_sensor.*_person_detected` transitions ON,
+                 `get_event_thumbnail` will typically return None
+                 (`views.py:211-212` → 404). Marginal benefit over
+                 `live_grab` on the same camera does not pay for the
+                 private-API ingredient risk.
+             Revisit trigger: HA core exposes a stable public API that
+             returns thumbnail bytes AND a mechanism to wait for the
+             thumbnail to become available, OR live_grab is measured
+             to consistently miss the subject.
           3. live_grab — `camera.snapshot` service on the mapped
              camera entity at the rising edge (native Reolink /
              Amcrest / Dahua / anything without an event API).
