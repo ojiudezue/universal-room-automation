@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.60.0
+# Universal Room Automation vv5.61.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -5403,6 +5403,45 @@ class PresenceDiagnosticSensor(AggregationEntity, SensorEntity):
             )
         except Exception:  # noqa: BLE001 — defensive: stale coord data
             zone_verdicts = {}
+        # TRANSIT-DIAG-1 (2026-08-07): surface the transit-validator
+        # Protect-sourced checkpoint map read-only on this existing
+        # presence-diagnostic host (REUSED — no new sensor needed).
+        # v5.60.0 shipped ``checkpoint_cameras_by_area`` as a Python attr
+        # only; verifying it live required raising the log level. Now
+        # exposed as attrs: ``checkpoint_cameras_by_area`` (mapping) and
+        # ``protect_sourced_count`` (int). Purely additive; kill-switch
+        # off yields an empty mapping / zero count.
+        checkpoint_cameras_by_area: dict[str, list[str]] = {}
+        protect_sourced_count = 0
+        try:
+            tv = self.hass.data.get(DOMAIN, {}).get("transit_validator")
+            if tv is not None:
+                # F4 (2026-08-07 fix-up cycle-4): route through the
+                # validator's own helper so behavioral tests can
+                # mutation-drill the population path without importing
+                # sensor.py (which pulls the whole package). Fallback
+                # to legacy in-line read if the helper is absent (e.g.
+                # a stale coord instance mid-reload).
+                _builder = getattr(tv, "build_diagnostic_attrs", None)
+                if callable(_builder):
+                    _payload = _builder() or {}
+                    checkpoint_cameras_by_area = (
+                        _payload.get("checkpoint_cameras_by_area") or {}
+                    )
+                    protect_sourced_count = int(
+                        _payload.get("protect_sourced_count") or 0
+                    )
+                else:
+                    raw = getattr(tv, "checkpoint_cameras_by_area", None) or {}
+                    checkpoint_cameras_by_area = {
+                        a: sorted(list(eids)) for a, eids in raw.items()
+                    }
+                    protect_sourced_count = sum(
+                        len(v) for v in checkpoint_cameras_by_area.values()
+                    )
+        except Exception:  # noqa: BLE001 — defensive: transit_validator absent/torn down
+            checkpoint_cameras_by_area = {}
+            protect_sourced_count = 0
         return {
             "last_veto_decision": last_veto_decision,
             "signal_consensus_inputs": dict(
@@ -5412,6 +5451,8 @@ class PresenceDiagnosticSensor(AggregationEntity, SensorEntity):
                 getattr(presence, "_excluded_persons", {}) or {}
             ),
             "zone_verdicts": zone_verdicts,
+            "checkpoint_cameras_by_area": checkpoint_cameras_by_area,
+            "protect_sourced_count": protect_sourced_count,
         }
 
 

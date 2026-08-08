@@ -155,6 +155,17 @@ def linker():
             "front": ["front_side", "utilities", "rear"],
         }
     )
+    # SECC-1 (2026-08-07): the linker is now fail-CLOSED when no
+    # allowlist is installed (previously fail-open with WARN). Install
+    # a permissive allowlist covering every camera these tests use so
+    # the behavioral suite exercises the linker's link/adjacency logic,
+    # not its allowlist gate. Dedicated allowlist tests
+    # (test_allowlist_*) install their OWN narrower allowlist.
+    lk.set_allowed_cameras({
+        "utilities", "rear", "front", "front_side",
+        "driveway_far",  # non-adjacent camera used by simultaneous test
+        "reolinkstudybporchptz",  # case-normalization test
+    })
     return lk
 
 
@@ -513,10 +524,82 @@ def test_allowlist_drops_interior_cameras(linker):
     assert _obs(linker, "Utilities", now=t0) is not None
 
 
-def test_allowlist_empty_allows_all_with_warning(linker):
-    # Fail-open bring-up semantics: no allowlist installed -> observe works.
+def test_allowlist_empty_bootstrap_window_admits_with_warning():
+    """F1(c) (2026-08-07 fix-up cycle-4): the naive fail-closed on empty
+    allowlist was replaced with design (i) — admit-all with a one-shot
+    WARN until set_allowed_cameras() is called at least once.
+
+    Why: SECC-1 root cause was that PerimeterAlertManager's inline
+    install runs BEFORE __init__.py registers the linker in hass.data.
+    Fail-closed at the pre-install moment would have REJECTED EVERY
+    perimeter event on every boot — a much worse regression than the
+    original playroom-tracks leak. The correct fix is (a) close the
+    dead-code install via SIGNAL_EXTERIOR_LINKER_READY, and (b) preserve
+    the shipped admit-all behavior during the (now-narrow) bootstrap
+    window, then flip to fail-CLOSED after first install.
+
+    Post-install: see ``test_allowlist_drops_interior_cameras`` below —
+    off-list cameras ARE rejected and counted.
+    """
+    lk = ExteriorTrackLinker(_FakeHass())
+    assert lk._allowed_cameras == set(), "precondition: no allowlist"
+    assert lk._allowlist_installed is False, (
+        "precondition: not yet installed"
+    )
     t0 = datetime(2026, 8, 2, 20, 0, 0)
-    assert _obs(linker, "playroom", now=t0) is not None
+    # Pre-install: admit-all (bootstrap window). Interior cams open
+    # spurious tracks — documented + warned; the real fix is the
+    # perimeter_alert wiring to READY-signal, not the linker gate.
+    track = _obs(lk, "playroom", now=t0)
+    assert track is not None, (
+        "F1(c) regression: pre-install observe() rejected a real event"
+    )
+    assert lk._allowlist_warned is True, "one-shot WARN must have fired"
+    # After install, the fail-closed policy applies.
+    lk.set_allowed_cameras({"utilities", "rear"})
+    assert lk._allowlist_installed is True
+    # F10: install clears the transient bootstrap-window counters.
+    assert lk._ignored_offlist_events == {}
+    assert _obs(lk, "playroom", now=t0) is None
+    assert lk._ignored_offlist_events.get("playroom") == 1
+
+
+def test_allowlist_gated_on_bus_ingress_path(linker):
+    """SECC-1: the frigate_events bus path (exterior_track_linker.async_setup's
+    _on_frigate) also funnels through observe() -> allowlist gate.
+    Interior camera event on the bus must be rejected and counted."""
+    linker.set_allowed_cameras({"utilities", "rear"})
+    # Simulate what _on_frigate constructs and calls (see exterior_track_linker.py:222).
+    linker.observe(
+        camera="playroom",
+        label="person",
+        event_id="evt-1",
+        score=0.9,
+        sub_label=None,
+        now=datetime(2026, 8, 7, 12, 0, 0),
+    )
+    assert linker.census_counts()["exterior_person_tracks_active"] == 0
+    assert linker._ignored_offlist_events.get("playroom") == 1
+
+
+def test_allowlist_gated_on_state_change_ingress_path(linker):
+    """SECC-1: the perimeter_alert._feed_linker path (binary-sensor state
+    change fallback for animal/vehicle/person) also calls linker.observe(),
+    so the same allowlist gate applies. An off-list camera key -> reject +
+    count."""
+    linker.set_allowed_cameras({"utilities", "rear"})
+    # _feed_linker resolves cam_key via _camera_key_for_sensor, then calls
+    # observe(camera=cam_key, label=..., event_id=None, score=0.0, ...).
+    linker.observe(
+        camera="upstairs_hall",
+        label="animal",
+        event_id=None,
+        score=0.0,
+        sub_label=None,
+        now=datetime(2026, 8, 7, 12, 0, 0),
+    )
+    assert linker.census_counts()["exterior_animal_tracks_active"] == 0
+    assert linker._ignored_offlist_events.get("upstairs_hall") == 1
 
 
 def test_perimeter_setup_installs_allowlist_anchor():

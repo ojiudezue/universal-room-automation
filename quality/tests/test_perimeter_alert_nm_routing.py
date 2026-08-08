@@ -794,6 +794,11 @@ def _wire_linker(hass, cams: list[str]):
     # Symmetrized in constructor; declare each cam adjacent to every other.
     adj = {c: [x for x in cams if x != c] for c in cams}
     linker.set_adjacency(adj)
+    # SECC-1 (2026-08-07): linker is fail-CLOSED without an allowlist.
+    # These tests exercise the full linker path, so install the same
+    # camera set as the allowlist.
+    if cams:
+        linker.set_allowed_cameras(set(cams))
     hass.data[_const.DOMAIN]["exterior_track_linker"] = linker
     return linker
 

@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.60.0
+# Universal Room Automation vv5.61.0
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -1972,6 +1972,22 @@ class HVACTempArresterOverrideSwitch(SwitchEntity):
     Auto-sunset (first-of): transition INTO house_state == "sleep" OR
     COMFORT_OVERRIDE_MAX_S elapsed since engagement. On sunset the switch
     flips OFF and a LOW NM note fires ("Comfort Override ended (auto)").
+
+    F7 (2026-08-07 fix-up cycle-4) — restart-amnesty invariant:
+    the switch is default-OFF non-RestoreEntity by DESIGN. There is
+    NO re-engagement across restart: the entry.options marker fires a
+    LOW NM note ("released across restart") and clears itself; it
+    does NOT call set_temp_arrester_override(True). Therefore
+    ``_started_ts`` is never re-stamped across restart and no
+    restart-amnesty (fresh 15min grace / fresh 6h max-age) exists.
+    If a future cycle EVER adds re-engagement across restart, it MUST
+    also persist ``_started_ts`` in entry.options and restore it when
+    re-engaging so age math survives — otherwise every restart resets
+    both the MIN_LIFE grace and the COMFORT_OVERRIDE_MAX_S cap,
+    violating the "6h ceiling" invariant. Also persist any pending
+    deferred-sunset flag (see hvac_override.py:_temp_arrester_override_
+    pending_sunset — currently in-memory only, documented in the
+    ARREST-SUNSET-1 planning doc as an acceptable RESTART GAP).
 
     Deliberately NOT a RestoreEntity: default-OFF is the safe state
     (documented as intentional inversion of the sibling HVAC switches

@@ -175,6 +175,7 @@ OverrideArrester = hvac_override.OverrideArrester
 ZoneState = hvac_zones.ZoneState
 ARRESTER_IMMUNE_HOLD_MAX_S = hvac_const.ARRESTER_IMMUNE_HOLD_MAX_S
 COMFORT_OVERRIDE_MAX_S = hvac_const.COMFORT_OVERRIDE_MAX_S
+ARRESTER_OVERRIDE_MIN_LIFE_S = hvac_const.ARRESTER_OVERRIDE_MIN_LIFE_S
 
 
 # ---------------------------------------------------------------------------
@@ -391,10 +392,15 @@ class TestSunset:
     def test_durable_state_transition_sunsets(self, fake_clock):
         a = _make_arrester()
         self._stamp(a)
-        # SEMANTIC BINDING: non-durable transition MUST NOT sunset...
-        a.sunset_immune_holds(reason="durable_state", house_state="home_day")
+        # ARREST-SUNSET-1 (2026-08-07): advance past MIN_LIFE grace so
+        # a state-transition sunset can fire (grace default 15min).
+        fake_clock.advance(ARRESTER_OVERRIDE_MIN_LIFE_S + 60)
+        # New denylist rule — only ``arriving``/``guest``/``waking``
+        # preserve the hold. `home_day` is now an invalidating transition.
+        # SEMANTIC BINDING: a preserving-state transition MUST NOT sunset...
+        a.sunset_immune_holds(reason="durable_state", house_state="arriving")
         assert ZONE_ID in a._immune_holds
-        # ...but a durable transition MUST.
+        # ...but an invalidating transition MUST.
         a.sunset_immune_holds(reason="durable_state", house_state="sleep")
         assert ZONE_ID not in a._immune_holds
 
@@ -461,15 +467,34 @@ class TestComfortOverride:
     def test_sleep_transition_sunsets(self, fake_clock):
         a = _make_arrester()
         a.set_temp_arrester_override(True)
+        # ARREST-SUNSET-1 (2026-08-07): only ``arriving``/``guest``/``waking``
+        # preserve. Use ``arriving`` for the preserve leg. Advance past
+        # MIN_LIFE grace so the invalidating transition can fire.
         assert a.sunset_temp_arrester_override(
-            reason="durable_state", house_state="home_day",
+            reason="durable_state", house_state="arriving",
         ) is False
         assert a.temp_arrester_override_active is True
+        fake_clock.advance(ARRESTER_OVERRIDE_MIN_LIFE_S + 60)
         assert a.sunset_temp_arrester_override(
             reason="durable_state", house_state="sleep",
         ) is True
         assert a.temp_arrester_override_active is False
 
+    def test_max_age_still_fires_independently(self, fake_clock):
+        """First-of preserved: max-age still sunsets on its own timeline
+        even if no durable transition ever arrives."""
+        a = _make_arrester()
+        a.set_temp_arrester_override(True)
+        fake_clock.advance(COMFORT_OVERRIDE_MAX_S + 10)
+        assert a.sunset_temp_arrester_override(reason="max_age") is True
+        assert a.temp_arrester_override_active is False
+
+    # F2 (2026-08-07 fix-up cycle-4): these two tests were previously
+    # nested (indented) inside the module-level function
+    # ``test_no_inline_house_state_literal_comparisons_in_hvac_override``
+    # by a stray re-indent, so pytest COLLECTED ZERO of them — including
+    # the only test that pinned the post-restart default-OFF invariant.
+    # Reflowed here as real TestComfortOverride methods so they run.
     def test_max_age_sunsets(self, fake_clock):
         a = _make_arrester()
         a.set_temp_arrester_override(True)
@@ -489,6 +514,264 @@ class TestComfortOverride:
         # Even if user was mid-ON before restart, the new object has no
         # trace of it (nothing is serialized in the arrester).
         assert a._temp_arrester_override_started_ts is None
+
+
+# ===========================================================================
+# ARREST-SUNSET-1 (2026-08-07) — table-driven denylist coverage.
+#
+# The parametrization is derived FROM const.HOUSE_STATE_TRIGGER_VALUES so
+# that adding a 10th house state makes this test FAIL until it is
+# classified (either as invalidating or as one of the two preserving
+# states). That property IS the point — do not hand-copy the list.
+# ===========================================================================
+
+from custom_components.universal_room_automation.const import (  # noqa: E402
+    HOUSE_STATE_TRIGGER_VALUES,
+)
+from custom_components.universal_room_automation.domain_coordinators.hvac_const import (  # noqa: E402
+    ARRESTER_HOLD_PRESERVING_STATES,
+    house_state_invalidates_arrester_hold,
+)
+
+# F3 (2026-08-07 fix-up cycle-4): HAND-AUTHORED expectation — deliberately
+# independent of the production predicate (was: derived from
+# ARRESTER_HOLD_PRESERVING_STATES, which made this table restate the
+# predicate under test, so the test was tautological). Appending a fake
+# state (e.g. "party") to HOUSE_STATE_TRIGGER_VALUES now trips the
+# vocabulary-key guard below and FAILS every parametrized test until a
+# human classifies it here.
+#
+# Each row is written out explicitly with a one-line rationale. The two
+# preserving states are ``arriving``/``guest``; ``waking`` is grouped
+# with them per the transient-state ruling (2026-08-07 amendment).
+_EXPECTED_INVALIDATES: dict[str, bool] = {
+    "away":         True,   # durable — arrester regains governance
+    "arriving":     False,  # PRESERVING — transient (60s hysteresis)
+    "home_day":     True,   # durable — a real context change
+    "home_evening": True,   # durable
+    "home_night":   True,   # durable
+    "sleep":        True,   # durable — the ORIGINAL sunset trigger
+    "waking":       False,  # PRESERVING — morning-twin of arriving
+    "guest":        False,  # PRESERVING — operator-declared exception
+    "vacation":     True,   # durable — long-away
+}
+# Vocabulary guard: adding a NEW state to HOUSE_STATE_TRIGGER_VALUES
+# without classifying it here MUST fail the collection. F3 mutation
+# drill: appending "party" to HOUSE_STATE_TRIGGER_VALUES and rerunning
+# the tests trips this assertion. Restore.
+assert set(_EXPECTED_INVALIDATES) == set(HOUSE_STATE_TRIGGER_VALUES), (
+    "House-state vocabulary drift: hand-authored _EXPECTED_INVALIDATES "
+    f"disagrees with HOUSE_STATE_TRIGGER_VALUES. Missing classification "
+    f"for: {set(HOUSE_STATE_TRIGGER_VALUES) - set(_EXPECTED_INVALIDATES)}, "
+    f"stale entries: {set(_EXPECTED_INVALIDATES) - set(HOUSE_STATE_TRIGGER_VALUES)}"
+)
+# Belt-and-braces: pin the exact preserving set so a silent widening of
+# ARRESTER_HOLD_PRESERVING_STATES also breaks a test. Includes ``waking``
+# (2026-08-07 amendment) — the morning-twin of ``arriving``, transient
+# tier per the house-state hysteresis table.
+assert ARRESTER_HOLD_PRESERVING_STATES == frozenset(
+    {"arriving", "guest", "waking"}
+)
+
+
+class TestArresterSunsetDenylist:
+    """Both sunset sites (Temp Arrester Override + immune-holds) must
+    consult the SAME predicate — that's the anti-fork invariant."""
+
+    @pytest.mark.parametrize("state", HOUSE_STATE_TRIGGER_VALUES)
+    def test_temp_arrester_override_matches_denylist(self, fake_clock, state):
+        a = _make_arrester()
+        a.set_temp_arrester_override(True)
+        # Advance past MIN_LIFE so the table test measures the DENYLIST,
+        # not the (independent) grace-window suppression.
+        fake_clock.advance(ARRESTER_OVERRIDE_MIN_LIFE_S + 60)
+        fired = a.sunset_temp_arrester_override(
+            reason="durable_state", house_state=state,
+        )
+        assert fired is _EXPECTED_INVALIDATES[state], (
+            f"state={state!r} expected invalidates={_EXPECTED_INVALIDATES[state]} "
+            f"got fired={fired}"
+        )
+        assert a.temp_arrester_override_active is (not _EXPECTED_INVALIDATES[state])
+
+    @pytest.mark.parametrize("state", HOUSE_STATE_TRIGGER_VALUES)
+    def test_immune_holds_matches_denylist(self, fake_clock, state):
+        """Sibling site: sunset_immune_holds must ALSO consult the SAME
+        predicate. Ripple is intentional; pin it here."""
+        a = _make_arrester()
+        # Seed one immune hold, then advance past MIN_LIFE grace.
+        a._immune_holds[ZONE_ID] = {
+            "user_name": "test",
+            "started_ts": fake_clock.now(),
+        }
+        fake_clock.advance(ARRESTER_OVERRIDE_MIN_LIFE_S + 60)
+        a.sunset_immune_holds(reason="durable_state", house_state=state)
+        cleared = ZONE_ID not in a._immune_holds
+        assert cleared is _EXPECTED_INVALIDATES[state], (
+            f"state={state!r} expected invalidates={_EXPECTED_INVALIDATES[state]} "
+            f"got cleared={cleared}"
+        )
+
+    def test_predicate_none_and_empty_are_falsey(self):
+        assert house_state_invalidates_arrester_hold(None) is False
+        assert house_state_invalidates_arrester_hold("") is False
+
+    def test_predicate_unknown_state_invalidates(self):
+        """Denylist default: an UNCLASSIFIED future state invalidates —
+        fail-safe direction (arrester regains governance rather than a
+        suppression persisting forever)."""
+        assert house_state_invalidates_arrester_hold("some_new_state") is True
+
+
+class TestArresterMinLifeGraceAndDeferral:
+    """MIN_LIFE grace + deferred-obligation semantics (ARREST-SUNSET-1
+    2026-08-07 amendment). The invalidating transition during the grace
+    is DEFERRED, not discarded — otherwise the event is lost and the
+    override survives to max-age (6h)."""
+
+    def test_transition_within_grace_does_not_sunset_immediately(self, fake_clock):
+        a = _make_arrester()
+        a.set_temp_arrester_override(True)
+        fake_clock.advance(60)  # T0+60s, well under 15min grace
+        fired = a.sunset_temp_arrester_override(
+            reason="durable_state", house_state="sleep",
+        )
+        assert fired is False
+        assert a.temp_arrester_override_active is True
+        # Pending flag is set — obligation is DEFERRED, not lost.
+        assert a._temp_arrester_override_pending_sunset == "sleep"
+
+    def test_deferred_sunset_discharges_via_sweep_at_grace_expiry(self, fake_clock):
+        """The operator's exact requirement: transition arrives at T0+60s,
+        override sunsets at ~T0+15min WITHOUT any further transition."""
+        a = _make_arrester()
+        a.set_temp_arrester_override(True)
+        fake_clock.advance(60)
+        a.sunset_temp_arrester_override(
+            reason="durable_state", house_state="sleep",
+        )
+        assert a.temp_arrester_override_active is True
+        # Advance past MIN_LIFE — the periodic sweep runs with
+        # reason="max_age_or_boundary". The top-of-method backstop
+        # discharges the pending obligation.
+        fake_clock.advance(ARRESTER_OVERRIDE_MIN_LIFE_S)
+        fired = a.sunset_temp_arrester_override(reason="max_age_or_boundary")
+        assert fired is True, "sweep must discharge the deferred sunset"
+        assert a.temp_arrester_override_active is False
+        assert a._temp_arrester_override_pending_sunset is None
+
+    def test_no_transition_at_all_keeps_override_past_grace(self, fake_clock):
+        """Regression guard: discharge is TRANSITION-triggered, not
+        current-state-triggered. Without any transition, an override
+        engaged during home_day survives past the 15min grace (until
+        max-age at 6h)."""
+        a = _make_arrester()
+        a.set_temp_arrester_override(True)
+        fake_clock.advance(ARRESTER_OVERRIDE_MIN_LIFE_S + 60)  # T0+16min
+        fired = a.sunset_temp_arrester_override(reason="max_age_or_boundary")
+        assert fired is False
+        assert a.temp_arrester_override_active is True
+
+    def test_max_age_fires_even_though_min_life_would_block(self, fake_clock):
+        """Grace does not outrank max-age: the 6h max-age sunset fires
+        independent of any min-life gate."""
+        a = _make_arrester()
+        a.set_temp_arrester_override(True)
+        fake_clock.advance(COMFORT_OVERRIDE_MAX_S + 60)
+        fired = a.sunset_temp_arrester_override(reason="max_age_or_boundary")
+        assert fired is True
+        assert a.temp_arrester_override_active is False
+
+    def test_min_life_zero_disables_grace(self, fake_clock, monkeypatch):
+        """Kill switch: MIN_LIFE_S=0 → transition at T0+1s sunsets."""
+        monkeypatch.setattr(hvac_override, "ARRESTER_OVERRIDE_MIN_LIFE_S", 0)
+        a = _make_arrester()
+        a.set_temp_arrester_override(True)
+        fake_clock.advance(1)
+        fired = a.sunset_temp_arrester_override(
+            reason="durable_state", house_state="sleep",
+        )
+        assert fired is True
+        assert a.temp_arrester_override_active is False
+
+    @pytest.mark.parametrize(
+        "preserve_state", ["arriving", "guest", "waking"],
+    )
+    def test_preserve_states_never_sunset_regardless_of_age(
+        self, fake_clock, preserve_state,
+    ):
+        a = _make_arrester()
+        a.set_temp_arrester_override(True)
+        # Well past MIN_LIFE and even close to max-age — a preserving
+        # transition still does not sunset.
+        fake_clock.advance(COMFORT_OVERRIDE_MAX_S - 60)
+        fired = a.sunset_temp_arrester_override(
+            reason="durable_state", house_state=preserve_state,
+        )
+        assert fired is False
+        assert a.temp_arrester_override_active is True
+
+    def test_manual_off_clears_pending_and_timer(self, fake_clock):
+        a = _make_arrester()
+        a.set_temp_arrester_override(True)
+        fake_clock.advance(60)
+        a.sunset_temp_arrester_override(
+            reason="durable_state", house_state="sleep",
+        )
+        assert a._temp_arrester_override_pending_sunset == "sleep"
+        # Manual OFF must clear the pending flag AND timer handle so a
+        # subsequent re-engagement is not sunset by a stale grace fire.
+        a.set_temp_arrester_override(False)
+        assert a._temp_arrester_override_pending_sunset is None
+        assert a._temp_arrester_override_pending_sunset_unsub is None
+        # Re-engage; a fresh grace window applies.
+        a.set_temp_arrester_override(True)
+        assert a._temp_arrester_override_active is True
+        assert a._temp_arrester_override_pending_sunset is None
+
+    def test_immune_hold_deferred_sunset_via_sweep(self, fake_clock):
+        """Sibling: immune-holds mirror the deferral. Discharge runs on
+        the sweep (no per-record timer)."""
+        a = _make_arrester()
+        a._immune_holds[ZONE_ID] = {
+            "user_name": "test",
+            "started_ts": fake_clock.now(),
+        }
+        fake_clock.advance(60)
+        a.sunset_immune_holds(reason="durable_state", house_state="sleep")
+        assert ZONE_ID in a._immune_holds
+        assert a._immune_holds[ZONE_ID].get("pending_sunset_state") == "sleep"
+        # Sweep at grace expiry discharges.
+        fake_clock.advance(ARRESTER_OVERRIDE_MIN_LIFE_S)
+        a.sunset_immune_holds(reason="max_age_or_boundary")
+        assert ZONE_ID not in a._immune_holds
+
+
+def test_no_inline_house_state_literal_comparisons_in_hvac_override():
+    """Anti-fork source test: the original ARREST-SUNSET-1 bug was
+    `house_state == "sleep"` living inline in hvac_override.py while its
+    sibling used the shared set. Ban that literal-comparison SHAPE so it
+    cannot silently regrow.
+    """
+    import re
+    path = os.path.join(
+        os.path.dirname(hvac_override.__file__), "hvac_override.py",
+    )
+    with open(path) as fh:
+        src = fh.read()
+    # Match `house_state == "..."` or `house_state == '...'` (any single
+    # quoted state literal). The legit reader now routes through
+    # house_state_invalidates_arrester_hold(house_state).
+    pattern = re.compile(r"house_state\s*==\s*['\"]")
+    hits = pattern.findall(src)
+    assert not hits, (
+        f"hvac_override.py must not compare house_state to a string literal — "
+        f"route through house_state_invalidates_arrester_hold instead. "
+        f"Found {len(hits)} occurrence(s)."
+    )
+    # F2: (previously two orphan def test_* methods were nested here at
+    # this indentation and were never collected. Reflowed into
+    # TestComfortOverride above.)
 
 
 # ===========================================================================
