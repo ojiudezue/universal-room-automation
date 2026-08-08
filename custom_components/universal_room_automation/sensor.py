@@ -3948,6 +3948,20 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
                     attrs["leg_firing_by_camera"] = mgr.leg_firing_stats()
             except Exception:  # noqa: BLE001
                 pass
+            # XCORR-1 (2026-08-08): per-camera burst-demotion decision
+            # ledger — the operator can see WHY a repeat alert was
+            # demoted (reason, prior-alert count, sibling/adjacent flags)
+            # without log-level surgery.
+            try:
+                mgr = self.hass.data.get(DOMAIN, {}).get(
+                    "perimeter_alert_manager"
+                )
+                if mgr is not None and hasattr(mgr, "burst_demotion_stats"):
+                    attrs["burst_demotions_by_camera"] = (
+                        mgr.burst_demotion_stats()
+                    )
+            except Exception:  # noqa: BLE001
+                pass
             return attrs
         except Exception as exc:  # noqa: BLE001
             return {"status": "error", "error": str(exc)}
