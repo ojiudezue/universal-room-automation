@@ -14,6 +14,90 @@ meta:
   - waiting_me
   - parked
 cards:
+- id: XCORR-1
+  title: Cross-engine corroboration gate for deep-night person alerts
+  thread: perimeter
+  status: pre_planning
+  approval: explicit
+  approved_by: operator
+  approved_on: '2026-08-08'
+  tags:
+  - tier-2db
+  - measure-before-build
+  - numbers-get-knobs
+  - no-fabrication-verify
+  origin:
+    date: '2026-08-08'
+    gist: operator got 12 notifications 01:01-01:25 CDT from hot_tub; "this is what x-correlation looks
+      like if we have multiple engines"
+  why: 'A single engine asserting person while a CO-LOCATED engine on the same physical camera stays silent
+    is strong false-positive evidence. Labelled example 2026-08-08: hot_tub frigate fired 5x in 18min;
+    protect leg NEVER fired; zero adjacent cameras fired. URA correctly alerted on bad input - the input
+    is the problem.'
+  evidence:
+  - 'hot_tub frigate _person_occupancy: 06:01:27, 06:06:10, 06:08:36, 06:10:29, 06:19:00 UTC'
+  - 'hot_tub PROTECT _person_detected: zero firings in the window'
+  - 'all other exterior cameras (pool_equipment, armcrest, back_yard, rear_ptz, front_side_ptz): zero'
+  - 'per-camera alert counts 2 days: hot_tub 24, front_side_ptz 7, pool_equipment 5 -> hot_tub dominates'
+  design_TRAP: 'DO NOT gate on corroboration generally - that would SUPPRESS REAL INTRUSIONS on single-engine
+    cameras (many cameras have only ONE engine; and a real prowler may only be seen by one). The gate
+    must be NARROW: only for cameras that HAVE >=2 engines (so silence from the sibling is meaningful),
+    only in the deep-night window, and it must DEMOTE/delay - never silence. Aligns with the existing
+    demote-never-silence invariant (INV-XP).'
+  design:
+  - use leg_firing_by_camera sole_firing_ratio (already shipped v5.59.0) as the per-camera solo-firing
+    history
+  - gate applies ONLY when the camera has >=2 registered engines AND the sibling engine did not corroborate
+    within a short window
+  - effect = DEMOTE (e.g. CRITICAL->digest / single channel) or a short hold-for-corroboration delay,
+    NOT suppression
+  - 'channel fan-out is the other half of the spam: 4 channels x 3 events = 12 buzzes. Consider single-channel
+    for demoted alerts (ties to CONSOL-1 contextual severity)'
+  knobs:
+  - name: PERIMETER_XCORR_REQUIRE_SECOND_ENGINE_NIGHT
+    rung: 1
+    why: enable the night corroboration gate; False = today behavior
+  - name: PERIMETER_XCORR_WINDOW_S
+    rung: 1
+    why: how long to wait for the sibling engine before deciding
+  - name: PERIMETER_XCORR_MIN_SOLO_RATIO
+    rung: 1
+    why: only gate cameras whose solo-firing ratio exceeds this (evidence-based, not blanket)
+  parsimony:
+    problem: a single mis-tuned camera can page the operator 12x at 1am and there is no corroboration
+      check
+    verdict: BUILD
+    note: 'MEASURE FIRST: probe the recorder for per-camera solo-vs-corroborated firing rates over >=1
+      week before choosing thresholds - the ratio decides whether this is worth building and at what setting'
+  next: 'PROBE FIRST (measure-before-build): one-shot recorder query - per exterior camera, count firings
+    that had a same-camera sibling-engine agreement within N seconds vs solo. That table gates the design.'
+  refs:
+  - perimeter_alert.py leg_firing_by_camera / _record_leg_fire
+  - v5.59.0 disagreement telemetry
+- id: DIMMER-THERMAL-1
+  title: Master bedroom Shelly Dimmer 2 running 117-130C, rebooting 89x since Aug 1
+  thread: safety
+  status: waiting_operator
+  approval: blocked
+  tags:
+  - no-fabrication-verify
+  origin:
+    date: '2026-08-08'
+    gist: 'operator: why is the master bedroom dimmer coming on in the morning?'
+  why: 'ROOT CAUSE FOUND, NOT SOFTWARE: light.shellydimmer2_24d7ebe93470 (area master_bedroom) sits at
+    117C, peak 129.6C since Aug 1 (Shelly Dimmer 2 self-protects ~95C). It reboots repeatedly - 89 unavailable
+    events since Aug 1, accelerating 6/day -> 23/day - consistent with thermal shutdown/restart, and 32
+    of those reboots came back ON. That is the ''comes on in the morning''. NO context_user_id/parent
+    on any transition => nothing in HA or URA commands it.'
+  safety: 'ENCLOSED DIMMER AT 117-130C IS A FIRE RISK. Recommended: kill the circuit at the breaker until
+    inspected. The device''s own `overheating` binary_sensor has NEVER fired - do not trust its silence
+    (same lesson as the boot-sanity guard).'
+  likely_causes:
+  - load mismatch (LED fixture vs leading-edge dimmer)
+  - no neutral / poor heat dissipation in a deep box
+  - failing hardware - it is the ONLY Shelly in the house flapping like this
+  next: 'OPERATOR: breaker off + inspect (physical). Offered software stopgaps: force light off + NM alert
+    on the temperature sensor.'
 - id: BOOTSANITY-1
   title: Boot-sanity allowlist guard cannot fire on a cold boot
   thread: camera
