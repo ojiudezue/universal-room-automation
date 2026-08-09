@@ -17,8 +17,12 @@ cards:
 - id: STUCK-SENSOR-1
   title: Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
   thread: presence
-  status: pre_planning
-  approval: unreviewed
+  status: planned
+  approval: explicit
+  approved_by: 'operator 2026-08-09 ("and what comes after it") — the chatter/reliability cycle that
+    follows SENSOR-CAPABILITY-1, absorbing the mmwave-Tier3 D6 parked deliverable. NOTE: this approval
+    does NOT extend past the SignalTrustLedger''s own GO criteria — its criterion 4 (golden-tap fixtures)
+    is unmet and is a hard blocker independent of approval.'
   tags:
   - tier-2db
   - no-fabrication-verify
@@ -154,8 +158,9 @@ cards:
 - id: SENSOR-CAPABILITY-1
   title: Separate sensor CAPABILITY (hardware kind) from analytic ROLE — kind is currently the config bucket
   thread: presence
-  status: pre_planning
-  approval: unreviewed
+  status: planned
+  approval: explicit
+  approved_by: 'operator 2026-08-09 ("Approving sensor capability plan and what comes after it")'
   tags:
   - tier-3
   - institutional-context
@@ -896,6 +901,11 @@ cards:
       vs frigate pool — needs deterministic canonical-area selection across legs)'
     doc_nit: 'audit camera-key `reolinkstudybporch` vs frigate slug `reolinkstudybporchptz` differ by a
       ptz suffix; fixture keyed on the slug. Reconcile the audit doc on next touch.'
+  POST_REVERT_2026_08_09: 'A-2/A-3 fix REVERTED (0aaa61e16) by operator decision. RESACC-1''s value is
+    UNAFFECTED and independently re-verified after the revert: 20 cameras, 39/39 recall, 0 precision
+    violations, 17/17 Protect room matches, near-miss clean, 66 passed + 2 xfailed. The reverted work
+    only ever addressed the two xfailed cases, which are now correctly pinned as known-open rather than
+    fixed-then-regressed. Both xfails confirmed still strict=True.'
   RECONCILED_2026_08_09: 'in_progress -> done the same day stage 2 landed, caught by the rung-4 session
     check the currency ladder just codified (board had still said "build the diff")'
 - id: TEST-1

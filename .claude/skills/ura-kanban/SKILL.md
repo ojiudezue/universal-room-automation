@@ -418,6 +418,33 @@ an at-detection local file → Tier 2-DB, perimeter_alert + NM, folds into CONSO
 - **CLAUDE.md** governs *how* work is done (tiers, gates). The board governs *what* is in
   flight and *whether it was lost*.
 
+## Count the consumers before fixing the defect
+
+**Coined 2026-08-09, from the most expensive miss of that session.** RESACC-1 measured the camera
+resolver against a hand-built fixture and found two real bugs. A fix shipped, passed two of three
+framing-disjoint reviews with excellent mutation-anchored tests — and was reverted, because the third
+reviewer asked the question nobody had: **who actually reads this value?**
+
+Answer: one caller, and it used the *other* code path. Both "bugs" were latent; the fix's new failure
+mode landed on the only live consumer, where the old behavior (`None`) was *safe* and the new one
+(a wrong value) was actively harmful.
+
+The measurement was correct. The fixture was correct. The tests were excellent. The work was still
+wrong, because *impact* was inferred from the size of the data defect rather than from consumption.
+
+> **A defect's severity is a property of its consumers, not of the data.** Before scoping a fix,
+> grep for who reads the value and on which path. Put the consumer count in the plan.
+
+Corollaries learned the same day:
+- **A measurement licenses only what it measured.** "We measured grouping is sound, so this guard is
+  unnecessary" was false: the guard protected a *different* property than the one measured. Name the
+  property before citing a measurement as evidence.
+- **`None` is often safer than a wrong value.** Anything that filters on membership (`x not in set`)
+  fails *closed* on `None` and *open* on a wrong value. Turning a "missing" into a "wrong" is a
+  regression even when it looks like an improvement.
+- **Ask which latent state fires first.** When both benefit and risk are latent, the deciding evidence
+  is base rates in *this* deployment — not which sounds worse.
+
 ## Anti-patterns
 
 - A card with a title but no Origin/Next — that's a transcript line, not a card.
