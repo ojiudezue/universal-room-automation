@@ -126,27 +126,6 @@ PLATFORM_REOLINK = "reolink"
 PLATFORM_AMCREST = "amcrest"
 PLATFORM_DAHUA = "dahua"
 
-# Canonical area precedence across grouped legs of the same physical
-# camera (RESACC-1 A-2/A-3 fix, 2026-08-09). When the primary entity's
-# OWN area is unset, the resolver falls back to sibling legs. This order
-# arbitrates the fallback deterministically so the same physical camera
-# resolves to the same area regardless of which platform was enumerated.
-#
-# Rationale (per AUDIT_resolver_ground_truth_manual.md 2026-08-07):
-#   - unifiprotect: carries the real area on all 7 exterior perimeter
-#     cameras (A-3 ground truth column).
-#   - frigate:      Frigate legs carry the correct area on armcrest
-#     (`pool`) while the dahua device-area is mis-set to `balcony` (A-2).
-#   - reolink/amcrest/dahua: native device-area frequently mis-set on
-#     this deployment; used only as last-resort fallback.
-CANONICAL_AREA_PRECEDENCE: tuple[str, ...] = (
-    PLATFORM_UNIFI,
-    PLATFORM_FRIGATE,
-    PLATFORM_REOLINK,
-    PLATFORM_AMCREST,
-    PLATFORM_DAHUA,
-)
-
 
 @dataclass
 class FusionSource:
@@ -861,7 +840,6 @@ class CameraResolver:
         family: str,
         *,
         stem_aliases: dict[str, str] | None = None,
-        stem_hint: str | None = None,
     ) -> list[DetectionLeg]:
         """Return every integration's detection sensors for ``family``.
 
@@ -935,14 +913,6 @@ class CameraResolver:
         if base_stem:
             candidate_stems.add(base_stem)
             candidate_stems.add(_strip_disambiguation_suffix(base_stem))
-        # RESACC-1 A-2 fix: caller-provided stem hint bridges cases where
-        # `_compute_device_stems` picks up a camera name with a device-
-        # specific suffix (e.g. `armcrestpooloverhead_main`) that is not
-        # in `_CAMERA_RESOLUTION_SUFFIXES` and so misses the alias entry.
-        # enumerate_platform_cameras passes the enumeration stem here.
-        if stem_hint:
-            candidate_stems.add(stem_hint)
-            candidate_stems.add(_strip_disambiguation_suffix(stem_hint))
         if stem_aliases:
             for stem in list(candidate_stems):
                 aliased = stem_aliases.get(stem)
@@ -1108,34 +1078,8 @@ class CameraResolver:
 
         results: list[EnumeratedCamera] = []
         for (did, stem), primary_eid in groups.items():
-            # Wire EXTERIOR_CAMERA_KEY_ALIASES into enumeration so
-            # native-AI stems whose slug diverges from the canonical
-            # (e.g. `armcrestpooloverhead` → `armcrest`) fuse their
-            # sibling legs. Without this, enumerating `dahua` sees the
-            # dahua leg only and misses the frigate `armcrest` sibling
-            # (A-2 area-attribution regression).
-            _CAM_ALIASES = None
             try:
-                from .const import EXTERIOR_CAMERA_KEY_ALIASES as _CAM_ALIASES  # type: ignore[no-redef]
-            except Exception:  # noqa: BLE001
-                # Fallback for direct-source test imports where relative
-                # package import isn't available.
-                try:
-                    import importlib.util as _ilu
-                    from pathlib import Path as _P
-                    _const_path = _P(__file__).with_name("const.py")
-                    _cs = _ilu.spec_from_file_location("_ura_const_for_resolver", _const_path)
-                    _cm = _ilu.module_from_spec(_cs)
-                    _cs.loader.exec_module(_cm)
-                    _CAM_ALIASES = getattr(_cm, "EXTERIOR_CAMERA_KEY_ALIASES", None)
-                except Exception:  # noqa: BLE001
-                    _CAM_ALIASES = None
-            try:
-                all_legs = self.resolve_detection_legs(
-                    primary_eid, family,
-                    stem_aliases=_CAM_ALIASES,
-                    stem_hint=stem,
-                )
+                all_legs = self.resolve_detection_legs(primary_eid, family)
             except Exception:  # noqa: BLE001
                 all_legs = []
 
@@ -1162,67 +1106,39 @@ class CameraResolver:
                     return False
                 inner_stripped = _strip_disambiguation_suffix(inner)
                 base = _strip_disambiguation_suffix(stem)
-                # Alias-aware: a leg whose inner equals the canonical
-                # alias of stem (or vice-versa) is the same physical
-                # camera — e.g. dahua leg stem `armcrestpooloverhead`
-                # ↔ frigate leg inner `armcrest`.
-                alias_map = _CAM_ALIASES or {}
-                stem_alias = alias_map.get(stem)
-                inner_alias = alias_map.get(inner)
                 return (
                     inner == stem or inner_stripped == base
                     or inner.startswith(stem + "_")
                     or inner_stripped.startswith(base + "_")
-                    or (stem_alias is not None and (inner == stem_alias or inner.startswith(stem_alias + "_")))
-                    or (inner_alias is not None and (inner_alias == stem or inner_alias.startswith(stem + "_")))
                 )
 
             filtered_legs = [l for l in all_legs if _leg_matches_stem(l.entity_id)]
             leg_eids = tuple(l.entity_id for l in filtered_legs) if filtered_legs else (primary_eid,)
 
-            # RESACC-1 A-2/A-3 fix (2026-08-09): arbitrate across ALL
-            # grouped legs by CANONICAL_AREA_PRECEDENCE so the same
-            # physical camera resolves to the same area regardless of
-            # which platform was enumerated (determinism). This supersedes
-            # the F4 same-integration guard — F3 grouping (RESACC-1
-            # measured 39/39 recall, 0 precision violations, adversarial
-            # near-miss clean) is the evidence that made the guard
-            # unnecessary. The primary's OWN area wins when its
-            # integration is at the top of the precedence (natural
-            # tie-break — Protect primaries stay authoritative on the
-            # exterior perimeter); a lower-precedence primary (e.g. a
-            # dahua leg whose device-area is mis-set to `balcony`) is
-            # correctly overridden by a higher-precedence sibling
-            # (Frigate `pool`, A-2).
-            #
-            # Fail-open: any exception in area resolution leaves the
-            # value None; never raises into the caller.
-            leg_areas: list[tuple[str, str]] = []
-            all_lookup_legs: list[tuple[str, str]] = [(primary_eid, platform)]
-            for leg in filtered_legs:
-                if leg.entity_id == primary_eid:
-                    continue
-                all_lookup_legs.append((leg.entity_id, leg.integration or ""))
-            for eid, integ in all_lookup_legs:
-                try:
-                    a = resolve_area_id_for_entity(self._er, self._dr, eid)
-                except Exception:  # noqa: BLE001
-                    a = None
-                if a:
-                    leg_areas.append((integ, a))
-
+            # F4 fix (TRANSIT-1 fix-up): restrict the cross-leg area fallback
+            # to legs sharing the primary's integration (i.e. Protect-only
+            # when platform=unifiprotect). The unrestricted fallback could
+            # import a Frigate sibling's area when the two legs actually map
+            # to different physical cameras (F3 grouping should prevent this
+            # now, but the guard is defense-in-depth).
             area: str | None = None
-            for pref in CANONICAL_AREA_PRECEDENCE:
-                for integ, a in leg_areas:
-                    if integ == pref:
+            try:
+                area = resolve_area_id_for_entity(self._er, self._dr, primary_eid)
+            except Exception:  # noqa: BLE001
+                area = None
+            if not area:
+                for leg in filtered_legs:
+                    if leg.entity_id == primary_eid:
+                        continue
+                    if leg.integration != platform:
+                        continue
+                    try:
+                        a = resolve_area_id_for_entity(self._er, self._dr, leg.entity_id)
+                    except Exception:  # noqa: BLE001
+                        a = None
+                    if a:
                         area = a
                         break
-                if area:
-                    break
-            # Fallback: any leg area at all, if precedence didn't match
-            # (e.g. integration name outside the known set).
-            if not area and leg_areas:
-                area = leg_areas[0][1]
 
             results.append(EnumeratedCamera(
                 device_id=did,
