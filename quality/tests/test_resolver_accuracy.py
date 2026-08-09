@@ -674,17 +674,6 @@ def test_room_attribution_protect_enumeration(resolver):
     assert not mismatches, f"room mismatches (got, expected): {mismatches}"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "AUDIT §A-3: every exterior perimeter camera's Frigate leg carries "
-        "area=None while the Protect sibling carries the real area. "
-        "enumerate_platform_cameras('frigate') restricts the cross-leg area "
-        "fallback to same-integration (F4 fix, line ~1133) so exterior "
-        "cameras enumerate with area=None. Fixture calls this "
-        "'the single highest-impact accuracy bug in the current data'."
-    ),
-)
 def test_room_attribution_frigate_enumeration_A3(resolver):
     """A-3: Frigate enumeration for exterior perimeter cameras must yield
     the canonical room. Currently returns area=None."""
@@ -707,17 +696,6 @@ def test_room_attribution_frigate_enumeration_A3(resolver):
     assert not mismatches, mismatches
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "AUDIT §A-2: armcrest dahua leg area=`balcony`, frigate legs "
-        "area=`pool`. Same camera, two rooms. Resolver must pick `pool` "
-        "canonically. enumerate_platform_cameras('dahua') on the pool "
-        "overhead primary entity returns `balcony` because the cross-leg "
-        "area fallback is restricted to same-integration and the dahua "
-        "primary's own area is `balcony`."
-    ),
-)
 def test_room_attribution_armcrest_A2_dahua_primary(resolver):
     """A-2: Enumerating armcrest via its dahua primary must resolve to
     canonical room `pool`. Currently returns `balcony`."""
@@ -728,6 +706,30 @@ def test_room_attribution_armcrest_A2_dahua_primary(resolver):
         f"armcrest dahua enumeration area_id={cams[0].area_id!r}, "
         f"expected 'pool' (canonical per fixture A-2)"
     )
+
+
+def test_room_attribution_armcrest_deterministic_across_platforms(resolver):
+    """A-2 determinism: the armcrest camera must resolve to the SAME
+    canonical area (`pool`) regardless of which platform the enumeration
+    entered through. Guards against a precedence regression where the
+    enumerating platform influences the resolved area."""
+    dahua_cams = resolver.enumerate_platform_cameras("dahua", "person")
+    frigate_cams = resolver.enumerate_platform_cameras("frigate", "person")
+    frigate_armcrest = [
+        c for c in frigate_cams
+        if c.primary_entity == "binary_sensor.armcrest_person_occupancy"
+    ]
+    assert dahua_cams and frigate_armcrest, (
+        f"expected armcrest present in both enumerations; "
+        f"dahua={[c.primary_entity for c in dahua_cams]}, "
+        f"frigate_armcrest={[c.primary_entity for c in frigate_armcrest]}"
+    )
+    dahua_area = dahua_cams[0].area_id
+    for c in frigate_armcrest:
+        assert c.area_id == dahua_area == "pool", (
+            f"armcrest area drifts across platforms: dahua={dahua_area!r}, "
+            f"frigate {c.primary_entity!r}={c.area_id!r} (expected 'pool')"
+        )
 
 
 # ---------------------------------------------------------------------------

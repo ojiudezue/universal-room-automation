@@ -207,12 +207,15 @@ def test_enumerate_drift_proof_new_protect_camera_picked_up_without_edits():
     assert new_row.area_id == "master_hallway"
 
 
-def test_enumerate_area_fallback_restricted_to_platform_legs_no_cross_integration_import():
-    """F4 fix: cross-leg area fallback MUST NOT import a foreign integration's
-    area (a Frigate sibling's area could reflect a different physical camera
-    when the F3 grouping fails). Only same-platform legs contribute to fallback.
+def test_enumerate_area_fallback_uses_canonical_precedence_across_integrations():
+    """RESACC-1 A-3 fix (2026-08-09): the F4 same-integration guard is
+    relaxed. F3 grouping (measured 39/39 recall, 0 precision violations,
+    adversarial near-miss clean per RESACC-1) keeps physically-distinct
+    cameras separate, so a Frigate sibling's area on the SAME grouped
+    camera is legitimate fallback for a Protect primary whose own area
+    is unset (the A-3 exterior perimeter class). Fallback is
+    deterministic per ``CANONICAL_AREA_PRECEDENCE``.
     """
-    # Protect device with NO area_id on device or entity; Frigate sibling has area.
     dev_pr = FakeDevice(id="dev_pr",
                         identifiers={(PLATFORM_UNIFI, "pr-cam-x")},
                         area_id=None)
@@ -228,9 +231,12 @@ def test_enumerate_area_fallback_restricted_to_platform_legs_no_cross_integratio
     r = _mk(ents, [dev_pr, dev_f])
     result = r.enumerate_platform_cameras(PLATFORM_UNIFI, "person")
     assert len(result) == 1
-    # Post F4 fix: area stays None because no Protect leg carries an area.
-    assert result[0].area_id is None, (
-        f"F4: cross-integration area import regressed: {result[0]}"
+    # Post-relaxation: the Frigate sibling's area is imported as the
+    # canonical fallback (Protect primary's own area is None; Frigate
+    # is the next-precedence integration).
+    assert result[0].area_id == "upstairs_hallway", (
+        f"A-3 canonical-area fallback did not import Frigate sibling area: "
+        f"{result[0]}"
     )
 
 
