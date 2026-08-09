@@ -232,6 +232,48 @@ cards:
   - 'Unverified claim for reviewer B: mid-flight capability override during refresh_subscriptions is
     untested; the builder argues it is safe because the capability layer is not consumed inside the
     substrate and _detect_duty_cycle_stuck re-reads room_config every tick.'
+  TIER3_REVIEW_ROUND_2026_08_09:
+    A: 'SHIP w/ fix-ups — HIGH-A1 (validator accepted a capability with no kind, silently no-opping the
+      cycle headline use case), MED-A2 (failure_mode unvalidated). Verified by reading: _CONF_PRECEDENCE
+      matches occupancy_substrate._KIND_PRECEDENCE byte-for-byte; resolve_role total across 7x3x4x3 with
+      no silent None; TIER1_CAPABILITIES superset ENFORCED by construction not comment.'
+    B: 'SHIP conditional — adjudicated the flagged I1 deviation as TAKE THE FIX (substrate already
+      normalises multi-list entities by the same precedence and WARNs; pre-diff double-scoring reached
+      MIN_TICKS in half the ticks on half the window). B-MED-1: the carve-out is the whole P15 surface,
+      not just mmwave x occupancy. Verified the builder unverified claim: CONF_SENSOR_CAPABILITIES is
+      NOT in OPTIONS_RELOAD_SUPPRESS_KEYS so a save triggers a standard room reload; full TIER1_KINDS
+      consumer enumeration clean, no half-migrated reader.'
+    C: 'SHIP — 13 per-site drills, 3 came back GREEN=untested. C-MED-1 is the 8th hollow-anchor shape:
+      wiping the ENTIRE effective_corroborators construction left the suite green, so D3 load-bearing
+      claim was unpinned. C also proved the I3 RUNTIME ward has teeth (widening TIER1_KINDS reddens 5
+      tests) while the docstring ward is advisory only — both honest about scope.'
+    D: 'DO-NOT-SHIP — D-HIGH-1 (I1 violated for hybrid entities under empty overrides) + D-MEDIUM-1 (the
+      narrowing question answered YES: an override can evict an entity from BOTH loops).'
+  ORCHESTRATOR_ADJUDICATION: 'B/C/D disagreed on ONE line. Resolved by reading source: _STUCK_CANDIDATE_KINDS
+    = {mmwave, occupancy} excludes motion (sensor_role.py:73) and _CONF_PRECEDENCE resolves a
+    motion+mmwave entity to MOTION, so CANDIDATE_FOR_STUCK returns False on the KIND CHECK ALONE —
+    independent of _seen_corr. C drill 13 (delete the branch, suite green) proves it inert. So D-HIGH-1
+    is a REAL behaviour change but MIS-ATTRIBUTED, and BOTH of D''s proposed fixes would have been
+    NO-OPS. Real cause = precedence-aware role resolution, which B correctly judged correct on merits.
+    Disposition: keep the behaviour, DELETE the dead branch and its FALSE comment, document the real
+    carve-out. Confirmed independently by the builder drill 6 (precedence inversion reddens both P15
+    tests via double-scoring — a different mechanism than the dedup set).'
+  FIXUP_2026_08_09: 'bed359d5d, ff-merged onto sensor-cap-rebase. Fixed HIGH-A1, MED-A2, D-MEDIUM-1
+    (validator now rejects an override that would leave a motion-wired entity in neither loop), C-MED-1
+    (byte-identity anchor + a behavioural test driving production so bed elevation actually reaches the
+    corroboration deque), C-LOW-2/D-HIGH-1 (dead branch + false comment deleted), B-MED-1 (planning
+    section 10.1 rewritten + motion x mmwave and motion x occupancy analogue tests), the misfiled-hybrid
+    collision WARN, and D-LOW-2. Deferred: A-LOW-3/4, A-NIT-5, C-LOW-1, B-LOW-1/2.'
+  ORCHESTRATOR_VERIFIED_2026_08_09: 'Did NOT trust the reports (Tier-3 mandate). Personally: ff-merged;
+    confirmed the dead branch and false comment are gone (0 occurrences); ran my OWN mutation on the
+    load-bearing site (_CONF_PRECEDENCE inverted, py_compile clean) -> 7 NAMED failures incl. the
+    byte-identity anchor and both new P15 analogue tests; restored and confirmed git status clean; full
+    suite 21 failed / 8525 passed / 45 skipped / 2 xfailed (baseline 21/8517, +8 = the new tests, failing
+    NAMES unchanged).'
+  AWAITING: 'TIER-3 OPERATOR CHECKPOINT BEFORE DEPLOY (mandatory per CLAUDE.md). Not merged to develop.'
+  known_gap: 'The misfiled-hybrid collision WARN has no dedicated test asserting the emit path (it fired
+    incidentally in a drill). Would need _LOGGER mocking or caplog scaffolding on the coordinator logger.
+    Say the word and it gets one.'
   next: 'PLAN WRITTEN 2026-08-09 (docs/planning/PLANNING_sensor_capability_vs_role.md, 477 lines).
     Tier 3, four framing-disjoint reviews, operator checkpoint before deploy. AWAITING OPERATOR GO —
     Tier 3 shared primitive, not implied-approval eligible.'
