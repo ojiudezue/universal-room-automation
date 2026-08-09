@@ -340,6 +340,54 @@ cards:
     matched on "diagnostic" only, unrelated. BACKLOG.md: no match. Planning docs: v4.7.10 deploy_sh
     retrofit is the precedent for HOW deploy.sh gets changed, cited. Catalogs: n/a (process, not a
     presence primitive). NEW, not duplicate.'
+- id: WATCHDOG-INERT-1
+  title: Three of four v5.35.0 stuck-signal detectors are effectively inert (D3 structurally unreachable)
+  thread: presence
+  status: pre_planning
+  approval: unreviewed
+  tags:
+  - no-fabrication-verify
+  - measure-before-build
+  - context-wide-scoping
+  origin:
+    date: '2026-08-09'
+    gist: fell out of the ledger golden-fixture yield probe — the short buckets were short because the
+      events never happen, which is a statement about the detectors, not about instrumentation
+  why: 'MEASURED over 7.46 d recorder + 14 d URA notification_log. D3 frozen-tracker is STRUCTURALLY
+    UNREACHABLE: threshold FROZEN_TRACKER_DAYS=2.0 (const.py:3121) but longest HA uptime in-window is
+    1.02 d across 30 restarts (2.5 h median gap); restart re-adds trackers with fresh last_updated, so
+    the counter resets before it can mature. Oldest of 1793 trackers = 1.93 d. D1 camera-stuck has never
+    fired: interior max person_count>0 hold is 0.31 h vs STUCK_CAMERA_HOURS=3.0 (~10x margin). P24 fires
+    ~1x/14 d. Only P22 (18 episodes) and D2 (13) are live detectors.'
+  sharp_problem: 'D3 cannot catch the incident it was built for. It exists because of the Ezinne 3-day
+    frozen tracker; with HA restarting every ~2.5 h a 3-day freeze is invisible to a detector measuring
+    uninterrupted in-memory last_updated age.'
+  root_cause_link: 'Same defect STUCK-SENSOR-1 flagged and nobody pursued — "NO PERSISTENCE: any
+    stuck-state tally resets on restart, and we restarted 7+ times today." The probe proves it is fatal
+    for D3 rather than merely degrading.'
+  options:
+  - 'FIX: measure staleness from a PERSISTED timestamp rather than in-memory last_updated, so restarts
+    do not reset the counter. Restores D3 to its intended purpose.'
+  - 'RE-THRESHOLD: D1 3.0 h against an observed 0.31 h max is ~10x off; either the threshold is wrong
+    for this deployment or the detector is guarding a condition that does not occur here.'
+  - 'DROP from the ledger migration set: migrating a detector that has never fired buys nothing and its
+    golden fixture is impossible to generate by construction.'
+  blocks:
+  - SIGNAL-TRUST-LEDGER M4/M6 scoping
+  separate_ops_concern: '30 HA restarts in 7.46 days (2.5 h median gap) is a red flag independent of
+    this card — it silently degrades every restart-sensitive detector, not just D3.'
+  parsimony:
+    problem: three shipped detectors do not detect; one cannot detect by construction
+    verdict: BUILD
+    note: 'cheap relative to value — this is dead safety machinery we believe is protecting us'
+  next: operator decision on FIX vs RE-THRESHOLD vs DROP per detector, before M4/M6 are scoped
+  refs:
+  - docs/planning/AUDIT_ledger_golden_fixture_yield.md (the probe + orchestrator escalation)
+  - custom_components/universal_room_automation/const.py:3099,3121
+  DEDUPE_2026_08_09: 'Four-surface sweep: STUCK-SENSOR-1 is adjacent (shares the no-persistence root
+    cause) but is about EXCLUSION POLICY for live detectors; this is about detectors that never fire at
+    all — different problem, linked not merged. BACKLOG B-2026-08-04-1 is about watchdog SPAM (too many
+    notifications), the mirror of this. No planning-doc parked item covers it. NEW.'
 - id: TABLET-FLEET-1
   title: 'Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)'
   thread: tablets

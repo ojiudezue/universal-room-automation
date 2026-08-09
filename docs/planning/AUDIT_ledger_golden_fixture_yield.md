@@ -225,3 +225,40 @@ Every DB handle opened with `file:...?mode=ro` URI. All `states` access scoped b
 `metadata_id`. No writes, no schema reads that mutate, no HA restart, no config change, no
 service call. One long-running exploratory query was cancelled client-side rather than left
 scanning the live 20.9 GB database.
+
+
+---
+
+## ORCHESTRATOR CORRECTION + ESCALATION (2026-08-09)
+
+**Count corrected:** the prose said "4 of 6 buckets are satisfiable today"; the table says **3**
+(P22, P18, D2 FILLED; P24, D1, D3 SHORT). Corrected in place. This doc is the authority for a GO
+criterion, so the arithmetic has to match.
+
+**Thresholds independently verified:** `DEFAULT_FROZEN_TRACKER_DAYS = 2.0` (`const.py:3121`),
+`DEFAULT_STUCK_CAMERA_HOURS = 3.0` (`const.py:3099`).
+
+### The finding that outgrew this audit: three of the four v5.35.0 detectors are effectively inert
+
+The short buckets are short **because the events do not happen** — not because instrumentation was
+missing. That is a statement about the shipped watchdog, not about fixtures:
+
+| Detector | Status in this deployment | Evidence |
+|---|---|---|
+| **D3 frozen tracker** | **structurally unreachable — can never fire** | threshold 2.0 d; longest HA uptime in-window **1.02 d** across **30 restarts** (2.5 h median gap). Restart re-adds trackers with fresh `last_updated`, resetting the counter. Oldest of 1793 trackers = **1.93 d**, under threshold. |
+| **D1 camera stuck** | never fired | interior max `person_count>0` hold **0.31 h** vs **3.0 h** threshold — ~10× margin |
+| **P24 max-active failsafe** | ~1 firing / 14 d | exactly 1 emit (2026-08-06) |
+
+**D3 cannot catch the incident that motivated it.** It was built for the Ezinne 3-day frozen tracker;
+with HA restarting every ~2.5 h, a 3-day freeze is invisible to a detector measuring uninterrupted
+`last_updated` age.
+
+This is the same defect STUCK-SENSOR-1's original card flagged and nobody pursued: *"NO PERSISTENCE:
+like the echo counter, any stuck-state tally resets on restart, and we restarted 7+ times today."*
+The probe proves that gap is fatal for D3 specifically. Fixing it means measuring staleness from a
+**persisted** timestamp rather than in-memory `last_updated` — or reducing the restart rate, which is
+an ops issue in its own right (30 restarts in 7.46 days).
+
+**Consequence for the ledger:** migrating a detector that has never fired buys nothing, and freezing a
+golden fixture for it is impossible by construction. D1/D3 should be **fixed, re-thresholded, or
+dropped from the migration set** before M4/M6 are scoped. Tracked as `WATCHDOG-INERT-1`.
