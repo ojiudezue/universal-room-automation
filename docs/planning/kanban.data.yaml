@@ -1075,6 +1075,15 @@ cards:
     note: eliminates the drift anti-pattern + gives a design surface
   next: (overnight) design data->view generator; screenshot-iterate; wire homelab serve + post-commit
     rebuild hook
+  ADDED_2026_08_09_staleness_forcing_function: 'The generator MUST compare meta.last_reconciled against
+    the newest git tag AND the newest docs/readmes/README_v*.md, and (a) render a loud STALE banner on
+    the board, (b) warn on the build. WHY: 2026-08-09 the board said "build" for XCORR-1 and SNAP-1
+    which had already shipped (v5.64.0, v5.63.0); meta.last_reconciled correctly read 2026-08-07 and
+    nothing surfaced it. Root cause was NOT a missing rule — the skill already carries three hooks
+    covering this. It is that board reconciliation is the ONLY step in the deploy ritual with no
+    forcing function (deploy.sh refuses without tests/README; nothing refuses without a board update),
+    so it is the only step running on willpower. This converts an existing tripwire from
+    remembered-comparison into announced-state. Operator ruling 2026-08-09: do NOT add a new rule.'
 - id: CAM-AREA-PENDING
   title: Camera area corrections — RESOLVED
   thread: camera
