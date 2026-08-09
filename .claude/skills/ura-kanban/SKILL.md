@@ -357,6 +357,40 @@ Cards are not a flat list. Rank/sequence by, in priority:
 Record `batch:` (named group) and optional `seq:` (order within/among batches) on cards. Do not
 start a card whose `after:` dependency is unmet, or a `blocked` card, no matter how appealing.
 
+### 6. Concurrency — the depletion lever
+
+**Operator-coined 2026-08-09: *"Concurrency is definitely a strategy for kanban depletion."*** Ranking
+answers *what next*; concurrency answers *how many at once*. A board with 30 cards worked strictly
+serially is a board that never empties. Treat parallelism as a first-class sequencing dimension, not
+an occasional optimization: at each turn, ask not only "what is next" but "**what else can run right
+now that this does not block.**"
+
+**What safely parallelizes:**
+- **Disjoint surfaces** — cards touching different files/subsystems (a presence plan and a perimeter
+  build).
+- **Framing-disjoint reviews of the SAME diff** — this is the highest-value parallelism we have; the
+  Tier-2DB/Tier-3 protocols already mandate it precisely because different framings cannot share blind
+  spots.
+- **Read/scope work beside build work** — a planner scoping card X while a builder implements card Y.
+- **Independent items inside one batch** where no `after:` links them.
+
+**What must NOT parallelize:**
+- Anything in a dependency chain (`after:` / `depends_on:` / `blocks:`) — running a blocked card early
+  just means rework when its prerequisite changes shape.
+- Two agents writing the same file. This is not theoretical: three worktree collisions in one day
+  produced the standing isolation rule.
+- Work that depends on a diff still under review — if the review can force a redesign, a dependent
+  build is speculative.
+
+**The hard requirement:** every concurrent repo-writing dispatch gets **worktree isolation**, and the
+orchestrator freezes the main tree while builders run. Without it, concurrency converts throughput
+into merge damage.
+
+**The real bottleneck is orchestrator attention, not agent count.** Each concurrent agent returns a
+report that must be independently verified — never accept a builder's or reviewer's summary as fact.
+Fan out to the width you can actually verify, then stop. Depletion that outruns verification is how
+unreviewed work reaches the house.
+
 **Current batches:**
 - `resolver-correctness` (foundation, largely autonomous): RESACC-1 → TEST-1 → TRANSIT-1.
 - `perimeter-delivery` (one Tier-2DB cycle; needs SNAP-1 decisions): CONSOL-1 + SNAP-1 +
