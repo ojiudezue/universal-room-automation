@@ -521,6 +521,206 @@ def test_i3_audit_docstring_names_capability_layer() -> None:
 # ----------------------------------------------------------------------
 
 
+# ----------------------------------------------------------------------
+# Fix-up 2026-08-09 tests (post-4-reviewer adjudication).
+# ----------------------------------------------------------------------
+
+
+def test_validate_rejects_override_missing_kind() -> None:
+    """HIGH-A1: an override without an explicit 'kind' MUST be rejected.
+    Regression drill: pre-fix, this validated successfully and the
+    override silently no-op'd via the derive_capability fall-through.
+    """
+    room = _room(occupancy=["binary_sensor.bed"])
+    errs = validate_capabilities_payload(
+        room,
+        {"binary_sensor.bed": {"trust_class": TRUST_CLASS_STRONG_EVIDENCE}},
+    )
+    assert any(
+        "binary_sensor.bed" in e and "kind" in e and "required" in e
+        for e in errs
+    ), f"expected 'kind required' error, got: {errs}"
+
+
+def test_validate_rejects_unknown_failure_mode() -> None:
+    """MED-A2: failure_mode enum guardrail parity with trust_class."""
+    room = _room(occupancy=["binary_sensor.bed"])
+    errs = validate_capabilities_payload(
+        room,
+        {
+            "binary_sensor.bed": {
+                "kind": CAPABILITY_KIND_BED,
+                "failure_mode": "cosmic_ray",
+            },
+        },
+    )
+    assert any(
+        "binary_sensor.bed" in e and "failure_mode" in e and "cosmic_ray" in e
+        for e in errs
+    ), f"expected failure_mode enum error, got: {errs}"
+
+
+def test_validate_rejects_motion_wired_flipped_to_mmwave() -> None:
+    """D-MEDIUM-1: an override that moves a motion-wired entity into
+    the mmwave/occupancy kinds leaves it invisible to BOTH D2 loops
+    (neither a corroborator nor iterated as a candidate). Reject."""
+    room = _room(
+        motion=["binary_sensor.motion_1"],
+    )
+    errs = validate_capabilities_payload(
+        room,
+        {"binary_sensor.motion_1": {"kind": CAPABILITY_KIND_MMWAVE}},
+    )
+    assert any(
+        "binary_sensor.motion_1" in e and "CONF_MOTION_SENSORS" in e
+        for e in errs
+    ), f"expected motion-wired invisibility error, got: {errs}"
+
+
+def test_derive_capability_empty_override_byte_identity() -> None:
+    """C-MED-1 anchor #1: under empty overrides, effective corroborators
+    equal the CONF motion list byte-for-byte — verified end-to-end via
+    resolve_role, so mutating derive_capability's CONF-list fallback
+    away breaks this test."""
+    from custom_components.universal_room_automation.domain_coordinators.sensor_role import (  # noqa: E501
+        RoleQuery, resolve_role,
+    )
+    motion = ["binary_sensor.pir_a", "binary_sensor.pir_b"]
+    room = _room(motion=motion, mmwave=["binary_sensor.mm"])
+    corroborators = [
+        e for e in motion
+        if resolve_role(room, e, RoleQuery.CORROBORATOR_FOR_ROOM)
+    ]
+    assert corroborators == motion, (
+        f"byte-identity broken: expected {motion}, got {corroborators}"
+    )
+
+
+def test_d2_bed_override_reaches_motion_corroboration_deque() -> None:
+    """C-MED-1 anchor #2: behavioural — a bed override, toggled across
+    two ticks, MUST reach the motion-transition deque and satisfy
+    has_motion_corroboration. This shields the room via the
+    CORROBORATION path, not via the CANDIDATE_FOR_STUCK filter."""
+    room = _room(
+        motion=[],  # only the bed corroborates
+        occupancy=["binary_sensor.bed", "binary_sensor.mm_sticky"],
+        overrides={
+            "binary_sensor.bed": {
+                "kind": CAPABILITY_KIND_BED,
+                "trust_class": TRUST_CLASS_STRONG_EVIDENCE,
+            },
+        },
+    )
+    # Tick 1: bed OFF, mm ON. Tick 2+: bed ON, mm ON — creates a
+    # bed transition that feeds the corroboration deque.
+    coord = _make_coord(
+        room, states={
+            "binary_sensor.bed": "off",
+            "binary_sensor.mm_sticky": "on",
+        },
+    )
+    _run_detect(
+        coord, [], [], ["binary_sensor.bed", "binary_sensor.mm_sticky"],
+    )
+    coord.hass.states = _FakeStates({
+        "binary_sensor.bed": "on",
+        "binary_sensor.mm_sticky": "on",
+    })
+    stuck = set()
+    for _ in range(6):
+        stuck = _run_detect(
+            coord, [], [], ["binary_sensor.bed", "binary_sensor.mm_sticky"],
+        )
+    # A corroboration timestamp must have been recorded from the bed
+    # transition — visible via the motion_deque bookkeeping.
+    key = "__room::TestRoom"
+    deque = coord._sensor_dutycycle_motion_transitions.get(key)
+    assert deque is not None and len(deque) >= 1, (
+        "bed transition never reached the corroboration deque"
+    )
+    # And the sticky mmwave must NOT be flagged as stuck — the bed's
+    # corroboration shielded it.
+    assert "binary_sensor.mm_sticky" not in stuck
+
+
+def test_d2_p15_motion_x_mmwave_scored_exactly_once() -> None:
+    """B-MED-1 analogue: an entity in BOTH motion AND mmwave lists is
+    resolved to kind=motion by precedence — it becomes a corroborator,
+    never a candidate. Its ring must therefore stay EMPTY (never appended
+    to as a candidate). Pre-migration, mmwave iteration would have
+    double-scored it. Under the new resolver: zero candidate samples.
+    """
+    room = _room(
+        motion=["binary_sensor.dual"],
+        mmwave=["binary_sensor.dual"],
+    )
+    coord = _make_coord(
+        room, states={"binary_sensor.dual": "on"},
+    )
+    for _ in range(4):
+        _run_detect(
+            coord,
+            ["binary_sensor.dual"],
+            ["binary_sensor.dual"],
+            [],
+        )
+    ring = coord._sensor_dutycycle_rings.get("binary_sensor.dual")
+    # Under precedence resolution the dual entity is motion, so the
+    # candidate loop never appends to it — ring is absent (or empty).
+    assert not ring, (
+        f"motion×mmwave collision: expected 0 candidate samples "
+        f"(motion precedence), got {len(ring) if ring else 0}"
+    )
+
+
+def test_d2_p15_motion_x_occupancy_scored_exactly_once() -> None:
+    """B-MED-1 analogue: motion × occupancy collision → precedence gives
+    motion; the occupancy candidate loop must NOT score it."""
+    room = _room(
+        motion=["binary_sensor.dual"],
+        occupancy=["binary_sensor.dual"],
+    )
+    coord = _make_coord(
+        room, states={"binary_sensor.dual": "on"},
+    )
+    for _ in range(4):
+        _run_detect(
+            coord,
+            ["binary_sensor.dual"],
+            [],
+            ["binary_sensor.dual"],
+        )
+    ring = coord._sensor_dutycycle_rings.get("binary_sensor.dual")
+    assert not ring, (
+        f"motion×occupancy collision: expected 0 candidate samples "
+        f"(motion precedence), got {len(ring) if ring else 0}"
+    )
+
+
+def test_derive_capability_warns_on_invalid_override_kind(caplog) -> None:
+    """D-LOW-2: hand-edited .storage bypass of the validator MUST emit
+    a WARN so the operator can see why their override isn't taking
+    effect."""
+    import logging
+    room = _room(
+        occupancy=["binary_sensor.bed"],
+        overrides={"binary_sensor.bed": {"kind": "typo_kind"}},
+    )
+    with caplog.at_level(
+        logging.WARNING,
+        logger=(
+            "custom_components.universal_room_automation."
+            "domain_coordinators.sensor_capability"
+        ),
+    ):
+        cap = derive_capability(room, "binary_sensor.bed")
+    assert cap.source == "conf_list"
+    assert any(
+        "binary_sensor.bed" in rec.message and "typo_kind" in rec.message
+        for rec in caplog.records
+    ), f"expected WARN naming entity + invalid kind; got: {caplog.records}"
+
+
 def test_options_flow_capability_roundtrip_via_validate() -> None:
     """Empty JSON → empty payload → no key persisted (byte-identity)."""
     room = _room(occupancy=["binary_sensor.bed"])

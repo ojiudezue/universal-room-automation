@@ -26,6 +26,7 @@ against a capability, per query.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Dict, Mapping, Optional
 
@@ -46,12 +47,26 @@ from ..const import (
     FAILURE_MODE_CORRELATED_WIRELESS,
     FAILURE_MODE_PHYSICAL_INDEPENDENT,
     FAILURE_MODE_UNKNOWN,
+    FAILURE_MODES,
     TIER1_CAPABILITIES,
     TRUST_CLASS_STRONG_EVIDENCE,
     TRUST_CLASS_WEAK_WITNESS,
     TRUST_CLASS_WITNESS,
     TRUST_CLASSES,
 )
+
+_LOGGER = logging.getLogger(__name__)
+
+# D-MEDIUM-1 (2026-08-09): kinds that would leave a motion-wired entity
+# invisible to D2. The candidate loop iterates the mmwave+occupancy CONF
+# lists only; the corroborator loop requires CORROBORATOR_FOR_ROOM. An
+# override that maps a motion-wired entity to mmwave/occupancy is neither
+# scored nor corroborates — it silently disappears. The validator rejects
+# such an override.
+_NON_CORROBORATOR_KINDS: frozenset = frozenset({
+    CAPABILITY_KIND_MMWAVE,
+    CAPABILITY_KIND_OCCUPANCY,
+})
 
 # ----------------------------------------------------------------------
 # CONF-list -> default (kind, trust_class, failure_mode)
@@ -199,6 +214,16 @@ def derive_capability(
                 source="override",
             )
         # Malformed override — fall through to CONF-list derivation.
+        # D-LOW-2 (2026-08-09): the config/options flow validator rejects
+        # unknown/missing kinds, but a hand-edited .storage payload
+        # bypasses that guardrail. Log a WARN so the operator can see
+        # WHY their bed override "isn't taking effect".
+        _LOGGER.warning(
+            "sensor_capability: override for entity '%s' has invalid or "
+            "missing 'kind' (%r) — falling back to CONF-list derivation. "
+            "Valid kinds: %s",
+            entity_id, kind, sorted(TIER1_CAPABILITIES),
+        )
 
     conf_kind = _conf_list_kind(room_config, entity_id)
     if conf_kind is None:
@@ -220,14 +245,30 @@ def validate_capabilities_payload(
     Used by the config/options flow save handler. Enforces:
 
     * every entity_id is present in one of the room's three CONF lists;
-    * every ``"kind"`` is in ``TIER1_CAPABILITIES``;
+    * ``"kind"`` is REQUIRED and MUST be in ``TIER1_CAPABILITIES``
+      (HIGH-A1 2026-08-09 fix-up: a missing ``kind`` used to slip past,
+      then silently fall through to CONF-list derivation — no-op'ing the
+      operator's declaration);
     * ``"trust_class"`` (if present) is in ``TRUST_CLASSES``;
+    * ``"failure_mode"`` (if present) is in ``FAILURE_MODES``
+      (MED-A2 2026-08-09 fix-up: typos would flow verbatim onto the
+      dataclass and downstream corroboration logic);
+    * an override MUST NOT make a ``motion``-wired entity invisible to
+      D2 by mapping it to an mmwave/occupancy kind (D-MEDIUM-1
+      2026-08-09 fix-up — the entity would be scored by neither loop).
     * every entry is a dict.
     """
     errors: list[str] = []
     if not isinstance(payload, dict):
         return ["sensor_capabilities must be a mapping"]
     known: set = set()
+    motion_wired: set = set()
+    try:
+        motion_wired = set(
+            room_config.get(CONF_MOTION_SENSORS, []) or [],  # type: ignore[union-attr]
+        )
+    except Exception:  # pragma: no cover — defensive
+        motion_wired = set()
     for _kind, conf_key in _CONF_PRECEDENCE:
         try:
             known.update(room_config.get(conf_key, []) or [])  # type: ignore[union-attr]
@@ -247,15 +288,41 @@ def validate_capabilities_payload(
                 f"appropriate list before declaring a capability"
             )
         kind = decl.get("kind")
-        if kind is not None and kind not in TIER1_CAPABILITIES:
+        if kind is None:
+            errors.append(
+                f"entity '{entity_id}': 'kind' is required "
+                f"(allowed: {sorted(TIER1_CAPABILITIES)})"
+            )
+        elif kind not in TIER1_CAPABILITIES:
             errors.append(
                 f"entity '{entity_id}': unknown capability kind "
                 f"'{kind}' (allowed: {sorted(TIER1_CAPABILITIES)})"
+            )
+        elif (
+            entity_id in motion_wired
+            and kind in _NON_CORROBORATOR_KINDS
+        ):
+            # D-MEDIUM-1: motion-wired entity flipped to a non-
+            # corroborator kind would be invisible to BOTH D2 loops.
+            errors.append(
+                f"entity '{entity_id}' is wired via "
+                f"CONF_MOTION_SENSORS; declaring kind='{kind}' would "
+                f"remove it from the D2 corroborator set AND leave it "
+                f"outside the candidate loop (which iterates only the "
+                f"mmwave / occupancy CONF lists) — the entity would "
+                f"contribute nothing. Move it to the appropriate CONF "
+                f"list first, or declare a corroborator-capable kind."
             )
         trust = decl.get("trust_class")
         if trust is not None and trust not in TRUST_CLASSES:
             errors.append(
                 f"entity '{entity_id}': unknown trust_class '{trust}' "
                 f"(allowed: {sorted(TRUST_CLASSES)})"
+            )
+        failure = decl.get("failure_mode")
+        if failure is not None and failure not in FAILURE_MODES:
+            errors.append(
+                f"entity '{entity_id}': unknown failure_mode "
+                f"'{failure}' (allowed: {sorted(FAILURE_MODES)})"
             )
     return errors

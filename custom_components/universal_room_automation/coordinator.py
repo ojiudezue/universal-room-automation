@@ -1528,6 +1528,43 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         if not self._d2_boot_settle_done():
             return set()
 
+        # SENSOR-CAPABILITY-1 fix-up (2026-08-09, new-risk #7): under
+        # precedence-aware role resolution, an Aqara-FP2-style device
+        # present in BOTH motion AND (mmwave|occupancy) lists resolves
+        # to motion — it becomes a TRUSTED, never-examined corroborator.
+        # If it sticks on, it is invisible to D2 AND it shields the room
+        # by satisfying the corroboration test (the "anchor can be the
+        # thing that's broken" failure documented in
+        # CATALOG_cross_correlation_primitives.md). We do NOT add new
+        # detection here — that belongs to STUCK-SENSOR-1 — but we log
+        # the collision once so the operator / a future audit can see
+        # which entities got quietly elevated.
+        try:
+            once = getattr(self, "_capability_collision_logged", None)
+            if once is None:
+                once = set()
+                self._capability_collision_logged = once
+            m_set = {m for m in motion_sensors if m}
+            for other_name, other_list in (
+                ("mmwave", mmwave_sensors),
+                ("occupancy", occupancy_sensors),
+            ):
+                for ent in other_list:
+                    if ent and ent in m_set and ent not in once:
+                        _LOGGER.warning(
+                            "Room %s: entity %s appears in BOTH "
+                            "CONF_MOTION_SENSORS and CONF_%s_SENSORS; "
+                            "precedence-aware role resolution elevates "
+                            "it to a TRUSTED corroborator that D2 will "
+                            "NOT itself score for stuck behaviour. If "
+                            "it sticks on it will silently shield this "
+                            "room. Track under STUCK-SENSOR-1.",
+                            room_name, ent, other_name.upper(),
+                        )
+                        once.add(ent)
+        except Exception:  # noqa: BLE001 — defensive; logging must not break D2
+            pass
+
         # SENSOR-CAPABILITY-1 D3: build effective corroborator list.
         # Under NO overrides, this equals the motion_sensors list byte-
         # for-byte (I1). With an override declaring e.g. a bed sensor
@@ -1592,11 +1629,16 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         for sensor in (mmwave_sensors + occupancy_sensors):
             if not sensor or sensor in _seen_cand:
                 continue
-            if sensor in _seen_corr:
-                # Elevated to corroborator via override — not a
-                # candidate. (Under empty overrides this set is empty,
-                # so this branch is a no-op for the byte-identity path.)
-                continue
+            # NOTE (2026-08-09 fix-up, C-LOW-2 / D-HIGH-1): the prior
+            # `if sensor in _seen_corr: continue` branch was proven
+            # inert by Reviewer C's mutation drill 13 — deleting it
+            # left the whole suite green. The elevation-to-
+            # corroborator gate is enforced by CANDIDATE_FOR_STUCK
+            # itself (the strong_evidence trust class gate in
+            # sensor_role.py:105) plus the kind gate (mmwave/occupancy
+            # only). A motion entity would not appear in this loop's
+            # iteration surface anyway, and a strong-evidence
+            # override is already demoted by resolve_role. Removed.
             if not resolve_role(
                 room_config, sensor, RoleQuery.CANDIDATE_FOR_STUCK,
             ):
