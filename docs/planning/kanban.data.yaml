@@ -15,13 +15,15 @@ meta:
   - parked
 cards:
 - id: STUCK-SENSOR-1
-  title: Stuck-sensor detection is NOTIFY-ONLY — stuck sensors still drive occupancy
+  title: Stuck-sensor awareness dies at the room tier; house tier assumes independence that correlated
+    failure breaks
   thread: presence
   status: pre_planning
   approval: unreviewed
   tags:
   - tier-2db
   - no-fabrication-verify
+  - context-wide-scoping
   origin:
     date: '2026-08-09'
     gist: operator diagnosed a stuck Zigbee mmWave holding master occupancy; asked why I did not see it
@@ -42,17 +44,38 @@ cards:
   - '3. NO PERSISTENCE: like the echo counter, any stuck-state tally resets on restart, and we restarted
     7+ times today.'
   fix:
-  - exclude a sensor from occupancy after N consecutive stuck windows (with a rung-1 knob and a clear
-    un-stick path)
-  - expose stuck sensors on a diagnostic entity (count + which sensors + since when) so it is visible
-    without log surgery
-  - raise an NM note when a room's ONLY occupancy input goes stuck — that is the case that silently fabricates
-    occupancy
+  - 1. Graduate D2 to exclusion behind the house-state gate the code always planned ('exclusion graduates
+    in a later cycle behind a house-state gate'). The sleeping-person objection holds for bedrooms in
+    sleep/home_night; it does NOT hold when the house is away.
+  - 2. Propagate stuck-sensor state to zone + house tiers — today they cannot see it at all.
+  - '3. Fix the independence assumption: correlated stuck sensors must count as ONE confirmation source,
+    not N. Two occupied rooms whose sensors are both flagged stuck is one signal.'
   parsimony:
     problem: a stuck sensor silently fabricates occupancy and drives fans/HVAC/lighting in empty rooms
     verdict: BUILD
     note: detection already exists; this is wiring a consequence + a surface to it, not new inference
-  next: trace the duty-cycle detector; decide exclusion policy; add the diagnostic surface
+  next: scope the exclusion graduation + tier propagation + correlated-source fix as one cycle (occupancy
+    feeds HVAC, lighting, presence trust)
+  CORRECTION: '2026-08-09: my first version of this card was WRONG on three counts — I asserted mechanism
+    from a LOG STRING instead of reading the code (operator: ''a log line does not reality make''). Corrected
+    by verification: (1) it is NOT ''detection without consequence'' — the CONTINUOUS rule DOES exclude
+    (coordinator.py:1960-1967, comment ''Continuous rule DOES exclude''); (2) D2 duty-cycle being NOTIFY-ONLY
+    is a DELIBERATE, well-reasoned choice, not an oversight — ''a sleeping person is ~100% mmWave duty
+    cycle with zero PIR, and excluding would vacate sleeping bedrooms''; (3) it is NOT invisible — both
+    rules fire an NM note via _fire_stuck_sensor_nm with per-day dedup.'
+  verified_findings:
+  - 'ROOM TIER (coordinator.py): continuous rule excludes but keys off _sensor_on_since, which a FLAPPING
+    sensor resets every off-tick -> flapping never accumulates hours -> never excluded. D2 catches flapping
+    but by design only notifies. NET: a flapping mmWave is detected and never excluded. The D2 comment
+    names the prior ''Master Bedroom empty-suite incident'' - tonight is a REPEAT of a known incident.'
+  - 'ZONE TIER (aggregation.py): ZERO occurrences of ''stuck''. A room occupied off a stuck sensor propagates
+    upward unchallenged.'
+  - 'HOUSE TIER (presence.py): no stuck exclusion. Instead an ASSUMPTION in the confirmation-source list
+    — ''4. Multiple occupied rooms (2+ rooms occupied = unlikely all stuck)''. FALSIFIED tonight: Living
+    Room, Study A and the master mmWave were flagged stuck SIMULTANEOUSLY. Same vendor/firmware/night
+    = CORRELATED failure, not independent corroboration.'
+  - 'CLOSED LOOP: stuck rooms prop up house_state=home_night; house state is exactly the gate under which
+    D2 exclusion was meant to graduate. The fault sustains the condition that prevents its own remedy.'
 - id: TABLET-FLEET-1
   title: 'Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)'
   thread: tablets
