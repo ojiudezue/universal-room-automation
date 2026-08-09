@@ -380,7 +380,15 @@ cards:
     problem: three shipped detectors do not detect; one cannot detect by construction
     verdict: BUILD
     note: 'cheap relative to value — this is dead safety machinery we believe is protecting us'
-  next: operator decision on FIX vs RE-THRESHOLD vs DROP per detector, before M4/M6 are scoped
+  next: 'OPERATOR DECISION 2026-08-09: DROP D1/D3/P24 from the ledger migration set ("1 want to drop.
+    Some are rare. Not a bad thing."). Ledger migration set reduces to M1 (P22), M3 (P18), M5 (D2) +
+    M7 (P14, hand-built). Open sub-question the operator DID want answered: WHY D1 and P24 do not fire —
+    correctly-rare vs mis-thresholded vs structurally-blind. Under investigation in
+    AUDIT_detector_silence_and_restart_causes.md. D3 remains structurally unreachable regardless; whether
+    to FIX (persisted timestamp) or leave it is a separate call, not blocking.'
+  operator_decision_2026_08_09: 'DROP from migration. Rarity is not itself a defect — a detector guarding
+    a condition that genuinely does not occur is working. This does NOT close the question of whether the
+    thresholds are right; it only removes them from the ledger cycle so they stop blocking M4/M6 scoping.'
   refs:
   - docs/planning/AUDIT_ledger_golden_fixture_yield.md (the probe + orchestrator escalation)
   - custom_components/universal_room_automation/const.py:3099,3121
@@ -388,6 +396,29 @@ cards:
     cause) but is about EXCLUSION POLICY for live detectors; this is about detectors that never fire at
     all — different problem, linked not merged. BACKLOG B-2026-08-04-1 is about watchdog SPAM (too many
     notifications), the mirror of this. No planning-doc parked item covers it. NEW.'
+- id: EVCARD-1
+  title: EV charging detail card for the URA v8 Energy tab
+  thread: dashboarding
+  status: inbox
+  approval: explicit
+  approved_by: operator 2026-08-09
+  origin:
+    date: '2026-08-09'
+    gist: '"add an EV charging detail card to the Ura v8 energy tab. Style well. Detail cards are a bit
+      sensor words vomit. Best judgement because of space though."'
+  why: EV charging is a first-class energy behaviour (drain precedence, must-start-by, TOU exposure) with
+    no dedicated surface on the v8 energy tab.
+  constraints:
+  - 'STYLE IS PART OF THE ASK. Existing detail cards are "sensor word vomit" — dense raw-entity dumps.
+    Do NOT add another. Design for scanning: state first, numbers second, raw entities last or hidden.'
+  - 'Space-constrained — operator explicitly delegated judgement on what to cut. Curate ruthlessly;
+    completeness is not the goal.'
+  - Reuse existing EV/EVSE entities and precedence concepts; do not invent new sensors for the card.
+  next: locate the v8 energy tab source, inventory existing EV/EVSE entities, propose a curated field set
+    BEFORE building (avoid the word-vomit failure mode the operator named)
+  DEDUPE_2026_08_09: 'Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface);
+    EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers
+    a v8 energy-tab EV surface. NEW.'
 - id: TABLET-FLEET-1
   title: 'Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)'
   thread: tablets
