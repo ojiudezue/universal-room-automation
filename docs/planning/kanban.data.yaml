@@ -90,6 +90,35 @@ cards:
   - 'Tonight this would have released master immediately: bed presence read OFF while occupancy read ON.'
   - 'CAVEAT: rooms whose ONLY input is a single mmWave have no corroborator and cannot be discriminated
     — for those, notify-only remains correct. This is a per-room capability question, not a global policy.'
+  DEDUPE_2026_08_09: 'Chatter/motion-chatter arrived as a candidate NEW card and was folded in here
+    instead (adjacency check per kanban dedupe rule): same detector, same exclusion decision, same
+    corroboration discriminator. No CHATTER-1 card exists or should.'
+  third_class_chatter:
+  - 'CLASS 3 = CHATTER (transition-rate). A sensor oscillating at ~50% duty is invisible to BOTH shipped
+    rules: every off-tick resets P22 continuous-on, and the on-ratio never reaches D2 85%. Evidence:
+    Garage B ratgdo 24h = 3,769 off / 3,765 on / 6 unavailable — real oscillation, not transport.'
+  - 'MOTION IS UNSCORED BY DESIGN: D2 candidates are mmwave_sensors + occupancy_sensors only (PIR excluded
+    as "our corroboration source"). So a chattering PIR is never diagnosed AND it SHIELDS a stuck mmWave
+    — D2 corroboration is satisfied by >=2 PIR transitions in-window, which chatter trivially supplies.
+    The anchor can be the thing that is broken. Operator: ratgdo has no PIR; it supervises MyQ garage
+    motion, and Zigbee/Z2M can make that flicker or go unavailable.'
+  - 'UNREACHABLE ROOMS: Garage B has mmwave_sensors=None, occupancy_sensors=[] -> D2 candidate set is
+    empty there. The room where the incident happened is outside the detector regardless of thresholds.'
+  shipped_context:
+  - 'D1-D4 ALL SHIPPED v5.35.0 (commit 0192ac2c3, 2026-07-28 23:18 CDT) + v5.35.1 hotfix + v5.35.2
+    observability. Do not re-scope them.'
+  - 'The shared abstraction that shipped is the NOTIFIER (_stuck_signal_nm, D4), NOT a shared detector:
+    "Detection + discount + notify ONLY... never actuates, never mutates detector state". Detection is
+    four bespoke impls sharing only a kind= string.'
+  - 'The plan PARKED unification with an explicit trigger: "after D1..D4 ship and the shape is proven at
+    four sites; separate design cycle." That trigger HAS NOW FIRED (12 days, four live sites).'
+  approach: 'PATCH A CENTRAL METHOD, NOT A FIFTH DETECTOR (operator 2026-08-09: "should not do this in
+    isolation or it should be a patch of a central class/method" + "do the right thing unified or not").
+    Generalise _detect_duty_cycle_stuck into a per-sensor reliability scorer over ALL binary sensor kinds
+    scoring on-ratio + transition-rate + unavailable-rate, emitting kind= per class through the existing
+    D4 notifier. Do NOT force the census (person COUNT) and frozen-tracker (timestamp AGE) detectors into
+    it — different shapes; they keep their own detection and keep sharing D4. Honest scope: one central
+    scorer for binary sensors, not one function for everything.'
   rejected:
   - PROPAGATE STUCK STATE TO ZONE/HOUSE — I recommended this and then withdrew it under challenge ('is
     this flow upwards useful?'). If the room tier excludes correctly the corrected occupancy propagates

@@ -57,6 +57,57 @@ live only in the transcript. This includes the model's own mid-turn finds (bugs,
 privacy issues surfaced inside a tool call) — those are the most fragile because nothing else
 re-raises them.
 
+## The second rule: adjacency sweep before any new card is accepted
+
+**No new card is accepted as its own item before sweeping ALL existing work for adjacency or
+duplication.** This does not weaken capture-first — capture into Inbox immediately, then run the
+sweep *before the card is promoted out of Inbox*. Board hygiene fails in the mirror-image direction
+from capture failure: a board that never merges becomes a list nobody reads, and duplicate cards
+**split the evidence for one problem across two places so neither is decisive.**
+
+### Sweep surfaces — the board is NOT the whole prior art
+
+Sweep all four, in this order. Skipping the last two is the observed failure mode (2026-08-09):
+
+1. `kanban.data.yaml` — every card's title + `why`, **not just the thread you assume it belongs
+   to**. Adjacency routinely crosses threads.
+2. `docs/BACKLOG.md` — dated `B-YYYY-MM-DD-N` items. Newer diagnoses often land here, not on the board.
+3. **`docs/planning/PLANNING_*.md` PARKED / deferred deliverables + "Plan Completion Tracking"
+   sections.** A parked `Dn` with an evidence trigger *is* a card living in a planning doc. This is
+   the surface that gets missed, because it looks like shipped work.
+4. `docs/planning/CATALOG_*.md` + `AUDIT_*.md` — the extend-vs-new adjudicators and probe results.
+
+This mirrors CLAUDE.md's **Institutional Context First** protocol, applied to work items rather
+than to symbols: cite where you looked, and say DUPLICATE / ADJACENT / NEW with the evidence.
+
+### The three relationships, tested in order
+
+- **Duplicate** — same problem, same fix surface → merge into the existing item; do not create.
+- **Adjacent** — different problem, but *same code surface, same decision, or same discriminator*
+  → fold in as a sub-finding, or create the card with an explicit `depends_on:` / `sibling_of:`
+  link. **Adjacency is the case most often mis-filed as new.**
+- **New** — no shared surface or decision → create it, and record what it was swept against.
+
+### Recording and merging
+
+- **Record the ruling on the survivor** (`DEDUPE_<date>:` with what was folded in and why). A
+  silent merge is indistinguishable from a dropped card three weeks later; the *reason* it merged
+  is the evidence it wasn't lost.
+- **Merging is lossy if careless** — carry the new item's Origin, Constraints and evidence across
+  verbatim. The survivor inherits the **union**, never the intersection.
+- **A parked item whose trigger has since fired is not "done" — it is READY.** When the sweep finds
+  one, promote it and say so; do not re-plan it from scratch.
+
+**Worked example (2026-08-09, the miss that produced this rule).** Motion-chatter detection arrived
+as a candidate new card. Sweeping the board alone found STUCK-SENSOR-1 (adjacent — same detector,
+same exclusion decision, same corroboration discriminator) and it was folded in correctly. But the
+sweep stopped there, and the operator had to push twice ("I'm suspicious… look for other work or
+plans", "as well as new checks") before surfaces 2–4 were checked — which held the *actual* prior
+art: a **PARKED D6 "dead/stuck mmwave in stuck-signal watchdog"** inside
+`PLANNING_mmwave_corroboration_tier3.md` with an explicit evidence trigger that had already fired,
+plus two dated BACKLOG items (`B-2026-08-04-1` state/class-awareness, `B-2026-08-04-2` fleet rot).
+Sweeping only the board would have re-planned parked work as novel.
+
 ## Columns
 
 `📥 Inbox` (raw capture) · `🧭 Pre-planning` (idea being decomposed) · `📝 Planned` (has a
@@ -168,6 +219,7 @@ principle, not more willpower:
 | Operator sends a message | Capture card(s) + reconcile touched cards BEFORE substantive work — part of reading the message |
 | A tool result reveals a bug / knob / constraint | Card it before continuing — mid-turn finds are the most fragile |
 | Operator challenges / redirects / corrects a carded idea (or I self-correct) | Append a Refinement beat (`challenge → sharpened form`) to that card the same turn, before acting on the new direction |
+| About to create a NEW card | Run the four-surface adjacency sweep first; record DUPLICATE / ADJACENT / NEW + what was swept |
 | About to write a planning doc | Harvest the relevant cards into the plan (the anti-entropy handoff) |
 | Pre-Deploy Zero-Bugs Gate / README write-back / commit | Reconcile In-progress → Review → Shipped as part of that ritual |
 | Turn end (same self-check as "check your last paragraph") | Move cards, write dispositions, **redeploy the Artifact if anything changed** |
@@ -287,5 +339,9 @@ an at-detection local file → Tier 2-DB, perimeter_alert + NM, folds into CONSO
 - A card with a title but no Origin/Next — that's a transcript line, not a card.
 - Letting a mid-turn discovery stay in the tool output "because I'll remember it."
 - Duplicating vibememo's reasoning into the board, or the board's status into vibememo.
+- Creating a card without the adjacency sweep — or sweeping only the board and not BACKLOG.md,
+  parked planning-doc deliverables, and the catalogs/audits.
+- Treating a PARKED deliverable as shipped work. Parked ≠ done; check whether its trigger fired.
+- Merging silently, or merging down to the intersection instead of the union.
 - Editing the Artifact without editing KANBAN.md — the committed file is the source of truth;
   the Artifact is a reflection, never the record.
