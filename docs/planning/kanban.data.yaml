@@ -374,8 +374,43 @@ cards:
     golden fixture is impossible to generate by construction.'
   blocks:
   - SIGNAL-TRUST-LEDGER M4/M6 scoping
-  separate_ops_concern: '30 HA restarts in 7.46 days (2.5 h median gap) is a red flag independent of
-    this card — it silently degrades every restart-sensitive detector, not just D3.'
+  RESTART_VERDICT_2026_08_09: 'RESOLVED — NOT a red flag. Authoritative events-table count is 26 (not
+    30; my earlier figure was a heuristic overcount that also caught config-entry reloads). ALL 26 were
+    clean stops preceded within 300s by an explicit homeassistant.restart: 25 map 1:1 to release commits
+    across the v5.47.0->v5.64.0 train, 1 was a deliberate operator manual restart. ZERO spurious, zero
+    unclean starts, zero watchdog signature. The parent-reload watchdog hazard did NOT fire (only 5
+    reload_config_entry calls in-window, targeting enphase_envoy and esphome — neither is URA).
+    Operator rule "if restarts are us shipping we are ok to keep going" -> WE ARE OK. It is a deploy log.'
+  D3_STILL_UNREACHABLE: 'Corrected uptime stats CONFIRM it: median 3.43 h, mean 6.63 h, max 24.32 h
+    (1.01 d) vs a 2.0 d threshold. Note the causality — D3 is unreachable BECAUSE we ship this often, so
+    it will stay unreachable at this cadence. The fix is detector-side (persist the tally across
+    restarts), not slowing releases.'
+  D1_VERDICT_2026_08_09: '(i) CORRECTLY RARE — leave the thresholds alone. Interior hold distribution
+    over 7.30 d: p50 0.004 h, p90 0.013 h, p99 0.044 h, max 0.27 h against a 3.0 h threshold (11x above
+    max, ~68x above p99). All 7 interior candidates are live and evaluated (883 non-zero episodes);
+    boot-settle is not binding and the v5.35.0 safety rails gate the census DISCOUNT not the NM, so they
+    cannot explain the silence. Re-thresholding would land at ~0.3-0.5 h, below plausible real occupancy
+    — the 3.0/6.0 h pair is a deliberate "impossible for a real body" bound working as designed.'
+  D1_REAL_FINDING_coverage_not_calibration: 'sensor.garage_b_person_count held >0 for 6.52 h and WOULD
+    have crossed both rules — but camera.garage_b and camera.garage_a are in NO URA camera list (not
+    interior, not perimeter, not egress), while "Garage B" IS a configured URA room. Widening D1 to
+    perimeter would be wrong (front_side_ptz 3.49 h, back_yard 2.97 h are legitimately long outdoors).
+    OPERATOR DECISION: add the garage cameras to the interior list? Note Garage B has now surfaced three
+    separate times today (chattering ratgdo, empty D2 candidate set, uncovered camera).'
+  P24_VERDICT_2026_08_09: '(iii) STRUCTURALLY BLIND on its main leg — not a threshold problem. Duration
+    precondition met 27 times across 7 rooms in 7.3 d (~3.7/day); the Tier-1 freshness skip suppressed
+    27 of 27 (100%). That 100% is a THEOREM not a statistic: any tick reaching coordinator.py:2417-2418
+    with STATE_OCCUPIED=True either just refreshed _last_motion_time = now (:2332) or is inside the
+    timeout branch, so signal_age < occupancy_timeout < 2x occupancy_timeout — always fresh. The moment
+    it is not, _became_occupied_time is nulled (:2373, :2384) and the guard is False. The single real
+    firing (Patio, 08-05, 15.06 h session) came through the is-None branch during a grace_hold. Also:
+    camera/BLE-held occupancy can NEVER accumulate failsafe duration — the overrides at :2490/:2597
+    re-seed _became_occupied_time AFTER the check (Ziri Bathroom shows occupied 10.79 h but max recorded
+    session 1.10 h). No staleness multiplier fixes it: k<=1 is a no-op gate firing on all 27 legit
+    sessions, k>1 is unreachable. THREE OPTIONS written up: move the check after the overrides, re-base
+    on _last_pir_motion_time, or accept the narrowed semantics and rewrite the NM text honestly.'
+  P24_DIAGNOSABILITY_DEFECT: 'The NM row persists message="[audit]" with NO room name — identifying the
+    firing room required a recorder attribute join. Cheap fix, real cost the next time one fires.'
   parsimony:
     problem: three shipped detectors do not detect; one cannot detect by construction
     verdict: BUILD
