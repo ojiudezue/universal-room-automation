@@ -107,6 +107,7 @@ from .const import (
     CONF_SCANNER_AREAS,  # v3.2.4: Scanner areas for sparse scanner homes
     CONF_DISABLE_CAMERA_PRESENCE,  # v4.7.16 D4: per-room camera-presence opt-out
     CONF_ROOM_CAMERAS,  # 2026-08-01 room-camera fusion cycle (D1)
+    CONF_SENSOR_CAPABILITIES,  # SENSOR-CAPABILITY-1 (D4)
     DEFAULT_DISABLE_CAMERA_PRESENCE,
     CONF_DOOR_SENSORS,
     CONF_DOOR_TYPE,
@@ -9191,8 +9192,60 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             if not motion and not mmwave and not occupancy:
                 errors["base"] = "no_occupancy_sensors"
             else:
+                # SENSOR-CAPABILITY-1 D4: parse+validate the JSON blob
+                # BEFORE the general save; a bad payload rejects the
+                # step without touching persisted options.
+                raw_caps = user_input.pop(
+                    "sensor_capabilities_json", "",
+                ) or ""
+                raw_caps = raw_caps.strip()
+                caps_payload: dict = {}
+                if raw_caps:
+                    try:
+                        import json as _json  # noqa: PLC0415
+                        parsed = _json.loads(raw_caps)
+                    except Exception:  # noqa: BLE001
+                        errors["base"] = "sensor_capabilities_invalid_json"
+                        parsed = None
+                    if parsed is not None:
+                        if not isinstance(parsed, dict):
+                            errors["base"] = (
+                                "sensor_capabilities_invalid_json"
+                            )
+                        else:
+                            # Validate against THIS submission's sensor
+                            # lists (not the persisted ones) so a
+                            # simultaneous CONF-list edit is honoured.
+                            from .domain_coordinators.sensor_capability \
+                                import (  # noqa: PLC0415
+                                    validate_capabilities_payload,
+                                )
+                            v_errors = validate_capabilities_payload(
+                                {
+                                    CONF_MOTION_SENSORS: motion,
+                                    CONF_MMWAVE_SENSORS: mmwave,
+                                    CONF_OCCUPANCY_SENSORS: occupancy,
+                                },
+                                parsed,
+                            )
+                            if v_errors:
+                                errors["base"] = (
+                                    "sensor_capabilities_invalid"
+                                )
+                                _LOGGER.warning(
+                                    "sensor_capabilities validation "
+                                    "rejected: %s", v_errors,
+                                )
+                            else:
+                                caps_payload = parsed
+            if not errors:
                 try:
                     merged = {**self._config_entry.options, **user_input}
+                    # Empty string → absent (byte-identical fallback).
+                    if caps_payload:
+                        merged[CONF_SENSOR_CAPABILITIES] = caps_payload
+                    else:
+                        merged.pop(CONF_SENSOR_CAPABILITIES, None)
                     # v5.37.0/v5.37.1: explicit-clear control for the otherwise
                     # unclearable optional single-entity selectors (temperature,
                     # humidity, illuminance, water_leak). An optional
@@ -9241,10 +9294,29 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 selector.EntitySelectorConfig(domain="binary_sensor", multiple=True)
             ),
             vol.Optional(
-                CONF_OCCUPANCY_SENSORS, 
+                CONF_OCCUPANCY_SENSORS,
                 default=self._get_current(CONF_OCCUPANCY_SENSORS, [])
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor", multiple=True)
+            ),
+            # SENSOR-CAPABILITY-1 D4: per-entity capability overrides
+            # as a JSON textarea. Blank = no overrides = byte-identical
+            # fallback (I1). Rung 2 (options flow) — infrequent, per-
+            # deployment. Shape example:
+            #   {"binary_sensor.bed": {"kind": "bed",
+            #                          "trust_class": "strong_evidence"}}
+            vol.Optional(
+                "sensor_capabilities_json",
+                default=(
+                    __import__("json").dumps(
+                        self._get_current(CONF_SENSOR_CAPABILITIES, {}) or {},
+                        indent=2, sort_keys=True,
+                    )
+                    if (self._get_current(CONF_SENSOR_CAPABILITIES, {}) or {})
+                    else ""
+                ),
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(multiline=True),
             ),
             # v3.2.4: Scanner areas for sparse scanner homes
             vol.Optional(

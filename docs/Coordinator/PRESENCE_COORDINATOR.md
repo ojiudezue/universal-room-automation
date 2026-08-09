@@ -29,6 +29,22 @@ What the substrate unifies:
 * **Classification.** Kind ∈ `TIER1_KINDS` is determined by which CONF
   list slot the entity is in, with precedence motion → mmwave → occupancy
   for the defensive case of multi-list membership.
+* **Capability vs. role (SENSOR-CAPABILITY-1, 2026-08-09).** The three
+  CONF lists remain the WIRING declaration. A separate CAPABILITY layer
+  (`domain_coordinators/sensor_capability.py`) tags each entity with a
+  richer kind (`bed` / `camera_presence` / `ble_presence` / … — a
+  superset of `TIER1_KINDS`) and a `trust_class` /`failure_mode`; the
+  operator declares only ambiguous cases via `CONF_SENSOR_CAPABILITIES`
+  and every other entity's capability derives 1:1 from CONF membership
+  so behaviour is byte-identical (I1) until a declaration exists.
+  ROLE is a computed function of the QUESTION and is resolved at the
+  CONSUMPTION site via `domain_coordinators/sensor_role.resolve_role`
+  (`RoleQuery` = CANDIDATE_FOR_STUCK / CORROBORATOR_FOR_ROOM /
+  CREATOR_VS_EXTENDER). TIER1_KINDS itself is UNCHANGED — extending it
+  would trip `_audit_provenance_invariants` (I3) and pay O(N-sites)
+  blast radius per new kind. Consumption-site resolution bounds new
+  capabilities to O(1). First in-cycle consumer: D2 duty-cycle
+  detector (`coordinator._detect_duty_cycle_stuck`).
 * **Subscription.** One `async_track_state_change_event` listener per
   discovered entity — both tiers consume from the substrate (room tier
   via `SIGNAL_SUBSTRATE_KIND_CHANGED` in `coordinator.py`; zone tier via

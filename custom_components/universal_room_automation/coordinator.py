@@ -1484,12 +1484,30 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         """
         from collections import deque as _deque  # noqa: PLC0415
         from .const import ENTRY_TYPE_INTEGRATION  # noqa: PLC0415
+        # SENSOR-CAPABILITY-1 D3: consult capability layer for candidate /
+        # corroborator sets. Positional signature stays; only the SET
+        # CONSTRUCTION migrates. Under empty CONF_SENSOR_CAPABILITIES
+        # (byte-identical fallback, I1), motion/mmwave/occupancy roles
+        # match today's CONF-list membership 1:1.
+        from .domain_coordinators.sensor_role import (  # noqa: PLC0415
+            RoleQuery, resolve_role,
+        )
 
         merged: dict[str, Any] = {}
         for entry in self.hass.config_entries.async_entries(DOMAIN):
             if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
                 merged = {**entry.data, **entry.options}
                 break
+
+        # Per-room merged config for capability lookups. Options override
+        # data; a room entry always exists during a room tick.
+        try:
+            room_config: dict[str, Any] = {
+                **(self.entry.data or {}),
+                **(self.entry.options or {}),
+            }
+        except Exception:  # noqa: BLE001 — defensive
+            room_config = {}
         window_min = int(merged.get(
             CONF_STUCK_SENSOR_DUTYCYCLE_WINDOW_MIN,
             DEFAULT_STUCK_SENSOR_DUTYCYCLE_WINDOW_MIN,
@@ -1510,7 +1528,29 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         if not self._d2_boot_settle_done():
             return set()
 
-        # Track PIR transitions this tick (any motion sensor in the room
+        # SENSOR-CAPABILITY-1 D3: build effective corroborator list.
+        # Under NO overrides, this equals the motion_sensors list byte-
+        # for-byte (I1). With an override declaring e.g. a bed sensor
+        # as strong_evidence, that entity contributes transitions to
+        # the corroboration deque even though it lives in
+        # CONF_OCCUPANCY_SENSORS. Order-preserving dedup keeps log
+        # output stable and prevents double-counting a transition when
+        # the same entity_id appears in both a CONF list and as an
+        # override.
+        effective_corroborators: list[str] = []
+        _seen_corr: set[str] = set()
+        for src_list in (motion_sensors, mmwave_sensors, occupancy_sensors):
+            for candidate in src_list:
+                if not candidate or candidate in _seen_corr:
+                    continue
+                if resolve_role(
+                    room_config, candidate,
+                    RoleQuery.CORROBORATOR_FOR_ROOM,
+                ):
+                    effective_corroborators.append(candidate)
+                    _seen_corr.add(candidate)
+
+        # Track PIR transitions this tick (any corroborator in the room
         # changing state contributes a corroboration timestamp).
         motion_key = f"__room::{room_name}"
         motion_deque = self._sensor_dutycycle_motion_transitions.setdefault(
@@ -1518,7 +1558,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         )
         while motion_deque and (mono - motion_deque[0]) > window_sec:
             motion_deque.popleft()
-        for msensor in motion_sensors:
+        for msensor in effective_corroborators:
             if not msensor:
                 continue
             on_now = self._is_sensor_on(msensor)
@@ -1538,7 +1578,31 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         )
 
         stuck: set[str] = set()
-        candidates = [s for s in (mmwave_sensors + occupancy_sensors) if s]
+        # SENSOR-CAPABILITY-1 D3: candidate set derived via resolve_role.
+        # Order-preserving dedup on the mmwave+occupancy concatenation
+        # (P15 defensive case: an entity present in BOTH CONF lists
+        # MUST be scored EXACTLY once — the pre-migration list-concat
+        # semantics double-appended to the ring). Filtering via
+        # CANDIDATE_FOR_STUCK demotes any strong_evidence-declared
+        # entity (e.g. a bed sensor operator-declared as such) out of
+        # the candidate set — it will instead be scored as a
+        # corroborator above.
+        _seen_cand: set[str] = set()
+        candidates: list[str] = []
+        for sensor in (mmwave_sensors + occupancy_sensors):
+            if not sensor or sensor in _seen_cand:
+                continue
+            if sensor in _seen_corr:
+                # Elevated to corroborator via override — not a
+                # candidate. (Under empty overrides this set is empty,
+                # so this branch is a no-op for the byte-identity path.)
+                continue
+            if not resolve_role(
+                room_config, sensor, RoleQuery.CANDIDATE_FOR_STUCK,
+            ):
+                continue
+            candidates.append(sensor)
+            _seen_cand.add(sensor)
         for sensor in candidates:
             ring = self._sensor_dutycycle_rings.setdefault(sensor, _deque())
             on_now = self._is_sensor_on(sensor)
@@ -1572,8 +1636,15 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
         # B L-2 fix-up 2026-07-28: also purge sibling per-sensor state so
         # a de-configured motion sensor doesn't leave zombie last-state
-        # bookkeeping in memory across reloads.
-        configured_all = configured | {m for m in motion_sensors if m}
+        # bookkeeping in memory across reloads. SENSOR-CAPABILITY-1: the
+        # effective-corroborator set may include capability-elevated
+        # non-motion entities; use IT for the purge floor so a bed
+        # sensor's last-state doesn't get orphaned.
+        configured_all = (
+            configured
+            | {m for m in motion_sensors if m}
+            | set(effective_corroborators)
+        )
         for stale in list(self._sensor_last_motion_state.keys()):
             if stale not in configured_all:
                 self._sensor_last_motion_state.pop(stale, None)
