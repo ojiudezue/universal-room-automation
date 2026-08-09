@@ -159,3 +159,42 @@ to a working one at the moment you apply it.
 same string twice, because the outlets are the only endpoints holding a reason. Either drop it from the
 endpoint row, or suppress the headline when exactly one distinct reason exists. Left as-is — it may
 read as useful attribution rather than repetition, and that is a judgement call better made looking at it.
+
+
+---
+
+## FIX 2026-08-09 — "held 53h" was wrong (operator: *"What does held 53h mean?"*)
+
+**The bug was semantic, not technical.** The first version rendered
+`**Plan:** Hold Only · held 53h` from the plan sensor's `since` attribute. Verified in source:
+
+- `since` is stamped on **every** state transition of the drain-precedence machine
+  (`energy_drain_precedence.py:265`); self-loops deliberately do not touch it.
+- Entering `HOLD_ONLY` **clears** `hold_started_at`, `transitioned_at` and `must_start_by_dt` — the
+  code calls it a *"clean reversion"* (`:269-274`). `hold_started_at` is set only on entry to
+  `HOLD_PRE_EVAL`.
+- `DPState` docstring (`:60-68`): **`HOLD_ONLY` = "Default; master switch off OR eval said no."**
+
+So `HOLD_ONLY` is the **resting** state — nothing is being held, which is exactly why
+`hold_started_at` was `None`. "Held 53h" asserted active restraint when the truth was the opposite;
+53h was really *"the state machine has not changed state in 53 hours."* A reader would reasonably
+conclude their car had been blocked from charging for two days.
+
+**Fixed** to a state-aware line:
+
+| Plan state | Renders |
+|---|---|
+| `hold_only` | `**Drain precedence:** idle — no hold on charging · unchanged 53h` |
+| `transitioned` | `**Drain precedence:** ⏸ EVSEs paused for battery drain since 4:30 PM` (uses `transitioned_at`) |
+| other (`hold_pre_eval`, `eval_transition`) | `**Drain precedence:** Hold Pre Eval · holding 12m` (uses `hold_started_at`) |
+
+Also drops the "Plan:" jargon label for what the field actually is.
+
+Verified live: `**Drain precedence:** idle — no hold on charging · unchanged 53h`. Storage re-read to
+confirm the string replacement landed (`.replace()` is a silent no-op on a miss — the write reports
+success either way, so the stored content was checked directly rather than trusted).
+
+**Lesson worth keeping:** a duration is meaningless without knowing *which clock* it belongs to. The
+attribute was named `since`, the state was named `HOLD_ONLY`, and both invited the wrong reading. The
+render was technically correct and semantically false — the kind of defect no template test catches,
+only a reader asking "what does that mean?"

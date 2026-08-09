@@ -420,6 +420,15 @@ cards:
   applied_render_2026_08_09: '## ⏸ Paused / TOU peak/mid-peak pause / [Garage A yes|Paused|0.0 kW]
     [Garage B —|Off|0.0 kW] [Outlets (2) —|TOU peak/mid-peak pause|—] / **Plan:** Hold Only · held 53h
     — 7 lines, zero None/unavailable/unknown, all four conditional lines correctly absent.'
+  fix_2026_08_09_held_label: 'Operator: "What does held 53h mean?" — it was WRONG. Verified in source:
+    since is stamped on every DP state transition (energy_drain_precedence.py:265) and HOLD_ONLY CLEARS
+    hold_started_at as a "clean reversion" (:269-274); DPState docstring says HOLD_ONLY = "Default;
+    master switch off OR eval said no". So HOLD_ONLY is the RESTING state — nothing held — and "held
+    53h" asserted the opposite of the truth (a reader would think their car had been blocked for two
+    days). Replaced with a state-aware line: hold_only -> "idle — no hold on charging · unchanged 53h";
+    transitioned -> "EVSEs paused for battery drain since <time>" (transitioned_at); otherwise ->
+    "· holding <n>m" (hold_started_at). Verified live + storage re-read (str.replace is a silent no-op
+    on a miss and the write reports success regardless).'
   refinement_candidates:
   - 'REDUNDANCY: the headline reason and the Outlets row currently show the same string twice
     ("TOU peak/mid-peak pause") because the outlets are the only endpoints holding a reason. Options:
