@@ -15,8 +15,7 @@ meta:
   - parked
 cards:
 - id: STUCK-SENSOR-1
-  title: Stuck-sensor awareness dies at the room tier; house tier assumes independence that correlated
-    failure breaks
+  title: Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
   thread: presence
   status: pre_planning
   approval: unreviewed
@@ -54,8 +53,8 @@ cards:
     problem: a stuck sensor silently fabricates occupancy and drives fans/HVAC/lighting in empty rooms
     verdict: BUILD
     note: detection already exists; this is wiring a consequence + a surface to it, not new inference
-  next: scope the exclusion graduation + tier propagation + correlated-source fix as one cycle (occupancy
-    feeds HVAC, lighting, presence trust)
+  next: scope corroboration-gated D2 exclusion at the room tier; enumerate which rooms HAVE a usable corroborator
+    vs which must stay notify-only
   CORRECTION: '2026-08-09: my first version of this card was WRONG on three counts — I asserted mechanism
     from a LOG STRING instead of reading the code (operator: ''a log line does not reality make''). Corrected
     by verification: (1) it is NOT ''detection without consequence'' — the CONTINUOUS rule DOES exclude
@@ -64,18 +63,39 @@ cards:
     cycle with zero PIR, and excluding would vacate sleeping bedrooms''; (3) it is NOT invisible — both
     rules fire an NM note via _fire_stuck_sensor_nm with per-day dedup.'
   verified_findings:
-  - 'ROOM TIER (coordinator.py): continuous rule excludes but keys off _sensor_on_since, which a FLAPPING
-    sensor resets every off-tick -> flapping never accumulates hours -> never excluded. D2 catches flapping
-    but by design only notifies. NET: a flapping mmWave is detected and never excluded. The D2 comment
-    names the prior ''Master Bedroom empty-suite incident'' - tonight is a REPEAT of a known incident.'
-  - 'ZONE TIER (aggregation.py): ZERO occurrences of ''stuck''. A room occupied off a stuck sensor propagates
-    upward unchallenged.'
-  - 'HOUSE TIER (presence.py): no stuck exclusion. Instead an ASSUMPTION in the confirmation-source list
-    — ''4. Multiple occupied rooms (2+ rooms occupied = unlikely all stuck)''. FALSIFIED tonight: Living
-    Room, Study A and the master mmWave were flagged stuck SIMULTANEOUSLY. Same vendor/firmware/night
-    = CORRELATED failure, not independent corroboration.'
-  - 'CLOSED LOOP: stuck rooms prop up house_state=home_night; house state is exactly the gate under which
-    D2 exclusion was meant to graduate. The fault sustains the condition that prevents its own remedy.'
+  - 'ROOM TIER: continuous rule excludes but keys off _sensor_on_since, which a FLAPPING sensor resets
+    each off-tick -> flapping never accumulates -> never excluded (coordinator.py:1960-1967).'
+  - 'D2 duty-cycle catches flapping but is deliberately NOTIFY-ONLY: ''a sleeping person is ~100% mmWave
+    duty cycle with zero PIR, and excluding would vacate sleeping bedrooms''. Sound reasoning, not an
+    oversight.'
+  - Both rules DO fire an NM note (_fire_stuck_sensor_nm, per-day dedup) — this is not invisible.
+  - The D2 comment names a PRIOR 'Master Bedroom empty-suite incident' — tonight is a repeat of a known
+    failure mode.
+  - ZONE (aggregation.py) and HOUSE (presence.py) have no stuck-sensor awareness — verified by grep.
+  RETRACTION_2: '2026-08-09 (second correction, operator challenge ''the stuck sensors are not correlated
+    afaik''): I claimed the stuck sensors were a CORRELATED failure (same vendor/firmware/night) and built
+    a ''falsified independence assumption'' + ''closed loop'' argument on it. VERIFIED FALSE: Living Room
+    = Screek Human_Presence_Sensor via esphome (direct); Study A = HOBEIAN 24Ghz via mqtt (through a coordinator).
+    Different manufacturer, model, transport, topology. I inferred correlation from CO-OCCURRENCE IN A
+    LOG WINDOW alone. Co-occurrence is not correlation. RETRACTED: the house-tier ''2+ rooms occupied
+    = unlikely all stuck'' assumption is NOT falsified and stands; the closed-loop claim collapses with
+    it.'
+  solution:
+  - DISCRIMINATOR IS CORROBORATION, NOT HOUSE STATE. House state fails exactly in the hard case (asleep
+    during home_night). A sleeping person pins the mmWave AND a corroborator; a stuck mmWave pins only
+    itself.
+  - 'Exclude a duty-cycle-stuck sensor when NO independent corroborator supports occupancy: bed presence,
+    recent PIR, BLE person in room, camera person. D2 already uses PIR corroboration to guard DETECTION
+    — extend the same principle to EXCLUSION.'
+  - 'Tonight this would have released master immediately: bed presence read OFF while occupancy read ON.'
+  - 'CAVEAT: rooms whose ONLY input is a single mmWave have no corroborator and cannot be discriminated
+    — for those, notify-only remains correct. This is a per-room capability question, not a global policy.'
+  rejected:
+  - PROPAGATE STUCK STATE TO ZONE/HOUSE — I recommended this and then withdrew it under challenge ('is
+    this flow upwards useful?'). If the room tier excludes correctly the corrected occupancy propagates
+    naturally and upper tiers are right for free. Propagation adds a cross-tier concept, new state and
+    new failure modes to fix something better fixed at source. Only justified as a FALLBACK where the
+    room tier genuinely cannot discriminate and upper tiers should down-weight.
 - id: TABLET-FLEET-1
   title: 'Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)'
   thread: tablets
