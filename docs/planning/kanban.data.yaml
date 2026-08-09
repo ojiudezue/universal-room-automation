@@ -602,27 +602,40 @@ cards:
     see P1P3 for the falsification. Real comfort cost: upstairs held at 79-80F with two kids in it after
     a 24h absence on a 96F day, because the away preset ceiling (hi=80) equalled the current temp, so
     the thermostat read "cooling" while doing nothing.'
-  BLOCKED_ON_INSTRUMENT: 'The v5.56.0 preset REASON LEDGER should answer this in one query and does not.
-    All nine flips are present in ura_activity_log as coordinator=hvac action=preset_change rows, but
-    the `reason` field read EMPTY on every row. Either my extraction read the wrong key out of
-    details_json, or the reason is not being persisted. UNRESOLVED — do not theorise about the flap
-    until this is settled, because the ledger is the instrument built for exactly this question. If the
-    reason is genuinely not persisted, that is a diagnosability regression in the same cycle that
-    shipped the ledger, and it is D1 of this card.'
-  candidate_mechanisms_UNPROVEN:
-  - 'coast duty-cycle limiter oscillating: trips at max_runtime_minutes=120 -> forces away -> window
-    rolls -> home -> re-accumulates. The 5/10/15-min intervals look like a rolling window. NOT PROVEN.'
-  - 'a second writer still exists (Writer C?) — Writer B is confirmed gone but nothing proves it was the
-    only direct writer.'
-  - 'reason-ladder precedence mislabelling (hvac.py:1577) picking a branch that toggles.'
+  LEDGER_RETRACTION_2026_08_09: 'I carded a "reason ledger reads empty / diagnosability regression"
+    finding. IT WAS FALSE and is fully RETRACTED. The v5.56.0 reason ledger works exactly as designed —
+    my extraction script read a column named `details` when the actual column is `details_json`. I
+    nearly filed a defect against our own tooling because of a typo in a throwaway query. Operator
+    caught it: "Make sure you read all the JSON. Don''t want to fix what''s not broken." Rule earned:
+    when an instrument built for exactly this question returns nothing, suspect the query before the
+    instrument.'
+  MECHANISM_PROVEN_2026_08_09: 'Two URA writers alternating with NO arbitration between them. From the
+    ledger, zone_2, every row carrying persons=[ziri, jaya]:
+      23:34 home->away reason=runtime_exceeded       runtime=True
+      23:24 away->home reason=house_state_transition runtime=False
+      23:19 home->away reason=runtime_exceeded       runtime=True
+      23:04 away->home reason=house_state_transition runtime=False
+      22:54 home->away reason=runtime_exceeded       runtime=True
+    The coast duty-limiter (hvac.py:2470-2492, active only in shed/coast, cap max_runtime_minutes=120)
+    forces away on trip; the house-state preset logic writes home back because the zone is occupied and
+    house=home_evening; the duty window rolls, runtime re-accumulates, it trips again. runtime_exceeded
+    toggles True/False in lockstep with the flips. Neither writer yields to the other.
+    CONTRAST proving the ledger discriminates: at 19:54/19:59 UTC with nobody home the reason reads
+    vacant_past_grace with persons=[] — different cause, correctly labelled.
+    NOTE: the reason LADDER (hvac.py:1577) establishes precedence for LABELLING a single change; it does
+    NOT arbitrate between two writers that disagree across ticks. That is the gap.'
   my_process_failure: 'I proposed three mechanisms in sequence from snapshots — "URA says home, device
     says away", then "the 120-min cap fired", then "it is coast" — and each fit the instant I was
     looking at and died on the next fact. The history query I ran FOURTH should have been FIRST; I had
     last_changed timestamps in the opening read and looked past them. Rule: for any "it keeps doing X"
     complaint, pull the state history BEFORE proposing a mechanism.'
-  next: 'D1 — determine whether the reason ledger persists `reason` (read details_json directly from
-    ura_activity_log; if absent, fix the writer). THEN D2 — replay the nine flips with reasons attached
-    and name the oscillator. Do not build a fix before D1.'
+  next: 'Mechanism proven; this is now a DESIGN question, not a diagnosis. Decide the arbitration rule
+    between the coast duty-limiter and occupied-zone comfort. Candidates: (a) exempt the limiter when
+    the zone is occupied AND recovering from a large delta — the recovery load is legitimate, not a
+    fault; (b) let the limiter win but hold it (stop re-writing home each window) so it stops flapping —
+    steady discomfort beats oscillation; (c) consult battery SOC — it was 94% with solar_class
+    "excellent" while the limiter throttled comfort to avoid a peak the battery could have covered.
+    (c) is the one worth thinking hardest about.'
   refs:
   - docs/planning/kanban.data.yaml card P1P3 (the falsification)
   - custom_components/universal_room_automation/domain_coordinators/hvac.py:1569-1610 (reason ladder), :1660-1675 (ledger row), :2470-2492 (coast duty limiter)
