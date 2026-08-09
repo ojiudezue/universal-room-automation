@@ -204,8 +204,35 @@ cards:
   sibling_of:
   - SIGNAL-TRUST-LEDGER (build-gated)
   depends_on: []
-  next: scope the capability descriptor + role-derivation surface; enumerate every consumer of TIER1_KINDS
-    and _KIND_TO_CONF before proposing (context-wide, Tier 3 shared primitive)
+  next: 'PLAN WRITTEN 2026-08-09 (docs/planning/PLANNING_sensor_capability_vs_role.md, 477 lines).
+    Tier 3, four framing-disjoint reviews, operator checkpoint before deploy. AWAITING OPERATOR GO —
+    Tier 3 shared primitive, not implied-approval eligible.'
+  status_note: plan complete; build gated on operator go
+  refinement:
+  - 'CHALLENGE (planner, vs my card sketch): the sketch read as if capability might extend TIER1_KINDS
+    and the substrate DISPATCH payload. SHARPENED: keep the substrate channel TIER1_KINDS-valued and run
+    capability at the CONSUMPTION site instead. Extending TIER1_KINDS touches every consumer AND trips
+    _audit_provenance_invariants (presence.py:384) which RAISES on unknown keys — blast radius O(n) per
+    added kind. Consumption-site resolution bounds it to O(1). This is the insight that makes the cycle
+    tractable; my sketch would have made it a rewrite.'
+  - 'CHALLENGE: my sketch said "inferred from device/integration where possible". SHARPENED: NO
+    auto-inference in v1 — operator-declarable only, with an evidence trigger to revisit. Rationale:
+    manufacturer/integration sniffing is a rare-fire path with poor observability, and the Bug Class #46
+    history is lazy defaults mis-classifying silently. Note this lands closer to the operator''s own
+    words ("we could also add more options or detail to the kind of sensor in config") than my sketch did.'
+  - 'CHALLENGE: "kind, trust, failure-mode" as free-form fields. SHARPENED: each constrained to a small
+    enumerated vocabulary (TRUST_CLASS_*, FAILURE_MODE_* at rung 1); open strings would defeat the
+    role-query matrix''s testability.'
+  invariant: 'I1 — with no CONF_SENSOR_CAPABILITIES declared anywhere, get_all_room_kinds, every
+    SIGNAL_SUBSTRATE_KIND_CHANGED dispatch, _room_provenance, _detect_duty_cycle_stuck''s return set and
+    every exposed entity attribute are BYTE-IDENTICAL to today. I2 roles never persisted across a tick.
+    I3 capability MUST NOT leak into the legacy provenance channel.'
+  riskiest: '_detect_duty_cycle_stuck migration. Its positional signature (motion, mmwave, occupancy) is
+    itself a legacy reification of _KIND_TO_CONF. An entity present in BOTH mmwave_sensors AND
+    occupancy_sensors (the P15 defensive case, occupancy_substrate.py:214-222) must be scored EXACTLY
+    ONCE by resolve_role, matching today''s concatenation semantics. Reviewer C must mutation-cover that
+    collision. Second: a future builder adding "bed" to _audit_provenance_invariants''s allowlist would
+    silently undo I3 — the audit docstring must state the vocabulary is closed by design.'
   refs:
   - docs/planning/AUDIT_mmwave_only_rooms_2026-07-31.md (Finding 6 — root cause)
   - docs/planning/PLANNING_mmwave_corroboration_tier3.md (Amendment 4)
