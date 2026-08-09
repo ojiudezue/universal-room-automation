@@ -250,7 +250,7 @@ cards:
 - id: BOARD-CURRENCY-1
   title: Forcing-function ladder so the board (and vibememo) cannot lag shipped work
   thread: process
-  status: planned
+  status: shipped_organic
   approval: explicit
   approved_by: operator 2026-08-09
   tags:
@@ -304,7 +304,26 @@ cards:
     note: 'simplest version (banner) was REJECTED by operator as not a forcing function; the marginal
       cost of rung 1 over the banner is one gate in a script that already has one (deploy.sh:32-36)'
   knobs: none new (uses existing meta.last_reconciled)
-  next: implement rung 1 + rung 2 in scripts/deploy.sh behind --dry-run verification; then rung 3 rides KHOST-1
+  next: 'MERGED to develop 2026-08-09 (0b4a22592). Rungs 1+2 live in scripts/deploy.sh. ORGANIC PROOF
+    OPEN: the post-push write path has never executed for real — the next release is its first true run.
+    Failure there is contained (warn + exit 0, release unaffected). Rung 3 rides KHOST-1.'
+  review_record_2026_08_09: 'Reviewed DO-NOT-SHIP -> fixed -> re-verified. H1 YAML reflow: safe_dump
+    round-trip rewrote the real board 1296->1455 lines, re-wrapping every card''s prose at 80 cols.
+    Replaced with a textual line-anchored writer (parse to VALIDATE, edit as TEXT) — NOT ruamel, which
+    is not installed and would have put a pip dependency in the release path. Orchestrator independently
+    re-verified on the real board: 1323->1324 lines, 2 hunks, 3 lines changed, all 28 other cards
+    byte-identical, YAML valid, card count preserved. H2: --dry-run was a command echo, so step 4b would
+    have debuted in production; it now runs the REAL kanban_ship + vibememo_ship against a mktemp copy
+    and prints the diff. M1 (--cards swallowing a flag), M2 (gitea mirror for the reconcile commit),
+    M3 (--no-verify so a hook flake cannot leave the board dirty and block the next deploy), L1/L2/L5
+    fixed. L3/L4 accepted.'
+  residual_fragility:
+  - 'A card whose status: line is quoted (status: "planned") would not match the writer regex — the card
+    is skipped with a WARN rather than silently mis-written. No such card exists today; worth a lint if
+    quoting ever starts.'
+  - 'No behavioral in-suite test for vibememo_ship.py (kanban side has 14). The --repo-root flag is
+    exercised only by the dry-run rehearsal; a bug in default root resolution would not be caught.'
+  meta_note: 'The first card this gate marks shipped will most likely be itself.'
   refs:
   - docs/planning/PLANNING_v4.7.10_deploy_sh_gitea_retrofit.md (precedent for modifying deploy.sh)
   - scripts/deploy.sh:32-36 (existing hard-gate pattern to mirror)
