@@ -309,3 +309,17 @@ prerequisite for M7/`verdict_weighted` as specified, not a nice-to-have. See
 
 **P14 disposition unchanged:** still preserved solely for promotion here; still deleted if this cycle
 is cancelled.
+
+---
+
+### Criterion 3 — SATISFIED 2026-08-09 (second leg)
+
+First leg **failed at origin**: it required ≥2 weeks lived-in with no fix-up, but v5.35.1 and v5.35.2
+both landed the same night as v5.35.0. Second leg fires: see
+`docs/planning/INCIDENT_chatter_class_missed_by_watchdog_2026-08-09.md` — the chatter
+(transition-rate) class evades both shipped rules (off-ticks reset P22's clock; ~50% duty never
+reaches D2's 85%), measured at Garage B 3,769 off / 3,765 on in 24h, with a chattering PIR able to
+*shield* a stuck mmWave because it satisfies D2's corroboration test.
+
+Criteria 1, 2, 3 now met. **Open: 4 (fixtures — see `AUDIT_ledger_golden_fixture_yield.md`) and
+5 (operator GO).**
