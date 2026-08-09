@@ -14,6 +14,45 @@ meta:
   - waiting_me
   - parked
 cards:
+- id: STUCK-SENSOR-1
+  title: Stuck-sensor detection is NOTIFY-ONLY — stuck sensors still drive occupancy
+  thread: presence
+  status: pre_planning
+  approval: unreviewed
+  tags:
+  - tier-2db
+  - no-fabrication-verify
+  origin:
+    date: '2026-08-09'
+    gist: operator diagnosed a stuck Zigbee mmWave holding master occupancy; asked why I did not see it
+  why: 'URA''s duty-cycle detector DOES catch stuck sensors and logs: ''Sensor <x> duty-cycle stuck (on-ratio
+    exceeded over rolling window) — NOTIFY-ONLY, not excluded from occupancy''. It then KEEPS USING the
+    stuck sensor for occupancy. Detection without consequence. Tonight that produced: master bedroom reported
+    occupied while its inputs read off -> comfort fans ran in an empty bedroom (operator not home); Garage
+    B occupied off a chattering ratgdo; Living Room and Study A both flagged stuck. Occupancy feeds HVAC,
+    lighting and presence trust, so the blast radius is wide.'
+  my_miss: 'I READ these exact warnings hours earlier and dismissed them as ''routine, not a crash'' —
+    I was scanning for crashes, so a WARNING that was not a crash read as noise. The message named its
+    own defect and I skimmed it. Rule: a warning that says STUCK is never routine; read content, not severity
+    class.'
+  gaps:
+  - '1. NO CONSEQUENCE: stuck sensors are not excluded from the occupancy substrate.'
+  - '2. NO SURFACE: the only signal is a WARNING log line — no sensor, no NM note, no dashboard. Invisible
+    unless a human is tailing logs at the right moment.'
+  - '3. NO PERSISTENCE: like the echo counter, any stuck-state tally resets on restart, and we restarted
+    7+ times today.'
+  fix:
+  - exclude a sensor from occupancy after N consecutive stuck windows (with a rung-1 knob and a clear
+    un-stick path)
+  - expose stuck sensors on a diagnostic entity (count + which sensors + since when) so it is visible
+    without log surgery
+  - raise an NM note when a room's ONLY occupancy input goes stuck — that is the case that silently fabricates
+    occupancy
+  parsimony:
+    problem: a stuck sensor silently fabricates occupancy and drives fans/HVAC/lighting in empty rooms
+    verdict: BUILD
+    note: detection already exists; this is wiring a consequence + a surface to it, not new inference
+  next: trace the duty-cycle detector; decide exclusion policy; add the diagnostic surface
 - id: TABLET-FLEET-1
   title: 'Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)'
   thread: tablets
