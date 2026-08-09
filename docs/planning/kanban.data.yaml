@@ -438,6 +438,31 @@ cards:
     problem: three shipped detectors do not detect; one cannot detect by construction
     verdict: BUILD
     note: 'cheap relative to value — this is dead safety machinery we believe is protecting us'
+  OPERATOR_DECISIONS_2026_08_09_round2:
+  - 'GARAGE CAMERAS: "Yes pls. Or maybe to the egress list?" — ANSWERED: the two lists do different
+    things and only ONE gives D1 coverage. CONF_CAMERA_PERSON_ENTITIES (interior) is what D1 scores
+    (camera_census.py:1787,1803) and is ALSO consumed by the census person_count and by fan_veto.py:353.
+    CONF_EGRESS_CAMERAS feeds perimeter_alert.py:332 (alerting) — adding garages there would NOT make
+    D1 see them. So: interior is required for the stated goal. SIDE EFFECT to weigh: interior also
+    enrols the garage cameras in the census person_count (affects house occupancy / guest detection) and
+    in fan veto. Both may be desirable — Garage B IS a configured room — but it is a wider change than
+    "give D1 coverage". Possibly BOTH lists, for different reasons. Operator confirm before applying.'
+  - 'P24: "Instinct is to fix" — APPROVED to fix. Likely needs BOTH investigation options, not one:
+    (A) move the failsafe check AFTER the camera/BLE overrides at :2490/:2597, which currently re-seed
+    _became_occupied_time after the check so override-held rooms can never accumulate duration; AND
+    (B) re-base the freshness test on _last_pir_motion_time instead of _last_motion_time, which is
+    refreshed to now() at :2332 on the same tick and makes the skip a tautology (27/27 suppressed).
+    Fixing only one leaves the other leg blind. Needs its own scoped cycle + tier call.'
+  - 'D3 FROZEN TRACKER: "Kill it." — APPROVED for deletion, not repair. Removes the detector in
+    person_coordinator.py, its NM kind, CONF_FROZEN_TRACKER_DAYS / DEFAULT_FROZEN_TRACKER_DAYS
+    (const.py:3120-3121), its config-flow field and its tests. Consistent with the earlier drop from
+    the ledger migration set (M6). Rationale on record: structurally unreachable — 2.0 d threshold vs
+    max 1.01 d uptime across 26 deploy-driven restarts; it cannot catch the Ezinne 3-day freeze it was
+    built for, and will not at this release cadence.'
+  SEQUENCING_NOTE: 'P24-fix and D3-kill both touch coordinator.py / person_coordinator.py. The
+    SENSOR-CAPABILITY-1 fix-up is concurrently editing coordinator.py on sensor-cap-rebase. Queue these
+    two BEHIND that merge rather than running them in parallel — worktree isolation prevents corruption
+    but not merge conflicts in the same function region.'
   next: 'OPERATOR DECISION 2026-08-09: DROP D1/D3/P24 from the ledger migration set ("1 want to drop.
     Some are rare. Not a bad thing."). Ledger migration set reduces to M1 (P22), M3 (P18), M5 (D2) +
     M7 (P14, hand-built). Open sub-question the operator DID want answered: WHY D1 and P24 do not fire —
