@@ -137,6 +137,14 @@ cards:
     occupancy_sensors = it is a D2 CANDIDATE, so the ideal discriminator is being judged instead of
     consulted. Study A has an ORPHAN mmwave_sensors key no code reads (CONF_MMWAVE_SENSORS ==
     "presence_sensors"), holding an unavailable Athom entity.'
+  OPERATOR_DISPOSITIONS_2026_08_09:
+  - 'ATHOM (Study A): CLOSED as a no-op. Operator: "Ignore athom now. It''s a no op." URA already does
+    not read it (options override every bucket); the ESPHome device entry stays. Do NOT re-raise, do NOT
+    propose deleting the entry or cleaning the orphan mmwave_sensors key.'
+  - 'HOBEIAN 5-unit cluster: PARKED until operator is home. Operator: "Leave hobeian until I get home.
+    It''s mostly z2m hygiene." Not a URA defect and not a gate on any cycle — it is Zigbee2MQTT
+    housekeeping, operator-owned, physical. Do NOT re-raise as a blocker on corroboration work; the
+    measured fleet-bad rate is 6.0% and does not gate the cycle.'
   rejected:
   - PROPAGATE STUCK STATE TO ZONE/HOUSE — I recommended this and then withdrew it under challenge ('is
     this flow upwards useful?'). If the room tier excludes correctly the corrected occupancy propagates
