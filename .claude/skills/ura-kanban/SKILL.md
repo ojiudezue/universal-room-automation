@@ -386,6 +386,21 @@ now that this does not block.**"
 orchestrator freezes the main tree while builders run. Without it, concurrency converts throughput
 into merge damage.
 
+**Verify the worktree's BASE, not just that it is isolated (added 2026-08-09).** A worktree can be
+isolated and still branch from a stale ref. Observed: a Tier-3 build came back green on
+`19 failed / 8125 passed` — but its base was **214 commits behind develop**, so it had validated
+against a suite missing ~370 tests and against source predating the whole day's work. Isolation
+protected the tree; it did not protect the baseline.
+
+> Before trusting ANY agent's suite numbers, run
+> `git rev-list --count $(git merge-base <branch> develop)..develop`. Non-zero means the numbers
+> describe a codebase that no longer exists.
+
+A green suite on the wrong base is worse than a red one — it reads as evidence. The cheap recovery is
+a cherry-pick onto current develop plus a re-run; check first whether the specific functions the build
+refactored moved in the interim (`git diff <base>..develop -- <file>`), because that decides between a
+rebase and a redo.
+
 **The real bottleneck is orchestrator attention, not agent count.** Each concurrent agent returns a
 report that must be independently verified — never accept a builder's or reviewer's summary as fact.
 Fan out to the width you can actually verify, then stop. Depletion that outruns verification is how

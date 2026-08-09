@@ -209,6 +209,29 @@ cards:
   sibling_of:
   - SIGNAL-TRUST-LEDGER (build-gated)
   depends_on: []
+  build_2026_08_09: 'BUILT (worktree commit 141e60939) then REBASED onto current develop as c82290f68
+    on branch sensor-cap-rebase. STALE-BASE INCIDENT: the builder worktree was based on 57ba22942
+    (v5.50.2), 214 commits behind develop, so its green suite (19f/8125p) described a codebase that no
+    longer exists. Cherry-pick onto develop was CLEAN (no conflicts) and _detect_duty_cycle_stuck — the
+    riskiest refactor target — was byte-unchanged between base and develop, so a rebase sufficed rather
+    than a redo. Re-validated on the real baseline: 21 failed / 8517 passed / 45 skipped / 2 xfailed
+    (develop baseline 21f/8494p; +23 = the new tests; failing NAMES unchanged; the A-2/A-3 strict xfails
+    survived). Skill updated with a base-verification rule.'
+  I1_DEVIATION_for_reviewers: 'The builder KNOWINGLY deviated from byte-identity in one place and
+    flagged it: for an entity in BOTH mmwave_sensors and occupancy_sensors (the P15 defensive case),
+    pre-migration list-concat DOUBLE-SCORES it (same ring appended twice per tick), which reaches the
+    MIN_TICKS=20 warm-up floor in half the ticks. The build dedups to score it exactly once, per the
+    plan wording. This is a real behaviour change on that path and therefore a partial I1 violation.
+    Reviewer B must adjudicate: take the fix, or preserve the bug for strict byte-identity.'
+  build_notes:
+  - 'A mutation drill initially PASSED, exposing dead code: the strong_evidence gate was unreachable for
+    kind=bed (bed is not in _STUCK_CANDIDATE_KINDS, so it exits earlier). The builder added a test for
+    the reachable path (operator declares an mmwave-wired entity as strong_evidence) and re-ran to a
+    named failure. The drill protocol caught a hollow anchor before review — working as intended.'
+  - 'D4 uses a JSON textarea (TextSelector multiline) because HA has no dict selector. Pragmatic v1.'
+  - 'Unverified claim for reviewer B: mid-flight capability override during refresh_subscriptions is
+    untested; the builder argues it is safe because the capability layer is not consumed inside the
+    substrate and _detect_duty_cycle_stuck re-reads room_config every tick.'
   next: 'PLAN WRITTEN 2026-08-09 (docs/planning/PLANNING_sensor_capability_vs_role.md, 477 lines).
     Tier 3, four framing-disjoint reviews, operator checkpoint before deploy. AWAITING OPERATOR GO —
     Tier 3 shared primitive, not implied-approval eligible.'
