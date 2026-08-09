@@ -414,9 +414,23 @@ cards:
   - 'Space-constrained — operator explicitly delegated judgement on what to cut. Curate ruthlessly;
     completeness is not the goal.'
   - Reuse existing EV/EVSE entities and precedence concepts; do not invent new sensors for the card.
-  next: 'DESIGNED + STAGED 2026-08-09 in docs/dashboards/ura_v8_energy_ev_detail_card.md. AWAITING
-    OPERATOR REVIEW of the design, then apply live (storage-mode dashboard — must go through the
-    Lovelace raw editor or websocket save, NOT a hand-edit of .storage while HA runs).'
+  next: 'APPLIED LIVE 2026-08-09 to ura-v8 Energy & EV tab (views[2].sections[8], right after Battery
+    Strategy Detail). write_committed + post_write_verified; template render verified separately.
+    AWAITING OPERATOR REVIEW for refinement — operator: "I''ll review and we can refine."'
+  applied_render_2026_08_09: '## ⏸ Paused / TOU peak/mid-peak pause / [Garage A yes|Paused|0.0 kW]
+    [Garage B —|Off|0.0 kW] [Outlets (2) —|TOU peak/mid-peak pause|—] / **Plan:** Hold Only · held 53h
+    — 7 lines, zero None/unavailable/unknown, all four conditional lines correctly absent.'
+  refinement_candidates:
+  - 'REDUNDANCY: the headline reason and the Outlets row currently show the same string twice
+    ("TOU peak/mid-peak pause") because the outlets are the only endpoints holding a reason. Options:
+    drop the reason from the endpoint row, or drop it from the headline when only one distinct reason
+    exists. Left as-is pending operator eye — it may read as useful attribution rather than repetition.'
+  - 'Retrofit the same conditional rendering to the sibling Battery Strategy Detail card (~30 min).'
+  bug_caught_pre_ship: 'The markdown card auto-detects entities from LITERAL entity IDs in the template.
+    This template reaches them through Jinja VARIABLES (states(s)), so auto-detection would have missed
+    them and the card would never re-render on state change — it would sit stale until an unrelated
+    repaint. Fixed by adding the explicit entity_id watch list. Caught by reading the HA dashboard
+    best-practices guide, not by testing.'
   design_notes:
   - 'Anti-word-vomit rules applied: (1) narrative first — pause_reason_human leads, and nothing on the
     dashboard consumed that attribute before; (2) CONDITIONAL rendering — must_start_by,

@@ -1,6 +1,6 @@
 # ura-v8 — EV Charging Detail card (Energy & EV tab)
 
-**Status:** staged, NOT applied. Per the `ura_v8_exterior_cycle2_cards.md` precedent, cards are staged
+**Status:** ✅ **APPLIED LIVE 2026-08-09** to `ura-v8` `views[2].sections[8]`. Per the `ura_v8_exterior_cycle2_cards.md` precedent, cards are staged
 here and applied post-review as a live step. `ura-v8` lives HA-side at `.storage/lovelace.ura_v8`.
 
 **Ask (operator 2026-08-09):** *"add an EV charging detail card to the Ura v8 energy tab. Style well.
@@ -120,8 +120,42 @@ Growth is proportional to how much is actually going on, which is the property t
   `Connected` but `energy_status: idle`, and those are three different facts).
 - **Live:** renders without a template error on the Energy & EV tab after apply.
 
-## Apply step (not yet done)
+## Apply step — DONE
 
 Storage-mode dashboard — do **not** hand-edit `.storage/lovelace.ura_v8` while HA is running (it is
 held in memory and will be clobbered). Apply via the Lovelace UI (Raw configuration editor) or the
 websocket `lovelace/config/save` path.
+
+
+---
+
+## Applied 2026-08-09 — verified render
+
+```
+## ⏸ Paused
+TOU peak/mid-peak pause
+
+| | Plug | State | Rate |
+|---|---|---|---|
+| **Garage A** | yes | Paused | 0.0 kW |
+| **Garage B** | — | Off | 0.0 kW |
+| **Outlets** (2) | — | TOU peak/mid-peak pause | — |
+
+**Plan:** Hold Only · held 53h
+```
+
+7 lines. No `None` / `unavailable` / `unknown`. All four conditional blocks correctly absent.
+Applied via `ha_config_set_dashboard` python_transform (`write_committed`, `post_write_verified`);
+template render verified independently against live state.
+
+**Bug caught before shipping:** the markdown card auto-detects entities from **literal** entity IDs in
+the template. This template reaches them through Jinja **variables** (`states(s)`), so auto-detection
+would have missed every one and the card would never re-render on state change — it would sit stale
+until an unrelated repaint. Fixed with an explicit `entity_id:` watch list of the six driving entities.
+Found by reading the HA dashboard best-practices guide, not by testing — a stale card looks identical
+to a working one at the moment you apply it.
+
+**Open refinement for operator review:** the headline reason and the Outlets row currently render the
+same string twice, because the outlets are the only endpoints holding a reason. Either drop it from the
+endpoint row, or suppress the headline when exactly one distinct reason exists. Left as-is — it may
+read as useful attribution rather than repetition, and that is a judgement call better made looking at it.
