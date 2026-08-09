@@ -119,6 +119,20 @@ cards:
     D4 notifier. Do NOT force the census (person COUNT) and frozen-tracker (timestamp AGE) detectors into
     it — different shapes; they keep their own detection and keep sharing D4. Honest scope: one central
     scorer for binary sensors, not one function for everything.'
+  FLEET_ROT_RETRACTION: '2026-08-09 (third correction, operator challenge "I don''t think a third of
+    the fleet is bad"): I claimed a third of the corroborator fleet was dead, generalising B-2026-08-04-2''
+    "5 of 13" — which is 5 of a 13-entry HAND-PICKED ADJACENCY LIST from one probe, not 5/13 of the
+    fleet. MEASURED: 503 presence-class binary_sensors, 30 unavailable/unknown = 6.0%, clustering into
+    ~15 physical devices. RETRACTED: the "fleet rot gates corroboration logic" argument. STANDS: a
+    5-unit HOBEIAN cluster is down together (hypothesis, not asserted mechanism) — ops item, not a gate.'
+  D0_AUDIT_DONE: '2026-08-09: docs/planning/AUDIT_mmwave_only_rooms_2026-07-31.md written (was owed
+    since 07-31 as D0 of the mmwave Tier-3 cycle and never done; cycle shipped without it). Key
+    results: 5 MMWAVE_ONLY rooms + Master Bedroom MMWAVE_NO_PIR = SIX rooms with zero PIR, so D2 can
+    detect but NEVER corroborate there (corroborator class empty by config) — this is the structural
+    cause of both the 08-09 incident and B-2026-08-04-1 spam. Master bed sensor sits in
+    occupancy_sensors = it is a D2 CANDIDATE, so the ideal discriminator is being judged instead of
+    consulted. Study A has an ORPHAN mmwave_sensors key no code reads (CONF_MMWAVE_SENSORS ==
+    "presence_sensors"), holding an unavailable Athom entity.'
   rejected:
   - PROPAGATE STUCK STATE TO ZONE/HOUSE — I recommended this and then withdrew it under challenge ('is
     this flow upwards useful?'). If the room tier excludes correctly the corrected occupancy propagates
