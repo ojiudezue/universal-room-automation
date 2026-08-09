@@ -212,6 +212,75 @@ cards:
     deliverables: mmwave-Tier3 D4 (unrelated, still parked), D6 (absorbed into chatter work, not here).
     Catalogs: CATALOG P15 substrate kind-precedence is the primitive being changed — extend, do not
     roll new. NEW, not duplicate.'
+- id: BOARD-CURRENCY-1
+  title: Forcing-function ladder so the board (and vibememo) cannot lag shipped work
+  thread: process
+  status: planned
+  approval: explicit
+  approved_by: operator 2026-08-09
+  tags:
+  - numbers-get-knobs
+  - institutional-context
+  origin:
+    date: '2026-08-09'
+    gist: 'operator on the stale board: "A banner is not a forcing function. Is there a harder one? A
+      kanban that does not keep current is fairly useless" -> then "yes deploy gate with softer backups
+      as well (the other 2 or 3). We should also chain to Vibememo"'
+  why: 'Board reconciliation is the ONLY step in the deploy ritual with no forcing function. deploy.sh
+    refuses without tests and without a README; NOTHING refuses without a board update, so it is the
+    only step running on willpower — and it rotted twice (2026-08-09: board said "build" for XCORR-1 and
+    SNAP-1, both already shipped as v5.64.0/v5.63.0). meta.last_reconciled correctly read 2026-08-07 and
+    nothing surfaced it. Root cause is NOT a missing rule (the skill carries three hooks covering it).'
+  constraints:
+  - 'A failed board/vibememo write MUST NOT abort a deploy that has already pushed — trading a stale
+    board for a half-released version is strictly worse. Write AFTER the push succeeds, warn loudly on
+    failure, never exit non-zero post-push.'
+  - deploy.sh is URA-only (CLAUDE.md). Do not co-opt it for Shipwatch or other projects.
+  - 'Every escape hatch must be explicit and logged (--no-cards), never a silent bypass.'
+  ladder:
+  - 'RUNG 1 (HARD — the forcing function): deploy.sh gains --cards ID[,ID...]. REFUSES to deploy when
+    absent, printing current in_progress/review cards as candidates. --no-cards escape for pure-docs
+    releases. On success it WRITES status: shipped_organic + shipped_version: v<version> for each named
+    card and meta.last_reconciled: <today>, committed as part of the release commit. The board update
+    becomes an OUTPUT of shipping, not a task.'
+  - 'RUNG 2 (HARD, same gate): chain vibememo. The same --cards gate requires/emits a vibememo entry for
+    the release (the WHY of the ship), so the decision trail cannot lag either. vibememo = WHY,
+    kanban = WHAT/WHERE/NEXT; both are release-coupled from here.'
+  - 'RUNG 3 (soft backup): KHOST-1 generator renders a loud STALE banner + warns on build when
+    meta.last_reconciled is older than the newest git tag or newest README_v*.md.'
+  - 'RUNG 4 (soft backup): session-start staleness check (skill enforcement #2, already exists) —
+    compare meta.last_reconciled to git log before reporting status.'
+  - 'RUNG 5 (soft backup): recurring overnight agentic pass reconciles the board as its first action
+    before picking up overnight-agentic work. WIRED 2026-08-09 as recurring job 0e0703fc, daily 01:23.'
+  RUNG5_DURABILITY_GAP: 'The 01:23 job is SESSION-ONLY — in-memory, dies when the Claude session exits,
+    and auto-expires after 7 days. So it does NOT yet fully solve the KHOST-1 miss: if the session ends
+    before 01:23, the overnight pass silently does not happen — the SAME failure mode as the original
+    promise, just with a longer fuse. A durable fix needs a scheduler OUTSIDE the session: launchd on
+    the operator Mac or a homelab cron that starts a fresh headless session. Until that exists, rung 5
+    is best-effort and must not be relied on; rungs 1-2 (release-coupled, in-repo) are the load-bearing
+    ones. Operator decision needed on where the durable scheduler lives.'
+  scope_note: 'Rung 1 hardens only the SHIPPED transition. pre_planning->planned->in_progress stays soft
+    (turn-end hook). Deliberate: every card found stale on 2026-08-09 was shipped work the board still
+    called "build" — the rot is concentrated exactly where rung 1 bites. If in-flight statuses prove to
+    rot too, add a second mechanism ON EVIDENCE, not by guess.'
+  parsimony:
+    problem: the board silently lags shipped work, so picking "next" off it can rebuild already-shipped features
+    verdict: BUILD
+    note: 'simplest version (banner) was REJECTED by operator as not a forcing function; the marginal
+      cost of rung 1 over the banner is one gate in a script that already has one (deploy.sh:32-36)'
+  knobs: none new (uses existing meta.last_reconciled)
+  next: implement rung 1 + rung 2 in scripts/deploy.sh behind --dry-run verification; then rung 3 rides KHOST-1
+  refs:
+  - docs/planning/PLANNING_v4.7.10_deploy_sh_gitea_retrofit.md (precedent for modifying deploy.sh)
+  - scripts/deploy.sh:32-36 (existing hard-gate pattern to mirror)
+  - .claude/skills/ura-kanban/SKILL.md (Forcing functions section)
+  sibling_of:
+  - KHOST-1
+  DEDUPE_2026_08_09: 'Four-surface sweep run. Board: KHOST-1 adjacent (owns rung 3, the generator) —
+    linked, not merged, because rung 1 lives in release machinery not the generator. TRANSIT-DIAG-1
+    matched on "diagnostic" only, unrelated. BACKLOG.md: no match. Planning docs: v4.7.10 deploy_sh
+    retrofit is the precedent for HOW deploy.sh gets changed, cited. Catalogs: n/a (process, not a
+    presence primitive). NEW, not duplicate.'
 - id: TABLET-FLEET-1
   title: 'Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)'
   thread: tablets

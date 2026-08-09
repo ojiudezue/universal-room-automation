@@ -242,7 +242,54 @@ principle, not more willpower:
    construction — there is no "go update the backlog later" step to fall behind on.
 
 If the board is ever found lagging, that is itself a `feedback`-class memory event: record the
-missed hook so the trigger list gets tighter, the same way a caught bug tightens a test.
+missed hook so the trigger list gets tighter, the same way a caught bug tightens a test. **But
+diagnose first: coverage gaps get rules, forcing-function gaps get mechanisms.** If the hook
+already existed and was simply not followed, do NOT add a rule — add a forcing function (below).
+Adding rules against compliance failures is how a rule-set bloats until nobody reads it.
+
+## Forcing functions — the currency ladder
+
+**Operator-coined 2026-08-09: *"A banner is not a forcing function. Is there a harder one? A kanban
+that does not keep current is fairly useless."*** A board that lags is worse than no board, because
+picking "next" off a stale board can rebuild already-shipped work.
+
+The diagnosis that produced this section: board reconciliation is **the only step in the deploy
+ritual with no forcing function.** `deploy.sh` refuses without tests and refuses without a README —
+nothing refuses without a board update, so it is the only step running on willpower. It rotted twice
+(2026-08-09: the board said "build" for two features already shipped as v5.63.0 / v5.64.0), and the
+staleness tripwire `meta.last_reconciled` was correctly showing stale the whole time. **A signal that
+must be interrogated is not a mechanism.**
+
+> **Principle: the board update must be an OUTPUT of the work, never a task beside it.**
+
+| Rung | Kind | Mechanism |
+|---|---|---|
+| **1** | **HARD** | `deploy.sh --cards ID[,ID…]` — **refuses to deploy** when absent, printing current `in_progress`/`review` cards as candidates. On success it *writes* `status: shipped_organic` + `shipped_version` per card and `meta.last_reconciled: <today>`, in the release commit. `--no-cards` escape for pure-docs releases, explicit and logged. |
+| **2** | **HARD** | **Vibememo chained to the same gate** — the release also emits a vibememo entry (the WHY of the ship). Both systems are release-coupled, so the decision trail cannot lag either. |
+| **3** | soft | Generator renders a loud **STALE banner** + warns on build when `meta.last_reconciled` is older than the newest git tag or `README_v*.md`. |
+| **4** | soft | Session-start staleness check (enforcement #2 above). |
+| **5** | soft | Recurring overnight agentic pass reconciles the board as its **first** action, before picking up `overnight-agentic` work. |
+
+**Soft rungs are backups, not substitutes.** They exist because the hard gate covers one transition;
+they must never be cited as reason to skip rung 1.
+
+**Scope limit, stated honestly.** Rung 1 hardens only the **shipped** transition;
+`pre_planning → planned → in_progress` remains soft (turn-end hook). This is deliberate rather than a
+half-measure: every card found stale on 2026-08-09 was *shipped work the board still called "build."*
+The rot concentrates exactly where rung 1 bites. If in-flight statuses prove to rot too, add a second
+mechanism **on evidence**, not by guess.
+
+**Safety constraint on any release-coupled write:** a failed board/vibememo write must **never** abort
+a deploy that has already pushed — trading a stale board for a half-released version is strictly
+worse. Write after the push succeeds, warn loudly on failure, never exit non-zero post-push.
+
+### Overnight / autonomous work needs a trigger, not an intention
+
+Same class of failure: *"build it tonight while I'm sleeping"* has no forcing function — the session
+ends and nothing wakes anything up (observed 2026-08-09, KHOST-1 missed). Work tagged
+`autonomy: overnight-agentic` must be bound to a **real recurring scheduled job**, whose first action
+is a board reconciliation. An overnight commitment with no scheduler is a promise, and promises are
+the thing this skill exists to replace.
 
 ## Approval & autonomy — so the board is drivable, not just visible
 
@@ -329,6 +376,9 @@ an at-detection local file → Tier 2-DB, perimeter_alert + NM, folds into CONSO
 
 - **vibememo** = WHY (decision trail, reasoning-in-motion). **This** = WHAT / WHERE / NEXT.
   A card's `Why` is a pointer to the fuller vibememo entry, not a replacement for it.
+  **They are chained at the release gate** (rung 2 above): a ship updates both or neither. Vibememo's
+  historical weakness was the same clock-based cadence this skill rejects — coupling it to the release
+  ritual gives it the forcing function it never had, without making it a separate chore to remember.
 - **BACKLOG_*.md + memory bodies** hold the broader, non-active backlog. The board's
   "Broader backlog" footer just points at them; it does not duplicate them.
 - **CLAUDE.md** governs *how* work is done (tiers, gates). The board governs *what* is in
