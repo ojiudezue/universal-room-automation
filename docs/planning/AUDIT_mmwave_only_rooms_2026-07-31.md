@@ -89,10 +89,54 @@ presence_sensors = ['binary_sensor.mmwave_zigbee_studya_presence']              
 Athom sensor is configured-but-unread, and it is `unavailable` in live state (since the last boot).
 Study A therefore runs on a single Zigbee mmWave, not two.
 
-This is very likely the true shape of the plan's *Amendment 2* finding (*"Study A root cause is
-mmWave misfiled … source string blinds fan-recheck"*): not misfiled into another valid bucket, but
-into a key that does not exist. Recommend confirming operator intent, then either moving the entity
-into `presence_sensors` (if the hardware is to be revived) or deleting the key.
+**CORRECTED 2026-08-09 (same day, after reading the effective config).** I first wrote that this was
+"very likely the true shape of the plan's *Amendment 2* finding." **That was wrong** and is retracted.
+Reading `options` vs `data` per key shows Athom was **cleanly and completely replaced** via the options
+flow — `motion_sensors: []`, `occupancy_sensors: []`, `presence_sensors: [zigbee]`,
+`illuminance_sensor: invisoutlet` all override stale `data` values that still name Athom. Nothing is
+misfiled here; the device is simply decommissioned (operator-confirmed 2026-08-09) and its residue is
+inert.
+
+The real "misfiling" story is Finding 6 below: **every** sensor's kind is its bucket, so kind cannot
+be expressed independently of role. Athom was a red herring.
+
+Residue disposition: stale `data` values + the orphan key are unread; cleaning them needs a direct
+`.storage` edit + restart — real risk, zero functional gain. **Leave them.** The live cleanup is the
+ESPHome device entry (25 entities, 3 in the unavailable count); its UniFi `device_tracker` is a
+separate entry and survives that deletion.
+
+## Finding 6 — the root cause: sensor **kind IS config bucket**, so hardware pins analysis
+
+`domain_coordinators/occupancy_substrate.py:81`:
+
+```python
+_KIND_TO_CONF: Dict[str, str] = {
+    "motion": CONF_MOTION_SENSORS,
+    "mmwave": CONF_MMWAVE_SENSORS,
+    "occupancy": CONF_OCCUPANCY_SENSORS,
+}
+```
+
+with `TIER1_KINDS = ("motion", "mmwave", "occupancy")` (`const.py:342`). URA has exactly three sensor
+kinds and they **are** the three config lists. Operator ruling 2026-08-09: *"Sensor reality should not
+pin use and analysis reality in software. It should just tell us what the hardware layer is."*
+
+This single conflation produces every symptom in Findings 1–2:
+
+- A bed sensor cannot declare itself a bed; it inherits `"occupancy"` (a bucket whose own comment at
+  `const.py:335` reads *"Combined motion+presence sensors"* — an ambiguity bucket). That membership is
+  what makes it a **D2 candidate** instead of a corroborator.
+- "Corroborator" is hardcoded to mean *the motion bucket*, so the six no-PIR rooms have no corroborator
+  **not because they lack independent evidence** but because the vocabulary cannot name it.
+- Every downstream consumer keys off those three strings: D2 candidacy, P15 precedence arbitration, the
+  mmWave demotion gate (`occupancy_source == "mmwave"`), fan-recheck.
+
+**What role-derivation unlocks with no new hardware:** Master Bedroom already has an ideal corroborator
+(the bed — independent failure mode, physically unspoofable); Study A's `room_cameras` and BLE become
+nameable corroborators for the mmWave-only class. Tracked as the prerequisite card
+**SENSOR-CAPABILITY-1**. Note the `SignalTrustLedger` design already assumed this layer exists — its
+input dataclass is `RoomSignal(..., source_kind: str  # 'mmwave' | 'pir' | 'camera' | 'ble')`, a richer
+vocabulary than the three buckets.
 
 ## Finding 4 — fleet health: **6.0% unavailable, not ~33%**
 

@@ -53,8 +53,12 @@ cards:
     problem: a stuck sensor silently fabricates occupancy and drives fans/HVAC/lighting in empty rooms
     verdict: BUILD
     note: detection already exists; this is wiring a consequence + a surface to it, not new inference
-  next: scope corroboration-gated D2 exclusion at the room tier; enumerate which rooms HAVE a usable corroborator
-    vs which must stay notify-only
+  next: 'BLOCKED on SENSOR-CAPABILITY-1 — do not scope exclusion until capability/role are separated,
+    else the corroborator must be hardcoded as PIR (the defect). Then: per-room corroborator capability
+    map from AUDIT_mmwave_only_rooms_2026-07-31.md; six no-PIR rooms need a non-PIR corroborator or stay
+    notify-only.'
+  depends_on:
+  - SENSOR-CAPABILITY-1
   CORRECTION: '2026-08-09: my first version of this card was WRONG on three counts — I asserted mechanism
     from a LOG STRING instead of reading the code (operator: ''a log line does not reality make''). Corrected
     by verification: (1) it is NOT ''detection without consequence'' — the CONTINUOUS rule DOES exclude
@@ -139,6 +143,75 @@ cards:
     naturally and upper tiers are right for free. Propagation adds a cross-tier concept, new state and
     new failure modes to fix something better fixed at source. Only justified as a FALLBACK where the
     room tier genuinely cannot discriminate and upper tiers should down-weight.
+- id: SENSOR-CAPABILITY-1
+  title: Separate sensor CAPABILITY (hardware kind) from analytic ROLE — kind is currently the config bucket
+  thread: presence
+  status: pre_planning
+  approval: unreviewed
+  tags:
+  - tier-3
+  - institutional-context
+  - no-fabrication-verify
+  - context-wide-scoping
+  - numbers-get-knobs
+  origin:
+    date: '2026-08-09'
+    gist: 'operator ruling on whether bed presence moves bucket or code changes: "My instinct is code
+      change so we don''t have fixed config buckets. Sensor reality should not pin use and analysis
+      reality in software. It should just tell us what the hardware layer is. We could also add more
+      options or detail to the kind of sensor in config"'
+  why: 'VERIFIED: occupancy_substrate.py:81 _KIND_TO_CONF maps kind 1:1 onto the three CONF lists, and
+    const.py:342 TIER1_KINDS = ("motion","mmwave","occupancy"). URA has exactly three sensor kinds and
+    they ARE the three config buckets, so the hardware wiring declaration and the analytic role are one
+    field. A bed sensor cannot declare itself a bed — it inherits "occupancy" (const.py:335 comment:
+    "Combined motion+presence sensors", an ambiguity bucket), and that membership is the ONLY reason it
+    is a D2 stuck-candidate rather than a corroborator.'
+  root_cause_of:
+  - 'Master Bedroom: the ideal discriminator (bed presence) is JUDGED instead of CONSULTED.'
+  - 'Six no-PIR rooms have no corroborator NOT because they lack independent evidence but because
+    "corroborator" is hardcoded to mean the motion bucket. Game Room, Jaya Bedroom, Living Room,
+    Study A, Study B (MMWAVE_ONLY) + Master Bedroom (MMWAVE_NO_PIR).'
+  - B-2026-08-04-1 overnight notification spam (beds/bedroom mmWave flagged for being state-normal ON).
+  unlocks_without_new_hardware:
+  - 'Master Bedroom already HAS an ideal corroborator: the bed — independent failure mode, physically
+    unspoofable — the moment role stops being pinned to the motion bucket.'
+  - Study A room_cameras + BLE become nameable corroborators for the mmWave-only class.
+  design:
+  - 'KEEP the three CONF lists as the WIRING layer — no config migration, additive only.'
+  - 'ADD a per-entity capability descriptor (kind, trust, failure-mode class), inferred from
+    device/integration where possible, operator-declarable where genuinely ambiguous (operator: "add
+    more options or detail to the kind of sensor in config"). Default = today''s bucket-derived value
+    so behaviour is byte-identical until a capability is declared.'
+  - 'DERIVE role per question asked: candidate-for-stuck-scoring vs corroborator-for-independence vs
+    creator-vs-extender for occupancy. Role is computed, never stored in config.'
+  - 'Same cut as the intent/evidence axis (PLANNING_paper_and_oss_fusion_library.md sec 7/7b): bed =
+    strong evidence, mmWave = weak witness. Neither is expressible today.'
+  parsimony:
+    problem: hardware wiring pins analytic role, so the best available corroborator in a room cannot be used as one
+    verdict: BUILD
+    note: 'prerequisite, not an enhancement — corroboration-gated exclusion on the current vocabulary
+      MUST hardcode PIR as corroborator, which is the defect itself'
+  blocks:
+  - STUCK-SENSOR-1
+  sibling_of:
+  - SIGNAL-TRUST-LEDGER (build-gated)
+  depends_on: []
+  next: scope the capability descriptor + role-derivation surface; enumerate every consumer of TIER1_KINDS
+    and _KIND_TO_CONF before proposing (context-wide, Tier 3 shared primitive)
+  refs:
+  - docs/planning/AUDIT_mmwave_only_rooms_2026-07-31.md (Finding 6 — root cause)
+  - docs/planning/PLANNING_mmwave_corroboration_tier3.md (Amendment 4)
+  - docs/planning/PLANNING_signal_trust_ledger_abstraction.md (Addendum 2026-08-09 — ledger assumed this layer)
+  - custom_components/universal_room_automation/domain_coordinators/occupancy_substrate.py:81
+  - custom_components/universal_room_automation/const.py:335,342
+  DEDUPE_2026_08_09: 'Four-surface adjacency sweep run before creating this card. Board: adjacent to
+    STUCK-SENSOR-1 (which it now BLOCKS) — kept separate because the shared surface is
+    OccupancySubstrate/TIER1_KINDS, not the stuck detector, and STUCK-SENSOR-1 cannot be built
+    correctly first. BACKLOG.md: B-2026-08-04-1 is downstream (its memory-baseline exemption still
+    applies per-room after this lands); B-2026-08-04-2 unrelated (ops). Parked planning-doc
+    deliverables: mmwave-Tier3 D4 (unrelated, still parked), D6 (absorbed into chatter work, not here).
+    Catalogs: CATALOG P15 substrate kind-precedence is the primitive being changed — extend, do not
+    roll new. NEW, not duplicate.'
 - id: TABLET-FLEET-1
   title: 'Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)'
   thread: tablets
