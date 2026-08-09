@@ -18,6 +18,7 @@ covered, each with a NAMED test the mutation drill can point at:
 
 from __future__ import annotations
 
+import difflib
 import shutil
 import sys
 from pathlib import Path
@@ -123,10 +124,14 @@ def test_mark_shipped_version_prefix_is_normalised(board_copy: Path) -> None:
 
 
 def test_atomic_write_roundtrip(board_copy: Path) -> None:
+    original = board_copy.read_text(encoding="utf-8")
     board = kanban_ship.load_board(board_copy)
     target = kanban_ship.all_card_ids(board)[0]
-    mutated, _ = kanban_ship.mark_shipped(board, [target], "5.99.0", "2026-08-09")
-    kanban_ship.atomic_write_yaml(board_copy, mutated)
+    new_text, unknown = kanban_ship.mark_shipped_text(
+        original, [target], "5.99.0", "2026-08-09"
+    )
+    assert unknown == []
+    kanban_ship.atomic_write_yaml(board_copy, new_text)
 
     reloaded = yaml.safe_load(board_copy.read_text())
     assert reloaded["meta"]["last_reconciled"] == "2026-08-09"
@@ -135,25 +140,111 @@ def test_atomic_write_roundtrip(board_copy: Path) -> None:
     assert hit["shipped_version"] == "v5.99.0"
 
 
-def test_atomic_write_aborts_on_corruption(board_copy: Path, monkeypatch) -> None:
+def test_atomic_write_aborts_on_corruption(board_copy: Path) -> None:
     """(f) if the temp file cannot round-trip as a valid kanban board, the
     write aborts and the ORIGINAL file is untouched. deploy.sh treats this as
     a warning, not a deploy abort."""
     original_bytes = board_copy.read_bytes()
 
-    # Force safe_dump to emit garbage that safe_load will not accept as a board.
-    def broken_dump(data, stream, **kwargs):
-        stream.write("this: is: not: a: valid: kanban: board:\n:::\n")
-
-    monkeypatch.setattr(kanban_ship.yaml, "safe_dump", broken_dump)
+    # Corrupt text that safe_load will parse as something other than a board.
+    corrupt = "just: a: scalar\n"
     with pytest.raises(Exception):
-        kanban_ship.atomic_write_yaml(board_copy, {"cards": []})
+        kanban_ship.atomic_write_yaml(board_copy, corrupt)
 
     # Original file survived.
     assert board_copy.read_bytes() == original_bytes
     # No leftover .tmp files.
     leftovers = list(board_copy.parent.glob(f"{board_copy.name}.*.tmp"))
     assert leftovers == [], f"stale temp files: {leftovers}"
+
+
+# ---------------------------------------------------------------------------
+# H1 — REAL board round-trip preserves hand-authored prose byte-for-byte
+# outside the edited lines.
+# ---------------------------------------------------------------------------
+
+
+def _card_has_status(board_path: Path, card_id: str) -> bool:
+    text = board_path.read_text(encoding="utf-8")
+    in_card = False
+    for line in text.splitlines():
+        if line.startswith("- id: "):
+            in_card = line.split(":", 1)[1].strip() == card_id
+            continue
+        if in_card and line.startswith("  status:"):
+            return True
+        if in_card and line.startswith("- id: "):
+            in_card = False
+    return False
+
+
+def test_real_board_textual_edit_minimal_diff(board_copy: Path) -> None:
+    """H1: mutation of the REAL board must change ONLY the target lines.
+
+    Prior implementation (yaml.safe_dump round-trip) rewrote every card's
+    hand-authored prose. This test pins the property that the writer touches
+    only status/shipped_version on named cards and meta.last_reconciled.
+    """
+    original = board_copy.read_text(encoding="utf-8")
+    board = kanban_ship.load_board(board_copy)
+    # Pick two known cards that HAVE a plain `  status:` line so we can
+    # deterministically account for the diff.
+    targets = [cid for cid in kanban_ship.all_card_ids(board)
+               if _card_has_status(board_copy, cid)][:2]
+    assert len(targets) == 2, "need two cards with plain status: lines to run this test"
+
+    new_text, unknown = kanban_ship.mark_shipped_text(
+        original, targets, "5.99.0", "2099-12-31"
+    )
+    assert unknown == []
+
+    # Structural: still a valid board with expected mutations.
+    parsed = yaml.safe_load(new_text)
+    assert str(parsed["meta"]["last_reconciled"]) == "2099-12-31"
+    for cid in targets:
+        card = next(c for c in parsed["cards"] if c["id"] == cid)
+        assert card["status"] == "shipped_organic"
+        assert card["shipped_version"] == "v5.99.0"
+
+    # Line-count invariant: 2 cards, 1 inserted shipped_version each = +2 lines
+    # (if neither card had shipped_version already).
+    orig_lines = original.splitlines()
+    new_lines = new_text.splitlines()
+    delta = len(new_lines) - len(orig_lines)
+    assert delta == 2, f"expected +2 lines, got {delta}"
+
+    # Strict diff: only the exact edited lines differ. No prose reflow.
+    diff = list(difflib.unified_diff(orig_lines, new_lines, n=0, lineterm=""))
+    # Header lines (---, +++) + hunk headers (@@) are metadata; count only
+    # +/- content lines.
+    plus = [l for l in diff if l.startswith("+") and not l.startswith("+++")]
+    minus = [l for l in diff if l.startswith("-") and not l.startswith("---")]
+    # 1 status line changed per card + 1 shipped_version inserted per card
+    # + 1 meta.last_reconciled changed = 5 additions, 3 removals.
+    assert len(plus) == 5, f"expected 5 added lines, got {len(plus)}:\n" + "\n".join(plus)
+    assert len(minus) == 3, f"expected 3 removed lines, got {len(minus)}:\n" + "\n".join(minus)
+    for l in plus:
+        assert (
+            "status: shipped_organic" in l
+            or "shipped_version: v5.99.0" in l
+            or "last_reconciled: " in l
+        ), f"unexpected added line: {l!r}"
+
+
+def test_real_board_idempotent_reship(board_copy: Path) -> None:
+    """Re-shipping the same card must NOT duplicate shipped_version."""
+    original = board_copy.read_text(encoding="utf-8")
+    board = kanban_ship.load_board(board_copy)
+    target = next(cid for cid in kanban_ship.all_card_ids(board)
+                  if _card_has_status(board_copy, cid))
+    once, _ = kanban_ship.mark_shipped_text(original, [target], "5.99.0", "2026-08-09")
+    twice, _ = kanban_ship.mark_shipped_text(once, [target], "5.99.1", "2026-08-09")
+    # Two ships = one insert (first time) + one in-place replace (second time);
+    # net line delta over original is +1, not +2.
+    assert len(twice.splitlines()) - len(original.splitlines()) == 1
+    parsed = yaml.safe_load(twice)
+    card = next(c for c in parsed["cards"] if c["id"] == target)
+    assert card["shipped_version"] == "v5.99.1"
 
 
 # ---------------------------------------------------------------------------

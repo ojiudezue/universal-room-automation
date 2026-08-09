@@ -18,6 +18,9 @@ NO_CARDS=false
 
 # Check for --dry-run / --cards / --no-cards anywhere in args.
 # (Positional args 1-3 are version/summary/notes; flags may appear in any order.)
+# M1: --cards must be followed by a non-empty NON-FLAG value. Rejecting a
+# leading '--' here catches `deploy.sh 1 2 3 --cards --dry-run` early,
+# where the previous parser silently swallowed `--dry-run` as the ID list.
 i=0
 for arg in "$@"; do
   i=$((i+1))
@@ -27,10 +30,20 @@ for arg in "$@"; do
     --cards)
       # Next arg is the ID list.
       next_idx=$((i+1))
-      CARDS="${!next_idx:-}"
+      next_val="${!next_idx:-}"
+      if [[ -z "$next_val" || "$next_val" == --* ]]; then
+        echo "ERROR: --cards requires a non-empty ID list (got: '${next_val}')." >&2
+        echo "       Example: --cards CARD-1,CARD-2   (do not pass another flag)." >&2
+        exit 1
+      fi
+      CARDS="$next_val"
       ;;
     --cards=*)
       CARDS="${arg#--cards=}"
+      if [[ -z "$CARDS" ]]; then
+        echo "ERROR: --cards= requires a non-empty ID list." >&2
+        exit 1
+      fi
       ;;
   esac
 done
@@ -178,9 +191,49 @@ fi
 step "4b/7 BOARD-CURRENCY-1: reconciling kanban + vibememo (post-push)"
 if [[ -n "$CARDS" ]]; then
   if $DRY_RUN; then
-    echo "  [dry-run] kanban_ship.py mark-shipped $CARDS --version $VERSION"
-    echo "  [dry-run] vibememo_ship.py --version $VERSION --summary <> --notes <>"
-    echo "  [dry-run] git add + commit + push (kanban reconcile)"
+    # H2: --dry-run is a REAL rehearsal — copy the live board + vibememo dir
+    # to a tempdir, invoke the actual writers against those copies, and diff
+    # so the operator sees exactly what a live run would produce. This
+    # exercises the real code path (formerly untested until a live ship).
+    rehearsal_dir="$(mktemp -d -t ura-deploy-dry.XXXXXX)"
+    trap 'rm -rf "$rehearsal_dir"' EXIT
+    cp "$KANBAN_YAML" "$rehearsal_dir/kanban.data.yaml"
+    echo "  [dry-run] rehearsing kanban_ship.py mark-shipped $CARDS --version $VERSION"
+    if python3 "$SCRIPT_DIR/kanban_ship.py" mark-shipped "$CARDS" \
+         --version "$VERSION" --file "$rehearsal_dir/kanban.data.yaml"; then
+      echo "  [dry-run] kanban diff (would-be write against real board):"
+      diff -u "$KANBAN_YAML" "$rehearsal_dir/kanban.data.yaml" | sed 's/^/    /' || true
+    else
+      echo "  [dry-run] [warn] rehearsal FAILED — kanban writer errored on the real board" >&2
+    fi
+
+    mkdir -p "$rehearsal_dir/.vibememo/users"
+    # Mirror the target author directory (if any) so entry-id numbering is
+    # realistic. resolve_author() walks users/; a single-dir setup preserves
+    # the operator's canonical namespace.
+    if [ -d "$REPO_DIR/.vibememo/users" ]; then
+      cp -R "$REPO_DIR/.vibememo/users/." "$rehearsal_dir/.vibememo/users/"
+    fi
+    echo "  [dry-run] rehearsing vibememo_ship.py --version $VERSION --repo-root $rehearsal_dir"
+    # Marker file lets `find -newer` return ONLY the entry the rehearsal
+    # created, not the pre-existing entries copied from the real repo.
+    marker="$rehearsal_dir/.marker"; touch "$marker"; sleep 1
+    if python3 "$SCRIPT_DIR/vibememo_ship.py" \
+         --version "$VERSION" \
+         --summary "$SUMMARY" \
+         --notes "$NOTES" \
+         --cards "$CARDS" \
+         --repo-root "$rehearsal_dir"; then
+      echo "  [dry-run] vibememo entry (would-be write):"
+      find "$rehearsal_dir/.vibememo/users" -name "*.json" -newer "$marker" -print 2>/dev/null | while read -r f; do
+        echo "    ----- ${f#$rehearsal_dir/} -----"
+        sed 's/^/    /' "$f"
+      done
+    else
+      echo "  [dry-run] [warn] rehearsal FAILED — vibememo writer errored" >&2
+    fi
+    echo "  [dry-run] git add + commit + push (kanban reconcile) — NOT executed"
+    rm -rf "$rehearsal_dir"; trap - EXIT
   else
     set +e
     python3 "$SCRIPT_DIR/kanban_ship.py" mark-shipped "$CARDS" \
@@ -200,16 +253,34 @@ if [[ -n "$CARDS" ]]; then
     fi
     if [ "$kanban_rc" -eq 0 ] || [ "$vibememo_rc" -eq 0 ]; then
       # Follow-up commit + push so the board/vibememo changes reach master.
+      # L1: drop the 2>/dev/null blanket — status check names what was staged.
       git -C "$REPO_DIR" add \
         "$KANBAN_YAML" \
-        "$REPO_DIR/.vibememo/users/" 2>/dev/null
-      git -C "$REPO_DIR" commit -m "kanban+vibememo: BOARD-CURRENCY-1 reconcile v$VERSION ($CARDS)"
+        "$REPO_DIR/.vibememo/users/"
+      staged="$(git -C "$REPO_DIR" diff --cached --name-only)"
+      if [ -z "$staged" ]; then
+        echo "  [warn] [BOARD-CURRENCY-1] git add produced no staged files — nothing to reconcile?" >&2
+      fi
+      # M3: this is release plumbing; --no-verify sidesteps hook flakes that
+      # would leave the board locally modified and block the next deploy on a
+      # dirty tree. Authored-code hooks belong on step 3, not here.
+      git -C "$REPO_DIR" commit --no-verify -m "kanban+vibememo: BOARD-CURRENCY-1 reconcile v$VERSION ($CARDS)"
       commit_rc=$?
       if [ "$commit_rc" -eq 0 ]; then
         git -C "$REPO_DIR" push origin develop
         push_rc=$?
         if [ "$push_rc" -ne 0 ]; then
           echo "  [warn] [BOARD-CURRENCY-1] follow-up push failed (rc=$push_rc) — commit is local; retry manually" >&2
+        fi
+        # M2: mirror the reconcile commit to Gitea best-effort so
+        # gitea/develop does not trail origin/develop by exactly this commit
+        # after every release. Warn-only — gitea is mirror-only (see step 4).
+        if git -C "$REPO_DIR" remote get-url gitea >/dev/null 2>&1; then
+          bash "$REPO_DIR/scripts/dual-push.sh" --gitea-only develop
+          gitea_rc=$?
+          if [ "$gitea_rc" -ne 0 ]; then
+            echo "  [warn] [BOARD-CURRENCY-1] gitea mirror of reconcile commit failed (rc=$gitea_rc) — origin has it" >&2
+          fi
         fi
       else
         echo "  [warn] [BOARD-CURRENCY-1] follow-up commit failed (rc=$commit_rc) — nothing to reconcile? board file untouched?" >&2

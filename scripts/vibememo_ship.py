@@ -19,16 +19,26 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-VIBEMEMO_DIR = REPO_ROOT / ".vibememo"
 
 
-def resolve_author(explicit: str | None) -> str:
+def _now_utc_iso() -> str:
+    """Timezone-aware UTC ISO-8601 stamp. L2: replaces deprecated utcnow()."""
+    return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _session_stamp_utc() -> str:
+    return _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+
+def resolve_author(explicit: str | None, vibememo_dir: Path) -> str:
     """Pick the vibememo namespace to write into.
 
     Preference order:
@@ -42,7 +52,7 @@ def resolve_author(explicit: str | None) -> str:
     """
     if explicit:
         return explicit
-    users_dir = VIBEMEMO_DIR / "users"
+    users_dir = vibememo_dir / "users"
     if users_dir.is_dir():
         candidates = [p.name for p in users_dir.iterdir() if p.is_dir()]
         if len(candidates) == 1:
@@ -86,7 +96,7 @@ def build_entry(
 ) -> dict:
     """Assemble a milestone entry matching the schema of e.g. entry 031."""
     ver = version if version.startswith("v") else f"v{version}"
-    session_stamp = _dt.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    session_stamp = _session_stamp_utc()
     return {
         "format_version": "2.1",
         "entry_id": entry_id,
@@ -117,6 +127,27 @@ def write_entry(entries_dir: Path, entry: dict, slug: str) -> Path:
     return path
 
 
+def _atomic_write_json(path: Path, obj: object) -> None:
+    """L5: atomic write via tempfile.mkstemp + os.replace, same-directory.
+
+    Mirrors kanban_ship.atomic_write_yaml: if json.dump errors mid-flight,
+    the original file is left untouched. Prevents partial-write corruption
+    of index.json on interrupt / disk-full.
+    """
+    fd, tmp = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(obj, fh, indent=2)
+            fh.write("\n")
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            Path(tmp).unlink()
+        except FileNotFoundError:
+            pass
+        raise
+
+
 def update_index(user_dir: Path, entry: dict) -> None:
     """Bump index.json entry_count + last_entry. Best-effort; missing file is OK."""
     idx_path = user_dir / "index.json"
@@ -132,7 +163,7 @@ def update_index(user_dir: Path, entry: dict) -> None:
     idx["entry_count"] = max(int(idx.get("entry_count", 0)), n)
     idx["last_entry"] = entry["entry_id"]
     idx["last_updated"] = entry["timestamp"]
-    idx_path.write_text(json.dumps(idx, indent=2) + "\n", encoding="utf-8")
+    _atomic_write_json(idx_path, idx)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -142,14 +173,20 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--notes", required=True)
     p.add_argument("--cards", default="")
     p.add_argument("--author", default=None)
+    p.add_argument(
+        "--repo-root",
+        default=str(REPO_ROOT),
+        help="override repo root (used by deploy.sh --dry-run rehearsal)",
+    )
     args = p.parse_args(argv)
 
-    author = resolve_author(args.author)
-    user_dir = VIBEMEMO_DIR / "users" / author
+    vibememo_dir = Path(args.repo_root) / ".vibememo"
+    author = resolve_author(args.author, vibememo_dir)
+    user_dir = vibememo_dir / "users" / author
     entries_dir = user_dir / "entries"
 
     entry_id = next_entry_id(entries_dir)
-    now_iso = _dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    now_iso = _now_utc_iso()
     cards = [c.strip() for c in args.cards.split(",") if c.strip()]
 
     entry = build_entry(
@@ -164,7 +201,12 @@ def main(argv: list[str] | None = None) -> int:
     slug = slugify(f"v{args.version.lstrip('v')}_{args.summary}")
     path = write_entry(entries_dir, entry, slug)
     update_index(user_dir, entry)
-    print(f"vibememo_ship: wrote {path.relative_to(REPO_ROOT)} (author={author})")
+    root = Path(args.repo_root)
+    try:
+        display = path.relative_to(root)
+    except ValueError:
+        display = path
+    print(f"vibememo_ship: wrote {display} (author={author})")
     return 0
 
 
