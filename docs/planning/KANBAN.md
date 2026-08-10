@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-10T09:20:50-05:00_ - _Data commit: `89b92a8e2604`_ - _last_reconciled: 2026-08-09_
+_Generated: 2026-08-10T09:27:57-05:00_ - _Data commit: `42052a3c6c18`_ - _last_reconciled: 2026-08-10_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -13,10 +13,10 @@ _Generated: 2026-08-10T09:20:50-05:00_ - _Data commit: `89b92a8e2604`_ - _last_r
 |---|---:|
 | 📥 Inbox | 1 |
 | 🧭 Pre-planning | 15 |
-| 📝 Planned | 3 |
+| 📝 Planned | 2 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 0 |
-| 🚀 Shipped (organic open) | 8 |
+| 🚀 Shipped (organic open) | 9 |
 | ⏸️ Waiting on operator | 2 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 0 |
@@ -209,7 +209,7 @@ thread: **camera** - status: **pre_planning** - approval: **implied**
 - **Parsimony:** [BUILD] per-room fused camera sensors ship with no area
 - **Refs:** binary_sensor.py CameraPersonDetectedSensor
 
-## 📝 Planned (3)
+## 📝 Planned (2)
 _has plan / acceptance_
 
 ### `STUCK-SENSOR-1` - Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
@@ -237,34 +237,6 @@ thread: **presence** - status: **planned** - approval: **explicit**
   - `OPERATOR_DISPOSITIONS_2026_08_09`: ATHOM (Study A): CLOSED as a no-op. Operator: "Ignore athom now. It's a no op." URA already does not read it (options override every bucket); the ESPHome device entry stays. Do NOT re-raise, do NOT propose deleting the entry or cleaning ...
   - `rejected`: PROPAGATE STUCK STATE TO ZONE/HOUSE — I recommended this and then withdrew it under challenge ('is this flow upwards useful?'). If the room tier excludes correctly the corrected occupancy propagates naturally and upper tiers are right fo...
 
-### `SENSOR-CAPABILITY-1` - Separate sensor CAPABILITY (hardware kind) from analytic ROLE — kind is currently the config bucket
-thread: **presence** - status: **planned** - approval: **explicit**
-- **Origin:** 2026-08-09 - operator ruling on whether bed presence moves bucket or code changes: "My instinct is code change so we don't have fixed config buckets. Sensor reality should not pin use and analysis reality in software. It should just tell...
-- **Why:** VERIFIED: occupancy_substrate.py:81 _KIND_TO_CONF maps kind 1:1 onto the three CONF lists, and const.py:342 TIER1_KINDS = ("motion","mmwave","occupancy"). URA has exactly three sensor kinds and they ARE the three config buckets, so the h...
-- **Next:** PLAN WRITTEN 2026-08-09 (docs/planning/PLANNING_sensor_capability_vs_role.md, 477 lines). Tier 3, four framing-disjoint reviews, operator checkpoint before deploy. AWAITING OPERATOR GO — Tier 3 shared primitive, not implied-approval elig...
-- **Tags:** tier-3, institutional-context, no-fabrication-verify, context-wide-scoping, numbers-get-knobs
-- **Blocks:** STUCK-SENSOR-1
-- **Sibling of:** SIGNAL-TRUST-LEDGER (build-gated)
-- **Parsimony:** [BUILD] hardware wiring pins analytic role, so the best available corroborator in a room cannot be used as one
-- **Refs:** docs/planning/AUDIT_mmwave_only_rooms_2026-07-31.md (Finding 6 — root cause); docs/planning/PLANNING_mmwave_corroboration_tier3.md (Amendment 4); docs/planning/PLANNING_signal_trust_ledger_abstraction.md (Addendum 2026-08-09 — ledger assumed this layer); custom_components/universal_room_automation/domain_coordinators/occupancy_substrate.py:81; custom_components/universal_room_automation/const.py:335,342
-- **Forensic keys (16):**
-  - `root_cause_of`: Master Bedroom: the ideal discriminator (bed presence) is JUDGED instead of CONSULTED.
-  - `unlocks_without_new_hardware`: Master Bedroom already HAS an ideal corroborator: the bed — independent failure mode, physically unspoofable — the moment role stops being pinned to the motion bucket.
-  - `design`: KEEP the three CONF lists as the WIRING layer — no config migration, additive only.
-  - `build_2026_08_09`: BUILT (worktree commit 141e60939) then REBASED onto current develop as c82290f68 on branch sensor-cap-rebase. STALE-BASE INCIDENT: the builder worktree was based on 57ba22942 (v5.50.2), 214 commits behind develop, so its green suite (19f...
-  - `I1_DEVIATION_for_reviewers`: The builder KNOWINGLY deviated from byte-identity in one place and flagged it: for an entity in BOTH mmwave_sensors and occupancy_sensors (the P15 defensive case), pre-migration list-concat DOUBLE-SCORES it (same ring appended twice per ...
-  - `build_notes`: A mutation drill initially PASSED, exposing dead code: the strong_evidence gate was unreachable for kind=bed (bed is not in _STUCK_CANDIDATE_KINDS, so it exits earlier). The builder added a test for the reachable path (operator declares ...
-  - `TIER3_REVIEW_ROUND_2026_08_09`: A: SHIP w/ fix-ups — HIGH-A1 (validator accepted a capability with no kind, silently no-opping the cycle headline use case), MED-A2 (failure_mode unvalidated). Verified by reading: _CONF_PRECEDENCE matches occupancy_substrate._KIND_PRECEDEN...
-  - `ORCHESTRATOR_ADJUDICATION`: B/C/D disagreed on ONE line. Resolved by reading source: _STUCK_CANDIDATE_KINDS = {mmwave, occupancy} excludes motion (sensor_role.py:73) and _CONF_PRECEDENCE resolves a motion+mmwave entity to MOTION, so CANDIDATE_FOR_STUCK returns Fals...
-  - `FIXUP_2026_08_09`: bed359d5d, ff-merged onto sensor-cap-rebase. Fixed HIGH-A1, MED-A2, D-MEDIUM-1 (validator now rejects an override that would leave a motion-wired entity in neither loop), C-MED-1 (byte-identity anchor + a behavioural test driving product...
-  - `ORCHESTRATOR_VERIFIED_2026_08_09`: Did NOT trust the reports (Tier-3 mandate). Personally: ff-merged; confirmed the dead branch and false comment are gone (0 occurrences); ran my OWN mutation on the load-bearing site (_CONF_PRECEDENCE inverted, py_compile clean) -> 7 NAME...
-  - `AWAITING`: TIER-3 OPERATOR CHECKPOINT BEFORE DEPLOY (mandatory per CLAUDE.md). Not merged to develop.
-  - `known_gap`: The misfiled-hybrid collision WARN has no dedicated test asserting the emit path (it fired incidentally in a drill). Would need _LOGGER mocking or caplog scaffolding on the coordinator logger. Say the word and it gets one.
-  - `status_note`: plan complete; build gated on operator go
-  - `invariant`: I1 — with no CONF_SENSOR_CAPABILITIES declared anywhere, get_all_room_kinds, every SIGNAL_SUBSTRATE_KIND_CHANGED dispatch, _room_provenance, _detect_duty_cycle_stuck's return set and every exposed entity attribute are BYTE-IDENTICAL to t...
-  - `riskiest`: _detect_duty_cycle_stuck migration. Its positional signature (motion, mmwave, occupancy) is itself a legacy reification of _KIND_TO_CONF. An entity present in BOTH mmwave_sensors AND occupancy_sensors (the P15 defensive case, occupancy_s...
-  - `DEDUPE_2026_08_09`: Four-surface adjacency sweep run before creating this card. Board: adjacent to STUCK-SENSOR-1 (which it now BLOCKS) — kept separate because the shared surface is OccupancySubstrate/TIER1_KINDS, not the stuck detector, and STUCK-SENSOR-1 ...
-
 ### `CONSOL-1` - Perimeter consolidation cycle
 thread: **perimeter** - status: **planned** - approval: **explicit**
 - **Origin:** 2026-08-07 - retire redundant manager surface; I need to weigh in — usability
@@ -286,8 +258,37 @@ _under review_
 
 _(none)_
 
-## 🚀 Shipped (organic open) (8)
+## 🚀 Shipped (organic open) (9)
 _live, awaiting proof_
+
+### `SENSOR-CAPABILITY-1` - Separate sensor CAPABILITY (hardware kind) from analytic ROLE — kind is currently the config bucket
+thread: **presence** - status: **shipped_organic** - approval: **explicit**
+- **Origin:** 2026-08-09 - operator ruling on whether bed presence moves bucket or code changes: "My instinct is code change so we don't have fixed config buckets. Sensor reality should not pin use and analysis reality in software. It should just tell...
+- **Why:** VERIFIED: occupancy_substrate.py:81 _KIND_TO_CONF maps kind 1:1 onto the three CONF lists, and const.py:342 TIER1_KINDS = ("motion","mmwave","occupancy"). URA has exactly three sensor kinds and they ARE the three config buckets, so the h...
+- **Next:** PLAN WRITTEN 2026-08-09 (docs/planning/PLANNING_sensor_capability_vs_role.md, 477 lines). Tier 3, four framing-disjoint reviews, operator checkpoint before deploy. AWAITING OPERATOR GO — Tier 3 shared primitive, not implied-approval elig...
+- **Tags:** tier-3, institutional-context, no-fabrication-verify, context-wide-scoping, numbers-get-knobs
+- **Blocks:** STUCK-SENSOR-1
+- **Sibling of:** SIGNAL-TRUST-LEDGER (build-gated)
+- **Parsimony:** [BUILD] hardware wiring pins analytic role, so the best available corroborator in a room cannot be used as one
+- **Refs:** docs/planning/AUDIT_mmwave_only_rooms_2026-07-31.md (Finding 6 — root cause); docs/planning/PLANNING_mmwave_corroboration_tier3.md (Amendment 4); docs/planning/PLANNING_signal_trust_ledger_abstraction.md (Addendum 2026-08-09 — ledger assumed this layer); custom_components/universal_room_automation/domain_coordinators/occupancy_substrate.py:81; custom_components/universal_room_automation/const.py:335,342
+- **Forensic keys (17):**
+  - `shipped_version`: v5.65.0
+  - `root_cause_of`: Master Bedroom: the ideal discriminator (bed presence) is JUDGED instead of CONSULTED.
+  - `unlocks_without_new_hardware`: Master Bedroom already HAS an ideal corroborator: the bed — independent failure mode, physically unspoofable — the moment role stops being pinned to the motion bucket.
+  - `design`: KEEP the three CONF lists as the WIRING layer — no config migration, additive only.
+  - `build_2026_08_09`: BUILT (worktree commit 141e60939) then REBASED onto current develop as c82290f68 on branch sensor-cap-rebase. STALE-BASE INCIDENT: the builder worktree was based on 57ba22942 (v5.50.2), 214 commits behind develop, so its green suite (19f...
+  - `I1_DEVIATION_for_reviewers`: The builder KNOWINGLY deviated from byte-identity in one place and flagged it: for an entity in BOTH mmwave_sensors and occupancy_sensors (the P15 defensive case), pre-migration list-concat DOUBLE-SCORES it (same ring appended twice per ...
+  - `build_notes`: A mutation drill initially PASSED, exposing dead code: the strong_evidence gate was unreachable for kind=bed (bed is not in _STUCK_CANDIDATE_KINDS, so it exits earlier). The builder added a test for the reachable path (operator declares ...
+  - `TIER3_REVIEW_ROUND_2026_08_09`: A: SHIP w/ fix-ups — HIGH-A1 (validator accepted a capability with no kind, silently no-opping the cycle headline use case), MED-A2 (failure_mode unvalidated). Verified by reading: _CONF_PRECEDENCE matches occupancy_substrate._KIND_PRECEDEN...
+  - `ORCHESTRATOR_ADJUDICATION`: B/C/D disagreed on ONE line. Resolved by reading source: _STUCK_CANDIDATE_KINDS = {mmwave, occupancy} excludes motion (sensor_role.py:73) and _CONF_PRECEDENCE resolves a motion+mmwave entity to MOTION, so CANDIDATE_FOR_STUCK returns Fals...
+  - `FIXUP_2026_08_09`: bed359d5d, ff-merged onto sensor-cap-rebase. Fixed HIGH-A1, MED-A2, D-MEDIUM-1 (validator now rejects an override that would leave a motion-wired entity in neither loop), C-MED-1 (byte-identity anchor + a behavioural test driving product...
+  - `ORCHESTRATOR_VERIFIED_2026_08_09`: Did NOT trust the reports (Tier-3 mandate). Personally: ff-merged; confirmed the dead branch and false comment are gone (0 occurrences); ran my OWN mutation on the load-bearing site (_CONF_PRECEDENCE inverted, py_compile clean) -> 7 NAME...
+  - `AWAITING`: TIER-3 OPERATOR CHECKPOINT BEFORE DEPLOY (mandatory per CLAUDE.md). Not merged to develop.
+  - `known_gap`: The misfiled-hybrid collision WARN has no dedicated test asserting the emit path (it fired incidentally in a drill). Would need _LOGGER mocking or caplog scaffolding on the coordinator logger. Say the word and it gets one.
+  - `status_note`: plan complete; build gated on operator go
+  - `invariant`: I1 — with no CONF_SENSOR_CAPABILITIES declared anywhere, get_all_room_kinds, every SIGNAL_SUBSTRATE_KIND_CHANGED dispatch, _room_provenance, _detect_duty_cycle_stuck's return set and every exposed entity attribute are BYTE-IDENTICAL to t...
+  - `riskiest`: _detect_duty_cycle_stuck migration. Its positional signature (motion, mmwave, occupancy) is itself a legacy reification of _KIND_TO_CONF. An entity present in BOTH mmwave_sensors AND occupancy_sensors (the P15 defensive case, occupancy_s...
+  - `DEDUPE_2026_08_09`: Four-surface adjacency sweep run before creating this card. Board: adjacent to STUCK-SENSOR-1 (which it now BLOCKS) — kept separate because the shared surface is OccupancySubstrate/TIER1_KINDS, not the stuck detector, and STUCK-SENSOR-1 ...
 
 ### `BOARD-CURRENCY-1` - Forcing-function ladder so the board (and vibememo) cannot lag shipped work
 thread: **process** - status: **shipped_organic** - approval: **explicit**

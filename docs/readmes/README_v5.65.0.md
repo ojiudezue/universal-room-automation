@@ -88,4 +88,18 @@ pre-existing set; +16 over the v5.64.0-era baseline are this cycle's and KHOST-1
 
 ## Live Validation
 
-(prospective — replaced with the Validated table post-restart)
+### Validated 2026-08-10 (v5.65.0 boot ~09:5x CDT)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Integration loads; zero URA errors | **PASS** | All 41 config entries `loaded`; `system_log` ERROR search for `universal_room` empty post-restart AND post-declaration-reload; 190 URA sensors up; house_state `home_day`; zones z1/z2/z3 reporting |
+| L2 | I1 — behaviour identical with no declarations | **PASS (window)** | No new stuck-signal NMs, no vanished entities, zone/room occupancy normal between boot and declaration. Longer-horizon proof is organic by construction (I1 is mutation-anchored in-suite) |
+| L3 | Declaration path round-trips | **PASS** (organic half open) | `sensor_capabilities = {'binary_sensor.bed_presence_2bd7b4_bed_occupied_either_fast': {'kind': 'bed'}}` persisted via the options flow (entry reloaded cleanly, all 62 sibling option keys byte-intact); form re-entry renders the stored JSON pretty-printed. **Organic:** no duty-cycle-stuck NM for the bed sensor over the coming nights — the founding use case |
+| L4 | Validator rejects bad payloads live | **PASS** | Live submit of `{"trust_class": "strong_evidence"}` (no `kind` — the HIGH-A1 shape) → `sensor_capabilities_invalid`, save aborted, stored declaration untouched |
+
+Boot-only transients: none observed (websocket took ~2 min to accept connections post-boot; normal).
+
+Notes: the deploy was also the **first live execution of the BOARD-CURRENCY-1 `--cards` gate** —
+step 4b marked the card `shipped_organic v5.65.0`, bumped `meta.last_reconciled`, and wrote
+vibememo entry 034 inside the release flow, exactly as rehearsed in dry-run. PR #494:
+47 files, +8635/−178 (non-empty verified).
