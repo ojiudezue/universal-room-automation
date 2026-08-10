@@ -457,6 +457,11 @@ cards:
     boot-settle is not binding and the v5.35.0 safety rails gate the census DISCOUNT not the NM, so they
     cannot explain the silence. Re-thresholding would land at ~0.3-0.5 h, below plausible real occupancy
     — the 3.0/6.0 h pair is a deliberate "impossible for a real body" bound working as designed.'
+  GARAGE_CAMERA_RULING_2026_08_10: 'OPERATOR: "No — garage cameras should feed only egresses and
+    exterior. I fear it will be too noisy for interior listings." DECIDED: add camera.garage_a/garage_b
+    to CONF_EGRESS_CAMERAS (perimeter_alert), NOT camera_person_entities. ACCEPTED CONSEQUENCE: D1
+    stuck-camera detection will never cover the garages (interior-list-only) — the 6.52h garage_b hold
+    class stays invisible to D1 by explicit choice. Config apply pending.'
   D1_REAL_FINDING_coverage_not_calibration: 'sensor.garage_b_person_count held >0 for 6.52 h and WOULD
     have crossed both rules — but camera.garage_b and camera.garage_a are in NO URA camera list (not
     interior, not perimeter, not egress), while "Garage B" IS a configured URA room. Widening D1 to
@@ -704,6 +709,57 @@ cards:
     OVERRIDE-NOTIFY-1 is about warning before expiry. Neither touches whether the arrester should fire
     against an occupant comfort request in the first place. HVAC-PRESET-FLAP-1 is the sibling defect
     from the same trace but independent — fixing one would not fix the other. NEW.'
+- id: BLE-WARM-CREATE-1
+  title: BLE re-creates bathroom occupancy inside the 10-min warm window on every toilet visit (v5.22.0 left this open by design)
+  thread: presence
+  status: pre_planning
+  approval: unreviewed
+  tags:
+  - no-fabrication-verify
+  - measure-before-build
+  origin:
+    date: '2026-08-10'
+    gist: 'operator in the master toilet; bathroom light came on briefly, reproducibly ("when I enter
+      it"), during daytime despite only-when-dark'
+  why: 'MEASURED from recorder attrs, two events this morning: 09:53:32 and 10:19:35, both
+    occupancy_source=ble, ble_persons=[Oji], tier1_provenance all-False, fresh became_occupied_time
+    (CREATE not extend), off again 41s/37s later. NOT a v5.22.0 regression — the predicate is intact and
+    both events were admitted by its MOTION LEG: last motion 5.5 and 9 min prior, inside
+    BLE_MOTION_CONFIRM_MULTIPLIER(2) x occupancy_timeout(300s) = 10 min. The comment says the leg exists
+    to "cover the handoff tick where motion just timed out" — but 10 minutes is not a handoff tick.'
+  mechanism: 'Every toilet visit passes through the bathroom -> legitimate motion -> bathroom occupancy
+    -> times out while operator sits in the toilet -> his BLE still resolves to the master_bathroom
+    area (the toilet is inside the bathroom scanner footprint) -> Bermuda flap re-fires BLE within the
+    warm window -> occupancy CREATED -> entry actions -> light on -> BLE flap clears -> off ~40s later.
+    Reproducible by construction: the pass-through guarantees fresh motion, so the warm window is
+    always open when it matters. v5.22.0 fixed the COLD strobe (chain broken, no recent motion); this
+    is the WARM strobe it deliberately admitted.'
+  daytime_light_finding: 'NOT a lux bug. sensor...masterbath_illuminance reads 8.5 lx live (cover 1
+    closed, interior room) -> lux_zone=dark is CORRECT. "Only when dark" is lux-based, not sun-based;
+    the room genuinely is dark at 10am. Every occupancy row today carries last_lux_zone=dark. The
+    daytime complaint is the BLE create firing entry actions, not the lux gate.'
+  third_writer_ruled_out: '40 HA automations enabled; none targets master bathroom lights (closet +
+    ziri/jaya/guest bathrooms have their own; master bath does not). URA sole writer.'
+  fix_directions_not_built:
+  - '(a) NARROW the motion leg to an actual handoff: admit BLE create only within ~1 tick (30-60s) of
+    the occupancy-off transition, not 2x timeout from last motion. Smallest change; kills the
+    reproducible case; still covers the documented purpose.'
+  - '(b) ADJACENT-ROOM ATTRIBUTION: suppress BLE create when the same person''s BLE also explains an
+    ADJACENT occupied room (master_toilet occupied=on by the same person throughout). This is the
+    fusion-library intent/evidence + adjacency territory — richer, heavier.'
+  - '(c) ROLE SPLIT: BLE-created occupancy extends holds/HVAC but does not fire LIGHT entry actions.
+    NOTE: sensor_role.RoleQuery.CREATOR_VS_EXTENDER is RESERVED for exactly this — senscap v5.65.0
+    shipped the query surface unconsumed. This card may be its founding consumer.'
+  next: operator pick of direction (a)/(b)/(c); (a) is the marginal-benefit favourite — smallest
+    ingredient, kills the observed case, preserves still-body holds via the chain leg untouched
+  refs:
+  - docs/readmes/README_v5.22.0.md (the reference cycle, same room, 2026-07-18)
+  - custom_components/universal_room_automation/coordinator.py:2646-2700 (two-leg admission)
+  - const.py:447 (BLE_MOTION_CONFIRM_MULTIPLIER=2)
+  DEDUPE_2026_08_10: 'Sweep: v5.22.0 cycle is the PARENT fix (cold strobe) — this is its documented
+    residual, not a duplicate. STUCK-SENSOR-1/chatter unrelated (different detector). Fusion-library
+    section 7 intent/evidence is the (b)/(c) design home, linked not merged. CREATOR_VS_EXTENDER
+    reserved query = planned consumer. NEW.'
 - id: TABLET-FLEET-1
   title: 'Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)'
   thread: tablets
