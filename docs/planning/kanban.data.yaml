@@ -774,9 +774,34 @@ cards:
     only if BLE ALSO dropped in that exact window (rare-squared), failure mode is lights-off-until-
     movement which PIR recovers. BATCHING: orchestrator call = SEPARATE hotfix (occupancy reviews stay
     pointed at one change); P24/D3/dropdowns ship as their own batch after.'
-  next: 'BUILD IN FLIGHT (Tier-3 bar): deletion + two mandatory verifications (tick-ordering mutation
-    test as go/no-go; no-mmWave room enumeration for reviewers) + falsifiable-invariant regression
-    anchors (BLE must never create at ANY motion age). Then 4 framing-disjoint reviews.'
+  REVIEWS_2026_08_10: 'A SHIP (1 LOW: const doc described the D2 kill by the WRONG MECHANISM — outer
+    guard, not threshold-collapse; the 4th false-mechanism comment this week, caught in the commit that
+    retired three others). B SHIP (boot regression RULED OUT: _last_occupied_state IS restored and
+    _last_motion_time is NOT, so leg (b) was already inert on the first post-restart tick — nothing
+    lost; 1 MED: unreachable fossil branch; L-B2: the constant name says multiplier but the BLE block
+    now ignores magnitude — split into BLE_ADMIT_ENABLED bool + D2 multiplier in a later cycle).
+    C SHIP ZERO findings (its own drill reintroduced a motion leg -> 6/7 anchors red with [None]
+    correctly green; kill-switch gate load-bearing; oracles independently authored; only ONE ble
+    source-write site exists). D SHIP-WITH-FOLLOWUP: invariant HOLDS across the diff surface;
+    capability seam CLOSED (BLE_PRESENCE is corroborator-only, not injected into detection lists);
+    ONE pre-existing MEDIUM at the boot/reload boundary.'
+  FIXUP_2026_08_10: 'c37d155c3 on the build branch: A-LOW-1 doc line + B-M-B1 fossil deleted with
+    tombstone. Orchestrator drill: reintroduced a 600s window myself -> 10 red; restored -> 21 green.
+    Full suite 22 failed / 8544 passed / 2 xfailed — failing names = the pre-existing wall-clock
+    families (count drifted 21->22 with the date, winter-gate boundary class).'
+  D_MEDIUM_1_OPERATOR_DECISION_NEEDED: 'The invariant is AMBIGUOUS at the restart boundary.
+    _last_occupied_state restores True across a reboot with NO requirement of any in-process tier-1
+    evidence before the chain leg re-admits. Legal repro: occupant walks out during the 30-90s restart
+    downtime, Bermuda still attributes them on first scan -> chain re-arms occupancy from BLE alone.
+    PRE-EXISTING (leg (a) since v5.22.0) but the diff makes it the SOLE remaining seam. OPTIONS:
+    (1) ACCEPT + PIN — declare extend-across-restart intended, restate the invariant with the carve-out,
+    add a pinning test (smallest ingredient; matches the "extends INDEFINITELY" design comment; the
+    repro window is narrow and self-corrects when BLE clears). (2) GATE — new
+    _had_post_restart_tier1_evidence flag required by the chain leg (tighter invariant; adds a new
+    boot-path state flag = rare-fire ingredient). ORCHESTRATOR RECOMMENDATION: option 1. Either way
+    D-LOW-1 (zero tests on the post-restart first-tick path) gets its test written to match.'
+  next: 'AWAITING TIER-3 OPERATOR CHECKPOINT: (a) go/no-go to merge+deploy; (b) the D-MEDIUM-1 option
+    1 vs 2 pick. Branch worktree-agent-afcf959feefd95587 @ c37d155c3, not merged.'
   refs:
   - docs/readmes/README_v5.22.0.md (the reference cycle, same room, 2026-07-18)
   - custom_components/universal_room_automation/coordinator.py:2646-2700 (two-leg admission)
