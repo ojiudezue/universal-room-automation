@@ -2735,8 +2735,10 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                         # Ensure failsafe timer tracks BLE-held occupancy
                         if self._became_occupied_time is None:
                             self._became_occupied_time = now
-                        if not self._last_occupied_state:
-                            self._last_occupied_time = now
+                        # (B M-B1 2026-08-10) A `not _last_occupied_state`
+                        # branch stood here; post leg-(b) deletion the
+                        # admit path REQUIRES that value truthy, so the
+                        # branch was unreachable and was removed.
                         _LOGGER.debug(
                             "Room %s: BLE persons %s override vacancy "
                             "(tier=%s)",

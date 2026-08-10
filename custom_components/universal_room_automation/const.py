@@ -457,7 +457,9 @@ BLE_TIER_2_WEIGHT: Final = 0.6
 # on a truth-source-elevation predicate; not operator-tuned per-deployment.
 # Kill semantics: setting to 0 disables the BLE hold path entirely
 # (chain-leg predicate always false → BLE can neither create nor
-# extend) AND collapses the D2 PIR-staleness threshold to 0.
+# extend) AND disables the D2 mmWave-fan demotion block entirely via its
+# own outer `MULT > 0` guard (coordinator.py; the staleness arithmetic
+# never runs at 0 — it is NOT a threshold-collapse).
 BLE_MOTION_CONFIRM_MULTIPLIER: Final = 2
 
 # v4.7.16 D3 (post-review B MEDIUM #1): kill switch for the per-room
