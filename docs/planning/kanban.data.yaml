@@ -602,6 +602,38 @@ cards:
     see P1P3 for the falsification. Real comfort cost: upstairs held at 79-80F with two kids in it after
     a 24h absence on a 96F day, because the away preset ceiling (hi=80) equalled the current temp, so
     the thermostat read "cooling" while doing nothing.'
+  DUTY_CYCLE_DEFINITION_2026_08_09: 'PRECISE, read from source (hvac_const.py:392-394):
+    DUTY_CYCLE_WINDOW_SECONDS = 20*60 (20-min ROLLING window); DUTY_CYCLE_SHED = 0.50;
+    DUTY_CYCLE_COAST = 0.75. So coast permits 15 MINUTES OF COMPRESSOR RUNTIME PER 20-MINUTE WINDOW.
+    Accumulates only while hvac_action in (heating, cooling); crossing the cap sets runtime_exceeded
+    -> preset forced away (hvac.py:1445); window reset clears it -> preset returns to the house-state
+    value. Cooling stops during the away phase so accumulation pauses. Enforcement exists ONLY in
+    shed/coast (normal mode: `else: continue`, no cap at all); the only exemption is house_state=sleep.'
+  RETRACTION_2_max_runtime_minutes: 'I earlier reported "max_runtime_minutes: 120 is the coast cap" and
+    then "you hit the cap almost exactly when you noticed". BOTH WRONG. max_runtime_minutes is computed
+    in energy.py:6907 from TIME REMAINING IN THE CURRENT TOU PERIOD — an unrelated field on the same
+    sensor that I grabbed because the name looked right. It is not the duty cap, and its 120->60 change
+    was the TOU period shortening, not the limiter tightening.'
+  RETRACTION_3_two_writers: 'I framed this as "two URA writers disagreeing with no arbitration". WRONG.
+    There is ONE mechanism. The home write is not another actor pushing back — it is the same
+    effective_preset computation returning the house-state value once runtime_exceeded clears at window
+    reset. The observed ~10-min alternation is simply 75% duty expressed at 5-min tick granularity.
+    THE LIMITER IS CYCLING BECAUSE IT IS A DUTY-CYCLE LIMITER. This is the feature working as designed,
+    and it invalidates the "arbitration rule" fix direction I proposed.'
+  REFRAMED_PROBLEM: 'If there is a defect it is NOT the cycling. Three narrower candidates, none Tier 3:
+    (1) MECHANISM — duty cycling by toggling a user-visible comfort preset makes an energy action look
+    like a presence failure; that misreading cost three hours tonight and taught the kids the thermostat
+    is broken. (2) OFF-PHASE SETPOINT — away carries hi=80, so on an 80F evening the off phase parks at
+    AMBIENT. A duty cycle off-phase should hold a small offset (~2F), not abandon the room. This may be
+    config, not code, and is the cheapest candidate. (3) COAST DUTY VALUE — is 75%/20min right when the
+    zone is occupied? Pure tuning.'
+  MEASURE_FIRST_GATE: 'Operator: "Measure first for sure." AUDIT_hvac_duty_cycle_frequency.md in flight:
+    how often runtime_exceeded fires per day/zone, how much of it is while OCCUPIED, EPISODE structure
+    (10 flips in one evening != 10 flips over two weeks), and whether the rate is recent. Known confound
+    stated up front: the reason ledger only exists from v5.56.0 (2026-08-06), so an apparent jump may be
+    instrumentation appearing rather than behaviour changing — the probe must say "cannot determine" if
+    so. Also checking whether we now spend MORE HOURS IN COAST than before, which would make this an
+    energy-side regression rather than an HVAC one. NO BUILD UNTIL THIS RETURNS.'
   LEDGER_RETRACTION_2026_08_09: 'I carded a "reason ledger reads empty / diagnosability regression"
     finding. IT WAS FALSE and is fully RETRACTED. The v5.56.0 reason ledger works exactly as designed —
     my extraction script read a column named `details` when the actual column is `details_json`. I
