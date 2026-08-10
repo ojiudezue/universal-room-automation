@@ -1558,7 +1558,7 @@ cards:
 - id: KHOST-1
   title: Homelab-hosted board, generated from data
   thread: dashboarding
-  status: pre_planning
+  status: review
   approval: explicit
   approved_by: operator
   approved_on: 2026-08-07
@@ -1588,8 +1588,25 @@ cards:
     problem: the reflected board is hand-maintained and can silently drift from the source
     verdict: BUILD
     note: eliminates the drift anti-pattern + gives a design surface
-  next: (overnight) design data->view generator; screenshot-iterate; wire homelab serve + post-commit
-    rebuild hook
+  next: 'BUILT + MERGED 2026-08-10 overnight pass (cc9c0e3f8 + 3031487c0). Generator live:
+    scripts/kanban_render.py -> KANBAN.md + kanban_board.html (self-contained, light/dark, mobile),
+    rung-3 STALE banner with exit codes 0/2/1, byte-stable, 13 tests against the REAL board file,
+    Artifact republished from generated HTML at the SAME URL. Two design iterations via Chrome-headless
+    screenshots (dark-mode link contrast; column packing). REMAINING = operator one-command to activate
+    hosting: `cd ~/Code/homelab-automation && ./scripts/webhost/refresh_urakanban.sh --apply --force`
+    (first deploy touches PM2/Caddy/UDM via .env credentials the agent does not hold; port 3010,
+    LAN-only; runbook at ~/Code/homelab-automation/docs/urakanban-hosting.md) + the cron one-liner in
+    the runbook. Rebuild mechanism chosen: 5-min cron pull-and-render with hash short-circuit — a
+    post-commit hook cannot fire across our multiple clones/worktrees, and webhook infra does not exist
+    homelab-side; up to 5-min latency accepted for a human-timescale board.'
+  overnight_notes_2026_08_10:
+  - 'STALE-BASE CLASS, SECOND INSTANCE, new variant: builder verified base against origin/develop but
+    LOCAL develop was ahead (unpushed evening work), so its generated views rendered from an old board
+    file. Caught at merge; views regenerated from current data. The skill rule says compare against
+    develop — it must say LOCAL develop explicitly.'
+  - 'SELF-REFERENTIAL DATA broke a naive oracle: test asserted "STALE" not-in output, but this very
+    card''s prose describes the STALE banner. Fixed to assert the banner MARKER string; drill re-run
+    proves the tightened oracle still load-bearing (2 named reds on neutered check).'
   ADDED_2026_08_09_staleness_forcing_function: 'The generator MUST compare meta.last_reconciled against
     the newest git tag AND the newest docs/readmes/README_v*.md, and (a) render a loud STALE banner on
     the board, (b) warn on the build. WHY: 2026-08-09 the board said "build" for XCORR-1 and SNAP-1

@@ -12,10 +12,10 @@ _Generated: 2026-08-09T19:17:34-05:00_ - _Data commit: `0056f7a858df`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 1 |
-| 🧭 Pre-planning | 16 |
+| 🧭 Pre-planning | 15 |
 | 📝 Planned | 3 |
 | 🔨 In progress | 0 |
-| 🔍 Review | 0 |
+| 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 7 |
 | ⏸️ Waiting on operator | 2 |
 | ⏳ Waiting on me (Claude) | 1 |
@@ -39,7 +39,7 @@ thread: **dashboarding** - status: **inbox** - approval: **explicit**
   - `followup_candidate`: retrofit conditional rendering to the Battery Strategy Detail card (same section group, same defect, ~30 min) — only if the operator endorses this card's style
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
 
-## 🧭 Pre-planning (16)
+## 🧭 Pre-planning (15)
 _idea being decomposed_
 
 ### `WATCHDOG-INERT-1` - Three of four v5.35.0 stuck-signal detectors are effectively inert (D3 structurally unreachable)
@@ -200,18 +200,6 @@ thread: **lifecycle** - status: **pre_planning** - approval: **explicit**
   - `diagnosis`: CONFIRMED (2026-08-07): _async_update_listener (__init__.py:5984) - for the INTEGRATION entry, if changed_keys NOT subset of OPTIONS_RELOAD_SUPPRESS_KEYS -> hass.config_entries.async_reload(entry.entry_id). Reloading the INTEGRATION (par...
   - `fix`: Add Camera Census keys to an INTEGRATION-entry suppress set (mirror the CM/ROOM reload-suppression). Persistence already done by async_update_entry.
 
-### `KHOST-1` - Homelab-hosted board, generated from data
-thread: **dashboarding** - status: **pre_planning** - approval: **explicit**
-- **Origin:** 2026-08-07 - make url live on webhost (homelab)... design it better... give yourself eyes like playwright... build it tonight while I'm sleeping
-- **Why:** the Artifact is hand-maintained HTML that can drift; a GENERATED board (pure function of this data) can't; homelab-hosted = durable, infra-native
-- **Next:** (overnight) design data->view generator; screenshot-iterate; wire homelab serve + post-commit rebuild hook
-- **Tags:** hand-build-fixture
-- **Parsimony:** [BUILD] the reflected board is hand-maintained and can silently drift from the source
-- **Forensic keys (3):**
-  - `design`: source = this data file; generator -> {KANBAN.md view, html board, history}; page is a pure function of the data
-  - `decisions`: host: urakanban.phalanxmadrone.com
-  - `ADDED_2026_08_09_staleness_forcing_function`: The generator MUST compare meta.last_reconciled against the newest git tag AND the newest docs/readmes/README_v*.md, and (a) render a loud STALE banner on the board, (b) warn on the build. WHY: 2026-08-09 the board said "build" for XCORR...
-
 ### `D3-AREA-INHERIT` - URA D3 fused sensor should inherit room area on creation
 thread: **camera** - status: **pre_planning** - approval: **implied**
 - **Origin:** 2026-08-07 - 5 rooms had roomless CameraPersonDetectedSensor - manual entity-area set was a band-aid
@@ -293,10 +281,21 @@ _being built_
 
 _(none)_
 
-## 🔍 Review (0)
+## 🔍 Review (1)
 _under review_
 
-_(none)_
+### `KHOST-1` - Homelab-hosted board, generated from data
+thread: **dashboarding** - status: **review** - approval: **explicit**
+- **Origin:** 2026-08-07 - make url live on webhost (homelab)... design it better... give yourself eyes like playwright... build it tonight while I'm sleeping
+- **Why:** the Artifact is hand-maintained HTML that can drift; a GENERATED board (pure function of this data) can't; homelab-hosted = durable, infra-native
+- **Next:** BUILT + MERGED 2026-08-10 overnight pass (cc9c0e3f8 + 3031487c0). Generator live: scripts/kanban_render.py -> KANBAN.md + kanban_board.html (self-contained, light/dark, mobile), rung-3 STALE banner with exit codes 0/2/1, byte-stable, 13 ...
+- **Tags:** hand-build-fixture
+- **Parsimony:** [BUILD] the reflected board is hand-maintained and can silently drift from the source
+- **Forensic keys (4):**
+  - `design`: source = this data file; generator -> {KANBAN.md view, html board, history}; page is a pure function of the data
+  - `decisions`: host: urakanban.phalanxmadrone.com
+  - `overnight_notes_2026_08_10`: STALE-BASE CLASS, SECOND INSTANCE, new variant: builder verified base against origin/develop but LOCAL develop was ahead (unpushed evening work), so its generated views rendered from an old board file. Caught at merge; views regenerated ...
+  - `ADDED_2026_08_09_staleness_forcing_function`: The generator MUST compare meta.last_reconciled against the newest git tag AND the newest docs/readmes/README_v*.md, and (a) render a loud STALE banner on the board, (b) warn on the build. WHY: 2026-08-09 the board said "build" for XCORR...
 
 ## 🚀 Shipped (organic open) (7)
 _live, awaiting proof_
