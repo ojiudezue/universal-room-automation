@@ -75,4 +75,15 @@ date). +1 = the pin test.
 
 ## Live Validation
 
-(prospective — replaced with the Validated table post-restart)
+### Validated 2026-08-10 (v5.66.0 boot ~11:2x CDT)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Loads, zero URA errors | **PASS** | `system_log` ERROR search for `universal_room` empty post-restart; 190 URA sensors up; house_state `home_day` |
+| L2 | Founding case — no BLE strobe on toilet visits | **ORGANIC (open)** | Master Bathroom currently `off / src=none` (correct — vacant). Proof = absence of any `occupancy_source=ble` + `tier1_provenance` all-False + fresh `became_occupied_time` row in the recorder for a cold room across the coming days of toilet visits. The invariant is mutation-anchored in-suite at all seven motion ages. |
+| L3 | Chain-hold preserved | **PASS (live signal)** | Master Bedroom `on / src=mmwave` holding normally post-restart; v5.22.0 sleep-hold test unchanged and green in-suite |
+| L4 | Restart pin — extend-across-restart intended | **PASS (in-suite; live by construction)** | `test_pin_restart_midhold_chain_readmits_without_inprocess_tier1` green; this very deploy exercised the restart path with no anomalous room drops observed post-boot |
+
+Board gate: `--cards BLE-WARM-CREATE-1` marked shipped_organic v5.66.0 + vibememo entry written
+inside the release flow (second live run of the BOARD-CURRENCY-1 gate). PR #495: 23 files,
++544/−196 (non-empty verified).
