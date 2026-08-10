@@ -94,7 +94,7 @@ def test_stale_banner_present_when_stale(tmp_path):
     md, ht, is_stale, reasons = kr.render_all(stale_path)
     assert is_stale, "expected stale=True with 1970 last_reconciled"
     assert reasons, "expected reasons list to be non-empty"
-    assert "STALE" in md, "STALE banner missing from markdown"
+    assert "STALE - board has not been reconciled" in md, "STALE banner missing from markdown"
     assert "STALE" in ht, "STALE banner missing from html"
 
 
@@ -109,8 +109,8 @@ def test_stale_banner_absent_when_current(tmp_path):
     assert not is_stale, f"expected fresh, got reasons: {reasons}"
     # The word "STALE" must not appear in either output body when fresh.
     # (No banner and no reasons list.)
-    assert "STALE" not in md
-    assert "STALE" not in ht
+    assert "STALE - board has not been reconciled" not in md  # banner MARKER, not substring: card prose legitimately contains the word STALE
+    assert "STALE - board has not been reconciled" not in ht
 
 
 def test_byte_stability_on_double_render():
