@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-10T09:27:57-05:00_ - _Data commit: `42052a3c6c18`_ - _last_reconciled: 2026-08-10_
+_Generated: 2026-08-10T10:32:20-05:00_ - _Data commit: `b25d92f51945`_ - _last_reconciled: 2026-08-10_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -100,14 +100,16 @@ thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**
 - **Origin:** 2026-08-10 - operator in the master toilet; bathroom light came on briefly, reproducibly ("when I enter it"), during daytime despite only-when-dark
 - **Why:** MEASURED from recorder attrs, two events this morning: 09:53:32 and 10:19:35, both occupancy_source=ble, ble_persons=[Oji], tier1_provenance all-False, fresh became_occupied_time (CREATE not extend), off again 41s/37s later. NOT a v5.22....
-- **Next:** operator pick of direction (a)/(b)/(c); (a) is the marginal-benefit favourite — smallest ingredient, kills the observed case, preserves still-body holds via the chain leg untouched
+- **Next:** build the leg-(b) deletion with the two review checks above; candidate rider on the P24/D3/dropdown batch
 - **Tags:** no-fabrication-verify, measure-before-build
 - **Refs:** docs/readmes/README_v5.22.0.md (the reference cycle, same room, 2026-07-18); custom_components/universal_room_automation/coordinator.py:2646-2700 (two-leg admission); const.py:447 (BLE_MOTION_CONFIRM_MULTIPLIER=2)
-- **Forensic keys (5):**
+- **Forensic keys (7):**
   - `mechanism`: Every toilet visit passes through the bathroom -> legitimate motion -> bathroom occupancy -> times out while operator sits in the toilet -> his BLE still resolves to the master_bathroom area (the toilet is inside the bathroom scanner foo...
   - `daytime_light_finding`: NOT a lux bug. sensor...masterbath_illuminance reads 8.5 lx live (cover 1 closed, interior room) -> lux_zone=dark is CORRECT. "Only when dark" is lux-based, not sun-based; the room genuinely is dark at 10am. Every occupancy row today car...
   - `third_writer_ruled_out`: 40 HA automations enabled; none targets master bathroom lights (closet + ziri/jaya/guest bathrooms have their own; master bath does not). URA sole writer.
   - `fix_directions_not_built`: (a) NARROW the motion leg to an actual handoff: admit BLE create only within ~1 tick (30-60s) of the occupancy-off transition, not 2x timeout from last motion. Smallest change; kills the reproducible case; still covers the documented pur...
+  - `OPERATOR_CHALLENGE_2026_08_10`: "Why break the extend but not create rule at all? It seems like it created it, no?" — CORRECT. Leg (b) mechanically IS a create (occupancy off -> on via BLE alone, fresh became_occupied_time). Adjudication: (1) its DOCUMENTED purpose (ha...
+  - `REVISED_RECOMMENDATION`: DELETE leg (b) rather than narrow it — restore the invariant to what its name claims. Review must: (i) mutation-verify the tick-ordering claim that chain covers the handoff (comment-trusted today); (ii) enumerate rooms WITHOUT mmWave (D0...
   - `DEDUPE_2026_08_10`: Sweep: v5.22.0 cycle is the PARENT fix (cold strobe) — this is its documented residual, not a duplicate. STUCK-SENSOR-1/chatter unrelated (different detector). Fusion-library section 7 intent/evidence is the (b)/(c) design home, linked n...
 
 ### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)

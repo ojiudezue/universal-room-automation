@@ -750,8 +750,20 @@ cards:
   - '(c) ROLE SPLIT: BLE-created occupancy extends holds/HVAC but does not fire LIGHT entry actions.
     NOTE: sensor_role.RoleQuery.CREATOR_VS_EXTENDER is RESERVED for exactly this — senscap v5.65.0
     shipped the query surface unconsumed. This card may be its founding consumer.'
-  next: operator pick of direction (a)/(b)/(c); (a) is the marginal-benefit favourite — smallest
-    ingredient, kills the observed case, preserves still-body holds via the chain leg untouched
+  OPERATOR_CHALLENGE_2026_08_10: '"Why break the extend but not create rule at all? It seems like it
+    created it, no?" — CORRECT. Leg (b) mechanically IS a create (occupancy off -> on via BLE alone,
+    fresh became_occupied_time). Adjudication: (1) its DOCUMENTED purpose (handoff tick) is already
+    covered by the chain leg, whose prev-tick read is still True at the timeout tick; (2) its
+    PROTECTIVE case (still body + BLE dropout) is mmWave''s job — and in the incident mmWave correctly
+    read False because the room really was empty; leg (b) cannot distinguish flap-recovery from
+    adjacent-room BLE bleed, and the floor plan makes bleed occur on every toilet visit.'
+  REVISED_RECOMMENDATION: 'DELETE leg (b) rather than narrow it — restore the invariant to what its
+    name claims. Review must: (i) mutation-verify the tick-ordering claim that chain covers the
+    handoff (comment-trusted today); (ii) enumerate rooms WITHOUT mmWave (D0 audit has the list) and
+    check whether any relied on leg (b) for still-occupant recovery — those rooms lose the path.
+    Kill-switch semantics survive (MULT=0 already gates both legs).'
+  next: build the leg-(b) deletion with the two review checks above; candidate rider on the
+    P24/D3/dropdown batch
   refs:
   - docs/readmes/README_v5.22.0.md (the reference cycle, same room, 2026-07-18)
   - custom_components/universal_room_automation/coordinator.py:2646-2700 (two-leg admission)
