@@ -89,6 +89,20 @@ def resolve_role(
 
     Unknown entity (not in this room's Tier-1 wiring) → False for every
     query.
+
+    API contract (A-LOW-3, 2026-08-10): this resolver is well-defined
+    ONLY for entities wired into one of the room's three Tier-1 CONF
+    lists (``CONF_MOTION_SENSORS`` / ``CONF_MMWAVE_SENSORS`` /
+    ``CONF_OCCUPANCY_SENSORS``). The config/options-flow validator
+    (``validate_capabilities_payload``) rejects any
+    ``CONF_SENSOR_CAPABILITIES`` override whose entity is not present in
+    those lists, so the normal path is safe. A caller that BYPASSES that
+    validator (e.g. by hand-editing ``.storage`` and calling this
+    function on the resulting config) gets CONF-list-derived semantics:
+    the override is honoured only if the entity is also wired in a CONF
+    list; otherwise ``derive_capability`` returns ``None`` and every
+    query answers ``False``. Do NOT rely on this function to answer
+    role queries for un-wired entities.
     """
     cap: Optional[SensorCapability] = derive_capability(
         room_config, entity_id,

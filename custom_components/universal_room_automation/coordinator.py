@@ -1671,6 +1671,17 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
         # Purge rings for sensors no longer configured (config-reload
         # hygiene — Bug Class #22 mitigation).
+        #
+        # B-LOW-2 fix-up 2026-08-10: this floor is INTENTIONALLY tighter
+        # than the sibling `_sensor_last_motion_state` floor below (which
+        # widens to `motion_sensors | effective_corroborators`). Rings
+        # are only ever APPENDED to by the candidate loop; an entity
+        # demoted from mmwave/occupancy candidate to strong-evidence-
+        # elevated corroborator (e.g. a bed sensor operator-declared as
+        # such) must have its ring dropped so a later re-promotion
+        # doesn't re-use a stale, unrelated on/off history. Keeping the
+        # floor as `set(candidates)` is what makes that purge happen.
+        # See `test_d2_demoted_candidate_ring_purged`.
         configured = set(candidates)
         for stale in list(self._sensor_dutycycle_rings.keys()):
             if stale not in configured:

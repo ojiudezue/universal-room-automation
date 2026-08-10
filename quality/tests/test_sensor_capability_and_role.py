@@ -721,6 +721,140 @@ def test_derive_capability_warns_on_invalid_override_kind(caplog) -> None:
     ), f"expected WARN naming entity + invalid kind; got: {caplog.records}"
 
 
+def test_d2_demoted_candidate_ring_purged() -> None:
+    """B-LOW-2 (2026-08-10): a sensor scored as a mmwave/occupancy
+    candidate on tick 1 must have its ``_sensor_dutycycle_rings`` entry
+    purged on tick 2 when a strong_evidence override demotes it to
+    corroborator-only. Otherwise the stale on/off history would be
+    re-used if the override was later removed.
+
+    Mutation drill (2026-08-10): deleting
+    ``self._sensor_dutycycle_rings.pop(stale, None)`` in the purge
+    loop at ``coordinator.py`` L1687-1690 makes this assertion fail.
+    """
+    # Tick 1: bed listed as occupancy, no override → default candidate.
+    room_no_override = _room(
+        motion=["binary_sensor.pir"],
+        occupancy=["binary_sensor.bed"],
+    )
+    coord = _make_coord(
+        room_no_override,
+        states={"binary_sensor.pir": "off", "binary_sensor.bed": "on"},
+    )
+    _run_detect(
+        coord, ["binary_sensor.pir"], [], ["binary_sensor.bed"],
+    )
+    assert "binary_sensor.bed" in coord._sensor_dutycycle_rings, (
+        "precondition: bed should be a candidate under default kind"
+    )
+    # Tick 2: apply bed/strong_evidence override → demoted to
+    # corroborator-only, no longer a candidate.
+    room_with_override = _room(
+        motion=["binary_sensor.pir"],
+        occupancy=["binary_sensor.bed"],
+        overrides={
+            "binary_sensor.bed": {
+                "kind": CAPABILITY_KIND_BED,
+                "trust_class": TRUST_CLASS_STRONG_EVIDENCE,
+            },
+        },
+    )
+    coord.entry.options = dict(room_with_override)
+    _run_detect(
+        coord, ["binary_sensor.pir"], [], ["binary_sensor.bed"],
+    )
+    assert "binary_sensor.bed" not in coord._sensor_dutycycle_rings, (
+        "orphan ring for demoted candidate was not purged"
+    )
+
+
+def test_d2_last_motion_state_preserved_for_corroborator() -> None:
+    """C-LOW-1 (2026-08-10): the widened stale-key purge floor at
+    ``coordinator.py`` L1685-1692 keeps ``_sensor_last_motion_state``
+    entries for effective corroborators. A bed sensor override elevated
+    to strong_evidence contributes transitions to the corroboration
+    deque; its per-sensor last-state MUST survive the purge sweep,
+    otherwise the next tick's transition-detection edge is lost.
+
+    Mutation drill (2026-08-10): removing ``| set(effective_corroborators)``
+    from the ``configured_all`` floor makes this assertion fail — the
+    bed entry gets purged because it's not in ``candidates`` (the
+    strong_evidence gate demoted it) and not in ``motion_sensors``.
+    """
+    room = _room(
+        motion=[],  # no motion; bed is the sole corroborator
+        occupancy=["binary_sensor.bed"],
+        overrides={
+            "binary_sensor.bed": {
+                "kind": CAPABILITY_KIND_BED,
+                "trust_class": TRUST_CLASS_STRONG_EVIDENCE,
+            },
+        },
+    )
+    coord = _make_coord(
+        room, states={"binary_sensor.bed": "on"},
+    )
+    _run_detect(coord, [], [], ["binary_sensor.bed"])
+    assert "binary_sensor.bed" in coord._sensor_last_motion_state, (
+        "widened purge floor should preserve last-state for strong-"
+        "evidence-elevated corroborators; entry was purged"
+    )
+
+
+def test_d2_capability_collision_warn_emitted_once(caplog) -> None:
+    """Collision-WARN test (2026-08-10, known_gap follow-up): an entity
+    listed in BOTH ``CONF_MOTION_SENSORS`` and ``CONF_MMWAVE_SENSORS``
+    resolves to motion by precedence and becomes a TRUSTED, never-
+    examined corroborator. ``_detect_duty_cycle_stuck`` must WARN once
+    per collision entity so the operator can see the elevation, and
+    must NOT re-warn on subsequent ticks (once-per-set discipline).
+    """
+    import logging
+    room = _room(
+        motion=["binary_sensor.dual"],
+        mmwave=["binary_sensor.dual"],
+    )
+    coord = _make_coord(
+        room, states={"binary_sensor.dual": "on"},
+    )
+    logger_name = "custom_components.universal_room_automation.coordinator"
+    with caplog.at_level(logging.WARNING, logger=logger_name):
+        _run_detect(
+            coord,
+            ["binary_sensor.dual"],
+            ["binary_sensor.dual"],
+            [],
+        )
+        first_pass = [
+            r for r in caplog.records
+            if "binary_sensor.dual" in r.message
+            and "BOTH" in r.message
+        ]
+        assert len(first_pass) == 1, (
+            f"expected exactly 1 collision WARN naming the entity, "
+            f"got {len(first_pass)}: {[r.message for r in first_pass]}"
+        )
+        assert "MOTION_SENSORS" in first_pass[0].message
+        assert "MMWAVE_SENSORS" in first_pass[0].message
+        # Second detect call: the once-per-set guard must suppress.
+        caplog.clear()
+        _run_detect(
+            coord,
+            ["binary_sensor.dual"],
+            ["binary_sensor.dual"],
+            [],
+        )
+        dupes = [
+            r for r in caplog.records
+            if "binary_sensor.dual" in r.message
+            and "BOTH" in r.message
+        ]
+        assert dupes == [], (
+            f"expected no duplicate WARN on second detect call, got "
+            f"{[r.message for r in dupes]}"
+        )
+
+
 def test_options_flow_capability_roundtrip_via_validate() -> None:
     """Empty JSON → empty payload → no key persisted (byte-identity)."""
     room = _room(occupancy=["binary_sensor.bed"])

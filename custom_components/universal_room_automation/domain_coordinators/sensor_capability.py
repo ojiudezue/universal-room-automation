@@ -157,7 +157,12 @@ def _conf_list_kind(
     for kind, conf_key in _CONF_PRECEDENCE:
         try:
             entities = room_config.get(conf_key, []) or []  # type: ignore[union-attr]
-        except Exception:  # pragma: no cover — defensive
+        except (AttributeError, TypeError):
+            # A-LOW-4 (2026-08-10): narrowed from `except Exception` so a
+            # genuine misuse (non-mapping room_config, non-iterable slot)
+            # propagates loudly in tests; keep the fail-open shape on the
+            # narrowed catch — the two error types cover both the missing-
+            # `.get` case and a slot that is not a container.
             entities = []
         if entity_id in entities:
             return kind
@@ -191,7 +196,10 @@ def derive_capability(
         raw = room_config.get(CONF_SENSOR_CAPABILITIES) or {}  # type: ignore[union-attr]
         if isinstance(raw, dict):
             overrides = raw
-    except Exception:  # pragma: no cover — defensive
+    except (AttributeError, TypeError):
+        # A-LOW-4 (2026-08-10): narrowed from `except Exception` — see
+        # `_conf_list_kind` for the rationale. A genuine misuse should
+        # surface in tests, not be silently swallowed.
         overrides = {}
 
     override = overrides.get(entity_id) if overrides else None

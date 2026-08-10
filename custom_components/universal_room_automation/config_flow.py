@@ -9280,6 +9280,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             {"label": "Egress Door (exterior/security)", "value": DOOR_TYPE_EGRESS},
         ]
 
+        # A-NIT-5 (2026-08-10): compute the sensor-capabilities default
+        # once (was called twice inline in the schema).
+        _caps_default = self._get_current(CONF_SENSOR_CAPABILITIES, {}) or {}
+
         data_schema = vol.Schema({
             vol.Optional(
                 CONF_MOTION_SENSORS, 
@@ -9307,12 +9311,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             #                          "trust_class": "strong_evidence"}}
             vol.Optional(
                 "sensor_capabilities_json",
+                # A-NIT-5 (2026-08-10): compute once, use the module-level
+                # `json` import (was: `__import__("json")` inline + double
+                # `_get_current` call).
                 default=(
-                    __import__("json").dumps(
-                        self._get_current(CONF_SENSOR_CAPABILITIES, {}) or {},
-                        indent=2, sort_keys=True,
-                    )
-                    if (self._get_current(CONF_SENSOR_CAPABILITIES, {}) or {})
+                    json.dumps(_caps_default, indent=2, sort_keys=True)
+                    if _caps_default
                     else ""
                 ),
             ): selector.TextSelector(

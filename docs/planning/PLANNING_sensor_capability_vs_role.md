@@ -491,6 +491,13 @@ double-count. See the fix-up analogue tests `test_d2_p15_motion_mmwave_*`
 and `test_d2_p15_motion_occupancy_*` in
 `quality/tests/test_sensor_capability_and_role.py`.
 
+Note (B-LOW-1 fix-up, 2026-08-10): intra-CONF-list duplicates — e.g.
+the same entity_id listed twice inside `CONF_MOTION_SENSORS` — collapse
+under the same carve-out: the corroborator/candidate loops apply
+order-preserving dedup via `_seen_corr` / `_seen_cand`, so a repeated
+listing is scored exactly once. This is part of the same P15 carve-out,
+not a separate mechanism.
+
 Reviewer D's D-HIGH-1 (claiming the `_seen_corr` guard in the candidates
 loop was load-bearing under empty overrides) was adjudicated INCORRECT:
 `_STUCK_CANDIDATE_KINDS = {mmwave, occupancy}` excludes motion, and
