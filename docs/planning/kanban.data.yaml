@@ -719,7 +719,8 @@ cards:
 - id: BLE-WARM-CREATE-1
   title: BLE re-creates bathroom occupancy inside the 10-min warm window on every toilet visit (v5.22.0 left this open by design)
   thread: presence
-  status: pre_planning
+  status: shipped_organic
+  shipped_version: v5.66.0
   approval: unreviewed
   tags:
   - no-fabrication-verify
