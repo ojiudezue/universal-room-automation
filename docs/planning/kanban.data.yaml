@@ -560,6 +560,13 @@ cards:
     transitioned -> "EVSEs paused for battery drain since <time>" (transitioned_at); otherwise ->
     "· holding <n>m" (hold_started_at). Verified live + storage re-read (str.replace is a silent no-op
     on a miss and the write reports success regardless).'
+  ARRESTER_TILE_2026_08_10: 'Operator aside: temp override arrester onto the ura-v8 HVAC (Climate)
+    tab for quick access. DONE — new section at climate view position 1 (right under the hero, above
+    the thermostats): heading w/ live state badge + full-width toggle tile named "Let my manual changes
+    stick" + one conditional status line (engaged-Nm-ago + 6h expiry + sunset semantics when ON;
+    "flip on before adjusting setpoints" when OFF). Verified rendering live (switch currently ON,
+    26m — interesting: it re-engaged today, presumably re-enabled after last night''s 6h sunset).
+    Anti-word-vomit rules applied; no raw attr dump.'
   refinement_candidates:
   - 'REDUNDANCY: the headline reason and the Outlets row currently show the same string twice
     ("TOU peak/mid-peak pause") because the outlets are the only endpoints holding a reason. Options:
