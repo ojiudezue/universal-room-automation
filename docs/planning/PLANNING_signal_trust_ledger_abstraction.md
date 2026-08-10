@@ -275,3 +275,100 @@ At build close, `docs/readmes/README_v<version>.md` gets a `Validated <date>` ta
 - Plus a "post-restart soak" row: 1 week of live operation with zero divergence between `_legacy_<site>_verdict` shims (kept alive for the soak) and `ledger.verdict()`. Shims deleted after the writeback confirms.
 
 Cycle does not close until the README carries the post-restart parity table.
+
+---
+
+## Addendum 2026-08-09 — gate state audited; a new prerequisite lands ahead of this cycle
+
+**Gate state (verified, not assumed):**
+
+| # | Criterion | Status |
+|---|---|---|
+| 1 | Watchdog D1–D4 in a tagged release | ✅ v5.35.0 (2026-07-28) |
+| 2 | README `Validated <date>` table with real evidence | ✅ Validated 2026-07-28, H1/H3 PASS |
+| 3 | Lived-in ≥2wk, no rollback/fix-up **OR** new missed incident class | ⚠️ **first leg failed** — v5.35.1 hotfix + v5.35.2 landed inside the window. Second leg **fires**: chatter (transition-rate) evades both shipped rules. Requires the incident memo this criterion demands. |
+| 4 | Golden-tap fixtures ≥2wk under `LEDGER_GOLDEN_TAP_ENABLED` | ❌ **the constant and the module were never created — zero fixtures.** The tap was to run *during* the live-in window; that window passed untapped. |
+| 5 | Operator explicit GO | ❌ pending |
+
+**Criterion 4 is the hard blocker.** This cycle cannot be built to its own parity standard without
+either re-opening a tapped live-in window or accepting hand-built fixtures with operator sign-off.
+Recommendation: enable the tap during the chatter/reliability cycle so fixtures accumulate as a
+byproduct rather than needing a dedicated window.
+
+**Principle 1 ("Extraction, not invention") binds a specific proposal.** Chatter / transition-rate
+detection has **no pre-cycle site**, so it must NOT enter via this cycle. It ships concretely first
+(extending `_detect_duty_cycle_stuck`), lives long enough to produce an oracle, then migrates as an
+extension of M5.
+
+**New prerequisite: SENSOR-CAPABILITY-1.** This design already assumed a richer kind vocabulary than
+production has — `RoomSignal(..., source_kind: str  # 'mmwave' | 'pir' | 'camera' | 'ble')` — but
+`occupancy_substrate.py:81` maps kind 1:1 onto the three CONF buckets (`_KIND_TO_CONF`), so 'ble' and
+'camera' are not expressible as source kinds today. Separating capability from role is therefore a
+prerequisite for M7/`verdict_weighted` as specified, not a nice-to-have. See
+`AUDIT_mmwave_only_rooms_2026-07-31.md` Finding 6.
+
+**P14 disposition unchanged:** still preserved solely for promotion here; still deleted if this cycle
+is cancelled.
+
+---
+
+### Criterion 3 — SATISFIED 2026-08-09 (second leg)
+
+First leg **failed at origin**: it required ≥2 weeks lived-in with no fix-up, but v5.35.1 and v5.35.2
+both landed the same night as v5.35.0. Second leg fires: see
+`docs/planning/INCIDENT_chatter_class_missed_by_watchdog_2026-08-09.md` — the chatter
+(transition-rate) class evades both shipped rules (off-ticks reset P22's clock; ~50% duty never
+reaches D2's 85%), measured at Garage B 3,769 off / 3,765 on in 24h, with a chattering PIR able to
+*shield* a stuck mmWave because it satisfies D2's corroboration test.
+
+Criteria 1, 2, 3 now met. **Open: 4 (fixtures — see `AUDIT_ledger_golden_fixture_yield.md`) and
+5 (operator GO).**
+
+### Criterion 4 — AMENDED 2026-08-09 (operator question: "does criterion 4 need adjusting if we onboard the sensor flapping updates?")
+
+**Yes. Two amendments, plus a change of instrument.**
+
+**4a — Fixture freshness is now a hard rule, not an assumption.** Criterion 4 as written freezes
+fixtures against today's behavior. Two migrated sites are about to change legitimately:
+
+- **M5 changes under SENSOR-CAPABILITY-1.** `_detect_duty_cycle_stuck`'s candidate set moves from
+  bucket-derived to role-derived. Under that cycle's invariant I1 behavior is byte-identical *only
+  while no capability is declared* — i.e. fixtures stay valid exactly until the feature is used.
+- **M5 gains a verdict kind under the chatter cycle.** Transition-rate is a new classification with
+  no counterpart in any pre-cycle fixture.
+
+> **RULE: a golden fixture is invalid the moment its site's production behavior changes. Fixtures
+> MUST be regenerated after any cycle that touches a migrated site, and the regeneration commit must
+> cite the cycle that invalidated them.** Freezing early would make the parity oracle assert
+> superseded semantics and fail a correct extraction.
+
+**4b — New required bucket.** Add **3+ chatter/transition-rate classifications** to the per-bucket
+minimums (joining 5+ P22, 5+ P24, 3+ P18, 3+ D1, 3+ D2, 1+ D3). Rationale: by ledger time chatter has
+a pre-cycle site, so principle 1 admits it; without its own bucket the migrated M5 carries a verdict
+kind with no oracle behind it — Bug Class #53 expressed as missing coverage rather than missing code.
+
+**4c — Instrument changed: offline replay harness, NOT the runtime tap.** The original
+"Golden-parity oracle harness" section specifies a runtime tap writing JSONL during a ≥2-week
+live-in. Superseded, for a reason stronger than cost:
+
+- Every M1–M6 input is an **entity state history**. `_sensor_on_since`, `_sensor_dutycycle_rings` and
+  `_sensor_dutycycle_motion_transitions` are pure functions of the binary-sensor stream; D1 reads
+  camera `person_count` entities, D3 reads `device_tracker` last-changed, P18 reads room-occupancy
+  entities. Nothing depends on hidden runtime state. Fixtures are therefore **reconstructable offline
+  by replaying the recorder through the current production functions.**
+- Per CLAUDE.md "Measure before you build": *"Is the plan proposing runtime instrumentation to learn
+  something a one-shot offline script could answer today?"* It was. This plan predates that rule.
+- **Decisively: a tap captures a WINDOW; 4a requires REGENERATION.** With two sites known to be
+  changing, a tap would need a fresh fortnight per change. A harness re-runs on demand — capability
+  landing and chatter landing cost two script runs instead of two capture windows.
+- Secondary benefit: no temporary writer on the per-tick path, and nothing to surgically remove at
+  build close.
+
+**Known constraint:** `recorder.purge_keep_days: 7` on a ~20 GB DB, so replay sees 7 days, not 14.
+Whether that fills every bucket is empirical and is measured in
+`docs/planning/AUDIT_ledger_golden_fixture_yield.md`. The plan's existing escape clause already
+permits a hand-built supplement with operator sign-off for any short bucket.
+
+**Criterion 4 therefore reads:** *golden fixtures generated by offline replay of recorder history
+through current production functions, meeting the per-bucket minimums (incl. 4b's chatter bucket),
+regenerated after any cycle that changes a migrated site per 4a.*

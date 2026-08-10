@@ -484,3 +484,41 @@ and MUST NOT be re-litigated without evidence:
    per-inference-tick snapshot; it never invokes the primitive live.
 
 **Residual observed live 2026-08-01 (playroom phantom #3):** the phantom→GUEST chain LAUNDERS the away-veto — a single unidentified census person flips house to `guest`, which is (by design) not a vetoed state, re-opening comfort-fan turn-ons house-wide. Guest-mode reliability is therefore upstream of Invariant V's effective coverage. Trip-wire: veto counter flat during a guest window whose census source is a single unidentified camera track. Related finding, same incident: Study A's vacancy fan-off path did NOT fire over ~4h of vacant+fan-on (manual off applied; investigate BEFORE the D2 deploy decision — D2's post-demotion story assumes the vacancy path turns fans off).
+
+---
+
+## Amendment 4 — 2026-08-09: D0 finally written; it relocates the root cause
+
+**D0 was never done.** This cycle shipped (v5.40.0 veto, v5.42.0 D2 demotion) with its mandatory
+probe skipped. `docs/planning/AUDIT_mmwave_only_rooms_2026-07-31.md` now exists and closes the gap.
+It changes three things in this plan's premises:
+
+1. **The mmWave-only class is 5 rooms, not "Study A + likely more":** Game Room, Jaya Bedroom,
+   Living Room, Study A, Study B — plus **Master Bedroom** as `MMWAVE_NO_PIR` (3 mmWave + bed, zero
+   PIR). **Six rooms have no PIR.** D0's gate (`N == 0 → downgrade to Tier 2`) is retroactively
+   satisfied; Tier 3 was correct.
+
+2. **D2 can detect but never corroborate in those six rooms.** `_detect_duty_cycle_stuck` requires
+   PIR transitions to corroborate and excludes motion from candidacy. Where the PIR set is empty,
+   every sustained occupancy is uncorroborated *by construction*. This is the structural cause of both
+   the 2026-08-09 phantom-occupancy incident and `B-2026-08-04-1`'s overnight notification spam. Not
+   a threshold problem — do not tune the thresholds.
+
+3. **Amendment 2's "mmWave misfiled" framing is superseded, not confirmed.** Study A's Athom sensor
+   was cleanly replaced via the options flow and is decommissioned (operator 2026-08-09); an initial
+   claim that its orphan `mmwave_sensors` key was Amendment 2's root cause is **retracted in the
+   audit**. The real defect is one layer down: **sensor kind IS the config bucket**
+   (`occupancy_substrate.py:81` `_KIND_TO_CONF`), so hardware wiring pins analytic role. Bed presence
+   is a D2 *candidate* purely because it sits in `occupancy_sensors`, which is why the ideal
+   discriminator is being judged rather than consulted.
+
+**Consequence for the parked deliverables.** D6 (dead/stuck mmWave) — its evidence trigger has
+**fired** (2026-08-09 incident; the 07-31 Study A hour was the first). D6 is absorbed into the
+chatter/reliability work rather than built standalone, since unavailable-rate *is* dead-sensor
+detection. D4 remains parked (trigger unmet).
+
+**New prerequisite ahead of any corroboration-gated exclusion:** **SENSOR-CAPABILITY-1** — separate
+hardware declaration (capability/kind) from analytic role, per operator ruling *"sensor reality should
+not pin use and analysis reality in software."* Corroboration-gated exclusion built on the current
+three-bucket vocabulary would have to hardcode PIR as the corroborator, which is exactly the defect.
+Sequence: SENSOR-CAPABILITY-1 → chatter/reliability (incl. D6) → SignalTrustLedger (still build-gated).

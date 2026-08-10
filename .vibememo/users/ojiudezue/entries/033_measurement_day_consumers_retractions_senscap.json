@@ -1,0 +1,45 @@
+{
+  "format_version": "2.1",
+  "entry_id": "033",
+  "author": "ojiudezue",
+  "session_id": "claude_20260810_overnight_pass",
+  "timestamp": "2026-08-10T06:25:00Z",
+  "type": "milestone",
+  "weight": "critical",
+  "title": "Measurement day: A-2/A-3 reverted on consumer-count, senscap through 4 Tier-3 reviews, duty-cycle saga = 4 retractions, forcing-function ladder shipped",
+  "summary": "A day defined by measurement beating mechanism-guessing, both ways. RESACC-1 measured the resolver (39/39 recall, 0 precision violations, near-miss clean) and its 'fix' for A-2/A-3 passed 2 of 3 reviews before Review B asked the question nobody had: who consumes this value? Answer: one caller, on the other code path — reverted by operator decision, strict xfails retained. SENSOR-CAPABILITY-1 (capability vs role split) built, rebased off a 214-commit-stale worktree base, survived 4 framing-disjoint reviews where B/C/D DISAGREED about one line and the disagreement itself was the signal (D's HIGH was real but mis-attributed; both its proposed fixes would have been no-ops). Evening HVAC episode: 4 successive wrong mechanisms asserted from snapshots before the ledger + hvac_const.py settled it as ONE duty-cycle limiter cycling by design (coast = 15min/20min window); real defects are narrower (off-phase setpoint parks at ambient; kids' manual cooling arrested with no comfort exemption). BOARD-CURRENCY-1 rungs 1-2 shipped: deploy.sh --cards gate + vibememo chain, so this entry class becomes release-coupled. Detector triage: D1 correctly rare (keep), P24 structurally blind (fix approved), D3 structurally unreachable (kill approved). Restarts = our deploys (25/26 map to releases; 0 spurious).",
+  "decisions": [
+    "Revert A-2/A-3 canonical-area precedence: zero live consumers for the benefit, one real regression path on the only live consumer (transit_validator), and 39 recently-corrected camera areas prove wrong-area is the common state here. Keep the strict=True xfails as the executable record.",
+    "Take the P15 dedup I1 deviation (Reviewer B adjudication): substrate already normalises multi-list entities by the same precedence; preserving the double-scoring bug for byte-identity would certify a defect.",
+    "DROP D1/D3/P24 from the ledger migration set (operator). Ledger reduces to M1/M3/M5/M7. Criterion 3 satisfied via incident memo; criterion 4 amended: offline replay harness replaces the runtime tap, fixtures must be REGENERATED after any cycle that changes a migrated site.",
+    "Duty-cycle flap: measure-first gate before any build. Probe verdict: long-standing, not a regression (flat-to-declining across 31 days, coast pinned at ~4h/day); the real defect is unrecoverable-load oscillation (zone_2 never converging), one episode in 3 days, not the 8.8/day headline.",
+    "SENSOR-CAPABILITY-1 deploy deferred to morning: value activates on declaration not deploy, and a restart at midnight after the HVAC episode buys nothing."
+  ],
+  "alternatives_considered": [
+    "Patching A-2/A-3 around B1 (same-integration outer restriction / sibling agreement / kill switch) — each fails on merit: the first two cannot fix A-3 at all, the third is containment machinery that evidences the risk it discounts.",
+    "ruamel.yaml for the kanban writer — rejected: not installed, and a pip dependency in the release path is worse than the reflow bug. Parse-to-validate, edit-as-text won.",
+    "Raising recorder retention for ledger fixtures — rejected: binding constraint is event rate, not history (the short buckets are short because the events never happen).",
+    "Arbitration rule between 'two HVAC writers' — dissolved: there is one writer; the framing was wrong. Candidate fixes narrowed to off-phase setpoint offset (cheapest, helps every episode), damping, unrecoverable-load detection."
+  ],
+  "implications": [
+    "A defect's severity is a property of its CONSUMERS, not of the data. Codified in the kanban skill: count the consumers before fixing the defect; None is often safer than a wrong value; a measurement licenses only what it measured.",
+    "Framing-disjoint review earns its cost in a new way: three reviewers disagreeing about one line, where adjudication required source-reading, produced the correct disposition none of them held individually.",
+    "Verify the worktree BASE, not just its isolation — a green suite 214 commits behind reads as evidence and is worse than red.",
+    "When an instrument built for exactly this question returns nothing, suspect the query before the instrument (details vs details_json: nearly filed a defect against a working ledger).",
+    "For any 'it keeps doing X' complaint, pull state HISTORY before proposing a mechanism — four successive snapshot-mechanisms died on the next fact.",
+    "The board update is now an OUTPUT of shipping (deploy.sh --cards), not a task beside it. Vibememo is chained to the same gate, so this entry's lateness class self-extinguishes."
+  ],
+  "refs": {
+    "cards": ["SENSOR-CAPABILITY-1", "STUCK-SENSOR-1", "WATCHDOG-INERT-1", "BOARD-CURRENCY-1", "HVAC-PRESET-FLAP-1", "ARREST-COMFORT-1", "P1P3", "RESACC-1", "EVCARD-1"],
+    "docs": [
+      "docs/planning/AUDIT_mmwave_only_rooms_2026-07-31.md",
+      "docs/planning/AUDIT_ledger_golden_fixture_yield.md",
+      "docs/planning/AUDIT_detector_silence_and_restart_causes.md",
+      "docs/planning/AUDIT_hvac_duty_cycle_frequency.md",
+      "docs/planning/PLANNING_sensor_capability_vs_role.md",
+      "docs/planning/INCIDENT_chatter_class_missed_by_watchdog_2026-08-09.md"
+    ]
+  },
+  "confidence": "high on the decisions; medium on duty-cycle fix direction (off-phase setpoint) pending operator marginal-benefit call",
+  "revisit_trigger": "If the zone_2-style non-converging oscillation recurs before the off-phase setpoint question is decided, or if senscap live validation post-deploy shows any I1 drift with zero declarations."
+}

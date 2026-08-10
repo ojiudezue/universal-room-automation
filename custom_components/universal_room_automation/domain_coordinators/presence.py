@@ -367,6 +367,21 @@ def _audit_provenance_invariants(tracker: "ZonePresenceTracker") -> list[str]:
     Used by:
       - ``quality/tests/test_presence_provenance_split.py::test_invariants_hold_after_inference``
       - A future diagnostic surface (not in this cycle).
+
+    .. warning::
+        SENSOR-CAPABILITY-1 (2026-08-09) invariant I3 — this allowlist
+        (``TIER1_KINDS`` ∪ ``{"tier1"}``) is **closed by design**. The
+        capability layer (:mod:`.sensor_capability` +
+        :mod:`.sensor_role`) deliberately runs at the CONSUMPTION site,
+        not the substrate DISPATCH site, precisely so its extended
+        vocabulary (``bed`` / ``camera_presence`` / ``ble_presence`` /
+        …) CANNOT reach ``_room_provenance`` and CANNOT reach the
+        legacy ``SIGNAL_SUBSTRATE_KIND_CHANGED`` payload. A future
+        builder who "helpfully" widens this allowlist to accept a
+        capability kind would silently undo I3 and let a
+        misclassified capability leak onto the legacy channel. DO NOT
+        add new kinds here without re-reading the SENSOR-CAPABILITY-1
+        planning doc §2 (I3) and §3.3.
     """
     violations: list[str] = []
     legacy_sentinel = "tier1"

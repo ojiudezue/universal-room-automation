@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: 2026-08-07
+  last_reconciled: '2026-08-10'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -14,6 +14,696 @@ meta:
   - waiting_me
   - parked
 cards:
+- id: STUCK-SENSOR-1
+  title: Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
+  thread: presence
+  status: planned
+  approval: explicit
+  approved_by: 'operator 2026-08-09 ("and what comes after it") — the chatter/reliability cycle that
+    follows SENSOR-CAPABILITY-1, absorbing the mmwave-Tier3 D6 parked deliverable. NOTE: this approval
+    does NOT extend past the SignalTrustLedger''s own GO criteria — its criterion 4 (golden-tap fixtures)
+    is unmet and is a hard blocker independent of approval.'
+  tags:
+  - tier-2db
+  - no-fabrication-verify
+  - context-wide-scoping
+  origin:
+    date: '2026-08-09'
+    gist: operator diagnosed a stuck Zigbee mmWave holding master occupancy; asked why I did not see it
+  why: 'URA''s duty-cycle detector DOES catch stuck sensors and logs: ''Sensor <x> duty-cycle stuck (on-ratio
+    exceeded over rolling window) — NOTIFY-ONLY, not excluded from occupancy''. It then KEEPS USING the
+    stuck sensor for occupancy. Detection without consequence. Tonight that produced: master bedroom reported
+    occupied while its inputs read off -> comfort fans ran in an empty bedroom (operator not home); Garage
+    B occupied off a chattering ratgdo; Living Room and Study A both flagged stuck. Occupancy feeds HVAC,
+    lighting and presence trust, so the blast radius is wide.'
+  my_miss: 'I READ these exact warnings hours earlier and dismissed them as ''routine, not a crash'' —
+    I was scanning for crashes, so a WARNING that was not a crash read as noise. The message named its
+    own defect and I skimmed it. Rule: a warning that says STUCK is never routine; read content, not severity
+    class.'
+  gaps:
+  - '1. NO CONSEQUENCE: stuck sensors are not excluded from the occupancy substrate.'
+  - '2. NO SURFACE: the only signal is a WARNING log line — no sensor, no NM note, no dashboard. Invisible
+    unless a human is tailing logs at the right moment.'
+  - '3. NO PERSISTENCE: like the echo counter, any stuck-state tally resets on restart, and we restarted
+    7+ times today.'
+  fix:
+  - 1. Graduate D2 to exclusion behind the house-state gate the code always planned ('exclusion graduates
+    in a later cycle behind a house-state gate'). The sleeping-person objection holds for bedrooms in
+    sleep/home_night; it does NOT hold when the house is away.
+  - 2. Propagate stuck-sensor state to zone + house tiers — today they cannot see it at all.
+  - '3. Fix the independence assumption: correlated stuck sensors must count as ONE confirmation source,
+    not N. Two occupied rooms whose sensors are both flagged stuck is one signal.'
+  parsimony:
+    problem: a stuck sensor silently fabricates occupancy and drives fans/HVAC/lighting in empty rooms
+    verdict: BUILD
+    note: detection already exists; this is wiring a consequence + a surface to it, not new inference
+  next: 'BLOCKED on SENSOR-CAPABILITY-1 — do not scope exclusion until capability/role are separated,
+    else the corroborator must be hardcoded as PIR (the defect). Then: per-room corroborator capability
+    map from AUDIT_mmwave_only_rooms_2026-07-31.md; six no-PIR rooms need a non-PIR corroborator or stay
+    notify-only.'
+  depends_on:
+  - SENSOR-CAPABILITY-1
+  CORRECTION: '2026-08-09: my first version of this card was WRONG on three counts — I asserted mechanism
+    from a LOG STRING instead of reading the code (operator: ''a log line does not reality make''). Corrected
+    by verification: (1) it is NOT ''detection without consequence'' — the CONTINUOUS rule DOES exclude
+    (coordinator.py:1960-1967, comment ''Continuous rule DOES exclude''); (2) D2 duty-cycle being NOTIFY-ONLY
+    is a DELIBERATE, well-reasoned choice, not an oversight — ''a sleeping person is ~100% mmWave duty
+    cycle with zero PIR, and excluding would vacate sleeping bedrooms''; (3) it is NOT invisible — both
+    rules fire an NM note via _fire_stuck_sensor_nm with per-day dedup.'
+  verified_findings:
+  - 'ROOM TIER: continuous rule excludes but keys off _sensor_on_since, which a FLAPPING sensor resets
+    each off-tick -> flapping never accumulates -> never excluded (coordinator.py:1960-1967).'
+  - 'D2 duty-cycle catches flapping but is deliberately NOTIFY-ONLY: ''a sleeping person is ~100% mmWave
+    duty cycle with zero PIR, and excluding would vacate sleeping bedrooms''. Sound reasoning, not an
+    oversight.'
+  - Both rules DO fire an NM note (_fire_stuck_sensor_nm, per-day dedup) — this is not invisible.
+  - The D2 comment names a PRIOR 'Master Bedroom empty-suite incident' — tonight is a repeat of a known
+    failure mode.
+  - ZONE (aggregation.py) and HOUSE (presence.py) have no stuck-sensor awareness — verified by grep.
+  RETRACTION_2: '2026-08-09 (second correction, operator challenge ''the stuck sensors are not correlated
+    afaik''): I claimed the stuck sensors were a CORRELATED failure (same vendor/firmware/night) and built
+    a ''falsified independence assumption'' + ''closed loop'' argument on it. VERIFIED FALSE: Living Room
+    = Screek Human_Presence_Sensor via esphome (direct); Study A = HOBEIAN 24Ghz via mqtt (through a coordinator).
+    Different manufacturer, model, transport, topology. I inferred correlation from CO-OCCURRENCE IN A
+    LOG WINDOW alone. Co-occurrence is not correlation. RETRACTED: the house-tier ''2+ rooms occupied
+    = unlikely all stuck'' assumption is NOT falsified and stands; the closed-loop claim collapses with
+    it.'
+  solution:
+  - DISCRIMINATOR IS CORROBORATION, NOT HOUSE STATE. House state fails exactly in the hard case (asleep
+    during home_night). A sleeping person pins the mmWave AND a corroborator; a stuck mmWave pins only
+    itself.
+  - 'Exclude a duty-cycle-stuck sensor when NO independent corroborator supports occupancy: bed presence,
+    recent PIR, BLE person in room, camera person. D2 already uses PIR corroboration to guard DETECTION
+    — extend the same principle to EXCLUSION.'
+  - 'Tonight this would have released master immediately: bed presence read OFF while occupancy read ON.'
+  - 'CAVEAT: rooms whose ONLY input is a single mmWave have no corroborator and cannot be discriminated
+    — for those, notify-only remains correct. This is a per-room capability question, not a global policy.'
+  DEDUPE_2026_08_09: 'Chatter/motion-chatter arrived as a candidate NEW card and was folded in here
+    instead (adjacency check per kanban dedupe rule): same detector, same exclusion decision, same
+    corroboration discriminator. No CHATTER-1 card exists or should.'
+  third_class_chatter:
+  - 'CLASS 3 = CHATTER (transition-rate). A sensor oscillating at ~50% duty is invisible to BOTH shipped
+    rules: every off-tick resets P22 continuous-on, and the on-ratio never reaches D2 85%. Evidence:
+    Garage B ratgdo 24h = 3,769 off / 3,765 on / 6 unavailable — real oscillation, not transport.'
+  - 'MOTION IS UNSCORED BY DESIGN: D2 candidates are mmwave_sensors + occupancy_sensors only (PIR excluded
+    as "our corroboration source"). So a chattering PIR is never diagnosed AND it SHIELDS a stuck mmWave
+    — D2 corroboration is satisfied by >=2 PIR transitions in-window, which chatter trivially supplies.
+    The anchor can be the thing that is broken. Operator: ratgdo has no PIR; it supervises MyQ garage
+    motion, and Zigbee/Z2M can make that flicker or go unavailable.'
+  - 'UNREACHABLE ROOMS: Garage B has mmwave_sensors=None, occupancy_sensors=[] -> D2 candidate set is
+    empty there. The room where the incident happened is outside the detector regardless of thresholds.'
+  shipped_context:
+  - 'D1-D4 ALL SHIPPED v5.35.0 (commit 0192ac2c3, 2026-07-28 23:18 CDT) + v5.35.1 hotfix + v5.35.2
+    observability. Do not re-scope them.'
+  - 'The shared abstraction that shipped is the NOTIFIER (_stuck_signal_nm, D4), NOT a shared detector:
+    "Detection + discount + notify ONLY... never actuates, never mutates detector state". Detection is
+    four bespoke impls sharing only a kind= string.'
+  - 'The plan PARKED unification with an explicit trigger: "after D1..D4 ship and the shape is proven at
+    four sites; separate design cycle." That trigger HAS NOW FIRED (12 days, four live sites).'
+  approach: 'PATCH A CENTRAL METHOD, NOT A FIFTH DETECTOR (operator 2026-08-09: "should not do this in
+    isolation or it should be a patch of a central class/method" + "do the right thing unified or not").
+    Generalise _detect_duty_cycle_stuck into a per-sensor reliability scorer over ALL binary sensor kinds
+    scoring on-ratio + transition-rate + unavailable-rate, emitting kind= per class through the existing
+    D4 notifier. Do NOT force the census (person COUNT) and frozen-tracker (timestamp AGE) detectors into
+    it — different shapes; they keep their own detection and keep sharing D4. Honest scope: one central
+    scorer for binary sensors, not one function for everything.'
+  FLEET_ROT_RETRACTION: '2026-08-09 (third correction, operator challenge "I don''t think a third of
+    the fleet is bad"): I claimed a third of the corroborator fleet was dead, generalising B-2026-08-04-2''
+    "5 of 13" — which is 5 of a 13-entry HAND-PICKED ADJACENCY LIST from one probe, not 5/13 of the
+    fleet. MEASURED: 503 presence-class binary_sensors, 30 unavailable/unknown = 6.0%, clustering into
+    ~15 physical devices. RETRACTED: the "fleet rot gates corroboration logic" argument. STANDS: a
+    5-unit HOBEIAN cluster is down together (hypothesis, not asserted mechanism) — ops item, not a gate.'
+  D0_AUDIT_DONE: '2026-08-09: docs/planning/AUDIT_mmwave_only_rooms_2026-07-31.md written (was owed
+    since 07-31 as D0 of the mmwave Tier-3 cycle and never done; cycle shipped without it). Key
+    results: 5 MMWAVE_ONLY rooms + Master Bedroom MMWAVE_NO_PIR = SIX rooms with zero PIR, so D2 can
+    detect but NEVER corroborate there (corroborator class empty by config) — this is the structural
+    cause of both the 08-09 incident and B-2026-08-04-1 spam. Master bed sensor sits in
+    occupancy_sensors = it is a D2 CANDIDATE, so the ideal discriminator is being judged instead of
+    consulted. Study A has an ORPHAN mmwave_sensors key no code reads (CONF_MMWAVE_SENSORS ==
+    "presence_sensors"), holding an unavailable Athom entity.'
+  OPERATOR_DISPOSITIONS_2026_08_09:
+  - 'ATHOM (Study A): CLOSED as a no-op. Operator: "Ignore athom now. It''s a no op." URA already does
+    not read it (options override every bucket); the ESPHome device entry stays. Do NOT re-raise, do NOT
+    propose deleting the entry or cleaning the orphan mmwave_sensors key.'
+  - 'HOBEIAN 5-unit cluster: PARKED until operator is home. Operator: "Leave hobeian until I get home.
+    It''s mostly z2m hygiene." Not a URA defect and not a gate on any cycle — it is Zigbee2MQTT
+    housekeeping, operator-owned, physical. Do NOT re-raise as a blocker on corroboration work; the
+    measured fleet-bad rate is 6.0% and does not gate the cycle.'
+  rejected:
+  - PROPAGATE STUCK STATE TO ZONE/HOUSE — I recommended this and then withdrew it under challenge ('is
+    this flow upwards useful?'). If the room tier excludes correctly the corrected occupancy propagates
+    naturally and upper tiers are right for free. Propagation adds a cross-tier concept, new state and
+    new failure modes to fix something better fixed at source. Only justified as a FALLBACK where the
+    room tier genuinely cannot discriminate and upper tiers should down-weight.
+- id: SENSOR-CAPABILITY-1
+  title: Separate sensor CAPABILITY (hardware kind) from analytic ROLE — kind is currently the config bucket
+  thread: presence
+  status: shipped_organic
+  shipped_version: v5.65.0
+  approval: explicit
+  approved_by: 'operator 2026-08-09 ("Approving sensor capability plan and what comes after it")'
+  tags:
+  - tier-3
+  - institutional-context
+  - no-fabrication-verify
+  - context-wide-scoping
+  - numbers-get-knobs
+  origin:
+    date: '2026-08-09'
+    gist: 'operator ruling on whether bed presence moves bucket or code changes: "My instinct is code
+      change so we don''t have fixed config buckets. Sensor reality should not pin use and analysis
+      reality in software. It should just tell us what the hardware layer is. We could also add more
+      options or detail to the kind of sensor in config"'
+  why: 'VERIFIED: occupancy_substrate.py:81 _KIND_TO_CONF maps kind 1:1 onto the three CONF lists, and
+    const.py:342 TIER1_KINDS = ("motion","mmwave","occupancy"). URA has exactly three sensor kinds and
+    they ARE the three config buckets, so the hardware wiring declaration and the analytic role are one
+    field. A bed sensor cannot declare itself a bed — it inherits "occupancy" (const.py:335 comment:
+    "Combined motion+presence sensors", an ambiguity bucket), and that membership is the ONLY reason it
+    is a D2 stuck-candidate rather than a corroborator.'
+  root_cause_of:
+  - 'Master Bedroom: the ideal discriminator (bed presence) is JUDGED instead of CONSULTED.'
+  - 'Six no-PIR rooms have no corroborator NOT because they lack independent evidence but because
+    "corroborator" is hardcoded to mean the motion bucket. Game Room, Jaya Bedroom, Living Room,
+    Study A, Study B (MMWAVE_ONLY) + Master Bedroom (MMWAVE_NO_PIR).'
+  - B-2026-08-04-1 overnight notification spam (beds/bedroom mmWave flagged for being state-normal ON).
+  unlocks_without_new_hardware:
+  - 'Master Bedroom already HAS an ideal corroborator: the bed — independent failure mode, physically
+    unspoofable — the moment role stops being pinned to the motion bucket.'
+  - Study A room_cameras + BLE become nameable corroborators for the mmWave-only class.
+  design:
+  - 'KEEP the three CONF lists as the WIRING layer — no config migration, additive only.'
+  - 'ADD a per-entity capability descriptor (kind, trust, failure-mode class), inferred from
+    device/integration where possible, operator-declarable where genuinely ambiguous (operator: "add
+    more options or detail to the kind of sensor in config"). Default = today''s bucket-derived value
+    so behaviour is byte-identical until a capability is declared.'
+  - 'DERIVE role per question asked: candidate-for-stuck-scoring vs corroborator-for-independence vs
+    creator-vs-extender for occupancy. Role is computed, never stored in config.'
+  - 'Same cut as the intent/evidence axis (PLANNING_paper_and_oss_fusion_library.md sec 7/7b): bed =
+    strong evidence, mmWave = weak witness. Neither is expressible today.'
+  parsimony:
+    problem: hardware wiring pins analytic role, so the best available corroborator in a room cannot be used as one
+    verdict: BUILD
+    note: 'prerequisite, not an enhancement — corroboration-gated exclusion on the current vocabulary
+      MUST hardcode PIR as corroborator, which is the defect itself'
+  blocks:
+  - STUCK-SENSOR-1
+  sibling_of:
+  - SIGNAL-TRUST-LEDGER (build-gated)
+  depends_on: []
+  build_2026_08_09: 'BUILT (worktree commit 141e60939) then REBASED onto current develop as c82290f68
+    on branch sensor-cap-rebase. STALE-BASE INCIDENT: the builder worktree was based on 57ba22942
+    (v5.50.2), 214 commits behind develop, so its green suite (19f/8125p) described a codebase that no
+    longer exists. Cherry-pick onto develop was CLEAN (no conflicts) and _detect_duty_cycle_stuck — the
+    riskiest refactor target — was byte-unchanged between base and develop, so a rebase sufficed rather
+    than a redo. Re-validated on the real baseline: 21 failed / 8517 passed / 45 skipped / 2 xfailed
+    (develop baseline 21f/8494p; +23 = the new tests; failing NAMES unchanged; the A-2/A-3 strict xfails
+    survived). Skill updated with a base-verification rule.'
+  I1_DEVIATION_for_reviewers: 'The builder KNOWINGLY deviated from byte-identity in one place and
+    flagged it: for an entity in BOTH mmwave_sensors and occupancy_sensors (the P15 defensive case),
+    pre-migration list-concat DOUBLE-SCORES it (same ring appended twice per tick), which reaches the
+    MIN_TICKS=20 warm-up floor in half the ticks. The build dedups to score it exactly once, per the
+    plan wording. This is a real behaviour change on that path and therefore a partial I1 violation.
+    Reviewer B must adjudicate: take the fix, or preserve the bug for strict byte-identity.'
+  build_notes:
+  - 'A mutation drill initially PASSED, exposing dead code: the strong_evidence gate was unreachable for
+    kind=bed (bed is not in _STUCK_CANDIDATE_KINDS, so it exits earlier). The builder added a test for
+    the reachable path (operator declares an mmwave-wired entity as strong_evidence) and re-ran to a
+    named failure. The drill protocol caught a hollow anchor before review — working as intended.'
+  - 'D4 uses a JSON textarea (TextSelector multiline) because HA has no dict selector. Pragmatic v1.'
+  - 'Unverified claim for reviewer B: mid-flight capability override during refresh_subscriptions is
+    untested; the builder argues it is safe because the capability layer is not consumed inside the
+    substrate and _detect_duty_cycle_stuck re-reads room_config every tick.'
+  TIER3_REVIEW_ROUND_2026_08_09:
+    A: 'SHIP w/ fix-ups — HIGH-A1 (validator accepted a capability with no kind, silently no-opping the
+      cycle headline use case), MED-A2 (failure_mode unvalidated). Verified by reading: _CONF_PRECEDENCE
+      matches occupancy_substrate._KIND_PRECEDENCE byte-for-byte; resolve_role total across 7x3x4x3 with
+      no silent None; TIER1_CAPABILITIES superset ENFORCED by construction not comment.'
+    B: 'SHIP conditional — adjudicated the flagged I1 deviation as TAKE THE FIX (substrate already
+      normalises multi-list entities by the same precedence and WARNs; pre-diff double-scoring reached
+      MIN_TICKS in half the ticks on half the window). B-MED-1: the carve-out is the whole P15 surface,
+      not just mmwave x occupancy. Verified the builder unverified claim: CONF_SENSOR_CAPABILITIES is
+      NOT in OPTIONS_RELOAD_SUPPRESS_KEYS so a save triggers a standard room reload; full TIER1_KINDS
+      consumer enumeration clean, no half-migrated reader.'
+    C: 'SHIP — 13 per-site drills, 3 came back GREEN=untested. C-MED-1 is the 8th hollow-anchor shape:
+      wiping the ENTIRE effective_corroborators construction left the suite green, so D3 load-bearing
+      claim was unpinned. C also proved the I3 RUNTIME ward has teeth (widening TIER1_KINDS reddens 5
+      tests) while the docstring ward is advisory only — both honest about scope.'
+    D: 'DO-NOT-SHIP — D-HIGH-1 (I1 violated for hybrid entities under empty overrides) + D-MEDIUM-1 (the
+      narrowing question answered YES: an override can evict an entity from BOTH loops).'
+  ORCHESTRATOR_ADJUDICATION: 'B/C/D disagreed on ONE line. Resolved by reading source: _STUCK_CANDIDATE_KINDS
+    = {mmwave, occupancy} excludes motion (sensor_role.py:73) and _CONF_PRECEDENCE resolves a
+    motion+mmwave entity to MOTION, so CANDIDATE_FOR_STUCK returns False on the KIND CHECK ALONE —
+    independent of _seen_corr. C drill 13 (delete the branch, suite green) proves it inert. So D-HIGH-1
+    is a REAL behaviour change but MIS-ATTRIBUTED, and BOTH of D''s proposed fixes would have been
+    NO-OPS. Real cause = precedence-aware role resolution, which B correctly judged correct on merits.
+    Disposition: keep the behaviour, DELETE the dead branch and its FALSE comment, document the real
+    carve-out. Confirmed independently by the builder drill 6 (precedence inversion reddens both P15
+    tests via double-scoring — a different mechanism than the dedup set).'
+  FIXUP_2026_08_09: 'bed359d5d, ff-merged onto sensor-cap-rebase. Fixed HIGH-A1, MED-A2, D-MEDIUM-1
+    (validator now rejects an override that would leave a motion-wired entity in neither loop), C-MED-1
+    (byte-identity anchor + a behavioural test driving production so bed elevation actually reaches the
+    corroboration deque), C-LOW-2/D-HIGH-1 (dead branch + false comment deleted), B-MED-1 (planning
+    section 10.1 rewritten + motion x mmwave and motion x occupancy analogue tests), the misfiled-hybrid
+    collision WARN, and D-LOW-2. Deferred: A-LOW-3/4, A-NIT-5, C-LOW-1, B-LOW-1/2.'
+  ORCHESTRATOR_VERIFIED_2026_08_09: 'Did NOT trust the reports (Tier-3 mandate). Personally: ff-merged;
+    confirmed the dead branch and false comment are gone (0 occurrences); ran my OWN mutation on the
+    load-bearing site (_CONF_PRECEDENCE inverted, py_compile clean) -> 7 NAMED failures incl. the
+    byte-identity anchor and both new P15 analogue tests; restored and confirmed git status clean; full
+    suite 21 failed / 8525 passed / 45 skipped / 2 xfailed (baseline 21/8517, +8 = the new tests, failing
+    NAMES unchanged).'
+  AWAITING: 'TIER-3 OPERATOR CHECKPOINT BEFORE DEPLOY (mandatory per CLAUDE.md). Not merged to develop.'
+  known_gap: 'The misfiled-hybrid collision WARN has no dedicated test asserting the emit path (it fired
+    incidentally in a drill). Would need _LOGGER mocking or caplog scaffolding on the coordinator logger.
+    Say the word and it gets one.'
+  next: 'PLAN WRITTEN 2026-08-09 (docs/planning/PLANNING_sensor_capability_vs_role.md, 477 lines).
+    Tier 3, four framing-disjoint reviews, operator checkpoint before deploy. AWAITING OPERATOR GO —
+    Tier 3 shared primitive, not implied-approval eligible.'
+  status_note: plan complete; build gated on operator go
+  refinement:
+  - 'CHALLENGE (planner, vs my card sketch): the sketch read as if capability might extend TIER1_KINDS
+    and the substrate DISPATCH payload. SHARPENED: keep the substrate channel TIER1_KINDS-valued and run
+    capability at the CONSUMPTION site instead. Extending TIER1_KINDS touches every consumer AND trips
+    _audit_provenance_invariants (presence.py:384) which RAISES on unknown keys — blast radius O(n) per
+    added kind. Consumption-site resolution bounds it to O(1). This is the insight that makes the cycle
+    tractable; my sketch would have made it a rewrite.'
+  - 'CHALLENGE: my sketch said "inferred from device/integration where possible". SHARPENED: NO
+    auto-inference in v1 — operator-declarable only, with an evidence trigger to revisit. Rationale:
+    manufacturer/integration sniffing is a rare-fire path with poor observability, and the Bug Class #46
+    history is lazy defaults mis-classifying silently. Note this lands closer to the operator''s own
+    words ("we could also add more options or detail to the kind of sensor in config") than my sketch did.'
+  - 'CHALLENGE: "kind, trust, failure-mode" as free-form fields. SHARPENED: each constrained to a small
+    enumerated vocabulary (TRUST_CLASS_*, FAILURE_MODE_* at rung 1); open strings would defeat the
+    role-query matrix''s testability.'
+  invariant: 'I1 — with no CONF_SENSOR_CAPABILITIES declared anywhere, get_all_room_kinds, every
+    SIGNAL_SUBSTRATE_KIND_CHANGED dispatch, _room_provenance, _detect_duty_cycle_stuck''s return set and
+    every exposed entity attribute are BYTE-IDENTICAL to today. I2 roles never persisted across a tick.
+    I3 capability MUST NOT leak into the legacy provenance channel.'
+  riskiest: '_detect_duty_cycle_stuck migration. Its positional signature (motion, mmwave, occupancy) is
+    itself a legacy reification of _KIND_TO_CONF. An entity present in BOTH mmwave_sensors AND
+    occupancy_sensors (the P15 defensive case, occupancy_substrate.py:214-222) must be scored EXACTLY
+    ONCE by resolve_role, matching today''s concatenation semantics. Reviewer C must mutation-cover that
+    collision. Second: a future builder adding "bed" to _audit_provenance_invariants''s allowlist would
+    silently undo I3 — the audit docstring must state the vocabulary is closed by design.'
+  refs:
+  - docs/planning/AUDIT_mmwave_only_rooms_2026-07-31.md (Finding 6 — root cause)
+  - docs/planning/PLANNING_mmwave_corroboration_tier3.md (Amendment 4)
+  - docs/planning/PLANNING_signal_trust_ledger_abstraction.md (Addendum 2026-08-09 — ledger assumed this layer)
+  - custom_components/universal_room_automation/domain_coordinators/occupancy_substrate.py:81
+  - custom_components/universal_room_automation/const.py:335,342
+  DEDUPE_2026_08_09: 'Four-surface adjacency sweep run before creating this card. Board: adjacent to
+    STUCK-SENSOR-1 (which it now BLOCKS) — kept separate because the shared surface is
+    OccupancySubstrate/TIER1_KINDS, not the stuck detector, and STUCK-SENSOR-1 cannot be built
+    correctly first. BACKLOG.md: B-2026-08-04-1 is downstream (its memory-baseline exemption still
+    applies per-room after this lands); B-2026-08-04-2 unrelated (ops). Parked planning-doc
+    deliverables: mmwave-Tier3 D4 (unrelated, still parked), D6 (absorbed into chatter work, not here).
+    Catalogs: CATALOG P15 substrate kind-precedence is the primitive being changed — extend, do not
+    roll new. NEW, not duplicate.'
+- id: BOARD-CURRENCY-1
+  title: Forcing-function ladder so the board (and vibememo) cannot lag shipped work
+  thread: process
+  status: shipped_organic
+  approval: explicit
+  approved_by: operator 2026-08-09
+  tags:
+  - numbers-get-knobs
+  - institutional-context
+  origin:
+    date: '2026-08-09'
+    gist: 'operator on the stale board: "A banner is not a forcing function. Is there a harder one? A
+      kanban that does not keep current is fairly useless" -> then "yes deploy gate with softer backups
+      as well (the other 2 or 3). We should also chain to Vibememo"'
+  why: 'Board reconciliation is the ONLY step in the deploy ritual with no forcing function. deploy.sh
+    refuses without tests and without a README; NOTHING refuses without a board update, so it is the
+    only step running on willpower — and it rotted twice (2026-08-09: board said "build" for XCORR-1 and
+    SNAP-1, both already shipped as v5.64.0/v5.63.0). meta.last_reconciled correctly read 2026-08-07 and
+    nothing surfaced it. Root cause is NOT a missing rule (the skill carries three hooks covering it).'
+  constraints:
+  - 'A failed board/vibememo write MUST NOT abort a deploy that has already pushed — trading a stale
+    board for a half-released version is strictly worse. Write AFTER the push succeeds, warn loudly on
+    failure, never exit non-zero post-push.'
+  - deploy.sh is URA-only (CLAUDE.md). Do not co-opt it for Shipwatch or other projects.
+  - 'Every escape hatch must be explicit and logged (--no-cards), never a silent bypass.'
+  ladder:
+  - 'RUNG 1 (HARD — the forcing function): deploy.sh gains --cards ID[,ID...]. REFUSES to deploy when
+    absent, printing current in_progress/review cards as candidates. --no-cards escape for pure-docs
+    releases. On success it WRITES status: shipped_organic + shipped_version: v<version> for each named
+    card and meta.last_reconciled: <today>, committed as part of the release commit. The board update
+    becomes an OUTPUT of shipping, not a task.'
+  - 'RUNG 2 (HARD, same gate): chain vibememo. The same --cards gate requires/emits a vibememo entry for
+    the release (the WHY of the ship), so the decision trail cannot lag either. vibememo = WHY,
+    kanban = WHAT/WHERE/NEXT; both are release-coupled from here.'
+  - 'RUNG 3 (soft backup): KHOST-1 generator renders a loud STALE banner + warns on build when
+    meta.last_reconciled is older than the newest git tag or newest README_v*.md.'
+  - 'RUNG 4 (soft backup): session-start staleness check (skill enforcement #2, already exists) —
+    compare meta.last_reconciled to git log before reporting status.'
+  - 'RUNG 5 (soft backup): recurring overnight agentic pass reconciles the board as its first action
+    before picking up overnight-agentic work. WIRED 2026-08-09 as recurring job 0e0703fc, daily 01:23.'
+  RUNG5_DURABILITY_GAP: 'The 01:23 job is SESSION-ONLY — in-memory, dies when the Claude session exits,
+    and auto-expires after 7 days. So it does NOT yet fully solve the KHOST-1 miss: if the session ends
+    before 01:23, the overnight pass silently does not happen — the SAME failure mode as the original
+    promise, just with a longer fuse. A durable fix needs a scheduler OUTSIDE the session: launchd on
+    the operator Mac or a homelab cron that starts a fresh headless session. Until that exists, rung 5
+    is best-effort and must not be relied on; rungs 1-2 (release-coupled, in-repo) are the load-bearing
+    ones. Operator decision needed on where the durable scheduler lives.'
+  scope_note: 'Rung 1 hardens only the SHIPPED transition. pre_planning->planned->in_progress stays soft
+    (turn-end hook). Deliberate: every card found stale on 2026-08-09 was shipped work the board still
+    called "build" — the rot is concentrated exactly where rung 1 bites. If in-flight statuses prove to
+    rot too, add a second mechanism ON EVIDENCE, not by guess.'
+  parsimony:
+    problem: the board silently lags shipped work, so picking "next" off it can rebuild already-shipped features
+    verdict: BUILD
+    note: 'simplest version (banner) was REJECTED by operator as not a forcing function; the marginal
+      cost of rung 1 over the banner is one gate in a script that already has one (deploy.sh:32-36)'
+  knobs: none new (uses existing meta.last_reconciled)
+  next: 'MERGED to develop 2026-08-09 (0b4a22592). Rungs 1+2 live in scripts/deploy.sh. ORGANIC PROOF
+    OPEN: the post-push write path has never executed for real — the next release is its first true run.
+    Failure there is contained (warn + exit 0, release unaffected). Rung 3 rides KHOST-1.'
+  review_record_2026_08_09: 'Reviewed DO-NOT-SHIP -> fixed -> re-verified. H1 YAML reflow: safe_dump
+    round-trip rewrote the real board 1296->1455 lines, re-wrapping every card''s prose at 80 cols.
+    Replaced with a textual line-anchored writer (parse to VALIDATE, edit as TEXT) — NOT ruamel, which
+    is not installed and would have put a pip dependency in the release path. Orchestrator independently
+    re-verified on the real board: 1323->1324 lines, 2 hunks, 3 lines changed, all 28 other cards
+    byte-identical, YAML valid, card count preserved. H2: --dry-run was a command echo, so step 4b would
+    have debuted in production; it now runs the REAL kanban_ship + vibememo_ship against a mktemp copy
+    and prints the diff. M1 (--cards swallowing a flag), M2 (gitea mirror for the reconcile commit),
+    M3 (--no-verify so a hook flake cannot leave the board dirty and block the next deploy), L1/L2/L5
+    fixed. L3/L4 accepted.'
+  residual_fragility:
+  - 'A card whose status: line is quoted (status: "planned") would not match the writer regex — the card
+    is skipped with a WARN rather than silently mis-written. No such card exists today; worth a lint if
+    quoting ever starts.'
+  - 'No behavioral in-suite test for vibememo_ship.py (kanban side has 14). The --repo-root flag is
+    exercised only by the dry-run rehearsal; a bug in default root resolution would not be caught.'
+  meta_note: 'The first card this gate marks shipped will most likely be itself.'
+  refs:
+  - docs/planning/PLANNING_v4.7.10_deploy_sh_gitea_retrofit.md (precedent for modifying deploy.sh)
+  - scripts/deploy.sh:32-36 (existing hard-gate pattern to mirror)
+  - .claude/skills/ura-kanban/SKILL.md (Forcing functions section)
+  sibling_of:
+  - KHOST-1
+  DEDUPE_2026_08_09: 'Four-surface sweep run. Board: KHOST-1 adjacent (owns rung 3, the generator) —
+    linked, not merged, because rung 1 lives in release machinery not the generator. TRANSIT-DIAG-1
+    matched on "diagnostic" only, unrelated. BACKLOG.md: no match. Planning docs: v4.7.10 deploy_sh
+    retrofit is the precedent for HOW deploy.sh gets changed, cited. Catalogs: n/a (process, not a
+    presence primitive). NEW, not duplicate.'
+- id: WATCHDOG-INERT-1
+  title: Three of four v5.35.0 stuck-signal detectors are effectively inert (D3 structurally unreachable)
+  thread: presence
+  status: pre_planning
+  approval: unreviewed
+  tags:
+  - no-fabrication-verify
+  - measure-before-build
+  - context-wide-scoping
+  origin:
+    date: '2026-08-09'
+    gist: fell out of the ledger golden-fixture yield probe — the short buckets were short because the
+      events never happen, which is a statement about the detectors, not about instrumentation
+  why: 'MEASURED over 7.46 d recorder + 14 d URA notification_log. D3 frozen-tracker is STRUCTURALLY
+    UNREACHABLE: threshold FROZEN_TRACKER_DAYS=2.0 (const.py:3121) but longest HA uptime in-window is
+    1.02 d across 30 restarts (2.5 h median gap); restart re-adds trackers with fresh last_updated, so
+    the counter resets before it can mature. Oldest of 1793 trackers = 1.93 d. D1 camera-stuck has never
+    fired: interior max person_count>0 hold is 0.31 h vs STUCK_CAMERA_HOURS=3.0 (~10x margin). P24 fires
+    ~1x/14 d. Only P22 (18 episodes) and D2 (13) are live detectors.'
+  sharp_problem: 'D3 cannot catch the incident it was built for. It exists because of the Ezinne 3-day
+    frozen tracker; with HA restarting every ~2.5 h a 3-day freeze is invisible to a detector measuring
+    uninterrupted in-memory last_updated age.'
+  root_cause_link: 'Same defect STUCK-SENSOR-1 flagged and nobody pursued — "NO PERSISTENCE: any
+    stuck-state tally resets on restart, and we restarted 7+ times today." The probe proves it is fatal
+    for D3 rather than merely degrading.'
+  options:
+  - 'FIX: measure staleness from a PERSISTED timestamp rather than in-memory last_updated, so restarts
+    do not reset the counter. Restores D3 to its intended purpose.'
+  - 'RE-THRESHOLD: D1 3.0 h against an observed 0.31 h max is ~10x off; either the threshold is wrong
+    for this deployment or the detector is guarding a condition that does not occur here.'
+  - 'DROP from the ledger migration set: migrating a detector that has never fired buys nothing and its
+    golden fixture is impossible to generate by construction.'
+  blocks:
+  - SIGNAL-TRUST-LEDGER M4/M6 scoping
+  RESTART_VERDICT_2026_08_09: 'RESOLVED — NOT a red flag. Authoritative events-table count is 26 (not
+    30; my earlier figure was a heuristic overcount that also caught config-entry reloads). ALL 26 were
+    clean stops preceded within 300s by an explicit homeassistant.restart: 25 map 1:1 to release commits
+    across the v5.47.0->v5.64.0 train, 1 was a deliberate operator manual restart. ZERO spurious, zero
+    unclean starts, zero watchdog signature. The parent-reload watchdog hazard did NOT fire (only 5
+    reload_config_entry calls in-window, targeting enphase_envoy and esphome — neither is URA).
+    Operator rule "if restarts are us shipping we are ok to keep going" -> WE ARE OK. It is a deploy log.'
+  D3_STILL_UNREACHABLE: 'Corrected uptime stats CONFIRM it: median 3.43 h, mean 6.63 h, max 24.32 h
+    (1.01 d) vs a 2.0 d threshold. Note the causality — D3 is unreachable BECAUSE we ship this often, so
+    it will stay unreachable at this cadence. The fix is detector-side (persist the tally across
+    restarts), not slowing releases.'
+  D1_VERDICT_2026_08_09: '(i) CORRECTLY RARE — leave the thresholds alone. Interior hold distribution
+    over 7.30 d: p50 0.004 h, p90 0.013 h, p99 0.044 h, max 0.27 h against a 3.0 h threshold (11x above
+    max, ~68x above p99). All 7 interior candidates are live and evaluated (883 non-zero episodes);
+    boot-settle is not binding and the v5.35.0 safety rails gate the census DISCOUNT not the NM, so they
+    cannot explain the silence. Re-thresholding would land at ~0.3-0.5 h, below plausible real occupancy
+    — the 3.0/6.0 h pair is a deliberate "impossible for a real body" bound working as designed.'
+  D1_REAL_FINDING_coverage_not_calibration: 'sensor.garage_b_person_count held >0 for 6.52 h and WOULD
+    have crossed both rules — but camera.garage_b and camera.garage_a are in NO URA camera list (not
+    interior, not perimeter, not egress), while "Garage B" IS a configured URA room. Widening D1 to
+    perimeter would be wrong (front_side_ptz 3.49 h, back_yard 2.97 h are legitimately long outdoors).
+    OPERATOR DECISION: add the garage cameras to the interior list? Note Garage B has now surfaced three
+    separate times today (chattering ratgdo, empty D2 candidate set, uncovered camera).'
+  P24_VERDICT_2026_08_09: '(iii) STRUCTURALLY BLIND on its main leg — not a threshold problem. Duration
+    precondition met 27 times across 7 rooms in 7.3 d (~3.7/day); the Tier-1 freshness skip suppressed
+    27 of 27 (100%). That 100% is a THEOREM not a statistic: any tick reaching coordinator.py:2417-2418
+    with STATE_OCCUPIED=True either just refreshed _last_motion_time = now (:2332) or is inside the
+    timeout branch, so signal_age < occupancy_timeout < 2x occupancy_timeout — always fresh. The moment
+    it is not, _became_occupied_time is nulled (:2373, :2384) and the guard is False. The single real
+    firing (Patio, 08-05, 15.06 h session) came through the is-None branch during a grace_hold. Also:
+    camera/BLE-held occupancy can NEVER accumulate failsafe duration — the overrides at :2490/:2597
+    re-seed _became_occupied_time AFTER the check (Ziri Bathroom shows occupied 10.79 h but max recorded
+    session 1.10 h). No staleness multiplier fixes it: k<=1 is a no-op gate firing on all 27 legit
+    sessions, k>1 is unreachable. THREE OPTIONS written up: move the check after the overrides, re-base
+    on _last_pir_motion_time, or accept the narrowed semantics and rewrite the NM text honestly.'
+  P24_DIAGNOSABILITY_DEFECT: 'The NM row persists message="[audit]" with NO room name — identifying the
+    firing room required a recorder attribute join. Cheap fix, real cost the next time one fires.'
+  parsimony:
+    problem: three shipped detectors do not detect; one cannot detect by construction
+    verdict: BUILD
+    note: 'cheap relative to value — this is dead safety machinery we believe is protecting us'
+  OPERATOR_DECISIONS_2026_08_09_round2:
+  - 'GARAGE CAMERAS: "Yes pls. Or maybe to the egress list?" — ANSWERED: the two lists do different
+    things and only ONE gives D1 coverage. CONF_CAMERA_PERSON_ENTITIES (interior) is what D1 scores
+    (camera_census.py:1787,1803) and is ALSO consumed by the census person_count and by fan_veto.py:353.
+    CONF_EGRESS_CAMERAS feeds perimeter_alert.py:332 (alerting) — adding garages there would NOT make
+    D1 see them. So: interior is required for the stated goal. SIDE EFFECT to weigh: interior also
+    enrols the garage cameras in the census person_count (affects house occupancy / guest detection) and
+    in fan veto. Both may be desirable — Garage B IS a configured room — but it is a wider change than
+    "give D1 coverage". Possibly BOTH lists, for different reasons. Operator confirm before applying.'
+  - 'P24: "Instinct is to fix" — APPROVED to fix. Likely needs BOTH investigation options, not one:
+    (A) move the failsafe check AFTER the camera/BLE overrides at :2490/:2597, which currently re-seed
+    _became_occupied_time after the check so override-held rooms can never accumulate duration; AND
+    (B) re-base the freshness test on _last_pir_motion_time instead of _last_motion_time, which is
+    refreshed to now() at :2332 on the same tick and makes the skip a tautology (27/27 suppressed).
+    Fixing only one leaves the other leg blind. Needs its own scoped cycle + tier call.'
+  - 'D3 FROZEN TRACKER: "Kill it." — APPROVED for deletion, not repair. Removes the detector in
+    person_coordinator.py, its NM kind, CONF_FROZEN_TRACKER_DAYS / DEFAULT_FROZEN_TRACKER_DAYS
+    (const.py:3120-3121), its config-flow field and its tests. Consistent with the earlier drop from
+    the ledger migration set (M6). Rationale on record: structurally unreachable — 2.0 d threshold vs
+    max 1.01 d uptime across 26 deploy-driven restarts; it cannot catch the Ezinne 3-day freeze it was
+    built for, and will not at this release cadence.'
+  SEQUENCING_NOTE: 'P24-fix and D3-kill both touch coordinator.py / person_coordinator.py. The
+    SENSOR-CAPABILITY-1 fix-up is concurrently editing coordinator.py on sensor-cap-rebase. Queue these
+    two BEHIND that merge rather than running them in parallel — worktree isolation prevents corruption
+    but not merge conflicts in the same function region.'
+  next: 'OPERATOR DECISION 2026-08-09: DROP D1/D3/P24 from the ledger migration set ("1 want to drop.
+    Some are rare. Not a bad thing."). Ledger migration set reduces to M1 (P22), M3 (P18), M5 (D2) +
+    M7 (P14, hand-built). Open sub-question the operator DID want answered: WHY D1 and P24 do not fire —
+    correctly-rare vs mis-thresholded vs structurally-blind. Under investigation in
+    AUDIT_detector_silence_and_restart_causes.md. D3 remains structurally unreachable regardless; whether
+    to FIX (persisted timestamp) or leave it is a separate call, not blocking.'
+  operator_decision_2026_08_09: 'DROP from migration. Rarity is not itself a defect — a detector guarding
+    a condition that genuinely does not occur is working. This does NOT close the question of whether the
+    thresholds are right; it only removes them from the ledger cycle so they stop blocking M4/M6 scoping.'
+  refs:
+  - docs/planning/AUDIT_ledger_golden_fixture_yield.md (the probe + orchestrator escalation)
+  - custom_components/universal_room_automation/const.py:3099,3121
+  DEDUPE_2026_08_09: 'Four-surface sweep: STUCK-SENSOR-1 is adjacent (shares the no-persistence root
+    cause) but is about EXCLUSION POLICY for live detectors; this is about detectors that never fire at
+    all — different problem, linked not merged. BACKLOG B-2026-08-04-1 is about watchdog SPAM (too many
+    notifications), the mirror of this. No planning-doc parked item covers it. NEW.'
+- id: EVCARD-1
+  title: EV charging detail card for the URA v8 Energy tab
+  thread: dashboarding
+  status: inbox
+  approval: explicit
+  approved_by: operator 2026-08-09
+  origin:
+    date: '2026-08-09'
+    gist: '"add an EV charging detail card to the Ura v8 energy tab. Style well. Detail cards are a bit
+      sensor words vomit. Best judgement because of space though."'
+  why: EV charging is a first-class energy behaviour (drain precedence, must-start-by, TOU exposure) with
+    no dedicated surface on the v8 energy tab.
+  constraints:
+  - 'STYLE IS PART OF THE ASK. Existing detail cards are "sensor word vomit" — dense raw-entity dumps.
+    Do NOT add another. Design for scanning: state first, numbers second, raw entities last or hidden.'
+  - 'Space-constrained — operator explicitly delegated judgement on what to cut. Curate ruthlessly;
+    completeness is not the goal.'
+  - Reuse existing EV/EVSE entities and precedence concepts; do not invent new sensors for the card.
+  next: 'APPLIED LIVE 2026-08-09 to ura-v8 Energy & EV tab (views[2].sections[8], right after Battery
+    Strategy Detail). write_committed + post_write_verified; template render verified separately.
+    AWAITING OPERATOR REVIEW for refinement — operator: "I''ll review and we can refine."'
+  applied_render_2026_08_09: '## ⏸ Paused / TOU peak/mid-peak pause / [Garage A yes|Paused|0.0 kW]
+    [Garage B —|Off|0.0 kW] [Outlets (2) —|TOU peak/mid-peak pause|—] / **Plan:** Hold Only · held 53h
+    — 7 lines, zero None/unavailable/unknown, all four conditional lines correctly absent.'
+  fix_2026_08_09_held_label: 'Operator: "What does held 53h mean?" — it was WRONG. Verified in source:
+    since is stamped on every DP state transition (energy_drain_precedence.py:265) and HOLD_ONLY CLEARS
+    hold_started_at as a "clean reversion" (:269-274); DPState docstring says HOLD_ONLY = "Default;
+    master switch off OR eval said no". So HOLD_ONLY is the RESTING state — nothing held — and "held
+    53h" asserted the opposite of the truth (a reader would think their car had been blocked for two
+    days). Replaced with a state-aware line: hold_only -> "idle — no hold on charging · unchanged 53h";
+    transitioned -> "EVSEs paused for battery drain since <time>" (transitioned_at); otherwise ->
+    "· holding <n>m" (hold_started_at). Verified live + storage re-read (str.replace is a silent no-op
+    on a miss and the write reports success regardless).'
+  refinement_candidates:
+  - 'REDUNDANCY: the headline reason and the Outlets row currently show the same string twice
+    ("TOU peak/mid-peak pause") because the outlets are the only endpoints holding a reason. Options:
+    drop the reason from the endpoint row, or drop it from the headline when only one distinct reason
+    exists. Left as-is pending operator eye — it may read as useful attribution rather than repetition.'
+  - 'Retrofit the same conditional rendering to the sibling Battery Strategy Detail card (~30 min).'
+  bug_caught_pre_ship: 'The markdown card auto-detects entities from LITERAL entity IDs in the template.
+    This template reaches them through Jinja VARIABLES (states(s)), so auto-detection would have missed
+    them and the card would never re-render on state change — it would sit stale until an unrelated
+    repaint. Fixed by adding the explicit entity_id watch list. Caught by reading the HA dashboard
+    best-practices guide, not by testing.'
+  design_notes:
+  - 'Anti-word-vomit rules applied: (1) narrative first — pause_reason_human leads, and nothing on the
+    dashboard consumed that attribute before; (2) CONDITIONAL rendering — must_start_by,
+    force_charge_until, excess-solar and fill-target only render when set, so an idle evening is ~6
+    lines and a busy one grows; (3) one row per ENDPOINT not one line per attribute.'
+  - 'Found FOUR chargeable endpoints, not two: garage_a + garage_b Emporia EVSEs plus two Moes smartplug
+    sockets (the only ones currently holding a real reason, "TOU peak/mid-peak pause").'
+  - 'Omitted as noise: the paused_by_* booleans (they are the INPUTS to pause_reason_human), cooldowns,
+    evse_config, pause_dispatch_state, all shadow_* eval telemetry, and SPAN lifetime counters reading
+    in the tens of millions of Wh.'
+  - 'Sibling Battery Strategy Detail card renders every field UNCONDITIONALLY including None — that is
+    the concrete failure mode being improved on. Worth retrofitting the same conditional treatment there
+    if the operator likes this one.'
+  followup_candidate: retrofit conditional rendering to the Battery Strategy Detail card (same section
+    group, same defect, ~30 min) — only if the operator endorses this card's style
+  DEDUPE_2026_08_09: 'Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface);
+    EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers
+    a v8 energy-tab EV surface. NEW.'
+- id: HVAC-PRESET-FLAP-1
+  title: HVAC zone preset flaps home<->away every 5-15 min during occupied evenings (survives Writer-B removal)
+  thread: hvac
+  status: pre_planning
+  approval: unreviewed
+  tags:
+  - no-fabrication-verify
+  - measure-before-build
+  - context-wide-scoping
+  origin:
+    date: '2026-08-09'
+    gist: 'operator: "The hvac zone is being set to away and there are/were people upstairs" — then
+      "I''ve been seeing this issue from the moment we walked in", which falsified the first three
+      mechanisms I proposed'
+  why: 'MEASURED: nine home<->away preset cycles on zone_2 in two hours of confirmed occupancy, all
+    inside coast mode. Presence was correct throughout. Writer B removal (v5.56.0) did NOT stop it —
+    see P1P3 for the falsification. Real comfort cost: upstairs held at 79-80F with two kids in it after
+    a 24h absence on a 96F day, because the away preset ceiling (hi=80) equalled the current temp, so
+    the thermostat read "cooling" while doing nothing.'
+  DUTY_CYCLE_DEFINITION_2026_08_09: 'PRECISE, read from source (hvac_const.py:392-394):
+    DUTY_CYCLE_WINDOW_SECONDS = 20*60 (20-min ROLLING window); DUTY_CYCLE_SHED = 0.50;
+    DUTY_CYCLE_COAST = 0.75. So coast permits 15 MINUTES OF COMPRESSOR RUNTIME PER 20-MINUTE WINDOW.
+    Accumulates only while hvac_action in (heating, cooling); crossing the cap sets runtime_exceeded
+    -> preset forced away (hvac.py:1445); window reset clears it -> preset returns to the house-state
+    value. Cooling stops during the away phase so accumulation pauses. Enforcement exists ONLY in
+    shed/coast (normal mode: `else: continue`, no cap at all); the only exemption is house_state=sleep.'
+  RETRACTION_2_max_runtime_minutes: 'I earlier reported "max_runtime_minutes: 120 is the coast cap" and
+    then "you hit the cap almost exactly when you noticed". BOTH WRONG. max_runtime_minutes is computed
+    in energy.py:6907 from TIME REMAINING IN THE CURRENT TOU PERIOD — an unrelated field on the same
+    sensor that I grabbed because the name looked right. It is not the duty cap, and its 120->60 change
+    was the TOU period shortening, not the limiter tightening.'
+  RETRACTION_3_two_writers: 'I framed this as "two URA writers disagreeing with no arbitration". WRONG.
+    There is ONE mechanism. The home write is not another actor pushing back — it is the same
+    effective_preset computation returning the house-state value once runtime_exceeded clears at window
+    reset. The observed ~10-min alternation is simply 75% duty expressed at 5-min tick granularity.
+    THE LIMITER IS CYCLING BECAUSE IT IS A DUTY-CYCLE LIMITER. This is the feature working as designed,
+    and it invalidates the "arbitration rule" fix direction I proposed.'
+  REFRAMED_PROBLEM: 'If there is a defect it is NOT the cycling. Three narrower candidates, none Tier 3:
+    (1) MECHANISM — duty cycling by toggling a user-visible comfort preset makes an energy action look
+    like a presence failure; that misreading cost three hours tonight and taught the kids the thermostat
+    is broken. (2) OFF-PHASE SETPOINT — away carries hi=80, so on an 80F evening the off phase parks at
+    AMBIENT. A duty cycle off-phase should hold a small offset (~2F), not abandon the room. This may be
+    config, not code, and is the cheapest candidate. (3) COAST DUTY VALUE — is 75%/20min right when the
+    zone is occupied? Pure tuning.'
+  MEASURE_FIRST_GATE: 'Operator: "Measure first for sure." AUDIT_hvac_duty_cycle_frequency.md in flight:
+    how often runtime_exceeded fires per day/zone, how much of it is while OCCUPIED, EPISODE structure
+    (10 flips in one evening != 10 flips over two weeks), and whether the rate is recent. Known confound
+    stated up front: the reason ledger only exists from v5.56.0 (2026-08-06), so an apparent jump may be
+    instrumentation appearing rather than behaviour changing — the probe must say "cannot determine" if
+    so. Also checking whether we now spend MORE HOURS IN COAST than before, which would make this an
+    energy-side regression rather than an HVAC one. NO BUILD UNTIL THIS RETURNS.'
+  LEDGER_RETRACTION_2026_08_09: 'I carded a "reason ledger reads empty / diagnosability regression"
+    finding. IT WAS FALSE and is fully RETRACTED. The v5.56.0 reason ledger works exactly as designed —
+    my extraction script read a column named `details` when the actual column is `details_json`. I
+    nearly filed a defect against our own tooling because of a typo in a throwaway query. Operator
+    caught it: "Make sure you read all the JSON. Don''t want to fix what''s not broken." Rule earned:
+    when an instrument built for exactly this question returns nothing, suspect the query before the
+    instrument.'
+  MECHANISM_PROVEN_2026_08_09: 'Two URA writers alternating with NO arbitration between them. From the
+    ledger, zone_2, every row carrying persons=[ziri, jaya]:
+      23:34 home->away reason=runtime_exceeded       runtime=True
+      23:24 away->home reason=house_state_transition runtime=False
+      23:19 home->away reason=runtime_exceeded       runtime=True
+      23:04 away->home reason=house_state_transition runtime=False
+      22:54 home->away reason=runtime_exceeded       runtime=True
+    The coast duty-limiter (hvac.py:2470-2492, active only in shed/coast, cap max_runtime_minutes=120)
+    forces away on trip; the house-state preset logic writes home back because the zone is occupied and
+    house=home_evening; the duty window rolls, runtime re-accumulates, it trips again. runtime_exceeded
+    toggles True/False in lockstep with the flips. Neither writer yields to the other.
+    CONTRAST proving the ledger discriminates: at 19:54/19:59 UTC with nobody home the reason reads
+    vacant_past_grace with persons=[] — different cause, correctly labelled.
+    NOTE: the reason LADDER (hvac.py:1577) establishes precedence for LABELLING a single change; it does
+    NOT arbitrate between two writers that disagree across ticks. That is the gap.'
+  my_process_failure: 'I proposed three mechanisms in sequence from snapshots — "URA says home, device
+    says away", then "the 120-min cap fired", then "it is coast" — and each fit the instant I was
+    looking at and died on the next fact. The history query I ran FOURTH should have been FIRST; I had
+    last_changed timestamps in the opening read and looked past them. Rule: for any "it keeps doing X"
+    complaint, pull the state history BEFORE proposing a mechanism.'
+  next: 'Mechanism proven; this is now a DESIGN question, not a diagnosis. Decide the arbitration rule
+    between the coast duty-limiter and occupied-zone comfort. Candidates: (a) exempt the limiter when
+    the zone is occupied AND recovering from a large delta — the recovery load is legitimate, not a
+    fault; (b) let the limiter win but hold it (stop re-writing home each window) so it stops flapping —
+    steady discomfort beats oscillation; (c) consult battery SOC — it was 94% with solar_class
+    "excellent" while the limiter throttled comfort to avoid a peak the battery could have covered.
+    (c) is the one worth thinking hardest about.'
+  refs:
+  - docs/planning/kanban.data.yaml card P1P3 (the falsification)
+  - custom_components/universal_room_automation/domain_coordinators/hvac.py:1569-1610 (reason ladder), :1660-1675 (ledger row), :2470-2492 (coast duty limiter)
+  DEDUPE_2026_08_09: 'Four-surface sweep: P1P3 is the PARENT (closed, spawned this). STUCK-SENSOR-1 is a
+    different flap (mmWave sensor stuck, not HVAC preset) — no merge. ARREST-SUNSET-1 shipped and is
+    about override sunset, not oscillation. OVERRIDE-NOTIFY-1 is expiry warning. BACKLOG has no HVAC
+    preset-flap item. NEW.'
+- id: ARREST-COMFORT-1
+  title: Override arrester reverts occupant manual cooling requests with no comfort exemption
+  thread: hvac
+  status: pre_planning
+  approval: unreviewed
+  origin:
+    date: '2026-08-09'
+    gist: 'operator: "I think manual were kids trying to cool their space and the arrester stops them"'
+  why: 'Observed tonight: zone_2 preset went to `manual` at 16:49 and again at 17:14 — the kids walking
+    to the thermostat in an 80F room and asking for cooling. The override arrester reverted both within
+    10 and 5 minutes respectively. After 17:19 there are NO further manual writes: they gave up. The
+    system trained them that the thermostat does not work.'
+  sharp_problem: 'A manual cool request, from an occupied zone, at 80F, during recovery from a 24h
+    absence, is the single highest-quality signal in the building — a human walked to a wall and said
+    they are uncomfortable. The arrester treats it as noise to revert. Its only escape hatch is the
+    separate temp_arrester_override switch, which the kids do not know exists and which had sunset.'
+  fix_direction: 'Exempt (or substantially delay) arrest when the zone is occupied AND the manual change
+    moves toward comfort AND the temp delta is large. Arresting inside 5-10 minutes is worse than not
+    arresting at all — the occupant never feels an effect, so they learn the control is broken.'
+  operator_action_taken_2026_08_09: 'temp_arrester_override switched ON and all three zones set to home
+    at operator instruction. Verified: ceilings dropped 80 -> 76/77, all three cooling, runtime_exceeded
+    cleared. Note the override has a 6h max life and sunsets on some house-state transitions, so this is
+    relief, not a fix.'
+  next: scope the occupancy+delta exemption; decide whether arrest should be delayed rather than skipped
+  DEDUPE_2026_08_09: 'Sweep: ARREST-SUNSET-1 (shipped) is about WHEN the override sunsets;
+    OVERRIDE-NOTIFY-1 is about warning before expiry. Neither touches whether the arrester should fire
+    against an occupant comfort request in the first place. HVAC-PRESET-FLAP-1 is the sibling defect
+    from the same trace but independent — fixing one would not fix the other. NEW.'
 - id: TABLET-FLEET-1
   title: 'Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)'
   thread: tablets
@@ -92,7 +782,7 @@ cards:
 - id: XCORR-1
   title: 'Burst-demotion for isolated single-camera night alerts (was: cross-engine corroboration gate)'
   thread: perimeter
-  status: pre_planning
+  status: shipped_organic
   approval: explicit
   approved_by: operator
   approved_on: '2026-08-08'
@@ -401,7 +1091,7 @@ cards:
 - id: SNAP-1
   title: Snapshot mirror-and-improve
   thread: perimeter
-  status: review
+  status: shipped_organic
   approval: explicit
   approved_by: operator
   approved_on: 2026-08-07
@@ -451,7 +1141,9 @@ cards:
   parsimony:
     problem: perimeter alerts arrive with no photo / a stale photo
     verdict: BUILD
-  next: decisions RESOLVED - ready to build standalone (Tier 2-DB) after TRANSIT-1 fix-up + SECC-1
+  next: 'SHIPPED v5.63.0 2026-08-09 — 73 snapshots live in /media/ura/snapshots, none in /config/www.
+    Follow-ups open: bluebubbles attachment, protect-thumb source, capture-latency sensor, FRIG2SNAP-1.'
+  RECONCILED_2026_08_09: 'status review -> shipped_organic; board had said "ready to build" for shipped work'
   refs:
   - perimeter_alert.py
   - domain_coordinators/notification_manager.py
@@ -494,7 +1186,7 @@ cards:
 - id: RESACC-1
   title: Resolver accuracy test suite
   thread: resolver
-  status: in_progress
+  status: done
   batch: resolver-correctness
   seq: 1
   approval: implied
@@ -552,7 +1244,34 @@ cards:
     problem: resolver mis-maps a camera silently -> wrong alerts/room across 3 consumers
     verdict: BUILD
     note: highest-leverage test - guards the shared primitive
-  next: hand-build ground-truth from live registry, commit as fixture, then build the diff
+  next: 'DONE 2026-08-09 (commit 8f9a33026). Both stages complete. Residual work is NOT RESACC-1 — it is
+    the two bugs RESACC-1 MEASURED: A-3 and A-2, each pinned as strict xfail so a fix flips them green.'
+  result_2026_08_09:
+    cameras_checked: 20
+    recall: 39/39 legs, 0 misses
+    precision_violations: 0
+    room_attribution_protect: 17/17
+    near_miss: 'CLEAN — armcrest/armcrestash41b, stairs_top/staircase, back_yard/back_yard_grill do NOT
+      fuse. Resolver matches on exact object name, not stem prefix, so brand-prefix collisions cannot
+      merge cameras. This was the feared failure mode; measured and absent.'
+    mutation_drills: 'prefix-bleed into resolve_detection_legs -> 5 named tests red; neutered
+      _stem_to_device_ids bidirectional insert -> recall[armcrest] + recall[reolinkstudybporchptz] red.
+      Both restored, tree verified clean. FINDING: the cross-vendor native-AI bridge (dahua/reolink) and
+      the Protect/Frigate bridge are SEPARATE code paths — one global drill would have hidden that.'
+    suite: '45 passed / 2 xfailed in the new file; full suite 21 failed / 8480 passed, failing NAMES
+      byte-identical to baseline'
+    open_xfails: 'A-3 (7 exterior perimeter Frigate legs area=None — highest impact; any consumer using
+      enumerate_platform_cameras(frigate) gets roomless exterior cams); A-2 (armcrest dahua area=balcony
+      vs frigate pool — needs deterministic canonical-area selection across legs)'
+    doc_nit: 'audit camera-key `reolinkstudybporch` vs frigate slug `reolinkstudybporchptz` differ by a
+      ptz suffix; fixture keyed on the slug. Reconcile the audit doc on next touch.'
+  POST_REVERT_2026_08_09: 'A-2/A-3 fix REVERTED (0aaa61e16) by operator decision. RESACC-1''s value is
+    UNAFFECTED and independently re-verified after the revert: 20 cameras, 39/39 recall, 0 precision
+    violations, 17/17 Protect room matches, near-miss clean, 66 passed + 2 xfailed. The reverted work
+    only ever addressed the two xfailed cases, which are now correctly pinned as known-open rather than
+    fixed-then-regressed. Both xfails confirmed still strict=True.'
+  RECONCILED_2026_08_09: 'in_progress -> done the same day stage 2 landed, caught by the rung-4 session
+    check the currency ladder just codified (board had still said "build the diff")'
 - id: TEST-1
   title: Boot-time shadow diff (legacy vs resolver leg set)
   thread: resolver
@@ -732,7 +1451,7 @@ cards:
 - id: SECC-1
   title: Interior cams in the exterior open-tracks diagnostic
   thread: security
-  status: shipped_organic
+  status: done
   approval: explicit
   tags:
   - no-fabrication-verify
@@ -746,7 +1465,9 @@ cards:
     problem: interior cameras surface in the exterior open-tracks diagnostic
     verdict: BUILD
     note: canonical capture-failure example
-  next: build the allowlist fix (small); Tier 1/2
+  next: 'CLOSED — v5.62.1 READY-ordering fix verified live: allowlist_installed=true,
+    allowlist_camera_count=12, ignored_offlist_events enforcing. No further work.'
+  RECONCILED_2026_08_09: 'status shipped_organic -> done; organic proof obtained, chain closed'
   refs:
   - exterior_track_linker.py
   - sensor.py
@@ -838,7 +1559,7 @@ cards:
 - id: KHOST-1
   title: Homelab-hosted board, generated from data
   thread: dashboarding
-  status: pre_planning
+  status: shipped_organic
   approval: explicit
   approved_by: operator
   approved_on: 2026-08-07
@@ -868,8 +1589,44 @@ cards:
     problem: the reflected board is hand-maintained and can silently drift from the source
     verdict: BUILD
     note: eliminates the drift anti-pattern + gives a design surface
-  next: (overnight) design data->view generator; screenshot-iterate; wire homelab serve + post-commit
-    rebuild hook
+  next: 'BUILT + MERGED 2026-08-10 overnight pass (cc9c0e3f8 + 3031487c0). Generator live:
+    scripts/kanban_render.py -> KANBAN.md + kanban_board.html (self-contained, light/dark, mobile),
+    rung-3 STALE banner with exit codes 0/2/1, byte-stable, 13 tests against the REAL board file,
+    Artifact republished from generated HTML at the SAME URL. Two design iterations via Chrome-headless
+    screenshots (dark-mode link contrast; column packing). REMAINING = operator one-command to activate
+    hosting: `cd ~/Code/homelab-automation && ./scripts/webhost/refresh_urakanban.sh --apply --force`
+    (first deploy touches PM2/Caddy/UDM via .env credentials the agent does not hold; port 3010,
+    LAN-only; runbook at ~/Code/homelab-automation/docs/urakanban-hosting.md) + the cron one-liner in
+    the runbook. Rebuild mechanism chosen: 5-min cron pull-and-render with hash short-circuit — a
+    post-commit hook cannot fire across our multiple clones/worktrees, and webhook infra does not exist
+    homelab-side; up to 5-min latency accepted for a human-timescale board.'
+  SHIPPED_2026_08_10: 'LIVE at https://urakanban.phalanxmadrone.com (verified HTTP 200 serving
+    URA://KANBAN; Mac DNS cache may lag the new UDM record a few minutes). 5-min refresh cron installed
+    on the dev-host crontab. Homelab commit eddf8e4. REDESIGNED same morning per operator ("don''t want
+    generic slop"): ops-ledger identity — swimlane rows (no dead voids), approval as left stripe
+    replacing pill soup, mono statusline, single amber accent, paper/gunmetal themes. Three real infra
+    bugs found+fixed in deploy-static-site.sh during first apply: PVE SSH user must strip the @pam
+    realm; PVE password is PROXMOX_PASS not SSH_PASS; standalone caddy validate via pct exec lacks the
+    service EnvironmentFile so systemd reload is the validation. ORGANIC PROOF OPEN: (a) cron refresh
+    picks up the next board commit within ~5 min; (b) rung-3 STALE banner appears on the hosted page the
+    next time the board genuinely lags a release.'
+  overnight_notes_2026_08_10:
+  - 'STALE-BASE CLASS, SECOND INSTANCE, new variant: builder verified base against origin/develop but
+    LOCAL develop was ahead (unpushed evening work), so its generated views rendered from an old board
+    file. Caught at merge; views regenerated from current data. The skill rule says compare against
+    develop — it must say LOCAL develop explicitly.'
+  - 'SELF-REFERENTIAL DATA broke a naive oracle: test asserted "STALE" not-in output, but this very
+    card''s prose describes the STALE banner. Fixed to assert the banner MARKER string; drill re-run
+    proves the tightened oracle still load-bearing (2 named reds on neutered check).'
+  ADDED_2026_08_09_staleness_forcing_function: 'The generator MUST compare meta.last_reconciled against
+    the newest git tag AND the newest docs/readmes/README_v*.md, and (a) render a loud STALE banner on
+    the board, (b) warn on the build. WHY: 2026-08-09 the board said "build" for XCORR-1 and SNAP-1
+    which had already shipped (v5.64.0, v5.63.0); meta.last_reconciled correctly read 2026-08-07 and
+    nothing surfaced it. Root cause was NOT a missing rule — the skill already carries three hooks
+    covering this. It is that board reconciliation is the ONLY step in the deploy ritual with no
+    forcing function (deploy.sh refuses without tests/README; nothing refuses without a board update),
+    so it is the only step running on willpower. This converts an existing tripwire from
+    remembered-comparison into announced-state. Operator ruling 2026-08-09: do NOT add a new rule.'
 - id: CAM-AREA-PENDING
   title: Camera area corrections — RESOLVED
   thread: camera
@@ -935,13 +1692,29 @@ cards:
 - id: P1P3
   title: Preset verdict (flap re-measurement)
   thread: hvac
-  status: waiting_me
+  status: done
   approval: explicit
   origin:
     date: 2026-08-07
     gist: Yes re evaluate and come back
   why: I owe the post-Writer-B flap re-measurement across occupied evenings, then the re-eval
   note: was mis-filed under the operator's lane - it is MY debt
+  MEASURED_2026_08_09: 'DEBT DISCHARGED. First occupied evening with the data: operator arrived home
+    ~16:45 after 24h+ away, 96F forecast high, upstairs sitting at 80F. hvac_zone_preset_zone_2 cycled
+    home<->away NINE times in the two hours he was home: 16:59a 17:09h 17:19a 17:24h 17:39a 17:44h
+    17:59a 18:09h 18:24a 18:29h 18:39a. Every cycle inside hvac_constraint=coast (normal->coast at
+    16:00, reason "peak TOU period"). Presence was CORRECT throughout — zone_2 showed occupied_rooms
+    [Upstairs Guestroom, Jaya Bedroom, Game Room] and zone_persons [ziri, jaya].'
+  VERDICT: 'REMOVING WRITER B DID NOT STOP THE PRESET FLAP. Writer B retirement is confirmed shipped
+    (v5.56.0, 2026-08-06, commit d604716f7 "delete Writer B", Tier 2-DB + 3 reviews) and
+    ZoneAnyoneBinarySensor no longer has a preset-write path — verified by grep, not memory. The flap
+    survives it. So Writer B was either not the cause, or not the only one. The P1/P3 re-eval this card
+    was gating cannot conclude on this data alone because the CAUSE is still unknown — see the successor
+    card. What IS settled and closes this card: the measurement is taken and the hypothesis
+    ("Writer B removal stops the flap") is FALSIFIED.'
+  spawned:
+  - HVAC-PRESET-FLAP-1 (the flap persists; cause unknown; blocked on the reason ledger)
+  - ARREST-COMFORT-1 (separate defect found during the same trace)
   parsimony:
     problem: did removing Writer-B actually stop the preset flap - and do P1/P3 now earn their keep
     verdict: BUILD

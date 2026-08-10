@@ -26,7 +26,7 @@
 | P12 | signal_consensus arithmetic (D5) | presence.py:5786-5839 | 4 deltas: phones-away∧zones-occupied −0.4; stale/lost tracker −0.2; camera-w/o-tier1 −0.15; low engine confidence −0.1 (all inline) | consensus = max(0, 1−Σ); <0.6 sustained tracked. Consumers: HVAC + compliance defer gates |
 | P13 | Camera/Tier-1/mmwave tally | presence.py:5650-5687 | per-zone camera vs tier1 occupied counts | feeds consensus delta 3; diagnostic |
 | P14 | Per-zone BLE-tier weighted veto (v4.7.16) | presence.py:4815-4970 | BLE tier weights (T2=0.6) vs veto helper | VESTIGIAL — Pattern F unhandled, verdicts diagnostic-only |
-| P15 | Substrate kind-precedence arbitration | occupancy_substrate.py:169-286 | entity's CONF-list memberships; cross-room claims | first-match precedence, duplicate → drop+WARN; reset+reseed kills stuck-True |
+| P15 | Substrate kind-precedence arbitration | occupancy_substrate.py:169-286 | entity's CONF-list memberships; cross-room claims | first-match precedence, duplicate → drop+WARN; reset+reseed kills stuck-True — role questions above the substrate resolve via `domain_coordinators.sensor_role.resolve_role` (SENSOR-CAPABILITY-1, 2026-08-09) so a per-entity capability override can retag WITHOUT extending TIER1_KINDS |
 | P16 | Boot-settle gate (Predicates A/B) | presence.py:4463-4491, 1994-2118 | real-input presence vs boot transient | hold cross-coordinator fan-out until real input / HA started / timeout |
 
 ### HVAC consumers of presence trust
@@ -166,6 +166,56 @@ The stuck-signal watchdog should be built as **tier-extensions of the thrice-pro
 - **D3 — Frozen-tracker check** (extends C11): device_tracker last_updated age ≥N days while person state disagrees with all other evidence → notify (no auto-prune).
 - **D4 — NM surface for the existing silent detectors** (P22, P24, P18, X7-quarantine): they already compute the stuck sets; wire them to NM with per-day dedup latches (X21 pattern).
 - **Explicitly NOT:** a new consensus framework (P12 exists — consume it), auto-remediation (stage 2), new thresholds without knobs (fix the flagged inline literals where touched).
+
+---
+
+## ADDENDUM 2026-08-09 — D1–D4 all SHIPPED (v5.35.0, 2026-07-28). Third class found: CHATTER.
+
+Verified in code, not from the plan: every deliverable above landed in **v5.35.0** (commit `0192ac2c3`,
+tag 2026-07-28 23:18 CDT) plus hotfix v5.35.1 and observability v5.35.2 the same night.
+D1 = `camera_census.py` (`_camera_stuck_state`, `_fire_camera_stuck_nm`, `stuck_cameras`);
+D2 = `coordinator.py::_detect_duty_cycle_stuck`; D3 = `person_coordinator.py` frozen tracker;
+D4 = `domain_coordinators/_stuck_signal_nm.py`.
+
+**What the shared abstraction actually is.** D4 centralised the **notification**, not the detection.
+`_stuck_signal_nm`'s own docstring scopes it: *"Detection + discount + notify ONLY. This module never
+actuates, never mutates detector state"* — it is a fan-out for verdicts, latched per-`(kind, key)`/day,
+consumed at `coordinator.py:181,192,205,206`, `person_coordinator.py:1534,1546`,
+`actuator_reconciler.py:892,934`, `camera_census.py:94`. **Detection remains four bespoke
+implementations** sharing only a `kind=` string. The plan said so deliberately: *"No abstraction/
+unification of P22/P24/P18 in this cycle. A separate abstraction decision is pending"*, parked with the
+trigger *"after D1..D4 ship and the shape is proven at four sites; separate design cycle."*
+**That trigger has now fired.**
+
+**Class 3 — CHATTER (transition-rate), invisible to both existing rules.** The taxonomy so far has two
+classes: *continuous-on* (P22, `_sensor_on_since` ≥ 4h → **excludes**) and *high-duty-cycle* (D2, ≥85%
+over 60 min, ≥20 ticks, PIR-uncorroborated → **notify only**). A sensor oscillating at roughly 50% duty
+is caught by neither: every off-tick resets P22's clock, and the on-ratio never reaches D2's 85%.
+
+Evidence (2026-08-09, Garage B ratgdo, 24h recorder): **3,769 off / 3,765 on / 6 unavailable** — real
+oscillation, not a transport artefact. Two structural gaps compound it:
+
+1. **Motion is unscored by design.** D2's candidate set is `mmwave_sensors + occupancy_sensors` only —
+   PIR is excluded because *"PIR is our corroboration source."* So a chattering PIR is never itself
+   diagnosed, and worse, it can **shield** a stuck mmWave: D2's corroboration test is satisfied by
+   ≥2 PIR transitions in-window, which a chattering PIR trivially supplies. **The anchor can be the
+   thing that's broken.** Operator note: ratgdo has no PIR of its own — it supervises the MyQ garage
+   motion sensor, and the Zigbee/Z2M layer can make that flicker or go unavailable.
+2. **Some rooms can never be scored at all.** Garage B has `mmwave_sensors: None` and
+   `occupancy_sensors: []`, so D2's candidate set is empty there — the room where the incident happened
+   is outside the detector's reach regardless of thresholds.
+
+**Direction (adjacency, not a fifth detector).** Per this doc's standing verdict, chatter is a third
+*verdict kind* on a generalised per-sensor reliability scorer — `_detect_duty_cycle_stuck` widened to
+score all binary sensor kinds on **on-ratio + transition-rate + unavailable-rate** and to emit
+`kind=` per class through the existing D4 notifier — not a new module. Unification is warranted only
+where the shapes genuinely match: the census (person *count*) and frozen-tracker (*timestamp* age)
+detectors are different shapes and should keep their own detection while continuing to share D4.
+Consequence/exclusion policy is tracked on **STUCK-SENSOR-1** (`kanban.data.yaml`), whose verified
+discriminator is **corroboration, not house state** — chatter folds into that card rather than opening
+a new one.
+
+---
 
 **Flagged hygiene while in there:** C9 stale docstring (24h vs 4h); P14 vestigial weighted-veto (delete or promote); inline-literal knob list (presence sweeps); no smoke+CO AND-gate (X12 note, separate safety item); LKG outdoor-temp factory unwired (D3 energy cycle, known).
 </content>

@@ -57,6 +57,57 @@ live only in the transcript. This includes the model's own mid-turn finds (bugs,
 privacy issues surfaced inside a tool call) — those are the most fragile because nothing else
 re-raises them.
 
+## The second rule: adjacency sweep before any new card is accepted
+
+**No new card is accepted as its own item before sweeping ALL existing work for adjacency or
+duplication.** This does not weaken capture-first — capture into Inbox immediately, then run the
+sweep *before the card is promoted out of Inbox*. Board hygiene fails in the mirror-image direction
+from capture failure: a board that never merges becomes a list nobody reads, and duplicate cards
+**split the evidence for one problem across two places so neither is decisive.**
+
+### Sweep surfaces — the board is NOT the whole prior art
+
+Sweep all four, in this order. Skipping the last two is the observed failure mode (2026-08-09):
+
+1. `kanban.data.yaml` — every card's title + `why`, **not just the thread you assume it belongs
+   to**. Adjacency routinely crosses threads.
+2. `docs/BACKLOG.md` — dated `B-YYYY-MM-DD-N` items. Newer diagnoses often land here, not on the board.
+3. **`docs/planning/PLANNING_*.md` PARKED / deferred deliverables + "Plan Completion Tracking"
+   sections.** A parked `Dn` with an evidence trigger *is* a card living in a planning doc. This is
+   the surface that gets missed, because it looks like shipped work.
+4. `docs/planning/CATALOG_*.md` + `AUDIT_*.md` — the extend-vs-new adjudicators and probe results.
+
+This mirrors CLAUDE.md's **Institutional Context First** protocol, applied to work items rather
+than to symbols: cite where you looked, and say DUPLICATE / ADJACENT / NEW with the evidence.
+
+### The three relationships, tested in order
+
+- **Duplicate** — same problem, same fix surface → merge into the existing item; do not create.
+- **Adjacent** — different problem, but *same code surface, same decision, or same discriminator*
+  → fold in as a sub-finding, or create the card with an explicit `depends_on:` / `sibling_of:`
+  link. **Adjacency is the case most often mis-filed as new.**
+- **New** — no shared surface or decision → create it, and record what it was swept against.
+
+### Recording and merging
+
+- **Record the ruling on the survivor** (`DEDUPE_<date>:` with what was folded in and why). A
+  silent merge is indistinguishable from a dropped card three weeks later; the *reason* it merged
+  is the evidence it wasn't lost.
+- **Merging is lossy if careless** — carry the new item's Origin, Constraints and evidence across
+  verbatim. The survivor inherits the **union**, never the intersection.
+- **A parked item whose trigger has since fired is not "done" — it is READY.** When the sweep finds
+  one, promote it and say so; do not re-plan it from scratch.
+
+**Worked example (2026-08-09, the miss that produced this rule).** Motion-chatter detection arrived
+as a candidate new card. Sweeping the board alone found STUCK-SENSOR-1 (adjacent — same detector,
+same exclusion decision, same corroboration discriminator) and it was folded in correctly. But the
+sweep stopped there, and the operator had to push twice ("I'm suspicious… look for other work or
+plans", "as well as new checks") before surfaces 2–4 were checked — which held the *actual* prior
+art: a **PARKED D6 "dead/stuck mmwave in stuck-signal watchdog"** inside
+`PLANNING_mmwave_corroboration_tier3.md` with an explicit evidence trigger that had already fired,
+plus two dated BACKLOG items (`B-2026-08-04-1` state/class-awareness, `B-2026-08-04-2` fleet rot).
+Sweeping only the board would have re-planned parked work as novel.
+
 ## Columns
 
 `📥 Inbox` (raw capture) · `🧭 Pre-planning` (idea being decomposed) · `📝 Planned` (has a
@@ -168,6 +219,7 @@ principle, not more willpower:
 | Operator sends a message | Capture card(s) + reconcile touched cards BEFORE substantive work — part of reading the message |
 | A tool result reveals a bug / knob / constraint | Card it before continuing — mid-turn finds are the most fragile |
 | Operator challenges / redirects / corrects a carded idea (or I self-correct) | Append a Refinement beat (`challenge → sharpened form`) to that card the same turn, before acting on the new direction |
+| About to create a NEW card | Run the four-surface adjacency sweep first; record DUPLICATE / ADJACENT / NEW + what was swept |
 | About to write a planning doc | Harvest the relevant cards into the plan (the anti-entropy handoff) |
 | Pre-Deploy Zero-Bugs Gate / README write-back / commit | Reconcile In-progress → Review → Shipped as part of that ritual |
 | Turn end (same self-check as "check your last paragraph") | Move cards, write dispositions, **redeploy the Artifact if anything changed** |
@@ -190,7 +242,54 @@ principle, not more willpower:
    construction — there is no "go update the backlog later" step to fall behind on.
 
 If the board is ever found lagging, that is itself a `feedback`-class memory event: record the
-missed hook so the trigger list gets tighter, the same way a caught bug tightens a test.
+missed hook so the trigger list gets tighter, the same way a caught bug tightens a test. **But
+diagnose first: coverage gaps get rules, forcing-function gaps get mechanisms.** If the hook
+already existed and was simply not followed, do NOT add a rule — add a forcing function (below).
+Adding rules against compliance failures is how a rule-set bloats until nobody reads it.
+
+## Forcing functions — the currency ladder
+
+**Operator-coined 2026-08-09: *"A banner is not a forcing function. Is there a harder one? A kanban
+that does not keep current is fairly useless."*** A board that lags is worse than no board, because
+picking "next" off a stale board can rebuild already-shipped work.
+
+The diagnosis that produced this section: board reconciliation is **the only step in the deploy
+ritual with no forcing function.** `deploy.sh` refuses without tests and refuses without a README —
+nothing refuses without a board update, so it is the only step running on willpower. It rotted twice
+(2026-08-09: the board said "build" for two features already shipped as v5.63.0 / v5.64.0), and the
+staleness tripwire `meta.last_reconciled` was correctly showing stale the whole time. **A signal that
+must be interrogated is not a mechanism.**
+
+> **Principle: the board update must be an OUTPUT of the work, never a task beside it.**
+
+| Rung | Kind | Mechanism |
+|---|---|---|
+| **1** | **HARD** | `deploy.sh --cards ID[,ID…]` — **refuses to deploy** when absent, printing current `in_progress`/`review` cards as candidates. On success it *writes* `status: shipped_organic` + `shipped_version` per card and `meta.last_reconciled: <today>`, in the release commit. `--no-cards` escape for pure-docs releases, explicit and logged. |
+| **2** | **HARD** | **Vibememo chained to the same gate** — the release also emits a vibememo entry (the WHY of the ship). Both systems are release-coupled, so the decision trail cannot lag either. |
+| **3** | soft | Generator renders a loud **STALE banner** + warns on build when `meta.last_reconciled` is older than the newest git tag or `README_v*.md`. |
+| **4** | soft | Session-start staleness check (enforcement #2 above). |
+| **5** | soft | Recurring overnight agentic pass reconciles the board as its **first** action, before picking up `overnight-agentic` work. |
+
+**Soft rungs are backups, not substitutes.** They exist because the hard gate covers one transition;
+they must never be cited as reason to skip rung 1.
+
+**Scope limit, stated honestly.** Rung 1 hardens only the **shipped** transition;
+`pre_planning → planned → in_progress` remains soft (turn-end hook). This is deliberate rather than a
+half-measure: every card found stale on 2026-08-09 was *shipped work the board still called "build."*
+The rot concentrates exactly where rung 1 bites. If in-flight statuses prove to rot too, add a second
+mechanism **on evidence**, not by guess.
+
+**Safety constraint on any release-coupled write:** a failed board/vibememo write must **never** abort
+a deploy that has already pushed — trading a stale board for a half-released version is strictly
+worse. Write after the push succeeds, warn loudly on failure, never exit non-zero post-push.
+
+### Overnight / autonomous work needs a trigger, not an intention
+
+Same class of failure: *"build it tonight while I'm sleeping"* has no forcing function — the session
+ends and nothing wakes anything up (observed 2026-08-09, KHOST-1 missed). Work tagged
+`autonomy: overnight-agentic` must be bound to a **real recurring scheduled job**, whose first action
+is a board reconciliation. An overnight commitment with no scheduler is a promise, and promises are
+the thing this skill exists to replace.
 
 ## Approval & autonomy — so the board is drivable, not just visible
 
@@ -258,6 +357,55 @@ Cards are not a flat list. Rank/sequence by, in priority:
 Record `batch:` (named group) and optional `seq:` (order within/among batches) on cards. Do not
 start a card whose `after:` dependency is unmet, or a `blocked` card, no matter how appealing.
 
+### 6. Concurrency — the depletion lever
+
+**Operator-coined 2026-08-09: *"Concurrency is definitely a strategy for kanban depletion."*** Ranking
+answers *what next*; concurrency answers *how many at once*. A board with 30 cards worked strictly
+serially is a board that never empties. Treat parallelism as a first-class sequencing dimension, not
+an occasional optimization: at each turn, ask not only "what is next" but "**what else can run right
+now that this does not block.**"
+
+**What safely parallelizes:**
+- **Disjoint surfaces** — cards touching different files/subsystems (a presence plan and a perimeter
+  build).
+- **Framing-disjoint reviews of the SAME diff** — this is the highest-value parallelism we have; the
+  Tier-2DB/Tier-3 protocols already mandate it precisely because different framings cannot share blind
+  spots.
+- **Read/scope work beside build work** — a planner scoping card X while a builder implements card Y.
+- **Independent items inside one batch** where no `after:` links them.
+
+**What must NOT parallelize:**
+- Anything in a dependency chain (`after:` / `depends_on:` / `blocks:`) — running a blocked card early
+  just means rework when its prerequisite changes shape.
+- Two agents writing the same file. This is not theoretical: three worktree collisions in one day
+  produced the standing isolation rule.
+- Work that depends on a diff still under review — if the review can force a redesign, a dependent
+  build is speculative.
+
+**The hard requirement:** every concurrent repo-writing dispatch gets **worktree isolation**, and the
+orchestrator freezes the main tree while builders run. Without it, concurrency converts throughput
+into merge damage.
+
+**Verify the worktree's BASE, not just that it is isolated (added 2026-08-09).** A worktree can be
+isolated and still branch from a stale ref. Observed: a Tier-3 build came back green on
+`19 failed / 8125 passed` — but its base was **214 commits behind develop**, so it had validated
+against a suite missing ~370 tests and against source predating the whole day's work. Isolation
+protected the tree; it did not protect the baseline.
+
+> Before trusting ANY agent's suite numbers, run
+> `git rev-list --count $(git merge-base <branch> develop)..develop`. Non-zero means the numbers
+> describe a codebase that no longer exists.
+
+A green suite on the wrong base is worse than a red one — it reads as evidence. The cheap recovery is
+a cherry-pick onto current develop plus a re-run; check first whether the specific functions the build
+refactored moved in the interim (`git diff <base>..develop -- <file>`), because that decides between a
+rebase and a redo.
+
+**The real bottleneck is orchestrator attention, not agent count.** Each concurrent agent returns a
+report that must be independently verified — never accept a builder's or reviewer's summary as fact.
+Fan out to the width you can actually verify, then stop. Depletion that outruns verification is how
+unreviewed work reaches the house.
+
 **Current batches:**
 - `resolver-correctness` (foundation, largely autonomous): RESACC-1 → TEST-1 → TRANSIT-1.
 - `perimeter-delivery` (one Tier-2DB cycle; needs SNAP-1 decisions): CONSOL-1 + SNAP-1 +
@@ -277,15 +425,49 @@ an at-detection local file → Tier 2-DB, perimeter_alert + NM, folds into CONSO
 
 - **vibememo** = WHY (decision trail, reasoning-in-motion). **This** = WHAT / WHERE / NEXT.
   A card's `Why` is a pointer to the fuller vibememo entry, not a replacement for it.
+  **They are chained at the release gate** (rung 2 above): a ship updates both or neither. Vibememo's
+  historical weakness was the same clock-based cadence this skill rejects — coupling it to the release
+  ritual gives it the forcing function it never had, without making it a separate chore to remember.
 - **BACKLOG_*.md + memory bodies** hold the broader, non-active backlog. The board's
   "Broader backlog" footer just points at them; it does not duplicate them.
 - **CLAUDE.md** governs *how* work is done (tiers, gates). The board governs *what* is in
   flight and *whether it was lost*.
+
+## Count the consumers before fixing the defect
+
+**Coined 2026-08-09, from the most expensive miss of that session.** RESACC-1 measured the camera
+resolver against a hand-built fixture and found two real bugs. A fix shipped, passed two of three
+framing-disjoint reviews with excellent mutation-anchored tests — and was reverted, because the third
+reviewer asked the question nobody had: **who actually reads this value?**
+
+Answer: one caller, and it used the *other* code path. Both "bugs" were latent; the fix's new failure
+mode landed on the only live consumer, where the old behavior (`None`) was *safe* and the new one
+(a wrong value) was actively harmful.
+
+The measurement was correct. The fixture was correct. The tests were excellent. The work was still
+wrong, because *impact* was inferred from the size of the data defect rather than from consumption.
+
+> **A defect's severity is a property of its consumers, not of the data.** Before scoping a fix,
+> grep for who reads the value and on which path. Put the consumer count in the plan.
+
+Corollaries learned the same day:
+- **A measurement licenses only what it measured.** "We measured grouping is sound, so this guard is
+  unnecessary" was false: the guard protected a *different* property than the one measured. Name the
+  property before citing a measurement as evidence.
+- **`None` is often safer than a wrong value.** Anything that filters on membership (`x not in set`)
+  fails *closed* on `None` and *open* on a wrong value. Turning a "missing" into a "wrong" is a
+  regression even when it looks like an improvement.
+- **Ask which latent state fires first.** When both benefit and risk are latent, the deciding evidence
+  is base rates in *this* deployment — not which sounds worse.
 
 ## Anti-patterns
 
 - A card with a title but no Origin/Next — that's a transcript line, not a card.
 - Letting a mid-turn discovery stay in the tool output "because I'll remember it."
 - Duplicating vibememo's reasoning into the board, or the board's status into vibememo.
+- Creating a card without the adjacency sweep — or sweeping only the board and not BACKLOG.md,
+  parked planning-doc deliverables, and the catalogs/audits.
+- Treating a PARKED deliverable as shipped work. Parked ≠ done; check whether its trigger fired.
+- Merging silently, or merging down to the intersection instead of the union.
 - Editing the Artifact without editing KANBAN.md — the committed file is the source of truth;
   the Artifact is a reflection, never the record.
