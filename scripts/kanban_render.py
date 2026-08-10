@@ -345,67 +345,108 @@ def _render_card_md(c: dict) -> list[str]:
 
 CSS = """
 :root {
-  --bg: #f7f7f8; --fg: #1b1e22; --muted:#5f6672; --card-bg:#fff;
-  --border:#e4e6ea; --shadow: 0 1px 2px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.04);
-  --col-bg:#eef0f4; --accent:#28a; --stale:#f6c500; --stale-bg:#fff8d4;
-  --hdr-bg:#fff;
+  --bg:#f4f1ea; --fg:#232019; --muted:#7a7263; --card-bg:#fbf9f4;
+  --border:#ddd6c8; --rule:#c9c0ae;
+  --lane-bg:transparent; --accent:#9a6108; --accent-dim:#b98a3a;
+  --ok:#3f7d47; --warn:#a2541f; --bad:#a03030; --info:#3d6b80;
+  --stale:#8a5a00; --stale-bg:#f3e3bd; --code-bg:#ece7db;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg:#0f1216; --fg:#e8ecf2; --muted:#93a0b2; --card-bg:#161a20;
-    --border:#262b33; --shadow: 0 1px 2px rgba(0,0,0,0.5), 0 4px 12px rgba(0,0,0,0.4);
-    --col-bg:#1a1f27; --accent:#5aa5ff; --stale:#f6c500; --stale-bg:#3a3010;
-    --hdr-bg:#151920;
+    --bg:#131518; --fg:#d6d3c9; --muted:#7d8494; --card-bg:#1a1d22;
+    --border:#2a2e36; --rule:#3a3f49;
+    --accent:#ffb454; --accent-dim:#b98a3a;
+    --ok:#7fbf7a; --warn:#e0954f; --bad:#e07070; --info:#7ab3cc;
+    --stale:#ffb454; --stale-bg:#2b2210; --code-bg:#22252c;
   }
 }
-* { box-sizing: border-box; }
-html, body { margin:0; padding:0; background:var(--bg); color:var(--fg);
-  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-header.top { position:sticky; top:0; z-index:5; background:var(--hdr-bg); border-bottom:1px solid var(--border);
-  padding:12px 20px; box-shadow:var(--shadow); }
-header.top h1 { margin:0; font-size:18px; }
-header.top .meta { color:var(--muted); font-size:12px; margin-top:4px; word-break:break-word; }
-header.top .meta code { background:var(--col-bg); padding:1px 5px; border-radius:3px; }
-header.top .meta a, .stale a { color: var(--accent); text-decoration: underline; }
-.stale {
-  background: var(--stale-bg); border-left:4px solid var(--stale); padding:12px 16px; margin:12px 20px;
-  border-radius:6px; font-size:13px; color:var(--fg);
-}
-.stale h2 { margin:0 0 6px; font-size:15px; }
-.stale ul { margin:6px 0 0 20px; padding:0; }
-.summary { padding: 10px 20px; color:var(--muted); font-size:12px; display:flex; gap:8px; flex-wrap:wrap; }
-.summary span { background:var(--col-bg); padding:3px 8px; border-radius:12px; }
-.board { display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap:12px; padding:14px 20px 40px; align-items:start; }
-@media (max-width: 720px) {
-  .board { grid-template-columns: 1fr; padding:10px; }
-  header.top { padding:10px 12px; }
-  .stale { margin:10px 12px; }
-}
-.col { background:var(--col-bg); border-radius:8px; padding:10px; min-height:60px; }
-.col h2 { margin:0 0 8px; font-size:14px; font-weight:600; display:flex; align-items:baseline; gap:6px;}
-.col h2 .count { color:var(--muted); font-weight:400; font-size:12px; }
-.col .hint { color:var(--muted); font-size:11px; margin-bottom:8px; }
-.card { background:var(--card-bg); border:1px solid var(--border); border-radius:6px;
-  padding:10px 12px; margin-bottom:8px; box-shadow:var(--shadow); }
+* { box-sizing:border-box; }
+html,body { margin:0; padding:0; background:var(--bg); color:var(--fg);
+  font:14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-variant-numeric: tabular-nums; }
+code, .mono, .id, .statusline, .lane h2, .count, .tagline, .kv dt {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+header.top { position:sticky; top:0; z-index:5; background:var(--bg);
+  border-bottom:2px solid var(--rule); padding:14px 22px 10px; }
+header.top h1 { margin:0; font-size:17px; letter-spacing:0.14em; text-transform:uppercase;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+header.top h1 .gen { color:var(--muted); font-size:10.5px; letter-spacing:0.08em; font-weight:400;
+  display:block; margin-top:2px; text-transform:none; }
+.statusline { margin-top:8px; font-size:11.5px; color:var(--muted);
+  display:flex; flex-wrap:wrap; gap:2px 18px; }
+.statusline b { color:var(--fg); font-weight:600; }
+.statusline a { color:var(--accent); text-decoration:none; border-bottom:1px solid var(--accent-dim); }
+
+.stale { background:var(--stale-bg); border:1px solid var(--stale);
+  border-left:6px solid var(--stale); padding:12px 18px; margin:14px 22px 0;
+  font-family: ui-monospace, Menlo, monospace; font-size:12.5px; }
+.stale h2 { margin:0 0 6px; font-size:13px; letter-spacing:0.1em; text-transform:uppercase;
+  color:var(--stale); }
+.stale ul { margin:4px 0 0 18px; padding:0; }
+.stale a { color:var(--accent); }
+
+.summary { padding:10px 22px 2px; font-size:11.5px; color:var(--muted);
+  display:flex; gap:0; flex-wrap:wrap;
+  font-family: ui-monospace, Menlo, monospace; }
+.summary span { padding:2px 10px; border-right:1px solid var(--border); }
+.summary span:first-child { padding-left:0; }
+.summary span:last-child { border-right:none; }
+.summary b { color:var(--fg); }
+
+main.board { padding:6px 22px 30px; }
+.lane { margin-top:18px; }
+.lane > h2 { margin:0; font-size:12px; font-weight:600; letter-spacing:0.16em;
+  text-transform:uppercase; color:var(--fg);
+  border-bottom:1px solid var(--rule); padding-bottom:5px;
+  display:flex; align-items:baseline; gap:10px; }
+.lane > h2 .count { color:var(--accent); font-size:12px; }
+.lane > h2 .hint { color:var(--muted); font-weight:400; font-size:10.5px;
+  letter-spacing:0.03em; text-transform:none; margin-left:auto; }
+.lane .cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(320px,1fr));
+  gap:10px; padding-top:10px; }
+.lane .none { color:var(--muted); font-size:11px; padding:8px 0 0;
+  font-family:ui-monospace, Menlo, monospace; }
+
+.card { background:var(--card-bg); border:1px solid var(--border);
+  border-left:3px solid var(--muted); padding:9px 12px 8px; }
+.card.ap-explicit  { border-left-color:var(--ok); }
+.card.ap-implied   { border-left-color:var(--info); }
+.card.ap-unreviewed{ border-left-style:dashed; border-left-color:var(--muted); }
+.card.ap-blocked   { border-left-color:var(--bad); }
 .card summary { cursor:pointer; list-style:none; }
 .card summary::-webkit-details-marker { display:none; }
 .card summary::marker { content:""; }
-.card summary .id { color:var(--accent); font-family:ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size:11px; letter-spacing:0.02em; }
-.card summary .title { font-weight:600; margin-top:2px; display:block; }
-.card .meta-row { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; font-size:11px; }
-.badge { padding:1px 7px; border-radius:10px; font-size:11px; background:var(--col-bg); color:var(--muted); }
-.badge.thread { background:transparent; color:var(--muted); border:1px solid var(--border); }
-.badge.approval { color:#fff; }
-.card .body { margin-top:8px; border-top:1px dashed var(--border); padding-top:6px; }
-.card dl { margin:0; }
-.card dt { color:var(--muted); font-size:11px; margin-top:6px; text-transform:uppercase; letter-spacing:0.03em; }
-.card dd { margin:2px 0 0; font-size:13px; word-break:break-word; }
-.card ul.forensic { list-style:none; padding:0; margin:6px 0 0; }
-.card ul.forensic li { margin:2px 0; font-size:12px; }
-.card ul.forensic code { background:var(--col-bg); padding:1px 4px; border-radius:3px; font-size:11px;}
-footer { padding:16px 20px 40px; color:var(--muted); font-size:11px; text-align:center; }
+.card .id { color:var(--accent); font-size:11px; letter-spacing:0.04em; }
+.card .apl { float:right; font-size:9.5px; letter-spacing:0.1em; text-transform:uppercase;
+  font-family:ui-monospace, Menlo, monospace; color:var(--muted); }
+.card.ap-blocked .apl { color:var(--bad); }
+.card.ap-unreviewed .apl { color:var(--warn); }
+.card .title { font-weight:600; margin-top:2px; display:block; font-size:13.5px; line-height:1.35; }
+.tagline { margin-top:5px; font-size:10.5px; color:var(--muted); letter-spacing:0.02em; }
+.tagline .sep { opacity:0.5; padding:0 4px; }
+
+.card .body { margin-top:8px; border-top:1px solid var(--border); padding-top:7px; }
+.kv { margin:0; }
+.kv dt { color:var(--muted); font-size:10px; margin-top:7px; text-transform:uppercase;
+  letter-spacing:0.1em; }
+.kv dd { margin:2px 0 0; font-size:12.5px; word-break:break-word; }
+.card ul.forensic { list-style:none; padding:0; margin:4px 0 0; }
+.card ul.forensic li { margin:3px 0; font-size:11.5px; color:var(--muted); }
+.card ul.forensic code { background:var(--code-bg); padding:1px 4px; font-size:10.5px; color:var(--fg); }
+code { background:var(--code-bg); padding:1px 5px; font-size:0.92em; }
+
+section.extras { margin:26px 22px 0; border-top:1px solid var(--rule); padding-top:12px; }
+section.extras h2 { font-size:12px; letter-spacing:0.16em; text-transform:uppercase;
+  font-family:ui-monospace, Menlo, monospace; }
+footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
+  font-family:ui-monospace, Menlo, monospace; }
+@media (max-width:720px) {
+  main.board, .summary, header.top { padding-left:12px; padding-right:12px; }
+  .stale { margin:10px 12px 0; }
+  .lane .cards { grid-template-columns:1fr; }
+  .card .apl { float:none; display:block; margin-top:2px; }
+}
 """
 
 
@@ -435,22 +476,20 @@ def render_html(data: dict, meta_extras: dict) -> str:
     parts.append('</head><body>')
 
     parts.append('<header class="top">')
-    parts.append('<h1>URA Kanban <span style="color:var(--muted);font-weight:400;font-size:13px;">'
-                 'GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>')
-    parts.append(
-        '<div class="meta">'
-        f'Generated: <code>{_h(meta_extras["gen_ts"])}</code> - '
-        f'Data commit: <code>{_h(meta_extras["data_hash"][:12])}</code> - '
-        f'last_reconciled: <code>{_h(meta.get("last_reconciled", "?"))}</code>'
-    )
+    parts.append('<h1>URA://KANBAN'
+                 '<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>')
+    parts.append('<div class="statusline">')
+    parts.append(f'<span>generated <b>{_h(meta_extras["gen_ts"])}</b></span>')
+    parts.append(f'<span>data <b>{_h(meta_extras["data_hash"][:12])}</b></span>')
+    parts.append(f'<span>reconciled <b>{_h(meta.get("last_reconciled", "?"))}</b></span>')
     if meta.get("target_host"):
-        parts.append(f' - Hosted: <a href="https://{_h(meta["target_host"])}">{_h(meta["target_host"])}</a>')
+        parts.append(f'<span><a href="https://{_h(meta["target_host"])}">{_h(meta["target_host"])}</a></span>')
     if meta.get("artifact_url"):
-        parts.append(f' - <a href="{_h(meta["artifact_url"])}">Artifact</a>')
+        parts.append(f'<span><a href="{_h(meta["artifact_url"])}">artifact</a></span>')
     parts.append('</div></header>')
 
     if meta_extras["is_stale"]:
-        parts.append('<div class="stale"><h2>⚠️ STALE - board has not been reconciled against newer work</h2><ul>')
+        parts.append('<div class="stale"><h2>▲ STALE - board has not been reconciled against newer work</h2><ul>')
         for r in meta_extras["stale_reasons"]:
             parts.append(f'<li>{_h(r)}</li>')
         parts.append('</ul><div style="margin-top:6px">Reconcile <code>meta.last_reconciled</code> '
@@ -461,7 +500,7 @@ def render_html(data: dict, meta_extras: dict) -> str:
         n = len(buckets.get(key, []))
         if n == 0 and key == "other":
             continue
-        parts.append(f'<span>{_h(emoji)} {_h(label)}: {n}</span>')
+        parts.append(f'<span>{_h(label)} <b>{n}</b></span>')
     parts.append('</div>')
 
     parts.append('<main class="board">')
@@ -469,18 +508,21 @@ def render_html(data: dict, meta_extras: dict) -> str:
         cards_here = buckets.get(key, [])
         if not cards_here and key == "other":
             continue
-        parts.append(f'<section class="col" data-col="{_h(key)}">')
-        parts.append(f'<h2>{_h(emoji)} {_h(label)} <span class="count">{len(cards_here)}</span></h2>')
-        parts.append(f'<div class="hint">{_h(hint)}</div>')
+        parts.append(f'<section class="lane" data-col="{_h(key)}">')
+        parts.append(f'<h2>{_h(label)} <span class="count">{len(cards_here)}</span>'
+                     f'<span class="hint">{_h(hint)}</span></h2>')
         if not cards_here:
-            parts.append('<div class="hint">(none)</div>')
-        for c in cards_here:
-            parts.append(_render_card_html(c))
+            parts.append('<div class="none">(none)</div>')
+        else:
+            parts.append('<div class="cards">')
+            for c in cards_here:
+                parts.append(_render_card_html(c))
+            parts.append('</div>')
         parts.append('</section>')
     parts.append('</main>')
 
     if parked_extra or backlog_refs:
-        parts.append('<section class="col" style="margin:0 20px 20px;">')
+        parts.append('<section class="extras">')
         if parked_extra:
             parts.append(f'<h2>\U0001F17F️ Parked ideas <span class="count">{len(parked_extra)}</span></h2>')
             parts.append('<ul>')
@@ -523,27 +565,25 @@ def _render_card_html(c: dict) -> str:
     why = _first_line(c.get("why", ""))
     nxt = _first_line(c.get("next", ""))
 
-    out = ['<details class="card"><summary>']
+    ap_class = f" ap-{approval}" if approval in ("explicit", "implied", "unreviewed", "blocked") else ""
+    out = [f'<details class="card{ap_class}"><summary>']
     out.append(f'<span class="id">{_h(cid)}</span>')
+    if approval and approval != "implied":
+        out.append(f'<span class="apl">{_h(approval)}</span>')
     out.append(f'<span class="title">{_h(title)}</span>')
-    out.append('<div class="meta-row">')
+    tagbits = []
     if thread:
-        out.append(_badge(thread, "thread"))
-    if status:
-        out.append(_badge(status, "status"))
-    if approval:
-        color = APPROVAL_COLOR.get(approval, "#666")
-        out.append(_badge(approval, "approval", color))
+        tagbits.append(_h(thread))
     tags = c.get("tags") or []
     if isinstance(tags, list):
-        for t in tags[:6]:
-            out.append(_badge(str(t), "tag"))
-        if len(tags) > 6:
-            out.append(_badge(f"+{len(tags)-6}", "tag"))
-    out.append('</div>')
+        tagbits.extend(_h(str(t)) for t in tags[:5])
+        if len(tags) > 5:
+            tagbits.append(f"+{len(tags)-5}")
+    if tagbits:
+        out.append('<div class="tagline">' + '<span class="sep">·</span>'.join(tagbits) + '</div>')
     out.append('</summary>')
 
-    out.append('<div class="body"><dl>')
+    out.append('<div class="body"><dl class="kv">')
     if origin_line:
         out.append(f'<dt>Origin</dt><dd>{_h(_first_line(origin_line))}</dd>')
     if why:
