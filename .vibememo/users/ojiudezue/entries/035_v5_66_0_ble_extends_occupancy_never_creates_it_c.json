@@ -1,0 +1,19 @@
+{
+  "format_version": "2.1",
+  "entry_id": "035",
+  "author": "ojiudezue",
+  "session_id": "claude_20260810_210602_ship_v5_66_0",
+  "timestamp": "2026-08-10T21:06:02Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.66.0 shipped: BLE extends occupancy, never creates it \u2014 create window deleted",
+  "summary": "Deletes the v5.22.0 motion-leg exception that let BLE create occupancy within 10 minutes of real motion. Measured cause of the Master Bathroom warm strobe (light on every toilet visit via adjacent-room BLE bleed). Chain-leg extend (still-body hold) and extend-across-restart preserved and pinned; invariant anchored in falsifiable form at all motion ages. Tier 3: 4 framing-disjoint reviews + fix-up + orchestrator mutation drill.",
+  "refs": {
+    "cards": [
+      "BLE-WARM-CREATE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.66.0.md"
+    ]
+  }
+}

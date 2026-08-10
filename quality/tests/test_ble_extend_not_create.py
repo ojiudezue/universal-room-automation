@@ -228,11 +228,12 @@ def test_masterbath_2026_07_17_repro_ble_flap_never_creates_occupancy():
 # ==========================================================================
 
 
-def test_extend_path_ble_holds_still_body_when_motion_recent():
-    """Room was motion-confirmed 30s ago; occupancy_timeout=60s.
+def test_extend_path_ble_holds_still_body_when_chain_unbroken():
+    """Room was motion-confirmed on the prior tick (chain unbroken);
     BLE person present -> BLE hold fires: STATE_OCCUPIED True, source
     'ble', ble_persons populated, `_became_occupied_time` seeded,
-    `_last_occupied_time` seeded. (Byte-identical to pre-fix.)"""
+    `_last_occupied_time` seeded. Post BLE-WARM-CREATE-1 the motion-
+    age is irrelevant; only the chain matters."""
     hass = make_hass()
     room = "Master Bedroom"
     now = datetime(2026, 7, 17, 22, 0, 0)
@@ -241,6 +242,7 @@ def test_extend_path_ble_holds_still_body_when_motion_recent():
         occupancy_timeout=60,
         last_motion_time=now - timedelta(seconds=30),
     )
+    coord._last_occupied_state = True  # chain unbroken from prev tick
     pc = _make_person_coord({room: ["oji"]}, direct_ble_rooms={room})
     _seed_hass(hass, pc)
 
@@ -252,68 +254,66 @@ def test_extend_path_ble_holds_still_body_when_motion_recent():
     assert data[STATE_BLE_PERSONS] == ["oji"]
     assert data[STATE_TIMEOUT_REMAINING] == 60
     assert coord._became_occupied_time == now
-    assert coord._last_occupied_time == now
+    # `_last_occupied_time` only re-seeds when chain was previously broken;
+    # here chain was unbroken so it stays at its pre-tick value (None).
+    assert coord._last_occupied_time is None
 
 
 # ==========================================================================
-# T3 — Boundary: motion age exactly at multiplier x timeout +/- 1s
+# T3 — Falsifiable-invariant regression anchors (BLE-WARM-CREATE-1,
+#      2026-08-10): with chain BROKEN (`_last_occupied_state=False`),
+#      BLE presence must NEVER create occupancy regardless of the
+#      recency of prior motion. These parameterize over the motion
+#      ages leg (b) used to admit — they go RED if any future refactor
+#      re-introduces a window-scoped create path.
 # ==========================================================================
 
 
-def test_boundary_motion_age_just_under_threshold_extends():
-    """timeout=60, MULT=2 => threshold=120s. Age=119s should ADMIT."""
+import pytest
+
+
+@pytest.mark.parametrize(
+    "motion_age_s",
+    [None, 1, 60, 119, 120, 121, 540],
+)
+def test_invariant_cold_room_ble_never_creates_regardless_of_motion_age(
+    motion_age_s,
+):
+    """Falsifiable invariant: chain broken + BLE present => REJECT.
+
+    Parameterized over the motion ages that leg (b) would have admitted
+    (1s, 60s, 119s — inside the old 2xtimeout window) and ages already
+    outside it (120s, 121s, 540s), plus the no-motion case (None).
+    Under the CHAIN-ONLY admission all cases must REJECT. The diagnostic
+    `ble_persons` list must still be populated on every rejected tick.
+    """
     hass = make_hass()
     room = "Study A"
     now = datetime(2026, 7, 17, 12, 0, 0)
+    last_motion = (
+        None
+        if motion_age_s is None
+        else now - timedelta(seconds=motion_age_s)
+    )
     coord = _FakeSelf(
         hass,
         occupancy_timeout=60,
-        last_motion_time=now - timedelta(seconds=119),
+        last_motion_time=last_motion,
     )
+    # chain broken (default): coord._last_occupied_state=False
     pc = _make_person_coord({room: ["oji"]}, direct_ble_rooms={room})
     _seed_hass(hass, pc)
+
     data = {STATE_OCCUPIED: False}
     _run_ble_block(coord, data, now, room)
-    assert data[STATE_OCCUPIED] is True
-    assert data[STATE_OCCUPANCY_SOURCE] == "ble"
 
-
-def test_boundary_motion_age_just_over_threshold_rejects():
-    """timeout=60, MULT=2 => threshold=120s. Age=121s should REJECT."""
-    hass = make_hass()
-    room = "Study A"
-    now = datetime(2026, 7, 17, 12, 0, 0)
-    coord = _FakeSelf(
-        hass,
-        occupancy_timeout=60,
-        last_motion_time=now - timedelta(seconds=121),
+    assert data.get(STATE_OCCUPIED) is False, (
+        f"BLE-WARM-CREATE-1: BLE CREATED occupancy at motion_age="
+        f"{motion_age_s}s with chain broken — leg (b) reintroduced?"
     )
-    pc = _make_person_coord({room: ["oji"]}, direct_ble_rooms={room})
-    _seed_hass(hass, pc)
-    data = {STATE_OCCUPIED: False}
-    _run_ble_block(coord, data, now, room)
-    assert data.get(STATE_OCCUPIED) is False
     assert data.get(STATE_OCCUPANCY_SOURCE) != "ble"
-    # Diagnostic still populated in the skipped branch.
+    # Diagnostic preserved.
     assert data.get(STATE_BLE_PERSONS) == ["oji"]
-
-
-def test_boundary_motion_age_exactly_at_threshold_rejects():
-    """timeout=60, MULT=2 => threshold=120s. Age==120s is strict-less-than,
-    so it REJECTS. (Documents the boundary.)"""
-    hass = make_hass()
-    room = "Study A"
-    now = datetime(2026, 7, 17, 12, 0, 0)
-    coord = _FakeSelf(
-        hass,
-        occupancy_timeout=60,
-        last_motion_time=now - timedelta(seconds=120),
-    )
-    pc = _make_person_coord({room: ["oji"]}, direct_ble_rooms={room})
-    _seed_hass(hass, pc)
-    data = {STATE_OCCUPIED: False}
-    _run_ble_block(coord, data, now, room)
-    assert data.get(STATE_OCCUPIED) is False
 
 
 def test_boundary_clock_skew_negative_motion_age_rejects():
@@ -342,11 +342,10 @@ def test_boundary_clock_skew_negative_motion_age_rejects():
 
 def test_v3_16_retrigger_ble_source_still_set_on_legitimate_extend():
     """The v3.16 re-trigger at :2361 keys off `prev_source == "ble"`.
-    After the fix, "ble" prev_source appears only after a LEGITIMATE
-    extend (motion-confirmed room, BLE extends, motion times out on
-    a later tick with only BLE holding). This test proves that a
-    legitimate extend still writes source='ble' — the input v3.16
-    needs. Guarantees no regression at :2358-:2378."""
+    After BLE-WARM-CREATE-1 (chain-only admission), "ble" prev_source
+    appears only after a LEGITIMATE extend — a chain-unbroken room with
+    a BLE person present. This test proves that a legitimate extend
+    still writes source='ble'. Guarantees no regression at :2358-:2378."""
     hass = make_hass()
     room = "Master Bedroom"
     now = datetime(2026, 7, 17, 22, 30, 0)
@@ -355,6 +354,7 @@ def test_v3_16_retrigger_ble_source_still_set_on_legitimate_extend():
         occupancy_timeout=60,
         last_motion_time=now - timedelta(seconds=45),
     )
+    coord._last_occupied_state = True  # chain unbroken from prev tick
     pc = _make_person_coord({room: ["oji"]}, direct_ble_rooms={room})
     _seed_hass(hass, pc)
     data = {STATE_OCCUPIED: False}
@@ -371,10 +371,11 @@ def test_v3_16_retrigger_ble_source_still_set_on_legitimate_extend():
 # ==========================================================================
 
 
-def test_kill_switch_multiplier_zero_disables_ble_hold_even_with_fresh_motion():
+def test_kill_switch_multiplier_zero_disables_ble_chain_hold_even_when_chain_unbroken():
     """`BLE_MOTION_CONFIRM_MULTIPLIER = 0` disables the BLE hold
-    entirely (predicate always false). Documented on the constant as
-    the kill path."""
+    entirely (chain predicate always false). Post BLE-WARM-CREATE-1
+    (chain-only admission) the meaningful kill check is that even a
+    LEGITIMATE extend (chain unbroken) is suppressed by MULT=0."""
     hass = make_hass()
     room = "Master Bedroom"
     now = datetime(2026, 7, 17, 22, 0, 0)
@@ -383,13 +384,14 @@ def test_kill_switch_multiplier_zero_disables_ble_hold_even_with_fresh_motion():
         occupancy_timeout=60,
         last_motion_time=now - timedelta(seconds=5),  # very fresh motion
     )
+    coord._last_occupied_state = True  # chain unbroken — would admit sans kill
     pc = _make_person_coord({room: ["oji"]}, direct_ble_rooms={room})
     _seed_hass(hass, pc)
     data = {STATE_OCCUPIED: False}
     _run_ble_block(coord, data, now, room, multiplier_override=0)
 
     assert data.get(STATE_OCCUPIED) is False, (
-        "MULT=0 kill switch should suppress BLE hold even with fresh motion"
+        "MULT=0 kill switch should suppress BLE hold even when chain unbroken"
     )
     assert data.get(STATE_OCCUPANCY_SOURCE) != "ble"
     # ble_persons diagnostic still populated in skipped branch.
@@ -585,14 +587,19 @@ def test_five_tick_chain_motion_confirm_then_chain_extend_then_exit():
     coord = _FakeSelf(
         hass,
         occupancy_timeout=timeout,
-        # Tick 1 will have fresh motion within the window.
+        # Motion inside the window (kept as documentation; chain-only
+        # admission ignores motion_age).
         last_motion_time=t0 - timedelta(seconds=30),
     )
+    # Model production handoff: prior tick was motion-occupied so chain
+    # is unbroken entering tick 1. Post BLE-WARM-CREATE-1 this is the
+    # sole admission path.
+    coord._last_occupied_state = True
     persons = {room: ["oji"]}
     pc = _make_person_coord(persons, direct_ble_rooms={room})
     _seed_hass(hass, pc)
 
-    # Tick 1: fresh motion + BLE -> motion-leg admits.
+    # Tick 1: chain unbroken + BLE -> chain leg admits.
     data1 = {STATE_OCCUPIED: False}
     _run_ble_block(coord, data1, t0, room)
     assert data1[STATE_OCCUPIED] is True
@@ -705,13 +712,20 @@ def _mutate_and_expect_red(swap_from: str, swap_to: str, test_name: str):
 
 
 def test_MUTATION_m1_direct_ble_bypass_restored_makes_masterbath_fixture_red():
-    """Restore the pre-fix Tier-1 bypass by ORing `direct_ble` into the
-    two-leg admission. This reproduces the pre-fix behavior where a
-    direct-BLE room admits BLE unconditionally. The Master Bathroom
-    fixture (T1) must FAIL under mutation."""
+    """Restore the pre-v5.22.0 Tier-1 bypass by ORing `direct_ble` into
+    the chain-only admission. This reproduces the pre-fix behavior where
+    a direct-BLE room admits BLE unconditionally. The Master Bathroom
+    fixture (T1) must FAIL under mutation.
+
+    Post BLE-WARM-CREATE-1 the production line is
+    ``ble_allowed = chain_unbroken`` (single-leg); the mutation ORs
+    ``direct_ble`` back in to model any future re-introduction of a
+    create path."""
     _mutate_and_expect_red(
-        swap_from="ble_allowed = chain_unbroken or motion_leg",
-        swap_to="ble_allowed = chain_unbroken or motion_leg or direct_ble",
+        swap_from="                        ble_allowed = chain_unbroken\n",
+        swap_to=(
+            "                        ble_allowed = chain_unbroken or direct_ble\n"
+        ),
         test_name=(
             "test_masterbath_2026_07_17_repro_ble_flap_never_creates_occupancy"
         ),
@@ -751,3 +765,41 @@ def test_MUTATION_m2_seeding_hoisted_above_predicate_makes_order_test_red():
             "test_seeding_order_no_self_confirmation_across_two_ticks"
         ),
     )
+
+
+def test_pin_restart_midhold_chain_readmits_without_inprocess_tier1():
+    """D-MEDIUM-1 PIN (operator decision 2026-08-10, option 1: ACCEPT).
+
+    Extend-across-restart is INTENDED behavior, deliberately carved out
+    of the never-create invariant. Scenario: HA restarts mid-hold;
+    RestoreEntity/DB rehydrates ``_last_occupied_state=True`` before the
+    first refresh, ``_last_motion_time`` is NOT restored (boots None),
+    no in-process Tier-1 evidence has fired since start, BLE person
+    present -> the chain leg MUST ADMIT (re-establish the hold).
+
+    This is a PINNING test, not a blocking one: if a future cycle wants
+    the tighter in-process invariant (option 2: a post-restart Tier-1
+    gate), this test is the one it must consciously flip — do not
+    weaken it silently. Repro/adjudication: kanban BLE-WARM-CREATE-1,
+    D_MEDIUM_1_OPERATOR_DECISION_NEEDED.
+    """
+    hass = make_hass()
+    room = "Master Bathroom"
+    now = datetime(2026, 8, 10, 12, 0, 0)
+    coord = _FakeSelf(
+        hass,
+        occupancy_timeout=300,
+        last_motion_time=None,  # not restored across restart
+    )
+    coord._last_occupied_state = True  # rehydrated by RestoreEntity/DB
+    pc = _make_person_coord({room: ["oji"]}, direct_ble_rooms={room})
+    _seed_hass(hass, pc)
+
+    data = {STATE_OCCUPIED: False}
+    _run_ble_block(coord, data, now, room)
+    assert data[STATE_OCCUPIED] is True, (
+        "restart-mid-hold chain re-admission is PINNED intended "
+        "behavior (D-MEDIUM-1 option 1); a silent change here is a "
+        "regression in EITHER direction"
+    )
+    assert data.get(STATE_OCCUPANCY_SOURCE) == "ble"

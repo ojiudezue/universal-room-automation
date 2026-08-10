@@ -457,6 +457,11 @@ cards:
     boot-settle is not binding and the v5.35.0 safety rails gate the census DISCOUNT not the NM, so they
     cannot explain the silence. Re-thresholding would land at ~0.3-0.5 h, below plausible real occupancy
     — the 3.0/6.0 h pair is a deliberate "impossible for a real body" bound working as designed.'
+  GARAGE_CAMERA_RULING_2026_08_10: 'OPERATOR: "No — garage cameras should feed only egresses and
+    exterior. I fear it will be too noisy for interior listings." DECIDED: add camera.garage_a/garage_b
+    to CONF_EGRESS_CAMERAS (perimeter_alert), NOT camera_person_entities. ACCEPTED CONSEQUENCE: D1
+    stuck-camera detection will never cover the garages (interior-list-only) — the 6.52h garage_b hold
+    class stays invisible to D1 by explicit choice. Config apply pending.'
   D1_REAL_FINDING_coverage_not_calibration: 'sensor.garage_b_person_count held >0 for 6.52 h and WOULD
     have crossed both rules — but camera.garage_b and camera.garage_a are in NO URA camera list (not
     interior, not perimeter, not egress), while "Garage B" IS a configured URA room. Widening D1 to
@@ -555,6 +560,13 @@ cards:
     transitioned -> "EVSEs paused for battery drain since <time>" (transitioned_at); otherwise ->
     "· holding <n>m" (hold_started_at). Verified live + storage re-read (str.replace is a silent no-op
     on a miss and the write reports success regardless).'
+  ARRESTER_TILE_2026_08_10: 'Operator aside: temp override arrester onto the ura-v8 HVAC (Climate)
+    tab for quick access. DONE — new section at climate view position 1 (right under the hero, above
+    the thermostats): heading w/ live state badge + full-width toggle tile named "Let my manual changes
+    stick" + one conditional status line (engaged-Nm-ago + 6h expiry + sunset semantics when ON;
+    "flip on before adjusting setpoints" when OFF). Verified rendering live (switch currently ON,
+    26m — interesting: it re-engaged today, presumably re-enabled after last night''s 6h sunset).
+    Anti-word-vomit rules applied; no raw attr dump.'
   refinement_candidates:
   - 'REDUNDANCY: the headline reason and the Outlets row currently show the same string twice
     ("TOU peak/mid-peak pause") because the outlets are the only endpoints holding a reason. Options:
@@ -704,6 +716,108 @@ cards:
     OVERRIDE-NOTIFY-1 is about warning before expiry. Neither touches whether the arrester should fire
     against an occupant comfort request in the first place. HVAC-PRESET-FLAP-1 is the sibling defect
     from the same trace but independent — fixing one would not fix the other. NEW.'
+- id: BLE-WARM-CREATE-1
+  title: BLE re-creates bathroom occupancy inside the 10-min warm window on every toilet visit (v5.22.0 left this open by design)
+  thread: presence
+  status: shipped_organic
+  shipped_version: v5.66.0
+  approval: unreviewed
+  tags:
+  - no-fabrication-verify
+  - measure-before-build
+  origin:
+    date: '2026-08-10'
+    gist: 'operator in the master toilet; bathroom light came on briefly, reproducibly ("when I enter
+      it"), during daytime despite only-when-dark'
+  why: 'MEASURED from recorder attrs, two events this morning: 09:53:32 and 10:19:35, both
+    occupancy_source=ble, ble_persons=[Oji], tier1_provenance all-False, fresh became_occupied_time
+    (CREATE not extend), off again 41s/37s later. NOT a v5.22.0 regression — the predicate is intact and
+    both events were admitted by its MOTION LEG: last motion 5.5 and 9 min prior, inside
+    BLE_MOTION_CONFIRM_MULTIPLIER(2) x occupancy_timeout(300s) = 10 min. The comment says the leg exists
+    to "cover the handoff tick where motion just timed out" — but 10 minutes is not a handoff tick.'
+  mechanism: 'Every toilet visit passes through the bathroom -> legitimate motion -> bathroom occupancy
+    -> times out while operator sits in the toilet -> his BLE still resolves to the master_bathroom
+    area (the toilet is inside the bathroom scanner footprint) -> Bermuda flap re-fires BLE within the
+    warm window -> occupancy CREATED -> entry actions -> light on -> BLE flap clears -> off ~40s later.
+    Reproducible by construction: the pass-through guarantees fresh motion, so the warm window is
+    always open when it matters. v5.22.0 fixed the COLD strobe (chain broken, no recent motion); this
+    is the WARM strobe it deliberately admitted.'
+  daytime_light_finding: 'NOT a lux bug. sensor...masterbath_illuminance reads 8.5 lx live (cover 1
+    closed, interior room) -> lux_zone=dark is CORRECT. "Only when dark" is lux-based, not sun-based;
+    the room genuinely is dark at 10am. Every occupancy row today carries last_lux_zone=dark. The
+    daytime complaint is the BLE create firing entry actions, not the lux gate.'
+  third_writer_ruled_out: '40 HA automations enabled; none targets master bathroom lights (closet +
+    ziri/jaya/guest bathrooms have their own; master bath does not). URA sole writer.'
+  fix_directions_not_built:
+  - '(a) NARROW the motion leg to an actual handoff: admit BLE create only within ~1 tick (30-60s) of
+    the occupancy-off transition, not 2x timeout from last motion. Smallest change; kills the
+    reproducible case; still covers the documented purpose.'
+  - '(b) ADJACENT-ROOM ATTRIBUTION: suppress BLE create when the same person''s BLE also explains an
+    ADJACENT occupied room (master_toilet occupied=on by the same person throughout). This is the
+    fusion-library intent/evidence + adjacency territory — richer, heavier.'
+  - '(c) ROLE SPLIT: BLE-created occupancy extends holds/HVAC but does not fire LIGHT entry actions.
+    NOTE: sensor_role.RoleQuery.CREATOR_VS_EXTENDER is RESERVED for exactly this — senscap v5.65.0
+    shipped the query surface unconsumed. This card may be its founding consumer.'
+  OPERATOR_CHALLENGE_2026_08_10: '"Why break the extend but not create rule at all? It seems like it
+    created it, no?" — CORRECT. Leg (b) mechanically IS a create (occupancy off -> on via BLE alone,
+    fresh became_occupied_time). Adjudication: (1) its DOCUMENTED purpose (handoff tick) is already
+    covered by the chain leg, whose prev-tick read is still True at the timeout tick; (2) its
+    PROTECTIVE case (still body + BLE dropout) is mmWave''s job — and in the incident mmWave correctly
+    read False because the room really was empty; leg (b) cannot distinguish flap-recovery from
+    adjacent-room BLE bleed, and the floor plan makes bleed occur on every toilet visit.'
+  REVISED_RECOMMENDATION: 'DELETE leg (b) rather than narrow it — restore the invariant to what its
+    name claims. Review must: (i) mutation-verify the tick-ordering claim that chain covers the
+    handoff (comment-trusted today); (ii) enumerate rooms WITHOUT mmWave (D0 audit has the list) and
+    check whether any relied on leg (b) for still-occupant recovery — those rooms lose the path.
+    Kill-switch semantics survive (MULT=0 already gates both legs).'
+  LUX_RESOLVED_2026_08_10: 'Operator: "bathroom is genuinely bright... I moved the hamper." MEASURED:
+    lux flat ~12 lx ALL morning, then 11.7 -> 147.8 -> 201.4 -> 241+ in NINE SECONDS at 12:18:44-53,
+    stable ~246 since. The HAMPER occluded the sensor. Every light actuation 07:26-12:10 passed
+    only-when-dark against a lying instrument. No code bug; physical fix by operator; daytime firing
+    now self-suppresses. Same lesson as details_json: when the reading contradicts the room, suspect
+    the instrument.'
+  OPERATOR_GO_2026_08_10: 'DELETE approved: "Unless you see a livable scenario we missed, delete it...
+    It is occupancy so go big on reviews and quality." Missed-scenario check done: even PIR-only rooms
+    hold a still occupant via the chain leg while BLE is present at the timeout tick; leg (b) matters
+    only if BLE ALSO dropped in that exact window (rare-squared), failure mode is lights-off-until-
+    movement which PIR recovers. BATCHING: orchestrator call = SEPARATE hotfix (occupancy reviews stay
+    pointed at one change); P24/D3/dropdowns ship as their own batch after.'
+  REVIEWS_2026_08_10: 'A SHIP (1 LOW: const doc described the D2 kill by the WRONG MECHANISM — outer
+    guard, not threshold-collapse; the 4th false-mechanism comment this week, caught in the commit that
+    retired three others). B SHIP (boot regression RULED OUT: _last_occupied_state IS restored and
+    _last_motion_time is NOT, so leg (b) was already inert on the first post-restart tick — nothing
+    lost; 1 MED: unreachable fossil branch; L-B2: the constant name says multiplier but the BLE block
+    now ignores magnitude — split into BLE_ADMIT_ENABLED bool + D2 multiplier in a later cycle).
+    C SHIP ZERO findings (its own drill reintroduced a motion leg -> 6/7 anchors red with [None]
+    correctly green; kill-switch gate load-bearing; oracles independently authored; only ONE ble
+    source-write site exists). D SHIP-WITH-FOLLOWUP: invariant HOLDS across the diff surface;
+    capability seam CLOSED (BLE_PRESENCE is corroborator-only, not injected into detection lists);
+    ONE pre-existing MEDIUM at the boot/reload boundary.'
+  FIXUP_2026_08_10: 'c37d155c3 on the build branch: A-LOW-1 doc line + B-M-B1 fossil deleted with
+    tombstone. Orchestrator drill: reintroduced a 600s window myself -> 10 red; restored -> 21 green.
+    Full suite 22 failed / 8544 passed / 2 xfailed — failing names = the pre-existing wall-clock
+    families (count drifted 21->22 with the date, winter-gate boundary class).'
+  D_MEDIUM_1_OPERATOR_DECISION_NEEDED: 'The invariant is AMBIGUOUS at the restart boundary.
+    _last_occupied_state restores True across a reboot with NO requirement of any in-process tier-1
+    evidence before the chain leg re-admits. Legal repro: occupant walks out during the 30-90s restart
+    downtime, Bermuda still attributes them on first scan -> chain re-arms occupancy from BLE alone.
+    PRE-EXISTING (leg (a) since v5.22.0) but the diff makes it the SOLE remaining seam. OPTIONS:
+    (1) ACCEPT + PIN — declare extend-across-restart intended, restate the invariant with the carve-out,
+    add a pinning test (smallest ingredient; matches the "extends INDEFINITELY" design comment; the
+    repro window is narrow and self-corrects when BLE clears). (2) GATE — new
+    _had_post_restart_tier1_evidence flag required by the chain leg (tighter invariant; adds a new
+    boot-path state flag = rare-fire ingredient). ORCHESTRATOR RECOMMENDATION: option 1. Either way
+    D-LOW-1 (zero tests on the post-restart first-tick path) gets its test written to match.'
+  next: 'AWAITING TIER-3 OPERATOR CHECKPOINT: (a) go/no-go to merge+deploy; (b) the D-MEDIUM-1 option
+    1 vs 2 pick. Branch worktree-agent-afcf959feefd95587 @ c37d155c3, not merged.'
+  refs:
+  - docs/readmes/README_v5.22.0.md (the reference cycle, same room, 2026-07-18)
+  - custom_components/universal_room_automation/coordinator.py:2646-2700 (two-leg admission)
+  - const.py:447 (BLE_MOTION_CONFIRM_MULTIPLIER=2)
+  DEDUPE_2026_08_10: 'Sweep: v5.22.0 cycle is the PARENT fix (cold strobe) — this is its documented
+    residual, not a duplicate. STUCK-SENSOR-1/chatter unrelated (different detector). Fusion-library
+    section 7 intent/evidence is the (b)/(c) design home, linked not merged. CREATOR_VS_EXTENDER
+    reserved query = planned consumer. NEW.'
 - id: TABLET-FLEET-1
   title: 'Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)'
   thread: tablets
