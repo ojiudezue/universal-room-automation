@@ -26,7 +26,7 @@
 | P12 | signal_consensus arithmetic (D5) | presence.py:5786-5839 | 4 deltas: phones-away∧zones-occupied −0.4; stale/lost tracker −0.2; camera-w/o-tier1 −0.15; low engine confidence −0.1 (all inline) | consensus = max(0, 1−Σ); <0.6 sustained tracked. Consumers: HVAC + compliance defer gates |
 | P13 | Camera/Tier-1/mmwave tally | presence.py:5650-5687 | per-zone camera vs tier1 occupied counts | feeds consensus delta 3; diagnostic |
 | P14 | Per-zone BLE-tier weighted veto (v4.7.16) | presence.py:4815-4970 | BLE tier weights (T2=0.6) vs veto helper | VESTIGIAL — Pattern F unhandled, verdicts diagnostic-only |
-| P15 | Substrate kind-precedence arbitration | occupancy_substrate.py:169-286 | entity's CONF-list memberships; cross-room claims | first-match precedence, duplicate → drop+WARN; reset+reseed kills stuck-True |
+| P15 | Substrate kind-precedence arbitration | occupancy_substrate.py:169-286 | entity's CONF-list memberships; cross-room claims | first-match precedence, duplicate → drop+WARN; reset+reseed kills stuck-True — role questions above the substrate resolve via `domain_coordinators.sensor_role.resolve_role` (SENSOR-CAPABILITY-1, 2026-08-09) so a per-entity capability override can retag WITHOUT extending TIER1_KINDS |
 | P16 | Boot-settle gate (Predicates A/B) | presence.py:4463-4491, 1994-2118 | real-input presence vs boot transient | hold cross-coordinator fan-out until real input / HA started / timeout |
 
 ### HVAC consumers of presence trust

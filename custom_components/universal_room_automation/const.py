@@ -340,6 +340,78 @@ CONF_OCCUPANCY_SENSORS: Final = "occupancy_sensors"  # Combined motion+presence 
 # both substrings (e.g. "mmwave_motion"). See _classify_entity_kind in
 # domain_coordinators/presence.py.
 TIER1_KINDS: Final = ("motion", "mmwave", "occupancy")
+
+# --- SENSOR-CAPABILITY-1 (plan: docs/planning/PLANNING_sensor_capability_vs_role.md) ---
+# CAPABILITY layer sits ABOVE the three CONF lists. The CONF lists remain the
+# WIRING declaration (what URA is subscribed to) and their kinds remain
+# TIER1_KINDS-valued for the substrate dispatch channel (I3). Capability is
+# resolved at the CONSUMPTION site via `sensor_role.resolve_role`, NOT at the
+# substrate dispatch site — this bounds blast radius per new kind to O(1)
+# instead of O(N sites iterating TIER1_KINDS). Extending TIER1_KINDS itself
+# is deliberately OUT of scope; `presence._audit_provenance_invariants`
+# RAISES on kinds outside TIER1_KINDS ∪ {"tier1"} and that is the desired
+# failure mode when a capability kind leaks onto the legacy channel.
+#
+# Capability kind vocabulary (rung 1 — module constant; changing it is a
+# schema change that must go through code review, never operator config).
+CAPABILITY_KIND_MOTION: Final = "motion"
+CAPABILITY_KIND_MMWAVE: Final = "mmwave"
+CAPABILITY_KIND_OCCUPANCY: Final = "occupancy"
+CAPABILITY_KIND_PIR: Final = "pir"
+CAPABILITY_KIND_BED: Final = "bed"
+CAPABILITY_KIND_CAMERA_PRESENCE: Final = "camera_presence"
+CAPABILITY_KIND_BLE_PRESENCE: Final = "ble_presence"
+CAPABILITY_KIND_PIR_SPLIT: Final = "pir_split"
+
+# TIER1_CAPABILITIES is a SUPERSET of TIER1_KINDS. Consumers that ask role
+# questions may see any of these values; consumers of the legacy substrate
+# dispatch channel see ONLY TIER1_KINDS members.
+TIER1_CAPABILITIES: Final = TIER1_KINDS + (
+    CAPABILITY_KIND_PIR,
+    CAPABILITY_KIND_BED,
+    CAPABILITY_KIND_CAMERA_PRESENCE,
+    CAPABILITY_KIND_BLE_PRESENCE,
+    CAPABILITY_KIND_PIR_SPLIT,
+)
+
+# Trust class vocabulary (rung 1) — closed set; open strings would defeat
+# the role-query matrix's testability. Strong-evidence sensors are DEMOTED
+# from stuck-candidate lists and ELEVATED into the corroborator set.
+TRUST_CLASS_STRONG_EVIDENCE: Final = "strong_evidence"
+TRUST_CLASS_WITNESS: Final = "witness"
+TRUST_CLASS_WEAK_WITNESS: Final = "weak_witness"
+TRUST_CLASSES: Final = (
+    TRUST_CLASS_STRONG_EVIDENCE,
+    TRUST_CLASS_WITNESS,
+    TRUST_CLASS_WEAK_WITNESS,
+)
+
+# Failure-mode vocabulary (rung 1) — enumerates whether the failure of this
+# sensor is INDEPENDENT of another sensor's failure. Used later by the
+# corroboration/independence logic; carried through capability today.
+FAILURE_MODE_PHYSICAL_INDEPENDENT: Final = "physical_independent"
+FAILURE_MODE_CORRELATED_WIRELESS: Final = "correlated_wireless"
+FAILURE_MODE_CORRELATED_BRIDGE: Final = "correlated_bridge"
+FAILURE_MODE_UNKNOWN: Final = "unknown"
+FAILURE_MODES: Final = (
+    FAILURE_MODE_PHYSICAL_INDEPENDENT,
+    FAILURE_MODE_CORRELATED_WIRELESS,
+    FAILURE_MODE_CORRELATED_BRIDGE,
+    FAILURE_MODE_UNKNOWN,
+)
+
+# Per-room operator-declarable capability overrides. Absent key = empty
+# dict = byte-identical fallback (I1). Rung 2 (options flow).
+#
+# Shape: {entity_id: {"kind": <TIER1_CAPABILITIES>,
+#                     "trust_class": <TRUST_CLASSES>,
+#                     "failure_mode": <FAILURE_MODES>}}
+#
+# Only "kind" is required in a declaration; trust_class and failure_mode
+# default per capability (see sensor_capability.DEFAULT_TRUST_BY_KIND /
+# DEFAULT_FAILURE_MODE_BY_KIND).
+CONF_SENSOR_CAPABILITIES: Final = "sensor_capabilities"
+
 # v3.2.4: CONF_PHONE_TRACKER deprecated - use person tracking with Bermuda instead
 CONF_PHONE_TRACKER: Final = "phone_tracker"  # DEPRECATED in v3.2.4 - kept for migration
 # v3.2.4: Scanner areas for sparse scanner homes (optional override)

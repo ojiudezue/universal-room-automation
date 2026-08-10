@@ -469,6 +469,55 @@ BOTH `mmwave_sensors` and `occupancy_sensors` under P15 precedence (defensive ca
 also be scored exactly once. The mutation-anchored test in Reviewer C's framing MUST
 cover this exact collision case with a legal fixture.
 
+### 10.1 Post-review carve-out clarification (fix-up 2026-08-09, B-MED-1)
+
+Reviewer B's B-MED-1 pointed out that the original text above (and the D3
+code commentary) framed the P15 carve-out as if it applied only to the
+mmwave × occupancy collision. That is wrong. The carve-out is the WHOLE
+P15 collision surface — **all three pairs**: motion × mmwave, motion ×
+occupancy, mmwave × occupancy. The mechanism that changed the behaviour
+is **precedence-aware role resolution** (`_conf_list_kind` walking
+`_CONF_PRECEDENCE` in the same order as `occupancy_substrate._KIND_PRECEDENCE`),
+NOT the `_seen_corr` / `_seen_cand` dedup sets in `_detect_duty_cycle_stuck`.
+Pre-diff behaviour: a multi-CONF-list entity was iterated by BOTH the
+motion transition tracker AND the candidate ring (or by both mmwave and
+occupancy loops, depending on the pair) and therefore **double-scored** —
+reaching `MIN_TICKS` in half the ticks and, over the full window, saturating
+the ring in half the wall-clock time. Post-diff behaviour: precedence
+resolves the entity to a single kind up front (motion beats mmwave beats
+occupancy) and it is scored exactly once, matching the substrate. This
+is the correct P15 discipline: the whole surface, one code path, no
+double-count. See the fix-up analogue tests `test_d2_p15_motion_mmwave_*`
+and `test_d2_p15_motion_occupancy_*` in
+`quality/tests/test_sensor_capability_and_role.py`.
+
+Note (B-LOW-1 fix-up, 2026-08-10): intra-CONF-list duplicates — e.g.
+the same entity_id listed twice inside `CONF_MOTION_SENSORS` — collapse
+under the same carve-out: the corroborator/candidate loops apply
+order-preserving dedup via `_seen_corr` / `_seen_cand`, so a repeated
+listing is scored exactly once. This is part of the same P15 carve-out,
+not a separate mechanism.
+
+Reviewer D's D-HIGH-1 (claiming the `_seen_corr` guard in the candidates
+loop was load-bearing under empty overrides) was adjudicated INCORRECT:
+`_STUCK_CANDIDATE_KINDS = {mmwave, occupancy}` excludes motion, and
+`_CONF_PRECEDENCE` resolves a motion+mmwave entity to `kind=motion`, so
+`CANDIDATE_FOR_STUCK` returns False on the kind check regardless of the
+guard. Reviewer C's drill 13 (deleting the branch, whole suite green)
+confirmed it. The dead branch and its false docstring were removed as
+part of the fix-up.
+
+Second-riskiest, restated: `_audit_provenance_invariants` at
+`presence.py:384` will still RAISE if any capability-derived kind leaks
+onto the legacy provenance channel — the durable ward stays. Third,
+newly surfaced by the fix-up review: a **misfiled hybrid** (e.g. an
+Aqara-FP2 declared in BOTH motion and mmwave lists) becomes a TRUSTED,
+NEVER-EXAMINED corroborator under the new resolver — the anchor-can-be-
+broken failure mode from `CATALOG_cross_correlation_primitives.md`. We
+log a WARN once per (room, entity) collision so an operator / STUCK-
+SENSOR-1 can see the elevation; detection itself is out of scope for
+this cycle.
+
 Second-riskiest: `_audit_provenance_invariants` at `presence.py:384` will RAISE if any
 capability-derived kind leaks onto the legacy provenance channel. This is correct
 behaviour, but a builder who "helpfully" adds `"bed"` to the audit's allowlist would
