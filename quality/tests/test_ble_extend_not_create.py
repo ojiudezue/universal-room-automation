@@ -765,3 +765,41 @@ def test_MUTATION_m2_seeding_hoisted_above_predicate_makes_order_test_red():
             "test_seeding_order_no_self_confirmation_across_two_ticks"
         ),
     )
+
+
+def test_pin_restart_midhold_chain_readmits_without_inprocess_tier1():
+    """D-MEDIUM-1 PIN (operator decision 2026-08-10, option 1: ACCEPT).
+
+    Extend-across-restart is INTENDED behavior, deliberately carved out
+    of the never-create invariant. Scenario: HA restarts mid-hold;
+    RestoreEntity/DB rehydrates ``_last_occupied_state=True`` before the
+    first refresh, ``_last_motion_time`` is NOT restored (boots None),
+    no in-process Tier-1 evidence has fired since start, BLE person
+    present -> the chain leg MUST ADMIT (re-establish the hold).
+
+    This is a PINNING test, not a blocking one: if a future cycle wants
+    the tighter in-process invariant (option 2: a post-restart Tier-1
+    gate), this test is the one it must consciously flip — do not
+    weaken it silently. Repro/adjudication: kanban BLE-WARM-CREATE-1,
+    D_MEDIUM_1_OPERATOR_DECISION_NEEDED.
+    """
+    hass = make_hass()
+    room = "Master Bathroom"
+    now = datetime(2026, 8, 10, 12, 0, 0)
+    coord = _FakeSelf(
+        hass,
+        occupancy_timeout=300,
+        last_motion_time=None,  # not restored across restart
+    )
+    coord._last_occupied_state = True  # rehydrated by RestoreEntity/DB
+    pc = _make_person_coord({room: ["oji"]}, direct_ble_rooms={room})
+    _seed_hass(hass, pc)
+
+    data = {STATE_OCCUPIED: False}
+    _run_ble_block(coord, data, now, room)
+    assert data[STATE_OCCUPIED] is True, (
+        "restart-mid-hold chain re-admission is PINNED intended "
+        "behavior (D-MEDIUM-1 option 1); a silent change here is a "
+        "regression in EITHER direction"
+    )
+    assert data.get(STATE_OCCUPANCY_SOURCE) == "ble"
