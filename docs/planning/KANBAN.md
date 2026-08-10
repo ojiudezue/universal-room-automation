@@ -15,8 +15,8 @@ _Generated: 2026-08-10T02:13:40-05:00_ - _Data commit: `9f98cf742ab7`_ - _last_r
 | 🧭 Pre-planning | 15 |
 | 📝 Planned | 3 |
 | 🔨 In progress | 0 |
-| 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 7 |
+| 🔍 Review | 0 |
+| 🚀 Shipped (organic open) | 8 |
 | ⏸️ Waiting on operator | 2 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 0 |
@@ -281,23 +281,12 @@ _being built_
 
 _(none)_
 
-## 🔍 Review (1)
+## 🔍 Review (0)
 _under review_
 
-### `KHOST-1` - Homelab-hosted board, generated from data
-thread: **dashboarding** - status: **review** - approval: **explicit**
-- **Origin:** 2026-08-07 - make url live on webhost (homelab)... design it better... give yourself eyes like playwright... build it tonight while I'm sleeping
-- **Why:** the Artifact is hand-maintained HTML that can drift; a GENERATED board (pure function of this data) can't; homelab-hosted = durable, infra-native
-- **Next:** BUILT + MERGED 2026-08-10 overnight pass (cc9c0e3f8 + 3031487c0). Generator live: scripts/kanban_render.py -> KANBAN.md + kanban_board.html (self-contained, light/dark, mobile), rung-3 STALE banner with exit codes 0/2/1, byte-stable, 13 ...
-- **Tags:** hand-build-fixture
-- **Parsimony:** [BUILD] the reflected board is hand-maintained and can silently drift from the source
-- **Forensic keys (4):**
-  - `design`: source = this data file; generator -> {KANBAN.md view, html board, history}; page is a pure function of the data
-  - `decisions`: host: urakanban.phalanxmadrone.com
-  - `overnight_notes_2026_08_10`: STALE-BASE CLASS, SECOND INSTANCE, new variant: builder verified base against origin/develop but LOCAL develop was ahead (unpushed evening work), so its generated views rendered from an old board file. Caught at merge; views regenerated ...
-  - `ADDED_2026_08_09_staleness_forcing_function`: The generator MUST compare meta.last_reconciled against the newest git tag AND the newest docs/readmes/README_v*.md, and (a) render a loud STALE banner on the board, (b) warn on the build. WHY: 2026-08-09 the board said "build" for XCORR...
+_(none)_
 
-## 🚀 Shipped (organic open) (7)
+## 🚀 Shipped (organic open) (8)
 _live, awaiting proof_
 
 ### `BOARD-CURRENCY-1` - Forcing-function ladder so the board (and vibememo) cannot lag shipped work
@@ -380,6 +369,20 @@ thread: **presence** - status: **shipped_organic** - approval: **explicit**
   - `findings`: OPERATOR: it's 5 cameras. By the real bar (produces a room-attributed signal transit can use) only garage_hallway works. master_hallway + entry(foyer) are in camera_person_entities but have NO fused sensor; upstairs_hallway + stairs aren...
   - `organic_open`: one logical sighting per real crossing (F2 dedup, despite Protect+Frigate legs) + no path_validated inflation vs prior day
   - `followups`: expose checkpoint_cameras_by_area on a diagnostic sensor (validation needed log-level surgery - build scoped it out)
+
+### `KHOST-1` - Homelab-hosted board, generated from data
+thread: **dashboarding** - status: **shipped_organic** - approval: **explicit**
+- **Origin:** 2026-08-07 - make url live on webhost (homelab)... design it better... give yourself eyes like playwright... build it tonight while I'm sleeping
+- **Why:** the Artifact is hand-maintained HTML that can drift; a GENERATED board (pure function of this data) can't; homelab-hosted = durable, infra-native
+- **Next:** BUILT + MERGED 2026-08-10 overnight pass (cc9c0e3f8 + 3031487c0). Generator live: scripts/kanban_render.py -> KANBAN.md + kanban_board.html (self-contained, light/dark, mobile), rung-3 STALE banner with exit codes 0/2/1, byte-stable, 13 ...
+- **Tags:** hand-build-fixture
+- **Parsimony:** [BUILD] the reflected board is hand-maintained and can silently drift from the source
+- **Forensic keys (5):**
+  - `design`: source = this data file; generator -> {KANBAN.md view, html board, history}; page is a pure function of the data
+  - `decisions`: host: urakanban.phalanxmadrone.com
+  - `SHIPPED_2026_08_10`: LIVE at https://urakanban.phalanxmadrone.com (verified HTTP 200 serving URA://KANBAN; Mac DNS cache may lag the new UDM record a few minutes). 5-min refresh cron installed on the dev-host crontab. Homelab commit eddf8e4. REDESIGNED same ...
+  - `overnight_notes_2026_08_10`: STALE-BASE CLASS, SECOND INSTANCE, new variant: builder verified base against origin/develop but LOCAL develop was ahead (unpushed evening work), so its generated views rendered from an old board file. Caught at merge; views regenerated ...
+  - `ADDED_2026_08_09_staleness_forcing_function`: The generator MUST compare meta.last_reconciled against the newest git tag AND the newest docs/readmes/README_v*.md, and (a) render a loud STALE banner on the board, (b) warn on the build. WHY: 2026-08-09 the board said "build" for XCORR...
 
 ### `CAM-AREA-PENDING` - Camera area corrections — RESOLVED
 thread: **camera** - status: **shipped_organic** - approval: **explicit**

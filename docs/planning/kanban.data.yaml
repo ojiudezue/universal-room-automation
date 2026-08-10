@@ -1558,7 +1558,7 @@ cards:
 - id: KHOST-1
   title: Homelab-hosted board, generated from data
   thread: dashboarding
-  status: review
+  status: shipped_organic
   approval: explicit
   approved_by: operator
   approved_on: 2026-08-07
@@ -1599,6 +1599,16 @@ cards:
     the runbook. Rebuild mechanism chosen: 5-min cron pull-and-render with hash short-circuit — a
     post-commit hook cannot fire across our multiple clones/worktrees, and webhook infra does not exist
     homelab-side; up to 5-min latency accepted for a human-timescale board.'
+  SHIPPED_2026_08_10: 'LIVE at https://urakanban.phalanxmadrone.com (verified HTTP 200 serving
+    URA://KANBAN; Mac DNS cache may lag the new UDM record a few minutes). 5-min refresh cron installed
+    on the dev-host crontab. Homelab commit eddf8e4. REDESIGNED same morning per operator ("don''t want
+    generic slop"): ops-ledger identity — swimlane rows (no dead voids), approval as left stripe
+    replacing pill soup, mono statusline, single amber accent, paper/gunmetal themes. Three real infra
+    bugs found+fixed in deploy-static-site.sh during first apply: PVE SSH user must strip the @pam
+    realm; PVE password is PROXMOX_PASS not SSH_PASS; standalone caddy validate via pct exec lacks the
+    service EnvironmentFile so systemd reload is the validation. ORGANIC PROOF OPEN: (a) cron refresh
+    picks up the next board commit within ~5 min; (b) rung-3 STALE banner appears on the hosted page the
+    next time the board genuinely lags a release.'
   overnight_notes_2026_08_10:
   - 'STALE-BASE CLASS, SECOND INSTANCE, new variant: builder verified base against origin/develop but
     LOCAL develop was ahead (unpushed evening work), so its generated views rendered from an old board
