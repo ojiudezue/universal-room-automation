@@ -1,0 +1,19 @@
+{
+  "format_version": "2.1",
+  "entry_id": "034",
+  "author": "ojiudezue",
+  "session_id": "claude_20260810_142757_ship_v5_65_0",
+  "timestamp": "2026-08-10T14:27:57Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.65.0 shipped: Sensor capability vs analytic role (SENSOR-CAPABILITY-1)",
+  "summary": "Per-entity sensor capability layer: operator-declarable kind/trust/failure-mode overrides (CONF_SENSOR_CAPABILITIES options JSON) with roles derived per query at the consumption site via sensor_role.resolve_role. Byte-identical with no declarations (I1, documented P15 carve-out); provenance channel warded (I3). One consumer migrated: duty-cycle stuck detector \u2014 a bed sensor can now be declared 'bed' and become a corroborator instead of a stuck-candidate. Tier 3: 4 framing-disjoint reviews + fix-up + LOW pass. Also aboard: KHOST-1 kanban generator + first live run of the deploy --cards board gate.",
+  "refs": {
+    "cards": [
+      "SENSOR-CAPABILITY-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.65.0.md"
+    ]
+  }
+}
