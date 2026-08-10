@@ -762,8 +762,21 @@ cards:
     handoff (comment-trusted today); (ii) enumerate rooms WITHOUT mmWave (D0 audit has the list) and
     check whether any relied on leg (b) for still-occupant recovery — those rooms lose the path.
     Kill-switch semantics survive (MULT=0 already gates both legs).'
-  next: build the leg-(b) deletion with the two review checks above; candidate rider on the
-    P24/D3/dropdown batch
+  LUX_RESOLVED_2026_08_10: 'Operator: "bathroom is genuinely bright... I moved the hamper." MEASURED:
+    lux flat ~12 lx ALL morning, then 11.7 -> 147.8 -> 201.4 -> 241+ in NINE SECONDS at 12:18:44-53,
+    stable ~246 since. The HAMPER occluded the sensor. Every light actuation 07:26-12:10 passed
+    only-when-dark against a lying instrument. No code bug; physical fix by operator; daytime firing
+    now self-suppresses. Same lesson as details_json: when the reading contradicts the room, suspect
+    the instrument.'
+  OPERATOR_GO_2026_08_10: 'DELETE approved: "Unless you see a livable scenario we missed, delete it...
+    It is occupancy so go big on reviews and quality." Missed-scenario check done: even PIR-only rooms
+    hold a still occupant via the chain leg while BLE is present at the timeout tick; leg (b) matters
+    only if BLE ALSO dropped in that exact window (rare-squared), failure mode is lights-off-until-
+    movement which PIR recovers. BATCHING: orchestrator call = SEPARATE hotfix (occupancy reviews stay
+    pointed at one change); P24/D3/dropdowns ship as their own batch after.'
+  next: 'BUILD IN FLIGHT (Tier-3 bar): deletion + two mandatory verifications (tick-ordering mutation
+    test as go/no-go; no-mmWave room enumeration for reviewers) + falsifiable-invariant regression
+    anchors (BLE must never create at ANY motion age). Then 4 framing-disjoint reviews.'
   refs:
   - docs/readmes/README_v5.22.0.md (the reference cycle, same room, 2026-07-18)
   - custom_components/universal_room_automation/coordinator.py:2646-2700 (two-leg admission)
