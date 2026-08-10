@@ -434,16 +434,32 @@ DEFAULT_DISABLE_CAMERA_PRESENCE: Final = False
 # v4.7.16; see PLANNING_v4.7.16 §2 D3 rationale.
 BLE_TIER_2_WEIGHT: Final = 0.6
 
-# ble_extend_not_create (2026-07-17): Universal recent-motion confirmation
-# multiplier for the room-tier BLE-extends-occupancy predicate at
-# coordinator.py :1808. BLE evidence may only EXTEND an existing motion-
-# confirmed occupancy — never CREATE it — so admission requires
-# `_last_motion_time` within (multiplier x occupancy_timeout).
+# ble_extend_not_create — BLE-extends-occupancy predicate multiplier.
+#
+# History:
+#   - 2026-07-17: introduced as the window-width multiplier for the
+#     recent-motion confirmation leg (b) of the two-leg admission
+#     predicate in the coordinator BLE block. Admission required
+#     `_last_motion_time` within (multiplier x occupancy_timeout) OR
+#     chain-unbroken (leg (a)).
+#   - 2026-08-10 (BLE-WARM-CREATE-1): leg (b) was measured admitting
+#     BLE-only CREATE events off adjacent-room bleed and was DELETED.
+#     Admission is now CHAIN-ONLY.
+#
+# In the BLE block this constant no longer scales a window; it is
+# purely the ON/OFF kill switch for the chain-based BLE hold. In the
+# D2 mmWave-fan demotion block (also in coordinator.py) the same
+# constant is still read as a PIR-staleness multiplier — do NOT
+# interpret the constant as pure-kill globally. Read the two blocks
+# together before changing this value.
 #
 # Rung: module constant (Numbers Get Knobs rung 1). Safety/trust bound
 # on a truth-source-elevation predicate; not operator-tuned per-deployment.
 # Kill semantics: setting to 0 disables the BLE hold path entirely
-# (predicate always false → BLE can neither create nor extend).
+# (chain-leg predicate always false → BLE can neither create nor
+# extend) AND disables the D2 mmWave-fan demotion block entirely via its
+# own outer `MULT > 0` guard (coordinator.py; the staleness arithmetic
+# never runs at 0 — it is NOT a threshold-collapse).
 BLE_MOTION_CONFIRM_MULTIPLIER: Final = 2
 
 # v4.7.16 D3 (post-review B MEDIUM #1): kill switch for the per-room
