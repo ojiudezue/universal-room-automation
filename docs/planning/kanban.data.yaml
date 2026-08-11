@@ -795,6 +795,7 @@ cards:
     OVERRIDE-NOTIFY-1 is about warning before expiry. Neither touches whether the arrester should fire
     against an occupant comfort request in the first place. HVAC-PRESET-FLAP-1 is the sibling defect
     from the same trace but independent — fixing one would not fix the other. NEW.'
+  organic_evidence: 'shipwatch 2026-08-11: L3 pending — zero comfort_delay ledger entries in 14h (no qualifying manual yet); founding-case proof awaits next kid-thermostat event. Cycle B stays staged on it.'
 - id: BLE-WARM-CREATE-1
   title: BLE re-creates bathroom occupancy inside the 10-min warm window on every toilet visit (v5.22.0 left this open by design)
   thread: presence
@@ -897,6 +898,7 @@ cards:
     residual, not a duplicate. STUCK-SENSOR-1/chatter unrelated (different detector). Fusion-library
     section 7 intent/evidence is the (b)/(c) design home, linked not merged. CREATOR_VS_EXTENDER
     reserved query = planned consumer. NEW.'
+  organic_evidence: 'shipwatch 2026-08-11: L2 strongly positive — 22h/~28 Master Bathroom cycles, ZERO ble-source occupancy post-deploy; last strobe was 3min PRE-deploy. Confirm at 48h.'
 - id: FAN-MANUAL-1
   title: 'Fans have no manual-ON override: room temp logic reverts a hand-switched fan ("below threshold")'
   thread: hvac
@@ -960,6 +962,7 @@ cards:
   DEDUPE_2026_08_10: 'Sweep: ARREST-COMFORT-1 is the SIBLING (thermostat side of the same class) —
     linked not merged; fan-recheck cards/plans are about mmWave truth not manual intent; humidity-fan
     backlog (PowerView memo) is spike detection; B-2026-08-03-8 flash opt-out unrelated. NEW.'
+  organic_evidence: 'shipwatch 2026-08-11: L2 PENDING ON OPERATOR — manual Living Room fan-ON test still owed; no organic 1h+ manual hold observed yet (both v5.68.0 hold + v5.70.0 delegation ride this one test).'
 - id: KHOST-2
   title: Operator disposition buttons + drag-between-states on the hosted board
   thread: tooling
@@ -973,10 +976,46 @@ cards:
   constraints: 'LAN-site only (Artifact CSP cannot POST). No auth on LAN site per operator choice. Source of truth stays kanban.data.yaml; the queue is pending-intent, not state.'
   next: 'Build: webhost micro-API + board JS (buttons done/deferred/declined + column drag) + cron pull of disposition queue + pending-chip render + session-start apply protocol in ura-kanban skill.'
 
+- id: NM-IMAGE-1
+  title: NM image attachments not landing (WhatsApp + iMessage) — operator automation images DO land
+  thread: notifications
+  status: planned
+  approval: unreviewed
+  origin:
+    date: '2026-08-11'
+    gist: 'operator: "The images are not landing in the NM messages even in whatsapp; the image-bearing ones are from my automation."'
+  why: 'DIAGNOSED 2026-08-11: capture works (fresh files in /media/ura/snapshots), channel works (live media_path test delivered WITH image), perimeter dispatch threads snapshot_path. The drop is NM digest routing: operator delivery_pref=digest; digest rows do not persist snapshot_path and _deliver_digest calls _send_whatsapp/_send_imessage with NO snapshot args — digest pipeline is image-blind end-to-end. iMessage separately structural (BlueBubbles integration drops attachments; SNAP-1-followup). Adjacent defects same pass: 04:24 event delivered 09:26 (digest-lag timestamp semantics) + bare "[audit]" sentinel title at 10:01 (P24-shape).'
+  design_pick_for_operator: 'Fix shape A: persist snapshot_path into digest rows + deliver images at flush. Fix shape B (recommended for security class): image-bearing perimeter alerts bypass digest as effectively-immediate. Pick rides the plan review.'
+  next: 'Operator approves cycle -> plan (Tier 2, one adversarial plan review) -> build. Prerequisite for CONSOL-1 universal-llmvision (approved 2026-08-07).'
+
+- id: DP-OBSERVABILITY-1
+  title: DP plan sensor presents stale eval snapshot as current (misled 2 diagnoses in one day)
+  thread: energy
+  status: in_progress
+  approval: unreviewed
+  origin:
+    date: '2026-08-11'
+    gist: 'Found during EV-GARAGE-A-NOCHARGE-1: last_eval_at 4 days old + expired must_start_by rendered without staleness cues; pause_reason_human shows day-scoped reason strings that read as current at any hour.'
+  why: 'The sensor is honest data, dishonest presentation: hold_only (resting state) + stale snapshot reads as "frozen/blocked". Cost: orchestrator misdiagnosed a stall; operator asked "how is that a sensor".'
+  next: 'Small cycle: age-stamp the snapshot in attrs (eval_age_min), render must_start_by only when future, clarify hold_only naming/attr (state=resting vs active-pause), and consider a stale-eval WARN when off_peak+charging ticks pass without eval.'
+
+- id: EV-GARAGE-A-NOCHARGE-1
+  title: BMW on Garage A refuses charge overnight — vehicle-side or pilot fault; URA exonerated
+  thread: energy
+  status: waiting_operator
+  approval: unreviewed
+  origin:
+    date: '2026-08-11'
+    gist: 'operator: "BMW on Garage A has not charged overnight." Investigated; initial DP-stall framing CORRECTED.'
+  why: 'Recorder: URA lifted TOU pause at 21:00 off_peak, switch.garage_a ON 23:53-06:09, 41A limit — EVSE Connected all night, NEVER Charging, 0 kWh. L1 sockets charged fine 01:30-07:04. DP hold_only = resting state (paused_by_battery_drain empty), not a block.'
+  sharp_problem: 'Suspects: (1) BMW in-car charge schedule/target-SOC met; (2) pilot/cable fault — six 10s Connected->Disconnected blips overnight; (3) Garage A network degradation (Emporia unavailable-flap every 2-5min + Shelly overhead + Zigbee door also unavailable = AP-cluster symptom).'
+  next: 'OPERATOR: check BMW app (schedule/target/errors) + reseat cable. URA-side follow-ups split out: DP observability (stale last_eval snapshot presented as current, expired must_start_by shown) + garage-A network fix (homelab).'
+  refs: 'switch.garage_a + evse status recorder history 2026-08-11; energy.py:4403 night-window gate; energy_drain_precedence.py'
+
 - id: FAN-LAYER-2
   title: FanPolicyOracle completion — RoomFanState delegation + actuate-wrap remainder (W1-W3, W8-W10) + INV-FLA-T lock
   thread: fans
-  status: pre_planning
+  status: planned
   approval: unreviewed
   origin:
     date: '2026-08-11'
@@ -1045,6 +1084,7 @@ cards:
     the skill rule). FAN-MANUAL-1 is the trigger-firing cycle, linked. ARREST-COMFORT-1 sibling class.
     THIRD instance of a parked plan''s fired trigger surfacing only on operator question (D6, ledger
     criterion, now DOC-2) — skill gains a cycle-close trigger check. NEW card, revival not duplicate.'
+  organic_evidence: 'shipwatch 2026-08-11: v5.70.0 L2 no-fan-flap CONFIRMED (13.3h post-boot, all managed fans steady; Jaya 12.5h continuous). L3 holds + L4 safety still organic-open.'
 - id: PLAN-TIER-1
   title: 'Tiered PLAN reviews: quality up front — plans reviewed before builds, like builds'
   thread: process
