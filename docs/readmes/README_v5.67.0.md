@@ -68,4 +68,16 @@ referencing the deleted symbol rewritten — the live runbook no longer instruct
 
 ## Live Validation
 
-(prospective — replaced with the Validated table post-restart)
+### Validated 2026-08-11 (v5.67.0 boot, evening)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Loads, zero URA errors | **PASS** | ERROR search for `universal_room` empty post-restart; 190 URA sensors; house `home_evening`; watchdog sensor present (frozen_trackers attr gone) |
+| L2 | CRIT-A1 guard — no-PIR rooms never force-vacated | **PASS (live signal) + ORGANIC** | Jaya's Bedroom `on / src=timeout / failsafe_fired=False` post-restart. Organic proof = zero `max_active_failsafe` NMs for the six no-PIR rooms across coming nights; guard is 4×-parameterized + orchestrator-drilled in-suite |
+| L3 | P24 armed where it should be | **ORGANIC (open)** | First genuine firing (PIR room, stale PIR, no live override, 4h+) will carry room + duration in the NM title — previously impossible |
+| L4 | Dropdowns round-trip | **PASS (in-suite; live spot-check pending next options visit)** | 4 merge tests incl. trust_class survival (MED-B2); Master bed declaration intact in storage |
+| L5 | Constant split behavior-neutral | **PASS** | BLE chain-hold behavior unchanged post-restart (master off/none is correct — nobody in room); split constants live; HOUSE_MANUAL corrected |
+
+Note: this deploy's pre-commit board regen fired the **first organic rung-3 STALE banner** (README newer
+than last_reconciled) — cleared by the `--cards` gate's own reconcile, exactly per the currency-ladder
+design. PR #496: 31 files, +1764/−922 (non-empty verified). Third live run of the deploy gate.
