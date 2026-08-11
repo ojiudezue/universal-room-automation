@@ -917,6 +917,40 @@ cards:
   DEDUPE_2026_08_10: 'Sweep: ARREST-COMFORT-1 is the SIBLING (thermostat side of the same class) —
     linked not merged; fan-recheck cards/plans are about mmWave truth not manual intent; humidity-fan
     backlog (PowerView memo) is spike detection; B-2026-08-03-8 flash opt-out unrelated. NEW.'
+- id: FAN-LAYER-1
+  title: 'DOC-2 fan-actuation shared layer: REVIVED — FAN-MANUAL-1 fired 3 of its 4 park triggers'
+  thread: hvac
+  status: pre_planning
+  approval: unreviewed
+  tags:
+  - tier-3
+  - institutional-context
+  - context-wide-scoping
+  origin:
+    date: '2026-08-11'
+    gist: 'operator, on the fan cycle''s 1-CRIT/6-HIGH review round: "Do we have a fan abstraction in
+      our roadmap or kanban? This is why. I know we have a fusion camera abstraction and I think a
+      presence sensor abstraction with intent and evidence delineated."'
+  why: 'PLANNING_fan_actuation_shared_layer.md (DOC-2, 2026-08-01) parked the extraction behind a
+    foundation gate + 4 evidence triggers. FAN-MANUAL-1 fired: (1) new-mechanic double-port — the
+    manual-ON hold was ported room-tier + HVAC-tier and diverged same-cycle (A-MED-1 per-room knob
+    ignored at HVAC tier); (2) real-world inconsistency — the Living Room complaint; (3) third-writer
+    bypass IN THE WILD at actuator_reconciler.py:778, the exact line DOC-2 named; (4) piggyback — we
+    were already open in hvac_fans.py/automation.py. Cameras have CameraResolver; presence has
+    capability/role + intent/evidence; fans are the last multi-writer surface with no arbitration
+    abstraction — 5 writers, and the FAN-MANUAL-1 review round (1 CRIT + 6 HIGH, all N-way-port
+    misses) is the drift cost DOC-2 was priced against.'
+  seed_already_built: 'mark_fan_on_issued() (FAN-MANUAL-1 fix-up) is the first shared primitive — an
+    authored-by channel across all URA ON sites. The extraction grows from it.'
+  gate_check_pending: 'DOC-2 foundation gate also requires H8 organic validation of the v5.31.0
+    manual-off cooldown (a real manual OFF observed not re-arming on the live house). Verify from
+    ledger before build — if unproven, that is the one remaining gate.'
+  next: after FAN-MANUAL-1 ships and its organic proof opens, planner pass to refresh DOC-2 against
+    the now-current writer inventory (incl. zone-vacancy sweep + pre-arrival sites B found); Tier 3
+  DEDUPE_2026_08_11: 'Sweep: DOC-2 planning doc is the PARENT (parked, triggers now fired -> READY per
+    the skill rule). FAN-MANUAL-1 is the trigger-firing cycle, linked. ARREST-COMFORT-1 sibling class.
+    THIRD instance of a parked plan''s fired trigger surfacing only on operator question (D6, ledger
+    criterion, now DOC-2) — skill gains a cycle-close trigger check. NEW card, revival not duplicate.'
 - id: TABLET-FLEET-1
   title: 'Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)'
   thread: tablets

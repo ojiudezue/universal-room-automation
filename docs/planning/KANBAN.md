@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-10T20:34:05-05:00_ - _Data commit: `c4aceaebe219`_ - _last_reconciled: 2026-08-10_
+_Generated: 2026-08-10T20:45:11-05:00_ - _Data commit: `8747d5885c9f`_ - _last_reconciled: 2026-08-10_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,7 +12,7 @@ _Generated: 2026-08-10T20:34:05-05:00_ - _Data commit: `c4aceaebe219`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 1 |
-| 🧭 Pre-planning | 14 |
+| 🧭 Pre-planning | 15 |
 | 📝 Planned | 3 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 0 |
@@ -41,7 +41,7 @@ thread: **dashboarding** - status: **inbox** - approval: **explicit**
   - `followup_candidate`: retrofit conditional rendering to the Battery Strategy Detail card (same section group, same defect, ~30 min) — only if the operator endorses this card's style
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
 
-## 🧭 Pre-planning (14)
+## 🧭 Pre-planning (15)
 _idea being decomposed_
 
 ### `HVAC-PRESET-FLAP-1` - HVAC zone preset flaps home<->away every 5-15 min during occupied evenings (survives Writer-B removal)
@@ -73,6 +73,17 @@ thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
   - `operator_action_taken_2026_08_09`: temp_arrester_override switched ON and all three zones set to home at operator instruction. Verified: ceilings dropped 80 -> 76/77, all three cooling, runtime_exceeded cleared. Note the override has a 6h max life and sunsets on some hous...
   - `OPERATOR_DESIGN_2026_08_10`: DELAY chosen over exempt. Plus three design inputs verbatim-captured: (1) IDENTIFICATION QUESTION (operator): "how will this situation be identified specifically to widen the delay/grace?" — the predicate for "occupant comfort request" n...
   - `DEDUPE_2026_08_09`: Sweep: ARREST-SUNSET-1 (shipped) is about WHEN the override sunsets; OVERRIDE-NOTIFY-1 is about warning before expiry. Neither touches whether the arrester should fire against an occupant comfort request in the first place. HVAC-PRESET-F...
+
+### `FAN-LAYER-1` - DOC-2 fan-actuation shared layer: REVIVED — FAN-MANUAL-1 fired 3 of its 4 park triggers
+thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
+- **Origin:** 2026-08-11 - operator, on the fan cycle's 1-CRIT/6-HIGH review round: "Do we have a fan abstraction in our roadmap or kanban? This is why. I know we have a fusion camera abstraction and I think a presence sensor abstraction with intent a...
+- **Why:** PLANNING_fan_actuation_shared_layer.md (DOC-2, 2026-08-01) parked the extraction behind a foundation gate + 4 evidence triggers. FAN-MANUAL-1 fired: (1) new-mechanic double-port — the manual-ON hold was ported room-tier + HVAC-tier and d...
+- **Next:** after FAN-MANUAL-1 ships and its organic proof opens, planner pass to refresh DOC-2 against the now-current writer inventory (incl. zone-vacancy sweep + pre-arrival sites B found); Tier 3
+- **Tags:** tier-3, institutional-context, context-wide-scoping
+- **Forensic keys (3):**
+  - `seed_already_built`: mark_fan_on_issued() (FAN-MANUAL-1 fix-up) is the first shared primitive — an authored-by channel across all URA ON sites. The extraction grows from it.
+  - `gate_check_pending`: DOC-2 foundation gate also requires H8 organic validation of the v5.31.0 manual-off cooldown (a real manual OFF observed not re-arming on the live house). Verify from ledger before build — if unproven, that is the one remaining gate.
+  - `DEDUPE_2026_08_11`: Sweep: DOC-2 planning doc is the PARENT (parked, triggers now fired -> READY per the skill rule). FAN-MANUAL-1 is the trigger-firing cycle, linked. ARREST-COMFORT-1 sibling class. THIRD instance of a parked plan's fired trigger surfacing...
 
 ### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)
 thread: **tablets** - status: **pre_planning** - approval: **unreviewed**
