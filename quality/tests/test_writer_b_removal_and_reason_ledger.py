@@ -315,11 +315,17 @@ class TestPresetChangeReasonLedger:
             "reason ledger: `preset_change_reason` local must be derived"
         )
         idx_reason = apply_presets_src.find("preset_change_reason =")
+        # ARREST-COMFORT-1 Cycle A (2026-08-10): the inline
+        # `hass.services.async_call("climate", "set_preset_mode", ...)`
+        # site was migrated to the `emit_set_preset_mode` chokepoint.
+        # Accept either the legacy string OR the chokepoint call.
         idx_call = apply_presets_src.find("'set_preset_mode'")
         if idx_call < 0:
             idx_call = apply_presets_src.find('"set_preset_mode"')
+        if idx_call < 0:
+            idx_call = apply_presets_src.find("emit_set_preset_mode(")
         assert idx_reason >= 0 and idx_call >= 0, (
-            "expected both reason assignment and set_preset_mode call"
+            "expected both reason assignment and set_preset_mode/emit call"
         )
         assert idx_reason < idx_call, (
             "reason must be derived BEFORE the preset_change service call so "

@@ -37,7 +37,11 @@ from .hvac_const import (
     ARRESTER_IMMUNITY_VOICE_CONTEXTS,
     ARRESTER_OVERRIDE_EXPIRY_WARN_S,
     ARRESTER_OVERRIDE_MIN_LIFE_S,
+    COMFORT_DELTA_MIN_F,
+    COMFORT_GRACE_MIN,
     COMFORT_OVERRIDE_MAX_S,
+    COMFORT_SOC_FLOOR_PCT,
+    COMFORT_TEMP_MAX_AGE_S,
     DURABLE_HOUSE_STATES,  # legacy, kept for import graph; do NOT read here
     house_state_invalidates_arrester_hold,
     SIGNAL_HVAC_TEMP_ARRESTER_OVERRIDE_UPDATE,
@@ -77,7 +81,7 @@ from .hvac_const import (
     OVERRIDE_SEVERE_GRACE_MINUTES,
 )
 from .energy_billing import _get_effective_rate_kwh
-from .hvac_setpoint import emit_set_temperature
+from .hvac_setpoint import emit_set_preset_mode, emit_set_temperature
 from .hvac_zones import ZoneManager, ZoneState
 
 _LOGGER = logging.getLogger(__name__)
@@ -145,6 +149,16 @@ class OverrideArrester:
         # Energy constraint awareness
         self._energy_offset: float = 0.0
         self._energy_coast: bool = False
+        # ARREST-COMFORT-1 Cycle A: SOC snapshot + shed pushed via
+        # update_energy_state(); D1 (grant) + D3 (coast guard) share
+        # HVACCoordinator accessors (planning §8).
+        self._battery_soc: float | None = None
+        self._battery_blind: bool = False
+        self._shed_active: bool = False
+        # Per-zone comfort-delay grants (RAM-only §3.5). Grant key =
+        # zone_id (audit §metric 4: zero multi-thermostat zones).
+        self._comfort_delay_timers: dict[str, CALLBACK_TYPE] = {}
+        self._comfort_delay_meta: dict[str, dict[str, Any]] = {}
 
         # Suppression: entity_id -> wall-clock expiry for ignoring overrides
         # during URA-initiated changes. v4.7.33 A-F5: replaced the prior
@@ -745,6 +759,10 @@ class OverrideArrester:
             return
         self._temp_arrester_override_active = value
         if value:
+            # ARREST-COMFORT-1 §3.6: switch flipped ON mid-grace evicts
+            # every active comfort-delay grant with expiry_reason=
+            # switch_flipped_on. Subsequent OFF does NOT revive.
+            self._evict_comfort_delays_for_switch_on()
             # F6 (2026-08-07 fix-up cycle-4): defensive clear on engage.
             # If a stale pending-sunset flag or timer survives (e.g. a
             # partial teardown left one dangling), we DO NOT want a
@@ -1434,10 +1452,380 @@ class OverrideArrester:
         self._temp_arrester_override_pending_sunset = None
         self._temp_arrester_override_active = False
 
-    def update_energy_state(self, offset: float, coast: bool) -> None:
-        """Update energy constraint state for tolerance adjustment."""
+    def update_energy_state(
+        self,
+        offset: float,
+        coast: bool,
+        *,
+        battery_soc: float | None = None,
+        battery_blind: bool = False,
+        shed_active: bool = False,
+    ) -> None:
+        """Update energy constraint state for tolerance adjustment.
+
+        ARREST-COMFORT-1 Cycle A (2026-08-10): also feeds the comfort-delay
+        grant-time SOC contract (§3.3). SOC + blind + shed_active are the
+        SAME values that HVACCoordinator exposes for the D3 coast-precedence
+        guard at hvac.py:1445 — a single accessor discipline (planning §8).
+        """
         self._energy_offset = offset
         self._energy_coast = coast
+        self._battery_soc = battery_soc
+        self._battery_blind = bool(battery_blind)
+        self._shed_active = bool(shed_active)
+
+    # ------------------------------------------------------------------
+    # ARREST-COMFORT-1 Cycle A — comfort-delay grace (2026-08-10)
+    # ------------------------------------------------------------------
+    def comfort_delay_active(self, zone_id: str) -> bool:
+        """Pure boolean — is a comfort-delay grant currently in force for
+        the given zone?
+
+        Definition (§3.3): grant timer is alive AND the zone is still
+        occupied AND the Temp Arrester Override switch is not engaged.
+        SOC is NOT re-read here — it was evaluated exactly ONCE at grant
+        (H2 contract). This method is the single consultation site used
+        by BOTH the D3 coast-precedence guard (hvac.py:1445) AND every
+        S1-S9 write-site gate (§3.7). One mutation to this method must
+        redden BOTH the D1 grant test AND the D3 defer test — that is
+        the C-mutation invariant enforced by the test suite.
+        """
+        if zone_id not in self._comfort_delay_timers:
+            return False
+        if self._temp_arrester_override_active:
+            return False
+        # Occupancy re-check — a zone that emptied mid-grace terminates
+        # the grace (exit ii in §3.6).
+        zone = self._zone_manager.zones.get(zone_id) if self._zone_manager else None
+        try:
+            occupied = bool(zone.zone_persons) if zone is not None else False
+        except Exception:  # noqa: BLE001 — defensive
+            occupied = False
+        return occupied
+
+    def _is_genuine_manual(self, event: Any, entity_id: str) -> bool:
+        """Return True iff the state-change event should be treated as a
+        genuine user manual override — i.e. it survives the
+        SUPPRESS_TTL_SECONDS induced-manual filter.
+
+        Extracted from `_handle_climate_change` (rev-2 L1) as the single
+        testable predicate. The extraction is BEHAVIOR-PRESERVING; the
+        original inline block still consumes the same suppress dicts +
+        early-return conditions, now via this helper. Note: this helper
+        also PERFORMS the suppression cleanup (dict.pop) as a side effect
+        when a genuine-manual passthrough occurs mid-window — preserving
+        the pre-extraction sequence exactly.
+        """
+        try:
+            new_state = event.data.get("new_state")
+            old_state = event.data.get("old_state")
+        except Exception:  # noqa: BLE001
+            return False
+        if new_state is None or old_state is None:
+            return False
+
+        until = self._suppressed_until.get(entity_id)
+        if until is None:
+            return True
+        try:
+            now = dt_util.now()
+        except Exception:  # noqa: BLE001
+            return True
+        if now >= until:
+            # TTL window expired — clean up + treat as genuine.
+            self._suppressed_until.pop(entity_id, None)
+            self._suppress_kind.pop(entity_id, None)
+            return True
+
+        # In-window: only a fresh preset transition INTO "manual" is a
+        # genuine mid-window candidate (URA never writes manual).
+        new_preset_mid = new_state.attributes.get("preset_mode", "") if hasattr(new_state, "attributes") else ""
+        old_preset_mid = old_state.attributes.get("preset_mode", "") if hasattr(old_state, "attributes") else ""
+        if not (new_preset_mid == "manual" and old_preset_mid != "manual"):
+            return False
+        # FIX B1 preserved: "temp" suppression classifies the induced
+        # manual as a side effect of a URA temp write — NOT genuine.
+        if self._suppress_kind.get(entity_id) == "temp":
+            return False
+        # Genuine mid-window override — clear suppression and let the
+        # caller fall through to normal detection.
+        self._suppressed_until.pop(entity_id, None)
+        self._suppress_kind.pop(entity_id, None)
+        return True
+
+    def _comfort_request_qualifies(
+        self, entity_id: str, event: Any, zone: ZoneState,
+    ) -> tuple[bool, dict[str, Any] | None]:
+        """Evaluate the D1 predicate (§3.2). Fail-closed on every None.
+
+        Returns (True, meta) if the change is a comfort-qualified manual
+        (per-hvac_mode leg analysis + freshness + delta threshold +
+        occupancy). ``meta`` carries fields for ledger + eviction.
+        Returns (False, None) otherwise. Reads current_temperature from
+        the specific entity's new_state.
+        """
+        try:
+            new_state = event.data.get("new_state")
+            old_state = event.data.get("old_state")
+        except Exception:  # noqa: BLE001
+            return False, None
+        if new_state is None or old_state is None:
+            return False, None
+
+        # (c) occupied at the instant of the change.
+        try:
+            occupied = bool(zone.zone_persons)
+        except Exception:  # noqa: BLE001
+            return False, None
+        if not occupied:
+            return False, None
+
+        # hvac_mode = the new state's `state` (climate entity's mode).
+        hvac_mode = getattr(new_state, "state", "") or ""
+        if hvac_mode not in ("cool", "heat", "heat_cool"):
+            return False, None  # off / unavailable / unknown → fail closed
+
+        na = getattr(new_state, "attributes", {}) or {}
+        oa = getattr(old_state, "attributes", {}) or {}
+
+        # Freshness of current_temperature.
+        current_temp = na.get("current_temperature")
+        if current_temp is None:
+            return False, None
+        try:
+            current_temp = float(current_temp)
+        except (TypeError, ValueError):
+            return False, None
+        # Age bound — if COMFORT_TEMP_MAX_AGE_S == 0, kill switch: fail closed always.
+        try:
+            last_updated = getattr(new_state, "last_updated", None)
+            if last_updated is not None and COMFORT_TEMP_MAX_AGE_S > 0:
+                # Both wall-clocks — use dt_util.utcnow if timezone-aware,
+                # fall back to plain now otherwise. State timestamps are
+                # utc-aware in HA.
+                now_utc = dt_util.utcnow() if hasattr(dt_util, "utcnow") else dt_util.now()
+                age_s = (now_utc - last_updated).total_seconds()
+                if age_s > COMFORT_TEMP_MAX_AGE_S:
+                    return False, None
+            elif COMFORT_TEMP_MAX_AGE_S == 0:
+                return False, None
+        except Exception:  # noqa: BLE001
+            return False, None
+
+        qualifies = False
+        delta_f = 0.0
+        direction = ""
+        granted_setpoint: float | tuple[float, float] | None = None
+        if hvac_mode == "cool":
+            new_sp = na.get("temperature")
+            old_sp = oa.get("temperature")
+            if new_sp is None or old_sp is None:
+                return False, None
+            try:
+                new_sp = float(new_sp); old_sp = float(old_sp)
+            except (TypeError, ValueError):
+                return False, None
+            qualifies = (new_sp < old_sp) and (current_temp > new_sp)
+            delta_f = abs(new_sp - old_sp)
+            direction = "cooler"
+            granted_setpoint = new_sp
+        elif hvac_mode == "heat":
+            new_sp = na.get("temperature")
+            old_sp = oa.get("temperature")
+            if new_sp is None or old_sp is None:
+                return False, None
+            try:
+                new_sp = float(new_sp); old_sp = float(old_sp)
+            except (TypeError, ValueError):
+                return False, None
+            qualifies = (new_sp > old_sp) and (current_temp < new_sp)
+            delta_f = abs(new_sp - old_sp)
+            direction = "warmer"
+            granted_setpoint = new_sp
+        else:  # heat_cool
+            new_high = na.get("target_temp_high")
+            new_low = na.get("target_temp_low")
+            old_high = oa.get("target_temp_high")
+            old_low = oa.get("target_temp_low")
+            if None in (new_high, new_low, old_high, old_low):
+                return False, None
+            try:
+                new_high = float(new_high); new_low = float(new_low)
+                old_high = float(old_high); old_low = float(old_low)
+            except (TypeError, ValueError):
+                return False, None
+            # Relevant leg per current_temp position vs new range.
+            if current_temp > new_high:
+                # cool leg is relevant
+                qualifies = (new_high < old_high) and (new_high < current_temp)
+                delta_f = abs(new_high - old_high)
+                direction = "cooler"
+                granted_setpoint = (new_low, new_high)
+            elif current_temp < new_low:
+                # heat leg is relevant
+                qualifies = (new_low > old_low) and (new_low > current_temp)
+                delta_f = abs(new_low - old_low)
+                direction = "warmer"
+                granted_setpoint = (new_low, new_high)
+            else:
+                # inside the new deadband — no comfort-relevant leg
+                return False, None
+
+        if not qualifies:
+            return False, None
+        if delta_f < COMFORT_DELTA_MIN_F:
+            return False, None
+
+        return True, {
+            "zone_id": zone.zone_id,
+            "climate_entity_id": entity_id,
+            "hvac_mode": hvac_mode,
+            "current_temp": current_temp,
+            "delta_f": delta_f,
+            "direction": direction,
+            "granted_setpoint": granted_setpoint,
+        }
+
+    def _seed_comfort_delay(
+        self, zone: ZoneState, meta: dict[str, Any],
+    ) -> None:
+        """Attach a grace timer + record ledger `comfort_delay_started`.
+
+        Grant key is zone_id alone (audit §metric 4 simplification).
+        Kill-switch: if COMFORT_GRACE_MIN <= 0 the caller has already
+        filtered — no timer scheduled.
+        """
+        zone_id = zone.zone_id
+        # Cancel any existing timer for this zone (fresh manual overrides
+        # a stale grace — the operator just spoke).
+        existing = self._comfort_delay_timers.pop(zone_id, None)
+        if existing is not None:
+            try:
+                existing()
+            except Exception:  # noqa: BLE001
+                pass
+        grace_s = int(COMFORT_GRACE_MIN) * 60
+        soc_at_grant = self._battery_soc
+        meta = dict(meta)
+        meta["soc_at_grant"] = soc_at_grant
+        meta["grace_s"] = grace_s
+        try:
+            meta["started_ts"] = dt_util.now()
+        except Exception:  # noqa: BLE001
+            meta["started_ts"] = None
+        self._comfort_delay_meta[zone_id] = meta
+
+        @callback
+        def _on_grace_expiry(_now):
+            self._expire_comfort_delay(zone_id, reason="timer")
+
+        self._comfort_delay_timers[zone_id] = async_call_later(
+            self.hass, grace_s, _on_grace_expiry,
+        )
+
+        _LOGGER.info(
+            "ARREST-COMFORT-1: comfort_delay_started zone=%s entity=%s "
+            "delta=%.1fF direction=%s current=%.1f grace=%ds soc=%s",
+            zone_id, meta.get("climate_entity_id"), meta.get("delta_f", 0.0),
+            meta.get("direction"), meta.get("current_temp", 0.0), grace_s,
+            soc_at_grant,
+        )
+        self._log_comfort_ledger("comfort_delay_started", zone.climate_entity, {
+            "zone_id": zone_id,
+            "climate_entity_id": meta.get("climate_entity_id"),
+            "delta_f": meta.get("delta_f"),
+            "direction": meta.get("direction"),
+            "current_temp": meta.get("current_temp"),
+            "soc_at_grant": soc_at_grant,
+            "requested_setpoint": meta.get("granted_setpoint"),
+            "granted_setpoint": meta.get("granted_setpoint"),
+            "grace_s": grace_s,
+            "hvac_mode": meta.get("hvac_mode"),
+        })
+        # Count in the daily override tally so the sensor visibility is
+        # preserved (comfort delay IS a detected override, just handled).
+        try:
+            zone.override_count_today += 1
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _expire_comfort_delay(
+        self, zone_id: str, *, reason: str,
+    ) -> None:
+        """Discharge a comfort-delay grant. reason ∈ {timer, zone_unoccupied,
+        switch_flipped_on}. Enum documented as OPEN (extensible for Cycle B).
+        """
+        meta = self._comfort_delay_meta.pop(zone_id, None)
+        cancel = self._comfort_delay_timers.pop(zone_id, None)
+        if cancel is not None and reason != "timer":
+            try:
+                cancel()
+            except Exception:  # noqa: BLE001
+                pass
+        if meta is None:
+            return
+        try:
+            started_ts = meta.get("started_ts")
+            elapsed_s = (
+                (dt_util.now() - started_ts).total_seconds()
+                if started_ts is not None else None
+            )
+        except Exception:  # noqa: BLE001
+            elapsed_s = None
+        _LOGGER.info(
+            "ARREST-COMFORT-1: comfort_delay_expired zone=%s reason=%s elapsed_s=%s",
+            zone_id, reason, elapsed_s,
+        )
+        climate_entity = meta.get("climate_entity_id", "")
+        self._log_comfort_ledger("comfort_delay_expired", climate_entity, {
+            "zone_id": zone_id,
+            "climate_entity_id": climate_entity,
+            "elapsed_s": elapsed_s,
+            "expiry_reason": reason,
+        })
+
+    def _evict_comfort_delays_for_switch_on(self) -> None:
+        """Called when the temp_arrester_override switch flips ON — every
+        active comfort-delay is evicted with expiry_reason=switch_flipped_on.
+        Subsequent switch-OFF does NOT revive.
+        """
+        for zone_id in list(self._comfort_delay_timers.keys()):
+            self._expire_comfort_delay(zone_id, reason="switch_flipped_on")
+
+    def _log_comfort_ledger(
+        self, action: str, entity_id: str, details: dict[str, Any],
+    ) -> None:
+        """Fire-and-forget activity-logger ledger row. Guarded so a logger
+        stall never blocks the grant / expiry paths.
+        """
+        try:
+            from ..const import DOMAIN  # local: avoid cycle
+            activity_logger = (
+                self.hass.data.get(DOMAIN, {}).get("activity_logger")
+                if hasattr(self.hass, "data") else None
+            )
+        except Exception:  # noqa: BLE001
+            activity_logger = None
+        if activity_logger is None:
+            return
+        try:
+            zone_id = details.get("zone_id", "")
+            self.hass.async_create_task(
+                activity_logger.log(
+                    coordinator="hvac",
+                    action=action,
+                    description=(
+                        f"{action} zone={zone_id} "
+                        f"reason={details.get('expiry_reason', '')}"
+                    ).strip(),
+                    zone=zone_id,
+                    importance="notable",
+                    entity_id=entity_id or "",
+                    details=details,
+                )
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("comfort ledger emit failed", exc_info=True)
 
     def suppress(self, entity_id: str, kind: str | None = None) -> None:
         """Suppress override detection for an entity (URA-initiated change).
@@ -1559,56 +1947,13 @@ class OverrideArrester:
         if new_state is None or old_state is None:
             return
 
-        # Skip if suppressed (URA-initiated temperature change).
-        # v4.7.33 A-F5: TTL window — covers multi-event settles from a
-        # single URA service call (e.g. set_hvac_mode + set_preset_mode in
-        # _revert_override). Do NOT pop a still-valid entry; expired
-        # entries are cleaned up here to bound dict growth.
-        until = self._suppressed_until.get(entity_id)
-        if until is not None:
-            if dt_util.now() < until:
-                # A-F5 review HIGH FIX 1 — mid-window manual passthrough.
-                # A transition INTO "manual" can only be user-driven: URA
-                # never writes preset_mode=manual. Let it through even
-                # mid-window so a genuine user override landing inside the
-                # 5s settle window is still caught (regression of the
-                # arrester's core job otherwise). All other in-window
-                # events are our own settle events — stay suppressed.
-                # _revert_override emits (1) set_hvac_mode (preset
-                # unchanged, never a fresh non-manual->manual transition)
-                # and (2) set_preset_mode to a NON-manual original_preset,
-                # so neither matches and both remain suppressed.
-                new_preset_mid = new_state.attributes.get("preset_mode", "")
-                old_preset_mid = old_state.attributes.get("preset_mode", "")
-                if not (
-                    new_preset_mid == "manual"
-                    and old_preset_mid != "manual"
-                ):
-                    return
-                # FIX B1: distinguish induced-manual from genuine.
-                # If the active suppression kind is "temp" (URA's own
-                # set_temperature nudge), the preset_mode sleep->manual
-                # transition we just saw is a SIDE EFFECT of that write
-                # on preset-based Carrier/Bryant thermostats — NOT a user
-                # action. Stay suppressed. Any other kind (None/legacy or
-                # "preset" for our own preset write) keeps the arrester's
-                # original behavior of catching a genuine user flip mid-
-                # window.
-                if self._suppress_kind.get(entity_id) == "temp":
-                    _LOGGER.debug(
-                        "Arrester: induced manual on %s during temp "
-                        "suppression — staying suppressed (FIX B1)",
-                        entity_id,
-                    )
-                    return
-                # Genuine user override mid-window: drop suppression and
-                # fall through to normal override detection below.
-                self._suppressed_until.pop(entity_id, None)
-                self._suppress_kind.pop(entity_id, None)
-            else:
-                # Expired — clean up so the dict doesn't accumulate stale keys
-                self._suppressed_until.pop(entity_id, None)
-                self._suppress_kind.pop(entity_id, None)
+        # ARREST-COMFORT-1 Cycle A rev-2 L1: suppression-TTL filter is now
+        # the single predicate _is_genuine_manual. Behavior-preserving
+        # extraction — the helper still performs the same dict.pop side
+        # effects (expired-window cleanup, mid-window genuine-manual
+        # passthrough) as the pre-extraction inline block. See §3.2 step 1.
+        if not self._is_genuine_manual(event, entity_id):
+            return
 
         # Find which zone this entity belongs to
         zone = self._find_zone_by_entity(entity_id)
@@ -1709,6 +2054,44 @@ class OverrideArrester:
                 "detection_temp_arrester_override",
             )
             return
+
+        # ================================================================
+        # ARREST-COMFORT-1 Cycle A rev-2 §3.2 step 5 (2026-08-10).
+        # NEW comfort_request evaluation. If the change is a genuine,
+        # non-immune, occupied, toward-comfort manual with |delta| ≥
+        # COMFORT_DELTA_MIN_F AND grant-time SOC ≥ COMFORT_SOC_FLOOR_PCT
+        # AND not shed_active AND kill-switch not tripped: seed a comfort-
+        # delay grant + emit `comfort_delay_started` ledger row + RETURN
+        # (no severity dispatch). Otherwise fall through to the standard
+        # severe/normal branches with ZERO behavior change (fail-closed
+        # direction — planning §3.3). SOC evaluated EXACTLY ONCE here
+        # (H2 contract); subsequent `comfort_delay_active` reads never
+        # re-read SOC.
+        # ================================================================
+        if COMFORT_GRACE_MIN > 0:
+            qualifies, meta = self._comfort_request_qualifies(
+                entity_id, event, zone,
+            )
+            if qualifies:
+                # SOC gate: inclusive `>=` per rev-2 L2. Blind = below floor.
+                soc = self._battery_soc
+                soc_ok = (
+                    (not self._battery_blind)
+                    and soc is not None
+                    and float(soc) >= float(COMFORT_SOC_FLOOR_PCT)
+                )
+                shed_gate = not self._shed_active
+                if soc_ok and shed_gate:
+                    # Seed grant, count override, RETURN (no dispatch).
+                    self._seed_comfort_delay(zone, meta)
+                    return
+                # SOC below floor / blind / shed active → fall through to
+                # standard arrest with byte-identical pre-cycle behavior.
+                _LOGGER.debug(
+                    "ARREST-COMFORT-1: comfort request qualified but "
+                    "collapsed to standard timing (soc=%s blind=%s shed=%s)",
+                    soc, self._battery_blind, self._shed_active,
+                )
 
         # Use the actual old setpoints from the event (what was active before override)
         # This is more accurate than seasonal defaults since presets may differ per thermostat
@@ -1933,6 +2316,7 @@ class OverrideArrester:
         # that induced manual must not self-count as another user override.
         self.suppress(zone.climate_entity, kind="temp")
         try:
+            # ARREST-COMFORT-1 §3.7 S3: DEFER while comfort_delay_active.
             await emit_set_temperature(
                 self.hass,
                 zone.climate_entity,
@@ -1940,6 +2324,10 @@ class OverrideArrester:
                 target_temp_high=compromise_cool,
                 freeze_active=self._freeze_active(),
                 blocking=False,
+                gate=lambda z=zone_id: self.comfort_delay_active(z),
+                site="S3_compromise",
+                zone_id=zone_id,
+                reason="normal_override_compromise",
             )
         except Exception as e:
             _LOGGER.error("Override: failed to set compromise on %s: %s",
@@ -2029,14 +2417,19 @@ class OverrideArrester:
                     zone.zone_name, zone.hvac_mode,
                 )
 
-            await self.hass.services.async_call(
-                "climate",
-                "set_preset_mode",
-                {
-                    "entity_id": zone.climate_entity,
-                    "preset_mode": original_preset,
-                },
+            # ARREST-COMFORT-1 §3.7 S4: DEFER while comfort_delay_active.
+            # Migrated from the legacy inline hass.services.async_call to
+            # the new `emit_set_preset_mode` chokepoint (rev-2 D6 + §8
+            # tertiary-risk mitigation: no raw preset-write bypass).
+            await emit_set_preset_mode(
+                self.hass,
+                zone.climate_entity,
+                original_preset,
                 blocking=False,
+                gate=lambda z=zone_id: self.comfort_delay_active(z),
+                site="S4_revert",
+                zone_id=zone_id,
+                reason="severe_override_revert",
             )
         except Exception as e:
             _LOGGER.error(
@@ -2581,6 +2974,7 @@ class OverrideArrester:
         self.suppress(zone.climate_entity, kind="temp")
 
         try:
+            # ARREST-COMFORT-1 §3.7 S5: DEFER while comfort_delay_active.
             await emit_set_temperature(
                 self.hass,
                 zone.climate_entity,
@@ -2588,6 +2982,10 @@ class OverrideArrester:
                 target_temp_high=new_target,
                 freeze_active=self._freeze_active(),
                 blocking=False,
+                gate=lambda z=zone_id: self.comfort_delay_active(z),
+                site="S5_nudge_start",
+                zone_id=zone_id,
+                reason="soft_nudge_start",
             )
         except Exception as e:
             _LOGGER.error(
@@ -2672,6 +3070,7 @@ class OverrideArrester:
         self.suppress(zone.climate_entity, kind="temp")
 
         try:
+            # ARREST-COMFORT-1 §3.7 S6: ALLOW (restoration path).
             await emit_set_temperature(
                 self.hass,
                 zone.climate_entity,
@@ -2706,13 +3105,11 @@ class OverrideArrester:
             if _cur_preset == "manual":
                 self.suppress(zone.climate_entity, kind="preset")
                 try:
-                    await self.hass.services.async_call(
-                        "climate",
-                        "set_preset_mode",
-                        {
-                            "entity_id": zone.climate_entity,
-                            "preset_mode": pre_preset,
-                        },
+                    # ARREST-COMFORT-1 §3.7 S7: ALLOW (restoration).
+                    await emit_set_preset_mode(
+                        self.hass,
+                        zone.climate_entity,
+                        pre_preset,
                         blocking=False,
                     )
                     _LOGGER.info(
@@ -3225,6 +3622,17 @@ class OverrideArrester:
             # FIX B1: kind="temp" — cancel_nudge restore is a set_temperature.
             self.suppress(zone.climate_entity, kind="temp")
             try:
+                # ARREST-COMFORT-1 §3.7 S8 (cancel_nudge restore): the
+                # plan's rev-2 table labels this "AI-rules R2 residual"
+                # and prescribes DEFER, but re-enumeration at build time
+                # (2026-08-10) finds NO AI-rules R2 site in this file at
+                # this or any line. The actual site here is the
+                # cancel_nudge RESTORATION path — structurally identical
+                # to S6 (nudge restore). Restoration moves BACK toward the
+                # operator's original target; comfort-grace exists to
+                # prevent yanking the operator, not to strand them at a
+                # nudged +°F. Classified ALLOW to match S6's rationale;
+                # discrepancy surfaced in the build report for review.
                 await emit_set_temperature(
                     self.hass,
                     zone.climate_entity,
@@ -3232,6 +3640,9 @@ class OverrideArrester:
                     target_temp_high=float(original_target),
                     freeze_active=self._freeze_active(),
                     blocking=False,
+                    site="S8_cancel_nudge_restore",
+                    zone_id=zone_id,
+                    reason="cancel_nudge_restore",
                 )
             except Exception as e:
                 _LOGGER.error(
@@ -3495,6 +3906,12 @@ class OverrideArrester:
                 # FIX B1: kind="temp" — startup nudge restore is a set_temperature.
                 self.suppress(zone.climate_entity, kind="temp")
                 try:
+                    # ARREST-COMFORT-1 §3.7 S9 (startup_ramp_audit restore):
+                    # same reconciliation as S8 — plan's rev-2 table labels
+                    # this "AI-rules downstream write" and prescribes DEFER,
+                    # but the actual site is a boot-time RESTORATION path
+                    # that puts the operator's pre-outage target back on
+                    # the wire. Classified ALLOW to match S6 rationale.
                     await emit_set_temperature(
                         self.hass,
                         zone.climate_entity,
@@ -3502,6 +3919,9 @@ class OverrideArrester:
                         target_temp_high=float(original_target),
                         freeze_active=self._freeze_active(),
                         blocking=False,
+                        site="S9_startup_ramp_audit_restore",
+                        zone_id=zone_id,
+                        reason="startup_ramp_audit_restore",
                     )
                 except Exception as e:
                     _LOGGER.error(

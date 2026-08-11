@@ -875,9 +875,13 @@ class TestPresetPreservingRestore:
         assert '_nudge_pre_preset.pop(zone_id' in body, (
             "restore must consume the snapshot"
         )
-        assert '"set_preset_mode"' in body, (
-            "restore must emit set_preset_mode to reverse the induced flip"
-        )
+        # ARREST-COMFORT-1 Cycle A: preset write migrated from inline
+        # hass.services.async_call to the emit_set_preset_mode chokepoint.
+        # Accept either form.
+        assert (
+            '"set_preset_mode"' in body
+            or 'emit_set_preset_mode(' in body
+        ), "restore must emit set_preset_mode to reverse the induced flip"
         assert '_cur_preset == "manual"' in body, (
             "restore must gate on current preset actually being manual"
         )
