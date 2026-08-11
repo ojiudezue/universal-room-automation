@@ -41,6 +41,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from ..const import DOMAIN
+from .hvac_setpoint import emit_set_preset_mode
 from .hvac_const import (
     EGRESS_NM_EVENT_PAUSED,
     EGRESS_NM_EVENT_RESUMED,
@@ -554,6 +555,18 @@ class EgressManager:
             return
 
         try:
+            # ARREST-COMFORT-1 D2-LOW-3 fix-up (2026-08-10): on some
+            # thermostat firmware (notably Ecobee), a set_hvac_mode
+            # transition can cause the device to re-emit its preset
+            # defaults over a manual setpoint on the next tick — the
+            # DPM apply / arrester paths cover the resulting write via
+            # emit_* chokepoints. The egress pause itself is deliberately
+            # UNGATED by comfort-delay grace (safety > comfort during an
+            # open egress window); pending live evidence that this
+            # firmware quirk actually stomps an operator hold, we do not
+            # add a gate here. Revisit if operator observes a manual
+            # setpoint being overridden immediately after an egress
+            # pause on a comfort-qualified zone.
             await self._hass.services.async_call(
                 "climate",
                 "set_hvac_mode",
@@ -641,11 +654,22 @@ class EgressManager:
 
         if saved_preset:
             try:
-                await self._hass.services.async_call(
-                    "climate",
-                    "set_preset_mode",
-                    {"entity_id": thermostat, "preset_mode": saved_preset},
+                # ARREST-COMFORT-1 B-MED-1 fix-up: migrate to the
+                # emit_set_preset_mode chokepoint. Classification: ALLOW
+                # (restoration path — this returns the thermostat to the
+                # preset the operator had before URA paused it; it is not
+                # a revert against a comfort-qualified manual). Passing
+                # gate=None means never DEFER; still routes through the
+                # chokepoint for uniform emit accounting.
+                await emit_set_preset_mode(
+                    self._hass,
+                    thermostat,
+                    saved_preset,
                     blocking=True,
+                    gate=None,
+                    site="egress_resume",  # ALLOW (restoration)
+                    zone_id=zone_id,
+                    reason="egress_resume",
                 )
             except Exception:
                 _LOGGER.debug(

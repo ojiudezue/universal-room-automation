@@ -27,6 +27,8 @@ from homeassistant.util import dt as dt_util
 from ..const import DOMAIN
 from .base import BaseCoordinator, CoordinatorAction, Intent
 from .hvac_const import (
+    COMFORT_SOC_FLOOR_PCT,
+    COMFORT_GRACE_MIN,
     CONF_HVAC_ARRESTER_ENABLED,
     DEFAULT_ARRESTER_ENABLED,
     DEFAULT_MAX_OCCUPANCY_HOURS,
@@ -55,7 +57,11 @@ from .hvac_fans import FanController
 from .hvac_override import OverrideArrester
 from .hvac_predict import HVACPredictor
 from .hvac_preset import PresetManager
-from .hvac_setpoint import apply_setpoint_guards, emit_set_temperature
+from .hvac_setpoint import (
+    apply_setpoint_guards,
+    emit_set_preset_mode,
+    emit_set_temperature,
+)
 from .hvac_zones import ZoneManager
 from .signals import (
     EnergyConstraint,
@@ -194,6 +200,13 @@ class HVACCoordinator(BaseCoordinator):
         # regression where a config-entry reload silently reset the
         # arrester's ramp master to DEFAULT=False.
         ac_ramp_master_enabled: bool | None = None,
+        # ARREST-COMFORT-1 D2-LOW-2 fix-up (2026-08-10): eager-seed the
+        # comfort-delay rung-3 knobs at construction (BEFORE the Number
+        # entities are added, so the arrester + D3 guard never read the
+        # module defaults during the boot window). Values default to the
+        # module constants when unset (fresh install / test bench).
+        comfort_grace_min: int | None = None,
+        comfort_soc_floor_pct: int | None = None,
     ) -> None:
         """Initialize HVAC Coordinator."""
         super().__init__(
@@ -274,6 +287,15 @@ class HVACCoordinator(BaseCoordinator):
         if ac_ramp_master_enabled is not None:
             self._override_arrester._ramp_master_enabled = bool(
                 ac_ramp_master_enabled
+            )
+        # D2-LOW-2 fix-up: seed comfort-delay knobs BEFORE any decision
+        # cycle can read them. Closes the boot window between arrester
+        # construction and Number.async_added_to_hass push.
+        if comfort_grace_min is not None:
+            self._override_arrester.set_comfort_grace_min(int(comfort_grace_min))
+        if comfort_soc_floor_pct is not None:
+            self._override_arrester.set_comfort_soc_floor_pct(
+                int(comfort_soc_floor_pct)
             )
         self._fan_controller = FanController(
             hass, self._zone_manager,
@@ -484,6 +506,63 @@ class HVACCoordinator(BaseCoordinator):
         """Return current energy constraint mode."""
         return self._energy_constraint_mode
 
+    # ------------------------------------------------------------------
+    # ARREST-COMFORT-1 Cycle A (2026-08-10) — SOC + shed accessors.
+    # BOTH the D1 grant-time SOC gate (inside OverrideArrester) AND the
+    # D3 coast-precedence guard (this file, forced-away emit at :1445)
+    # MUST read from these SAME accessors — single-accessor discipline
+    # (planning §8 Sharpest Risk mitigation). No direct-to-energy reads
+    # from either site.
+    # ------------------------------------------------------------------
+    @property
+    def battery_soc(self) -> float | None:
+        """Battery SOC (%) from the last EnergyConstraint push. None until
+        the first constraint arrives OR when the Envoy is blind (see
+        `battery_blind`)."""
+        c = self._energy_constraint
+        if c is None:
+            return None
+        soc = getattr(c, "soc", None)
+        try:
+            return float(soc) if soc is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    @property
+    def battery_blind(self) -> bool:
+        """True when the SOC read cannot be trusted (no constraint yet OR
+        SOC field absent). Fail-closed direction: treat as below-floor for
+        comfort-delay grant decisions.
+        """
+        return self.battery_soc is None
+
+    @property
+    def comfort_grace_min(self) -> int:
+        """Fix-up A-HIGH-1: live rung-3 comfort-grace knob. Delegates to
+        the arrester (single source of truth). Falls back to module
+        constant when the Number entity hasn't seeded yet."""
+        try:
+            return int(self._override_arrester._get_grace_min())
+        except Exception:  # noqa: BLE001
+            return int(COMFORT_GRACE_MIN)
+
+    @property
+    def comfort_soc_floor_pct(self) -> int:
+        """Fix-up A-HIGH-1: live rung-3 SOC-floor knob. D3 guard reads
+        THIS (not the module constant) so operator changes take effect
+        without restart."""
+        try:
+            return int(self._override_arrester._get_soc_floor())
+        except Exception:  # noqa: BLE001
+            return int(COMFORT_SOC_FLOOR_PCT)
+
+    @property
+    def shed_active(self) -> bool:
+        """True when the current energy constraint is `shed`. Consumed by
+        the D3 coast-precedence guard AND pushed into the arrester's
+        comfort-request gate (shed dominates comfort — rev-2 H3)."""
+        return self._energy_constraint_mode == "shed"
+
     @property
     def observation_mode(self) -> bool:
         """Whether HVAC observation mode is active."""
@@ -573,6 +652,26 @@ class HVACCoordinator(BaseCoordinator):
     async def async_setup(self) -> None:
         """Set up HVAC Coordinator."""
         _LOGGER.info("HVAC Coordinator: starting setup")
+
+        # ARREST-COMFORT-1 Cycle A §4.6 + fix-up A-HIGH-1: WARN when the
+        # LIVE SOC floor is set below 20% (deliberate blackout-risk
+        # acceptance — operator override of the safety default). `0` is
+        # the documented kill-switch value (SOC gate disabled entirely);
+        # anything in (0, 20) is a near-blackout risk the operator should
+        # see in the logs. The same evaluation runs on every setter change
+        # (see OverrideArrester.set_comfort_soc_floor_pct).
+        try:
+            _live_floor = int(self.comfort_soc_floor_pct)
+            if 0 < _live_floor < 20:
+                _LOGGER.warning(
+                    "ARREST-COMFORT-1: comfort_soc_floor_pct=%d — below "
+                    "the 20%% safety threshold. Comfort-delay grants will "
+                    "consume battery reserves that may be needed to weather "
+                    "a grid outage. Confirm this is intentional.",
+                    _live_floor,
+                )
+        except Exception:  # noqa: BLE001 — never let a log call block setup
+            pass
 
         # Cold-boot away-actuation storm mitigation — Gate 2 init.
         # Scope to cold boot only: if HA core is already RUNNING (options-flow
@@ -1115,6 +1214,11 @@ class HVACCoordinator(BaseCoordinator):
             self._override_arrester.update_energy_state(
                 self._energy_offset,
                 self._energy_constraint_mode == "coast",
+                # ARREST-COMFORT-1 Cycle A: push SOC + blind + shed so the
+                # D1 grant-time gate reads from the SAME source as D3.
+                battery_soc=self.battery_soc,
+                battery_blind=self.battery_blind,
+                shed_active=self.shed_active,
             )
             await self._override_arrester.check_ac_reset()
 
@@ -1129,6 +1233,11 @@ class HVACCoordinator(BaseCoordinator):
             self._override_arrester.update_energy_state(
                 self._energy_offset,
                 self._energy_constraint_mode == "coast",
+                # ARREST-COMFORT-1 Cycle A: push SOC + blind + shed so the
+                # D1 grant-time gate reads from the SAME source as D3.
+                battery_soc=self.battery_soc,
+                battery_blind=self.battery_blind,
+                shed_active=self.shed_active,
             )
 
         # Predictive sensors and pre-conditioning
@@ -1442,8 +1551,57 @@ class HVACCoordinator(BaseCoordinator):
                         ))
 
                 # D5: Duty cycle enforcement (skip during sleep — RH4)
+                # ARREST-COMFORT-1 Cycle A §3.4 (2026-08-10) — D3 coast-
+                # precedence guard. Canonical ordered sequence:
+                #   1. read runtime_exceeded and current preset  (already done)
+                #   2. read self.battery_soc / self.battery_blind
+                #   3. read arrester.comfort_delay_active(zone_id)
+                #   4. if SOC >= floor AND not blind AND comfort_delay_active
+                #      AND not shed_active: skip forced-away, log reason
+                #      `comfort_delay_active`, and DO NOT set effective_preset
+                #      to "away".
+                #   5. else: proceed with the existing forced-away path.
+                # Shed dominates comfort (rev-2 H3 falsification #6). BOTH
+                # this site AND the D1 grant read via the SAME accessor —
+                # the single-accessor invariant (planning §8).
+                # Fix-up A-HIGH-2: per-tick flag — set ONLY when the D3
+                # guard actually SKIPS a forced-away this tick. The S1
+                # relabel below reads this flag so a legitimate non-away
+                # write (occupant home, house-state transition,
+                # effective_preset="comfort") is not silently re-labeled
+                # `comfort_delay_active` whenever both runtime_exceeded
+                # and comfort_delay_active happen to be true.
+                _d3_skipped_this_tick = False
                 if zone.runtime_exceeded and self._house_state != "sleep":
-                    effective_preset = "away"
+                    _cd_soc = self.battery_soc
+                    _cd_blind = self.battery_blind
+                    _cd_shed = self.shed_active
+                    _cd_active = False
+                    if self._override_arrester is not None:
+                        try:
+                            _cd_active = self._override_arrester.comfort_delay_active(zone_id)
+                        except Exception:  # noqa: BLE001 — never let this deny safety
+                            _cd_active = False
+                    # Fix-up A-HIGH-1: read the LIVE SOC-floor knob so an
+                    # operator-tuned floor takes effect without a restart.
+                    _cd_floor = self.comfort_soc_floor_pct
+                    if (
+                        _cd_active
+                        and not _cd_shed
+                        and not _cd_blind
+                        and _cd_soc is not None
+                        and float(_cd_soc) >= float(_cd_floor)
+                    ):
+                        _LOGGER.debug(
+                            "HVAC: skipping forced-away on %s — "
+                            "comfort_delay_active (soc=%.1f)",
+                            zone.zone_name, float(_cd_soc),
+                        )
+                        # do NOT set effective_preset to "away"; fall
+                        # through to the normal preset-decision path.
+                        _d3_skipped_this_tick = True
+                    else:
+                        effective_preset = "away"
 
                 # v4.2.2: Zone entry dwell — prevent preset flapping on brief transits
                 # Only when house is already occupied and zone just became occupied.
@@ -1605,6 +1763,32 @@ class HVACCoordinator(BaseCoordinator):
             else:
                 preset_change_reason = "house_state_transition"
 
+            # ARREST-COMFORT-1 Cycle A §3.4 (2026-08-10): reason-ladder
+            # leaf `comfort_delay_active`. If the D3 guard above skipped
+            # the runtime_exceeded forced-away because comfort-delay is
+            # active, we detect that by (a) runtime_exceeded True AND
+            # (b) effective_preset is NOT "away" AND (c) the arrester
+            # confirms comfort_delay_active — and re-label the reason
+            # for the ledger so the operator can see WHY we didn't force
+            # away. Precedence: this label overrides house_state_transition
+            # since the comfort-grace was the actual reason we're here.
+            # Fix-up A-HIGH-2: relabel ONLY when the D3 guard actually
+            # skipped a forced-away this tick. Without this the pre-fix
+            # check hijacked ANY non-away preset write while
+            # runtime_exceeded && comfort_delay_active — mislabeling
+            # legitimate house-state / occupant-home writes.
+            if (
+                _d3_skipped_this_tick
+                and zone.runtime_exceeded
+                and effective_preset != "away"
+                and self._override_arrester is not None
+            ):
+                try:
+                    if self._override_arrester.comfort_delay_active(zone_id):
+                        preset_change_reason = "comfort_delay_active"
+                except Exception:  # noqa: BLE001
+                    pass
+
             # Suppress arrester for URA-initiated changes
             if self._override_arrester:
                 self._override_arrester.suppress(zone.climate_entity)
@@ -1621,15 +1805,49 @@ class HVACCoordinator(BaseCoordinator):
             # boundary (requires a thermostat away-preset literally set < 50°F).
             # Not fixed to avoid a double-writer self-fight.
             try:
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_preset_mode",
-                    {
-                        "entity_id": zone.climate_entity,
-                        "preset_mode": effective_preset,
-                    },
+                # ARREST-COMFORT-1 Cycle A §3.7 S1 (2026-08-10): route
+                # through the new `emit_set_preset_mode` chokepoint. The
+                # per-reason DEFER/ALLOW verdict from §3.7 fires here:
+                #   DEFER while comfort_delay_active iff reason ∈
+                #     {runtime_exceeded, house_state_transition,
+                #      comfort_delay_active (self-referential no-op)}.
+                #   ALLOW unconditionally for {freeze, vacant_past_grace,
+                #     stale_occupancy, pre_arrival}.
+                _s1_zone_id = zone_id
+                _s1_reason = preset_change_reason
+                _s1_defer_reasons = {
+                    "runtime_exceeded",
+                    "house_state_transition",
+                    "comfort_delay_active",
+                }
+                def _s1_gate() -> bool:
+                    if _s1_reason not in _s1_defer_reasons:
+                        return False
+                    if self._override_arrester is None:
+                        return False
+                    try:
+                        return bool(
+                            self._override_arrester.comfort_delay_active(_s1_zone_id)
+                        )
+                    except Exception:  # noqa: BLE001
+                        return False
+                _s1_written = await emit_set_preset_mode(
+                    self.hass,
+                    zone.climate_entity,
+                    effective_preset,
                     blocking=False,
+                    gate=_s1_gate,
+                    site="S1_reason_ladder",
+                    zone_id=zone_id,
+                    reason=preset_change_reason,
                 )
+                if not _s1_written:
+                    # Deferred by comfort-grace — do NOT log the "Set
+                    # preset" line nor emit the preset_change activity
+                    # row; the deferred-write ledger row has already
+                    # been logged by the chokepoint. Skip the compliance
+                    # + decision-log tail below.
+                    continue
                 _LOGGER.info(
                     "HVAC: Set %s preset %s -> %s (house_state=%s%s)",
                     zone.zone_name, zone.preset_mode, effective_preset,
@@ -1893,14 +2111,41 @@ class HVACCoordinator(BaseCoordinator):
                     self._override_arrester.suppress(zone.climate_entity, kind="temp")  # v5.36.2 H6: B1 completeness
 
                 try:
-                    await emit_set_temperature(
+                    # ARREST-COMFORT-1 D-CRIT-1 fix-up: gate this DPM apply
+                    # emit on `comfort_delay_active` — S10_dpm_apply. The
+                    # DPM apply loop was previously the UNGATED sibling of
+                    # S3/S4/S5 and could stomp a comfort-qualified manual.
+                    def _s10_gate(z=zone_id) -> bool:
+                        if self._override_arrester is None:
+                            return False
+                        try:
+                            return bool(
+                                self._override_arrester.comfort_delay_active(z)
+                            )
+                        except Exception:  # noqa: BLE001
+                            return False
+                    _s10_written = await emit_set_temperature(
                         self.hass,
                         zone.climate_entity,
                         target_temp_low=resolved.cool_low,
                         target_temp_high=resolved.cool_high,
                         freeze_active=self._freeze_active,
                         blocking=False,
+                        gate=_s10_gate,
+                        site="S10_dpm_apply",
+                        zone_id=zone_id,
+                        reason="dpm_preset_apply",
                     )
+                    if not _s10_written:
+                        # Deferred by comfort-grace — do NOT record the
+                        # resolved pair in the throttle map (next tick
+                        # re-emits naturally when grace expires). Roll
+                        # back the pre-emit suppress() stamp so a real
+                        # manual within SUPPRESS_TTL_SECONDS isn't
+                        # swallowed (mirrors A-MED-2 discipline).
+                        if self._override_arrester:
+                            self._override_arrester.unsuppress(zone.climate_entity)
+                        continue
                     self._last_emitted_range[zone_id] = resolved_pair
                     _LOGGER.info(
                         "HVAC: set_temperature %s low=%.1f high=%.1f "

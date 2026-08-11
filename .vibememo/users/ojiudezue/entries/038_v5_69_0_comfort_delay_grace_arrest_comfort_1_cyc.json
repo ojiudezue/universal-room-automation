@@ -1,0 +1,19 @@
+{
+  "format_version": "2.1",
+  "entry_id": "038",
+  "author": "ojiudezue",
+  "session_id": "claude_20260811_045038_ship_v5_69_0",
+  "timestamp": "2026-08-11T04:50:38Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.69.0 shipped: Comfort-delay grace (ARREST-COMFORT-1 Cycle A)",
+  "summary": "Genuine manual comfort requests in occupied zones earn a grace window (SOC-gated at grant, occupancy-live, shed-dominated) instead of arrest; S1-S13 write-site gates incl. 4 newly-found ungated surfaces (DPM apply, pre-cool/pre-heat, release-banked); AI-rules direct climate writes blocked; rung-3 knobs comfort_grace_minutes/comfort_soc_floor_pct; kids-incident replay fixture; 4x Tier-3 reviews + 19-finding fix-up + anchored caller-site drills",
+  "refs": {
+    "cards": [
+      "ARREST-COMFORT-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.69.0.md"
+    ]
+  }
+}

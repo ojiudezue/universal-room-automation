@@ -551,22 +551,31 @@ class TestSoftNudge:
 
     def test_perform_soft_nudge_suppresses_override(self, hvac_override_src):
         """Risk R11 — URA's own setpoint change must be suppressed so
-        the OverrideArrester doesn't misclassify it as a user override."""
+        the OverrideArrester doesn't misclassify it as a user override.
+
+        ARREST-COMFORT-1 A-MED-2 fix-up (2026-08-10): suppression now
+        runs AFTER the emit and ONLY when the emit actually fires (so
+        deferred no-op writes under a comfort-delay grace don't leave a
+        stale SUPPRESS_TTL window that would swallow a real manual for
+        ~5s). This test now guards the inverted ordering + the
+        conditional stamp.
+        """
         idx = hvac_override_src.find("async def _perform_soft_nudge(")
         body = hvac_override_src[idx:idx + 8000]
-        # v4.7.33 A-F5: suppression now goes through `self.suppress(...)`
-        # (TTL-window) instead of the prior `self._suppressed_entities.add(...)`
-        # set membership. The ordering invariant (suppress BEFORE the service
-        # call) is what this test guards — call-site form is incidental.
-        # FIX B1 (2026-07-26): suppress() now accepts a `kind` kwarg —
-        # temp writes pass kind="temp". Match the prefix so both the
-        # legacy no-kwarg and the new kwarg forms are accepted.
         suppress_pos = body.find("self.suppress(zone.climate_entity")
-        # feature/freeze-floor: setpoint dispatch is now the chokepoint call.
         service_pos = body.find("emit_set_temperature(")
-        assert suppress_pos > 0
-        assert suppress_pos < service_pos, (
-            "Suppress override BEFORE issuing setpoint change (R11)"
+        assert suppress_pos > 0, "R11 suppress call missing"
+        assert service_pos > 0, "emit_set_temperature call missing"
+        # New contract (A-MED-2): suppress AFTER emit.
+        assert suppress_pos > service_pos, (
+            "A-MED-2 regression: suppress must land AFTER emit_set_temperature "
+            "(and only when it fires) — pre-fix ordering leaves TTL window "
+            "open on deferred no-op writes."
+        )
+        # And it must be guarded by the emit's return value.
+        assert "_s5_written" in body or "if written" in body or "if _s" in body, (
+            "A-MED-2 regression: suppress must be guarded by the emit's "
+            "return value (True == emitted)."
         )
 
     def test_perform_soft_nudge_schedules_restore(self, hvac_override_src):

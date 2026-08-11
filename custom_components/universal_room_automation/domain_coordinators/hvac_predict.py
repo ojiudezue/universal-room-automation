@@ -943,14 +943,35 @@ class HVACPredictor:
                 base_low, base_high, freeze_active=freeze_active,
             )
             try:
-                await emit_set_temperature(
+                # ARREST-COMFORT-1 D-HIGH-1 fix-up: S11_release_banked — gate on
+                # comfort_delay_active. Was ungated: solar-banking release could
+                # stomp a comfort-qualified manual on the way back to baseline.
+                _s11_zid = zone_id
+                def _s11_gate(z=_s11_zid) -> bool:
+                    if self._override_arrester is None:
+                        return False
+                    try:
+                        return bool(self._override_arrester.comfort_delay_active(z))
+                    except Exception:  # noqa: BLE001
+                        return False
+                _s11_written = await emit_set_temperature(
                     self.hass,
                     zone.climate_entity,
                     target_temp_low=base_low,
                     target_temp_high=base_high,
                     freeze_active=freeze_active,
                     blocking=False,
+                    gate=_s11_gate,
+                    site="S11_release_banked",
+                    zone_id=zone_id,
+                    reason="banking_release",
                 )
+                if not _s11_written:
+                    # Deferred by comfort-grace — do not update the throttle
+                    # map (next release cycle re-emits naturally after grace).
+                    if self._override_arrester:
+                        self._override_arrester.unsuppress(zone.climate_entity)
+                    continue
                 # Keep throttle map consistent with the value we just wrote.
                 if last_emitted is not None:
                     last_emitted[zone_id] = (emit_low, emit_high)
@@ -1012,14 +1033,33 @@ class HVACPredictor:
             self._override_arrester.suppress(zone.climate_entity, kind="temp")  # v5.36.2 H6: B1 completeness
 
         try:
-            await emit_set_temperature(
+            # ARREST-COMFORT-1 D-HIGH-1 fix-up: S12_pre_cool — gate on
+            # comfort_delay_active. Predictive pre-cool would otherwise
+            # override a comfort-qualified manual mid-grace.
+            _s12_zid = zone.zone_id
+            def _s12_gate(z=_s12_zid) -> bool:
+                if self._override_arrester is None:
+                    return False
+                try:
+                    return bool(self._override_arrester.comfort_delay_active(z))
+                except Exception:  # noqa: BLE001
+                    return False
+            _s12_written = await emit_set_temperature(
                 self.hass,
                 zone.climate_entity,
                 target_temp_low=zone.target_temp_low,
                 target_temp_high=effective_high,
                 freeze_active=self._freeze_active(),
                 blocking=False,
+                gate=_s12_gate,
+                site="S12_pre_cool",
+                zone_id=zone.zone_id,
+                reason=reason,
             )
+            if not _s12_written:
+                if self._override_arrester:
+                    self._override_arrester.unsuppress(zone.climate_entity)
+                return
             _LOGGER.info(
                 "HVAC: Zone %s pre-cool (%s): %.1f -> %.1f (offset=%.1f, floor=%.1f)",
                 zone.zone_name, reason,
@@ -1150,14 +1190,33 @@ class HVACPredictor:
                 self._override_arrester.suppress(zone.climate_entity, kind="temp")  # v5.36.2 H6: B1 completeness
 
             try:
-                await emit_set_temperature(
+                # ARREST-COMFORT-1 D-HIGH-1 fix-up: S13_pre_heat — gate on
+                # comfort_delay_active. Predictive pre-heat would otherwise
+                # override a warm-direction comfort manual.
+                _s13_zid = zone.zone_id
+                def _s13_gate(z=_s13_zid) -> bool:
+                    if self._override_arrester is None:
+                        return False
+                    try:
+                        return bool(self._override_arrester.comfort_delay_active(z))
+                    except Exception:  # noqa: BLE001
+                        return False
+                _s13_written = await emit_set_temperature(
                     self.hass,
                     zone.climate_entity,
                     target_temp_low=pre_heat_temp,
                     target_temp_high=zone.target_temp_high,
                     freeze_active=self._freeze_active(),
                     blocking=False,
+                    gate=_s13_gate,
+                    site="S13_pre_heat",
+                    zone_id=zone.zone_id,
+                    reason="pre_heat",
                 )
+                if not _s13_written:
+                    if self._override_arrester:
+                        self._override_arrester.unsuppress(zone.climate_entity)
+                    continue
                 _LOGGER.info(
                     "HVAC Pre-heat: %s set to %.0fF (was %.0fF)",
                     zone.zone_name, pre_heat_temp, zone.target_temp_low,
