@@ -3874,7 +3874,16 @@ class UniversalRoomDatabase:
             return None
 
     async def get_pending_digest(self, person_id: str) -> list[dict]:
-        """Get pending digest notifications for a person."""
+        """Get pending digest notifications for a person.
+
+        NM-IMAGE-1 (2026-08-11, D3 / rev-2 MED-2): excludes rows whose
+        `message` field equals the canonical audit sentinel `"[audit]"`.
+        The write site (`_emit_audit_row`) is intentional — the sentinel
+        is the audit-row marker — so the leak is reader-side. Without
+        this filter, LOW/MEDIUM audit rows (e.g. `dnd_suppressed` audit
+        rows for MEDIUM alerts) get pulled into the next digest body and
+        the operator sees a bare "Perimeter Alert — [audit]" line.
+        """
         try:
             async with self._db_read() as db:
                 db.row_factory = aiosqlite.Row
@@ -3882,6 +3891,7 @@ class UniversalRoomDatabase:
                     SELECT * FROM notification_log
                     WHERE person_id = ? AND delivered = 0
                       AND severity IN ('LOW', 'MEDIUM')
+                      AND message != '[audit]'
                     ORDER BY timestamp
                 """, (person_id,))
                 rows = await cursor.fetchall()
@@ -3891,7 +3901,17 @@ class UniversalRoomDatabase:
             return []
 
     async def mark_digest_delivered(self, person_id: str) -> None:
-        """Mark all pending digest items as delivered for a person."""
+        """Mark all pending digest items as delivered for a person.
+
+        NM-IMAGE-1 (2026-08-11, D3 / rev-2 §10.4): also marks the
+        `message='[audit]'` sentinel rows `delivered=2` alongside real
+        rows so the queue does not grow unboundedly at MEDIUM/LOW
+        volume. `delivered=2` is a queue-management marker (filtered
+        out of `delivered > 0` reader queries — see
+        `get_notifications_today`, `get_last_notification` — which
+        already only inspect real rows). D0 baseline captured pre-
+        deploy to validate the bound holds live.
+        """
         try:
             async with self._db() as db:
                 await db.execute("""
