@@ -113,12 +113,6 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         self._pre_arrival_enabled: bool = True
         self._min_away_minutes: int = 15  # Minimum LOST time before BLE re-detection triggers pre-arrival
 
-        # Stuck-Signal Watchdog D3 (v5.35.0): last computed frozen-tracker
-        # diagnostic list (list of dicts). Populated by
-        # _frozen_tracker_check; empty on healthy.
-        self._frozen_trackers_last: list[dict[str, Any]] = []
-        self._frozen_notified: set[str] = set()  # B M-3 caller-side emit pre-check
-
         _LOGGER.info(
             "Person tracking coordinator initialized for %d persons: %s (decay timeout: %ds)",
             len(self.tracked_persons),
@@ -460,15 +454,9 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                             )
                         )
 
-            # Stuck-Signal Watchdog D3 (v5.35.0): frozen-tracker check.
-            # NOTIFY-ONLY — never mutates person_data. See
-            # docs/planning/PLANNING_stuck_signal_watchdog.md.
-            try:
-                self._frozen_tracker_check(now, person_data)
-            except Exception:  # noqa: BLE001 — fail-open (never breaks the coord)
-                _LOGGER.debug(
-                    "Frozen-tracker check raised (swallowed)", exc_info=True,
-                )
+            # D3 frozen-tracker check DELETED 2026-08-10 — structurally
+            # unreachable (threshold 2.0d vs max HA uptime ~1d at deploy
+            # cadence). See const.py FROZEN_TRACKER_DAYS tombstone.
 
             return person_data
 
@@ -476,148 +464,9 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             _LOGGER.error("Error updating person tracking data: %s", err)
             raise UpdateFailed(f"Error updating person tracking data: {err}") from err
 
-    # ------------------------------------------------------------------
-    # Stuck-Signal Watchdog D3 (v5.35.0)
-    # ------------------------------------------------------------------
-
-    def _frozen_tracker_check(
-        self, now: datetime, person_data: dict[str, Any],
-    ) -> None:
-        """Notify if a device_tracker is frozen-at-home (or unknown).
-
-        Fix-up 2026-07-28 (A-CRIT-1/2/3): the prior "requires disagreement"
-        rule was structurally blind to the motivating incident — a frozen
-        tracker DRIVES person.state=home, so tracker and person always
-        AGREE and no NM ever fires. New predicate:
-
-            tracker.last_updated older than CONF_FROZEN_TRACKER_DAYS
-              AND tracker.state in {"home", "unknown"}
-              -> NM (per-day latched by (person, tracker))
-
-        Rationale: a phone tracker frozen at "home" for days is anomalous
-        per se (home phones update constantly via wifi/GPS). Frozen-at-
-        not_home is benign (no user-actionable harm). Include as CONTEXT
-        (not gating): the person's current state, and whether any SIBLING
-        tracker of the same person disagrees (fresh + not_home).
-
-        No auto-prune. C11 tracking_status is untouched.
-        """
-        from .const import (  # noqa: PLC0415
-            CONF_ENTRY_TYPE,
-            CONF_FROZEN_TRACKER_DAYS,
-            DEFAULT_FROZEN_TRACKER_DAYS,
-            ENTRY_TYPE_INTEGRATION,
-        )
-
-        merged: dict[str, Any] = {}
-        for entry in self.hass.config_entries.async_entries(DOMAIN):
-            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
-                merged = {**entry.data, **entry.options}
-                break
-        try:
-            days_threshold = float(merged.get(
-                CONF_FROZEN_TRACKER_DAYS, DEFAULT_FROZEN_TRACKER_DAYS,
-            ))
-        except (TypeError, ValueError):
-            days_threshold = DEFAULT_FROZEN_TRACKER_DAYS
-        threshold_seconds = days_threshold * 86400.0
-
-        # Boot-settle gate (FIX 3): consult the shared presence predicate.
-        if not self._boot_settle_done():
-            return
-
-        frozen: list[dict[str, Any]] = []
-        for person_name in self.tracked_persons:
-            person_entity_id = (
-                f"person.{person_name.lower().replace(' ', '_')}"
-            )
-            person_state = self.hass.states.get(person_entity_id)
-            if person_state is None:
-                continue
-            tracker_ids = person_state.attributes.get("device_trackers") or []
-            if not tracker_ids:
-                continue
-            person_evidence = person_state.state  # e.g. "home"/"not_home"
-
-            # Pre-compute per-tracker (age, state) for sibling context.
-            tracker_infos: list[tuple[str, float, str]] = []
-            for tracker_id in tracker_ids:
-                t_state = self.hass.states.get(tracker_id)
-                if t_state is None or t_state.last_updated is None:
-                    continue
-                last = t_state.last_updated
-                try:
-                    if last.tzinfo is None:
-                        age = (
-                            (now.replace(tzinfo=None) if now.tzinfo else now)
-                            - last
-                        ).total_seconds()
-                    else:
-                        if now.tzinfo is None:
-                            age = (
-                                now - last.replace(tzinfo=None)
-                            ).total_seconds()
-                        else:
-                            age = (now - last).total_seconds()
-                except (TypeError, ValueError):
-                    continue
-                tracker_infos.append((tracker_id, age, t_state.state))
-
-            for tracker_id, age, tracker_state in tracker_infos:
-                if age < threshold_seconds:
-                    continue
-                # New predicate: frozen at home OR unknown is anomalous.
-                # Frozen at not_home is benign (fire axe: not user-actionable).
-                if tracker_state not in ("home", "unknown"):
-                    continue
-
-                # Sibling context (not gating): does any OTHER tracker of
-                # this person report fresh + not_home?
-                sibling_disagrees = any(
-                    other_id != tracker_id
-                    and other_age < threshold_seconds
-                    and other_state == "not_home"
-                    for other_id, other_age, other_state in tracker_infos
-                )
-
-                days = age / 86400.0
-                entry_diag = {
-                    "entity_id": tracker_id,
-                    "person": person_name,
-                    "days": round(days, 2),
-                    "tracker_state": tracker_state,
-                    "person_state": person_evidence,
-                    "sibling_disagrees": sibling_disagrees,
-                }
-                frozen.append(entry_diag)
-                # B M-3: caller-side pre-check — only schedule the NM task
-                # on the first tick a tracker is flagged (the in-callee
-                # per-day latch still dedups across restarts/re-flags).
-                # Without this, every tick creates a no-op task per stale
-                # tracker (task spam, review B M-3).
-                if not hasattr(self, "_frozen_notified"):
-                    self._frozen_notified = set()  # lazy init (test fixtures / hot reload)
-                if tracker_id not in self._frozen_notified:
-                    self._frozen_notified.add(tracker_id)
-                    self.hass.async_create_task(_fire_frozen_tracker_nm(  # noqa: untracked-ok
-                        self.hass, person_name, tracker_id, days,
-                        tracker_state, person_evidence, sibling_disagrees,
-                    ))
-
-        # Un-flag recovered trackers so a future re-freeze re-notifies.
-        frozen_ids = {e["entity_id"] for e in frozen}
-        if hasattr(self, "_frozen_notified"):
-            self._frozen_notified &= frozen_ids
-        self._frozen_trackers_last = frozen
-
-    def get_frozen_trackers(self) -> list[dict[str, Any]]:
-        """Public accessor for the last-computed frozen-tracker diagnostic list.
-
-        v5.36.0 D1. Consumed by the house-level
-        `sensor.ura_stuck_signal_watchdog`. Returns a shallow copy so
-        callers cannot mutate the coordinator's internal state.
-        """
-        return list(self._frozen_trackers_last or [])
+    # Stuck-Signal Watchdog D3 (v5.35.0) DELETED 2026-08-10 —
+    # structurally unreachable: threshold 2.0d vs max HA uptime ~1d at
+    # deploy cadence. See const.py FROZEN_TRACKER_DAYS tombstone.
 
     def _boot_settle_done(self) -> bool:
         """Return True once presence has released the shared boot-settle gate.
@@ -1525,32 +1374,6 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         return count
 
 
-async def _fire_frozen_tracker_nm(
-    hass: HomeAssistant, person: str, tracker: str, days: float,
-    tracker_state: str, person_state: str,
-    sibling_disagrees: bool = False,
-) -> None:
-    """Stuck-Signal D3 frozen-tracker NM via shared helper (per-day latch)."""
-    from .domain_coordinators._stuck_signal_nm import fire_stuck_signal  # noqa: PLC0415
-    sibling_note = ""
-    if sibling_disagrees:
-        sibling_note = (
-            " Note: another tracker for this person reports 'not_home' fresh —"
-            " the frozen tracker is likely wedged."
-        )
-    diag = (
-        f"device_tracker {tracker} for {person} frozen at {tracker_state!r} for "
-        f"{days:.1f} days (person entity currently reports {person_state!r})."
-        f"{sibling_note}"
-    )
-    await fire_stuck_signal(
-        hass,
-        kind="frozen_tracker",
-        key=(person, tracker),
-        diagnosis=diag,
-        remedy=(
-            "check the device is powered on and reporting; consider removing "
-            "the stale tracker from the person entity"
-        ),
-    )
+# _fire_frozen_tracker_nm DELETED 2026-08-10 — D3 detector was
+# structurally unreachable (see const.py tombstone).
 

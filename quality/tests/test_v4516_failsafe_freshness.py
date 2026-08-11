@@ -188,17 +188,32 @@ def test_failsafe_closet_60min_with_stale_signal_fires():
 # ===========================================================================
 
 
+def _failsafe_body(coordinator_src: str) -> str:
+    """Locate the live P24-FAILSAFE block (moved 2026-08-10)."""
+    # After the P24 move, the OLD in-place anchor still contains
+    # "RESILIENCE-001: Maximum active duration failsafe" as its
+    # top-line phrase in the LIVE block (P24 FAILSAFE moved after
+    # overrides). Use the "P24 FAILSAFE" marker to disambiguate from
+    # any stub comment referencing the same phrase.
+    marker = "# === P24 FAILSAFE (moved after overrides"
+    start = coordinator_src.find(marker)
+    assert start >= 0, "P24 FAILSAFE (moved) block missing"
+    # Bounded by TRUE VACANCY FINALIZE block that follows immediately.
+    end = coordinator_src.find("# === TRUE VACANCY FINALIZE", start)
+    return coordinator_src[start:end if end > 0 else start + 4000]
+
+
 def test_failsafe_block_uses_last_motion_time(coordinator_src: str):
-    """The failsafe code must consult `_last_motion_time` somewhere in
-    its body. Catches accidental revert to v4.5.15 behavior.
+    """The failsafe freshness gate must reference a `_last_*_motion_time`
+    timestamp. P24 fix (2026-08-10) changed the gate from
+    `_last_motion_time` (self-refreshed → tautological skip) to
+    `_last_pir_motion_time` (real PIR events only).
     """
-    start = coordinator_src.find("RESILIENCE-001: Maximum active duration failsafe")
-    assert start >= 0
-    end = coordinator_src.find("\n        # === v3.5.1", start)
-    body = coordinator_src[start:end if end > 0 else start + 3000]
-    assert "self._last_motion_time" in body, (
-        "Failsafe block must reference self._last_motion_time for the "
-        "freshness gate (v4.5.16 fix)."
+    body = _failsafe_body(coordinator_src)
+    assert "self._last_pir_motion_time" in body, (
+        "Failsafe block must reference self._last_pir_motion_time (P24 "
+        "fix 2026-08-10 — previously _last_motion_time, which the "
+        "current tick self-refreshed)."
     )
     assert "signal_stale" in body or "signal_age" in body, (
         "Failsafe should expose the stale-or-fresh decision in a named "
@@ -207,12 +222,9 @@ def test_failsafe_block_uses_last_motion_time(coordinator_src: str):
 
 
 def test_failsafe_block_uses_2x_occupancy_timeout_threshold(coordinator_src: str):
-    """The stale threshold must be 2x occupancy_timeout (per the design)
-    — not some arbitrary constant. This pins the rationale.
-    """
-    start = coordinator_src.find("RESILIENCE-001: Maximum active duration failsafe")
-    end = coordinator_src.find("\n        # === v3.5.1", start)
-    body = coordinator_src[start:end if end > 0 else start + 3000]
+    """The stale threshold must be 2x occupancy_timeout (design invariant
+    preserved across the P24 move)."""
+    body = _failsafe_body(coordinator_src)
     assert "2 * self._occupancy_timeout" in body, (
         "Stale threshold should be 2x self._occupancy_timeout — see "
         "design rationale in v4.5.16 README and BACKLOG entry."
@@ -220,15 +232,15 @@ def test_failsafe_block_uses_2x_occupancy_timeout_threshold(coordinator_src: str
 
 
 def test_failsafe_block_log_includes_signal_stale_phrase(coordinator_src: str):
-    """The WARNING-level log when failsafe fires must include 'signal
-    stale' so operators can distinguish the new-shape failsafe (motion
-    confirmed missing) from any other vacancy mechanism in log review.
+    """The WARNING-level log when failsafe fires must include a stale-
+    signal phrase so operators can distinguish this vacancy path from
+    any other in log review. P24 fix (2026-08-10) renamed the log
+    substring from 'signal stale' to 'PIR stale' (matches the P24(a)
+    gate change).
     """
-    start = coordinator_src.find("RESILIENCE-001: Maximum active duration failsafe")
-    end = coordinator_src.find("\n        # === v3.5.1", start)
-    body = coordinator_src[start:end if end > 0 else start + 3000]
-    assert "signal stale" in body, (
-        "v4.5.16 log message should include 'signal stale' for clarity."
+    body = _failsafe_body(coordinator_src)
+    assert "PIR stale" in body, (
+        "P24 log message should include 'PIR stale' for clarity."
     )
 
 

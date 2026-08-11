@@ -9188,17 +9188,37 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             motion = user_input.get(CONF_MOTION_SENSORS, [])
             mmwave = user_input.get(CONF_MMWAVE_SENSORS, [])
             occupancy = user_input.get(CONF_OCCUPANCY_SENSORS, [])
-            
+
             if not motion and not mmwave and not occupancy:
                 errors["base"] = "no_occupancy_sensors"
             else:
                 # SENSOR-CAPABILITY-1 D4: parse+validate the JSON blob
                 # BEFORE the general save; a bad payload rejects the
                 # step without touching persisted options.
+                #
+                # senscap UX v2 (2026-08-10 operator Q2): also fold
+                # per-entity dropdown selections (keys `caps_kind__<entity>`)
+                # into the JSON payload. Rules:
+                #   * a selection equal to the entity's CONF-derived
+                #     default writes NOTHING for that entity (byte-
+                #     identity: no-op selections must not persist);
+                #   * a non-default selection produces / updates the
+                #     entity's `{"kind": ...}` entry, preserving any
+                #     existing `trust_class` / `failure_mode` from the
+                #     JSON payload (dropdown wins on `kind` conflict).
                 raw_caps = user_input.pop(
                     "sensor_capabilities_json", "",
                 ) or ""
                 raw_caps = raw_caps.strip()
+                # Collect dropdown selections (pop so they aren't
+                # stored raw in options).
+                _dropdown_selections: dict[str, str] = {}
+                for _uk in list(user_input.keys()):
+                    if isinstance(_uk, str) and _uk.startswith("caps_kind__"):
+                        _entity = _uk[len("caps_kind__"):]
+                        _val = user_input.pop(_uk)
+                        if _val:  # ignore empty/None
+                            _dropdown_selections[_entity] = _val
                 caps_payload: dict = {}
                 if raw_caps:
                     try:
@@ -9238,6 +9258,59 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                                 )
                             else:
                                 caps_payload = parsed
+                # senscap UX v2: fold dropdowns AFTER JSON parse but
+                # BEFORE the final validate. Dropdown wins on `kind`.
+                if not errors and _dropdown_selections:
+                    from .domain_coordinators.sensor_capability import (  # noqa: PLC0415
+                        derive_capability,
+                        validate_capabilities_payload as _vcp,
+                    )
+                    room_cfg_view = {
+                        CONF_MOTION_SENSORS: motion,
+                        CONF_MMWAVE_SENSORS: mmwave,
+                        CONF_OCCUPANCY_SENSORS: occupancy,
+                        # derive_capability reads overrides from this key;
+                        # pass an empty view so its "default" is the raw
+                        # CONF-list-derived kind (not the current override).
+                    }
+                    for _entity, _kind in _dropdown_selections.items():
+                        # Compute the CONF-derived default for this entity.
+                        _default_cap = derive_capability(
+                            room_cfg_view, _entity,
+                        )
+                        _default_kind = (
+                            _default_cap.kind if _default_cap else None
+                        )
+                        if _kind == _default_kind:
+                            # No-op selection: byte-identity requires we
+                            # write nothing. Also strip any pre-existing
+                            # entry so an operator un-picking a prior
+                            # override cleans up.
+                            caps_payload.pop(_entity, None)
+                            continue
+                        existing = caps_payload.get(_entity) or {}
+                        if not isinstance(existing, dict):
+                            existing = {}
+                        existing = dict(existing)
+                        existing["kind"] = _kind
+                        caps_payload[_entity] = existing
+                    # Re-validate the merged payload (through the SAME
+                    # validator, not a fork) — dropdown could introduce
+                    # a motion→mmwave/occupancy remap that must reject.
+                    v_errors2 = _vcp(
+                        {
+                            CONF_MOTION_SENSORS: motion,
+                            CONF_MMWAVE_SENSORS: mmwave,
+                            CONF_OCCUPANCY_SENSORS: occupancy,
+                        },
+                        caps_payload,
+                    )
+                    if v_errors2:
+                        errors["base"] = "sensor_capabilities_invalid"
+                        _LOGGER.warning(
+                            "sensor_capabilities (post-dropdown-merge) "
+                            "validation rejected: %s", v_errors2,
+                        )
             if not errors:
                 try:
                     merged = {**self._config_entry.options, **user_input}
@@ -9284,29 +9357,98 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         # once (was called twice inline in the schema).
         _caps_default = self._get_current(CONF_SENSOR_CAPABILITIES, {}) or {}
 
-        data_schema = vol.Schema({
-            vol.Optional(
-                CONF_MOTION_SENSORS, 
-                default=self._get_current(CONF_MOTION_SENSORS, [])
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="binary_sensor", multiple=True)
-            ),
-            vol.Optional(
-                CONF_MMWAVE_SENSORS, 
-                default=self._get_current(CONF_MMWAVE_SENSORS, [])
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="binary_sensor", multiple=True)
-            ),
-            vol.Optional(
-                CONF_OCCUPANCY_SENSORS,
-                default=self._get_current(CONF_OCCUPANCY_SENSORS, [])
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="binary_sensor", multiple=True)
-            ),
+        # senscap UX v2 (2026-08-10 operator Q2): one SelectSelector per
+        # currently-configured sensor entity, options = TIER1_CAPABILITIES
+        # with friendly labels, default = the entity's current effective
+        # kind (via `derive_capability`). Selections write into
+        # CONF_SENSOR_CAPABILITIES; the JSON textarea remains the escape
+        # hatch for trust_class / failure_mode. Dropdown wins on `kind`
+        # conflict (documented in the field description below).
+        _motion_now = list(self._get_current(CONF_MOTION_SENSORS, []) or [])
+        _mmwave_now = list(self._get_current(CONF_MMWAVE_SENSORS, []) or [])
+        _occ_now = list(self._get_current(CONF_OCCUPANCY_SENSORS, []) or [])
+        _entities_for_dropdowns: list[str] = []
+        _seen: set[str] = set()
+        for _lst in (_motion_now, _mmwave_now, _occ_now):
+            for _eid in _lst:
+                if _eid and _eid not in _seen:
+                    _seen.add(_eid)
+                    _entities_for_dropdowns.append(_eid)
+
+        from .const import TIER1_CAPABILITIES  # noqa: PLC0415
+        from .domain_coordinators.sensor_capability import (  # noqa: PLC0415
+            derive_capability as _derive_cap_ui,
+        )
+        _room_cfg_view_ui = {
+            CONF_MOTION_SENSORS: _motion_now,
+            CONF_MMWAVE_SENSORS: _mmwave_now,
+            CONF_OCCUPANCY_SENSORS: _occ_now,
+            CONF_SENSOR_CAPABILITIES: _caps_default,
+        }
+        _kind_labels = {
+            "motion": "Motion (PIR)",
+            "mmwave": "mmWave presence",
+            "occupancy": "Occupancy sensor",
+            "pir": "PIR",
+            "bed": "Bed presence",
+            "camera_presence": "Camera person-presence",
+            "ble_presence": "BLE presence",
+            "pir_split": "Split PIR",
+        }
+        _kind_options = [
+            {"value": _k, "label": _kind_labels.get(_k, _k)}
+            for _k in TIER1_CAPABILITIES
+        ]
+
+        schema_dict: dict = {}
+        schema_dict[vol.Optional(
+            CONF_MOTION_SENSORS,
+            default=self._get_current(CONF_MOTION_SENSORS, []),
+        )] = selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="binary_sensor", multiple=True)
+        )
+        schema_dict[vol.Optional(
+            CONF_MMWAVE_SENSORS,
+            default=self._get_current(CONF_MMWAVE_SENSORS, []),
+        )] = selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="binary_sensor", multiple=True)
+        )
+        schema_dict[vol.Optional(
+            CONF_OCCUPANCY_SENSORS,
+            default=self._get_current(CONF_OCCUPANCY_SENSORS, []),
+        )] = selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="binary_sensor", multiple=True)
+        )
+
+        # Per-entity capability dropdowns (senscap UX v2). Field key is
+        # `caps_kind__<entity_id>`; parsed by the submit handler above.
+        # Default = the entity's current effective kind (override-honouring
+        # via `derive_capability`); selecting the same value writes NOTHING.
+        for _eid in _entities_for_dropdowns:
+            try:
+                _cap = _derive_cap_ui(_room_cfg_view_ui, _eid)
+                _default_kind = _cap.kind if _cap else "motion"
+            except Exception:  # noqa: BLE001 — never break form render
+                _default_kind = "motion"
+            schema_dict[vol.Optional(
+                f"caps_kind__{_eid}", default=_default_kind,
+            )] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=_kind_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    custom_value=False,
+                ),
+            )
+
+        data_schema = vol.Schema({**schema_dict,
             # SENSOR-CAPABILITY-1 D4: per-entity capability overrides
-            # as a JSON textarea. Blank = no overrides = byte-identical
-            # fallback (I1). Rung 2 (options flow) — infrequent, per-
-            # deployment. Shape example:
+            # as a JSON textarea (escape hatch for trust_class /
+            # failure_mode — the per-entity dropdowns above only set
+            # `kind`). Blank = no overrides = byte-identical fallback
+            # (I1). Rung 2 (options flow) — infrequent, per-deployment.
+            # Precedence: if a per-entity dropdown selection disagrees
+            # with the `kind` in this JSON, THE DROPDOWN WINS on save.
+            # Shape example:
             #   {"binary_sensor.bed": {"kind": "bed",
             #                          "trust_class": "strong_evidence"}}
             vol.Optional(

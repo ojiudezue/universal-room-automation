@@ -29,7 +29,7 @@ import _provenance_harness  # noqa: F401  — mocks homeassistant
 from _provenance_harness import make_hass
 
 from custom_components.universal_room_automation.const import (
-    BLE_MOTION_CONFIRM_MULTIPLIER,
+    D2_PIR_STALENESS_MULTIPLIER,
     DOMAIN,
     MMWAVE_FAN_CORROBORATION_ENABLED,
     MMWAVE_FAN_CORROBORATION_GRACE_S,
@@ -202,9 +202,9 @@ def _run_d2_block(
             enabled_override if enabled_override is not None
             else MMWAVE_FAN_CORROBORATION_ENABLED
         ),
-        "BLE_MOTION_CONFIRM_MULTIPLIER": (
+        "D2_PIR_STALENESS_MULTIPLIER": (
             multiplier_override if multiplier_override is not None
-            else BLE_MOTION_CONFIRM_MULTIPLIER
+            else D2_PIR_STALENESS_MULTIPLIER
         ),
         "SIGNAL_MMWAVE_FAN_DEMOTED": _SIGNAL_MMWAVE_FAN_DEMOTED_STR,
         "async_dispatcher_send": lambda hass, sig, payload=None: (
@@ -460,7 +460,7 @@ def test_kill_switch_disabled_never_demotes():
 
 
 def test_mult_zero_disables_via_derived_kill_switch():
-    """BLE_MOTION_CONFIRM_MULTIPLIER=0 -> derived staleness gate off."""
+    """D2_PIR_STALENESS_MULTIPLIER=0 -> outer guard closes D2 (kill switch)."""
     _reset_dispatched()
     hass = make_hass()
     room = "Study A"

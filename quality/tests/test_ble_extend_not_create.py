@@ -38,7 +38,7 @@ import _provenance_harness  # noqa: F401  — mocks homeassistant
 from _provenance_harness import make_hass
 
 from custom_components.universal_room_automation.const import (
-    BLE_MOTION_CONFIRM_MULTIPLIER,
+    BLE_CHAIN_HOLD_ENABLED,
     DOMAIN,
     STATE_BLE_PERSONS,
     STATE_OCCUPANCY_SOURCE,
@@ -120,7 +120,17 @@ def _run_ble_block(
     room_name: str,
     multiplier_override: int | None = None,
 ) -> None:
-    """Execute the extracted BLE block against `self_obj` + `data`."""
+    """Execute the extracted BLE block against `self_obj` + `data`.
+
+    MULT split 2026-08-10: the BLE block's kill switch is now the bool
+    `BLE_CHAIN_HOLD_ENABLED`. `multiplier_override` is honoured for
+    backward-compat with test call sites — `0` maps to disabled, any
+    positive value (or None) maps to enabled.
+    """
+    if multiplier_override is None:
+        _enabled = BLE_CHAIN_HOLD_ENABLED
+    else:
+        _enabled = bool(multiplier_override > 0)
     ns = {
         "self": self_obj,
         "data": data,
@@ -131,11 +141,7 @@ def _run_ble_block(
         "STATE_OCCUPANCY_SOURCE": STATE_OCCUPANCY_SOURCE,
         "STATE_BLE_PERSONS": STATE_BLE_PERSONS,
         "STATE_TIMEOUT_REMAINING": STATE_TIMEOUT_REMAINING,
-        "BLE_MOTION_CONFIRM_MULTIPLIER": (
-            multiplier_override
-            if multiplier_override is not None
-            else BLE_MOTION_CONFIRM_MULTIPLIER
-        ),
+        "BLE_CHAIN_HOLD_ENABLED": _enabled,
         "_LOGGER": logging.getLogger("ble_block_test"),
     }
     exec(_BLE_BLOCK_CODE, ns)
@@ -372,10 +378,11 @@ def test_v3_16_retrigger_ble_source_still_set_on_legitimate_extend():
 
 
 def test_kill_switch_multiplier_zero_disables_ble_chain_hold_even_when_chain_unbroken():
-    """`BLE_MOTION_CONFIRM_MULTIPLIER = 0` disables the BLE hold
-    entirely (chain predicate always false). Post BLE-WARM-CREATE-1
-    (chain-only admission) the meaningful kill check is that even a
-    LEGITIMATE extend (chain unbroken) is suppressed by MULT=0."""
+    """`BLE_CHAIN_HOLD_ENABLED = False` (== the old MULT=0 kill)
+    disables the BLE hold entirely (chain predicate always false).
+    Post BLE-WARM-CREATE-1 (chain-only admission) the meaningful kill
+    check is that even a LEGITIMATE extend (chain unbroken) is
+    suppressed by the kill switch."""
     hass = make_hass()
     room = "Master Bedroom"
     now = datetime(2026, 7, 17, 22, 0, 0)
