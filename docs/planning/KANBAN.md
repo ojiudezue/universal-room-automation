@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-10T22:43:03-05:00_ - _Data commit: `14caab0e65d7`_ - _last_reconciled: 2026-08-10_
+_Generated: 2026-08-10T23:50:38-05:00_ - _Data commit: `f5be95607682`_ - _last_reconciled: 2026-08-10_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -15,9 +15,9 @@ _Generated: 2026-08-10T22:43:03-05:00_ - _Data commit: `14caab0e65d7`_ - _last_r
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 2 |
 | 🔨 In progress | 0 |
-| 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 13 |
-| ⏸️ Waiting on operator | 2 |
+| 🔍 Review | 0 |
+| 🚀 Shipped (organic open) | 14 |
+| ⏸️ Waiting on operator | 3 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 0 |
 | ✅ Done | 3 |
@@ -235,27 +235,12 @@ _being built_
 
 _(none)_
 
-## 🔍 Review (1)
+## 🔍 Review (0)
 _under review_
 
-### `ARREST-COMFORT-1` - Override arrester reverts occupant manual cooling requests with no comfort exemption
-thread: **hvac** - status: **review** - approval: **approved**
-- **Origin:** 2026-08-09 - operator: "I think manual were kids trying to cool their space and the arrester stops them"
-- **Why:** Observed tonight: zone_2 preset went to `manual` at 16:49 and again at 17:14 — the kids walking to the thermostat in an 80F room and asking for cooling. The override arrester reverted both within 10 and 5 minutes respectively. After 17:1...
-- **Next:** Cycle A build after FAN-LAYER build slots clear (both touch hvac.py — SERIALIZE the builds; plan work done in parallel per operator mandate).
-- **Forensic keys (10):**
-  - `review_state`: Cycle A built (18b491e01, 28 tests, kids-replay authentic). Tier-3 4x reviews: B SHIP; A/C/D DO-NOT-SHIP with DISJOINT blockers — A-CRIT-1 occupancy gate read static zone_persons config list not live occupancy; D-CRIT-1 DPM apply ungated...
-  - `sharp_problem`: A manual cool request, from an occupied zone, at 80F, during recovery from a 24h absence, is the single highest-quality signal in the building — a human walked to a wall and said they are uncomfortable. The arrester treats it as noise to...
-  - `fix_direction`: Exempt (or substantially delay) arrest when the zone is occupied AND the manual change moves toward comfort AND the temp delta is large. Arresting inside 5-10 minutes is worse than not arresting at all — the occupant never feels an effec...
-  - `operator_action_taken_2026_08_09`: temp_arrester_override switched ON and all three zones set to home at operator instruction. Verified: ceilings dropped 80 -> 76/77, all three cooling, runtime_exceeded cleared. Note the override has a 6h max life and sunsets on some hous...
-  - `OPERATOR_DESIGN_2026_08_10`: DELAY chosen over exempt. Plus three design inputs verbatim-captured: (1) IDENTIFICATION QUESTION (operator): "how will this situation be identified specifically to widen the delay/grace?" — the predicate for "occupant comfort request" n...
-  - `PLAN_2026_08_11`: PLANNING_arrester_comfort_delay.md. STAGED: Cycle A = predicate + SOC-gated flat grace + coast-precedence guard (~95% of the kids-incident benefit); Cycle B (graduated concession + approach-speed observer) PARKED with evidence trigger — ...
-  - `PLAN_REVIEWS_2026_08_11`: Both NEEDS-REVISION (the protocol's first subject, and it paid): R1-H1 preset-writes clobber a granted setpoint on Bryant preset thermostats — INV-violating by construction, 9 emit sites unguarded; R2-H1 dual-setpoint predicate undefined...
-  - `PROBE_2026_08_11`: D1/D2/D3 all GO. Qualifying events 44.4/wk (NOT rare — zone_2 = 43/49); SOC>=80 at ~50% of events so the gate is genuinely load-bearing; coast co-fire 13.6/wk -> D3 required; multi-thermostat zones = ZERO -> grant key simplifies to zone_...
-  - `CYCLE_B_ESCALATION_DECISION`: Probe found Cycle-B's evidence trigger ALREADY MET (08-08 zone_2: 4 qualifying flips in 61 min). OPERATOR CALL: pull D4 graduated concession in-cycle, or keep staged? ORCHESTRATOR RECOMMENDATION: KEEP STAGED — the trigger being met justi...
-  - `DEDUPE_2026_08_09`: Sweep: ARREST-SUNSET-1 (shipped) is about WHEN the override sunsets; OVERRIDE-NOTIFY-1 is about warning before expiry. Neither touches whether the arrester should fire against an occupant comfort request in the first place. HVAC-PRESET-F...
+_(none)_
 
-## 🚀 Shipped (organic open) (13)
+## 🚀 Shipped (organic open) (14)
 _live, awaiting proof_
 
 ### `SENSOR-CAPABILITY-1` - Separate sensor CAPABILITY (hardware kind) from analytic ROLE — kind is currently the config bucket
@@ -332,6 +317,24 @@ thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
   - `SEQUENCING_NOTE`: P24-fix and D3-kill both touch coordinator.py / person_coordinator.py. The SENSOR-CAPABILITY-1 fix-up is concurrently editing coordinator.py on sensor-cap-rebase. Queue these two BEHIND that merge rather than running them in parallel — w...
   - `operator_decision_2026_08_09`: DROP from migration. Rarity is not itself a defect — a detector guarding a condition that genuinely does not occur is working. This does NOT close the question of whether the thresholds are right; it only removes them from the ledger cyc...
   - `DEDUPE_2026_08_09`: Four-surface sweep: STUCK-SENSOR-1 is adjacent (shares the no-persistence root cause) but is about EXCLUSION POLICY for live detectors; this is about detectors that never fire at all — different problem, linked not merged. BACKLOG B-2026...
+
+### `ARREST-COMFORT-1` - Override arrester reverts occupant manual cooling requests with no comfort exemption
+thread: **hvac** - status: **shipped_organic** - approval: **approved**
+- **Origin:** 2026-08-09 - operator: "I think manual were kids trying to cool their space and the arrester stops them"
+- **Why:** Observed tonight: zone_2 preset went to `manual` at 16:49 and again at 17:14 — the kids walking to the thermostat in an 80F room and asking for cooling. The override arrester reverted both within 10 and 5 minutes respectively. After 17:1...
+- **Next:** Cycle A build after FAN-LAYER build slots clear (both touch hvac.py — SERIALIZE the builds; plan work done in parallel per operator mandate).
+- **Forensic keys (11):**
+  - `shipped_version`: v5.69.0
+  - `review_state`: Cycle A built (18b491e01, 28 tests, kids-replay authentic). Tier-3 4x reviews: B SHIP; A/C/D DO-NOT-SHIP with DISJOINT blockers — A-CRIT-1 occupancy gate read static zone_persons config list not live occupancy; D-CRIT-1 DPM apply ungated...
+  - `sharp_problem`: A manual cool request, from an occupied zone, at 80F, during recovery from a 24h absence, is the single highest-quality signal in the building — a human walked to a wall and said they are uncomfortable. The arrester treats it as noise to...
+  - `fix_direction`: Exempt (or substantially delay) arrest when the zone is occupied AND the manual change moves toward comfort AND the temp delta is large. Arresting inside 5-10 minutes is worse than not arresting at all — the occupant never feels an effec...
+  - `operator_action_taken_2026_08_09`: temp_arrester_override switched ON and all three zones set to home at operator instruction. Verified: ceilings dropped 80 -> 76/77, all three cooling, runtime_exceeded cleared. Note the override has a 6h max life and sunsets on some hous...
+  - `OPERATOR_DESIGN_2026_08_10`: DELAY chosen over exempt. Plus three design inputs verbatim-captured: (1) IDENTIFICATION QUESTION (operator): "how will this situation be identified specifically to widen the delay/grace?" — the predicate for "occupant comfort request" n...
+  - `PLAN_2026_08_11`: PLANNING_arrester_comfort_delay.md. STAGED: Cycle A = predicate + SOC-gated flat grace + coast-precedence guard (~95% of the kids-incident benefit); Cycle B (graduated concession + approach-speed observer) PARKED with evidence trigger — ...
+  - `PLAN_REVIEWS_2026_08_11`: Both NEEDS-REVISION (the protocol's first subject, and it paid): R1-H1 preset-writes clobber a granted setpoint on Bryant preset thermostats — INV-violating by construction, 9 emit sites unguarded; R2-H1 dual-setpoint predicate undefined...
+  - `PROBE_2026_08_11`: D1/D2/D3 all GO. Qualifying events 44.4/wk (NOT rare — zone_2 = 43/49); SOC>=80 at ~50% of events so the gate is genuinely load-bearing; coast co-fire 13.6/wk -> D3 required; multi-thermostat zones = ZERO -> grant key simplifies to zone_...
+  - `CYCLE_B_ESCALATION_DECISION`: Probe found Cycle-B's evidence trigger ALREADY MET (08-08 zone_2: 4 qualifying flips in 61 min). OPERATOR CALL: pull D4 graduated concession in-cycle, or keep staged? ORCHESTRATOR RECOMMENDATION: KEEP STAGED — the trigger being met justi...
+  - `DEDUPE_2026_08_09`: Sweep: ARREST-SUNSET-1 (shipped) is about WHEN the override sunsets; OVERRIDE-NOTIFY-1 is about warning before expiry. Neither touches whether the arrester should fire against an occupant comfort request in the first place. HVAC-PRESET-F...
 
 ### `BLE-WARM-CREATE-1` - BLE re-creates bathroom occupancy inside the 10-min warm window on every toilet visit (v5.22.0 left this open by design)
 thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
@@ -469,8 +472,14 @@ thread: **perimeter** - status: **shipped_organic**
   - `note`: live PASS (zero multi-key WARN / _2 storm / URA ERROR; telemetry attr present)
   - `organic_open`: CLOSED 2026-08-07: leg_firing_by_camera POPULATED from real events (rear_ptz shows frigate+frigate2+protect on one camera; back_yard frigate+frigate2); today's exterior person-detects each = one alert per track, pass_by tracks alert_coun...
 
-## ⏸️ Waiting on operator (2)
+## ⏸️ Waiting on operator (3)
 _needs a human call_
+
+### `COMFORT-TOGGLE-1` - Dedicated enable switch for comfort-delay grace (vs grace_minutes=0 kill)
+thread: **hvac** - status: **waiting_operator** - approval: **unreviewed**
+- **Origin:** 2026-08-10 - operator Q at v5.69.0 ship: "Can we gate this behind a toggle ie this more permissive bypass? What is the config surface?" — question, not command
+- **Why:** grace_minutes=0 already kills the feature but destroys the tuned duration on toggle; a switch preserves it + one-tap tile. Marginal: mild config-surface growth for convenience.
+- **Next:** Operator decides: build the switch (Tier-1, ~30 LoC mirroring existing URA switch persistence) or accept grace_minutes=0 as the toggle. Also parked: hard peak-TOU conjunct (one-line predicate) if live evidence shows SOC-80 floor insuffic...
 
 ### `F1-SUNSET` - Frigate-1 go/no-go
 thread: **camera** - status: **waiting_operator** - approval: **blocked**

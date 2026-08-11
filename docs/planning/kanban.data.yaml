@@ -711,6 +711,17 @@ cards:
     different flap (mmWave sensor stuck, not HVAC preset) — no merge. ARREST-SUNSET-1 shipped and is
     about override sunset, not oscillation. OVERRIDE-NOTIFY-1 is expiry warning. BACKLOG has no HVAC
     preset-flap item. NEW.'
+- id: COMFORT-TOGGLE-1
+  title: Dedicated enable switch for comfort-delay grace (vs grace_minutes=0 kill)
+  thread: hvac
+  status: waiting_operator
+  approval: unreviewed
+  origin:
+    date: '2026-08-10'
+    gist: 'operator Q at v5.69.0 ship: "Can we gate this behind a toggle ie this more permissive bypass? What is the config surface?" — question, not command'
+  why: 'grace_minutes=0 already kills the feature but destroys the tuned duration on toggle; a switch preserves it + one-tap tile. Marginal: mild config-surface growth for convenience.'
+  next: 'Operator decides: build the switch (Tier-1, ~30 LoC mirroring existing URA switch persistence) or accept grace_minutes=0 as the toggle. Also parked: hard peak-TOU conjunct (one-line predicate) if live evidence shows SOC-80 floor insufficient during peak.'
+
 - id: ARREST-COMFORT-1
   title: Override arrester reverts occupant manual cooling requests with no comfort exemption
   thread: hvac
