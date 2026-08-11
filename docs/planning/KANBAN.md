@@ -2,10 +2,16 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-10T19:51:52-05:00_ - _Data commit: `6eb2404ddd14`_ - _last_reconciled: 2026-08-10_
+_Generated: 2026-08-10T20:12:03-05:00_ - _Data commit: `b4e51d6d69ff`_ - _last_reconciled: 2026-08-10_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
+
+> ## ⚠️ STALE - board has not been reconciled against newer work
+>
+> - newest README README_v5.67.0.md (2026-08-11) is newer than last_reconciled (2026-08-10)
+>
+> Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
 
 ## Columns
 
