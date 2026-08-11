@@ -973,6 +973,19 @@ cards:
   constraints: 'LAN-site only (Artifact CSP cannot POST). No auth on LAN site per operator choice. Source of truth stays kanban.data.yaml; the queue is pending-intent, not state.'
   next: 'Build: webhost micro-API + board JS (buttons done/deferred/declined + column drag) + cron pull of disposition queue + pending-chip render + session-start apply protocol in ura-kanban skill.'
 
+- id: EV-DP-STALL-1
+  title: EV DP charging-plan machine frozen in hold_only since 2026-08-07 (blind_hold latch, eval loop dead)
+  thread: energy
+  status: pre_planning
+  approval: unreviewed
+  origin:
+    date: '2026-08-11'
+    gist: 'operator: "The BMW on Garage A has not charged for a bit overnight." Confirmed: zero overnight charging Aug 8/9/10.'
+  why: 'ev_charging_plan last_eval_at=2026-08-07T11:44 (5-min cadence configured); reason=blind_hold (soc read null at eval); must_start_by 2026-08-08T03:00 expired un-actioned; SOC readable again (87) but NO re-eval in 4 days. Restarts re-publish state but do not re-run eval. Zero log errors. Stuck-signal watchdog did not cover this family.'
+  sharp_problem: 'A fail-safe hold (blind_hold) with no discharge path = suppression-needs-a-discharge violation in the DP plan machine: what re-fires eval after a blind hold? Also: watchdog coverage gap for silent eval-loop death.'
+  next: 'Investigate why the eval loop stopped (timer cancelled? exception swallowed? blind-latch by design?). Probe-first: recorder history of plan attrs around Aug 7 12:34. Then fix + watchdog coverage + discharge contract. Interim operator unblock: force-charge button or restart test.'
+  refs: 'sensor.ura_energy_coordinator_ev_charging_plan attrs snapshot 2026-08-11; project_ev_drain_precedence_cycle memory (queued, related)'
+
 - id: FAN-LAYER-2
   title: FanPolicyOracle completion — RoomFanState delegation + actuate-wrap remainder (W1-W3, W8-W10) + INV-FLA-T lock
   thread: fans
