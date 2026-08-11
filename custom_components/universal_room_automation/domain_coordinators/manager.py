@@ -138,6 +138,48 @@ class CoordinatorManager:
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the coordinator manager."""
         self.hass = hass
+        # FAN-LAYER-1 D2 (2026-08-10, Session 1): construct the
+        # FanPolicyOracle singleton BEFORE ``self._coordinators`` is
+        # populated. Every writer coordinator that will later consult the
+        # oracle is registered via ``register_coordinator``; constructing
+        # here in ``__init__`` guarantees the oracle exists before any
+        # writer's ``async_setup_entry`` fires (PLAN §7.7 boot-order
+        # invariant, enforced by
+        # ``test_fan_oracle_constructed_before_writers``).
+        try:
+            from .fan_policy_oracle import FanPolicyOracle  # noqa: PLC0415
+            # B-HIGH-2 fix-up (2026-08-11): reuse an existing oracle from
+            # hass.data if one is already present — a CM reload (config
+            # entry reload) constructs a new CoordinatorManager but the
+            # oracle instance MUST SURVIVE so live manual-ON holds and
+            # OFF cooldowns aren't dropped. Constructing unconditionally
+            # here would wipe every live hold on reload, causing an
+            # immediate URA re-arm against a fan the operator just
+            # turned on. Only construct on first attach.
+            existing = None
+            if hass is not None:
+                try:
+                    existing = hass.data.get(DOMAIN, {}).get("fan_oracle")
+                except Exception:  # noqa: BLE001
+                    existing = None
+            self._fan_oracle: "FanPolicyOracle | None" = (
+                existing if existing is not None else FanPolicyOracle(hass)
+            )
+            if hass is not None:
+                try:
+                    hass.data.setdefault(DOMAIN, {})["fan_oracle"] = self._fan_oracle
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "FanPolicyOracle: hass.data stash failed (non-fatal)",
+                        exc_info=True,
+                    )
+        except Exception:  # noqa: BLE001
+            _LOGGER.error(
+                "FanPolicyOracle construction failed — Session 1 skeleton "
+                "unavailable, no writers migrated yet so this is non-fatal",
+                exc_info=True,
+            )
+            self._fan_oracle = None
         self._coordinators: dict[str, BaseCoordinator] = {}
         self._intent_queue: list[Intent] = []
         self._conflict_resolver = ConflictResolver()
@@ -289,6 +331,15 @@ class CoordinatorManager:
             _LOGGER.debug(
                 "record_state_driven_action failed (non-fatal)", exc_info=True
             )
+
+    @property
+    def fan_oracle(self):
+        """Return the FanPolicyOracle singleton (FAN-LAYER-1 D2).
+
+        May be ``None`` if construction failed at ``__init__``. Callers
+        MUST tolerate None; Session 1 has no wired consumers.
+        """
+        return self._fan_oracle
 
     @property
     def coordinators(self) -> dict[str, BaseCoordinator]:
