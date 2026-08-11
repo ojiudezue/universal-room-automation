@@ -973,6 +973,17 @@ cards:
   constraints: 'LAN-site only (Artifact CSP cannot POST). No auth on LAN site per operator choice. Source of truth stays kanban.data.yaml; the queue is pending-intent, not state.'
   next: 'Build: webhost micro-API + board JS (buttons done/deferred/declined + column drag) + cron pull of disposition queue + pending-chip render + session-start apply protocol in ura-kanban skill.'
 
+- id: DP-OBSERVABILITY-1
+  title: DP plan sensor presents stale eval snapshot as current (misled 2 diagnoses in one day)
+  thread: energy
+  status: pre_planning
+  approval: unreviewed
+  origin:
+    date: '2026-08-11'
+    gist: 'Found during EV-GARAGE-A-NOCHARGE-1: last_eval_at 4 days old + expired must_start_by rendered without staleness cues; pause_reason_human shows day-scoped reason strings that read as current at any hour.'
+  why: 'The sensor is honest data, dishonest presentation: hold_only (resting state) + stale snapshot reads as "frozen/blocked". Cost: orchestrator misdiagnosed a stall; operator asked "how is that a sensor".'
+  next: 'Small cycle: age-stamp the snapshot in attrs (eval_age_min), render must_start_by only when future, clarify hold_only naming/attr (state=resting vs active-pause), and consider a stale-eval WARN when off_peak+charging ticks pass without eval.'
+
 - id: EV-GARAGE-A-NOCHARGE-1
   title: BMW on Garage A refuses charge overnight — vehicle-side or pilot fault; URA exonerated
   thread: energy

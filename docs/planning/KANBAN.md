@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-11T14:47:40-05:00_ - _Data commit: `f376b07c69e0`_ - _last_reconciled: 2026-08-11_
+_Generated: 2026-08-11T15:39:03-05:00_ - _Data commit: `c50334c619c7`_ - _last_reconciled: 2026-08-11_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,7 +12,7 @@ _Generated: 2026-08-11T14:47:40-05:00_ - _Data commit: `f376b07c69e0`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 1 |
-| 🧭 Pre-planning | 14 |
+| 🧭 Pre-planning | 15 |
 | 📝 Planned | 2 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 0 |
@@ -41,7 +41,7 @@ thread: **dashboarding** - status: **inbox** - approval: **explicit**
   - `followup_candidate`: retrofit conditional rendering to the Battery Strategy Detail card (same section group, same defect, ~30 min) — only if the operator endorses this card's style
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
 
-## 🧭 Pre-planning (14)
+## 🧭 Pre-planning (15)
 _idea being decomposed_
 
 ### `HVAC-PRESET-FLAP-1` - HVAC zone preset flaps home<->away every 5-15 min during occupied evenings (survives Writer-B removal)
@@ -61,6 +61,12 @@ thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
   - `MECHANISM_PROVEN_2026_08_09`: Two URA writers alternating with NO arbitration between them. From the ledger, zone_2, every row carrying persons=[ziri, jaya]: 23:34 home->away reason=runtime_exceeded       runtime=True 23:24 away->home reason=house_state_transition ru...
   - `my_process_failure`: I proposed three mechanisms in sequence from snapshots — "URA says home, device says away", then "the 120-min cap fired", then "it is coast" — and each fit the instant I was looking at and died on the next fact. The history query I ran F...
   - `DEDUPE_2026_08_09`: Four-surface sweep: P1P3 is the PARENT (closed, spawned this). STUCK-SENSOR-1 is a different flap (mmWave sensor stuck, not HVAC preset) — no merge. ARREST-SUNSET-1 shipped and is about override sunset, not oscillation. OVERRIDE-NOTIFY-1...
+
+### `DP-OBSERVABILITY-1` - DP plan sensor presents stale eval snapshot as current (misled 2 diagnoses in one day)
+thread: **energy** - status: **pre_planning** - approval: **unreviewed**
+- **Origin:** 2026-08-11 - Found during EV-GARAGE-A-NOCHARGE-1: last_eval_at 4 days old + expired must_start_by rendered without staleness cues; pause_reason_human shows day-scoped reason strings that read as current at any hour.
+- **Why:** The sensor is honest data, dishonest presentation: hold_only (resting state) + stale snapshot reads as "frozen/blocked". Cost: orchestrator misdiagnosed a stall; operator asked "how is that a sensor".
+- **Next:** Small cycle: age-stamp the snapshot in attrs (eval_age_min), render must_start_by only when future, clarify hold_only naming/attr (state=resting vs active-pause), and consider a stale-eval WARN when off_peak+charging ticks pass without e...
 
 ### `FAN-LAYER-2` - FanPolicyOracle completion — RoomFanState delegation + actuate-wrap remainder (W1-W3, W8-W10) + INV-FLA-T lock
 thread: **fans** - status: **pre_planning** - approval: **unreviewed**
