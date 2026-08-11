@@ -97,7 +97,9 @@ from .const import (
     CONF_HUMIDITY_FAN_MAX_RUNTIME,
     CONF_FAN_VACANCY_HOLD,
     DEFAULT_FAN_VACANCY_HOLD,
+    CONF_FAN_MANUAL_ON_HOLD_S,
     DEFAULT_FAN_MANUAL_OFF_COOLDOWN_S,
+    DEFAULT_FAN_MANUAL_ON_HOLD_S,
     DEFAULT_HUMIDITY_THRESHOLD,
     DEFAULT_HUMIDITY_FAN_TIMEOUT,
     DEFAULT_HUMIDITY_FAN_MAX_RUNTIME,
@@ -266,6 +268,27 @@ class RoomAutomation:
         # re-armed on the next 30s tick. See
         # docs/planning/PLANNING_fan_manual_off_cooldown.md D1.
         self._fan_manual_off_until: datetime | None = None
+        # FAN-MANUAL-1 (2026-08-10): symmetric ON-side hold. When an
+        # external actor turns the room's fans ON, honor the intent for
+        # DEFAULT_FAN_MANUAL_ON_HOLD_S seconds (per-room override:
+        # CONF_FAN_MANUAL_ON_HOLD_S). While the hold is live, URA must
+        # NOT emit turn_off against the fans except for the discharge
+        # conditions enumerated in PLANNING_fan_manual_on_override §5.3.
+        # RAM-only (matches OFF cooldown; boot re-adopts an
+        # externally-lit fan and re-opens a fresh hold).
+        self._fan_manual_on_until: datetime | None = None
+        # Mirror of ``_fan_off_issued_this_tick``. Set True when THIS
+        # coordinator dispatches a fan turn_on so the ON-detector below
+        # does not misread its own write as an external ON.
+        self._fan_on_issued_this_tick: bool = False
+        # Boot-edge guard for the ON detector: skip external-ON detection
+        # on the very first tick since construction. Without this, a fan
+        # left ON across an HA restart would trip a spurious hold because
+        # `_last_seen_any_fan_on` starts False. The OFF detector does not
+        # need this guard — its trigger shape (prev=on + curr=off) does
+        # not fire on the seed direction. Set True after the ON detector
+        # runs once (see the detection block).
+        self._fan_on_detector_seeded: bool = False
         # Baseline for external-off detection: tracks whether we saw any
         # fan ON on the PREVIOUS tick, so a transition to all-off that
         # wasn't caused by our own service call is diagnosable as
@@ -290,6 +313,41 @@ class RoomAutomation:
         # re-fire for SLEEP_FAN_ON_REARM_S even if the house flaps
         # out-of-trust-states and back.
         self._sleep_onset_last_fire_at: datetime | None = None
+
+    def _resolve_fan_manual_on_hold_s(self) -> int:
+        """Return the effective manual-ON hold window seconds for this room.
+
+        FAN-MANUAL-1: per-room override via CONF_FAN_MANUAL_ON_HOLD_S,
+        default DEFAULT_FAN_MANUAL_ON_HOLD_S. Kill switch: 0 disables
+        the feature (either rung). Returns int seconds; on any parse
+        error falls back to the module default rather than silently
+        disabling the feature.
+        """
+        try:
+            raw = self.config.get(
+                CONF_FAN_MANUAL_ON_HOLD_S, DEFAULT_FAN_MANUAL_ON_HOLD_S,
+            )
+            if raw is None or raw == "":
+                return DEFAULT_FAN_MANUAL_ON_HOLD_S
+            return max(0, int(raw))
+        except (TypeError, ValueError):
+            return DEFAULT_FAN_MANUAL_ON_HOLD_S
+
+    def is_fan_in_manual_on_hold(self) -> bool:
+        """True while the room-tier fan manual-ON hold window is live.
+
+        FAN-MANUAL-1: symmetric to ``is_fan_in_manual_cooldown``. Cheap
+        read; does NOT clear expired windows (expiry handled organically
+        by ``handle_temperature_based_fan_control`` on the next tick).
+        Consumed by every URA fan-OFF-emitting site to enforce INV-FMH.
+        """
+        try:
+            until = self._fan_manual_on_until
+            if until is None:
+                return False
+            return dt_util.now() < until
+        except Exception:  # noqa: BLE001
+            return False
 
     def is_fan_in_manual_cooldown(self) -> bool:
         """True while the room-tier fan manual-off cooldown window is live.
@@ -1622,6 +1680,11 @@ class RoomAutomation:
         # via sleep_onset_fan_target — single source of truth for the
         # eligibility + speed decision. One-shot latch is per-instance;
         # reset when the house leaves FAN_TRUST_STATES.
+        # FAN-MANUAL-1: reset the URA-issued-ON marker BEFORE sleep-onset
+        # can run. Sleep-onset dispatches turn_on directly, and must be
+        # able to mark the transient so the ON-detector below does not
+        # misread its own write as an external ON.
+        self._fan_on_issued_this_tick = False
         try:
             await self._maybe_sleep_onset_activate(fans, temperature, occupied)
         except Exception as exc:  # noqa: BLE001 — never break temp path
@@ -1682,6 +1745,10 @@ class RoomAutomation:
                 # keeps the stale start; a subsequent external-ON reversal
                 # would inherit that stamp and skip the fresh grace window.
                 self._fan_vacancy_start = None
+                # FAN-MANUAL-1 discharge (b): a fresh external OFF is a
+                # newer human instruction than any live ON hold. Clear
+                # the hold; the OFF cooldown opened above now governs.
+                self._fan_manual_on_until = None
                 _LOGGER.info(
                     "Room %s: fan turned off externally — "
                     "room-tier cooldown until %s (FIX C)",
@@ -1704,6 +1771,20 @@ class RoomAutomation:
                 )
                 self._fan_manual_off_until = None
                 self._fan_vacancy_start = None
+                # FAN-MANUAL-1: the reversal IS a fresh manual-ON. Open
+                # the ON hold so the symmetric protection applies (the
+                # operator changed their mind; honor the newest intent).
+                hold_s = self._resolve_fan_manual_on_hold_s()
+                if hold_s > 0:
+                    self._fan_manual_on_until = (
+                        dt_util.now() + timedelta(seconds=hold_s)
+                    )
+                    _LOGGER.info(
+                        "Room %s: fan back on during cooldown — "
+                        "manual-ON hold until %s (FAN-MANUAL-1)",
+                        self.config.get("room_name", "Unknown"),
+                        self._fan_manual_on_until.isoformat(),
+                    )
             elif (
                 self._fan_manual_off_until is not None
                 and dt_util.now() >= self._fan_manual_off_until
@@ -1721,11 +1802,69 @@ class RoomAutomation:
                 self._last_seen_any_fan_on = any_fan_on_now
                 return
 
+        # FAN-MANUAL-1: symmetric manual-ON detection + hold enforcement.
+        # Mirrors the OFF-cooldown mechanism above using the exact
+        # `_last_seen_any_fan_on` baseline plus a `_fan_on_issued_this_tick`
+        # marker (set by URA-owned turn_on paths — sleep-onset, temp-branch
+        # ON below, humidity fans are managed separately and out of scope).
+        # Discharge: (a) expiry, (b) external OFF cleared the hold in the
+        # OFF-cooldown-open branch above, (c) allowlisted URA OFF via
+        # trigger_path (HVAC/recheck sites), (d) safety events, (e)
+        # `fan_control_enabled` toggle-off (upstream — see hvac_fans
+        # `turn_off_all_managed`). Kill switch: hold_s == 0 disables.
+        hold_s = self._resolve_fan_manual_on_hold_s()
+        if hold_s > 0 and self._fan_on_detector_seeded:
+            if (
+                not self._last_seen_any_fan_on
+                and any_fan_on_now
+                and not self._fan_on_issued_this_tick
+                and self._fan_manual_on_until is None
+            ):
+                self._fan_manual_on_until = (
+                    dt_util.now() + timedelta(seconds=hold_s)
+                )
+                # Symmetric to OFF-open: clear vacancy anchor so the
+                # fresh manual intent starts a clean grace window on
+                # any subsequent vacant tick.
+                self._fan_vacancy_start = None
+                _LOGGER.info(
+                    "Room %s: fan turned on externally — "
+                    "manual-ON hold until %s (FAN-MANUAL-1)",
+                    self.config.get("room_name", "Unknown"),
+                    self._fan_manual_on_until.isoformat(),
+                )
+            elif (
+                self._fan_manual_on_until is not None
+                and dt_util.now() >= self._fan_manual_on_until
+            ):
+                _LOGGER.info(
+                    "Room %s: manual-ON hold expired (FAN-MANUAL-1)",
+                    self.config.get("room_name", "Unknown"),
+                )
+                self._fan_manual_on_until = None
+        # Seed the boot-edge guard after the first pass through the
+        # detector — subsequent ticks perform full external-ON detection.
+        self._fan_on_detector_seeded = True
+
         # v3.18.1: Fan sleep policy — reduce speed or turn off during sleep
         sleep_speed_cap = None
         if self.is_sleep_mode_active():
             policy = self.config.get(CONF_FAN_SLEEP_POLICY, DEFAULT_FAN_SLEEP_POLICY)
             if policy == FAN_SLEEP_OFF:
+                # FAN-MANUAL-1 ruling 1 (freshest wins): a live manual-ON
+                # hold survives FAN_SLEEP_OFF. Symmetric to the manual-off
+                # cooldown blocking sleep-onset activation at
+                # `_maybe_sleep_onset_activate` — a fresh manual instruction
+                # outranks standing sleep policy for the duration of the
+                # hold window (bounded by DEFAULT_FAN_MANUAL_ON_HOLD_S).
+                if self.is_fan_in_manual_on_hold():
+                    _LOGGER.info(
+                        "Room %s: FAN_SLEEP_OFF skipped — "
+                        "manual-ON hold active (FAN-MANUAL-1)",
+                        self.config.get("room_name", "Unknown"),
+                    )
+                    self._last_seen_any_fan_on = any_fan_on_now
+                    return
                 await self._safe_service_call(
                     "homeassistant", SERVICE_TURN_OFF, {"entity_id": fans},
                     blocking=False,
@@ -1799,6 +1938,22 @@ class RoomAutomation:
             and room_type == ROOM_TYPE_BEDROOM
         )
         if (temperature < effective_threshold or not occupied) and not sleep_occupied_hold:
+            # FAN-MANUAL-1 INV-FMH: while the manual-ON hold is live, do
+            # NOT emit the temperature/vacancy revert against a fan the
+            # operator just turned on. This is the primary bug site
+            # (Living Room complaint). The hold is bounded by
+            # `_resolve_fan_manual_on_hold_s`; on expiry the next tick
+            # will emit the revert normally.
+            if self.is_fan_in_manual_on_hold():
+                _LOGGER.debug(
+                    "Room %s: fan OFF (below-threshold/vacant) suppressed "
+                    "— manual-ON hold active (FAN-MANUAL-1)",
+                    self.config.get("room_name", "Unknown"),
+                )
+                # Preserve baseline so the fan-still-on state does not
+                # look like an external ON on the next tick.
+                self._last_seen_any_fan_on = any_fan_on_now
+                return
             # Turn off fans/switches if below threshold or room vacant
             # v3.2.9: Use homeassistant domain for multi-domain support
             await self._safe_service_call(
@@ -1859,6 +2014,9 @@ class RoomAutomation:
                 # Baseline update mirrors the "no action" branch below.
                 self._last_seen_any_fan_on = any_fan_on_now
                 return
+            # FAN-MANUAL-1: mark this tick's ON dispatch as URA-owned so
+            # the manual-ON detector does NOT open a hold on our own write.
+            self._fan_on_issued_this_tick = True
             try:
                 # v3.2.9: Try to set speed (works for fan domain)
                 # If it fails (e.g., switch domain), just turn on
@@ -2519,6 +2677,13 @@ class RoomAutomation:
         # split used elsewhere in this file (see _shared_space_turn_off_all).
         fan_entities = [f for f in fans if f.startswith("fan.")]
         switch_entities = [f for f in fans if not f.startswith("fan.")]
+        # FAN-MANUAL-1: mark this tick's ON dispatch as URA-owned so
+        # the downstream manual-ON detector in
+        # ``handle_temperature_based_fan_control`` (called next in the
+        # same coroutine chain) does not open a spurious hold on our
+        # own write. Baseline is also nudged True to guard the
+        # subsequent tick against a state-lag false external-ON.
+        self._fan_on_issued_this_tick = True
         try:
             if fan_entities:
                 await self._safe_service_call(
@@ -2532,6 +2697,7 @@ class RoomAutomation:
                     {"entity_id": switch_entities},
                     blocking=False,
                 )
+            self._last_seen_any_fan_on = True
             self._sleep_onset_fired = True
             self._sleep_onset_last_fire_at = dt_util.now()
             _LOGGER.info(

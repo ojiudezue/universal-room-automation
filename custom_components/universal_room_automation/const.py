@@ -561,6 +561,26 @@ DEFAULT_FAN_RECHECK_HVAC_SUPPRESS_S: Final = 600
 # reversal without a rollback.
 DEFAULT_FAN_MANUAL_OFF_COOLDOWN_S: Final = 3600
 
+# FAN-MANUAL-1 (2026-08-10). Symmetric ON-side of the manual-off
+# cooldown. When URA detects an external actor turning a fan ON, honor
+# that intent for this many seconds before allowing any URA
+# ``turn_off`` to fire against the fan (temperature-below-threshold
+# revert, vacancy sweep, FAN_SLEEP_OFF, HVAC vacancy/temp OFF).
+# Discharge conditions (bounded runtime + external OFF + allowlisted
+# trigger paths + safety + fan_control_enabled off) enumerated in
+# docs/planning/PLANNING_fan_manual_on_override.md §5.3.
+#
+# Rung: module constant per CLAUDE.md "Numbers Get Knobs". The value
+# governs whether a comfort revert can fire against a human's explicit
+# ON action; misconfiguring re-creates the original "system overrules
+# the human" complaint. Tuning should require a reviewed code change.
+#
+# Kill switch: 0 = feature disabled (no hold ever opens; pre-fix
+# behavior). Mirrored on the per-room CONF (explicit 0 in the
+# per-room override disables the feature for that room only).
+DEFAULT_FAN_MANUAL_ON_HOLD_S: Final = 3600
+CONF_FAN_MANUAL_ON_HOLD_S: Final = "fan_manual_on_hold_s"
+
 # Trigger requires occupancy_source == "mmwave" for N consecutive ticks.
 CONF_FAN_RECHECK_MMWAVE_HISTORY_TICKS: Final = "fan_recheck_mmwave_history_ticks"
 DEFAULT_FAN_RECHECK_MMWAVE_HISTORY_TICKS: Final = 3

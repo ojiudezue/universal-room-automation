@@ -24,6 +24,7 @@ from ..const import (
     CONF_ROOM_TYPE,
     CONF_SLEEP_FAN_ON_TEMP_F,
     DEFAULT_FAN_MANUAL_OFF_COOLDOWN_S,
+    DEFAULT_FAN_MANUAL_ON_HOLD_S,
     DEFAULT_FAN_SLEEP_POLICY,
     DEFAULT_SLEEP_FAN_ON_TEMP_F,
     DOMAIN,
@@ -81,6 +82,22 @@ class RoomFanState:
     last_on_time: str = ""
     vacancy_detected_time: str = ""
     manual_off_cooldown_until: str = ""  # ISO datetime — skip activation until this time
+    # FAN-MANUAL-1 (2026-08-10): purpose-named ON-side hold. Set when an
+    # external actor turns the fan ON (or when the operator turns it
+    # back on during an OFF cooldown). While populated + in-window, no
+    # URA `_set_fan_state(..., False)` may fire against this room's
+    # fans except for allowlisted trigger_paths (recheck bypass via
+    # `room_name=None`, `turn_off_all_managed` kill switch, safety).
+    # RAM-only (matches manual_off_cooldown_until — no persistence).
+    # Previously conflated with `manual_off_cooldown_until` (adoption
+    # branch set the OFF field on an is_on=True fan as a marker); this
+    # field ends that overload — see PLANNING §5.4.
+    manual_on_hold_until: str = ""
+    # Paused-at ISO datetime while fan-recheck holds this fan OFF for
+    # its observation window. Used to extend `manual_on_hold_until` by
+    # the paused duration on restore so the operator's hold survives
+    # the diagnostic pause intact (PLANNING ruling 2, §7.2).
+    manual_on_hold_paused_at: str = ""
     # Fan-noise Mode-2 mitigation: HVAC handshake.
     fan_recheck_suppress_until: str = ""
     # Per-room CONF_FAN_SLEEP_POLICY (off/reduce/normal).
@@ -201,6 +218,11 @@ class FanController:
             room_fan.last_on_time = ""
             room_fan.vacancy_detected_time = ""
             room_fan.manual_off_cooldown_until = ""  # Clean reset on toggle off
+            # FAN-MANUAL-1 discharge (e): operator kill switch clears the
+            # ON hold too (fan_control_enabled=False is a superset
+            # instruction).
+            room_fan.manual_on_hold_until = ""
+            room_fan.manual_on_hold_paused_at = ""
 
     async def update(self, energy_constraint: EnergyConstraint | None, house_state: str = "") -> None:
         """Run fan control logic for all managed rooms.
@@ -283,6 +305,11 @@ class FanController:
                     now + timedelta(seconds=DEFAULT_FAN_MANUAL_OFF_COOLDOWN_S)
                 ).isoformat()
                 room_fan.manual_off_cooldown_until = cooldown_until
+                # FAN-MANUAL-1 discharge (b): external OFF is a newer
+                # human instruction than any live ON hold. Clear the hold
+                # and the paused-anchor.
+                room_fan.manual_on_hold_until = ""
+                room_fan.manual_on_hold_paused_at = ""
                 _LOGGER.info(
                     "HVAC Fans: %s turned off externally — cooldown until %s",
                     room_name, cooldown_until,
@@ -298,7 +325,19 @@ class FanController:
                 room_fan.is_on = True
                 room_fan.trigger = "manual"
                 room_fan.last_on_time = now.isoformat()
-                _LOGGER.info("HVAC Fans: %s turned on during cooldown — cooldown cleared", room_name)
+                # FAN-MANUAL-1: reversal IS a fresh manual-ON. Open the
+                # ON hold on the purpose-named field (the OFF field is
+                # OFF-only after the field split — PLANNING §5.4).
+                if DEFAULT_FAN_MANUAL_ON_HOLD_S:
+                    room_fan.manual_on_hold_until = (
+                        now + timedelta(seconds=DEFAULT_FAN_MANUAL_ON_HOLD_S)
+                    ).isoformat()
+                _LOGGER.info(
+                    "HVAC Fans: %s turned on during cooldown — cooldown "
+                    "cleared, manual_on_hold_until=%s",
+                    room_name,
+                    room_fan.manual_on_hold_until or "disabled",
+                )
             # BUG 2 fix (2026-08-01 Study A, Phase 1 D1): adopt an
             # externally-lit fan when no cooldown is pending. Without
             # this branch, a room-tier-boot-lit fan (or physical-switch
@@ -350,22 +389,25 @@ class FanController:
                 room_fan.trigger = "external"
                 room_fan.speed_pct = observed_speed
                 room_fan.last_on_time = now.isoformat()
-                # hotfix/fan-sweep-trio (2026-08-03): externally-adopted
-                # fans get the same manual-off cooldown gate a URA-lit fan
-                # gets after an external OFF (lines 219-222 reuse). This
-                # blocks HVAC from immediately sweeping an operator-lit
-                # fan on the next tick before genuine vacancy criteria
-                # accrue. Kill switch: DEFAULT_FAN_MANUAL_OFF_COOLDOWN_S=0
-                # disables (matches existing pattern).
-                if DEFAULT_FAN_MANUAL_OFF_COOLDOWN_S:
-                    room_fan.manual_off_cooldown_until = (
-                        now + timedelta(seconds=DEFAULT_FAN_MANUAL_OFF_COOLDOWN_S)
+                # FAN-MANUAL-1 (2026-08-10): adoption sets the purpose-
+                # named ON hold — NOT the OFF cooldown field. Previously
+                # (hotfix/fan-sweep-trio) the OFF field was overloaded as
+                # an ON-marker on an `is_on=True` fan, forcing all readers
+                # of `manual_off_cooldown_until` to disambiguate by
+                # `is_on`. The field split ends that overload
+                # (PLANNING §5.4): `manual_off_cooldown_until` is
+                # OFF-only, `manual_on_hold_until` protects adopted +
+                # operator-lit fans. Kill switch:
+                # DEFAULT_FAN_MANUAL_ON_HOLD_S == 0 disables.
+                if DEFAULT_FAN_MANUAL_ON_HOLD_S:
+                    room_fan.manual_on_hold_until = (
+                        now + timedelta(seconds=DEFAULT_FAN_MANUAL_ON_HOLD_S)
                     ).isoformat()
                 _LOGGER.info(
                     "HVAC Fans: %s adopted externally-lit fan (speed=%d%%, "
-                    "cooldown_until=%s)",
+                    "manual_on_hold_until=%s)",
                     room_name, observed_speed,
-                    room_fan.manual_off_cooldown_until or "disabled",
+                    room_fan.manual_on_hold_until or "disabled",
                 )
 
             zone = self._zone_manager.zones.get(room_fan.zone_id)
@@ -782,13 +824,11 @@ class FanController:
         delta = room_temp - setpoint_high
 
         # v4.0.18: Manual off cooldown — skip all activation triggers.
-        # hotfix/fan-sweep-trio (2026-08-03): gate is scoped to `not is_on`
-        # to preserve its original semantic (block URA re-activation of a
-        # fan that an external actor turned OFF). The adoption branch now
-        # sets manual_off_cooldown_until on an is_on=True fan as a marker;
-        # returning False here for an ON fan would have the caller sweep
-        # the adopted fan on the very next tick — exactly the class the
-        # cycle is instrumenting against.
+        # FAN-MANUAL-1 (2026-08-10): after the field split (PLANNING §5.4)
+        # `manual_off_cooldown_until` is OFF-only. The `not is_on` guard
+        # is now belt-and-suspenders — a well-behaved code path should
+        # never set the OFF field on an ON fan — kept to defend against
+        # regressions.
         if room_fan.manual_off_cooldown_until and not room_fan.is_on:
             try:
                 cooldown_until = datetime.fromisoformat(room_fan.manual_off_cooldown_until)
@@ -1007,6 +1047,27 @@ class FanController:
         except Exception:  # noqa: BLE001
             return __import__("re").sub(r"[^a-z0-9]+","_",(room_name or "").lower()).strip("_")
 
+    def _is_manual_on_hold_live(self, room_fan: RoomFanState) -> bool:
+        """True while the room's FAN-MANUAL-1 manual-ON hold is in window.
+
+        Guarded parse of the ISO string; malformed values are cleared
+        rather than blocking OFF indefinitely.
+        """
+        if not room_fan.manual_on_hold_until:
+            return False
+        try:
+            until = datetime.fromisoformat(room_fan.manual_on_hold_until)
+        except (ValueError, TypeError):
+            room_fan.manual_on_hold_until = ""
+            room_fan.manual_on_hold_paused_at = ""
+            return False
+        if dt_util.now() >= until:
+            # Expired — clear the RAM field so subsequent reads are cheap.
+            room_fan.manual_on_hold_until = ""
+            room_fan.manual_on_hold_paused_at = ""
+            return False
+        return True
+
     def _read_room_occupied_state(self, room_name: str) -> str | None:
         """Return the raw state of ``binary_sensor.<slug>_occupied`` or None.
 
@@ -1057,6 +1118,30 @@ class FanController:
         if not on and room_name:
             trigger_str = trigger_path or ""
             is_exempt_from_guard = trigger_str == "turn_off_all_managed"
+            # FAN-MANUAL-1 INV-FMH: single-chokepoint enforcement at the
+            # HVAC-tier OFF boundary. If the room is in a manual-ON hold,
+            # SUPPRESS the OFF (leave RoomFanState untouched — caller's
+            # `if dispatched:` block skips the mutation, so the fan stays
+            # ON and the hold window is preserved). Exemptions:
+            #  - turn_off_all_managed (operator kill switch — discharge e)
+            #  - recheck pause (bypasses by passing room_name=None, so
+            #    control never reaches this branch — allowlisted per
+            #    PLANNING ruling 2)
+            # Safety-driven OFFs would need their own trigger_path here
+            # to override; none exist in the current tree.
+            room_fan_for_hold = self._room_fans.get(room_name)
+            if (
+                room_fan_for_hold is not None
+                and not is_exempt_from_guard
+                and self._is_manual_on_hold_live(room_fan_for_hold)
+            ):
+                _LOGGER.debug(
+                    "HVAC Fans: %s OFF suppressed by manual-ON hold "
+                    "(trigger=%s, until=%s)",
+                    room_name, trigger_str or "unknown",
+                    room_fan_for_hold.manual_on_hold_until,
+                )
+                return False
             occ = self._read_room_occupied_state(room_name)
             if occ == "on" and not is_exempt_from_guard:
                 # Guard fires — SUPPRESS the OFF. Write the episode with
@@ -1279,11 +1364,20 @@ class FanController:
             return None
         room_fan = self._room_fans[room_name]
         room_fan.fan_recheck_suppress_until = suppress_until_iso
+        # FAN-MANUAL-1 ruling 2: if a manual-ON hold is live, record the
+        # pause instant so `restore_after_recheck` can extend the hold
+        # deadline by the paused duration — the operator's intent must
+        # not be silently truncated by a diagnostic pause.
+        if self._is_manual_on_hold_live(room_fan):
+            room_fan.manual_on_hold_paused_at = dt_util.now().isoformat()
         if snapshot["is_on"]:
         # INTENTIONAL: no room_name — recheck OFFs bypass the occupied-fan
         # guard AND the fan_off activity log by design (evidence-gathering
         # pause, state restored after). Threading room_name here would
         # break the recheck window. (Review A #3, 2026-08-04.)
+        # FAN-MANUAL-1: the no-room_name call also bypasses the INV-FMH
+        # gate in `_set_fan_state` — this is the allowlisted trigger_path
+        # per PLANNING ruling 2.
             await self._set_fan_state(snapshot["entities"], False, 0)
         _LOGGER.info(
             "HVAC Fans: %s paused for fan-recheck (suppress_until=%s)",
@@ -1299,6 +1393,29 @@ class FanController:
         if room_fan is None:
             return
         room_fan.fan_recheck_suppress_until = ""
+        # FAN-MANUAL-1 ruling 2: if the hold was paused, extend the
+        # deadline by the paused duration. The operator's remaining
+        # window resumes intact.
+        if room_fan.manual_on_hold_paused_at and room_fan.manual_on_hold_until:
+            try:
+                paused_at = datetime.fromisoformat(
+                    room_fan.manual_on_hold_paused_at,
+                )
+                until = datetime.fromisoformat(room_fan.manual_on_hold_until)
+                elapsed = dt_util.now() - paused_at
+                if elapsed.total_seconds() > 0:
+                    room_fan.manual_on_hold_until = (
+                        until + elapsed
+                    ).isoformat()
+                    _LOGGER.info(
+                        "HVAC Fans: %s manual-ON hold extended by %.0fs "
+                        "across recheck pause (until=%s)",
+                        room_name, elapsed.total_seconds(),
+                        room_fan.manual_on_hold_until,
+                    )
+            except (ValueError, TypeError):
+                pass
+            room_fan.manual_on_hold_paused_at = ""
         if snapshot is None:
             return
         if snapshot.get("is_on"):
@@ -1401,9 +1518,23 @@ class FanController:
             if r.manual_off_cooldown_until
             and datetime.fromisoformat(r.manual_off_cooldown_until) > now
         )
+        # FAN-MANUAL-1: post field-split, count ON-hold rooms separately
+        # so the diagnostic surface distinguishes "operator turned it off"
+        # from "operator turned it on" (previously conflated in the
+        # `rooms_in_cooldown` bucket via the overloaded field).
+        in_manual_on_hold = 0
+        for r in self._room_fans.values():
+            if not r.manual_on_hold_until:
+                continue
+            try:
+                if datetime.fromisoformat(r.manual_on_hold_until) > now:
+                    in_manual_on_hold += 1
+            except (ValueError, TypeError):
+                continue
         return {
             "rooms_with_fans": len(self._room_fans),
             "active_fan_rooms": active,
             "fan_assist_active": self._fan_assist_active,
             "rooms_in_cooldown": in_cooldown,
+            "rooms_in_manual_on_hold": in_manual_on_hold,
         }
