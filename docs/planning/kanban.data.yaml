@@ -887,7 +887,8 @@ cards:
 - id: FAN-MANUAL-1
   title: 'Fans have no manual-ON override: room temp logic reverts a hand-switched fan ("below threshold")'
   thread: hvac
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.68.0
   approval: explicit
   approved_by: 'operator 2026-08-10 ("If there is no manual override, design one after considering all
     our fan goals and touch points across room, zone, coordinators")'
