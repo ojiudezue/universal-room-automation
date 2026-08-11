@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-11T01:26:54-05:00_ - _Data commit: `be3f7673cb46`_ - _last_reconciled: 2026-08-11_
+_Generated: 2026-08-11T14:47:40-05:00_ - _Data commit: `f376b07c69e0`_ - _last_reconciled: 2026-08-11_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,12 +12,12 @@ _Generated: 2026-08-11T01:26:54-05:00_ - _Data commit: `be3f7673cb46`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 1 |
-| 🧭 Pre-planning | 15 |
+| 🧭 Pre-planning | 14 |
 | 📝 Planned | 2 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 0 |
 | 🚀 Shipped (organic open) | 16 |
-| ⏸️ Waiting on operator | 3 |
+| ⏸️ Waiting on operator | 4 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 0 |
 | ✅ Done | 3 |
@@ -41,7 +41,7 @@ thread: **dashboarding** - status: **inbox** - approval: **explicit**
   - `followup_candidate`: retrofit conditional rendering to the Battery Strategy Detail card (same section group, same defect, ~30 min) — only if the operator endorses this card's style
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
 
-## 🧭 Pre-planning (15)
+## 🧭 Pre-planning (14)
 _idea being decomposed_
 
 ### `HVAC-PRESET-FLAP-1` - HVAC zone preset flaps home<->away every 5-15 min during occupied evenings (survives Writer-B removal)
@@ -61,14 +61,6 @@ thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
   - `MECHANISM_PROVEN_2026_08_09`: Two URA writers alternating with NO arbitration between them. From the ledger, zone_2, every row carrying persons=[ziri, jaya]: 23:34 home->away reason=runtime_exceeded       runtime=True 23:24 away->home reason=house_state_transition ru...
   - `my_process_failure`: I proposed three mechanisms in sequence from snapshots — "URA says home, device says away", then "the 120-min cap fired", then "it is coast" — and each fit the instant I was looking at and died on the next fact. The history query I ran F...
   - `DEDUPE_2026_08_09`: Four-surface sweep: P1P3 is the PARENT (closed, spawned this). STUCK-SENSOR-1 is a different flap (mmWave sensor stuck, not HVAC preset) — no merge. ARREST-SUNSET-1 shipped and is about override sunset, not oscillation. OVERRIDE-NOTIFY-1...
-
-### `EV-DP-STALL-1` - EV DP charging-plan machine frozen in hold_only since 2026-08-07 (blind_hold latch, eval loop dead)
-thread: **energy** - status: **pre_planning** - approval: **unreviewed**
-- **Origin:** 2026-08-11 - operator: "The BMW on Garage A has not charged for a bit overnight." Confirmed: zero overnight charging Aug 8/9/10.
-- **Why:** ev_charging_plan last_eval_at=2026-08-07T11:44 (5-min cadence configured); reason=blind_hold (soc read null at eval); must_start_by 2026-08-08T03:00 expired un-actioned; SOC readable again (87) but NO re-eval in 4 days. Restarts re-publi...
-- **Next:** Investigate why the eval loop stopped (timer cancelled? exception swallowed? blind-latch by design?). Probe-first: recorder history of plan attrs around Aug 7 12:34. Then fix + watchdog coverage + discharge contract. Interim operator unb...
-- **Forensic keys (1):**
-  - `sharp_problem`: A fail-safe hold (blind_hold) with no discharge path = suppression-needs-a-discharge violation in the DP plan machine: what re-fires eval after a blind hold? Also: watchdog coverage gap for silent eval-loop death.
 
 ### `FAN-LAYER-2` - FanPolicyOracle completion — RoomFanState delegation + actuate-wrap remainder (W1-W3, W8-W10) + INV-FLA-T lock
 thread: **fans** - status: **pre_planning** - approval: **unreviewed**
@@ -495,7 +487,7 @@ thread: **perimeter** - status: **shipped_organic**
   - `note`: live PASS (zero multi-key WARN / _2 storm / URA ERROR; telemetry attr present)
   - `organic_open`: CLOSED 2026-08-07: leg_firing_by_camera POPULATED from real events (rear_ptz shows frigate+frigate2+protect on one camera; back_yard frigate+frigate2); today's exterior person-detects each = one alert per track, pass_by tracks alert_coun...
 
-## ⏸️ Waiting on operator (3)
+## ⏸️ Waiting on operator (4)
 _needs a human call_
 
 ### `COMFORT-TOGGLE-1` - Dedicated enable switch for comfort-delay grace (vs grace_minutes=0 kill)
@@ -503,6 +495,14 @@ thread: **hvac** - status: **waiting_operator** - approval: **unreviewed**
 - **Origin:** 2026-08-10 - operator Q at v5.69.0 ship: "Can we gate this behind a toggle ie this more permissive bypass? What is the config surface?" — question, not command
 - **Why:** grace_minutes=0 already kills the feature but destroys the tuned duration on toggle; a switch preserves it + one-tap tile. Marginal: mild config-surface growth for convenience.
 - **Next:** Operator decides: build the switch (Tier-1, ~30 LoC mirroring existing URA switch persistence) or accept grace_minutes=0 as the toggle. Also parked: hard peak-TOU conjunct (one-line predicate) if live evidence shows SOC-80 floor insuffic...
+
+### `EV-GARAGE-A-NOCHARGE-1` - BMW on Garage A refuses charge overnight — vehicle-side or pilot fault; URA exonerated
+thread: **energy** - status: **waiting_operator** - approval: **unreviewed**
+- **Origin:** 2026-08-11 - operator: "BMW on Garage A has not charged overnight." Investigated; initial DP-stall framing CORRECTED.
+- **Why:** Recorder: URA lifted TOU pause at 21:00 off_peak, switch.garage_a ON 23:53-06:09, 41A limit — EVSE Connected all night, NEVER Charging, 0 kWh. L1 sockets charged fine 01:30-07:04. DP hold_only = resting state (paused_by_battery_drain emp...
+- **Next:** OPERATOR: check BMW app (schedule/target/errors) + reseat cable. URA-side follow-ups split out: DP observability (stale last_eval snapshot presented as current, expired must_start_by shown) + garage-A network fix (homelab).
+- **Forensic keys (1):**
+  - `sharp_problem`: Suspects: (1) BMW in-car charge schedule/target-SOC met; (2) pilot/cable fault — six 10s Connected->Disconnected blips overnight; (3) Garage A network degradation (Emporia unavailable-flap every 2-5min + Shelly overhead + Zigbee door als...
 
 ### `F1-SUNSET` - Frigate-1 go/no-go
 thread: **camera** - status: **waiting_operator** - approval: **blocked**
