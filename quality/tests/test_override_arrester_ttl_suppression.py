@@ -641,9 +641,14 @@ class TestRevertOverrideOrdering:
     `services.async_call(`. Mirrors the soft-nudge ordering guard in
     test_v4511_ac_energy_aware_ramp_down.py."""
 
-    def test_suppress_before_first_service_call_in_revert_override(self):
-        # Read the production source directly so we're guarding the
-        # actual shipped file, not an in-memory module representation.
+    def test_suppress_conditional_on_emit_in_revert_override(self):
+        """ARREST-COMFORT-1 A-MED-2 fix-up (2026-08-10): supersedes the
+        pre-fix "suppress-BEFORE-service" ordering guard. The new
+        contract is stricter: `self.suppress(zone.climate_entity, ...)`
+        must run AFTER the emit(s) AND only when they actually fired.
+        Stamping suppress unconditionally BEFORE the gate check would
+        leave a ~5s SUPPRESS_TTL window that swallows a real manual on
+        a deferred no-op (comfort-delay grace path)."""
         src_path = os.path.join(
             _URA_PATH, "domain_coordinators", "hvac_override.py",
         )
@@ -652,35 +657,41 @@ class TestRevertOverrideOrdering:
 
         idx = src.find("async def _revert_override(")
         assert idx > 0, "could not locate _revert_override in source"
-        # Window tight to the function body — next `    async def ` or
-        # `    def ` at 4-space indent ends it. 4000 chars is plenty for
-        # this short method.
         body = src[idx:idx + 4000]
-        # Trim to the next top-level method definition inside the class
-        # so we don't accidentally match a later method's services call.
         end_markers = ["\n    async def ", "\n    def "]
         end = len(body)
         for marker in end_markers:
-            # find AFTER the opening `async def _revert_override(`
             pos = body.find(marker, len("async def _revert_override("))
             if pos != -1 and pos < end:
                 end = pos
         body = body[:end]
 
         suppress_pos = body.find("self.suppress(zone.climate_entity")
-        service_pos = body.find("services.async_call(")
+        # The migrated preset write uses `emit_set_preset_mode(...)`
+        # (S4). The raw `set_hvac_mode` re-assert uses services.async_call.
+        emit_preset_pos = body.find("emit_set_preset_mode(")
+        emit_hvac_mode_pos = body.find("services.async_call(")
+
         assert suppress_pos > 0, (
-            "_revert_override must call self.suppress(zone.climate_entity) "
-            "to cover its own settle events."
+            "_revert_override must still call self.suppress(...) "
+            "to cover its own settle events on successful emits."
         )
-        assert service_pos > 0, (
-            "_revert_override must call services.async_call(...)."
+        assert emit_preset_pos > 0, (
+            "_revert_override must route preset write through "
+            "emit_set_preset_mode chokepoint (D6)."
         )
-        assert suppress_pos < service_pos, (
-            "Suppress override BEFORE issuing the first service call in "
-            "_revert_override — otherwise the settle event can race the "
-            "suppression window open and re-arm the arrester."
+        # Suppress MUST NOT precede EITHER emit — fix-up A-MED-2.
+        assert suppress_pos > emit_preset_pos, (
+            "A-MED-2 regression: suppress landed BEFORE emit_set_preset_mode. "
+            "Suppress must be stamped AFTER the emit(s) and only when they "
+            "actually fired — otherwise a deferred no-op leaves a stale "
+            "TTL window open."
         )
+        if emit_hvac_mode_pos > 0:
+            assert suppress_pos > emit_hvac_mode_pos, (
+                "A-MED-2 regression: suppress landed BEFORE the raw "
+                "set_hvac_mode async_call."
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -875,9 +886,13 @@ class TestPresetPreservingRestore:
         assert '_nudge_pre_preset.pop(zone_id' in body, (
             "restore must consume the snapshot"
         )
-        assert '"set_preset_mode"' in body, (
-            "restore must emit set_preset_mode to reverse the induced flip"
-        )
+        # ARREST-COMFORT-1 Cycle A: preset write migrated from inline
+        # hass.services.async_call to the emit_set_preset_mode chokepoint.
+        # Accept either form.
+        assert (
+            '"set_preset_mode"' in body
+            or 'emit_set_preset_mode(' in body
+        ), "restore must emit set_preset_mode to reverse the induced flip"
         assert '_cur_preset == "manual"' in body, (
             "restore must gate on current preset actually being manual"
         )

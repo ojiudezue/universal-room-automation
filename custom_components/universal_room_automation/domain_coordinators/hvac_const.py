@@ -393,6 +393,57 @@ DUTY_CYCLE_WINDOW_SECONDS: Final = 20 * 60  # 20-minute rolling window
 DUTY_CYCLE_SHED: Final = 0.50  # 50% max runtime during shed
 DUTY_CYCLE_COAST: Final = 0.75  # 75% max runtime during coast
 
+# ============================================================================
+# ARREST-COMFORT-1 Cycle A — Comfort-Delay grace (2026-08-10)
+# ----------------------------------------------------------------------------
+# When an occupant makes a "toward-comfort" manual thermostat change in an
+# occupied zone with SOC ≥ floor and no active shed, the arrester DELAYS its
+# corrective write for COMFORT_GRACE_MIN. See docs/planning/PLANNING_arrester
+# _comfort_delay.md rev-2. Grants are keyed by zone_id alone (probe measured
+# zero multi-thermostat zones — AUDIT §metric 4 simplification). All knobs
+# kill-switched per §4.6.
+# ============================================================================
+
+# COMFORT_GRACE_MIN — RUNG 3 default (entity-knob, persisted Number).
+# Length of the delay in minutes. `0` = feature disabled: every request falls
+# through to standard arrest (verified by unit test). Fix-up A-HIGH-1: this
+# module constant is now the DEFAULT seeded into the ComfortGraceMinutesNumber
+# entity; the LIVE value is read via HVACCoordinator.comfort_grace_min.
+COMFORT_GRACE_MIN: Final = 30  # minutes
+CONF_COMFORT_GRACE_MIN: Final = "hvac_comfort_grace_min"
+DEFAULT_COMFORT_GRACE_MIN: Final = COMFORT_GRACE_MIN
+MIN_COMFORT_GRACE_MIN: Final = 0
+MAX_COMFORT_GRACE_MIN: Final = 240
+
+# COMFORT_SOC_FLOOR_PCT — RUNG 3 default (entity-knob, persisted Number).
+# Battery SOC (percent) at grant instant, at or above which the delay is
+# granted. `0` = SOC gate disabled — grants regardless of battery
+# (deliberate blackout-risk acceptance). Boot WARN when 0 < v < 20.
+# Fix-up A-HIGH-1: LIVE value read via HVACCoordinator.comfort_soc_floor_pct.
+COMFORT_SOC_FLOOR_PCT: Final = 80  # percent
+CONF_COMFORT_SOC_FLOOR_PCT: Final = "hvac_comfort_soc_floor_pct"
+DEFAULT_COMFORT_SOC_FLOOR_PCT: Final = COMFORT_SOC_FLOOR_PCT
+MIN_COMFORT_SOC_FLOOR_PCT: Final = 0
+MAX_COMFORT_SOC_FLOOR_PCT: Final = 100
+
+# COMFORT_DELTA_MIN_F — RUNG 1 (module constant, review-required).
+# Minimum |setpoint delta| on the comfort-relevant leg for the predicate to
+# fire. Guards against phantom-taps and drive-by nudges being latched as
+# comfort requests. Effectively-∞ (large number) = predicate never fires.
+COMFORT_DELTA_MIN_F: Final = 2.0  # °F
+
+# COMFORT_TEMP_MAX_AGE_S — RUNG 1 (module constant).
+# Maximum age (seconds) of the `current_temperature` attribute for the
+# predicate to trust the direction check. Stale reads fail closed.
+# `0` = every read treated as stale → predicate always fails closed.
+COMFORT_TEMP_MAX_AGE_S: Final = 900  # seconds; 15 minutes
+
+# COMFORT_TOTAL_MAX_MIN — RUNG 1 (module constant).
+# Absolute backstop for concession-ladder duration (Cycle B; inert in
+# Cycle A). Present now so both cycles reference one source of truth.
+# `0` = no concession possible in Cycle B.
+COMFORT_TOTAL_MAX_MIN: Final = 60  # minutes
+
 # Override Arrester thresholds
 OVERRIDE_SEVERE_DELTA: Final = 3.0  # F — severe override threshold
 OVERRIDE_NORMAL_DELTA: Final = 1.0  # F — normal override threshold
