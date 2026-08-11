@@ -12,7 +12,7 @@ _Generated: 2026-08-10T16:06:02-05:00_ - _Data commit: `bdb52dca4794`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 1 |
-| 🧭 Pre-planning | 15 |
+| 🧭 Pre-planning | 16 |
 | 📝 Planned | 2 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 0 |
@@ -30,17 +30,18 @@ thread: **dashboarding** - status: **inbox** - approval: **explicit**
 - **Origin:** 2026-08-09 - "add an EV charging detail card to the Ura v8 energy tab. Style well. Detail cards are a bit sensor words vomit. Best judgement because of space though."
 - **Why:** EV charging is a first-class energy behaviour (drain precedence, must-start-by, TOU exposure) with no dedicated surface on the v8 energy tab.
 - **Next:** APPLIED LIVE 2026-08-09 to ura-v8 Energy & EV tab (views[2].sections[8], right after Battery Strategy Detail). write_committed + post_write_verified; template render verified separately. AWAITING OPERATOR REVIEW for refinement — operator...
-- **Forensic keys (8):**
+- **Forensic keys (9):**
   - `applied_render_2026_08_09`: ## ⏸ Paused / TOU peak/mid-peak pause / [Garage A yes|Paused|0.0 kW] [Garage B —|Off|0.0 kW] [Outlets (2) —|TOU peak/mid-peak pause|—] / **Plan:** Hold Only · held 53h — 7 lines, zero None/unavailable/unknown, all four conditional lines ...
   - `fix_2026_08_09_held_label`: Operator: "What does held 53h mean?" — it was WRONG. Verified in source: since is stamped on every DP state transition (energy_drain_precedence.py:265) and HOLD_ONLY CLEARS hold_started_at as a "clean reversion" (:269-274); DPState docst...
   - `ARRESTER_TILE_2026_08_10`: Operator aside: temp override arrester onto the ura-v8 HVAC (Climate) tab for quick access. DONE — new section at climate view position 1 (right under the hero, above the thermostats): heading w/ live state badge + full-width toggle tile...
+  - `MULT_SPLIT_APPROVED_2026_08_10`: Operator: "Clean break. Timing is fine." — BLE_CHAIN_HOLD_ENABLED (bool kill switch) + separately named D2 staleness multiplier; NO deprecated alias (single-user no-backcompat). Rides the P24/D3/dropdown batch.
   - `refinement_candidates`: REDUNDANCY: the headline reason and the Outlets row currently show the same string twice ("TOU peak/mid-peak pause") because the outlets are the only endpoints holding a reason. Options: drop the reason from the endpoint row, or drop it ...
   - `bug_caught_pre_ship`: The markdown card auto-detects entities from LITERAL entity IDs in the template. This template reaches them through Jinja VARIABLES (states(s)), so auto-detection would have missed them and the card would never re-render on state change ...
   - `design_notes`: Anti-word-vomit rules applied: (1) narrative first — pause_reason_human leads, and nothing on the dashboard consumed that attribute before; (2) CONDITIONAL rendering — must_start_by, force_charge_until, excess-solar and fill-target only ...
   - `followup_candidate`: retrofit conditional rendering to the Battery Strategy Detail card (same section group, same defect, ~30 min) — only if the operator endorses this card's style
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
 
-## 🧭 Pre-planning (15)
+## 🧭 Pre-planning (16)
 _idea being decomposed_
 
 ### `WATCHDOG-INERT-1` - Three of four v5.35.0 stuck-signal detectors are effectively inert (D3 structurally unreachable)
@@ -90,12 +91,23 @@ thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
 thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
 - **Origin:** 2026-08-09 - operator: "I think manual were kids trying to cool their space and the arrester stops them"
 - **Why:** Observed tonight: zone_2 preset went to `manual` at 16:49 and again at 17:14 — the kids walking to the thermostat in an 80F room and asking for cooling. The override arrester reverted both within 10 and 5 minutes respectively. After 17:1...
-- **Next:** scope the occupancy+delta exemption; decide whether arrest should be delayed rather than skipped
-- **Forensic keys (4):**
+- **Next:** plan the DELAY design per the three operator inputs; the identification predicate is D1 of the plan. Sibling: FAN-MANUAL-1 (same "system overrules the human" class — manual actuation is EVIDENCE per fusion section 7).
+- **Forensic keys (5):**
   - `sharp_problem`: A manual cool request, from an occupied zone, at 80F, during recovery from a 24h absence, is the single highest-quality signal in the building — a human walked to a wall and said they are uncomfortable. The arrester treats it as noise to...
   - `fix_direction`: Exempt (or substantially delay) arrest when the zone is occupied AND the manual change moves toward comfort AND the temp delta is large. Arresting inside 5-10 minutes is worse than not arresting at all — the occupant never feels an effec...
   - `operator_action_taken_2026_08_09`: temp_arrester_override switched ON and all three zones set to home at operator instruction. Verified: ceilings dropped 80 -> 76/77, all three cooling, runtime_exceeded cleared. Note the override has a 6h max life and sunsets on some hous...
+  - `OPERATOR_DESIGN_2026_08_10`: DELAY chosen over exempt. Plus three design inputs verbatim-captured: (1) IDENTIFICATION QUESTION (operator): "how will this situation be identified specifically to widen the delay/grace?" — the predicate for "occupant comfort request" n...
   - `DEDUPE_2026_08_09`: Sweep: ARREST-SUNSET-1 (shipped) is about WHEN the override sunsets; OVERRIDE-NOTIFY-1 is about warning before expiry. Neither touches whether the arrester should fire against an occupant comfort request in the first place. HVAC-PRESET-F...
+
+### `FAN-MANUAL-1` - Fans have no manual-ON override: room temp logic reverts a hand-switched fan ("below threshold")
+thread: **hvac** - status: **pre_planning** - approval: **explicit**
+- **Origin:** 2026-08-10 - "I cant seem to turn on the living room fan manually without it turning off by itself."
+- **Why:** EVIDENCE (ura_activity_log): Living Room fan turn-offs are [room/fan_off] "Fans off (below threshold, 77F)" — the room-tier temperature comfort controller reconciles fan state to its own verdict and does not recognise a manual ON. v5.31....
+- **Next:** dispatch ura-planner for the full-inventory design; likely shape = manual-ON hold with named duration knob + discharge conditions (suppression-needs-a-discharge rule), symmetric with the manual-off cooldown precedent
+- **Tags:** context-wide-scoping, institutional-context, numbers-get-knobs
+- **Forensic keys (2):**
+  - `scope_note`: Operator mandate: context-wide. Fan touchpoints to inventory before design: room comfort fan control (handle_temperature_based_fan_control + the below-threshold revert), v5.31.0 manual-off cooldown (the precedent + its knob), fan_recheck...
+  - `DEDUPE_2026_08_10`: Sweep: ARREST-COMFORT-1 is the SIBLING (thermostat side of the same class) — linked not merged; fan-recheck cards/plans are about mmWave truth not manual intent; humidity-fan backlog (PowerView memo) is spike detection; B-2026-08-03-8 fl...
 
 ### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)
 thread: **tablets** - status: **pre_planning** - approval: **unreviewed**

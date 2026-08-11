@@ -567,6 +567,9 @@ cards:
     "flip on before adjusting setpoints" when OFF). Verified rendering live (switch currently ON,
     26m — interesting: it re-engaged today, presumably re-enabled after last night''s 6h sunset).
     Anti-word-vomit rules applied; no raw attr dump.'
+  MULT_SPLIT_APPROVED_2026_08_10: 'Operator: "Clean break. Timing is fine." — BLE_CHAIN_HOLD_ENABLED
+    (bool kill switch) + separately named D2 staleness multiplier; NO deprecated alias (single-user
+    no-backcompat). Rides the P24/D3/dropdown batch.'
   refinement_candidates:
   - 'REDUNDANCY: the headline reason and the Outlets row currently show the same string twice
     ("TOU peak/mid-peak pause") because the outlets are the only endpoints holding a reason. Options:
@@ -711,7 +714,21 @@ cards:
     at operator instruction. Verified: ceilings dropped 80 -> 76/77, all three cooling, runtime_exceeded
     cleared. Note the override has a 6h max life and sunsets on some house-state transitions, so this is
     relief, not a fix.'
-  next: scope the occupancy+delta exemption; decide whether arrest should be delayed rather than skipped
+  OPERATOR_DESIGN_2026_08_10: 'DELAY chosen over exempt. Plus three design inputs verbatim-captured:
+    (1) IDENTIFICATION QUESTION (operator): "how will this situation be identified specifically to
+    widen the delay/grace?" — the predicate for "occupant comfort request" needs to be explicit:
+    candidate = manual setpoint change AND zone any_room_occupied/zone_persons non-empty AND change
+    moves TOWARD comfort relative to current temp AND |delta| >= knob. (2) BATTERY-CONDITIONED GRACE:
+    widen grace when the battery is genuinely full; return to strict below 80% SOC — resolves the
+    duty-cycle/peak conflict by spending stored energy on comfort only when it is demonstrably spare
+    (this is duty-cycle option (c) arriving via the arrester door). (3) GRADUATED CONCESSION ("bend
+    towards the requester"): do not binary honor-or-revert. Ask 76 from 80 -> grant 76 for 15 min ->
+    step to 78 for 15 min, monitoring APPROACH SPEED to setpoint throughout — a negotiation curve.
+    Slow approach (unrecoverable load) should inform the step timing. Knobs: grace minutes, step size,
+    step interval, SOC floor (80), delta threshold — all named, rung ladder in plan.'
+  next: 'plan the DELAY design per the three operator inputs; the identification predicate is D1 of the
+    plan. Sibling: FAN-MANUAL-1 (same "system overrules the human" class — manual actuation is EVIDENCE
+    per fusion section 7).'
   DEDUPE_2026_08_09: 'Sweep: ARREST-SUNSET-1 (shipped) is about WHEN the override sunsets;
     OVERRIDE-NOTIFY-1 is about warning before expiry. Neither touches whether the arrester should fire
     against an occupant comfort request in the first place. HVAC-PRESET-FLAP-1 is the sibling defect
@@ -818,6 +835,40 @@ cards:
     residual, not a duplicate. STUCK-SENSOR-1/chatter unrelated (different detector). Fusion-library
     section 7 intent/evidence is the (b)/(c) design home, linked not merged. CREATOR_VS_EXTENDER
     reserved query = planned consumer. NEW.'
+- id: FAN-MANUAL-1
+  title: 'Fans have no manual-ON override: room temp logic reverts a hand-switched fan ("below threshold")'
+  thread: hvac
+  status: pre_planning
+  approval: explicit
+  approved_by: 'operator 2026-08-10 ("If there is no manual override, design one after considering all
+    our fan goals and touch points across room, zone, coordinators")'
+  tags:
+  - context-wide-scoping
+  - institutional-context
+  - numbers-get-knobs
+  origin:
+    date: '2026-08-10'
+    gist: '"I cant seem to turn on the living room fan manually without it turning off by itself."'
+  why: 'EVIDENCE (ura_activity_log): Living Room fan turn-offs are [room/fan_off] "Fans off (below
+    threshold, 77F)" — the room-tier temperature comfort controller reconciles fan state to its own
+    verdict and does not recognise a manual ON. v5.31.0 shipped a manual-OFF cooldown; the ON side was
+    never built. A human switching a fan on is the canonical EVIDENCE event (fusion section 7:
+    "interactions are evidence") and today it is treated as drift to correct — the same class as
+    ARREST-COMFORT-1 (kids arrested at the thermostat) and the same lesson: reverting a human within
+    minutes teaches them the controls are broken.'
+  scope_note: 'Operator mandate: context-wide. Fan touchpoints to inventory before design: room comfort
+    fan control (handle_temperature_based_fan_control + the below-threshold revert), v5.31.0 manual-off
+    cooldown (the precedent + its knob), fan_recheck (pause/restore machinery), comfort-fan AWAY veto
+    (v5.40.0 D3), sleep-onset bedroom fans (feature/sleep-fans), bathroom humidity exhaust unification
+    (v5.6.0 — humidity fans are SOLE-OWNER exempt from the veto), fan interference gate (presence-side
+    reader of fan state), zone vacancy sweep, AI-rules executor (R2: fan.turn_on unvetoed — a prior
+    review residual), duty-cycle fan_assist flag in the coast constraint.'
+  next: dispatch ura-planner for the full-inventory design; likely shape = manual-ON hold with named
+    duration knob + discharge conditions (suppression-needs-a-discharge rule), symmetric with the
+    manual-off cooldown precedent
+  DEDUPE_2026_08_10: 'Sweep: ARREST-COMFORT-1 is the SIBLING (thermostat side of the same class) —
+    linked not merged; fan-recheck cards/plans are about mmWave truth not manual intent; humidity-fan
+    backlog (PowerView memo) is spike detection; B-2026-08-03-8 flash opt-out unrelated. NEW.'
 - id: TABLET-FLEET-1
   title: 'Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)'
   thread: tablets
