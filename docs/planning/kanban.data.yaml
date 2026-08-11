@@ -979,7 +979,7 @@ cards:
 - id: NM-IMAGE-1
   title: NM image attachments not landing (WhatsApp + iMessage) — operator automation images DO land
   thread: notifications
-  status: pre_planning
+  status: planned
   approval: unreviewed
   origin:
     date: '2026-08-11'
@@ -991,7 +991,7 @@ cards:
 - id: DP-OBSERVABILITY-1
   title: DP plan sensor presents stale eval snapshot as current (misled 2 diagnoses in one day)
   thread: energy
-  status: pre_planning
+  status: in_progress
   approval: unreviewed
   origin:
     date: '2026-08-11'
@@ -1015,7 +1015,7 @@ cards:
 - id: FAN-LAYER-2
   title: FanPolicyOracle completion — RoomFanState delegation + actuate-wrap remainder (W1-W3, W8-W10) + INV-FLA-T lock
   thread: fans
-  status: pre_planning
+  status: planned
   approval: unreviewed
   origin:
     date: '2026-08-11'
