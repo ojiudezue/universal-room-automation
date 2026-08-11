@@ -50,4 +50,13 @@ vs baseline: zero new failures, +6 passes = exactly the anchors.
 
 ## Live Validation
 
-_(prospective — to be replaced with the validated table post-restart)_
+### Validated 2026-08-10 (v5.68.0 boot, night)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Loads, zero URA errors | **PASS** | `system_log` ERROR search for `universal_room` empty post-restart; house_state `home_night`; presence/coordinator sensors reporting |
+| L2 | Founding case — manual fan-ON survives the hour | **ORGANIC (operator test)** | Deliberately not actuated live at night (house asleep — hostile timing for a living-room fan test). The hold is mutation-anchored in-suite at all three OFF paths (reconciler `actuator_reconciler.py:618`, vacancy sweep `hvac.py:2442`, room-tier) with drills red-then-green. Operator: turn the Living Room fan on by hand any time — it must stay on ~1h |
+| L3 | No inversion — URA-authored ONs still vacate | **PASS (live signal + in-suite)** | Fans currently ON (`fan.air_circulator`, Jaya bedroom sleep fan) holding steady with no flap post-boot — reconciler not fighting; mark-bridge drill (`:637`) red-then-green in-suite |
+| L4 | Sleep-fan behavior unchanged | **PASS (live signal)** | Jaya bedroom sleep fan ON per v5.49.0 spec first night post-deploy; freshest-wins only engages on direct human action |
+
+HACS pulled v5.68.0 before restart. PR #497: +4424/−129 (non-empty verified, fan code + anchors present).
