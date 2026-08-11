@@ -2577,8 +2577,12 @@ class HVACCoordinator(BaseCoordinator):
         """Stop all fans managed by the fan controller (safety response).
 
         Best-effort: failures logged but do not propagate.
+        Session-3: per-fan emit wrapped in oracle.actuate(safety=True).
+        See _safety_stop_one_fan for the wrap detail.
         """
         from ..const import CONF_FANS
+
+        oracle = self.hass.data.get(DOMAIN, {}).get("fan_oracle")
 
         # snapshot: zones dict may be pruned by _handle_zm_zones_updated mid-await
         for zone_id, zone in list(self._zone_manager.zones.items()):
@@ -2595,17 +2599,62 @@ class HVACCoordinator(BaseCoordinator):
                         continue
                     state = self.hass.states.get(fan_entity)
                     if state and state.state == "on":
-                        try:
-                            domain = fan_entity.split(".")[0]
-                            await self.hass.services.async_call(
-                                domain, "turn_off",
-                                {"entity_id": fan_entity}, blocking=False,
-                            )
-                            _LOGGER.info("HVAC: Safety stop fan %s", fan_entity)
-                        except Exception:  # noqa: BLE001
-                            _LOGGER.warning(
-                                "HVAC: Failed to stop fan %s (safety)", fan_entity
-                            )
+                        await self._safety_stop_one_fan(
+                            oracle, room_name, fan_entity,
+                        )
+
+    async def _safety_stop_one_fan(self, oracle, room_name, fan_entity):
+        """Per-fan safety-stop emission (extracted so oracle.actuate can wrap).
+
+        Kept as a helper so tests can drive ONE emission at a time and
+        assert the ``safety=True`` semantics (ALLOW + pre-safety verdict
+        logged).
+        """
+        from ..const import FAN_TRIGGER_SAFETY_STOP
+        from .fan_policy_oracle import FanDecisionSnapshot
+
+        domain = fan_entity.split(".")[0]
+
+        async def _emit():
+            try:
+                await self.hass.services.async_call(
+                    domain, "turn_off",
+                    {"entity_id": fan_entity}, blocking=False,
+                )
+                _LOGGER.info("HVAC: Safety stop fan %s", fan_entity)
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning(
+                    "HVAC: Failed to stop fan %s (safety)", fan_entity,
+                )
+
+        if oracle is None:
+            # No oracle wired — pre-Session-1 fallback path. Emit directly.
+            await _emit()
+            return
+        snap = FanDecisionSnapshot(
+            now=dt_util.now(),
+            sleep_state="unknown",
+            sleep_axis=None,
+            house_state=self._house_state or "unknown",
+            is_hvac_managing=True,
+            entities=(fan_entity,),
+            observed_any_on=True,
+        )
+        try:
+            async with oracle.actuate(
+                room_name, FAN_TRIGGER_SAFETY_STOP, snap,
+                direction="off", safety=True,
+            ) as verdict:
+                # safety=True guarantees ALLOW; guard nonetheless for
+                # defense-in-depth against future oracle changes.
+                if verdict.is_allow:
+                    await _emit()
+        except Exception:  # noqa: BLE001 — oracle wrap must never suppress safety-stop
+            _LOGGER.warning(
+                "HVAC: safety-stop oracle wrap failed for %s — falling back "
+                "to direct emit", fan_entity, exc_info=True,
+            )
+            await _emit()
 
     # feature/freeze-floor: `_set_emergency_heat` removed. The freeze response
     # is now the heat_low FLOOR enforced at the setpoint chokepoint

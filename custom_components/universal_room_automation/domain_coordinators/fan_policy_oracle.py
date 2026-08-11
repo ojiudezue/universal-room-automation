@@ -1,11 +1,56 @@
-"""FAN-LAYER-1 D2 — FanPolicyOracle (verdict + actuation-aware ledger).
+"""FAN-LAYER-1 — FanPolicyOracle (verdict + actuation-aware ledger).
 
-Session 1 of 3 (2026-08-10). This module is a **no-op addition**: it
-introduces the shared-layer skeleton per
-``docs/planning/PLANNING_fan_actuation_shared_layer_v2.md`` §7 but does
-NOT migrate any existing writer. INV-FLA is deliberately NOT claimable
-this session — a trivial violation is that no writer routes through
-this oracle yet.
+Sessions 1-3 (2026-08-10..11). This module is the shared fan-actuation
+oracle per ``docs/planning/PLANNING_fan_actuation_shared_layer_v2.md``
+§7. Sessions 1 (D2 skeleton) + 2 (RoomAutomation delegation +
+mark_fan_on_issued oracle edge) + 3 (W11 safety-stop consult, W12
+pre-arrival ON consult) landed the writer-side wiring.
+
+INV-FLA (Fan Layer Authority) — SCOPED CLAIM after Session 3:
+
+  The oracle is the SINGLE source of truth for two ledger fields:
+  ``manual_off_cooldown_until`` and ``manual_on_hold_until``, for the
+  ROOM-tier surface (RoomAutomation fields ``_fan_manual_off_until`` /
+  ``_fan_manual_on_until`` — Session 2 @property delegation). Every
+  URA-issued fan turn_on at the room tier flows through
+  ``mark_fan_on_issued()``, which emits ``oracle.note_actuation`` (also
+  Session 2). W7 (actuator reconciler) consults via
+  ``is_fan_in_manual_on_hold()`` — which now reads the delegated
+  oracle-backed field.
+
+  For the HVAC tier, W11 (`_stop_all_fans_safety`) and W12
+  (`_activate_zone_fans`) route their emissions through
+  ``oracle.actuate(...)`` (Session 3). W11 uses ``safety=True``
+  (ALWAYS ALLOW, pre-safety verdict logged at WARNING). W12 DEFERs
+  under a live manual-OFF cooldown and appends
+  ``reason="manual_off_cooldown"`` to the skipped-rooms diagnostic.
+
+  Not yet routed through ``oracle.actuate(...)`` (deferred to a
+  follow-up cycle — the state-in-ONE-place property of the ledger
+  holds for these via delegation, but the per-room lock TOCTOU
+  protection of PLAN §7.9 INV-FLA-T is NOT yet in force for them):
+  W1-W3 room-tier emissions in automation.py, W4-W6 HVAC-tier
+  ``_set_fan_state`` chokepoint, W8 zone-vacancy sweep, W9 pre-arrival
+  OFF, W10 recheck pause/restore. These sites' existing per-emit
+  gates (``is_fan_in_manual_on_hold`` / ``manual_on_hold_until``)
+  continue to work; the delegation shipped in Session 2 makes them
+  transparently read oracle-backed state, so consistency is
+  preserved. The remaining gap is the ATOMIC consult→emit critical
+  section (per-room ``asyncio.Lock``), which follows in a
+  dedicated cycle.
+
+  Falsifying evidence for the Session-1..3 partial INV-FLA claim:
+  (a) any RoomAutomation write to ``_fan_manual_off_until`` /
+  ``_fan_manual_on_until`` that does NOT reach the oracle ledger →
+  Session-2 tests `test_set_fan_manual_off_until_writes_to_oracle`
+  and its sibling would fail; (b) a URA-issued fan_on that does NOT
+  emit an oracle ``note_actuation`` edge →
+  ``test_mark_fan_on_issued_records_oracle_edge`` fails;
+  (c) a safety-stop emission that skips the oracle consult →
+  Session-3 test `test_safety_stop_consults_oracle_with_safety_true`
+  fails; (d) a pre-arrival ON that ignores an active manual-OFF
+  cooldown → Session-3 test
+  `test_prearrival_on_defers_under_manual_off_cooldown` fails.
 
 Shape (b) — thin ``FanPolicyOracle`` per PLAN §6.5:
   * verdict predicates: ``may_turn_on`` / ``may_turn_off``
