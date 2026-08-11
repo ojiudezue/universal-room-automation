@@ -164,6 +164,13 @@ def test_atomic_write_aborts_on_corruption(board_copy: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _card_has_key(text: str, cid: str, key: str) -> bool:
+    """Does card `cid`'s block already carry `  <key>:`? (living-board aware)."""
+    import re as _re
+    m = _re.search(rf"^- id: {_re.escape(cid)}\n(.*?)(?=^- id: |^\S)", text, _re.M | _re.S)
+    return bool(m and _re.search(rf"^  {_re.escape(key)}:", m.group(1), _re.M))
+
+
 def _card_has_status(board_path: Path, card_id: str) -> bool:
     text = board_path.read_text(encoding="utf-8")
     in_card = False
@@ -206,23 +213,30 @@ def test_real_board_textual_edit_minimal_diff(board_copy: Path) -> None:
         assert card["status"] == "shipped_organic"
         assert card["shipped_version"] == "v5.99.0"
 
-    # Line-count invariant: 2 cards, 1 inserted shipped_version each = +2 lines
-    # (if neither card had shipped_version already).
+    # Line-count invariant, derived from CURRENT board state rather than a
+    # frozen snapshot (2026-08-11 lesson: pinning exact counts to a specific
+    # card's status broke the moment the deploy gate legitimately shipped
+    # that card — a living document invalidates snapshot oracles):
+    #   per target: 1 status line REPLACED (+1/-1)
+    #     + shipped_version INSERTED (+1) if absent, else REPLACED (+1/-1)
+    #   + meta.last_reconciled REPLACED (+1/-1).
+    inserts = sum(
+        0 if _card_has_key(original, cid, "shipped_version") else 1
+        for cid in targets
+    )
+    exp_plus = len(targets) * 2 + 1          # status + shipped_version + meta
+    exp_minus = len(targets) + (len(targets) - inserts) + 1
     orig_lines = original.splitlines()
     new_lines = new_text.splitlines()
     delta = len(new_lines) - len(orig_lines)
-    assert delta == 2, f"expected +2 lines, got {delta}"
+    assert delta == inserts, f"expected +{inserts} lines, got {delta}"
 
     # Strict diff: only the exact edited lines differ. No prose reflow.
     diff = list(difflib.unified_diff(orig_lines, new_lines, n=0, lineterm=""))
-    # Header lines (---, +++) + hunk headers (@@) are metadata; count only
-    # +/- content lines.
     plus = [l for l in diff if l.startswith("+") and not l.startswith("+++")]
     minus = [l for l in diff if l.startswith("-") and not l.startswith("---")]
-    # 1 status line changed per card + 1 shipped_version inserted per card
-    # + 1 meta.last_reconciled changed = 5 additions, 3 removals.
-    assert len(plus) == 5, f"expected 5 added lines, got {len(plus)}:\n" + "\n".join(plus)
-    assert len(minus) == 3, f"expected 3 removed lines, got {len(minus)}:\n" + "\n".join(minus)
+    assert len(plus) == exp_plus, f"expected {exp_plus} added, got {len(plus)}:\n" + "\n".join(plus)
+    assert len(minus) == exp_minus, f"expected {exp_minus} removed, got {len(minus)}:\n" + "\n".join(minus)
     for l in plus:
         assert (
             "status: shipped_organic" in l
