@@ -2701,14 +2701,6 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                             ble_persons,
                         )
 
-        # === P24 FAILSAFE + TRUE VACANCY FINALIZE (moved further down
-        # ===   — after "Always populate ble_persons" — 2026-08-10) ===
-        # See the P24 block below; placement chosen so the BLE-block
-        # test extractor (delimiter "Always populate ble_persons ...")
-        # does not pull it into a self-contained exec that lacks
-        # `_get_failsafe_duration_seconds`. Functionally equivalent
-        # (still runs after both overrides).
-
         # === mmWave fan-corroboration Tier-3 D2 — DEMOTION consumer ===
         # Passive backstop to the pause-based fan-recheck (v5.23.0).
         # Fires when mmwave-sole occupancy is sustained past its natural
@@ -3007,13 +2999,42 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # === P24 FAILSAFE (moved after overrides — 2026-08-10) ===
         # RESILIENCE-001: Maximum active duration failsafe.
         # See AUDIT_detector_silence_and_restart_causes.md (cards
-        # P24_VERDICT_2026_08_09 / P24_DIAGNOSABILITY_DEFECT).
-        # Two structural fixes vs the prior in-place check:
+        # P24_VERDICT_2026_08_09 / P24_DIAGNOSABILITY_DEFECT) and
+        # AUDIT_mmwave_only_rooms_2026-07-31.md (no-PIR room inventory).
+        #
+        # Falsifiable invariant (do not weaken silently):
+        #   The failsafe fires ONLY when ALL hold:
+        #     (i)  the room has ≥1 real PIR sensor (post
+        #          MMWAVE_NAME_PATTERN filter) — no-PIR rooms are
+        #          EXEMPT because their freshness gate is
+        #          unsatisfiable (a sleeping body has no PIR to
+        #          refresh) and a per-4h force-vacate would evict
+        #          them nightly; and
+        #     (ii) no live override asserts this tick — i.e.
+        #          `STATE_OCCUPANCY_SOURCE` is NOT in {"camera",
+        #          "ble"} — because a visible camera-person or a
+        #          BLE chain-hold is *evidence of presence*, not a
+        #          stuck sensor, and force-vacating them AND
+        #          latching `_failsafe_fired` would lock the
+        #          visibly-present person out of subsequent
+        #          override ticks; and
+        #     (iii) `_last_pir_motion_time` is stale (age ≥
+        #          2 × occupancy_timeout, or None).
+        #
+        # Assert-then-knock-down ordering: the room's occupancy is
+        # left alone by the failsafe unless (i)+(ii)+(iii) all hold;
+        # the failsafe cannot suppress the legitimate camera/BLE
+        # override, and cannot suppress mmWave-only rooms (they lack
+        # the PIR needed to satisfy (i)). No intra-window reader
+        # inspects the failsafe decision between the check and the
+        # write — the block runs late in `_async_update_data`.
+        #
         # (a) Freshness gate uses `_last_pir_motion_time` (real PIR
         #     fires only) instead of `_last_motion_time` (which the
         #     current tick's write refreshes → tautological skip;
         #     27/27 suppressions over 7.3d were the theorem). Sleeping-
-        #     body protection is preserved: real PIR fires periodically.
+        #     body protection is preserved for rooms WITH PIR: real
+        #     PIR fires periodically.
         # (b) Runs AFTER camera/BLE overrides + AFTER "Always populate
         #     ble_persons" so override-held occupancy can accumulate
         #     duration (Ziri Bathroom: 10.79h occupied, 1.10h max
@@ -3022,11 +3043,36 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         #     VACANCY block below), the override "seed-if-None" pattern
         #     no longer restarts the failsafe timer on every motion-
         #     timeout tick.
+        # (c) Boot fail-open: on a fresh boot with no PIR history yet
+        #     `_last_pir_motion_time` is seeded to `_now` at
+        #     `__init__` (~coordinator.py:331), so the freshness
+        #     branch reads AGE≈0 and defers — the failsafe cannot
+        #     fire on a still-warming coordinator that has simply
+        #     not seen a real PIR fire yet. Combined with (i), no-PIR
+        #     rooms are additionally exempt from the whole gate.
+        # (d) Decoupling: (i) uses a has-PIR PREDICATE (bool) and is
+        #     independent of `D2_PIR_STALENESS_MULTIPLIER` (the D2
+        #     block's *staleness threshold multiplier*). MULT=0 kills
+        #     D2 demotion; it MUST NOT be conflated with the P24
+        #     has-PIR predicate — that constant is a D2-only knob.
         # Placement is AFTER the BLE-block extractor delimiter used by
         # `quality/tests/test_ble_extend_not_create.py` so the extract
         # does not pull the failsafe call into a self-contained exec.
         if (data.get(STATE_OCCUPIED)
-                and self._became_occupied_time):
+                and self._became_occupied_time
+                # CRIT-A1: no-PIR rooms are EXEMPT — leg (i) of the
+                # invariant above. Mirrors _d2_motion_sensors_present()
+                # (~coordinator.py:1749). Six mmwave-only rooms exist
+                # per AUDIT_mmwave_only_rooms_2026-07-31.md; without
+                # this guard they were force-vacated every 4h.
+                and self._d2_motion_sensors_present()
+                # HIGH-A2: live camera/BLE override this tick MUST
+                # defer the failsafe — leg (ii) of the invariant.
+                # Neither `_failsafe_fired` latch nor a knock-down
+                # is safe against a *visible* present person.
+                and data.get(STATE_OCCUPANCY_SOURCE) not in (
+                    "camera", "ble",
+                )):
             duration = (now - self._became_occupied_time).total_seconds()
             failsafe_seconds = self._get_failsafe_duration_seconds()
             if duration > failsafe_seconds:
@@ -3056,6 +3102,11 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     data[STATE_OCCUPIED] = False
                     data[STATE_OCCUPANCY_SOURCE] = "failsafe"
                     data[STATE_TIMEOUT_REMAINING] = 0
+                    # M1/L2: `_last_motion_time = None` on fire is a
+                    # PINNED property — the next tick sees a fresh
+                    # STATE_TIME_SINCE_MOTION = None so downstream
+                    # readers cannot mistake the force-vacate for
+                    # sustained silent occupancy.
                     self._last_motion_time = None
                     self._failsafe_fired = True
                     # Stuck-Signal D4-P24 NM emit (per-day latch). Notify

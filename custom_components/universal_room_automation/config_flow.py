@@ -9282,11 +9282,36 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                             _default_cap.kind if _default_cap else None
                         )
                         if _kind == _default_kind:
-                            # No-op selection: byte-identity requires we
-                            # write nothing. Also strip any pre-existing
-                            # entry so an operator un-picking a prior
-                            # override cleans up.
-                            caps_payload.pop(_entity, None)
+                            # No-op selection: preserve any co-stored
+                            # metadata (`trust_class` / `failure_mode`
+                            # etc.) from the JSON payload. If the
+                            # existing entry contains ONLY `kind`
+                            # (nothing else the operator authored via
+                            # JSON), drop it entirely — the dropdown
+                            # already matches the CONF-derived default,
+                            # so a kind-only override is redundant.
+                            # Otherwise leave the entry intact: the
+                            # kind that was authored is by construction
+                            # the default, and the co-stored keys are
+                            # meaningful to preserve. MED-B2 fix
+                            # (2026-08-10): the prior
+                            # `caps_payload.pop(_entity, None)` deleted
+                            # a JSON-authored `trust_class` on any
+                            # unchanged-dropdown save.
+                            _existing = caps_payload.get(_entity) or {}
+                            if isinstance(_existing, dict):
+                                _residual = {
+                                    k: v for k, v in _existing.items()
+                                    if k != "kind"
+                                }
+                                if not _residual:
+                                    caps_payload.pop(_entity, None)
+                                # else: leave existing entry intact so
+                                # co-stored metadata survives (the
+                                # validator requires `kind` to be
+                                # present when the entry is present).
+                            else:
+                                caps_payload.pop(_entity, None)
                             continue
                         existing = caps_payload.get(_entity) or {}
                         if not isinstance(existing, dict):
