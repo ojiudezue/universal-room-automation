@@ -250,6 +250,15 @@ class ActuatorReconciler:
                     out.append(eid)
         return out
 
+    def _entity_is_room_fan(self, entity_id: str) -> bool:
+        """True if entity_id is one of this room's comfort fans (CONF_FANS).
+
+        Used to scope the FAN-MANUAL-1 manual-ON hold check + the
+        `mark_fan_on_issued` marker to comfort fans only — humidity fans
+        and lights are unaffected.
+        """
+        return entity_id in self._fan_entities()
+
     def _tracked_entities(self) -> List[str]:
         """Union of light + fan config entities (scope: lights + fans only)."""
         out = list(self._light_entities())
@@ -592,6 +601,42 @@ class ActuatorReconciler:
             )
             self._clear_would_reconcile(entity_id)
             return
+
+        # FAN-MANUAL-1 (Review A-HIGH-2 / B drop-in, 2026-08-10): honor
+        # the room-tier manual-ON hold on the OFF side. Symmetric to the
+        # existing manual-OFF cooldown defer at :790. Without this, the
+        # reconciler could re-assert OFF against a fan the operator just
+        # turned on — the primary bug the hold exists to prevent.
+        # Scope: comfort fans owned by this room (entity in CONF_FANS).
+        if (
+            desired.service == "turn_off"
+            and self._entity_is_room_fan(entity_id)
+        ):
+            automation = self._automation()
+            if automation is not None:
+                try:
+                    if automation.is_fan_in_manual_on_hold():
+                        self._record_skip(entity_id, "manual_on_hold")
+                        return
+                except AttributeError:
+                    # Older RoomAutomation without the accessor — fall through.
+                    pass
+        # FAN-MANUAL-1 (Review B-HIGH-2 / A-MED-4, 2026-08-10): before a
+        # URA-owned ON dispatch, mark it as URA-issued via the shared
+        # helper so the room-tier external-ON detector does NOT open a
+        # spurious hold on our own write (the ON detector would otherwise
+        # see the between-tick transition and mis-label us external —
+        # pinning the fan for the full hold window).
+        if (
+            desired.service == "turn_on"
+            and self._entity_is_room_fan(entity_id)
+        ):
+            automation = self._automation()
+            if automation is not None:
+                try:
+                    automation.mark_fan_on_issued()
+                except AttributeError:
+                    pass
 
         payload = {"entity_id": [entity_id], **desired.params}
         await self._safe_service_call(desired.domain, desired.service, payload)

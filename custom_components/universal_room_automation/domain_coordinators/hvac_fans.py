@@ -18,6 +18,7 @@ from homeassistant.util import dt as dt_util
 
 from ..const import (
     CONF_ENTRY_TYPE,
+    CONF_FAN_MANUAL_ON_HOLD_S,
     CONF_FAN_SLEEP_POLICY,
     CONF_FANS,
     CONF_ROOM_NAME,
@@ -328,10 +329,14 @@ class FanController:
                 # FAN-MANUAL-1: reversal IS a fresh manual-ON. Open the
                 # ON hold on the purpose-named field (the OFF field is
                 # OFF-only after the field split — PLANNING §5.4).
-                if DEFAULT_FAN_MANUAL_ON_HOLD_S:
+                # A-MED-1 fix-up (2026-08-10): honor per-room override.
+                room_hold_s = self._resolve_live_manual_on_hold_s(room_name)
+                if room_hold_s > 0:
                     room_fan.manual_on_hold_until = (
-                        now + timedelta(seconds=DEFAULT_FAN_MANUAL_ON_HOLD_S)
+                        now + timedelta(seconds=room_hold_s)
                     ).isoformat()
+                else:
+                    room_fan.manual_on_hold_until = ""
                 _LOGGER.info(
                     "HVAC Fans: %s turned on during cooldown — cooldown "
                     "cleared, manual_on_hold_until=%s",
@@ -397,12 +402,17 @@ class FanController:
                 # `is_on`. The field split ends that overload
                 # (PLANNING §5.4): `manual_off_cooldown_until` is
                 # OFF-only, `manual_on_hold_until` protects adopted +
-                # operator-lit fans. Kill switch:
-                # DEFAULT_FAN_MANUAL_ON_HOLD_S == 0 disables.
-                if DEFAULT_FAN_MANUAL_ON_HOLD_S:
+                # operator-lit fans. Kill switch: hold_s == 0 disables
+                # (module default OR per-room CONF_FAN_MANUAL_ON_HOLD_S).
+                # A-MED-1 fix-up (2026-08-10): honor per-room override —
+                # discover_fans() stored no cached knob, so we live-read.
+                room_hold_s = self._resolve_live_manual_on_hold_s(room_name)
+                if room_hold_s > 0:
                     room_fan.manual_on_hold_until = (
-                        now + timedelta(seconds=DEFAULT_FAN_MANUAL_ON_HOLD_S)
+                        now + timedelta(seconds=room_hold_s)
                     ).isoformat()
+                else:
+                    room_fan.manual_on_hold_until = ""
                 _LOGGER.info(
                     "HVAC Fans: %s adopted externally-lit fan (speed=%d%%, "
                     "manual_on_hold_until=%s)",
@@ -1052,6 +1062,16 @@ class FanController:
 
         Guarded parse of the ISO string; malformed values are cleared
         rather than blocking OFF indefinitely.
+
+        Mid-pause expiry fix (Review A-MED-2 / C-H1, 2026-08-10): while
+        the hold is PAUSED (``manual_on_hold_paused_at`` set), it does
+        NOT age — clock-time expiry is deferred until
+        ``restore_after_recheck`` runs and extends ``manual_on_hold_until``
+        by the paused duration. Without this guard, a hold that would
+        naturally expire mid-pause was silently truncated: expiry cleared
+        both fields and the extension arithmetic then had nothing to
+        extend, so the operator's remaining window was lost across the
+        recheck.
         """
         if not room_fan.manual_on_hold_until:
             return False
@@ -1061,12 +1081,62 @@ class FanController:
             room_fan.manual_on_hold_until = ""
             room_fan.manual_on_hold_paused_at = ""
             return False
+        # Paused holds don't age — treat as live regardless of wall clock.
+        if room_fan.manual_on_hold_paused_at:
+            return True
         if dt_util.now() >= until:
             # Expired — clear the RAM field so subsequent reads are cheap.
             room_fan.manual_on_hold_until = ""
             room_fan.manual_on_hold_paused_at = ""
             return False
         return True
+
+    def is_room_in_manual_on_hold(self, room_name: str) -> bool:
+        """Public accessor: True if this HVAC-managed room has a live hold.
+
+        FAN-MANUAL-1 (Review B-HIGH-1, 2026-08-10): consumed by the
+        HVAC coordinator's zone-vacancy sweep + pre-arrival deactivation
+        so those code paths honor INV-FMH for HVAC-owned fans (the room
+        coordinator's `is_fan_in_manual_on_hold` accessor covers the
+        room-tier fans only). Returns False for unknown rooms.
+        """
+        room_fan = self._room_fans.get(room_name)
+        if room_fan is None:
+            return False
+        return self._is_manual_on_hold_live(room_fan)
+
+    def _resolve_live_manual_on_hold_s(self, room_name: str) -> int:
+        """Per-room CONF_FAN_MANUAL_ON_HOLD_S live read (A-MED-1 fix-up).
+
+        Mirrors ``_resolve_live_fan_sleep_policy`` — reads through to the
+        live config-entry each cycle so an Options-Flow change takes
+        effect without a coordinator reload. Falls back to the module
+        default on any read failure. 0 disables the hold for this room
+        (per-room kill switch; matches automation.py::
+        _resolve_fan_manual_on_hold_s semantics).
+        """
+        try:
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                    continue
+                if entry.data.get(CONF_ROOM_NAME) != room_name:
+                    continue
+                merged = {**entry.data, **entry.options}
+                raw = merged.get(
+                    CONF_FAN_MANUAL_ON_HOLD_S, DEFAULT_FAN_MANUAL_ON_HOLD_S,
+                )
+                if raw is None or raw == "":
+                    return DEFAULT_FAN_MANUAL_ON_HOLD_S
+                try:
+                    return max(0, int(raw))
+                except (TypeError, ValueError):
+                    return DEFAULT_FAN_MANUAL_ON_HOLD_S
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "HVAC Fans: %s manual-ON hold-s live read failed (%s)",
+                room_name, exc,
+            )
+        return DEFAULT_FAN_MANUAL_ON_HOLD_S
 
     def _read_room_occupied_state(self, room_name: str) -> str | None:
         """Return the raw state of ``binary_sensor.<slug>_occupied`` or None.

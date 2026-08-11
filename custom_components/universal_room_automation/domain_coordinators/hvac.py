@@ -2416,18 +2416,59 @@ class HVACCoordinator(BaseCoordinator):
                     except Exception as exc:  # noqa: BLE001
                         _LOGGER.warning("HVAC: Vacancy sweep failed to turn off %s: %s", entity_id, exc)
 
-            for entity_id in fans:
-                domain = entity_id.split(".")[0]
-                state = self.hass.states.get(entity_id)
-                if state and state.state == "on":
-                    try:
-                        await self.hass.services.async_call(
-                            domain, "turn_off",
-                            {"entity_id": entity_id}, blocking=False,
+            # FAN-MANUAL-1 (Review B-HIGH-1 fix-up, 2026-08-10): if the
+            # operator has a live manual-ON hold on this room's fans
+            # (either the room-tier hold, via the automation coordinator,
+            # or the HVAC-tier hold, via the FanController), SKIP the
+            # per-room fan sweep. INV-FMH — a fresh manual instruction
+            # outranks the zone-level vacancy sweep for the duration of
+            # the hold. Lights are UNAFFECTED (the hold is fan-scoped).
+            fan_hold_active = False
+            try:
+                automation = getattr(coordinator, "automation", None)
+                if automation is not None and hasattr(
+                    automation, "is_fan_in_manual_on_hold",
+                ):
+                    fan_hold_active = bool(
+                        automation.is_fan_in_manual_on_hold()
+                    )
+            except Exception as exc:  # noqa: BLE001
+                _LOGGER.debug(
+                    "HVAC: sweep hold check (room-tier) failed for %s (%s)",
+                    room_name, exc,
+                )
+            if not fan_hold_active:
+                try:
+                    fan_hold_active = bool(
+                        self._fan_controller.is_room_in_manual_on_hold(
+                            room_name,
                         )
-                        swept_count += 1
-                    except Exception as exc:  # noqa: BLE001
-                        _LOGGER.warning("HVAC: Vacancy sweep failed to turn off %s: %s", entity_id, exc)
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "HVAC: sweep hold check (HVAC-tier) failed for %s (%s)",
+                        room_name, exc,
+                    )
+
+            if fan_hold_active:
+                _LOGGER.info(
+                    "HVAC: Vacancy sweep skipped fans for %s — "
+                    "manual-ON hold active (FAN-MANUAL-1)",
+                    room_name,
+                )
+            else:
+                for entity_id in fans:
+                    domain = entity_id.split(".")[0]
+                    state = self.hass.states.get(entity_id)
+                    if state and state.state == "on":
+                        try:
+                            await self.hass.services.async_call(
+                                domain, "turn_off",
+                                {"entity_id": entity_id}, blocking=False,
+                            )
+                            swept_count += 1
+                        except Exception as exc:  # noqa: BLE001
+                            _LOGGER.warning("HVAC: Vacancy sweep failed to turn off %s: %s", entity_id, exc)
 
         _LOGGER.info(
             "HVAC: Vacancy sweep for zone %s — swept %d entities",
@@ -2626,6 +2667,31 @@ class HVACCoordinator(BaseCoordinator):
                 continue
             config = {**coordinator.config_entry.data, **coordinator.config_entry.options}
             fans = config.get(CONF_FANS, [])
+            # FAN-MANUAL-1 (MED-B1 fix-up, 2026-08-10): skip pre-arrival
+            # deactivation while a manual-ON hold is live for this room.
+            # Same INV-FMH gate as the zone-vacancy sweep (_execute_vacancy_sweep).
+            fan_hold_active = False
+            try:
+                automation = getattr(coordinator, "automation", None)
+                if automation is not None and hasattr(
+                    automation, "is_fan_in_manual_on_hold",
+                ):
+                    fan_hold_active = bool(automation.is_fan_in_manual_on_hold())
+            except Exception:  # noqa: BLE001
+                pass
+            if not fan_hold_active:
+                try:
+                    fan_hold_active = bool(
+                        self._fan_controller.is_room_in_manual_on_hold(room_name)
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+            if fan_hold_active:
+                _LOGGER.info(
+                    "HVAC: Pre-arrival fan deactivation skipped for %s — "
+                    "manual-ON hold active (FAN-MANUAL-1)", room_name,
+                )
+                continue
             for fan_entity in fans:
                 domain = fan_entity.split(".")[0]
                 state = self.hass.states.get(fan_entity)

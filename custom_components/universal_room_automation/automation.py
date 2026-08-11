@@ -281,14 +281,24 @@ class RoomAutomation:
         # coordinator dispatches a fan turn_on so the ON-detector below
         # does not misread its own write as an external ON.
         self._fan_on_issued_this_tick: bool = False
-        # Boot-edge guard for the ON detector: skip external-ON detection
-        # on the very first tick since construction. Without this, a fan
-        # left ON across an HA restart would trip a spurious hold because
-        # `_last_seen_any_fan_on` starts False. The OFF detector does not
-        # need this guard — its trigger shape (prev=on + curr=off) does
-        # not fire on the seed direction. Set True after the ON detector
-        # runs once (see the detection block).
-        self._fan_on_detector_seeded: bool = False
+        # Boot-edge policy (revised — Review A-HIGH-1 fix-up, 2026-08-10):
+        # There is NO tick-1 detection swallow. If tick-1 observes a fan
+        # ON — for ANY reason (boot-lit / physical switch / operator ON
+        # before tick-1 / reload with fan still on) — we OPEN a manual-ON
+        # hold. Conservative toward the human (the fan is on; honor
+        # that) and symmetric with HVAC-tier adoption which already
+        # opens a hold on adoption. URA-issued ON at tick-1 is exempted
+        # because ``_fan_on_issued_this_tick`` is set BEFORE the
+        # detection block runs (sleep-onset sets it; temp-branch ON is
+        # sequenced after detection). Any external URA caller
+        # (e.g. the ActuatorReconciler) invokes ``mark_fan_on_issued``
+        # which additionally bridges ``_last_seen_any_fan_on`` so a
+        # between-tick URA ON does not register as an external transition
+        # on the following tick.
+        # Field retained for back-compat (was gate for tick-1 skip);
+        # unused post-fix-up. Kept to avoid AttributeError on any
+        # external readers that survived across the fix-up landing.
+        self._fan_on_detector_seeded: bool = True
         # Baseline for external-off detection: tracks whether we saw any
         # fan ON on the PREVIOUS tick, so a transition to all-off that
         # wasn't caused by our own service call is diagnosable as
@@ -348,6 +358,29 @@ class RoomAutomation:
             return dt_util.now() < until
         except Exception:  # noqa: BLE001
             return False
+
+    def mark_fan_on_issued(self) -> None:
+        """Authored-by marker: this coordinator issued a fan turn_on.
+
+        FAN-MANUAL-1 (Review B-HIGH-2 / A-MED-4, 2026-08-10): every URA
+        code path that dispatches ``turn_on`` against this room's fans
+        MUST call this helper BEFORE the service call. It sets:
+
+        * ``_fan_on_issued_this_tick`` — prevents the ON-detector from
+          opening a spurious manual-ON hold on the CURRENT tick when the
+          dispatch happens inside ``handle_temperature_based_fan_control``.
+        * ``_last_seen_any_fan_on = True`` — bridges to the NEXT tick when
+          the dispatch happens BETWEEN ticks (e.g. ActuatorReconciler,
+          which fires from state-change callbacks). Without this bridge
+          the next tick would observe (prev=off, curr=on) with the tick
+          marker reset to False, misdetect it as an external ON, and
+          open a bogus hold. Symmetric to the sleep-onset site at
+          automation.py:2700 which set both fields inline pre-fix-up.
+
+        Cheap; safe to call on every URA-owned ON dispatch.
+        """
+        self._fan_on_issued_this_tick = True
+        self._last_seen_any_fan_on = True
 
     def is_fan_in_manual_cooldown(self) -> bool:
         """True while the room-tier fan manual-off cooldown window is live.
@@ -1813,7 +1846,14 @@ class RoomAutomation:
         # `fan_control_enabled` toggle-off (upstream — see hvac_fans
         # `turn_off_all_managed`). Kill switch: hold_s == 0 disables.
         hold_s = self._resolve_fan_manual_on_hold_s()
-        if hold_s > 0 and self._fan_on_detector_seeded:
+        # Boot-edge policy (Review A-HIGH-1 fix-up, 2026-08-10):
+        # No tick-1 swallow. If tick-1 observes fan ON without our own
+        # dispatch marker, OPEN the hold — including boot-lit / reload
+        # cases. URA-issued ON is exempted via `_fan_on_issued_this_tick`
+        # (set before this block by sleep-onset; between-tick ON dispatches
+        # from the reconciler set both the tick marker AND
+        # `_last_seen_any_fan_on` via ``mark_fan_on_issued``).
+        if hold_s > 0:
             if (
                 not self._last_seen_any_fan_on
                 and any_fan_on_now
@@ -1842,8 +1882,9 @@ class RoomAutomation:
                     self.config.get("room_name", "Unknown"),
                 )
                 self._fan_manual_on_until = None
-        # Seed the boot-edge guard after the first pass through the
-        # detector — subsequent ticks perform full external-ON detection.
+        # Legacy: retained no-op; the seed guard is no longer consulted
+        # (see revised boot-edge policy above). Kept for back-compat
+        # with any external readers.
         self._fan_on_detector_seeded = True
 
         # v3.18.1: Fan sleep policy — reduce speed or turn off during sleep
@@ -2014,9 +2055,12 @@ class RoomAutomation:
                 # Baseline update mirrors the "no action" branch below.
                 self._last_seen_any_fan_on = any_fan_on_now
                 return
-            # FAN-MANUAL-1: mark this tick's ON dispatch as URA-owned so
-            # the manual-ON detector does NOT open a hold on our own write.
-            self._fan_on_issued_this_tick = True
+            # FAN-MANUAL-1 (A-MED-4 fix-up 2026-08-10): single source of
+            # truth — route through the shared `mark_fan_on_issued`
+            # helper so temp-branch, sleep-onset, and reconciler all
+            # emit the same "URA-owned ON" contract (tick marker AND
+            # baseline bridge).
+            self.mark_fan_on_issued()
             try:
                 # v3.2.9: Try to set speed (works for fan domain)
                 # If it fails (e.g., switch domain), just turn on
@@ -2677,13 +2721,10 @@ class RoomAutomation:
         # split used elsewhere in this file (see _shared_space_turn_off_all).
         fan_entities = [f for f in fans if f.startswith("fan.")]
         switch_entities = [f for f in fans if not f.startswith("fan.")]
-        # FAN-MANUAL-1: mark this tick's ON dispatch as URA-owned so
-        # the downstream manual-ON detector in
-        # ``handle_temperature_based_fan_control`` (called next in the
-        # same coroutine chain) does not open a spurious hold on our
-        # own write. Baseline is also nudged True to guard the
-        # subsequent tick against a state-lag false external-ON.
-        self._fan_on_issued_this_tick = True
+        # FAN-MANUAL-1 (A-MED-4 fix-up 2026-08-10): single source of
+        # truth via the shared `mark_fan_on_issued` helper — sets both
+        # the tick marker and the baseline bridge in one call.
+        self.mark_fan_on_issued()
         try:
             if fan_entities:
                 await self._safe_service_call(

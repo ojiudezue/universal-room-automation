@@ -293,17 +293,27 @@ class TestManualOnHold:
         assert auto.is_fan_in_manual_on_hold() is True
 
     def test_manual_on_hold_not_opened_by_ura_on(self):
-        """When URA turns fan on (temp branch), no hold opens (we own it)."""
+        """When URA turns fan on (temp branch), no hold opens (we own it).
+
+        C-M2 fix-up (2026-08-10): the behavioral invariant is "no hold"
+        — the direct ``_fan_on_issued_this_tick`` read is a mechanism
+        detail and demoted below the behavioral assertions.
+        """
         base = datetime(2026, 8, 10, 12, 0, 0, tzinfo=timezone.utc)
         _set_now(base)
         auto, log, set_fan = _make_automation(initial_fan_on=False)
 
         # Tick 1: fan off, temp hot — URA emits turn_on.
         _run(auto.handle_temperature_based_fan_control(TEMP_ABOVE, occupied=True))
-        assert _count(log, "turn_on") >= 1
+        # Behavioral (primary): URA dispatched ON, no hold opened.
+        assert _count(log, "turn_on") >= 1, "URA temp branch must fire ON"
+        assert auto._fan_manual_on_until is None, (
+            "URA-owned ON must NOT open a manual-ON hold (INV-FMH self-write)"
+        )
+        assert auto.is_fan_in_manual_on_hold() is False
+        # Mechanism (demoted): tick marker was set — used to bridge
+        # sleep-onset + temp-branch ordering inside a single tick.
         assert auto._fan_on_issued_this_tick is True
-        # No hold opened by our own dispatch.
-        assert auto._fan_manual_on_until is None
 
     def test_manual_on_hold_blocks_temp_revert(self):
         """INV-FMH: temperature-below-threshold OFF is suppressed by hold.
@@ -334,7 +344,19 @@ class TestManualOnHold:
         )
 
     def test_manual_on_hold_blocks_vacancy_revert(self):
-        """Vacancy OFF is also suppressed by the hold (same branch)."""
+        """Vacancy OFF is also suppressed by the hold (same branch).
+
+        C-M1 fix-up (2026-08-10): the earlier version's vacancy branch
+        was short-circuited by ``fan_vacancy_hold`` — the room stayed
+        ``occupied=True`` under the grace-window override, so the OFF
+        never got the chance to fire in the first place. Fixed here by
+        seeding ``_fan_vacancy_start`` in the past so we ENTER the tick
+        already past the grace window; then INV-FMH is what suppresses
+        the OFF, not the vacancy grace. Drill anchor: removing the
+        ``is_fan_in_manual_on_hold`` gate in
+        ``handle_temperature_based_fan_control`` MUST make this test
+        AND the temp-revert test above BOTH fail.
+        """
         base = datetime(2026, 8, 10, 12, 0, 0, tzinfo=timezone.utc)
         _set_now(base)
 
@@ -342,19 +364,23 @@ class TestManualOnHold:
         _run(auto.handle_temperature_based_fan_control(TEMP_BELOW, occupied=True))
         set_fan(True)
         _set_now(base + timedelta(seconds=30))
+        # Trigger the ON-detector: fan just came on externally at t+30.
         _run(auto.handle_temperature_based_fan_control(TEMP_ABOVE, occupied=True))
         assert auto.is_fan_in_manual_on_hold()
 
         offs_before = _count(log, "turn_off")
-        # Occupant leaves; vacancy_hold expires; without hold, URA would OFF.
-        _set_now(base + timedelta(seconds=60 + 3600))  # past vacancy_hold default
-        # Advance also past hold? Default hold is 3600s from base+30; +3660 => 30s
-        # into hold expiry window. Use a shorter test: keep occupied False but
-        # ensure hold still live by NOT crossing 3600s from open.
+        # Seed _fan_vacancy_start well in the past so the fan_vacancy_hold
+        # override does NOT flip occupied back to True — we want to reach
+        # the vacancy OFF branch and prove INV-FMH suppresses it.
+        auto._fan_vacancy_start = base - timedelta(hours=2)
+        # Now tick vacant at temp-hot; without INV-FMH the OFF fires.
         _set_now(base + timedelta(seconds=120))
         _run(auto.handle_temperature_based_fan_control(TEMP_ABOVE, occupied=False))
         assert _count(log, "turn_off") == offs_before, (
             "Manual-ON hold must suppress vacancy-driven OFF while live"
+        )
+        assert auto.is_fan_in_manual_on_hold(), (
+            "Hold must remain live across the suppressed vacancy tick"
         )
 
     def test_manual_on_hold_expires(self):
@@ -378,20 +404,122 @@ class TestManualOnHold:
         )
 
     def test_external_off_during_hold_cancels_and_opens_off_cooldown(self):
-        """Discharge (b): external OFF clears hold + opens OFF cooldown."""
+        """Discharge (b): external OFF clears hold + opens OFF cooldown.
+
+        C-H2 fix-up (2026-08-10): the pre-fix-up form used a URA-issued
+        ON (temp-above tick) which sets the marker and NEVER opens a
+        hold — so the "hold cleared" assertion was tautological
+        (None == None). Rewritten to open a REAL hold via an external
+        ON transition, THEN externally turn off, THEN assert the hold
+        is cleared and the OFF cooldown is opened. Drill anchor:
+        removing the discharge-b hold-clear at automation.py line ~1751
+        MUST make this test fail (assert on ``_fan_manual_on_until is
+        None`` will trip).
+        """
         base = datetime(2026, 8, 10, 12, 0, 0, tzinfo=timezone.utc)
         _set_now(base)
         auto, log, set_fan = _make_automation(initial_fan_on=False)
-        _run(auto.handle_temperature_based_fan_control(TEMP_ABOVE, occupied=True))
-        # URA turned fan on (temp above). Now user turns it off externally.
-        set_fan(False)
+        # Tick 1: fan off, cool — baseline established, no action.
+        _run(auto.handle_temperature_based_fan_control(TEMP_BELOW, occupied=True))
+        # External ON at t+30 — opens a REAL manual-ON hold.
+        set_fan(True)
         _set_now(base + timedelta(seconds=30))
-        _run(auto.handle_temperature_based_fan_control(TEMP_ABOVE, occupied=True))
+        _run(auto.handle_temperature_based_fan_control(TEMP_BELOW, occupied=True))
+        assert auto._fan_manual_on_until is not None, (
+            "Setup precondition: external ON must open a real hold "
+            "(without this, the discharge-b test is tautological)"
+        )
+        assert auto.is_fan_in_manual_on_hold()
+        # External OFF at t+60 — discharge (b) fires.
+        set_fan(False)
+        _set_now(base + timedelta(seconds=60))
+        _run(auto.handle_temperature_based_fan_control(TEMP_BELOW, occupied=True))
         assert auto._fan_manual_on_until is None, (
-            "External OFF must cancel any live ON hold (discharge b)"
+            "External OFF must cancel the live ON hold (discharge b)"
         )
         assert auto._fan_manual_off_until is not None, (
             "External OFF must open the OFF cooldown"
+        )
+
+
+class TestBootEdgePolicy:
+    """A-HIGH-1 boot-edge policy (2026-08-10): tick-1 observes fan ON →
+    open a hold. Conservative toward the human; symmetric with HVAC-tier
+    adoption. URA-issued ON at tick-1 does NOT open a hold (marker set
+    before detection runs)."""
+
+    def test_boot_lit_fan_opens_hold_on_tick_1(self):
+        """A fan ON at coordinator construction opens a manual-ON hold
+        on the very first tick. Prior seed-guard swallowed this — the
+        Living Room class incident (operator ON before URA came up)."""
+        base = datetime(2026, 8, 10, 12, 0, 0, tzinfo=timezone.utc)
+        _set_now(base)
+        auto, log, set_fan = _make_automation(initial_fan_on=True)
+        _run(auto.handle_temperature_based_fan_control(TEMP_ABOVE, occupied=True))
+        assert auto._fan_manual_on_until is not None, (
+            "Boot-lit / reload-lit fan must open a manual-ON hold on "
+            "tick-1 (A-HIGH-1 policy fix-up)"
+        )
+        assert auto.is_fan_in_manual_on_hold()
+
+    def test_ura_issued_on_at_tick_1_does_not_open_hold(self):
+        """URA's own tick-1 turn_on (temp branch or sleep-onset) must
+        NOT open a hold — `_fan_on_issued_this_tick` is set before the
+        ON-detector runs, and the reconciler path uses
+        `mark_fan_on_issued` which additionally bridges the baseline."""
+        base = datetime(2026, 8, 10, 12, 0, 0, tzinfo=timezone.utc)
+        _set_now(base)
+        auto, log, set_fan = _make_automation(initial_fan_on=False)
+        # Tick 1: fan off, temp hot → URA issues turn_on.
+        _run(auto.handle_temperature_based_fan_control(TEMP_ABOVE, occupied=True))
+        assert _count(log, "turn_on") >= 1
+        assert auto._fan_manual_on_until is None, (
+            "URA-issued ON at tick-1 must NOT open a hold"
+        )
+
+    def test_mark_fan_on_issued_bridges_between_ticks(self):
+        """mark_fan_on_issued() — reconciler-parity path — sets BOTH
+        the tick marker and `_last_seen_any_fan_on`. On the next tick
+        the fan is ON but the baseline is already True, so no external
+        transition is detected and no hold opens (the reconciler
+        no-spurious-hold contract)."""
+        base = datetime(2026, 8, 10, 12, 0, 0, tzinfo=timezone.utc)
+        _set_now(base)
+        auto, log, set_fan = _make_automation(initial_fan_on=False)
+        # Tick 1: establish baseline off.
+        _run(auto.handle_temperature_based_fan_control(TEMP_BELOW, occupied=True))
+        # Simulate a between-tick URA turn_on (as the reconciler does):
+        # mark then flip the fan on.
+        auto.mark_fan_on_issued()
+        set_fan(True)
+        _set_now(base + timedelta(seconds=30))
+        _run(auto.handle_temperature_based_fan_control(TEMP_BELOW, occupied=True))
+        assert auto._fan_manual_on_until is None, (
+            "mark_fan_on_issued must prevent a spurious external-ON hold "
+            "when URA (e.g. reconciler) dispatched the ON between ticks"
+        )
+
+
+class TestKillSwitchVariants:
+    """C-L2 fix-up (2026-08-10): per-room CONF_FAN_MANUAL_ON_HOLD_S == 0
+    kill-switch variant test (module default remains at 3600)."""
+
+    def test_per_room_kill_switch_disables_hold(self):
+        """Per-room CONF_FAN_MANUAL_ON_HOLD_S == 0 disables the hold
+        for THIS room only; module default is unchanged. Complements
+        the module-level kill switch already tested above."""
+        base = datetime(2026, 8, 10, 12, 0, 0, tzinfo=timezone.utc)
+        _set_now(base)
+        auto, log, set_fan = _make_automation(
+            initial_fan_on=False, hold_s_override=0,
+        )
+        _run(auto.handle_temperature_based_fan_control(TEMP_BELOW, occupied=True))
+        set_fan(True)
+        _set_now(base + timedelta(seconds=30))
+        _run(auto.handle_temperature_based_fan_control(TEMP_BELOW, occupied=True))
+        assert auto._fan_manual_on_until is None, (
+            "Per-room CONF_FAN_MANUAL_ON_HOLD_S == 0 must disable hold "
+            "even when the module default is > 0"
         )
 
     def test_kill_switch_zero_disables(self, monkeypatch):

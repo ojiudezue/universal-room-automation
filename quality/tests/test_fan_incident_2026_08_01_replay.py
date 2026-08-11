@@ -457,6 +457,11 @@ class TestBug1VacancyHoldOnlyHoldsRunningFan:
         _set_now(base)
 
         auto, log, set_fan = _make_room_automation(initial_fan_on=True)
+        # FAN-MANUAL-1 fix-up (2026-08-10): seed baseline as URA-owned so
+        # tick-1 does not open a manual-ON hold (the new boot-edge policy
+        # opens one for boot-lit fans — tested elsewhere; this test is
+        # about the vacancy-hold running-fan invariant).
+        auto._last_seen_any_fan_on = True
         # Tick 1: occupied to establish baseline any_fan_on_now=True.
         _run(auto.handle_temperature_based_fan_control(TEMP_HOT, occupied=True))
         turn_off_before = _count(log, "turn_off")
