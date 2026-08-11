@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-10T20:45:11-05:00_ - _Data commit: `8747d5885c9f`_ - _last_reconciled: 2026-08-10_
+_Generated: 2026-08-10T21:24:02-05:00_ - _Data commit: `0c4ea9c9ec33`_ - _last_reconciled: 2026-08-10_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -16,7 +16,7 @@ _Generated: 2026-08-10T20:45:11-05:00_ - _Data commit: `8747d5885c9f`_ - _last_r
 | 📝 Planned | 3 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 0 |
-| 🚀 Shipped (organic open) | 11 |
+| 🚀 Shipped (organic open) | 12 |
 | ⏸️ Waiting on operator | 2 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 0 |
@@ -66,21 +66,23 @@ thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
 thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
 - **Origin:** 2026-08-09 - operator: "I think manual were kids trying to cool their space and the arrester stops them"
 - **Why:** Observed tonight: zone_2 preset went to `manual` at 16:49 and again at 17:14 — the kids walking to the thermostat in an 80F room and asking for cooling. The override arrester reverted both within 10 and 5 minutes respectively. After 17:1...
-- **Next:** plan the DELAY design per the three operator inputs; the identification predicate is D1 of the plan. Sibling: FAN-MANUAL-1 (same "system overrules the human" class — manual actuation is EVIDENCE per fusion section 7).
-- **Forensic keys (5):**
+- **Next:** TIER-3 PLAN REVIEWS (PLAN-TIER-1 protocol, first subject): completeness + adversarial build-prediction, findings fixed IN THE PLAN; then probe; then build.
+- **Forensic keys (6):**
   - `sharp_problem`: A manual cool request, from an occupied zone, at 80F, during recovery from a 24h absence, is the single highest-quality signal in the building — a human walked to a wall and said they are uncomfortable. The arrester treats it as noise to...
   - `fix_direction`: Exempt (or substantially delay) arrest when the zone is occupied AND the manual change moves toward comfort AND the temp delta is large. Arresting inside 5-10 minutes is worse than not arresting at all — the occupant never feels an effec...
   - `operator_action_taken_2026_08_09`: temp_arrester_override switched ON and all three zones set to home at operator instruction. Verified: ceilings dropped 80 -> 76/77, all three cooling, runtime_exceeded cleared. Note the override has a 6h max life and sunsets on some hous...
   - `OPERATOR_DESIGN_2026_08_10`: DELAY chosen over exempt. Plus three design inputs verbatim-captured: (1) IDENTIFICATION QUESTION (operator): "how will this situation be identified specifically to widen the delay/grace?" — the predicate for "occupant comfort request" n...
+  - `PLAN_2026_08_11`: PLANNING_arrester_comfort_delay.md. STAGED: Cycle A = predicate + SOC-gated flat grace + coast-precedence guard (~95% of the kids-incident benefit); Cycle B (graduated concession + approach-speed observer) PARKED with evidence trigger — ...
   - `DEDUPE_2026_08_09`: Sweep: ARREST-SUNSET-1 (shipped) is about WHEN the override sunsets; OVERRIDE-NOTIFY-1 is about warning before expiry. Neither touches whether the arrester should fire against an occupant comfort request in the first place. HVAC-PRESET-F...
 
 ### `FAN-LAYER-1` - DOC-2 fan-actuation shared layer: REVIVED — FAN-MANUAL-1 fired 3 of its 4 park triggers
-thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
+thread: **hvac** - status: **pre_planning** - approval: **explicit**
 - **Origin:** 2026-08-11 - operator, on the fan cycle's 1-CRIT/6-HIGH review round: "Do we have a fan abstraction in our roadmap or kanban? This is why. I know we have a fusion camera abstraction and I think a presence sensor abstraction with intent a...
 - **Why:** PLANNING_fan_actuation_shared_layer.md (DOC-2, 2026-08-01) parked the extraction behind a foundation gate + 4 evidence triggers. FAN-MANUAL-1 fired: (1) new-mechanic double-port — the manual-ON hold was ported room-tier + HVAC-tier and d...
-- **Next:** after FAN-MANUAL-1 ships and its organic proof opens, planner pass to refresh DOC-2 against the now-current writer inventory (incl. zone-vacancy sweep + pre-arrival sites B found); Tier 3
+- **Next:** PARALLELIZED per operator ("parallelize these cards or we will never be done"): planner runs NOW against the fan-manual-1 fix-up branch surface (plans do not conflict with shipping); build starts once FAN-MANUAL-1 merges. H8 ledger check...
 - **Tags:** tier-3, institutional-context, context-wide-scoping
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `priority`: high
   - `seed_already_built`: mark_fan_on_issued() (FAN-MANUAL-1 fix-up) is the first shared primitive — an authored-by channel across all URA ON sites. The extraction grows from it.
   - `gate_check_pending`: DOC-2 foundation gate also requires H8 organic validation of the v5.31.0 manual-off cooldown (a real manual OFF observed not re-arming on the live house). Verify from ledger before build — if unproven, that is the one remaining gate.
   - `DEDUPE_2026_08_11`: Sweep: DOC-2 planning doc is the PARENT (parked, triggers now fired -> READY per the skill rule). FAN-MANUAL-1 is the trigger-firing cycle, linked. ARREST-COMFORT-1 sibling class. THIRD instance of a parked plan's fired trigger surfacing...
@@ -261,7 +263,7 @@ _under review_
 
 _(none)_
 
-## 🚀 Shipped (organic open) (11)
+## 🚀 Shipped (organic open) (12)
 _live, awaiting proof_
 
 ### `SENSOR-CAPABILITY-1` - Separate sensor CAPABILITY (hardware kind) from analytic ROLE — kind is currently the config bucket
@@ -360,6 +362,14 @@ thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
   - `FIXUP_2026_08_10`: c37d155c3 on the build branch: A-LOW-1 doc line + B-M-B1 fossil deleted with tombstone. Orchestrator drill: reintroduced a 600s window myself -> 10 red; restored -> 21 green. Full suite 22 failed / 8544 passed / 2 xfailed — failing names...
   - `D_MEDIUM_1_OPERATOR_DECISION_NEEDED`: The invariant is AMBIGUOUS at the restart boundary. _last_occupied_state restores True across a reboot with NO requirement of any in-process tier-1 evidence before the chain leg re-admits. Legal repro: occupant walks out during the 30-90...
   - `DEDUPE_2026_08_10`: Sweep: v5.22.0 cycle is the PARENT fix (cold strobe) — this is its documented residual, not a duplicate. STUCK-SENSOR-1/chatter unrelated (different detector). Fusion-library section 7 intent/evidence is the (b)/(c) design home, linked n...
+
+### `PLAN-TIER-1` - Tiered PLAN reviews: quality up front — plans reviewed before builds, like builds
+thread: **process** - status: **shipped_organic** - approval: **explicit**
+- **Origin:** 2026-08-11 - coined during the FAN-MANUAL-1 post-mortem — the plan missed 2 emission sites a one-line grep would have found, costing build + 3 reviews + CRIT fix-up
+- **Why:** A plan review is ~20 min; a build round is hours. Protocol now in CLAUDE.md: Tier 1 = none; Tier 2/2-DB = one adversarial plan review (independent re-enumeration, greps not trust); Tier 3 = two framing-disjoint (completeness incl. parked...
+- **Next:** apply to the two in-flight plans on arrival; organic proof = a plan-review finding that demonstrably prevents a build round
+- **Forensic keys (1):**
+  - `first_subjects`: FAN-LAYER-1 plan (Tier 3 -> 2 plan reviews) and ARREST-COMFORT-1 plan (likely Tier 3 -> 2) — both in flight as this lands; they get the treatment on delivery.
 
 ### `XCORR-1` - Burst-demotion for isolated single-camera night alerts (was: cross-engine corroboration gate)
 thread: **perimeter** - status: **shipped_organic** - approval: **explicit**

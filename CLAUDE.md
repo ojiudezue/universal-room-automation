@@ -363,3 +363,24 @@ Rule of thumb: how often would the operator legitimately turn it, and
 should turning it require review? Every new number in a plan/build states
 its knob name AND its rung, with one line of why. Kill-switch semantics
 (a value that disables the feature) documented on the knob itself.
+
+## Plan Review — TIERED (operator-coined 2026-08-11)
+
+**Quality up front: plans get reviewed BEFORE builds, tiered like builds.** Evidence: the
+FAN-MANUAL-1 plan (Tier 2-DB build) missed two fan turn_off emission sites (`hvac.py` zone-vacancy
+sweep + pre-arrival) that a one-line `git grep` would have surfaced; the miss cost a full build,
+three DO-NOT-SHIP reviews, and a CRIT fix-up round. A plan review is ~20 minutes; a build round is
+hours. The batch's P24 brief similarly offered two fix options when the correct one was a third —
+plan review exists to catch exactly that class before a builder inherits it.
+
+- **Tier 1 (hotfix):** no formal plan review — the card's `next` field is the plan.
+- **Tier 2 / 2-DB:** ONE adversarial plan review before build dispatch. The reviewer verifies, with
+  greps not trust: institutional-context section complete; the falsifiable invariant actually
+  falsifiable; **emission-site / consumer enumeration re-run independently** (the plan's list is a
+  hypothesis); every number on the knob ladder; acceptance criteria testable; non-goals explicit.
+- **Tier 3:** TWO plan reviews, framing-disjoint: (1) completeness — independent re-enumeration of
+  every surface the plan claims to cover, including parked-plan triggers the cycle would fire;
+  (2) adversarial build-prediction — "what will the builder get wrong reading this?" Ambiguities,
+  under-specified orderings, and options offered where none is correct are findings.
+- Plan-review findings are fixed IN THE PLAN before any build dispatch. A build dispatched against
+  an unreviewed Tier 2+ plan is a process violation.

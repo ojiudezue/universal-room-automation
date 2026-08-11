@@ -746,9 +746,14 @@ cards:
     step to 78 for 15 min, monitoring APPROACH SPEED to setpoint throughout — a negotiation curve.
     Slow approach (unrecoverable load) should inform the step timing. Knobs: grace minutes, step size,
     step interval, SOC floor (80), delta threshold — all named, rung ladder in plan.'
-  next: 'plan the DELAY design per the three operator inputs; the identification predicate is D1 of the
-    plan. Sibling: FAN-MANUAL-1 (same "system overrules the human" class — manual actuation is EVIDENCE
-    per fusion section 7).'
+  PLAN_2026_08_11: 'PLANNING_arrester_comfort_delay.md. STAGED: Cycle A = predicate + SOC-gated flat
+    grace + coast-precedence guard (~95% of the kids-incident benefit); Cycle B (graduated concession +
+    approach-speed observer) PARKED with evidence trigger — rare-fire state machine priced honestly.
+    INV-COMFORT-DELAY falsifiable; single SOC accessor consumed by BOTH D1 and D3 (desync = sharpest
+    risk, mutation must fail both); probe-first gate (AUDIT_arrester_comfort_delay.md) before build;
+    kids-incident replay is the live acceptance criterion. Tier 3.'
+  next: 'TIER-3 PLAN REVIEWS (PLAN-TIER-1 protocol, first subject): completeness + adversarial
+    build-prediction, findings fixed IN THE PLAN; then probe; then build.'
   DEDUPE_2026_08_09: 'Sweep: ARREST-SUNSET-1 (shipped) is about WHEN the override sunsets;
     OVERRIDE-NOTIFY-1 is about warning before expiry. Neither touches whether the arrester should fire
     against an occupant comfort request in the first place. HVAC-PRESET-FLAP-1 is the sibling defect
@@ -954,6 +959,25 @@ cards:
     the skill rule). FAN-MANUAL-1 is the trigger-firing cycle, linked. ARREST-COMFORT-1 sibling class.
     THIRD instance of a parked plan''s fired trigger surfacing only on operator question (D6, ledger
     criterion, now DOC-2) — skill gains a cycle-close trigger check. NEW card, revival not duplicate.'
+- id: PLAN-TIER-1
+  title: 'Tiered PLAN reviews: quality up front — plans reviewed before builds, like builds'
+  thread: process
+  status: shipped_organic
+  approval: explicit
+  approved_by: 'operator 2026-08-11 ("We should start subjecting plans to a sort of tier review
+    system. Quality up front in planning and in the build process")'
+  origin:
+    date: '2026-08-11'
+    gist: coined during the FAN-MANUAL-1 post-mortem — the plan missed 2 emission sites a one-line
+      grep would have found, costing build + 3 reviews + CRIT fix-up
+  why: 'A plan review is ~20 min; a build round is hours. Protocol now in CLAUDE.md: Tier 1 = none;
+    Tier 2/2-DB = one adversarial plan review (independent re-enumeration, greps not trust); Tier 3 =
+    two framing-disjoint (completeness incl. parked-trigger check + adversarial build-prediction).
+    Findings fixed IN THE PLAN before build dispatch.'
+  first_subjects: 'FAN-LAYER-1 plan (Tier 3 -> 2 plan reviews) and ARREST-COMFORT-1 plan (likely
+    Tier 3 -> 2) — both in flight as this lands; they get the treatment on delivery.'
+  next: apply to the two in-flight plans on arrival; organic proof = a plan-review finding that
+    demonstrably prevents a build round
 - id: TABLET-FLEET-1
   title: 'Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)'
   thread: tablets
