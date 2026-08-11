@@ -1,0 +1,19 @@
+{
+  "format_version": "2.1",
+  "entry_id": "037",
+  "author": "ojiudezue",
+  "session_id": "claude_20260811_034303_ship_v5_68_0",
+  "timestamp": "2026-08-11T03:43:03Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.68.0 shipped: Fan manual-ON hold (FAN-MANUAL-1)",
+  "summary": "Human fan-ON now opens a 1h per-room hold deferring all automatic OFF paths (room-tier, vacancy sweep, reconciler); authored-by bridge prevents self-granted holds; boot-ON conservative hold; freshest-wins vs sleep; INV-FMH four discharges; 3 guard anchors mutation-verified after hollow-anchor #11 hold",
+  "refs": {
+    "cards": [
+      "FAN-MANUAL-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.68.0.md"
+    ]
+  }
+}
