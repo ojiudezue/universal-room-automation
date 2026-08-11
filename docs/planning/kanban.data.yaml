@@ -763,8 +763,21 @@ cards:
     grant, comfort_delay_active pure; restart-mid-grace disclosed+accepted for Cycle A; shed DOMINATES
     comfort (INV falsification #6); kill-switch semantics per knob (SOC_FLOOR=0 = deliberate
     blackout-risk acceptance w/ boot WARN); kids-replay must drive real _handle_climate_change.'
-  next: 'PLAN-READY pending targeted re-check of the two CRIT-class fixes; then the D-probe
-    (AUDIT_arrester_comfort_delay.md, now with go/no-go thresholds); then Cycle A build (Tier 3).'
+  PROBE_2026_08_11: 'D1/D2/D3 all GO. Qualifying events 44.4/wk (NOT rare — zone_2 = 43/49); SOC>=80
+    at ~50% of events so the gate is genuinely load-bearing; coast co-fire 13.6/wk -> D3 required;
+    multi-thermostat zones = ZERO -> grant key simplifies to zone_id (H2 ambiguity killed by
+    measurement); preset-flap co-fire 18% all on the incident evenings (confirms the R1-H1 seam);
+    kids incident found in the qualifying set (SOC 99-100, coast, flap co-fire TRUE) = sanity anchor.
+    VOCABULARY FINDING: the arrester writes NOTHING to ura_activity_log — it acts silently; the plan''s
+    ledger deliverable is also a diagnosability fix. PERISHABLE FIXTURE EXTRACTED: kids-incident
+    recorder rows (purge ~08-16) committed to quality/tests/fixtures/arrester_comfort/.'
+  CYCLE_B_ESCALATION_DECISION: 'Probe found Cycle-B''s evidence trigger ALREADY MET (08-08 zone_2:
+    4 qualifying flips in 61 min). OPERATOR CALL: pull D4 graduated concession in-cycle, or keep
+    staged? ORCHESTRATOR RECOMMENDATION: KEEP STAGED — the trigger being met justifies Cycle B NEXT,
+    not simultaneous; bundling doubles a Tier-3 review surface, and Cycle A''s flat grace already
+    covers the 44/wk common case. Cycle B dispatches immediately after A''s live validation.'
+  next: 'Cycle A build after FAN-LAYER build slots clear (both touch hvac.py — SERIALIZE the builds;
+    plan work done in parallel per operator mandate).'
   DEDUPE_2026_08_09: 'Sweep: ARREST-SUNSET-1 (shipped) is about WHEN the override sunsets;
     OVERRIDE-NOTIFY-1 is about warning before expiry. Neither touches whether the arrester should fire
     against an occupant comfort request in the first place. HVAC-PRESET-FLAP-1 is the sibling defect
@@ -981,8 +994,13 @@ cards:
     reader-enumeration seed cited 6 line numbers; real grep = ~34 sites — Review B would have audited
     a sixth of the sharpest-risk surface. H3 trigger vocabulary gaps; M1 adjacency check needs a
     mechanical procedure (AST/structured grep, not eyeballs); M3 six writers need NEW parity fixtures.'
-  next: 'awaiting plan review 2 (build-prediction), then ONE revision pass folds both reviews; then
-    build. Shape (b) + H8 disposition unchanged.'
+  PLAN_READY_2026_08_11: 'Rev-2 committed: 12 writers (W11 safety-stop w/ safety=True always-ALLOW-
+    but-logged; W12 pre-arrival ON defers under cooldown); FanDecisionSnapshot required-arg contract;
+    INV-FLA-T temporal + per-room lock via oracle.actuate() context manager (atomic span structural);
+    hard-remove field delegation (34-site reader enumeration real now); ONE PR/deploy; exception
+    posture per direction; honest estimate 1200 LoC / 45-50 tests / 3-5 days; humidity fully outside;
+    edges-only ledger writes w/ write-volume regression (optimizer-flood memory cited).'
+  next: 'BUILD DISPATCHED (Tier 3). Hard dep satisfied: FAN-MANUAL-1 merged at 1f5839c3a.'
   DEDUPE_2026_08_11: 'Sweep: DOC-2 planning doc is the PARENT (parked, triggers now fired -> READY per
     the skill rule). FAN-MANUAL-1 is the trigger-firing cycle, linked. ARREST-COMFORT-1 sibling class.
     THIRD instance of a parked plan''s fired trigger surfacing only on operator question (D6, ledger
