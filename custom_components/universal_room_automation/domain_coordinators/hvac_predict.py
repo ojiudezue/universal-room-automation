@@ -1144,11 +1144,18 @@ class HVACPredictor:
                 state = self.hass.states.get(fan_entity)
                 if state and state.state != "on":
                     if oracle is not None:
+                        # A-MED-4 fix-up (2026-08-11): drop dead ``hasattr(self, "hass")``
+                        # guard (the predictor always has hass) and thread the
+                        # real house_state from the wired HVAC coordinator.
+                        _hvac_coord = getattr(self, "_hvac_coord", None)
+                        _house_state = getattr(
+                            _hvac_coord, "_house_state", "unknown",
+                        ) if _hvac_coord is not None else "unknown"
                         snap = FanDecisionSnapshot(
-                            now=dt_util.now() if hasattr(self, "hass") else None,
+                            now=dt_util.now(),
                             sleep_state="unknown",
                             sleep_axis=None,
-                            house_state="unknown",
+                            house_state=_house_state or "unknown",
                             is_hvac_managing=True,
                             entities=(fan_entity,),
                             observed_any_on=False,

@@ -87,9 +87,20 @@ from ..const import (
     FAN_TRIGGER_KILL_SWITCH,
     FAN_TRIGGER_RECHECK_PAUSE,
     FAN_TRIGGER_RECHECK_RESTORE,
+    FAN_TRIGGER_SAFETY_STOP,
     FAN_TRIGGER_SLEEP_OFF,
     FAN_TRIGGER_SLEEP_ONSET_ON,
 )
+
+# A-MED-1 / B-LOW-2 fix-up (2026-08-11): prefer HA's dt_util.now() (timezone-
+# aware, mockable in tests via _dt_mock the parity anchors use). Fall back to
+# naive datetime.now() only when the HA helper is unavailable (early boot /
+# minimal-mock unit tests). datetime.now() alone silently produces
+# tz-naive values that mis-compare against tz-aware ledger writes.
+try:
+    from homeassistant.util import dt as _ha_dt  # type: ignore
+except Exception:  # noqa: BLE001 — HA optional at unit-test import time
+    _ha_dt = None  # type: ignore
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -210,8 +221,50 @@ class FanPolicyOracle:
         # test count edges.
         self.actuation_events: list[dict[str, Any]] = []
         _LOGGER.info(
-            "FanPolicyOracle constructed (Session 1 skeleton — no writers migrated)"
+            "FanPolicyOracle constructed — RoomAutomation delegation + "
+            "W11 safety-stop + W12 pre-arrival-ON wired (Sessions 1..3)"
         )
+
+    # ------------------------------------------------------------------
+    # Public setter API (A-LOW-1 fix-up 2026-08-11).
+    # Callers (RoomAutomation @property setters, mirror helpers) go through
+    # these instead of reaching into ``_get_record(room).<field> = value``.
+    # ------------------------------------------------------------------
+
+    def set_manual_off_cooldown(self, room_key: str, value):
+        """Set/clear the manual-OFF cooldown deadline for ``room_key``.
+
+        ``value`` is a datetime | None. None clears the cooldown.
+        Room key is the caller's stable identifier (config entry_id for
+        the room-tier — see A-HIGH-1 fix-up: CONF_ROOM_NAME with an
+        empty-string fallback collided when two rooms lacked a name).
+        """
+        try:
+            rec = self._get_record(room_key)
+            rec.manual_off_cooldown_until = value
+        except Exception:  # noqa: BLE001
+            _LOGGER.error(
+                "FanPolicyOracle.set_manual_off_cooldown failed for room=%s",
+                room_key, exc_info=True,
+            )
+
+    def set_manual_on_hold(self, room_key: str, value):
+        """Set/clear the manual-ON hold deadline for ``room_key``.
+
+        ``value`` is a datetime | None. None clears the hold.
+        """
+        try:
+            rec = self._get_record(room_key)
+            rec.manual_on_hold_until = value
+        except Exception:  # noqa: BLE001
+            _LOGGER.error(
+                "FanPolicyOracle.set_manual_on_hold failed for room=%s",
+                room_key, exc_info=True,
+            )
+
+    def clear_manual_on_hold(self, room_key: str) -> None:
+        """Convenience: clear the ON-hold (kill-switch, safety-stop cleanup)."""
+        self.set_manual_on_hold(room_key, None)
 
     def _get_lock(self, room: str) -> asyncio.Lock:
         lock = self._room_locks.get(room)
@@ -448,14 +501,28 @@ class FanPolicyOracle:
         verdict: Verdict | None,
     ) -> None:
         rec = self._get_record(room)
-        ts = now if now is not None else datetime.now()
+        # A-MED-1 / B-LOW-2: prefer HA's tz-aware dt_util.now(); fall back to
+        # naive datetime.now() only when HA is unavailable.
+        if now is not None:
+            ts = now
+        elif _ha_dt is not None:
+            ts = _ha_dt.now()
+        else:
+            ts = datetime.now()
         if direction == "off":
             rec.last_off_time = ts
             rec.last_actuation_source = source
             rec.last_trigger_path = trigger_path
             if source == "external":
                 rec.manual_on_hold_until = None
-            elif trigger_path == FAN_TRIGGER_KILL_SWITCH:
+            elif trigger_path in (FAN_TRIGGER_KILL_SWITCH, FAN_TRIGGER_SAFETY_STOP):
+                # A-MED-2 fix-up (2026-08-11): safety-stop is a kill-switch-
+                # class superset instruction. The manual-ON hold was honoring
+                # the operator's most-recent intent (a fresh manual ON), but
+                # a smoke/CO safety event supersedes all policy state incl.
+                # that hold. Clearing here prevents a stale hold from
+                # blocking the next legitimate URA re-arm after the safety
+                # event resolves. Kill-switch parity by design.
                 rec.manual_on_hold_until = None
             elif trigger_path == FAN_TRIGGER_RECHECK_PAUSE:
                 remaining: timedelta | None = None

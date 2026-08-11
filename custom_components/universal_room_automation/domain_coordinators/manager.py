@@ -148,7 +148,23 @@ class CoordinatorManager:
         # ``test_fan_oracle_constructed_before_writers``).
         try:
             from .fan_policy_oracle import FanPolicyOracle  # noqa: PLC0415
-            self._fan_oracle: "FanPolicyOracle | None" = FanPolicyOracle(hass)
+            # B-HIGH-2 fix-up (2026-08-11): reuse an existing oracle from
+            # hass.data if one is already present — a CM reload (config
+            # entry reload) constructs a new CoordinatorManager but the
+            # oracle instance MUST SURVIVE so live manual-ON holds and
+            # OFF cooldowns aren't dropped. Constructing unconditionally
+            # here would wipe every live hold on reload, causing an
+            # immediate URA re-arm against a fan the operator just
+            # turned on. Only construct on first attach.
+            existing = None
+            if hass is not None:
+                try:
+                    existing = hass.data.get(DOMAIN, {}).get("fan_oracle")
+                except Exception:  # noqa: BLE001
+                    existing = None
+            self._fan_oracle: "FanPolicyOracle | None" = (
+                existing if existing is not None else FanPolicyOracle(hass)
+            )
             if hass is not None:
                 try:
                     hass.data.setdefault(DOMAIN, {})["fan_oracle"] = self._fan_oracle

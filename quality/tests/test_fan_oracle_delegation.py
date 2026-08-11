@@ -33,17 +33,21 @@ from custom_components.universal_room_automation.domain_coordinators.fan_policy_
 
 
 ROOM = "TestRoom"
+ENTRY_ID = "abc123-entry-id"
+# A-HIGH-1 fix-up (2026-08-11): the ledger is now keyed by
+# ``_fan_ledger_key()`` which prefers ``entry:<entry_id>``. Tests that
+# seed the oracle directly must use the same key format so the property
+# read returns the seeded value.
+LEDGER_KEY = f"entry:{ENTRY_ID}"
 
 
-def _make_room(with_oracle: bool = True):
+def _make_room(with_oracle: bool = True, entry_id: str = ENTRY_ID,
+               room_name: str = ROOM):
     """Fabricate a RoomAutomation-shaped stub bypassing heavy __init__.
 
     We use RoomAutomation's class object but don't call its __init__ —
     we only need the class-level @property descriptors + a couple of
-    instance attributes (``hass``, ``config``). Same shape used in
-    test_reconciler_fan_manual_on_guards for the same reason: __init__
-    pulls in every URA subsystem, which we don't need for property
-    contract tests.
+    instance attributes (``hass``, ``config``, ``_config_entry``).
     """
     from custom_components.universal_room_automation.automation import (  # noqa: E501
         RoomAutomation,
@@ -54,7 +58,17 @@ def _make_room(with_oracle: bool = True):
     if with_oracle:
         hass.data[DOMAIN]["fan_oracle"] = FanPolicyOracle(hass)
     room.hass = hass
-    room.config = {"room_name": ROOM}
+    room.config = {"room_name": room_name}
+    # A-HIGH-1: stable entry_id-backed key. Tests that omit entry_id
+    # (e.g. ``test_two_unnamed_rooms_keep_isolated_holds``) pass
+    # entry_id=None + distinct room_name to fall back to the room-name
+    # branch of the key resolver.
+    if entry_id is not None:
+        stub_entry = MagicMock()
+        stub_entry.entry_id = entry_id
+        room._config_entry = stub_entry
+    else:
+        room._config_entry = None
     return room, hass
 
 
@@ -63,7 +77,7 @@ def test_set_fan_manual_off_until_writes_to_oracle():
     oracle = hass.data[DOMAIN]["fan_oracle"]
     t = datetime(2026, 8, 10, 12, 0, 0)
     room._fan_manual_off_until = t + timedelta(minutes=30)
-    assert oracle.get_state(ROOM).manual_off_cooldown_until == t + timedelta(minutes=30)
+    assert oracle.get_state(LEDGER_KEY).manual_off_cooldown_until == t + timedelta(minutes=30)
 
 
 def test_get_fan_manual_off_until_reads_from_oracle():
@@ -71,7 +85,7 @@ def test_get_fan_manual_off_until_reads_from_oracle():
     oracle = hass.data[DOMAIN]["fan_oracle"]
     t = datetime(2026, 8, 10, 12, 0, 0)
     # Prime the oracle directly, then read via the RoomAutomation property.
-    oracle._get_record(ROOM).manual_off_cooldown_until = t
+    oracle._get_record(LEDGER_KEY).manual_off_cooldown_until = t
     assert room._fan_manual_off_until == t
 
 
@@ -80,23 +94,23 @@ def test_set_fan_manual_on_until_writes_to_oracle():
     oracle = hass.data[DOMAIN]["fan_oracle"]
     t = datetime(2026, 8, 10, 12, 0, 0) + timedelta(hours=1)
     room._fan_manual_on_until = t
-    assert oracle.get_state(ROOM).manual_on_hold_until == t
+    assert oracle.get_state(LEDGER_KEY).manual_on_hold_until == t
 
 
 def test_get_fan_manual_on_until_reads_from_oracle():
     room, hass = _make_room()
     oracle = hass.data[DOMAIN]["fan_oracle"]
     t = datetime(2026, 8, 10, 12, 0, 0) + timedelta(hours=1)
-    oracle._get_record(ROOM).manual_on_hold_until = t
+    oracle._get_record(LEDGER_KEY).manual_on_hold_until = t
     assert room._fan_manual_on_until == t
 
 
 def test_clear_field_by_setting_none_clears_oracle():
     room, hass = _make_room()
     oracle = hass.data[DOMAIN]["fan_oracle"]
-    oracle._get_record(ROOM).manual_off_cooldown_until = datetime.now()
+    oracle._get_record(LEDGER_KEY).manual_off_cooldown_until = datetime.now()
     room._fan_manual_off_until = None
-    assert oracle.get_state(ROOM).manual_off_cooldown_until is None
+    assert oracle.get_state(LEDGER_KEY).manual_off_cooldown_until is None
 
 
 def test_fallback_when_oracle_missing_uses_local_dict():
@@ -140,7 +154,7 @@ def test_mark_fan_on_issued_records_oracle_edge():
     assert room._fan_on_issued_this_tick is True
     assert room._last_seen_any_fan_on is True
     events = [e for e in oracle.actuation_events
-              if e["room"] == ROOM and e["direction"] == "on"]
+              if e["room"] == LEDGER_KEY and e["direction"] == "on"]
     assert len(events) == 1, events
     assert events[0]["trigger_path"] == FAN_TRIGGER_TEMP_ROOM_ON
     assert events[0]["source"] == "ura"

@@ -50,7 +50,16 @@ _mods = {
         "async_track_point_in_time": lambda *a, **k: lambda: None,
         "async_track_time_change": lambda *a, **k: lambda: None,
     },
-    "homeassistant.helpers.dispatcher": {},
+    "homeassistant.helpers.dispatcher": {
+        # B-MED-1 fix-up (2026-08-11): must expose async_dispatcher_send /
+        # async_dispatcher_connect so hvac_override.py's module-level
+        # ``from homeassistant.helpers.dispatcher import async_dispatcher_send``
+        # doesn't ImportError at collection time — the failure blocked BOTH
+        # this file and quality/tests/test_hvac_vacancy_sweep_manual_on_guard.py
+        # from collecting when this file loaded first in the suite.
+        "async_dispatcher_send": lambda hass, signal, data=None: None,
+        "async_dispatcher_connect": lambda hass, signal, cb: (lambda: None),
+    },
     "homeassistant.helpers.update_coordinator": {
         "DataUpdateCoordinator": _mock_cls,
         "UpdateFailed": Exception,

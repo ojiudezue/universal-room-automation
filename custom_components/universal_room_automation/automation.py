@@ -221,72 +221,127 @@ def _get_fan_oracle(hass):
 class RoomAutomation:
     """Handles automation logic for a room."""
 
-    # FAN-LAYER-1 Session 2 (2026-08-10): the two fan-hold fields become
-    # oracle-backed properties. The oracle (constructed in
-    # CoordinatorManager.__init__, PLAN §7.7) is the SINGLE SOURCE OF
-    # TRUTH for manual-ON hold and manual-OFF cooldown state — this
-    # removes the field-duplication that made v4.6.3 leak six CRITs.
-    # Reader/writer call sites in this file (and the reconciler, HVAC
-    # tier, and parity anchors that reach through `is_fan_in_manual_*`)
-    # are unchanged; the transparent descriptor routes them.
+    # FAN-LAYER-1 Sessions 2..3 fix-up (2026-08-11): the two fan-hold fields
+    # are oracle-backed @property descriptors. The oracle (constructed in
+    # CoordinatorManager.__init__, PLAN §7.7) is the SINGLE SOURCE OF TRUTH
+    # for manual-ON hold and manual-OFF cooldown state.
     #
-    # Fallback: when the oracle is not yet constructed (e.g. tests that
-    # skip CoordinatorManager, or a race during early boot), reads/writes
-    # spill into ``self.__dict__[_LOCAL_FAN_OFF_KEY]`` / ``_LOCAL_FAN_ON_KEY``
-    # so behavior stays byte-identical to the pre-delegation state.
+    # Key discipline (A-HIGH-1 fix-up): the ledger is keyed by the room's
+    # ``config_entry.entry_id`` — a stable HA-managed UUID — NOT the
+    # human-editable CONF_ROOM_NAME. The prior CONF_ROOM_NAME-with-""-fallback
+    # keying collided when two rooms lacked a name (both wrote to key "")
+    # and lost isolation.
+    #
+    # Coalesced read (A-HIGH-2 / B-HIGH-1 fix-up): if the oracle exists but
+    # returns None for a field AND we have a local write cached in
+    # ``__dict__``, we HYDRATE the oracle from the local value and return
+    # local. This closes the race where a hold was set before the oracle
+    # attached; without the hydrate the hold would silently die when the
+    # oracle appeared. Idempotent: after hydration, subsequent reads see
+    # the oracle value and skip the hydrate branch.
+    #
+    # Fallback (A-MED-5): every fallback read/write to __dict__ logs a
+    # WARN so a lifecycle regression that keeps us in fallback is
+    # discoverable.
 
     _LOCAL_FAN_OFF_KEY = "_fan_manual_off_until_local"
     _LOCAL_FAN_ON_KEY = "_fan_manual_on_until_local"
 
+    def _fan_ledger_key(self) -> str:
+        """Return the stable room key used to index the oracle ledger.
+
+        Priority: config_entry.entry_id → CONF_ROOM_NAME → ``"__unkeyed__"``
+        sentinel (never the empty string; two rooms without a name must
+        NOT collide on "").
+        """
+        entry = getattr(self, "_config_entry", None)
+        if entry is not None:
+            eid = getattr(entry, "entry_id", None)
+            if eid:
+                return f"entry:{eid}"
+        try:
+            name = self.config.get(CONF_ROOM_NAME, "")
+        except Exception:  # noqa: BLE001
+            name = ""
+        if name:
+            return f"room:{name}"
+        return "__unkeyed__"
+
+    def _fallback_warn(self, side: str) -> None:
+        """A-MED-5: WARN when a read/write is served by the local fallback."""
+        try:
+            key = self._fan_ledger_key()
+        except Exception:  # noqa: BLE001
+            key = "?"
+        _LOGGER.warning(
+            "FanPolicyOracle fallback: %s served from RoomAutomation "
+            "__dict__ (oracle unavailable) for room=%s — check CoordinatorManager lifecycle",
+            side, key,
+        )
+
     @property
     def _fan_manual_off_until(self):
+        local = self.__dict__.get(self._LOCAL_FAN_OFF_KEY)
         oracle = _get_fan_oracle(getattr(self, "hass", None))
         if oracle is None:
-            return self.__dict__.get(self._LOCAL_FAN_OFF_KEY)
+            if local is not None:
+                self._fallback_warn("read_off")
+            return local
         try:
-            room = self.config.get(CONF_ROOM_NAME, "")
-            return oracle.get_state(room).manual_off_cooldown_until
+            key = self._fan_ledger_key()
+            oracle_val = oracle.get_state(key).manual_off_cooldown_until
+            if oracle_val is None and local is not None:
+                oracle.set_manual_off_cooldown(key, local)
+                return local
+            return oracle_val
         except Exception:  # noqa: BLE001
-            return self.__dict__.get(self._LOCAL_FAN_OFF_KEY)
+            if local is not None:
+                self._fallback_warn("read_off_exc")
+            return local
 
     @_fan_manual_off_until.setter
     def _fan_manual_off_until(self, value):
-        # Cache local fallback in every branch — cheap, and it means
-        # reads still work if the oracle disappears mid-lifecycle.
         self.__dict__[self._LOCAL_FAN_OFF_KEY] = value
         oracle = _get_fan_oracle(getattr(self, "hass", None))
         if oracle is None:
+            self._fallback_warn("write_off")
             return
         try:
-            room = self.config.get(CONF_ROOM_NAME, "")
-            rec = oracle._get_record(room)  # noqa: SLF001
-            rec.manual_off_cooldown_until = value
+            oracle.set_manual_off_cooldown(self._fan_ledger_key(), value)
         except Exception:  # noqa: BLE001
-            pass
+            self._fallback_warn("write_off_exc")
 
     @property
     def _fan_manual_on_until(self):
+        local = self.__dict__.get(self._LOCAL_FAN_ON_KEY)
         oracle = _get_fan_oracle(getattr(self, "hass", None))
         if oracle is None:
-            return self.__dict__.get(self._LOCAL_FAN_ON_KEY)
+            if local is not None:
+                self._fallback_warn("read_on")
+            return local
         try:
-            room = self.config.get(CONF_ROOM_NAME, "")
-            return oracle.get_state(room).manual_on_hold_until
+            key = self._fan_ledger_key()
+            oracle_val = oracle.get_state(key).manual_on_hold_until
+            if oracle_val is None and local is not None:
+                oracle.set_manual_on_hold(key, local)
+                return local
+            return oracle_val
         except Exception:  # noqa: BLE001
-            return self.__dict__.get(self._LOCAL_FAN_ON_KEY)
+            if local is not None:
+                self._fallback_warn("read_on_exc")
+            return local
 
     @_fan_manual_on_until.setter
     def _fan_manual_on_until(self, value):
         self.__dict__[self._LOCAL_FAN_ON_KEY] = value
         oracle = _get_fan_oracle(getattr(self, "hass", None))
         if oracle is None:
+            self._fallback_warn("write_on")
             return
         try:
-            room = self.config.get(CONF_ROOM_NAME, "")
-            rec = oracle._get_record(room)  # noqa: SLF001
-            rec.manual_on_hold_until = value
+            oracle.set_manual_on_hold(self._fan_ledger_key(), value)
         except Exception:  # noqa: BLE001
-            pass
+            self._fallback_warn("write_on_exc")
 
     def __init__(self, hass: HomeAssistant, config: dict[str, Any], coordinator) -> None:
         """Initialize room automation."""
@@ -486,9 +541,10 @@ class RoomAutomation:
         if oracle is not None:
             try:
                 from .const import FAN_TRIGGER_TEMP_ROOM_ON  # noqa: PLC0415
-                room = self.config.get(CONF_ROOM_NAME, "")
+                # A-HIGH-1 fix-up (2026-08-11): key by stable entry_id.
+                key = self._fan_ledger_key()
                 oracle.note_actuation(
-                    room, "on", FAN_TRIGGER_TEMP_ROOM_ON,
+                    key, "on", FAN_TRIGGER_TEMP_ROOM_ON,
                     source="ura", now=dt_util.now(),
                 )
             except Exception:  # noqa: BLE001 — telemetry never breaks caller

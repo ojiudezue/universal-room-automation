@@ -64,6 +64,19 @@ def _iter_py_files(roots: Iterable[Path]) -> Iterable[Path]:
             yield path
 
 
+def _is_oracle_actuate_call(node: ast.AST) -> bool:
+    """Return True if ``node`` is an ``oracle.actuate(...)`` call.
+
+    Restored in C-MED-2 fix-up (2026-08-11): the un-vacuoused adjacency
+    walker uses this to distinguish oracle.actuate async-with items from
+    unrelated context managers (locks, file handles, other async ctx-mgrs).
+    """
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    return isinstance(func, ast.Attribute) and func.attr == "actuate"
+
+
 def _is_oracle_consult_call(node: ast.AST) -> str | None:
     if not isinstance(node, ast.Call):
         return None
@@ -119,7 +132,32 @@ def _walk_stmts_for_consults(
                 else:
                     _walk_stmts_for_consults(children, file, findings)
         if isinstance(stmt, ast.AsyncWith):
-            # oracle.actuate satisfies adjacency by lock construction.
+            # oracle.actuate satisfies adjacency by lock construction —
+            # BUT C-MED-2 fix-up (2026-08-11): un-vacuous the check by
+            # asserting that at least ONE async_with item is oracle.actuate
+            # AND at least one services.async_call lives INSIDE the block.
+            # This catches the failure mode where an oracle.actuate wrap
+            # is present but the actual emission was refactored OUT of the
+            # block (leaving the lock held over nothing while a raw
+            # services.async_call fires elsewhere in the same function).
+            is_actuate_block = any(
+                _is_oracle_actuate_call(item.context_expr)
+                for item in stmt.items
+            )
+            if is_actuate_block:
+                has_inner_service_call = any(
+                    _is_service_call(sub)
+                    for body_stmt in stmt.body
+                    for sub in ast.walk(body_stmt)
+                )
+                if not has_inner_service_call:
+                    findings.append(AdjacencyFinding(
+                        file=file, lineno=stmt.lineno,
+                        site="oracle.actuate",
+                        reason="async-with oracle.actuate body contains no "
+                               "services.async_call — the lock guards nothing "
+                               "(C-MED-2 fix-up unvacuoused this check)",
+                    ))
             continue
         found_consult: str | None = None
         for sub in ast.walk(stmt):
@@ -170,9 +208,12 @@ def _main(argv: list[str]) -> int:
     roots = [Path(p) for p in argv[1:]] if len(argv) > 1 else list(DEFAULT_SCAN_ROOTS)
     findings = run_audit(roots)
     if not findings:
+        # A-LOW-3 fix-up (2026-08-11): message reflects the post-Session-3
+        # state — W11 + W12 are wired via oracle.actuate; the walker now
+        # asserts each async-with block actually contains a service call.
         print(
-            "fan-adjacency audit: OK — zero consult sites found "
-            "(Session 1: no writer migrated yet)"
+            "fan-adjacency audit: OK — all oracle.actuate blocks contain "
+            "an inner services.async_call; no orphaned consults"
         )
         return 0
     print(f"fan-adjacency audit: {len(findings)} violation(s):")

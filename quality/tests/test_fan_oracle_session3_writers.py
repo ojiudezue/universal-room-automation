@@ -106,47 +106,19 @@ def test_prearrival_on_allows_when_cooldown_expired():
 # Source-presence checks — the wraps ARE in the production paths
 # ---------------------------------------------------------------------------
 
-def test_safety_stop_source_wraps_in_oracle_actuate():
-    """W11 source-presence: _safety_stop_one_fan MUST call oracle.actuate.
-
-    A regression that strips the wrap (returning to raw
-    ``services.async_call`` in ``_stop_all_fans_safety``) leaves the
-    safety-stop bypassing the ledger — this test catches that at
-    static-source level. Complement to the oracle-side test above.
-
-    Assertion strength: the trigger token MUST appear at BOTH the
-    import line AND the actuate call site (count >= 2). Assertions
-    are anchored to specific function bodies so a stray occurrence
-    elsewhere in the file doesn't create false-positive coverage.
-    """
-    src = _HVAC_PY.read_text(encoding="utf-8")
-    assert "_safety_stop_one_fan" in src
-    # Extract the _safety_stop_one_fan body.
-    fn_start = src.index("async def _safety_stop_one_fan")
-    fn_body = src[fn_start:fn_start + 3000]
-    assert "oracle.actuate(" in fn_body, "actuate call missing from _safety_stop_one_fan"
-    # The literal call-site pattern — catches "safety=False" regressions
-    # even though the surrounding docstring/comment still mentions "safety=True".
-    assert 'direction="off", safety=True' in fn_body, (
-        "the actuate call must pass safety=True (not just mention it in a comment)"
-    )
-    assert fn_body.count("FAN_TRIGGER_SAFETY_STOP") >= 2, (
-        "FAN_TRIGGER_SAFETY_STOP must appear in BOTH the import line and "
-        "the oracle.actuate call inside _safety_stop_one_fan"
-    )
-
-
-def test_prearrival_on_source_wraps_in_oracle_actuate():
-    """W12 source-presence: _activate_zone_fans MUST call oracle.actuate."""
-    src = _HVAC_PREDICT_PY.read_text(encoding="utf-8")
-    fn_start = src.index("async def _activate_zone_fans")
-    fn_body = src[fn_start:fn_start + 10000]
-    assert "oracle.actuate(" in fn_body, "actuate call missing from _activate_zone_fans"
-    assert fn_body.count("FAN_TRIGGER_HVAC_PREARRIVAL_ON") >= 2, (
-        "FAN_TRIGGER_HVAC_PREARRIVAL_ON must appear in BOTH the import "
-        "line and the oracle.actuate call inside _activate_zone_fans"
-    )
-    assert 'reason": "manual_off_cooldown"' in fn_body or "'reason': 'manual_off_cooldown'" in fn_body
+# ---------------------------------------------------------------------------
+# C-LOW-1 fix-up (2026-08-11): the two source-presence tests
+# (test_safety_stop_source_wraps_in_oracle_actuate,
+#  test_prearrival_on_source_wraps_in_oracle_actuate) have been DELETED.
+# They're superseded by the behavioral tests in
+# quality/tests/test_fan_oracle_w11_w12_behavioral.py which drive the
+# real _stop_all_fans_safety / _activate_zone_fans code paths through
+# a services.async_call recorder + a seeded oracle ledger. Behavioral
+# tests catch a strictly larger set of regressions than source-grep
+# (they close C-HIGH-1 / C-HIGH-2, and the same drills that used to
+# anchor here — MUT3-1..MUT3-5, MUT-STOP — anchor the behavioral tests
+# instead).
+# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------

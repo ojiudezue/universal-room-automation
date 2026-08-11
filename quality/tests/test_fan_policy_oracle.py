@@ -233,7 +233,11 @@ def test_actuate_serializes_concurrent_calls_on_same_room():
     async def _driver():
         await asyncio.gather(_writer("A"), _writer("B"))
 
-    asyncio.run(_driver())
+    _loop = asyncio.new_event_loop()
+    try:
+        _loop.run_until_complete(_driver())
+    finally:
+        _loop.close()
     assert order in (
         ["enter-A", "exit-A", "enter-B", "exit-B"],
         ["enter-B", "exit-B", "enter-A", "exit-A"],
@@ -255,7 +259,11 @@ def test_actuate_does_not_serialize_across_different_rooms():
     async def _driver():
         await asyncio.gather(_hold("room_a"), _hold("room_b"))
 
-    asyncio.run(_driver())
+    _loop = asyncio.new_event_loop()
+    try:
+        _loop.run_until_complete(_driver())
+    finally:
+        _loop.close()
     assert len(concurrent) == 2
     assert oracle._get_lock("room_a") is not oracle._get_lock("room_b")  # noqa: SLF001
 
