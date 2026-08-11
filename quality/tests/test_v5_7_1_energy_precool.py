@@ -765,9 +765,13 @@ class TestD1I7OffsetConfigurable:
         captured = {}
 
         async def _capture(hass_, entity, *, target_temp_low, target_temp_high,
-                           freeze_active, blocking):
+                           freeze_active, blocking, **_kwargs):
+            # **_kwargs accepts the ARREST-COMFORT-1 chokepoint additions
+            # (`gate`, `site`, `zone_id`, `reason`) so this predictor-side
+            # capture keeps working after S12 fix-up (D-HIGH-1).
             captured["low"] = target_temp_low
             captured["high"] = target_temp_high
+            return True
 
         _real_emit = hp_mod["emit_set_temperature"]
         hp_mod["emit_set_temperature"] = _capture

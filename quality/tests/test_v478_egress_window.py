@@ -110,6 +110,29 @@ def _load_egress_module():
     sys.modules["ura_egress_pkg.domain_coordinators.hvac_const"] = hvac_const
     spec.loader.exec_module(hvac_const)
 
+    # Stub hvac_setpoint (ARREST-COMFORT-1 B-MED-1 fix-up: egress resume
+    # now routes through emit_set_preset_mode). Test stub records calls
+    # + delegates to hass.services.async_call so existing assertions on
+    # the raw service call still hold.
+    hvac_setpoint = types.ModuleType("ura_egress_pkg.domain_coordinators.hvac_setpoint")
+    async def _emit_set_preset_mode(hass, entity_id, preset_mode, *,
+                                    blocking=False, gate=None, site="",
+                                    zone_id="", reason=""):
+        if gate is not None:
+            try:
+                if bool(gate()):
+                    return False
+            except Exception:
+                pass
+        await hass.services.async_call(
+            "climate", "set_preset_mode",
+            {"entity_id": entity_id, "preset_mode": preset_mode},
+            blocking=blocking,
+        )
+        return True
+    hvac_setpoint.emit_set_preset_mode = _emit_set_preset_mode
+    sys.modules["ura_egress_pkg.domain_coordinators.hvac_setpoint"] = hvac_setpoint
+
     # Stub hvac_zones (iter_canonical_hvac_zones monkey-patched per test).
     hvac_zones = types.ModuleType("ura_egress_pkg.domain_coordinators.hvac_zones")
     hvac_zones.iter_canonical_hvac_zones = lambda hass: []

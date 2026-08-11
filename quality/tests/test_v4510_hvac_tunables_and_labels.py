@@ -262,7 +262,10 @@ class TestHVACTunableNumberFactory:
         # added FanInterferenceHoldNumber to the CM entity list, which
         # pushed the v4.5.10 builder call past the original window).
         # This is a structural test — the absolute offset is incidental.
-        body = number_src[idx:idx + 5000]
+        # Fix-up A-HIGH-1 (ARREST-COMFORT-1): +2 comfort-delay Number
+        # entities pushed the builder call further into async_setup_entry;
+        # window widened accordingly.
+        body = number_src[idx:idx + 7000]
         assert "_build_hvac_v4510_numbers()" in body, (
             "async_setup_entry must add the 7 v4.5.10 Number entities"
         )

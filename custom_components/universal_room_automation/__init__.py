@@ -3104,6 +3104,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         max_occupancy_hours=int(cm_config.get(
                             CONF_HVAC_MAX_OCCUPANCY_HOURS, DEFAULT_MAX_OCCUPANCY_HOURS
                         )),
+                        # ARREST-COMFORT-1 D2-LOW-2 fix-up (2026-08-10):
+                        # eager-seed rung-3 comfort-delay knobs at HC
+                        # construction so the arrester + D3 guard never
+                        # read stale module defaults during the boot
+                        # window between HC init and
+                        # ComfortGraceMinutesNumber.async_added_to_hass.
+                        # Local import: keeps top-of-file imports quiet.
+                        **(lambda _cfg: {
+                            "comfort_grace_min": int(_cfg.get(
+                                "hvac_comfort_grace_min", 30,
+                            )),
+                            "comfort_soc_floor_pct": int(_cfg.get(
+                                "hvac_comfort_soc_floor_pct", 80,
+                            )),
+                        })(cm_config),
                         zone_entry_dwell=int(cm_config.get(
                             CONF_HVAC_ZONE_ENTRY_DWELL, DEFAULT_ZONE_ENTRY_DWELL_MINUTES
                         )),
