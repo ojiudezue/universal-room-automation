@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-10T19:34:26-05:00_ - _Data commit: `9a17ef9bb8f0`_ - _last_reconciled: 2026-08-10_
+_Generated: 2026-08-10T19:44:18-05:00_ - _Data commit: `81d0c8897283`_ - _last_reconciled: 2026-08-10_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,8 +12,8 @@ _Generated: 2026-08-10T19:34:26-05:00_ - _Data commit: `9a17ef9bb8f0`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 1 |
-| 🧭 Pre-planning | 16 |
-| 📝 Planned | 2 |
+| 🧭 Pre-planning | 15 |
+| 📝 Planned | 3 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 0 |
 | 🚀 Shipped (organic open) | 10 |
@@ -41,7 +41,7 @@ thread: **dashboarding** - status: **inbox** - approval: **explicit**
   - `followup_candidate`: retrofit conditional rendering to the Battery Strategy Detail card (same section group, same defect, ~30 min) — only if the operator endorses this card's style
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
 
-## 🧭 Pre-planning (16)
+## 🧭 Pre-planning (15)
 _idea being decomposed_
 
 ### `WATCHDOG-INERT-1` - Three of four v5.35.0 stuck-signal detectors are effectively inert (D3 structurally unreachable)
@@ -98,17 +98,6 @@ thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
   - `operator_action_taken_2026_08_09`: temp_arrester_override switched ON and all three zones set to home at operator instruction. Verified: ceilings dropped 80 -> 76/77, all three cooling, runtime_exceeded cleared. Note the override has a 6h max life and sunsets on some hous...
   - `OPERATOR_DESIGN_2026_08_10`: DELAY chosen over exempt. Plus three design inputs verbatim-captured: (1) IDENTIFICATION QUESTION (operator): "how will this situation be identified specifically to widen the delay/grace?" — the predicate for "occupant comfort request" n...
   - `DEDUPE_2026_08_09`: Sweep: ARREST-SUNSET-1 (shipped) is about WHEN the override sunsets; OVERRIDE-NOTIFY-1 is about warning before expiry. Neither touches whether the arrester should fire against an occupant comfort request in the first place. HVAC-PRESET-F...
-
-### `FAN-MANUAL-1` - Fans have no manual-ON override: room temp logic reverts a hand-switched fan ("below threshold")
-thread: **hvac** - status: **pre_planning** - approval: **explicit**
-- **Origin:** 2026-08-10 - "I cant seem to turn on the living room fan manually without it turning off by itself."
-- **Why:** EVIDENCE (ura_activity_log): Living Room fan turn-offs are [room/fan_off] "Fans off (below threshold, 77F)" — the room-tier temperature comfort controller reconciles fan state to its own verdict and does not recognise a manual ON. v5.31....
-- **Next:** TWO OPERATOR RULINGS before build: (1) FAN_SLEEP_OFF vs fresh manual-ON — planner recommends FRESHEST WINS (symmetric with the manual-off precedent); (2) fan-recheck pause needs to turn fans off to disambiguate PIR — allowlist its OFF an...
-- **Tags:** context-wide-scoping, institutional-context, numbers-get-knobs
-- **Forensic keys (3):**
-  - `scope_note`: Operator mandate: context-wide. Fan touchpoints to inventory before design: room comfort fan control (handle_temperature_based_fan_control + the below-threshold revert), v5.31.0 manual-off cooldown (the precedent + its knob), fan_recheck...
-  - `PLAN_2026_08_10`: docs/planning/PLANNING_fan_manual_on_override.md. Shape: plain timed manual-ON hold symmetric to the v5.31.0 manual-OFF cooldown — graduated-concession REJECTED for fans (binary comfort, no setpoint to negotiate; margin ~0). Detection RE...
-  - `DEDUPE_2026_08_10`: Sweep: ARREST-COMFORT-1 is the SIBLING (thermostat side of the same class) — linked not merged; fan-recheck cards/plans are about mmWave truth not manual intent; humidity-fan backlog (PowerView memo) is spike detection; B-2026-08-03-8 fl...
 
 ### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)
 thread: **tablets** - status: **pre_planning** - approval: **unreviewed**
@@ -224,7 +213,7 @@ thread: **camera** - status: **pre_planning** - approval: **implied**
 - **Parsimony:** [BUILD] per-room fused camera sensors ship with no area
 - **Refs:** binary_sensor.py CameraPersonDetectedSensor
 
-## 📝 Planned (2)
+## 📝 Planned (3)
 _has plan / acceptance_
 
 ### `STUCK-SENSOR-1` - Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
@@ -251,6 +240,18 @@ thread: **presence** - status: **planned** - approval: **explicit**
   - `D0_AUDIT_DONE`: 2026-08-09: docs/planning/AUDIT_mmwave_only_rooms_2026-07-31.md written (was owed since 07-31 as D0 of the mmwave Tier-3 cycle and never done; cycle shipped without it). Key results: 5 MMWAVE_ONLY rooms + Master Bedroom MMWAVE_NO_PIR = S...
   - `OPERATOR_DISPOSITIONS_2026_08_09`: ATHOM (Study A): CLOSED as a no-op. Operator: "Ignore athom now. It's a no op." URA already does not read it (options override every bucket); the ESPHome device entry stays. Do NOT re-raise, do NOT propose deleting the entry or cleaning ...
   - `rejected`: PROPAGATE STUCK STATE TO ZONE/HOUSE — I recommended this and then withdrew it under challenge ('is this flow upwards useful?'). If the room tier excludes correctly the corrected occupancy propagates naturally and upper tiers are right fo...
+
+### `FAN-MANUAL-1` - Fans have no manual-ON override: room temp logic reverts a hand-switched fan ("below threshold")
+thread: **hvac** - status: **planned** - approval: **explicit**
+- **Origin:** 2026-08-10 - "I cant seem to turn on the living room fan manually without it turning off by itself."
+- **Why:** EVIDENCE (ura_activity_log): Living Room fan turn-offs are [room/fan_off] "Fans off (below threshold, 77F)" — the room-tier temperature comfort controller reconciles fan state to its own verdict and does not recognise a manual ON. v5.31....
+- **Next:** BUILD (Tier 2-DB, 3 framing-disjoint reviews): timed hold + field split per plan. Runs parallel to the P24/D3 batch — surfaces mostly disjoint (automation.py/hvac_fans.py/fan_recheck vs coordinator.py/person_coordinator); const.py knob a...
+- **Tags:** context-wide-scoping, institutional-context, numbers-get-knobs
+- **Forensic keys (4):**
+  - `scope_note`: Operator mandate: context-wide. Fan touchpoints to inventory before design: room comfort fan control (handle_temperature_based_fan_control + the below-threshold revert), v5.31.0 manual-off cooldown (the precedent + its knob), fan_recheck...
+  - `PLAN_2026_08_10`: docs/planning/PLANNING_fan_manual_on_override.md. Shape: plain timed manual-ON hold symmetric to the v5.31.0 manual-OFF cooldown — graduated-concession REJECTED for fans (binary comfort, no setpoint to negotiate; margin ~0). Detection RE...
+  - `OPERATOR_RULINGS_2026_08_10`: Both as recommended: (1) FRESHEST WINS — a manual-ON newer than the sleep transition survives it; (2) fan-recheck OFF is ALLOWLISTED via trigger_path, hold remaining-time preserved across the pause. Build fully approved (build-implies-sh...
+  - `DEDUPE_2026_08_10`: Sweep: ARREST-COMFORT-1 is the SIBLING (thermostat side of the same class) — linked not merged; fan-recheck cards/plans are about mmWave truth not manual intent; humidity-fan backlog (PowerView memo) is spike detection; B-2026-08-03-8 fl...
 
 ### `CONSOL-1` - Perimeter consolidation cycle
 thread: **perimeter** - status: **planned** - approval: **explicit**
