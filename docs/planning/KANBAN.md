@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-10T16:06:02-05:00_ - _Data commit: `bdb52dca4794`_ - _last_reconciled: 2026-08-10_
+_Generated: 2026-08-10T19:34:26-05:00_ - _Data commit: `9a17ef9bb8f0`_ - _last_reconciled: 2026-08-10_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -103,10 +103,11 @@ thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
 thread: **hvac** - status: **pre_planning** - approval: **explicit**
 - **Origin:** 2026-08-10 - "I cant seem to turn on the living room fan manually without it turning off by itself."
 - **Why:** EVIDENCE (ura_activity_log): Living Room fan turn-offs are [room/fan_off] "Fans off (below threshold, 77F)" — the room-tier temperature comfort controller reconciles fan state to its own verdict and does not recognise a manual ON. v5.31....
-- **Next:** dispatch ura-planner for the full-inventory design; likely shape = manual-ON hold with named duration knob + discharge conditions (suppression-needs-a-discharge rule), symmetric with the manual-off cooldown precedent
+- **Next:** TWO OPERATOR RULINGS before build: (1) FAN_SLEEP_OFF vs fresh manual-ON — planner recommends FRESHEST WINS (symmetric with the manual-off precedent); (2) fan-recheck pause needs to turn fans off to disambiguate PIR — allowlist its OFF an...
 - **Tags:** context-wide-scoping, institutional-context, numbers-get-knobs
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `scope_note`: Operator mandate: context-wide. Fan touchpoints to inventory before design: room comfort fan control (handle_temperature_based_fan_control + the below-threshold revert), v5.31.0 manual-off cooldown (the precedent + its knob), fan_recheck...
+  - `PLAN_2026_08_10`: docs/planning/PLANNING_fan_manual_on_override.md. Shape: plain timed manual-ON hold symmetric to the v5.31.0 manual-OFF cooldown — graduated-concession REJECTED for fans (binary comfort, no setpoint to negotiate; margin ~0). Detection RE...
   - `DEDUPE_2026_08_10`: Sweep: ARREST-COMFORT-1 is the SIBLING (thermostat side of the same class) — linked not merged; fan-recheck cards/plans are about mmWave truth not manual intent; humidity-fan backlog (PowerView memo) is spike detection; B-2026-08-03-8 fl...
 
 ### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)
