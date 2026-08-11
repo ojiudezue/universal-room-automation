@@ -121,7 +121,24 @@ def test_eval_age_min_computes_minutes_since_last_eval():
         state=DPState.HOLD_ONLY, last_eval_at=now - timedelta(minutes=42),
     )
     attrs = c.to_attrs(now=now)
-    assert attrs["eval_age_min"] == pytest.approx(42.0, abs=0.01)
+    # Fix-up B-H1: int-floored so per-30s polls don't churn the attr.
+    assert attrs["eval_age_min"] == 42
+    assert isinstance(attrs["eval_age_min"], int)
+
+
+def test_eval_age_min_is_int_minutes_floored_across_seconds():
+    """B-H1 anti-churn: within the same wall-clock minute, two reads
+    that differ by a few seconds MUST report identical eval_age_min
+    (int, floored). This is what stops recorder-row churn on quiescent
+    polls."""
+    base = _tz_now()
+    last_eval = base - timedelta(minutes=5, seconds=10)
+    c = DrainPrecedenceState(state=DPState.HOLD_ONLY, last_eval_at=last_eval)
+    a1 = c.to_attrs(now=base + timedelta(seconds=2))
+    a2 = c.to_attrs(now=base + timedelta(seconds=25))
+    assert a1["eval_age_min"] == 5
+    assert a2["eval_age_min"] == 5
+    assert a1["eval_age_min"] == a2["eval_age_min"]
 
 
 def test_eval_age_min_stale_matches_2026_08_11_misdiagnosis():
@@ -135,7 +152,7 @@ def test_eval_age_min_stale_matches_2026_08_11_misdiagnosis():
         last_eval_snapshot={"decision": {"reason": "does_not_fit"}},
     )
     attrs = c.to_attrs(now=now)
-    assert attrs["eval_age_min"] == pytest.approx(4 * 24 * 60, abs=0.1)
+    assert attrs["eval_age_min"] == 4 * 24 * 60
 
 
 def test_eval_age_min_omitted_when_no_now_supplied_backcompat():
@@ -166,6 +183,17 @@ def test_must_start_by_rendered_none_when_expired_with_flag():
     assert attrs["must_start_by_dt"] is None
     assert attrs["must_start_by_expired"] is True
     assert attrs["must_start_by_dt_raw"] == past.isoformat()
+
+
+def test_must_start_by_expired_at_boundary_inclusive():
+    """A3 (LOW) fix: `must_start_by_dt == now` has already lapsed —
+    the deadline is a wall-clock point-in-time, not a range with a
+    grace second. Treat as expired."""
+    now = _tz_now()
+    c = DrainPrecedenceState(must_start_by_dt=now)
+    attrs = c.to_attrs(now=now)
+    assert attrs["must_start_by_expired"] is True
+    assert attrs["must_start_by_dt"] is None
 
 
 def test_must_start_by_rendered_iso_when_future():
@@ -243,6 +271,39 @@ def test_evaluate_dp_transition_unchanged_by_observability_cycle():
     assert d.margin_hours == pytest.approx(1.0, abs=1e-6)
 
 
+def test_to_attrs_byte_identical_when_state_unchanged_at_same_now():
+    """B-H1 anti-churn anchor: rendering the attr block twice against
+    the SAME carrier state at the SAME `now` must produce byte-identical
+    dicts. If any attr silently varies with wall-clock (e.g. an ISO
+    timestamp of the call itself), HA's recorder writes a row per poll
+    on quiescent sensors — the exact class B-H1 was raised to close.
+    Neuter the event-anchor in to_attrs and this test goes red."""
+    now = _tz_now()
+    c = DrainPrecedenceState(
+        state=DPState.HOLD_ONLY,
+        since=now - timedelta(hours=2),
+        last_eval_at=now - timedelta(minutes=17),
+        must_start_by_dt=now + timedelta(hours=4),
+        last_eval_snapshot={"decision": {"reason": "fits"}},
+    )
+    a1 = c.to_attrs(now=now)
+    a2 = c.to_attrs(now=now)
+    assert a1 == a2
+    # AND: two reads a few seconds apart (same wall-clock minute) also
+    # match on every attr — the whole minute is the churn window that
+    # matters for recorder throughput.
+    a3 = c.to_attrs(now=now + timedelta(seconds=15))
+    a4 = c.to_attrs(now=now + timedelta(seconds=45))
+    for key in ("state", "state_meaning", "must_start_by_dt",
+                "must_start_by_expired", "must_start_by_dt_raw",
+                "eval_age_min", "last_eval_at", "last_eval_snapshot",
+                "since"):
+        assert a3[key] == a4[key], (
+            f"attr `{key}` changed within a wall-clock minute: "
+            f"{a3[key]!r} vs {a4[key]!r} — recorder-churn hazard"
+        )
+
+
 def test_dp_maybe_tick_unchanged_hold_only_arm_edge():
     """HOLD_ONLY + charging + enabled → arms HOLD_PRE_EVAL. Byte-identity
     check: this transition must fire regardless of observability cycle."""
@@ -277,26 +338,52 @@ def test_dp_maybe_tick_unchanged_hold_only_arm_edge():
 # of the get_status call site.
 
 
-def test_reasons_computed_at_present_in_ev_charging_status_shape():
-    """D5: `pause_reason_human` recomputes per get_status() call; the new
-    `reasons_computed_at` ISO timestamp attr surfaces that recompute so
-    an operator can distinguish 'no reason' from 'stale reason'. This
-    test grep-asserts the emit site in energy_pool.py (the loaded module
-    is HA-coupled; we verify at source level)."""
+def test_reasons_last_changed_at_event_anchored_not_per_poll():
+    """D5 + B-H1: `reasons_last_changed_at` MUST be event-anchored, not
+    stamped with `now` on every call. Fix-up B-H1 replaced the churny
+    per-poll stamp with a signature-diff pattern so recorder rows are
+    not written on quiescent 30-s polls.
+
+    Source-level verification of the anti-churn shape:
+      - a `sig` tuple is built from `pause_reason_human` + the pause sets
+      - it is compared against a cached `_pause_reasons_sig`
+      - the stamp is only advanced when the sig actually CHANGES
+    Neuter any one of these three lines and the anti-churn contract
+    breaks — the mutation drill in the report walks that pattern."""
     ep_path = os.path.join(_DC_DIR, "energy_pool.py")
     with open(ep_path, "r") as f:
         src = f.read()
-    assert 'status["reasons_computed_at"] = now_local.isoformat()' in src, (
-        "D5 site missing — reasons_computed_at must be emitted from "
-        "get_status alongside pause_reason_human"
-    )
-    # Sanity: the emit is inside get_status, positioned AFTER the
-    # pause_reason_human assignment (so operators reading it see the
-    # timestamp of the reasons they were just given).
+    # Attr emit uses the CACHED stamp, never `now_local.isoformat()`
+    # directly (that would be the churny shape).
+    assert (
+        'status["reasons_last_changed_at"] = getattr(\n'
+        '            self, "_pause_reasons_last_changed_at",'
+        in src
+    ), "D5 emit shape must read the cached event-anchored stamp"
+    # The sig-diff advances the cached stamp only on real change.
+    assert 'last_sig = getattr(self, "_pause_reasons_sig", None)' in src
+    assert 'if sig != last_sig:' in src
+    assert 'self._pause_reasons_last_changed_at = now_local.isoformat()' in src
+    # Ensure the OLD per-poll shape is gone.
+    assert (
+        'status["reasons_computed_at"] = now_local.isoformat()' not in src
+    ), "old per-poll stamp must be removed (B-H1)"
+    # Sig covers the pause sets so any membership change bumps the stamp.
+    for key in (
+        '"paused_by_energy"',
+        '"paused_by_grid_cap"',
+        '"paused_by_battery_drain"',
+        '"paused_by_arbitrage"',
+        '"paused_by_fill_priority"',
+    ):
+        assert key in src.split("sig = (", 1)[1].split(")\n", 1)[0], (
+            f"sig tuple must include {key} membership"
+        )
+    # Sanity: sig site is AFTER pause_reason_human assignment.
     pr_idx = src.rfind('status["pause_reason_human"] = pause_reason_human')
-    rc_idx = src.find('status["reasons_computed_at"] = now_local.isoformat()')
-    assert pr_idx != -1 and rc_idx != -1
-    assert rc_idx > pr_idx
+    sig_idx = src.find('last_sig = getattr(self, "_pause_reasons_sig", None)')
+    assert pr_idx != -1 and sig_idx != -1
+    assert sig_idx > pr_idx
 
 
 # ==========================================================================
@@ -318,11 +405,21 @@ def test_eval_gate_reasons_enumerate_the_gate_inputs():
     for token in (
         '"dp_disabled"',
         '"not_off_peak"',
-        '"no_evse_charging"',
+        '"force_charge_active"',      # A5 (LOW)
+        '"no_evse_charging_no_arm"',  # MED-A2 rename
         '"waiting_eval_delay"',
+        '"ran_recently"',              # B-H1 stable token
         '"eligible"',
     ):
         assert token in src, f"eval_gate reason token missing: {token}"
+    # MED-A2: the churn-prone `ran_{N}min_ago` shape MUST be gone; the
+    # numeric age is exposed as `eval_age_min` (int-floored).
+    assert '"ran_recently"' in src
+    assert 'ran_{int(age_min)}min_ago' not in src
+    # MED-A2: the ambiguous `no_evse_charging` token (which used to
+    # co-mingle "eval not running" with "eval ran, nothing to arm")
+    # MUST be replaced by the disambiguating `_no_arm` suffix.
+    assert 'return "no_evse_charging"' not in src
     # The gate must consult the SAME inputs energy.py's decision gate
     # reads — confirm by name so a rename in energy.py surfaces here.
     assert "is_dp_enabled" in src

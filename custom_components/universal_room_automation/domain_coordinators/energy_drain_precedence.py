@@ -247,18 +247,29 @@ class DrainPrecedenceState:
         raw_msb_iso = _iso(self.must_start_by_dt)
         msb_expired = False
         msb_rendered = raw_msb_iso
-        eval_age_min: Optional[float] = None
+        eval_age_min: Optional[int] = None
         if now is not None:
-            if (
-                self.must_start_by_dt is not None
-                and self.must_start_by_dt < now
-            ):
-                msb_expired = True
-                msb_rendered = None
+            # A3 (LOW): boundary inclusive — a must_start_by_dt exactly
+            # equal to `now` has already lapsed, treat as expired.
+            # A4 (LOW): symmetric try/except around the tz-aware compare
+            # (matches the eval_age_min pattern below) — defensive
+            # against mixed tz-aware/naive without silently rendering
+            # a stale plan as current.
+            if self.must_start_by_dt is not None:
+                try:
+                    if self.must_start_by_dt <= now:
+                        msb_expired = True
+                        msb_rendered = None
+                except TypeError:
+                    pass
             if self.last_eval_at is not None:
                 try:
-                    eval_age_min = (
-                        (now - self.last_eval_at).total_seconds() / 60.0
+                    # B-H1 (HIGH) fix: floor to whole minutes so a per-30s
+                    # sensor poll doesn't churn recorder rows on this
+                    # continuously-advancing float. Age only changes at
+                    # most once/minute for the same last_eval_at.
+                    eval_age_min = int(
+                        (now - self.last_eval_at).total_seconds() // 60
                     )
                 except TypeError:
                     # Mixed tz-aware/naive — defensive; leave None.

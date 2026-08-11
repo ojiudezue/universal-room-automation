@@ -8324,13 +8324,24 @@ class EnergyDrainPrecedenceStateSensor(AggregationEntity, SensorEntity):
             return "unknown"
 
     def _compute_eval_gate(self, energy, carrier) -> str:
-        """DP-OBSERVABILITY-1: why isn't the DP eval running right now?
+        """DP-OBSERVABILITY-1: which gate is currently keeping the DP
+        eval from either RUNNING or ARMING right now?
+
+        Two label families (MED-A2):
+          - "eval not running" — reasons the tick short-circuits BEFORE
+            the state machine advances: `dp_disabled`, `not_off_peak`,
+            `force_charge_active`.
+          - "eval ran, nothing to arm" — the tick ran, but a DPInput
+            said there's nothing to plan for: `no_evse_charging_no_arm`.
+          - Plus the in-machine wait state `waiting_eval_delay` and the
+            informational `ran_recently` post-eval label.
 
         Presentation of existing facts — reads the same inputs the
-        gate at energy.py `_dp_decision_tick` reads (kill switch, TOU
-        period, any_evse_charging, carrier state, hold_started_at,
-        last_eval_at). No new I/O; every read is exception-guarded.
-        Returns a stable identifier so dashboards can key on it.
+        gate at energy.py `_dp_decision_tick` reads. No new I/O;
+        every read is exception-guarded. Tokens are stable identifiers
+        so dashboards can key on them (fix-up B-H1 replaced the
+        churn-prone `ran_{N}min_ago` with the stable `ran_recently` —
+        the numeric age is already in `eval_age_min`).
         """
         # Kill-switch — matches `is_dp_enabled(self)` at energy.py:4346.
         try:
@@ -8348,11 +8359,30 @@ class EnergyDrainPrecedenceStateSensor(AggregationEntity, SensorEntity):
                 return "not_off_peak"
         except Exception:  # noqa: BLE001
             pass
-        # Any EVSE charging — matches energy.py:4444.
+        # A5 (LOW): force_charge short-circuits DP inside the tick
+        # (evaluate_dp_transition gate 3 / _dp_decision_tick). It is an
+        # "eval not running" honesty axis — surface it before the
+        # in-tick DPInput gates.
+        try:
+            ev = getattr(energy, "_ev", None)
+            fc_until = getattr(ev, "_force_charge_until", None) if ev else None
+            if fc_until is not None:
+                try:
+                    if fc_until > dt_util.now():
+                        return "force_charge_active"
+                except TypeError:
+                    pass
+        except Exception:  # noqa: BLE001
+            pass
+        # Any EVSE charging — matches energy.py:4444. NOTE: this is a
+        # DPInput consumed INSIDE the tick body (any_evse_charging), so
+        # the tick still runs; it just decides there's nothing to arm.
+        # Distinguish from the true "eval not running" family above
+        # (MED-A2 rename).
         try:
             is_charging_fn = getattr(energy, "_is_any_evse_charging", None)
             if callable(is_charging_fn) and not is_charging_fn():
-                return "no_evse_charging"
+                return "no_evse_charging_no_arm"
         except Exception:  # noqa: BLE001
             pass
         # HOLD_PRE_EVAL delay — matches energy_drain_precedence._dp_maybe_tick.
@@ -8369,16 +8399,17 @@ class EnergyDrainPrecedenceStateSensor(AggregationEntity, SensorEntity):
                         return "waiting_eval_delay"
         except Exception:  # noqa: BLE001
             pass
-        # Informational: last eval was recent (still in this decision-cycle
-        # window). Not a gate per se, but signals "eval already ran this
-        # cycle" which is what an operator watching the sensor at 3 AM
-        # cares about after a state change.
+        # Informational: eval fired recently (still inside this
+        # decision-cycle's ~5-min window). Fix-up B-H1: STABLE token —
+        # the numeric age is already exposed as `eval_age_min`, so
+        # keeping the age out of this label prevents the string from
+        # changing every minute and churning recorder rows.
         try:
             last = carrier.last_eval_at
             if last is not None:
                 age_min = (dt_util.now() - last).total_seconds() / 60.0
                 if 0 <= age_min < 5:
-                    return f"ran_{int(age_min)}min_ago"
+                    return "ran_recently"
         except Exception:  # noqa: BLE001
             pass
         return "eligible"
