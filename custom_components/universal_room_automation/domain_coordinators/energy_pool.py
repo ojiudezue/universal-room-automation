@@ -2677,6 +2677,14 @@ class EVChargerController:
         for plug_id, reason in plug_status.get("pause_reason_human", {}).items():
             pause_reason_human[plug_id] = reason
         status["pause_reason_human"] = pause_reason_human
+        # DP-OBSERVABILITY-1: freshness timestamp for pause_reason_human.
+        # `get_status` recomputes the entire pause_reason_human dict from
+        # live pause-set membership on every call (per-tick when the
+        # sensor is read), so a reason from a prior period cannot survive
+        # into a period where it's false — the recompute cadence IS the
+        # discharge. This attr surfaces WHEN that recompute happened so
+        # the sensor consumer can distinguish "no reason" from "stale".
+        status["reasons_computed_at"] = now_local.isoformat()
 
         return status
 

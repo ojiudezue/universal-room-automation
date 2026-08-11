@@ -77,6 +77,33 @@ class DPState(str, Enum):
     MUST_START_FORCED = "must_start_forced"
 
 
+# DP-OBSERVABILITY-1: human-readable one-liner per state, derived from the
+# DPState enum docstring semantics above. Surfaced via to_attrs() so an
+# operator reading the sensor never has to translate "hold_only" as
+# "charging blocked" (the 2026-08-11 misdiagnosis). Keep in lockstep with
+# the enum docstring — if a state's semantics change, update BOTH.
+_STATE_MEANING: dict[str, str] = {
+    DPState.HOLD_ONLY.value: (
+        "resting — no drain-pause active; evaluates during off-peak "
+        "while an EVSE charges"
+    ),
+    DPState.HOLD_PRE_EVAL.value: (
+        "hold armed — waiting eval_delay_min before firing a fresh eval"
+    ),
+    DPState.EVAL_TRANSITION.value: (
+        "one-shot eval firing this tick"
+    ),
+    DPState.TRANSITIONED.value: (
+        "EVSE(s) paused; reserve released to "
+        "max(inclement_floor, drain_target); ledger stamped"
+    ),
+    DPState.MUST_START_FORCED.value: (
+        "must-start-by deadline reached; EVSE released regardless of "
+        "drain progress (INV-DP2)"
+    ),
+}
+
+
 # Legal transition table. Any transition NOT listed here is illegal.
 # Independently anchored (hand-written from plan §141-158) — tests will
 # hand-write the SAME table separately and diff, so a machine bug that
@@ -192,23 +219,62 @@ class DrainPrecedenceState:
         )
 
     # ---- observability -------------------------------------------------
-    def to_attrs(self) -> dict[str, Any]:
+    def to_attrs(self, now: Optional[datetime] = None) -> dict[str, Any]:
         """Attr block for `sensor.ura_energy_drain_precedence_state`.
 
         Session A: attrs only (no new sensor entity — Session B adds the
         entity surface). The parent Energy Coordinator's diagnostics sensor
         picks these up via a `drain_precedence` sub-dict.
+
+        DP-OBSERVABILITY-1: when `now` (tz-aware datetime) is supplied,
+        four presentation-only fields are computed:
+          - `eval_age_min` — minutes since `last_eval_at` (None if never).
+          - `must_start_by_expired` — bool; True iff `must_start_by_dt`
+            is in the past relative to `now`.
+          - `must_start_by_dt` — rendered as None when expired (so a
+            stale deadline can't be misread as a current plan). Raw ISO
+            preserved in `must_start_by_dt_raw` for audit.
+          - `state_meaning` — one-line semantic description from
+            `_STATE_MEANING`. Independent of `now`; always present.
+        When `now` is None (tests calling `to_attrs()` without a clock),
+        the raw shape is preserved for byte-compat: `must_start_by_dt`
+        is the ISO value, `eval_age_min` is None, `must_start_by_expired`
+        is False, but `state_meaning` is still emitted.
         """
         def _iso(dt: Optional[datetime]) -> Optional[str]:
             return dt.isoformat() if dt is not None else None
 
+        raw_msb_iso = _iso(self.must_start_by_dt)
+        msb_expired = False
+        msb_rendered = raw_msb_iso
+        eval_age_min: Optional[float] = None
+        if now is not None:
+            if (
+                self.must_start_by_dt is not None
+                and self.must_start_by_dt < now
+            ):
+                msb_expired = True
+                msb_rendered = None
+            if self.last_eval_at is not None:
+                try:
+                    eval_age_min = (
+                        (now - self.last_eval_at).total_seconds() / 60.0
+                    )
+                except TypeError:
+                    # Mixed tz-aware/naive — defensive; leave None.
+                    eval_age_min = None
+
         return {
             "state": self.state.value,
+            "state_meaning": _STATE_MEANING.get(self.state.value),
             "since": _iso(self.since),
             "hold_started_at": _iso(self.hold_started_at),
             "transitioned_at": _iso(self.transitioned_at),
-            "must_start_by_dt": _iso(self.must_start_by_dt),
+            "must_start_by_dt": msb_rendered,
+            "must_start_by_dt_raw": raw_msb_iso,
+            "must_start_by_expired": msb_expired,
             "last_eval_at": _iso(self.last_eval_at),
+            "eval_age_min": eval_age_min,
             "last_eval_snapshot": dict(self.last_eval_snapshot or {}),
             # v5.21.0 D4 shadow observability. Present regardless of
             # switch state (None when no shadow eval has run yet).

@@ -8301,11 +8301,14 @@ class EnergyDrainPrecedenceStateSensor(AggregationEntity, SensorEntity):
         self._attr_name = "EV Charging Plan"
         self._attr_device_info = _energy_device_info()
 
-    def _get_carrier(self):
+    def _get_energy(self):
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
         if manager is None:
             return None
-        energy = manager.coordinators.get("energy")
+        return manager.coordinators.get("energy")
+
+    def _get_carrier(self):
+        energy = self._get_energy()
         if energy is None:
             return None
         return getattr(energy, "_dp_carrier", None)
@@ -8320,15 +8323,84 @@ class EnergyDrainPrecedenceStateSensor(AggregationEntity, SensorEntity):
         except Exception:  # noqa: BLE001
             return "unknown"
 
+    def _compute_eval_gate(self, energy, carrier) -> str:
+        """DP-OBSERVABILITY-1: why isn't the DP eval running right now?
+
+        Presentation of existing facts — reads the same inputs the
+        gate at energy.py `_dp_decision_tick` reads (kill switch, TOU
+        period, any_evse_charging, carrier state, hold_started_at,
+        last_eval_at). No new I/O; every read is exception-guarded.
+        Returns a stable identifier so dashboards can key on it.
+        """
+        # Kill-switch — matches `is_dp_enabled(self)` at energy.py:4346.
+        try:
+            from .domain_coordinators.energy_drain_precedence import (
+                is_dp_enabled as _dp_is_enabled,
+            )
+            if not _dp_is_enabled(energy):
+                return "dp_disabled"
+        except Exception:  # noqa: BLE001
+            pass
+        # TOU period — matches energy.py:4403.
+        try:
+            tou = getattr(energy, "_tou", None)
+            if tou is not None and tou.get_current_period() != "off_peak":
+                return "not_off_peak"
+        except Exception:  # noqa: BLE001
+            pass
+        # Any EVSE charging — matches energy.py:4444.
+        try:
+            is_charging_fn = getattr(energy, "_is_any_evse_charging", None)
+            if callable(is_charging_fn) and not is_charging_fn():
+                return "no_evse_charging"
+        except Exception:  # noqa: BLE001
+            pass
+        # HOLD_PRE_EVAL delay — matches energy_drain_precedence._dp_maybe_tick.
+        try:
+            from .domain_coordinators.energy_drain_precedence import DPState
+            if carrier.state == DPState.HOLD_PRE_EVAL:
+                started = carrier.hold_started_at
+                delay = int(getattr(energy, "_dp_eval_delay_min", 0) or 0)
+                if started is not None:
+                    elapsed_min = (
+                        (dt_util.now() - started).total_seconds() / 60.0
+                    )
+                    if elapsed_min < float(delay):
+                        return "waiting_eval_delay"
+        except Exception:  # noqa: BLE001
+            pass
+        # Informational: last eval was recent (still in this decision-cycle
+        # window). Not a gate per se, but signals "eval already ran this
+        # cycle" which is what an operator watching the sensor at 3 AM
+        # cares about after a state change.
+        try:
+            last = carrier.last_eval_at
+            if last is not None:
+                age_min = (dt_util.now() - last).total_seconds() / 60.0
+                if 0 <= age_min < 5:
+                    return f"ran_{int(age_min)}min_ago"
+        except Exception:  # noqa: BLE001
+            pass
+        return "eligible"
+
     @property
     def extra_state_attributes(self) -> dict:
-        carrier = self._get_carrier()
+        energy = self._get_energy()
+        carrier = getattr(energy, "_dp_carrier", None) if energy else None
         if carrier is None:
             return {}
         try:
-            return dict(carrier.to_attrs())
+            attrs = dict(carrier.to_attrs(now=dt_util.now()))
         except Exception:  # noqa: BLE001
-            return {}
+            try:
+                attrs = dict(carrier.to_attrs())
+            except Exception:  # noqa: BLE001
+                return {}
+        try:
+            attrs["eval_gate"] = self._compute_eval_gate(energy, carrier)
+        except Exception:  # noqa: BLE001
+            attrs["eval_gate"] = "unknown"
+        return attrs
 
 
 class EnergySolarDayClassSensor(AggregationEntity, SensorEntity):
