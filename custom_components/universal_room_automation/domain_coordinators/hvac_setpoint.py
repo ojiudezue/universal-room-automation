@@ -15,6 +15,13 @@ antipattern; the coast / severity path re-emits naturally on the next tick
 if the condition still holds. A ``comfort_delay_deferred_write`` activity
 row is logged when a gate defers.
 
+Zone-scope admission (fix-up D-MED-2): the gate protects a ZONE, not a
+specific writer. Any URA caller that reaches this chokepoint with a gate
+consulting ``comfort_delay_active(zone_id)`` inherits the deferral for
+the whole grace window. From the operator's perspective the grace is
+"URA, back off this zone for N minutes", not "URA, back off this SPECIFIC
+decision path for N minutes". Cf. planning §Non-goals.
+
 Two transforms are applied by ``emit_set_temperature`` before the service call:
 
 1. **Freeze floor** — when `freeze_active` and the emitted `target_temp_low`

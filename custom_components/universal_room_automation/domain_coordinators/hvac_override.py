@@ -159,6 +159,13 @@ class OverrideArrester:
         # zone_id (audit §metric 4: zero multi-thermostat zones).
         self._comfort_delay_timers: dict[str, CALLBACK_TYPE] = {}
         self._comfort_delay_meta: dict[str, dict[str, Any]] = {}
+        # ARREST-COMFORT-1 fix-up A-HIGH-1: rung-3 live knobs. `None` =
+        # fall back to module-constant default (preserves pre-cycle
+        # monkeypatch semantics for tests that patch the module constant).
+        # Number entities call `set_comfort_grace_min` / `set_comfort_soc_
+        # floor_pct` at setup — from that point the instance attr wins.
+        self._comfort_grace_min: int | None = None
+        self._comfort_soc_floor_pct: int | None = None
 
         # Suppression: entity_id -> wall-clock expiry for ignoring overrides
         # during URA-initiated changes. v4.7.33 A-F5: replaced the prior
@@ -1494,14 +1501,96 @@ class OverrideArrester:
             return False
         if self._temp_arrester_override_active:
             return False
-        # Occupancy re-check — a zone that emptied mid-grace terminates
-        # the grace (exit ii in §3.6).
+        # Occupancy re-check via LIVE any_room_occupied (fix-up A-CRIT-1):
+        # zone_persons is the STATIC CONFIG list of person entities — it is
+        # non-empty on any zone that has residents configured, so the
+        # pre-fix predicate never observed "zone became unoccupied". The
+        # authoritative live-occupancy signal is `zone.any_room_occupied`,
+        # which reflects the rooms-in-the-zone occupied booleans in
+        # real-time. Fail-closed: missing / None / accessor error → False.
+        # This revives §3.6 exit-ii: a zone that emptied mid-grace makes
+        # comfort_delay_active False on the very next evaluation.
+        # Fix-up A-LOW-1: when we detect zone-unoccupied here, evict the
+        # timer + log expiry_reason="zone_unoccupied" so the ledger row
+        # fires (previously unreachable because the check used
+        # zone_persons which never emptied).
         zone = self._zone_manager.zones.get(zone_id) if self._zone_manager else None
         try:
-            occupied = bool(zone.zone_persons) if zone is not None else False
+            occupied = bool(getattr(zone, "any_room_occupied", False)) if zone is not None else False
         except Exception:  # noqa: BLE001 — defensive
             occupied = False
-        return occupied
+        if not occupied:
+            try:
+                self._expire_comfort_delay(zone_id, reason="zone_unoccupied")
+            except Exception:  # noqa: BLE001 — never let logging block the read
+                _LOGGER.debug(
+                    "comfort_delay_active zone-unoccupied eviction failed",
+                    exc_info=True,
+                )
+            return False
+        return True
+
+    # ------------------------------------------------------------------
+    # ARREST-COMFORT-1 fix-up A-HIGH-1 — rung-3 live knobs (2026-08-10).
+    # ------------------------------------------------------------------
+    def _get_grace_min(self) -> int:
+        """Live-knob accessor. Falls back to module constant when the
+        Number entity has not yet pushed a value (pre-CM-init boot, or
+        bare-arrester test constructions)."""
+        return int(
+            self._comfort_grace_min
+            if self._comfort_grace_min is not None
+            else COMFORT_GRACE_MIN
+        )
+
+    def _get_soc_floor(self) -> int:
+        """Live-knob accessor for the SOC-floor gate."""
+        return int(
+            self._comfort_soc_floor_pct
+            if self._comfort_soc_floor_pct is not None
+            else COMFORT_SOC_FLOOR_PCT
+        )
+
+    def set_comfort_grace_min(self, value: int) -> None:
+        """Number-entity setter for the comfort-delay grace duration.
+        `0` = feature disabled (predicate falls through to standard arrest).
+        """
+        try:
+            v = int(value)
+        except (TypeError, ValueError):
+            _LOGGER.warning(
+                "set_comfort_grace_min: ignoring non-int value %r", value,
+            )
+            return
+        self._comfort_grace_min = v
+        _LOGGER.info("Comfort-delay grace set to %d min (rung-3 knob)", v)
+
+    def set_comfort_soc_floor_pct(self, value: int) -> None:
+        """Number-entity setter for the comfort-delay SOC floor. `0` =
+        SOC gate disabled (grants regardless of battery — deliberate
+        blackout-risk acceptance). Fix-up C-H2 boot-WARN: evaluate the
+        live value here so ANY change into the 0<v<20 danger band fires
+        the WARN, and CM setup fires it once at boot when seeding.
+        """
+        try:
+            v = int(value)
+        except (TypeError, ValueError):
+            _LOGGER.warning(
+                "set_comfort_soc_floor_pct: ignoring non-int value %r", value,
+            )
+            return
+        self._comfort_soc_floor_pct = v
+        if 0 < v < 20:
+            _LOGGER.warning(
+                "ARREST-COMFORT-1: SOC floor set to %d%% (below 20%%) — "
+                "comfort-delay grants risk battery drain to blackout during "
+                "extended manuals. Deliberate operator override; audit if "
+                "unintended.", v,
+            )
+        else:
+            _LOGGER.info(
+                "Comfort-delay SOC floor set to %d%% (rung-3 knob)", v,
+            )
 
     def _is_genuine_manual(self, event: Any, entity_id: str) -> bool:
         """Return True iff the state-change event should be treated as a
@@ -1572,9 +1661,13 @@ class OverrideArrester:
         if new_state is None or old_state is None:
             return False, None
 
-        # (c) occupied at the instant of the change.
+        # (c) occupied at the instant of the change. Fix-up A-CRIT-1:
+        # use LIVE any_room_occupied (rooms actually occupied right now),
+        # NOT zone_persons (static config list of configured residents,
+        # which is non-empty for any zone that has residents at all).
+        # Fail-closed on missing / None.
         try:
-            occupied = bool(zone.zone_persons)
+            occupied = bool(getattr(zone, "any_room_occupied", False))
         except Exception:  # noqa: BLE001
             return False, None
         if not occupied:
@@ -1596,18 +1689,20 @@ class OverrideArrester:
             current_temp = float(current_temp)
         except (TypeError, ValueError):
             return False, None
-        # Age bound — if COMFORT_TEMP_MAX_AGE_S == 0, kill switch: fail closed always.
+        # Age bound — if COMFORT_TEMP_MAX_AGE_S == 0, kill switch: fail
+        # closed always. Fix-up A-LOW-2: `last_updated is None` MUST fail
+        # closed (we cannot prove freshness without a timestamp). Fix-up
+        # A-LOW-3: dt_util always exposes utcnow() in HA — the historical
+        # hasattr guard is dead code, removed.
         try:
             last_updated = getattr(new_state, "last_updated", None)
-            if last_updated is not None and COMFORT_TEMP_MAX_AGE_S > 0:
-                # Both wall-clocks — use dt_util.utcnow if timezone-aware,
-                # fall back to plain now otherwise. State timestamps are
-                # utc-aware in HA.
-                now_utc = dt_util.utcnow() if hasattr(dt_util, "utcnow") else dt_util.now()
-                age_s = (now_utc - last_updated).total_seconds()
-                if age_s > COMFORT_TEMP_MAX_AGE_S:
-                    return False, None
-            elif COMFORT_TEMP_MAX_AGE_S == 0:
+            if COMFORT_TEMP_MAX_AGE_S == 0:
+                return False, None
+            if last_updated is None:
+                return False, None
+            now_utc = dt_util.utcnow()
+            age_s = (now_utc - last_updated).total_seconds()
+            if age_s > COMFORT_TEMP_MAX_AGE_S:
                 return False, None
         except Exception:  # noqa: BLE001
             return False, None
@@ -1704,7 +1799,7 @@ class OverrideArrester:
                 existing()
             except Exception:  # noqa: BLE001
                 pass
-        grace_s = int(COMFORT_GRACE_MIN) * 60
+        grace_s = int(self._get_grace_min()) * 60
         soc_at_grant = self._battery_soc
         meta = dict(meta)
         meta["soc_at_grant"] = soc_at_grant
@@ -2068,17 +2163,19 @@ class OverrideArrester:
         # (H2 contract); subsequent `comfort_delay_active` reads never
         # re-read SOC.
         # ================================================================
-        if COMFORT_GRACE_MIN > 0:
+        if self._get_grace_min() > 0:
             qualifies, meta = self._comfort_request_qualifies(
                 entity_id, event, zone,
             )
             if qualifies:
                 # SOC gate: inclusive `>=` per rev-2 L2. Blind = below floor.
+                # Fix-up A-HIGH-1: read the LIVE rung-3 knob (not the module
+                # constant) so operator changes take effect without restart.
                 soc = self._battery_soc
                 soc_ok = (
                     (not self._battery_blind)
                     and soc is not None
-                    and float(soc) >= float(COMFORT_SOC_FLOOR_PCT)
+                    and float(soc) >= float(self._get_soc_floor())
                 )
                 shed_gate = not self._shed_active
                 if soc_ok and shed_gate:
@@ -2310,14 +2407,16 @@ class OverrideArrester:
             self._compromise_minutes,
         )
 
-        # Set compromise temperature.
+        # ARREST-COMFORT-1 §3.7 S3: DEFER while comfort_delay_active.
+        # Fix-up A-MED-2: suppress AFTER the emit and ONLY when the emit
+        # actually fires. Stamping suppress BEFORE the gate check leaves
+        # a ~5s SUPPRESS_TTL window that would mask a genuine manual on a
+        # deferred no-op write.
         # FIX B1: kind="temp" — the compromise is a set_temperature write
         # which can induce a preset_mode side effect on preset thermostats;
         # that induced manual must not self-count as another user override.
-        self.suppress(zone.climate_entity, kind="temp")
         try:
-            # ARREST-COMFORT-1 §3.7 S3: DEFER while comfort_delay_active.
-            await emit_set_temperature(
+            _s3_written = await emit_set_temperature(
                 self.hass,
                 zone.climate_entity,
                 target_temp_low=compromise_heat,
@@ -2329,6 +2428,8 @@ class OverrideArrester:
                 zone_id=zone_id,
                 reason="normal_override_compromise",
             )
+            if _s3_written:
+                self.suppress(zone.climate_entity, kind="temp")
         except Exception as e:
             _LOGGER.error("Override: failed to set compromise on %s: %s",
                           zone.climate_entity, e)
@@ -2384,22 +2485,39 @@ class OverrideArrester:
             )
             return
 
+        # Fix-up D-MED-1: short-circuit the ENTIRE revert while a comfort-
+        # delay is active. The raw `set_hvac_mode` re-assert below is
+        # ungated (the D6 chokepoint only covers set_preset_mode) — bailing
+        # here covers the mode + preset pair coherently and mirrors the
+        # immunity short-circuit above.
+        try:
+            if self.comfort_delay_active(zone_id):
+                _LOGGER.debug(
+                    "Override revert on %s SKIPPED — comfort_delay_active",
+                    zone.zone_name,
+                )
+                return
+        except Exception:  # noqa: BLE001 — never let this deny safety
+            pass
+
         _LOGGER.info(
             "Override revert on %s: restoring preset %s",
             zone.zone_name, original_preset,
         )
 
-        # Suppress arrester for our own revert (TTL window covers both
-        # set_hvac_mode and set_preset_mode settle events — A-F5).
+        # Fix-up A-MED-2: suppress AFTER the emit(s) and only for the
+        # calls that actually landed. The set_hvac_mode + set_preset_mode
+        # pair each produce a settle event; a preset-defer must not leave
+        # a stale suppression around the (still-emitted) hvac_mode write.
         # FIX B1: kind="preset" so genuine mid-window user manual is
         # still caught (only "temp" suppression blocks manual passthrough).
-        self.suppress(zone.climate_entity, kind="preset")
 
         try:
             # v4.7.32: re-assert heat_cool whenever the mode has drifted from it
             # (off OR a single mode like cool/heat) — not just "off". The operator
             # runs zones in ranges/presets; a stuck single-mode defeats that. Only
             # force it on thermostats that support heat_cool.
+            _mode_wrote = False
             if zone.hvac_mode != "heat_cool" and self._supports_heat_cool(
                 zone.climate_entity
             ):
@@ -2412,6 +2530,7 @@ class OverrideArrester:
                     },
                     blocking=False,
                 )
+                _mode_wrote = True
                 _LOGGER.info(
                     "Override revert: restored %s to heat_cool (was %s)",
                     zone.zone_name, zone.hvac_mode,
@@ -2421,7 +2540,7 @@ class OverrideArrester:
             # Migrated from the legacy inline hass.services.async_call to
             # the new `emit_set_preset_mode` chokepoint (rev-2 D6 + §8
             # tertiary-risk mitigation: no raw preset-write bypass).
-            await emit_set_preset_mode(
+            _s4_written = await emit_set_preset_mode(
                 self.hass,
                 zone.climate_entity,
                 original_preset,
@@ -2431,6 +2550,8 @@ class OverrideArrester:
                 zone_id=zone_id,
                 reason="severe_override_revert",
             )
+            if _s4_written or _mode_wrote:
+                self.suppress(zone.climate_entity, kind="preset")
         except Exception as e:
             _LOGGER.error(
                 "Override: failed to revert %s to preset %s: %s",
@@ -2967,15 +3088,15 @@ class OverrideArrester:
         else:
             self._nudge_pre_preset.pop(zone_id, None)
 
-        # Suppress override detection during URA-initiated change (R11).
+        # ARREST-COMFORT-1 §3.7 S5: DEFER while comfort_delay_active.
+        # Fix-up A-MED-2: suppress AFTER the emit; only stamp when it
+        # actually fires (deferred no-op writes must not open a TTL
+        # window that would swallow a real manual for ~5s).
         # FIX B1: kind="temp" — the nudge set_temperature can induce a
         # preset_mode sleep->manual side effect on preset thermostats
         # (Carrier/Bryant); that induced transition must stay suppressed.
-        self.suppress(zone.climate_entity, kind="temp")
-
         try:
-            # ARREST-COMFORT-1 §3.7 S5: DEFER while comfort_delay_active.
-            await emit_set_temperature(
+            _s5_written = await emit_set_temperature(
                 self.hass,
                 zone.climate_entity,
                 target_temp_low=zone.target_temp_low,
@@ -2987,6 +3108,8 @@ class OverrideArrester:
                 zone_id=zone_id,
                 reason="soft_nudge_start",
             )
+            if _s5_written:
+                self.suppress(zone.climate_entity, kind="temp")
         except Exception as e:
             _LOGGER.error(
                 "Soft nudge: set_temperature failed on %s: %s",

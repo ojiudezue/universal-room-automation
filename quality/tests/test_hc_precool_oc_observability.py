@@ -303,6 +303,12 @@ def fake_predictor(fake_zone):
     pm = MagicMock()
     pm.current_season = "summer"
     arrester = MagicMock()
+    # ARREST-COMFORT-1 D-HIGH-1 fix-up: the S11/S12/S13 gates consult
+    # `arrester.comfort_delay_active(zone_id)` and DEFER on truthy. A
+    # bare MagicMock returns a MagicMock (truthy) which would defer
+    # every predictor emit in this file; force False here so the
+    # pre-cycle behavior is preserved.
+    arrester.comfort_delay_active = MagicMock(return_value=False)
     pred = HVACPredictor(
         hass=hass,
         zone_manager=zm,

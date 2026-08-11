@@ -41,6 +41,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from ..const import DOMAIN
+from .hvac_setpoint import emit_set_preset_mode
 from .hvac_const import (
     EGRESS_NM_EVENT_PAUSED,
     EGRESS_NM_EVENT_RESUMED,
@@ -641,11 +642,22 @@ class EgressManager:
 
         if saved_preset:
             try:
-                await self._hass.services.async_call(
-                    "climate",
-                    "set_preset_mode",
-                    {"entity_id": thermostat, "preset_mode": saved_preset},
+                # ARREST-COMFORT-1 B-MED-1 fix-up: migrate to the
+                # emit_set_preset_mode chokepoint. Classification: ALLOW
+                # (restoration path — this returns the thermostat to the
+                # preset the operator had before URA paused it; it is not
+                # a revert against a comfort-qualified manual). Passing
+                # gate=None means never DEFER; still routes through the
+                # chokepoint for uniform emit accounting.
+                await emit_set_preset_mode(
+                    self._hass,
+                    thermostat,
+                    saved_preset,
                     blocking=True,
+                    gate=None,
+                    site="egress_resume",  # ALLOW (restoration)
+                    zone_id=zone_id,
+                    reason="egress_resume",
                 )
             except Exception:
                 _LOGGER.debug(

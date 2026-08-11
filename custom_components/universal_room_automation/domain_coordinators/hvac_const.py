@@ -404,16 +404,27 @@ DUTY_CYCLE_COAST: Final = 0.75  # 75% max runtime during coast
 # kill-switched per §4.6.
 # ============================================================================
 
-# COMFORT_GRACE_MIN — RUNG 3 (entity-knob, persisted Number).
+# COMFORT_GRACE_MIN — RUNG 3 default (entity-knob, persisted Number).
 # Length of the delay in minutes. `0` = feature disabled: every request falls
-# through to standard arrest (verified by unit test).
+# through to standard arrest (verified by unit test). Fix-up A-HIGH-1: this
+# module constant is now the DEFAULT seeded into the ComfortGraceMinutesNumber
+# entity; the LIVE value is read via HVACCoordinator.comfort_grace_min.
 COMFORT_GRACE_MIN: Final = 30  # minutes
+CONF_COMFORT_GRACE_MIN: Final = "hvac_comfort_grace_min"
+DEFAULT_COMFORT_GRACE_MIN: Final = COMFORT_GRACE_MIN
+MIN_COMFORT_GRACE_MIN: Final = 0
+MAX_COMFORT_GRACE_MIN: Final = 240
 
-# COMFORT_SOC_FLOOR_PCT — RUNG 3 (entity-knob, persisted Number).
+# COMFORT_SOC_FLOOR_PCT — RUNG 3 default (entity-knob, persisted Number).
 # Battery SOC (percent) at grant instant, at or above which the delay is
 # granted. `0` = SOC gate disabled — grants regardless of battery
-# (deliberate blackout-risk acceptance). Boot WARN when < 20.
+# (deliberate blackout-risk acceptance). Boot WARN when 0 < v < 20.
+# Fix-up A-HIGH-1: LIVE value read via HVACCoordinator.comfort_soc_floor_pct.
 COMFORT_SOC_FLOOR_PCT: Final = 80  # percent
+CONF_COMFORT_SOC_FLOOR_PCT: Final = "hvac_comfort_soc_floor_pct"
+DEFAULT_COMFORT_SOC_FLOOR_PCT: Final = COMFORT_SOC_FLOOR_PCT
+MIN_COMFORT_SOC_FLOOR_PCT: Final = 0
+MAX_COMFORT_SOC_FLOOR_PCT: Final = 100
 
 # COMFORT_DELTA_MIN_F — RUNG 1 (module constant, review-required).
 # Minimum |setpoint delta| on the comfort-relevant leg for the predicate to

@@ -918,6 +918,29 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             )
             return
 
+        # ARREST-COMFORT-1 D-HIGH-2 fix-up (2026-08-10, DECIDED cheap-block):
+        # Refuse `climate.{set_temperature,set_preset_mode,set_hvac_mode}`
+        # from AI-rules regardless of allowlist — these bypass the HVAC
+        # emit_* chokepoints (freeze floor, comfort-delay grace, arrester
+        # suppression, coast-precedence, DPM throttle). Live probe confirms
+        # zero climate rules configured today; the block is defensive.
+        # Parked upgrade: route through emit_set_temperature /
+        # emit_set_preset_mode with a zone lookup from entity_id so AI
+        # rules can drive climate legally.
+        _CLIMATE_BLOCKED_SERVICES = {
+            "set_temperature", "set_preset_mode", "set_hvac_mode",
+        }
+        if domain == "climate" and service in _CLIMATE_BLOCKED_SERVICES:
+            rule_id = action.get("rule_id") or "<unknown>"
+            _LOGGER.warning(
+                "[%s] AI rule %s blocked: climate.%s bypasses HVAC "
+                "chokepoints (freeze floor / arrester / comfort-delay). "
+                "Route through emit_set_temperature / emit_set_preset_mode "
+                "with a zone lookup to unblock.",
+                room_name, rule_id, service,
+            )
+            return
+
         entity_id = target.get("entity_id")
         if entity_id:
             data["entity_id"] = entity_id

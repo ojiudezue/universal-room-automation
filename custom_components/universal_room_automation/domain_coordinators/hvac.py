@@ -28,6 +28,7 @@ from ..const import DOMAIN
 from .base import BaseCoordinator, CoordinatorAction, Intent
 from .hvac_const import (
     COMFORT_SOC_FLOOR_PCT,
+    COMFORT_GRACE_MIN,
     CONF_HVAC_ARRESTER_ENABLED,
     DEFAULT_ARRESTER_ENABLED,
     DEFAULT_MAX_OCCUPANCY_HOURS,
@@ -520,6 +521,26 @@ class HVACCoordinator(BaseCoordinator):
         return self.battery_soc is None
 
     @property
+    def comfort_grace_min(self) -> int:
+        """Fix-up A-HIGH-1: live rung-3 comfort-grace knob. Delegates to
+        the arrester (single source of truth). Falls back to module
+        constant when the Number entity hasn't seeded yet."""
+        try:
+            return int(self._override_arrester._get_grace_min())
+        except Exception:  # noqa: BLE001
+            return int(COMFORT_GRACE_MIN)
+
+    @property
+    def comfort_soc_floor_pct(self) -> int:
+        """Fix-up A-HIGH-1: live rung-3 SOC-floor knob. D3 guard reads
+        THIS (not the module constant) so operator changes take effect
+        without restart."""
+        try:
+            return int(self._override_arrester._get_soc_floor())
+        except Exception:  # noqa: BLE001
+            return int(COMFORT_SOC_FLOOR_PCT)
+
+    @property
     def shed_active(self) -> bool:
         """True when the current energy constraint is `shed`. Consumed by
         the D3 coast-precedence guard AND pushed into the arrester's
@@ -616,19 +637,22 @@ class HVACCoordinator(BaseCoordinator):
         """Set up HVAC Coordinator."""
         _LOGGER.info("HVAC Coordinator: starting setup")
 
-        # ARREST-COMFORT-1 Cycle A §4.6: WARN when SOC floor is set below
-        # 20% (deliberate blackout-risk acceptance — operator override of
-        # the safety default). `0` is the documented kill-switch value
-        # (SOC gate disabled entirely); anything in (0, 20) is a
-        # near-blackout risk the operator should see in the logs.
+        # ARREST-COMFORT-1 Cycle A §4.6 + fix-up A-HIGH-1: WARN when the
+        # LIVE SOC floor is set below 20% (deliberate blackout-risk
+        # acceptance — operator override of the safety default). `0` is
+        # the documented kill-switch value (SOC gate disabled entirely);
+        # anything in (0, 20) is a near-blackout risk the operator should
+        # see in the logs. The same evaluation runs on every setter change
+        # (see OverrideArrester.set_comfort_soc_floor_pct).
         try:
-            if 0 < int(COMFORT_SOC_FLOOR_PCT) < 20:
+            _live_floor = int(self.comfort_soc_floor_pct)
+            if 0 < _live_floor < 20:
                 _LOGGER.warning(
-                    "ARREST-COMFORT-1: COMFORT_SOC_FLOOR_PCT=%d — below "
+                    "ARREST-COMFORT-1: comfort_soc_floor_pct=%d — below "
                     "the 20%% safety threshold. Comfort-delay grants will "
                     "consume battery reserves that may be needed to weather "
                     "a grid outage. Confirm this is intentional.",
-                    int(COMFORT_SOC_FLOOR_PCT),
+                    _live_floor,
                 )
         except Exception:  # noqa: BLE001 — never let a log call block setup
             pass
@@ -1524,6 +1548,14 @@ class HVACCoordinator(BaseCoordinator):
                 # Shed dominates comfort (rev-2 H3 falsification #6). BOTH
                 # this site AND the D1 grant read via the SAME accessor —
                 # the single-accessor invariant (planning §8).
+                # Fix-up A-HIGH-2: per-tick flag — set ONLY when the D3
+                # guard actually SKIPS a forced-away this tick. The S1
+                # relabel below reads this flag so a legitimate non-away
+                # write (occupant home, house-state transition,
+                # effective_preset="comfort") is not silently re-labeled
+                # `comfort_delay_active` whenever both runtime_exceeded
+                # and comfort_delay_active happen to be true.
+                _d3_skipped_this_tick = False
                 if zone.runtime_exceeded and self._house_state != "sleep":
                     _cd_soc = self.battery_soc
                     _cd_blind = self.battery_blind
@@ -1534,12 +1566,15 @@ class HVACCoordinator(BaseCoordinator):
                             _cd_active = self._override_arrester.comfort_delay_active(zone_id)
                         except Exception:  # noqa: BLE001 — never let this deny safety
                             _cd_active = False
+                    # Fix-up A-HIGH-1: read the LIVE SOC-floor knob so an
+                    # operator-tuned floor takes effect without a restart.
+                    _cd_floor = self.comfort_soc_floor_pct
                     if (
                         _cd_active
                         and not _cd_shed
                         and not _cd_blind
                         and _cd_soc is not None
-                        and float(_cd_soc) >= float(COMFORT_SOC_FLOOR_PCT)
+                        and float(_cd_soc) >= float(_cd_floor)
                     ):
                         _LOGGER.debug(
                             "HVAC: skipping forced-away on %s — "
@@ -1548,6 +1583,7 @@ class HVACCoordinator(BaseCoordinator):
                         )
                         # do NOT set effective_preset to "away"; fall
                         # through to the normal preset-decision path.
+                        _d3_skipped_this_tick = True
                     else:
                         effective_preset = "away"
 
@@ -1720,8 +1756,14 @@ class HVACCoordinator(BaseCoordinator):
             # for the ledger so the operator can see WHY we didn't force
             # away. Precedence: this label overrides house_state_transition
             # since the comfort-grace was the actual reason we're here.
+            # Fix-up A-HIGH-2: relabel ONLY when the D3 guard actually
+            # skipped a forced-away this tick. Without this the pre-fix
+            # check hijacked ANY non-away preset write while
+            # runtime_exceeded && comfort_delay_active — mislabeling
+            # legitimate house-state / occupant-home writes.
             if (
-                zone.runtime_exceeded
+                _d3_skipped_this_tick
+                and zone.runtime_exceeded
                 and effective_preset != "away"
                 and self._override_arrester is not None
             ):
@@ -2053,14 +2095,41 @@ class HVACCoordinator(BaseCoordinator):
                     self._override_arrester.suppress(zone.climate_entity, kind="temp")  # v5.36.2 H6: B1 completeness
 
                 try:
-                    await emit_set_temperature(
+                    # ARREST-COMFORT-1 D-CRIT-1 fix-up: gate this DPM apply
+                    # emit on `comfort_delay_active` — S10_dpm_apply. The
+                    # DPM apply loop was previously the UNGATED sibling of
+                    # S3/S4/S5 and could stomp a comfort-qualified manual.
+                    def _s10_gate(z=zone_id) -> bool:
+                        if self._override_arrester is None:
+                            return False
+                        try:
+                            return bool(
+                                self._override_arrester.comfort_delay_active(z)
+                            )
+                        except Exception:  # noqa: BLE001
+                            return False
+                    _s10_written = await emit_set_temperature(
                         self.hass,
                         zone.climate_entity,
                         target_temp_low=resolved.cool_low,
                         target_temp_high=resolved.cool_high,
                         freeze_active=self._freeze_active,
                         blocking=False,
+                        gate=_s10_gate,
+                        site="S10_dpm_apply",
+                        zone_id=zone_id,
+                        reason="dpm_preset_apply",
                     )
+                    if not _s10_written:
+                        # Deferred by comfort-grace — do NOT record the
+                        # resolved pair in the throttle map (next tick
+                        # re-emits naturally when grace expires). Roll
+                        # back the pre-emit suppress() stamp so a real
+                        # manual within SUPPRESS_TTL_SECONDS isn't
+                        # swallowed (mirrors A-MED-2 discipline).
+                        if self._override_arrester:
+                            self._override_arrester.unsuppress(zone.climate_entity)
+                        continue
                     self._last_emitted_range[zone_id] = resolved_pair
                     _LOGGER.info(
                         "HVAC: set_temperature %s low=%.1f high=%.1f "

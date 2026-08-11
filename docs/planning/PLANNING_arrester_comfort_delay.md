@@ -197,8 +197,14 @@ Every write site in `hvac.py` and `hvac_override.py` that could revert a comfort
 | S5 | `hvac_override.py:2584` | `emit_set_temperature` | Soft-nudge on-entry setpoint push | **DEFER** | Soft-nudge is an active arrester action against the manual. |
 | S6 | `hvac_override.py:2675` | `emit_set_temperature` | Soft-nudge RESTORE (undoes S5 after nudge window) | **ALLOW** | Restoration to pre-nudge value — moves *back* toward the operator's original range. Not a revert against the comfort manual. |
 | S7 | `hvac_override.py:2711` | `set_preset_mode` | Soft-nudge preset restore (manual→pre_preset after nudge) | **ALLOW** | Same class as S6 — restoration; comfort-grace exists to prevent yanking the operator, and this write moves back toward what they had. |
-| S8 | `hvac_override.py:3228` | `emit_set_temperature` | AI-rules R2 residual setpoint alignment | **DEFER** | R2 residual is precisely the "arrester quietly re-asserts a target" path — the second sibling of PRESET-FLAP. |
-| S9 | `hvac_override.py:3498` | `emit_set_temperature` | AI-rules downstream write (secondary R-rule leg) | **DEFER** | Same class as S8. |
+| S8 | `hvac_override.py:3228` | `emit_set_temperature` | AI-rules R2 residual setpoint alignment | **ALLOW** *(fix-up)* | Reviewers confirmed this site is not the AI-rules climate write path — kept ALLOW / already-gated at higher level. The real AI-rules climate write lives in `coordinator.py::_execute_rule_action` (see cheap-block below). |
+| S9 | `hvac_override.py:3498` | `emit_set_temperature` | AI-rules downstream write (secondary R-rule leg) | **ALLOW** *(fix-up)* | Same as S8. |
+| S10 | `hvac.py:~2056` | `emit_set_temperature` | DPM (dynamic-preset-manager) apply loop — per-zone override-resolved range | **DEFER** *(fix-up D-CRIT-1)* | Was the ungated sibling of S3/S4/S5; capable of stomping a comfort-qualified manual on every 5-minute apply. Now gated on `comfort_delay_active(zone_id)` with rollback of the pre-emit suppress on defer. |
+| S11 | `hvac_predict.py:~946` | `emit_set_temperature` | `_release_banked_zones` — solar banking release to baseline | **DEFER** *(fix-up D-HIGH-1)* | Was ungated; a mid-grace banking release would revert the comfort setpoint. Same gate pattern. |
+| S12 | `hvac_predict.py:~1015` | `emit_set_temperature` | `_execute_zone_pre_cool` — predictive pre-cool | **DEFER** *(fix-up D-HIGH-1)* | Was ungated; predictive pre-cool would override a warmer-direction comfort manual. Same gate pattern. |
+| S13 | `hvac_predict.py:~1153` | `emit_set_temperature` | Pre-heat loop — raise heating setpoint before on-peak | **DEFER** *(fix-up D-HIGH-1)* | Was ungated; sibling of S12 for the heating leg. Same gate pattern. |
+| egress | `hvac_egress.py:~644` | `set_preset_mode` → `emit_set_preset_mode` | `_engage_resume` — restore saved preset after egress window closed | **ALLOW** *(fix-up B-MED-1)* | Restoration path (returns thermostat to its pre-URA-pause preset); classified ALLOW / no gate but now routes through the chokepoint for uniform emit accounting. Grep-anchored: no raw `set_preset_mode` `async_call` remains outside the chokepoint in HVAC surfaces. |
+| coord | `coordinator.py::_execute_rule_action` (~:929) | AI-rules `hass.services.async_call` | Parsed AI-rule action dispatch | **REFUSE** *(fix-up D-HIGH-2)* | Cheap block: `climate.{set_temperature,set_preset_mode,set_hvac_mode}` refused with a WARN naming the rule_id — bypasses HVAC chokepoints entirely. Live probe: zero climate AI rules configured today (no behavior change). Parked upgrade: route through `emit_*` chokepoints with zone lookup. |
 
 **Chokepoint shape (rev-2 H1 Review-1):**
 - Existing `emit_set_temperature` is already the setpoint chokepoint — S3/S5/S6/S8/S9 route through it. **New:** it grows a `gate` parameter or a wrapping `_arrester_write_gate(entity, site_tag)` decorator; call sites pass their site tag. Sites tagged as DEFER are no-ops while `comfort_delay_active`.
@@ -206,9 +212,15 @@ Every write site in `hvac.py` and `hvac_override.py` that could revert a comfort
 - Deferred writes MUST NOT queue and replay on grace-expiry (that would recreate the "granted then snatched" antipattern). Instead: the write is dropped; the coast/severity path re-emits naturally on the next tick if the condition still holds.
 - Ledger row `comfort_delay_deferred_write` with `{site, zone_id, entity_id, reason, would_have_emitted}` on every DEFER hit — this is the empirical D-review anchor (Review D can grep ledger rows against write-site catalog for coverage).
 
-### 3.8 Full setpoint-emission map — rev-2 H4 Review-1
+### 3.8 Full setpoint-emission map — rev-2 H4 Review-1 (fix-up: extended)
 
-Compliance re-assert, pre-arrival warmup, AI-rules R2 residual all searched. Coverage in §3.7 table (S2 compliance range assertion, S1 pre_arrival branch, S8/S9 R2 residual). No further undocumented emit sites in `hvac.py` / `hvac_override.py` per the survey in §2.3. Review D re-enumerates this end-to-end against INV.
+Compliance re-assert, pre-arrival warmup, AI-rules R2 residual all searched. Coverage in §3.7 table (S1..S9). Fix-up round extended completeness to cover:
+- `hvac.py` DPM apply loop (S10) — was ungated.
+- `hvac_predict.py` release-banked / pre-cool / pre-heat (S11/S12/S13) — all were ungated.
+- `hvac_egress.py` resume path — migrated to `emit_set_preset_mode` (ALLOW, restoration).
+- `coordinator.py::_execute_rule_action` — AI-rules climate service call cheap-blocked (parked upgrade: route through chokepoints with zone lookup).
+
+Completeness claim after fix-up: every URA-originated `climate.set_temperature` / `climate.set_preset_mode` / AI-rules `climate.*` write in `hvac.py`, `hvac_override.py`, `hvac_predict.py`, `hvac_egress.py`, and `coordinator.py` is either (a) routed through `emit_set_temperature` / `emit_set_preset_mode` with a per-site verdict, or (b) refused at the AI-rules dispatcher. Review D re-enumerates this end-to-end against INV.
 
 ---
 
@@ -287,6 +299,7 @@ Introduce `emit_set_preset_mode` in `hvac_setpoint.py`. Migrate S1/S4/S7 and the
 - No behavior change when SOC is below floor at grant.
 - No mid-grace forced-revert on SOC drop.
 - **No fix to HVAC-PRESET-FLAP-1** — that sibling defect stands (rev-2 H3 Review-1); this cycle only resolves the precedence seam so PRESET-FLAP does not race the comfort-grace.
+- **Zone-scope admission (fix-up D-MED-2):** the comfort-delay grace protects the ZONE, not the specific writer. While a grant is active for `zone_id`, ANY URA writer targeting that zone's climate entity inherits the protection (S3/S4/S5/S8/S9 arrester paths, S1 reason-ladder preset write, S10 DPM apply, S11/S12/S13 predictor paths) — the deferral is byte-identical whichever caller reached the chokepoint. This is intentional: from the operator's perspective the grace is "URA, back off this zone for N minutes", not "URA, back off THIS specific decision path for N minutes". A comment in `hvac_setpoint.py` at each gate site names this behavior; no code change beyond documentation.
 
 ### 4.6 New constants (kill-switch semantics per rev-2 L1 Review-2)
 

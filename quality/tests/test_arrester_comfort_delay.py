@@ -200,6 +200,15 @@ def _make_arrester(hass=None, *, occupied=True, soc=94.0, blind=False, shed=Fals
     zone.target_temp_low = 68.0
     zone.current_temperature = 79.0
     zone.zone_persons = [PERSON] if occupied else []
+    # Fix-up A-CRIT-1: the predicate reads LIVE `any_room_occupied` (not
+    # the static `zone_persons` config list), so populate a room condition
+    # that reflects the intended occupancy state.
+    from custom_components.universal_room_automation.domain_coordinators.hvac_zones import (
+        RoomCondition,
+    )
+    zone.room_conditions = [
+        RoomCondition(room_name="room_a", occupied=bool(occupied)),
+    ]
 
     zm = MagicMock()
     zm.zones = {ZONE_ID: zone}
@@ -441,7 +450,10 @@ class TestCommonComfortDelayActive:
                          last_updated=fake_clock.utcnow())
         a._handle_climate_change(ev)
         # Occupant leaves — comfort_delay_active must return False.
-        a._zone_manager.zones[ZONE_ID].zone_persons = []
+        # Fix-up A-CRIT-1: authoritative signal is live any_room_occupied
+        # (RoomCondition.occupied), NOT the static zone_persons list.
+        for rc in a._zone_manager.zones[ZONE_ID].room_conditions:
+            rc.occupied = False
         assert a.comfort_delay_active(ZONE_ID) is False
 
     def test_inactive_when_switch_flips_on(self, fake_clock):
@@ -718,3 +730,209 @@ class TestKidsIncidentReplay:
         assert ZONE_ID not in a._comfort_delay_timers
         # Standard severe grace timer fired (80->76 = 4°F delta > severe threshold 3°F).
         assert ZONE_ID in a._grace_timers
+
+
+# ===========================================================================
+# Fix-up tests (ARREST-COMFORT-1 consolidated fix-up cycle)
+# ===========================================================================
+
+
+class TestACRIT1LiveOccupancy:
+    """A-CRIT-1: predicate + comfort_delay_active MUST read live
+    any_room_occupied, not the static zone_persons config list."""
+
+    def test_configured_persons_but_vacant_zone_does_not_grant(self, fake_clock):
+        # zone_persons is populated (residents ARE configured) but no
+        # room is currently occupied → predicate must fail.
+        a = _make_arrester()
+        # Zone still has zone_persons=[PERSON] from _make_arrester, but
+        # flip live occupancy off:
+        for rc in a._zone_manager.zones[ZONE_ID].room_conditions:
+            rc.occupied = False
+        ev = _make_event(hvac_mode="cool", old_sp=76, new_sp=72,
+                         current_temp=79,
+                         last_updated=fake_clock.utcnow())
+        a._handle_climate_change(ev)
+        assert ZONE_ID not in a._comfort_delay_timers
+
+    def test_mid_grace_vacancy_flips_comfort_delay_active_false(self, fake_clock):
+        # Grant, then flip live occupancy off — comfort_delay_active must
+        # return False on next evaluation AND log expiry_reason=zone_unoccupied.
+        a = _make_arrester()
+        ev = _make_event(hvac_mode="cool", old_sp=76, new_sp=72,
+                         current_temp=79,
+                         last_updated=fake_clock.utcnow())
+        a._handle_climate_change(ev)
+        assert a.comfort_delay_active(ZONE_ID) is True
+        for rc in a._zone_manager.zones[ZONE_ID].room_conditions:
+            rc.occupied = False
+        # comfort_delay_active returns False AND evicts the timer with
+        # the ledger row expiry_reason="zone_unoccupied" (fix A-LOW-1).
+        assert a.comfort_delay_active(ZONE_ID) is False
+        assert ZONE_ID not in a._comfort_delay_timers
+
+
+class TestALOW2LastUpdatedFailClosed:
+    """A-LOW-2: last_updated is None MUST fail closed."""
+
+    def test_last_updated_none_fails_closed(self, fake_clock):
+        a = _make_arrester()
+        ev = _make_event(hvac_mode="cool", old_sp=76, new_sp=72,
+                         current_temp=79,
+                         last_updated=fake_clock.utcnow())
+        # Force last_updated=None on the new_state:
+        ev.data["new_state"].last_updated = None
+        a._handle_climate_change(ev)
+        assert ZONE_ID not in a._comfort_delay_timers
+
+
+class TestAHIGH1LiveKnobs:
+    """A-HIGH-1: rung-3 knobs flow to predicate/gate via setter."""
+
+    def test_soc_floor_setter_at_zero_disables_gate(self, fake_clock):
+        a = _make_arrester(soc=1.0)
+        # Live knob at 0 = SOC-blind grant.
+        a.set_comfort_soc_floor_pct(0)
+        ev = _make_event(hvac_mode="cool", old_sp=76, new_sp=72,
+                         current_temp=79,
+                         last_updated=fake_clock.utcnow())
+        a._handle_climate_change(ev)
+        assert ZONE_ID in a._comfort_delay_timers
+
+    def test_grace_setter_at_zero_disables_feature(self, fake_clock):
+        a = _make_arrester()
+        a.set_comfort_grace_min(0)
+        ev = _make_event(hvac_mode="heat_cool",
+                         old_high=80, new_high=72,
+                         old_low=68, new_low=68,
+                         current_temp=79,
+                         last_updated=fake_clock.utcnow())
+        a._handle_climate_change(ev)
+        # Feature dead: predicate branch skipped, falls through to
+        # standard arrest (matches the module-const kill-switch test
+        # in TestKillSwitches::test_grace_min_zero_disables_feature).
+        assert ZONE_ID not in a._comfort_delay_timers
+        assert ZONE_ID in a._grace_timers
+
+
+class TestCH2BootWarn:
+    """C-H2: caplog assertion for the SOC-floor boot WARN (0 < v < 20)."""
+
+    def test_soc_floor_setter_warn_in_danger_band(self, fake_clock, caplog):
+        a = _make_arrester()
+        with caplog.at_level("WARNING"):
+            a.set_comfort_soc_floor_pct(15)
+        assert any(
+            "below 20%" in rec.message for rec in caplog.records
+        ), "boot WARN missing for 0<floor<20"
+
+    def test_soc_floor_setter_no_warn_at_zero_kill_switch(self, fake_clock, caplog):
+        a = _make_arrester()
+        with caplog.at_level("WARNING"):
+            a.set_comfort_soc_floor_pct(0)
+        # 0 is the documented kill-switch — no danger-band WARN.
+        assert not any(
+            "below 20%" in rec.message for rec in caplog.records
+        )
+
+
+class TestDMED1RevertShortCircuit:
+    """D-MED-1: _revert_override short-circuits under comfort-delay."""
+
+    @pytest.mark.asyncio
+    async def test_revert_no_set_hvac_mode_during_grace(self, fake_clock):
+        a = _make_arrester()
+        # Seed a grant so comfort_delay_active is True.
+        a._seed_comfort_delay(a._zone_manager.zones[ZONE_ID], {
+            "zone_id": ZONE_ID, "climate_entity_id": CLIMATE,
+            "hvac_mode": "cool", "current_temp": 79.0, "delta_f": 4.0,
+            "direction": "cooler", "granted_setpoint": 72.0,
+        })
+        # Zone in cool mode (not heat_cool) — pre-fix would emit
+        # set_hvac_mode to re-assert heat_cool.
+        a._zone_manager.zones[ZONE_ID].hvac_mode = "cool"
+        st = MagicMock()
+        st.attributes = {"hvac_modes": ["heat_cool", "cool"]}
+        a.hass.states.get = MagicMock(return_value=st)
+        calls: list = []
+        async def fake_call(*args, **kwargs):
+            calls.append((args, kwargs))
+        a.hass.services.async_call = fake_call
+        await a._revert_override(a._zone_manager.zones[ZONE_ID], "away")
+        # Short-circuit: NEITHER set_hvac_mode NOR set_preset_mode fires.
+        assert not any(args[:2] == ("climate", "set_hvac_mode") for args, _ in calls)
+        assert not any(args[:2] == ("climate", "set_preset_mode") for args, _ in calls)
+
+
+class TestCH1LedgerEmit:
+    """C-H1: deferred write must queue a ledger row via _log_deferred_write."""
+
+    @pytest.mark.asyncio
+    async def test_S3_defer_emits_ledger_row(self, fake_clock, monkeypatch):
+        import custom_components.universal_room_automation.domain_coordinators.hvac_setpoint as setpoint
+        emitted: list = []
+        def spy(hass, *, site, zone_id, entity_id, reason, would_have_emitted):
+            emitted.append({"site": site, "zone_id": zone_id, "reason": reason})
+        monkeypatch.setattr(setpoint, "_log_deferred_write", spy)
+        a = _make_arrester()
+        a._seed_comfort_delay(a._zone_manager.zones[ZONE_ID], {
+            "zone_id": ZONE_ID, "climate_entity_id": CLIMATE,
+            "hvac_mode": "cool", "current_temp": 79.0, "delta_f": 4.0,
+            "direction": "cooler", "granted_setpoint": 72.0,
+        })
+        async def fake_call(*args, **kwargs):
+            pass
+        a.hass.services.async_call = fake_call
+        await a._apply_compromise(a._zone_manager.zones[ZONE_ID],
+                                  "away", 74.0, 70.0, 76.0, 70.0)
+        assert any(e["site"] == "S3_compromise" for e in emitted)
+
+
+class TestCLOWFailClosedAnchors:
+    """C-LOW D6/D8/D10: fail-closed gates on hvac_mode off / temp None /
+    battery_blind — each site's own check must be load-bearing."""
+
+    def test_D6_hvac_off_fails_closed_even_with_populated_temps(self, fake_clock):
+        a = _make_arrester()
+        ev = _make_event(hvac_mode="off", old_sp=76, new_sp=72,
+                         current_temp=79,
+                         last_updated=fake_clock.utcnow())
+        # new_state carries valid temps but state=="off"
+        a._handle_climate_change(ev)
+        assert ZONE_ID not in a._comfort_delay_timers
+
+    def test_D8_current_temp_none_fails_closed(self, fake_clock):
+        a = _make_arrester()
+        ev = _make_event(hvac_mode="cool", old_sp=76, new_sp=72,
+                         current_temp=None,
+                         last_updated=fake_clock.utcnow())
+        a._handle_climate_change(ev)
+        assert ZONE_ID not in a._comfort_delay_timers
+
+    def test_D10_battery_blind_fails_closed_with_valid_soc(self, fake_clock):
+        # blind=True even though we still supply a numeric SOC — the
+        # blind flag alone must veto the grant.
+        a = _make_arrester(soc=95.0, blind=True)
+        ev = _make_event(hvac_mode="cool", old_sp=76, new_sp=72,
+                         current_temp=79,
+                         last_updated=fake_clock.utcnow())
+        a._handle_climate_change(ev)
+        assert ZONE_ID not in a._comfort_delay_timers
+
+
+class TestCH5D3CoastGuard:
+    """C-H5: D3 coast-precedence guard reason-ledger leaf `comfort_delay_active`
+    is load-bearing (mutation of the accessor OR the `_cd_active` conjunct
+    would flip the effective_preset back to away)."""
+
+    def test_preset_change_reason_comfort_delay_active_leaf(self):
+        # This is a smoke-anchor: the string literal
+        # "comfort_delay_active" MUST appear in the D3 relabel branch in
+        # hvac.py. Mutation of the assignment reddens this anchor.
+        hvac_src = os.path.join(_URA_PATH, "domain_coordinators", "hvac.py")
+        with open(hvac_src) as f:
+            src = f.read()
+        # There MUST be a preset_change_reason assignment to the leaf.
+        assert 'preset_change_reason = "comfort_delay_active"' in src, (
+            "Fix-up C-H5 anchor: the D3 relabel leaf assignment is missing"
+        )

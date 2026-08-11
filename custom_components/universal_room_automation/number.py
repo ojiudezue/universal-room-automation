@@ -119,6 +119,12 @@ async def async_setup_entry(
             # mute duration (minutes). Consumed when `nm.mute_person_channel`
             # is invoked with `duration_minutes` omitted (button + service).
             NMMuteDefaultDurationNumber(hass, entry),
+            # ARREST-COMFORT-1 fix-up A-HIGH-1 (2026-08-10): rung-3 knobs
+            # for the comfort-delay grace + SOC floor. Live on the HVAC
+            # Coordinator device; setters push into HVACCoordinator ->
+            # OverrideArrester (single source of truth).
+            ComfortGraceMinutesNumber(hass, entry),
+            ComfortSOCFloorNumber(hass, entry),
         ]
         # Session B1 — 5 EVSE drain-precedence knob Numbers on EC device.
         for cls in _build_dp_numbers():
@@ -725,6 +731,191 @@ class MaxOccupancyHoursNumber(NumberEntity):
         )
         self.async_write_ha_state()
         _LOGGER.info("Max zone occupied time set to %d hours", int(value))
+
+
+class ComfortGraceMinutesNumber(NumberEntity):
+    """ARREST-COMFORT-1 fix-up A-HIGH-1: Comfort-Delay Grace (minutes).
+
+    Live-tunable duration of the comfort-delay grace on the HVAC
+    Coordinator device. `0` = feature disabled (every request falls
+    through to standard arrest). Persisted via entry.options; setter
+    pushes into HVACCoordinator -> OverrideArrester (single source of
+    truth). Restart re-seeds via async_setup config read.
+
+    Entity: number.ura_hvac_coordinator_comfort_delay_grace_minutes
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:timer-sand"
+    _attr_native_step = 5
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .domain_coordinators.hvac_const import (
+            CONF_COMFORT_GRACE_MIN,
+            DEFAULT_COMFORT_GRACE_MIN,
+            MIN_COMFORT_GRACE_MIN,
+            MAX_COMFORT_GRACE_MIN,
+        )
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_comfort_grace_min"
+        self._attr_name = "Comfort-Delay Grace (minutes)"
+        self._attr_native_min_value = MIN_COMFORT_GRACE_MIN
+        self._attr_native_max_value = MAX_COMFORT_GRACE_MIN
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        config = {**entry.data, **entry.options}
+        self._value = int(config.get(
+            CONF_COMFORT_GRACE_MIN, DEFAULT_COMFORT_GRACE_MIN,
+        ))
+
+    def _get_hvac(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("hvac")
+
+    def _push_to_coordinator(self) -> bool:
+        hvac = self._get_hvac()
+        if hvac is None or getattr(hvac, "_override_arrester", None) is None:
+            return False
+        hvac._override_arrester.set_comfort_grace_min(int(self._value))
+        return True
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    @property
+    def available(self) -> bool:
+        return self._get_hvac() is not None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        # Push the seeded value at boot; also fires the boot-time WARN
+        # evaluation for the SOC-floor sibling knob path.
+        self._push_to_coordinator()
+
+    async def async_set_native_value(self, value: float) -> None:
+        from .domain_coordinators.hvac_const import CONF_COMFORT_GRACE_MIN
+        self._value = int(value)
+        self._push_to_coordinator()
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={
+                    **self._entry.options,
+                    CONF_COMFORT_GRACE_MIN: int(value),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "ComfortGraceMinutes options-writeback failed", exc_info=True,
+            )
+        self.async_write_ha_state()
+
+
+class ComfortSOCFloorNumber(NumberEntity):
+    """ARREST-COMFORT-1 fix-up A-HIGH-1: Comfort-Delay SOC Floor (%).
+
+    Live-tunable battery-SOC floor for the comfort-delay grant gate.
+    `0` = SOC gate disabled — grants regardless of battery (deliberate
+    blackout-risk acceptance; logged WARN at any change into 0<v<20 and
+    at boot). Persisted via entry.options; setter pushes into
+    HVACCoordinator -> OverrideArrester.
+
+    Entity: number.ura_hvac_coordinator_comfort_delay_soc_floor_pct
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:battery-alert-variant-outline"
+    _attr_native_step = 5
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_mode = NumberMode.SLIDER
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .domain_coordinators.hvac_const import (
+            CONF_COMFORT_SOC_FLOOR_PCT,
+            DEFAULT_COMFORT_SOC_FLOOR_PCT,
+            MIN_COMFORT_SOC_FLOOR_PCT,
+            MAX_COMFORT_SOC_FLOOR_PCT,
+        )
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_comfort_soc_floor_pct"
+        self._attr_name = "Comfort-Delay SOC Floor (%)"
+        self._attr_native_min_value = MIN_COMFORT_SOC_FLOOR_PCT
+        self._attr_native_max_value = MAX_COMFORT_SOC_FLOOR_PCT
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        config = {**entry.data, **entry.options}
+        self._value = int(config.get(
+            CONF_COMFORT_SOC_FLOOR_PCT, DEFAULT_COMFORT_SOC_FLOOR_PCT,
+        ))
+
+    def _get_hvac(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("hvac")
+
+    def _push_to_coordinator(self) -> bool:
+        hvac = self._get_hvac()
+        if hvac is None or getattr(hvac, "_override_arrester", None) is None:
+            return False
+        # Setter fires the boot/change-time WARN when 0 < value < 20.
+        hvac._override_arrester.set_comfort_soc_floor_pct(int(self._value))
+        return True
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    @property
+    def available(self) -> bool:
+        return self._get_hvac() is not None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self._push_to_coordinator()
+
+    async def async_set_native_value(self, value: float) -> None:
+        from .domain_coordinators.hvac_const import CONF_COMFORT_SOC_FLOOR_PCT
+        self._value = int(value)
+        self._push_to_coordinator()
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={
+                    **self._entry.options,
+                    CONF_COMFORT_SOC_FLOOR_PCT: int(value),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "ComfortSOCFloor options-writeback failed", exc_info=True,
+            )
+        self.async_write_ha_state()
 
 
 class OffPeakDrainNumber(NumberEntity):
