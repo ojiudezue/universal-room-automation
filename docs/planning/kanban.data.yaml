@@ -921,7 +921,9 @@ cards:
   title: 'DOC-2 fan-actuation shared layer: REVIVED — FAN-MANUAL-1 fired 3 of its 4 park triggers'
   thread: hvac
   status: pre_planning
-  approval: unreviewed
+  approval: explicit
+  approved_by: 'operator 2026-08-11 (\"Fanlayer 1 is high priority\")'
+  priority: high
   tags:
   - tier-3
   - institutional-context
@@ -945,8 +947,9 @@ cards:
   gate_check_pending: 'DOC-2 foundation gate also requires H8 organic validation of the v5.31.0
     manual-off cooldown (a real manual OFF observed not re-arming on the live house). Verify from
     ledger before build — if unproven, that is the one remaining gate.'
-  next: after FAN-MANUAL-1 ships and its organic proof opens, planner pass to refresh DOC-2 against
-    the now-current writer inventory (incl. zone-vacancy sweep + pre-arrival sites B found); Tier 3
+  next: 'PARALLELIZED per operator ("parallelize these cards or we will never be done"): planner runs
+    NOW against the fan-manual-1 fix-up branch surface (plans do not conflict with shipping); build
+    starts once FAN-MANUAL-1 merges. H8 ledger check folded into the planner brief.'
   DEDUPE_2026_08_11: 'Sweep: DOC-2 planning doc is the PARENT (parked, triggers now fired -> READY per
     the skill rule). FAN-MANUAL-1 is the trigger-firing cycle, linked. ARREST-COMFORT-1 sibling class.
     THIRD instance of a parked plan''s fired trigger surfacing only on operator question (D6, ledger
