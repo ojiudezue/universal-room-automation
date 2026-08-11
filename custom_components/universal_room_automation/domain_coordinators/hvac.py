@@ -200,6 +200,13 @@ class HVACCoordinator(BaseCoordinator):
         # regression where a config-entry reload silently reset the
         # arrester's ramp master to DEFAULT=False.
         ac_ramp_master_enabled: bool | None = None,
+        # ARREST-COMFORT-1 D2-LOW-2 fix-up (2026-08-10): eager-seed the
+        # comfort-delay rung-3 knobs at construction (BEFORE the Number
+        # entities are added, so the arrester + D3 guard never read the
+        # module defaults during the boot window). Values default to the
+        # module constants when unset (fresh install / test bench).
+        comfort_grace_min: int | None = None,
+        comfort_soc_floor_pct: int | None = None,
     ) -> None:
         """Initialize HVAC Coordinator."""
         super().__init__(
@@ -280,6 +287,15 @@ class HVACCoordinator(BaseCoordinator):
         if ac_ramp_master_enabled is not None:
             self._override_arrester._ramp_master_enabled = bool(
                 ac_ramp_master_enabled
+            )
+        # D2-LOW-2 fix-up: seed comfort-delay knobs BEFORE any decision
+        # cycle can read them. Closes the boot window between arrester
+        # construction and Number.async_added_to_hass push.
+        if comfort_grace_min is not None:
+            self._override_arrester.set_comfort_grace_min(int(comfort_grace_min))
+        if comfort_soc_floor_pct is not None:
+            self._override_arrester.set_comfort_soc_floor_pct(
+                int(comfort_soc_floor_pct)
             )
         self._fan_controller = FanController(
             hass, self._zone_manager,

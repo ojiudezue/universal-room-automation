@@ -924,19 +924,32 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # emit_* chokepoints (freeze floor, comfort-delay grace, arrester
         # suppression, coast-precedence, DPM throttle). Live probe confirms
         # zero climate rules configured today; the block is defensive.
-        # Parked upgrade: route through emit_set_temperature /
-        # emit_set_preset_mode with a zone lookup from entity_id so AI
-        # rules can drive climate legally.
+        #
+        # HONESTY NOTE (D2-LOW-1, 2026-08-10): this block covers DIRECT
+        # climate service calls only. Chained routes remain open —
+        # `automation.trigger`, `scene.turn_on`, `script.turn_on`, and any
+        # `homeassistant.turn_on` invocation targeting a climate entity via
+        # a scene/automation can still reach the thermostat WITHOUT
+        # traversing the HVAC chokepoints. Closing those requires the
+        # parked upgrade (route through emit_set_temperature /
+        # emit_set_preset_mode with a zone lookup from entity_id). Until
+        # that ships, an AI rule that wants to bypass this block
+        # deliberately can do so through a chained action; the block only
+        # stops the accidental direct call.
         _CLIMATE_BLOCKED_SERVICES = {
             "set_temperature", "set_preset_mode", "set_hvac_mode",
         }
         if domain == "climate" and service in _CLIMATE_BLOCKED_SERVICES:
             rule_id = action.get("rule_id") or "<unknown>"
             _LOGGER.warning(
-                "[%s] AI rule %s blocked: climate.%s bypasses HVAC "
+                "[%s] AI rule %s blocked: direct climate.%s bypasses HVAC "
                 "chokepoints (freeze floor / arrester / comfort-delay). "
-                "Route through emit_set_temperature / emit_set_preset_mode "
-                "with a zone lookup to unblock.",
+                "Chained routes (automation.trigger / scene.turn_on / "
+                "script.turn_on) remain OPEN until the parked "
+                "route-through-chokepoints upgrade lands. To unblock the "
+                "direct path, migrate the AI-rule dispatcher to call "
+                "emit_set_temperature / emit_set_preset_mode with a zone "
+                "lookup.",
                 room_name, rule_id, service,
             )
             return

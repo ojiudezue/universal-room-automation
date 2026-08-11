@@ -299,6 +299,16 @@ Introduce `emit_set_preset_mode` in `hvac_setpoint.py`. Migrate S1/S4/S7 and the
 - No behavior change when SOC is below floor at grant.
 - No mid-grace forced-revert on SOC drop.
 - **No fix to HVAC-PRESET-FLAP-1** — that sibling defect stands (rev-2 H3 Review-1); this cycle only resolves the precedence seam so PRESET-FLAP does not race the comfort-grace.
+- **Boot-window semantics (fix-up D2-LOW-2):** the arrester's
+  `_get_grace_min()` / `_get_soc_floor()` accessors fall back to the
+  module-constant defaults (30 / 80) when the rung-3 Number entities
+  have not yet pushed a value. The window is closed at HC construction
+  by the eager-seed kwarg (`comfort_grace_min` /
+  `comfort_soc_floor_pct`) sourced from `entry.options`, so the boot
+  transient is a fresh-install-only phenomenon (no persisted option ->
+  default matches module constant, no observable difference). If a
+  future cycle changes the defaults, the eager-seed path must be
+  audited alongside the constant change.
 - **Zone-scope admission (fix-up D-MED-2):** the comfort-delay grace protects the ZONE, not the specific writer. While a grant is active for `zone_id`, ANY URA writer targeting that zone's climate entity inherits the protection (S3/S4/S5/S8/S9 arrester paths, S1 reason-ladder preset write, S10 DPM apply, S11/S12/S13 predictor paths) — the deferral is byte-identical whichever caller reached the chokepoint. This is intentional: from the operator's perspective the grace is "URA, back off this zone for N minutes", not "URA, back off THIS specific decision path for N minutes". A comment in `hvac_setpoint.py` at each gate site names this behavior; no code change beyond documentation.
 
 ### 4.6 New constants (kill-switch semantics per rev-2 L1 Review-2)

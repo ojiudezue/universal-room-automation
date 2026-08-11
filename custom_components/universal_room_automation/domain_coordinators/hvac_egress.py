@@ -555,6 +555,18 @@ class EgressManager:
             return
 
         try:
+            # ARREST-COMFORT-1 D2-LOW-3 fix-up (2026-08-10): on some
+            # thermostat firmware (notably Ecobee), a set_hvac_mode
+            # transition can cause the device to re-emit its preset
+            # defaults over a manual setpoint on the next tick — the
+            # DPM apply / arrester paths cover the resulting write via
+            # emit_* chokepoints. The egress pause itself is deliberately
+            # UNGATED by comfort-delay grace (safety > comfort during an
+            # open egress window); pending live evidence that this
+            # firmware quirk actually stomps an operator hold, we do not
+            # add a gate here. Revisit if operator observes a manual
+            # setpoint being overridden immediately after an egress
+            # pause on a comfort-qualified zone.
             await self._hass.services.async_call(
                 "climate",
                 "set_hvac_mode",

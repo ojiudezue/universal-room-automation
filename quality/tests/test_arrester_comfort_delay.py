@@ -57,10 +57,19 @@ _mods: dict[str, dict] = {
     "homeassistant.helpers.event": {
         "async_call_later": MagicMock(return_value=lambda: None),
         "async_track_state_change_event": MagicMock(return_value=lambda: None),
+        "async_track_time_interval": MagicMock(return_value=lambda: None),
     },
     "homeassistant.helpers.dispatcher": {
         "async_dispatcher_send": MagicMock(),
+        "async_dispatcher_connect": MagicMock(return_value=lambda: None),
     },
+    # NB: homeassistant.helpers.storage is deliberately NOT stubbed at
+    # module scope — other tests use `from homeassistant.helpers.storage
+    # import Store` to detect the presence of a real HA install
+    # (`_HA_REAL`). Stubbing it here would flip those detections and
+    # cause skipped behavioral tests to un-skip and fail against real
+    # code that assumes a genuine HA install. The S10 caller-site drill
+    # installs and REMOVES this stub inside `_ensure_hvac_module_loaded`.
     "homeassistant.util": {},
     "homeassistant.util.dt": {
         "utcnow": _utcnow_real,
@@ -154,6 +163,30 @@ ZoneState = hvac_zones.ZoneState
 COMFORT_GRACE_MIN = hvac_const.COMFORT_GRACE_MIN
 COMFORT_SOC_FLOOR_PCT = hvac_const.COMFORT_SOC_FLOOR_PCT
 COMFORT_DELTA_MIN_F = hvac_const.COMFORT_DELTA_MIN_F
+
+# ---------------------------------------------------------------------------
+# Fix-up drill support — load hvac_predict + hvac_preset for real
+# caller-site drills on S11/S12/S13. Stub `signals` (predict imports
+# EnergyConstraint from it) — the drill methods never touch it.
+# ---------------------------------------------------------------------------
+_signals_mod_key = (
+    "custom_components.universal_room_automation.domain_coordinators.signals"
+)
+if _signals_mod_key not in sys.modules:
+    _sig = types.ModuleType(_signals_mod_key)
+    def _sig_getattr(name):  # any signal name resolves to the string name
+        return name
+    _sig.__getattr__ = _sig_getattr  # type: ignore[attr-defined]
+    sys.modules[_signals_mod_key] = _sig
+_load(
+    "custom_components.universal_room_automation.domain_coordinators.hvac_preset",
+    "domain_coordinators/hvac_preset.py",
+)
+hvac_predict = _load(
+    "custom_components.universal_room_automation.domain_coordinators.hvac_predict",
+    "domain_coordinators/hvac_predict.py",
+)
+HVACPredictor = hvac_predict.HVACPredictor
 
 
 # ---------------------------------------------------------------------------
@@ -918,6 +951,270 @@ class TestCLOWFailClosedAnchors:
                          last_updated=fake_clock.utcnow())
         a._handle_climate_change(ev)
         assert ZONE_ID not in a._comfort_delay_timers
+
+
+# ===========================================================================
+# Fix-up follow-up (orchestrator re-drill 2026-08-10): caller-site drills
+# for S10 (hvac.py DPM apply), S11/S12/S13 (hvac_predict.py). The prior
+# fix-up commit wired the gates but left NO test authority at these caller
+# sites — mutating `gate=None` at the call site reddened zero tests. These
+# tests drive the ACTUAL production methods so `gate=None` at the specific
+# call site is a red-producing mutation.
+# ===========================================================================
+
+
+def _make_predictor(*, comfort_active: bool):
+    """Construct a minimal HVACPredictor via __new__ (bypass __init__) with
+    just enough attributes for the release-banked / pre-cool / pre-heat
+    methods. The arrester's `comfort_delay_active` is forced to the
+    requested return so the gate outcome is deterministic."""
+    pred = HVACPredictor.__new__(HVACPredictor)
+    hass = MagicMock()
+    hass.data = {}
+    hass.services = MagicMock()
+    calls: list = []
+    async def _capture(*args, **kwargs):
+        calls.append({"args": args, "kwargs": kwargs})
+    hass.services.async_call = _capture
+    pred.hass = hass
+    zone = ZoneState(
+        zone_id=ZONE_ID, zone_name="Zone A", climate_entity=CLIMATE,
+    )
+    zone.target_temp_high = 78.0
+    zone.target_temp_low = 68.0
+    pred._zone_manager = types.SimpleNamespace(zones={ZONE_ID: zone})
+    pred._egress_manager = None
+    # Arrester with a hard-coded comfort_delay_active return.
+    arrester = MagicMock()
+    arrester.comfort_delay_active = MagicMock(return_value=bool(comfort_active))
+    arrester.suppress = MagicMock()
+    arrester.unsuppress = MagicMock()
+    pred._override_arrester = arrester
+    # HC backref: freeze inactive.
+    pred._hvac_coord = types.SimpleNamespace(freeze_active=False)
+    # Fields the release-banked path reads.
+    pred._solar_bank_floor = 72.0
+    return pred, calls
+
+
+@pytest.mark.asyncio
+class TestFixupWriteSiteCallerDrills:
+    """Caller-site anchors: driving the REAL production method must defer
+    (no service call) under grace AND fire under no-grace. Mutation of
+    `gate=None` at the call site would leave the emit unconditional →
+    grace test reds (asserts no call, gets a call)."""
+
+    async def test_S11_release_banked_defers_under_grace(self):
+        pred, calls = _make_predictor(comfort_active=True)
+        # Seed a `_last_emitted_range` baseline so _resolve_baseline_range
+        # returns a value (the release path needs it).
+        pred._hvac_coord = types.SimpleNamespace(
+            freeze_active=False,
+            _last_emitted_range={ZONE_ID: (68.0, 78.0)},
+        )
+        await pred._release_banked_zones({ZONE_ID})
+        assert not any(
+            c["args"][:2] == ("climate", "set_temperature") for c in calls
+        ), "S11: release-banked emit MUST be deferred under active grace"
+
+    async def test_S11_release_banked_fires_without_grace(self):
+        pred, calls = _make_predictor(comfort_active=False)
+        pred._hvac_coord = types.SimpleNamespace(
+            freeze_active=False,
+            _last_emitted_range={ZONE_ID: (68.0, 78.0)},
+        )
+        await pred._release_banked_zones({ZONE_ID})
+        assert any(
+            c["args"][:2] == ("climate", "set_temperature") for c in calls
+        ), "S11: release-banked emit MUST fire when grace is inactive"
+
+    async def test_S12_pre_cool_defers_under_grace(self):
+        pred, calls = _make_predictor(comfort_active=True)
+        zone = pred._zone_manager.zones[ZONE_ID]
+        await pred._execute_zone_pre_cool(zone, offset=-3.0, reason="test")
+        assert not any(
+            c["args"][:2] == ("climate", "set_temperature") for c in calls
+        ), "S12: pre-cool emit MUST be deferred under active grace"
+
+    async def test_S12_pre_cool_fires_without_grace(self):
+        pred, calls = _make_predictor(comfort_active=False)
+        zone = pred._zone_manager.zones[ZONE_ID]
+        await pred._execute_zone_pre_cool(zone, offset=-3.0, reason="test")
+        assert any(
+            c["args"][:2] == ("climate", "set_temperature") for c in calls
+        ), "S12: pre-cool emit MUST fire when grace is inactive"
+
+    async def test_S13_pre_heat_defers_under_grace(self):
+        pred, calls = _make_predictor(comfort_active=True)
+        # any_room_occupied gate in _execute_pre_heat requires True.
+        from custom_components.universal_room_automation.domain_coordinators.hvac_zones import (
+            RoomCondition,
+        )
+        pred._zone_manager.zones[ZONE_ID].room_conditions = [
+            RoomCondition(room_name="r", occupied=True),
+        ]
+        await pred._execute_pre_heat()
+        assert not any(
+            c["args"][:2] == ("climate", "set_temperature") for c in calls
+        ), "S13: pre-heat emit MUST be deferred under active grace"
+
+    async def test_S13_pre_heat_fires_without_grace(self):
+        pred, calls = _make_predictor(comfort_active=False)
+        from custom_components.universal_room_automation.domain_coordinators.hvac_zones import (
+            RoomCondition,
+        )
+        pred._zone_manager.zones[ZONE_ID].room_conditions = [
+            RoomCondition(room_name="r", occupied=True),
+        ]
+        await pred._execute_pre_heat()
+        assert any(
+            c["args"][:2] == ("climate", "set_temperature") for c in calls
+        ), "S13: pre-heat emit MUST fire when grace is inactive"
+
+
+# ---------------------------------------------------------------------------
+# S10 (hvac.py DPM apply) caller-site drill — via a minimal HVACCoordinator
+# instance driven through the actual `_async_apply_preset_overrides`.
+# ---------------------------------------------------------------------------
+
+# Load hvac.py real (needs base + covers + fans + egress + predict already
+# loaded; predict is loaded above, others we stub).
+def _ensure_hvac_module_loaded():
+    key = "custom_components.universal_room_automation.domain_coordinators.hvac"
+    if key in sys.modules and getattr(sys.modules[key], "__file__", None):
+        return sys.modules[key]
+    # LAZY storage stub: hvac.py needs `from homeassistant.helpers.storage
+    # import Store`. Install just long enough for the import, then REMOVE
+    # so the module-scope stub doesn't linger and flip the `_HA_REAL`
+    # sentinel other test files use (see the note in `_mods`).
+    _storage_key = "homeassistant.helpers.storage"
+    _installed_storage = False
+    if _storage_key not in sys.modules:
+        _storage_stub = types.ModuleType(_storage_key)
+        _storage_stub.Store = MagicMock  # type: ignore[attr-defined]
+        sys.modules[_storage_key] = _storage_stub
+        _installed_storage = True
+    for stub_key, stub_attrs in (
+        ("custom_components.universal_room_automation.domain_coordinators.base",
+         {"BaseCoordinator": object,
+          "CoordinatorAction": object,
+          "Intent": object,
+          "Severity": types.SimpleNamespace(
+              LOW="low", MEDIUM="medium", HIGH="high", CRITICAL="critical")}),
+        ("custom_components.universal_room_automation.domain_coordinators.hvac_covers",
+         {"CoverController": object}),
+        ("custom_components.universal_room_automation.domain_coordinators.hvac_fans",
+         {"FanController": object}),
+        ("custom_components.universal_room_automation.domain_coordinators.hvac_egress",
+         {"EgressManager": object}),
+    ):
+        if stub_key not in sys.modules:
+            m = types.ModuleType(stub_key)
+            for k, v in stub_attrs.items():
+                setattr(m, k, v)
+            sys.modules[stub_key] = m
+    try:
+        mod = _load(key, "domain_coordinators/hvac.py")
+    finally:
+        # Roll back the lazy storage stub so we don't pollute the
+        # `_HA_REAL` sentinel used by test_hvac_ac_ramp_savings and
+        # sibling behavioral DAO tests. hvac.py already imported Store
+        # into its namespace, so it continues to work after removal.
+        if _installed_storage:
+            sys.modules.pop(_storage_key, None)
+    return mod
+
+
+@pytest.mark.asyncio
+class TestFixupS10DPMApplyCallerDrill:
+    """S10_dpm_apply caller-site drill. Drive the REAL
+    `HVACCoordinator._async_apply_preset_overrides` with an active
+    comfort grace and assert NO climate.set_temperature service call
+    lands. Then re-run with grace inactive and assert the call DOES land.
+    Mutation `gate=None` at the S10 call site in hvac.py leaves the emit
+    unconditional → the grace test reds (unexpected service call)."""
+
+    def _build_hc(self, *, comfort_active: bool):
+        hvac_mod = _ensure_hvac_module_loaded()
+        HC = hvac_mod.HVACCoordinator
+        hc = HC.__new__(HC)
+        hass = MagicMock()
+        hass.services = MagicMock()
+        calls: list = []
+        async def _capture(*args, **kwargs):
+            calls.append({"args": args, "kwargs": kwargs})
+        hass.services.async_call = _capture
+        # DOMAIN key path required by _async_apply_preset_overrides.
+        from custom_components.universal_room_automation.const import DOMAIN
+        # Fake EC exposes _dynamic_preset_overrides.
+        ec = types.SimpleNamespace(_dynamic_preset_overrides={ZONE_ID: []})
+        manager = types.SimpleNamespace(coordinators={"energy": ec})
+        hass.data = {DOMAIN: {"coordinator_manager": manager}}
+        hc.hass = hass
+        # Minimal fields the method reads.
+        hc._guest_mode_actuation_enabled = True
+        hc._house_state = "home_day"
+        hc._freeze_active = False
+        hc._last_emitted_range = {}
+        # Zone.
+        zone = ZoneState(
+            zone_id=ZONE_ID, zone_name="Zone A", climate_entity=CLIMATE,
+        )
+        hc._zone_manager = types.SimpleNamespace(
+            zones={ZONE_ID: zone},
+        )
+        # Preset manager returns a baseline that will differ from
+        # _last_emitted_range (so the throttle guard doesn't skip).
+        pm = types.SimpleNamespace(
+            get_preset_for_house_state=lambda _s: "home",
+            get_seasonal_setpoints=lambda _p: (78.0, 68.0),
+        )
+        hc._preset_manager = pm
+        # No egress pause.
+        hc._egress_manager = None
+        # Arrester with controlled comfort_delay_active + no shave.
+        arrester = MagicMock()
+        arrester.comfort_delay_active = MagicMock(return_value=bool(comfort_active))
+        arrester._corrective_writes_suppressed = MagicMock(return_value=False)
+        arrester.suppress = MagicMock()
+        arrester.unsuppress = MagicMock()
+        hc._override_arrester = arrester
+        return hc, calls
+
+    async def test_S10_dpm_apply_defers_under_grace(self):
+        hc, calls = self._build_hc(comfort_active=True)
+        await hc._async_apply_preset_overrides()
+        assert not any(
+            c["args"][:2] == ("climate", "set_temperature") for c in calls
+        ), (
+            "S10: DPM apply emit MUST be deferred under active grace "
+            "(mutation `gate=None` at hvac.py DPM apply site would leave "
+            "the emit unconditional and this assert would red)"
+        )
+
+    async def test_S10_dpm_apply_fires_without_grace(self):
+        hc, calls = self._build_hc(comfort_active=False)
+        await hc._async_apply_preset_overrides()
+        assert any(
+            c["args"][:2] == ("climate", "set_temperature") for c in calls
+        ), "S10: DPM apply emit MUST fire when grace is inactive"
+
+    async def test_S10_defer_rolls_back_suppress(self):
+        """Fix #9 companion: on defer at S10, the pre-emit suppress()
+        stamp MUST be rolled back via unsuppress() so a real manual
+        within SUPPRESS_TTL_SECONDS is not swallowed. Mutation removing
+        the `unsuppress` on the defer branch would leave suppress stamped
+        without a corresponding rollback and this assert reds."""
+        hc, calls = self._build_hc(comfort_active=True)
+        arrester = hc._override_arrester
+        await hc._async_apply_preset_overrides()
+        # suppress MUST have been called once by the DPM apply loop.
+        assert arrester.suppress.called, "DPM apply should call suppress() pre-emit"
+        # Then unsuppress MUST have been called to roll it back.
+        assert arrester.unsuppress.called, (
+            "S10 defer branch MUST call unsuppress() to roll back the "
+            "pre-emit suppress stamp (fix #9 companion)"
+        )
 
 
 class TestCH5D3CoastGuard:
