@@ -409,7 +409,8 @@ cards:
 - id: WATCHDOG-INERT-1
   title: Three of four v5.35.0 stuck-signal detectors are effectively inert (D3 structurally unreachable)
   thread: presence
-  status: pre_planning
+  status: shipped_organic
+  shipped_version: v5.67.0
   approval: unreviewed
   tags:
   - no-fabrication-verify
