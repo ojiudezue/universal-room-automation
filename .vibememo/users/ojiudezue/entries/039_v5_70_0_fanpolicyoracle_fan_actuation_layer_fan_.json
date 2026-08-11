@@ -1,0 +1,19 @@
+{
+  "format_version": "2.1",
+  "entry_id": "039",
+  "author": "ojiudezue",
+  "session_id": "claude_20260811_062654_ship_v5_70_0",
+  "timestamp": "2026-08-11T06:26:54Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.70.0 shipped: FanPolicyOracle fan-actuation layer (FAN-LAYER-1)",
+  "summary": "Per-room fan policy oracle: manual hold/cooldown state in one place (entry_id-keyed, boot-hydrating, reload-safe), safety-stop + pre-arrival routed through actuate() with behavioral drills, hollow source-presence tests purged, 2 long-broken collection ERRORs fixed (v5.68.0 parity anchor now actually runs); RoomFanState remainder carded FAN-LAYER-2",
+  "refs": {
+    "cards": [
+      "FAN-LAYER-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.70.0.md"
+    ]
+  }
+}
