@@ -457,6 +457,11 @@ class TestBug1VacancyHoldOnlyHoldsRunningFan:
         _set_now(base)
 
         auto, log, set_fan = _make_room_automation(initial_fan_on=True)
+        # FAN-MANUAL-1 fix-up (2026-08-10): seed baseline as URA-owned so
+        # tick-1 does not open a manual-ON hold (the new boot-edge policy
+        # opens one for boot-lit fans — tested elsewhere; this test is
+        # about the vacancy-hold running-fan invariant).
+        auto._last_seen_any_fan_on = True
         # Tick 1: occupied to establish baseline any_fan_on_now=True.
         _run(auto.handle_temperature_based_fan_control(TEMP_HOT, occupied=True))
         turn_off_before = _count(log, "turn_off")
@@ -578,6 +583,11 @@ class TestBug2SyncAdoptExternalOn:
         # Tick 1: adopt.
         _run(ctrl.update(energy_constraint=None, house_state="home_day"))
         assert room_fan.is_on is True and room_fan.trigger == "external"
+        # FAN-MANUAL-1 (2026-08-10): adoption opens the ON hold too.
+        # This test exercises the doubled-vacancy-hold sweep timing —
+        # orthogonal to the manual-ON hold; clear it so the incident-
+        # class guard can fire.
+        room_fan.manual_on_hold_until = ""
 
         # Tick 2: base+hold+60 — adopted fan must NOT be swept yet.
         _set_now(base + timedelta(seconds=DEFAULT_FAN_VACANCY_HOLD + 60))

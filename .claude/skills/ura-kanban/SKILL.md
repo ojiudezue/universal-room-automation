@@ -97,6 +97,10 @@ than to symbols: cite where you looked, and say DUPLICATE / ADJACENT / NEW with 
   verbatim. The survivor inherits the **union**, never the intersection.
 - **A parked item whose trigger has since fired is not "done" — it is READY.** When the sweep finds
   one, promote it and say so; do not re-plan it from scratch.
+- **Check parked-plan triggers at CYCLE CLOSE, not only at card creation.** Three times (watchdog D6,
+  the ledger's criterion 3, DOC-2 fan layer) a cycle fired a parked plan's revival trigger and nobody
+  noticed until the operator asked. When closing a cycle, grep `docs/planning/` for parked items whose
+  triggers mention the surfaces the cycle touched.
 
 **Worked example (2026-08-09, the miss that produced this rule).** Motion-chatter detection arrived
 as a candidate new card. Sweeping the board alone found STUCK-SENSOR-1 (adjacent — same detector,

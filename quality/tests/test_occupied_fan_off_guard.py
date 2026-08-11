@@ -89,6 +89,10 @@ class TestGuardSuppressesOffForOccupiedRoom:
         _run(ctrl.update(energy_constraint=None, house_state="home_evening"))
         assert room_fan.is_on is True
         assert room_fan.trigger == "external"
+        # FAN-MANUAL-1: adoption also opens the ON hold. This test
+        # exercises the occupied-fan-off guard suppression; clear the
+        # hold so the guard is the sole reason no OFF is dispatched.
+        room_fan.manual_on_hold_until = ""
 
         # Fast-forward past the doubled adopted hold — sweep would fire.
         doubled = int(DEFAULT_FAN_VACANCY_HOLD * FAN_ADOPTED_VACANCY_HOLD_MULT)
@@ -131,6 +135,8 @@ class TestVacantRoomStillSweeps:
             occupied=False, occ_binary_on=False,
         )
         _run(ctrl.update(energy_constraint=None, house_state="home_evening"))
+        # FAN-MANUAL-1: clear adoption-opened hold (orthogonal).
+        room_fan.manual_on_hold_until = ""
         doubled = int(DEFAULT_FAN_VACANCY_HOLD * FAN_ADOPTED_VACANCY_HOLD_MULT)
         _set_now(base + timedelta(seconds=doubled + 60))
         _run(ctrl.update(energy_constraint=None, house_state="home_evening"))
@@ -176,6 +182,8 @@ class TestUnavailableOccupancyFailsOpen:
         ctrl.hass.states.get = _get
 
         _run(ctrl.update(energy_constraint=None, house_state="home_evening"))
+        # FAN-MANUAL-1: clear adoption-opened hold (orthogonal).
+        room_fan.manual_on_hold_until = ""
         doubled = int(DEFAULT_FAN_VACANCY_HOLD * FAN_ADOPTED_VACANCY_HOLD_MULT)
         _set_now(base + timedelta(seconds=doubled + 60))
         _run(ctrl.update(energy_constraint=None, house_state="home_evening"))
@@ -236,6 +244,8 @@ class TestActivityLogOnRealOff:
         ctrl.hass.data[DOMAIN]["activity_logger"] = _AL()
 
         _run(ctrl.update(energy_constraint=None, house_state="home_evening"))
+        # FAN-MANUAL-1: clear adoption-opened hold (orthogonal).
+        room_fan.manual_on_hold_until = ""
         doubled = int(DEFAULT_FAN_VACANCY_HOLD * FAN_ADOPTED_VACANCY_HOLD_MULT)
         _set_now(base + timedelta(seconds=doubled + 60))
         _run(ctrl.update(energy_constraint=None, house_state="home_evening"))

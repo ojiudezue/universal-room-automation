@@ -746,9 +746,38 @@ cards:
     step to 78 for 15 min, monitoring APPROACH SPEED to setpoint throughout — a negotiation curve.
     Slow approach (unrecoverable load) should inform the step timing. Knobs: grace minutes, step size,
     step interval, SOC floor (80), delta threshold — all named, rung ladder in plan.'
-  next: 'plan the DELAY design per the three operator inputs; the identification predicate is D1 of the
-    plan. Sibling: FAN-MANUAL-1 (same "system overrules the human" class — manual actuation is EVIDENCE
-    per fusion section 7).'
+  PLAN_2026_08_11: 'PLANNING_arrester_comfort_delay.md. STAGED: Cycle A = predicate + SOC-gated flat
+    grace + coast-precedence guard (~95% of the kids-incident benefit); Cycle B (graduated concession +
+    approach-speed observer) PARKED with evidence trigger — rare-fire state machine priced honestly.
+    INV-COMFORT-DELAY falsifiable; single SOC accessor consumed by BOTH D1 and D3 (desync = sharpest
+    risk, mutation must fail both); probe-first gate (AUDIT_arrester_comfort_delay.md) before build;
+    kids-incident replay is the live acceptance criterion. Tier 3.'
+  PLAN_REVIEWS_2026_08_11: 'Both NEEDS-REVISION (the protocol''s first subject, and it paid): R1-H1
+    preset-writes clobber a granted setpoint on Bryant preset thermostats — INV-violating by
+    construction, 9 emit sites unguarded; R2-H1 dual-setpoint predicate undefined (heat_cool range
+    drag, None crashes, single-target unmapped); R2-H2 the plan''s own "single SOC accessor" mitigation
+    was a hollow anchor in blueprint form. REV-2 committed: §3.7 S1-S9 per-site verdict table + a NEW
+    emit_set_preset_mode chokepoint (mirror of emit_set_temperature) + gate on BOTH surfaces (the
+    revision caught that the review''s preset-only chokepoint was itself incomplete); per-mode
+    comfort-relevant-leg predicate w/ worked examples, fail-closed on None; SOC evaluated ONCE at
+    grant, comfort_delay_active pure; restart-mid-grace disclosed+accepted for Cycle A; shed DOMINATES
+    comfort (INV falsification #6); kill-switch semantics per knob (SOC_FLOOR=0 = deliberate
+    blackout-risk acceptance w/ boot WARN); kids-replay must drive real _handle_climate_change.'
+  PROBE_2026_08_11: 'D1/D2/D3 all GO. Qualifying events 44.4/wk (NOT rare — zone_2 = 43/49); SOC>=80
+    at ~50% of events so the gate is genuinely load-bearing; coast co-fire 13.6/wk -> D3 required;
+    multi-thermostat zones = ZERO -> grant key simplifies to zone_id (H2 ambiguity killed by
+    measurement); preset-flap co-fire 18% all on the incident evenings (confirms the R1-H1 seam);
+    kids incident found in the qualifying set (SOC 99-100, coast, flap co-fire TRUE) = sanity anchor.
+    VOCABULARY FINDING: the arrester writes NOTHING to ura_activity_log — it acts silently; the plan''s
+    ledger deliverable is also a diagnosability fix. PERISHABLE FIXTURE EXTRACTED: kids-incident
+    recorder rows (purge ~08-16) committed to quality/tests/fixtures/arrester_comfort/.'
+  CYCLE_B_ESCALATION_DECISION: 'Probe found Cycle-B''s evidence trigger ALREADY MET (08-08 zone_2:
+    4 qualifying flips in 61 min). OPERATOR CALL: pull D4 graduated concession in-cycle, or keep
+    staged? ORCHESTRATOR RECOMMENDATION: KEEP STAGED — the trigger being met justifies Cycle B NEXT,
+    not simultaneous; bundling doubles a Tier-3 review surface, and Cycle A''s flat grace already
+    covers the 44/wk common case. Cycle B dispatches immediately after A''s live validation.'
+  next: 'Cycle A build after FAN-LAYER build slots clear (both touch hvac.py — SERIALIZE the builds;
+    plan work done in parallel per operator mandate).'
   DEDUPE_2026_08_09: 'Sweep: ARREST-SUNSET-1 (shipped) is about WHEN the override sunsets;
     OVERRIDE-NOTIFY-1 is about warning before expiry. Neither touches whether the arrester should fire
     against an occupant comfort request in the first place. HVAC-PRESET-FLAP-1 is the sibling defect
@@ -858,7 +887,8 @@ cards:
 - id: FAN-MANUAL-1
   title: 'Fans have no manual-ON override: room temp logic reverts a hand-switched fan ("below threshold")'
   thread: hvac
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.68.0
   approval: explicit
   approved_by: 'operator 2026-08-10 ("If there is no manual override, design one after considering all
     our fan goals and touch points across room, zone, coordinators")'
@@ -896,13 +926,105 @@ cards:
   OPERATOR_RULINGS_2026_08_10: 'Both as recommended: (1) FRESHEST WINS — a manual-ON newer than the
     sleep transition survives it; (2) fan-recheck OFF is ALLOWLISTED via trigger_path, hold
     remaining-time preserved across the pause. Build fully approved (build-implies-ship).'
-  next: 'BUILD (Tier 2-DB, 3 framing-disjoint reviews): timed hold + field split per plan. Runs
-    parallel to the P24/D3 batch — surfaces mostly disjoint (automation.py/hvac_fans.py/fan_recheck vs
-    coordinator.py/person_coordinator); const.py knob additions merge trivially. Merge order: batch
-    first, fan rebases if needed.'
+  REVIEW_ROUND_2026_08_11: 'ALL THREE DO-NOT-SHIP — 1 CRIT + 6 HIGH, disjoint framings, zero overlap.
+    C-CRIT-1: the HVAC chokepoint gate (the plan''s headline enforcement) had ZERO coverage — deleting
+    it left 8,564 tests green, because every _set_fan_state-reaching test zeroed the hold in fixtures.
+    A-HIGH-1: boot-seed guard swallows tick-1 detection → after any entry reload URA kills the fan the
+    operator just turned on (the ORIGINAL complaint, resurrected). A-HIGH-2/B-HIGH-2: the reconciler in
+    BOTH directions — its ON mis-detected as external (fan pinned 1h), its OFF re-asserts against a
+    held fan on its own cadence. B-HIGH-1: zone-vacancy sweep (hvac.py:2418) bypasses the chokepoint
+    entirely — the MISSED emission site; a one-line grep (CONF_FANS.*turn_off) would have found it and
+    neither plan, build, nor dispatch brief ran it. C-H2: the discharge-(b) test asserted None==None
+    (its hold was never opened). C-H1+A-MED-2: recheck extension unanchored AND buggy (mid-pause expiry
+    clears the hold, losing the extension). MED-B2: room-tier restart re-adoption claim is provably
+    aspirational.'
+  next: 'CONSOLIDATED FIX-UP IN FLIGHT: chokepoint behavioral test (no fixture zeroing) + zone-sweep/
+    pre-arrival guards + reconciler defer+marker (mark_fan_on_issued helper for ALL URA ON sites) +
+    ONE coherent boot-seed policy (tick-1 ON → hold opens, conservative toward the human; restart docs
+    corrected to match) + recheck extension anchored + mid-pause expiry fixed + discharge-(b) test
+    rewritten + MEDs. Gate: C''s drills 1/4/5 + A''s boot-edge re-run to RED. Then re-review the fix-up
+    surface, merge AFTER v5.67.0 (develop moved), ship as v5.68.0.'
   DEDUPE_2026_08_10: 'Sweep: ARREST-COMFORT-1 is the SIBLING (thermostat side of the same class) —
     linked not merged; fan-recheck cards/plans are about mmWave truth not manual intent; humidity-fan
     backlog (PowerView memo) is spike detection; B-2026-08-03-8 flash opt-out unrelated. NEW.'
+- id: FAN-LAYER-1
+  title: 'DOC-2 fan-actuation shared layer: REVIVED — FAN-MANUAL-1 fired 3 of its 4 park triggers'
+  thread: hvac
+  status: pre_planning
+  approval: explicit
+  approved_by: 'operator 2026-08-11 (\"Fanlayer 1 is high priority\")'
+  priority: high
+  tags:
+  - tier-3
+  - institutional-context
+  - context-wide-scoping
+  origin:
+    date: '2026-08-11'
+    gist: 'operator, on the fan cycle''s 1-CRIT/6-HIGH review round: "Do we have a fan abstraction in
+      our roadmap or kanban? This is why. I know we have a fusion camera abstraction and I think a
+      presence sensor abstraction with intent and evidence delineated."'
+  why: 'PLANNING_fan_actuation_shared_layer.md (DOC-2, 2026-08-01) parked the extraction behind a
+    foundation gate + 4 evidence triggers. FAN-MANUAL-1 fired: (1) new-mechanic double-port — the
+    manual-ON hold was ported room-tier + HVAC-tier and diverged same-cycle (A-MED-1 per-room knob
+    ignored at HVAC tier); (2) real-world inconsistency — the Living Room complaint; (3) third-writer
+    bypass IN THE WILD at actuator_reconciler.py:778, the exact line DOC-2 named; (4) piggyback — we
+    were already open in hvac_fans.py/automation.py. Cameras have CameraResolver; presence has
+    capability/role + intent/evidence; fans are the last multi-writer surface with no arbitration
+    abstraction — 5 writers, and the FAN-MANUAL-1 review round (1 CRIT + 6 HIGH, all N-way-port
+    misses) is the drift cost DOC-2 was priced against.'
+  seed_already_built: 'mark_fan_on_issued() (FAN-MANUAL-1 fix-up) is the first shared primitive — an
+    authored-by channel across all URA ON sites. The extraction grows from it.'
+  gate_check_pending: 'DOC-2 foundation gate also requires H8 organic validation of the v5.31.0
+    manual-off cooldown (a real manual OFF observed not re-arming on the live house). Verify from
+    ledger before build — if unproven, that is the one remaining gate.'
+  PLAN_2026_08_11: 'PLANNING_fan_actuation_shared_layer_v2.md (756 lines). Writer set is TEN sites
+    across 5 files, not five — W8 zone-vacancy sweep + W9 pre-arrival bypass ALL machinery (trigger #3
+    fired at TWO sites). RECOMMENDED SHAPE (b): FanPolicyOracle — thin may_turn_on/may_turn_off/
+    note_actuation predicates + unified ledger; writers keep their visible service calls but MUST
+    consult+note. Full gateway (a) PARKED w/ trigger (new bypassing writer within 90d). Matches the
+    SignalTrustLedger verdict-only precedent. INV-FLA: every URA fan actuation directly preceded by a
+    consult, closed carve-outs (humidity, safety, kill switch). Sharpest risk: 7 readers of the two
+    split fields must return byte-identical values post-delegation (Bug Class #22, the v4.6.3 shape).
+    ~800 LoC, Tier 3. H8 PROBE RUN BY ORCHESTRATOR: zero organic cooldown rows in 31d — unproven and
+    unprovable on any useful timescale; disposition (b)+(c) adopted (in-suite proof is the gate).'
+  PLAN_REVIEW_1_2026_08_11: 'NEEDS-REVISION — TWO MORE MISSED WRITERS: C1 _stop_all_fans_safety
+    (hvac.py:2330-2362, smoke/CO all-zones fan stop — legitimate but must consult w/ safety=True) and
+    C2 hvac_predict._activate_zone_fans (:1038-1102, pre-arrival ON — would revive a fan the operator
+    just turned off; must respect the manual-OFF cooldown). Writer set = 12 not 10 (was 5 two days
+    ago; every enumeration wrong in the same direction — the oracle''s own justification). H2: the
+    reader-enumeration seed cited 6 line numbers; real grep = ~34 sites — Review B would have audited
+    a sixth of the sharpest-risk surface. H3 trigger vocabulary gaps; M1 adjacency check needs a
+    mechanical procedure (AST/structured grep, not eyeballs); M3 six writers need NEW parity fixtures.'
+  PLAN_READY_2026_08_11: 'Rev-2 committed: 12 writers (W11 safety-stop w/ safety=True always-ALLOW-
+    but-logged; W12 pre-arrival ON defers under cooldown); FanDecisionSnapshot required-arg contract;
+    INV-FLA-T temporal + per-room lock via oracle.actuate() context manager (atomic span structural);
+    hard-remove field delegation (34-site reader enumeration real now); ONE PR/deploy; exception
+    posture per direction; honest estimate 1200 LoC / 45-50 tests / 3-5 days; humidity fully outside;
+    edges-only ledger writes w/ write-volume regression (optimizer-flood memory cited).'
+  next: 'BUILD DISPATCHED (Tier 3). Hard dep satisfied: FAN-MANUAL-1 merged at 1f5839c3a.'
+  DEDUPE_2026_08_11: 'Sweep: DOC-2 planning doc is the PARENT (parked, triggers now fired -> READY per
+    the skill rule). FAN-MANUAL-1 is the trigger-firing cycle, linked. ARREST-COMFORT-1 sibling class.
+    THIRD instance of a parked plan''s fired trigger surfacing only on operator question (D6, ledger
+    criterion, now DOC-2) — skill gains a cycle-close trigger check. NEW card, revival not duplicate.'
+- id: PLAN-TIER-1
+  title: 'Tiered PLAN reviews: quality up front — plans reviewed before builds, like builds'
+  thread: process
+  status: shipped_organic
+  approval: explicit
+  approved_by: 'operator 2026-08-11 ("We should start subjecting plans to a sort of tier review
+    system. Quality up front in planning and in the build process")'
+  origin:
+    date: '2026-08-11'
+    gist: coined during the FAN-MANUAL-1 post-mortem — the plan missed 2 emission sites a one-line
+      grep would have found, costing build + 3 reviews + CRIT fix-up
+  why: 'A plan review is ~20 min; a build round is hours. Protocol now in CLAUDE.md: Tier 1 = none;
+    Tier 2/2-DB = one adversarial plan review (independent re-enumeration, greps not trust); Tier 3 =
+    two framing-disjoint (completeness incl. parked-trigger check + adversarial build-prediction).
+    Findings fixed IN THE PLAN before build dispatch.'
+  first_subjects: 'FAN-LAYER-1 plan (Tier 3 -> 2 plan reviews) and ARREST-COMFORT-1 plan (likely
+    Tier 3 -> 2) — both in flight as this lands; they get the treatment on delivery.'
+  next: apply to the two in-flight plans on arrival; organic proof = a plan-review finding that
+    demonstrably prevents a build round
 - id: TABLET-FLEET-1
   title: 'Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)'
   thread: tablets
