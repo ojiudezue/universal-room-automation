@@ -406,11 +406,23 @@ class TestRoomTierManualOffCooldown:
 
     def test_own_off_write_does_not_open_cooldown(self):
         """When temp drops below threshold and WE turn the fan off, the
-        next tick must NOT open a spurious cooldown against our own off."""
+        next tick must NOT open a spurious cooldown against our own off.
+
+        FAN-MANUAL-1 fix-up (2026-08-10): under the new boot-edge policy,
+        a fan already ON at tick-1 opens a manual-ON hold (conservative
+        toward the human) unless URA already knew the fan was on. This
+        test seeds ``_last_seen_any_fan_on = True`` post-construction to
+        simulate a URA-owned prior tick (the fan-on state is already
+        established as URA-owned) — the invariant being tested here is
+        the cooldown/own-off symmetry, NOT the boot-edge policy.
+        """
         base = datetime(2026, 7, 26, 12, 0, 0, tzinfo=timezone.utc)
         _set_now(base)
 
         auto, log, set_fan = _make_automation(initial_fan_on=True)
+        # Seed baseline as URA-owned so tick-1 does NOT open a manual-ON
+        # hold (that behavior has its own dedicated test coverage).
+        auto._last_seen_any_fan_on = True
         # Tick 1: fan on, temp hot — baseline True
         _run(auto.handle_temperature_based_fan_control(TEMP_ABOVE, occupied=True))
         assert auto._last_seen_any_fan_on is True

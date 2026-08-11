@@ -278,26 +278,38 @@ def _make_controller(
 
 
 class TestFixBAdoptionSetsCooldown:
-    """Adoption sets manual_off_cooldown_until using the existing const."""
+    """FAN-MANUAL-1 (2026-08-10) split: adoption now stamps
+    `manual_on_hold_until` (purpose-named ON-side field) instead of
+    overloading `manual_off_cooldown_until`. The OFF field is OFF-only
+    post-split; the ON hold protects the operator-lit fan from URA
+    OFF emissions (PLANNING_fan_manual_on_override.md §5.4).
+    """
 
-    def test_adoption_sets_cooldown_to_manual_off_const(self):
+    def test_adoption_sets_manual_on_hold_to_manual_on_const(self):
+        from custom_components.universal_room_automation.const import (
+            DEFAULT_FAN_MANUAL_ON_HOLD_S,
+        )
         base = datetime(2026, 8, 3, 12, 0, 0)
         _set_now(base)
         ctrl, room_fan, _svc, _writes = _make_controller(
             entity_on=True, entity_speed=100, occupied=False,
         )
         assert room_fan.manual_off_cooldown_until == ""
+        assert room_fan.manual_on_hold_until == ""
 
         _run(ctrl.update(energy_constraint=None, house_state="home_day"))
 
         assert room_fan.trigger == "external", "adoption path must fire"
-        assert room_fan.manual_off_cooldown_until != "", (
-            "FIX B: adoption must stamp manual_off_cooldown_until"
+        # OFF field stays clean — adoption is an ON event.
+        assert room_fan.manual_off_cooldown_until == "", (
+            "post-split: OFF field must NOT be stamped on ON adoption"
         )
-        expected = base + timedelta(seconds=DEFAULT_FAN_MANUAL_OFF_COOLDOWN_S)
-        assert room_fan.manual_off_cooldown_until == expected.isoformat(), (
-            "cooldown must reuse DEFAULT_FAN_MANUAL_OFF_COOLDOWN_S "
-            "(no new const)"
+        assert room_fan.manual_on_hold_until != "", (
+            "FAN-MANUAL-1: adoption must stamp manual_on_hold_until"
+        )
+        expected = base + timedelta(seconds=DEFAULT_FAN_MANUAL_ON_HOLD_S)
+        assert room_fan.manual_on_hold_until == expected.isoformat(), (
+            "hold must use DEFAULT_FAN_MANUAL_ON_HOLD_S"
         )
 
 
@@ -341,6 +353,11 @@ class TestFixBAdoptedFanNotSweptWithinBaseVacancyHold:
         )
         _run(ctrl.update(energy_constraint=None, house_state="home_day"))
         assert room_fan.trigger == "external"
+        # FAN-MANUAL-1: adoption also opens the ON hold. For this test —
+        # which validates the doubled vacancy-hold sweep timing — the
+        # ON hold is orthogonal; clear it so the sweep can fire once
+        # the doubled vacancy window elapses.
+        room_fan.manual_on_hold_until = ""
 
         # Past 2x base + margin — sweep should now fire.
         doubled = int(DEFAULT_FAN_VACANCY_HOLD * FAN_ADOPTED_VACANCY_HOLD_MULT)
@@ -425,6 +442,10 @@ class TestFixCOccupiedRoomFanOffEmitsEpisode:
         # Prime: adopt + fast-forward past 2x hold so vacancy-off fires.
         _run(ctrl.update(energy_constraint=None, house_state="home_day"))
         assert room_fan.trigger == "external"
+        # FAN-MANUAL-1: adoption opens the ON hold. This test exercises
+        # the FIX C occupied-room-OFF episode path — orthogonal to the
+        # manual-ON hold; clear it so vacancy-off can dispatch.
+        room_fan.manual_on_hold_until = ""
 
         doubled = int(DEFAULT_FAN_VACANCY_HOLD * FAN_ADOPTED_VACANCY_HOLD_MULT)
         _set_now(base + timedelta(seconds=doubled + 60))
