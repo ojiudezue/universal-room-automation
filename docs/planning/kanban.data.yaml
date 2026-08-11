@@ -952,9 +952,20 @@ cards:
   gate_check_pending: 'DOC-2 foundation gate also requires H8 organic validation of the v5.31.0
     manual-off cooldown (a real manual OFF observed not re-arming on the live house). Verify from
     ledger before build — if unproven, that is the one remaining gate.'
-  next: 'PARALLELIZED per operator ("parallelize these cards or we will never be done"): planner runs
-    NOW against the fan-manual-1 fix-up branch surface (plans do not conflict with shipping); build
-    starts once FAN-MANUAL-1 merges. H8 ledger check folded into the planner brief.'
+  PLAN_2026_08_11: 'PLANNING_fan_actuation_shared_layer_v2.md (756 lines). Writer set is TEN sites
+    across 5 files, not five — W8 zone-vacancy sweep + W9 pre-arrival bypass ALL machinery (trigger #3
+    fired at TWO sites). RECOMMENDED SHAPE (b): FanPolicyOracle — thin may_turn_on/may_turn_off/
+    note_actuation predicates + unified ledger; writers keep their visible service calls but MUST
+    consult+note. Full gateway (a) PARKED w/ trigger (new bypassing writer within 90d). Matches the
+    SignalTrustLedger verdict-only precedent. INV-FLA: every URA fan actuation directly preceded by a
+    consult, closed carve-outs (humidity, safety, kill switch). Sharpest risk: 7 readers of the two
+    split fields must return byte-identical values post-delegation (Bug Class #22, the v4.6.3 shape).
+    ~800 LoC, Tier 3. H8 PROBE RUN BY ORCHESTRATOR: zero organic cooldown rows in 31d — unproven and
+    unprovable on any useful timescale; disposition (b)+(c) adopted (in-suite proof is the gate).'
+  next: 'PLAN-TIER-1 Tier-3 plan reviews (completeness + build-prediction) NOW; operator decisions
+    surfaced with recommendation-and-proceed: shape (b) [recommended, house precedent], H8 (b)+(c)
+    [probe says organic wait is unbounded], sequencing [no live conflict with HVAC-PRESET-FLAP-1 —
+    nothing building there]. Build after plan revision.'
   DEDUPE_2026_08_11: 'Sweep: DOC-2 planning doc is the PARENT (parked, triggers now fired -> READY per
     the skill rule). FAN-MANUAL-1 is the trigger-firing cycle, linked. ARREST-COMFORT-1 sibling class.
     THIRD instance of a parked plan''s fired trigger surfacing only on operator question (D6, ledger
