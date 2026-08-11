@@ -960,6 +960,18 @@ cards:
   DEDUPE_2026_08_10: 'Sweep: ARREST-COMFORT-1 is the SIBLING (thermostat side of the same class) —
     linked not merged; fan-recheck cards/plans are about mmWave truth not manual intent; humidity-fan
     backlog (PowerView memo) is spike detection; B-2026-08-03-8 flash opt-out unrelated. NEW.'
+- id: KHOST-2
+  title: Operator disposition buttons + drag-between-states on the hosted board
+  thread: tooling
+  status: in_progress
+  approval: approved
+  origin:
+    date: '2026-08-11'
+    gist: 'operator: "We have to add operator disposition buttons so the operator can communicate through the board. drag btw states | done | deferred | declined"'
+  why: 'Board is currently read-only reflection; operator decisions still have to travel through chat. Dispositions through the board close the loop: tap/drag → queued → agent applies to kanban.data.yaml at session start (agent-in-loop, no unattended repo writer).'
+  constraints: 'LAN-site only (Artifact CSP cannot POST). No auth on LAN site per operator choice. Source of truth stays kanban.data.yaml; the queue is pending-intent, not state.'
+  next: 'Build: webhost micro-API + board JS (buttons done/deferred/declined + column drag) + cron pull of disposition queue + pending-chip render + session-start apply protocol in ura-kanban skill.'
+
 - id: FAN-LAYER-2
   title: FanPolicyOracle completion — RoomFanState delegation + actuate-wrap remainder (W1-W3, W8-W10) + INV-FLA-T lock
   thread: fans

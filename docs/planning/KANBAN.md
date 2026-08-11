@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-10T23:58:14-05:00_ - _Data commit: `99db6cac917e`_ - _last_reconciled: 2026-08-10_
+_Generated: 2026-08-11T00:27:16-05:00_ - _Data commit: `a9632b2933f8`_ - _last_reconciled: 2026-08-10_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -14,7 +14,7 @@ _Generated: 2026-08-10T23:58:14-05:00_ - _Data commit: `99db6cac917e`_ - _last_r
 | 📥 Inbox | 1 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 2 |
-| 🔨 In progress | 0 |
+| 🔨 In progress | 1 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 14 |
 | ⏸️ Waiting on operator | 3 |
@@ -221,10 +221,14 @@ thread: **perimeter** - status: **planned** - approval: **explicit**
 - **Forensic keys (1):**
   - `rulings`: Option C surfacing (= A enhanced)
 
-## 🔨 In progress (0)
+## 🔨 In progress (1)
 _being built_
 
-_(none)_
+### `KHOST-2` - Operator disposition buttons + drag-between-states on the hosted board
+thread: **tooling** - status: **in_progress** - approval: **approved**
+- **Origin:** 2026-08-11 - operator: "We have to add operator disposition buttons so the operator can communicate through the board. drag btw states | done | deferred | declined"
+- **Why:** Board is currently read-only reflection; operator decisions still have to travel through chat. Dispositions through the board close the loop: tap/drag → queued → agent applies to kanban.data.yaml at session start (agent-in-loop, no unatt...
+- **Next:** Build: webhost micro-API + board JS (buttons done/deferred/declined + column drag) + cron pull of disposition queue + pending-chip render + session-start apply protocol in ura-kanban skill.
 
 ## 🔍 Review (1)
 _under review_
