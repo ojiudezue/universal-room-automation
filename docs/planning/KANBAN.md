@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-11T15:39:22-05:00_ - _Data commit: `c125da052bd0`_ - _last_reconciled: 2026-08-11_
+_Generated: 2026-08-11T16:26:03-05:00_ - _Data commit: `485124e74f6e`_ - _last_reconciled: 2026-08-11_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -65,8 +65,10 @@ thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
 ### `NM-IMAGE-1` - NM image attachments not landing (WhatsApp + iMessage) — operator automation images DO land
 thread: **notifications** - status: **pre_planning** - approval: **unreviewed**
 - **Origin:** 2026-08-11 - operator: "The images are not landing in the NM messages even in whatsapp; the image-bearing ones are from my automation."
-- **Why:** URA NM sends camera/context images with alerts; none arrive on either channel. Operator-authored automation delivers images fine on the same channels — so channel infra works; URA attachment path is broken (path/URL shape, snapshot gener...
-- **Next:** Diff URA NM image payload vs the working automation payload (same service, same channel); check snapshot file existence + accessibility; then fix.
+- **Why:** DIAGNOSED 2026-08-11: capture works (fresh files in /media/ura/snapshots), channel works (live media_path test delivered WITH image), perimeter dispatch threads snapshot_path. The drop is NM digest routing: operator delivery_pref=digest;...
+- **Next:** Operator approves cycle -> plan (Tier 2, one adversarial plan review) -> build. Prerequisite for CONSOL-1 universal-llmvision (approved 2026-08-07).
+- **Forensic keys (1):**
+  - `design_pick_for_operator`: Fix shape A: persist snapshot_path into digest rows + deliver images at flush. Fix shape B (recommended for security class): image-bearing perimeter alerts bypass digest as effectively-immediate. Pick rides the plan review.
 
 ### `DP-OBSERVABILITY-1` - DP plan sensor presents stale eval snapshot as current (misled 2 diagnoses in one day)
 thread: **energy** - status: **pre_planning** - approval: **unreviewed**

@@ -981,8 +981,9 @@ cards:
   origin:
     date: '2026-08-11'
     gist: 'operator: "The images are not landing in the NM messages even in whatsapp; the image-bearing ones are from my automation."'
-  why: 'URA NM sends camera/context images with alerts; none arrive on either channel. Operator-authored automation delivers images fine on the same channels — so channel infra works; URA attachment path is broken (path/URL shape, snapshot generation, or payload key).'
-  next: 'Diff URA NM image payload vs the working automation payload (same service, same channel); check snapshot file existence + accessibility; then fix.'
+  why: 'DIAGNOSED 2026-08-11: capture works (fresh files in /media/ura/snapshots), channel works (live media_path test delivered WITH image), perimeter dispatch threads snapshot_path. The drop is NM digest routing: operator delivery_pref=digest; digest rows do not persist snapshot_path and _deliver_digest calls _send_whatsapp/_send_imessage with NO snapshot args — digest pipeline is image-blind end-to-end. iMessage separately structural (BlueBubbles integration drops attachments; SNAP-1-followup). Adjacent defects same pass: 04:24 event delivered 09:26 (digest-lag timestamp semantics) + bare "[audit]" sentinel title at 10:01 (P24-shape).'
+  design_pick_for_operator: 'Fix shape A: persist snapshot_path into digest rows + deliver images at flush. Fix shape B (recommended for security class): image-bearing perimeter alerts bypass digest as effectively-immediate. Pick rides the plan review.'
+  next: 'Operator approves cycle -> plan (Tier 2, one adversarial plan review) -> build. Prerequisite for CONSOL-1 universal-llmvision (approved 2026-08-07).'
 
 - id: DP-OBSERVABILITY-1
   title: DP plan sensor presents stale eval snapshot as current (misled 2 diagnoses in one day)
