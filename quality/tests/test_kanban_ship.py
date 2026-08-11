@@ -196,8 +196,12 @@ def test_real_board_textual_edit_minimal_diff(board_copy: Path) -> None:
     board = kanban_ship.load_board(board_copy)
     # Pick two known cards that HAVE a plain `  status:` line so we can
     # deterministically account for the diff.
-    targets = [cid for cid in kanban_ship.all_card_ids(board)
-               if _card_has_status(board_copy, cid)][:2]
+    # Only cards not already shipped_organic: marking an already-shipped card
+    # replaces its status with an identical line (no diff), which would make
+    # the count arithmetic state-dependent in yet another way.
+    targets = [c["id"] for c in board["cards"]
+               if _card_has_status(board_copy, c["id"])
+               and c.get("status") != "shipped_organic"][:2]
     assert len(targets) == 2, "need two cards with plain status: lines to run this test"
 
     new_text, unknown = kanban_ship.mark_shipped_text(
