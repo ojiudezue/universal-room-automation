@@ -409,7 +409,8 @@ cards:
 - id: WATCHDOG-INERT-1
   title: Three of four v5.35.0 stuck-signal detectors are effectively inert (D3 structurally unreachable)
   thread: presence
-  status: pre_planning
+  status: shipped_organic
+  shipped_version: v5.67.0
   approval: unreviewed
   tags:
   - no-fabrication-verify
@@ -486,6 +487,25 @@ cards:
     problem: three shipped detectors do not detect; one cannot detect by construction
     verdict: BUILD
     note: 'cheap relative to value — this is dead safety machinery we believe is protecting us'
+  BATCH_REVIEW_ROUND_2026_08_10: 'b9975cf30 (P24 fix + D3 kill + dropdowns + constant split): A
+    DO-NOT-SHIP — CRIT-A1: rebasing freshness on _last_pir_motion_time force-vacates the SIX no-PIR
+    rooms at every 4h+ session (sleeping child in Jaya''s room, nightly); the "27/27 tautological
+    suppression" was, for mmWave-primary rooms, the sleeping-body protection WORKING. HIGH-A2:
+    camera-held rooms force-vacated + _failsafe_fired latch locks the camera override out. A verified
+    the deferred-clear surgery itself is SOUND (all readers traced, seed-if-None becomes benign no-op).
+    B SHIP-w-fix — HIGH-B1: HOUSE_MANUAL instructs setting the DELETED constant at six sites (the
+    EC-backout-memo class); MED-B2: dropdown strip-on-default silently deletes trust_class from an
+    unchanged save. C DO-NOT-SHIP — the P24 "mutation-anchored" tests are SOURCE-GREP assertions + a
+    _should_fire MIRROR (hollow-anchor instance #10): C inverted the fresh branch itself and 38/38
+    stayed green; drills 4/5 (deferred clear, finalize block) also GREEN=untested; title_override and
+    the 188-LoC dropdown merge have zero coverage. Builder had claimed mutation-anchored while writing
+    grep-anchors AND skipped the per-site drills — both caught only because C re-ran them.'
+  FIXUP_IN_FLIGHT_2026_08_10: 'Single consolidated pass: CRIT-A1 no-PIR guard (mirror
+    _d2_motion_sensors_present; failsafe simply does not apply to no-PIR rooms); HIGH-A2 invariant
+    "fires only when no live override AND PIR stale" + latch fix; C1/H1/H2/H3 REAL behavior tests with
+    C''s drills 3/4/5 re-run to red as the gate; HIGH-B1 runbook rewrite; MED-B2 strip-only-kind.
+    Escape hatch authorized: if the harness defeats C1/H1, SPLIT the batch — D3 deletion + constant
+    split ride now, P24 + dropdowns follow.'
   OPERATOR_DECISIONS_2026_08_09_round2:
   - 'GARAGE CAMERAS: "Yes pls. Or maybe to the egress list?" — ANSWERED: the two lists do different
     things and only ONE gives D1 coverage. CONF_CAMERA_PERSON_ENTITIES (interior) is what D1 scores
@@ -567,6 +587,9 @@ cards:
     "flip on before adjusting setpoints" when OFF). Verified rendering live (switch currently ON,
     26m — interesting: it re-engaged today, presumably re-enabled after last night''s 6h sunset).
     Anti-word-vomit rules applied; no raw attr dump.'
+  MULT_SPLIT_APPROVED_2026_08_10: 'Operator: "Clean break. Timing is fine." — BLE_CHAIN_HOLD_ENABLED
+    (bool kill switch) + separately named D2 staleness multiplier; NO deprecated alias (single-user
+    no-backcompat). Rides the P24/D3/dropdown batch.'
   refinement_candidates:
   - 'REDUNDANCY: the headline reason and the Outlets row currently show the same string twice
     ("TOU peak/mid-peak pause") because the outlets are the only endpoints holding a reason. Options:
@@ -711,7 +734,21 @@ cards:
     at operator instruction. Verified: ceilings dropped 80 -> 76/77, all three cooling, runtime_exceeded
     cleared. Note the override has a 6h max life and sunsets on some house-state transitions, so this is
     relief, not a fix.'
-  next: scope the occupancy+delta exemption; decide whether arrest should be delayed rather than skipped
+  OPERATOR_DESIGN_2026_08_10: 'DELAY chosen over exempt. Plus three design inputs verbatim-captured:
+    (1) IDENTIFICATION QUESTION (operator): "how will this situation be identified specifically to
+    widen the delay/grace?" — the predicate for "occupant comfort request" needs to be explicit:
+    candidate = manual setpoint change AND zone any_room_occupied/zone_persons non-empty AND change
+    moves TOWARD comfort relative to current temp AND |delta| >= knob. (2) BATTERY-CONDITIONED GRACE:
+    widen grace when the battery is genuinely full; return to strict below 80% SOC — resolves the
+    duty-cycle/peak conflict by spending stored energy on comfort only when it is demonstrably spare
+    (this is duty-cycle option (c) arriving via the arrester door). (3) GRADUATED CONCESSION ("bend
+    towards the requester"): do not binary honor-or-revert. Ask 76 from 80 -> grant 76 for 15 min ->
+    step to 78 for 15 min, monitoring APPROACH SPEED to setpoint throughout — a negotiation curve.
+    Slow approach (unrecoverable load) should inform the step timing. Knobs: grace minutes, step size,
+    step interval, SOC floor (80), delta threshold — all named, rung ladder in plan.'
+  next: 'plan the DELAY design per the three operator inputs; the identification predicate is D1 of the
+    plan. Sibling: FAN-MANUAL-1 (same "system overrules the human" class — manual actuation is EVIDENCE
+    per fusion section 7).'
   DEDUPE_2026_08_09: 'Sweep: ARREST-SUNSET-1 (shipped) is about WHEN the override sunsets;
     OVERRIDE-NOTIFY-1 is about warning before expiry. Neither touches whether the arrester should fire
     against an occupant comfort request in the first place. HVAC-PRESET-FLAP-1 is the sibling defect
@@ -818,6 +855,54 @@ cards:
     residual, not a duplicate. STUCK-SENSOR-1/chatter unrelated (different detector). Fusion-library
     section 7 intent/evidence is the (b)/(c) design home, linked not merged. CREATOR_VS_EXTENDER
     reserved query = planned consumer. NEW.'
+- id: FAN-MANUAL-1
+  title: 'Fans have no manual-ON override: room temp logic reverts a hand-switched fan ("below threshold")'
+  thread: hvac
+  status: planned
+  approval: explicit
+  approved_by: 'operator 2026-08-10 ("If there is no manual override, design one after considering all
+    our fan goals and touch points across room, zone, coordinators")'
+  tags:
+  - context-wide-scoping
+  - institutional-context
+  - numbers-get-knobs
+  origin:
+    date: '2026-08-10'
+    gist: '"I cant seem to turn on the living room fan manually without it turning off by itself."'
+  why: 'EVIDENCE (ura_activity_log): Living Room fan turn-offs are [room/fan_off] "Fans off (below
+    threshold, 77F)" — the room-tier temperature comfort controller reconciles fan state to its own
+    verdict and does not recognise a manual ON. v5.31.0 shipped a manual-OFF cooldown; the ON side was
+    never built. A human switching a fan on is the canonical EVIDENCE event (fusion section 7:
+    "interactions are evidence") and today it is treated as drift to correct — the same class as
+    ARREST-COMFORT-1 (kids arrested at the thermostat) and the same lesson: reverting a human within
+    minutes teaches them the controls are broken.'
+  scope_note: 'Operator mandate: context-wide. Fan touchpoints to inventory before design: room comfort
+    fan control (handle_temperature_based_fan_control + the below-threshold revert), v5.31.0 manual-off
+    cooldown (the precedent + its knob), fan_recheck (pause/restore machinery), comfort-fan AWAY veto
+    (v5.40.0 D3), sleep-onset bedroom fans (feature/sleep-fans), bathroom humidity exhaust unification
+    (v5.6.0 — humidity fans are SOLE-OWNER exempt from the veto), fan interference gate (presence-side
+    reader of fan state), zone vacancy sweep, AI-rules executor (R2: fan.turn_on unvetoed — a prior
+    review residual), duty-cycle fan_assist flag in the coast constraint.'
+  PLAN_2026_08_10: 'docs/planning/PLANNING_fan_manual_on_override.md. Shape: plain timed manual-ON
+    hold symmetric to the v5.31.0 manual-OFF cooldown — graduated-concession REJECTED for fans (binary
+    comfort, no setpoint to negotiate; margin ~0). Detection REUSES the existing OFF-side mechanism
+    (_last_seen_any_fan_on baseline + self-write marker; one new symmetric _fan_on_issued_this_tick
+    flag — no second manual-detection path). INV-FMH: for hold_s after an external ON, no URA path
+    emits fan turn_off except four enumerated discharges (expiry, external OFF, allowlisted
+    fan-recheck, safety, fan_control toggle-off). Knobs: DEFAULT_FAN_MANUAL_ON_HOLD_S=3600 (0=kill) +
+    per-room CONF. Tier 2-DB. SHARPEST RISK is not the hold: hvac_fans.py already OVERLOADS
+    manual_off_cooldown_until as a partial ON-marker (confused comment at :788) — the field split has
+    >=3 readers and missing one ships a masked diagnostic regression; Review B must enumerate all.'
+  OPERATOR_RULINGS_2026_08_10: 'Both as recommended: (1) FRESHEST WINS — a manual-ON newer than the
+    sleep transition survives it; (2) fan-recheck OFF is ALLOWLISTED via trigger_path, hold
+    remaining-time preserved across the pause. Build fully approved (build-implies-ship).'
+  next: 'BUILD (Tier 2-DB, 3 framing-disjoint reviews): timed hold + field split per plan. Runs
+    parallel to the P24/D3 batch — surfaces mostly disjoint (automation.py/hvac_fans.py/fan_recheck vs
+    coordinator.py/person_coordinator); const.py knob additions merge trivially. Merge order: batch
+    first, fan rebases if needed.'
+  DEDUPE_2026_08_10: 'Sweep: ARREST-COMFORT-1 is the SIBLING (thermostat side of the same class) —
+    linked not merged; fan-recheck cards/plans are about mmWave truth not manual intent; humidity-fan
+    backlog (PowerView memo) is spike detection; B-2026-08-03-8 flash opt-out unrelated. NEW.'
 - id: TABLET-FLEET-1
   title: 'Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)'
   thread: tablets
