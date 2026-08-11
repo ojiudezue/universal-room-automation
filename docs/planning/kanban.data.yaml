@@ -752,8 +752,19 @@ cards:
     INV-COMFORT-DELAY falsifiable; single SOC accessor consumed by BOTH D1 and D3 (desync = sharpest
     risk, mutation must fail both); probe-first gate (AUDIT_arrester_comfort_delay.md) before build;
     kids-incident replay is the live acceptance criterion. Tier 3.'
-  next: 'TIER-3 PLAN REVIEWS (PLAN-TIER-1 protocol, first subject): completeness + adversarial
-    build-prediction, findings fixed IN THE PLAN; then probe; then build.'
+  PLAN_REVIEWS_2026_08_11: 'Both NEEDS-REVISION (the protocol''s first subject, and it paid): R1-H1
+    preset-writes clobber a granted setpoint on Bryant preset thermostats — INV-violating by
+    construction, 9 emit sites unguarded; R2-H1 dual-setpoint predicate undefined (heat_cool range
+    drag, None crashes, single-target unmapped); R2-H2 the plan''s own "single SOC accessor" mitigation
+    was a hollow anchor in blueprint form. REV-2 committed: §3.7 S1-S9 per-site verdict table + a NEW
+    emit_set_preset_mode chokepoint (mirror of emit_set_temperature) + gate on BOTH surfaces (the
+    revision caught that the review''s preset-only chokepoint was itself incomplete); per-mode
+    comfort-relevant-leg predicate w/ worked examples, fail-closed on None; SOC evaluated ONCE at
+    grant, comfort_delay_active pure; restart-mid-grace disclosed+accepted for Cycle A; shed DOMINATES
+    comfort (INV falsification #6); kill-switch semantics per knob (SOC_FLOOR=0 = deliberate
+    blackout-risk acceptance w/ boot WARN); kids-replay must drive real _handle_climate_change.'
+  next: 'PLAN-READY pending targeted re-check of the two CRIT-class fixes; then the D-probe
+    (AUDIT_arrester_comfort_delay.md, now with go/no-go thresholds); then Cycle A build (Tier 3).'
   DEDUPE_2026_08_09: 'Sweep: ARREST-SUNSET-1 (shipped) is about WHEN the override sunsets;
     OVERRIDE-NOTIFY-1 is about warning before expiry. Neither touches whether the arrester should fire
     against an occupant comfort request in the first place. HVAC-PRESET-FLAP-1 is the sibling defect
