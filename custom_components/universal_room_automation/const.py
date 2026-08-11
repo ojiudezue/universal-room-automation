@@ -605,6 +605,58 @@ DEFAULT_FAN_MANUAL_OFF_COOLDOWN_S: Final = 3600
 DEFAULT_FAN_MANUAL_ON_HOLD_S: Final = 3600
 CONF_FAN_MANUAL_ON_HOLD_S: Final = "fan_manual_on_hold_s"
 
+# ---------------------------------------------------------------------------
+# FAN-LAYER-1 D2 (2026-08-10) — Trigger-path vocabulary for FanPolicyOracle.
+# ---------------------------------------------------------------------------
+#
+# Closed enum per PLAN §7.2 (mitigates Bug Class #22 — enum drift). Every
+# writer that consults ``FanPolicyOracle.may_turn_*`` MUST pass one of the
+# strings below as ``trigger_path``.
+#
+# String VALUES are the canonical policy tokens per PLAN §7.2. Session 1
+# adds only the constants (this file) and the oracle module; no writer
+# currently emits these strings. Later sessions (D3-D7) migrate writers;
+# at that point the enum value MUST be string-identical to any pre-existing
+# log literal the writer emitted for the same policy — the per-writer
+# parity fixture is the check.
+#
+# Session-1 grep confirmation: none of the strings below currently exist as
+# bare literals in ``automation.py`` / ``hvac.py`` / ``hvac_fans.py`` /
+# ``hvac_predict.py`` / ``actuator_reconciler.py`` / ``presence_fan_recheck.py``
+# (searched 2026-08-10). They therefore BECOME the canonical policy tokens
+# once wired; log-literal parity is enforced per-writer at D3+ migration.
+#
+# Rung 1 (module const) per CLAUDE.md "Numbers-Get-Knobs".
+FAN_TRIGGER_TEMP_ROOM: Final = "temp_room"                     # W1 room-tier OFF (temp threshold + vacancy)
+FAN_TRIGGER_SLEEP_OFF: Final = "sleep_off"                     # W2 room-tier sleep policy OFF (room-window axis)
+FAN_TRIGGER_SLEEP_ONSET_ON: Final = "sleep_onset_on"           # W3 room-tier sleep-onset ON (room-window axis)
+FAN_TRIGGER_TEMP_ROOM_ON: Final = "temp_room_on"               # W3 room-tier temperature ON
+FAN_TRIGGER_TEMP_HVAC: Final = "temp_hvac"                     # W4 HVAC-tier OFF chokepoint
+FAN_TRIGGER_HVAC_SLEEP_ONSET_ON: Final = "hvac_sleep_onset_on" # HVAC-tier sleep-onset ON (house_state axis)
+FAN_TRIGGER_KILL_SWITCH: Final = "fan_control_disabled"        # W5 operator kill switch (mass OFF)
+FAN_TRIGGER_RECONCILE_ON: Final = "reconcile_on"               # W7 actuator reconciler ON
+FAN_TRIGGER_RECONCILE_OFF: Final = "reconcile_off"             # W7 actuator reconciler OFF
+FAN_TRIGGER_HVAC_VACANCY: Final = "hvac_vacancy_sweep"         # W8 HVAC zone-vacancy sweep OFF
+FAN_TRIGGER_HVAC_PREARRIVAL: Final = "hvac_prearrival"         # W9 HVAC pre-arrival OFF
+FAN_TRIGGER_HVAC_PREARRIVAL_ON: Final = "hvac_prearrival_on"   # W12 HVAC pre-arrival ON
+FAN_TRIGGER_RECHECK_PAUSE: Final = "recheck_pause"             # W10 recheck pause OFF
+FAN_TRIGGER_RECHECK_RESTORE: Final = "recheck_restore"         # W10 recheck restore ON
+FAN_TRIGGER_SAFETY: Final = "safety"                           # legacy freeze / point-source safety
+FAN_TRIGGER_SAFETY_STOP: Final = "safety_stop"                 # W11 mass safety fan stop (smoke/CO)
+# NOTE: humidity fans are FULLY OUTSIDE the layer per PLAN §13 M2.
+# There is intentionally NO FAN_TRIGGER_HUMIDITY_ON.
+
+FAN_TRIGGER_ALL: Final = frozenset({
+    FAN_TRIGGER_TEMP_ROOM, FAN_TRIGGER_SLEEP_OFF, FAN_TRIGGER_SLEEP_ONSET_ON,
+    FAN_TRIGGER_TEMP_ROOM_ON, FAN_TRIGGER_TEMP_HVAC,
+    FAN_TRIGGER_HVAC_SLEEP_ONSET_ON, FAN_TRIGGER_KILL_SWITCH,
+    FAN_TRIGGER_RECONCILE_ON, FAN_TRIGGER_RECONCILE_OFF,
+    FAN_TRIGGER_HVAC_VACANCY, FAN_TRIGGER_HVAC_PREARRIVAL,
+    FAN_TRIGGER_HVAC_PREARRIVAL_ON,
+    FAN_TRIGGER_RECHECK_PAUSE, FAN_TRIGGER_RECHECK_RESTORE,
+    FAN_TRIGGER_SAFETY, FAN_TRIGGER_SAFETY_STOP,
+})
+
 # Trigger requires occupancy_source == "mmwave" for N consecutive ticks.
 CONF_FAN_RECHECK_MMWAVE_HISTORY_TICKS: Final = "fan_recheck_mmwave_history_ticks"
 DEFAULT_FAN_RECHECK_MMWAVE_HISTORY_TICKS: Final = 3
