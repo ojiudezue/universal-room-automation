@@ -714,8 +714,9 @@ cards:
 - id: ARREST-COMFORT-1
   title: Override arrester reverts occupant manual cooling requests with no comfort exemption
   thread: hvac
-  status: pre_planning
-  approval: unreviewed
+  status: review
+  approval: approved
+  review_state: 'Cycle A built (18b491e01, 28 tests, kids-replay authentic). Tier-3 4x reviews: B SHIP; A/C/D DO-NOT-SHIP with DISJOINT blockers — A-CRIT-1 occupancy gate read static zone_persons config list not live occupancy; D-CRIT-1 DPM apply ungated + 3 hvac_predict emitters + AI-rules climate bypass (real R2-residual site found in coordinator.py, plan had mislocated it); C-H5 hvac.py-side consumer mutation-untested. Consolidated 19-finding fix-up dispatched 2026-08-10. AI-rules climate: cheap-block chosen (zero live climate rules), route-through-chokepoints parked.'
   origin:
     date: '2026-08-09'
     gist: 'operator: "I think manual were kids trying to cool their space and the arrester stops them"'
