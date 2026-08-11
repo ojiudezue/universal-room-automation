@@ -962,10 +962,16 @@ cards:
     split fields must return byte-identical values post-delegation (Bug Class #22, the v4.6.3 shape).
     ~800 LoC, Tier 3. H8 PROBE RUN BY ORCHESTRATOR: zero organic cooldown rows in 31d — unproven and
     unprovable on any useful timescale; disposition (b)+(c) adopted (in-suite proof is the gate).'
-  next: 'PLAN-TIER-1 Tier-3 plan reviews (completeness + build-prediction) NOW; operator decisions
-    surfaced with recommendation-and-proceed: shape (b) [recommended, house precedent], H8 (b)+(c)
-    [probe says organic wait is unbounded], sequencing [no live conflict with HVAC-PRESET-FLAP-1 —
-    nothing building there]. Build after plan revision.'
+  PLAN_REVIEW_1_2026_08_11: 'NEEDS-REVISION — TWO MORE MISSED WRITERS: C1 _stop_all_fans_safety
+    (hvac.py:2330-2362, smoke/CO all-zones fan stop — legitimate but must consult w/ safety=True) and
+    C2 hvac_predict._activate_zone_fans (:1038-1102, pre-arrival ON — would revive a fan the operator
+    just turned off; must respect the manual-OFF cooldown). Writer set = 12 not 10 (was 5 two days
+    ago; every enumeration wrong in the same direction — the oracle''s own justification). H2: the
+    reader-enumeration seed cited 6 line numbers; real grep = ~34 sites — Review B would have audited
+    a sixth of the sharpest-risk surface. H3 trigger vocabulary gaps; M1 adjacency check needs a
+    mechanical procedure (AST/structured grep, not eyeballs); M3 six writers need NEW parity fixtures.'
+  next: 'awaiting plan review 2 (build-prediction), then ONE revision pass folds both reviews; then
+    build. Shape (b) + H8 disposition unchanged.'
   DEDUPE_2026_08_11: 'Sweep: DOC-2 planning doc is the PARENT (parked, triggers now fired -> READY per
     the skill rule). FAN-MANUAL-1 is the trigger-firing cycle, linked. ARREST-COMFORT-1 sibling class.
     THIRD instance of a parked plan''s fired trigger surfacing only on operator question (D6, ledger

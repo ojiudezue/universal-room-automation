@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-10T21:31:16-05:00_ - _Data commit: `992ee3322421`_ - _last_reconciled: 2026-08-10_
+_Generated: 2026-08-10T21:35:23-05:00_ - _Data commit: `dee55d684bde`_ - _last_reconciled: 2026-08-10_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -79,13 +79,14 @@ thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
 thread: **hvac** - status: **pre_planning** - approval: **explicit**
 - **Origin:** 2026-08-11 - operator, on the fan cycle's 1-CRIT/6-HIGH review round: "Do we have a fan abstraction in our roadmap or kanban? This is why. I know we have a fusion camera abstraction and I think a presence sensor abstraction with intent a...
 - **Why:** PLANNING_fan_actuation_shared_layer.md (DOC-2, 2026-08-01) parked the extraction behind a foundation gate + 4 evidence triggers. FAN-MANUAL-1 fired: (1) new-mechanic double-port — the manual-ON hold was ported room-tier + HVAC-tier and d...
-- **Next:** PLAN-TIER-1 Tier-3 plan reviews (completeness + build-prediction) NOW; operator decisions surfaced with recommendation-and-proceed: shape (b) [recommended, house precedent], H8 (b)+(c) [probe says organic wait is unbounded], sequencing [...
+- **Next:** awaiting plan review 2 (build-prediction), then ONE revision pass folds both reviews; then build. Shape (b) + H8 disposition unchanged.
 - **Tags:** tier-3, institutional-context, context-wide-scoping
-- **Forensic keys (5):**
+- **Forensic keys (6):**
   - `priority`: high
   - `seed_already_built`: mark_fan_on_issued() (FAN-MANUAL-1 fix-up) is the first shared primitive — an authored-by channel across all URA ON sites. The extraction grows from it.
   - `gate_check_pending`: DOC-2 foundation gate also requires H8 organic validation of the v5.31.0 manual-off cooldown (a real manual OFF observed not re-arming on the live house). Verify from ledger before build — if unproven, that is the one remaining gate.
   - `PLAN_2026_08_11`: PLANNING_fan_actuation_shared_layer_v2.md (756 lines). Writer set is TEN sites across 5 files, not five — W8 zone-vacancy sweep + W9 pre-arrival bypass ALL machinery (trigger #3 fired at TWO sites). RECOMMENDED SHAPE (b): FanPolicyOracle...
+  - `PLAN_REVIEW_1_2026_08_11`: NEEDS-REVISION — TWO MORE MISSED WRITERS: C1 _stop_all_fans_safety (hvac.py:2330-2362, smoke/CO all-zones fan stop — legitimate but must consult w/ safety=True) and C2 hvac_predict._activate_zone_fans (:1038-1102, pre-arrival ON — would ...
   - `DEDUPE_2026_08_11`: Sweep: DOC-2 planning doc is the PARENT (parked, triggers now fired -> READY per the skill rule). FAN-MANUAL-1 is the trigger-firing cycle, linked. ARREST-COMFORT-1 sibling class. THIRD instance of a parked plan's fired trigger surfacing...
 
 ### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)
