@@ -460,7 +460,31 @@ BLE_TIER_2_WEIGHT: Final = 0.6
 # extend) AND disables the D2 mmWave-fan demotion block entirely via its
 # own outer `MULT > 0` guard (coordinator.py; the staleness arithmetic
 # never runs at 0 — it is NOT a threshold-collapse).
-BLE_MOTION_CONFIRM_MULTIPLIER: Final = 2
+# --- MULT clean-break split 2026-08-10 (MULT_SPLIT_APPROVED_2026_08_10) ---
+# Single-user, no back-compat: the ambiguous multi-purpose
+# BLE_MOTION_CONFIRM_MULTIPLIER is REPLACED by two purpose-named
+# constants. No deprecated alias. Both remain rung-1 module constants
+# because they are safety/trust bounds; changing either should require
+# code review.
+#
+# 1) BLE_CHAIN_HOLD_ENABLED — bool KILL SWITCH for the BLE chain-hold
+#    admission gate in the coordinator BLE block. Post-BLE-WARM-CREATE-1
+#    (v5.66.0) that block is a pure on/off gate; MULT>0 semantics
+#    collapse to "enabled". Setting False disables the BLE hold path
+#    entirely (chain-leg predicate always false → BLE can neither
+#    create nor extend). Kill semantics: `False`.
+BLE_CHAIN_HOLD_ENABLED: Final = True
+
+# 2) D2_PIR_STALENESS_MULTIPLIER — INT multiplier consumed by the D2
+#    mmWave-fan demotion block: PIR staleness threshold =
+#    `D2_PIR_STALENESS_MULTIPLIER × occupancy_timeout`. Also guards the
+#    outer `MULT > 0` predicate that disables the D2 block entirely
+#    (mirrors the historical MMWAVE_FAN_CORROBORATION guard). Kill
+#    semantics: `0` disables the whole D2 predicate (outer guard);
+#    this is NOT a threshold-collapse (staleness arithmetic never
+#    runs at 0). Value 2 = 2× room's motion timeout (bedroom 60min,
+#    closet 8min).
+D2_PIR_STALENESS_MULTIPLIER: Final = 2
 
 # v4.7.16 D3 (post-review B MEDIUM #1): kill switch for the per-room
 # weighted veto block in _run_inference. Default ON because D3 is the
@@ -597,7 +621,7 @@ OCCUPANCY_SOURCE_FAN_RECHECK_RELEASE: Final = "fan_recheck_release"
 #
 # Kill switches (rung-1 module constants):
 #   1) MMWAVE_FAN_CORROBORATION_ENABLED — disables the whole predicate.
-#   2) BLE_MOTION_CONFIRM_MULTIPLIER=0 — also disables the derived
+#   2) D2_PIR_STALENESS_MULTIPLIER=0 — also disables the derived
 #      staleness gate (mirrors the ble_extend_not_create kill).
 #   3) D3_DIAGNOSTIC_ENABLED — third UPSTREAM kill switch: D2's
 #      _compute_mmwave_fan_demoted_rooms wraps _compute_fan_interference_rooms,
@@ -3204,9 +3228,10 @@ CONF_STUCK_SENSOR_DUTYCYCLE_MIN_TICKS: Final = (
 )
 DEFAULT_STUCK_SENSOR_DUTYCYCLE_MIN_TICKS: Final = 20  # warm-up floor
 
-# D3 — frozen device_tracker check (notify-only, no auto-prune).
-CONF_FROZEN_TRACKER_DAYS: Final = "frozen_tracker_days"
-DEFAULT_FROZEN_TRACKER_DAYS: Final = 2.0
+# D3 frozen device_tracker check DELETED 2026-08-10: structurally
+# unreachable (threshold 2.0d vs max HA uptime ~1d at deploy cadence).
+# Constants CONF_FROZEN_TRACKER_DAYS / DEFAULT_FROZEN_TRACKER_DAYS /
+# FROZEN_TRACKER_DAYS removed. See P24/D3/dropdown batch, Item 2.
 
 # FIX 4 (A-HIGH-1) 2026-07-28 — D2 corroboration shield constants.
 # The prior any-transition-in-60-min rule allowed one stale PIR blip
@@ -3240,8 +3265,6 @@ STUCK_CAMERA_HOURS: Final = DEFAULT_STUCK_CAMERA_HOURS
 STUCK_CAMERA_INTERIOR_TIERS_REQUIRED: Final = (
     DEFAULT_STUCK_CAMERA_INTERIOR_TIERS_REQUIRED
 )
-FROZEN_TRACKER_DAYS: Final = DEFAULT_FROZEN_TRACKER_DAYS
-
 # D4 — kill switch (rung 2 — options-flow) for ALL stuck_signal NM emits.
 # Operator may want to silence during a known outage without disabling
 # the underlying exclusion/failsafe logic.
@@ -3251,7 +3274,9 @@ DEFAULT_STUCK_SIGNAL_NM_ENABLED: Final = True
 # Shared NM hazard_type + coordinator_id for the stuck_signal category.
 # Sub-classified by the `kind` field on the notification payload:
 #   continuous, dutycycle, camera_stuck, max_active_failsafe,
-#   zone_stale_occupancy, actuator_flap_quarantine, frozen_tracker
+#   zone_stale_occupancy, actuator_flap_quarantine
+# (frozen_tracker removed 2026-08-10 — D3 detector was structurally
+# unreachable given HA restart cadence; see const.py comment above.)
 STUCK_SIGNAL_NM_HAZARD_TYPE: Final = "stuck_signal"
 STUCK_SIGNAL_NM_COORDINATOR_ID: Final = "stuck_signal"
 

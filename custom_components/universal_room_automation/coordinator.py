@@ -29,7 +29,8 @@ from homeassistant.util import dt as dt_util
 from homeassistant.helpers import entity_registry as er
 
 from .const import (
-    BLE_MOTION_CONFIRM_MULTIPLIER,
+    BLE_CHAIN_HOLD_ENABLED,
+    D2_PIR_STALENESS_MULTIPLIER,
     CONF_STUCK_SENSOR_DUTYCYCLE_MIN_TICKS,
     CONF_STUCK_SENSOR_DUTYCYCLE_PCT,
     CONF_STUCK_SENSOR_DUTYCYCLE_WINDOW_MIN,
@@ -209,9 +210,16 @@ async def _fire_max_active_failsafe_nm(
         key=(room_name,),
         diagnosis=(
             f"room {room_name}: force-vacated after {minutes:.0f} min "
-            f"(failsafe limit {limit_min:.0f} min, Tier-1 signal stale)"
+            f"(failsafe limit {limit_min:.0f} min, PIR signal stale)"
         ),
         remedy="inspect the room's motion/mmwave sensors for stuck-on state",
+        # P24_DIAGNOSABILITY_DEFECT (2026-08-10): title carries room +
+        # duration so persisted audit rows (`_emit_audit_row` writes
+        # `message="[audit]"` as a sentinel) are attributable.
+        title_override=(
+            f"Stuck signal: max_active_failsafe — {room_name} "
+            f"({minutes:.0f} min)"
+        ),
     )
 
 # v4.5.15: 4-hour failsafe constant moved to const.DEFAULT_FAILSAFE_DURATION_SECONDS.
@@ -2487,25 +2495,21 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     self._last_occupied_time = now
                     data[STATE_OCCUPANCY_SOURCE] = "timeout"
                 else:
-                    # FIX 1: stash before clear so humidity handler (runs
-                    # later this tick) can read the just-ended session's
-                    # duration on the occupied→vacant edge.
-                    if self._became_occupied_time is not None:
-                        self._last_occupied_since_for_handler = (
-                            self._became_occupied_time
-                        )
-                    self._became_occupied_time = None
+                    # P24 fix (2026-08-10): DO NOT clear _became_occupied_time
+                    # here. If camera/BLE overrides rescue occupancy this
+                    # tick, the failsafe timer must keep counting from the
+                    # ORIGINAL session start (bug pre-fix: overrides reseeded
+                    # to `now`, restarting the failsafe timer every motion
+                    # timeout → override-held rooms never accumulated duration.
+                    # Ziri Bathroom: 10.79h occupied, 1.10h max session).
+                    # The snapshot + clear now happen AFTER overrides run —
+                    # see the "TRUE VACANCY FINALIZE" block below.
                     data[STATE_OCCUPANCY_SOURCE] = "none"
             else:
                 data[STATE_TIMEOUT_REMAINING] = 0
                 data[STATE_OCCUPIED] = False
                 data[STATE_OCCUPANCY_SOURCE] = "none"
-                # FIX 1: same snapshot on the no-motion path.
-                if self._became_occupied_time is not None:
-                    self._last_occupied_since_for_handler = (
-                        self._became_occupied_time
-                    )
-                self._became_occupied_time = None
+                # P24 fix (2026-08-10): same deferred-clear as above.
         
         # Calculate time since last motion
         if self._last_motion_time:
@@ -2519,78 +2523,12 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         else:
             data[STATE_TIME_SINCE_OCCUPIED] = None
 
-        # RESILIENCE-001: Maximum active duration failsafe
-        # Uses _became_occupied_time so legitimate motion doesn't reset the timer
-        #
-        # v4.5.15: failsafe duration is now room-type-keyed. Closet +
-        # bathroom default to 60 min (lazy auto-off — typical use never
-        # exceeds an hour; catches stuck-sensor / fan-as-motion / "light
-        # left on" patterns). All other room types use 4 hr default.
-        #
-        # v4.5.16: failsafe now also requires a Tier 1 sensor (PIR or mmWave)
-        # to be stale before firing. Previously a sleeping person whose
-        # mmWave/sensor_presence stayed on through the night still hit the
-        # 4-hour ceiling and got force-marked vacant for 30-60 sec before
-        # the next cycle re-occupied them. That fired nightly per bedroom
-        # and disrupted any automation gated on vacancy transitions.
-        # `_last_motion_time` is updated by motion + mmWave + occupancy
-        # sensors every cycle (coordinator.py:1353), so it's the universal
-        # Tier 1 freshness timestamp. If it's fresh, occupancy is real and
-        # we skip the failsafe. If it's stale, we're in the original
-        # stuck-sensor / forgotten-light territory and the failsafe fires.
-        if (data.get(STATE_OCCUPIED)
-                and self._became_occupied_time):
-            duration = (now - self._became_occupied_time).total_seconds()
-            failsafe_seconds = self._get_failsafe_duration_seconds()
-            if duration > failsafe_seconds:
-                signal_stale = True
-                signal_age = None
-                if self._last_motion_time:
-                    signal_age = (
-                        now - self._last_motion_time
-                    ).total_seconds()
-                    # Stale-threshold = 2x the room's motion timeout. Bedroom
-                    # 30 min, closet 4 min, etc. Wide enough for natural
-                    # idle pauses; narrow enough that a truly stuck sensor
-                    # still trips the failsafe.
-                    #
-                    # Clock-skew defense: a negative signal_age means
-                    # _last_motion_time is in the future (NTP jump, manual
-                    # clock change). Fall through to signal_stale=True so
-                    # the failsafe still fires — better to recover from a
-                    # spurious vacancy than to silently silence the
-                    # failsafe forever on a pathological timestamp.
-                    if 0 <= signal_age < 2 * self._occupancy_timeout:
-                        signal_stale = False
-                if signal_stale:
-                    _LOGGER.warning(
-                        "Room %s (%s): Forcing vacancy after %.1f min "
-                        "(failsafe — limit %.0f min, signal stale)",
-                        room_name, self._room_type,
-                        duration / 60, failsafe_seconds / 60,
-                    )
-                    data[STATE_OCCUPIED] = False
-                    data[STATE_OCCUPANCY_SOURCE] = "failsafe"
-                    data[STATE_TIMEOUT_REMAINING] = 0
-                    self._last_motion_time = None
-                    self._failsafe_fired = True
-                    # Stuck-Signal D4-P24 NM emit (per-day latch). Notify
-                    # only — the failsafe action above is UNCHANGED.
-                    self.hass.async_create_task(_fire_max_active_failsafe_nm(  # noqa: untracked-ok
-                        self.hass, room_name, duration / 60,
-                        failsafe_seconds / 60,
-                    ))
-                    # Fire-and-forget NM emit; per-day latched.
-                else:
-                    # Skip failsafe — a Tier 1 sensor is still active.
-                    # Debug-level because this is the common case for
-                    # legitimately-occupied bedrooms during sleep.
-                    _LOGGER.debug(
-                        "Room %s (%s): skipping failsafe at %.1f min — "
-                        "signal fresh (%.0fs ago, threshold %.0fs)",
-                        room_name, self._room_type, duration / 60,
-                        signal_age, 2 * self._occupancy_timeout,
-                    )
+        # Max-active-duration failsafe: MOVED to after the BLE
+        # override + "Always populate ble_persons" block (2026-08-10
+        # P24 fix). Search "P24 FAILSAFE (moved after overrides)" for
+        # the live code. The check now runs AFTER camera/BLE overrides
+        # so override-held occupancy (Ziri Bathroom: 10.79h) can
+        # accumulate the failsafe duration.
 
         # === v3.5.1: Camera extends room occupancy ===
         # If motion/mmWave have timed out but a camera in this room's area still
@@ -2708,8 +2646,13 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     # below, which reads it as a PIR-staleness
                     # threshold — do NOT interpret it as pure-kill
                     # globally.
+                    # MULT split 2026-08-10: this block's kill switch is
+                    # BLE_CHAIN_HOLD_ENABLED (bool). Semantically ==
+                    # BLE_MOTION_CONFIRM_MULTIPLIER>0 pre-split; the D2
+                    # arithmetic use case has moved to
+                    # D2_PIR_STALENESS_MULTIPLIER (see D2 block below).
                     ble_allowed = False
-                    if BLE_MOTION_CONFIRM_MULTIPLIER > 0:
+                    if BLE_CHAIN_HOLD_ENABLED:
                         chain_unbroken = self._last_occupied_state
                         ble_allowed = chain_unbroken
 
@@ -2790,7 +2733,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             if (
                 data.get(STATE_OCCUPIED)
                 and MMWAVE_FAN_CORROBORATION_ENABLED
-                and BLE_MOTION_CONFIRM_MULTIPLIER > 0
+                and D2_PIR_STALENESS_MULTIPLIER > 0
                 and self._d2_boot_settle_done()
                 and self._d2_debounce_elapsed(now)
                 and self._d2_motion_sensors_present()
@@ -2799,7 +2742,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             ):
                 # PIR-only motion staleness (Invariant M leg (e)).
                 stale_threshold_s = (
-                    BLE_MOTION_CONFIRM_MULTIPLIER * self._occupancy_timeout
+                    D2_PIR_STALENESS_MULTIPLIER * self._occupancy_timeout
                 )
                 pir_stale = True
                 if self._last_pir_motion_time is not None:
@@ -3052,6 +2995,151 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 data[STATE_BLE_PERSONS] = list(
                     person_coordinator.get_persons_in_room(room_name)
                 )
+
+        # === P24 FAILSAFE (moved after overrides — 2026-08-10) ===
+        # RESILIENCE-001: Maximum active duration failsafe.
+        # See AUDIT_detector_silence_and_restart_causes.md (cards
+        # P24_VERDICT_2026_08_09 / P24_DIAGNOSABILITY_DEFECT) and
+        # AUDIT_mmwave_only_rooms_2026-07-31.md (no-PIR room inventory).
+        #
+        # Falsifiable invariant (do not weaken silently):
+        #   The failsafe fires ONLY when ALL hold:
+        #     (i)  the room has ≥1 real PIR sensor (post
+        #          MMWAVE_NAME_PATTERN filter) — no-PIR rooms are
+        #          EXEMPT because their freshness gate is
+        #          unsatisfiable (a sleeping body has no PIR to
+        #          refresh) and a per-4h force-vacate would evict
+        #          them nightly; and
+        #     (ii) no live override asserts this tick — i.e.
+        #          `STATE_OCCUPANCY_SOURCE` is NOT in {"camera",
+        #          "ble"} — because a visible camera-person or a
+        #          BLE chain-hold is *evidence of presence*, not a
+        #          stuck sensor, and force-vacating them AND
+        #          latching `_failsafe_fired` would lock the
+        #          visibly-present person out of subsequent
+        #          override ticks; and
+        #     (iii) `_last_pir_motion_time` is stale (age ≥
+        #          2 × occupancy_timeout, or None).
+        #
+        # Assert-then-knock-down ordering: the room's occupancy is
+        # left alone by the failsafe unless (i)+(ii)+(iii) all hold;
+        # the failsafe cannot suppress the legitimate camera/BLE
+        # override, and cannot suppress mmWave-only rooms (they lack
+        # the PIR needed to satisfy (i)). No intra-window reader
+        # inspects the failsafe decision between the check and the
+        # write — the block runs late in `_async_update_data`.
+        #
+        # (a) Freshness gate uses `_last_pir_motion_time` (real PIR
+        #     fires only) instead of `_last_motion_time` (which the
+        #     current tick's write refreshes → tautological skip;
+        #     27/27 suppressions over 7.3d were the theorem). Sleeping-
+        #     body protection is preserved for rooms WITH PIR: real
+        #     PIR fires periodically.
+        # (b) Runs AFTER camera/BLE overrides + AFTER "Always populate
+        #     ble_persons" so override-held occupancy can accumulate
+        #     duration (Ziri Bathroom: 10.79h occupied, 1.10h max
+        #     session pre-fix). Combined with the deferred
+        #     `_became_occupied_time = None` clear (moved to the TRUE
+        #     VACANCY block below), the override "seed-if-None" pattern
+        #     no longer restarts the failsafe timer on every motion-
+        #     timeout tick.
+        # (c) Boot fail-open: on a fresh boot with no PIR history yet
+        #     `_last_pir_motion_time` is seeded to `_now` at
+        #     `__init__` (~coordinator.py:331), so the freshness
+        #     branch reads AGE≈0 and defers — the failsafe cannot
+        #     fire on a still-warming coordinator that has simply
+        #     not seen a real PIR fire yet. Combined with (i), no-PIR
+        #     rooms are additionally exempt from the whole gate.
+        # (d) Decoupling: (i) uses a has-PIR PREDICATE (bool) and is
+        #     independent of `D2_PIR_STALENESS_MULTIPLIER` (the D2
+        #     block's *staleness threshold multiplier*). MULT=0 kills
+        #     D2 demotion; it MUST NOT be conflated with the P24
+        #     has-PIR predicate — that constant is a D2-only knob.
+        # Placement is AFTER the BLE-block extractor delimiter used by
+        # `quality/tests/test_ble_extend_not_create.py` so the extract
+        # does not pull the failsafe call into a self-contained exec.
+        if (data.get(STATE_OCCUPIED)
+                and self._became_occupied_time
+                # CRIT-A1: no-PIR rooms are EXEMPT — leg (i) of the
+                # invariant above. Mirrors _d2_motion_sensors_present()
+                # (~coordinator.py:1749). Six mmwave-only rooms exist
+                # per AUDIT_mmwave_only_rooms_2026-07-31.md; without
+                # this guard they were force-vacated every 4h.
+                and self._d2_motion_sensors_present()
+                # HIGH-A2: live camera/BLE override this tick MUST
+                # defer the failsafe — leg (ii) of the invariant.
+                # Neither `_failsafe_fired` latch nor a knock-down
+                # is safe against a *visible* present person.
+                and data.get(STATE_OCCUPANCY_SOURCE) not in (
+                    "camera", "ble",
+                )):
+            duration = (now - self._became_occupied_time).total_seconds()
+            failsafe_seconds = self._get_failsafe_duration_seconds()
+            if duration > failsafe_seconds:
+                signal_stale = True
+                signal_age = None
+                if self._last_pir_motion_time:
+                    try:
+                        signal_age = (
+                            now - self._last_pir_motion_time
+                        ).total_seconds()
+                    except (TypeError, ValueError):
+                        signal_age = None
+                    # Threshold = 2 × room's motion timeout (preserved
+                    # from prior semantics). Clock-skew defense
+                    # (negative age → stale) also preserved.
+                    if signal_age is not None and (
+                        0 <= signal_age < 2 * self._occupancy_timeout
+                    ):
+                        signal_stale = False
+                if signal_stale:
+                    _LOGGER.warning(
+                        "Room %s (%s): Forcing vacancy after %.1f min "
+                        "(failsafe — limit %.0f min, PIR stale)",
+                        room_name, self._room_type,
+                        duration / 60, failsafe_seconds / 60,
+                    )
+                    data[STATE_OCCUPIED] = False
+                    data[STATE_OCCUPANCY_SOURCE] = "failsafe"
+                    data[STATE_TIMEOUT_REMAINING] = 0
+                    # M1/L2: `_last_motion_time = None` on fire is a
+                    # PINNED property — the next tick sees a fresh
+                    # STATE_TIME_SINCE_MOTION = None so downstream
+                    # readers cannot mistake the force-vacate for
+                    # sustained silent occupancy.
+                    self._last_motion_time = None
+                    self._failsafe_fired = True
+                    # Stuck-Signal D4-P24 NM emit (per-day latch). Notify
+                    # only — the failsafe action above is UNCHANGED.
+                    # P24_DIAGNOSABILITY_DEFECT fix: title override
+                    # carries room + duration so persisted audit rows
+                    # are attributable.
+                    self.hass.async_create_task(_fire_max_active_failsafe_nm(  # noqa: untracked-ok
+                        self.hass, room_name, duration / 60,
+                        failsafe_seconds / 60,
+                    ))
+                else:
+                    _LOGGER.debug(
+                        "Room %s (%s): skipping failsafe at %.1f min — "
+                        "PIR fresh (%.0fs ago, threshold %.0fs)",
+                        room_name, self._room_type, duration / 60,
+                        signal_age if signal_age is not None else -1,
+                        2 * self._occupancy_timeout,
+                    )
+
+        # === TRUE VACANCY FINALIZE (P24 fix — 2026-08-10) ===
+        # If overrides did not rescue occupancy AND failsafe did not
+        # keep it, THIS is the true vacancy edge. Snapshot the session-
+        # start timestamp for the humidity handler (moved from the
+        # earlier vacant branch, which now defers the clear per the
+        # `_became_occupied_time` deferred-clear comment above) and
+        # clear `_became_occupied_time` so the next occupancy session
+        # starts a fresh failsafe timer.
+        if not data.get(STATE_OCCUPIED) and self._became_occupied_time is not None:
+            self._last_occupied_since_for_handler = (
+                self._became_occupied_time
+            )
+            self._became_occupied_time = None
 
         # === Phase 1: Environmental Sensors ===
         # v3.2.3.2 FIX: Use _get_config to read from options (user changes) with data fallback

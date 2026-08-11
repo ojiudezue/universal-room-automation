@@ -745,242 +745,14 @@ def test_d1_watchdog_fail_open_preserves_census():
 
 
 # ---------------------------------------------------------------------------
-# D3 — frozen tracker check (drives REAL production code)
-#
-# Fix-up 2026-07-28 (A-CRIT-2): the prior tests exercised a LOCAL
-# reimplementation, which meant reviewer changes to the production
-# `_frozen_tracker_check` were invisible. New tests import a lightweight
-# wrapper around the real method — we instantiate a stub with just the
-# attributes the method touches, then invoke `_frozen_tracker_check`
-# directly. Also codifies the NEW predicate (frozen-at-home is anomalous
-# per se; disagreement not required — the Ezinne repro).
+# D3 frozen-tracker tests DELETED 2026-08-10 alongside the detector.
+# The detector was structurally unreachable (threshold 2.0d vs max HA
+# uptime ~1d at deploy cadence). The named `test_d3_frozen_at_home_
+# notifies_ezinne_repro` was the mutation-anchor for the v5.35.0 Ezinne
+# repro fix; it is removed here because the code it tested no longer
+# exists (not because coverage was lost). See const.py tombstone at
+# FROZEN_TRACKER_DAYS and the WATCHDOG-INERT-1 kanban card.
 # ---------------------------------------------------------------------------
-
-
-class _FakeState:
-    def __init__(self, entity_id, state, attributes=None, last_updated=None):
-        self.entity_id = entity_id
-        self.state = state
-        self.attributes = attributes or {}
-        self.last_updated = last_updated
-
-
-def _load_person_coordinator():
-    """Spec-load person_coordinator with minimal stubs.
-
-    person_coordinator.py imports several `homeassistant.*` names we've
-    already stubbed at module top. We add a couple more here and load.
-
-    Fix-up 2026-07-28: FORCE a fresh spec-load even if another test has
-    already populated `sys.modules[<person_coordinator>]` with a mock —
-    otherwise `PersonTrackingCoordinator` may be a MagicMock without a
-    usable `__new__`. We evict the cached entry, then re-load.
-    """
-    _full = "custom_components.universal_room_automation.person_coordinator"
-    _existing = sys.modules.get(_full)
-    # Force a fresh spec-load. Other test suites (e.g. presence_coordinator)
-    # patch `PersonTrackingCoordinator` on the loaded module with a
-    # MagicMock — even the module __file__ still points at the real file.
-    # The safest path is unconditional eviction; the spec_load below is
-    # cheap (pure-Python module, no network / no HA imports resolved).
-    if _existing is not None:
-        sys.modules.pop(_full, None)
-    # Additional stubs required by person_coordinator
-    for _n, _attrs in (
-        ("homeassistant.components", {}),
-        ("homeassistant.components.person", {"DOMAIN": "person"}),
-        ("homeassistant.helpers.update_coordinator", {
-            "DataUpdateCoordinator": type(
-                "DUC", (), {"__init__": lambda self, *a, **k: None},
-            ),
-            "UpdateFailed": Exception,
-        }),
-        ("homeassistant.helpers.entity_registry", {
-            "async_get": lambda hass: MagicMock(entities={}),
-            "async_entries_for_config_entry": lambda *a, **k: [],
-        }),
-        ("homeassistant.helpers.device_registry", {
-            "async_get": lambda hass: MagicMock(),
-            "async_entries_for_config_entry": lambda *a, **k: [],
-        }),
-        ("homeassistant.helpers.area_registry", {
-            "async_get": lambda hass: MagicMock(
-                async_list_areas=lambda: [], async_get_area=lambda _a: None,
-            ),
-        }),
-    ):
-        if _n not in sys.modules:
-            sys.modules[_n] = _mock_module(_n, **_attrs)
-    return _spec_load("person_coordinator", "person_coordinator.py")
-
-
-def _make_coord_stub(hass, tracked):
-    """Build a bare object with just enough shape for _frozen_tracker_check.
-
-    Fix-up 2026-07-28: attach `_frozen_tracker_check` and `_boot_settle_done`
-    as unbound methods on a plain object, sidestepping any test-ordering
-    pollution where `PersonTrackingCoordinator` is a MagicMock in
-    sys.modules from an earlier test. We pull the function objects from
-    the freshly spec-loaded module and rebind to a simple namespace.
-    """
-    pc = _load_person_coordinator()
-    # Resolve the function objects from the real class OR fall back to
-    # module-level attribute access (they're defined as methods on the
-    # class in the source, so use class dict).
-    cls = pc.PersonTrackingCoordinator
-    fn_frozen = cls.__dict__.get("_frozen_tracker_check") if hasattr(
-        cls, "__dict__",
-    ) else None
-    fn_boot = cls.__dict__.get("_boot_settle_done") if hasattr(
-        cls, "__dict__",
-    ) else None
-    if fn_frozen is None or fn_boot is None:
-        # Ordering pollution — presence_coordinator patched the class.
-        # Re-load AGAIN by clearing sys.modules entry and reading source.
-        _full = (
-            "custom_components.universal_room_automation.person_coordinator"
-        )
-        sys.modules.pop(_full, None)
-        pc = _spec_load("person_coordinator", "person_coordinator.py")
-        cls = pc.PersonTrackingCoordinator
-        fn_frozen = cls.__dict__["_frozen_tracker_check"]
-        fn_boot = cls.__dict__["_boot_settle_done"]
-
-    coord = types.SimpleNamespace()
-    coord.hass = hass
-    coord.tracked_persons = tracked
-    coord._frozen_trackers_last = []
-    # Bind functions to instance (unbound method call).
-    coord._frozen_tracker_check = lambda now, pd: fn_frozen(coord, now, pd)
-    coord._boot_settle_done = lambda: fn_boot(coord)
-    return coord, pc
-
-
-def _run_d3(coord, states_map):
-    coord.hass._states = states_map
-    coord._frozen_tracker_check(datetime.now(timezone.utc), {})
-    return list(coord._frozen_trackers_last)
-
-
-def test_d3_frozen_at_home_notifies_ezinne_repro():
-    """The motivating incident: single tracker frozen 3d at home, person
-    state driven BY the tracker (agrees) — MUST fire (new predicate)."""
-    _stuck_signal_nm.reset_latches_for_tests()
-    _force_kill_switch(True)
-    _install_fake_severity()
-    hass = _mk_hass_with_nm(nm_enabled=True)
-    coord, _pc = _make_coord_stub(hass, ["Ezinne"])
-    old = datetime.now(timezone.utc) - timedelta(days=3)
-    person = _FakeState(
-        "person.ezinne", "home",
-        attributes={"device_trackers": ["device_tracker.ezinne_phone"]},
-    )
-    tracker = _FakeState(
-        "device_tracker.ezinne_phone", "home", last_updated=old,
-    )
-    result = _run_d3(coord, {
-        "person.ezinne": person, "device_tracker.ezinne_phone": tracker,
-    })
-    assert len(result) == 1, (
-        "Ezinne repro: frozen-at-home tracker MUST be flagged even when "
-        "person state agrees (the frozen tracker drove that agreement)."
-    )
-    assert result[0]["tracker_state"] == "home"
-
-
-def test_d3_frozen_at_not_home_is_silent():
-    """Frozen-at-not_home is benign (fire axe: not user-actionable)."""
-    _stuck_signal_nm.reset_latches_for_tests()
-    _force_kill_switch(True)
-    _install_fake_severity()
-    hass = _mk_hass_with_nm(nm_enabled=True)
-    coord, _pc = _make_coord_stub(hass, ["Alice"])
-    old = datetime.now(timezone.utc) - timedelta(days=5)
-    person = _FakeState(
-        "person.alice", "not_home",
-        attributes={"device_trackers": ["device_tracker.alice_phone"]},
-    )
-    tracker = _FakeState(
-        "device_tracker.alice_phone", "not_home", last_updated=old,
-    )
-    result = _run_d3(coord, {
-        "person.alice": person, "device_tracker.alice_phone": tracker,
-    })
-    assert result == []
-
-
-def test_d3_frozen_at_unknown_is_flagged():
-    """A-LOW-1: frozen-at-unknown is anomalous — flag."""
-    _stuck_signal_nm.reset_latches_for_tests()
-    _force_kill_switch(True)
-    _install_fake_severity()
-    hass = _mk_hass_with_nm(nm_enabled=True)
-    coord, _pc = _make_coord_stub(hass, ["Alice"])
-    old = datetime.now(timezone.utc) - timedelta(days=5)
-    person = _FakeState(
-        "person.alice", "home",
-        attributes={"device_trackers": ["device_tracker.alice_phone"]},
-    )
-    tracker = _FakeState(
-        "device_tracker.alice_phone", "unknown", last_updated=old,
-    )
-    result = _run_d3(coord, {
-        "person.alice": person, "device_tracker.alice_phone": tracker,
-    })
-    assert len(result) == 1
-
-
-def test_d3_fresh_tracker_not_flagged():
-    _stuck_signal_nm.reset_latches_for_tests()
-    _force_kill_switch(True)
-    _install_fake_severity()
-    hass = _mk_hass_with_nm(nm_enabled=True)
-    coord, _pc = _make_coord_stub(hass, ["Alice"])
-    fresh = datetime.now(timezone.utc) - timedelta(hours=1)
-    person = _FakeState(
-        "person.alice", "home",
-        attributes={"device_trackers": ["device_tracker.alice_phone"]},
-    )
-    tracker = _FakeState(
-        "device_tracker.alice_phone", "home", last_updated=fresh,
-    )
-    result = _run_d3(coord, {
-        "person.alice": person, "device_tracker.alice_phone": tracker,
-    })
-    assert result == []
-
-
-def test_d3_sibling_disagrees_context_populated():
-    """When another tracker of the same person reports fresh not_home,
-    the diagnostic includes sibling_disagrees=True (context, not gating)."""
-    _stuck_signal_nm.reset_latches_for_tests()
-    _force_kill_switch(True)
-    _install_fake_severity()
-    hass = _mk_hass_with_nm(nm_enabled=True)
-    coord, _pc = _make_coord_stub(hass, ["Alice"])
-    old = datetime.now(timezone.utc) - timedelta(days=5)
-    fresh = datetime.now(timezone.utc) - timedelta(minutes=5)
-    person = _FakeState(
-        "person.alice", "home",
-        attributes={"device_trackers": [
-            "device_tracker.alice_phone_frozen",
-            "device_tracker.alice_watch_fresh",
-        ]},
-    )
-    frozen = _FakeState(
-        "device_tracker.alice_phone_frozen", "home", last_updated=old,
-    )
-    fresh_t = _FakeState(
-        "device_tracker.alice_watch_fresh", "not_home", last_updated=fresh,
-    )
-    result = _run_d3(coord, {
-        "person.alice": person,
-        "device_tracker.alice_phone_frozen": frozen,
-        "device_tracker.alice_watch_fresh": fresh_t,
-    })
-    assert len(result) == 1
-    assert result[0]["entity_id"] == "device_tracker.alice_phone_frozen"
-    assert result[0]["sibling_disagrees"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -1118,9 +890,10 @@ def test_anomaly_failure_does_not_block_nm():
 def test_watchdog_sensor_counts_and_attrs():
     """v5.36.0 D1: URAStuckSignalWatchdogSensor aggregates + reports attrs.
 
-    Drive the REAL sensor class with stub coordinators exposing the new
-    public accessors (get_stuck_cameras, get_stuck_sensor_kinds,
-    get_frozen_trackers). No cross-module private-attr reads.
+    Drive the REAL sensor class with stub coordinators exposing the
+    public accessors (get_stuck_cameras, get_stuck_sensor_kinds). The
+    D3 frozen-tracker surface was DELETED 2026-08-10 alongside the
+    detector; the sensor no longer collects that channel.
     """
     _stuck_signal_nm.reset_latches_for_tests()
 
@@ -1131,12 +904,6 @@ def test_watchdog_sensor_counts_and_attrs():
         {"entity_id": "cam.foyer", "kind": "camera_stuck", "hours": 4.0},
     ])
     hass.data[DOMAIN]["census"] = census
-    # Stub person coord
-    person = MagicMock()
-    person.get_frozen_trackers = MagicMock(return_value=[
-        {"entity_id": "device_tracker.ezinne_phone", "days": 3.0},
-    ])
-    hass.data[DOMAIN]["person_coordinator"] = person
     # Stub room coordinators via aggregation._get_room_coordinators.
     room_coord = MagicMock()
     room_coord.get_stuck_sensor_kinds = MagicMock(return_value={
@@ -1238,13 +1005,15 @@ def test_watchdog_sensor_counts_and_attrs():
     sensor_obj.hass = hass
     state = sensor_obj.native_value
     attrs = sensor_obj.extra_state_attributes
-    # 1 stuck camera + 2 stuck sensors (Master room) + 1 frozen tracker = 4
-    assert state == 4, f"expected 4, got {state}"
+    # 1 stuck camera + 2 stuck sensors (Master room) = 3 (D3 removed).
+    assert state == 3, f"expected 3, got {state}"
     assert attrs["stuck_cameras"][0]["entity_id"] == "cam.foyer"
     assert attrs["stuck_sensors"]["Master"] == {
         "binary_sensor.master_mmwave": "dutycycle",
         "binary_sensor.master_pir": "continuous",
     }
-    assert attrs["frozen_trackers"][0]["entity_id"] == "device_tracker.ezinne_phone"
+    assert "frozen_trackers" not in attrs, (
+        "D3 frozen-tracker surface removed 2026-08-10 with the detector."
+    )
     assert attrs["fires_today"].get("continuous", 0) >= 2
     assert attrs["last_fired"].get("continuous") is not None

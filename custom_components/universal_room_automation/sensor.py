@@ -4582,16 +4582,16 @@ class URAStuckSignalWatchdogSensor(AggregationEntity, SensorEntity):
             sw_version=VERSION,
         )
 
-    def _collect(self) -> tuple[list, dict, list]:
-        """Gather (stuck_cameras, stuck_sensors_by_room, frozen_trackers).
+    def _collect(self) -> tuple[list, dict]:
+        """Gather (stuck_cameras, stuck_sensors_by_room).
 
-        All three surfaces are pulled via public accessors — no
-        cross-module private-attr reach (B L-3). Each guarded so one
-        missing coordinator does not blank the sensor.
+        D3 frozen-tracker surface REMOVED 2026-08-10 (detector deleted —
+        structurally unreachable; see const.py FROZEN_TRACKER_DAYS
+        tombstone). Each remaining source is guarded so one missing
+        coordinator does not blank the sensor.
         """
         stuck_cameras: list = []
         stuck_sensors: dict = {}
-        frozen_trackers: list = []
         try:
             census = self.hass.data.get(DOMAIN, {}).get("census")
             if census is not None and hasattr(census, "get_stuck_cameras"):
@@ -4611,25 +4611,19 @@ class URAStuckSignalWatchdogSensor(AggregationEntity, SensorEntity):
                 stuck_sensors[room] = dict(kinds)
         except Exception:  # noqa: BLE001
             _LOGGER.debug("stuck_signal_watchdog: room sweep failed", exc_info=True)
-        try:
-            person = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
-            if person is not None and hasattr(person, "get_frozen_trackers"):
-                frozen_trackers = list(person.get_frozen_trackers())
-        except Exception:  # noqa: BLE001
-            _LOGGER.debug("stuck_signal_watchdog: person read failed", exc_info=True)
-        return stuck_cameras, stuck_sensors, frozen_trackers
+        return stuck_cameras, stuck_sensors
 
     @property
     def native_value(self) -> int:
         """Return total count of currently-active suspect signals."""
-        cams, sensors_by_room, frozen = self._collect()
+        cams, sensors_by_room = self._collect()
         sensor_count = sum(len(v) for v in sensors_by_room.values())
-        return len(cams) + sensor_count + len(frozen)
+        return len(cams) + sensor_count
 
     @property
     def extra_state_attributes(self) -> dict:
         """Return per-surface breakdown + per-kind NM emit ledger."""
-        cams, sensors_by_room, frozen = self._collect()
+        cams, sensors_by_room = self._collect()
         stats: dict = {}
         try:
             from .domain_coordinators._stuck_signal_nm import get_emit_stats
@@ -4645,7 +4639,6 @@ class URAStuckSignalWatchdogSensor(AggregationEntity, SensorEntity):
         return {
             "stuck_cameras": cams,
             "stuck_sensors": sensors_by_room,
-            "frozen_trackers": frozen,
             "last_fired": last_fired,
             "fires_today": fires_today,
             "ledger_note": (

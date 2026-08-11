@@ -96,12 +96,12 @@ For each room, every ~30 s (`SCAN_INTERVAL_OCCUPANCY`, `const.py:41`):
    create** one. Two admission legs:
    - **CHAIN** — the room was occupied on the previous update tick;
      a still-body BLE hold extends as long as the person is reported
-     present, OR
-   - **MOTION** — real motion within
-     `BLE_MOTION_CONFIRM_MULTIPLIER × occupancy_timeout`
-     (`BLE_MOTION_CONFIRM_MULTIPLIER = 2`, `const.py:375`).
-   Kill switch: set the multiplier to `0` to disable the BLE hold
-   path entirely.
+     present. This is the SOLE admission leg post-2026-08-10
+     (BLE-WARM-CREATE-1: the former MOTION leg was deleted after it
+     was measured to create — not extend — occupancy on adjacent-room
+     Bermuda bleed).
+   Kill switch: set `BLE_CHAIN_HOLD_ENABLED = False` (bool, `const.py`)
+   to disable the BLE hold path entirely.
 9. **Failsafe (v4.5.15)** — regardless of sensors, a room cannot
    remain occupied longer than its failsafe duration
    (`DEFAULT_FAILSAFE_DURATION_SECONDS = 4 h`, `const.py:748`; 60 min
@@ -372,8 +372,18 @@ See `ZONE_MANUAL.md §3-4`. Highlights: `CONF_ZONE_NAME`,
 Live in `const.py`. Do NOT expose as knobs; changing them is a
 correctness bound.
 
-- `BLE_MOTION_CONFIRM_MULTIPLIER = 2` (`const.py:375`) — the BLE
-  extend-not-create predicate. Kill switch: `0`.
+- `BLE_CHAIN_HOLD_ENABLED = True` (`const.py`) — bool kill switch
+  for the BLE chain-hold admission leg (extend-not-create). Set to
+  `False` to disable the BLE hold path entirely. Split from the
+  legacy `BLE_MOTION_CONFIRM_MULTIPLIER` on 2026-08-10 so that the
+  BLE kill switch is independent of the D2 staleness threshold.
+- `D2_PIR_STALENESS_MULTIPLIER = 2` (`const.py`) — INT multiplier
+  consumed by the D2 mmWave-fan demotion block as the PIR-staleness
+  threshold: `D2_PIR_STALENESS_MULTIPLIER × occupancy_timeout`.
+  Also acts as the outer-guard kill switch (`> 0`) for the D2
+  demotion path only — this is NOT the BLE kill switch (see
+  `BLE_CHAIN_HOLD_ENABLED` above). Split from the legacy
+  `BLE_MOTION_CONFIRM_MULTIPLIER` on 2026-08-10.
 - `BLE_TIER_2_WEIGHT = 0.6` (`const.py:363`).
 - `D3_DIAGNOSTIC_ENABLED = True` (`const.py:385`) — upstream kill
   switch for the L1 fan-interference hold AND the D2 demotion (§13.4).
@@ -480,7 +490,7 @@ either can't see the sensor or wrongly trusts it.
 ### 8.7-8.8 (unchanged).
 
 Kill switches summary:
-- BLE hold entirely: `BLE_MOTION_CONFIRM_MULTIPLIER = 0`.
+- BLE hold entirely: `BLE_CHAIN_HOLD_ENABLED = False`.
 - D3 diagnostic + L1 fan-interference hold + D2 demotion:
   `D3_DIAGNOSTIC_ENABLED = False`.
 - D2 demotion only: `MMWAVE_FAN_CORROBORATION_ENABLED = False`.
@@ -654,7 +664,8 @@ methods):
 
 - `data[STATE_OCCUPIED]` is True
 - `MMWAVE_FAN_CORROBORATION_ENABLED` (module const, True by default)
-- `BLE_MOTION_CONFIRM_MULTIPLIER > 0`
+- `D2_PIR_STALENESS_MULTIPLIER > 0` (D2 outer-guard kill; NOT the
+  BLE kill switch — that is `BLE_CHAIN_HOLD_ENABLED`)
 - `_d2_boot_settle_done()` — presence `_boot_settle_done` is True
 - `_d2_debounce_elapsed(now)` — past the vacant→occupied debounce
   window (A-CRIT-1 fix — the previous `_occupancy_first_detected is
@@ -712,8 +723,10 @@ person arrives (`ble_person`), or fan turns off (`fan_off` — tracker's
 **Kill switches** (rung-1 module constants, code-review-gated):
 1. `MMWAVE_FAN_CORROBORATION_ENABLED = False` — disables the whole
    predicate.
-2. `BLE_MOTION_CONFIRM_MULTIPLIER = 0` — also disables the derived
-   staleness gate.
+2. `D2_PIR_STALENESS_MULTIPLIER = 0` — also disables the derived
+   PIR-staleness gate for D2 (outer-guard). This is the D2-only
+   kill; it does NOT disable the BLE chain hold — for that use
+   `BLE_CHAIN_HOLD_ENABLED = False`.
 3. `D3_DIAGNOSTIC_ENABLED = False` — third UPSTREAM kill (D2's
    `_compute_mmwave_fan_demoted_rooms` wraps
    `_compute_fan_interference_rooms` which short-returns `[]` when

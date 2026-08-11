@@ -133,12 +133,14 @@ def test_failsafe_check_uses_room_type_lookup(coordinator_src: str):
     """The hard-coded MAX_OCCUPANCY_DURATION_SECONDS reference in the
     failsafe check must be replaced with a call to the new helper.
     """
-    # Locate the failsafe block
-    start = coordinator_src.find("RESILIENCE-001: Maximum active duration failsafe")
-    assert start >= 0, "Failsafe block missing"
-    # Take a generous window of the next ~30 lines
-    end = coordinator_src.find("\n        # === v3.5.1", start)
-    body = coordinator_src[start:end if end > 0 else start + 2000]
+    # Locate the failsafe block. P24 fix (2026-08-10) moved the live
+    # block after the camera/BLE override + "always populate
+    # ble_persons" section; use the P24 marker to disambiguate.
+    marker = "# === P24 FAILSAFE (moved after overrides"
+    start = coordinator_src.find(marker)
+    assert start >= 0, "P24 FAILSAFE (moved) block missing"
+    end = coordinator_src.find("# === TRUE VACANCY FINALIZE", start)
+    body = coordinator_src[start:end if end > 0 else start + 4000]
     assert "_get_failsafe_duration_seconds" in body, (
         "Failsafe block must call self._get_failsafe_duration_seconds() — "
         "the room-type-keyed lookup added in v4.5.15."

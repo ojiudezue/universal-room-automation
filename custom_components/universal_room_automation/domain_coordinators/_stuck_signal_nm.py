@@ -163,6 +163,7 @@ async def fire_stuck_signal(
     diagnosis: str,
     remedy: str = "",
     now: datetime | None = None,
+    title_override: str | None = None,
 ) -> bool:
     """Fire a stuck_signal NM once per (kind, key) per calendar day.
 
@@ -194,7 +195,13 @@ async def fire_stuck_signal(
         # this is not a dispatcher/event-helper import.
         from .notification_manager import Severity  # noqa: PLC0415
 
-        title = f"Stuck signal: {kind}"
+        # P24 diagnosability fix (2026-08-10): callers may pass
+        # `title_override` to include context (e.g. room + duration) in
+        # the title. The title is persisted in `_emit_audit_row` — the
+        # `message` field there is a "[audit]" sentinel, so a bare
+        # `f"Stuck signal: {kind}"` title left P24 audit rows un-
+        # attributable to a room.
+        title = title_override or f"Stuck signal: {kind}"
         message = diagnosis
         if remedy:
             message = f"{diagnosis}\n\nSuggested remedy: {remedy}"
