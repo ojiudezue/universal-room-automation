@@ -4,8 +4,9 @@ description: >
   The single durable board for bursty, multi-thread URA work. Fights chat→plan conceptual
   entropy with a capture-first protocol: every operator push AND every pre-planning idea the
   model generates becomes a card the SAME turn, before acting. Source of truth is
-  docs/planning/KANBAN.md (committed); a live Artifact board reflects it to the operator at
-  all times. LOAD THIS SKILL at the start of any working session, whenever the operator pushes
+  docs/planning/kanban.data.yaml (structured cards, committed); views (KANBAN.md,
+  kanban_board.html, the live Artifact) are regenerated via scripts/kanban_render.py and
+  reflect the data to the operator at all times. LOAD THIS SKILL at the start of any working session, whenever the operator pushes
   a new idea/request, whenever the model proposes something mid-turn (a test, a knob, a bug it
   just found), and before writing a planning doc (to harvest cards into the plan). Pairs with
   vibememo — that captures WHY (reasoning-in-motion); this captures WHAT / WHERE / NEXT. They
@@ -40,9 +41,13 @@ Two observed failure modes this system exists to kill:
 
 - **Source of truth (DATA):** `docs/planning/kanban.data.yaml` — structured cards. Edit HERE.
   Must stay valid YAML (`python3 -c "import yaml;yaml.safe_load(open(...))"` before commit).
-- **Generated views (KHOST-1):** `docs/planning/KANBAN.md` (human view), the Artifact, and
-  `urakanban.phalanxmadrone.com` are all *generated* from the data — never hand-edit a view.
-  Until the generator ships, KANBAN.md is maintained alongside the data as an interim view.
+- **Generated views (SHIPPED):** `docs/planning/KANBAN.md` (human view) and
+  `docs/planning/kanban_board.html` are RENDERED OUTPUTS of
+  `python3 scripts/kanban_render.py` — a pure function of the data file (same input →
+  byte-identical output). The Artifact and `urakanban.phalanxmadrone.com` reflect the same
+  data. **Never hand-edit a view** — edit the yaml, then re-run the renderer. Exit codes:
+  0 = fresh, 1 = error, 2 = stale (rendered anyway, with a STALE banner in both outputs);
+  `--check` for exit-code-only, no writes.
 - **History:** done cards age out of the data into `docs/planning/kanban.history.yaml`.
 - **Live reflection:** the Artifact board (redeploy the SAME file path to keep the URL stable;
   URL in the data `meta.artifact_url` + the `kanban-capture-first` memory).
@@ -51,8 +56,8 @@ Two observed failure modes this system exists to kill:
 
 ## The one rule: capture-first
 
-Every operator push AND every pre-planning idea the model generates lands in KANBAN.md as a
-card **in the same turn, before acting** — Inbox first, unprocessed. Nothing is allowed to
+Every operator push AND every pre-planning idea the model generates lands in
+`kanban.data.yaml` as a card **in the same turn, before acting** — Inbox first, unprocessed. Nothing is allowed to
 live only in the transcript. This includes the model's own mid-turn finds (bugs, knobs,
 privacy issues surfaced inside a tool call) — those are the most fragile because nothing else
 re-raises them.
@@ -125,16 +130,15 @@ decisions/actions only the operator can take (physical fixes, go/no-go, design c
 Do not file my own debt under the operator's lane — that hides it and reads as if the ball is
 in their court when it is in mine.
 
-## Architecture — data vs representation (KHOST-1 target)
+## Architecture — data vs representation (KHOST-1, SHIPPED)
 
-The board is **data**, not prose. The source of truth is a structured file; every view — the
-committed markdown, the Artifact, the homelab page — is **generated** from it, so no view can
-drift from the data (editing a rendered view is the drift anti-pattern). **Done cards age out**
-to a history file rather than bloating the active board — this reuses the existing doctrine that
-the git history of shipped-work docs (READMEs / validation ledgers) is the durable record.
-Until the KHOST-1 generator ships, `docs/planning/KANBAN.md` serves as both data and view; when
-it ships, the markdown becomes a generated artifact like the others and the history file holds
-aged-out cards.
+The board is **data**, not prose. The source of truth is `kanban.data.yaml`; every view — the
+committed markdown, the HTML board, the Artifact, the homelab page — is **generated** from it
+by `scripts/kanban_render.py`, so no view can drift from the data (editing a rendered view is
+the drift anti-pattern). **Done cards age out** to `kanban.history.yaml` rather than bloating
+the active board — this reuses the existing doctrine that the git history of shipped-work docs
+(READMEs / validation ledgers) is the durable record. Workflow: edit the yaml (must stay valid
+YAML), run `python3 scripts/kanban_render.py`, commit data + rendered views together.
 
 ## Card schema — the fields ARE the decay vectors
 
@@ -180,29 +184,61 @@ On any of these: append one `challenge → sharpened form` line to that card's R
 This is the same discipline as capture-first, scoped to the dialectic. A challenge that changes
 the design but leaves no trail line is a hygiene miss, logged like any other.
 
-Card template:
+Card template (the real schema, as it appears in `kanban.data.yaml`):
 
-```markdown
-### [ID] Title
-- **Status:** column · **Thread:** area · **Origin:** <date> "<one-line gist of the push>"
-- **Why:** …  · **Constraints:** …  · **Parked-alts:** … (+ why)
-- **Refinement:**
+```yaml
+- id: CARD-1
+  title: One-line problem → solution statement
+  thread: area            # workstream
+  status: inbox           # one of meta.columns: inbox / pre_planning / planned /
+                          # in_progress / review / shipped_organic / waiting_operator /
+                          # waiting_me / parked (+ done in history)
+  approval: unreviewed    # unreviewed / implied / explicit / blocked
+  approved_by: 'operator <date> ("quoted go") — scope notes'   # when explicit
+  tags: [tier-2db, no-fabrication-verify]   # quality-practice tags
+  origin:
+    date: '2026-01-01'
+    gist: one-line gist of the originating push
+  why: rationale — so a settled decision is not re-litigated
+  constraints: []         # musts stated in passing
+  parked_alts: []         # rejected options (+ why)
+  refinement:             # append-only challenge → sharpened-form beats
   - <challenge> → <how the idea sharpened>
-  - <next challenge> → <next sharpening>
-- **Knobs:** NAME (rung, one-line why)
-- **Next:** single next action · **Refs:** file / commit / doc
+  knobs: []               # NAME (rung, one-line why)
+  parsimony: {problem: one falsifiable sentence, verdict: BUILD}  # or SIMPLIFY/PARK/DROP
+  next: single next action
+  refs: []                # planning doc / review record / commit / memory
+  # optional: depends_on / blocks / sibling_of / batch / seq / autonomy
+  # shipped cards gain: shipped_version (written by deploy.sh --cards)
 ```
+
+Free-form extra keys on a card (e.g. `my_miss`, `gaps`, `fix`) are allowed — the renderer
+shows unknown keys as forensic detail rather than dropping them.
 
 ## Cadence
 
-1. **Session start:** read KANBAN.md (found via MEMORY.md pointer). Reconcile Shipped-organic
-   and Waiting-on-operator against live state before reporting status.
+1. **Session start:** read KANBAN.md (found via MEMORY.md pointer). Then **apply queued
+   operator dispositions**: if `docs/planning/kanban.dispositions.pending.jsonl` exists,
+   it holds `{card_id, action, at}` lines queued from the hosted board (buttons /
+   drag-and-drop, pulled back by homelab-automation's `refresh_urakanban.sh`). Apply each
+   to `kanban.data.yaml`:
+   - `done` → status `shipped_organic` or `done` per card context (already-live work with
+     proof pending → `shipped_organic`; evidenced-closed → `done`)
+   - `deferred` → status `parked`, with a revisit note on the card
+   - `declined` → status `done` (closed) + a `parked_alts`-style note recording the decline
+   - `move:<status>` → set status to `<status>` verbatim
+   Then DELETE the pending file, re-run `python3 scripts/kanban_render.py`, and commit.
+   **Dispositions are OPERATOR AUTHORITY — apply, don't relitigate.** Ask only if a
+   disposition is ambiguous against the card's state (e.g. `done` on a card that never
+   shipped). Finally reconcile Shipped-organic and Waiting-on-operator against live state
+   before reporting status.
 2. **On every push / mid-turn idea:** add or update a card the same turn.
 3. **Before writing a planning doc:** harvest the relevant cards — Origin/Why/Constraints/
    Parked-alts/Knobs flow straight into the plan's Institutional-context + Acceptance sections.
    This is the anti-entropy handoff.
-4. **Turn end:** reconcile — move cards between columns, mark done, and **redeploy the Artifact**
-   if anything material changed.
+4. **Turn end:** reconcile — move cards between columns, mark done, **re-run
+   `python3 scripts/kanban_render.py`** so the committed views match the data, and redeploy
+   the Artifact if anything material changed.
 5. **Reconciliation discipline:** when marking Waiting-on-operator or Shipped, verify against
    live state (config entry / sensor / DB) — do not carry a stale TODO forward.
 
@@ -233,9 +269,11 @@ principle, not more willpower:
 
 1. **Turn-end gate (hard, not aspirational).** A turn that changed work state does not end until
    the board reflects it. Treat a missing board update like a skipped Zero-Bugs Gate.
-2. **Staleness signal.** The KANBAN.md header carries `_Last reconciled: <date>_`. At session
-   start, compare it to `git log` / live state; if newer work shipped than the board shows,
-   reconcile first. A stale date is the tripwire the clock-based system lacks.
+2. **Staleness signal.** The data file carries `meta.last_reconciled`; the renderer compares
+   it to the newest git tag AND the newest `docs/readmes/README_v*.md` and, if either is
+   newer, renders a loud STALE banner into both views and exits 2 (`--check` for the exit
+   code alone). At session start, run `python3 scripts/kanban_render.py --check`; if stale,
+   reconcile first. A stale banner is the tripwire the clock-based system lacks.
 3. **No silent moves.** Closing or moving a card writes a one-line disposition (done / deferred
    + why), mirroring CLAUDE.md Plan-Completion-Tracking. A card never just disappears.
 4. **Redeploy-on-change, not on-timer.** The Artifact redeploys whenever a card changes column
@@ -268,7 +306,7 @@ must be interrogated is not a mechanism.**
 
 | Rung | Kind | Mechanism |
 |---|---|---|
-| **1** | **HARD** | `deploy.sh --cards ID[,ID…]` — **refuses to deploy** when absent, printing current `in_progress`/`review` cards as candidates. On success it *writes* `status: shipped_organic` + `shipped_version` per card and `meta.last_reconciled: <today>`, in the release commit. `--no-cards` escape for pure-docs releases, explicit and logged. |
+| **1** | **HARD** | `deploy.sh --cards ID[,ID…]` (BOARD-CURRENCY-1) — **refuses to deploy** when absent, printing current `in_progress`/`review` cards as candidates via `kanban_ship.py list-candidates`. IDs are validated (`kanban_ship.py validate`) BEFORE any push; on success, step 4b runs `kanban_ship.py mark-shipped` post-push, writing `status: shipped_organic` + `shipped_version` per card and `meta.last_reconciled: <today>`. `--no-cards` escape for pure-docs releases, explicit and logged. `--dry-run` rehearses the real writers against tempdir copies and diffs. |
 | **2** | **HARD** | **Vibememo chained to the same gate** — the release also emits a vibememo entry (the WHY of the ship). Both systems are release-coupled, so the decision trail cannot lag either. |
 | **3** | soft | Generator renders a loud **STALE banner** + warns on build when `meta.last_reconciled` is older than the newest git tag or `README_v*.md`. |
 | **4** | soft | Session-start staleness check (enforcement #2 above). |
@@ -473,5 +511,6 @@ Corollaries learned the same day:
   parked planning-doc deliverables, and the catalogs/audits.
 - Treating a PARKED deliverable as shipped work. Parked ≠ done; check whether its trigger fired.
 - Merging silently, or merging down to the intersection instead of the union.
-- Editing the Artifact without editing KANBAN.md — the committed file is the source of truth;
-  the Artifact is a reflection, never the record.
+- Hand-editing a rendered view (KANBAN.md, kanban_board.html, the Artifact) instead of
+  editing `kanban.data.yaml` and re-running `scripts/kanban_render.py` — the committed data
+  file is the source of truth; every view is a reflection, never the record.

@@ -1123,25 +1123,107 @@ class HVACPredictor:
                 )
                 continue
 
+            # FAN-LAYER-1 Session 3 (2026-08-10): pre-arrival ON
+            # consults FanPolicyOracle (W12 per PLAN §7.4). DEFER under
+            # a live manual-OFF cooldown — the operator turned the fan
+            # off recently and the cool-down window is unexpired;
+            # pre-arrival should not fight that until expiry. When
+            # DEFER-ed, add `reason="manual_off_cooldown"` to the
+            # skipped-rooms diagnostic so the operator can see WHY the
+            # pre-arrival activation was suppressed.
+            from ..const import DOMAIN, FAN_TRIGGER_HVAC_PREARRIVAL_ON
+            from .fan_policy_oracle import FanDecisionSnapshot
+
+            oracle = self.hass.data.get(DOMAIN, {}).get("fan_oracle")
+
             # Activate fans — track whether at least one succeeded
             any_succeeded = False
+            deferred_by_cooldown = False
             for fan_entity in fans:
                 domain = fan_entity.split(".")[0]
                 state = self.hass.states.get(fan_entity)
                 if state and state.state != "on":
-                    try:
-                        await self.hass.services.async_call(
-                            domain, "turn_on",
-                            {"entity_id": fan_entity}, blocking=False,
+                    if oracle is not None:
+                        # A-MED-4 fix-up (2026-08-11): drop dead ``hasattr(self, "hass")``
+                        # guard (the predictor always has hass) and thread the
+                        # real house_state from the wired HVAC coordinator.
+                        _hvac_coord = getattr(self, "_hvac_coord", None)
+                        _house_state = getattr(
+                            _hvac_coord, "_house_state", "unknown",
+                        ) if _hvac_coord is not None else "unknown"
+                        snap = FanDecisionSnapshot(
+                            now=dt_util.now(),
+                            sleep_state="unknown",
+                            sleep_axis=None,
+                            house_state=_house_state or "unknown",
+                            is_hvac_managing=True,
+                            entities=(fan_entity,),
+                            observed_any_on=False,
                         )
-                        any_succeeded = True
-                    except Exception:  # noqa: BLE001
-                        _LOGGER.warning(
-                            "HVAC: Pre-arrival fan service call failed for %s",
-                            fan_entity,
-                        )
+                        try:
+                            async with oracle.actuate(
+                                room_name, FAN_TRIGGER_HVAC_PREARRIVAL_ON,
+                                snap, direction="on",
+                            ) as verdict:
+                                if verdict.is_allow:
+                                    try:
+                                        await self.hass.services.async_call(
+                                            domain, "turn_on",
+                                            {"entity_id": fan_entity},
+                                            blocking=False,
+                                        )
+                                        any_succeeded = True
+                                    except Exception:  # noqa: BLE001
+                                        _LOGGER.warning(
+                                            "HVAC: Pre-arrival fan service "
+                                            "call failed for %s", fan_entity,
+                                        )
+                                elif verdict.is_defer and verdict.reason == "manual_off_cooldown":
+                                    deferred_by_cooldown = True
+                                    _LOGGER.info(
+                                        "HVAC: Pre-arrival fan %s deferred "
+                                        "under manual-OFF cooldown "
+                                        "(FAN-LAYER-1)", fan_entity,
+                                    )
+                        except Exception:  # noqa: BLE001 — never break pre-arrival
+                            _LOGGER.warning(
+                                "HVAC: pre-arrival oracle wrap failed for %s — "
+                                "emitting directly", fan_entity, exc_info=True,
+                            )
+                            try:
+                                await self.hass.services.async_call(
+                                    domain, "turn_on",
+                                    {"entity_id": fan_entity},
+                                    blocking=False,
+                                )
+                                any_succeeded = True
+                            except Exception:  # noqa: BLE001
+                                _LOGGER.warning(
+                                    "HVAC: Pre-arrival fan service call failed for %s",
+                                    fan_entity,
+                                )
+                    else:
+                        # Oracle not wired — pre-Session-1 fallback.
+                        try:
+                            await self.hass.services.async_call(
+                                domain, "turn_on",
+                                {"entity_id": fan_entity}, blocking=False,
+                            )
+                            any_succeeded = True
+                        except Exception:  # noqa: BLE001
+                            _LOGGER.warning(
+                                "HVAC: Pre-arrival fan service call failed for %s",
+                                fan_entity,
+                            )
                 else:
                     any_succeeded = True  # Already on counts as success
+            if deferred_by_cooldown and not any_succeeded:
+                self._last_fan_skipped_rooms.append({
+                    "room": room_name,
+                    "temp": round(room_temp, 1),
+                    "setpoint": setpoint_high,
+                    "reason": "manual_off_cooldown",
+                })
 
             if any_succeeded:
                 self._last_fan_activation_rooms.append(room_name)
