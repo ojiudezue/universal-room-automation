@@ -30,6 +30,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATA = REPO_ROOT / "docs" / "planning" / "kanban.data.yaml"
 DEFAULT_MD = REPO_ROOT / "docs" / "planning" / "KANBAN.md"
 DEFAULT_HTML = REPO_ROOT / "docs" / "planning" / "kanban_board.html"
+DEFAULT_PENDING = REPO_ROOT / "docs" / "planning" / "kanban.dispositions.pending.jsonl"
 README_DIR = REPO_ROOT / "docs" / "readmes"
 
 # Column display order + labels + emoji. Anything not in this map falls into "other".
@@ -154,6 +155,35 @@ def compute_staleness(meta: dict, tag: tuple[str, str], readme: tuple[str, str])
     return (len(reasons) > 0), reasons
 
 
+def load_pending_dispositions(path: Path) -> dict[str, list[dict]]:
+    """Read kanban.dispositions.pending.jsonl -> {card_id: [{action, at}, ...]}.
+
+    Operator dispositions queued from the hosted board, not yet applied to
+    kanban.data.yaml. Missing file -> empty map (the common case).
+    """
+    import json
+    out: dict[str, list[dict]] = {}
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return out
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        cid = str(d.get("card_id", "")).strip()
+        if not cid:
+            continue
+        out.setdefault(cid, []).append(
+            {"action": str(d.get("action", "?")), "at": str(d.get("at", ""))}
+        )
+    return out
+
+
 # ---------- card classification ----------
 
 def _column_for(status: str) -> str:
@@ -261,7 +291,7 @@ def render_markdown(data: dict, meta_extras: dict) -> str:
             out.append("")
             continue
         for c in cards_here:
-            out.extend(_render_card_md(c))
+            out.extend(_render_card_md(c, meta_extras.get("pending", {})))
             out.append("")
 
     if parked_extra:
@@ -286,7 +316,7 @@ def render_markdown(data: dict, meta_extras: dict) -> str:
     return "\n".join(out).rstrip() + "\n"
 
 
-def _render_card_md(c: dict) -> list[str]:
+def _render_card_md(c: dict, pending: dict[str, list[dict]] | None = None) -> list[str]:
     cid = str(c.get("id", "?"))
     title = str(c.get("title", ""))
     thread = str(c.get("thread", ""))
@@ -301,6 +331,8 @@ def _render_card_md(c: dict) -> list[str]:
 
     lines: list[str] = []
     lines.append(f"### `{cid}` - {_md_escape(title)}")
+    for disp in (pending or {}).get(cid, []):
+        lines.append(f"> **⚡ OPERATOR: {_md_escape(disp['action'])} — pending apply** (at {disp['at']})")
     tag_bits = []
     if thread:  tag_bits.append(f"thread: **{thread}**")
     if status:  tag_bits.append(f"status: **{status}**")
@@ -441,12 +473,138 @@ section.extras h2 { font-size:12px; letter-spacing:0.16em; text-transform:upperc
   font-family:ui-monospace, Menlo, monospace; }
 footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
   font-family:ui-monospace, Menlo, monospace; }
+/* --- operator disposition UI (KHOST-2) --- */
+.actions { margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; }
+.actions button { font-family:ui-monospace, Menlo, monospace; font-size:10.5px;
+  letter-spacing:0.06em; padding:3px 9px; cursor:pointer;
+  background:var(--code-bg); color:var(--fg); border:1px solid var(--border); }
+.actions button:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+.actions button:disabled { opacity:0.4; cursor:default; }
+.pending-chip { display:inline-block; margin-top:6px; margin-right:6px;
+  font-family:ui-monospace, Menlo, monospace; font-size:10px; letter-spacing:0.08em;
+  text-transform:uppercase; padding:2px 8px; font-weight:600;
+  background:var(--stale-bg); color:var(--stale); border:1px solid var(--stale); }
+.pending-chip.op-done     { background:transparent; color:var(--ok); border-color:var(--ok); }
+.pending-chip.op-declined { background:transparent; color:var(--bad); border-color:var(--bad); }
+.pending-chip.op-move     { background:transparent; color:var(--info); border-color:var(--info); }
+.card[draggable="true"] { cursor:grab; }
+.card.dragging { opacity:0.5; }
+.lane.drop-ok { outline:2px dashed var(--accent); outline-offset:4px; }
+#toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%);
+  background:var(--fg); color:var(--bg); padding:8px 16px; font-size:12px;
+  font-family:ui-monospace, Menlo, monospace; z-index:20; display:none; }
 @media (max-width:720px) {
   main.board, .summary, header.top { padding-left:12px; padding-right:12px; }
   .stale { margin:10px 12px 0; }
   .lane .cards { grid-template-columns:1fr; }
   .card .apl { float:none; display:block; margin-top:2px; }
 }
+"""
+
+
+BOARD_JS = """
+(function () {
+  'use strict';
+  var toastEl = document.getElementById('toast');
+  var toastTimer = null;
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.style.display = 'block';
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.style.display = 'none'; }, 3200);
+  }
+  function post(cardId, action) {
+    return fetch('api/disposition', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ card_id: cardId, action: action, at: new Date().toISOString() })
+    }).then(function (r) {
+      if (!r.ok) throw new Error('http ' + r.status);
+      return r;
+    });
+  }
+  function addChip(card, action) {
+    var chip = document.createElement('span');
+    var cls = action.indexOf('move:') === 0 ? 'op-move' : 'op-' + action;
+    chip.className = 'pending-chip ' + cls;
+    chip.textContent = 'pending: ' + action;
+    var summary = card.querySelector('summary');
+    var title = summary.querySelector('.title');
+    summary.insertBefore(chip, title);
+  }
+  function readOnlyToast() { toast('board is read-only here'); }
+
+  // Disposition buttons
+  document.querySelectorAll('.card .actions button').forEach(function (btn) {
+    btn.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      var card = btn.closest('.card');
+      var action = btn.getAttribute('data-action');
+      var buttons = card.querySelectorAll('.actions button');
+      buttons.forEach(function (b) { b.disabled = true; });
+      post(card.getAttribute('data-id'), action).then(function () {
+        addChip(card, action);
+      }).catch(function () {
+        buttons.forEach(function (b) { b.disabled = false; });
+        readOnlyToast();
+      });
+    });
+  });
+
+  // Drag between columns
+  var draggingCard = null;
+  document.querySelectorAll('.card[draggable="true"]').forEach(function (card) {
+    card.addEventListener('dragstart', function (ev) {
+      draggingCard = card;
+      card.classList.add('dragging');
+      ev.dataTransfer.setData('text/plain', card.getAttribute('data-id'));
+      ev.dataTransfer.effectAllowed = 'move';
+    });
+    card.addEventListener('dragend', function () {
+      card.classList.remove('dragging');
+      document.querySelectorAll('.lane.drop-ok').forEach(function (l) { l.classList.remove('drop-ok'); });
+      draggingCard = null;
+    });
+  });
+  document.querySelectorAll('section.lane[data-col]').forEach(function (lane) {
+    var col = lane.getAttribute('data-col');
+    if (col === 'other') return;
+    lane.addEventListener('dragover', function (ev) {
+      if (!draggingCard) return;
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = 'move';
+      lane.classList.add('drop-ok');
+    });
+    lane.addEventListener('dragleave', function () { lane.classList.remove('drop-ok'); });
+    lane.addEventListener('drop', function (ev) {
+      ev.preventDefault();
+      lane.classList.remove('drop-ok');
+      if (!draggingCard) return;
+      var card = draggingCard;
+      var fromLane = card.closest('section.lane');
+      if (fromLane === lane) return;
+      var fromParent = card.parentElement;
+      var fromNext = card.nextElementSibling;
+      var cardsDiv = lane.querySelector('.cards');
+      if (!cardsDiv) {
+        cardsDiv = document.createElement('div');
+        cardsDiv.className = 'cards';
+        var none = lane.querySelector('.none');
+        if (none) none.remove();
+        lane.appendChild(cardsDiv);
+      }
+      cardsDiv.appendChild(card);  // optimistic move
+      var action = 'move:' + col;
+      post(card.getAttribute('data-id'), action).then(function () {
+        addChip(card, action);
+      }).catch(function () {
+        fromParent.insertBefore(card, fromNext);  // revert
+        readOnlyToast();
+      });
+    });
+  });
+})();
 """
 
 
@@ -516,7 +674,7 @@ def render_html(data: dict, meta_extras: dict) -> str:
         else:
             parts.append('<div class="cards">')
             for c in cards_here:
-                parts.append(_render_card_html(c))
+                parts.append(_render_card_html(c, meta_extras.get("pending", {})))
             parts.append('</div>')
         parts.append('</section>')
     parts.append('</main>')
@@ -545,11 +703,13 @@ def render_html(data: dict, meta_extras: dict) -> str:
                  f'<code>docs/planning/kanban.data.yaml</code> @ '
                  f'<code>{_h(meta_extras["data_hash"][:12])}</code>. '
                  'Regenerate on every commit that touches the data.</footer>')
+    parts.append('<div id="toast"></div>')
+    parts.append(f'<script>{BOARD_JS}</script>')
     parts.append('</body></html>')
     return "\n".join(parts) + "\n"
 
 
-def _render_card_html(c: dict) -> str:
+def _render_card_html(c: dict, pending: dict[str, list[dict]] | None = None) -> str:
     cid = str(c.get("id", "?"))
     title = str(c.get("title", ""))
     thread = str(c.get("thread", ""))
@@ -566,8 +726,13 @@ def _render_card_html(c: dict) -> str:
     nxt = _first_line(c.get("next", ""))
 
     ap_class = f" ap-{approval}" if approval in ("explicit", "implied", "unreviewed", "blocked") else ""
-    out = [f'<details class="card{ap_class}"><summary>']
+    out = [f'<details class="card{ap_class}" data-id="{_h(cid)}" draggable="true"><summary>']
     out.append(f'<span class="id">{_h(cid)}</span>')
+    for disp in (pending or {}).get(cid, []):
+        act = disp["action"]
+        chip_cls = "op-move" if act.startswith("move:") else f"op-{act}"
+        out.append(f'<span class="pending-chip {_h(chip_cls)}" title="at {_h(disp["at"])}">'
+                   f'OPERATOR: {_h(act)} — pending apply</span>')
     if approval and approval != "implied":
         out.append(f'<span class="apl">{_h(approval)}</span>')
     out.append(f'<span class="title">{_h(title)}</span>')
@@ -616,7 +781,13 @@ def _render_card_html(c: dict) -> str:
             out.append(f'<li><code>{_h(k)}</code>: {body}</li>')
         out.append('</ul></dd>')
 
-    out.append('</dl></div></details>')
+    out.append('</dl>')
+    out.append('<div class="actions">'
+               '<button type="button" data-action="done">✓ done</button>'
+               '<button type="button" data-action="deferred">⏸ deferred</button>'
+               '<button type="button" data-action="declined">✕ declined</button>'
+               '</div>')
+    out.append('</div></details>')
     return "".join(out)
 
 
@@ -629,7 +800,7 @@ def build_meta_extras(data_path: Path) -> dict:
     }
 
 
-def render_all(data_path: Path) -> tuple[str, str, bool, list[str]]:
+def render_all(data_path: Path, pending_path: Path | None = None) -> tuple[str, str, bool, list[str]]:
     """Return (markdown_text, html_text, is_stale, stale_reasons)."""
     with open(data_path, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh)
@@ -640,6 +811,7 @@ def render_all(data_path: Path) -> tuple[str, str, bool, list[str]]:
     extras = build_meta_extras(data_path)
     extras["is_stale"] = is_stale
     extras["stale_reasons"] = reasons
+    extras["pending"] = load_pending_dispositions(pending_path or DEFAULT_PENDING)
     md = render_markdown(data, extras)
     ht = render_html(data, extras)
     return md, ht, is_stale, reasons
@@ -648,6 +820,8 @@ def render_all(data_path: Path) -> tuple[str, str, bool, list[str]]:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", type=Path, default=DEFAULT_DATA)
+    ap.add_argument("--pending", type=Path, default=DEFAULT_PENDING,
+                    help="operator dispositions pending-apply jsonl (missing file = none)")
     ap.add_argument("--md-out", type=Path, default=DEFAULT_MD)
     ap.add_argument("--html-out", type=Path, default=DEFAULT_HTML)
     ap.add_argument("--check", action="store_true", help="do not write; exit 0/2 based on staleness")
@@ -655,7 +829,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     try:
-        md, ht, stale, reasons = render_all(args.data)
+        md, ht, stale, reasons = render_all(args.data, args.pending)
     except FileNotFoundError as exc:
         print(f"[kanban_render] ERROR: {exc}", file=sys.stderr)
         return 1

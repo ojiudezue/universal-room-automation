@@ -217,8 +217,21 @@ shows unknown keys as forensic detail rather than dropping them.
 
 ## Cadence
 
-1. **Session start:** read KANBAN.md (found via MEMORY.md pointer). Reconcile Shipped-organic
-   and Waiting-on-operator against live state before reporting status.
+1. **Session start:** read KANBAN.md (found via MEMORY.md pointer). Then **apply queued
+   operator dispositions**: if `docs/planning/kanban.dispositions.pending.jsonl` exists,
+   it holds `{card_id, action, at}` lines queued from the hosted board (buttons /
+   drag-and-drop, pulled back by homelab-automation's `refresh_urakanban.sh`). Apply each
+   to `kanban.data.yaml`:
+   - `done` → status `shipped_organic` or `done` per card context (already-live work with
+     proof pending → `shipped_organic`; evidenced-closed → `done`)
+   - `deferred` → status `parked`, with a revisit note on the card
+   - `declined` → status `done` (closed) + a `parked_alts`-style note recording the decline
+   - `move:<status>` → set status to `<status>` verbatim
+   Then DELETE the pending file, re-run `python3 scripts/kanban_render.py`, and commit.
+   **Dispositions are OPERATOR AUTHORITY — apply, don't relitigate.** Ask only if a
+   disposition is ambiguous against the card's state (e.g. `done` on a card that never
+   shipped). Finally reconcile Shipped-organic and Waiting-on-operator against live state
+   before reporting status.
 2. **On every push / mid-turn idea:** add or update a card the same turn.
 3. **Before writing a planning doc:** harvest the relevant cards — Origin/Why/Constraints/
    Parked-alts/Knobs flow straight into the plan's Institutional-context + Acceptance sections.
