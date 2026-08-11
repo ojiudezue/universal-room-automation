@@ -963,7 +963,8 @@ cards:
 - id: KHOST-2
   title: Operator disposition buttons + drag-between-states on the hosted board
   thread: tooling
-  status: in_progress
+  status: shipped_organic
+  shipped_note: 'Live 2026-08-11: buttons (done/deferred/declined) + column drag on urakanban LAN site; queue → pending jsonl → agent session-start apply (operator authority). Orchestrator-verified API round-trip. Organic proof: first real operator disposition flowing through to kanban.data.yaml.'
   approval: approved
   origin:
     date: '2026-08-11'
