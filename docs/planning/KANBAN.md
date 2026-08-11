@@ -2,7 +2,11 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
+<<<<<<< Updated upstream
 _Generated: 2026-08-10T21:43:09-05:00_ - _Data commit: `778306f01b69`_ - _last_reconciled: 2026-08-10_
+=======
+_Generated: 2026-08-10T21:53:38-05:00_ - _Data commit: `bdfe0f0157cc`_ - _last_reconciled: 2026-08-10_
+>>>>>>> Stashed changes
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
