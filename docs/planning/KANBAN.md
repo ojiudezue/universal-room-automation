@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-10T23:50:38-05:00_ - _Data commit: `f5be95607682`_ - _last_reconciled: 2026-08-10_
+_Generated: 2026-08-10T23:58:14-05:00_ - _Data commit: `99db6cac917e`_ - _last_reconciled: 2026-08-10_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -15,7 +15,7 @@ _Generated: 2026-08-10T23:50:38-05:00_ - _Data commit: `f5be95607682`_ - _last_r
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 2 |
 | 🔨 In progress | 0 |
-| 🔍 Review | 0 |
+| 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 14 |
 | ⏸️ Waiting on operator | 3 |
 | ⏳ Waiting on me (Claude) | 1 |
@@ -62,20 +62,11 @@ thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
   - `my_process_failure`: I proposed three mechanisms in sequence from snapshots — "URA says home, device says away", then "the 120-min cap fired", then "it is coast" — and each fit the instant I was looking at and died on the next fact. The history query I ran F...
   - `DEDUPE_2026_08_09`: Four-surface sweep: P1P3 is the PARENT (closed, spawned this). STUCK-SENSOR-1 is a different flap (mmWave sensor stuck, not HVAC preset) — no merge. ARREST-SUNSET-1 shipped and is about override sunset, not oscillation. OVERRIDE-NOTIFY-1...
 
-### `FAN-LAYER-1` - DOC-2 fan-actuation shared layer: REVIVED — FAN-MANUAL-1 fired 3 of its 4 park triggers
-thread: **hvac** - status: **pre_planning** - approval: **explicit**
-- **Origin:** 2026-08-11 - operator, on the fan cycle's 1-CRIT/6-HIGH review round: "Do we have a fan abstraction in our roadmap or kanban? This is why. I know we have a fusion camera abstraction and I think a presence sensor abstraction with intent a...
-- **Why:** PLANNING_fan_actuation_shared_layer.md (DOC-2, 2026-08-01) parked the extraction behind a foundation gate + 4 evidence triggers. FAN-MANUAL-1 fired: (1) new-mechanic double-port — the manual-ON hold was ported room-tier + HVAC-tier and d...
-- **Next:** BUILD DISPATCHED (Tier 3). Hard dep satisfied: FAN-MANUAL-1 merged at 1f5839c3a.
-- **Tags:** tier-3, institutional-context, context-wide-scoping
-- **Forensic keys (7):**
-  - `priority`: high
-  - `seed_already_built`: mark_fan_on_issued() (FAN-MANUAL-1 fix-up) is the first shared primitive — an authored-by channel across all URA ON sites. The extraction grows from it.
-  - `gate_check_pending`: DOC-2 foundation gate also requires H8 organic validation of the v5.31.0 manual-off cooldown (a real manual OFF observed not re-arming on the live house). Verify from ledger before build — if unproven, that is the one remaining gate.
-  - `PLAN_2026_08_11`: PLANNING_fan_actuation_shared_layer_v2.md (756 lines). Writer set is TEN sites across 5 files, not five — W8 zone-vacancy sweep + W9 pre-arrival bypass ALL machinery (trigger #3 fired at TWO sites). RECOMMENDED SHAPE (b): FanPolicyOracle...
-  - `PLAN_REVIEW_1_2026_08_11`: NEEDS-REVISION — TWO MORE MISSED WRITERS: C1 _stop_all_fans_safety (hvac.py:2330-2362, smoke/CO all-zones fan stop — legitimate but must consult w/ safety=True) and C2 hvac_predict._activate_zone_fans (:1038-1102, pre-arrival ON — would ...
-  - `PLAN_READY_2026_08_11`: Rev-2 committed: 12 writers (W11 safety-stop w/ safety=True always-ALLOW- but-logged; W12 pre-arrival ON defers under cooldown); FanDecisionSnapshot required-arg contract; INV-FLA-T temporal + per-room lock via oracle.actuate() context m...
-  - `DEDUPE_2026_08_11`: Sweep: DOC-2 planning doc is the PARENT (parked, triggers now fired -> READY per the skill rule). FAN-MANUAL-1 is the trigger-firing cycle, linked. ARREST-COMFORT-1 sibling class. THIRD instance of a parked plan's fired trigger surfacing...
+### `FAN-LAYER-2` - FanPolicyOracle completion — RoomFanState delegation + actuate-wrap remainder (W1-W3, W8-W10) + INV-FLA-T lock
+thread: **fans** - status: **pre_planning** - approval: **unreviewed**
+- **Origin:** 2026-08-11 - Session 3 scoped-partial: builder deferred RoomFanState dataclass→property (34 sites), W1-W3/W8-W10 actuate wraps, adjacency reverse-scan. Honest deferral, own blast radius.
+- **Why:** State-in-one-place holds for RoomAutomation tier but HVAC-tier RoomFanState still carries its own hold fields; TOCTOU lock (INV-FLA-T) only covers W11/W12. Full oracle authority needs the remainder.
+- **Next:** After FAN-LAYER-1 increment ships + validates: plan review (Tier 2-DB), then RoomFanState conversion as its own cycle.
 
 ### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)
 thread: **tablets** - status: **pre_planning** - approval: **unreviewed**
@@ -235,10 +226,23 @@ _being built_
 
 _(none)_
 
-## 🔍 Review (0)
+## 🔍 Review (1)
 _under review_
 
-_(none)_
+### `FAN-LAYER-1` - DOC-2 fan-actuation shared layer: REVIVED — FAN-MANUAL-1 fired 3 of its 4 park triggers
+thread: **hvac** - status: **review** - approval: **explicit**
+- **Origin:** 2026-08-11 - operator, on the fan cycle's 1-CRIT/6-HIGH review round: "Do we have a fan abstraction in our roadmap or kanban? This is why. I know we have a fusion camera abstraction and I think a presence sensor abstraction with intent a...
+- **Why:** PLANNING_fan_actuation_shared_layer.md (DOC-2, 2026-08-01) parked the extraction behind a foundation gate + 4 evidence triggers. FAN-MANUAL-1 fired: (1) new-mechanic double-port — the manual-ON hold was ported room-tier + HVAC-tier and d...
+- **Next:** BUILD DISPATCHED (Tier 3). Hard dep satisfied: FAN-MANUAL-1 merged at 1f5839c3a.
+- **Tags:** tier-3, institutional-context, context-wide-scoping
+- **Forensic keys (7):**
+  - `priority`: high
+  - `seed_already_built`: mark_fan_on_issued() (FAN-MANUAL-1 fix-up) is the first shared primitive — an authored-by channel across all URA ON sites. The extraction grows from it.
+  - `gate_check_pending`: DOC-2 foundation gate also requires H8 organic validation of the v5.31.0 manual-off cooldown (a real manual OFF observed not re-arming on the live house). Verify from ledger before build — if unproven, that is the one remaining gate.
+  - `PLAN_2026_08_11`: PLANNING_fan_actuation_shared_layer_v2.md (756 lines). Writer set is TEN sites across 5 files, not five — W8 zone-vacancy sweep + W9 pre-arrival bypass ALL machinery (trigger #3 fired at TWO sites). RECOMMENDED SHAPE (b): FanPolicyOracle...
+  - `PLAN_REVIEW_1_2026_08_11`: NEEDS-REVISION — TWO MORE MISSED WRITERS: C1 _stop_all_fans_safety (hvac.py:2330-2362, smoke/CO all-zones fan stop — legitimate but must consult w/ safety=True) and C2 hvac_predict._activate_zone_fans (:1038-1102, pre-arrival ON — would ...
+  - `PLAN_READY_2026_08_11`: Rev-2 committed: 12 writers (W11 safety-stop w/ safety=True always-ALLOW- but-logged; W12 pre-arrival ON defers under cooldown); FanDecisionSnapshot required-arg contract; INV-FLA-T temporal + per-room lock via oracle.actuate() context m...
+  - `DEDUPE_2026_08_11`: Sweep: DOC-2 planning doc is the PARENT (parked, triggers now fired -> READY per the skill rule). FAN-MANUAL-1 is the trigger-firing cycle, linked. ARREST-COMFORT-1 sibling class. THIRD instance of a parked plan's fired trigger surfacing...
 
 ## 🚀 Shipped (organic open) (14)
 _live, awaiting proof_
