@@ -62,4 +62,21 @@ Suite: 23 failed / 8626 passed — failing names identical to the pre-cycle base
 
 ## Live Validation
 
-_(prospective — to be replaced with the validated table post-restart)_
+### Validated 2026-08-10 (v5.69.0 boot, night)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Loads, zero URA errors | **PASS** | `system_log` ERROR search for `universal_room` empty post-restart; house_state `home_night` on both coordinator sensors |
+| L2 | Rung-3 knobs present at defaults | **PASS** | `number.ura_hvac_coordinator_comfort_delay_grace_minutes` = 30; `number.ura_hvac_coordinator_comfort_delay_soc_floor` = 80 — both live, eager-seeded (no boot-default window per D2-LOW-2 fix) |
+| L3 | Founding case — manual comfort request earns grace | **ORGANIC (open)** | Next genuine manual cool/heat in an occupied zone at SOC ≥ 80 must show a grant (no revert within grace) + `comfort_delay_deferred_write` ledger rows for any arrested sibling writes. Mutation-anchored in-suite at all 13 S-sites |
+| L4 | No suppression of legitimate action | **PASS (live signal + in-suite)** | Night presets normal post-boot, zones reporting; no-grace positive controls (S10-S13 `_fires_without_grace`) green in-suite; D re-enumeration verified byte-identical no-grace path |
+| L5 | Restart behavior | **PASS (by construction)** | This boot exercised it: grace map empty (RAM-only), knobs restored persisted values, no anomalous preset writes post-boot |
+
+Gating note (operator Q at ship time): grace is SOC-gated (≥80 at grant), shed-dominated, and
+duty-cycle-coast wins are the DESIGN (the founding fix). There is NO explicit peak-TOU conjunct —
+the SOC floor is the peak-conflict resolution per the operator's ruling ("grace when the battery
+is really full, strict again below 80"). A hard peak-TOU gate would be a one-line predicate
+addition if live evidence warrants.
+
+PR #498: +2955/−234 (non-empty verified). Second organic proof open: Cycle B (graduated
+concession 76→for-15-min→78) dispatches after this validates organically.
