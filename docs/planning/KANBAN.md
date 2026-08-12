@@ -17,10 +17,10 @@ _Generated: 2026-08-11T22:14:05-05:00_ - _Data commit: `d3f270f6fa93`_ - _last_r
 | 🔨 In progress | 2 |
 | 🔍 Review | 0 |
 | 🚀 Shipped (organic open) | 20 |
-| ⏸️ Waiting on operator | 4 |
+| ⏸️ Waiting on operator | 2 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 0 |
-| ✅ Done | 3 |
+| ✅ Done | 5 |
 
 ## 📥 Inbox (1)
 _raw capture_
@@ -530,14 +530,8 @@ thread: **perimeter** - status: **shipped_organic**
   - `note`: live PASS (zero multi-key WARN / _2 storm / URA ERROR; telemetry attr present)
   - `organic_open`: CLOSED 2026-08-07: leg_firing_by_camera POPULATED from real events (rear_ptz shows frigate+frigate2+protect on one camera; back_yard frigate+frigate2); today's exterior person-detects each = one alert per track, pass_by tracks alert_coun...
 
-## ⏸️ Waiting on operator (4)
+## ⏸️ Waiting on operator (2)
 _needs a human call_
-
-### `COMFORT-TOGGLE-1` - Dedicated enable switch for comfort-delay grace (vs grace_minutes=0 kill)
-thread: **hvac** - status: **waiting_operator** - approval: **unreviewed**
-- **Origin:** 2026-08-10 - operator Q at v5.69.0 ship: "Can we gate this behind a toggle ie this more permissive bypass? What is the config surface?" — question, not command
-- **Why:** grace_minutes=0 already kills the feature but destroys the tuned duration on toggle; a switch preserves it + one-tap tile. Marginal: mild config-surface growth for convenience.
-- **Next:** Operator decides: build the switch (Tier-1, ~30 LoC mirroring existing URA switch persistence) or accept grace_minutes=0 as the toggle. Also parked: hard peak-TOU conjunct (one-line predicate) if live evidence shows SOC-80 floor insuffic...
 
 ### `EV-GARAGE-A-NOCHARGE-1` - BMW on Garage A refuses charge overnight — vehicle-side or pilot fault; URA exonerated
 thread: **energy** - status: **waiting_operator** - approval: **unreviewed**
@@ -555,12 +549,6 @@ thread: **camera** - status: **waiting_operator** - approval: **blocked**
 - **Tags:** audit-first
 - **Refs:** AUDIT_frigate1_sunset.md
 
-### `PHYS` - Physical operator actions
-thread: **ops** - status: **waiting_operator** - approval: **blocked**
-- **Why:** hardware only the operator can touch
-- **Forensic keys (1):**
-  - `items`: Envoy power-cycle (daily reserve wedge, self-heals but recurs)
-
 ## ⏳ Waiting on me (Claude) (1)
 _I owe something_
 
@@ -574,8 +562,16 @@ _revisit-trigger set_
 
 _(none)_
 
-## ✅ Done (3)
+## ✅ Done (5)
 _closed, evidence in refs_
+
+### `COMFORT-TOGGLE-1` - Dedicated enable switch for comfort-delay grace (vs grace_minutes=0 kill)
+thread: **hvac** - status: **done** - approval: **explicit**
+- **Origin:** 2026-08-10 - operator Q at v5.69.0 ship: "Can we gate this behind a toggle ie this more permissive bypass? What is the config surface?" — question, not command
+- **Why:** grace_minutes=0 already kills the feature but destroys the tuned duration on toggle; a switch preserves it + one-tap tile. Marginal: mild config-surface growth for convenience.
+- **Next:** Operator decides: build the switch (Tier-1, ~30 LoC mirroring existing URA switch persistence) or accept grace_minutes=0 as the toggle. Also parked: hard peak-TOU conjunct (one-line predicate) if live evidence shows SOC-80 floor insuffic...
+- **Forensic keys (1):**
+  - `operator_disposition`: DECLINED 2026-08-11 (chat): "Comfort toggle - no". grace_minutes=0 is the kill. Parked peak-TOU conjunct stays parked on live evidence.
 
 ### `RESACC-1` - Resolver accuracy test suite
 thread: **resolver** - status: **done** - approval: **implied**
@@ -608,6 +604,13 @@ thread: **security** - status: **done** - approval: **explicit**
   - `fix_REVISED`: MUST make the install actually happen: either subscribe PerimeterAlertManager to SIGNAL_EXTERIOR_LINKER_READY and install there, or reorder __init__ (linker before perimeter_alert), or re-run the install after linker registration.
   - `bug_class`: #33 coordinator-setup ORDERING - hass.data sibling lookup inside async_setup with no READY-signal fallback; the guard silently no-ops
   - `organic_open`: CLOSED 2026-08-08 09:22 via v5.62.1: allowlist_installed=true, allowlist_camera_count=12 (matches the 12 staged+discarded cameras), and ignored_offlist_events={'garage_b':2} proves the gate is ENFORCING (was an empty dict for the entire ...
+
+### `PHYS` - Physical operator actions
+thread: **ops** - status: **done** - approval: **explicit**
+- **Why:** hardware only the operator can touch
+- **Forensic keys (2):**
+  - `operator_disposition`: done via board button 2026-08-11T15:43Z — first live KHOST-2 disposition; applied per operator-authority rule
+  - `items`: Envoy power-cycle (daily reserve wedge, self-heals but recurs)
 
 ### `P1P3` - Preset verdict (flap re-measurement)
 thread: **hvac** - status: **done** - approval: **explicit**

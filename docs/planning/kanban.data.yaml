@@ -714,8 +714,9 @@ cards:
 - id: COMFORT-TOGGLE-1
   title: Dedicated enable switch for comfort-delay grace (vs grace_minutes=0 kill)
   thread: hvac
-  status: waiting_operator
-  approval: unreviewed
+  status: done
+  approval: explicit
+  operator_disposition: 'DECLINED 2026-08-11 (chat): "Comfort toggle - no". grace_minutes=0 is the kill. Parked peak-TOU conjunct stays parked on live evidence.'
   origin:
     date: '2026-08-10'
     gist: 'operator Q at v5.69.0 ship: "Can we gate this behind a toggle ie this more permissive bypass? What is the config surface?" — question, not command'
@@ -2121,8 +2122,9 @@ cards:
 - id: PHYS
   title: Physical operator actions
   thread: ops
-  status: waiting_operator
-  approval: blocked
+  status: done
+  approval: explicit
+  operator_disposition: 'done via board button 2026-08-11T15:43Z — first live KHOST-2 disposition; applied per operator-authority rule'
   why: hardware only the operator can touch
   items:
   - Envoy power-cycle (daily reserve wedge, self-heals but recurs)
