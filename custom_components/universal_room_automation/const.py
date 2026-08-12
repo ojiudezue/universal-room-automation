@@ -1345,7 +1345,20 @@ CENSUS_DIVERGENCE_CORROBORATION_KINDS: Final = frozenset(
 # v3.5.1 Perimeter Alerting & Zone Aggregation
 # ============================================================================
 
-# Perimeter alert config keys
+# Perimeter alert config keys.
+#
+# CONSOL-1 (v-next) §D6: the legacy person+vehicle-shared "alert hours"
+# keys are RENAMED to vehicle-scoped keys (person path no longer consults
+# hours — contextual severity §6 replaces the existence window). Values
+# migrate at setup_entry so operator tuning is preserved. The retired
+# notify_service/target keys are STRIPPED from the config flow but read
+# with `_migration_only_get` if still present in old options blobs.
+CONF_PERIMETER_VEHICLE_HOURS_START: Final = "perimeter_vehicle_hours_start"
+CONF_PERIMETER_VEHICLE_HOURS_END: Final = "perimeter_vehicle_hours_end"
+
+# Legacy names — retained as constants for the one-shot options-migration
+# read path in __init__.py. Do NOT reference from runtime code paths; use
+# CONF_PERIMETER_VEHICLE_HOURS_* instead.
 CONF_PERIMETER_ALERT_HOURS_START: Final = "perimeter_alert_hours_start"
 CONF_PERIMETER_ALERT_HOURS_END: Final = "perimeter_alert_hours_end"
 CONF_PERIMETER_ALERT_NOTIFY_SERVICE: Final = "perimeter_alert_notify_service"
@@ -1354,7 +1367,57 @@ CONF_PERIMETER_ALERT_NOTIFY_TARGET: Final = "perimeter_alert_notify_target"
 # Perimeter alert defaults
 DEFAULT_PERIMETER_ALERT_START: Final = 23   # 11 PM
 DEFAULT_PERIMETER_ALERT_END: Final = 5      # 5 AM
+DEFAULT_PERIMETER_VEHICLE_HOURS_START: Final = DEFAULT_PERIMETER_ALERT_START
+DEFAULT_PERIMETER_VEHICLE_HOURS_END: Final = DEFAULT_PERIMETER_ALERT_END
 PERIMETER_ALERT_COOLDOWN_SECONDS: Final = 300  # 5 minutes
+
+# ----------------------------------------------------------------------------
+# CONSOL-1 (v-next) — universal llmvision enrichment (D3 + D4).
+# Rung placement per plan §9 / CLAUDE.md Numbers-Get-Knobs:
+#   Rung 1 (module const): kill switch, pinned provider defaults.
+#   Rung 2 (config flow) : per-deployment enable + camera allowlist.
+#   Rung 3 (Number entity): operator-tunable timeout (perimeter_enrichment_timeout_s).
+# ----------------------------------------------------------------------------
+# Hard kill switch. True → adapter no-ops → identical to _ENABLED=False.
+LLMVISION_ENRICHMENT_KILL: Final[bool] = False
+
+# Pinned llmvision defaults (D0 probe verdicts).
+# gpt-4o-mini + max_tokens=1500 → observed max ~2.0s, zero errors in 25 calls.
+# gpt-5-mini reasoning model silently returns "" when max_tokens < ~1000, so
+# the adapter's INV-ENRICH-NON-EMPTY check MUST fall through on empty text.
+DEFAULT_PERIMETER_ENRICHMENT_MODEL: Final[str] = "gpt-4o-mini"
+DEFAULT_PERIMETER_ENRICHMENT_MAX_TOKENS: Final[int] = 1500
+DEFAULT_PERIMETER_ENRICHMENT_TIMEOUT_S: Final[float] = 4.0
+MIN_PERIMETER_ENRICHMENT_TIMEOUT_S: Final[float] = 1.0
+MAX_PERIMETER_ENRICHMENT_TIMEOUT_S: Final[float] = 15.0
+
+# Config-flow keys (rung 2).
+CONF_PERIMETER_ENRICHMENT_ENABLED: Final = "perimeter_enrichment_enabled"
+CONF_PERIMETER_ENRICHMENT_PROVIDER: Final = "perimeter_enrichment_provider"
+CONF_PERIMETER_ENRICHMENT_CAMERAS: Final = "perimeter_enrichment_cameras"
+CONF_PERIMETER_ENRICHMENT_MODEL: Final = "perimeter_enrichment_model"
+CONF_PERIMETER_ENRICHMENT_MAX_TOKENS: Final = "perimeter_enrichment_max_tokens"
+CONF_PERIMETER_ENRICHMENT_PROVIDER_ID: Final = "perimeter_enrichment_provider_id"
+
+# Ship defaults OFF (see D4 §M4 promote gate — flipping to True requires
+# 14 days of ledger data proving the cost/quality budget).
+DEFAULT_PERIMETER_ENRICHMENT_ENABLED: Final[bool] = False
+DEFAULT_PERIMETER_ENRICHMENT_PROVIDER: Final[str] = "llmvision"
+DEFAULT_PERIMETER_ENRICHMENT_CAMERAS: Final[list[str]] = []
+
+# Base-message template (CONSOL-1 §D3 rev-2 L3). Enrichment slot is
+# appended with "\n\n" — never a trailing separator on empty text.
+PERIMETER_ENRICHMENT_BASE_TEMPLATE_PERSON: Final[str] = (
+    "Perimeter Alert — Person Detected on {entity_id} at {hhmmss}."
+)
+PERIMETER_ENRICHMENT_BASE_TEMPLATE_VEHICLE: Final[str] = (
+    "Perimeter Alert — Vehicle (deep-night) on {entity_id} at {hhmmss}."
+)
+
+# CONSOL-1 §D8 — zone_monitoring in-code tripwire NM notification type.
+STUCK_SIGNAL_NM_HAZARD_TYPE_ZONE_MONITORING_LEAK: Final = (
+    "zone_monitoring_leak"
+)
 
 # ----------------------------------------------------------------------------
 # XCORR-1: burst-demotion for isolated single-camera alerts.
@@ -1450,6 +1513,15 @@ NM_ROUTE_REASON_DND_SUPPRESSED_SECURITY_IMAGE: Final[str] = (
     "dnd_suppressed_security_image"
 )
 
+# CONSOL-1 (v-next) — enrichment success / fall-through route_reasons.
+# Dashboards distinguish enrichment success from failure via
+# `route_reason ∈ {NM_ROUTE_REASON_ENRICHED, NM_ROUTE_REASON_ENRICHMENT_FAILED_FALL_THROUGH}`
+# without touching the message body shape.
+NM_ROUTE_REASON_ENRICHED: Final[str] = "enriched_llmvision"
+NM_ROUTE_REASON_ENRICHMENT_FAILED_FALL_THROUGH: Final[str] = (
+    "enrichment_failed_fall_through"
+)
+
 # GUEST default extracted so a follow-up cycle can flip it without churning
 # the full mapping table (plan D2).
 NM_HAZARD_EXTERIOR_PERSON_GUEST_SEVERITY: Final = "MEDIUM"
@@ -1469,6 +1541,87 @@ NM_HAZARD_EXTERIOR_PERSON_SEVERITY_BY_HOUSE_STATE: Final = {
     "waking": "LOW",
 }
 NM_HAZARD_EXTERIOR_PERSON_DEFAULT_SEVERITY: Final = "CRITICAL"  # fail-safe
+
+
+def NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY(  # noqa: N802 (const-like)
+    house_state,  # type: Optional[str]
+    camera_class=None,  # type: Optional[str]
+    track_class=None,   # type: Optional[str]
+    persons_home=None,  # type: Optional[int]
+):
+    # type: (...) -> str
+    """Contextual severity resolver (CONSOL-1 §6, rev-2 TOTAL table).
+
+    Returns the Severity NAME (string). Caller coerces via
+    `Severity[<name>]`. TOTAL over 9 HouseState values; fail-safe
+    `case _:` arm returns CRITICAL for unknown / None / any HouseState
+    value the compiler adds later.
+
+    Universal override (checked FIRST): any `track_class == "circling"`
+    at a `perimeter` camera returns HIGH — EXCEPT when the case tree
+    would already emit CRITICAL for that (house_state, camera_class,
+    persons_home) row. CRITICAL wins.
+
+    Kept as a plain module function (not a table) because rows 5a-5e /
+    6a-6e require multi-input conditional logic (track_class OR
+    persons_home OR camera_class), and dispatch would still be a
+    Python if-tree wrapped in a lookup — the function IS the table.
+    """
+    hs = (house_state or "").lower()
+    cc = (camera_class or "").lower()
+    tc = (track_class or "").lower()
+    ph = 0 if persons_home is None else int(persons_home)
+
+    # CRITICAL-first fail-safe rows (universal override cannot beat these).
+    if hs in ("away", "vacation", "sleep", "home_night"):
+        return "CRITICAL"
+
+    # Universal override AFTER CRITICAL rows — HIGH for perimeter circling.
+    if cc == "perimeter" and tc == "circling":
+        # ARRIVING/WAKING-perimeter and home_day/home_evening rows all
+        # collapse to HIGH here per §6. WAKING+perimeter row (row 8)
+        # says CRITICAL, so handle it before this override.
+        if hs == "waking" and cc == "perimeter":
+            return "CRITICAL"
+        return "HIGH"
+
+    if hs == "home_day":
+        if cc == "perimeter":
+            if tc in ("approach", "linger"):
+                return "MEDIUM" if ph >= 1 else "HIGH"
+            if tc == "first_sighting":
+                return "LOW" if ph >= 1 else "HIGH"
+        if cc == "egress":
+            return "LOW" if ph >= 1 else "HIGH"
+        # any other camera_class / track_class:
+        return "LOW" if ph >= 1 else "HIGH"
+
+    if hs == "home_evening":
+        if cc == "perimeter":
+            if tc in ("approach", "linger"):
+                return "MEDIUM" if ph >= 1 else "HIGH"
+            if tc == "first_sighting":
+                return "LOW" if ph >= 1 else "HIGH"
+        if cc == "egress":
+            return "LOW" if ph >= 1 else "HIGH"
+        return "LOW" if ph >= 1 else "HIGH"
+
+    if hs == "arriving":
+        # "likely the operator approaching" — not silenced, not CRITICAL.
+        return "MEDIUM"
+
+    if hs == "waking":
+        # Perimeter breach while household is booting-up is still
+        # after-hours by intent.
+        if cc == "perimeter":
+            return "CRITICAL"
+        return "MEDIUM"
+
+    if hs == "guest":
+        return NM_HAZARD_EXTERIOR_PERSON_GUEST_SEVERITY
+
+    # case _:  — fail-safe (unknown / missing / None / future value)
+    return "CRITICAL"
 
 # ----------------------------------------------------------------------------
 # ExteriorTrackLinker (build/exterior-track — PLANNING_exterior_track_linking.md)

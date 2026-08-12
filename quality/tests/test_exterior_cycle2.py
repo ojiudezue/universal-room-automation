@@ -320,10 +320,14 @@ def test_animal_feed_linker_no_nm_dispatch():
 # ==================================================================
 
 def test_source_anchor_night_window_gate_present():
+    """CONSOL-1 §D6 renamed the helper: _in_vehicle_night_window →
+    _is_in_vehicle_alert_hours. Accept either (the old name is kept as
+    an alias one release for back-compat with pre-CONSOL-1 tests)."""
     src = open(os.path.join(_ura_path, "perimeter_alert.py")).read()
-    assert "_in_vehicle_night_window(now)" in src, (
-        "vehicle deep-night gate expression missing"
-    )
+    assert (
+        "_is_in_vehicle_alert_hours(now)" in src
+        or "_in_vehicle_night_window(now)" in src
+    ), "vehicle deep-night gate expression missing"
     assert "EXTERIOR_VEHICLE_ALERT_STATES" in src
 
 

@@ -125,6 +125,9 @@ async def async_setup_entry(
             # OverrideArrester (single source of truth).
             ComfortGraceMinutesNumber(hass, entry),
             ComfortSOCFloorNumber(hass, entry),
+            # CONSOL-1 §D3 rung-3: operator-tunable llmvision enrichment
+            # timeout (default 4.0s = 2× observed max from D0.2 probe).
+            PerimeterEnrichmentTimeoutNumber(hass, entry),
         ]
         # Session B1 — 5 EVSE drain-precedence knob Numbers on EC device.
         for cls in _build_dp_numbers():
@@ -3578,3 +3581,77 @@ class NMMuteDefaultDurationNumber(NumberEntity, _NMDeviceInfoMixin):
             )
         self.async_write_ha_state()
         _LOGGER.info("NM mute default duration set to %d min", int(value))
+
+
+class PerimeterEnrichmentTimeoutNumber(NumberEntity):
+    """CONSOL-1 §D3 rung-3 — llmvision enrichment wall-clock timeout (s).
+
+    Persists via entry.options (same pattern as VacancyGraceMinutesNumber).
+    Read by `perimeter_enrichment.enrich_dispatched_alert` at each call
+    (no caching) so operator tunes take effect on the next event.
+
+    Kill-switch semantics: min value (1.0s) caps runaway. Setting to
+    MAX (15.0s) is a legal choice for gpt-5-mini @ max_tokens=1500
+    (D0.2 probe observed ~4.7s max). Rung-1 kill switch
+    `LLMVISION_ENRICHMENT_KILL` disables the adapter regardless.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:timer-outline"
+    _attr_native_min_value = 1.0
+    _attr_native_max_value = 15.0
+    _attr_native_step = 0.5
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import (
+            CONF_PERIMETER_ENRICHMENT_MAX_TOKENS,
+            DEFAULT_PERIMETER_ENRICHMENT_TIMEOUT_S,
+        )
+        self.hass = hass
+        self._entry = entry
+        # unique_id → HA slug: number.universal_room_automation_perimeter_enrichment_timeout_s
+        self._attr_unique_id = f"{DOMAIN}_perimeter_enrichment_timeout_s"
+        self._attr_name = "Perimeter Enrichment Timeout"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "notification_manager")},
+            name="URA: Notification Manager",
+            manufacturer="Universal Room Automation",
+            model="Notification Manager",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        config = {**entry.data, **entry.options}
+        self._value = float(config.get(
+            "perimeter_enrichment_timeout_s",
+            DEFAULT_PERIMETER_ENRICHMENT_TIMEOUT_S,
+        ))
+
+    @property
+    def native_value(self) -> float:
+        return float(self._value)
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._value = float(value)
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={
+                    **self._entry.options,
+                    "perimeter_enrichment_timeout_s": float(value),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "PerimeterEnrichmentTimeout options-writeback failed",
+                exc_info=True,
+            )
+        self.async_write_ha_state()
+        _LOGGER.info("Perimeter enrichment timeout set to %.1fs", float(value))

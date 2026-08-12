@@ -1518,6 +1518,62 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 import traceback
                 _LOGGER.error("Traceback: %s", traceback.format_exc())
 
+        # CONSOL-1 §D6 — one-shot rename of perimeter_alert_hours_*
+        # → perimeter_vehicle_hours_*, and STRIP of retired
+        # perimeter_alert_notify_service/_target. Values carry over.
+        if not entry.options.get("consol1_perimeter_keys_migration_done"):
+            try:
+                from .const import (
+                    CONF_PERIMETER_ALERT_HOURS_START as _OLD_START,
+                    CONF_PERIMETER_ALERT_HOURS_END as _OLD_END,
+                    CONF_PERIMETER_ALERT_NOTIFY_SERVICE as _OLD_SVC,
+                    CONF_PERIMETER_ALERT_NOTIFY_TARGET as _OLD_TGT,
+                    CONF_PERIMETER_VEHICLE_HOURS_START as _NEW_START,
+                    CONF_PERIMETER_VEHICLE_HOURS_END as _NEW_END,
+                )
+                opts = dict(entry.options)
+                changed = False
+                if _OLD_START in opts and _NEW_START not in opts:
+                    opts[_NEW_START] = opts[_OLD_START]
+                    _LOGGER.info(
+                        "CONSOL-1 §D6: migrated %s → %s (value=%s)",
+                        _OLD_START, _NEW_START, opts[_OLD_START],
+                    )
+                    changed = True
+                if _OLD_END in opts and _NEW_END not in opts:
+                    opts[_NEW_END] = opts[_OLD_END]
+                    _LOGGER.info(
+                        "CONSOL-1 §D6: migrated %s → %s (value=%s)",
+                        _OLD_END, _NEW_END, opts[_OLD_END],
+                    )
+                    changed = True
+                for _k in (_OLD_START, _OLD_END, _OLD_SVC, _OLD_TGT):
+                    if _k in opts:
+                        opts.pop(_k, None)
+                        _LOGGER.info(
+                            "CONSOL-1 §D1/§D6: stripped retired key %s", _k,
+                        )
+                        changed = True
+                opts["consol1_perimeter_keys_migration_done"] = True
+                if changed:
+                    entry = (
+                        hass.config_entries.async_get_entry(entry.entry_id)
+                        or entry
+                    )
+                    hass.config_entries.async_update_entry(
+                        entry, options=opts,
+                    )
+                else:
+                    hass.config_entries.async_update_entry(
+                        entry,
+                        options={
+                            **entry.options,
+                            "consol1_perimeter_keys_migration_done": True,
+                        },
+                    )
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.error("CONSOL-1 perimeter-keys migration failed: %s", e)
+
         # v3.6.0-c2.9.2: Remove stale coordinator-level safety_alert entity
         # that collides with the room-level one in aggregation.py.
         # The coordinator sensor was renamed to _safety_coordinator_safety_alert.
@@ -2419,6 +2475,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
         except Exception as e:
             _LOGGER.error("Failed to initialize perimeter alert manager: %s", e)
+
+        # CONSOL-1 §D8 — in-code tripwire on the HA zone_monitoring
+        # pager stack. Subscribes to `last_updated` on the four counter
+        # automations; fires ONE MEDIUM NM per fired counter per day
+        # (per-day dedup). Auto-closes: if the tripwire produces zero
+        # leak notifications between ship and the NEXT URA release, the
+        # yaml notify actions get stripped in a follow-up.
+        try:
+            from .zone_monitoring_tripwire import ZoneMonitoringTripwire
+            _zmt = ZoneMonitoringTripwire(hass)
+            await _zmt.async_setup()
+            hass.data[DOMAIN]["zone_monitoring_tripwire"] = _zmt
+            _LOGGER.info(
+                "CONSOL-1 §D8: zone_monitoring tripwire subscribed"
+            )
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.error(
+                "CONSOL-1 §D8: zone_monitoring tripwire failed: %s", e,
+            )
 
         # build/exterior-track: Initialize exterior track linker.
         # Independent of PerimeterAlertManager — subscribes to `frigate_events`

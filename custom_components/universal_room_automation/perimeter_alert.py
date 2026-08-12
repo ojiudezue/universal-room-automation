@@ -79,12 +79,12 @@ from .const import (
     DOMAIN,
     CONF_PERIMETER_CAMERAS,
     CONF_EGRESS_CAMERAS,
-    CONF_PERIMETER_ALERT_HOURS_START,
-    CONF_PERIMETER_ALERT_HOURS_END,
     CONF_PERIMETER_ALERT_NOTIFY_SERVICE,
     CONF_PERIMETER_ALERT_NOTIFY_TARGET,
-    DEFAULT_PERIMETER_ALERT_START,
-    DEFAULT_PERIMETER_ALERT_END,
+    CONF_PERIMETER_VEHICLE_HOURS_START,
+    CONF_PERIMETER_VEHICLE_HOURS_END,
+    DEFAULT_PERIMETER_VEHICLE_HOURS_START,
+    DEFAULT_PERIMETER_VEHICLE_HOURS_END,
     PERIMETER_ALERT_COOLDOWN_SECONDS,
     ENTRY_TYPE_INTEGRATION,
     CONF_ENTRY_TYPE,
@@ -94,6 +94,11 @@ from .const import (
     EXTERIOR_CAMERA_KEY_ALIASES,
     NM_HAZARD_EXTERIOR_PERSON_SEVERITY_BY_HOUSE_STATE,
     NM_HAZARD_EXTERIOR_PERSON_DEFAULT_SEVERITY,
+    NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY,
+    NM_ROUTE_REASON_ENRICHED,
+    NM_ROUTE_REASON_ENRICHMENT_FAILED_FALL_THROUGH,
+    PERIMETER_ENRICHMENT_BASE_TEMPLATE_PERSON,
+    PERIMETER_ENRICHMENT_BASE_TEMPLATE_VEHICLE,
     NM_HAZARD_EXTERIOR_TRACK_SEVERITY_MAP,
     CONF_EXTERIOR_SNAPSHOT_OFFSET_S,
     DEFAULT_EXTERIOR_SNAPSHOT_OFFSET_S,
@@ -130,6 +135,7 @@ from .const import (
     EXTERIOR_ANIMAL_SENSOR_SUFFIXES,
 )
 from .domain_coordinators.base import Severity
+from .perimeter_enrichment import enrich_dispatched_alert
 # F1 (cycle-3 fix-up): single source of truth for person-family suffix
 # vocabulary — perimeter dedup MUST NOT drift from resolver discovery.
 from .camera_resolver import _PERSON_SUFFIXES as _RESOLVER_PERSON_SUFFIXES
@@ -327,6 +333,25 @@ class PerimeterAlertManager:
         # any capture is possible. On any failure, engage the kill switch
         # so delivery reverts to legacy URL form (never crashes setup).
         await self._async_setup_snapshot_dir()
+
+        # CONSOL-1 §D1 — one-shot ERROR log if operator still has the
+        # retired legacy notify keys populated. The runtime dispatch no
+        # longer honors them; this surfaces the config drift so the
+        # operator can clear the keys via options flow.
+        try:
+            _legacy_service, _legacy_target = self._get_notify_config()
+            if _legacy_service or _legacy_target:
+                _LOGGER.error(
+                    "PerimeterAlertManager: legacy notify keys are "
+                    "populated (service=%r, target=%r) but the legacy "
+                    "notify leg is RETIRED (CONSOL-1 §D1). Clear "
+                    "'perimeter_alert_notify_service' and "
+                    "'perimeter_alert_notify_target' in the integration "
+                    "options; all dispatch now flows through NM.",
+                    _legacy_service, _legacy_target,
+                )
+        except Exception:  # noqa: BLE001
+            pass
 
         perimeter_infos = self._resolve_camera_infos(CONF_PERIMETER_CAMERAS)
         egress_infos = self._resolve_camera_infos(CONF_EGRESS_CAMERAS)
@@ -964,14 +989,10 @@ class PerimeterAlertManager:
         """Evaluate a perimeter person detection and escalate if warranted."""
         now = dt_util.now()
 
-        # --- 1. Check alert hours ---
-        if not self._is_in_alert_hours(now):
-            _LOGGER.debug(
-                "PerimeterAlertManager: person detected on %s but outside alert hours (%02d:xx)",
-                entity_id,
-                now.hour,
-            )
-            return
+        # --- 1. (CONSOL-1 §D2) Alert-hours existence gate REMOVED for the
+        # person path. Severity is contextual (see §6 / D2 contextual
+        # severity function). Vehicle path retains its own window via
+        # _is_in_vehicle_alert_hours at :2041 (§D6, renamed keys).
 
         # --- 2. Check egress suppression window ---
         if self._last_egress_time is not None:
@@ -1024,12 +1045,30 @@ class PerimeterAlertManager:
         # silenced. INV-XT reduces to "≤ 1 dispatch per camera per cooldown"
         # which is exactly INV-XP — no separate silencing gate.
 
-        # --- 4. Resolve severity from house state (D2, fail-safe) ---
+        # --- 4. Resolve severity from house state (D2 contextual, fail-safe) ---
         # C-mut-d: if the resolver itself raises, fall back to CRITICAL so
         # the docstring guarantee ("any exception → CRITICAL") holds even
         # if a downstream helper is broken.
+        _cam_class_early = self._camera_class_for_sensor(entity_id)
+        _track_class_early: str | None = None
         try:
-            severity = self._severity_for_current_house_state()
+            _linker_early = self.hass.data.get(DOMAIN, {}).get(
+                "exterior_track_linker"
+            )
+            _cam_key_early = self._camera_key_for_sensor(entity_id)
+            if _linker_early is not None and _cam_key_early:
+                _t = _linker_early.find_owning_track(
+                    _cam_key_early, "person", now,
+                )
+                if _t is not None:
+                    _track_class_early = _linker_early.classify(_t)
+        except Exception:  # noqa: BLE001
+            _track_class_early = None
+        try:
+            severity = self._severity_for_current_house_state(
+                camera_class=_cam_class_early,
+                track_class=_track_class_early,
+            )
         except Exception as exc:  # noqa: BLE001
             _LOGGER.warning(
                 "PerimeterAlertManager: severity resolver raised (%s) — "
@@ -1183,25 +1222,17 @@ class PerimeterAlertManager:
         if snapshot_path:
             delay_s = 0
 
-        # --- 6. Dispatch (NM primary, legacy fallback) ---
+        # --- 6. Dispatch (NM only; CONSOL-1 §D1 — legacy leg RETIRED).
+        # `_async_send_legacy_notification` is code-dead (kept one release
+        # for backwards-compat introspection); if operator still has the
+        # retired keys populated we emit a one-shot ERROR at setup rather
+        # than silently dispatching through it.
         nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
-        legacy_service, legacy_target = self._get_notify_config()
-
-        # Both set → NM wins, one-shot deprecation WARN.
-        if nm is not None and getattr(nm, "enabled", False) and legacy_service:
-            if not self._legacy_deprecation_warned:
-                _LOGGER.warning(
-                    "PerimeterAlertManager: CONF_PERIMETER_ALERT_NOTIFY_SERVICE "
-                    "is deprecated when NotificationManager is enabled — routing "
-                    "via NM. Clear the legacy field to silence this warning; "
-                    "disable NM to force the legacy path."
-                )
-                self._legacy_deprecation_warned = True
 
         title = "Perimeter Alert — Person Detected"
-        message = (
-            f"Person detected on perimeter camera {entity_id} "
-            f"at {now.strftime('%H:%M:%S')}."
+        message = PERIMETER_ENRICHMENT_BASE_TEMPLATE_PERSON.format(
+            entity_id=entity_id,
+            hhmmss=now.strftime("%H:%M:%S"),
         )
 
         # build/exterior-track: enrich the message with the linker's path
@@ -1235,14 +1266,50 @@ class PerimeterAlertManager:
                 )
 
         # A-M1 short-circuit: no channels at all → don't reserve, don't
-        # add in-flight, WARN and return.
-        if (nm is None or not getattr(nm, "enabled", False)) and not legacy_service:
+        # add in-flight, WARN and return. Post-CONSOL-1: NM is the only
+        # channel — the legacy fallback is retired.
+        if nm is None or not getattr(nm, "enabled", False):
             _LOGGER.warning(
-                "PerimeterAlertManager: person detected on %s but neither "
-                "NM nor legacy notify_service is configured — skipping.",
+                "PerimeterAlertManager: person detected on %s but NM is "
+                "not configured — skipping.",
                 entity_id,
             )
             return
+
+        # --- 6b. CONSOL-1 §D3: universal llmvision enrichment.
+        # Runs BETWEEN snapshot resolution and NM dispatch. Never blocks
+        # or raises (INV-ENRICH-NEVER-SILENCES). Route reason distinguishes
+        # success / fall-through / pre-cycle path on the ledger side.
+        enriched: str | None = None
+        try:
+            enriched = await enrich_dispatched_alert(
+                self.hass, snapshot_path, entity_id,
+            )
+        except Exception:  # noqa: BLE001 — INV-ENRICH-NEVER-SILENCES
+            _LOGGER.debug(
+                "PerimeterAlertManager: enrichment adapter escaped an "
+                "exception (defense-in-depth) — falling through",
+                exc_info=True,
+            )
+            enriched = None
+        if enriched:
+            message = f"{message}\n\n{enriched}"
+            route_reason = NM_ROUTE_REASON_ENRICHED
+        else:
+            # Distinguish gated-off (no adapter call) from adapter-tried-
+            # and-failed by checking whether enrichment would have fired.
+            try:
+                _cfg = self._get_integration_config()
+                _enabled = bool(_cfg.get("perimeter_enrichment_enabled", False))
+                _cams = _cfg.get("perimeter_enrichment_cameras") or []
+                if _enabled and entity_id in _cams and snapshot_path:
+                    route_reason: str | None = (
+                        NM_ROUTE_REASON_ENRICHMENT_FAILED_FALL_THROUGH
+                    )
+                else:
+                    route_reason = None
+            except Exception:  # noqa: BLE001
+                route_reason = None
 
         self._dispatch_in_flight.add(cooldown_key)
 
@@ -1255,7 +1322,7 @@ class PerimeterAlertManager:
             try:
                 if nm is not None and getattr(nm, "enabled", False):
                     try:
-                        await nm.async_notify(
+                        _kwargs: dict[str, Any] = dict(
                             coordinator_id="perimeter_alert",
                             severity=severity,
                             title=title,
@@ -1265,11 +1332,15 @@ class PerimeterAlertManager:
                             snapshot_url=snapshot_url,
                             snapshot_path=snapshot_path,
                         )
+                        if route_reason is not None:
+                            _kwargs["route_reason"] = route_reason
+                        await nm.async_notify(**_kwargs)
                         dispatched_ok = True
                         _LOGGER.info(
-                            "PerimeterAlertManager: NM notify dispatched for %s "
-                            "(severity=%s, snapshot=%s)",
+                            "PerimeterAlertManager: NM notify dispatched for "
+                            "%s (severity=%s, snapshot=%s, route_reason=%s)",
                             entity_id, severity.name, bool(snapshot_url),
+                            route_reason,
                         )
                     except Exception as exc:  # noqa: BLE001
                         _LOGGER.error(
@@ -1279,24 +1350,6 @@ class PerimeterAlertManager:
                     # D6 hook placeholder: future security-auto-follow can
                     # subscribe to a SIGNAL_NM_EXTERIOR_PERSON dispatch emitted
                     # here to pre-alarm the security coordinator. Not built.
-                elif legacy_service:
-                    if not self._legacy_fallback_logged:
-                        _LOGGER.info(
-                            "PerimeterAlertManager: NM absent/disabled — using "
-                            "legacy notify service '%s' (deprecated path).",
-                            legacy_service,
-                        )
-                        self._legacy_fallback_logged = True
-                    try:
-                        await self._async_send_legacy_notification(
-                            legacy_service, legacy_target, entity_id, now
-                        )
-                        dispatched_ok = True
-                    except Exception as exc:  # noqa: BLE001
-                        _LOGGER.error(
-                            "PerimeterAlertManager: legacy dispatch raised "
-                            "for %s: %s", entity_id, exc,
-                        )
                 # A-M1: reserve cooldown ONLY after a successful dispatch.
                 # A failed notify leaves the camera unmuted so the next
                 # trigger within 5min can still alert.
@@ -1352,21 +1405,83 @@ class PerimeterAlertManager:
     # D2: severity mapping
     # ------------------------------------------------------------------
 
-    def _severity_for_current_house_state(self) -> Severity:
-        """Return Severity for the current house_state (fail-safe → CRITICAL)."""
+    def _severity_for_current_house_state(
+        self,
+        camera_class: str | None = None,
+        track_class: str | None = None,
+    ) -> Severity:
+        """Return Severity via the CONSOL-1 §6 contextual severity table.
+
+        Fail-safe: any exception → CRITICAL. Total over 9 HouseState
+        values (unknown / missing / None → CRITICAL via the case_ arm
+        in NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY).
+        """
         state = self._get_house_state()
-        name = NM_HAZARD_EXTERIOR_PERSON_SEVERITY_BY_HOUSE_STATE.get(
-            state, NM_HAZARD_EXTERIOR_PERSON_DEFAULT_SEVERITY
-        )
+        persons_home = self._get_persons_home()
+        try:
+            name = NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY(
+                state,
+                camera_class=camera_class,
+                track_class=track_class,
+                persons_home=persons_home,
+            )
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.warning(
+                "PerimeterAlertManager: contextual severity resolver "
+                "raised (%s) — coercing to CRITICAL (fail-safe).", exc,
+            )
+            return Severity.CRITICAL
         try:
             return Severity[name]
         except KeyError:
             _LOGGER.warning(
                 "PerimeterAlertManager: unknown severity name '%s' for state "
-                "'%s' — coercing to CRITICAL (fail-safe).",
-                name, state,
+                "'%s' — coercing to CRITICAL (fail-safe).", name, state,
             )
             return Severity.CRITICAL
+
+    def _get_persons_home(self) -> int:
+        """Return the trusted persons-home count from PresenceCoordinator.
+
+        Fails to 0 if presence coordinator is absent — the contextual
+        severity table treats `persons_home == 0` as "nobody home",
+        which for home_day/home_evening yields HIGH (anomaly row 5e).
+        """
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if mgr is None:
+                return 0
+            presence = getattr(mgr, "presence", None) or getattr(
+                mgr, "_presence_coordinator", None
+            )
+            if presence is None:
+                return 0
+            return int(
+                getattr(presence, "_tracked_persons_count_trusted", 0) or 0
+            )
+        except Exception:  # noqa: BLE001
+            return 0
+
+    def _camera_class_for_sensor(self, sensor_entity_id: str) -> str:
+        """Return 'perimeter' / 'egress' / '' by config membership."""
+        try:
+            cam_key = self._camera_key_for_sensor(sensor_entity_id) or ""
+        except Exception:  # noqa: BLE001
+            cam_key = ""
+        try:
+            cfg = self._get_integration_config()
+        except Exception:  # noqa: BLE001
+            cfg = {}
+        for conf_key, label in (
+            (CONF_PERIMETER_CAMERAS, "perimeter"),
+            (CONF_EGRESS_CAMERAS, "egress"),
+        ):
+            for cam in (cfg.get(conf_key) or []):
+                if cam == sensor_entity_id or (cam_key and cam.endswith(cam_key)):
+                    return label
+        # Fall back to "perimeter" when the sensor came off a perimeter
+        # allowlist during setup — safest severity default.
+        return "perimeter" if sensor_entity_id in self._perimeter_allowlist else ""
 
     def _get_house_state(self) -> str:
         """Return the current house_state string via the canonical accessor.
@@ -2035,20 +2150,48 @@ class PerimeterAlertManager:
                     label, sensor_entity_id, exc_info=True,
                 )
 
-    def _in_vehicle_night_window(self, now: datetime) -> bool:
+    def _is_in_vehicle_alert_hours(self, now: datetime) -> bool:
         """True when `now` is inside the deep-night vehicle-alert window.
 
-        Window semantics match _is_in_alert_hours: start < end is same-day,
-        start >= end wraps at midnight. Rung-1 module constants.
+        CONSOL-1 §D6 — reads the RENAMED, operator-tunable keys
+        (CONF_PERIMETER_VEHICLE_HOURS_START/_END). The old
+        module-constant fallbacks (EXTERIOR_VEHICLE_NIGHT_START/_END)
+        remain the DEFAULTS if the operator hasn't configured a
+        window (defaults 22 / 6 → 10pm-6am, WIDER than the person-
+        path's retired 23-05 window on purpose: vehicles are a
+        deep-night signal).
+
+        Window semantics: start < end is same-day, start >= end wraps
+        at midnight.
         """
-        start = EXTERIOR_VEHICLE_NIGHT_START
-        end = EXTERIOR_VEHICLE_NIGHT_END
+        try:
+            cfg = self._get_integration_config()
+        except Exception:  # noqa: BLE001
+            cfg = {}
+        start = cfg.get(
+            CONF_PERIMETER_VEHICLE_HOURS_START,
+            EXTERIOR_VEHICLE_NIGHT_START,
+        )
+        end = cfg.get(
+            CONF_PERIMETER_VEHICLE_HOURS_END,
+            EXTERIOR_VEHICLE_NIGHT_END,
+        )
+        try:
+            start = int(start)
+            end = int(end)
+        except (TypeError, ValueError):
+            start = EXTERIOR_VEHICLE_NIGHT_START
+            end = EXTERIOR_VEHICLE_NIGHT_END
         h = now.hour
         if start == end:
             return True
         if start < end:
             return start <= h < end
         return h >= start or h < end
+
+    # Back-compat alias for pre-CONSOL-1 callers (deprecated, one release).
+    def _in_vehicle_night_window(self, now: datetime) -> bool:
+        return self._is_in_vehicle_alert_hours(now)
 
     async def _async_handle_vehicle_trigger(
         self, sensor_entity_id: str
@@ -2105,7 +2248,7 @@ class PerimeterAlertManager:
             )
             return
 
-        if not self._in_vehicle_night_window(now):
+        if not self._is_in_vehicle_alert_hours(now):
             _LOGGER.debug(
                 "PerimeterAlertManager: vehicle on %s outside deep-night "
                 "window (%02d-%02d) — digest-only, no NM dispatch.",
@@ -2246,13 +2389,37 @@ class PerimeterAlertManager:
             )
 
         nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
-        legacy_service, legacy_target = self._get_notify_config()
-        if (nm is None or not getattr(nm, "enabled", False)) and not legacy_service:
+        if nm is None or not getattr(nm, "enabled", False):
             _LOGGER.warning(
-                "PerimeterAlertManager: vehicle on %s but no NM/legacy "
-                "notify configured — skipping.", sensor_entity_id,
+                "PerimeterAlertManager: vehicle on %s but NM not "
+                "configured — skipping.", sensor_entity_id,
             )
             return
+
+        # --- CONSOL-1 §D3: enrichment on the vehicle leg (S2).
+        veh_enriched: str | None = None
+        try:
+            veh_enriched = await enrich_dispatched_alert(
+                self.hass, snapshot_path, sensor_entity_id,
+            )
+        except Exception:  # noqa: BLE001 — INV-ENRICH-NEVER-SILENCES
+            veh_enriched = None
+        if veh_enriched:
+            message = f"{message}\n\n{veh_enriched}"
+            veh_route_reason: str | None = NM_ROUTE_REASON_ENRICHED
+        else:
+            try:
+                _cfg = self._get_integration_config()
+                _en = bool(_cfg.get("perimeter_enrichment_enabled", False))
+                _cams = _cfg.get("perimeter_enrichment_cameras") or []
+                if _en and sensor_entity_id in _cams and snapshot_path:
+                    veh_route_reason = (
+                        NM_ROUTE_REASON_ENRICHMENT_FAILED_FALL_THROUGH
+                    )
+                else:
+                    veh_route_reason = None
+            except Exception:  # noqa: BLE001
+                veh_route_reason = None
 
         # Fix-up (2026-08-06, item 2): reserve BEFORE any await/scheduling.
         self._vehicle_in_flight.add(cooldown_key)
@@ -2272,7 +2439,7 @@ class PerimeterAlertManager:
             try:
                 if nm is not None and getattr(nm, "enabled", False):
                     try:
-                        await nm.async_notify(
+                        _kwargs: dict[str, Any] = dict(
                             coordinator_id="perimeter_alert",
                             severity=severity,
                             title=title,
@@ -2286,33 +2453,25 @@ class PerimeterAlertManager:
                             snapshot_url=snapshot_url,
                             snapshot_path=snapshot_path,
                         )
+                        if veh_route_reason is not None:
+                            _kwargs["route_reason"] = veh_route_reason
+                        await nm.async_notify(**_kwargs)
                         dispatched_ok = True
                         _LOGGER.info(
                             "PerimeterAlertManager: vehicle NM dispatched "
-                            "for %s (severity=%s, class=%s, state=%s)",
+                            "for %s (severity=%s, class=%s, state=%s, "
+                            "route_reason=%s)",
                             cooldown_key, severity.name, classification,
-                            house_state,
+                            house_state, veh_route_reason,
                         )
                     except Exception as exc:  # noqa: BLE001
                         _LOGGER.error(
                             "PerimeterAlertManager: vehicle NM failed for "
                             "%s: %s", cooldown_key, exc,
                         )
-                elif legacy_service:
-                    try:
-                        # Fix-up (2026-08-06, A-H2): legacy fallback must
-                        # be labeled Vehicle, not Person.
-                        await self._async_send_legacy_notification(
-                            legacy_service, legacy_target,
-                            cooldown_key, now,
-                            label_family="vehicle",
-                        )
-                        dispatched_ok = True
-                    except Exception as exc:  # noqa: BLE001
-                        _LOGGER.error(
-                            "PerimeterAlertManager: vehicle legacy dispatch "
-                            "raised for %s: %s", cooldown_key, exc,
-                        )
+                # CONSOL-1 §D1: legacy fallback RETIRED on the vehicle
+                # leg as well. See `_async_send_legacy_notification`
+                # (code-dead, one release only).
                 if dispatched_ok:
                     # Fix-up (2026-08-06, A-M3): stamp with dispatch-time
                     # `now` (not the earlier handler-entry `now`) so a
@@ -3256,20 +3415,20 @@ class PerimeterAlertManager:
         return self._active
 
     def _is_in_alert_hours(self, now: datetime) -> bool:
-        """Return True if current hour falls within the configured alert window."""
-        config = self._get_integration_config()
-        start = config.get(CONF_PERIMETER_ALERT_HOURS_START, DEFAULT_PERIMETER_ALERT_START)
-        end = config.get(CONF_PERIMETER_ALERT_HOURS_END, DEFAULT_PERIMETER_ALERT_END)
-
-        hour = now.hour
-        if start == end:
-            return True
-        if start < end:
-            return start <= hour < end
-        return hour >= start or hour < end
+        """DEPRECATED alias (CONSOL-1 §D6). Delegates to
+        `_is_in_vehicle_alert_hours` for one release so the burst-
+        demotion telemetry consumer at ~:1696 keeps working. The
+        person path no longer calls this (D2 removed the existence
+        gate); XCORR-1 night-only decision still consults it but
+        is scoped to vehicle-shape windows post-CONSOL-1.
+        """
+        return self._is_in_vehicle_alert_hours(now)
 
     def _get_notify_config(self) -> tuple[str | None, str | None]:
-        """Return (notify_service, notify_target) from integration config."""
+        """Return (notify_service, notify_target). CONSOL-1 §D1 retired
+        the legacy notify leg; this helper only reads the RETIRED keys
+        so the setup-time deprecation ERROR can detect operators still
+        carrying old options blobs (§D1 test hook)."""
         config = self._get_integration_config()
         service = config.get(CONF_PERIMETER_ALERT_NOTIFY_SERVICE) or None
         target = config.get(CONF_PERIMETER_ALERT_NOTIFY_TARGET) or None

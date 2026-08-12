@@ -44,6 +44,11 @@ async def async_setup_entry(
         cm_entities: list[ButtonEntity] = [
             NMAcknowledgeButton(hass, entry),
             NMTestNotificationButton(hass, entry),
+            # CONSOL-1 §D10: fires a canned perimeter-person event
+            # through the full stack at MEDIUM severity (test doubles as
+            # a live enrichment smoke test when the operator has D3
+            # enabled).
+            SendTestPerimeterAlertButton(hass, entry),
             ClearBayesianBeliefsButton(hass, entry),
             # v4.5.12 D10: diagnostic dump button (house-wide, on HVAC device)
             HVACACRampDiagnosticDumpButton(hass, entry),
@@ -2161,3 +2166,99 @@ class OptimizerRunCycleNowButton(_OptimizerCMButtonBase):
             )
             return
         _LOGGER.info("Optimizer cycle requested manually via Run Cycle Now")
+
+
+class SendTestPerimeterAlertButton(ButtonEntity):
+    """CONSOL-1 §D10 — canned MEDIUM perimeter-person event through the
+    full stack (enrichment + NM). Uses a bundled sample snapshot if one
+    is available under `/media/ura/snapshots/`; falls back to a
+    URL-only shape when no local file exists.
+
+    Entity: button.ura_send_test_perimeter_alert
+    Device: URA: Notification Manager
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:camera-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self._entry = entry
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_send_test_perimeter_alert"
+        self._attr_name = "Send Test Perimeter Alert"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "notification_manager")},
+            name="URA: Notification Manager",
+            manufacturer="Universal Room Automation",
+            model="Notification Manager",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    @property
+    def available(self) -> bool:
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        return nm is not None
+
+    async def async_press(self) -> None:
+        import os as _os
+        from homeassistant.util import dt as dt_util
+        from .const import (
+            NM_HAZARD_EXTERIOR_PERSON,
+            PERIMETER_ENRICHMENT_BASE_TEMPLATE_PERSON,
+            NM_ROUTE_REASON_ENRICHED,
+            NM_ROUTE_REASON_ENRICHMENT_FAILED_FALL_THROUGH,
+        )
+        from .perimeter_enrichment import enrich_dispatched_alert
+        from .domain_coordinators.notification_manager import Severity
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            _LOGGER.warning("Test perimeter alert: NM not available")
+            return
+        # Find a bundled snapshot (best-effort). None → adapter no-ops
+        # cleanly on missing-snapshot early return.
+        snapshot_path: str | None = None
+        try:
+            snap_dir = "/media/ura/snapshots"
+            if _os.path.isdir(snap_dir):
+                for name in sorted(_os.listdir(snap_dir))[:1]:
+                    snapshot_path = _os.path.join(snap_dir, name)
+        except Exception:  # noqa: BLE001
+            snapshot_path = None
+        camera_entity_id = "binary_sensor.consol1_test_camera"
+        now = dt_util.now()
+        base = PERIMETER_ENRICHMENT_BASE_TEMPLATE_PERSON.format(
+            entity_id=camera_entity_id,
+            hhmmss=now.strftime("%H:%M:%S"),
+        )
+        enriched = None
+        try:
+            enriched = await enrich_dispatched_alert(
+                self.hass, snapshot_path, camera_entity_id,
+            )
+        except Exception:  # noqa: BLE001
+            enriched = None
+        if enriched:
+            msg = f"{base}\n\n{enriched}"
+            route_reason = NM_ROUTE_REASON_ENRICHED
+        else:
+            msg = base
+            route_reason = NM_ROUTE_REASON_ENRICHMENT_FAILED_FALL_THROUGH
+        await nm.async_notify(
+            coordinator_id="perimeter_alert_test",
+            severity=Severity.MEDIUM,
+            title="Perimeter Alert — TEST (Person)",
+            message=msg,
+            hazard_type=NM_HAZARD_EXTERIOR_PERSON,
+            location=camera_entity_id,
+            snapshot_url=None,
+            snapshot_path=snapshot_path,
+            route_reason=route_reason,
+        )
+        _LOGGER.info(
+            "CONSOL-1 §D10: test perimeter alert dispatched (enriched=%s)",
+            bool(enriched),
+        )

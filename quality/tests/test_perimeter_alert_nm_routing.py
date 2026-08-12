@@ -161,6 +161,9 @@ def _make_hass(
     include_nm: bool = True,
     external_url: str | None = None,
     internal_url: str | None = None,
+    persons_home: int = 1,  # CONSOL-1: default "someone home" so home_day/evening → LOW not HIGH
+    enrichment_enabled: bool = False,
+    enrichment_cameras: list[str] | None = None,
 ):
     """Build a MockHass carrying all state PerimeterAlertManager reads."""
     hass = MagicMock()
@@ -182,6 +185,10 @@ def _make_hass(
     # Coordinator manager exposing house_state property (mirrors real path)
     cm = MagicMock()
     cm.house_state = house_state
+    # CONSOL-1: presence sub-coord carrying trusted persons count.
+    _presence = MagicMock()
+    _presence._tracked_persons_count_trusted = persons_home
+    cm.presence = _presence
 
     # NM mock — AsyncMock so async_notify awaits cleanly
     nm = MagicMock()
@@ -218,8 +225,16 @@ def _make_hass(
     opts: dict = {
         _const.CONF_PERIMETER_CAMERAS: cams,
         _const.CONF_EGRESS_CAMERAS: [],
-        _const.CONF_PERIMETER_ALERT_HOURS_START: 0,
-        _const.CONF_PERIMETER_ALERT_HOURS_END: 0,  # full day
+        # CONSOL-1 §D6 — vehicle hours NOT set here so downstream test
+        # modules (test_exterior_cycle2.py) get the module-constant
+        # defaults (22-06) for _is_in_vehicle_alert_hours. Tests that
+        # need a custom window override in the entry.options directly.
+        _const.CONF_PERIMETER_ENRICHMENT_ENABLED: enrichment_enabled,
+        _const.CONF_PERIMETER_ENRICHMENT_CAMERAS: (
+            enrichment_cameras if enrichment_cameras is not None else []
+        ),
+        # Retained retired-key columns so the D1 setup-time ERROR test
+        # can opt-in by populating them; default empty → no ERROR.
         _const.CONF_PERIMETER_ALERT_NOTIFY_SERVICE: legacy_service,
         _const.CONF_PERIMETER_ALERT_NOTIFY_TARGET: legacy_target,
     }
@@ -253,6 +268,10 @@ def _run(coro):
 @pytest.mark.parametrize(
     "house_state,expected",
     [
+        # CONSOL-1 §6 contextual severity — TOTAL over 9 HouseState values.
+        # persons_home defaults to 1 in _make_hass so home_day/evening
+        # take the "someone home" rows (LOW). arriving/waking non-perimeter
+        # are MEDIUM (row 7 / row 8b). Unknown/None → CRITICAL (case_).
         ("away", Severity.CRITICAL),
         ("vacation", Severity.CRITICAL),
         ("sleep", Severity.CRITICAL),
@@ -260,8 +279,11 @@ def _run(coro):
         ("guest", Severity.MEDIUM),
         ("home_day", Severity.LOW),
         ("home_evening", Severity.LOW),
-        ("waking", Severity.LOW),
-        ("arriving", Severity.LOW),
+        # waking + perimeter → CRITICAL (row 8). camera_class is derived
+        # from the fixture's CONF_PERIMETER_CAMERAS membership so the
+        # test camera resolves to "perimeter" → CRITICAL, not MEDIUM.
+        ("waking", Severity.CRITICAL),
+        ("arriving", Severity.MEDIUM),
         ("", Severity.CRITICAL),           # empty → fail-safe
         (None, Severity.CRITICAL),         # missing → fail-safe
         ("mystery_state", Severity.CRITICAL),  # unknown → fail-safe
@@ -297,52 +319,86 @@ def test_egress_suppression_preserved():
     assert nm.async_notify.await_count == 0
 
 
-def test_legacy_fallback_when_nm_absent():
+# --- CONSOL-1 §D1: legacy notify leg RETIRED. Tests below replace the
+# pre-CONSOL-1 legacy-fallback tests: on any absent/disabled NM, dispatch
+# is skipped (not routed to notify.*). Populating the retired keys logs
+# a one-shot ERROR at setup (§D1 acceptance criterion).
+
+
+def test_perimeter_alert_person_leg_no_legacy():
+    """§D1: legacy call site :1291 removed — person path never touches
+    hass.services.async_call('notify.*') even when the retired keys are
+    populated, and setup logs a one-shot ERROR."""
+    hass, nm = _make_hass(
+        house_state="away", legacy_service="notify.pushover",
+    )
+    import logging as _lg
+    with _pytest_caplog_fake() as caplog:
+        mgr = _run(_setup_mgr(hass))
+        _run(mgr._async_handle_perimeter_trigger(
+            "binary_sensor.front_yard_person_occupancy",
+        ))
+    assert nm.async_notify.await_count == 1  # routed through NM
+    assert hass.services.async_call.await_count == 0
+    # setup-time ERROR fired iff legacy keys populated.
+    assert any("legacy notify keys" in m for m in caplog.messages)
+
+
+def test_perimeter_alert_vehicle_leg_no_legacy(monkeypatch):
+    """§D1 rev-2 #9: legacy call site :2305 removed — vehicle path never
+    touches hass.services.async_call even with retired keys populated."""
+    hass, nm = _make_hass(
+        house_state="away", legacy_service="notify.pushover",
+        perimeter_cameras=["camera.front_yard"],
+    )
+    mgr = _run(_setup_mgr(hass))
+    # Bypass boot-settle
+    mgr._setup_time = None
+    _run(mgr._async_handle_vehicle_trigger(
+        "binary_sensor.front_yard_vehicle_occupancy",
+    ))
+    # vehicle path may or may not emit (depends on window + track gate)
+    # but MUST NEVER call notify.*
+    for call in hass.services.async_call.await_args_list:
+        _domain = call.args[0] if call.args else None
+        assert _domain != "notify", (
+            f"vehicle path called notify.* — legacy leg NOT retired: {call}"
+        )
+
+
+def test_no_channels_configured_skips_dispatch(caplog):
+    """When NM is absent, person path WARNs and returns — no dispatch,
+    no legacy fallback (CONSOL-1 §D1: legacy leg RETIRED)."""
     hass, _nm = _make_hass(
-        house_state="away",
-        legacy_service="notify.pushover",
-        include_nm=False,
-    )
-    mgr = _run(_setup_mgr(hass))
-    _run(mgr._async_handle_perimeter_trigger("binary_sensor.front_yard_person_occupancy"))
-    calls = hass.services.async_call.await_args_list
-    assert calls, "legacy notify service should have been called"
-    domain, service, data = calls[0].args[:3]
-    assert domain == "notify"
-    assert service == "pushover"
-    assert "Perimeter Alert" in data["title"]
-
-
-def test_legacy_fallback_when_nm_disabled():
-    hass, nm = _make_hass(
-        house_state="away",
-        legacy_service="notify.pushover",
-        nm_enabled=False,
-    )
-    mgr = _run(_setup_mgr(hass))
-    _run(mgr._async_handle_perimeter_trigger("binary_sensor.front_yard_person_occupancy"))
-    assert nm.async_notify.await_count == 0
-    assert hass.services.async_call.await_count == 1
-
-
-def test_legacy_and_nm_both_set_prefers_nm_with_deprecation_warning(caplog):
-    hass, nm = _make_hass(
-        house_state="away",
-        legacy_service="notify.pushover",
-        nm_enabled=True,
+        house_state="away", include_nm=False,
     )
     mgr = _run(_setup_mgr(hass))
     with caplog.at_level("WARNING"):
-        _run(mgr._async_handle_perimeter_trigger("binary_sensor.front_yard_person_occupancy"))
-    assert nm.async_notify.await_count == 1
-    assert hass.services.async_call.await_count == 0  # legacy path NOT taken
-    assert any("deprecated" in r.getMessage().lower() for r in caplog.records)
-    # One-shot: second trigger (after clearing cooldown) should NOT re-warn
-    mgr._last_alert.clear()
-    caplog.clear()
-    with caplog.at_level("WARNING"):
-        _run(mgr._async_handle_perimeter_trigger("binary_sensor.front_yard_person_occupancy"))
-    assert not any("deprecated" in r.getMessage().lower() for r in caplog.records)
+        _run(mgr._async_handle_perimeter_trigger(
+            "binary_sensor.front_yard_person_occupancy",
+        ))
+    assert hass.services.async_call.await_count == 0
+    assert any("NM is not configured" in r.getMessage() for r in caplog.records)
+
+
+class _pytest_caplog_fake:
+    """Minimal caplog stand-in that captures record.getMessage()."""
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+        self._handler = None
+
+    def __enter__(self):
+        import logging as _lg
+        self._handler = _lg.Handler()
+        self._handler.emit = lambda r: self.messages.append(r.getMessage())
+        _lg.getLogger().addHandler(self._handler)
+        _lg.getLogger().setLevel(_lg.DEBUG)
+        return self
+
+    def __exit__(self, *a):
+        import logging as _lg
+        if self._handler is not None:
+            _lg.getLogger().removeHandler(self._handler)
 
 
 # --- D4/D5: snapshot resolution ---------------------------------------------
@@ -408,20 +464,22 @@ def test_snapshot_failure_does_not_block_alert():
 # .pyc via PYTHONDONTWRITEBYTECODE and this is the closest we can get to
 # per-site mutation in a fixture-driven suite.
 
-def test_MUTATION_severity_map_load_bearing():
-    """Neuter the severity map → home_day would incorrectly promote to CRITICAL."""
-    # Patch the map on the perimeter module itself (from-import capture).
-    orig = _perimeter.NM_HAZARD_EXTERIOR_PERSON_SEVERITY_BY_HOUSE_STATE
+def test_MUTATION_contextual_severity_load_bearing():
+    """CONSOL-1: neuter the contextual severity function → home_day would
+    hit the fail-safe CRITICAL arm. Restore proves home_day → LOW."""
+    orig = _perimeter.NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY
     try:
-        _perimeter.NM_HAZARD_EXTERIOR_PERSON_SEVERITY_BY_HOUSE_STATE = {}
+        _perimeter.NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY = (
+            lambda *a, **kw: "CRITICAL"
+        )
         hass, nm = _make_hass(house_state="home_day")
         mgr = asyncio.run(_setup_neutered(_perimeter.PerimeterAlertManager, hass))
         asyncio.run(mgr._async_handle_perimeter_trigger(
             "binary_sensor.front_yard_person_occupancy"))
         assert nm.async_notify.await_args.kwargs["severity"] == Severity.CRITICAL
     finally:
-        _perimeter.NM_HAZARD_EXTERIOR_PERSON_SEVERITY_BY_HOUSE_STATE = orig
-    # Restore proof: home_day back to LOW.
+        _perimeter.NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY = orig
+    # Restore proof: home_day with persons_home=1 → LOW.
     hass, nm = _make_hass(house_state="home_day")
     mgr = asyncio.run(_setup_neutered(_perimeter.PerimeterAlertManager, hass))
     asyncio.run(mgr._async_handle_perimeter_trigger(
