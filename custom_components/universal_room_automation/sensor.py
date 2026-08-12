@@ -8301,11 +8301,14 @@ class EnergyDrainPrecedenceStateSensor(AggregationEntity, SensorEntity):
         self._attr_name = "EV Charging Plan"
         self._attr_device_info = _energy_device_info()
 
-    def _get_carrier(self):
+    def _get_energy(self):
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
         if manager is None:
             return None
-        energy = manager.coordinators.get("energy")
+        return manager.coordinators.get("energy")
+
+    def _get_carrier(self):
+        energy = self._get_energy()
         if energy is None:
             return None
         return getattr(energy, "_dp_carrier", None)
@@ -8320,15 +8323,115 @@ class EnergyDrainPrecedenceStateSensor(AggregationEntity, SensorEntity):
         except Exception:  # noqa: BLE001
             return "unknown"
 
+    def _compute_eval_gate(self, energy, carrier) -> str:
+        """DP-OBSERVABILITY-1: which gate is currently keeping the DP
+        eval from either RUNNING or ARMING right now?
+
+        Two label families (MED-A2):
+          - "eval not running" — reasons the tick short-circuits BEFORE
+            the state machine advances: `dp_disabled`, `not_off_peak`,
+            `force_charge_active`.
+          - "eval ran, nothing to arm" — the tick ran, but a DPInput
+            said there's nothing to plan for: `no_evse_charging_no_arm`.
+          - Plus the in-machine wait state `waiting_eval_delay` and the
+            informational `ran_recently` post-eval label.
+
+        Presentation of existing facts — reads the same inputs the
+        gate at energy.py `_dp_decision_tick` reads. No new I/O;
+        every read is exception-guarded. Tokens are stable identifiers
+        so dashboards can key on them (fix-up B-H1 replaced the
+        churn-prone `ran_{N}min_ago` with the stable `ran_recently` —
+        the numeric age is already in `eval_age_min`).
+        """
+        # Kill-switch — matches `is_dp_enabled(self)` at energy.py:4346.
+        try:
+            from .domain_coordinators.energy_drain_precedence import (
+                is_dp_enabled as _dp_is_enabled,
+            )
+            if not _dp_is_enabled(energy):
+                return "dp_disabled"
+        except Exception:  # noqa: BLE001
+            pass
+        # TOU period — matches energy.py:4403.
+        try:
+            tou = getattr(energy, "_tou", None)
+            if tou is not None and tou.get_current_period() != "off_peak":
+                return "not_off_peak"
+        except Exception:  # noqa: BLE001
+            pass
+        # A5 (LOW): force_charge short-circuits DP inside the tick
+        # (evaluate_dp_transition gate 3 / _dp_decision_tick). It is an
+        # "eval not running" honesty axis — surface it before the
+        # in-tick DPInput gates.
+        try:
+            ev = getattr(energy, "_ev", None)
+            fc_until = getattr(ev, "_force_charge_until", None) if ev else None
+            if fc_until is not None:
+                try:
+                    if fc_until > dt_util.now():
+                        return "force_charge_active"
+                except TypeError:
+                    pass
+        except Exception:  # noqa: BLE001
+            pass
+        # Any EVSE charging — matches energy.py:4444. NOTE: this is a
+        # DPInput consumed INSIDE the tick body (any_evse_charging), so
+        # the tick still runs; it just decides there's nothing to arm.
+        # Distinguish from the true "eval not running" family above
+        # (MED-A2 rename).
+        try:
+            is_charging_fn = getattr(energy, "_is_any_evse_charging", None)
+            if callable(is_charging_fn) and not is_charging_fn():
+                return "no_evse_charging_no_arm"
+        except Exception:  # noqa: BLE001
+            pass
+        # HOLD_PRE_EVAL delay — matches energy_drain_precedence._dp_maybe_tick.
+        try:
+            from .domain_coordinators.energy_drain_precedence import DPState
+            if carrier.state == DPState.HOLD_PRE_EVAL:
+                started = carrier.hold_started_at
+                delay = int(getattr(energy, "_dp_eval_delay_min", 0) or 0)
+                if started is not None:
+                    elapsed_min = (
+                        (dt_util.now() - started).total_seconds() / 60.0
+                    )
+                    if elapsed_min < float(delay):
+                        return "waiting_eval_delay"
+        except Exception:  # noqa: BLE001
+            pass
+        # Informational: eval fired recently (still inside this
+        # decision-cycle's ~5-min window). Fix-up B-H1: STABLE token —
+        # the numeric age is already exposed as `eval_age_min`, so
+        # keeping the age out of this label prevents the string from
+        # changing every minute and churning recorder rows.
+        try:
+            last = carrier.last_eval_at
+            if last is not None:
+                age_min = (dt_util.now() - last).total_seconds() / 60.0
+                if 0 <= age_min < 5:
+                    return "ran_recently"
+        except Exception:  # noqa: BLE001
+            pass
+        return "eligible"
+
     @property
     def extra_state_attributes(self) -> dict:
-        carrier = self._get_carrier()
+        energy = self._get_energy()
+        carrier = getattr(energy, "_dp_carrier", None) if energy else None
         if carrier is None:
             return {}
         try:
-            return dict(carrier.to_attrs())
+            attrs = dict(carrier.to_attrs(now=dt_util.now()))
         except Exception:  # noqa: BLE001
-            return {}
+            try:
+                attrs = dict(carrier.to_attrs())
+            except Exception:  # noqa: BLE001
+                return {}
+        try:
+            attrs["eval_gate"] = self._compute_eval_gate(energy, carrier)
+        except Exception:  # noqa: BLE001
+            attrs["eval_gate"] = "unknown"
+        return attrs
 
 
 class EnergySolarDayClassSensor(AggregationEntity, SensorEntity):
