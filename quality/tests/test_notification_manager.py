@@ -1702,20 +1702,25 @@ class TestSNAP1ChannelBuilders:
         assert "media_url" not in payload
 
     @pytest.mark.asyncio
-    async def test_imessage_passes_attachment_path_and_warns_once(self):
+    async def test_imessage_uses_attachment_when_snapshot_path_present(self):
+        """BB v0.6.0: ``attachment`` is the LOCAL-path key.
+
+        Precedence mirrors _send_whatsapp — path wins over url, and
+        ``media_url`` is dropped so the integration doesn't fetch it.
+        """
         hass = self._hass_capturing()
         nm = NotificationManager(hass, _make_config())
         await nm._send_imessage(
             "T", "M", "user@icloud",
+            snapshot_url="http://x/y.jpg",
             snapshot_path="/media/ura/snapshots/cam_2.jpg",
         )
         payload = hass.services.async_call.await_args.args[2]
-        assert payload.get("attachment_path") == "/media/ura/snapshots/cam_2.jpg"
-        assert "attachment" not in payload
-        assert getattr(nm, "_snap1_bb_attach_warned", False) is True
+        assert payload["attachment"] == "/media/ura/snapshots/cam_2.jpg"
+        assert "media_url" not in payload
 
     @pytest.mark.asyncio
-    async def test_imessage_kill_switch_bytewise_legacy_url(self):
+    async def test_imessage_uses_media_url_when_only_url_present(self):
         hass = self._hass_capturing()
         nm = NotificationManager(hass, _make_config())
         await nm._send_imessage(
@@ -1725,5 +1730,14 @@ class TestSNAP1ChannelBuilders:
         assert payload == {
             "addresses": "user@icloud",
             "message": "T\nM",
-            "attachment": "http://x/y.jpg",
+            "media_url": "http://x/y.jpg",
         }
+
+    @pytest.mark.asyncio
+    async def test_imessage_no_snapshot_drops_both_attachment_keys(self):
+        hass = self._hass_capturing()
+        nm = NotificationManager(hass, _make_config())
+        await nm._send_imessage("T", "M", "user@icloud")
+        payload = hass.services.async_call.await_args.args[2]
+        assert "attachment" not in payload
+        assert "media_url" not in payload

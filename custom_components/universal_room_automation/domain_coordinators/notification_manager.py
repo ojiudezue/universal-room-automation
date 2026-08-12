@@ -2071,17 +2071,23 @@ class NotificationManager:
     ) -> None:
         """Send notification via BlueBubbles (iMessage).
 
-        SNAP-1 verification gap: the installed BlueBubbles integration
-        (/config/custom_components/bluebubbles/__init__.py:49-90) exposes
-        ONLY {addresses, message, method} and POSTs to
-        `/api/v1/chat/new` — it does NOT read `attachment`,
-        `attachment_path`, or any local-file key. Any attachment field
-        we set is silently DROPPED by the integration today. We still
-        pass `attachment_path` (local file) / `attachment` (URL) as
-        best-effort forward-compat keys AND log a one-shot WARN so the
-        operator sees that iMessage photo delivery requires a
-        BlueBubbles-side upload mechanism this integration doesn't
-        wrap. Tracked as follow-up: SNAP-1-followup-bluebubbles-attachment.
+        BlueBubbles HA integration v0.6.0 (verified against installed source
+        at /config/custom_components/bluebubbles/__init__.py:89-165) exposes
+        `bluebubbles.send_message` with keys:
+
+          * ``addresses`` (required)
+          * ``message`` (optional when either attachment or media_url is set)
+          * ``attachment`` — LOCAL file path; gated by
+            ``hass.config.is_allowed_path`` + ``path.is_file`` + non-empty
+            byte-check (raises HomeAssistantError on any failure).
+          * ``media_url`` — URL fetched server-side by the integration.
+
+        The two attachment keys are mutually independent. Precedence
+        mirrors ``_send_whatsapp``: ``snapshot_path`` (local) wins over
+        ``snapshot_url`` when both are provided — passing both would let
+        the integration prefer the local path anyway (``attachment`` is
+        checked first in the source), and dropping ``media_url`` keeps
+        the payload byte-identical to the local-only case.
         """
         if self._dry_run_active:
             await self._log_dry_run(channel="imessage", target=handle, title=title)
@@ -2093,21 +2099,9 @@ class NotificationManager:
                 "message": outbound_text,
             }
             if snapshot_path:
-                payload["attachment_path"] = snapshot_path
-                if not getattr(self, "_snap1_bb_attach_warned", False):
-                    _LOGGER.warning(
-                        "NM iMessage: BlueBubbles HA integration does not "
-                        "expose an attachment field (verified against "
-                        "/config/custom_components/bluebubbles/__init__.py). "
-                        "Passing attachment_path=%s best-effort — the photo "
-                        "will not be delivered until BB integration adds "
-                        "attachment support "
-                        "(SNAP-1-followup-bluebubbles-attachment).",
-                        snapshot_path,
-                    )
-                    self._snap1_bb_attach_warned = True
+                payload["attachment"] = snapshot_path
             elif snapshot_url:
-                payload["attachment"] = snapshot_url
+                payload["media_url"] = snapshot_url
             await self.hass.services.async_call(
                 "bluebubbles", "send_message",
                 payload,
