@@ -984,6 +984,7 @@ cards:
   thread: security
   status: waiting_operator
   approval: unreviewed
+  screenshots_2026_08_12: 'Operator screenshots confirm: originals deliver WITH photo at detection (v5.71.0 proven twice — pool 03:56, front_side 04:06); text-only repeats are the unack-CRITICAL 5-min RE-PAGE loop (same detection timestamp in body), by design. Both photos show empty scenes = ghost confirmation. LOW folded in: re-attach stored snapshot on re-pages (~5 LoC, file persists at re-page time).'
   origin:
     date: '2026-08-12'
     gist: 'operator: "Both pictures show no one... No corroboration from any other likely means false positive no?... hand check protect detection history and its correlation to frigate"'
