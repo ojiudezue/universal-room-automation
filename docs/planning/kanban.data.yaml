@@ -979,11 +979,24 @@ cards:
   constraints: 'LAN-site only (Artifact CSP cannot POST). No auth on LAN site per operator choice. Source of truth stays kanban.data.yaml; the queue is pending-intent, not state.'
   next: 'Build: webhost micro-API + board JS (buttons done/deferred/declined + column drag) + cron pull of disposition queue + pending-chip render + session-start apply protocol in ura-kanban skill.'
 
+- id: FRIGATE-RETIRE-1
+  title: Retire Frigate-1 — promote Frigate-2 (yolov9t/OpenVINO, zero night ghosts) to primary incl. snapshot engine
+  thread: security
+  status: in_progress
+  approval: approved
+  origin:
+    date: '2026-08-12'
+    gist: 'operator: "We should just retire frigate 1 instead of writing more code" + "Frigate 2 is our identical backup. We should move snapshots to it" + "Go".'
+  why: 'Probe: 100% of night person alerts = frigate-1 single-witness sub-2s IR ghosts; frigate-1 thresholds already raised once (07-30 snapshot) and ghosting persists. Frigate-2 runs a DIFFERENT detector (custom yolov9t.onnx OpenVINO) with ZERO night ghosts all week on the same cameras. MQTT collision VERIFIED FIXED live (frigate/frigate2 prefixes, f1/f2 client ids) — bleed ruled out; ghosts are frigate-1 detector-native. Swap beats patch.'
+  procedure: 'CONSOL-1 §7 retirement doctrine: (1) capability inventory audit; (2) parity swap — URA perimeter sensors + snapshot instance -> frigate-2 with BOTH running; (3) Gate-1 N=5 organic events clean by ledger -> disable frigate-1; (4) Gate-2 N=5 more -> delete; (5) tripwire NM on any frigate-1 entity firing post-disable. Daytime-detection parity explicitly in the checklist (frigate-1 daytime was healthy).'
+  next: 'Step-1 inventory audit dispatched. Corroborated-detection doctrine PARKED with trigger: revisit if frigate-2 single-witness ghost rate is non-zero after promotion.'
+
 - id: PERIM-FP-1
   title: Frigate-1 nighttime IR ghost detections — 100% of night person alerts are single-witness sub-2s blips
   thread: security
-  status: waiting_operator
-  approval: unreviewed
+  status: done
+  approval: explicit
+  resolution: 'OPERATOR PICKED (2026-08-12): retire Frigate-1 entirely (FRIGATE-RETIRE-1) instead of thresholds/gate code. Probe + screenshots are the evidence base; corroboration doctrine parked.'
   screenshots_2026_08_12: 'Operator screenshots confirm: originals deliver WITH photo at detection (v5.71.0 proven twice — pool 03:56, front_side 04:06); text-only repeats are the unack-CRITICAL 5-min RE-PAGE loop (same detection timestamp in body), by design. Both photos show empty scenes = ghost confirmation. LOW folded in: re-attach stored snapshot on re-pages (~5 LoC, file persists at re-page time).'
   origin:
     date: '2026-08-12'
