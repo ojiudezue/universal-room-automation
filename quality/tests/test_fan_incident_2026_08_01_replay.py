@@ -363,6 +363,10 @@ def _restore_dt_util():
 
 def _make_hvac_controller_and_fan(entity_on: bool, entity_speed: int = 66):
     hass = MagicMock()
+    # FAN-LAYER-2 fixture modernization: ensure hass.data is a real dict
+    # (not a MagicMock attribute) so _get_fan_oracle returns None cleanly
+    # rather than a MagicMock the async _locked setters can't await.
+    hass.data = {}
     hass.services = MagicMock()
     svc_log: list[tuple[str, str, dict]] = []
 

@@ -288,7 +288,11 @@ from custom_components.universal_room_automation.const import (  # noqa: E402
     CONF_ROOM_NAME,
     DOMAIN,
     ENTRY_TYPE_ROOM,
+    FAN_TRIGGER_TEMP_ROOM_ON,
 )
+import custom_components.universal_room_automation.domain_coordinators.hvac_fans as _hvac_fans_mod  # noqa: E402
+_FanController = _hvac_fans_mod.FanController
+_room_key_fn = _hvac_fans_mod._room_key
 
 # Restore sibling sys.modules entries so we don't pollute later tests.
 for _k, _orig in _MODULE_SNAPSHOT.items():
@@ -671,14 +675,14 @@ def test_pre_oracle_write_is_hydrated_when_oracle_appears():
     # Now attach an oracle. The oracle knows NOTHING about this hold yet.
     oracle = FanPolicyOracle()
     r.hass.data = {DOMAIN: {"fan_oracle": oracle}}
-    assert oracle.get_state("entry:entry-C").manual_on_hold_until is None
+    assert oracle.get_state("room:Bedroom").manual_on_hold_until is None
 
     # First read after attach hydrates the oracle from local cache.
     val = r._fan_manual_on_until
     assert val == t + timedelta(minutes=45), (
         "hydration read MUST return the pre-oracle write"
     )
-    assert oracle.get_state("entry:entry-C").manual_on_hold_until == (
+    assert oracle.get_state("room:Bedroom").manual_on_hold_until == (
         t + timedelta(minutes=45)
     ), "oracle MUST now carry the hydrated hold"
 
@@ -721,3 +725,244 @@ def test_coordinator_manager_reload_reuses_existing_oracle():
     assert oracle2.get_state("entry:entryZ").manual_on_hold_until == (
         _dt(2026, 8, 11, 13, 0, 0)
     ), "hold set on the pre-reload oracle MUST survive the CM reload"
+
+
+# ===========================================================================
+# Review-C anchors (2026-08-11) — W8 / W9 / W4-chokepoint.
+# Reviewer C authored these to close the hollow-anchor gap disclosed at the
+# end of FAN-LAYER-2 D2: the 7 non-safety wraps (W1, W2, W3-temp, W3-onset,
+# W4-chokepoint, W8, W9) had NO behavioral anchors — the neuter mutation
+# `if False and verdict.is_allow:` at each site left the entire suite green.
+# These tests drive the REAL production methods with a live oracle carrying
+# a hold/cooldown that makes the verdict block, and a services.async_call
+# recorder — asserting suppression under DEFER and emission under ALLOW.
+# W1/W2/W3-temp/W3-onset live inside RoomAutomation which is not exercised
+# by this harness — reported as a residual HIGH gap; see review report.
+# ===========================================================================
+
+
+def _make_zone_stub(zone_name: str, rooms: list[str]):
+    return _StubZone(zone_name, rooms)
+
+
+def _install_real_snapshot_builder(coord, now_dt):
+    """Replace MagicMock FC's snapshot builder with one that returns a real
+    ``FanDecisionSnapshot`` — otherwise ``snapshot.now`` is a MagicMock and
+    the oracle's `<` compare raises, tripping the fail-safe ALLOW branch and
+    defeating the DEFER test."""
+    from custom_components.universal_room_automation.domain_coordinators.fan_policy_oracle import (  # noqa: E501,PLC0415
+        FanDecisionSnapshot,
+    )
+
+    def _real_snap(room_name, fan_entities, observed_any_on):
+        return FanDecisionSnapshot(
+            now=now_dt,
+            sleep_state="",
+            sleep_axis=None,
+            house_state="home_day",
+            is_hvac_managing=True,
+            entities=tuple(fan_entities),
+            observed_any_on=bool(observed_any_on),
+        )
+
+    coord._fan_controller._build_fan_snapshot_hvac = _real_snap
+
+
+# ---------------------------------------------------------------------------
+# W8 — HVAC zone-vacancy sweep OFF wrap (hvac.py:2841).
+# Enclosing method: _execute_vacancy_sweep. The pre-check
+# `fan_hold_active` reads FanController.is_room_in_manual_on_hold and
+# coordinator.automation.is_fan_in_manual_on_hold. Both are stubbed False so
+# the oracle wrap is the gate.
+# ---------------------------------------------------------------------------
+
+def test_w8_vacancy_sweep_defers_under_oracle_manual_on_hold():
+    """W8 DEFER: oracle-only manual-ON hold suppresses vacancy-sweep OFF."""
+    fake_now = datetime(2026, 8, 11, 12, 0, 0, tzinfo=timezone.utc)
+    _set_now(fake_now)
+
+    oracle = FanPolicyOracle()
+    oracle._get_record("room:LivingRoom").manual_on_hold_until = (  # noqa: SLF001
+        fake_now + timedelta(hours=1)
+    )
+    coord, log, entries = _make_hvac_coord(
+        {"LivingRoom": {"fan_state": "on"}}, seeded_oracle=oracle,
+    )
+    coord._fan_controller.is_room_in_manual_on_hold = lambda room: False
+    _install_real_snapshot_builder(coord, fake_now)
+    _run(coord._execute_vacancy_sweep(_make_zone_stub("Z1", ["LivingRoom"])))
+
+    turn_offs = [
+        (svc, d.get("entity_id")) for (_dom, svc, d) in log if svc == "turn_off"
+    ]
+    assert ("turn_off", "fan.livingroom") not in turn_offs, (
+        f"W8: oracle-DEFER (manual-ON hold with pre-check stubbed False) MUST "
+        f"suppress vacancy-sweep fan turn_off. Log: {log}"
+    )
+
+
+def test_w8_vacancy_sweep_allows_when_oracle_clear():
+    """W8 ALLOW (positive control): clean oracle → sweep emits turn_off."""
+    fake_now = datetime(2026, 8, 11, 12, 0, 0, tzinfo=timezone.utc)
+    _set_now(fake_now)
+
+    oracle = FanPolicyOracle()
+    coord, log, entries = _make_hvac_coord(
+        {"LivingRoom": {"fan_state": "on"}}, seeded_oracle=oracle,
+    )
+    coord._fan_controller.is_room_in_manual_on_hold = lambda room: False
+    _install_real_snapshot_builder(coord, fake_now)
+    _run(coord._execute_vacancy_sweep(_make_zone_stub("Z1", ["LivingRoom"])))
+
+    turn_offs = [
+        (svc, d.get("entity_id")) for (_dom, svc, d) in log if svc == "turn_off"
+    ]
+    assert ("turn_off", "fan.livingroom") in turn_offs, (
+        f"W8: clean-oracle ALLOW MUST emit vacancy-sweep turn_off. Log: {log}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# W9 — HVAC pre-arrival deactivation OFF wrap (hvac.py:3131).
+# Enclosing method: _deactivate_zone_fans. Requires predictor's
+# `_last_fan_activation_rooms` to include the target room; otherwise the
+# per-room loop short-circuits before the wrap.
+# ---------------------------------------------------------------------------
+
+def _prime_predictor(coord, activated_rooms: list[str]):
+    pred = MagicMock()
+    pred._last_fan_activation_rooms = list(activated_rooms)
+    coord._predictor = pred
+
+
+def test_w9_prearrival_deactivate_defers_under_oracle_manual_on_hold():
+    """W9 DEFER: oracle manual-ON hold suppresses pre-arrival deactivation."""
+    fake_now = datetime(2026, 8, 11, 12, 0, 0, tzinfo=timezone.utc)
+    _set_now(fake_now)
+
+    oracle = FanPolicyOracle()
+    oracle._get_record("room:StudyRoom").manual_on_hold_until = (  # noqa: SLF001
+        fake_now + timedelta(hours=1)
+    )
+    coord, log, entries = _make_hvac_coord(
+        {"StudyRoom": {"fan_state": "on"}}, seeded_oracle=oracle,
+    )
+    coord._fan_controller.is_room_in_manual_on_hold = lambda room: False
+    _install_real_snapshot_builder(coord, fake_now)
+    _prime_predictor(coord, ["StudyRoom"])
+    _run(coord._deactivate_zone_fans(_make_zone_stub("Z1", ["StudyRoom"])))
+
+    turn_offs = [
+        (svc, d.get("entity_id")) for (_dom, svc, d) in log if svc == "turn_off"
+    ]
+    assert ("turn_off", "fan.studyroom") not in turn_offs, (
+        f"W9: oracle-DEFER MUST suppress pre-arrival deactivation. Log: {log}"
+    )
+
+
+def test_w9_prearrival_deactivate_allows_when_oracle_clear():
+    """W9 ALLOW (positive control): clean oracle → pre-arrival deactivation fires."""
+    fake_now = datetime(2026, 8, 11, 12, 0, 0, tzinfo=timezone.utc)
+    _set_now(fake_now)
+
+    oracle = FanPolicyOracle()
+    coord, log, entries = _make_hvac_coord(
+        {"StudyRoom": {"fan_state": "on"}}, seeded_oracle=oracle,
+    )
+    coord._fan_controller.is_room_in_manual_on_hold = lambda room: False
+    _install_real_snapshot_builder(coord, fake_now)
+    _prime_predictor(coord, ["StudyRoom"])
+    _run(coord._deactivate_zone_fans(_make_zone_stub("Z1", ["StudyRoom"])))
+
+    turn_offs = [
+        (svc, d.get("entity_id")) for (_dom, svc, d) in log if svc == "turn_off"
+    ]
+    assert ("turn_off", "fan.studyroom") in turn_offs, (
+        f"W9: clean-oracle ALLOW MUST emit pre-arrival deactivation. Log: {log}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# W4-chokepoint — hvac_fans FanController._set_fan_state ON path
+# (hvac_fans.py:1565). All HVAC-tier callers converge here. Uses an ON
+# direction with a live manual_off_cooldown → verdict DEFER → no turn_on
+# emitted. Paired ALLOW leg: no cooldown → turn_on fires.
+# ---------------------------------------------------------------------------
+
+def _build_fc_env(now_dt, oracle):
+    """Construct a minimal FanController drivable to _set_fan_state.
+
+    Returns (fc, hass, log). The FC's room_name key is not registered in
+    self._room_fans so the OFF-side manual-hold pre-check is skipped — but
+    for the ON direction the OFF pre-check block is skipped anyway; we're
+    proving the wrap's ON-direction gating.
+    """
+    FanController = _FanController
+    hass = MagicMock()
+    hass.data = {DOMAIN: {"fan_oracle": oracle}}
+    log: list = []
+
+    async def _svc(domain, service, data=None, blocking=False):
+        log.append((domain, service, dict(data or {})))
+
+    hass.services = MagicMock()
+    hass.services.async_call = _svc
+    st = MagicMock(); st.state = "off"
+    hass.states = MagicMock()
+    hass.states.get = lambda eid: st
+
+    zm = MagicMock(); zm.zones = {}
+    fc = FanController(hass, zm)
+    return fc, hass, log
+
+
+def test_w4_chokepoint_defers_on_when_oracle_carries_manual_off_cooldown():
+    """W4 DEFER: ON request while cooldown live → no turn_on emitted."""
+    _room_key = _room_key_fn
+    fake_now = datetime(2026, 8, 11, 12, 0, 0, tzinfo=timezone.utc)
+    _set_now(fake_now)
+
+    room = "PantryRoom"
+    fan = f"fan.{room.lower()}"
+    oracle = FanPolicyOracle()
+    oracle._get_record(_room_key(room)).manual_off_cooldown_until = (  # noqa: SLF001
+        fake_now + timedelta(hours=1)
+    )
+    fc, hass, log = _build_fc_env(fake_now, oracle)
+
+    dispatched = _run(fc._set_fan_state(
+        entities=[fan], on=True, speed_pct=50,
+        room_name=room, trigger_path=FAN_TRIGGER_TEMP_ROOM_ON,
+    ))
+    turn_ons = [(svc, d.get("entity_id")) for (_dom, svc, d) in log if svc == "turn_on"]
+    assert ("fan", "turn_on") not in [(dom, svc) for (dom, svc, _d) in log if svc == "turn_on"] or \
+        ("turn_on", fan) not in turn_ons, (
+        f"W4 chokepoint: oracle manual_off_cooldown MUST DEFER the ON emit. "
+        f"Log: {log}"
+    )
+    assert dispatched is False, (
+        f"W4 chokepoint: dispatched flag MUST be False under DEFER. Got {dispatched}"
+    )
+
+
+def test_w4_chokepoint_allows_on_when_oracle_clear():
+    """W4 ALLOW: no cooldown → ON emit fires and dispatched=True."""
+    fake_now = datetime(2026, 8, 11, 12, 0, 0, tzinfo=timezone.utc)
+    _set_now(fake_now)
+
+    room = "PantryRoom"
+    fan = f"fan.{room.lower()}"
+    oracle = FanPolicyOracle()  # clean
+    fc, hass, log = _build_fc_env(fake_now, oracle)
+
+    dispatched = _run(fc._set_fan_state(
+        entities=[fan], on=True, speed_pct=50,
+        room_name=room, trigger_path=FAN_TRIGGER_TEMP_ROOM_ON,
+    ))
+    turn_ons = [(svc, d.get("entity_id")) for (_dom, svc, d) in log if svc == "turn_on"]
+    assert ("turn_on", fan) in turn_ons, (
+        f"W4 chokepoint: clean-oracle MUST ALLOW ON emit. Log: {log}"
+    )
+    assert dispatched is True, (
+        f"W4 chokepoint: dispatched flag MUST be True under ALLOW. Got {dispatched}"
+    )

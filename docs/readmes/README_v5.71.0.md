@@ -58,4 +58,16 @@ presentation changed:
 
 ## Live Validation
 
-_(prospective — to be replaced post-restart)_
+### Validated 2026-08-11 (v5.71.0 boot, evening)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Loads, zero URA errors | **PASS** | `system_log` ERROR search for `universal_room` empty post-restart |
+| L2 | DP honesty attrs live | **PASS** | `ev_charging_plan`: `state_meaning` "resting — no drain-pause active…", `eval_gate: not_off_peak` (correct — evening mid-peak), `eval_age_min: null` (honest fresh-boot), `must_start_by_expired: false` |
+| L3 | Reason stamp event-anchored, no churn | **PASS (falsification attempted)** | Three reads across 4 min: stamp advanced ONLY alongside real reason-content changes (idle/all-off → garage_a TOU-paused during boot settling). No stamp movement without content movement observed; quiescent byte-identity pinned in-suite by the anti-churn anchor |
+| L4 | `last_notification` sentinel-free | **PASS** | `sensor.ura_notification_manager_last_notification` = real severity row, no "[audit]" |
+| L5 | Founding case — security image immediate | **ORGANIC (open)** | Next exterior-person detection must land in WhatsApp WITH image at detection time, ledger row `force_immediate_security_image`. Two-site predicate + gate mirror mutation-anchored in-suite (8 drills, site-isolating) |
+
+PR #500: +2974/−104 (non-empty verified). Suite at merge: 23 failed / 8708 passed — 21 pre-existing
++ 2 disclosed order-dependent `energy_restart_resilience` flakes (pass 64/64 in targeted runs;
+pre-existing isolation-pollution class).

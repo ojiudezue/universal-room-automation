@@ -976,6 +976,29 @@ cards:
   constraints: 'LAN-site only (Artifact CSP cannot POST). No auth on LAN site per operator choice. Source of truth stays kanban.data.yaml; the queue is pending-intent, not state.'
   next: 'Build: webhost micro-API + board JS (buttons done/deferred/declined + column drag) + cron pull of disposition queue + pending-chip render + session-start apply protocol in ura-kanban skill.'
 
+- id: SUITE-HYGIENE-2
+  title: Pollution-DEPENDENT tests — 5 files break under a clean sys.modules start
+  thread: quality
+  status: pre_planning
+  approval: unreviewed
+  origin:
+    date: '2026-08-11'
+    gist: 'SUITE-HYGIENE-1 census: widening the restore to homeassistant.*/custom_components.* prefixes FIXED 7 stable failures but BROKE 7 tests that depend on stubs a sibling file installed (test_heatcool_enforcer, test_runtime_smoke, test_zone_migration_mint_guard, test_v570_fixup_wiring, test_prediction_sensor_kill_list).'
+  why: 'These tests only pass because another file polluted sys.modules first — invisible coupling that blocks full-suite hermeticity and keeps 7 heal-able stable failures unfixed. Fix = give each dependent file its own complete stubs, then widen the restore prefix set.'
+  next: 'Small cycle after FAN-LAYER-2 ships: per-file stub-completeness for the 5 dependents, widen prefixes, expect stable-failure count to DROP by ~7. Census + experiment logs in SUITE-HYGIENE-1 scratchpad + conftest docstring.'
+
+- id: SUITE-HYGIENE-1
+  title: Kill the order-dependent flake families (sys.modules pollution) — every cycle pays a classification tax
+  thread: quality
+  status: shipped_organic
+  shipped_version: v5.72.0
+  approval: approved
+  origin:
+    date: '2026-08-11'
+    gist: 'Three consecutive cycles (ARREST-COMFORT, FAN-LAYER-1, FAN-LAYER-2 D1) each spent builder+reviewer effort re-classifying the same order-flakes; FAN-LAYER-2 D1 even had its own NEW test polluted on day one.'
+  why: 'Diagnosed root cause (v5.70.0 Review B / B-MED-2, deferred): test_freeze_floor.py + test_v4_6_9_hvac_intent_attrs.py install synthesized modules into sys.modules without snapshot/restore; collection-order shifts expose different victims each cycle (envoy_auto_derive, energy_restart_resilience, fan_layer_2_d1...). Also the pytest counter-vs-unique-names discrepancy (23 vs 14) suggests retry/dup counting worth understanding.'
+  next: 'Small Tier-1/2 cycle: snapshot/restore fixtures around every sys.modules-stubbing test file (grep for the stub pattern, fix all instances, not just the two known); add a suite-level canary test that asserts sys.modules is unchanged across each file boundary if cheap. Acceptance: 3 consecutive full-suite runs with IDENTICAL failure name-sets.'
+
 - id: NM-IMAGE-1
   title: NM image attachments not landing (WhatsApp + iMessage) — operator automation images DO land
   thread: notifications
@@ -1017,7 +1040,8 @@ cards:
 - id: FAN-LAYER-2
   title: FanPolicyOracle completion — RoomFanState delegation + actuate-wrap remainder (W1-W3, W8-W10) + INV-FLA-T lock
   thread: fans
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.72.0
   approval: unreviewed
   origin:
     date: '2026-08-11'
