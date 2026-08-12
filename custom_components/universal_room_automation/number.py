@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.72.0
+# Universal Room Automation vv5.73.0
 # Build: 2026-01-02
 # File: number.py
 #
@@ -125,6 +125,12 @@ async def async_setup_entry(
             # OverrideArrester (single source of truth).
             ComfortGraceMinutesNumber(hass, entry),
             ComfortSOCFloorNumber(hass, entry),
+            # CONSOL-1 §D3 rung-3: operator-tunable llmvision enrichment
+            # timeout (default 4.0s = 2× observed max from D0.2 probe).
+            PerimeterEnrichmentTimeoutNumber(hass, entry),
+            # HVAC-PRESET-FLAP-1 D4 (2026-08-11): rung-3 duty off-phase
+            # offset knob on the HVAC Coordinator device.
+            ComfortOffphaseOffsetNumber(hass, entry),
         ]
         # Session B1 — 5 EVSE drain-precedence knob Numbers on EC device.
         for cls in _build_dp_numbers():
@@ -914,6 +920,100 @@ class ComfortSOCFloorNumber(NumberEntity):
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
                 "ComfortSOCFloor options-writeback failed", exc_info=True,
+            )
+        self.async_write_ha_state()
+
+
+class ComfortOffphaseOffsetNumber(NumberEntity):
+    """HVAC-PRESET-FLAP-1 D4: Duty Off-Phase Offset (°F).
+
+    Live-tunable degrees above the home cool baseline held during the D5
+    duty off-phase in occupied zones. `0.0` = admitted DIAGNOSTIC config
+    (the off-phase ceiling collapses to the raw home cool baseline; INV #1
+    is documented INERT — see planning §1 inertness clause (f)).
+    Persisted via entry.options; setter pushes into HVACCoordinator.
+
+    Entity: number.ura_hvac_coordinator_comfort_offphase_offset_f
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:snowflake-thermometer"
+    _attr_native_step = 0.5
+    _attr_native_unit_of_measurement = "°F"
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .domain_coordinators.hvac_const import (
+            CONF_COMFORT_OFFPHASE_OFFSET_F,
+            DEFAULT_COMFORT_OFFPHASE_OFFSET_F,
+            MIN_COMFORT_OFFPHASE_OFFSET_F,
+            MAX_COMFORT_OFFPHASE_OFFSET_F,
+        )
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_comfort_offphase_offset_f"
+        self._attr_name = "Duty Off-Phase Offset (°F)"
+        self._attr_native_min_value = MIN_COMFORT_OFFPHASE_OFFSET_F
+        self._attr_native_max_value = MAX_COMFORT_OFFPHASE_OFFSET_F
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        config = {**entry.data, **entry.options}
+        self._value = float(config.get(
+            CONF_COMFORT_OFFPHASE_OFFSET_F, DEFAULT_COMFORT_OFFPHASE_OFFSET_F,
+        ))
+
+    def _get_hvac(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("hvac")
+
+    def _push_to_coordinator(self) -> bool:
+        hvac = self._get_hvac()
+        if hvac is None:
+            return False
+        try:
+            hvac.comfort_offphase_offset_f = float(self._value)
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    @property
+    def native_value(self) -> float:
+        return float(self._value)
+
+    @property
+    def available(self) -> bool:
+        return self._get_hvac() is not None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self._push_to_coordinator()
+
+    async def async_set_native_value(self, value: float) -> None:
+        from .domain_coordinators.hvac_const import CONF_COMFORT_OFFPHASE_OFFSET_F
+        self._value = float(value)
+        self._push_to_coordinator()
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={
+                    **self._entry.options,
+                    CONF_COMFORT_OFFPHASE_OFFSET_F: float(value),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "ComfortOffphaseOffset options-writeback failed", exc_info=True,
             )
         self.async_write_ha_state()
 
@@ -3578,3 +3678,77 @@ class NMMuteDefaultDurationNumber(NumberEntity, _NMDeviceInfoMixin):
             )
         self.async_write_ha_state()
         _LOGGER.info("NM mute default duration set to %d min", int(value))
+
+
+class PerimeterEnrichmentTimeoutNumber(NumberEntity):
+    """CONSOL-1 §D3 rung-3 — llmvision enrichment wall-clock timeout (s).
+
+    Persists via entry.options (same pattern as VacancyGraceMinutesNumber).
+    Read by `perimeter_enrichment.enrich_dispatched_alert` at each call
+    (no caching) so operator tunes take effect on the next event.
+
+    Kill-switch semantics: min value (1.0s) caps runaway. Setting to
+    MAX (15.0s) is a legal choice for gpt-5-mini @ max_tokens=1500
+    (D0.2 probe observed ~4.7s max). Rung-1 kill switch
+    `LLMVISION_ENRICHMENT_KILL` disables the adapter regardless.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:timer-outline"
+    _attr_native_min_value = 1.0
+    _attr_native_max_value = 15.0
+    _attr_native_step = 0.5
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import (
+            CONF_PERIMETER_ENRICHMENT_MAX_TOKENS,
+            DEFAULT_PERIMETER_ENRICHMENT_TIMEOUT_S,
+        )
+        self.hass = hass
+        self._entry = entry
+        # unique_id → HA slug: number.universal_room_automation_perimeter_enrichment_timeout_s
+        self._attr_unique_id = f"{DOMAIN}_perimeter_enrichment_timeout_s"
+        self._attr_name = "Perimeter Enrichment Timeout"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "notification_manager")},
+            name="URA: Notification Manager",
+            manufacturer="Universal Room Automation",
+            model="Notification Manager",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        config = {**entry.data, **entry.options}
+        self._value = float(config.get(
+            "perimeter_enrichment_timeout_s",
+            DEFAULT_PERIMETER_ENRICHMENT_TIMEOUT_S,
+        ))
+
+    @property
+    def native_value(self) -> float:
+        return float(self._value)
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._value = float(value)
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={
+                    **self._entry.options,
+                    "perimeter_enrichment_timeout_s": float(value),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "PerimeterEnrichmentTimeout options-writeback failed",
+                exc_info=True,
+            )
+        self.async_write_ha_state()
+        _LOGGER.info("Perimeter enrichment timeout set to %.1fs", float(value))

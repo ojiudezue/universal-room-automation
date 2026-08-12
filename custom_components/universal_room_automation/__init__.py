@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.72.0
+# Universal Room Automation vv5.73.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1518,6 +1518,45 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 import traceback
                 _LOGGER.error("Traceback: %s", traceback.format_exc())
 
+        # CONSOL-1 §D6 — one-shot options migration via the pure helper
+        # `migrate_consol1_perimeter_keys` in perimeter_alert.py. Fix-up
+        # A2/C-SN-MIG extracted the transform so tests drive the real
+        # helper, not a simulated mirror.
+        if not entry.options.get("consol1_perimeter_keys_migration_done"):
+            try:
+                from .perimeter_alert import migrate_consol1_perimeter_keys
+                _before = dict(entry.options)
+                opts, changed = migrate_consol1_perimeter_keys(_before)
+                opts["consol1_perimeter_keys_migration_done"] = True
+                if changed:
+                    for _k in (
+                        "perimeter_alert_hours_start",
+                        "perimeter_alert_hours_end",
+                    ):
+                        _new = _k.replace("alert", "vehicle")
+                        if _k in _before and opts.get(_new) == _before[_k]:
+                            _LOGGER.info(
+                                "CONSOL-1 §D6: migrated %s → %s (value=%s)",
+                                _k, _new, _before[_k],
+                            )
+                    for _k in (
+                        "perimeter_alert_notify_service",
+                        "perimeter_alert_notify_target",
+                        "perimeter_alert_hours_start",
+                        "perimeter_alert_hours_end",
+                    ):
+                        if _k in _before and _k not in opts:
+                            _LOGGER.info(
+                                "CONSOL-1 §D1/§D6: stripped retired key %s", _k,
+                            )
+                entry = (
+                    hass.config_entries.async_get_entry(entry.entry_id)
+                    or entry
+                )
+                hass.config_entries.async_update_entry(entry, options=opts)
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.error("CONSOL-1 perimeter-keys migration failed: %s", e)
+
         # v3.6.0-c2.9.2: Remove stale coordinator-level safety_alert entity
         # that collides with the room-level one in aggregation.py.
         # The coordinator sensor was renamed to _safety_coordinator_safety_alert.
@@ -2420,6 +2459,36 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception as e:
             _LOGGER.error("Failed to initialize perimeter alert manager: %s", e)
 
+        # CONSOL-1 §D8 — in-code tripwire on the HA zone_monitoring
+        # pager stack. Subscribes to `last_updated` on the four counter
+        # automations; fires ONE MEDIUM NM per fired counter per day
+        # (per-day dedup). Auto-closes: if the tripwire produces zero
+        # leak notifications between ship and the NEXT URA release, the
+        # yaml notify actions get stripped in a follow-up.
+        try:
+            from .zone_monitoring_tripwire import ZoneMonitoringTripwire
+            # B1 double-setup guard: tear down any prior instance from a
+            # partial reload before installing the new one — mirrors the
+            # exterior_track_linker guard at :2504.
+            _existing_zmt = hass.data.get(DOMAIN, {}).pop(
+                "zone_monitoring_tripwire", None,
+            )
+            if _existing_zmt is not None:
+                try:
+                    await _existing_zmt.async_teardown()
+                except Exception:  # noqa: BLE001
+                    pass
+            _zmt = ZoneMonitoringTripwire(hass)
+            await _zmt.async_setup()
+            hass.data[DOMAIN]["zone_monitoring_tripwire"] = _zmt
+            _LOGGER.info(
+                "CONSOL-1 §D8: zone_monitoring tripwire subscribed"
+            )
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.error(
+                "CONSOL-1 §D8: zone_monitoring tripwire failed: %s", e,
+            )
+
         # build/exterior-track: Initialize exterior track linker.
         # Independent of PerimeterAlertManager — subscribes to `frigate_events`
         # itself. Kill switch: TRACK_LINK_WINDOW_S == 0 in const.py disables
@@ -3117,6 +3186,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             )),
                             "comfort_soc_floor_pct": int(_cfg.get(
                                 "hvac_comfort_soc_floor_pct", 80,
+                            )),
+                            # HVAC-PRESET-FLAP-1 D4 (2026-08-11): eager-seed
+                            # the duty off-phase honesty knobs so the D5
+                            # else-limb never reads defaults during the boot
+                            # window between HC init and the Number/Switch
+                            # entities' async_added_to_hass push.
+                            "comfort_offphase_offset_f": float(_cfg.get(
+                                "hvac_comfort_offphase_offset_f", 2.0,
+                            )),
+                            "hvac_offphase_honesty_enabled": bool(_cfg.get(
+                                "hvac_offphase_honesty_enabled", True,
                             )),
                         })(cm_config),
                         zone_entry_dwell=int(cm_config.get(
@@ -4301,6 +4381,20 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if exterior_track_linker:
             await exterior_track_linker.async_teardown()
             hass.data[DOMAIN].pop("exterior_track_linker", None)
+
+        # CONSOL-1 §D8 fix-up B1: tear down zone_monitoring tripwire so
+        # a reload does not double-subscribe (leaked listener would fire
+        # NM twice per counter event).
+        zmt = hass.data[DOMAIN].get("zone_monitoring_tripwire")
+        if zmt:
+            try:
+                await zmt.async_teardown()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "zone_monitoring_tripwire teardown raised",
+                    exc_info=True,
+                )
+            hass.data[DOMAIN].pop("zone_monitoring_tripwire", None)
 
         # v3.5.2: Tear down transit validator and egress tracker
         transit_validator = hass.data[DOMAIN].get("transit_validator")

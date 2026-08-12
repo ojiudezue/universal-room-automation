@@ -1,0 +1,21 @@
+{
+  "format_version": "2.1",
+  "entry_id": "042",
+  "author": "ojiudezue",
+  "session_id": "claude_20260812_124528_ship_v5_73_0",
+  "timestamp": "2026-08-12T12:45:28Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.73.0 shipped: Alerting consolidation + llmvision, honest duty-cycling, iMessage photos",
+  "summary": "CONSOL-1: perimeter alerts gain budget-bounded llmvision descriptions (default OFF, 3-class failure contract), contextual severity over all house states, legacy notify legs retired, doorbell retirement event-count gated. PRESET-FLAP-1: duty off-phase holds home+2F with honest preset/attrs/ledger instead of abandoning occupied rooms to away. NM-BB-IMAGE-1: iMessage photo attachments via BlueBubbles v0.6.0",
+  "refs": {
+    "cards": [
+      "CONSOL-1",
+      "HVAC-PRESET-FLAP-1",
+      "NM-BB-IMAGE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.73.0.md"
+    ]
+  }
+}

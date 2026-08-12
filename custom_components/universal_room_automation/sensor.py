@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.72.0
+# Universal Room Automation vv5.73.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -11462,6 +11462,42 @@ class HVACZonePresetSensor(AggregationEntity, SensorEntity):
             "overrides_today": zone.override_count_today,
             "ac_resets_today": zone.ac_reset_count_today,
         }
+        # HVAC-PRESET-FLAP-1 D3 (2026-08-11): honest exposure of the duty
+        # off-phase episode. True iff:
+        #   - the zone is running against the D5 duty cap
+        #     (runtime_exceeded)
+        #   - AND the zone is occupied (any_room_occupied)
+        #   - AND the D3 comfort-delay guard did NOT skip the forced-away
+        #     this tick (_d3_skipped_current_tick)
+        #   - AND (A-MED-1 fix-up) the honesty kill-switch is ON — when
+        #     OFF the D5 else-limb falls through to `preset=away`, so the
+        #     attribute MUST report False (attribute cannot lie)
+        #   - AND (A-MED-2 fix-up) shed is NOT active — shed dominates
+        #     and the helper's early-return means we never enter the S14
+        #     path, so the attribute MUST report False
+        # Per-zone `_d3_skipped_current_tick` is updated by the D5 branch
+        # in _apply_house_state_presets.
+        try:
+            _d3_skipped = bool(
+                hvac._d3_skipped_current_tick.get(self._zone_id, False)
+            )
+        except Exception:  # noqa: BLE001
+            _d3_skipped = False
+        try:
+            _honest_on = bool(hvac.hvac_offphase_honesty_enabled)
+        except Exception:  # noqa: BLE001
+            _honest_on = True
+        try:
+            _shed_on = bool(hvac.shed_active)
+        except Exception:  # noqa: BLE001
+            _shed_on = False
+        attrs["duty_cycle_off_phase"] = bool(
+            getattr(zone, "runtime_exceeded", False)
+            and getattr(zone, "any_room_occupied", False)
+            and not _d3_skipped
+            and _honest_on
+            and not _shed_on
+        )
         if zone.last_override_direction:
             attrs["last_override_direction"] = zone.last_override_direction
         # Add seasonal preset target from PresetManager
