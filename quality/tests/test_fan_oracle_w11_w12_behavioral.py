@@ -671,14 +671,14 @@ def test_pre_oracle_write_is_hydrated_when_oracle_appears():
     # Now attach an oracle. The oracle knows NOTHING about this hold yet.
     oracle = FanPolicyOracle()
     r.hass.data = {DOMAIN: {"fan_oracle": oracle}}
-    assert oracle.get_state("entry:entry-C").manual_on_hold_until is None
+    assert oracle.get_state("room:Bedroom").manual_on_hold_until is None
 
     # First read after attach hydrates the oracle from local cache.
     val = r._fan_manual_on_until
     assert val == t + timedelta(minutes=45), (
         "hydration read MUST return the pre-oracle write"
     )
-    assert oracle.get_state("entry:entry-C").manual_on_hold_until == (
+    assert oracle.get_state("room:Bedroom").manual_on_hold_until == (
         t + timedelta(minutes=45)
     ), "oracle MUST now carry the hydrated hold"
 

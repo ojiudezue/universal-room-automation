@@ -464,9 +464,12 @@ class FanController:
         # so per-tick cost stays bounded. NOT load-bearing — read-time
         # expiry evaluation at _is_manual_on_hold_live + _evaluate_temp_fan
         # remains the authoritative gate. See PLANNING §5.4.
+        # getattr-with-default so test harnesses that bypass __init__ don't
+        # AttributeError; production always initializes via __init__.
+        _last_cleanup = getattr(self, "_last_ledger_cleanup_at", None)
         if (
-            self._last_ledger_cleanup_at is None
-            or (now - self._last_ledger_cleanup_at).total_seconds() > 60
+            _last_cleanup is None
+            or (now - _last_cleanup).total_seconds() > 60
         ):
             self._last_ledger_cleanup_at = now
             oracle_for_cleanup = _get_fan_oracle(self.hass)

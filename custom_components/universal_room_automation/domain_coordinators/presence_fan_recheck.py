@@ -994,7 +994,7 @@ class FanRecheckManager:
 
         Reads the oracle ledger directly via the shared ``_room_key``
         keyer so this reader agrees with both the HVAC-tier writer and
-        the room-tier writer for the same room. Legacy reach-through
+        the room-tier writer for the same room. Prior-scheme reach-through
         (hass.data -> coordinator_manager -> hvac.fan_controller
         ._room_fans[room_name]) preserved as fallback when the oracle
         isn't yet attached (early boot / minimal-mock unit tests).
@@ -1010,9 +1010,9 @@ class FanRecheckManager:
                     if until is None:
                         return False
                     return dt_util.now() < until
-                except Exception:  # noqa: BLE001 — fall through to legacy
+                except Exception:  # noqa: BLE001 — fall through to prior-scheme
                     pass
-            # Legacy fallback: reach through the fan controller's RAM state.
+            # Prior-scheme fallback: reach through the fan controller's RAM state.
             cm = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
             hvac = cm.coordinators.get("hvac") if cm else None
             fan_controller = getattr(hvac, "fan_controller", None) if hvac else None
