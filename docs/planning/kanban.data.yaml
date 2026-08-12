@@ -714,8 +714,9 @@ cards:
 - id: COMFORT-TOGGLE-1
   title: Dedicated enable switch for comfort-delay grace (vs grace_minutes=0 kill)
   thread: hvac
-  status: waiting_operator
-  approval: unreviewed
+  status: done
+  approval: explicit
+  operator_disposition: 'DECLINED 2026-08-11 (chat): "Comfort toggle - no". grace_minutes=0 is the kill. Parked peak-TOU conjunct stays parked on live evidence.'
   origin:
     date: '2026-08-10'
     gist: 'operator Q at v5.69.0 ship: "Can we gate this behind a toggle ie this more permissive bypass? What is the config surface?" — question, not command'
@@ -963,6 +964,7 @@ cards:
     linked not merged; fan-recheck cards/plans are about mmWave truth not manual intent; humidity-fan
     backlog (PowerView memo) is spike detection; B-2026-08-03-8 flash opt-out unrelated. NEW.'
   organic_evidence: 'shipwatch 2026-08-11: L2 PENDING ON OPERATOR — manual Living Room fan-ON test still owed; no organic 1h+ manual hold observed yet (both v5.68.0 hold + v5.70.0 delegation ride this one test).'
+  organic_evidence_2: 'OPERATOR CONFIRMED 2026-08-11: "Living room fan is working afaik" — manual fan use no longer self-cancels. Closes v5.68.0 L2 + v5.70.0 L3 + v5.72.0 L4 (the one shared operator test).'
 - id: KHOST-2
   title: Operator disposition buttons + drag-between-states on the hosted board
   thread: tooling
@@ -975,6 +977,18 @@ cards:
   why: 'Board is currently read-only reflection; operator decisions still have to travel through chat. Dispositions through the board close the loop: tap/drag → queued → agent applies to kanban.data.yaml at session start (agent-in-loop, no unattended repo writer).'
   constraints: 'LAN-site only (Artifact CSP cannot POST). No auth on LAN site per operator choice. Source of truth stays kanban.data.yaml; the queue is pending-intent, not state.'
   next: 'Build: webhost micro-API + board JS (buttons done/deferred/declined + column drag) + cron pull of disposition queue + pending-chip render + session-start apply protocol in ura-kanban skill.'
+
+- id: NM-BB-IMAGE-1
+  title: iMessage photo delivery unblocked — BlueBubbles v0.5/0.6 added attachment + media_url
+  thread: notifications
+  status: in_progress
+  approval: approved
+  origin:
+    date: '2026-08-11'
+    gist: 'operator upgraded BlueBubbles to v0.6.0; release notes show send_message now takes attachment/media_url. Verified in installed source (__init__.py:100-165: attachment=local path w/ is_allowed_path gate, media_url=URL).'
+  why: 'Closes SNAP-1-followup-bluebubbles-attachment: NM _send_imessage passes speculative keys (attachment_path / attachment-as-URL) the old integration dropped; new integration reads attachment/media_url. ~10 LoC key rename + delete the one-shot WARN + tests. Security images then land on BOTH channels.'
+  parked_alts: 'BB v0.5 also added INBOUND webhooks + phrase triggers (opt-in) — future: NM ack/silence via iMessage reply (safe-word flow). Not this cycle; if enabled, use sender allow-list + local-only.'
+  next: 'Tier-1 build dispatched: rename keys, drop WARN, mutation-anchored tests; ride next deploy.'
 
 - id: SUITE-HYGIENE-2
   title: Pollution-DEPENDENT tests — 5 files break under a clean sys.modules start
@@ -1485,7 +1499,7 @@ cards:
 - id: CONSOL-1
   title: Perimeter consolidation cycle
   thread: perimeter
-  status: planned
+  status: in_progress
   approval: explicit
   approved_by: operator
   approved_on: 2026-08-07
@@ -1514,6 +1528,7 @@ cards:
   refs:
   - PLANNING_perimeter_consolidation.md
   - AUDIT_ha_side_alerting_reconciliation.md
+  plan_state: 'rev-2 PLAN-READY (1 adversarial review: 3 CRIT + 4 HIGH fixed in-plan incl. No-Soak violation + G4/G6 misname + vehicle-window orphan). D0 probe: doorbell llmvision SILENTLY BROKEN since 02-13 (gpt-5-mini reasoning eats 300 tokens); build dispatched 2026-08-11 eve; D0.4 doorbell hotfix OPERATOR-GATED.'
 - id: SNAP-1
   title: Snapshot mirror-and-improve
   thread: perimeter
@@ -2107,8 +2122,9 @@ cards:
 - id: PHYS
   title: Physical operator actions
   thread: ops
-  status: waiting_operator
-  approval: blocked
+  status: done
+  approval: explicit
+  operator_disposition: 'done via board button 2026-08-11T15:43Z — first live KHOST-2 disposition; applied per operator-authority rule'
   why: hardware only the operator can touch
   items:
   - Envoy power-cycle (daily reserve wedge, self-heals but recurs)
