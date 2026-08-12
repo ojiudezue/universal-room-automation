@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-11T22:03:36-05:00_ - _Data commit: `88d91dfd3ef7`_ - _last_reconciled: 2026-08-11_
+_Generated: 2026-08-11T22:14:05-05:00_ - _Data commit: `d3f270f6fa93`_ - _last_reconciled: 2026-08-11_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -556,7 +556,6 @@ thread: **camera** - status: **waiting_operator** - approval: **blocked**
 - **Refs:** AUDIT_frigate1_sunset.md
 
 ### `PHYS` - Physical operator actions
-> **⚡ OPERATOR: done — pending apply** (at 2026-08-11T15:43:46.783Z)
 thread: **ops** - status: **waiting_operator** - approval: **blocked**
 - **Why:** hardware only the operator can touch
 - **Forensic keys (1):**
