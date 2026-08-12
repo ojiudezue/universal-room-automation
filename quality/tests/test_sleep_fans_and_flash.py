@@ -335,6 +335,10 @@ class _FakeZoneManager:
 
 def _make_hass(cm_options=None):
     hass = MagicMock()
+    # FAN-LAYER-2 fixture modernization: real dict so _get_fan_oracle
+    # returns None instead of a MagicMock the async _locked setters
+    # can't await.
+    hass.data = {}
     hass.states.get = lambda entity_id: None
     hass.services.async_call = AsyncMock(return_value=None)
 

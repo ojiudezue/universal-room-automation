@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-11T18:23:24-05:00_ - _Data commit: `659277fe9418`_ - _last_reconciled: 2026-08-11_
+_Generated: 2026-08-11T21:20:50-05:00_ - _Data commit: `29622db14cbc`_ - _last_reconciled: 2026-08-11_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,11 +12,11 @@ _Generated: 2026-08-11T18:23:24-05:00_ - _Data commit: `659277fe9418`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 1 |
-| 🧭 Pre-planning | 13 |
-| 📝 Planned | 4 |
+| 🧭 Pre-planning | 14 |
+| 📝 Planned | 1 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 0 |
-| 🚀 Shipped (organic open) | 16 |
+| 🚀 Shipped (organic open) | 20 |
 | ⏸️ Waiting on operator | 4 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 0 |
@@ -41,7 +41,7 @@ thread: **dashboarding** - status: **inbox** - approval: **explicit**
   - `followup_candidate`: retrofit conditional rendering to the Battery Strategy Detail card (same section group, same defect, ~30 min) — only if the operator endorses this card's style
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
 
-## 🧭 Pre-planning (13)
+## 🧭 Pre-planning (14)
 _idea being decomposed_
 
 ### `HVAC-PRESET-FLAP-1` - HVAC zone preset flaps home<->away every 5-15 min during occupied evenings (survives Writer-B removal)
@@ -61,6 +61,12 @@ thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
   - `MECHANISM_PROVEN_2026_08_09`: Two URA writers alternating with NO arbitration between them. From the ledger, zone_2, every row carrying persons=[ziri, jaya]: 23:34 home->away reason=runtime_exceeded       runtime=True 23:24 away->home reason=house_state_transition ru...
   - `my_process_failure`: I proposed three mechanisms in sequence from snapshots — "URA says home, device says away", then "the 120-min cap fired", then "it is coast" — and each fit the instant I was looking at and died on the next fact. The history query I ran F...
   - `DEDUPE_2026_08_09`: Four-surface sweep: P1P3 is the PARENT (closed, spawned this). STUCK-SENSOR-1 is a different flap (mmWave sensor stuck, not HVAC preset) — no merge. ARREST-SUNSET-1 shipped and is about override sunset, not oscillation. OVERRIDE-NOTIFY-1...
+
+### `SUITE-HYGIENE-2` - Pollution-DEPENDENT tests — 5 files break under a clean sys.modules start
+thread: **quality** - status: **pre_planning** - approval: **unreviewed**
+- **Origin:** 2026-08-11 - SUITE-HYGIENE-1 census: widening the restore to homeassistant.*/custom_components.* prefixes FIXED 7 stable failures but BROKE 7 tests that depend on stubs a sibling file installed (test_heatcool_enforcer, test_runtime_smoke...
+- **Why:** These tests only pass because another file polluted sys.modules first — invisible coupling that blocks full-suite hermeticity and keeps 7 heal-able stable failures unfixed. Fix = give each dependent file its own complete stubs, then wide...
+- **Next:** Small cycle after FAN-LAYER-2 ships: per-file stub-completeness for the 5 dependents, widen prefixes, expect stable-failure count to DROP by ~7. Census + experiment logs in SUITE-HYGIENE-1 scratchpad + conftest docstring.
 
 ### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)
 thread: **tablets** - status: **pre_planning** - approval: **unreviewed**
@@ -176,7 +182,7 @@ thread: **camera** - status: **pre_planning** - approval: **implied**
 - **Parsimony:** [BUILD] per-room fused camera sensors ship with no area
 - **Refs:** binary_sensor.py CameraPersonDetectedSensor
 
-## 📝 Planned (4)
+## 📝 Planned (1)
 _has plan / acceptance_
 
 ### `STUCK-SENSOR-1` - Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
@@ -204,46 +210,27 @@ thread: **presence** - status: **planned** - approval: **explicit**
   - `OPERATOR_DISPOSITIONS_2026_08_09`: ATHOM (Study A): CLOSED as a no-op. Operator: "Ignore athom now. It's a no op." URA already does not read it (options override every bucket); the ESPHome device entry stays. Do NOT re-raise, do NOT propose deleting the entry or cleaning ...
   - `rejected`: PROPAGATE STUCK STATE TO ZONE/HOUSE — I recommended this and then withdrew it under challenge ('is this flow upwards useful?'). If the room tier excludes correctly the corrected occupancy propagates naturally and upper tiers are right fo...
 
-### `NM-IMAGE-1` - NM image attachments not landing (WhatsApp + iMessage) — operator automation images DO land
-thread: **notifications** - status: **planned** - approval: **unreviewed**
-- **Origin:** 2026-08-11 - operator: "The images are not landing in the NM messages even in whatsapp; the image-bearing ones are from my automation."
-- **Why:** DIAGNOSED 2026-08-11: capture works (fresh files in /media/ura/snapshots), channel works (live media_path test delivered WITH image), perimeter dispatch threads snapshot_path. The drop is NM digest routing: operator delivery_pref=digest;...
-- **Next:** Operator approves cycle -> plan (Tier 2, one adversarial plan review) -> build. Prerequisite for CONSOL-1 universal-llmvision (approved 2026-08-07).
-- **Forensic keys (1):**
-  - `design_pick_for_operator`: Fix shape A: persist snapshot_path into digest rows + deliver images at flush. Fix shape B (recommended for security class): image-bearing perimeter alerts bypass digest as effectively-immediate. Pick rides the plan review.
-
-### `FAN-LAYER-2` - FanPolicyOracle completion — RoomFanState delegation + actuate-wrap remainder (W1-W3, W8-W10) + INV-FLA-T lock
-thread: **fans** - status: **planned** - approval: **unreviewed**
-- **Origin:** 2026-08-11 - Session 3 scoped-partial: builder deferred RoomFanState dataclass→property (34 sites), W1-W3/W8-W10 actuate wraps, adjacency reverse-scan. Honest deferral, own blast radius.
-- **Why:** State-in-one-place holds for RoomAutomation tier but HVAC-tier RoomFanState still carries its own hold fields; TOCTOU lock (INV-FLA-T) only covers W11/W12. Full oracle authority needs the remainder.
-- **Next:** After FAN-LAYER-1 increment ships + validates: plan review (Tier 2-DB), then RoomFanState conversion as its own cycle.
+## 🔨 In progress (1)
+_being built_
 
 ### `CONSOL-1` - Perimeter consolidation cycle
-thread: **perimeter** - status: **planned** - approval: **explicit**
+thread: **perimeter** - status: **in_progress** - approval: **explicit**
 - **Origin:** 2026-08-07 - retire redundant manager surface; I need to weigh in — usability
 - **Why:** three parallel alerting stacks (URA NM, HA doorbell automation, zone_monitoring pagers) duplicate delivery
 - **Next:** fold SNAP-1 + TEST-1/2 in; Tier 2-DB
 - **Tags:** tier-2db, institutional-context, audit-first
 - **Parsimony:** [BUILD] 3 stacks page the same event with no shared cooldown/routing
 - **Refs:** PLANNING_perimeter_consolidation.md; AUDIT_ha_side_alerting_reconciliation.md
-- **Forensic keys (1):**
+- **Forensic keys (2):**
   - `rulings`: Option C surfacing (= A enhanced)
-
-## 🔨 In progress (1)
-_being built_
-
-### `DP-OBSERVABILITY-1` - DP plan sensor presents stale eval snapshot as current (misled 2 diagnoses in one day)
-thread: **energy** - status: **in_progress** - approval: **unreviewed**
-- **Origin:** 2026-08-11 - Found during EV-GARAGE-A-NOCHARGE-1: last_eval_at 4 days old + expired must_start_by rendered without staleness cues; pause_reason_human shows day-scoped reason strings that read as current at any hour.
-- **Why:** The sensor is honest data, dishonest presentation: hold_only (resting state) + stale snapshot reads as "frozen/blocked". Cost: orchestrator misdiagnosed a stall; operator asked "how is that a sensor".
-- **Next:** Small cycle: age-stamp the snapshot in attrs (eval_age_min), render must_start_by only when future, clarify hold_only naming/attr (state=resting vs active-pause), and consider a stale-eval WARN when off_peak+charging ticks pass without e...
+  - `plan_state`: rev-2 PLAN-READY (1 adversarial review: 3 CRIT + 4 HIGH fixed in-plan incl. No-Soak violation + G4/G6 misname + vehicle-window orphan). D0 probe: doorbell llmvision SILENTLY BROKEN since 02-13 (gpt-5-mini reasoning eats 300 tokens); buil...
 
 ## 🔍 Review (0)
 _under review_
 
 _(none)_
 
-## 🚀 Shipped (organic open) (16)
+## 🚀 Shipped (organic open) (20)
 _live, awaiting proof_
 
 ### `SENSOR-CAPABILITY-1` - Separate sensor CAPABILITY (hardware kind) from analytic ROLE — kind is currently the config bucket
@@ -385,6 +372,39 @@ thread: **tooling** - status: **shipped_organic** - approval: **approved**
 - **Next:** Build: webhost micro-API + board JS (buttons done/deferred/declined + column drag) + cron pull of disposition queue + pending-chip render + session-start apply protocol in ura-kanban skill.
 - **Forensic keys (1):**
   - `shipped_note`: Live 2026-08-11: buttons (done/deferred/declined) + column drag on urakanban LAN site; queue → pending jsonl → agent session-start apply (operator authority). Orchestrator-verified API round-trip. Organic proof: first real operator dispo...
+
+### `SUITE-HYGIENE-1` - Kill the order-dependent flake families (sys.modules pollution) — every cycle pays a classification tax
+thread: **quality** - status: **shipped_organic** - approval: **approved**
+- **Origin:** 2026-08-11 - Three consecutive cycles (ARREST-COMFORT, FAN-LAYER-1, FAN-LAYER-2 D1) each spent builder+reviewer effort re-classifying the same order-flakes; FAN-LAYER-2 D1 even had its own NEW test polluted on day one.
+- **Why:** Diagnosed root cause (v5.70.0 Review B / B-MED-2, deferred): test_freeze_floor.py + test_v4_6_9_hvac_intent_attrs.py install synthesized modules into sys.modules without snapshot/restore; collection-order shifts expose different victims ...
+- **Next:** Small Tier-1/2 cycle: snapshot/restore fixtures around every sys.modules-stubbing test file (grep for the stub pattern, fix all instances, not just the two known); add a suite-level canary test that asserts sys.modules is unchanged acros...
+- **Forensic keys (1):**
+  - `shipped_version`: v5.72.0
+
+### `NM-IMAGE-1` - NM image attachments not landing (WhatsApp + iMessage) — operator automation images DO land
+thread: **notifications** - status: **shipped_organic** - approval: **unreviewed**
+- **Origin:** 2026-08-11 - operator: "The images are not landing in the NM messages even in whatsapp; the image-bearing ones are from my automation."
+- **Why:** DIAGNOSED 2026-08-11: capture works (fresh files in /media/ura/snapshots), channel works (live media_path test delivered WITH image), perimeter dispatch threads snapshot_path. The drop is NM digest routing: operator delivery_pref=digest;...
+- **Next:** Operator approves cycle -> plan (Tier 2, one adversarial plan review) -> build. Prerequisite for CONSOL-1 universal-llmvision (approved 2026-08-07).
+- **Forensic keys (2):**
+  - `shipped_version`: v5.71.0
+  - `design_pick_for_operator`: Fix shape A: persist snapshot_path into digest rows + deliver images at flush. Fix shape B (recommended for security class): image-bearing perimeter alerts bypass digest as effectively-immediate. Pick rides the plan review.
+
+### `DP-OBSERVABILITY-1` - DP plan sensor presents stale eval snapshot as current (misled 2 diagnoses in one day)
+thread: **energy** - status: **shipped_organic** - approval: **unreviewed**
+- **Origin:** 2026-08-11 - Found during EV-GARAGE-A-NOCHARGE-1: last_eval_at 4 days old + expired must_start_by rendered without staleness cues; pause_reason_human shows day-scoped reason strings that read as current at any hour.
+- **Why:** The sensor is honest data, dishonest presentation: hold_only (resting state) + stale snapshot reads as "frozen/blocked". Cost: orchestrator misdiagnosed a stall; operator asked "how is that a sensor".
+- **Next:** Small cycle: age-stamp the snapshot in attrs (eval_age_min), render must_start_by only when future, clarify hold_only naming/attr (state=resting vs active-pause), and consider a stale-eval WARN when off_peak+charging ticks pass without e...
+- **Forensic keys (1):**
+  - `shipped_version`: v5.71.0
+
+### `FAN-LAYER-2` - FanPolicyOracle completion — RoomFanState delegation + actuate-wrap remainder (W1-W3, W8-W10) + INV-FLA-T lock
+thread: **fans** - status: **shipped_organic** - approval: **unreviewed**
+- **Origin:** 2026-08-11 - Session 3 scoped-partial: builder deferred RoomFanState dataclass→property (34 sites), W1-W3/W8-W10 actuate wraps, adjacency reverse-scan. Honest deferral, own blast radius.
+- **Why:** State-in-one-place holds for RoomAutomation tier but HVAC-tier RoomFanState still carries its own hold fields; TOCTOU lock (INV-FLA-T) only covers W11/W12. Full oracle authority needs the remainder.
+- **Next:** After FAN-LAYER-1 increment ships + validates: plan review (Tier 2-DB), then RoomFanState conversion as its own cycle.
+- **Forensic keys (1):**
+  - `shipped_version`: v5.72.0
 
 ### `FAN-LAYER-1` - DOC-2 fan-actuation shared layer: REVIVED — FAN-MANUAL-1 fired 3 of its 4 park triggers
 thread: **hvac** - status: **shipped_organic** - approval: **explicit**

@@ -1,0 +1,20 @@
+{
+  "format_version": "2.1",
+  "entry_id": "041",
+  "author": "ojiudezue",
+  "session_id": "claude_20260812_022050_ship_v5_72_0",
+  "timestamp": "2026-08-12T02:20:50Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.72.0 shipped: FanPolicyOracle complete + deterministic test suite",
+  "summary": "FAN-LAYER-2: RoomFanState delegates to the oracle (room-keyed, migration wired, freshest-wins), all 9 fan writers through actuate() with behavioral anchors on every wrap, locked-setter fleet, reverse adjacency scanner. SUITE-HYGIENE-1: sys.modules snapshot/restore + attribution canary + probe-trio anchor; 3x byte-identical failure lists proven",
+  "refs": {
+    "cards": [
+      "FAN-LAYER-2",
+      "SUITE-HYGIENE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.72.0.md"
+    ]
+  }
+}

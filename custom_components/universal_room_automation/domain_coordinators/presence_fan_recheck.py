@@ -990,7 +990,29 @@ class FanRecheckManager:
         )
 
     def _fan_in_manual_cooldown(self, room_name: str) -> bool:
+        """FAN-LAYER-2 D1 (PLAN §2.1 task item 2 + §5.2 dual-tier agreement).
+
+        Reads the oracle ledger directly via the shared ``_room_key``
+        keyer so this reader agrees with both the HVAC-tier writer and
+        the room-tier writer for the same room. Prior-scheme reach-through
+        (hass.data -> coordinator_manager -> hvac.fan_controller
+        ._room_fans[room_name]) preserved as fallback when the oracle
+        isn't yet attached (early boot / minimal-mock unit tests).
+        """
         try:
+            # Preferred path: oracle-first, keyed by _room_key(room_name).
+            oracle = self.hass.data.get(DOMAIN, {}).get("fan_oracle")
+            if oracle is not None:
+                try:
+                    from .hvac_fans import _room_key
+                    key = _room_key(room_name)
+                    until = oracle.get_state(key).manual_off_cooldown_until
+                    if until is None:
+                        return False
+                    return dt_util.now() < until
+                except Exception:  # noqa: BLE001 — fall through to prior-scheme
+                    pass
+            # Prior-scheme fallback: reach through the fan controller's RAM state.
             cm = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
             hvac = cm.coordinators.get("hvac") if cm else None
             fan_controller = getattr(hvac, "fan_controller", None) if hvac else None
