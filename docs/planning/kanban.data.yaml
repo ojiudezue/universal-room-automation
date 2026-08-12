@@ -979,6 +979,18 @@ cards:
   constraints: 'LAN-site only (Artifact CSP cannot POST). No auth on LAN site per operator choice. Source of truth stays kanban.data.yaml; the queue is pending-intent, not state.'
   next: 'Build: webhost micro-API + board JS (buttons done/deferred/declined + column drag) + cron pull of disposition queue + pending-chip render + session-start apply protocol in ura-kanban skill.'
 
+- id: PERIM-FP-1
+  title: Frigate-1 nighttime IR ghost detections — 100% of night person alerts are single-witness sub-2s blips
+  thread: security
+  status: waiting_operator
+  approval: unreviewed
+  origin:
+    date: '2026-08-12'
+    gist: 'operator: "Both pictures show no one... No corroboration from any other likely means false positive no?... hand check protect detection history and its correlation to frigate"'
+  why: 'PROBED (AUDIT_perimeter_fp_correlation.md): ghost source = Frigate instance 1 under nighttime IR on pool_equipment (94% single-witness), hot_tub (60%), front_side_ptz (51%), back_yard (49%). ALL 80 night-hour person edges across 7 nights were frigate-1 single-witness; zero Protect corroboration on the same views (healthy cameras agree 75-95%). Morphology: FP blips sub-2s; true detections median 20-47s. URA alerted per spec — inputs were ghosts.'
+  fix_directions_for_operator: '(a) Frigate-side: raise person threshold / min_score on the 4 IR-affected cameras (fixes at the source, benefits everything downstream); (b) URA-side sustained-on gate ~3-5s before dispatch (catches all observed FPs, adds 3-5s latency to real alerts, works for Frigate-only cameras); (c) URA-side Protect-corroboration demotion for dual-source views + duration gate for Frigate-only views (most precise, most machinery). Probe data supports (a)+(b) as the parsimonious pair. Also: llmvision enrichment (now shipped, default OFF) gives a free FP witness — "no person visible" descriptions become machine-readable FP evidence.'
+  next: 'Operator picks direction(s); (a) is config-side on Frigate (homelab), (b)/(c) are URA cycles (measure-first done). Two NM-dedup'd edges (06:14, 07:11) flagged for follow-up in the audit.'
+
 - id: ARRESTER-BOOT-BLIND-1
   title: Arrester boot-window manual blindness — manual holds predating the listener are unclassifiable
   thread: hvac
