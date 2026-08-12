@@ -168,8 +168,8 @@ def test_xcorr1_night_only_gate_blocks_demotion_outside_hours(monkeypatch):
     mgr, nm = _fresh_mgr()
     # Narrow the alert window to a 1-hour slot; then pin clock outside.
     for entry in mgr.hass.config_entries.async_entries():
-        entry.options[_const.CONF_PERIMETER_ALERT_HOURS_START] = 1
-        entry.options[_const.CONF_PERIMETER_ALERT_HOURS_END] = 2
+        entry.options[_const.CONF_PERIMETER_VEHICLE_HOURS_START] = 1
+        entry.options[_const.CONF_PERIMETER_VEHICLE_HOURS_END] = 2
     # Pin dt_util.now to hour 10 (outside 1-2 window).
     fixed = _perimeter.dt_util.now().replace(hour=10, minute=0, second=0)
     monkeypatch.setattr(_perimeter.dt_util, "now", lambda: fixed)

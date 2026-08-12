@@ -317,6 +317,21 @@ from .const import (
     CONF_PERIMETER_ALERT_HOURS_END,
     CONF_PERIMETER_ALERT_NOTIFY_SERVICE,
     CONF_PERIMETER_ALERT_NOTIFY_TARGET,
+    CONF_PERIMETER_VEHICLE_HOURS_START,
+    CONF_PERIMETER_VEHICLE_HOURS_END,
+    DEFAULT_PERIMETER_VEHICLE_HOURS_START,
+    DEFAULT_PERIMETER_VEHICLE_HOURS_END,
+    CONF_PERIMETER_ENRICHMENT_ENABLED,
+    CONF_PERIMETER_ENRICHMENT_PROVIDER,
+    CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS,
+    CONF_PERIMETER_ENRICHMENT_MODEL,
+    CONF_PERIMETER_ENRICHMENT_MAX_TOKENS,
+    CONF_PERIMETER_ENRICHMENT_PROVIDER_ID,
+    DEFAULT_PERIMETER_ENRICHMENT_ENABLED,
+    DEFAULT_PERIMETER_ENRICHMENT_PROVIDER,
+    DEFAULT_PERIMETER_ENRICHMENT_PERSON_SENSORS,
+    DEFAULT_PERIMETER_ENRICHMENT_MODEL,
+    DEFAULT_PERIMETER_ENRICHMENT_MAX_TOKENS,
     DEFAULT_PERIMETER_ALERT_START,
     DEFAULT_PERIMETER_ALERT_END,
     CONF_EXTERIOR_SNAPSHOT_OFFSET_S,
@@ -3011,60 +3026,115 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         )
 
     async def async_step_perimeter_alerting(self, user_input=None):
-        """Configure perimeter intruder alerting (integration level) — v3.5.1.
+        """Configure Perimeter Alerting (integration level) — Option C.
 
-        Sets alert hours, notification service, and notification target for
-        the PerimeterAlertManager. Changes take effect after integration reload.
+        Post CONSOL-1 §D4/§D6:
+          - VEHICLE hours (renamed from perimeter_alert_hours_*, values
+            migrated at setup_entry) — vehicle-only, policy not protocol.
+          - llmvision enrichment fields (default OFF at ship; §M4 promote
+            gate flips defaults after 14 days of ledger data).
+          - Legacy notify_service / notify_target keys STRIPPED (§D1).
+          - Snapshot offset unchanged.
         """
         if user_input is not None:
-            # v3.6.0-c2.1: Pass merged options through async_create_entry data.
-            # Previously called async_update_entry then async_create_entry(data={})
-            # which wiped options to {} on flow completion.
-            return self.async_create_entry(
-                title="",
-                data={**self._config_entry.options, **user_input},
-            )
+            # STRIP retired notify keys from persisted options on save.
+            new_options = {**self._config_entry.options, **user_input}
+            for _k in (
+                CONF_PERIMETER_ALERT_NOTIFY_SERVICE,
+                CONF_PERIMETER_ALERT_NOTIFY_TARGET,
+                CONF_PERIMETER_ALERT_HOURS_START,
+                CONF_PERIMETER_ALERT_HOURS_END,
+            ):
+                new_options.pop(_k, None)
+            return self.async_create_entry(title="", data=new_options)
 
         data_schema = vol.Schema({
-            # Alert start hour (0–23)
+            # VEHICLE alert start hour (0–23) — renamed from alert_hours.
             vol.Optional(
-                CONF_PERIMETER_ALERT_HOURS_START,
+                CONF_PERIMETER_VEHICLE_HOURS_START,
                 default=self._get_current(
-                    CONF_PERIMETER_ALERT_HOURS_START,
-                    DEFAULT_PERIMETER_ALERT_START,
+                    CONF_PERIMETER_VEHICLE_HOURS_START,
+                    self._get_current(
+                        CONF_PERIMETER_ALERT_HOURS_START,
+                        DEFAULT_PERIMETER_VEHICLE_HOURS_START,
+                    ),
                 ),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
-                    min=0,
-                    max=23,
+                    min=0, max=23,
                     mode=selector.NumberSelectorMode.BOX,
                 )
             ),
-            # Alert end hour (0–23)
+            # VEHICLE alert end hour (0–23).
             vol.Optional(
-                CONF_PERIMETER_ALERT_HOURS_END,
+                CONF_PERIMETER_VEHICLE_HOURS_END,
                 default=self._get_current(
-                    CONF_PERIMETER_ALERT_HOURS_END,
-                    DEFAULT_PERIMETER_ALERT_END,
+                    CONF_PERIMETER_VEHICLE_HOURS_END,
+                    self._get_current(
+                        CONF_PERIMETER_ALERT_HOURS_END,
+                        DEFAULT_PERIMETER_VEHICLE_HOURS_END,
+                    ),
                 ),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
-                    min=0,
-                    max=23,
+                    min=0, max=23,
                     mode=selector.NumberSelectorMode.BOX,
                 )
             ),
-            # Notify service
+            # --- CONSOL-1 §D3/§D4: llmvision enrichment fields (default OFF).
             vol.Optional(
-                CONF_PERIMETER_ALERT_NOTIFY_SERVICE,
-                default=self._get_current(CONF_PERIMETER_ALERT_NOTIFY_SERVICE, ""),
+                CONF_PERIMETER_ENRICHMENT_ENABLED,
+                default=self._get_current(
+                    CONF_PERIMETER_ENRICHMENT_ENABLED,
+                    DEFAULT_PERIMETER_ENRICHMENT_ENABLED,
+                ),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_PERIMETER_ENRICHMENT_PROVIDER,
+                default=self._get_current(
+                    CONF_PERIMETER_ENRICHMENT_PROVIDER,
+                    DEFAULT_PERIMETER_ENRICHMENT_PROVIDER,
+                ),
             ): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
             ),
-            # Notify target (optional)
             vol.Optional(
-                CONF_PERIMETER_ALERT_NOTIFY_TARGET,
-                default=self._get_current(CONF_PERIMETER_ALERT_NOTIFY_TARGET, ""),
+                CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS,
+                default=self._get_current(
+                    CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS,
+                    DEFAULT_PERIMETER_ENRICHMENT_PERSON_SENSORS,
+                ),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="binary_sensor", multiple=True,
+                )
+            ),
+            vol.Optional(
+                CONF_PERIMETER_ENRICHMENT_MODEL,
+                default=self._get_current(
+                    CONF_PERIMETER_ENRICHMENT_MODEL,
+                    DEFAULT_PERIMETER_ENRICHMENT_MODEL,
+                ),
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
+            ),
+            vol.Optional(
+                CONF_PERIMETER_ENRICHMENT_MAX_TOKENS,
+                default=self._get_current(
+                    CONF_PERIMETER_ENRICHMENT_MAX_TOKENS,
+                    DEFAULT_PERIMETER_ENRICHMENT_MAX_TOKENS,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=50, max=4000, step=50,
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_PERIMETER_ENRICHMENT_PROVIDER_ID,
+                default=self._get_current(
+                    CONF_PERIMETER_ENRICHMENT_PROVIDER_ID, "",
+                ),
             ): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
             ),
