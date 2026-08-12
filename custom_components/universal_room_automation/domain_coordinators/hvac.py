@@ -320,9 +320,23 @@ class HVACCoordinator(BaseCoordinator):
             else bool(DEFAULT_HVAC_OFFPHASE_HONESTY_ENABLED)
         )
         # Episode-gated ledger cache: (zone_id, house_state) -> True while a
-        # single off-phase episode has already emitted its
-        # `preset_change_suppressed` row (mirror of _night_trust_logged).
+        # single per-(zone, house_state) episode of the off-phase condition
+        # has already emitted its `preset_change_suppressed` row (mirror of
+        # `_night_trust_logged`). Discharged on house_state transition
+        # (below in the helper); a new house_state is a new episode.
+        # NB: episode granularity is per-(zone, house_state), NOT a rolling
+        # window — one row per house_state occupancy of the condition.
         self._offphase_logged: set[tuple[str, str]] = set()
+        # B11 (fix-up): explicit init of the discharge sentinel — no
+        # empty-string ambiguity.
+        self._offphase_logged_state: str = ""
+        # B1 (fix-up): per-zone emit throttle mirroring S10's
+        # `_last_emitted_range` (hvac.py:2219). Suppresses re-emitting the
+        # SAME (low, high) tuple across consecutive ticks — the operator's
+        # thermostat sees ONE write per (low, high) change, not one per
+        # tick. Cleared per-zone when runtime_exceeded drops false OR
+        # house_state changes (see D5 branch clear + helper discharge).
+        self._last_offphase_emit: dict[str, tuple[float, float]] = {}
         # Per-zone D3-guard skip flag exposed cross-tick for the D3 sensor
         # attribute (§3.3). Updated inside the D5 branch each tick.
         self._d3_skipped_current_tick: dict[str, bool] = {}
@@ -1648,6 +1662,15 @@ class HVACCoordinator(BaseCoordinator):
                 # `comfort_delay_active` whenever both runtime_exceeded
                 # and comfort_delay_active happen to be true.
                 _d3_skipped_this_tick = False
+                # B1 (fix-up): clear the throttle map for this zone when
+                # runtime_exceeded is no longer set — the operator's
+                # runtime accumulator dropped below the cap; the S14
+                # episode has ended and a future off-phase should emit
+                # anew (even if the resolved (low, high) tuple is
+                # identical). Matches reviewer spec: throttle discharges
+                # on runtime_exceeded clear OR house_state change.
+                if not zone.runtime_exceeded:
+                    self._last_offphase_emit.pop(zone_id, None)
                 if zone.runtime_exceeded and self._house_state != "sleep":
                     _cd_soc = self.battery_soc
                     _cd_blind = self.battery_blind
@@ -2874,27 +2897,43 @@ class HVACCoordinator(BaseCoordinator):
         high = cool_baseline + offset
         low = heat_baseline
 
+        _zone_id = zone.zone_id
+        # Discharge episode dedup AND throttle map on house_state
+        # transition BEFORE checking the throttle — a new house_state is
+        # a new episode by construction, and stale throttle state from
+        # the prior episode would otherwise suppress the first emit of
+        # the new one (matches the night-trust discharge pattern).
+        try:
+            if self._offphase_logged_state != self._house_state:
+                self._offphase_logged.clear()
+                self._last_offphase_emit.clear()
+                self._offphase_logged_state = self._house_state
+        except Exception:  # noqa: BLE001
+            pass
+        # B1 (fix-up): idempotent throttle — skip emit if this (low, high)
+        # pair matches the last-emitted pair on this zone (mirror of
+        # S10 `_last_emitted_range` at hvac.py:2219). Silent-True return
+        # so the caller preserves `effective_preset = target_preset`.
+        _throttle_pair = (float(low), float(high))
+        if self._last_offphase_emit.get(_zone_id) == _throttle_pair:
+            return True
+
         # Suppress the arrester on this URA-initiated setpoint write
         # (mirrors the S1 preset-write path at ~:1793).
+        # B9 (fix-up): `OverrideArrester.suppress` at hvac_override.py:1925
+        # accepts `kind` unconditionally — no TypeError fallback needed.
         if self._override_arrester is not None:
             try:
                 self._override_arrester.suppress(
                     zone.climate_entity, kind="temp",
                 )
-            except TypeError:
-                # Sibling S1 call is single-arg; suppress may not accept
-                # kind=. Fall back to the single-arg shape.
-                try:
-                    self._override_arrester.suppress(zone.climate_entity)
-                except Exception:  # noqa: BLE001
-                    pass
             except Exception:  # noqa: BLE001
                 pass
 
-        # S14 comfort-delay gate. Reason `runtime_exceeded_offphase` is
-        # in the DEFER set (aligns with S1's treatment of the sibling
-        # `runtime_exceeded` reason — §3.7 S14 row).
-        _zone_id = zone.zone_id
+        # S14 comfort-delay gate. Single-reason defer-set for this site
+        # (A-LOW-1): unlike S1's four-reason ladder, S14 always emits
+        # under `runtime_exceeded_offphase` — the reason string is fixed,
+        # so the gate collapses to `comfort_delay_active(zone)`.
         def _s14_gate() -> bool:
             if self._override_arrester is None:
                 return False
@@ -2909,15 +2948,8 @@ class HVACCoordinator(BaseCoordinator):
         # (zone_id, house_state) episode (mirror of _night_trust_logged
         # gating shape). Skipped when the gate defers (chokepoint logs
         # its own `comfort_delay_deferred_write` row in that case).
-        # Discharge: clear the cache on house_state change (matches the
-        # night-trust discharge pattern; a new house_state is a new
-        # episode by construction).
-        try:
-            if getattr(self, "_offphase_logged_state", "") != self._house_state:
-                self._offphase_logged.clear()
-                self._offphase_logged_state = self._house_state
-        except Exception:  # noqa: BLE001
-            pass
+        # (discharge check already ran at the top of the helper — see
+        # the throttle-preceding block; nothing to re-do here.)
         would_have_preset = "away"
         setpoint_high_written = high
         home_persons_live: list[str] = []
@@ -2942,8 +2974,20 @@ class HVACCoordinator(BaseCoordinator):
             reason=reason,
         )
         if not _s14_written:
-            # Deferred by comfort-delay chokepoint.
+            # B2 (fix-up): roll back the pre-emit suppress() stamp on
+            # gate-defer so a real manual within SUPPRESS_TTL_SECONDS
+            # isn't swallowed (mirror of S10 A-MED-2 discipline at
+            # hvac.py:2261). Do NOT record the throttle pair — next tick
+            # re-attempts naturally when the grace expires.
+            if self._override_arrester is not None:
+                try:
+                    self._override_arrester.unsuppress(zone.climate_entity)
+                except Exception:  # noqa: BLE001
+                    pass
             return False
+        # B1 (fix-up): record the emitted pair AFTER a successful write
+        # so the next tick with identical (low, high) skips the emit.
+        self._last_offphase_emit[_zone_id] = _throttle_pair
 
         _LOGGER.info(
             "HVAC-PRESET-FLAP-1: %s duty off-phase — holding "

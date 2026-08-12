@@ -162,13 +162,39 @@ If exposing `_d3_skipped_this_tick` cross-tick is impractical (it is a local in 
 
 **Rule of thumb applied:** distinct reason CODE for ledger clarity; live `home_persons` list for episode correlation and to avoid the CRIT-shape confusion with static config.
 
-### 3.4 D4 — Restart / boot behavior
+### 3.4 D4 — Restart / boot behavior + episode discharge (B3/B4 fix-up adjudication)
 
 - Off-phase state is NOT persisted across restart. On boot, `zone.runtime_exceeded` is re-derived from live accumulation. The first post-boot tick that crosses the cap re-enters `_apply_duty_off_phase`.
 - `_offphase_logged` cache resets on coord init (matches `_night_trust_logged` at `hvac.py:1659`); one boot-transient extra ledger row per zone per episode is acceptable (documented in the README validation section).
 - Kill-switch state IS persisted. If `hvac_offphase_honesty_enabled` False at boot, coordinator logs WARN.
 - If `COMFORT_OFFPHASE_OFFSET_F == 0.0` at boot, coordinator logs INFO (INV inertness clause (f) — legitimate diagnostic).
 - Kill-switch flipped OFF mid-episode: the next D5 tick takes the dominance short-circuit (`effective_preset = "away"`); `_offphase_logged` cache is stale but harmless.
+
+**Episode granularity (B4 fix-up adjudication):** episode-gating is
+**per-(zone, house_state)** — exactly ONE `preset_change_suppressed` row
+per house_state occupancy of the off-phase condition, discharged on
+house_state transition. This is NOT a rolling-window episode:
+runtime_exceeded flapping True→False→True inside the same house_state
+produces ONE row across the whole span (matches the sibling
+`_night_trust_logged` behavior). The paired throttle discharge
+(`_last_offphase_emit`) fires when `runtime_exceeded` clears OR
+house_state transitions.
+
+**Ceiling-held-until-next-preset-transition (B3 fix-up adjudication —
+option (a), doc-only):** by design, once the S14 helper writes the
+`home + OFFSET` ceiling and later `runtime_exceeded` clears, URA
+does NOT emit a "resume" `set_temperature` back to the raw home cool
+baseline. The ceiling holds at `home + OFFSET` until the next preset
+transition (the S1 preset write path on any house_state or preset
+change re-emits the range for the new preset). Rationale: an
+edge-detector re-emit would introduce a NEW writer to the shared S1
+chokepoint machinery for pennies of comfort benefit (the operator
+notices `home + 2°F` for a coast tail, not a comfort event), and
+would defeat the throttle map's purpose. Trade-off accepted per
+Marginal-Benefit Decomposition. Acceptance criterion covered by
+`test_ceiling_held_until_next_preset_transition` in D1 (verify no
+`set_temperature` call fires when `runtime_exceeded` drops False
+without a preset transition).
 
 ### 3.5 D5 — Precedence table (spec'd, not inferred; rev-2 rows added)
 
@@ -250,6 +276,8 @@ Refactor `hvac.py:1575-1620` D5 branch: dominance short-circuit list (§3.2) the
 - **Test:** `TestDutyOffPhaseSetpoint::test_writes_home_plus_offset`, `test_yields_to_vacant_past_grace`, `test_yields_to_comfort_delay`, `test_yields_to_d6_stale_occupancy`, `test_yields_to_within_grace_vacancy`, `test_shed_write_survives_s14`, `test_freeze_deadband_honored`, `test_vacation_target_preset`, `test_night_trust_short_circuits`.
 - **Sensor:** during a duty off-phase, `climate.<zone>.attributes.target_temp_high` reads `home_cool + 2.0`; `climate.<zone>.attributes.preset_mode` reads `home` (or the current house-state preset), NEVER `away`.
 - **Live:** during the 21:00-01:00Z coast window, on a zone that trips `runtime_exceeded` with `zone.any_room_occupied=True`, observe `climate.thermostat_upstairs.attributes.target_temp_high` step to `home_cool + 2.0`, NOT 80; `preset_mode` unchanged.
+- **Live (B5 fix-up):** post-B1 throttle fix, verify on the real Bryant thermostat that the `hold_activity` manual echo emitted after `SUPPRESS_TTL_SECONDS` does NOT register as an operator manual. Concretely: during an active off-phase episode, the arrester's per-zone override counter (`sensor.ura_hvac_arrester_overrides_today_<zone_id>` or the zone_preset attribute `overrides_today`) MUST stay flat — the throttle map prevents re-emitting the SAME `(low, high)` pair every tick, keeping the URA-emitted write inside a single `SUPPRESS_TTL_SECONDS` window. If the counter increments during an S14 hold, the throttle is over-emitting and the write is landing outside the suppress TTL.
+- **Live (B3 fix-up):** when `runtime_exceeded` clears mid-house_state (episode ends without a preset transition), verify NO `set_temperature` write fires — the ceiling holds at `home + OFFSET` until the next preset transition by design. Check `ura_activity_log` for the absence of a follow-on `preset_change` / setpoint restore in the minutes after the tail-end of an episode; observe `climate.<zone>.attributes.target_temp_high` remains at `home + OFFSET` until the next house_state or preset flip.
 
 ### D2: Ledger reason + episode-gated suppressed-preset row
 Add the `preset_change_suppressed` row with `reason=runtime_exceeded_offphase`, `details_json.duty_cycle_off_phase=True`, `details_json.setpoint_high_written`, `details_json.home_persons` (live list per §3.3), episode-gated on `_offphase_logged`.

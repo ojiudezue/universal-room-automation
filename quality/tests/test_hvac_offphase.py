@@ -232,6 +232,8 @@ class _FakeCoord:
         self._override_arrester = _FakeArrester(comfort_delay=comfort_delay)
         self._offphase_logged: set[tuple[str, str]] = set()
         self._offphase_logged_state = ""
+        # B1 fix-up: throttle map (helper reads/writes this).
+        self._last_offphase_emit: dict[str, tuple[float, float]] = {}
 
     # Properties the helper reads via `self.<name>`.
     @property
@@ -417,7 +419,12 @@ class TestOffphaseLedger:
         logger = _RecordingLogger()
         # Fire the helper 5 times in the same house_state — exactly ONE
         # ledger row should be appended (episode dedup).
+        # NB: clear the B1 throttle between calls so the dedup guard is
+        # the SOLE mechanism preventing multi-row emission. Without this,
+        # the throttle short-circuits before the ledger emit and masks a
+        # bug in the dedup predicate.
         for _ in range(5):
+            coord._last_offphase_emit.clear()
             self._run_once(coord, zone, logger)
         assert len(logger.rows) == 1
 
