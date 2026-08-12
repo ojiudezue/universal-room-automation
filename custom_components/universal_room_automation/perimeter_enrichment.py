@@ -32,7 +32,7 @@ Kill switches (rung 1 module const → rung 2 config → rung 3 entity):
 
 1. `LLMVISION_ENRICHMENT_KILL = True` → adapter no-ops on entry.
 2. `CONF_PERIMETER_ENRICHMENT_ENABLED = False` (default OFF at ship)
-   or `CONF_PERIMETER_ENRICHMENT_CAMERAS = []` → adapter no-ops.
+   or `CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS = []` → adapter no-ops.
 3. `perimeter_enrichment_timeout_s` clamped [MIN, MAX] via the
    Number-entity persistence machinery.
 """
@@ -45,7 +45,7 @@ import os
 from typing import Any
 
 from .const import (
-    CONF_PERIMETER_ENRICHMENT_CAMERAS,
+    CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS,
     CONF_PERIMETER_ENRICHMENT_ENABLED,
     CONF_PERIMETER_ENRICHMENT_MAX_TOKENS,
     CONF_PERIMETER_ENRICHMENT_MODEL,
@@ -118,7 +118,7 @@ def _is_enabled_for_camera(cfg: dict[str, Any], camera_entity_id: str) -> bool:
         DEFAULT_PERIMETER_ENRICHMENT_ENABLED,
     )):
         return False
-    allowlist = cfg.get(CONF_PERIMETER_ENRICHMENT_CAMERAS) or []
+    allowlist = cfg.get(CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS) or []
     if not allowlist:
         return False
     return camera_entity_id in allowlist
@@ -153,7 +153,7 @@ async def enrich_dispatched_alert(
             camera_entity_id,
             LLMVISION_ENRICHMENT_KILL,
             cfg.get(CONF_PERIMETER_ENRICHMENT_ENABLED),
-            cfg.get(CONF_PERIMETER_ENRICHMENT_CAMERAS),
+            cfg.get(CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS),
         )
         return None
 
@@ -236,8 +236,15 @@ async def enrich_dispatched_alert(
         return None
 
     # --- INV-ENRICH-NON-EMPTY.
+    # Verified D0.1 return shape is the FLAT top-level dict
+    # `{"response_text": "..."}`. Any other envelope (nested
+    # `service_response`, list wrapper, string body, None) is treated
+    # as a FAILURE class — the caller falls through with the base
+    # message and the FAILED_FALL_THROUGH route_reason. This is
+    # intentional: silently accepting alternate shapes would mask a
+    # provider-API change we haven't verified.
     try:
-        if isinstance(result, dict):
+        if isinstance(result, dict) and "response_text" in result:
             text = str(result.get("response_text") or "").strip()
         else:
             text = ""

@@ -2220,14 +2220,20 @@ class SendTestPerimeterAlertButton(ButtonEntity):
             return
         # Find a bundled snapshot (best-effort). None → adapter no-ops
         # cleanly on missing-snapshot early return.
-        snapshot_path: str | None = None
-        try:
-            snap_dir = "/media/ura/snapshots"
-            if _os.path.isdir(snap_dir):
-                for name in sorted(_os.listdir(snap_dir))[:1]:
-                    snapshot_path = _os.path.join(snap_dir, name)
-        except Exception:  # noqa: BLE001
-            snapshot_path = None
+        # B3 fix-up: blocking os.listdir/isdir run in executor so we
+        # don't block the event loop on a slow /media mount.
+        def _pick_snapshot():
+            try:
+                snap_dir = "/media/ura/snapshots"
+                if _os.path.isdir(snap_dir):
+                    for name in sorted(_os.listdir(snap_dir))[:1]:
+                        return _os.path.join(snap_dir, name)
+            except Exception:  # noqa: BLE001
+                return None
+            return None
+        snapshot_path: str | None = await self.hass.async_add_executor_job(
+            _pick_snapshot,
+        )
         camera_entity_id = "binary_sensor.consol1_test_camera"
         now = dt_util.now()
         base = PERIMETER_ENRICHMENT_BASE_TEMPLATE_PERSON.format(
@@ -2241,12 +2247,42 @@ class SendTestPerimeterAlertButton(ButtonEntity):
             )
         except Exception:  # noqa: BLE001
             enriched = None
+        # B2 fix-up: route_reason mirrors the person handler's
+        # gated-off-vs-tried-and-failed branch. Only a real attempt
+        # (enrichment enabled + camera allowlisted + snapshot present
+        # + not killed) that returned None counts as FAILED_FALL_THROUGH.
+        # Gated-off / no-snapshot → route_reason None so ledger readers
+        # can distinguish "we didn't try" from "we tried and failed".
         if enriched:
             msg = f"{base}\n\n{enriched}"
-            route_reason = NM_ROUTE_REASON_ENRICHED
+            route_reason: str | None = NM_ROUTE_REASON_ENRICHED
         else:
             msg = base
-            route_reason = NM_ROUTE_REASON_ENRICHMENT_FAILED_FALL_THROUGH
+            route_reason = None
+            try:
+                from .const import (
+                    CONF_PERIMETER_ENRICHMENT_ENABLED as _CE,
+                    CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS as _CS,
+                    DEFAULT_PERIMETER_ENRICHMENT_ENABLED as _DE,
+                    LLMVISION_ENRICHMENT_KILL as _KS,
+                )
+                _cfg: dict = {}
+                for _e in self.hass.config_entries.async_entries(DOMAIN):
+                    from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_INTEGRATION
+                    if _e.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                        _cfg = {**_e.data, **_e.options}
+                        break
+                _en = bool(_cfg.get(_CE, _DE))
+                _sensors = _cfg.get(_CS) or []
+                if (
+                    _en
+                    and not _KS
+                    and camera_entity_id in _sensors
+                    and snapshot_path
+                ):
+                    route_reason = NM_ROUTE_REASON_ENRICHMENT_FAILED_FALL_THROUGH
+            except Exception:  # noqa: BLE001
+                route_reason = None
         await nm.async_notify(
             coordinator_id="perimeter_alert_test",
             severity=Severity.MEDIUM,

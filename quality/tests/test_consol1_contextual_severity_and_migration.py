@@ -159,34 +159,32 @@ def test_contextual_severity_arriving_medium():
 # ============================================================================
 
 
-def _simulate_migration(opts: dict) -> dict:
-    """Pure-Python mirror of the __init__.py CONSOL-1 §D6 migration block.
+# Fix-up C-SN-MIG + A2 (2026-08-11): tests drive the REAL migration helper
+# `migrate_consol1_perimeter_keys` in perimeter_alert.py — the pre-fix-up
+# `_simulate_migration` mirror has been deleted so a mutation on the real
+# helper flips these tests red. Loading perimeter_alert.py requires the
+# same HA stubs as test_perimeter_alert_nm_routing; import via the sibling
+# fixture module (it already installs everything).
+from test_perimeter_alert_nm_routing import _perimeter  # noqa: E402
+migrate_consol1_perimeter_keys = _perimeter.migrate_consol1_perimeter_keys
 
-    Mirrors the write path — a new test-oracle rather than importing the
-    async setup entry (which chains a huge import graph). If __init__.py
-    drifts from this shape, this oracle diverges → intentional signal.
-    """
-    _OLD_START = _const.CONF_PERIMETER_ALERT_HOURS_START
-    _OLD_END = _const.CONF_PERIMETER_ALERT_HOURS_END
-    _OLD_SVC = _const.CONF_PERIMETER_ALERT_NOTIFY_SERVICE
-    _OLD_TGT = _const.CONF_PERIMETER_ALERT_NOTIFY_TARGET
-    _NEW_START = _const.CONF_PERIMETER_VEHICLE_HOURS_START
-    _NEW_END = _const.CONF_PERIMETER_VEHICLE_HOURS_END
-    out = dict(opts)
-    if _OLD_START in out and _NEW_START not in out:
-        out[_NEW_START] = out[_OLD_START]
-    if _OLD_END in out and _NEW_END not in out:
-        out[_NEW_END] = out[_OLD_END]
-    for _k in (_OLD_START, _OLD_END, _OLD_SVC, _OLD_TGT):
-        out.pop(_k, None)
+
+def _migrate(opts: dict) -> dict:
+    """Thin wrapper: run the real helper + append the done-marker the
+    __init__ caller adds so test-oracles are apples-to-apples."""
+    out, _changed = migrate_consol1_perimeter_keys(opts)
     out["consol1_perimeter_keys_migration_done"] = True
     return out
 
 
 def test_options_migration_renames_hours_keys_to_vehicle():
     """§D6 named test: old hours keys → new vehicle-scoped keys with
-    values carried over."""
-    migrated = _simulate_migration({
+    values carried over.
+
+    MUTATION ANCHOR (perimeter_alert.py migrate_consol1_perimeter_keys):
+    remove the `if _OLD_START in out and _NEW_START not in out` copy
+    line → this test flips red."""
+    migrated = _migrate({
         _const.CONF_PERIMETER_ALERT_HOURS_START: 22,
         _const.CONF_PERIMETER_ALERT_HOURS_END: 6,
     })
@@ -197,8 +195,11 @@ def test_options_migration_renames_hours_keys_to_vehicle():
 
 
 def test_options_migration_strips_retired_perimeter_keys():
-    """§D6 named test: retired notify service/target keys are stripped."""
-    migrated = _simulate_migration({
+    """§D6 named test: retired notify service/target keys are stripped.
+
+    MUTATION ANCHOR: remove the `for _k in (_OLD_START, _OLD_END,
+    _OLD_SVC, _OLD_TGT): out.pop(_k, None)` block → red."""
+    migrated = _migrate({
         _const.CONF_PERIMETER_ALERT_NOTIFY_SERVICE: "notify.pushover",
         _const.CONF_PERIMETER_ALERT_NOTIFY_TARGET: "abc",
     })
@@ -208,16 +209,31 @@ def test_options_migration_strips_retired_perimeter_keys():
 
 def test_options_migration_preserves_new_keys_when_both_present():
     """If both old and new keys are present, new wins (idempotency)."""
-    migrated = _simulate_migration({
+    migrated = _migrate({
         _const.CONF_PERIMETER_ALERT_HOURS_START: 22,
         _const.CONF_PERIMETER_VEHICLE_HOURS_START: 21,
     })
     assert migrated[_const.CONF_PERIMETER_VEHICLE_HOURS_START] == 21
 
 
+def test_options_migration_reports_changed_flag():
+    """Helper's 2-tuple return: `changed=True` iff at least one action
+    occurred; `False` on a no-op input."""
+    _, changed_none = migrate_consol1_perimeter_keys({})
+    assert changed_none is False
+    _, changed_rename = migrate_consol1_perimeter_keys({
+        _const.CONF_PERIMETER_ALERT_HOURS_START: 22,
+    })
+    assert changed_rename is True
+    _, changed_strip = migrate_consol1_perimeter_keys({
+        _const.CONF_PERIMETER_ALERT_NOTIFY_SERVICE: "notify.x",
+    })
+    assert changed_strip is True
+
+
 def test_config_flow_perimeter_vehicle_hours_migrated():
     """Cross-reference: after migration, only the renamed keys exist."""
-    migrated = _simulate_migration({
+    migrated = _migrate({
         _const.CONF_PERIMETER_ALERT_HOURS_START: 23,
         _const.CONF_PERIMETER_ALERT_HOURS_END: 5,
         _const.CONF_PERIMETER_ALERT_NOTIFY_SERVICE: "notify.foo",
@@ -231,3 +247,149 @@ def test_config_flow_perimeter_vehicle_hours_migrated():
         _const.CONF_PERIMETER_ALERT_NOTIFY_TARGET,
     ):
         assert legacy not in migrated
+
+
+# ============================================================================
+# Fix-up C-MED — per-§6-row specific severity assertions.
+# Every row gets exactly one specific-severity pin so a row mutation is
+# caught. Rows 2/3/4 (vacation/sleep/home_night) added; 5b, 5d, all 6-series,
+# 8b, 9-guest.
+# ============================================================================
+
+fn = _const.NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY
+
+
+def test_row_1_away_any():
+    assert fn("away", camera_class="perimeter", track_class="linger", persons_home=1) == "CRITICAL"
+
+
+def test_row_2_vacation_any():
+    assert fn("vacation", camera_class="perimeter", track_class="approach", persons_home=0) == "CRITICAL"
+
+
+def test_row_3_sleep_any():
+    assert fn("sleep", camera_class="egress", track_class="first_sighting", persons_home=2) == "CRITICAL"
+
+
+def test_row_4_home_night_any():
+    assert fn("home_night", camera_class="perimeter", track_class="circling", persons_home=3) == "CRITICAL"
+
+
+def test_row_5a_home_day_perimeter_circling_high_override():
+    """A1 narrowed override — home_day + perimeter + circling → HIGH."""
+    assert fn("home_day", camera_class="perimeter", track_class="circling", persons_home=1) == "HIGH"
+
+
+def test_row_5b_home_day_perimeter_approach_persons_home_medium():
+    assert fn("home_day", camera_class="perimeter", track_class="approach", persons_home=1) == "MEDIUM"
+
+
+def test_row_5b_home_day_perimeter_linger_persons_home_medium():
+    assert fn("home_day", camera_class="perimeter", track_class="linger", persons_home=2) == "MEDIUM"
+
+
+def test_row_5c_home_day_perimeter_first_sighting_persons_home_low():
+    assert fn("home_day", camera_class="perimeter", track_class="first_sighting", persons_home=1) == "LOW"
+
+
+def test_row_5d_home_day_egress_persons_home_low():
+    assert fn("home_day", camera_class="egress", track_class="approach", persons_home=1) == "LOW"
+
+
+def test_row_5e_home_day_persons_home_zero_high():
+    assert fn("home_day", camera_class="perimeter", track_class="first_sighting", persons_home=0) == "HIGH"
+
+
+def test_row_6a_home_evening_perimeter_circling_high_override():
+    assert fn("home_evening", camera_class="perimeter", track_class="circling", persons_home=1) == "HIGH"
+
+
+def test_row_6b_home_evening_perimeter_approach_persons_home_medium():
+    assert fn("home_evening", camera_class="perimeter", track_class="approach", persons_home=2) == "MEDIUM"
+
+
+def test_row_6c_home_evening_perimeter_first_sighting_persons_home_low():
+    assert fn("home_evening", camera_class="perimeter", track_class="first_sighting", persons_home=1) == "LOW"
+
+
+def test_row_6d_home_evening_egress_persons_home_low():
+    assert fn("home_evening", camera_class="egress", track_class="approach", persons_home=1) == "LOW"
+
+
+def test_row_6e_home_evening_persons_home_zero_high():
+    assert fn("home_evening", camera_class="perimeter", track_class="first_sighting", persons_home=0) == "HIGH"
+
+
+def test_row_7_arriving_medium():
+    assert fn("arriving", camera_class="perimeter", track_class="approach", persons_home=1) == "MEDIUM"
+
+
+def test_row_8_waking_perimeter_critical():
+    assert fn("waking", camera_class="perimeter", track_class="first_sighting", persons_home=1) == "CRITICAL"
+
+
+def test_row_8b_waking_egress_medium():
+    assert fn("waking", camera_class="egress", track_class="first_sighting", persons_home=1) == "MEDIUM"
+
+
+def test_row_9_guest_uses_guest_severity_const():
+    """Row 9 delegates to NM_HAZARD_EXTERIOR_PERSON_GUEST_SEVERITY."""
+    assert fn("guest", camera_class="perimeter", track_class="first_sighting", persons_home=1) == (
+        _const.NM_HAZARD_EXTERIOR_PERSON_GUEST_SEVERITY
+    )
+
+
+# ============================================================================
+# Fix-up A1 — narrowed circling override anchors.
+# Circling at perimeter DOES NOT collapse arriving/guest rows post-narrowing.
+# ============================================================================
+
+
+def test_A1_arriving_perimeter_circling_stays_medium():
+    """Row 7 (arriving) must NOT be widened by circling override.
+
+    MUTATION ANCHOR: revert the A1 narrowing (drop the
+    `and hs in ("home_day","home_evening")` guard) → this flips to HIGH.
+    """
+    assert fn("arriving", camera_class="perimeter", track_class="circling", persons_home=1) == "MEDIUM"
+
+
+def test_A1_guest_perimeter_circling_stays_guest_severity():
+    """Row 9 (guest) must keep GUEST severity even under circling."""
+    assert fn("guest", camera_class="perimeter", track_class="circling", persons_home=1) == (
+        _const.NM_HAZARD_EXTERIOR_PERSON_GUEST_SEVERITY
+    )
+
+
+def test_A1_waking_perimeter_circling_still_critical():
+    """Row 8 (waking + perimeter) is CRITICAL — circling does not lower."""
+    assert fn("waking", camera_class="perimeter", track_class="circling", persons_home=1) == "CRITICAL"
+
+
+# ============================================================================
+# Fix-up A4 — burst-demote night_window boundary test.
+# PERIMETER_BURST_NIGHT_WINDOW = (23, 5). 22:30 must be OUTSIDE.
+# ============================================================================
+
+
+def test_A4_burst_night_window_pinned_at_23_05():
+    """PERIMETER_BURST_NIGHT_WINDOW must be (23, 5). Any drift here
+    silently widens the XCORR-1 burst-demote scope."""
+    assert _const.PERIMETER_BURST_NIGHT_WINDOW == (23, 5)
+
+
+def test_A4_burst_gate_outside_at_2230():
+    """22:30 must be OUTSIDE the burst-demote window. Recomputes the
+    inline wrap logic used at perimeter_alert.py :_evaluate_burst_demotion.
+
+    MUTATION ANCHOR: change PERIMETER_BURST_NIGHT_WINDOW to (22, 6) →
+    this test flips green→red (22:30 becomes in-window)."""
+    start, end = _const.PERIMETER_BURST_NIGHT_WINDOW
+    h = 22
+    if start == end:
+        in_hours = True
+    elif start < end:
+        in_hours = start <= h < end
+    else:
+        in_hours = h >= start or h < end
+    assert in_hours is False

@@ -99,6 +99,10 @@ from .const import (
     NM_ROUTE_REASON_ENRICHMENT_FAILED_FALL_THROUGH,
     PERIMETER_ENRICHMENT_BASE_TEMPLATE_PERSON,
     PERIMETER_ENRICHMENT_BASE_TEMPLATE_VEHICLE,
+    CONF_PERIMETER_ENRICHMENT_ENABLED,
+    CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS,
+    DEFAULT_PERIMETER_ENRICHMENT_ENABLED,
+    LLMVISION_ENRICHMENT_KILL,
     NM_HAZARD_EXTERIOR_TRACK_SEVERITY_MAP,
     CONF_EXTERIOR_SNAPSHOT_OFFSET_S,
     DEFAULT_EXTERIOR_SNAPSHOT_OFFSET_S,
@@ -127,6 +131,7 @@ from .const import (
     PERIMETER_BURST_WINDOW_S,
     PERIMETER_BURST_MIN_ALERTS,
     PERIMETER_BURST_NIGHT_ONLY,
+    PERIMETER_BURST_NIGHT_WINDOW,
     EXTERIOR_VEHICLE_NIGHT_START,
     EXTERIOR_VEHICLE_NIGHT_END,
     EXTERIOR_VEHICLE_ALERT_STATES,
@@ -136,6 +141,41 @@ from .const import (
 )
 from .domain_coordinators.base import Severity
 from .perimeter_enrichment import enrich_dispatched_alert
+
+
+def migrate_consol1_perimeter_keys(
+    options: dict,
+) -> tuple[dict, bool]:
+    """CONSOL-1 §D6 options-migration helper (extracted per fix-up
+    C-SN-MIG + A2). Pure function — no I/O, no HA imports beyond the
+    module-const key names. Idempotent: new-key-wins when both are
+    present.
+
+    Returns (new_options, changed) where `changed` is True iff at least
+    one migration action was taken (rename or strip). Callers persist
+    the returned dict via `hass.config_entries.async_update_entry` and
+    log per-key info messages (kept at the call site, not here, so the
+    helper stays log-free and trivially unit-testable).
+    """
+    _OLD_START = "perimeter_alert_hours_start"
+    _OLD_END = "perimeter_alert_hours_end"
+    _OLD_SVC = "perimeter_alert_notify_service"
+    _OLD_TGT = "perimeter_alert_notify_target"
+    _NEW_START = "perimeter_vehicle_hours_start"
+    _NEW_END = "perimeter_vehicle_hours_end"
+    out = dict(options)
+    changed = False
+    if _OLD_START in out and _NEW_START not in out:
+        out[_NEW_START] = out[_OLD_START]
+        changed = True
+    if _OLD_END in out and _NEW_END not in out:
+        out[_NEW_END] = out[_OLD_END]
+        changed = True
+    for _k in (_OLD_START, _OLD_END, _OLD_SVC, _OLD_TGT):
+        if _k in out:
+            out.pop(_k, None)
+            changed = True
+    return out, changed
 # F1 (cycle-3 fix-up): single source of truth for person-family suffix
 # vocabulary — perimeter dedup MUST NOT drift from resolver discovery.
 from .camera_resolver import _PERSON_SUFFIXES as _RESOLVER_PERSON_SUFFIXES
@@ -1300,9 +1340,19 @@ class PerimeterAlertManager:
             # and-failed by checking whether enrichment would have fired.
             try:
                 _cfg = self._get_integration_config()
-                _enabled = bool(_cfg.get("perimeter_enrichment_enabled", False))
-                _cams = _cfg.get("perimeter_enrichment_cameras") or []
-                if _enabled and entity_id in _cams and snapshot_path:
+                _enabled = bool(_cfg.get(
+                    CONF_PERIMETER_ENRICHMENT_ENABLED,
+                    DEFAULT_PERIMETER_ENRICHMENT_ENABLED,
+                ))
+                _sensors = _cfg.get(
+                    CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS
+                ) or []
+                if (
+                    _enabled
+                    and not LLMVISION_ENRICHMENT_KILL
+                    and entity_id in _sensors
+                    and snapshot_path
+                ):
                     route_reason: str | None = (
                         NM_ROUTE_REASON_ENRICHMENT_FAILED_FALL_THROUGH
                     )
@@ -1807,8 +1857,19 @@ class PerimeterAlertManager:
             decision["reason"] = "disabled"
             return False, decision
 
+        # CONSOL-1 fix-up A4: burst-demote night_only scope uses its OWN
+        # module constant (PERIMETER_BURST_NIGHT_WINDOW) — NOT any vehicle
+        # or person alert-hours knob. Pre-cycle behavior preserved
+        # (23-05 window). Any operator retune must be a reviewed code change.
         try:
-            in_hours = bool(self._is_in_alert_hours(now))
+            _start, _end = PERIMETER_BURST_NIGHT_WINDOW
+            _h = now.hour
+            if _start == _end:
+                in_hours = True
+            elif _start < _end:
+                in_hours = _start <= _h < _end
+            else:
+                in_hours = _h >= _start or _h < _end
         except Exception:  # noqa: BLE001
             in_hours = False
         decision["in_alert_hours"] = in_hours
@@ -2410,9 +2471,19 @@ class PerimeterAlertManager:
         else:
             try:
                 _cfg = self._get_integration_config()
-                _en = bool(_cfg.get("perimeter_enrichment_enabled", False))
-                _cams = _cfg.get("perimeter_enrichment_cameras") or []
-                if _en and sensor_entity_id in _cams and snapshot_path:
+                _en = bool(_cfg.get(
+                    CONF_PERIMETER_ENRICHMENT_ENABLED,
+                    DEFAULT_PERIMETER_ENRICHMENT_ENABLED,
+                ))
+                _sensors = _cfg.get(
+                    CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS
+                ) or []
+                if (
+                    _en
+                    and not LLMVISION_ENRICHMENT_KILL
+                    and sensor_entity_id in _sensors
+                    and snapshot_path
+                ):
                     veh_route_reason = (
                         NM_ROUTE_REASON_ENRICHMENT_FAILED_FALL_THROUGH
                     )
@@ -3413,16 +3484,6 @@ class PerimeterAlertManager:
     def is_active(self) -> bool:
         """Return True if the manager has active listeners."""
         return self._active
-
-    def _is_in_alert_hours(self, now: datetime) -> bool:
-        """DEPRECATED alias (CONSOL-1 §D6). Delegates to
-        `_is_in_vehicle_alert_hours` for one release so the burst-
-        demotion telemetry consumer at ~:1696 keeps working. The
-        person path no longer calls this (D2 removed the existence
-        gate); XCORR-1 night-only decision still consults it but
-        is scoped to vehicle-shape windows post-CONSOL-1.
-        """
-        return self._is_in_vehicle_alert_hours(now)
 
     def _get_notify_config(self) -> tuple[str | None, str | None]:
         """Return (notify_service, notify_target). CONSOL-1 §D1 retired

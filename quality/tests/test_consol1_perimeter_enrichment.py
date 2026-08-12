@@ -72,7 +72,7 @@ def _make_hass(
     entry.data = {_const.CONF_ENTRY_TYPE: _const.ENTRY_TYPE_INTEGRATION}
     entry.options = {
         _const.CONF_PERIMETER_ENRICHMENT_ENABLED: enabled,
-        _const.CONF_PERIMETER_ENRICHMENT_CAMERAS: cameras or [],
+        _const.CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS: cameras or [],
         _const.CONF_PERIMETER_ENRICHMENT_MODEL: model,
         _const.CONF_PERIMETER_ENRICHMENT_MAX_TOKENS: max_tokens,
         _const.CONF_PERIMETER_ENRICHMENT_PROVIDER: provider,

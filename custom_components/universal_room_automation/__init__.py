@@ -1518,59 +1518,42 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 import traceback
                 _LOGGER.error("Traceback: %s", traceback.format_exc())
 
-        # CONSOL-1 §D6 — one-shot rename of perimeter_alert_hours_*
-        # → perimeter_vehicle_hours_*, and STRIP of retired
-        # perimeter_alert_notify_service/_target. Values carry over.
+        # CONSOL-1 §D6 — one-shot options migration via the pure helper
+        # `migrate_consol1_perimeter_keys` in perimeter_alert.py. Fix-up
+        # A2/C-SN-MIG extracted the transform so tests drive the real
+        # helper, not a simulated mirror.
         if not entry.options.get("consol1_perimeter_keys_migration_done"):
             try:
-                from .const import (
-                    CONF_PERIMETER_ALERT_HOURS_START as _OLD_START,
-                    CONF_PERIMETER_ALERT_HOURS_END as _OLD_END,
-                    CONF_PERIMETER_ALERT_NOTIFY_SERVICE as _OLD_SVC,
-                    CONF_PERIMETER_ALERT_NOTIFY_TARGET as _OLD_TGT,
-                    CONF_PERIMETER_VEHICLE_HOURS_START as _NEW_START,
-                    CONF_PERIMETER_VEHICLE_HOURS_END as _NEW_END,
-                )
-                opts = dict(entry.options)
-                changed = False
-                if _OLD_START in opts and _NEW_START not in opts:
-                    opts[_NEW_START] = opts[_OLD_START]
-                    _LOGGER.info(
-                        "CONSOL-1 §D6: migrated %s → %s (value=%s)",
-                        _OLD_START, _NEW_START, opts[_OLD_START],
-                    )
-                    changed = True
-                if _OLD_END in opts and _NEW_END not in opts:
-                    opts[_NEW_END] = opts[_OLD_END]
-                    _LOGGER.info(
-                        "CONSOL-1 §D6: migrated %s → %s (value=%s)",
-                        _OLD_END, _NEW_END, opts[_OLD_END],
-                    )
-                    changed = True
-                for _k in (_OLD_START, _OLD_END, _OLD_SVC, _OLD_TGT):
-                    if _k in opts:
-                        opts.pop(_k, None)
-                        _LOGGER.info(
-                            "CONSOL-1 §D1/§D6: stripped retired key %s", _k,
-                        )
-                        changed = True
+                from .perimeter_alert import migrate_consol1_perimeter_keys
+                _before = dict(entry.options)
+                opts, changed = migrate_consol1_perimeter_keys(_before)
                 opts["consol1_perimeter_keys_migration_done"] = True
                 if changed:
-                    entry = (
-                        hass.config_entries.async_get_entry(entry.entry_id)
-                        or entry
-                    )
-                    hass.config_entries.async_update_entry(
-                        entry, options=opts,
-                    )
-                else:
-                    hass.config_entries.async_update_entry(
-                        entry,
-                        options={
-                            **entry.options,
-                            "consol1_perimeter_keys_migration_done": True,
-                        },
-                    )
+                    for _k in (
+                        "perimeter_alert_hours_start",
+                        "perimeter_alert_hours_end",
+                    ):
+                        _new = _k.replace("alert", "vehicle")
+                        if _k in _before and opts.get(_new) == _before[_k]:
+                            _LOGGER.info(
+                                "CONSOL-1 §D6: migrated %s → %s (value=%s)",
+                                _k, _new, _before[_k],
+                            )
+                    for _k in (
+                        "perimeter_alert_notify_service",
+                        "perimeter_alert_notify_target",
+                        "perimeter_alert_hours_start",
+                        "perimeter_alert_hours_end",
+                    ):
+                        if _k in _before and _k not in opts:
+                            _LOGGER.info(
+                                "CONSOL-1 §D1/§D6: stripped retired key %s", _k,
+                            )
+                entry = (
+                    hass.config_entries.async_get_entry(entry.entry_id)
+                    or entry
+                )
+                hass.config_entries.async_update_entry(entry, options=opts)
             except Exception as e:  # noqa: BLE001
                 _LOGGER.error("CONSOL-1 perimeter-keys migration failed: %s", e)
 
@@ -2484,6 +2467,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # yaml notify actions get stripped in a follow-up.
         try:
             from .zone_monitoring_tripwire import ZoneMonitoringTripwire
+            # B1 double-setup guard: tear down any prior instance from a
+            # partial reload before installing the new one — mirrors the
+            # exterior_track_linker guard at :2504.
+            _existing_zmt = hass.data.get(DOMAIN, {}).pop(
+                "zone_monitoring_tripwire", None,
+            )
+            if _existing_zmt is not None:
+                try:
+                    await _existing_zmt.async_teardown()
+                except Exception:  # noqa: BLE001
+                    pass
             _zmt = ZoneMonitoringTripwire(hass)
             await _zmt.async_setup()
             hass.data[DOMAIN]["zone_monitoring_tripwire"] = _zmt
@@ -4376,6 +4370,20 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if exterior_track_linker:
             await exterior_track_linker.async_teardown()
             hass.data[DOMAIN].pop("exterior_track_linker", None)
+
+        # CONSOL-1 §D8 fix-up B1: tear down zone_monitoring tripwire so
+        # a reload does not double-subscribe (leaked listener would fire
+        # NM twice per counter event).
+        zmt = hass.data[DOMAIN].get("zone_monitoring_tripwire")
+        if zmt:
+            try:
+                await zmt.async_teardown()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "zone_monitoring_tripwire teardown raised",
+                    exc_info=True,
+                )
+            hass.data[DOMAIN].pop("zone_monitoring_tripwire", None)
 
         # v3.5.2: Tear down transit validator and egress tracker
         transit_validator = hass.data[DOMAIN].get("transit_validator")

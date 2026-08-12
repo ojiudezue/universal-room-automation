@@ -1394,7 +1394,7 @@ MAX_PERIMETER_ENRICHMENT_TIMEOUT_S: Final[float] = 15.0
 # Config-flow keys (rung 2).
 CONF_PERIMETER_ENRICHMENT_ENABLED: Final = "perimeter_enrichment_enabled"
 CONF_PERIMETER_ENRICHMENT_PROVIDER: Final = "perimeter_enrichment_provider"
-CONF_PERIMETER_ENRICHMENT_CAMERAS: Final = "perimeter_enrichment_cameras"
+CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS: Final = "perimeter_enrichment_person_sensors"
 CONF_PERIMETER_ENRICHMENT_MODEL: Final = "perimeter_enrichment_model"
 CONF_PERIMETER_ENRICHMENT_MAX_TOKENS: Final = "perimeter_enrichment_max_tokens"
 CONF_PERIMETER_ENRICHMENT_PROVIDER_ID: Final = "perimeter_enrichment_provider_id"
@@ -1403,7 +1403,7 @@ CONF_PERIMETER_ENRICHMENT_PROVIDER_ID: Final = "perimeter_enrichment_provider_id
 # 14 days of ledger data proving the cost/quality budget).
 DEFAULT_PERIMETER_ENRICHMENT_ENABLED: Final[bool] = False
 DEFAULT_PERIMETER_ENRICHMENT_PROVIDER: Final[str] = "llmvision"
-DEFAULT_PERIMETER_ENRICHMENT_CAMERAS: Final[list[str]] = []
+DEFAULT_PERIMETER_ENRICHMENT_PERSON_SENSORS: Final[list[str]] = []
 
 # Base-message template (CONSOL-1 §D3 rev-2 L3). Enrichment slot is
 # appended with "\n\n" — never a trailing separator on empty text.
@@ -1446,6 +1446,16 @@ PERIMETER_BURST_MIN_ALERTS: Final = 2
 # gated by _is_in_alert_hours, but preserved as an explicit kill for future
 # 24h alert coverage.
 PERIMETER_BURST_NIGHT_ONLY: Final = True
+# CONSOL-1 fix-up A4: XCORR-1 night_only gate previously delegated through
+# `_is_in_alert_hours` → the person-path 23-05 window. CONSOL-1 §D2 removed
+# the person alert-hours gate, and §D6 renamed the shared helper to a
+# VEHICLE-scoped one. Reading the vehicle window here would silently widen
+# XCORR-1's night-only band. Instead: pin the pre-cycle person 23-05
+# window as its own rung-1 module constant so the burst-demote scope is
+# EXPLICIT and independent of the vehicle-hours knob. Kill switch: setting
+# start == end disables the gate (matches _is_in_alert_hours semantics —
+# but a full-day window makes PERIMETER_BURST_NIGHT_ONLY vacuous).
+PERIMETER_BURST_NIGHT_WINDOW: Final = (23, 5)  # (start_hour, end_hour) inclusive/exclusive wrapping
 
 # ----------------------------------------------------------------------------
 # Exterior-person NM escalation (D1/D2/D4 — PLANNING_exterior_person_escalation)
@@ -1576,13 +1586,14 @@ def NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY(  # noqa: N802 (const-like)
     if hs in ("away", "vacation", "sleep", "home_night"):
         return "CRITICAL"
 
-    # Universal override AFTER CRITICAL rows — HIGH for perimeter circling.
-    if cc == "perimeter" and tc == "circling":
-        # ARRIVING/WAKING-perimeter and home_day/home_evening rows all
-        # collapse to HIGH here per §6. WAKING+perimeter row (row 8)
-        # says CRITICAL, so handle it before this override.
-        if hs == "waking" and cc == "perimeter":
-            return "CRITICAL"
+    # Circling override — narrowed post plan-review A1 (2026-08-11):
+    # applies ONLY within home_day / home_evening. WAKING+perimeter is
+    # handled by row 8 (CRITICAL, below); ARRIVING keeps its row-7
+    # MEDIUM ("likely the operator approaching") even when the track
+    # loops; GUEST keeps its GUEST severity. Plan §6 does NOT authorize
+    # a wider collapse — the earlier attempt to do so was based on a
+    # fabricated citation.
+    if cc == "perimeter" and tc == "circling" and hs in ("home_day", "home_evening"):
         return "HIGH"
 
     if hs == "home_day":

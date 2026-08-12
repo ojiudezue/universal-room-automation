@@ -230,7 +230,7 @@ def _make_hass(
         # defaults (22-06) for _is_in_vehicle_alert_hours. Tests that
         # need a custom window override in the entry.options directly.
         _const.CONF_PERIMETER_ENRICHMENT_ENABLED: enrichment_enabled,
-        _const.CONF_PERIMETER_ENRICHMENT_CAMERAS: (
+        _const.CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS: (
             enrichment_cameras if enrichment_cameras is not None else []
         ),
         # Retained retired-key columns so the D1 setup-time ERROR test
@@ -347,6 +347,7 @@ def test_perimeter_alert_person_leg_no_legacy():
 def test_perimeter_alert_vehicle_leg_no_legacy(monkeypatch):
     """§D1 rev-2 #9: legacy call site :2305 removed — vehicle path never
     touches hass.services.async_call even with retired keys populated."""
+    _scheduled.clear()  # avoid leaking scheduled dispatches into sibling tests
     hass, nm = _make_hass(
         house_state="away", legacy_service="notify.pushover",
         perimeter_cameras=["camera.front_yard"],
@@ -364,6 +365,7 @@ def test_perimeter_alert_vehicle_leg_no_legacy(monkeypatch):
         assert _domain != "notify", (
             f"vehicle path called notify.* — legacy leg NOT retired: {call}"
         )
+    _scheduled.clear()  # tidy for next test
 
 
 def test_no_channels_configured_skips_dispatch(caplog):
