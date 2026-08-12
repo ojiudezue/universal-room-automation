@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.70.0
+# Universal Room Automation vv5.71.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.70.0"
+VERSION: Final = "v5.71.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1404,6 +1404,51 @@ NM_HAZARD_EXTERIOR_PERSON: Final = "exterior_person"
 # dedup and boot-settle. Not a life-safety hazard (base frozenset
 # unchanged) — operators may promote via CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS.
 NM_HAZARD_EXTERIOR_VEHICLE: Final = "exterior_vehicle"
+
+# ----------------------------------------------------------------------------
+# NM-IMAGE-1 (2026-08-11) — security-image force-immediate whitelist.
+#
+# Rung 1 (module constant). Rationale: this is the routing-priority
+# whitelist for image-bearing security-class alerts. Expansion requires
+# code review — a rogue addition would auto-page the operator with any
+# hazard type that carries a snapshot, bypassing digest quiet time and
+# the global quiet-hours early-return (both suppression sites at
+# notification_manager.py:1261-1265 and :1495).
+#
+# Kill switch: set to `frozenset()` — the predicate
+# `hazard_type in NM_SECURITY_HAZARDS and bool(snapshot_path or snapshot_url)`
+# becomes always False and both suppression sites revert to byte-identical
+# pre-cycle behavior.
+#
+# Predicate is TRUTHY on `snapshot_path or snapshot_url` (rev-2 MED-4) —
+# empty string is treated as "no snapshot". Upstream perimeter emitters
+# pass None when no snapshot; an empty string represents a bug upstream
+# (capture returned garbage path/url), and the truthy check correctly
+# refuses to force-immediate on a broken emitter — we do not page the
+# operator with a garbage attachment reference.
+#
+# Monkeypatch target for tests that disable the override:
+#   custom_components.universal_room_automation.domain_coordinators
+#       .notification_manager.NM_SECURITY_HAZARDS
+# (the module binding — patching this const alone leaves the imported
+# reference in notification_manager.py stale.)
+# ----------------------------------------------------------------------------
+NM_SECURITY_HAZARDS: Final[frozenset[str]] = frozenset({
+    NM_HAZARD_EXTERIOR_PERSON,
+    NM_HAZARD_EXTERIOR_VEHICLE,
+})
+
+# NM-IMAGE-1 (2026-08-11) — named route_reason values (rev-2 LOW-3).
+# Placed next to the pre-existing free-string route_reason values used by
+# Cycle-C at notification_manager.py:1529 and :1679-1683. The legacy
+# free-strings stay as-is to avoid scope creep; only these NEW values
+# ship as constants from day one.
+NM_ROUTE_REASON_FORCE_IMMEDIATE_SECURITY_IMAGE: Final[str] = (
+    "force_immediate_security_image"
+)
+NM_ROUTE_REASON_DND_SUPPRESSED_SECURITY_IMAGE: Final[str] = (
+    "dnd_suppressed_security_image"
+)
 
 # GUEST default extracted so a follow-up cycle can flip it without churning
 # the full mapping table (plan D2).

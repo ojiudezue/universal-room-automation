@@ -1,0 +1,252 @@
+{
+ "snapshot_date": "2026-08-11",
+ "purpose": "FAN-LAYER-2 uniqueness gate (room_name uniqueness + key derivability). Minimal extract: NO options/secrets.",
+ "entries": [
+  {
+   "entry_id": "01KAAHJG9BHAP2VDTEYWDWZTA7",
+   "title": "Study A",
+   "entry_type": "room",
+   "room_name": "Study A"
+  },
+  {
+   "entry_id": "01KAYV8P69B381KCK3516YVM76",
+   "title": "Universal Room Automation",
+   "entry_type": "integration",
+   "room_name": null
+  },
+  {
+   "entry_id": "01KB9VA3N0FSE34A8ZDA3QXP27",
+   "title": "Dining Room",
+   "entry_type": "room",
+   "room_name": "Dining Room"
+  },
+  {
+   "entry_id": "01KCBQ5DDWGP3KX3G0BK7JA2JX",
+   "title": "Down Guest Bathroom",
+   "entry_type": "room",
+   "room_name": "Guest Bedroom 1 Bathroom"
+  },
+  {
+   "entry_id": "01KCYSBVA2RMB5C3F1Z90F9X72",
+   "title": "Upstairs Guestroom",
+   "entry_type": "room",
+   "room_name": "Guest Bedroom 2"
+  },
+  {
+   "entry_id": "01KDE1XHP22RXGATQJPGBN5ASN",
+   "title": "Guest Bedroom 2 Bathroom",
+   "entry_type": "room",
+   "room_name": "Guest Bedroom 2 Bathroom"
+  },
+  {
+   "entry_id": "01KDGX1FKCW64630BWBX7SCWTS",
+   "title": "Stair Closet",
+   "entry_type": "room",
+   "room_name": "Stair Closet"
+  },
+  {
+   "entry_id": "01KDK0FPNANGTGWVFB4AS9HSZ1",
+   "title": "Living Room",
+   "entry_type": "room",
+   "room_name": "Living Room"
+  },
+  {
+   "entry_id": "01KDMABB7ZQGFP6WS5WB08G1SK",
+   "title": "Laundry Closet",
+   "entry_type": "room",
+   "room_name": "Laundry Closet"
+  },
+  {
+   "entry_id": "01KDPPWCNDKMKQF8J7CMN6WQ1A",
+   "title": "Kitchen Hallway",
+   "entry_type": "room",
+   "room_name": "Kitchen Hallway"
+  },
+  {
+   "entry_id": "01KDRGWK4FCFEGSY3WG6N6DH5Q",
+   "title": "Study B",
+   "entry_type": "room",
+   "room_name": "Study B"
+  },
+  {
+   "entry_id": "01KDRKZ2V8EP2B7Q9FH3F087ES",
+   "title": "Patio",
+   "entry_type": "room",
+   "room_name": "Patio"
+  },
+  {
+   "entry_id": "01KDRMRJN96SZ7PSWF60TYV46Z",
+   "title": "Master Bedroom",
+   "entry_type": "room",
+   "room_name": "Master Bedroom"
+  },
+  {
+   "entry_id": "01KE0XX9X6SDF87KGTR0ATNSW8",
+   "title": "Receiving Room",
+   "entry_type": "room",
+   "room_name": "Receiving Room"
+  },
+  {
+   "entry_id": "01KE2CP30H1251F10K5R1YJRCC",
+   "title": "Guest Bedroom 1",
+   "entry_type": "room",
+   "room_name": "Guest Bedroom 1"
+  },
+  {
+   "entry_id": "01KE367M12Y0BAJT9QKW1CVEHM",
+   "title": "Breakfast Nook",
+   "entry_type": "room",
+   "room_name": "Breakfast Nook"
+  },
+  {
+   "entry_id": "01KE9XFFQYHFGNB9F3GX3G6CGX",
+   "title": "Kitchen",
+   "entry_type": "room",
+   "room_name": "Kitchen"
+  },
+  {
+   "entry_id": "01KEHTX903EDWTTTRB9FEREBRH",
+   "title": "Study A Closet",
+   "entry_type": "room",
+   "room_name": "Study A Closet"
+  },
+  {
+   "entry_id": "01KEJ2581XX3ASNG7G7BPM1P6B",
+   "title": "AV Closet",
+   "entry_type": "room",
+   "room_name": "AV Closet"
+  },
+  {
+   "entry_id": "01KEW5GP3MM75KZ7B9HZP2B380",
+   "title": "Media Room Closet",
+   "entry_type": "room",
+   "room_name": "Media Room Closet"
+  },
+  {
+   "entry_id": "01KH050K3FHSD0GV8P1W08ZJWF",
+   "title": "Garage A",
+   "entry_type": "room",
+   "room_name": "Garage A"
+  },
+  {
+   "entry_id": "01KH0BYQ0VANP0C2GQVPGYZ7G6",
+   "title": "Exercise Room Closet",
+   "entry_type": "room",
+   "room_name": "Exercise Room Closet"
+  },
+  {
+   "entry_id": "01KJ6MEY8T33589N9TCCAQXBMG",
+   "title": "Game Room",
+   "entry_type": "room",
+   "room_name": "Game Room"
+  },
+  {
+   "entry_id": "01KJEC3ARCN49EVC80VZZPHCZQ",
+   "title": "URA: Zone Manager",
+   "entry_type": "zone_manager",
+   "room_name": null
+  },
+  {
+   "entry_id": "01KJEC3FYPYAGBQKZWC94CR8GR",
+   "title": "URA: Coordinator Manager",
+   "entry_type": "coordinator_manager",
+   "room_name": null
+  },
+  {
+   "entry_id": "01KJJN92CZ4KEM6WXB3168N8YW",
+   "title": "Ziri Bedroom (Bedroom 5)",
+   "entry_type": "room",
+   "room_name": "Ziri Bedroom (Bedroom 5)"
+  },
+  {
+   "entry_id": "01KJXMA4VRMZZ337N8YNKV7KJQ",
+   "title": "Jaya Bedroom (Bedroom 4)",
+   "entry_type": "room",
+   "room_name": "Jaya Bedroom"
+  },
+  {
+   "entry_id": "01KK0NSJX3HC9QVNNRHNZ4F1WE",
+   "title": "Kitchen Hallway Garage",
+   "entry_type": "room",
+   "room_name": "Kitchen Hallway Garage"
+  },
+  {
+   "entry_id": "01KM7E0N5GBR5G5JBJBRD354M5",
+   "title": "Garage Hallway",
+   "entry_type": "room",
+   "room_name": "Garage Hallway"
+  },
+  {
+   "entry_id": "01KMQQ2A41G3S19XSKZ3JBF34H",
+   "title": "Garage B",
+   "entry_type": "room",
+   "room_name": "Garage B"
+  },
+  {
+   "entry_id": "01KNDX9D1TQKW5ZAG7M0GD8H2Q",
+   "title": "Media",
+   "entry_type": "room",
+   "room_name": "Media"
+  },
+  {
+   "entry_id": "01KP2621BEGJX5SZYM7WJ7EK18",
+   "title": "Exercise Room",
+   "entry_type": "room",
+   "room_name": "Exercise Room"
+  },
+  {
+   "entry_id": "01KP276PJ1KAPVJYB79JPBA6D0",
+   "title": "Jaya Bathroom",
+   "entry_type": "room",
+   "room_name": "Jaya Bathroom"
+  },
+  {
+   "entry_id": "01KP28D8X0J13GJDBVHJPDHRX3",
+   "title": "Ziri Bathroom",
+   "entry_type": "room",
+   "room_name": "Ziri Bathroom"
+  },
+  {
+   "entry_id": "01KR3V6KJZFR702TQS2W83FZ4P",
+   "title": "Laundry",
+   "entry_type": "room",
+   "room_name": "Laundry"
+  },
+  {
+   "entry_id": "01KRFC266GQ2C9HGZQEP7T2KG3",
+   "title": "Kitchen Pantry",
+   "entry_type": "room",
+   "room_name": "Kitchen Pantry"
+  },
+  {
+   "entry_id": "01KRQQJ1NDTP8JRZ9REEGET8P3",
+   "title": "Guest Bedroom 1 Closet",
+   "entry_type": "room",
+   "room_name": "Guest Bedroom 1 Closet"
+  },
+  {
+   "entry_id": "01KRQRRSSHW6EM0A224NRRJMT2",
+   "title": "Butler Pantry",
+   "entry_type": "room",
+   "room_name": "Butler Pantry"
+  },
+  {
+   "entry_id": "01KSHA5DB3T0VMJKQVM5P8MMNA",
+   "title": "Master Bathroom",
+   "entry_type": "room",
+   "room_name": "Master Bathroom"
+  },
+  {
+   "entry_id": "01KSHBBRNB6DS025NPGF4C0NWQ",
+   "title": "Oji Vanity",
+   "entry_type": "room",
+   "room_name": "Oji Vanity"
+  },
+  {
+   "entry_id": "01KX3NAE74C08RFX0DNP9AVW72",
+   "title": "Master Bath Toilet",
+   "entry_type": "room",
+   "room_name": "Master Bath Toilet"
+  }
+ ]
+}

@@ -1,0 +1,20 @@
+{
+  "format_version": "2.1",
+  "entry_id": "040",
+  "author": "ojiudezue",
+  "session_id": "claude_20260812_002605_ship_v5_71_0",
+  "timestamp": "2026-08-12T00:26:05Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.71.0 shipped: Security-image force-immediate delivery + honest DP observability",
+  "summary": "NM: exterior-person/vehicle alerts with a captured snapshot bypass digest and deliver immediately on WhatsApp with the image (two-site predicate + gate mirror); [audit] sentinel filtered from digest AND dashboard readers. DP: ev_charging_plan gains eval_age_min/state_meaning/eval_gate honesty attrs, event-anchored reason stamps, anti-churn contract (no recorder flood)",
+  "refs": {
+    "cards": [
+      "NM-IMAGE-1",
+      "DP-OBSERVABILITY-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.71.0.md"
+    ]
+  }
+}

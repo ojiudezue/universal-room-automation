@@ -40,4 +40,14 @@ framing-disjoint reviews (A SHIP-w/2-HIGH, B DO-NOT-SHIP, C DO-NOT-SHIP w/ 3 hol
 
 ## Live Validation
 
-_(prospective — to be replaced post-restart)_
+### Validated 2026-08-11 (v5.70.0 boot, night)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Loads, zero URA errors | **PASS** | `system_log` ERROR search for `universal_room` empty post-restart; house_state `home_night` |
+| L2 | Delegation transparent — no fan flap | **PASS (live signal)** | `fan.air_circulator` and Jaya bedroom sleep fan both still ON post-restart, no fighting; oracle constructed, holds RAM-fresh per design |
+| L3 | Manual holds behave as v5.68.0 | **ORGANIC (open, shared with v5.68.0 L2)** | Living Room manual-ON test still owed by operator; delegation drilled in-suite (entry_id keying, hydration, CM-reload reuse all mutation-anchored + orchestrator re-drilled) |
+| L4 | Safety-stop unregressed | **ORGANIC (by absence) + in-suite** | Behavioral drill proves manual-ON hold cannot block safety OFF; MUT-STOP/MUT3-4 red under neuter. Live proof only on a real hazard event |
+
+PR #499: +3338/−178 (non-empty verified). Suite at merge: 21 failed / 8670 passed — the two
+long-standing collection ERRORs are gone (v5.68.0 vacancy-sweep parity anchor now executes).

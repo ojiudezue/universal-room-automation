@@ -1,0 +1,18 @@
+{
+  "version": "v5.70.0",
+  "hypothesis_id": "L2",
+  "name": "no_fan_flap_post_restart",
+  "state": "confirmed",
+  "observed_value": "All managed fans held steady post v5.70.0 boot (01:29 CDT 2026-08-11). Jaya bedroom fan (fan.fanswitch_treat_wifi_jayabedroom) ran ON continuously 01:29→13:59 CDT (12.5h) — only a 12-second URA-authored toggle at 13:59 (vacancy + re-assert), not a boot flap. Living room fan (fan.towerfan_dreopilotmaxs_wifi_livingroom) transitioned OFF post-restart, then ran a normal 7-min automation cycle at 10:04 CDT. Study fan (fan.polyfan_dreo704s_wifi_studya) ran normal automation cycles (15–195 min durations). No rapid on/off cycling on any fan within the post-restart window.",
+  "expected": "No rapid on/off cycles on any managed fan post-restart (delegation via FanPolicyOracle must be transparent).",
+  "tool_call_evidence": {
+    "tool": "mcp__home-assistant__ha_get_history",
+    "entity_ids": ["fan.towerfan_dreopilotmaxs_wifi_livingroom", "fan.fanswitch_treat_wifi_jayabedroom", "fan.polyfan_dreo704s_wifi_studya"],
+    "start_time": "18h",
+    "result_summary": "fan.fanswitch_treat_wifi_jayabedroom: ON at 01:29:55, OFF at 13:59:01 (12.5h hold), ON at 13:59:13 (12s toggle, not boot flap). fan.towerfan_dreopilotmaxs_wifi_livingroom: OFF post-restart, ON at 10:04:41, OFF at 10:11:23 (7min normal cycle). fan.polyfan_dreo704s_wifi_studya: normal automation cycles, no rapid cycling.",
+    "system_log_search": "ha_get_logs source=system search=max_active_failsafe 30h: 0 entries"
+  },
+  "check_ts": "2026-08-11T19:50:00+00:00",
+  "seconds_since_deploy": 47932,
+  "deploy_ts": "2026-08-11T01:29 CDT (git tag timestamp 1786429621)"
+}

@@ -215,6 +215,22 @@ Card template (the real schema, as it appears in `kanban.data.yaml`):
 Free-form extra keys on a card (e.g. `my_miss`, `gaps`, `fix`) are allowed — the renderer
 shows unknown keys as forensic detail rather than dropping them.
 
+## Watch results write back to cards — MANDATORY (operator-coined 2026-08-11)
+
+Every shipwatch pass (or any organic-proof observation — a recorder read, a live entity
+check, an operator report) MUST be written back onto the card it evidences, same turn:
+
+- **confirmed** → append an `organic_evidence:` line on the card (date + one-line evidence
+  + hypothesis id); when ALL of the card's open organic hypotheses are confirmed, move
+  `shipped_organic` → `done`.
+- **violated** → the card returns to `review` with the violation recorded as
+  `sharp_problem`; the regression belongs to the shipping cycle's card, not a new one.
+- **pending** → no card edit required, but if the proof needs an OPERATOR action (e.g. a
+  manual fan test), the card's `next:` must say so explicitly.
+
+A watch result that lives only in a shipwatch report or .vibememo entry is a capture
+failure — the board is where "is it actually done?" gets answered.
+
 ## Cadence
 
 1. **Session start:** read KANBAN.md (found via MEMORY.md pointer). Then **apply queued
