@@ -1,8 +1,112 @@
 """Test fixtures for Universal Room Automation tests."""
+import os
 import sys
 import pytest
 from unittest.mock import MagicMock, Mock
 from datetime import datetime, time, timedelta
+
+# =============================================================================
+# SUITE-HYGIENE-1: sys.modules snapshot / restore (Bug Class #44 containment)
+# =============================================================================
+#
+# Root cause (v5.70.0 Review B + FAN-LAYER-2 D1): many test files install stubs
+# into sys.modules — either at module-top-level (during collection) or inside
+# helper functions called from tests (during test run) — without any restore.
+# Later files that inherit the poison bind divergent references at import time
+# and either flake or silently return the wrong answer.
+#
+# Census across quality/tests/ found ~155 files and 98 unique sys.modules
+# keys. Per SUITE-HYGIENE-1 spec (>10 offenders => conftest-level acceptable),
+# a single autouse module-scoped fixture is warranted here rather than 155
+# per-file fixtures.
+#
+# Scope: RUNTIME snapshot/restore only (module-scoped autouse fixture).
+# Prefix set: test-synth namespaces only (`_ura_`, `_dp_`, `_nm_`, `ura_`,
+# `camera_resolver_`, `energy_tou`, `kanban_render`, `_provenance_harness`,
+# `_reconcile_harness`, `_energy_bootstrap`).
+#
+# `homeassistant.*`, `aiosqlite`, `custom_components.*`, `universal_room_automation.*`
+# are DELIBERATELY EXCLUDED — many sibling tests share stubs installed by
+# whichever HA-loader ran first (add-once/reuse-many); restoring these across
+# module boundaries breaks widespread patterns without a corresponding win
+# (measured: 7 fixed flakes vs 7 new regressions = net zero, when included).
+# A collection-time hook (pytest_collectstart / pytest_collectreport) was
+# also prototyped and rejected for the same reason: broke 27 collection
+# imports because many test modules legitimately inherit stubs from siblings
+# during collection. Untangling that graph is a broader refactor than
+# SUITE-HYGIENE-1 (would require adding stubs to every dependent file,
+# violating the "fixture additions only" rule).
+#
+# Restore policy: ONLY restore REPLACED values, never pop ADDED keys. This
+# is what the add-once/reuse-many pattern relies on (freeze_floor's
+# `_load_hvac_module` installs `ura_hvac_pkg.*`; heatcool_enforcer's loader
+# checks `if "ura_hvac_under_test" in sys.modules: return sys.modules[...]`).
+#
+# Canary (env-gated): URA_SYSMODULES_CANARY=1 prints per-module pollution
+# deltas to stderr; URA_SYSMODULES_CANARY_STRICT=1 raises RuntimeError on
+# any pollution (turns future regression into an attributed failure rather
+# than a downstream mystery). Default: silent restore, no runtime cost of
+# reporting.
+# =============================================================================
+
+_POISON_PREFIXES = (
+    # Test-synth packages seen in the census — safe to restore because they
+    # are only ever populated by tests, never real dependencies.
+    "_ura_",
+    "_dp_",
+    "_nm_",
+    "ura_",  # ura_hvac_under_test, ura_anomaly_detector_under_test, ura_diag_pkg, ...
+    "camera_resolver_",
+    "energy_tou",
+    "kanban_render",
+    # Shared test harnesses that install stubs at their own import time
+    "_provenance_harness",
+    "_reconcile_harness",
+    "_energy_bootstrap",
+)
+
+
+def _matches_poison(name):
+    return name.startswith(_POISON_PREFIXES)
+
+
+def _snapshot_poison():
+    """Shallow-copy the poison-prefix subset of sys.modules."""
+    return {k: v for k, v in list(sys.modules.items()) if _matches_poison(k)}
+
+
+def _restore_poison(baseline, *, label=None):
+    """Restore REPLACED poison-prefix keys to `baseline`. Returns (added,
+    replaced) lists observed BEFORE restoration (for canary reporting)."""
+    current = {k for k in list(sys.modules) if _matches_poison(k)}
+    added = sorted(current - set(baseline))
+    replaced = sorted(k for k in baseline if sys.modules.get(k) is not baseline[k])
+    for k, v in baseline.items():
+        if sys.modules.get(k) is not v:
+            sys.modules[k] = v
+    if os.environ.get("URA_SYSMODULES_CANARY") and (added or replaced):
+        sample = (added + replaced)[:8]
+        msg = (
+            f"[sys.modules canary] {label or '<unknown>'} poisoned "
+            f"added={len(added)} replaced={len(replaced)} sample={sample}"
+        )
+        sys.stderr.write(msg + "\n")
+        if os.environ.get("URA_SYSMODULES_CANARY_STRICT"):
+            raise RuntimeError(msg)
+    return added, replaced
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _ura_sys_modules_snapshot(request):
+    """Snapshot & restore sys.modules poison-prefix keys around each test
+    module's test bodies. Catches runtime poison from helpers invoked
+    inside tests (e.g. test_freeze_floor's `_load_hvac_module`)."""
+    baseline = _snapshot_poison()
+    try:
+        yield
+    finally:
+        _restore_poison(baseline, label=f"runtime:{request.node.nodeid}")
+
 
 # v4.6.3 D1: Register real-schema sqlite conftest as a pytest plugin.
 # pytest only auto-discovers conftest.py by name; conftest_db.py fixtures
