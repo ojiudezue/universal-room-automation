@@ -976,6 +976,17 @@ cards:
   constraints: 'LAN-site only (Artifact CSP cannot POST). No auth on LAN site per operator choice. Source of truth stays kanban.data.yaml; the queue is pending-intent, not state.'
   next: 'Build: webhost micro-API + board JS (buttons done/deferred/declined + column drag) + cron pull of disposition queue + pending-chip render + session-start apply protocol in ura-kanban skill.'
 
+- id: SUITE-HYGIENE-2
+  title: Pollution-DEPENDENT tests — 5 files break under a clean sys.modules start
+  thread: quality
+  status: pre_planning
+  approval: unreviewed
+  origin:
+    date: '2026-08-11'
+    gist: 'SUITE-HYGIENE-1 census: widening the restore to homeassistant.*/custom_components.* prefixes FIXED 7 stable failures but BROKE 7 tests that depend on stubs a sibling file installed (test_heatcool_enforcer, test_runtime_smoke, test_zone_migration_mint_guard, test_v570_fixup_wiring, test_prediction_sensor_kill_list).'
+  why: 'These tests only pass because another file polluted sys.modules first — invisible coupling that blocks full-suite hermeticity and keeps 7 heal-able stable failures unfixed. Fix = give each dependent file its own complete stubs, then widen the restore prefix set.'
+  next: 'Small cycle after FAN-LAYER-2 ships: per-file stub-completeness for the 5 dependents, widen prefixes, expect stable-failure count to DROP by ~7. Census + experiment logs in SUITE-HYGIENE-1 scratchpad + conftest docstring.'
+
 - id: SUITE-HYGIENE-1
   title: Kill the order-dependent flake families (sys.modules pollution) — every cycle pays a classification tax
   thread: quality
