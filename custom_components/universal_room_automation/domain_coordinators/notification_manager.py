@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 # functools.partial used for digest scheduling. HA's
@@ -843,6 +844,17 @@ class NotificationManager:
                 if self._suppressed_since is not None
                 else None
             ),
+            # NM-REPAGE-IMG-1: persist snapshot payload alongside the
+            # pending-ack episode so post-restart re-pages still carry
+            # the image.
+            "active_alert_snapshot_url": (
+                self._active_alert_data.get("snapshot_url")
+                if self._active_alert_data else None
+            ),
+            "active_alert_snapshot_path": (
+                self._active_alert_data.get("snapshot_path")
+                if self._active_alert_data else None
+            ),
         }
 
     def restore_persistence_state(self, state: dict[str, Any]) -> None:
@@ -877,6 +889,16 @@ class NotificationManager:
         dedup = state.get("dedup_cache")
         if isinstance(dedup, dict):
             self._dedup_cache = {k: float(v) for k, v in dedup.items() if isinstance(v, (int, float))}
+
+        # NM-REPAGE-IMG-1: restore snapshot payload onto active alert data
+        # so re-pages after HA restart still carry the image. Merged into
+        # whatever `_recover_state_from_db` already populated (it runs
+        # BEFORE this restore per file comments).
+        _snap_url = state.get("active_alert_snapshot_url")
+        _snap_path = state.get("active_alert_snapshot_path")
+        if (_snap_url or _snap_path) and self._active_alert_data is not None:
+            self._active_alert_data.setdefault("snapshot_url", _snap_url)
+            self._active_alert_data.setdefault("snapshot_path", _snap_path)
 
         # NM Cycle B B2: restore ack registry + active episode id
         registry = state.get("ack_registry")
@@ -1813,6 +1835,8 @@ class NotificationManager:
             await self._enter_alerting(
                 coordinator_id, severity_str, title, message,
                 hazard_type, location,
+                snapshot_url=snapshot_url,
+                snapshot_path=snapshot_path,
             )
 
     async def _emit_nm_dispatch_anomaly(
@@ -2305,6 +2329,8 @@ class NotificationManager:
         message: str,
         hazard_type: str | None,
         location: str | None,
+        snapshot_url: str | None = None,
+        snapshot_path: str | None = None,
     ) -> None:
         """Enter ALERTING state for a CRITICAL notification."""
         # Cancel any existing cooldown/countdown from a previous alert
@@ -2333,6 +2359,13 @@ class NotificationManager:
             # so the repeat-decay ladder can compute unacked-age. Survives
             # restart via persistence (get/restore_persistence_state).
             "created_at": dt_util.utcnow().isoformat(),
+            # NM-REPAGE-IMG-1: retain the snapshot payload so 5-min re-pages
+            # of an image-bearing CRITICAL carry the same photo as the
+            # original dispatch (WhatsApp media + iMessage/BlueBubbles
+            # attachment). Persisted via get/restore_persistence_state so
+            # re-pages after HA restart still carry the image.
+            "snapshot_url": snapshot_url,
+            "snapshot_path": snapshot_path,
         }
 
         async_dispatcher_send(self.hass, SIGNAL_NM_ALERT_STATE_CHANGED)
@@ -2452,6 +2485,26 @@ class NotificationManager:
         data = self._active_alert_data
         _LOGGER.info("Repeating CRITICAL alert: %s", data.get("title"))
 
+        # NM-REPAGE-IMG-1: reuse the original snapshot on every re-page so
+        # image-bearing CRITICALs (perimeter/security) keep carrying the
+        # photo. Graceful fallback: if the local file no longer exists at
+        # re-page time, drop `snapshot_path` (keeping any `snapshot_url`)
+        # and log at DEBUG — never crash or block the re-page.
+        _snap_url = data.get("snapshot_url")
+        _snap_path = data.get("snapshot_path")
+        if _snap_path:
+            try:
+                _snap_exists = os.path.exists(_snap_path)
+            except (OSError, TypeError):
+                _snap_exists = False
+            if not _snap_exists:
+                _LOGGER.debug(
+                    "NM re-page: snapshot file missing at %s — falling "
+                    "back to text-only (url=%s)",
+                    _snap_path, bool(_snap_url),
+                )
+                _snap_path = None
+
         # Re-send to all qualifying channels
         # NM Cycle C fix-up (2026-07-20, D1/D2 CRITICAL): rebuild the
         # per-person fan-out to mirror `async_notify`. Prior code
@@ -2496,7 +2549,8 @@ class NotificationManager:
                 device = person_cfg.get(CONF_NM_PERSON_PUSHOVER_DEVICE, "")
                 if key:
                     await self._send_pushover(
-                        data["title"], data["message"], Severity.CRITICAL, key, device
+                        data["title"], data["message"], Severity.CRITICAL, key, device,
+                        snapshot_url=_snap_url, snapshot_path=_snap_path,
                     )
             if _channel_gate.get("companion", False) and "companion" in _router_allowed:
                 svc = person_cfg.get(CONF_NM_PERSON_COMPANION_SERVICE, "")
@@ -2504,15 +2558,22 @@ class NotificationManager:
                     await self._send_companion(
                         data["title"], data["message"], Severity.CRITICAL, svc,
                         is_critical=True,
+                        snapshot_url=_snap_url, snapshot_path=_snap_path,
                     )
             if _channel_gate.get("whatsapp", False) and "whatsapp" in _router_allowed:
                 phone = person_cfg.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
                 if phone:
-                    await self._send_whatsapp(data["title"], data["message"], phone)
+                    await self._send_whatsapp(
+                        data["title"], data["message"], phone,
+                        snapshot_url=_snap_url, snapshot_path=_snap_path,
+                    )
             if _channel_gate.get("imessage", False) and "imessage" in _router_allowed:
                 handle = person_cfg.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "")
                 if handle:
-                    await self._send_imessage(data["title"], data["message"], handle)
+                    await self._send_imessage(
+                        data["title"], data["message"], handle,
+                        snapshot_url=_snap_url, snapshot_path=_snap_path,
+                    )
         # `life_safety_hazard` is retained for readers; DND/mute skips
         # happen inside `_recipient_bypasses_dnd` and `_route_for_recipient`.
         _ = life_safety_hazard
