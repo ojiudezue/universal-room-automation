@@ -990,7 +990,8 @@ cards:
 - id: SUITE-HYGIENE-1
   title: Kill the order-dependent flake families (sys.modules pollution) — every cycle pays a classification tax
   thread: quality
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.72.0
   approval: approved
   origin:
     date: '2026-08-11'
@@ -1039,7 +1040,8 @@ cards:
 - id: FAN-LAYER-2
   title: FanPolicyOracle completion — RoomFanState delegation + actuate-wrap remainder (W1-W3, W8-W10) + INV-FLA-T lock
   thread: fans
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.72.0
   approval: unreviewed
   origin:
     date: '2026-08-11'
