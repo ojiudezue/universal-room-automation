@@ -846,13 +846,20 @@ class NotificationManager:
             ),
             # NM-REPAGE-IMG-1: persist snapshot payload alongside the
             # pending-ack episode so post-restart re-pages still carry
-            # the image.
+            # the image. LOW-2 fix-up: stamp the alert's created_at as
+            # the identity key so restore can refuse to graft a stale
+            # snapshot (acked-alert-A) onto a DB-recovered different
+            # alert (alert-B) after a crash-between-DB-ack-and-save.
             "active_alert_snapshot_url": (
                 self._active_alert_data.get("snapshot_url")
                 if self._active_alert_data else None
             ),
             "active_alert_snapshot_path": (
                 self._active_alert_data.get("snapshot_path")
+                if self._active_alert_data else None
+            ),
+            "active_alert_snapshot_created_at": (
+                self._active_alert_data.get("created_at")
                 if self._active_alert_data else None
             ),
         }
@@ -894,11 +901,29 @@ class NotificationManager:
         # so re-pages after HA restart still carry the image. Merged into
         # whatever `_recover_state_from_db` already populated (it runs
         # BEFORE this restore per file comments).
+        #
+        # LOW-2 fix-up (cross-episode bleed guard): only merge when the
+        # persisted snapshot's identity (alert created_at) matches the
+        # DB-recovered alert's created_at. Otherwise a stale snapshot
+        # from an acked alert-A could graft onto DB-recovered alert-B
+        # (crash-between-DB-ack-and-persistence-save ordering). Legacy
+        # persisted blobs lacking the identity field are NOT merged —
+        # safe default (worst case: one text-only re-page cycle
+        # post-upgrade).
         _snap_url = state.get("active_alert_snapshot_url")
         _snap_path = state.get("active_alert_snapshot_path")
+        _snap_created = state.get("active_alert_snapshot_created_at")
         if (_snap_url or _snap_path) and self._active_alert_data is not None:
-            self._active_alert_data.setdefault("snapshot_url", _snap_url)
-            self._active_alert_data.setdefault("snapshot_path", _snap_path)
+            _active_created = self._active_alert_data.get("created_at")
+            if _snap_created and _active_created and _snap_created == _active_created:
+                self._active_alert_data.setdefault("snapshot_url", _snap_url)
+                self._active_alert_data.setdefault("snapshot_path", _snap_path)
+            else:
+                _LOGGER.debug(
+                    "NM: skipping snapshot restore — identity mismatch "
+                    "(persisted created_at=%s, active created_at=%s)",
+                    _snap_created, _active_created,
+                )
 
         # NM Cycle B B2: restore ack registry + active episode id
         registry = state.get("ack_registry")
@@ -2493,8 +2518,12 @@ class NotificationManager:
         _snap_url = data.get("snapshot_url")
         _snap_path = data.get("snapshot_path")
         if _snap_path:
+            # LOW-1 fix-up: off-load the stat() to the executor —
+            # os.path.exists on the event loop is sync-I/O-on-loop.
             try:
-                _snap_exists = os.path.exists(_snap_path)
+                _snap_exists = await self.hass.async_add_executor_job(
+                    os.path.exists, _snap_path,
+                )
             except (OSError, TypeError):
                 _snap_exists = False
             if not _snap_exists:

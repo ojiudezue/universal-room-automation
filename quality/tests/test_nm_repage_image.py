@@ -90,6 +90,12 @@ def _install_nm(hass, cfg):
     nm._send_whatsapp = AsyncMock()
     nm._send_imessage = AsyncMock()
     nm._send_tts = AsyncMock()
+    # LOW-1 fix-up: production off-loads os.path.exists to the executor
+    # via hass.async_add_executor_job. Stub returns the real call result
+    # so tests exercise the actual fallback branch.
+    async def _executor(fn, *args):
+        return fn(*args)
+    hass.async_add_executor_job = AsyncMock(side_effect=_executor)
     return nm
 
 
@@ -211,3 +217,78 @@ class TestRepageReattachesImage:
         persisted = nm.get_persistence_state()
         assert persisted.get("active_alert_snapshot_path") == str(snap)
         assert persisted.get("active_alert_snapshot_url") == SNAP_URL
+        # LOW-2 fix-up: identity key is persisted alongside snapshot.
+        assert persisted.get("active_alert_snapshot_created_at") == (
+            nm._active_alert_data.get("created_at")
+        )
+
+    def test_restore_merges_snapshot_when_identity_matches(self):
+        """LOW-2 fix-up: post-restart, when the persisted snapshot's
+        alert-identity (created_at) matches the DB-recovered alert's
+        created_at, the snapshot is merged onto _active_alert_data."""
+        hass = _make_hass()
+        nm = _install_nm(hass, _cfg())
+        # Simulate _recover_state_from_db populating the DB-recovered alert.
+        created = "2026-08-12T10:00:00+00:00"
+        nm._active_alert_data = {
+            "coordinator_id": "perimeter_alert",
+            "severity": "CRITICAL",
+            "title": "Perimeter Alert",
+            "message": "Person",
+            "hazard_type": "exterior_person",
+            "location": "front_yard",
+            "created_at": created,
+        }
+        nm._alert_state = nm._alert_state  # keep whatever the ctor set
+        nm.restore_persistence_state({
+            "active_alert_snapshot_url": SNAP_URL,
+            "active_alert_snapshot_path": "/media/ura/snapshots/cam_front.jpg",
+            "active_alert_snapshot_created_at": created,
+        })
+        assert nm._active_alert_data.get("snapshot_url") == SNAP_URL
+        assert nm._active_alert_data.get("snapshot_path") == (
+            "/media/ura/snapshots/cam_front.jpg"
+        )
+
+    def test_restore_does_not_merge_snapshot_on_identity_mismatch(self):
+        """LOW-2 fix-up: cross-episode bleed guard — a stale snapshot
+        whose identity does not match the DB-recovered alert MUST NOT
+        graft onto _active_alert_data. Legacy blob without identity
+        also does NOT merge (safe default)."""
+        hass = _make_hass()
+        nm = _install_nm(hass, _cfg())
+        nm._active_alert_data = {
+            "coordinator_id": "perimeter_alert",
+            "severity": "CRITICAL",
+            "title": "Perimeter Alert B",
+            "message": "Person",
+            "hazard_type": "exterior_person",
+            "location": "front_yard",
+            "created_at": "2026-08-12T11:00:00+00:00",  # alert B
+        }
+        # Mismatch: persisted snapshot belongs to acked alert A.
+        nm.restore_persistence_state({
+            "active_alert_snapshot_url": SNAP_URL,
+            "active_alert_snapshot_path": "/media/ura/snapshots/A.jpg",
+            "active_alert_snapshot_created_at": "2026-08-12T10:00:00+00:00",
+        })
+        assert nm._active_alert_data.get("snapshot_url") is None
+        assert nm._active_alert_data.get("snapshot_path") is None
+
+        # Legacy blob (no identity field) — also refuse to merge.
+        nm._active_alert_data = {
+            "coordinator_id": "perimeter_alert",
+            "severity": "CRITICAL",
+            "title": "Perimeter Alert C",
+            "message": "Person",
+            "hazard_type": "exterior_person",
+            "location": "front_yard",
+            "created_at": "2026-08-12T12:00:00+00:00",
+        }
+        nm.restore_persistence_state({
+            "active_alert_snapshot_url": SNAP_URL,
+            "active_alert_snapshot_path": "/media/ura/snapshots/legacy.jpg",
+            # no active_alert_snapshot_created_at
+        })
+        assert nm._active_alert_data.get("snapshot_url") is None
+        assert nm._active_alert_data.get("snapshot_path") is None
