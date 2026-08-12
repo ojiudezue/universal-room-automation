@@ -38,6 +38,15 @@ set to baseline), 0 new.
 
 ## Live Validation
 
-(prospective — to be replaced with the Validated table post-restart)
-- Zero URA errors post-restart; NM device + entities present.
-- Organic: first unack-CRITICAL re-page carries the image on both channels.
+### Validated 2026-08-12 (v5.73.1 boot, 15:02 CT)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Loads, zero URA errors | **PASS** | error_log search `universal_room` post-restart: WARNINGs only, all boot-transient (rooms holding state 60s); ERRORs in window all third-party (SPAN/Shelly/Denon boot noise) |
+| L2 | HACS installed = available | **PASS** | HACS: installed_version v5.73.1 = available_version v5.73.1, pending_update false |
+| L3 | Re-page carries image, both channels | **ORGANIC (open)** | Next unacknowledged CRITICAL — 5-min re-pages must carry the original photo on WhatsApp + iMessage. In-suite the wire-in is mutation-anchored twice (transport-kwarg neuter → 1 named test red, restored green) |
+| L4 | No stale-snapshot bleed across restart | **In-suite only** | Requires a crash-ordered restart between DB-ack and persistence save to occur live — proven by identity-mismatch + legacy-blob tests instead |
+
+Context: deployed same day as the FRIGATE-RETIRE-1 window-open; L3's organic case counts within
+the Gate-1 observation window (a ghost-free F2 era may make unack CRITICALs rarer — criterion
+stays open until one occurs).
