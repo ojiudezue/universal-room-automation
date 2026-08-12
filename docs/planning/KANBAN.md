@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-11T22:18:44-05:00_ - _Data commit: `08d9727b8aaf`_ - _last_reconciled: 2026-08-11_
+_Generated: 2026-08-12T08:45:58-05:00_ - _Data commit: `a3947c8bc1f5`_ - _last_reconciled: 2026-08-12_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,15 +12,15 @@ _Generated: 2026-08-11T22:18:44-05:00_ - _Data commit: `08d9727b8aaf`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 1 |
-| 🧭 Pre-planning | 15 |
+| 🧭 Pre-planning | 14 |
 | 📝 Planned | 1 |
-| 🔨 In progress | 2 |
+| 🔨 In progress | 1 |
 | 🔍 Review | 0 |
-| 🚀 Shipped (organic open) | 20 |
+| 🚀 Shipped (organic open) | 23 |
 | ⏸️ Waiting on operator | 2 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 0 |
-| ✅ Done | 5 |
+| ✅ Done | 6 |
 
 ## 📥 Inbox (1)
 _raw capture_
@@ -41,26 +41,8 @@ thread: **dashboarding** - status: **inbox** - approval: **explicit**
   - `followup_candidate`: retrofit conditional rendering to the Battery Strategy Detail card (same section group, same defect, ~30 min) — only if the operator endorses this card's style
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
 
-## 🧭 Pre-planning (15)
+## 🧭 Pre-planning (14)
 _idea being decomposed_
-
-### `HVAC-PRESET-FLAP-1` - HVAC zone preset flaps home<->away every 5-15 min during occupied evenings (survives Writer-B removal)
-thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
-- **Origin:** 2026-08-09 - operator: "The hvac zone is being set to away and there are/were people upstairs" — then "I've been seeing this issue from the moment we walked in", which falsified the first three mechanisms I proposed
-- **Why:** MEASURED: nine home<->away preset cycles on zone_2 in two hours of confirmed occupancy, all inside coast mode. Presence was correct throughout. Writer B removal (v5.56.0) did NOT stop it — see P1P3 for the falsification. Real comfort cos...
-- **Next:** Mechanism proven; this is now a DESIGN question, not a diagnosis. Decide the arbitration rule between the coast duty-limiter and occupied-zone comfort. Candidates: (a) exempt the limiter when the zone is occupied AND recovering from a la...
-- **Tags:** no-fabrication-verify, measure-before-build, context-wide-scoping
-- **Refs:** docs/planning/kanban.data.yaml card P1P3 (the falsification); custom_components/universal_room_automation/domain_coordinators/hvac.py:1569-1610 (reason ladder), :1660-1675 (ledger row), :2470-2492 (coast duty limiter)
-- **Forensic keys (9):**
-  - `DUTY_CYCLE_DEFINITION_2026_08_09`: PRECISE, read from source (hvac_const.py:392-394): DUTY_CYCLE_WINDOW_SECONDS = 20*60 (20-min ROLLING window); DUTY_CYCLE_SHED = 0.50; DUTY_CYCLE_COAST = 0.75. So coast permits 15 MINUTES OF COMPRESSOR RUNTIME PER 20-MINUTE WINDOW. Accumu...
-  - `RETRACTION_2_max_runtime_minutes`: I earlier reported "max_runtime_minutes: 120 is the coast cap" and then "you hit the cap almost exactly when you noticed". BOTH WRONG. max_runtime_minutes is computed in energy.py:6907 from TIME REMAINING IN THE CURRENT TOU PERIOD — an u...
-  - `RETRACTION_3_two_writers`: I framed this as "two URA writers disagreeing with no arbitration". WRONG. There is ONE mechanism. The home write is not another actor pushing back — it is the same effective_preset computation returning the house-state value once runtim...
-  - `REFRAMED_PROBLEM`: If there is a defect it is NOT the cycling. Three narrower candidates, none Tier 3: (1) MECHANISM — duty cycling by toggling a user-visible comfort preset makes an energy action look like a presence failure; that misreading cost three ho...
-  - `MEASURE_FIRST_GATE`: Operator: "Measure first for sure." AUDIT_hvac_duty_cycle_frequency.md in flight: how often runtime_exceeded fires per day/zone, how much of it is while OCCUPIED, EPISODE structure (10 flips in one evening != 10 flips over two weeks), an...
-  - `LEDGER_RETRACTION_2026_08_09`: I carded a "reason ledger reads empty / diagnosability regression" finding. IT WAS FALSE and is fully RETRACTED. The v5.56.0 reason ledger works exactly as designed — my extraction script read a column named `details` when the actual col...
-  - `MECHANISM_PROVEN_2026_08_09`: Two URA writers alternating with NO arbitration between them. From the ledger, zone_2, every row carrying persons=[ziri, jaya]: 23:34 home->away reason=runtime_exceeded       runtime=True 23:24 away->home reason=house_state_transition ru...
-  - `my_process_failure`: I proposed three mechanisms in sequence from snapshots — "URA says home, device says away", then "the 120-min cap fired", then "it is coast" — and each fit the instant I was looking at and died on the next fact. The history query I ran F...
-  - `DEDUPE_2026_08_09`: Four-surface sweep: P1P3 is the PARENT (closed, spawned this). STUCK-SENSOR-1 is a different flap (mmWave sensor stuck, not HVAC preset) — no merge. ARREST-SUNSET-1 shipped and is about override sunset, not oscillation. OVERRIDE-NOTIFY-1...
 
 ### `ARRESTER-BOOT-BLIND-1` - Arrester boot-window manual blindness — manual holds predating the listener are unclassifiable
 thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
@@ -219,33 +201,25 @@ thread: **presence** - status: **planned** - approval: **explicit**
   - `OPERATOR_DISPOSITIONS_2026_08_09`: ATHOM (Study A): CLOSED as a no-op. Operator: "Ignore athom now. It's a no op." URA already does not read it (options override every bucket); the ESPHome device entry stays. Do NOT re-raise, do NOT propose deleting the entry or cleaning ...
   - `rejected`: PROPAGATE STUCK STATE TO ZONE/HOUSE — I recommended this and then withdrew it under challenge ('is this flow upwards useful?'). If the room tier excludes correctly the corrected occupancy propagates naturally and upper tiers are right fo...
 
-## 🔨 In progress (2)
+## 🔨 In progress (1)
 _being built_
 
-### `NM-BB-IMAGE-1` - iMessage photo delivery unblocked — BlueBubbles v0.5/0.6 added attachment + media_url
-thread: **notifications** - status: **in_progress** - approval: **approved**
-- **Origin:** 2026-08-11 - operator upgraded BlueBubbles to v0.6.0; release notes show send_message now takes attachment/media_url. Verified in installed source (__init__.py:100-165: attachment=local path w/ is_allowed_path gate, media_url=URL).
-- **Why:** Closes SNAP-1-followup-bluebubbles-attachment: NM _send_imessage passes speculative keys (attachment_path / attachment-as-URL) the old integration dropped; new integration reads attachment/media_url. ~10 LoC key rename + delete the one-s...
-- **Next:** Tier-1 build dispatched: rename keys, drop WARN, mutation-anchored tests; ride next deploy.
-
-### `CONSOL-1` - Perimeter consolidation cycle
-thread: **perimeter** - status: **in_progress** - approval: **explicit**
-- **Origin:** 2026-08-07 - retire redundant manager surface; I need to weigh in — usability
-- **Why:** three parallel alerting stacks (URA NM, HA doorbell automation, zone_monitoring pagers) duplicate delivery
-- **Next:** fold SNAP-1 + TEST-1/2 in; Tier 2-DB
-- **Tags:** tier-2db, institutional-context, audit-first
-- **Parsimony:** [BUILD] 3 stacks page the same event with no shared cooldown/routing
-- **Refs:** PLANNING_perimeter_consolidation.md; AUDIT_ha_side_alerting_reconciliation.md
-- **Forensic keys (2):**
-  - `rulings`: Option C surfacing (= A enhanced)
-  - `plan_state`: rev-2 PLAN-READY (1 adversarial review: 3 CRIT + 4 HIGH fixed in-plan incl. No-Soak violation + G4/G6 misname + vehicle-window orphan). D0 probe: doorbell llmvision SILENTLY BROKEN since 02-13 (gpt-5-mini reasoning eats 300 tokens); buil...
+### `FRIGATE-RETIRE-1` - Retire Frigate-1 — promote Frigate-2 (yolov9t/OpenVINO, zero night ghosts) to primary incl. snapshot engine
+thread: **security** - status: **in_progress** - approval: **approved**
+- **Origin:** 2026-08-12 - operator: "We should just retire frigate 1 instead of writing more code" + "Frigate 2 is our identical backup. We should move snapshots to it" + "Go".
+- **Why:** Probe: 100% of night person alerts = frigate-1 single-witness sub-2s IR ghosts; frigate-1 thresholds already raised once (07-30 snapshot) and ghosting persists. Frigate-2 runs a DIFFERENT detector (custom yolov9t.onnx OpenVINO) with ZERO...
+- **Next:** Gate-1: N=5 organic perimeter events clean by ledger (P1 bar = agreement-with-Protect; daytime parity counts) -> then disable F1 integration/container. Watch: F2 recording tripwire stays silent; snapshot engine learn-on-success migrates ...
+- **Forensic keys (3):**
+  - `procedure`: CONSOL-1 §7 retirement doctrine: (1) capability inventory audit; (2) parity swap — URA perimeter sensors + snapshot instance -> frigate-2 with BOTH running; (3) Gate-1 N=5 organic events clean by ledger -> disable frigate-1; (4) Gate-2 N...
+  - `audit_2026_08_12`: GO. 24/24 cameras identical both hosts (sole gap: ArmCrestASH41B enabled F1/disabled F2 — deliberate one-NVR-at-a-time; flip at window open). URA needs ZERO code changes (fused legs subscribe both instances; snapshot discovery automatic,...
+  - `window_open_2026_08_12`: EXECUTED (operator "Go"): (1) F2 recording tripwire automation live (automation.frigate2_recording_tripwire_frigate_retire_1 — 30min-poll frozen-share check >6h + unavailable-30min leg -> WhatsApp; template-trigger pitfall caught: a froz...
 
 ## 🔍 Review (0)
 _under review_
 
 _(none)_
 
-## 🚀 Shipped (organic open) (20)
+## 🚀 Shipped (organic open) (23)
 _live, awaiting proof_
 
 ### `SENSOR-CAPABILITY-1` - Separate sensor CAPABILITY (hardware kind) from analytic ROLE — kind is currently the config bucket
@@ -323,6 +297,25 @@ thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
   - `operator_decision_2026_08_09`: DROP from migration. Rarity is not itself a defect — a detector guarding a condition that genuinely does not occur is working. This does NOT close the question of whether the thresholds are right; it only removes them from the ledger cyc...
   - `DEDUPE_2026_08_09`: Four-surface sweep: STUCK-SENSOR-1 is adjacent (shares the no-persistence root cause) but is about EXCLUSION POLICY for live detectors; this is about detectors that never fire at all — different problem, linked not merged. BACKLOG B-2026...
 
+### `HVAC-PRESET-FLAP-1` - HVAC zone preset flaps home<->away every 5-15 min during occupied evenings (survives Writer-B removal)
+thread: **hvac** - status: **shipped_organic** - approval: **unreviewed**
+- **Origin:** 2026-08-09 - operator: "The hvac zone is being set to away and there are/were people upstairs" — then "I've been seeing this issue from the moment we walked in", which falsified the first three mechanisms I proposed
+- **Why:** MEASURED: nine home<->away preset cycles on zone_2 in two hours of confirmed occupancy, all inside coast mode. Presence was correct throughout. Writer B removal (v5.56.0) did NOT stop it — see P1P3 for the falsification. Real comfort cos...
+- **Next:** Mechanism proven; this is now a DESIGN question, not a diagnosis. Decide the arbitration rule between the coast duty-limiter and occupied-zone comfort. Candidates: (a) exempt the limiter when the zone is occupied AND recovering from a la...
+- **Tags:** no-fabrication-verify, measure-before-build, context-wide-scoping
+- **Refs:** docs/planning/kanban.data.yaml card P1P3 (the falsification); custom_components/universal_room_automation/domain_coordinators/hvac.py:1569-1610 (reason ladder), :1660-1675 (ledger row), :2470-2492 (coast duty limiter)
+- **Forensic keys (10):**
+  - `shipped_version`: v5.73.0
+  - `DUTY_CYCLE_DEFINITION_2026_08_09`: PRECISE, read from source (hvac_const.py:392-394): DUTY_CYCLE_WINDOW_SECONDS = 20*60 (20-min ROLLING window); DUTY_CYCLE_SHED = 0.50; DUTY_CYCLE_COAST = 0.75. So coast permits 15 MINUTES OF COMPRESSOR RUNTIME PER 20-MINUTE WINDOW. Accumu...
+  - `RETRACTION_2_max_runtime_minutes`: I earlier reported "max_runtime_minutes: 120 is the coast cap" and then "you hit the cap almost exactly when you noticed". BOTH WRONG. max_runtime_minutes is computed in energy.py:6907 from TIME REMAINING IN THE CURRENT TOU PERIOD — an u...
+  - `RETRACTION_3_two_writers`: I framed this as "two URA writers disagreeing with no arbitration". WRONG. There is ONE mechanism. The home write is not another actor pushing back — it is the same effective_preset computation returning the house-state value once runtim...
+  - `REFRAMED_PROBLEM`: If there is a defect it is NOT the cycling. Three narrower candidates, none Tier 3: (1) MECHANISM — duty cycling by toggling a user-visible comfort preset makes an energy action look like a presence failure; that misreading cost three ho...
+  - `MEASURE_FIRST_GATE`: Operator: "Measure first for sure." AUDIT_hvac_duty_cycle_frequency.md in flight: how often runtime_exceeded fires per day/zone, how much of it is while OCCUPIED, EPISODE structure (10 flips in one evening != 10 flips over two weeks), an...
+  - `LEDGER_RETRACTION_2026_08_09`: I carded a "reason ledger reads empty / diagnosability regression" finding. IT WAS FALSE and is fully RETRACTED. The v5.56.0 reason ledger works exactly as designed — my extraction script read a column named `details` when the actual col...
+  - `MECHANISM_PROVEN_2026_08_09`: Two URA writers alternating with NO arbitration between them. From the ledger, zone_2, every row carrying persons=[ziri, jaya]: 23:34 home->away reason=runtime_exceeded       runtime=True 23:24 away->home reason=house_state_transition ru...
+  - `my_process_failure`: I proposed three mechanisms in sequence from snapshots — "URA says home, device says away", then "the 120-min cap fired", then "it is coast" — and each fit the instant I was looking at and died on the next fact. The history query I ran F...
+  - `DEDUPE_2026_08_09`: Four-surface sweep: P1P3 is the PARENT (closed, spawned this). STUCK-SENSOR-1 is a different flap (mmWave sensor stuck, not HVAC preset) — no merge. ARREST-SUNSET-1 shipped and is about override sunset, not oscillation. OVERRIDE-NOTIFY-1...
+
 ### `ARREST-COMFORT-1` - Override arrester reverts occupant manual cooling requests with no comfort exemption
 thread: **hvac** - status: **shipped_organic** - approval: **approved**
 - **Origin:** 2026-08-09 - operator: "I think manual were kids trying to cool their space and the arrester stops them"
@@ -388,6 +381,14 @@ thread: **tooling** - status: **shipped_organic** - approval: **approved**
 - **Next:** Build: webhost micro-API + board JS (buttons done/deferred/declined + column drag) + cron pull of disposition queue + pending-chip render + session-start apply protocol in ura-kanban skill.
 - **Forensic keys (1):**
   - `shipped_note`: Live 2026-08-11: buttons (done/deferred/declined) + column drag on urakanban LAN site; queue → pending jsonl → agent session-start apply (operator authority). Orchestrator-verified API round-trip. Organic proof: first real operator dispo...
+
+### `NM-BB-IMAGE-1` - iMessage photo delivery unblocked — BlueBubbles v0.5/0.6 added attachment + media_url
+thread: **notifications** - status: **shipped_organic** - approval: **approved**
+- **Origin:** 2026-08-11 - operator upgraded BlueBubbles to v0.6.0; release notes show send_message now takes attachment/media_url. Verified in installed source (__init__.py:100-165: attachment=local path w/ is_allowed_path gate, media_url=URL).
+- **Why:** Closes SNAP-1-followup-bluebubbles-attachment: NM _send_imessage passes speculative keys (attachment_path / attachment-as-URL) the old integration dropped; new integration reads attachment/media_url. ~10 LoC key rename + delete the one-s...
+- **Next:** Tier-1 build dispatched: rename keys, drop WARN, mutation-anchored tests; ride next deploy.
+- **Forensic keys (1):**
+  - `shipped_version`: v5.73.0
 
 ### `SUITE-HYGIENE-1` - Kill the order-dependent flake families (sys.modules pollution) — every cycle pays a classification tax
 thread: **quality** - status: **shipped_organic** - approval: **approved**
@@ -477,6 +478,19 @@ thread: **hvac** - status: **shipped_organic** - approval: **implied**
   - `guard`: 1. Policy exists ONCE: house_state_invalidates_arrester_hold() called by both sites.
   - `known_limitations`: restart mid-grace may lose the in-memory pending-sunset obligation unless persisted - builder instructed to persist or explicitly document + report
   - `organic_open`: engage the override, then confirm it releases on the next real context change (or 6h decay) and the switch flips OFF to match
+
+### `CONSOL-1` - Perimeter consolidation cycle
+thread: **perimeter** - status: **shipped_organic** - approval: **explicit**
+- **Origin:** 2026-08-07 - retire redundant manager surface; I need to weigh in — usability
+- **Why:** three parallel alerting stacks (URA NM, HA doorbell automation, zone_monitoring pagers) duplicate delivery
+- **Next:** fold SNAP-1 + TEST-1/2 in; Tier 2-DB
+- **Tags:** tier-2db, institutional-context, audit-first
+- **Parsimony:** [BUILD] 3 stacks page the same event with no shared cooldown/routing
+- **Refs:** PLANNING_perimeter_consolidation.md; AUDIT_ha_side_alerting_reconciliation.md
+- **Forensic keys (3):**
+  - `shipped_version`: v5.73.0
+  - `rulings`: Option C surfacing (= A enhanced)
+  - `plan_state`: rev-2 PLAN-READY (1 adversarial review: 3 CRIT + 4 HIGH fixed in-plan incl. No-Soak violation + G4/G6 misname + vehicle-window orphan). D0 probe: doorbell llmvision SILENTLY BROKEN since 02-13 (gpt-5-mini reasoning eats 300 tokens); buil...
 
 ### `SNAP-1` - Snapshot mirror-and-improve
 thread: **perimeter** - status: **shipped_organic** - approval: **explicit**
@@ -571,7 +585,7 @@ _revisit-trigger set_
 
 _(none)_
 
-## ✅ Done (5)
+## ✅ Done (6)
 _closed, evidence in refs_
 
 ### `COMFORT-TOGGLE-1` - Dedicated enable switch for comfort-delay grace (vs grace_minutes=0 kill)
@@ -581,6 +595,16 @@ thread: **hvac** - status: **done** - approval: **explicit**
 - **Next:** Operator decides: build the switch (Tier-1, ~30 LoC mirroring existing URA switch persistence) or accept grace_minutes=0 as the toggle. Also parked: hard peak-TOU conjunct (one-line predicate) if live evidence shows SOC-80 floor insuffic...
 - **Forensic keys (1):**
   - `operator_disposition`: DECLINED 2026-08-11 (chat): "Comfort toggle - no". grace_minutes=0 is the kill. Parked peak-TOU conjunct stays parked on live evidence.
+
+### `PERIM-FP-1` - Frigate-1 nighttime IR ghost detections — 100% of night person alerts are single-witness sub-2s blips
+thread: **security** - status: **done** - approval: **explicit**
+- **Origin:** 2026-08-12 - operator: "Both pictures show no one... No corroboration from any other likely means false positive no?... hand check protect detection history and its correlation to frigate"
+- **Why:** PROBED (AUDIT_perimeter_fp_correlation.md): ghost source = Frigate instance 1 under nighttime IR on pool_equipment (94% single-witness), hot_tub (60%), front_side_ptz (51%), back_yard (49%). ALL 80 night-hour person edges across 7 nights...
+- **Next:** Operator picks direction(s); (a) is config-side on Frigate (homelab), (b)/(c) are URA cycles (measure-first done). Two NM-dedup'd edges (06:14, 07:11) flagged for follow-up in the audit.
+- **Forensic keys (3):**
+  - `resolution`: OPERATOR PICKED (2026-08-12): retire Frigate-1 entirely (FRIGATE-RETIRE-1) instead of thresholds/gate code. Probe + screenshots are the evidence base; corroboration doctrine parked.
+  - `screenshots_2026_08_12`: Operator screenshots confirm: originals deliver WITH photo at detection (v5.71.0 proven twice — pool 03:56, front_side 04:06); text-only repeats are the unack-CRITICAL 5-min RE-PAGE loop (same detection timestamp in body), by design. Bot...
+  - `fix_directions_for_operator`: (a) Frigate-side: raise person threshold / min_score on the 4 IR-affected cameras (fixes at the source, benefits everything downstream); (b) URA-side sustained-on gate ~3-5s before dispatch (catches all observed FPs, adds 3-5s latency to...
 
 ### `RESACC-1` - Resolver accuracy test suite
 thread: **resolver** - status: **done** - approval: **implied**
