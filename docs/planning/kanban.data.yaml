@@ -999,7 +999,8 @@ cards:
 - id: NM-REPAGE-IMG-1
   title: Re-attach stored snapshot on CRITICAL re-pages — text-only repeats are a correctness bug, not a design choice
   thread: notifications
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.73.1
   approval: approved
   origin:
     date: '2026-08-12'

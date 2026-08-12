@@ -1,0 +1,19 @@
+{
+  "format_version": "2.1",
+  "entry_id": "043",
+  "author": "ojiudezue",
+  "session_id": "claude_20260812_195857_ship_v5_73_1",
+  "timestamp": "2026-08-12T19:58:57Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.73.1 shipped: CRITICAL re-pages re-attach stored snapshot (NM-REPAGE-IMG-1)",
+  "summary": "Unack-CRITICAL 5-min re-pages now carry the original snapshot on all four transports (Pushover/Companion/WhatsApp/iMessage BB v0.6), restart-safe with alert-identity check preventing stale-snapshot bleed; off-loop file check with graceful text-only fallback. Tier-1 reviewed (SHIP, 2 LOWs fixed in-cycle), wire-in anchor mutation-drilled.",
+  "refs": {
+    "cards": [
+      "NM-REPAGE-IMG-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.73.1.md"
+    ]
+  }
+}
