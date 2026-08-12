@@ -250,21 +250,39 @@ class RoomAutomation:
     def _fan_ledger_key(self) -> str:
         """Return the stable room key used to index the oracle ledger.
 
-        Priority: config_entry.entry_id → CONF_ROOM_NAME → ``"__unkeyed__"``
-        sentinel (never the empty string; two rooms without a name must
-        NOT collide on "").
+        FAN-LAYER-2 D1 (PLAN §5.2 Option A): prefer ``room:{NFC(name)}``
+        so the room-tier surface (RoomAutomation) and the HVAC-tier
+        surface (RoomFanState via ``_room_key`` in ``hvac_fans.py``)
+        derive the SAME string for the same room, closing INV-DTA.
+
+        Fallback (name missing / config unreadable): entry_id sentinel
+        (preserved from A-HIGH-1 fix-up so two nameless rooms still
+        don't collide on ""). Legacy ``entry:<eid>`` rows written by
+        previous versions are moot on RAM-only ledger (restart wipes)
+        and cleaned by ``FanPolicyOracle.migrate_legacy_entry_keys``
+        if the CM invokes it post-attach.
         """
-        entry = getattr(self, "_config_entry", None)
-        if entry is not None:
-            eid = getattr(entry, "entry_id", None)
-            if eid:
-                return f"entry:{eid}"
         try:
             name = self.config.get(CONF_ROOM_NAME, "")
         except Exception:  # noqa: BLE001
             name = ""
         if name:
-            return f"room:{name}"
+            try:
+                # Reuse the HVAC-tier normalizer so both tiers agree
+                # byte-identically on Unicode / whitespace / control-char
+                # policy (PLAN §5.2).
+                from .domain_coordinators.hvac_fans import _room_key
+                return _room_key(name)
+            except Exception:  # noqa: BLE001
+                # If _room_key rejected the name (control chars) or the
+                # import failed, fall through to the entry_id fallback so
+                # the room still gets a non-colliding key.
+                pass
+        entry = getattr(self, "_config_entry", None)
+        if entry is not None:
+            eid = getattr(entry, "entry_id", None)
+            if eid:
+                return f"entry:{eid}"
         return "__unkeyed__"
 
     def _fallback_warn(self, side: str) -> None:

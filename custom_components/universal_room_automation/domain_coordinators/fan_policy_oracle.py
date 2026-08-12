@@ -266,6 +266,108 @@ class FanPolicyOracle:
         """Convenience: clear the ON-hold (kill-switch, safety-stop cleanup)."""
         self.set_manual_on_hold(room_key, None)
 
+    # ------------------------------------------------------------------
+    # FAN-LAYER-2 D1: async-locked setter fleet (PLAN §5.4).
+    # Callers from async paths (hvac_fans.py external-adopt / kill-switch /
+    # pause-restore sites) go through these to serialize under the per-room
+    # asyncio.Lock, closing INV-FLA-T (PLAN §1 canonical repro at #3/#6).
+    # asyncio.Lock is NON-REENTRANT — callers holding the lock manually
+    # (e.g. §5.4a R-M-W wrap) MUST use the sync setters inside the block.
+    # ------------------------------------------------------------------
+
+    async def set_manual_on_hold_locked(self, room_key: str, value) -> None:
+        async with self._get_lock(room_key):
+            self.set_manual_on_hold(room_key, value)
+
+    async def set_manual_off_cooldown_locked(self, room_key: str, value) -> None:
+        async with self._get_lock(room_key):
+            self.set_manual_off_cooldown(room_key, value)
+
+    async def clear_manual_on_hold_locked(self, room_key: str) -> None:
+        async with self._get_lock(room_key):
+            self.set_manual_on_hold(room_key, None)
+
+    async def clear_manual_off_cooldown_locked(self, room_key: str) -> None:
+        async with self._get_lock(room_key):
+            self.set_manual_off_cooldown(room_key, None)
+
+    async def async_cleanup_expired_holds(self) -> None:
+        """Cosmetic hygiene: drop expired hold/cooldown deadlines (PLAN §5.4 #14).
+
+        NOT LOAD-BEARING. The authoritative expiry gate lives at
+        ``hvac_fans.py::_is_manual_on_hold_live`` (read-time evaluation at
+        ~:1076-1089) and ``_evaluate_temp_fan``'s cooldown compare at
+        ~:842-844. This helper only tidies rows in the ledger dict whose
+        read paths haven't fired in a while — behavior is IDENTICAL
+        whether it runs or not. See PLANNING §5.4 row #14 rationale.
+        """
+        try:
+            if _ha_dt is not None:
+                now = _ha_dt.now()
+            else:
+                now = datetime.now()
+            for room_key in list(self._rooms.keys()):
+                async with self._get_lock(room_key):
+                    rec = self._rooms.get(room_key)
+                    if rec is None:
+                        continue
+                    if (rec.manual_on_hold_until is not None
+                            and now >= rec.manual_on_hold_until):
+                        rec.manual_on_hold_until = None
+                    if (rec.manual_off_cooldown_until is not None
+                            and now >= rec.manual_off_cooldown_until):
+                        rec.manual_off_cooldown_until = None
+        except Exception:  # noqa: BLE001 — cosmetic; never break caller
+            _LOGGER.debug(
+                "FanPolicyOracle.async_cleanup_expired_holds failed",
+                exc_info=True,
+            )
+
+    def migrate_legacy_entry_keys(self, name_to_room_key: dict[str, str]) -> int:
+        """Migrate any leaked ``entry:<eid>`` rows to ``room:<name>`` keys.
+
+        FAN-LAYER-2 D1 (PLAN §5.2 "Migration is trivial"): after Option A
+        keying is adopted, options-flow reload during transition may leak
+        rows under the legacy ``entry:<entry_id>`` scheme. This one-shot
+        best-effort helper is called from ``CoordinatorManager`` post-attach
+        to fold any such rows into the room-key row (last-writer-wins on
+        collision). RAM-only ledger so a restart moots the whole thing;
+        the helper exists to keep the transition clean across reloads.
+
+        Returns count of migrated rows (informational).
+        """
+        migrated = 0
+        try:
+            # Build reverse map: entry_id-strings not present in target keys
+            # get looked up by whichever name a caller supplies. Callers
+            # currently pass an empty dict since Option A derives the room
+            # key from the room name directly at the write site — the
+            # helper is kept for the sub-cycle when name is known but the
+            # legacy row was written under the entry_id.
+            legacy = [k for k in list(self._rooms.keys()) if k.startswith("entry:")]
+            for legacy_key in legacy:
+                # If caller supplied a mapping and it names a target,
+                # migrate; else drop the legacy row (data is RAM anyway).
+                target = name_to_room_key.get(legacy_key)
+                rec = self._rooms.pop(legacy_key, None)
+                if rec is None:
+                    continue
+                if target is None:
+                    continue
+                # Last-writer-wins on collision — legacy row overwrites.
+                self._rooms[target] = rec
+                migrated += 1
+            if migrated:
+                _LOGGER.info(
+                    "FanPolicyOracle: migrated %d legacy entry:* rows to room:* keys",
+                    migrated,
+                )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "FanPolicyOracle.migrate_legacy_entry_keys failed", exc_info=True,
+            )
+        return migrated
+
     def _get_lock(self, room: str) -> asyncio.Lock:
         lock = self._room_locks.get(room)
         if lock is None:
