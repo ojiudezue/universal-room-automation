@@ -688,13 +688,190 @@ class TestD3AuditSentinelFilter:
         delivered=2 for the person — bounded queue growth per
         rev-2 §10.4. Static source assertion: the UPDATE has no
         `message != '[audit]'` guard."""
-        import inspect
+        import inspect, ast
         from custom_components.universal_room_automation import database as _db_mod
+        # Extract the executable body only (docstring stripped) so the
+        # fix-up docstring citing the sentinel string doesn't confuse
+        # the assertion. Look at all string constants inside the
+        # function body — the UPDATE SQL is one such string — and
+        # assert none contain the sentinel filter.
         src = inspect.getsource(_db_mod.UniversalRoomDatabase.mark_digest_delivered)
-        assert "message != '[audit]'" not in src, (
+        # Dedent because inspect.getsource preserves leading indent.
+        import textwrap
+        tree = ast.parse(textwrap.dedent(src))
+        func_body = tree.body[0].body
+        # Drop the docstring (first Expr(Constant(str)) if present).
+        if (
+            func_body
+            and isinstance(func_body[0], ast.Expr)
+            and isinstance(func_body[0].value, ast.Constant)
+            and isinstance(func_body[0].value.value, str)
+        ):
+            body_wo_doc = func_body[1:]
+        else:
+            body_wo_doc = func_body
+        sql_strings = [
+            node.value for node in ast.walk(ast.Module(body_wo_doc, []))
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        ]
+        joined = "\n".join(sql_strings)
+        assert "message != '[audit]'" not in joined, (
             "mark_digest_delivered must include audit rows in the UPDATE "
             "so the audit queue does not grow unboundedly at LOW/MEDIUM "
-            "volume (rev-2 §10.4)"
+            "volume (rev-2 §10.4). Docstring may cite the sentinel, but "
+            "the executable SQL must not filter it."
         )
         # And the marker value is 2 (queue-management, not "delivered").
-        assert "delivered = 2" in src
+        assert "delivered = 2" in joined
+
+
+# =========================================================================
+# Fix-up (A-LOW-2): site-isolation anchors — each site fails DISTINCTLY.
+#
+# The two suppression sites share one predicate but live in different
+# machinery. A single test that asserts end-to-end transport awaits
+# folds both sites into one failure mode. These two tests anchor each
+# site independently so neutering ONE site produces a failure that the
+# other site's test does NOT.
+# =========================================================================
+
+
+class TestSiteIsolationAnchors:
+
+    def test_gate_mirror_alone_opens_channel_for_digest_pref_household(self):
+        """Site: `_gate_channels_for_notify` predicate mirror ONLY.
+
+        Directly invokes the gate helper with a digest-pref-only
+        household + a security image; asserts `_channel_gate["whatsapp"]
+        is True`. Does NOT exercise Site B — the per-person
+        effective_pref override is not reached in this test.
+
+        Distinguishing failure mode: if the mirror in
+        `_gate_channels_for_notify` is removed but Site B is intact,
+        THIS test fails (gate returns False → no token reserved) while
+        the Site-B-alone test below still passes.
+        """
+        hass = _make_hass()
+        _put_house_awake(hass)
+        cfg = _cfg_all_channels(persons=[_digest_person()])
+        nm = NotificationManager(hass, cfg)
+
+        persons = cfg[CONF_NM_PERSONS]
+        gate = nm._gate_channels_for_notify(
+            persons, Severity.MEDIUM, NM_HAZARD_EXTERIOR_PERSON,
+            "perimeter_alert",
+            force_immediate_for_security_image=True,
+        )
+        assert gate["whatsapp"] is True, (
+            "gate mirror must open whatsapp for a digest-pref household "
+            "when the security-image predicate is True; a token is "
+            "reserved so Site B's transport call actually fires"
+        )
+        assert gate["pushover"] is True
+        # Sanity: without the predicate, the same call for a digest-only
+        # household closes the gate (baseline).
+        gate_off = nm._gate_channels_for_notify(
+            persons, Severity.MEDIUM, NM_HAZARD_EXTERIOR_PERSON,
+            "perimeter_alert",
+            force_immediate_for_security_image=False,
+        )
+        assert gate_off["whatsapp"] is False
+        assert gate_off["pushover"] is False
+
+    @pytest.mark.asyncio
+    async def test_site_b_alone_flips_effective_pref_to_immediate(self):
+        """Site B: per-person effective_pref override ONLY.
+
+        Freezes the gate open by monkeypatching
+        `_gate_channels_for_notify` to a constant all-True dict, then
+        exercises `async_notify`. Asserts the recipient's per-recipient
+        DIGEST-queue-only branch is NOT taken (no `delivered=0` row for
+        the digest-pref person on any channel) — proof that Site B
+        promoted effective_pref to IMMEDIATE. Does NOT assert transport
+        awaits, so it isolates from the gate-mirror site.
+
+        Distinguishing failure mode: if Site B is removed but the gate
+        mirror is intact, THIS test fails (a `delivered=0` digest-queue
+        row is written because effective_pref stayed DIGEST) while the
+        gate-mirror test above still passes.
+        """
+        hass = _make_hass()
+        _put_house_awake(hass)
+        cfg = _cfg_all_channels(persons=[_digest_person()])
+        nm = _install_nm(hass, cfg)
+        db = _install_db(hass)
+        # Freeze the token/router gate: all channels open regardless of
+        # Site A's mirror. This decouples the test from that site.
+        nm._gate_channels_for_notify = lambda *a, **kw: {
+            "pushover": True, "companion": True,
+            "whatsapp": True, "imessage": True,
+        }
+
+        await nm.async_notify(
+            "perimeter_alert", Severity.MEDIUM,
+            "Perimeter Alert — Person", "Person spotted",
+            hazard_type=NM_HAZARD_EXTERIOR_PERSON,
+            location="front_yard",
+            snapshot_path=SNAP,
+        )
+
+        # If Site B fired, the digest-pref DIGEST-only queue-writes at
+        # ~:1577-1586 etc. must NOT have been taken (they're gated on
+        # effective_pref == DIGEST). Assert no delivered=0 row was
+        # written for our digest-pref person on any channel.
+        digest_queue_rows = [
+            c for c in db.log_notification.await_args_list
+            if len(c.args) >= 9
+            and c.args[6] == "person.oji"
+            and c.args[8] == 0            # delivered=0 → digest-queue row
+            and c.args[7] in ("pushover", "companion", "whatsapp", "imessage")
+        ]
+        assert digest_queue_rows == [], (
+            "Site B must promote effective_pref to IMMEDIATE for a "
+            "security-image emit; instead a digest-queue row was "
+            f"written: {digest_queue_rows!r}"
+        )
+
+
+# =========================================================================
+# Fix-up (A-MED-1): [audit] sentinel filters on the two dashboard readers.
+# =========================================================================
+
+
+class TestAuditSentinelDashboardReaders:
+    """Static-source anchors for the two new SQL filters (mutation
+    drills below flip these off individually and each drill reddens
+    exactly the matching test)."""
+
+    def test_get_notifications_today_filters_audit_sentinel(self):
+        """`get_notifications_today` MUST exclude `message='[audit]'`.
+
+        Mutation anchor: remove `AND message != '[audit]'` from
+        database.py get_notifications_today → this test fails.
+        """
+        import inspect
+        from custom_components.universal_room_automation import database as _db_mod
+        src = inspect.getsource(
+            _db_mod.UniversalRoomDatabase.get_notifications_today,
+        )
+        assert "message != '[audit]'" in src, (
+            "get_notifications_today must exclude the [audit] sentinel "
+            "from the today-count / dashboard reader (fix-up A-MED-1)"
+        )
+
+    def test_get_last_notification_filters_audit_sentinel(self):
+        """`get_last_notification` MUST exclude `message='[audit]'`.
+
+        Mutation anchor: remove `AND message != '[audit]'` from
+        database.py get_last_notification → this test fails.
+        """
+        import inspect
+        from custom_components.universal_room_automation import database as _db_mod
+        src = inspect.getsource(
+            _db_mod.UniversalRoomDatabase.get_last_notification,
+        )
+        assert "message != '[audit]'" in src, (
+            "get_last_notification must exclude the [audit] sentinel "
+            "so the last_notification dashboard tile never renders "
+            "the bare sentinel string (fix-up A-MED-1)"
+        )

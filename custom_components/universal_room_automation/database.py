@@ -3841,7 +3841,17 @@ class UniversalRoomDatabase:
             return []
 
     async def get_notifications_today(self) -> list[dict]:
-        """Get all delivered notifications from today."""
+        """Get all delivered notifications from today.
+
+        NM-IMAGE-1 fix-up (2026-08-11, review A-MED-1): excludes the
+        `"[audit]"` sentinel. Adjudicated as PRE-EXISTING visibility bug
+        — audit rows with `delivered=1` (real send that also emitted an
+        audit row) were counting toward the today's-notifications total
+        and appearing on dashboards. Same-class hygiene with the D3
+        `get_pending_digest` sentinel filter; fixed here so the two
+        reader-side surfaces (dashboard count + digest body) stay in
+        agreement about what `"[audit]"` means.
+        """
         try:
             today_start = dt_util.start_of_local_day().isoformat()
             async with self._db_read() as db:
@@ -3849,6 +3859,7 @@ class UniversalRoomDatabase:
                 cursor = await db.execute("""
                     SELECT * FROM notification_log
                     WHERE timestamp >= ? AND delivered > 0
+                      AND message != '[audit]'
                     ORDER BY timestamp DESC
                 """, (today_start,))
                 rows = await cursor.fetchall()
@@ -3858,13 +3869,21 @@ class UniversalRoomDatabase:
             return []
 
     async def get_last_notification(self) -> dict | None:
-        """Get the most recent delivered notification."""
+        """Get the most recent delivered notification.
+
+        NM-IMAGE-1 fix-up (2026-08-11, review A-MED-1): excludes the
+        `"[audit]"` sentinel. The `last_notification` dashboard tile was
+        surfacing `"[audit]"` as the most-recent message whenever the
+        latest emit was a per-recipient audit row. Same-class hygiene
+        with `get_notifications_today` and `get_pending_digest`.
+        """
         try:
             async with self._db_read() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT * FROM notification_log
                     WHERE delivered > 0
+                      AND message != '[audit]'
                     ORDER BY timestamp DESC LIMIT 1
                 """)
                 row = await cursor.fetchone()
@@ -3906,10 +3925,16 @@ class UniversalRoomDatabase:
         NM-IMAGE-1 (2026-08-11, D3 / rev-2 §10.4): also marks the
         `message='[audit]'` sentinel rows `delivered=2` alongside real
         rows so the queue does not grow unboundedly at MEDIUM/LOW
-        volume. `delivered=2` is a queue-management marker (filtered
-        out of `delivered > 0` reader queries — see
-        `get_notifications_today`, `get_last_notification` — which
-        already only inspect real rows). D0 baseline captured pre-
+        volume. `delivered=2` is a queue-management marker; both
+        surviving `delivered > 0` reader queries now explicitly filter
+        the sentinel — see `get_notifications_today` (:3849 region)
+        and `get_last_notification` (:3872 region), each carrying
+        `AND message != '[audit]'` in its SELECT after the fix-up
+        review A-MED-1. Prior to that fix-up, `delivered=1` audit rows
+        WERE reaching the today-count and last-notification dashboards
+        — the docstring's earlier "readers already only inspect real
+        rows" claim was aspirational, not true. D0 baseline captured
+        pre-
         deploy to validate the bound holds live.
         """
         try:
