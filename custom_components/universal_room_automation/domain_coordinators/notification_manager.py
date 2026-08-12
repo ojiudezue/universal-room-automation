@@ -110,6 +110,10 @@ from ..const import (
     NM_REPEAT_PHASE2_S,
     NM_REPEAT_DAILY_AFTER_S,
     NM_SECURITY_ACK_HAZARDS,
+    # NM-IMAGE-1 (2026-08-11): security-image force-immediate.
+    NM_SECURITY_HAZARDS,
+    NM_ROUTE_REASON_FORCE_IMMEDIATE_SECURITY_IMAGE,
+    NM_ROUTE_REASON_DND_SUPPRESSED_SECURITY_IMAGE,
     CONF_NM_PERSON_SAFE_WORD,
     CONF_NM_SECURITY_ACK_PERSONS,
     NM_DEDUP_CRITICAL,
@@ -1215,6 +1219,24 @@ class NotificationManager:
         # so OptionsFlow changes take effect without restart
         self._refresh_config()
 
+        # NM-IMAGE-1 (rev-2): pre-computed force-immediate predicate for the
+        # security-image class. Consumed at BOTH suppression sites below —
+        # the global quiet-hours early-return AND the per-person
+        # effective_pref override — so the two sites cannot diverge if
+        # config re-reads between them. Predicate is truthy on
+        # `snapshot_path or snapshot_url` (rev-2 MED-4); empty string
+        # means "no snapshot" and does NOT force. Kill switch:
+        # NM_SECURITY_HAZARDS == frozenset() → predicate always False →
+        # both sites revert to pre-cycle behavior byte-identically.
+        # Uses the MODULE binding of NM_SECURITY_HAZARDS (rev-2 MED-3)
+        # so a test monkeypatch on
+        # `notification_manager.NM_SECURITY_HAZARDS` cleanly disables the
+        # override at both sites.
+        _force_immediate_for_security_image = (
+            hazard_type in NM_SECURITY_HAZARDS
+            and bool(snapshot_path or snapshot_url)
+        )
+
         # Quiet hours check.
         #
         # NM Cycle C C3: replaces the flat "CRITICAL bypasses" gate with
@@ -1258,10 +1280,19 @@ class NotificationManager:
                             NM_DELIVERY_IMMEDIATE,
                         ) == NM_DELIVERY_DIGEST:
                             any_digest_recipient = True
+            # NM-IMAGE-1 (rev-2 HIGH-1): a security-image emit must NOT be
+            # dropped by the global quiet-hours early-return, even for a
+            # household where ALL recipients are IMMEDIATE-pref with no
+            # bypass matching this severity. Adding one more escape
+            # (OR'd like the pre-existing three) preserves byte-identical
+            # behavior when the predicate is False; when True, control
+            # flows to the per-person loop where Site B's :1495 override
+            # + per-recipient DND-bypass decide per person.
             if (
                 not global_bypass
                 and not any_recipient_bypass
                 and not any_digest_recipient
+                and not _force_immediate_for_security_image
             ):
                 _LOGGER.debug("Notification suppressed during quiet hours: %s", title)
                 self._quiet_suppressions += 1
@@ -1486,13 +1517,26 @@ class NotificationManager:
         self._migrate_legacy_severity_to_matrix()
         _channel_gate = self._gate_channels_for_notify(
             persons, severity, hazard_type, coordinator_id,
+            force_immediate_for_security_image=(
+                _force_immediate_for_security_image
+            ),
         )
         for person_cfg in persons:
             person_id = person_cfg.get(CONF_NM_PERSON_ENTITY, "")
             delivery_pref = person_cfg.get(CONF_NM_PERSON_DELIVERY_PREF, NM_DELIVERY_IMMEDIATE)
 
-            # CRITICAL/HIGH always immediate
-            if severity in (Severity.CRITICAL, Severity.HIGH):
+            # CRITICAL/HIGH always immediate. NM-IMAGE-1 (rev-2): image-
+            # bearing security-class alerts (hazard in NM_SECURITY_HAZARDS
+            # with a truthy snapshot) also force immediate, so the digest
+            # queue path (which does NOT persist snapshot_path/
+            # snapshot_url) never eats the attachment. Predicate computed
+            # once at the top of `async_notify` and reused verbatim; both
+            # suppression sites (early-return above and this override)
+            # see the SAME Python-level value.
+            if (
+                severity in (Severity.CRITICAL, Severity.HIGH)
+                or _force_immediate_for_security_image
+            ):
                 effective_pref = NM_DELIVERY_IMMEDIATE
             else:
                 effective_pref = delivery_pref
@@ -1518,6 +1562,17 @@ class NotificationManager:
                 and effective_pref == NM_DELIVERY_IMMEDIATE
             ):
                 if database:
+                    # NM-IMAGE-1 (rev-2): distinguish the L9 case (security
+                    # image would have been force-immediate but recipient
+                    # DND without matching bypass suppressed it) from the
+                    # legacy generic "dnd_suppressed" reason. Named
+                    # constant so post-deploy analytics can find these
+                    # honestly-dropped image emits.
+                    _reason = (
+                        NM_ROUTE_REASON_DND_SUPPRESSED_SECURITY_IMAGE
+                        if _force_immediate_for_security_image
+                        else "dnd_suppressed"
+                    )
                     await self._emit_audit_row(
                         coordinator_id=coordinator_id,
                         severity=severity,
@@ -1526,7 +1581,7 @@ class NotificationManager:
                         location=location,
                         recipient_id=person_id,
                         channel=None,
-                        route_reason="dnd_suppressed",
+                        route_reason=_reason,
                         dnd_bypass_applied=False,
                         bucket_outcome="quiet_hours_suppressed",
                         matrix_branch="dnd",
@@ -1668,6 +1723,20 @@ class NotificationManager:
                     ch for ch in ("pushover", "companion", "whatsapp", "imessage")
                     if (_channel_gate.get(ch, False) and ch in _router_allowed)
                 )
+                # NM-IMAGE-1 (rev-2): when the security-image predicate
+                # forced this emit to IMMEDIATE, label the audit row with
+                # the named constant so post-deploy analytics can trace
+                # the override branch. Matrix-branch label is retained
+                # separately below for router-decision tracing.
+                _audit_route_reason = (
+                    NM_ROUTE_REASON_FORCE_IMMEDIATE_SECURITY_IMAGE
+                    if _force_immediate_for_security_image
+                    else (
+                        "hazard_override" if _matrix_branch == "hazard_override"
+                        else "matrix_default" if _matrix_branch == "matrix_default"
+                        else "legacy_fallback"
+                    )
+                )
                 await self._emit_audit_row(
                     coordinator_id=coordinator_id,
                     severity=severity,
@@ -1676,11 +1745,7 @@ class NotificationManager:
                     location=location,
                     recipient_id=person_id,
                     channel=",".join(per_person_fired) or None,
-                    route_reason=(
-                        "hazard_override" if _matrix_branch == "hazard_override"
-                        else "matrix_default" if _matrix_branch == "matrix_default"
-                        else "legacy_fallback"
-                    ),
+                    route_reason=_audit_route_reason,
                     dnd_bypass_applied=_dnd_bypass_applied,
                     bucket_outcome=("accepted" if per_person_fired else "no_channel_fired"),
                     matrix_branch=_matrix_branch,
@@ -3461,6 +3526,7 @@ class NotificationManager:
         severity: Severity,
         hazard_type: str | None,
         coordinator_id: str,
+        force_immediate_for_security_image: bool = False,
     ) -> dict[str, bool]:
         """Compute per-channel fire-decision ONCE per notification.
 
@@ -3502,7 +3568,16 @@ class NotificationManager:
                 delivery_pref = person_cfg.get(
                     CONF_NM_PERSON_DELIVERY_PREF, NM_DELIVERY_IMMEDIATE,
                 )
-                if severity in (Severity.CRITICAL, Severity.HIGH):
+                # NM-IMAGE-1 (rev-2): must mirror the per-person Site B
+                # override so a digest-pref recipient with a security
+                # image emits and reserves a token (otherwise
+                # any_receiving stays False for a digest-only household
+                # and Site B's transport call falls through the closed
+                # channel gate).
+                if (
+                    severity in (Severity.CRITICAL, Severity.HIGH)
+                    or force_immediate_for_security_image
+                ):
                     effective_pref = NM_DELIVERY_IMMEDIATE
                 else:
                     effective_pref = delivery_pref
@@ -4288,13 +4363,22 @@ class NotificationManager:
             return ""
 
     def _format_digest(self, items: list[dict]) -> str:
-        """Format pending digest items into a readable summary."""
+        """Format pending digest items into a readable summary.
+
+        NM-IMAGE-1 (2026-08-11, D3): defensive belt-and-suspenders filter
+        of the `"[audit]"` message sentinel. `get_pending_digest`
+        excludes it at the SELECT already; this filter guarantees no
+        audit sentinel ever reaches a rendered digest body even if a
+        future caller passes a hand-built item list.
+        """
         today = dt_util.now().strftime("%B %d, %Y")
         lines = [f"URA Daily Summary ({today})", ""]
 
-        # Group by coordinator
+        # Group by coordinator (defensive: skip audit-sentinel rows).
         by_coordinator: dict[str, list[dict]] = defaultdict(list)
         for item in items:
+            if item.get("message") == "[audit]":
+                continue
             by_coordinator[item.get("coordinator_id", "unknown")].append(item)
 
         for coord_id, coord_items in by_coordinator.items():

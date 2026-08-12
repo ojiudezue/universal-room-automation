@@ -2677,6 +2677,29 @@ class EVChargerController:
         for plug_id, reason in plug_status.get("pause_reason_human", {}).items():
             pause_reason_human[plug_id] = reason
         status["pause_reason_human"] = pause_reason_human
+        # DP-OBSERVABILITY-1 fix-up B-H1: EVENT-anchored, not per-poll.
+        # Recorder writes a row for every attribute change on every sensor
+        # poll (~30s → 2880 rows/day/sensor if this stamp moved each read).
+        # We compute a signature of the reasons dict + all pause-set
+        # membership and only advance `reasons_last_changed_at` when it
+        # actually CHANGES. The reasons dict is derived from the pause
+        # sets, so a sig over both catches every legitimate transition
+        # while leaving the stamp stable through quiescent polls.
+        sig = (
+            tuple(sorted(pause_reason_human.items())),
+            tuple(sorted(status.get("paused_by_energy", []))),
+            tuple(sorted(status.get("paused_by_grid_cap", []))),
+            tuple(sorted(status.get("paused_by_battery_drain", []))),
+            tuple(sorted(status.get("paused_by_arbitrage", []))),
+            tuple(sorted(status.get("paused_by_fill_priority", []))),
+        )
+        last_sig = getattr(self, "_pause_reasons_sig", None)
+        if sig != last_sig:
+            self._pause_reasons_sig = sig
+            self._pause_reasons_last_changed_at = now_local.isoformat()
+        status["reasons_last_changed_at"] = getattr(
+            self, "_pause_reasons_last_changed_at", now_local.isoformat(),
+        )
 
         return status
 
