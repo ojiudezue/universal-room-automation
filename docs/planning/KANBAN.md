@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-11T22:14:05-05:00_ - _Data commit: `d3f270f6fa93`_ - _last_reconciled: 2026-08-11_
+_Generated: 2026-08-11T22:18:44-05:00_ - _Data commit: `08d9727b8aaf`_ - _last_reconciled: 2026-08-11_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,7 +12,7 @@ _Generated: 2026-08-11T22:14:05-05:00_ - _Data commit: `d3f270f6fa93`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 1 |
-| 🧭 Pre-planning | 14 |
+| 🧭 Pre-planning | 15 |
 | 📝 Planned | 1 |
 | 🔨 In progress | 2 |
 | 🔍 Review | 0 |
@@ -41,7 +41,7 @@ thread: **dashboarding** - status: **inbox** - approval: **explicit**
   - `followup_candidate`: retrofit conditional rendering to the Battery Strategy Detail card (same section group, same defect, ~30 min) — only if the operator endorses this card's style
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
 
-## 🧭 Pre-planning (14)
+## 🧭 Pre-planning (15)
 _idea being decomposed_
 
 ### `HVAC-PRESET-FLAP-1` - HVAC zone preset flaps home<->away every 5-15 min during occupied evenings (survives Writer-B removal)
@@ -61,6 +61,15 @@ thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
   - `MECHANISM_PROVEN_2026_08_09`: Two URA writers alternating with NO arbitration between them. From the ledger, zone_2, every row carrying persons=[ziri, jaya]: 23:34 home->away reason=runtime_exceeded       runtime=True 23:24 away->home reason=house_state_transition ru...
   - `my_process_failure`: I proposed three mechanisms in sequence from snapshots — "URA says home, device says away", then "the 120-min cap fired", then "it is coast" — and each fit the instant I was looking at and died on the next fact. The history query I ran F...
   - `DEDUPE_2026_08_09`: Four-surface sweep: P1P3 is the PARENT (closed, spawned this). STUCK-SENSOR-1 is a different flap (mmWave sensor stuck, not HVAC preset) — no merge. ARREST-SUNSET-1 shipped and is about override sunset, not oscillation. OVERRIDE-NOTIFY-1...
+
+### `ARRESTER-BOOT-BLIND-1` - Arrester boot-window manual blindness — manual holds predating the listener are unclassifiable
+thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
+- **Origin:** 2026-08-11 - operator: "The battery is not 97%. The arrester should be seeing this as a bad action" — up-hallway manual 75->71 cool during a 26->11 SOC collapse, arrester idle w/ overrides_today=0.
+- **Why:** LIVE INCIDENT ~22:36-23:10: zone_2 flipped sleep->manual at 22:36:06 during the post-HA-upgrade boot window BEFORE the arrester listener attached (22:37:53); subsequent setpoint walks (75->71 at 22:56) were within-manual = no classifiabl...
+- **Next:** Incident investigation: verify both gaps from source; probe-first (recorder: boot-coincident manual holds frequency); fix cycle Tier 2-DB.
+- **Forensic keys (2):**
+  - `sharp_problem`: Gaps: (1) boot reconciliation — on listener attach, classify any zone ALREADY in manual as inherited-manual and start standard arrest evaluation; (2) verify _handle_climate_change classifies within-manual setpoint deltas (manual->manual ...
+  - `related`: Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire; PHYS Envoy power-cycle now materially urgent.
 
 ### `SUITE-HYGIENE-2` - Pollution-DEPENDENT tests — 5 files break under a clean sys.modules start
 thread: **quality** - status: **pre_planning** - approval: **unreviewed**
