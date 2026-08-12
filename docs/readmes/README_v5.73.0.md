@@ -60,4 +60,19 @@ BlueBubbles v0.6.0 added attachment support; NM now sends the real keys (`attach
 
 ## Live Validation
 
-_(prospective — to be replaced post-restart)_
+### Validated 2026-08-12 (v5.73.0 boot, morning)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Loads, zero URA errors | **PASS** | `system_log` ERROR search for `universal_room` empty post-restart |
+| L2 | Knobs live | **PASS** | `number.ura_notification_manager_perimeter_enrichment_timeout` = 4.0; `number.ura_hvac_coordinator_duty_off_phase_offset_degf` = 2.0; `switch.ura_hvac_coordinator_duty_off_phase_honesty` = on. Enrichment default OFF as specced |
+| L3 | PRESET-FLAP founding case | **ORGANIC (open)** | Next occupied coast episode: preset stays home, ceiling home+2, one ledger row, honest attr. Wire-in + dominance + throttle all mutation-anchored in-suite (orchestrator re-drilled the emit neuter: 11 red) |
+| L4 | B5 — Bryant manual-hold echo not misclassified | **ORGANIC (open, named criterion)** | Arrester `overrides_today` must stay flat through an off-phase episode |
+| L5 | NM-BB iMessage photo | **ORGANIC (open)** | Next security alert carries the image on iMessage (BB v0.6.0 keys verified against installed source) |
+| L6 | CONSOL-1 tripwire + parity window | **ORGANIC (open)** | Tripwire silent; doorbell parity window = 2 WhatsApp per front-door event (expected) counting toward the N=5 retire gate |
+
+Context notes: v5.71.0's founding case CONFIRMED organically pre-deploy (operator received the
+perimeter photo). The same alerts exposed the Frigate-1 nighttime-IR ghost-detection issue —
+probed same morning (`AUDIT_perimeter_fp_correlation.md`), carded PERIM-FP-1 awaiting operator
+fix-direction pick. Envoy back post OS-updates; cloud reserve legs coherent (8/8); local Enpower
+number still carries the cosmetic 10 wedge.
