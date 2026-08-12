@@ -27,8 +27,10 @@ from homeassistant.util import dt as dt_util
 from ..const import DOMAIN
 from .base import BaseCoordinator, CoordinatorAction, Intent
 from .hvac_const import (
+    COMFORT_OFFPHASE_OFFSET_F,
     COMFORT_SOC_FLOOR_PCT,
     COMFORT_GRACE_MIN,
+    DEFAULT_HVAC_OFFPHASE_HONESTY_ENABLED,
     CONF_HVAC_ARRESTER_ENABLED,
     DEFAULT_ARRESTER_ENABLED,
     DEFAULT_MAX_OCCUPANCY_HOURS,
@@ -207,6 +209,13 @@ class HVACCoordinator(BaseCoordinator):
         # module constants when unset (fresh install / test bench).
         comfort_grace_min: int | None = None,
         comfort_soc_floor_pct: int | None = None,
+        # HVAC-PRESET-FLAP-1 D4 (2026-08-11): eager-seed the duty off-phase
+        # honesty knobs at HC construction so the D5 else-limb never reads
+        # stale defaults during the boot window between HC init and the
+        # Number/Switch entities' async_added_to_hass push. None => use
+        # module defaults (fresh install / test bench).
+        comfort_offphase_offset_f: float | None = None,
+        hvac_offphase_honesty_enabled: bool | None = None,
     ) -> None:
         """Initialize HVAC Coordinator."""
         super().__init__(
@@ -297,6 +306,26 @@ class HVACCoordinator(BaseCoordinator):
             self._override_arrester.set_comfort_soc_floor_pct(
                 int(comfort_soc_floor_pct)
             )
+        # HVAC-PRESET-FLAP-1 D4 (2026-08-11): duty off-phase honesty state.
+        # Offset in °F above home cool baseline held during off-phase, and
+        # kill-switch (False => byte-identical pre-cycle behavior).
+        self._comfort_offphase_offset_f: float = (
+            float(comfort_offphase_offset_f)
+            if comfort_offphase_offset_f is not None
+            else float(COMFORT_OFFPHASE_OFFSET_F)
+        )
+        self._hvac_offphase_honesty_enabled: bool = (
+            bool(hvac_offphase_honesty_enabled)
+            if hvac_offphase_honesty_enabled is not None
+            else bool(DEFAULT_HVAC_OFFPHASE_HONESTY_ENABLED)
+        )
+        # Episode-gated ledger cache: (zone_id, house_state) -> True while a
+        # single off-phase episode has already emitted its
+        # `preset_change_suppressed` row (mirror of _night_trust_logged).
+        self._offphase_logged: set[tuple[str, str]] = set()
+        # Per-zone D3-guard skip flag exposed cross-tick for the D3 sensor
+        # attribute (§3.3). Updated inside the D5 branch each tick.
+        self._d3_skipped_current_tick: dict[str, bool] = {}
         self._fan_controller = FanController(
             hass, self._zone_manager,
             activation_delta=fan_activation_delta,
@@ -557,6 +586,31 @@ class HVACCoordinator(BaseCoordinator):
             return int(COMFORT_SOC_FLOOR_PCT)
 
     @property
+    def comfort_offphase_offset_f(self) -> float:
+        """HVAC-PRESET-FLAP-1 D4: live rung-3 off-phase offset (°F).
+
+        Read by ``_apply_duty_off_phase``. Setter is the
+        ``ComfortOffphaseOffsetNumber`` entity's ``async_set_native_value``
+        push (live-tunable; no restart required).
+        """
+        return float(self._comfort_offphase_offset_f)
+
+    @comfort_offphase_offset_f.setter
+    def comfort_offphase_offset_f(self, value: float) -> None:
+        self._comfort_offphase_offset_f = float(value)
+
+    @property
+    def hvac_offphase_honesty_enabled(self) -> bool:
+        """HVAC-PRESET-FLAP-1 D4: kill-switch. False => D5 else-limb takes
+        the dominance short-circuit and writes ``effective_preset = "away"``
+        (byte-identical pre-cycle behavior)."""
+        return bool(self._hvac_offphase_honesty_enabled)
+
+    @hvac_offphase_honesty_enabled.setter
+    def hvac_offphase_honesty_enabled(self, value: bool) -> None:
+        self._hvac_offphase_honesty_enabled = bool(value)
+
+    @property
     def shed_active(self) -> bool:
         """True when the current energy constraint is `shed`. Consumed by
         the D3 coast-precedence guard AND pushed into the arrester's
@@ -671,6 +725,28 @@ class HVACCoordinator(BaseCoordinator):
                     _live_floor,
                 )
         except Exception:  # noqa: BLE001 — never let a log call block setup
+            pass
+
+        # HVAC-PRESET-FLAP-1 D4 (2026-08-11): duty off-phase honesty boot
+        # visibility. Kill-switch OFF is a WARN so a persisted-off state is
+        # loud in the logs. Offset == 0.0 is a documented diagnostic (INV
+        # inertness clause (f)) — INFO, not WARN.
+        try:
+            if not self._hvac_offphase_honesty_enabled:
+                _LOGGER.warning(
+                    "HVAC-PRESET-FLAP-1: hvac_offphase_honesty_enabled=False "
+                    "— duty off-phase in occupied zones will fall through to "
+                    "the pre-cycle preset=away path (kill-switch active)."
+                )
+            if float(self._comfort_offphase_offset_f) == 0.0:
+                _LOGGER.info(
+                    "HVAC-PRESET-FLAP-1: COMFORT_OFFPHASE_OFFSET_F=0.0 — "
+                    "diagnostic config: off-phase ceiling collapses to the "
+                    "raw home cool baseline (compressor demand may still "
+                    "trigger). Legitimate diagnostic mode; not an INV "
+                    "violation."
+                )
+        except Exception:  # noqa: BLE001
             pass
 
         # Cold-boot away-actuation storm mitigation — Gate 2 init.
@@ -1601,7 +1677,46 @@ class HVACCoordinator(BaseCoordinator):
                         # through to the normal preset-decision path.
                         _d3_skipped_this_tick = True
                     else:
-                        effective_preset = "away"
+                        # HVAC-PRESET-FLAP-1 (2026-08-11): duty off-phase
+                        # honesty. In occupied zones (`any_room_occupied`
+                        # True) hold home_target_high + OFFSET via
+                        # `emit_set_temperature` (S14) instead of writing
+                        # `preset=away`. The dominance short-circuits below
+                        # are EXHAUSTIVE per plan §3.2 — any True predicate
+                        # means an existing branch owns this tick; preserve
+                        # the pre-cycle `effective_preset = "away"` path so
+                        # the correct reason (stale_occupancy / vacant /
+                        # runtime_exceeded) fires on the S1 preset write.
+                        if (
+                            stale_occupancy                              # D6 stuck-sensor — INV #7
+                            or zone_vacant_past_grace                    # real vacancy — INV #5
+                            or not zone.any_room_occupied                # within-grace vacancy — INV #8
+                            or not self._hvac_offphase_honesty_enabled   # kill-switch OFF
+                        ):
+                            effective_preset = "away"
+                        else:
+                            _s14_written = await self._apply_duty_off_phase(
+                                zone,
+                                target_preset,
+                                activity_logger,
+                            )
+                            if not _s14_written:
+                                # S14 emit was DEFERRED by the comfort-delay
+                                # gate (chokepoint already logged the
+                                # deferred-write row). Do NOT set
+                                # effective_preset to "away" — leave it at
+                                # target_preset so the S1 preset path stays
+                                # a no-op via should_change_preset. Skip to
+                                # the next zone.
+                                continue
+                            # DO NOT set effective_preset = "away"; leave it
+                            # as target_preset so the S1 preset path is a
+                            # no-op (should_change_preset False).
+                # Expose per-zone D3-skip flag for the sensor attribute (D3).
+                try:
+                    self._d3_skipped_current_tick[zone_id] = bool(_d3_skipped_this_tick)
+                except Exception:  # noqa: BLE001
+                    pass
 
                 # v4.2.2: Zone entry dwell — prevent preset flapping on brief transits
                 # Only when house is already occupied and zone just became occupied.
@@ -2696,6 +2811,183 @@ class HVACCoordinator(BaseCoordinator):
     # PresenceCoordinator.check_zone_occupancy_confidence(). The call site
     # in _apply_house_state_presets now reads it via the presence coordinator
     # from hass.data; identical (confirmed, possible) tuple shape preserved.
+
+    # ------------------------------------------------------------------
+    # HVAC-PRESET-FLAP-1 (2026-08-11): duty off-phase honesty (S14).
+    # ------------------------------------------------------------------
+    async def _apply_duty_off_phase(
+        self,
+        zone,
+        target_preset: str,
+        activity_logger,
+        *,
+        reason: str = "runtime_exceeded_offphase",
+    ) -> bool:
+        """Route the D5 duty-limiter off-phase through a setpoint write
+        instead of a preset write.
+
+        Returns True if a write was issued OR if the shed early-return
+        gated the S14 emit (the CALLER treats "silent this tick" as a
+        success — do NOT set effective_preset to "away"). Returns False
+        only when the ``emit_set_temperature`` comfort-delay ``gate``
+        deferred the write, in which case the CALLER continues to the
+        next zone.
+
+        Order-proof: shed dominance is enforced by an EARLY return here
+        so a same-tick shed write is never raised by an S14 write on the
+        same entity (§3.5 option (a), rev-2 M3 — no fabricated shed
+        accessor).
+        """
+        # Shed dominance: hard early-return (no fabricated accessor). Any
+        # shed action on this tick already owns the ceiling; S14 silent.
+        if self.shed_active:
+            return True
+
+        # Compute seasonal home cool baseline for the current target preset.
+        try:
+            baselines = self._preset_manager.get_seasonal_setpoints(target_preset)
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.warning(
+                "HVAC-PRESET-FLAP-1: get_seasonal_setpoints(%s) errored on %s: %s"
+                " — falling through to pre-cycle preset behavior.",
+                target_preset, zone.zone_name, exc,
+            )
+            return False
+        if baselines is None:
+            _LOGGER.warning(
+                "HVAC-PRESET-FLAP-1: get_seasonal_setpoints(%s) is None on %s"
+                " — falling through to pre-cycle preset behavior.",
+                target_preset, zone.zone_name,
+            )
+            return False
+        try:
+            cool_baseline, heat_baseline = float(baselines[0]), float(baselines[1])
+        except (TypeError, ValueError, IndexError):
+            _LOGGER.warning(
+                "HVAC-PRESET-FLAP-1: get_seasonal_setpoints(%s) returned "
+                "malformed value on %s: %r — falling through.",
+                target_preset, zone.zone_name, baselines,
+            )
+            return False
+
+        offset = float(self._comfort_offphase_offset_f)
+        high = cool_baseline + offset
+        low = heat_baseline
+
+        # Suppress the arrester on this URA-initiated setpoint write
+        # (mirrors the S1 preset-write path at ~:1793).
+        if self._override_arrester is not None:
+            try:
+                self._override_arrester.suppress(
+                    zone.climate_entity, kind="temp",
+                )
+            except TypeError:
+                # Sibling S1 call is single-arg; suppress may not accept
+                # kind=. Fall back to the single-arg shape.
+                try:
+                    self._override_arrester.suppress(zone.climate_entity)
+                except Exception:  # noqa: BLE001
+                    pass
+            except Exception:  # noqa: BLE001
+                pass
+
+        # S14 comfort-delay gate. Reason `runtime_exceeded_offphase` is
+        # in the DEFER set (aligns with S1's treatment of the sibling
+        # `runtime_exceeded` reason — §3.7 S14 row).
+        _zone_id = zone.zone_id
+        def _s14_gate() -> bool:
+            if self._override_arrester is None:
+                return False
+            try:
+                return bool(
+                    self._override_arrester.comfort_delay_active(_zone_id)
+                )
+            except Exception:  # noqa: BLE001
+                return False
+
+        # Episode-gated ledger row BEFORE the emit — one row per
+        # (zone_id, house_state) episode (mirror of _night_trust_logged
+        # gating shape). Skipped when the gate defers (chokepoint logs
+        # its own `comfort_delay_deferred_write` row in that case).
+        # Discharge: clear the cache on house_state change (matches the
+        # night-trust discharge pattern; a new house_state is a new
+        # episode by construction).
+        try:
+            if getattr(self, "_offphase_logged_state", "") != self._house_state:
+                self._offphase_logged.clear()
+                self._offphase_logged_state = self._house_state
+        except Exception:  # noqa: BLE001
+            pass
+        would_have_preset = "away"
+        setpoint_high_written = high
+        home_persons_live: list[str] = []
+        try:
+            for _p in (zone.zone_persons or []):
+                _st = self.hass.states.get(_p)
+                if _st is not None and _st.state == "home":
+                    home_persons_live.append(_p)
+        except Exception:  # noqa: BLE001
+            home_persons_live = []
+
+        # Emit through the S-gate chokepoint.
+        _s14_written = await emit_set_temperature(
+            self.hass,
+            zone.climate_entity,
+            target_temp_low=low,
+            target_temp_high=high,
+            freeze_active=self._freeze_active,
+            gate=_s14_gate,
+            site="S14_duty_off_phase",
+            zone_id=_zone_id,
+            reason=reason,
+        )
+        if not _s14_written:
+            # Deferred by comfort-delay chokepoint.
+            return False
+
+        _LOGGER.info(
+            "HVAC-PRESET-FLAP-1: %s duty off-phase — holding "
+            "target_temp_high=%.1f (home_cool=%.1f + offset=%.1f, "
+            "preset stays %s, occupied=%s)",
+            zone.zone_name, high, cool_baseline, offset,
+            target_preset, home_persons_live,
+        )
+
+        # Episode-gated preset_change_suppressed ledger row (mirror of
+        # night-trust suppression row shape at ~:1687-1709).
+        log_key = (_zone_id, self._house_state)
+        if activity_logger and log_key not in self._offphase_logged:
+            self._offphase_logged.add(log_key)
+            try:
+                self.hass.async_create_task(
+                    activity_logger.log(
+                        coordinator="hvac",
+                        action="preset_change_suppressed",
+                        description=(
+                            f"{zone.zone_name} duty off-phase — holding "
+                            f"{setpoint_high_written:.1f}°F instead of "
+                            f"forcing preset=away (occupied)"
+                        ),
+                        zone=_zone_id,
+                        importance="notable",
+                        entity_id=zone.climate_entity,
+                        details={
+                            "old_preset": zone.preset_mode,
+                            "new_preset": zone.preset_mode,
+                            "house_state": self._house_state,
+                            "reason": reason,
+                            "duty_cycle_off_phase": True,
+                            "would_have_written_preset": would_have_preset,
+                            "setpoint_high_written": float(setpoint_high_written),
+                            "home_persons": list(home_persons_live),
+                        },
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "HVAC-PRESET-FLAP-1 ledger emit failed", exc_info=True,
+                )
+        return True
 
     async def _execute_vacancy_sweep(self, zone) -> None:
         """Turn off URA-configured lights and fans in all rooms of a vacant zone.

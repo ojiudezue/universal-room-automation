@@ -261,6 +261,10 @@ async def async_setup_entry(
             HVACDynamicPresetSwitch(hass, entry),
             # v4.7.1 fix-up D3 / v4.7.2 D3: Custom Preset Ranges master toggle (HVAC device)
             HVACGuestModeActuationSwitch(hass, entry),
+            # HVAC-PRESET-FLAP-1 D4 (2026-08-11): Duty Off-Phase Honesty
+            # kill-switch. Default ON. OFF => D5 else-limb falls through
+            # to the pre-cycle `preset=away` path (byte-identical restore).
+            HvacOffphaseHonestyEnabledSwitch(hass, entry),
             # HC Pre-Conditioning master kill switch. Parent gate for
             # weather pre-cool + solar banking + pre-arrival + pre-heat.
             # Default ON. See PLANNING_hc_precool_toggle_oc_observability.md.
@@ -5786,3 +5790,148 @@ class PathAwareNotificationsSwitch(_ExteriorLinkerSwitchBase):
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_path_aware_notifications"
         self._attr_name = "Path Aware Notifications"
+
+
+class HvacOffphaseHonestyEnabledSwitch(SwitchEntity, RestoreEntity):
+    """HVAC-PRESET-FLAP-1 D4: Duty Off-Phase Honesty kill-switch.
+
+    When ON (default): the D5 duty limiter in occupied zones routes the
+    off-phase write through `emit_set_temperature` at
+    `home_target_high + COMFORT_OFFPHASE_OFFSET_F` instead of forcing
+    `preset=away` (S14 path).
+    When OFF: the D5 else-limb takes the kill-switch dominance
+    short-circuit and writes `effective_preset = "away"` — byte-identical
+    pre-cycle behavior.
+
+    Entity: switch.ura_hvac_coordinator_offphase_honesty_enabled
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:snowflake-check"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_coordinator_offphase_honesty_enabled"
+        self._attr_name = "Duty Off-Phase Honesty"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        self._deferred_value: bool | None = None
+
+    def _get_hvac(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        return manager.coordinators.get("hvac") if manager else None
+
+    @property
+    def available(self) -> bool:
+        return self._get_hvac() is not None
+
+    @property
+    def is_on(self) -> bool:
+        hvac = self._get_hvac()
+        if hvac is None:
+            return True
+        try:
+            return bool(hvac.hvac_offphase_honesty_enabled)
+        except Exception:  # noqa: BLE001
+            return True
+
+    async def async_turn_on(self, **kwargs) -> None:
+        hvac = self._get_hvac()
+        if hvac is not None:
+            try:
+                hvac.hvac_offphase_honesty_enabled = True
+            except Exception:  # noqa: BLE001
+                pass
+            self._deferred_value = None
+            self.async_write_ha_state()
+            _LOGGER.info("HVAC-PRESET-FLAP-1: Duty Off-Phase Honesty enabled")
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={
+                    **self._entry.options,
+                    "hvac_offphase_honesty_enabled": True,
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "HvacOffphaseHonesty options-writeback failed", exc_info=True,
+            )
+
+    async def async_turn_off(self, **kwargs) -> None:
+        hvac = self._get_hvac()
+        if hvac is not None:
+            try:
+                hvac.hvac_offphase_honesty_enabled = False
+            except Exception:  # noqa: BLE001
+                pass
+            self._deferred_value = None
+            self.async_write_ha_state()
+            _LOGGER.warning(
+                "HVAC-PRESET-FLAP-1: Duty Off-Phase Honesty DISABLED — "
+                "occupied zones will fall through to preset=away during "
+                "the off-phase (pre-cycle behavior)."
+            )
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={
+                    **self._entry.options,
+                    "hvac_offphase_honesty_enabled": False,
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "HvacOffphaseHonesty options-writeback failed", exc_info=True,
+            )
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_HVAC_COORDINATOR_READY
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_HVAC_COORDINATOR_READY,
+                self._handle_hvac_ready,
+            )
+        )
+
+        last_state = await self.async_get_last_state()
+        if last_state is None or last_state.state not in ("on", "off"):
+            return
+        target = last_state.state == "on"
+        hvac = self._get_hvac()
+        if hvac is not None:
+            try:
+                hvac.hvac_offphase_honesty_enabled = target
+            except Exception:  # noqa: BLE001
+                pass
+            self._deferred_value = None
+            self.async_write_ha_state()
+            return
+        self._deferred_value = target
+
+    @callback
+    def _handle_hvac_ready(self) -> None:
+        if self._deferred_value is None:
+            return
+        hvac = self._get_hvac()
+        if hvac is None:
+            return
+        try:
+            hvac.hvac_offphase_honesty_enabled = self._deferred_value
+        except Exception:  # noqa: BLE001
+            pass
+        self._deferred_value = None
+        self.async_write_ha_state()

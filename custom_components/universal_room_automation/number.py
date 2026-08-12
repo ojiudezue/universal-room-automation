@@ -125,6 +125,9 @@ async def async_setup_entry(
             # OverrideArrester (single source of truth).
             ComfortGraceMinutesNumber(hass, entry),
             ComfortSOCFloorNumber(hass, entry),
+            # HVAC-PRESET-FLAP-1 D4 (2026-08-11): rung-3 duty off-phase
+            # offset knob on the HVAC Coordinator device.
+            ComfortOffphaseOffsetNumber(hass, entry),
         ]
         # Session B1 — 5 EVSE drain-precedence knob Numbers on EC device.
         for cls in _build_dp_numbers():
@@ -914,6 +917,100 @@ class ComfortSOCFloorNumber(NumberEntity):
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
                 "ComfortSOCFloor options-writeback failed", exc_info=True,
+            )
+        self.async_write_ha_state()
+
+
+class ComfortOffphaseOffsetNumber(NumberEntity):
+    """HVAC-PRESET-FLAP-1 D4: Duty Off-Phase Offset (°F).
+
+    Live-tunable degrees above the home cool baseline held during the D5
+    duty off-phase in occupied zones. `0.0` = admitted DIAGNOSTIC config
+    (the off-phase ceiling collapses to the raw home cool baseline; INV #1
+    is documented INERT — see planning §1 inertness clause (f)).
+    Persisted via entry.options; setter pushes into HVACCoordinator.
+
+    Entity: number.ura_hvac_coordinator_comfort_offphase_offset_f
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:snowflake-thermometer"
+    _attr_native_step = 0.5
+    _attr_native_unit_of_measurement = "°F"
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .domain_coordinators.hvac_const import (
+            CONF_COMFORT_OFFPHASE_OFFSET_F,
+            DEFAULT_COMFORT_OFFPHASE_OFFSET_F,
+            MIN_COMFORT_OFFPHASE_OFFSET_F,
+            MAX_COMFORT_OFFPHASE_OFFSET_F,
+        )
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_comfort_offphase_offset_f"
+        self._attr_name = "Duty Off-Phase Offset (°F)"
+        self._attr_native_min_value = MIN_COMFORT_OFFPHASE_OFFSET_F
+        self._attr_native_max_value = MAX_COMFORT_OFFPHASE_OFFSET_F
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        config = {**entry.data, **entry.options}
+        self._value = float(config.get(
+            CONF_COMFORT_OFFPHASE_OFFSET_F, DEFAULT_COMFORT_OFFPHASE_OFFSET_F,
+        ))
+
+    def _get_hvac(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("hvac")
+
+    def _push_to_coordinator(self) -> bool:
+        hvac = self._get_hvac()
+        if hvac is None:
+            return False
+        try:
+            hvac.comfort_offphase_offset_f = float(self._value)
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    @property
+    def native_value(self) -> float:
+        return float(self._value)
+
+    @property
+    def available(self) -> bool:
+        return self._get_hvac() is not None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self._push_to_coordinator()
+
+    async def async_set_native_value(self, value: float) -> None:
+        from .domain_coordinators.hvac_const import CONF_COMFORT_OFFPHASE_OFFSET_F
+        self._value = float(value)
+        self._push_to_coordinator()
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={
+                    **self._entry.options,
+                    CONF_COMFORT_OFFPHASE_OFFSET_F: float(value),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "ComfortOffphaseOffset options-writeback failed", exc_info=True,
             )
         self.async_write_ha_state()
 

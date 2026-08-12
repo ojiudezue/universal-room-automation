@@ -11462,6 +11462,22 @@ class HVACZonePresetSensor(AggregationEntity, SensorEntity):
             "overrides_today": zone.override_count_today,
             "ac_resets_today": zone.ac_reset_count_today,
         }
+        # HVAC-PRESET-FLAP-1 D3 (2026-08-11): honest exposure of the duty
+        # off-phase episode. True iff the zone is running against the D5
+        # duty cap AND is occupied AND the D3 comfort-delay guard did NOT
+        # skip the forced-away this tick. Per-zone `_d3_skipped_current_tick`
+        # is updated by the D5 branch in _apply_house_state_presets.
+        try:
+            _d3_skipped = bool(
+                hvac._d3_skipped_current_tick.get(self._zone_id, False)
+            )
+        except Exception:  # noqa: BLE001
+            _d3_skipped = False
+        attrs["duty_cycle_off_phase"] = bool(
+            getattr(zone, "runtime_exceeded", False)
+            and getattr(zone, "any_room_occupied", False)
+            and not _d3_skipped
+        )
         if zone.last_override_direction:
             attrs["last_override_direction"] = zone.last_override_direction
         # Add seasonal preset target from PresetManager

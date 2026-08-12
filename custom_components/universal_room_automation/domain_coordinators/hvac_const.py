@@ -432,6 +432,34 @@ MAX_COMFORT_SOC_FLOOR_PCT: Final = 100
 # comfort requests. Effectively-∞ (large number) = predicate never fires.
 COMFORT_DELTA_MIN_F: Final = 2.0  # °F
 
+# ============================================================================
+# HVAC-PRESET-FLAP-1: Duty off-phase honesty (2026-08-11)
+# ----------------------------------------------------------------------------
+# When the D5 duty limiter forces the off-phase in an OCCUPIED zone, route
+# the write through emit_set_temperature at (home_target_high + OFFSET)
+# instead of `set_preset_mode("away")`. Attribute + distinct ledger reason
+# expose the mechanism honestly. See docs/planning/PLANNING_preset_flap_
+# offphase_honesty.md. Kill-switch: hvac_offphase_honesty_enabled.
+# ============================================================================
+
+# COMFORT_OFFPHASE_OFFSET_F — RUNG 3 default (entity-knob, persisted Number).
+# Degrees F above the home cool baseline to hold during the duty off-phase.
+# `0` = admitted DIAGNOSTIC config: the off-phase ceiling collapses to the
+# raw home cool baseline, which may still permit compressor demand. INV #1
+# is documented INERT at 0 (§1 inertness clause (f)); boot INFO log emitted.
+COMFORT_OFFPHASE_OFFSET_F: Final = 2.0  # °F
+CONF_COMFORT_OFFPHASE_OFFSET_F: Final = "hvac_comfort_offphase_offset_f"
+DEFAULT_COMFORT_OFFPHASE_OFFSET_F: Final = COMFORT_OFFPHASE_OFFSET_F
+MIN_COMFORT_OFFPHASE_OFFSET_F: Final = 0.0
+MAX_COMFORT_OFFPHASE_OFFSET_F: Final = 6.0
+
+# HVAC_OFFPHASE_HONESTY_ENABLED — RUNG 3 kill-switch (persisted Switch).
+# False = pre-cycle behavior: D5 else-limb falls through to
+# `effective_preset = "away"` (S1 forced-away preset write). Boot WARN when
+# False so a persisted kill-switch state is visible in logs.
+CONF_HVAC_OFFPHASE_HONESTY_ENABLED: Final = "hvac_offphase_honesty_enabled"
+DEFAULT_HVAC_OFFPHASE_HONESTY_ENABLED: Final = True
+
 # COMFORT_TEMP_MAX_AGE_S — RUNG 1 (module constant).
 # Maximum age (seconds) of the `current_temperature` attribute for the
 # predicate to trust the direction check. Stale reads fail closed.
