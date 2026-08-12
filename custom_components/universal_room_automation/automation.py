@@ -267,17 +267,15 @@ class RoomAutomation:
         except Exception:  # noqa: BLE001
             name = ""
         if name:
-            try:
-                # Reuse the HVAC-tier normalizer so both tiers agree
-                # byte-identically on Unicode / whitespace / control-char
-                # policy (PLAN §5.2).
-                from .domain_coordinators.hvac_fans import _room_key
-                return _room_key(name)
-            except Exception:  # noqa: BLE001
-                # If _room_key rejected the name (control chars) or the
-                # import failed, fall through to the entry_id fallback so
-                # the room still gets a non-colliding key.
-                pass
+            # FAN-LAYER-2 D2 fix-up B-MED-1: _room_key now SANITIZES control
+            # chars (WARN + returns f"room:{sanitized}") instead of raising,
+            # so the divergent per-tier fallback (previously returning
+            # f"entry:{eid}" here vs the HVAC tier's raw string) is dead
+            # for the control-char case. The entry_id fallback below is
+            # RESERVED for the empty-name case only (two nameless rooms
+            # would otherwise collide on "room:__unkeyed__").
+            from .domain_coordinators.hvac_fans import _room_key
+            return _room_key(name)
         entry = getattr(self, "_config_entry", None)
         if entry is not None:
             eid = getattr(entry, "entry_id", None)

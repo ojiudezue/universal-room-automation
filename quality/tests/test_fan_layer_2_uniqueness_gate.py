@@ -163,11 +163,20 @@ def test_room_key_normalizes_nfc_vs_nfd():
     assert _room_key(nfc) == _room_key(nfd)
 
 
-def test_room_key_rejects_control_chars():
-    """PLAN §5.2 MED-2-round-2: control chars raise ValueError."""
-    import pytest as _pytest
-    with _pytest.raises(ValueError):
-        _room_key("bad\x00name")
+def test_room_key_sanitizes_control_chars():
+    """FAN-LAYER-2 D2 fix-up B-MED-1 (2026-08-11): control chars are stripped
+    and a WARN is logged; the function DOES NOT raise. The pre-fix-up
+    behavior (ValueError) forced divergent per-tier fallbacks and dead
+    W8/W9 raw-string paths. The uniqueness gate (test above) remains the
+    durable check — it validates the committed snapshot so a name that
+    would sanitize into a collision still surfaces at build time.
+    """
+    key = _room_key("bad\x00name")
+    assert key == "room:badname", (
+        f"control chars must sanitize (not raise); got {key!r}"
+    )
+    # All-control-char input collapses to the empty-name sentinel.
+    assert _room_key("\x00\x01\x02") == "room:__unkeyed__"
 
 
 def test_room_key_trims_whitespace():

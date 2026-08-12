@@ -2829,11 +2829,11 @@ class HVACCoordinator(BaseCoordinator):
                     from .fan_policy_oracle import (  # noqa: PLC0415
                         FanPolicyOracle as _Oracle,  # noqa: F401
                     )
-                    try:
-                        from .hvac_fans import _room_key as _rk  # noqa: PLC0415
-                        room_key_w8 = _rk(room_name)
-                    except Exception:  # noqa: BLE001
-                        room_key_w8 = f"room:{room_name}"
+                    # FAN-LAYER-2 D2 fix-up B-MED-1: _room_key no longer
+                    # raises (sanitize-and-WARN), so the raw-string except
+                    # fallback that produced misaligned keys is now dead.
+                    from .hvac_fans import _room_key as _rk  # noqa: PLC0415
+                    room_key_w8 = _rk(room_name)
                     try:
                         async with oracle_w8.actuate(
                             room_key_w8, FAN_TRIGGER_HVAC_VACANCY, snap_w8, "off",
@@ -3119,11 +3119,9 @@ class HVACCoordinator(BaseCoordinator):
 
             if oracle_w9 is not None and snap_w9 is not None:
                 from ..const import FAN_TRIGGER_HVAC_PREARRIVAL  # noqa: PLC0415
-                try:
-                    from .hvac_fans import _room_key as _rk  # noqa: PLC0415
-                    room_key_w9 = _rk(room_name)
-                except Exception:  # noqa: BLE001
-                    room_key_w9 = f"room:{room_name}"
+                # FAN-LAYER-2 D2 fix-up B-MED-1: _room_key no longer raises.
+                from .hvac_fans import _room_key as _rk  # noqa: PLC0415
+                room_key_w9 = _rk(room_name)
                 try:
                     async with oracle_w9.actuate(
                         room_key_w9, FAN_TRIGGER_HVAC_PREARRIVAL, snap_w9, "off",

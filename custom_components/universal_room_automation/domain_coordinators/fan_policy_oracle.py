@@ -343,44 +343,108 @@ class FanPolicyOracle:
                 exc_info=True,
             )
 
-    def migrate_legacy_entry_keys(self, name_to_room_key: dict[str, str]) -> int:
-        """Migrate any leaked ``entry:<eid>`` rows to ``room:<name>`` keys.
+    def migrate_legacy_entry_keys(self, entry_to_room_key: dict[str, str]) -> int:
+        """Fold ``entry:<eid>`` legacy rows into their target ``room:<name>`` keys.
 
-        FAN-LAYER-2 D1 (PLAN §5.2 "Migration is trivial"): after Option A
-        keying is adopted, options-flow reload during transition may leak
-        rows under the legacy ``entry:<entry_id>`` scheme. This one-shot
-        best-effort helper is called from ``CoordinatorManager`` post-attach
-        to fold any such rows into the room-key row (last-writer-wins on
-        collision). RAM-only ledger so a restart moots the whole thing;
-        the helper exists to keep the transition clean across reloads.
+        FAN-LAYER-2 D2 fix-up B-HIGH-1 + A-MED-1 (2026-08-11): called
+        wired-in from ``FanController.discover_fans`` (natural site — the
+        room-entry iteration builds the entry_id → room:{NFC(name)} map
+        for free). Was previously defined but never called AND the docstring
+        implied last-writer-wins, which would silently drop live holds on
+        collision. Both fixed here.
 
-        Returns count of migrated rows (informational).
+        Behavior:
+          * ``entry_to_room_key`` maps ``"entry:<entry_id>"`` → target
+            ``"room:<NFC(name)>"``. Only legacy keys present in the map
+            are migrated; unmapped legacy rows are LEFT IN PLACE (safer
+            than dropping — a caller may resupply the map later).
+          * COLLISION SEMANTICS (A-MED-1): if the target row already
+            exists, take the FIELD-WISE MAX of the deadline fields
+            (``manual_on_hold_until``, ``manual_off_cooldown_until``,
+            ``last_on_time``, ``last_off_time``) so a fresh room:* row is
+            never overwritten by a stale entry:* row. ``hold_id`` takes
+            the max (edge-key dedup stays monotonic). Bookkeeping fields
+            (``last_trigger_path``, ``last_actuation_source``,
+            ``pause_context``) prefer the row with the later
+            ``last_on_time`` / ``last_off_time``.
+          * IDEMPOTENT: a second call with the same map is a no-op (the
+            legacy rows are already gone; no target row is overwritten).
+
+        Returns count of legacy rows folded (informational).
         """
+        # B-LOW-1 (2026-08-11) — DEFERRED (follow-up card): this helper
+        # folds legacy entry:<eid> rows into room:<NFC(name)> targets, but
+        # does NOT sweep ORPHANED room:<old-name> rows when the operator
+        # renames a room or deletes an entry. RAM-only ledger means a
+        # restart clears them; the operator-observable impact of an orphan
+        # row is a phantom hold on a now-nonexistent room name (does not
+        # affect any live decision path — no wrap consults a room the
+        # ledger knows about but the config doesn't). Tracked as a
+        # follow-up card; do NOT extend this method.
         migrated = 0
         try:
-            # Build reverse map: entry_id-strings not present in target keys
-            # get looked up by whichever name a caller supplies. Callers
-            # currently pass an empty dict since Option A derives the room
-            # key from the room name directly at the write site — the
-            # helper is kept for the sub-cycle when name is known but the
-            # legacy row was written under the entry_id.
-            legacy = [k for k in list(self._rooms.keys()) if k.startswith("entry:")]
-            for legacy_key in legacy:
-                # If caller supplied a mapping and it names a target,
-                # migrate; else drop the legacy row (data is RAM anyway).
-                target = name_to_room_key.get(legacy_key)
-                rec = self._rooms.pop(legacy_key, None)
-                if rec is None:
-                    continue
+            legacy_keys = [
+                k for k in list(self._rooms.keys()) if k.startswith("entry:")
+            ]
+            for legacy_key in legacy_keys:
+                target = entry_to_room_key.get(legacy_key)
                 if target is None:
+                    # No mapping for this legacy row — LEAVE IT (do not
+                    # drop; a subsequent call with a richer map should
+                    # still be able to fold it).
                     continue
-                # Last-writer-wins on collision — legacy row overwrites.
-                self._rooms[target] = rec
+                legacy_rec = self._rooms.pop(legacy_key, None)
+                if legacy_rec is None:
+                    continue
+                existing = self._rooms.get(target)
+                if existing is None:
+                    self._rooms[target] = legacy_rec
+                    migrated += 1
+                    continue
+                # A-MED-1 field-wise MAX merge. `None` loses to any
+                # non-None value; two non-None values pick the LATER
+                # datetime. This preserves the freshest deadline from
+                # either row.
+                def _max_dt(a, b):
+                    if a is None:
+                        return b
+                    if b is None:
+                        return a
+                    return a if a >= b else b
+
+                existing.manual_on_hold_until = _max_dt(
+                    existing.manual_on_hold_until,
+                    legacy_rec.manual_on_hold_until,
+                )
+                existing.manual_off_cooldown_until = _max_dt(
+                    existing.manual_off_cooldown_until,
+                    legacy_rec.manual_off_cooldown_until,
+                )
+                existing.last_on_time = _max_dt(
+                    existing.last_on_time, legacy_rec.last_on_time,
+                )
+                existing.last_off_time = _max_dt(
+                    existing.last_off_time, legacy_rec.last_off_time,
+                )
+                existing.hold_id = max(existing.hold_id, legacy_rec.hold_id)
+                # Bookkeeping — prefer the fresher-activity row's metadata.
+                existing_last = _max_dt(
+                    existing.last_on_time, existing.last_off_time,
+                )
+                legacy_last = _max_dt(
+                    legacy_rec.last_on_time, legacy_rec.last_off_time,
+                )
+                if legacy_last is not None and (
+                    existing_last is None or legacy_last > existing_last
+                ):
+                    existing.last_trigger_path = legacy_rec.last_trigger_path
+                    existing.last_actuation_source = legacy_rec.last_actuation_source
+                    existing.pause_context = legacy_rec.pause_context
                 migrated += 1
             if migrated:
                 _LOGGER.info(
-                    "FanPolicyOracle: migrated %d legacy entry:* rows to room:* keys",
-                    migrated,
+                    "FanPolicyOracle: migrated %d legacy entry:* rows to "
+                    "room:* keys (field-wise MAX on collision)", migrated,
                 )
         except Exception:  # noqa: BLE001
             _LOGGER.debug(

@@ -35,8 +35,10 @@ from ..const import (
     FAN_SLEEP_NORMAL,
     FAN_SLEEP_OFF,
     FAN_SLEEP_REDUCE,
+    FAN_TRIGGER_HVAC_SLEEP_ONSET_ON,
     FAN_TRIGGER_RECHECK_PAUSE,
     FAN_TRIGGER_RECHECK_RESTORE,
+    FAN_TRIGGER_TEMP_HVAC,
     ROOM_TYPE_BEDROOM,
     ROOM_TYPE_GENERIC,
     SLEEP_FAN_ON_REARM_S,
@@ -87,11 +89,19 @@ def _room_key(room_name: str) -> str:
 
     Applies ``unicodedata.normalize("NFC", name).strip()`` so NFC vs NFD
     forms of the same visible name hash to the same row (MED-2-round-2).
-    Rejects control characters (raises ValueError — surfaced via the
-    build-time uniqueness gate in
-    ``quality/tests/test_fan_layer_2_uniqueness_gate.py``). Colon in a
-    room name is LEGAL but LOGGED (the prefix is fixed ``room:`` so
-    downstream parsers split on the first colon).
+
+    FAN-LAYER-2 D2 fix-up B-MED-1 + A-LOW-2 (2026-08-11): SANITIZES
+    control characters instead of raising. The prior ``raise ValueError``
+    path forced every caller to either wrap in try/except (divergent
+    per-tier fallbacks) OR surface a ValueError from a wrap site that had
+    no policy for it (W8/W9 fallbacks were raw f"room:{name}" strings
+    that would produce misaligned keys). Sanitize-and-WARN keeps a single
+    canonical key regardless of caller. The uniqueness gate remains the
+    hard bar: it validates the COMMITTED SNAPSHOT and flags any name
+    that would sanitize into a collision, so no silent isolation loss.
+
+    Colon in a room name is LEGAL but LOGGED (the prefix is fixed
+    ``room:`` so downstream parsers split on the first colon).
 
     Empty-name input returns the sentinel ``room:__unkeyed__`` (never
     the bare empty string; two rooms without a name must not collide).
@@ -102,13 +112,18 @@ def _room_key(room_name: str) -> str:
     if not normalized:
         return "room:__unkeyed__"
     if any(unicodedata.category(ch).startswith("C") for ch in normalized):
-        _LOGGER.error(
-            "fan-layer-2: rejecting room_name with control chars: %r",
-            room_name,
+        sanitized = "".join(
+            ch for ch in normalized
+            if not unicodedata.category(ch).startswith("C")
+        ).strip()
+        _LOGGER.warning(
+            "fan-layer-2: room_name %r contained control characters "
+            "— sanitized to %r; the uniqueness gate is the durable check",
+            room_name, sanitized,
         )
-        raise ValueError(
-            f"room_name contains control characters: {room_name!r}"
-        )
+        if not sanitized:
+            return "room:__unkeyed__"
+        normalized = sanitized
     if ":" in normalized:
         _LOGGER.info(
             "fan-layer-2: room_name contains ':' — legal but cosmetic "
@@ -177,9 +192,27 @@ class _OracleISOField:
             return local
 
     def __set__(self, obj, value) -> None:
-        # Normalize to a string for the local slot (matches pre-migration
-        # ISO-string shape; empty string clears).
-        as_local = value if isinstance(value, str) else ""
+        # FAN-LAYER-2 D2 fix-up A-LOW-1: coerce datetime → ISO string; reject
+        # anything else with TypeError. Prior behavior silently coerced
+        # unknown types to "" (clear) which hid caller-bugs. None and ""
+        # both clear (mirror the setter's kill-switch semantics).
+        # When a datetime lands, we ALSO thread the datetime object itself
+        # into the oracle setter (skip a round-trip through parse_datetime
+        # which can fail under stubs that don't implement fromisoformat).
+        pre_parsed_dt = None
+        if value is None or value == "":
+            as_local = ""
+        elif isinstance(value, str):
+            as_local = value
+        elif isinstance(value, datetime):
+            as_local = value.isoformat()
+            pre_parsed_dt = value
+        else:
+            raise TypeError(
+                f"_OracleISOField.__set__ accepts str | datetime | None; "
+                f"got {type(value).__name__} for room "
+                f"{getattr(obj, 'room_name', '<unknown>')!r}"
+            )
         object.__setattr__(obj, self._local_key, as_local)
         hass = getattr(obj, "_hass", None)
         oracle = _get_fan_oracle(hass)
@@ -191,6 +224,10 @@ class _OracleISOField:
             key = _room_key(obj.room_name)
             if not as_local:
                 getattr(oracle, self._setter_name)(key, None)
+            elif pre_parsed_dt is not None:
+                # A-LOW-1: datetime supplied directly — skip the ISO round-
+                # trip via parse_datetime (fragile under stubs).
+                getattr(oracle, self._setter_name)(key, pre_parsed_dt)
             else:
                 parsed = dt_util.parse_datetime(as_local)
                 getattr(oracle, self._setter_name)(key, parsed)
@@ -378,6 +415,38 @@ class FanController:
             )
 
         _LOGGER.info("HVAC Fans: Discovered fans in %d rooms", len(self._room_fans))
+
+        # FAN-LAYER-2 D2 fix-up B-HIGH-1 (2026-08-11): wire
+        # migrate_legacy_entry_keys with the REAL entry_id → room:{NFC(name)}
+        # mapping, built from the room entries we just iterated. Chosen site:
+        # discover_fans is the natural point because (a) we already iterate
+        # every ENTRY_TYPE_ROOM entry with hass in hand and (b) it fires on
+        # every reload of the CM entry AND on the boot sequence's first HVAC
+        # tick, so a hold that landed under an "entry:<eid>" key during the
+        # pre-D1 window is re-keyed to "room:<NFC(name)>" before any wrap
+        # site consults the ledger. Prior state: helper was defined but
+        # NEVER CALLED (B-HIGH-1). Passing an empty dict would have DROPPED
+        # live holds; here we build the true map so field-wise-MAX merge
+        # (A-MED-1) preserves the freshest deadline on collision.
+        oracle_for_migration = _get_fan_oracle(self.hass)
+        if oracle_for_migration is not None:
+            try:
+                entry_to_room: dict[str, str] = {}
+                for entry in self.hass.config_entries.async_entries(DOMAIN):
+                    if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                        continue
+                    name = entry.data.get(CONF_ROOM_NAME, "")
+                    if not name:
+                        continue
+                    entry_to_room[f"entry:{entry.entry_id}"] = _room_key(name)
+                if entry_to_room:
+                    oracle_for_migration.migrate_legacy_entry_keys(entry_to_room)
+            except Exception:  # noqa: BLE001 — never break discover_fans
+                _LOGGER.debug(
+                    "HVAC Fans: legacy-key migration wiring failed (non-fatal)",
+                    exc_info=True,
+                )
+
         return len(self._room_fans)
 
     async def turn_off_all_managed(self) -> None:
@@ -752,10 +821,14 @@ class FanController:
                             # cleanly. Speed cap / vacancy anchors are
                             # unaffected.
                             continue
+                    # FAN-LAYER-2 D2 fix-up A-LOW-3: canonical FAN_TRIGGER_TEMP_HVAC
+                    # (W4 chokepoint trigger) instead of the dynamic f"update:..."
+                    # string; direction is separately carried by the `should_on`
+                    # kw arg, so a single canonical trigger covers both branches.
                     dispatched = await self._set_fan_state(
                         room_fan.fan_entities, should_on, speed,
                         room_name=room_name,
-                        trigger_path=f"update:{trigger or 'vacancy_off'}",
+                        trigger_path=FAN_TRIGGER_TEMP_HVAC,
                     )
                     # hotfix/occupied-fan-off-guard (2026-08-04): if the
                     # OFF was suppressed by the occupied-guard, leave
@@ -942,10 +1015,16 @@ class FanController:
                 except Exception:  # noqa: BLE001
                     pass
             try:
+                # FAN-LAYER-2 D2 fix-up A-LOW-3: canonical
+                # FAN_TRIGGER_HVAC_SLEEP_ONSET_ON (member of the oracle's
+                # _HVAC_SLEEP_TRIGGERS set) so a wrong sleep_axis on the
+                # snapshot triggers the axis-veto path (previously the
+                # dynamic "update:sleep_onset" string bypassed the axis
+                # check entirely).
                 await self._set_fan_state(
                     room_fan.fan_entities, True, speed,
                     room_name=room_name,
-                    trigger_path="update:sleep_onset",
+                    trigger_path=FAN_TRIGGER_HVAC_SLEEP_ONSET_ON,
                 )
             except Exception as exc:  # noqa: BLE001
                 _LOGGER.error(
