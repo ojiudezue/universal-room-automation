@@ -1485,7 +1485,7 @@ cards:
 - id: CONSOL-1
   title: Perimeter consolidation cycle
   thread: perimeter
-  status: planned
+  status: in_progress
   approval: explicit
   approved_by: operator
   approved_on: 2026-08-07
@@ -1514,6 +1514,7 @@ cards:
   refs:
   - PLANNING_perimeter_consolidation.md
   - AUDIT_ha_side_alerting_reconciliation.md
+  plan_state: 'rev-2 PLAN-READY (1 adversarial review: 3 CRIT + 4 HIGH fixed in-plan incl. No-Soak violation + G4/G6 misname + vehicle-window orphan). D0 probe: doorbell llmvision SILENTLY BROKEN since 02-13 (gpt-5-mini reasoning eats 300 tokens); build dispatched 2026-08-11 eve; D0.4 doorbell hotfix OPERATOR-GATED.'
 - id: SNAP-1
   title: Snapshot mirror-and-improve
   thread: perimeter
