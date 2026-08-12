@@ -35,6 +35,8 @@ from ..const import (
     FAN_SLEEP_NORMAL,
     FAN_SLEEP_OFF,
     FAN_SLEEP_REDUCE,
+    FAN_TRIGGER_RECHECK_PAUSE,
+    FAN_TRIGGER_RECHECK_RESTORE,
     ROOM_TYPE_BEDROOM,
     ROOM_TYPE_GENERIC,
     SLEEP_FAN_ON_REARM_S,
@@ -1399,6 +1401,68 @@ class FanController:
         except Exception:  # noqa: BLE001
             return None
 
+    def _build_fan_snapshot_hvac(
+        self,
+        room_name: str,
+        entities: list[str],
+        observed_any_on: bool,
+    ):
+        """FAN-LAYER-2 D2 (§5.7): HVAC-tier FanDecisionSnapshot builder.
+
+        HVAC-tier sleep semantics ride the house_state machine (FAN_TRUST_STATES
+        = home_night/sleep/waking), so ``sleep_axis="house_state"``. Built from
+        already-read state on the FanController — no new I/O.
+        """
+        from .fan_policy_oracle import FanDecisionSnapshot  # noqa: PLC0415
+        hs = self._house_state or "unknown"
+        return FanDecisionSnapshot(
+            now=dt_util.now(),
+            sleep_state=("sleep" if hs in FAN_TRUST_STATES else "awake"),
+            sleep_axis="house_state",
+            house_state=hs,
+            is_hvac_managing=True,
+            entities=tuple(entities or ()),
+            observed_any_on=bool(observed_any_on),
+        )
+
+    async def _emit_fan_state(
+        self, entities: list[str], on: bool, speed_pct: int,
+    ) -> None:
+        """FAN-LAYER-2 D2: raw per-entity emit loop extracted from _set_fan_state
+        so the W4 chokepoint oracle.actuate wrap can enclose it without duplicating
+        the per-entity dispatch shape. Behavior byte-identical to the pre-D2 loop.
+        """
+        for entity_id in entities:
+            try:
+                if on:
+                    if entity_id.startswith("fan."):
+                        await self.hass.services.async_call(
+                            "fan", "turn_on",
+                            {"entity_id": entity_id, "percentage": speed_pct},
+                            blocking=False,
+                        )
+                    else:
+                        await self.hass.services.async_call(
+                            "homeassistant", "turn_on",
+                            {"entity_id": entity_id},
+                            blocking=False,
+                        )
+                else:
+                    if entity_id.startswith("fan."):
+                        await self.hass.services.async_call(
+                            "fan", "turn_off",
+                            {"entity_id": entity_id},
+                            blocking=False,
+                        )
+                    else:
+                        await self.hass.services.async_call(
+                            "homeassistant", "turn_off",
+                            {"entity_id": entity_id},
+                            blocking=False,
+                        )
+            except Exception as e:
+                _LOGGER.error("HVAC Fans: failed to control %s: %s", entity_id, e)
+
     async def _set_fan_state(
         self, entities: list[str], on: bool, speed_pct: int,
         *,
@@ -1430,7 +1494,15 @@ class FanController:
         """
         if not on and room_name:
             trigger_str = trigger_path or ""
-            is_exempt_from_guard = trigger_str == "turn_off_all_managed"
+            # FAN-LAYER-2 D2: recheck-pause OFF (W10-pause) is now threaded
+            # through this chokepoint carrying room_name AND trigger_path
+            # (previously bypassed by passing room_name=None). Add it to the
+            # INV-FMH + occupied-fan-off exemption set so the pre-D2
+            # semantic — the diagnostic pause turns fans OFF even under a
+            # live manual-ON hold — is preserved byte-identical.
+            is_exempt_from_guard = trigger_str in (
+                "turn_off_all_managed", FAN_TRIGGER_RECHECK_PAUSE,
+            )
             # FAN-MANUAL-1 INV-FMH: single-chokepoint enforcement at the
             # HVAC-tier OFF boundary. If the room is in a manual-ON hold,
             # SUPPRESS the OFF (leave RoomFanState untouched — caller's
@@ -1471,36 +1543,49 @@ class FanController:
             # the call is a no-op there). Vacant / unavailable → observer
             # sees occ != 'on' and returns without writing.
             self._record_actuation_conflict_if_occupied(room_name, trigger_path)
-        for entity_id in entities:
+        # FAN-LAYER-2 D2 W4-chokepoint wrap: per-room lock around the
+        # already-classified consult+emit block. All HVAC-tier callers
+        # (W4 evaluate-path, W10-pause via FAN_TRIGGER_RECHECK_PAUSE,
+        # W10-restore via FAN_TRIGGER_RECHECK_RESTORE, turn_off_all_managed)
+        # route through here. INV-FLA-T is enforced by the async-with lock;
+        # DEFER/VETO returns False (caller's `if dispatched:` skips state
+        # mutation). Fallback (oracle absent OR wrap raised): direct emit
+        # preserves pre-D2 behavior byte-identical.
+        oracle = _get_fan_oracle(self.hass) if room_name and trigger_path else None
+        wrap_verdict_denied = False
+        if oracle is not None and room_name and trigger_path:
+            key = _room_key(room_name)
+            observed_any_on = any(self._is_entity_on(e) for e in entities)
+            snap = self._build_fan_snapshot_hvac(room_name, entities, observed_any_on)
+            direction = "on" if on else "off"
             try:
-                if on:
-                    if entity_id.startswith("fan."):
-                        await self.hass.services.async_call(
-                            "fan", "turn_on",
-                            {"entity_id": entity_id, "percentage": speed_pct},
-                            blocking=False,
-                        )
+                async with oracle.actuate(
+                    key, trigger_path, snap, direction,
+                ) as verdict:
+                    if verdict.is_allow:
+                        await self._emit_fan_state(entities, on, speed_pct)
                     else:
-                        await self.hass.services.async_call(
-                            "homeassistant", "turn_on",
-                            {"entity_id": entity_id},
-                            blocking=False,
-                        )
-                else:
-                    if entity_id.startswith("fan."):
-                        await self.hass.services.async_call(
-                            "fan", "turn_off",
-                            {"entity_id": entity_id},
-                            blocking=False,
-                        )
-                    else:
-                        await self.hass.services.async_call(
-                            "homeassistant", "turn_off",
-                            {"entity_id": entity_id},
-                            blocking=False,
-                        )
-            except Exception as e:
-                _LOGGER.error("HVAC Fans: failed to control %s: %s", entity_id, e)
+                        wrap_verdict_denied = True
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning(
+                    "HVAC Fans: W4-chokepoint oracle wrap failed room=%s "
+                    "trigger=%s — direct emit fallback",
+                    room_name, trigger_path, exc_info=True,
+                )
+                await self._emit_fan_state(entities, on, speed_pct)
+        else:
+            await self._emit_fan_state(entities, on, speed_pct)
+        if wrap_verdict_denied:
+            # DEFER/VETO from oracle — treat as suppressed; caller must NOT
+            # mutate RoomFanState (matches the INV-FMH suppression contract
+            # documented at the top of this method).
+            _LOGGER.debug(
+                "HVAC Fans: %s %s suppressed by oracle verdict "
+                "(trigger=%s)",
+                room_name, "ON" if on else "OFF",
+                trigger_path or "unknown",
+            )
+            return False
         # hotfix/occupied-fan-off-guard (2026-08-04): activity-log every
         # real OFF dispatch. Closes the 2026-08-04 blind spot — sweep
         # offs were previously invisible in the activity log (only ONs
@@ -1684,14 +1769,20 @@ class FanController:
         if self._is_manual_on_hold_live(room_fan):
             room_fan.manual_on_hold_paused_at = dt_util.now().isoformat()
         if snapshot["is_on"]:
-        # INTENTIONAL: no room_name — recheck OFFs bypass the occupied-fan
-        # guard AND the fan_off activity log by design (evidence-gathering
-        # pause, state restored after). Threading room_name here would
-        # break the recheck window. (Review A #3, 2026-08-04.)
-        # FAN-MANUAL-1: the no-room_name call also bypasses the INV-FMH
-        # gate in `_set_fan_state` — this is the allowlisted trigger_path
-        # per PLANNING ruling 2.
-            await self._set_fan_state(snapshot["entities"], False, 0)
+        # FAN-LAYER-2 D2 W10-pause: thread room_name + FAN_TRIGGER_RECHECK_PAUSE
+        # so the W4 chokepoint's oracle.actuate wrap can hold the per-room
+        # lock across the pause OFF (routed-through, not independent —
+        # PLAN §2.2 W10-pause row). The INV-FMH bypass + occupied-fan-off
+        # bypass + fan_off activity-log skip that the prior no-room_name
+        # call provided are PRESERVED via the FAN_TRIGGER_RECHECK_PAUSE
+        # entry in `is_exempt_from_guard` at the top of _set_fan_state,
+        # AND the pause trigger's ALLOW verdict at fan_policy_oracle.py
+        # _compute_off_verdict (:543-544).
+            await self._set_fan_state(
+                snapshot["entities"], False, 0,
+                room_name=room_name,
+                trigger_path=FAN_TRIGGER_RECHECK_PAUSE,
+            )
         _LOGGER.info(
             "HVAC Fans: %s paused for fan-recheck (suppress_until=%s)",
             room_name, suppress_until_iso,
@@ -1812,7 +1903,18 @@ class FanController:
                     "(house went AWAY during recheck)", room_name,
                 )
                 return
-            await self._set_fan_state(snapshot["entities"], True, speed)
+            # FAN-LAYER-2 D2 W10-restore: thread room_name +
+            # FAN_TRIGGER_RECHECK_RESTORE so the W4 chokepoint wrap can
+            # hold the per-room lock across the restore ON (routed-through,
+            # not independent). The manual R-M-W lock at :1720-1751 above
+            # has already been RELEASED before we get here (§5.4a
+            # non-reentrant-lock discipline), so the chokepoint wrap can
+            # re-acquire the same per-room lock safely.
+            await self._set_fan_state(
+                snapshot["entities"], True, speed,
+                room_name=room_name,
+                trigger_path=FAN_TRIGGER_RECHECK_RESTORE,
+            )
             room_fan.is_on = True
             room_fan.speed_pct = speed
             room_fan.trigger = snapshot.get("trigger", "") or ""
@@ -1822,6 +1924,7 @@ class FanController:
                 preset = attrs.get("preset_mode")
                 if preset:
                     try:
+                        # fan-adjacency: allow (reason=attribute-restore-not-on/off — set_preset_mode does not drive fan on/off state)
                         await self.hass.services.async_call(
                             "fan", "set_preset_mode",
                             {"entity_id": entity_id, "preset_mode": preset},
@@ -1835,6 +1938,7 @@ class FanController:
                 oscillating = attrs.get("oscillating")
                 if oscillating is not None:
                     try:
+                        # fan-adjacency: allow (reason=attribute-restore-not-on/off — oscillate does not drive fan on/off state)
                         await self.hass.services.async_call(
                             "fan", "oscillate",
                             {"entity_id": entity_id, "oscillating": bool(oscillating)},
@@ -1848,6 +1952,7 @@ class FanController:
                 direction = attrs.get("direction")
                 if direction:
                     try:
+                        # fan-adjacency: allow (reason=attribute-restore-not-on/off — set_direction does not drive fan on/off state)
                         await self.hass.services.async_call(
                             "fan", "set_direction",
                             {"entity_id": entity_id, "direction": direction},

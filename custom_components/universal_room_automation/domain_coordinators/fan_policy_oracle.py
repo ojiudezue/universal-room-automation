@@ -6,9 +6,29 @@ oracle per ``docs/planning/PLANNING_fan_actuation_shared_layer_v2.md``
 mark_fan_on_issued oracle edge) + 3 (W11 safety-stop consult, W12
 pre-arrival ON consult) landed the writer-side wiring.
 
-INV-FLA (Fan Layer Authority) — SCOPED CLAIM after Session 3:
+INV-FLA (Fan Layer Authority) — SCOPED CLAIM after FAN-LAYER-2 D2:
 
-  The oracle is the SINGLE source of truth for two ledger fields:
+  Post FAN-LAYER-2 D2, NINE async-with ``oracle.actuate`` sites are wired:
+    * W11 (`hvac.py::_safety_stop_one_fan`, safety=True) — PRE-EXISTING.
+    * W12 (`hvac_predict.py::_activate_zone_fans`) — PRE-EXISTING.
+    * W1 (`automation.py` temp/vacancy revert OFF) — D2 (FAN_TRIGGER_TEMP_ROOM).
+    * W2 (`automation.py` FAN_SLEEP_OFF) — D2 (FAN_TRIGGER_SLEEP_OFF).
+    * W3-temp (`automation.py` temp-branch ON) — D2 (FAN_TRIGGER_TEMP_ROOM_ON).
+    * W3-onset (`automation.py` sleep-onset ON) — D2 (FAN_TRIGGER_SLEEP_ONSET_ON).
+    * W4-chokepoint (`hvac_fans.py::_set_fan_state`) — D2 (trigger propagated
+      via kw arg; W10-pause routes via FAN_TRIGGER_RECHECK_PAUSE and
+      W10-restore via FAN_TRIGGER_RECHECK_RESTORE — no independent wraps).
+    * W8 (`hvac.py::_execute_vacancy_sweep` per-room fan-emit) — D2
+      INDEPENDENT (FAN_TRIGGER_HVAC_VACANCY).
+    * W9 (`hvac.py::_deactivate_zone_fans` per-room fan-emit) — D2
+      INDEPENDENT (FAN_TRIGGER_HVAC_PREARRIVAL).
+
+  Together with D1's locked-setter fleet (`set_manual_*_locked` on the 9
+  §5.4 sites) + `_room_key`-unified ledger keys (§5.2), INV-FLA-T is now
+  ENFORCED at every URA-issued fan emission site classified in PLAN §2.2 —
+  each holds the per-room ``asyncio.Lock`` across ``consult → emit → note``.
+
+  The oracle remains the SINGLE source of truth for two ledger fields:
   ``manual_off_cooldown_until`` and ``manual_on_hold_until``, for the
   ROOM-tier surface (RoomAutomation fields ``_fan_manual_off_until`` /
   ``_fan_manual_on_until`` — Session 2 @property delegation). Every

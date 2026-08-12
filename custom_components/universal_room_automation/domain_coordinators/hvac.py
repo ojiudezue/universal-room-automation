@@ -2778,18 +2778,81 @@ class HVACCoordinator(BaseCoordinator):
                     room_name,
                 )
             else:
-                for entity_id in fans:
-                    domain = entity_id.split(".")[0]
-                    state = self.hass.states.get(entity_id)
-                    if state and state.state == "on":
-                        try:
-                            await self.hass.services.async_call(
-                                domain, "turn_off",
-                                {"entity_id": entity_id}, blocking=False,
-                            )
-                            swept_count += 1
-                        except Exception as exc:  # noqa: BLE001
-                            _LOGGER.warning("HVAC: Vacancy sweep failed to turn off %s: %s", entity_id, exc)
+                # FAN-LAYER-2 D2 W8 wrap: INDEPENDENT per-room oracle.actuate
+                # (NOT routed through _set_fan_state — this loop iterates fans
+                # of ONE room and issues raw services.async_call per entity;
+                # see PLAN §2.2 W8 row + §5.3 nested-actuate note). The wrap
+                # holds the per-room lock across the entire per-fan emit
+                # sequence so an interleaving external-ON adopt cannot open a
+                # manual-ON hold mid-sweep (INV-FLA-T repro from PLAN §1).
+                # Fallback: oracle absent OR wrap raised → direct emit
+                # (byte-identical to pre-D2 semantics).
+                fan_entities_in_room = [e for e in fans if e]
+                observed_any_on = any(
+                    (st := self.hass.states.get(e)) is not None
+                    and st.state == "on"
+                    for e in fan_entities_in_room
+                )
+                oracle_w8 = self.hass.data.get(DOMAIN, {}).get("fan_oracle")
+                fc_w8 = self._fan_controller
+                snap_w8 = None
+                if (
+                    oracle_w8 is not None
+                    and fc_w8 is not None
+                    and hasattr(fc_w8, "_build_fan_snapshot_hvac")
+                ):
+                    try:
+                        snap_w8 = fc_w8._build_fan_snapshot_hvac(
+                            room_name, fan_entities_in_room, observed_any_on,
+                        )
+                    except Exception:  # noqa: BLE001
+                        snap_w8 = None
+
+                async def _emit_w8() -> int:
+                    swept = 0
+                    for entity_id in fans:
+                        domain = entity_id.split(".")[0]
+                        state = self.hass.states.get(entity_id)
+                        if state and state.state == "on":
+                            try:
+                                await self.hass.services.async_call(
+                                    domain, "turn_off",
+                                    {"entity_id": entity_id}, blocking=False,
+                                )
+                                swept += 1
+                            except Exception as exc:  # noqa: BLE001
+                                _LOGGER.warning("HVAC: Vacancy sweep failed to turn off %s: %s", entity_id, exc)
+                    return swept
+
+                if oracle_w8 is not None and snap_w8 is not None:
+                    from ..const import FAN_TRIGGER_HVAC_VACANCY  # noqa: PLC0415
+                    from .fan_policy_oracle import (  # noqa: PLC0415
+                        FanPolicyOracle as _Oracle,  # noqa: F401
+                    )
+                    try:
+                        from .hvac_fans import _room_key as _rk  # noqa: PLC0415
+                        room_key_w8 = _rk(room_name)
+                    except Exception:  # noqa: BLE001
+                        room_key_w8 = f"room:{room_name}"
+                    try:
+                        async with oracle_w8.actuate(
+                            room_key_w8, FAN_TRIGGER_HVAC_VACANCY, snap_w8, "off",
+                        ) as verdict:
+                            if verdict.is_allow:
+                                swept_count += await _emit_w8()
+                            else:
+                                _LOGGER.debug(
+                                    "HVAC: Vacancy sweep W8 DEFER/VETO for %s "
+                                    "(verdict=%s)", room_name, verdict.kind,
+                                )
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.warning(
+                            "HVAC: W8 oracle wrap failed for %s — direct emit fallback",
+                            room_name, exc_info=True,
+                        )
+                        swept_count += await _emit_w8()
+                else:
+                    swept_count += await _emit_w8()
 
         _LOGGER.info(
             "HVAC: Vacancy sweep for zone %s — swept %d entities",
@@ -3013,20 +3076,73 @@ class HVACCoordinator(BaseCoordinator):
                     "manual-ON hold active (FAN-MANUAL-1)", room_name,
                 )
                 continue
-            for fan_entity in fans:
-                domain = fan_entity.split(".")[0]
-                state = self.hass.states.get(fan_entity)
-                if state and state.state == "on":
-                    try:
-                        await self.hass.services.async_call(
-                            domain, "turn_off",
-                            {"entity_id": fan_entity}, blocking=False,
-                        )
-                    except Exception:  # noqa: BLE001
-                        _LOGGER.warning(
-                            "HVAC: Pre-arrival fan deactivation failed for %s",
-                            fan_entity,
-                        )
+            # FAN-LAYER-2 D2 W9 wrap: INDEPENDENT per-room oracle.actuate
+            # around the pre-arrival fan-deactivation emit loop (mirrors
+            # W8 in _execute_vacancy_sweep — see PLAN §2.2 W9 row). Fallback:
+            # oracle absent OR wrap raised → direct emit (byte-identical).
+            fan_entities_in_room = [e for e in fans if e]
+            observed_any_on = any(
+                (st := self.hass.states.get(e)) is not None
+                and st.state == "on"
+                for e in fan_entities_in_room
+            )
+            oracle_w9 = self.hass.data.get(DOMAIN, {}).get("fan_oracle")
+            fc_w9 = self._fan_controller
+            snap_w9 = None
+            if (
+                oracle_w9 is not None
+                and fc_w9 is not None
+                and hasattr(fc_w9, "_build_fan_snapshot_hvac")
+            ):
+                try:
+                    snap_w9 = fc_w9._build_fan_snapshot_hvac(
+                        room_name, fan_entities_in_room, observed_any_on,
+                    )
+                except Exception:  # noqa: BLE001
+                    snap_w9 = None
+
+            async def _emit_w9() -> None:
+                for fan_entity in fans:
+                    domain = fan_entity.split(".")[0]
+                    state = self.hass.states.get(fan_entity)
+                    if state and state.state == "on":
+                        try:
+                            await self.hass.services.async_call(
+                                domain, "turn_off",
+                                {"entity_id": fan_entity}, blocking=False,
+                            )
+                        except Exception:  # noqa: BLE001
+                            _LOGGER.warning(
+                                "HVAC: Pre-arrival fan deactivation failed for %s",
+                                fan_entity,
+                            )
+
+            if oracle_w9 is not None and snap_w9 is not None:
+                from ..const import FAN_TRIGGER_HVAC_PREARRIVAL  # noqa: PLC0415
+                try:
+                    from .hvac_fans import _room_key as _rk  # noqa: PLC0415
+                    room_key_w9 = _rk(room_name)
+                except Exception:  # noqa: BLE001
+                    room_key_w9 = f"room:{room_name}"
+                try:
+                    async with oracle_w9.actuate(
+                        room_key_w9, FAN_TRIGGER_HVAC_PREARRIVAL, snap_w9, "off",
+                    ) as verdict:
+                        if verdict.is_allow:
+                            await _emit_w9()
+                        else:
+                            _LOGGER.debug(
+                                "HVAC: Pre-arrival W9 DEFER/VETO for %s (verdict=%s)",
+                                room_name, verdict.kind,
+                            )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.warning(
+                        "HVAC: W9 oracle wrap failed for %s — direct emit fallback",
+                        room_name, exc_info=True,
+                    )
+                    await _emit_w9()
+            else:
+                await _emit_w9()
             deactivated.append(room_name)
 
         _LOGGER.info(

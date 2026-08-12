@@ -2095,10 +2095,48 @@ class RoomAutomation:
                     )
                     self._last_seen_any_fan_on = any_fan_on_now
                     return
-                await self._safe_service_call(
-                    "homeassistant", SERVICE_TURN_OFF, {"entity_id": fans},
-                    blocking=False,
-                )
+                # FAN-LAYER-2 D2 W2 wrap: per-room lock around consult + emit
+                # (INV-FLA-T critical section). Oracle DEFER/VETO preserves
+                # baseline (mirrors the pre-existing is_fan_in_manual_on_hold
+                # short-circuit above). Fallback: oracle absent OR wrap raised
+                # → direct emit (byte-identical to pre-wrap behavior).
+                from .const import FAN_TRIGGER_SLEEP_OFF  # noqa: PLC0415
+                oracle = _get_fan_oracle(getattr(self, "hass", None))
+                emitted = False
+                if oracle is not None:
+                    key = self._fan_ledger_key()
+                    snap = self._build_fan_snapshot_room(fans, any_fan_on_now)
+                    try:
+                        async with oracle.actuate(
+                            key, FAN_TRIGGER_SLEEP_OFF, snap, "off",
+                        ) as verdict:
+                            if verdict.is_allow:
+                                await self._safe_service_call(
+                                    "homeassistant", SERVICE_TURN_OFF,
+                                    {"entity_id": fans}, blocking=False,
+                                )
+                                emitted = True
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.warning(
+                            "W2 oracle wrap failed for %s — direct emit fallback",
+                            self.config.get("room_name", "Unknown"),
+                            exc_info=True,
+                        )
+                        await self._safe_service_call(
+                            "homeassistant", SERVICE_TURN_OFF,
+                            {"entity_id": fans}, blocking=False,
+                        )
+                        emitted = True
+                else:
+                    await self._safe_service_call(
+                        "homeassistant", SERVICE_TURN_OFF, {"entity_id": fans},
+                        blocking=False,
+                    )
+                    emitted = True
+                if not emitted:
+                    # DEFER/VETO: preserve baseline (fan is still on).
+                    self._last_seen_any_fan_on = any_fan_on_now
+                    return
                 # FIX C: we owned this off. Baseline reflects our intent
                 # (state read may not have propagated on blocking=False).
                 self._last_seen_any_fan_on = False
@@ -2186,12 +2224,49 @@ class RoomAutomation:
                 return
             # Turn off fans/switches if below threshold or room vacant
             # v3.2.9: Use homeassistant domain for multi-domain support
-            await self._safe_service_call(
-                "homeassistant",
-                SERVICE_TURN_OFF,
-                {"entity_id": fans},
-                blocking=False,
-            )
+            # FAN-LAYER-2 D2 W1 wrap: per-room lock around consult + emit
+            # (INV-FLA-T critical section). DEFER/VETO preserves baseline
+            # (matches the manual-ON hold short-circuit above). Fallback:
+            # oracle absent OR wrap raised → direct emit (byte-identical).
+            from .const import FAN_TRIGGER_TEMP_ROOM  # noqa: PLC0415
+            oracle = _get_fan_oracle(getattr(self, "hass", None))
+            emitted = False
+            if oracle is not None:
+                key = self._fan_ledger_key()
+                snap = self._build_fan_snapshot_room(fans, any_fan_on_now)
+                try:
+                    async with oracle.actuate(
+                        key, FAN_TRIGGER_TEMP_ROOM, snap, "off",
+                    ) as verdict:
+                        if verdict.is_allow:
+                            await self._safe_service_call(
+                                "homeassistant", SERVICE_TURN_OFF,
+                                {"entity_id": fans}, blocking=False,
+                            )
+                            emitted = True
+                except Exception:  # noqa: BLE001
+                    _LOGGER.warning(
+                        "W1 oracle wrap failed for %s — direct emit fallback",
+                        self.config.get("room_name", "Unknown"),
+                        exc_info=True,
+                    )
+                    await self._safe_service_call(
+                        "homeassistant", SERVICE_TURN_OFF,
+                        {"entity_id": fans}, blocking=False,
+                    )
+                    emitted = True
+            else:
+                await self._safe_service_call(
+                    "homeassistant",
+                    SERVICE_TURN_OFF,
+                    {"entity_id": fans},
+                    blocking=False,
+                )
+                emitted = True
+            if not emitted:
+                # DEFER/VETO from oracle — preserve baseline (fan still on).
+                self._last_seen_any_fan_on = any_fan_on_now
+                return
             # Activity log: fan off (only if fans were actually on)
             if any_fan_on:
                 activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
@@ -2249,8 +2324,14 @@ class RoomAutomation:
             # helper so temp-branch, sleep-onset, and reconciler all
             # emit the same "URA-owned ON" contract (tick marker AND
             # baseline bridge).
-            self.mark_fan_on_issued()
-            try:
+            # FAN-LAYER-2 D2 W3-temp wrap: per-room lock around consult +
+            # emit. VETO/DEFER (e.g. an active manual-OFF cooldown) leaves
+            # the fans off; baseline follows observed state.
+            from .const import FAN_TRIGGER_TEMP_ROOM_ON  # noqa: PLC0415
+            oracle = _get_fan_oracle(getattr(self, "hass", None))
+
+            async def _emit_temp_on() -> None:
+                self.mark_fan_on_issued()
                 # v3.2.9: Try to set speed (works for fan domain)
                 # If it fails (e.g., switch domain), just turn on
                 for fan_entity in fans:
@@ -2271,6 +2352,30 @@ class RoomAutomation:
                             blocking=False,
                         )
                 _LOGGER.debug("Set fan speed to %d%% for temp %.1f°F", speed_pct, temperature)
+
+            emitted_on = False
+            try:
+                if oracle is not None:
+                    key = self._fan_ledger_key()
+                    snap = self._build_fan_snapshot_room(fans, any_fan_on)
+                    try:
+                        async with oracle.actuate(
+                            key, FAN_TRIGGER_TEMP_ROOM_ON, snap, "on",
+                        ) as verdict:
+                            if verdict.is_allow:
+                                await _emit_temp_on()
+                                emitted_on = True
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.warning(
+                            "W3-temp oracle wrap failed for %s — direct emit fallback",
+                            self.config.get("room_name", "Unknown"),
+                            exc_info=True,
+                        )
+                        await _emit_temp_on()
+                        emitted_on = True
+                else:
+                    await _emit_temp_on()
+                    emitted_on = True
                 # Activity log: fan on (only if fans were not already on)
                 if not any_fan_on:
                     activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
@@ -2285,8 +2390,14 @@ class RoomAutomation:
                         ))
             except Exception as e:
                 _LOGGER.error("Error controlling fans: %s", e)
-            # FIX C: baseline reflects our intent (we just turned fans ON).
-            self._last_seen_any_fan_on = True
+            # FIX C: baseline reflects our intent when we actually emitted.
+            # If the W3-temp oracle wrap DEFERred/VETOed (e.g. active manual-
+            # OFF cooldown), we did NOT turn fans on — preserve the observed
+            # baseline so the next tick doesn't misread the state.
+            if emitted_on:
+                self._last_seen_any_fan_on = True
+            else:
+                self._last_seen_any_fan_on = any_fan_on_now
         else:
             # No action this tick — baseline follows observed state.
             self._last_seen_any_fan_on = any_fan_on_now
@@ -2760,6 +2871,35 @@ class RoomAutomation:
     # feature/sleep-fans-and-flash — room-tier sleep-onset fan activation
     # =========================================================================
 
+    def _build_fan_snapshot_room(
+        self,
+        entities: list[str],
+        observed_any_on: bool,
+    ):
+        """FAN-LAYER-2 D2 (§5.7): room-tier FanDecisionSnapshot builder.
+
+        Room-tier sleep semantics use the per-room ``is_sleep_mode_active``
+        time-window (NOT the house-state machine — see the D-AUT comment at
+        the temp-fan site), so ``sleep_axis="room_window"``. Built entirely
+        from state the caller already read; no new I/O.
+        """
+        from .domain_coordinators.fan_policy_oracle import (  # noqa: PLC0415
+            FanDecisionSnapshot,
+        )
+        try:
+            sleep_state = "sleep" if self.is_sleep_mode_active() else "awake"
+        except Exception:  # noqa: BLE001
+            sleep_state = "unknown"
+        return FanDecisionSnapshot(
+            now=dt_util.now(),
+            sleep_state=sleep_state,
+            sleep_axis="room_window",
+            house_state=self._read_current_house_state() or "unknown",
+            is_hvac_managing=False,
+            entities=tuple(entities or ()),
+            observed_any_on=bool(observed_any_on),
+        )
+
     def _read_current_house_state(self) -> str:
         """Return the current house_state string, or "" on any failure.
 
@@ -2913,8 +3053,18 @@ class RoomAutomation:
         # FAN-MANUAL-1 (A-MED-4 fix-up 2026-08-10): single source of
         # truth via the shared `mark_fan_on_issued` helper — sets both
         # the tick marker and the baseline bridge in one call.
-        self.mark_fan_on_issued()
-        try:
+        # FAN-LAYER-2 D2 W3-onset wrap: per-room lock around consult +
+        # emit. Sleep-axis is room_window (per-room is_sleep_mode_active
+        # drives this path — see D-AUT comment at temp-fan site). A VETO
+        # (e.g. axis mismatch) or DEFER still latches _sleep_onset_fired
+        # so we don't retry every tick within the same sleep session
+        # (matches existing one-shot semantics from the None-speed branch
+        # at ~:2905).
+        from .const import FAN_TRIGGER_SLEEP_ONSET_ON  # noqa: PLC0415
+        oracle = _get_fan_oracle(getattr(self, "hass", None))
+
+        async def _emit_onset() -> None:
+            self.mark_fan_on_issued()
             if fan_entities:
                 await self._safe_service_call(
                     "fan", "turn_on",
@@ -2927,7 +3077,32 @@ class RoomAutomation:
                     {"entity_id": switch_entities},
                     blocking=False,
                 )
-            self._last_seen_any_fan_on = True
+
+        emitted_onset = False
+        try:
+            if oracle is not None:
+                key = self._fan_ledger_key()
+                snap = self._build_fan_snapshot_room(fans, False)
+                try:
+                    async with oracle.actuate(
+                        key, FAN_TRIGGER_SLEEP_ONSET_ON, snap, "on",
+                    ) as verdict:
+                        if verdict.is_allow:
+                            await _emit_onset()
+                            emitted_onset = True
+                except Exception:  # noqa: BLE001
+                    _LOGGER.warning(
+                        "W3-onset oracle wrap failed for %s — direct emit fallback",
+                        self.config.get(CONF_ROOM_NAME, "Unknown"),
+                        exc_info=True,
+                    )
+                    await _emit_onset()
+                    emitted_onset = True
+            else:
+                await _emit_onset()
+                emitted_onset = True
+            if emitted_onset:
+                self._last_seen_any_fan_on = True
             self._sleep_onset_fired = True
             self._sleep_onset_last_fire_at = dt_util.now()
             _LOGGER.info(
