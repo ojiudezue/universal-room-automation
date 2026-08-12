@@ -6,9 +6,29 @@ oracle per ``docs/planning/PLANNING_fan_actuation_shared_layer_v2.md``
 mark_fan_on_issued oracle edge) + 3 (W11 safety-stop consult, W12
 pre-arrival ON consult) landed the writer-side wiring.
 
-INV-FLA (Fan Layer Authority) — SCOPED CLAIM after Session 3:
+INV-FLA (Fan Layer Authority) — SCOPED CLAIM after FAN-LAYER-2 D2:
 
-  The oracle is the SINGLE source of truth for two ledger fields:
+  Post FAN-LAYER-2 D2, NINE async-with ``oracle.actuate`` sites are wired:
+    * W11 (`hvac.py::_safety_stop_one_fan`, safety=True) — PRE-EXISTING.
+    * W12 (`hvac_predict.py::_activate_zone_fans`) — PRE-EXISTING.
+    * W1 (`automation.py` temp/vacancy revert OFF) — D2 (FAN_TRIGGER_TEMP_ROOM).
+    * W2 (`automation.py` FAN_SLEEP_OFF) — D2 (FAN_TRIGGER_SLEEP_OFF).
+    * W3-temp (`automation.py` temp-branch ON) — D2 (FAN_TRIGGER_TEMP_ROOM_ON).
+    * W3-onset (`automation.py` sleep-onset ON) — D2 (FAN_TRIGGER_SLEEP_ONSET_ON).
+    * W4-chokepoint (`hvac_fans.py::_set_fan_state`) — D2 (trigger propagated
+      via kw arg; W10-pause routes via FAN_TRIGGER_RECHECK_PAUSE and
+      W10-restore via FAN_TRIGGER_RECHECK_RESTORE — no independent wraps).
+    * W8 (`hvac.py::_execute_vacancy_sweep` per-room fan-emit) — D2
+      INDEPENDENT (FAN_TRIGGER_HVAC_VACANCY).
+    * W9 (`hvac.py::_deactivate_zone_fans` per-room fan-emit) — D2
+      INDEPENDENT (FAN_TRIGGER_HVAC_PREARRIVAL).
+
+  Together with D1's locked-setter fleet (`set_manual_*_locked` on the 9
+  §5.4 sites) + `_room_key`-unified ledger keys (§5.2), INV-FLA-T is now
+  ENFORCED at every URA-issued fan emission site classified in PLAN §2.2 —
+  each holds the per-room ``asyncio.Lock`` across ``consult → emit → note``.
+
+  The oracle remains the SINGLE source of truth for two ledger fields:
   ``manual_off_cooldown_until`` and ``manual_on_hold_until``, for the
   ROOM-tier surface (RoomAutomation fields ``_fan_manual_off_until`` /
   ``_fan_manual_on_until`` — Session 2 @property delegation). Every
@@ -265,6 +285,172 @@ class FanPolicyOracle:
     def clear_manual_on_hold(self, room_key: str) -> None:
         """Convenience: clear the ON-hold (kill-switch, safety-stop cleanup)."""
         self.set_manual_on_hold(room_key, None)
+
+    # ------------------------------------------------------------------
+    # FAN-LAYER-2 D1: async-locked setter fleet (PLAN §5.4).
+    # Callers from async paths (hvac_fans.py external-adopt / kill-switch /
+    # pause-restore sites) go through these to serialize under the per-room
+    # asyncio.Lock, closing INV-FLA-T (PLAN §1 canonical repro at #3/#6).
+    # asyncio.Lock is NON-REENTRANT — callers holding the lock manually
+    # (e.g. §5.4a R-M-W wrap) MUST use the sync setters inside the block.
+    # ------------------------------------------------------------------
+
+    async def set_manual_on_hold_locked(self, room_key: str, value) -> None:
+        async with self._get_lock(room_key):
+            self.set_manual_on_hold(room_key, value)
+
+    async def set_manual_off_cooldown_locked(self, room_key: str, value) -> None:
+        async with self._get_lock(room_key):
+            self.set_manual_off_cooldown(room_key, value)
+
+    async def clear_manual_on_hold_locked(self, room_key: str) -> None:
+        async with self._get_lock(room_key):
+            self.set_manual_on_hold(room_key, None)
+
+    async def clear_manual_off_cooldown_locked(self, room_key: str) -> None:
+        async with self._get_lock(room_key):
+            self.set_manual_off_cooldown(room_key, None)
+
+    async def async_cleanup_expired_holds(self) -> None:
+        """Cosmetic hygiene: drop expired hold/cooldown deadlines (PLAN §5.4 #14).
+
+        NOT LOAD-BEARING. The authoritative expiry gate lives at
+        ``hvac_fans.py::_is_manual_on_hold_live`` (read-time evaluation at
+        ~:1076-1089) and ``_evaluate_temp_fan``'s cooldown compare at
+        ~:842-844. This helper only tidies rows in the ledger dict whose
+        read paths haven't fired in a while — behavior is IDENTICAL
+        whether it runs or not. See PLANNING §5.4 row #14 rationale.
+        """
+        try:
+            if _ha_dt is not None:
+                now = _ha_dt.now()
+            else:
+                now = datetime.now()
+            for room_key in list(self._rooms.keys()):
+                async with self._get_lock(room_key):
+                    rec = self._rooms.get(room_key)
+                    if rec is None:
+                        continue
+                    if (rec.manual_on_hold_until is not None
+                            and now >= rec.manual_on_hold_until):
+                        rec.manual_on_hold_until = None
+                    if (rec.manual_off_cooldown_until is not None
+                            and now >= rec.manual_off_cooldown_until):
+                        rec.manual_off_cooldown_until = None
+        except Exception:  # noqa: BLE001 — cosmetic; never break caller
+            _LOGGER.debug(
+                "FanPolicyOracle.async_cleanup_expired_holds failed",
+                exc_info=True,
+            )
+
+    def migrate_legacy_entry_keys(self, entry_to_room_key: dict[str, str]) -> int:
+        """Fold ``entry:<eid>`` legacy rows into their target ``room:<name>`` keys.
+
+        FAN-LAYER-2 D2 fix-up B-HIGH-1 + A-MED-1 (2026-08-11): called
+        wired-in from ``FanController.discover_fans`` (natural site — the
+        room-entry iteration builds the entry_id → room:{NFC(name)} map
+        for free). Was previously defined but never called AND the docstring
+        implied last-writer-wins, which would silently drop live holds on
+        collision. Both fixed here.
+
+        Behavior:
+          * ``entry_to_room_key`` maps ``"entry:<entry_id>"`` → target
+            ``"room:<NFC(name)>"``. Only legacy keys present in the map
+            are migrated; unmapped legacy rows are LEFT IN PLACE (safer
+            than dropping — a caller may resupply the map later).
+          * COLLISION SEMANTICS (A-MED-1): if the target row already
+            exists, take the FIELD-WISE MAX of the deadline fields
+            (``manual_on_hold_until``, ``manual_off_cooldown_until``,
+            ``last_on_time``, ``last_off_time``) so a fresh room:* row is
+            never overwritten by a stale entry:* row. ``hold_id`` takes
+            the max (edge-key dedup stays monotonic). Bookkeeping fields
+            (``last_trigger_path``, ``last_actuation_source``,
+            ``pause_context``) prefer the row with the later
+            ``last_on_time`` / ``last_off_time``.
+          * IDEMPOTENT: a second call with the same map is a no-op (the
+            legacy rows are already gone; no target row is overwritten).
+
+        Returns count of legacy rows folded (informational).
+        """
+        # B-LOW-1 (2026-08-11) — DEFERRED (follow-up card): this helper
+        # folds legacy entry:<eid> rows into room:<NFC(name)> targets, but
+        # does NOT sweep ORPHANED room:<old-name> rows when the operator
+        # renames a room or deletes an entry. RAM-only ledger means a
+        # restart clears them; the operator-observable impact of an orphan
+        # row is a phantom hold on a now-nonexistent room name (does not
+        # affect any live decision path — no wrap consults a room the
+        # ledger knows about but the config doesn't). Tracked as a
+        # follow-up card; do NOT extend this method.
+        migrated = 0
+        try:
+            legacy_keys = [
+                k for k in list(self._rooms.keys()) if k.startswith("entry:")
+            ]
+            for legacy_key in legacy_keys:
+                target = entry_to_room_key.get(legacy_key)
+                if target is None:
+                    # No mapping for this legacy row — LEAVE IT (do not
+                    # drop; a subsequent call with a richer map should
+                    # still be able to fold it).
+                    continue
+                legacy_rec = self._rooms.pop(legacy_key, None)
+                if legacy_rec is None:
+                    continue
+                existing = self._rooms.get(target)
+                if existing is None:
+                    self._rooms[target] = legacy_rec
+                    migrated += 1
+                    continue
+                # A-MED-1 field-wise MAX merge. `None` loses to any
+                # non-None value; two non-None values pick the LATER
+                # datetime. This preserves the freshest deadline from
+                # either row.
+                def _max_dt(a, b):
+                    if a is None:
+                        return b
+                    if b is None:
+                        return a
+                    return a if a >= b else b
+
+                existing.manual_on_hold_until = _max_dt(
+                    existing.manual_on_hold_until,
+                    legacy_rec.manual_on_hold_until,
+                )
+                existing.manual_off_cooldown_until = _max_dt(
+                    existing.manual_off_cooldown_until,
+                    legacy_rec.manual_off_cooldown_until,
+                )
+                existing.last_on_time = _max_dt(
+                    existing.last_on_time, legacy_rec.last_on_time,
+                )
+                existing.last_off_time = _max_dt(
+                    existing.last_off_time, legacy_rec.last_off_time,
+                )
+                existing.hold_id = max(existing.hold_id, legacy_rec.hold_id)
+                # Bookkeeping — prefer the fresher-activity row's metadata.
+                existing_last = _max_dt(
+                    existing.last_on_time, existing.last_off_time,
+                )
+                legacy_last = _max_dt(
+                    legacy_rec.last_on_time, legacy_rec.last_off_time,
+                )
+                if legacy_last is not None and (
+                    existing_last is None or legacy_last > existing_last
+                ):
+                    existing.last_trigger_path = legacy_rec.last_trigger_path
+                    existing.last_actuation_source = legacy_rec.last_actuation_source
+                    existing.pause_context = legacy_rec.pause_context
+                migrated += 1
+            if migrated:
+                _LOGGER.info(
+                    "FanPolicyOracle: migrated %d legacy entry:* rows to "
+                    "room:* keys (field-wise MAX on collision)", migrated,
+                )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "FanPolicyOracle.migrate_legacy_entry_keys failed", exc_info=True,
+            )
+        return migrated
 
     def _get_lock(self, room: str) -> asyncio.Lock:
         lock = self._room_locks.get(room)

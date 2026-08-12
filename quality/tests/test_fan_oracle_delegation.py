@@ -34,11 +34,15 @@ from custom_components.universal_room_automation.domain_coordinators.fan_policy_
 
 ROOM = "TestRoom"
 ENTRY_ID = "abc123-entry-id"
-# A-HIGH-1 fix-up (2026-08-11): the ledger is now keyed by
-# ``_fan_ledger_key()`` which prefers ``entry:<entry_id>``. Tests that
-# seed the oracle directly must use the same key format so the property
-# read returns the seeded value.
-LEDGER_KEY = f"entry:{ENTRY_ID}"
+# FAN-LAYER-2 §5.2 Option A (2026-08-11): _fan_ledger_key now prefers
+# ``room:{NFC(name)}`` over ``entry:<entry_id>`` so room-tier and
+# HVAC-tier agree on the ledger row (INV-DTA). The delegation tests
+# assert BEHAVIOR (writes reach the oracle, reads return, clears clear,
+# edges recorded) — that behavior is unchanged. This constant merely
+# tracks the (now name-derived) implementation location per the plan's
+# own parity exception ("unless an assertion is about implementation
+# location rather than behavior").
+LEDGER_KEY = f"room:{ROOM}"
 
 
 def _make_room(with_oracle: bool = True, entry_id: str = ENTRY_ID,

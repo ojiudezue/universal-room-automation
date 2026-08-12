@@ -9,6 +9,7 @@ v3.8.4-H3: Initial implementation.
 from __future__ import annotations
 
 import logging
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
@@ -34,6 +35,10 @@ from ..const import (
     FAN_SLEEP_NORMAL,
     FAN_SLEEP_OFF,
     FAN_SLEEP_REDUCE,
+    FAN_TRIGGER_HVAC_SLEEP_ONSET_ON,
+    FAN_TRIGGER_RECHECK_PAUSE,
+    FAN_TRIGGER_RECHECK_RESTORE,
+    FAN_TRIGGER_TEMP_HVAC,
     ROOM_TYPE_BEDROOM,
     ROOM_TYPE_GENERIC,
     SLEEP_FAN_ON_REARM_S,
@@ -64,48 +69,252 @@ from ..fan_veto import sleep_onset_fan_target  # noqa: E402
 _LOGGER = logging.getLogger(__name__)
 
 
-@dataclass
-class RoomFanState:
-    """Tracks fan state for a single room."""
+def _get_fan_oracle(hass):
+    """Return the FanPolicyOracle singleton from hass.data or None.
 
-    room_name: str
-    zone_id: str
-    # v4.7.16.2: per-room CONF_ROOM_TYPE, used to gate the sleep-state
-    # occupied fan trust to bedrooms only — prevents spurious presence
-    # in common areas (kitchen, living room) from activating fans
-    # mid-night. Defaults to ROOM_TYPE_GENERIC so unset rooms safely
-    # don't fire the bedroom-only branch.
-    room_type: str = ROOM_TYPE_GENERIC
-    fan_entities: list[str] = field(default_factory=list)
-    is_on: bool = False
-    speed_pct: int = 0
-    trigger: str = ""  # "temperature" | "fan_assist" | ""
-    last_on_time: str = ""
-    vacancy_detected_time: str = ""
-    manual_off_cooldown_until: str = ""  # ISO datetime — skip activation until this time
-    # FAN-MANUAL-1 (2026-08-10): purpose-named ON-side hold. Set when an
-    # external actor turns the fan ON (or when the operator turns it
-    # back on during an OFF cooldown). While populated + in-window, no
-    # URA `_set_fan_state(..., False)` may fire against this room's
-    # fans except for allowlisted trigger_paths (recheck bypass via
-    # `room_name=None`, `turn_off_all_managed` kill switch, safety).
-    # RAM-only (matches manual_off_cooldown_until — no persistence).
-    # Previously conflated with `manual_off_cooldown_until` (adoption
-    # branch set the OFF field on an is_on=True fan as a marker); this
-    # field ends that overload — see PLANNING §5.4.
-    manual_on_hold_until: str = ""
-    # Paused-at ISO datetime while fan-recheck holds this fan OFF for
-    # its observation window. Used to extend `manual_on_hold_until` by
-    # the paused duration on restore so the operator's hold survives
-    # the diagnostic pause intact (PLANNING ruling 2, §7.2).
-    manual_on_hold_paused_at: str = ""
-    # Fan-noise Mode-2 mitigation: HVAC handshake.
-    fan_recheck_suppress_until: str = ""
-    # Per-room CONF_FAN_SLEEP_POLICY (off/reduce/normal).
-    fan_sleep_policy: str = DEFAULT_FAN_SLEEP_POLICY
+    Mirrors ``automation.py::_get_fan_oracle`` — non-throwing accessor
+    used by ``_OracleISOField`` descriptors + the §5.4 locked-setter
+    call sites in this module.
+    """
+    try:
+        if hass is None:
+            return None
+        return hass.data.get(DOMAIN, {}).get("fan_oracle")
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _room_key(room_name: str) -> str:
+    """FAN-LAYER-2 D1 (PLAN §5.1/§5.2): shared prefixed key for the oracle ledger.
+
+    Applies ``unicodedata.normalize("NFC", name).strip()`` so NFC vs NFD
+    forms of the same visible name hash to the same row (MED-2-round-2).
+
+    FAN-LAYER-2 D2 fix-up B-MED-1 + A-LOW-2 (2026-08-11): SANITIZES
+    control characters instead of raising. The prior ``raise ValueError``
+    path forced every caller to either wrap in try/except (divergent
+    per-tier fallbacks) OR surface a ValueError from a wrap site that had
+    no policy for it (W8/W9 fallbacks were raw f"room:{name}" strings
+    that would produce misaligned keys). Sanitize-and-WARN keeps a single
+    canonical key regardless of caller. The uniqueness gate remains the
+    hard bar: it validates the COMMITTED SNAPSHOT and flags any name
+    that would sanitize into a collision, so no silent isolation loss.
+
+    Colon in a room name is LEGAL but LOGGED (the prefix is fixed
+    ``room:`` so downstream parsers split on the first colon).
+
+    Empty-name input returns the sentinel ``room:__unkeyed__`` (never
+    the bare empty string; two rooms without a name must not collide).
+    """
+    if not room_name:
+        return "room:__unkeyed__"
+    normalized = unicodedata.normalize("NFC", room_name).strip()
+    if not normalized:
+        return "room:__unkeyed__"
+    if any(unicodedata.category(ch).startswith("C") for ch in normalized):
+        sanitized = "".join(
+            ch for ch in normalized
+            if not unicodedata.category(ch).startswith("C")
+        ).strip()
+        _LOGGER.warning(
+            "fan-layer-2: room_name %r contained control characters "
+            "— sanitized to %r; the uniqueness gate is the durable check",
+            room_name, sanitized,
+        )
+        if not sanitized:
+            return "room:__unkeyed__"
+        normalized = sanitized
+    if ":" in normalized:
+        _LOGGER.info(
+            "fan-layer-2: room_name contains ':' — legal but cosmetic "
+            "collision with prefix scheme (name=%r)", normalized,
+        )
+    return f"room:{normalized}"
+
+
+def _log_hvac_fallback_warn(side: str, room_name: str) -> None:
+    """HVAC-tier analogue of ``RoomAutomation._fallback_warn`` (§5.1).
+
+    Emits when the descriptor read/write is served by the local slot
+    because the oracle is unavailable — a lifecycle regression that
+    should be visible in logs.
+    """
+    _LOGGER.warning(
+        "FanPolicyOracle fallback (hvac tier): %s served from RoomFanState "
+        "local slot (oracle unavailable) for room=%s — check CoordinatorManager lifecycle",
+        side, room_name,
+    )
+
+
+class _OracleISOField:
+    """Read-through descriptor: ``RoomFanState.<field>`` <-> oracle ledger.
+
+    FAN-LAYER-2 D1 (PLAN §5.1). Presents the field as an ISO string (matching
+    the pre-migration ``@dataclass`` shape) while the authoritative value
+    lives on ``FanPolicyOracle.get_state(_room_key(room_name)).<oracle_field>``
+    as a ``datetime | None``. Hydrate-on-read: if the oracle exists but
+    returns None AND we have a local write cached, seed the oracle from
+    the local slot and return the local ISO. Mirrors the RoomAutomation
+    @property at ``automation.py:283-329``.
+    """
+
+    __slots__ = ("_oracle_field", "_setter_name", "_local_key")
+
+    def __init__(self, oracle_field: str, setter_name: str, local_key: str) -> None:
+        self._oracle_field = oracle_field
+        self._setter_name = setter_name
+        self._local_key = local_key
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self
+        local = object.__getattribute__(obj, self._local_key)
+        hass = getattr(obj, "_hass", None)
+        oracle = _get_fan_oracle(hass)
+        if oracle is None:
+            if local:
+                _log_hvac_fallback_warn("read", obj.room_name)
+            return local
+        try:
+            key = _room_key(obj.room_name)
+            dt_val = getattr(oracle.get_state(key), self._oracle_field)
+            if dt_val is None:
+                if local:
+                    parsed = dt_util.parse_datetime(local)
+                    if parsed is not None:
+                        getattr(oracle, self._setter_name)(key, parsed)
+                    return local
+                return ""
+            return dt_val.isoformat()
+        except Exception:  # noqa: BLE001
+            if local:
+                _log_hvac_fallback_warn("read_exc", obj.room_name)
+            return local
+
+    def __set__(self, obj, value) -> None:
+        # FAN-LAYER-2 D2 fix-up A-LOW-1: coerce datetime → ISO string; reject
+        # anything else with TypeError. Prior behavior silently coerced
+        # unknown types to "" (clear) which hid caller-bugs. None and ""
+        # both clear (mirror the setter's kill-switch semantics).
+        # When a datetime lands, we ALSO thread the datetime object itself
+        # into the oracle setter (skip a round-trip through parse_datetime
+        # which can fail under stubs that don't implement fromisoformat).
+        pre_parsed_dt = None
+        if value is None or value == "":
+            as_local = ""
+        elif isinstance(value, str):
+            as_local = value
+        elif isinstance(value, datetime):
+            as_local = value.isoformat()
+            pre_parsed_dt = value
+        else:
+            raise TypeError(
+                f"_OracleISOField.__set__ accepts str | datetime | None; "
+                f"got {type(value).__name__} for room "
+                f"{getattr(obj, 'room_name', '<unknown>')!r}"
+            )
+        object.__setattr__(obj, self._local_key, as_local)
+        hass = getattr(obj, "_hass", None)
+        oracle = _get_fan_oracle(hass)
+        if oracle is None:
+            if as_local:
+                _log_hvac_fallback_warn("write", obj.room_name)
+            return
+        try:
+            key = _room_key(obj.room_name)
+            if not as_local:
+                getattr(oracle, self._setter_name)(key, None)
+            elif pre_parsed_dt is not None:
+                # A-LOW-1: datetime supplied directly — skip the ISO round-
+                # trip via parse_datetime (fragile under stubs).
+                getattr(oracle, self._setter_name)(key, pre_parsed_dt)
+            else:
+                parsed = dt_util.parse_datetime(as_local)
+                getattr(oracle, self._setter_name)(key, parsed)
+        except Exception:  # noqa: BLE001
+            if as_local:
+                _log_hvac_fallback_warn("write_exc", obj.room_name)
+
+
+class RoomFanState:
+    """Tracks fan state for a single room.
+
+    FAN-LAYER-2 (2026-08-11): dropped ``@dataclass`` sugar because two
+    fields (``manual_off_cooldown_until``, ``manual_on_hold_until``) are
+    now delegated to ``FanPolicyOracle`` via class-level ``_OracleISOField``
+    descriptors. The dataclass-generated ``__init__`` invokes
+    ``self.field = value`` on every constructed instance, which would
+    flood the descriptor with pre-``_hass`` writes. This explicit
+    ``__init__`` orders ``_hass`` first and seeds the two delegated
+    fields via ``object.__setattr__`` into their local slots — bypassing
+    the descriptor at construction. Subsequent runtime writes flow
+    through the descriptor normally.
+
+    Signature is BACKWARD-COMPATIBLE (PLAN §5.1 HIGH-1-round-2): every
+    field from the pre-FAN-LAYER-2 dataclass is accepted as
+    ``keyword-only`` with today's default so existing test constructors
+    (10 §9 parity-gate call sites) work byte-identical, unmodified.
+    """
+
+    def __init__(
+        self,
+        room_name: str,
+        zone_id: str,
+        *,
+        hass: HomeAssistant | None = None,
+        # Every pre-FAN-LAYER-2 dataclass field, kw-only optional with the
+        # historical default so existing test constructors don't TypeError.
+        room_type: str = ROOM_TYPE_GENERIC,
+        fan_entities: list[str] | None = None,
+        is_on: bool = False,
+        speed_pct: int = 0,
+        trigger: str = "",
+        last_on_time: str = "",
+        vacancy_detected_time: str = "",
+        manual_off_cooldown_until: str = "",
+        manual_on_hold_until: str = "",
+        manual_on_hold_paused_at: str = "",
+        fan_recheck_suppress_until: str = "",
+        fan_sleep_policy: str = DEFAULT_FAN_SLEEP_POLICY,
+    ) -> None:
+        # ORDERING: _hass FIRST so any subsequent descriptor access resolves
+        # the oracle. object.__setattr__ bypasses the descriptor.
+        object.__setattr__(self, "_hass", hass)
+        self.room_name = room_name
+        self.zone_id = zone_id
+        self.room_type = room_type
+        self.fan_entities = list(fan_entities or [])
+        self.is_on = is_on
+        self.speed_pct = speed_pct
+        self.trigger = trigger
+        self.last_on_time = last_on_time
+        self.vacancy_detected_time = vacancy_detected_time
+        # Seed the delegated fields via object.__setattr__ to the local slot.
+        # Do NOT go through the descriptor at __init__ time — the oracle may
+        # not yet be attached and even if it is, hydrate-on-read seeds it
+        # lazily on first descriptor GET.
+        object.__setattr__(
+            self, "_manual_off_local", manual_off_cooldown_until,
+        )
+        object.__setattr__(
+            self, "_manual_on_local", manual_on_hold_until,
+        )
+        self.manual_on_hold_paused_at = manual_on_hold_paused_at
+        self.fan_recheck_suppress_until = fan_recheck_suppress_until
+        self.fan_sleep_policy = fan_sleep_policy
     # NOTE: humidity exhaust state was previously tracked on this dataclass
     # but is now owned exclusively by the room-tier path in automation.py
     # (see ``handle_humidity_based_fan_control``).
+
+
+# Descriptors applied AFTER class definition so ``__init__`` runs first
+# without descriptor interference on construction.
+RoomFanState.manual_off_cooldown_until = _OracleISOField(  # type: ignore[attr-defined]
+    "manual_off_cooldown_until", "set_manual_off_cooldown", "_manual_off_local",
+)
+RoomFanState.manual_on_hold_until = _OracleISOField(  # type: ignore[attr-defined]
+    "manual_on_hold_until", "set_manual_on_hold", "_manual_on_local",
+)
 
 
 class FanController:
@@ -147,6 +356,10 @@ class FanController:
         # hold-window (~10 min) per room so a long-lived dueling loop
         # doesn't paper the log with the same suppression line every tick.
         self._suppress_log_last_at: dict[str, datetime] = {}
+        # FAN-LAYER-2 §5.4 row #14: throttle for cosmetic-only ledger cleanup.
+        # NOT load-bearing — read-time expiry at _is_manual_on_hold_live +
+        # _evaluate_temp_fan is the authoritative gate. See PLANNING §5.4.
+        self._last_ledger_cleanup_at: datetime | None = None
 
     def discover_fans(self) -> int:
         """Discover fan entities from room config entries in HVAC zones.
@@ -186,6 +399,9 @@ class FanController:
             self._room_fans[room_name] = RoomFanState(
                 room_name=room_name,
                 zone_id=room_to_zone[room_name],
+                # FAN-LAYER-2 §5.1: hass passed so _OracleISOField descriptors
+                # can resolve the FanPolicyOracle for delegated reads/writes.
+                hass=self.hass,
                 room_type=merged.get(CONF_ROOM_TYPE, ROOM_TYPE_GENERIC),
                 fan_entities=fan_list,
                 fan_sleep_policy=str(
@@ -199,6 +415,38 @@ class FanController:
             )
 
         _LOGGER.info("HVAC Fans: Discovered fans in %d rooms", len(self._room_fans))
+
+        # FAN-LAYER-2 D2 fix-up B-HIGH-1 (2026-08-11): wire
+        # migrate_legacy_entry_keys with the REAL entry_id → room:{NFC(name)}
+        # mapping, built from the room entries we just iterated. Chosen site:
+        # discover_fans is the natural point because (a) we already iterate
+        # every ENTRY_TYPE_ROOM entry with hass in hand and (b) it fires on
+        # every reload of the CM entry AND on the boot sequence's first HVAC
+        # tick, so a hold that landed under an "entry:<eid>" key during the
+        # pre-D1 window is re-keyed to "room:<NFC(name)>" before any wrap
+        # site consults the ledger. Prior state: helper was defined but
+        # NEVER CALLED (B-HIGH-1). Passing an empty dict would have DROPPED
+        # live holds; here we build the true map so field-wise-MAX merge
+        # (A-MED-1) preserves the freshest deadline on collision.
+        oracle_for_migration = _get_fan_oracle(self.hass)
+        if oracle_for_migration is not None:
+            try:
+                entry_to_room: dict[str, str] = {}
+                for entry in self.hass.config_entries.async_entries(DOMAIN):
+                    if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                        continue
+                    name = entry.data.get(CONF_ROOM_NAME, "")
+                    if not name:
+                        continue
+                    entry_to_room[f"entry:{entry.entry_id}"] = _room_key(name)
+                if entry_to_room:
+                    oracle_for_migration.migrate_legacy_entry_keys(entry_to_room)
+            except Exception:  # noqa: BLE001 — never break discover_fans
+                _LOGGER.debug(
+                    "HVAC Fans: legacy-key migration wiring failed (non-fatal)",
+                    exc_info=True,
+                )
+
         return len(self._room_fans)
 
     async def turn_off_all_managed(self) -> None:
@@ -207,6 +455,7 @@ class FanController:
         Called when fan_control_enabled is toggled off so fans don't
         stay running indefinitely. Idempotent — safe to call every cycle.
         """
+        oracle = _get_fan_oracle(self.hass)
         for room_name, room_fan in self._room_fans.items():
             if room_fan.is_on:
                 await self._set_fan_state(
@@ -218,11 +467,17 @@ class FanController:
             room_fan.speed_pct = 0
             room_fan.last_on_time = ""
             room_fan.vacancy_detected_time = ""
-            room_fan.manual_off_cooldown_until = ""  # Clean reset on toggle off
-            # FAN-MANUAL-1 discharge (e): operator kill switch clears the
-            # ON hold too (fan_control_enabled=False is a superset
-            # instruction).
-            room_fan.manual_on_hold_until = ""
+            # FAN-LAYER-2 §5.4 sites #1 + #2 (locked_setter_required): kill
+            # switch races an in-flight URA-OFF's consult; the locked setter
+            # serializes the clear behind the emitting critical section.
+            if oracle is not None:
+                await oracle.clear_manual_off_cooldown_locked(_room_key(room_name))
+                await oracle.clear_manual_on_hold_locked(_room_key(room_name))
+            else:
+                # Fallback (oracle not yet attached): keep the byte-identical
+                # local-slot write so behavior mirrors pre-FAN-LAYER-2.
+                room_fan.manual_off_cooldown_until = ""
+                room_fan.manual_on_hold_until = ""
             room_fan.manual_on_hold_paused_at = ""
 
     async def update(self, energy_constraint: EnergyConstraint | None, house_state: str = "") -> None:
@@ -276,6 +531,29 @@ class FanController:
             and not self._sleep_onset_fired
         )
 
+        # FAN-LAYER-2 §5.4 row #14: cosmetic hygiene sweep, throttled to 60s
+        # so per-tick cost stays bounded. NOT load-bearing — read-time
+        # expiry evaluation at _is_manual_on_hold_live + _evaluate_temp_fan
+        # remains the authoritative gate. See PLANNING §5.4.
+        # getattr-with-default so test harnesses that bypass __init__ don't
+        # AttributeError; production always initializes via __init__.
+        _last_cleanup = getattr(self, "_last_ledger_cleanup_at", None)
+        if (
+            _last_cleanup is None
+            or (now - _last_cleanup).total_seconds() > 60
+        ):
+            self._last_ledger_cleanup_at = now
+            oracle_for_cleanup = _get_fan_oracle(self.hass)
+            if oracle_for_cleanup is not None:
+                try:
+                    await oracle_for_cleanup.async_cleanup_expired_holds()
+                except Exception:  # noqa: BLE001 — cosmetic
+                    _LOGGER.debug(
+                        "HVAC Fans: async_cleanup_expired_holds failed",
+                        exc_info=True,
+                    )
+
+        oracle = _get_fan_oracle(self.hass)
         for room_name, room_fan in self._room_fans.items():
             # Fan-noise Mode-2 mitigation: HVAC handshake. Skip this room
             # entirely while the room-tier fan-recheck mechanism holds the
@@ -302,14 +580,24 @@ class FanController:
                 # FIX C D3: promoted from inline timedelta(hours=1) to
                 # DEFAULT_FAN_MANUAL_OFF_COOLDOWN_S so HVAC-tier and
                 # room-tier share one knob (kill switch: 0 = disabled).
-                cooldown_until = (
+                cooldown_deadline = (
                     now + timedelta(seconds=DEFAULT_FAN_MANUAL_OFF_COOLDOWN_S)
-                ).isoformat()
-                room_fan.manual_off_cooldown_until = cooldown_until
+                )
+                cooldown_until = cooldown_deadline.isoformat()
+                # FAN-LAYER-2 §5.4 site #3 (CANONICAL INV-FLA-T RACE): locked
+                # setter serializes with any concurrent URA turn-ON emit that
+                # was mid-consult when this external-OFF landed.
                 # FAN-MANUAL-1 discharge (b): external OFF is a newer
                 # human instruction than any live ON hold. Clear the hold
-                # and the paused-anchor.
-                room_fan.manual_on_hold_until = ""
+                # (§5.4 site #4).
+                if oracle is not None:
+                    await oracle.set_manual_off_cooldown_locked(
+                        _room_key(room_name), cooldown_deadline,
+                    )
+                    await oracle.clear_manual_on_hold_locked(_room_key(room_name))
+                else:
+                    room_fan.manual_off_cooldown_until = cooldown_until
+                    room_fan.manual_on_hold_until = ""
                 room_fan.manual_on_hold_paused_at = ""
                 _LOGGER.info(
                     "HVAC Fans: %s turned off externally — cooldown until %s",
@@ -322,7 +610,12 @@ class FanController:
             # Reverse: fan turned ON externally during cooldown — clear cooldown
             elif (not room_fan.is_on and room_fan.manual_off_cooldown_until
                   and any(self._is_entity_on(e) for e in room_fan.fan_entities)):
-                room_fan.manual_off_cooldown_until = ""
+                # FAN-LAYER-2 §5.4 site #5: freshest-human-wins; locked
+                # clear serializes with URA turn-OFF consult.
+                if oracle is not None:
+                    await oracle.clear_manual_off_cooldown_locked(_room_key(room_name))
+                else:
+                    room_fan.manual_off_cooldown_until = ""
                 room_fan.is_on = True
                 room_fan.trigger = "manual"
                 room_fan.last_on_time = now.isoformat()
@@ -331,12 +624,22 @@ class FanController:
                 # OFF-only after the field split — PLANNING §5.4).
                 # A-MED-1 fix-up (2026-08-10): honor per-room override.
                 room_hold_s = self._resolve_live_manual_on_hold_s(room_name)
+                # FAN-LAYER-2 §5.4 sites #6/#7 (CANONICAL INV-FLA-T): locked
+                # setter serializes hold-open with concurrent URA OFF.
                 if room_hold_s > 0:
-                    room_fan.manual_on_hold_until = (
-                        now + timedelta(seconds=room_hold_s)
-                    ).isoformat()
+                    hold_deadline = now + timedelta(seconds=room_hold_s)
+                    if oracle is not None:
+                        await oracle.set_manual_on_hold_locked(
+                            _room_key(room_name), hold_deadline,
+                        )
+                    else:
+                        room_fan.manual_on_hold_until = hold_deadline.isoformat()
                 else:
-                    room_fan.manual_on_hold_until = ""
+                    # Kill-switch semantics (hold_s == 0): clear the hold.
+                    if oracle is not None:
+                        await oracle.clear_manual_on_hold_locked(_room_key(room_name))
+                    else:
+                        room_fan.manual_on_hold_until = ""
                 _LOGGER.info(
                     "HVAC Fans: %s turned on during cooldown — cooldown "
                     "cleared, manual_on_hold_until=%s",
@@ -407,12 +710,23 @@ class FanController:
                 # A-MED-1 fix-up (2026-08-10): honor per-room override —
                 # discover_fans() stored no cached knob, so we live-read.
                 room_hold_s = self._resolve_live_manual_on_hold_s(room_name)
+                # FAN-LAYER-2 §5.4 sites #8/#9: adopt-fan branch — same
+                # INV-FLA-T race as #6/#7, different code path (originally
+                # `not is_on and not cooldown and entity ON` — external
+                # adoption without prior cooldown context).
                 if room_hold_s > 0:
-                    room_fan.manual_on_hold_until = (
-                        now + timedelta(seconds=room_hold_s)
-                    ).isoformat()
+                    hold_deadline = now + timedelta(seconds=room_hold_s)
+                    if oracle is not None:
+                        await oracle.set_manual_on_hold_locked(
+                            _room_key(room_name), hold_deadline,
+                        )
+                    else:
+                        room_fan.manual_on_hold_until = hold_deadline.isoformat()
                 else:
-                    room_fan.manual_on_hold_until = ""
+                    if oracle is not None:
+                        await oracle.clear_manual_on_hold_locked(_room_key(room_name))
+                    else:
+                        room_fan.manual_on_hold_until = ""
                 _LOGGER.info(
                     "HVAC Fans: %s adopted externally-lit fan (speed=%d%%, "
                     "manual_on_hold_until=%s)",
@@ -507,10 +821,14 @@ class FanController:
                             # cleanly. Speed cap / vacancy anchors are
                             # unaffected.
                             continue
+                    # FAN-LAYER-2 D2 fix-up A-LOW-3: canonical FAN_TRIGGER_TEMP_HVAC
+                    # (W4 chokepoint trigger) instead of the dynamic f"update:..."
+                    # string; direction is separately carried by the `should_on`
+                    # kw arg, so a single canonical trigger covers both branches.
                     dispatched = await self._set_fan_state(
                         room_fan.fan_entities, should_on, speed,
                         room_name=room_name,
-                        trigger_path=f"update:{trigger or 'vacancy_off'}",
+                        trigger_path=FAN_TRIGGER_TEMP_HVAC,
                     )
                     # hotfix/occupied-fan-off-guard (2026-08-04): if the
                     # OFF was suppressed by the occupied-guard, leave
@@ -697,10 +1015,16 @@ class FanController:
                 except Exception:  # noqa: BLE001
                     pass
             try:
+                # FAN-LAYER-2 D2 fix-up A-LOW-3: canonical
+                # FAN_TRIGGER_HVAC_SLEEP_ONSET_ON (member of the oracle's
+                # _HVAC_SLEEP_TRIGGERS set) so a wrong sleep_axis on the
+                # snapshot triggers the axis-veto path (previously the
+                # dynamic "update:sleep_onset" string bypassed the axis
+                # check entirely).
                 await self._set_fan_state(
                     room_fan.fan_entities, True, speed,
                     room_name=room_name,
-                    trigger_path="update:sleep_onset",
+                    trigger_path=FAN_TRIGGER_HVAC_SLEEP_ONSET_ON,
                 )
             except Exception as exc:  # noqa: BLE001
                 _LOGGER.error(
@@ -1156,6 +1480,68 @@ class FanController:
         except Exception:  # noqa: BLE001
             return None
 
+    def _build_fan_snapshot_hvac(
+        self,
+        room_name: str,
+        entities: list[str],
+        observed_any_on: bool,
+    ):
+        """FAN-LAYER-2 D2 (§5.7): HVAC-tier FanDecisionSnapshot builder.
+
+        HVAC-tier sleep semantics ride the house_state machine (FAN_TRUST_STATES
+        = home_night/sleep/waking), so ``sleep_axis="house_state"``. Built from
+        already-read state on the FanController — no new I/O.
+        """
+        from .fan_policy_oracle import FanDecisionSnapshot  # noqa: PLC0415
+        hs = self._house_state or "unknown"
+        return FanDecisionSnapshot(
+            now=dt_util.now(),
+            sleep_state=("sleep" if hs in FAN_TRUST_STATES else "awake"),
+            sleep_axis="house_state",
+            house_state=hs,
+            is_hvac_managing=True,
+            entities=tuple(entities or ()),
+            observed_any_on=bool(observed_any_on),
+        )
+
+    async def _emit_fan_state(
+        self, entities: list[str], on: bool, speed_pct: int,
+    ) -> None:
+        """FAN-LAYER-2 D2: raw per-entity emit loop extracted from _set_fan_state
+        so the W4 chokepoint oracle.actuate wrap can enclose it without duplicating
+        the per-entity dispatch shape. Behavior byte-identical to the pre-D2 loop.
+        """
+        for entity_id in entities:
+            try:
+                if on:
+                    if entity_id.startswith("fan."):
+                        await self.hass.services.async_call(
+                            "fan", "turn_on",
+                            {"entity_id": entity_id, "percentage": speed_pct},
+                            blocking=False,
+                        )
+                    else:
+                        await self.hass.services.async_call(
+                            "homeassistant", "turn_on",
+                            {"entity_id": entity_id},
+                            blocking=False,
+                        )
+                else:
+                    if entity_id.startswith("fan."):
+                        await self.hass.services.async_call(
+                            "fan", "turn_off",
+                            {"entity_id": entity_id},
+                            blocking=False,
+                        )
+                    else:
+                        await self.hass.services.async_call(
+                            "homeassistant", "turn_off",
+                            {"entity_id": entity_id},
+                            blocking=False,
+                        )
+            except Exception as e:
+                _LOGGER.error("HVAC Fans: failed to control %s: %s", entity_id, e)
+
     async def _set_fan_state(
         self, entities: list[str], on: bool, speed_pct: int,
         *,
@@ -1187,7 +1573,15 @@ class FanController:
         """
         if not on and room_name:
             trigger_str = trigger_path or ""
-            is_exempt_from_guard = trigger_str == "turn_off_all_managed"
+            # FAN-LAYER-2 D2: recheck-pause OFF (W10-pause) is now threaded
+            # through this chokepoint carrying room_name AND trigger_path
+            # (previously bypassed by passing room_name=None). Add it to the
+            # INV-FMH + occupied-fan-off exemption set so the pre-D2
+            # semantic — the diagnostic pause turns fans OFF even under a
+            # live manual-ON hold — is preserved byte-identical.
+            is_exempt_from_guard = trigger_str in (
+                "turn_off_all_managed", FAN_TRIGGER_RECHECK_PAUSE,
+            )
             # FAN-MANUAL-1 INV-FMH: single-chokepoint enforcement at the
             # HVAC-tier OFF boundary. If the room is in a manual-ON hold,
             # SUPPRESS the OFF (leave RoomFanState untouched — caller's
@@ -1228,36 +1622,49 @@ class FanController:
             # the call is a no-op there). Vacant / unavailable → observer
             # sees occ != 'on' and returns without writing.
             self._record_actuation_conflict_if_occupied(room_name, trigger_path)
-        for entity_id in entities:
+        # FAN-LAYER-2 D2 W4-chokepoint wrap: per-room lock around the
+        # already-classified consult+emit block. All HVAC-tier callers
+        # (W4 evaluate-path, W10-pause via FAN_TRIGGER_RECHECK_PAUSE,
+        # W10-restore via FAN_TRIGGER_RECHECK_RESTORE, turn_off_all_managed)
+        # route through here. INV-FLA-T is enforced by the async-with lock;
+        # DEFER/VETO returns False (caller's `if dispatched:` skips state
+        # mutation). Fallback (oracle absent OR wrap raised): direct emit
+        # preserves pre-D2 behavior byte-identical.
+        oracle = _get_fan_oracle(self.hass) if room_name and trigger_path else None
+        wrap_verdict_denied = False
+        if oracle is not None and room_name and trigger_path:
+            key = _room_key(room_name)
+            observed_any_on = any(self._is_entity_on(e) for e in entities)
+            snap = self._build_fan_snapshot_hvac(room_name, entities, observed_any_on)
+            direction = "on" if on else "off"
             try:
-                if on:
-                    if entity_id.startswith("fan."):
-                        await self.hass.services.async_call(
-                            "fan", "turn_on",
-                            {"entity_id": entity_id, "percentage": speed_pct},
-                            blocking=False,
-                        )
+                async with oracle.actuate(
+                    key, trigger_path, snap, direction,
+                ) as verdict:
+                    if verdict.is_allow:
+                        await self._emit_fan_state(entities, on, speed_pct)
                     else:
-                        await self.hass.services.async_call(
-                            "homeassistant", "turn_on",
-                            {"entity_id": entity_id},
-                            blocking=False,
-                        )
-                else:
-                    if entity_id.startswith("fan."):
-                        await self.hass.services.async_call(
-                            "fan", "turn_off",
-                            {"entity_id": entity_id},
-                            blocking=False,
-                        )
-                    else:
-                        await self.hass.services.async_call(
-                            "homeassistant", "turn_off",
-                            {"entity_id": entity_id},
-                            blocking=False,
-                        )
-            except Exception as e:
-                _LOGGER.error("HVAC Fans: failed to control %s: %s", entity_id, e)
+                        wrap_verdict_denied = True
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning(
+                    "HVAC Fans: W4-chokepoint oracle wrap failed room=%s "
+                    "trigger=%s — direct emit fallback",
+                    room_name, trigger_path, exc_info=True,
+                )
+                await self._emit_fan_state(entities, on, speed_pct)
+        else:
+            await self._emit_fan_state(entities, on, speed_pct)
+        if wrap_verdict_denied:
+            # DEFER/VETO from oracle — treat as suppressed; caller must NOT
+            # mutate RoomFanState (matches the INV-FMH suppression contract
+            # documented at the top of this method).
+            _LOGGER.debug(
+                "HVAC Fans: %s %s suppressed by oracle verdict "
+                "(trigger=%s)",
+                room_name, "ON" if on else "OFF",
+                trigger_path or "unknown",
+            )
+            return False
         # hotfix/occupied-fan-off-guard (2026-08-04): activity-log every
         # real OFF dispatch. Closes the 2026-08-04 blind spot — sweep
         # offs were previously invisible in the activity log (only ONs
@@ -1441,14 +1848,20 @@ class FanController:
         if self._is_manual_on_hold_live(room_fan):
             room_fan.manual_on_hold_paused_at = dt_util.now().isoformat()
         if snapshot["is_on"]:
-        # INTENTIONAL: no room_name — recheck OFFs bypass the occupied-fan
-        # guard AND the fan_off activity log by design (evidence-gathering
-        # pause, state restored after). Threading room_name here would
-        # break the recheck window. (Review A #3, 2026-08-04.)
-        # FAN-MANUAL-1: the no-room_name call also bypasses the INV-FMH
-        # gate in `_set_fan_state` — this is the allowlisted trigger_path
-        # per PLANNING ruling 2.
-            await self._set_fan_state(snapshot["entities"], False, 0)
+        # FAN-LAYER-2 D2 W10-pause: thread room_name + FAN_TRIGGER_RECHECK_PAUSE
+        # so the W4 chokepoint's oracle.actuate wrap can hold the per-room
+        # lock across the pause OFF (routed-through, not independent —
+        # PLAN §2.2 W10-pause row). The INV-FMH bypass + occupied-fan-off
+        # bypass + fan_off activity-log skip that the prior no-room_name
+        # call provided are PRESERVED via the FAN_TRIGGER_RECHECK_PAUSE
+        # entry in `is_exempt_from_guard` at the top of _set_fan_state,
+        # AND the pause trigger's ALLOW verdict at fan_policy_oracle.py
+        # _compute_off_verdict (:543-544).
+            await self._set_fan_state(
+                snapshot["entities"], False, 0,
+                room_name=room_name,
+                trigger_path=FAN_TRIGGER_RECHECK_PAUSE,
+            )
         _LOGGER.info(
             "HVAC Fans: %s paused for fan-recheck (suppress_until=%s)",
             room_name, suppress_until_iso,
@@ -1463,28 +1876,69 @@ class FanController:
         if room_fan is None:
             return
         room_fan.fan_recheck_suppress_until = ""
-        # FAN-MANUAL-1 ruling 2: if the hold was paused, extend the
-        # deadline by the paused duration. The operator's remaining
-        # window resumes intact.
+        # FAN-MANUAL-1 ruling 2 / FAN-LAYER-2 §5.4a site #15: R-M-W across
+        # adopt-external interleave. Wrap the read → compute → write in a
+        # manually-acquired per-room lock so a concurrent external-ON
+        # adopt (site #6/#8) cannot bump the hold between our READ of
+        # manual_on_hold_until and our WRITE of the extended deadline.
+        # asyncio.Lock is NON-REENTRANT — inside the block we use the SYNC
+        # oracle setter (never the _locked variant).
         if room_fan.manual_on_hold_paused_at and room_fan.manual_on_hold_until:
-            try:
-                paused_at = datetime.fromisoformat(
-                    room_fan.manual_on_hold_paused_at,
-                )
-                until = datetime.fromisoformat(room_fan.manual_on_hold_until)
-                elapsed = dt_util.now() - paused_at
-                if elapsed.total_seconds() > 0:
-                    room_fan.manual_on_hold_until = (
-                        until + elapsed
-                    ).isoformat()
-                    _LOGGER.info(
-                        "HVAC Fans: %s manual-ON hold extended by %.0fs "
-                        "across recheck pause (until=%s)",
-                        room_name, elapsed.total_seconds(),
-                        room_fan.manual_on_hold_until,
+            oracle_rmw = _get_fan_oracle(self.hass)
+            if oracle_rmw is not None:
+                room_key = _room_key(room_name)
+                async with oracle_rmw._get_lock(room_key):
+                    ledger = oracle_rmw.get_state(room_key)
+                    try:
+                        paused_at = datetime.fromisoformat(
+                            room_fan.manual_on_hold_paused_at,
+                        )
+                        # Prefer the authoritative oracle-side deadline over
+                        # the local ISO shadow (they should agree, but the
+                        # oracle wins on drift).
+                        oracle_until = ledger.manual_on_hold_until
+                        if oracle_until is not None:
+                            elapsed = dt_util.now() - paused_at
+                            if elapsed.total_seconds() > 0:
+                                new_until = oracle_until + elapsed
+                                # Sync setter INSIDE the held lock (asyncio.Lock
+                                # non-reentrant — do NOT call the _locked variant).
+                                oracle_rmw.set_manual_on_hold(room_key, new_until)
+                                # Mirror to local slot for byte-identical log
+                                # shape (subsequent descriptor read will
+                                # return the same ISO from the oracle).
+                                object.__setattr__(
+                                    room_fan, "_manual_on_local",
+                                    new_until.isoformat(),
+                                )
+                                _LOGGER.info(
+                                    "HVAC Fans: %s manual-ON hold extended by %.0fs "
+                                    "across recheck pause (until=%s)",
+                                    room_name, elapsed.total_seconds(),
+                                    new_until.isoformat(),
+                                )
+                    except (ValueError, TypeError):
+                        pass
+            else:
+                # Fallback: no oracle — pre-FAN-LAYER-2 behavior.
+                try:
+                    paused_at = datetime.fromisoformat(
+                        room_fan.manual_on_hold_paused_at,
                     )
-            except (ValueError, TypeError):
-                pass
+                    until = datetime.fromisoformat(room_fan.manual_on_hold_until)
+                    elapsed = dt_util.now() - paused_at
+                    if elapsed.total_seconds() > 0:
+                        room_fan.manual_on_hold_until = (
+                            until + elapsed
+                        ).isoformat()
+                        _LOGGER.info(
+                            "HVAC Fans: %s manual-ON hold extended by %.0fs "
+                            "across recheck pause (until=%s)",
+                            room_name, elapsed.total_seconds(),
+                            room_fan.manual_on_hold_until,
+                        )
+                except (ValueError, TypeError):
+                    pass
             room_fan.manual_on_hold_paused_at = ""
         if snapshot is None:
             return
@@ -1528,7 +1982,18 @@ class FanController:
                     "(house went AWAY during recheck)", room_name,
                 )
                 return
-            await self._set_fan_state(snapshot["entities"], True, speed)
+            # FAN-LAYER-2 D2 W10-restore: thread room_name +
+            # FAN_TRIGGER_RECHECK_RESTORE so the W4 chokepoint wrap can
+            # hold the per-room lock across the restore ON (routed-through,
+            # not independent). The manual R-M-W lock at :1720-1751 above
+            # has already been RELEASED before we get here (§5.4a
+            # non-reentrant-lock discipline), so the chokepoint wrap can
+            # re-acquire the same per-room lock safely.
+            await self._set_fan_state(
+                snapshot["entities"], True, speed,
+                room_name=room_name,
+                trigger_path=FAN_TRIGGER_RECHECK_RESTORE,
+            )
             room_fan.is_on = True
             room_fan.speed_pct = speed
             room_fan.trigger = snapshot.get("trigger", "") or ""
@@ -1538,6 +2003,7 @@ class FanController:
                 preset = attrs.get("preset_mode")
                 if preset:
                     try:
+                        # fan-adjacency: allow (reason=attribute-restore-not-on/off — set_preset_mode does not drive fan on/off state)
                         await self.hass.services.async_call(
                             "fan", "set_preset_mode",
                             {"entity_id": entity_id, "preset_mode": preset},
@@ -1551,6 +2017,7 @@ class FanController:
                 oscillating = attrs.get("oscillating")
                 if oscillating is not None:
                     try:
+                        # fan-adjacency: allow (reason=attribute-restore-not-on/off — oscillate does not drive fan on/off state)
                         await self.hass.services.async_call(
                             "fan", "oscillate",
                             {"entity_id": entity_id, "oscillating": bool(oscillating)},
@@ -1564,6 +2031,7 @@ class FanController:
                 direction = attrs.get("direction")
                 if direction:
                     try:
+                        # fan-adjacency: allow (reason=attribute-restore-not-on/off — set_direction does not drive fan on/off state)
                         await self.hass.services.async_call(
                             "fan", "set_direction",
                             {"entity_id": entity_id, "direction": direction},
