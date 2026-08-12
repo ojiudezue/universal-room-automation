@@ -47,4 +47,15 @@ byte-identical failure lists (sha-matched), zero regressions.** Zero production 
 
 ## Live Validation
 
-_(prospective — to be replaced post-restart)_
+### Validated 2026-08-11 (v5.72.0 boot, night)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Loads, zero URA errors | **PASS** | `system_log` ERROR search for `universal_room` empty post-restart; house_state `home_night` |
+| L2 | Delegation transparent — fans steady | **PASS (live signal)** | `fan.air_circulator` + Jaya bedroom sleep fan ON and holding through the HVAC-tier delegation cutover; Living Room off (correct — vacant); no flap |
+| L3 | Key migration one-time re-key | **PASS (by construction this boot)** | RAM ledger fresh at boot → discover_fans constructs room:-keyed rows directly; migration path exercised in-suite (survive/collision/idempotent tests); the migration matters for RELOAD-without-restart, mutation-anchored |
+| L4 | Manual holds across both tiers | **ORGANIC (shared with v5.68.0 L2)** | The one operator test still owed: manual Living Room fan-ON must hold ~1h — now proven through BOTH tiers by construction; all 9 wraps mutation-anchored in-suite, orchestrator re-drilled W1 |
+| L5 | Suite determinism | **PASS** | SUITE-HYGIENE-1 probe trio green in merged suite; failure list = the stable 23 (identical name-set through both merges) |
+
+PR #501: +4299/−233 (non-empty verified). HACS install verified at v5.72.0 (first download call
+timed out; state checked before retry).
