@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-13T16:42:48-05:00_ - _Data commit: `740ea57a557d`_ - _last_reconciled: 2026-08-13_
+_Generated: 2026-08-13T16:46:28-05:00_ - _Data commit: `560ffe9f307d`_ - _last_reconciled: 2026-08-13_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,19 +11,19 @@ _Generated: 2026-08-13T16:42:48-05:00_ - _Data commit: `740ea57a557d`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 3 |
+| 📥 Inbox | 2 |
 | 🧭 Pre-planning | 8 |
 | 📝 Planned | 2 |
-| 🔨 In progress | 1 |
+| 🔨 In progress | 3 |
 | 🔍 Review | 0 |
 | 🚀 Shipped (organic open) | 27 |
 | ⏸️ Waiting on operator | 2 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 1 |
 | ✅ Done | 10 |
-| ❓ Other | 2 |
+| ❓ Other | 1 |
 
-## 📥 Inbox (3)
+## 📥 Inbox (2)
 _raw capture_
 
 ### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab
@@ -41,12 +41,6 @@ thread: **dashboarding** - status: **inbox** - approval: **explicit**
   - `design_notes`: Anti-word-vomit rules applied: (1) narrative first — pause_reason_human leads, and nothing on the dashboard consumed that attribute before; (2) CONDITIONAL rendering — must_start_by, force_charge_until, excess-solar and fill-target only ...
   - `followup_candidate`: retrofit conditional rendering to the Battery Strategy Detail card (same section group, same defect, ~30 min) — only if the operator endorses this card's style
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
-
-### `ZONE-TIER-DIVERGE-1` - Upstairs zone read occupied (2 rooms) while house-state attrs showed Upstairs mode=away w/ zero provenance — house went away THROUGH an occupied zone
-thread: **presence** - status: **inbox** - approval: **unreviewed**
-- **Origin:** 2026-08-13 - AWAY-BLOCK-1 other-fans sweep: zone_upstairs_rooms_occupied=2 + anyone=ON all afternoon, yet the 20:51Z away transition fired; Jaya Bedroom still URA-occupied past 21:31 (fan-latched, never released). Mechanism NOT asserted ...
-- **Why:** Opposite failure to AWAY-BLOCK-1: instead of occupancy wrongly blocking away, away fired despite a zone reading occupied. Either a second veto path correctly discounted Upstairs (then WHY did Entertainment veto?) or a tier-divergence bug...
-- **Next:** Source trace of zone->house occupancy aggregation divergence (which snapshot the away path consumed); probe-first. May be the real story of the 20:51 transition.
 
 ### `PATH-ALPHA-DENOM-1` - Path-alpha away inference structurally dead when all trackers LOST/STALE — trusted denominator empties; NO existing card fixes it
 thread: **presence** - status: **inbox** - approval: **unreviewed**
@@ -172,7 +166,7 @@ thread: **presence** - status: **planned** - approval: **unreviewed**
 - **Forensic keys (1):**
   - `operator_question`: 50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests or a daytime FP flavor? If the latter, escalate per audit §3.
 
-## 🔨 In progress (1)
+## 🔨 In progress (3)
 _being built_
 
 ### `FRIGATE-RETIRE-1` - Retire Frigate-1 — promote Frigate-2 (yolov9t/OpenVINO, zero night ghosts) to primary incl. snapshot engine
@@ -190,6 +184,21 @@ thread: **security** - status: **in_progress** - approval: **approved**
   - `gate1_recheck_2026_08_13`: GATE-1 MET. Night window 08-12 23:00 -> 08-13 05:00 CT: ZERO person alerts (vs multiple F1 ghosts every prior night) — the ghost pattern died with F1. Only 2 legit-category vehicle deep-night alerts (rear_ptz, Protect-sourced). Clean cou...
   - `gate2_started_2026_08_13`: OPERATOR APPROVED. F1 HA integration entry 01JV6G4E57HT3WH86WSQ4RJT11 DISABLED + unloaded (11:4x CT). Container stop handed to operator (host is password-SSH only): ssh okosisi@192.168.13.16 sudo docker stop frigate double-take. Gate-2 c...
   - `reaudit_2026_08_13`: Operator-requested post-disable re-audit: PASS — 443 URA entity refs, 0 F1-owned; snapshot engine self-heals to F2-only; MQTT dual-prefix clean; census/resolver skip disabled entities. Findings ALL FIXED live same hour: MED automation.g6...
+
+### `ZONE-TIER-DIVERGE-1` - Upstairs zone read occupied (2 rooms) while house-state attrs showed Upstairs mode=away w/ zero provenance — house went away THROUGH an occupied zone
+thread: **presence** - status: **in_progress** - approval: **unreviewed**
+- **Origin:** 2026-08-13 - AWAY-BLOCK-1 other-fans sweep: zone_upstairs_rooms_occupied=2 + anyone=ON all afternoon, yet the 20:51Z away transition fired; Jaya Bedroom still URA-occupied past 21:31 (fan-latched, never released). Mechanism NOT asserted ...
+- **Why:** Opposite failure to AWAY-BLOCK-1: instead of occupancy wrongly blocking away, away fired despite a zone reading occupied. Either a second veto path correctly discounted Upstairs (then WHY did Entertainment veto?) or a tier-divergence bug...
+- **Next:** Source trace of zone->house occupancy aggregation divergence (which snapshot the away path consumed); probe-first. May be the real story of the 20:51 transition.
+
+### `AWAY-BLOCK-1` - House held home_day 2h with everyone away — fan->mmWave->occupancy->fan self-sustaining loop; both away paths structurally blocked
+thread: **presence** - status: **in_progress** - approval: **unreviewed**
+- **Origin:** 2026-08-13 - operator: "why not trust that signal and send the house to away mode? What are we getting wrong about this inability to transition?"
+- **Why:** Traced (AUDIT_away_transition_2026_08_13.md): path-alpha dead (all 4 trackers LOST/STALE -> trusted denominator 0); path-beta vetoed by ONE zone occupied solely by the Living Room Screek mmWave, latched by the room's own tower fan (fan O...
+- **Next:** Operator picks; orchestrator recommends 1+2 together (config turn + small loop-breaker), 3 only if evidence recurs after 1+2.
+- **Forensic keys (2):**
+  - `operator_decision`: Ranked recs — pick any: (1) CONFIG-ONLY: add a PIR/corroborator to Living Room + the 5 other no-PIR rooms (re-enables shipped D2 demotion; highest marginal benefit, near-zero risk). (2) TIER-1: cap comfort-fan sustain on mmwave-sole prov...
+  - `operator_dispositions_2026_08_13`: Rec 1: OPERATOR-OWNED — the existing Zigbee sensor is hallway-placed; operator adds a physical sensor himself. DO NOT RAISE AGAIN (explicit instruction); when new sensors appear in room configs, silently verify D2 arms. Rec 2: PARKED (ad...
 
 ## 🔍 Review (0)
 _under review_
@@ -721,16 +730,8 @@ thread: **hvac** - status: **done** - approval: **explicit**
   - `VERDICT`: REMOVING WRITER B DID NOT STOP THE PRESET FLAP. Writer B retirement is confirmed shipped (v5.56.0, 2026-08-06, commit d604716f7 "delete Writer B", Tier 2-DB + 3 reviews) and ZoneAnyoneBinarySensor no longer has a preset-write path — veri...
   - `spawned`: HVAC-PRESET-FLAP-1 (the flap persists; cause unknown; blocked on the reason ledger)
 
-## ❓ Other (2)
+## ❓ Other (1)
 _unknown status bucket_
-
-### `AWAY-BLOCK-1` - House held home_day 2h with everyone away — fan->mmWave->occupancy->fan self-sustaining loop; both away paths structurally blocked
-thread: **presence** - status: **waiting_on_operator** - approval: **unreviewed**
-- **Origin:** 2026-08-13 - operator: "why not trust that signal and send the house to away mode? What are we getting wrong about this inability to transition?"
-- **Why:** Traced (AUDIT_away_transition_2026_08_13.md): path-alpha dead (all 4 trackers LOST/STALE -> trusted denominator 0); path-beta vetoed by ONE zone occupied solely by the Living Room Screek mmWave, latched by the room's own tower fan (fan O...
-- **Next:** Operator picks; orchestrator recommends 1+2 together (config turn + small loop-breaker), 3 only if evidence recurs after 1+2.
-- **Forensic keys (1):**
-  - `operator_decision`: Ranked recs — pick any: (1) CONFIG-ONLY: add a PIR/corroborator to Living Room + the 5 other no-PIR rooms (re-enables shipped D2 demotion; highest marginal benefit, near-zero risk). (2) TIER-1: cap comfort-fan sustain on mmwave-sole prov...
 
 ### `CIRCLING-LABEL-1` - Circling loops page but are never LABELLED/escalated as circling (2-camera shape) — cooldown blocks the hop where classification forms
 thread: **perimeter** - status: **waiting_on_operator** - approval: **unreviewed**

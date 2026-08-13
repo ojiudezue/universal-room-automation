@@ -1045,7 +1045,7 @@ cards:
 - id: ZONE-TIER-DIVERGE-1
   title: Upstairs zone read occupied (2 rooms) while house-state attrs showed Upstairs mode=away w/ zero provenance — house went away THROUGH an occupied zone
   thread: presence
-  status: inbox
+  status: in_progress
   approval: unreviewed
   origin:
     date: '2026-08-13'
@@ -1067,7 +1067,7 @@ cards:
 - id: AWAY-BLOCK-1
   title: House held home_day 2h with everyone away — fan->mmWave->occupancy->fan self-sustaining loop; both away paths structurally blocked
   thread: presence
-  status: waiting_on_operator
+  status: in_progress
   approval: unreviewed
   origin:
     date: '2026-08-13'
@@ -1075,6 +1075,7 @@ cards:
   why: 'Traced (AUDIT_away_transition_2026_08_13.md): path-alpha dead (all 4 trackers LOST/STALE -> trusted denominator 0); path-beta vetoed by ONE zone occupied solely by the Living Room Screek mmWave, latched by the room''s own tower fan (fan ON 13:45 CT -> latch 6s later, held 2h01m; fan OFF -> release in 37s -> away 5min later). The fan was URA''s OWN comfort fan, turned on BECAUSE the room read occupied — self-justifying loop. Shipped D2 fan-demotion is fail-closed OFF for the 6 rooms with no PIR (motion_sensors: []); v5.46.0 gate is creation-only; 4h continuous-stuck never met (flapping resets); duty-stuck detector fired 4 NM notes but is NOTIFY-ONLY (STUCK-SENSOR-1 gap, live again).'
   operator_decision: 'Ranked recs — pick any: (1) CONFIG-ONLY: add a PIR/corroborator to Living Room + the 5 other no-PIR rooms (re-enables shipped D2 demotion; highest marginal benefit, near-zero risk). (2) TIER-1: cap comfort-fan sustain on mmwave-sole provenance (break the loop from the fan side). (3) TIER 2-DB: path-beta discounts zones held only by fan-interference-flagged mmwave-sole signals. (4) STUCK-SENSOR-1 (complete fix, still gated; rec 1 is prerequisite for this room anyway). (5) phone tracker liveness (device-side).'
   next: 'Operator picks; orchestrator recommends 1+2 together (config turn + small loop-breaker), 3 only if evidence recurs after 1+2.'
+  operator_dispositions_2026_08_13: 'Rec 1: OPERATOR-OWNED — the existing Zigbee sensor is hallway-placed; operator adds a physical sensor himself. DO NOT RAISE AGAIN (explicit instruction); when new sensors appear in room configs, silently verify D2 arms. Rec 2: PARKED (adversarial audit: sleep-kill blocker + carve-out inversion; revive trigger = fan-latch recurrence in a D2-armed room). Rec 3 + BLE conjunct: PARKED (revive = phantom-zone away-block recurrence post-corroborators). STUCK-SENSOR-1: approved twice, fixture-supplement drafting IN FLIGHT. ZONE-TIER-DIVERGE-1 thorough trace IN FLIGHT.'
 
 - id: CIRCLING-LABEL-1
   title: Circling loops page but are never LABELLED/escalated as circling (2-camera shape) — cooldown blocks the hop where classification forms
