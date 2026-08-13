@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-12T23:31:55-05:00_ - _Data commit: `1c7d5be17996`_ - _last_reconciled: 2026-08-12_
+_Generated: 2026-08-12T23:31:55-05:00_ - _Data commit: `1c7d5be17996`_ - _last_reconciled: 2026-08-13_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,7 +11,7 @@ _Generated: 2026-08-12T23:31:55-05:00_ - _Data commit: `1c7d5be17996`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 2 |
+| 📥 Inbox | 1 |
 | 🧭 Pre-planning | 8 |
 | 📝 Planned | 2 |
 | 🔨 In progress | 1 |
@@ -20,10 +20,10 @@ _Generated: 2026-08-12T23:31:55-05:00_ - _Data commit: `1c7d5be17996`_ - _last_r
 | ⏸️ Waiting on operator | 2 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 1 |
-| ✅ Done | 9 |
+| ✅ Done | 10 |
 | ❓ Other | 1 |
 
-## 📥 Inbox (2)
+## 📥 Inbox (1)
 _raw capture_
 
 ### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab
@@ -41,12 +41,6 @@ thread: **dashboarding** - status: **inbox** - approval: **explicit**
   - `design_notes`: Anti-word-vomit rules applied: (1) narrative first — pause_reason_human leads, and nothing on the dashboard consumed that attribute before; (2) CONDITIONAL rendering — must_start_by, force_charge_until, excess-solar and fill-target only ...
   - `followup_candidate`: retrofit conditional rendering to the Battery Strategy Detail card (same section group, same defect, ~30 min) — only if the operator endorses this card's style
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
-
-### `ZONE-MON-LEAK-1` - zone_monitoring tripwire firing on legacy zone_N motion/person event counters — 10 MEDIUM ledger rows in 6h
-thread: **security** - status: **inbox** - approval: **unreviewed**
-- **Origin:** 2026-08-12 - Found during FRIGATE-RETIRE-1 gate check: hazard_type=zone_monitoring_leak rows against automation.zone_{1,3}_{motion,person}_event_counter every few minutes.
-- **Why:** The CONSOL-1 tripwire (in-code, NM alert if the legacy zone-monitoring stack fires) is doing its job — the legacy counter automations are still running and leaking. Either they should have been disabled with the legacy stack (leak = real...
-- **Next:** Small triage: read the tripwire match list vs the 12 dormancy-receipt automations; if the counters are legacy-stack members, turn_off (Method 1, reversible) and confirm tripwire goes quiet; if benign, narrow the tripwire match. ~30min, T...
 
 ## 🧭 Pre-planning (8)
 _idea being decomposed_
@@ -599,7 +593,7 @@ thread: **hvac** - status: **parked** - approval: **unreviewed**
   - `sharp_problem`: Gaps: (1) boot reconciliation — on listener attach, classify any zone ALREADY in manual as inherited-manual and start standard arrest evaluation; (2) verify _handle_climate_change classifies within-manual setpoint deltas (manual->manual ...
   - `related`: Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire. RESOLVED 2026-08-12: operator power-cycled Enpower; all 3 reserve legs coherent at 10 (local number + envoy sensor + ...
 
-## ✅ Done (9)
+## ✅ Done (10)
 _closed, evidence in refs_
 
 ### `COMFORT-TOGGLE-1` - Dedicated enable switch for comfort-delay grace (vs grace_minutes=0 kill)
@@ -619,6 +613,14 @@ thread: **security** - status: **done** - approval: **explicit**
   - `resolution`: OPERATOR PICKED (2026-08-12): retire Frigate-1 entirely (FRIGATE-RETIRE-1) instead of thresholds/gate code. Probe + screenshots are the evidence base; corroboration doctrine parked.
   - `screenshots_2026_08_12`: Operator screenshots confirm: originals deliver WITH photo at detection (v5.71.0 proven twice — pool 03:56, front_side 04:06); text-only repeats are the unack-CRITICAL 5-min RE-PAGE loop (same detection timestamp in body), by design. Bot...
   - `fix_directions_for_operator`: (a) Frigate-side: raise person threshold / min_score on the 4 IR-affected cameras (fixes at the source, benefits everything downstream); (b) URA-side sustained-on gate ~3-5s before dispatch (catches all observed FPs, adds 3-5s latency to...
+
+### `ZONE-MON-LEAK-1` - zone_monitoring tripwire firing on legacy zone_N motion/person event counters — 10 MEDIUM ledger rows in 6h
+thread: **security** - status: **done** - approval: **unreviewed**
+- **Origin:** 2026-08-12 - Found during FRIGATE-RETIRE-1 gate check: hazard_type=zone_monitoring_leak rows against automation.zone_{1,3}_{motion,person}_event_counter every few minutes.
+- **Why:** The CONSOL-1 tripwire (in-code, NM alert if the legacy zone-monitoring stack fires) is doing its job — the legacy counter automations are still running and leaking. Either they should have been disabled with the legacy stack (leak = real...
+- **Next:** Small triage: read the tripwire match list vs the 12 dormancy-receipt automations; if the counters are legacy-stack members, turn_off (Method 1, reversible) and confirm tripwire goes quiet; if benign, narrow the tripwire match. ~30min, T...
+- **Forensic keys (1):**
+  - `fixed_2026_08_12`: FIXED live same day (operator batch approval): legacy pager silenced via its own gate booleans (zone1/zone3_monitoring_active OFF) + initial:true removed from packages/zone_monitoring.yaml (was re-arming every restart) + input_boolean re...
 
 ### `SUITE-HYGIENE-2` - Pollution-DEPENDENT tests — 5 files break under a clean sys.modules start
 thread: **quality** - status: **done** - approval: **unreviewed**
