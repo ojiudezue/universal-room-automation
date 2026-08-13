@@ -1,14 +1,29 @@
 {
-  "PLACEHOLDER": true,
   "bucket": "P18",
-  "entries": [],
-  "instructions": "This bucket cannot be filled by pure recorder replay. The operator or orchestrator MUST hand-build one row per the required_fields list, per the operator sign-off clause of amended Criterion 4 (PLANNING_signal_trust_ledger_abstraction.md, OPERATOR APPROVED 2026-08-13). Do NOT fabricate values \u2014 each row must correspond to a real, observed event or a synthetic trace the operator has reviewed and signed.",
-  "required_fields": [
-    "zone_name",
-    "fired_ts",
-    "continuous_occupied_since",
-    "any_room_occupied",
-    "confidence_verdict"
+  "detector": "M3 zone stale-occupancy (HVAC D6)",
+  "status": "SIGNED-OFF",
+  "signoff": "operator, 2026-08-13, verbatim: \"Stuck sensor recommends accepted\" — real NM-ledger ingestion accepted; P18 emit-site diagnosability fix folded into the STUCK-SENSOR-1 build",
+  "supplement_kind": "REAL-DATA ingestion from live NM ledger (2026-08-13) — per AUDIT §M3 recommendation, NOT replay, NOT invention",
+  "prod_source": {
+    "detector": "hvac.py:1567-1645 (D6 stale-occupancy: any_room_occupied AND house_state != sleep AND (now - continuous_occupied_since) > _max_occupancy_hours*3600; confidence check via presence.check_zone_occupancy_confidence; threshold = min(2, possible) if possible>0 else 1; confirmed < threshold -> stale -> effective_preset='away' + optional vacancy sweep)",
+    "nm_emit": "hvac.py:1621-1645 fire_stuck_signal(kind='zone_stale_occupancy', key=(zone.zone_name,), per-day latch)"
+  },
+  "notes": [
+    "All 7 entries are REAL rows ingested read-only from /config/universal_room_automation/data/universal_room_automation.db notification_log.",
+    "DIAGNOSABILITY GAP (same defect class as P24 pre-fix): the NM audit writer persists message='[audit]' and a generic title, and key=(zone_name,) is not persisted — zone_name, confirmed/possible counts, and continuous_occupied_since are UNRECOVERABLE for these rows. Fields below record exactly what is real; nothing is invented. Recommend extending the P24 title_override fix to the P18 emit site so future rows are attributable.",
+    "Per-day latch key (zone_name,) means these rows are a lower bound on firings.",
+    "confidence_verdict for every entry is 'confirmed < threshold' by construction — the NM fires only inside the insufficient-confirmation branch (hvac.py:1602-1645)."
   ],
-  "shortfall_reason": "M3 zone stale-occupancy reads zone-object state and calls check_zone_occupancy_confidence \u2014 a live cross-coordinator call not recoverable from the recorder. AUDIT \u00a7M3 row recommends using persisted NM + decision_log rows as the fixture surface instead of replay."
+  "entries": [
+    {"provenance": "REAL — notification_log id 2841", "zone_name": "UNRECOVERABLE ([audit] sentinel)", "fired_ts": "2026-08-04T17:33:34.255898+00:00", "continuous_occupied_since": "UNRECOVERABLE (> _max_occupancy_hours before fired_ts)", "any_room_occupied": true, "confidence_verdict": "confirmed < threshold (stale branch)", "severity": "MEDIUM"},
+    {"provenance": "REAL — notification_log id 2917", "zone_name": "UNRECOVERABLE", "fired_ts": "2026-08-05T18:17:36.641543+00:00", "continuous_occupied_since": "UNRECOVERABLE", "any_room_occupied": true, "confidence_verdict": "confirmed < threshold (stale branch)", "severity": "MEDIUM"},
+    {"provenance": "REAL — notification_log id 2925", "zone_name": "UNRECOVERABLE", "fired_ts": "2026-08-05T22:07:41.168707+00:00", "continuous_occupied_since": "UNRECOVERABLE", "any_room_occupied": true, "confidence_verdict": "confirmed < threshold (stale branch)", "severity": "MEDIUM", "note": "same-day as id 2917 — distinct rows on one day imply distinct zones (per-day latch is keyed by zone)"},
+    {"provenance": "REAL — notification_log id 2975", "zone_name": "UNRECOVERABLE", "fired_ts": "2026-08-06T20:55:20.042901+00:00", "continuous_occupied_since": "UNRECOVERABLE", "any_room_occupied": true, "confidence_verdict": "confirmed < threshold (stale branch)", "severity": "MEDIUM"},
+    {"provenance": "REAL — notification_log id 3217", "zone_name": "UNRECOVERABLE", "fired_ts": "2026-08-08T11:00:25.849126+00:00", "continuous_occupied_since": "UNRECOVERABLE", "any_room_occupied": true, "confidence_verdict": "confirmed < threshold (stale branch)", "severity": "MEDIUM"},
+    {"provenance": "REAL — notification_log id 3798", "zone_name": "UNRECOVERABLE", "fired_ts": "2026-08-13T01:47:27.706505+00:00", "continuous_occupied_since": "UNRECOVERABLE", "any_room_occupied": true, "confidence_verdict": "confirmed < threshold (stale branch)", "severity": "MEDIUM"},
+    {"provenance": "REAL — notification_log id 3860", "zone_name": "UNRECOVERABLE", "fired_ts": "2026-08-13T11:00:03.334828+00:00", "continuous_occupied_since": "UNRECOVERABLE", "any_room_occupied": true, "confidence_verdict": "confirmed < threshold (stale branch)", "severity": "MEDIUM"}
+  ],
+  "required_fields": ["zone_name", "fired_ts", "continuous_occupied_since", "any_room_occupied", "confidence_verdict"],
+  "minimum": 3,
+  "count": 7
 }

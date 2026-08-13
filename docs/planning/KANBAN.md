@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-13T17:58:51-05:00_ - _Data commit: `622a4986d770`_ - _last_reconciled: 2026-08-13_
+_Generated: 2026-08-13T18:01:30-05:00_ - _Data commit: `dc2925b8bad3`_ - _last_reconciled: 2026-08-13_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -14,14 +14,14 @@ _Generated: 2026-08-13T17:58:51-05:00_ - _Data commit: `622a4986d770`_ - _last_r
 | 📥 Inbox | 2 |
 | 🧭 Pre-planning | 8 |
 | 📝 Planned | 2 |
-| 🔨 In progress | 3 |
+| 🔨 In progress | 2 |
 | 🔍 Review | 0 |
 | 🚀 Shipped (organic open) | 27 |
 | ⏸️ Waiting on operator | 2 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 1 |
-| ✅ Done | 10 |
-| ❓ Other | 1 |
+| ✅ Done | 11 |
+| ❓ Other | 2 |
 
 ## 📥 Inbox (2)
 _raw capture_
@@ -169,7 +169,7 @@ thread: **presence** - status: **planned** - approval: **unreviewed**
 - **Forensic keys (1):**
   - `operator_question`: 50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests or a daytime FP flavor? If the latter, escalate per audit §3.
 
-## 🔨 In progress (3)
+## 🔨 In progress (2)
 _being built_
 
 ### `FRIGATE-RETIRE-1` - Retire Frigate-1 — promote Frigate-2 (yolov9t/OpenVINO, zero night ghosts) to primary incl. snapshot engine
@@ -187,12 +187,6 @@ thread: **security** - status: **in_progress** - approval: **approved**
   - `gate1_recheck_2026_08_13`: GATE-1 MET. Night window 08-12 23:00 -> 08-13 05:00 CT: ZERO person alerts (vs multiple F1 ghosts every prior night) — the ghost pattern died with F1. Only 2 legit-category vehicle deep-night alerts (rear_ptz, Protect-sourced). Clean cou...
   - `gate2_started_2026_08_13`: OPERATOR APPROVED. F1 HA integration entry 01JV6G4E57HT3WH86WSQ4RJT11 DISABLED + unloaded (11:4x CT). Container stop handed to operator (host is password-SSH only): ssh okosisi@192.168.13.16 sudo docker stop frigate double-take. Gate-2 c...
   - `reaudit_2026_08_13`: Operator-requested post-disable re-audit: PASS — 443 URA entity refs, 0 F1-owned; snapshot engine self-heals to F2-only; MQTT dual-prefix clean; census/resolver skip disabled entities. Findings ALL FIXED live same hour: MED automation.g6...
-
-### `ZONE-TIER-DIVERGE-1` - Upstairs zone read occupied (2 rooms) while house-state attrs showed Upstairs mode=away w/ zero provenance — house went away THROUGH an occupied zone
-thread: **presence** - status: **in_progress** - approval: **unreviewed**
-- **Origin:** 2026-08-13 - AWAY-BLOCK-1 other-fans sweep: zone_upstairs_rooms_occupied=2 + anyone=ON all afternoon, yet the 20:51Z away transition fired; Jaya Bedroom still URA-occupied past 21:31 (fan-latched, never released). Mechanism NOT asserted ...
-- **Why:** Opposite failure to AWAY-BLOCK-1: instead of occupancy wrongly blocking away, away fired despite a zone reading occupied. Either a second veto path correctly discounted Upstairs (then WHY did Entertainment veto?) or a tier-divergence bug...
-- **Next:** Source trace of zone->house occupancy aggregation divergence (which snapshot the away path consumed); probe-first. May be the real story of the 20:51 transition.
 
 ### `AWAY-BLOCK-1` - House held home_day 2h with everyone away — fan->mmWave->occupancy->fan self-sustaining loop; both away paths structurally blocked
 thread: **presence** - status: **in_progress** - approval: **unreviewed**
@@ -621,7 +615,7 @@ thread: **hvac** - status: **parked** - approval: **unreviewed**
   - `sharp_problem`: Gaps: (1) boot reconciliation — on listener attach, classify any zone ALREADY in manual as inherited-manual and start standard arrest evaluation; (2) verify _handle_climate_change classifies within-manual setpoint deltas (manual->manual ...
   - `related`: Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire. RESOLVED 2026-08-12: operator power-cycled Enpower; all 3 reserve legs coherent at 10 (local number + envoy sensor + ...
 
-## ✅ Done (10)
+## ✅ Done (11)
 _closed, evidence in refs_
 
 ### `COMFORT-TOGGLE-1` - Dedicated enable switch for comfort-delay grace (vs grace_minutes=0 kill)
@@ -649,6 +643,14 @@ thread: **security** - status: **done** - approval: **unreviewed**
 - **Next:** Small triage: read the tripwire match list vs the 12 dormancy-receipt automations; if the counters are legacy-stack members, turn_off (Method 1, reversible) and confirm tripwire goes quiet; if benign, narrow the tripwire match. ~30min, T...
 - **Forensic keys (1):**
   - `fixed_2026_08_12`: FIXED live same day (operator batch approval): legacy pager silenced via its own gate booleans (zone1/zone3_monitoring_active OFF) + initial:true removed from packages/zone_monitoring.yaml (was re-arming every restart) + input_boolean re...
+
+### `ZONE-TIER-DIVERGE-1` - Upstairs zone read occupied (2 rooms) while house-state attrs showed Upstairs mode=away w/ zero provenance — house went away THROUGH an occupied zone
+thread: **presence** - status: **done** - approval: **unreviewed**
+- **Origin:** 2026-08-13 - AWAY-BLOCK-1 other-fans sweep: zone_upstairs_rooms_occupied=2 + anyone=ON all afternoon, yet the 20:51Z away transition fired; Jaya Bedroom still URA-occupied past 21:31 (fan-latched, never released). Mechanism NOT asserted ...
+- **Why:** Opposite failure to AWAY-BLOCK-1: instead of occupancy wrongly blocking away, away fired despite a zone reading occupied. Either a second veto path correctly discounted Upstairs (then WHY did Entertainment veto?) or a tier-divergence bug...
+- **Next:** Source trace of zone->house occupancy aggregation divergence (which snapshot the away path consumed); probe-first. May be the real story of the 20:51 transition.
+- **Forensic keys (1):**
+  - `resolved_2026_08_13`: TRACED — verdict BUG (not discount rule, not display). Root cause carded as ROOM-NAME-DESYNC-1. AUDIT_zone_tier_divergence.md is the record. Also unblocks PATH-ALPHA-DENOM-1 investigation (gate satisfied).
 
 ### `SUITE-HYGIENE-2` - Pollution-DEPENDENT tests — 5 files break under a clean sys.modules start
 thread: **quality** - status: **done** - approval: **unreviewed**
@@ -733,8 +735,16 @@ thread: **hvac** - status: **done** - approval: **explicit**
   - `VERDICT`: REMOVING WRITER B DID NOT STOP THE PRESET FLAP. Writer B retirement is confirmed shipped (v5.56.0, 2026-08-06, commit d604716f7 "delete Writer B", Tier 2-DB + 3 reviews) and ZoneAnyoneBinarySensor no longer has a preset-write path — veri...
   - `spawned`: HVAC-PRESET-FLAP-1 (the flap persists; cause unknown; blocked on the reason ledger)
 
-## ❓ Other (1)
+## ❓ Other (2)
 _unknown status bucket_
+
+### `ROOM-NAME-DESYNC-1` - Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped)
+thread: **presence** - status: **waiting_on_operator** - approval: **unreviewed**
+- **Origin:** 2026-08-13 - ZONE-TIER-DIVERGE-1 thorough trace: presence house tier keys rooms by entry.data room_name (presence.py:2868); substrate dispatches under options-first merged name (occupancy_substrate.py:197-202). 3 rooms renamed via option...
+- **Why:** BUG, live now (smoking gun: jaya_3_presence=on w/ substrate_kinds all-false). The 08-13 20:51 away transition fired THROUGH occupied Upstairs precisely because the house tier could not see the two renamed rooms. Blast radius: away/veto/c...
+- **Next:** Operator picks (a) now vs (b) after-sensors; then Tier 2-DB cycle (plan review first).
+- **Forensic keys (1):**
+  - `operator_decision`: SEQUENCING TRADE: (a) config-mitigate NOW (re-align 3 entries names) = house tier regains sight, but away gets HARDER (3 more phantom-holdable mmWave zones until corroborators arrive — rec 1 hardware is operator-owned); (b) sequence the ...
 
 ### `CIRCLING-LABEL-1` - Circling loops page but are never LABELLED/escalated as circling (2-camera shape) — cooldown blocks the hop where classification forms
 thread: **perimeter** - status: **waiting_on_operator** - approval: **unreviewed**

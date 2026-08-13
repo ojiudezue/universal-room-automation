@@ -1,14 +1,58 @@
 {
-  "PLACEHOLDER": true,
   "bucket": "D1",
-  "entries": [],
-  "instructions": "This bucket cannot be filled by pure recorder replay. The operator or orchestrator MUST hand-build one row per the required_fields list, per the operator sign-off clause of amended Criterion 4 (PLANNING_signal_trust_ledger_abstraction.md, OPERATOR APPROVED 2026-08-13). Do NOT fabricate values \u2014 each row must correspond to a real, observed event or a synthetic trace the operator has reviewed and signed.",
-  "required_fields": [
-    "camera_entity_id",
-    "fired_ts",
-    "person_count",
-    "hold_hours",
-    "corroboration_snapshot"
+  "detector": "M4 camera stuck-count (v5.35.0 + v5.36.1 never-zero sibling rule)",
+  "status": "SIGNED-OFF",
+  "signoff": "operator, 2026-08-13, verbatim: \"Stuck sensor recommends accepted\" — 3 source-derived synthetics accepted, minimum unchanged (3)",
+  "supplement_kind": "hand-built SOURCE-DERIVED (2026-08-13) — zero real firings exist; the event has never occurred in production",
+  "prod_source": {
+    "detector": "camera_census.py:1948-2135 _watchdog_stuck_cameras",
+    "thresholds": "const.py:3503 DEFAULT_STUCK_CAMERA_HOURS=3.0 (unchanged rule); const.py:3548 STUCK_CAMERA_NEVERZERO_HOURS=6.0 (never-zero rule, camera_census.py:2054)",
+    "corroboration": "camera_census.py:2060-2066 — corroborators = int(ble_here>0) + int(room_tier>0); corroborated iff >= tiers_required (DEFAULT_STUCK_CAMERA_INTERIOR_TIERS_REQUIRED=1, const.py:~3508)",
+    "discount_safety": "camera_census.py:2068-2098 — area_id None or no configured interior tier -> notify-only, never census-discounted",
+    "nm_emit": "camera_census.py:2115-2123 _fire_camera_stuck_nm (fires regardless of discount decision; per-day latch)",
+    "diag_shape": "camera_census.py:2081-2097 entry_diag — fixture entries mirror this dict"
+  },
+  "calibration_flag": "AUDIT §D1: observed interior max unchanged person_count>0 hold was 0.31h vs the 3.0h threshold — ~10x margin. ALTERNATIVE FOR SIGN-OFF: lower this bucket's minimum (3 -> 0 or 1) on the grounds that a detector that has never fired has no oracle to be frozen to (AUDIT recommendation (c)); or re-examine the threshold calibration before the ledger freezes it (WATCHDOG-INERT-1). The 3 synthetic cases below are offered only if the minimum is kept.",
+  "entries": [
+    {
+      "provenance": "SOURCE-DERIVED — unchanged-value rule; NOT observed live",
+      "camera_entity_id": "camera.playroom",
+      "fired_ts": "2026-08-13T12:00:00+00:00",
+      "person_count": 1,
+      "hold_hours": 3.05,
+      "rule": "unchanged",
+      "nonzero_hours": 3.05,
+      "corroboration_snapshot": {"area_id": "playroom", "ble_here": 0, "room_tier_on": 0, "interior_corroborators": 0, "tiers_required": 1, "corroborated": false},
+      "discounted": true,
+      "trace": "count>0 held unchanged 3.05h >= 3.0h (camera_census.py:2050-2055); zero corroborators < tiers_required (2064-2066); area has configured interior tier -> safe_to_discount (2076-2079); NM fires (2115-2123)"
+    },
+    {
+      "provenance": "SOURCE-DERIVED — never-zero sibling rule (v5.36.1 FIX 2, oscillating phantom); NOT observed live",
+      "camera_entity_id": "camera.family_room",
+      "fired_ts": "2026-08-13T18:00:00+00:00",
+      "person_count": 2,
+      "hold_hours": 0.02,
+      "rule": "never_zero",
+      "nonzero_hours": 6.1,
+      "corroboration_snapshot": {"area_id": "family_room", "ble_here": 0, "room_tier_on": 0, "interior_corroborators": 0, "tiers_required": 1, "corroborated": false},
+      "discounted": true,
+      "trace": "value changes every tick so unchanged window keeps resetting (camera_census.py:2038-2047) but nonzero_since persists across changes (2025-2035); nonzero_hours 6.1 >= 6.0 (2052-2054); NM carries nonzero_hours since unchanged_hit is False (2120-2121)"
+    },
+    {
+      "provenance": "SOURCE-DERIVED — notify-only path, no interior tier in area (A-HIGH-3); NOT observed live",
+      "camera_entity_id": "camera.garage_b",
+      "fired_ts": "2026-08-13T20:00:00+00:00",
+      "person_count": 1,
+      "hold_hours": 6.52,
+      "rule": "unchanged",
+      "nonzero_hours": 6.52,
+      "corroboration_snapshot": {"area_id": "garage", "ble_here": 0, "room_tier_on": 0, "interior_corroborators": 0, "tiers_required": 1, "corroborated": false},
+      "discounted": false,
+      "notify_only_reason": "no_interior_tier",
+      "trace": "area not in _interior_configured_areas -> safe_to_discount False, camera never census-dropped, NM still fires (camera_census.py:2071-2098, 2115-2123). Hold value 6.52h mirrors the REAL sensor.garage_b_person_count 6.52h observation from AUDIT §D1 (a perimeter camera D1 correctly excludes — reused here as a realistic magnitude, not as a claimed firing)"
+    }
   ],
-  "shortfall_reason": "M4 camera stuck-count did not fire in the 7.46-day audit window; interior max unchanged person_count>0 hold was 0.31h vs 3.0h threshold (~10x margin). Additionally, the discount decision reads URA-derived per-tick state (_ble_home_by_area, _room_tier_corroboration_by_area) that is not in the recorder. Supplement per AUDIT \u00a7D1."
+  "required_fields": ["camera_entity_id", "fired_ts", "person_count", "hold_hours", "corroboration_snapshot"],
+  "minimum": 3,
+  "count": 3
 }

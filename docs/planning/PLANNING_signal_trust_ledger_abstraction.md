@@ -379,3 +379,26 @@ supplement where replay is impossible by construction (M2/P24 closed-loop), per
 AUDIT_ledger_golden_fixture_yield.md. The LEDGER_GOLDEN_TAP_ENABLED runtime tap and its
 .storage/ura_ledger_golden/ writer are DROPPED from the plan. Unblocks: replay-harness build ->
 STUCK-SENSOR-1.
+
+### CRITERION 4 SATISFIED 2026-08-13
+
+Operator sign-off received 2026-08-13 (verbatim: **"Stuck sensor recommends accepted"**) on the
+hand-built supplements drafted on branch `build/ledger-fixture-supplements`. Per-bucket close-out
+(fixtures + manifest at `quality/fixtures/ledger_golden/`):
+
+| Bucket | Min | Count | How satisfied |
+|---|---|---|---|
+| P22 | 5 | 13 | Replay-filled (offline harness) |
+| D2 | 3 | 56 | Replay-filled (offline harness) |
+| P24 | 5 | 5 | **Signed supplement** — 3 REAL (NM ids 3591/3425/2930; 2 with unrecoverable room_name accepted) + 2 SOURCE-DERIVED synthetics |
+| P18 | 3 | 7 | **Signed supplement** — 7 REAL NM-ledger rows; emit-site diagnosability fix (title_override at hvac.py:1621) folded into the STUCK-SENSOR-1 build |
+| D1 | 3 | 3 | **Signed supplement** — 3 source-derived synthetics; minimum unchanged |
+| CHATTER | 3 | deferred | **Deferred by sign-off** — criterion 4 gates the M5-chatter MIGRATION, not initial GO (no production site exists; extraction-not-invention) |
+| D3 | — | — | **Obsolete-adjudicated** — detector deleted 2026-08-10 (const.py:3523-3526); bucket dropped from minimums |
+
+Harness hardening landed with the sign-off: `quality/tools/ledger_golden_replay.py` now PRESERVES
+signed/adjudicated fixture files on regeneration (statuses SIGNED-OFF / DEFERRED-UNTIL-SITE-SHIPS /
+OBSOLETE-BUCKET-DROPPED are never overwritten; manifest sign-off blocks merge-preserved), verified
+by `quality/tests/test_ledger_golden_replay_preserve.py`.
+
+**Gate state: criteria 1, 2, 3, 4 met. Open: 5 (operator explicit GO on the cycle itself).**
