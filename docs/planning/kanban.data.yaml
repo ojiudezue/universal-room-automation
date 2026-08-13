@@ -17,7 +17,7 @@ cards:
 - id: STUCK-SENSOR-1
   title: Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
   thread: presence
-  status: planned
+  status: in_progress
   approval: explicit
   approved_by: 'operator 2026-08-09 ("and what comes after it") — the chatter/reliability cycle that
     follows SENSOR-CAPABILITY-1, absorbing the mmwave-Tier3 D6 parked deliverable. NOTE: this approval
@@ -158,6 +158,8 @@ cards:
   amendment_approved_2026_08_13: 'Operator approved the criterion-4 amendment (offline replay harness + hand-built supplement; runtime tap DROPPED — recorded in PLANNING_signal_trust_ledger_abstraction.md). Unblock path ACTIVE: build/ledger-golden-replay harness in flight -> then this cycle builds.'
   harness_landed_2026_08_13: 'Replay harness MERGED (fe9bfc845): P22 (13/5) + D2 (56/3, boot-settle unmodelled -> discount vs audit 13) FILLED from replay. Remaining criterion-4 work before this cycle builds: hand-built supplements for P24/P18/D1/CHATTER (operator sign-off required per amendment) + adjudicate D3 bucket (its frozen-tracker detector was DELETED 2026-08-10 — bucket likely obsolete, minimums need a plan edit) + P18 NM-ledger ingestion follow-up. Hand-building the supplements is orchestrator work, queued behind the circling/QoL wave.'
   approved_2026_08_13: 'OPERATOR APPROVED (during AWAY-BLOCK-1 incident review: "Stuck sensor is approved"). Spec confirmed to operator: it ACTUATES (corroboration-gated exclusion at room tier), not notify-only. Taxonomy caution from the incident: fan-latch is TRUE motion mis-attributed, not sensor pathology — verify during plan/build that the exclusion gate keys off the duty FLAG (which fired here) and composes with fan-aware demotion, or the build fixes stuck-class only. Remaining blocker: criterion-4 hand-built fixture supplements (orchestrator queued, pulled forward) + operator sign-off on supplements + D3-bucket obsolescence adjudication.'
+  build_dispatched_2026_08_13: 'Plan rev-2 (plan review: HIGH corroborator-window-subsumed -> 900s + still-person test; P22 restore-poisoning boot guard; fixture emit-only-when-True + replay pre-deploy gate; merged-accessor pin). Build in flight (worktree). Criterion-4 CLOSED same day (signed supplements merged).'
+
 
 - id: SENSOR-CAPABILITY-1
   title: Separate sensor CAPABILITY (hardware kind) from analytic ROLE — kind is currently the config bucket
@@ -1045,7 +1047,7 @@ cards:
 - id: ROOM-NAME-DESYNC-1
   title: Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped)
   thread: presence
-  status: waiting_on_operator
+  status: in_progress
   approval: unreviewed
   origin:
     date: '2026-08-13'
@@ -1053,6 +1055,8 @@ cards:
   why: 'BUG, live now (smoking gun: jaya_3_presence=on w/ substrate_kinds all-false). The 08-13 20:51 away transition fired THROUGH occupied Upstairs precisely because the house tier could not see the two renamed rooms. Blast radius: away/veto/census, WAKING gate, v5.46.0 fan gate + fan-interference + D2 legs (all dead for the 3 rooms), zone confidence.'
   operator_decision: 'SEQUENCING TRADE: (a) config-mitigate NOW (re-align 3 entries names) = house tier regains sight, but away gets HARDER (3 more phantom-holdable mmWave zones until corroborators arrive — rec 1 hardware is operator-owned); (b) sequence the fix AFTER corroborators land. Then either way: Tier 2-DB cycle = options rename write-through to entry.data + one-shot sync migration + name-consistency invariant test.'
   next: 'Operator picks (a) now vs (b) after-sensors; then Tier 2-DB cycle (plan review first).'
+  build_dispatched_2026_08_13: 'Plan rev-2 (plan review: 4 HIGH fixed incl. double-reload + setup-reload-watchdog ordering + 3rd write site + CONF_ZONE fold-in). Build in flight (worktree). Hand-sync mitigation VERIFIED live same evening (Upstairs zone occupied w/ real provenance).'
+
 
 - id: ZONE-TIER-DIVERGE-1
   title: Upstairs zone read occupied (2 rooms) while house-state attrs showed Upstairs mode=away w/ zero provenance — house went away THROUGH an occupied zone

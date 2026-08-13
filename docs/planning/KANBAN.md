@@ -13,15 +13,15 @@ _Generated: 2026-08-13T18:05:39-05:00_ - _Data commit: `2601063c09ba`_ - _last_r
 |---|---:|
 | 📥 Inbox | 2 |
 | 🧭 Pre-planning | 8 |
-| 📝 Planned | 2 |
-| 🔨 In progress | 2 |
+| 📝 Planned | 1 |
+| 🔨 In progress | 4 |
 | 🔍 Review | 0 |
 | 🚀 Shipped (organic open) | 27 |
 | ⏸️ Waiting on operator | 2 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 1 |
 | ✅ Done | 11 |
-| ❓ Other | 2 |
+| ❓ Other | 1 |
 
 ## 📥 Inbox (2)
 _raw capture_
@@ -130,18 +130,29 @@ thread: **lifecycle** - status: **pre_planning** - approval: **explicit**
   - `diagnosis`: CONFIRMED (2026-08-07): _async_update_listener (__init__.py:5984) - for the INTEGRATION entry, if changed_keys NOT subset of OPTIONS_RELOAD_SUPPRESS_KEYS -> hass.config_entries.async_reload(entry.entry_id). Reloading the INTEGRATION (par...
   - `fix`: Add Camera Census keys to an INTEGRATION-entry suppress set (mirror the CM/ROOM reload-suppression). Persistence already done by async_update_entry.
 
-## 📝 Planned (2)
+## 📝 Planned (1)
 _has plan / acceptance_
 
+### `GUEST-FP-RESIDUALS-1` - Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent)
+thread: **presence** - status: **planned** - approval: **unreviewed**
+- **Origin:** 2026-08-13 - AUDIT_guest_fp_fixes_wiring.md: core fixes SHIPPED + Outside zone correctly flagged outdoor; two residuals worth small fixes.
+- **Why:** A1: path-alpha excluded_persons/tracked_persons_count_trusted still exclude LOST-away persons (diagnostic clarity only — guest gate does not read them). B1: camera-census has no room->outdoor filter; safe today (Patio has no camera perso...
+- **Next:** Fold A1+B1 into the next presence hotfix batch; await operator answer on the 50-episode pattern.
+- **Forensic keys (1):**
+  - `operator_question`: 50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests or a daytime FP flavor? If the latter, escalate per audit §3.
+
+## 🔨 In progress (4)
+_being built_
+
 ### `STUCK-SENSOR-1` - Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
-thread: **presence** - status: **planned** - approval: **explicit**
+thread: **presence** - status: **in_progress** - approval: **explicit**
 - **Origin:** 2026-08-09 - operator diagnosed a stuck Zigbee mmWave holding master occupancy; asked why I did not see it
 - **Why:** URA's duty-cycle detector DOES catch stuck sensors and logs: 'Sensor <x> duty-cycle stuck (on-ratio exceeded over rolling window) — NOTIFY-ONLY, not excluded from occupancy'. It then KEEPS USING the stuck sensor for occupancy. Detection ...
 - **Next:** BLOCKED on SENSOR-CAPABILITY-1 — do not scope exclusion until capability/role are separated, else the corroborator must be hardcoded as PIR (the defect). Then: per-room corroborator capability map from AUDIT_mmwave_only_rooms_2026-07-31....
 - **Tags:** tier-2db, no-fabrication-verify, context-wide-scoping
 - **Depends on:** SENSOR-CAPABILITY-1
 - **Parsimony:** [BUILD] a stuck sensor silently fabricates occupancy and drives fans/HVAC/lighting in empty rooms
-- **Forensic keys (18):**
+- **Forensic keys (19):**
   - `my_miss`: I READ these exact warnings hours earlier and dismissed them as 'routine, not a crash' — I was scanning for crashes, so a WARNING that was not a crash read as noise. The message named its own defect and I skimmed it. Rule: a warning that...
   - `gaps`: 1. NO CONSEQUENCE: stuck sensors are not excluded from the occupancy substrate.
   - `fix`: 1. Graduate D2 to exclusion behind the house-state gate the code always planned ('exclusion graduates in a later cycle behind a house-state gate'). The sleeping-person objection holds for bedrooms in sleep/home_night; it does NOT hold wh...
@@ -160,17 +171,7 @@ thread: **presence** - status: **planned** - approval: **explicit**
   - `amendment_approved_2026_08_13`: Operator approved the criterion-4 amendment (offline replay harness + hand-built supplement; runtime tap DROPPED — recorded in PLANNING_signal_trust_ledger_abstraction.md). Unblock path ACTIVE: build/ledger-golden-replay harness in fligh...
   - `harness_landed_2026_08_13`: Replay harness MERGED (fe9bfc845): P22 (13/5) + D2 (56/3, boot-settle unmodelled -> discount vs audit 13) FILLED from replay. Remaining criterion-4 work before this cycle builds: hand-built supplements for P24/P18/D1/CHATTER (operator si...
   - `approved_2026_08_13`: OPERATOR APPROVED (during AWAY-BLOCK-1 incident review: "Stuck sensor is approved"). Spec confirmed to operator: it ACTUATES (corroboration-gated exclusion at room tier), not notify-only. Taxonomy caution from the incident: fan-latch is ...
-
-### `GUEST-FP-RESIDUALS-1` - Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent)
-thread: **presence** - status: **planned** - approval: **unreviewed**
-- **Origin:** 2026-08-13 - AUDIT_guest_fp_fixes_wiring.md: core fixes SHIPPED + Outside zone correctly flagged outdoor; two residuals worth small fixes.
-- **Why:** A1: path-alpha excluded_persons/tracked_persons_count_trusted still exclude LOST-away persons (diagnostic clarity only — guest gate does not read them). B1: camera-census has no room->outdoor filter; safe today (Patio has no camera perso...
-- **Next:** Fold A1+B1 into the next presence hotfix batch; await operator answer on the 50-episode pattern.
-- **Forensic keys (1):**
-  - `operator_question`: 50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests or a daytime FP flavor? If the latter, escalate per audit §3.
-
-## 🔨 In progress (2)
-_being built_
+  - `build_dispatched_2026_08_13`: Plan rev-2 (plan review: HIGH corroborator-window-subsumed -> 900s + still-person test; P22 restore-poisoning boot guard; fixture emit-only-when-True + replay pre-deploy gate; merged-accessor pin). Build in flight (worktree). Criterion-4...
 
 ### `FRIGATE-RETIRE-1` - Retire Frigate-1 — promote Frigate-2 (yolov9t/OpenVINO, zero night ghosts) to primary incl. snapshot engine
 thread: **security** - status: **in_progress** - approval: **approved**
@@ -187,6 +188,15 @@ thread: **security** - status: **in_progress** - approval: **approved**
   - `gate1_recheck_2026_08_13`: GATE-1 MET. Night window 08-12 23:00 -> 08-13 05:00 CT: ZERO person alerts (vs multiple F1 ghosts every prior night) — the ghost pattern died with F1. Only 2 legit-category vehicle deep-night alerts (rear_ptz, Protect-sourced). Clean cou...
   - `gate2_started_2026_08_13`: OPERATOR APPROVED. F1 HA integration entry 01JV6G4E57HT3WH86WSQ4RJT11 DISABLED + unloaded (11:4x CT). Container stop handed to operator (host is password-SSH only): ssh okosisi@192.168.13.16 sudo docker stop frigate double-take. Gate-2 c...
   - `reaudit_2026_08_13`: Operator-requested post-disable re-audit: PASS — 443 URA entity refs, 0 F1-owned; snapshot engine self-heals to F2-only; MQTT dual-prefix clean; census/resolver skip disabled entities. Findings ALL FIXED live same hour: MED automation.g6...
+
+### `ROOM-NAME-DESYNC-1` - Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped)
+thread: **presence** - status: **in_progress** - approval: **unreviewed**
+- **Origin:** 2026-08-13 - ZONE-TIER-DIVERGE-1 thorough trace: presence house tier keys rooms by entry.data room_name (presence.py:2868); substrate dispatches under options-first merged name (occupancy_substrate.py:197-202). 3 rooms renamed via option...
+- **Why:** BUG, live now (smoking gun: jaya_3_presence=on w/ substrate_kinds all-false). The 08-13 20:51 away transition fired THROUGH occupied Upstairs precisely because the house tier could not see the two renamed rooms. Blast radius: away/veto/c...
+- **Next:** Operator picks (a) now vs (b) after-sensors; then Tier 2-DB cycle (plan review first).
+- **Forensic keys (2):**
+  - `operator_decision`: SEQUENCING TRADE: (a) config-mitigate NOW (re-align 3 entries names) = house tier regains sight, but away gets HARDER (3 more phantom-holdable mmWave zones until corroborators arrive — rec 1 hardware is operator-owned); (b) sequence the ...
+  - `build_dispatched_2026_08_13`: Plan rev-2 (plan review: 4 HIGH fixed incl. double-reload + setup-reload-watchdog ordering + 3rd write site + CONF_ZONE fold-in). Build in flight (worktree). Hand-sync mitigation VERIFIED live same evening (Upstairs zone occupied w/ real...
 
 ### `AWAY-BLOCK-1` - House held home_day 2h with everyone away — fan->mmWave->occupancy->fan self-sustaining loop; both away paths structurally blocked
 thread: **presence** - status: **in_progress** - approval: **unreviewed**
@@ -735,16 +745,8 @@ thread: **hvac** - status: **done** - approval: **explicit**
   - `VERDICT`: REMOVING WRITER B DID NOT STOP THE PRESET FLAP. Writer B retirement is confirmed shipped (v5.56.0, 2026-08-06, commit d604716f7 "delete Writer B", Tier 2-DB + 3 reviews) and ZoneAnyoneBinarySensor no longer has a preset-write path — veri...
   - `spawned`: HVAC-PRESET-FLAP-1 (the flap persists; cause unknown; blocked on the reason ledger)
 
-## ❓ Other (2)
+## ❓ Other (1)
 _unknown status bucket_
-
-### `ROOM-NAME-DESYNC-1` - Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped)
-thread: **presence** - status: **waiting_on_operator** - approval: **unreviewed**
-- **Origin:** 2026-08-13 - ZONE-TIER-DIVERGE-1 thorough trace: presence house tier keys rooms by entry.data room_name (presence.py:2868); substrate dispatches under options-first merged name (occupancy_substrate.py:197-202). 3 rooms renamed via option...
-- **Why:** BUG, live now (smoking gun: jaya_3_presence=on w/ substrate_kinds all-false). The 08-13 20:51 away transition fired THROUGH occupied Upstairs precisely because the house tier could not see the two renamed rooms. Blast radius: away/veto/c...
-- **Next:** Operator picks (a) now vs (b) after-sensors; then Tier 2-DB cycle (plan review first).
-- **Forensic keys (1):**
-  - `operator_decision`: SEQUENCING TRADE: (a) config-mitigate NOW (re-align 3 entries names) = house tier regains sight, but away gets HARDER (3 more phantom-holdable mmWave zones until corroborators arrive — rec 1 hardware is operator-owned); (b) sequence the ...
 
 ### `CIRCLING-LABEL-1` - Circling loops page but are never LABELLED/escalated as circling (2-camera shape) — cooldown blocks the hop where classification forms
 thread: **perimeter** - status: **waiting_on_operator** - approval: **unreviewed**
