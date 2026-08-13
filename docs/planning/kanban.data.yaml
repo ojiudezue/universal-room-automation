@@ -1447,7 +1447,7 @@ cards:
 - id: OVERRIDE-NOTIFY-1
   title: Warn before the Temp Arrester Override expires
   thread: hvac
-  status: in_progress
+  status: done
   approval: explicit
   shape_confirmed_2026_08_13: 'Operator OK''d the 3-part shape (T-5min decay warn / immediate deferral notice / release notice) with the QoL trio approval.'
   approved_by: operator
@@ -1474,6 +1474,9 @@ cards:
     verdict: BUILD
     note: small, additive, rides the existing NM note path added in v5.61.0
   next: confirm the 3-part shape with operator, then build with the SNAP-1 batch or standalone
+  stale_card_found_2026_08_13: 'Builder finding-vs-reality: ALREADY SHIPPED in v5.62.0 (verified in source + tests passing). Card status was stale since ship — fourth stale-status find of 2026-08-13 (with EV-DP and guest-FP memories). No work done.'
+
+
 - id: ARREST-SUNSET-1
   title: Temp Arrester Override does not sunset on away/vacation (only sleep)
   thread: hvac
@@ -1578,7 +1581,7 @@ cards:
 - id: TRANSIT-DIAG-1
   title: Expose checkpoint_cameras_by_area on a diagnostic sensor
   thread: presence
-  status: in_progress
+  status: done
   approval: implied
   tags:
   - numbers-get-knobs
@@ -1597,6 +1600,9 @@ cards:
   next: fold into the SECC-1 build batch
   refs:
   - docs/readmes/README_v5.60.0.md live-validation method note
+  stale_card_found_2026_08_13: 'Builder finding-vs-reality: ALREADY SHIPPED in v5.60.0 (verified in source + tests passing). Card status was stale since ship — fourth stale-status find of 2026-08-13 (with EV-DP and guest-FP memories). No work done.'
+
+
 - id: CONSOL-1
   title: Perimeter consolidation cycle
   thread: perimeter

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-12T22:27:04-05:00_ - _Data commit: `6766263a0dc8`_ - _last_reconciled: 2026-08-12_
+_Generated: 2026-08-12T22:38:31-05:00_ - _Data commit: `3080bd838b7b`_ - _last_reconciled: 2026-08-12_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -14,13 +14,13 @@ _Generated: 2026-08-12T22:27:04-05:00_ - _Data commit: `6766263a0dc8`_ - _last_r
 | 📥 Inbox | 2 |
 | 🧭 Pre-planning | 9 |
 | 📝 Planned | 2 |
-| 🔨 In progress | 4 |
+| 🔨 In progress | 2 |
 | 🔍 Review | 0 |
 | 🚀 Shipped (organic open) | 25 |
 | ⏸️ Waiting on operator | 2 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 1 |
-| ✅ Done | 7 |
+| ✅ Done | 9 |
 
 ## 📥 Inbox (2)
 _raw capture_
@@ -173,7 +173,7 @@ thread: **presence** - status: **planned** - approval: **unreviewed**
 - **Forensic keys (1):**
   - `operator_question`: 50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests or a daytime FP flavor? If the latter, escalate per audit §3.
 
-## 🔨 In progress (4)
+## 🔨 In progress (2)
 _being built_
 
 ### `FRIGATE-RETIRE-1` - Retire Frigate-1 — promote Frigate-2 (yolov9t/OpenVINO, zero night ghosts) to primary incl. snapshot engine
@@ -188,28 +188,6 @@ thread: **security** - status: **in_progress** - approval: **approved**
   - `operator_refinements_2026_08_12`: (1) FP-gate preference RULED: cross-corroboration (Protect agreement) preferred over duration/latency gates — "I don't like the latency idea. Much prefer x-corroboration." Applies if frigate-2 ghosts post-promotion. (2) Evidence chain: h...
   - `ura_ref_swap`: FOUND during window-open verify (audit's "zero URA changes" was wrong at the entity layer): 26 F1-owned entity refs across 4 URA config entries (main entry 14 perimeter cameras, Zone Manager 6 occupancy sensors, Garage Hallway 3, Garage ...
   - `entity_migration_2026_08_12`: DONE (operator approved). Mechanism pivot: ha CLI unauthorized for ssh user -> did 50 entity-registry renames via API instead of .storage surgery: every dead F1 entity -> *_f1retired (reversible), F2 twin -> the id URA references. Bonus:...
-
-### `OVERRIDE-NOTIFY-1` - Warn before the Temp Arrester Override expires
-thread: **hvac** - status: **in_progress** - approval: **explicit**
-- **Origin:** 2026-08-07 - "The only real optimization is getting a text that says your override is about to expire 5 mins before a boundary"
-- **Why:** We built the release logic but never tell the operator it is coming — the override silently vanishes and the setpoint drifts back. A heads-up makes it usable: re-engage in one tap instead of noticing an hour later that the master went cold.
-- **Next:** confirm the 3-part shape with operator, then build with the SNAP-1 batch or standalone
-- **Tags:** numbers-get-knobs
-- **Parsimony:** [BUILD] override releases silently; operator discovers it by feeling cold
-- **Forensic keys (2):**
-  - `shape_confirmed_2026_08_13`: Operator OK'd the 3-part shape (T-5min decay warn / immediate deferral notice / release notice) with the QoL trio approval.
-  - `design_note`: 5-min-ahead warning is only possible for PREDICTABLE expiries. House-state transitions are NOT scheduled - we cannot know home_evening is coming. So: (a) pre-warn the 6h decay at T-5min; (b) on a grace DEFERRAL, warn immediately ('contex...
-
-### `TRANSIT-DIAG-1` - Expose checkpoint_cameras_by_area on a diagnostic sensor
-thread: **presence** - status: **in_progress** - approval: **implied**
-- **Origin:** 2026-08-07 - operator: "Will you fix what the validation exposed?" - v5.60.0 live validation needed log-level surgery + a registry touch just to read the checkpoint inventory
-- **Why:** checkpoint_cameras_by_area is a Python attribute only and URA logs at WARNING, so the feature is unobservable without raising log level and forcing a rebuild. Validation should not require surgery.
-- **Next:** fold into the SECC-1 build batch
-- **Tags:** numbers-get-knobs
-- **Parsimony:** [BUILD] shipped feature is not observable live
-- **Refs:** docs/readmes/README_v5.60.0.md live-validation method note
-- **Forensic keys (1):**
-  - `fix`: additive diagnostic sensor (or attrs on an existing presence diagnostic) exposing checkpoint_cameras_by_area + protect_sourced count. Read-only.
 
 ### `D3-AREA-INHERIT` - URA D3 fused sensor should inherit room area on creation
 thread: **camera** - status: **in_progress** - approval: **implied**
@@ -616,7 +594,7 @@ thread: **hvac** - status: **parked** - approval: **unreviewed**
   - `sharp_problem`: Gaps: (1) boot reconciliation — on listener attach, classify any zone ALREADY in manual as inherited-manual and start standard arrest evaluation; (2) verify _handle_climate_change classifies within-manual setpoint deltas (manual->manual ...
   - `related`: Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire. RESOLVED 2026-08-12: operator power-cycled Enpower; all 3 reserve legs coherent at 10 (local number + envoy sensor + ...
 
-## ✅ Done (7)
+## ✅ Done (9)
 _closed, evidence in refs_
 
 ### `COMFORT-TOGGLE-1` - Dedicated enable switch for comfort-delay grace (vs grace_minutes=0 kill)
@@ -644,6 +622,30 @@ thread: **quality** - status: **done** - approval: **unreviewed**
 - **Next:** Small cycle after FAN-LAYER-2 ships: per-file stub-completeness for the 5 dependents, widen prefixes, expect stable-failure count to DROP by ~7. Census + experiment logs in SUITE-HYGIENE-1 scratchpad + conftest docstring.
 - **Forensic keys (1):**
   - `done_2026_08_13`: Merged 109ff9381 (test-only): test_heatcool_enforcer.py made self-sufficient (own hvac_setpoint stub; was 6-failed standalone, now 6-passed). Census re-audit: other 4 flagged files stale/misclassified against current tree (importorskip-g...
+
+### `OVERRIDE-NOTIFY-1` - Warn before the Temp Arrester Override expires
+thread: **hvac** - status: **done** - approval: **explicit**
+- **Origin:** 2026-08-07 - "The only real optimization is getting a text that says your override is about to expire 5 mins before a boundary"
+- **Why:** We built the release logic but never tell the operator it is coming — the override silently vanishes and the setpoint drifts back. A heads-up makes it usable: re-engage in one tap instead of noticing an hour later that the master went cold.
+- **Next:** confirm the 3-part shape with operator, then build with the SNAP-1 batch or standalone
+- **Tags:** numbers-get-knobs
+- **Parsimony:** [BUILD] override releases silently; operator discovers it by feeling cold
+- **Forensic keys (3):**
+  - `shape_confirmed_2026_08_13`: Operator OK'd the 3-part shape (T-5min decay warn / immediate deferral notice / release notice) with the QoL trio approval.
+  - `design_note`: 5-min-ahead warning is only possible for PREDICTABLE expiries. House-state transitions are NOT scheduled - we cannot know home_evening is coming. So: (a) pre-warn the 6h decay at T-5min; (b) on a grace DEFERRAL, warn immediately ('contex...
+  - `stale_card_found_2026_08_13`: Builder finding-vs-reality: ALREADY SHIPPED in v5.62.0 (verified in source + tests passing). Card status was stale since ship — fourth stale-status find of 2026-08-13 (with EV-DP and guest-FP memories). No work done.
+
+### `TRANSIT-DIAG-1` - Expose checkpoint_cameras_by_area on a diagnostic sensor
+thread: **presence** - status: **done** - approval: **implied**
+- **Origin:** 2026-08-07 - operator: "Will you fix what the validation exposed?" - v5.60.0 live validation needed log-level surgery + a registry touch just to read the checkpoint inventory
+- **Why:** checkpoint_cameras_by_area is a Python attribute only and URA logs at WARNING, so the feature is unobservable without raising log level and forcing a rebuild. Validation should not require surgery.
+- **Next:** fold into the SECC-1 build batch
+- **Tags:** numbers-get-knobs
+- **Parsimony:** [BUILD] shipped feature is not observable live
+- **Refs:** docs/readmes/README_v5.60.0.md live-validation method note
+- **Forensic keys (2):**
+  - `fix`: additive diagnostic sensor (or attrs on an existing presence diagnostic) exposing checkpoint_cameras_by_area + protect_sourced count. Read-only.
+  - `stale_card_found_2026_08_13`: Builder finding-vs-reality: ALREADY SHIPPED in v5.60.0 (verified in source + tests passing). Card status was stale since ship — fourth stale-status find of 2026-08-13 (with EV-DP and guest-FP memories). No work done.
 
 ### `RESACC-1` - Resolver accuracy test suite
 thread: **resolver** - status: **done** - approval: **implied**
