@@ -1,0 +1,39 @@
+{
+  "audit_reference": "docs/planning/AUDIT_ledger_golden_fixture_yield.md",
+  "bucket_counts": {
+    "CHATTER": 0,
+    "D1": 0,
+    "D2": 56,
+    "D3": 0,
+    "P18": 0,
+    "P22": 13,
+    "P24": 0
+  },
+  "bucket_minimums": {
+    "CHATTER": 3,
+    "D1": 3,
+    "D2": 3,
+    "D3": 1,
+    "P18": 3,
+    "P22": 5,
+    "P24": 5
+  },
+  "bucket_status": {
+    "CHATTER": "SKELETON_AWAITS_HANDBUILD",
+    "D1": "SKELETON_AWAITS_HANDBUILD",
+    "D2": "FILLED",
+    "D3": "SKELETON_AWAITS_HANDBUILD",
+    "P18": "SKELETON_AWAITS_HANDBUILD",
+    "P22": "FILLED",
+    "P24": "SKELETON_AWAITS_HANDBUILD"
+  },
+  "generated_at": "2026-08-12",
+  "harness_version": "1.0.0",
+  "planning_reference": "docs/planning/PLANNING_signal_trust_ledger_abstraction.md \u00a7Criterion 4 (AMENDED 2026-08-09, OPERATOR APPROVED 2026-08-13)",
+  "production_source_git_sha": "2c6eeaca3bd337df6734a07f0f37bb980ac149a0",
+  "regeneration_rule": "Fixtures are invalid once any migrated site's production behavior changes. Regenerate + cite the invalidating cycle in the commit per \u00a74a.",
+  "restart_boundary_count": 53,
+  "window_days": 7.0,
+  "window_since_ts": 1785888000.0,
+  "window_until_ts": 1786492800.0
+}

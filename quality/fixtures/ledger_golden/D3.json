@@ -1,0 +1,12 @@
+{
+  "PLACEHOLDER": true,
+  "bucket": "D3",
+  "entries": [],
+  "instructions": "This bucket cannot be filled by pure recorder replay. The operator or orchestrator MUST hand-build one row per the required_fields list, per the operator sign-off clause of amended Criterion 4 (PLANNING_signal_trust_ledger_abstraction.md, OPERATOR APPROVED 2026-08-13). Do NOT fabricate values \u2014 each row must correspond to a real, observed event or a synthetic trace the operator has reviewed and signed.",
+  "required_fields": [
+    "tracker_entity_id",
+    "fired_ts",
+    "last_updated_age_days"
+  ],
+  "shortfall_reason": "M6/D3 frozen_tracker detector DELETED 2026-08-10 (const.py:3512); structurally unreachable at deploy cadence per AUDIT \u00a7D3. Fixture kept as a SKELETON only so a re-introduction cycle has a slot."
+}

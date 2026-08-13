@@ -1,0 +1,575 @@
+{
+  "boot_settle_gate_modelled": false,
+  "bucket": "D2",
+  "capability_assumption": "empty CONF_SENSOR_CAPABILITIES; regenerate after SENSOR-CAPABILITY-1 lands",
+  "detector": "M5 duty-cycle",
+  "entries": [
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.occupancy_lux_temp_humidity_hobeian_exercise_presence_2",
+      "fired_ts": 1785939960.0,
+      "kind": "dutycycle",
+      "on_ratio": 1.0,
+      "ring_len": 24,
+      "room_name": "Exercise Room",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.occupancy_lux_temp_humidity_hobeian_exercise_presence_2",
+      "fired_ts": 1786149030.0,
+      "kind": "dutycycle",
+      "on_ratio": 1.0,
+      "ring_len": 121,
+      "room_name": "Exercise Room",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.0xa4c1382e60e05225_presence",
+      "fired_ts": 1785984960.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Game Room",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.0xa4c1382e60e05225_presence",
+      "fired_ts": 1786385760.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Game Room",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.0xa4c1382e60e05225_presence",
+      "fired_ts": 1786406400.0,
+      "kind": "dutycycle",
+      "on_ratio": 1.0,
+      "ring_len": 121,
+      "room_name": "Game Room",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_zigbee_gameroom_presence",
+      "fired_ts": 1785974490.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Game Room",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_zigbee_gameroom_presence",
+      "fired_ts": 1786061730.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Game Room",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_zigbee_gameroom_presence",
+      "fired_ts": 1786151280.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Game Room",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_zigbee_gameroom_presence",
+      "fired_ts": 1786396890.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.95,
+      "ring_len": 20,
+      "room_name": "Game Room",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_zigbee_gameroom_presence",
+      "fired_ts": 1786486410.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Game Room",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.jaya_3_presence",
+      "fired_ts": 1785942330.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Jaya Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.jaya_3_presence",
+      "fired_ts": 1785974400.0,
+      "kind": "dutycycle",
+      "on_ratio": 1.0,
+      "ring_len": 121,
+      "room_name": "Jaya Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.jaya_3_presence",
+      "fired_ts": 1786060800.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.989,
+      "ring_len": 92,
+      "room_name": "Jaya Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.jaya_3_presence",
+      "fired_ts": 1786159200.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Jaya Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.jaya_3_presence",
+      "fired_ts": 1786333380.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Jaya Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.jaya_3_presence",
+      "fired_ts": 1786406400.0,
+      "kind": "dutycycle",
+      "on_ratio": 1.0,
+      "ring_len": 121,
+      "room_name": "Jaya Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.jaya_3_presence",
+      "fired_ts": 1786492800.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Jaya Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_zigbee_jayabedroom_presence",
+      "fired_ts": 1785980880.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Jaya Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_zigbee_jayabedroom_presence",
+      "fired_ts": 1786465890.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Jaya Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_lux_wifi_esphome_kitchen_presence",
+      "fired_ts": 1786412970.0,
+      "kind": "dutycycle",
+      "on_ratio": 1.0,
+      "ring_len": 20,
+      "room_name": "Kitchen",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.screek_human_sensor_l13_2412s_presence",
+      "fired_ts": 1785930720.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.853,
+      "ring_len": 34,
+      "room_name": "Living Room",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.screek_human_sensor_l13_2412s_presence",
+      "fired_ts": 1785977550.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.85,
+      "ring_len": 60,
+      "room_name": "Living Room",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.screek_human_sensor_l13_2412s_presence",
+      "fired_ts": 1786060800.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.989,
+      "ring_len": 92,
+      "room_name": "Living Room",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.screek_human_sensor_l13_2412s_presence",
+      "fired_ts": 1786147200.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.992,
+      "ring_len": 121,
+      "room_name": "Living Room",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.bed_presence_2bd7b4_bed_occupied_either_fast",
+      "fired_ts": 1786078920.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Master Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.bed_presence_2bd7b4_bed_occupied_either_fast",
+      "fired_ts": 1786156200.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Master Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.bed_presence_2bd7b4_bed_occupied_either_fast",
+      "fired_ts": 1786317180.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Master Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.bed_presence_2bd7b4_bed_occupied_either_fast",
+      "fired_ts": 1786333440.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Master Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.bed_presence_2bd7b4_bed_occupied_either_fast",
+      "fired_ts": 1786417770.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Master Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_temp_hum_lux_zigbee_masterbedroom_presence",
+      "fired_ts": 1786082700.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.852,
+      "ring_len": 27,
+      "room_name": "Master Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_temp_hum_lux_zigbee_masterbedroom_presence",
+      "fired_ts": 1786152510.0,
+      "kind": "dutycycle",
+      "on_ratio": 1.0,
+      "ring_len": 20,
+      "room_name": "Master Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_temp_hum_lux_zigbee_masterbedroom_presence",
+      "fired_ts": 1786350120.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Master Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_temp_hum_lux_zigbee_masterbedroom_presence",
+      "fired_ts": 1786417830.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Master Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.screek_human_sensor_l13_b38b24_presence",
+      "fired_ts": 1786122210.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Master Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.screek_human_sensor_l13_b38b24_presence",
+      "fired_ts": 1786152720.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.852,
+      "ring_len": 27,
+      "room_name": "Master Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.screek_human_sensor_l13_b38b24_presence",
+      "fired_ts": 1786319460.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Master Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.screek_human_sensor_l13_b38b24_presence",
+      "fired_ts": 1786320000.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.917,
+      "ring_len": 121,
+      "room_name": "Master Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.screek_human_sensor_l13_b38b24_presence",
+      "fired_ts": 1786417500.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Master Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.switch_mmwave_inovelli_occupancy",
+      "fired_ts": 1786152510.0,
+      "kind": "dutycycle",
+      "on_ratio": 1.0,
+      "ring_len": 20,
+      "room_name": "Master Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.switch_mmwave_inovelli_occupancy",
+      "fired_ts": 1786318980.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Master Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.switch_mmwave_inovelli_occupancy",
+      "fired_ts": 1786384470.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Master Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.switch_mmwave_inovelli_occupancy",
+      "fired_ts": 1786420920.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.852,
+      "ring_len": 27,
+      "room_name": "Master Bedroom",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_zigbee_studya_presence",
+      "fired_ts": 1786045650.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.9,
+      "ring_len": 20,
+      "room_name": "Study A",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_zigbee_studya_presence",
+      "fired_ts": 1786124490.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Study A",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_zigbee_studya_presence",
+      "fired_ts": 1786147200.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.934,
+      "ring_len": 121,
+      "room_name": "Study A",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_zigbee_studya_presence",
+      "fired_ts": 1786385520.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Study A",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_zigbee_studya_presence",
+      "fired_ts": 1786462920.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Study A",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_zigbee_studya_presence",
+      "fired_ts": 1786492800.0,
+      "kind": "dutycycle",
+      "on_ratio": 1.0,
+      "ring_len": 121,
+      "room_name": "Study A",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_lux_wifi_esphome_studyb_presence",
+      "fired_ts": 1786117320.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Study B",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_lux_wifi_esphome_studyb_presence",
+      "fired_ts": 1786465230.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Study B",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_zigbee_ziribedroom_presence",
+      "fired_ts": 1785921750.0,
+      "kind": "dutycycle",
+      "on_ratio": 1.0,
+      "ring_len": 20,
+      "room_name": "Ziri Bedroom (Bedroom 5)",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_zigbee_ziribedroom_presence",
+      "fired_ts": 1786009920.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Ziri Bedroom (Bedroom 5)",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_zigbee_ziribedroom_presence",
+      "fired_ts": 1786166730.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Ziri Bedroom (Bedroom 5)",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_zigbee_ziribedroom_presence",
+      "fired_ts": 1786315500.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Ziri Bedroom (Bedroom 5)",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_zigbee_ziribedroom_presence",
+      "fired_ts": 1786329540.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.851,
+      "ring_len": 121,
+      "room_name": "Ziri Bedroom (Bedroom 5)",
+      "window_min": 60
+    },
+    {
+      "bucket": "D2",
+      "entity_id": "binary_sensor.mmwave_zigbee_ziribedroom_presence",
+      "fired_ts": 1786413180.0,
+      "kind": "dutycycle",
+      "on_ratio": 0.852,
+      "ring_len": 27,
+      "room_name": "Ziri Bedroom (Bedroom 5)",
+      "window_min": 60
+    }
+  ],
+  "fresh_motion_s": 300,
+  "min_motion_transitions": 2,
+  "min_ticks": 20,
+  "pct_threshold": 0.85,
+  "prod_source": "coordinator.py:1504-1714",
+  "tick_s": 30,
+  "window_min": 60
+}
