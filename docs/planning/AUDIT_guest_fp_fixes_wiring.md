@@ -129,3 +129,20 @@ addendum to this audit.
 - No code changes proposed. Residuals A1/B1/B2 are captured for backlog scoping, not built here.
 - No changes to Bermuda LOST semantics or `tracking_status` field.
 - No changes to the v5.16.0 GUEST latch, path-β discriminator, or WS-A4 outdoor authority.
+
+---
+
+## §3 Recurrence results (executed 2026-08-13, orchestrator, read-only)
+
+`house_state_log` since 2026-07-13: **50 guest ENTRY episodes** across 22 of 31 days
+(1–7/day; heaviest 07-13→07-17 and 08-01). Only **2 night-hour (00–06) entries**
+(07-17 00:19, 07-19 00:44) — the 2026-06-22 signature (night guest with nobody) is
+essentially absent. Pattern includes rapid guest↔home_day flapping within the hour
+(e.g. 07-14: guest 13:48 → home_day 14:25 → guest 15:37).
+
+**Interpretation requires operator ground truth:** if mid-July/early-August actually
+had frequent daytime guests, this is healthy behavior and the card closes cleanly.
+If not, there is a *different* FP flavor (daytime, census-driven, flappy) distinct
+from the June lost-away/outdoor mechanism — which the wiring audit shows is fixed.
+Escalation path if operator says "no guests those days": pull presence attrs around
+2–3 sample episodes for the census/unidentified shape.

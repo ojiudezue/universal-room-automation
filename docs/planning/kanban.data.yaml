@@ -1034,6 +1034,18 @@ cards:
   why: 'The CONSOL-1 tripwire (in-code, NM alert if the legacy zone-monitoring stack fires) is doing its job — the legacy counter automations are still running and leaking. Either they should have been disabled with the legacy stack (leak = real) or the tripwire is over-broad (counters are benign telemetry, not pagers). MEDIUM severity -> digest noise + ledger pollution either way.'
   next: 'Small triage: read the tripwire match list vs the 12 dormancy-receipt automations; if the counters are legacy-stack members, turn_off (Method 1, reversible) and confirm tripwire goes quiet; if benign, narrow the tripwire match. ~30min, Tier 1.'
 
+- id: GUEST-FP-RESIDUALS-1
+  title: Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent)
+  thread: presence
+  status: planned
+  approval: unreviewed
+  origin:
+    date: '2026-08-13'
+    gist: 'AUDIT_guest_fp_fixes_wiring.md: core fixes SHIPPED + Outside zone correctly flagged outdoor; two residuals worth small fixes.'
+  why: 'A1: path-alpha excluded_persons/tracked_persons_count_trusted still exclude LOST-away persons (diagnostic clarity only — guest gate does not read them). B1: camera-census has no room->outdoor filter; safe today (Patio has no camera person sensors) but latent if a camera person-detector is ever attached to an outdoor-zone room.'
+  operator_question: '50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests or a daytime FP flavor? If the latter, escalate per audit §3.'
+  next: 'Fold A1+B1 into the next presence hotfix batch; await operator answer on the 50-episode pattern.'
+
 - id: DP-REASON-NULL-1
   title: DP durable ledger logs reason:null on all 4,181 rows — carrier has no .reason field
   thread: energy
