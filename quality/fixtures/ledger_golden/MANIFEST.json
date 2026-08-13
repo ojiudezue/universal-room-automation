@@ -2,36 +2,42 @@
   "audit_reference": "docs/planning/AUDIT_ledger_golden_fixture_yield.md",
   "bucket_counts": {
     "CHATTER": 0,
-    "D1": 0,
+    "D1": 3,
     "D2": 56,
     "D3": 0,
-    "P18": 0,
+    "P18": 7,
     "P22": 13,
-    "P24": 0
+    "P24": 5
   },
   "bucket_minimums": {
     "CHATTER": 3,
     "D1": 3,
     "D2": 3,
-    "D3": 1,
     "P18": 3,
     "P22": 5,
     "P24": 5
   },
   "bucket_status": {
-    "CHATTER": "SKELETON_AWAITS_HANDBUILD",
-    "D1": "SKELETON_AWAITS_HANDBUILD",
-    "D2": "FILLED",
-    "D3": "SKELETON_AWAITS_HANDBUILD",
-    "P18": "SKELETON_AWAITS_HANDBUILD",
-    "P22": "FILLED",
-    "P24": "SKELETON_AWAITS_HANDBUILD"
+    "CHATTER": "DEFERRED_UNTIL_SITE_SHIPS",
+    "D1": "DRAFT_PENDING_SIGNOFF (source-derived synthetic)",
+    "D2": "FILLED (replay)",
+    "D3": "DROPPED_OBSOLETE (detector deleted 2026-08-10, const.py:3523-3526)",
+    "P18": "DRAFT_PENDING_SIGNOFF (real NM-ledger ingestion)",
+    "P22": "FILLED (replay)",
+    "P24": "DRAFT_PENDING_SIGNOFF (3 real + 2 source-derived)"
+  },
+  "supplement_note_2026_08_13": {
+    "authored_by": "STUCK-SENSOR-1 unblock, hand-built supplements per amended Criterion 4 (OPERATOR APPROVED 2026-08-13); each supplement file carries its own DRAFT-PENDING-SIGNOFF status and per-entry provenance (REAL vs SOURCE-DERIVED vs UNRECOVERABLE fields).",
+    "d3_adjudication": "D3 removed from bucket_minimums (was 1). Frozen-tracker detector DELETED 2026-08-10 — const.py:3523-3526 (harness's earlier const.py:3512 citation is stale). Structurally unreachable while it existed (AUDIT §D3, zero firings ever). Reintroduction cycle re-adds the bucket against the NEW site.",
+    "chatter_adjudication": "CHATTER minimum retained but DEFERRED: no production site exists (Principle 1, extraction-not-invention). Treat as a gate on the M5-chatter MIGRATION, not on the ledger cycle's initial GO. See CHATTER.json.",
+    "p18_diagnosability_gap": "P18 NM audit rows persist message='[audit]' and no zone key — zone_name unrecoverable for all 7 real rows. Recommend extending the P24 title_override diagnosability fix to the hvac.py:1621 P18 emit site.",
+    "harness_regeneration_caveat": "ledger_golden_replay.py OVERWRITES P24/P18/D1/D3/CHATTER with skeletons on every run. Until the harness learns to merge/preserve signed supplements, regeneration must restore these supplement files from git (they are commit-pinned, not harness-generated)."
   },
   "generated_at": "2026-08-12",
   "harness_version": "1.0.0",
-  "planning_reference": "docs/planning/PLANNING_signal_trust_ledger_abstraction.md \u00a7Criterion 4 (AMENDED 2026-08-09, OPERATOR APPROVED 2026-08-13)",
+  "planning_reference": "docs/planning/PLANNING_signal_trust_ledger_abstraction.md §Criterion 4 (AMENDED 2026-08-09, OPERATOR APPROVED 2026-08-13)",
   "production_source_git_sha": "2c6eeaca3bd337df6734a07f0f37bb980ac149a0",
-  "regeneration_rule": "Fixtures are invalid once any migrated site's production behavior changes. Regenerate + cite the invalidating cycle in the commit per \u00a74a.",
+  "regeneration_rule": "Fixtures are invalid once any migrated site's production behavior changes. Regenerate + cite the invalidating cycle in the commit per §4a.",
   "restart_boundary_count": 53,
   "window_days": 7.0,
   "window_since_ts": 1785888000.0,

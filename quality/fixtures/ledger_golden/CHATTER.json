@@ -1,14 +1,15 @@
 {
-  "PLACEHOLDER": true,
   "bucket": "CHATTER",
-  "entries": [],
-  "instructions": "This bucket cannot be filled by pure recorder replay. The operator or orchestrator MUST hand-build one row per the required_fields list, per the operator sign-off clause of amended Criterion 4 (PLANNING_signal_trust_ledger_abstraction.md, OPERATOR APPROVED 2026-08-13). Do NOT fabricate values \u2014 each row must correspond to a real, observed event or a synthetic trace the operator has reviewed and signed.",
-  "required_fields": [
-    "room_name",
-    "entity_id",
-    "fired_ts",
-    "transitions_in_window",
-    "window_min"
+  "status": "DEFERRED-UNTIL-SITE-SHIPS",
+  "supplement_kind": "explicit deferral (2026-08-13) — NOT a placeholder awaiting hand-build",
+  "rationale": [
+    "Criterion 4b requires 3+ chatter/transition-rate classifications, but the chatter detector site does NOT exist in HEAD — the plan itself (Principle 1, 'Extraction, not invention') mandates that chatter ships concretely first (extending _detect_duty_cycle_stuck), lives long enough to produce an oracle, then migrates as an extension of M5.",
+    "A golden fixture for unbuilt code would be invention by construction: there is no production predicate to derive entries from and no observed firings to extract. Any entries authored today would freeze semantics that the chatter cycle has not yet decided.",
+    "The motivating incident data exists (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09.md — Garage B 3,769 off / 3,765 on transitions in 24h) and should seed this bucket WHEN the site ships, via replay through the shipped predicate.",
+    "RECOMMENDATION for sign-off: criterion 4 treats CHATTER as deferred-to-the-chatter-cycle — the bucket becomes a hard gate on the M5-chatter MIGRATION, not on the ledger cycle's initial GO."
   ],
-  "shortfall_reason": "Criterion 4b (transition-rate / chatter) \u2014 the new verdict kind is not yet shipped in production. Fixture is a placeholder for the migration cycle that lands the chatter classification; do NOT populate until the site exists in HEAD."
+  "required_fields": ["room_name", "entity_id", "fired_ts", "transitions_in_window", "window_min"],
+  "minimum": 3,
+  "count": 0,
+  "entries": []
 }

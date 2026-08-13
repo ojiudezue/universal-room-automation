@@ -1,15 +1,74 @@
 {
-  "PLACEHOLDER": true,
   "bucket": "P24",
-  "entries": [],
-  "instructions": "This bucket cannot be filled by pure recorder replay. The operator or orchestrator MUST hand-build one row per the required_fields list, per the operator sign-off clause of amended Criterion 4 (PLANNING_signal_trust_ledger_abstraction.md, OPERATOR APPROVED 2026-08-13). Do NOT fabricate values \u2014 each row must correspond to a real, observed event or a synthetic trace the operator has reviewed and signed.",
-  "required_fields": [
-    "room_name",
-    "fired_ts",
-    "occupancy_source",
-    "became_occupied_time",
-    "last_motion_time",
-    "max_active_s"
+  "detector": "M2 max-active failsafe (RESILIENCE-001)",
+  "status": "DRAFT-PENDING-SIGNOFF",
+  "supplement_kind": "hand-built (2026-08-13) per amended Criterion 4 operator sign-off clause",
+  "prod_source": {
+    "gate_and_fire": "coordinator.py:3035-3162 ('=== P24 FAILSAFE ===' block; legs (i) has-PIR via _d2_motion_sensors_present, (ii) occupancy_source not in {camera,ble}, (iii) PIR stale: signal_age None or not (0 <= age < 2*occupancy_timeout))",
+    "duration_lookup": "coordinator.py:525-543 _get_failsafe_duration_seconds",
+    "durations": "const.py:1083-1087 (DEFAULT_FAILSAFE_DURATION_SECONDS=14400; ROOM_TYPE_FAILSAFE_DURATIONS: closet=3600, bathroom=3600)",
+    "nm_emit": "coordinator.py:202-224 _fire_max_active_failsafe_nm (kind='max_active_failsafe', key=(room_name,), per-day latch)",
+    "post_fire_pinned": "coordinator.py:~3146 _last_motion_time=None on fire (M1/L2 pinned property); STATE_OCCUPANCY_SOURCE='failsafe'; STATE_TIMEOUT_REMAINING=0; _failsafe_fired=True"
+  },
+  "notes": [
+    "Closed-loop detector: firing mutates its own future inputs, so pure replay is impossible (AUDIT §M2). 3 REAL firings exist in the 14-day NM ledger; 2 additional cases are SOURCE-DERIVED minimal legal firing states.",
+    "REAL rows 2930 and 3425 predate the P24_DIAGNOSABILITY_DEFECT title fix (2026-08-10/12): room_name is genuinely not persisted (message='[audit]' sentinel, generic title). Marked UNRECOVERABLE rather than invented.",
+    "Per-day NM latch key is (room_name,), so NM rows are a lower bound on firings."
   ],
-  "shortfall_reason": "M2 max-active failsafe is closed-loop: firing mutates its own future inputs (_last_motion_time=None, STATE_OCCUPIED=False), so pure replay is not a fixture harness but a second implementation. See AUDIT \u00a7M2 row. Live NM ledger shows ~1 firing / 14 days \u2014 supplement with hand-built rows to reach minimum."
+  "entries": [
+    {
+      "provenance": "REAL — notification_log id 3591 (URA DB, read-only)",
+      "room_name": "Ziri Bedroom (Bedroom 5)",
+      "fired_ts": "2026-08-12T08:27:32.471864+00:00",
+      "occupancy_source": "failsafe",
+      "became_occupied_time": "2026-08-12T04:27:32+00:00 (derived: fired_ts - 240 min duration carried in NM title)",
+      "last_motion_time": "None post-fire (pinned property); pre-fire _last_pir_motion_time stale (age >= 2*occupancy_timeout) per gate leg (iii)",
+      "max_active_s": 14400,
+      "duration_min": 240,
+      "evidence": "NM title 'Stuck signal: max_active_failsafe — Ziri Bedroom (Bedroom 5) (240 min)' — post P24_DIAGNOSABILITY fix, fully attributable"
+    },
+    {
+      "provenance": "REAL — notification_log id 3425 (URA DB, read-only)",
+      "room_name": "UNRECOVERABLE (pre-diagnosability-fix generic title; message='[audit]' sentinel)",
+      "fired_ts": "2026-08-10T21:09:20.023894+00:00",
+      "occupancy_source": "failsafe",
+      "became_occupied_time": "UNRECOVERABLE (>= fired_ts - room-type failsafe limit)",
+      "last_motion_time": "None post-fire (pinned property)",
+      "max_active_s": "UNRECOVERABLE (14400 unless closet/bathroom)",
+      "evidence": "NM row exists; kind=max_active_failsafe; severity=MEDIUM"
+    },
+    {
+      "provenance": "REAL — notification_log id 2930 (URA DB, read-only); the single firing cited in AUDIT §P24",
+      "room_name": "UNRECOVERABLE (pre-diagnosability-fix)",
+      "fired_ts": "2026-08-06T00:24:42.373467+00:00",
+      "occupancy_source": "failsafe",
+      "became_occupied_time": "UNRECOVERABLE",
+      "last_motion_time": "None post-fire (pinned property)",
+      "max_active_s": "UNRECOVERABLE",
+      "evidence": "NM row exists; matches the single recorder occupancy_source:'failsafe' attribute blob found by the audit"
+    },
+    {
+      "provenance": "SOURCE-DERIVED — minimal legal firing state, bathroom 60-min limit (const.py:1085-1086); NOT observed live",
+      "room_name": "SYNTH Bathroom (room_type=bathroom)",
+      "fired_ts": "2026-08-13T12:00:00+00:00",
+      "occupancy_source": "failsafe",
+      "became_occupied_time": "2026-08-13T10:59:00+00:00 (duration 3660s > failsafe_seconds 3600)",
+      "last_motion_time": "pre-fire _last_pir_motion_time age 1200s with occupancy_timeout=300s -> 2*timeout=600s -> signal_stale=True; None post-fire",
+      "max_active_s": 3600,
+      "gate_trace": "leg(i) room has real PIR (_d2_motion_sensors_present True, coordinator.py:3101); leg(ii) occupancy_source not camera/ble (coordinator.py:3108-3116); leg(iii) stale per coordinator.py:3121-3138; duration>limit per :3117-3119 -> fire :3139-3162"
+    },
+    {
+      "provenance": "SOURCE-DERIVED — clock-skew stale branch, closet 60-min limit (const.py:1085); NOT observed live",
+      "room_name": "SYNTH Closet (room_type=closet)",
+      "fired_ts": "2026-08-13T13:00:00+00:00",
+      "occupancy_source": "failsafe",
+      "became_occupied_time": "2026-08-13T11:45:00+00:00 (duration 4500s > 3600)",
+      "last_motion_time": "pre-fire signal_age NEGATIVE (clock skew) -> fails '0 <= signal_age < 2*timeout' -> signal_stale stays True (clock-skew defense preserved, coordinator.py:3128-3134); None post-fire",
+      "max_active_s": 3600,
+      "gate_trace": "same legs as above; exercises the negative-age stale branch explicitly"
+    }
+  ],
+  "required_fields": ["room_name", "fired_ts", "occupancy_source", "became_occupied_time", "last_motion_time", "max_active_s"],
+  "minimum": 5,
+  "count": 5
 }

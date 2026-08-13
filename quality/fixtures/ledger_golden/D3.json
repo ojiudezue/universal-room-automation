@@ -1,12 +1,10 @@
 {
-  "PLACEHOLDER": true,
   "bucket": "D3",
-  "entries": [],
-  "instructions": "This bucket cannot be filled by pure recorder replay. The operator or orchestrator MUST hand-build one row per the required_fields list, per the operator sign-off clause of amended Criterion 4 (PLANNING_signal_trust_ledger_abstraction.md, OPERATOR APPROVED 2026-08-13). Do NOT fabricate values \u2014 each row must correspond to a real, observed event or a synthetic trace the operator has reviewed and signed.",
-  "required_fields": [
-    "tracker_entity_id",
-    "fired_ts",
-    "last_updated_age_days"
-  ],
-  "shortfall_reason": "M6/D3 frozen_tracker detector DELETED 2026-08-10 (const.py:3512); structurally unreachable at deploy cadence per AUDIT \u00a7D3. Fixture kept as a SKELETON only so a re-introduction cycle has a slot."
+  "status": "OBSOLETE-BUCKET-DROPPED",
+  "adjudication": "M6/D3 frozen-tracker detector DELETED 2026-08-10 (const.py:3523-3526: 'D3 frozen device_tracker check DELETED 2026-08-10: structurally unreachable (threshold 2.0d vs max HA uptime ~1d at deploy cadence). Constants CONF_FROZEN_TRACKER_DAYS / DEFAULT_FROZEN_TRACKER_DAYS / FROZEN_TRACKER_DAYS removed. See P24/D3/dropdown batch, Item 2.'). A ledger cannot freeze an oracle for a detector that no longer exists; per AUDIT §D3 it was also structurally unreachable while it did exist (zero firings ever). Bucket DROPPED from criterion-4 minimums (was 1+). NOTE: the harness's earlier citation 'const.py:3512' is stale — the deletion marker sits at const.py:3523 at current HEAD.",
+  "reintroduction": "If a persisted-timestamp frozen-tracker detector is rebuilt (the restart-proof variant WATCHDOG-INERT-1 calls for), that cycle re-adds this bucket with fixtures extracted from the NEW site.",
+  "required_fields": ["tracker_entity_id", "fired_ts", "last_updated_age_days"],
+  "minimum": 0,
+  "count": 0,
+  "entries": []
 }
