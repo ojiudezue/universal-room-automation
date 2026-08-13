@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-12T21:55:11-05:00_ - _Data commit: `cc6c5cc221fc`_ - _last_reconciled: 2026-08-12_
+_Generated: 2026-08-12T22:05:47-05:00_ - _Data commit: `f225b8bef67e`_ - _last_reconciled: 2026-08-12_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -13,10 +13,10 @@ _Generated: 2026-08-12T21:55:11-05:00_ - _Data commit: `cc6c5cc221fc`_ - _last_r
 |---|---:|
 | 📥 Inbox | 2 |
 | 🧭 Pre-planning | 12 |
-| 📝 Planned | 3 |
+| 📝 Planned | 2 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 0 |
-| 🚀 Shipped (organic open) | 24 |
+| 🚀 Shipped (organic open) | 25 |
 | ⏸️ Waiting on operator | 2 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 1 |
@@ -164,7 +164,7 @@ thread: **camera** - status: **pre_planning** - approval: **implied**
 - **Parsimony:** [BUILD] per-room fused camera sensors ship with no area
 - **Refs:** binary_sensor.py CameraPersonDetectedSensor
 
-## 📝 Planned (3)
+## 📝 Planned (2)
 _has plan / acceptance_
 
 ### `STUCK-SENSOR-1` - Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
@@ -200,12 +200,6 @@ thread: **presence** - status: **planned** - approval: **unreviewed**
 - **Forensic keys (1):**
   - `operator_question`: 50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests or a daytime FP flavor? If the latter, escalate per audit §3.
 
-### `DP-REASON-NULL-1` - DP durable ledger logs reason:null on all 4,181 rows — carrier has no .reason field
-thread: **energy** - status: **planned** - approval: **unreviewed**
-- **Origin:** 2026-08-13 - Found by AUDIT_dp_live_behavior.md: _log_dp_eval_decision (energy.py:4002) reads getattr(carrier,"reason",None); field does not exist; real reasons live only in ~10-day recorder attrs.
-- **Why:** Durable decision ledger is the long-horizon audit trail; null reasons make future DP forensics depend on recorder retention.
-- **Next:** One-line fix (log the eval snapshot decision.reason) + anchor test; fold into next URA deploy batch (Tier 1).
-
 ## 🔨 In progress (1)
 _being built_
 
@@ -227,7 +221,7 @@ _under review_
 
 _(none)_
 
-## 🚀 Shipped (organic open) (24)
+## 🚀 Shipped (organic open) (25)
 _live, awaiting proof_
 
 ### `SENSOR-CAPABILITY-1` - Separate sensor CAPABILITY (hardware kind) from analytic ROLE — kind is currently the config bucket
@@ -399,6 +393,14 @@ thread: **notifications** - status: **shipped_organic** - approval: **approved**
   - `shipped_version`: v5.73.1
   - `scope`: ~5 LoC in NM re-page path: reuse the stored snapshot path from the original dispatch (both WhatsApp + iMessage attachment keys, BB v0.6). Tier 1. Anchor: wire-in rule applies (call-site neuter must red a test).
 
+### `DP-REASON-NULL-1` - DP durable ledger logs reason:null on all 4,181 rows — carrier has no .reason field
+thread: **energy** - status: **shipped_organic** - approval: **unreviewed**
+- **Origin:** 2026-08-13 - Found by AUDIT_dp_live_behavior.md: _log_dp_eval_decision (energy.py:4002) reads getattr(carrier,"reason",None); field does not exist; real reasons live only in ~10-day recorder attrs.
+- **Why:** Durable decision ledger is the long-horizon audit trail; null reasons make future DP forensics depend on recorder retention.
+- **Next:** One-line fix (log the eval snapshot decision.reason) + anchor test; fold into next URA deploy batch (Tier 1).
+- **Forensic keys (1):**
+  - `shipped_version`: v5.73.2
+
 ### `NM-BB-IMAGE-1` - iMessage photo delivery unblocked — BlueBubbles v0.5/0.6 added attachment + media_url
 thread: **notifications** - status: **shipped_organic** - approval: **approved**
 - **Origin:** 2026-08-11 - operator upgraded BlueBubbles to v0.6.0; release notes show send_message now takes attachment/media_url. Verified in installed source (__init__.py:100-165: attachment=local path w/ is_allowed_path gate, media_url=URL).
@@ -438,7 +440,7 @@ thread: **fans** - status: **shipped_organic** - approval: **unreviewed**
 - **Why:** State-in-one-place holds for RoomAutomation tier but HVAC-tier RoomFanState still carries its own hold fields; TOCTOU lock (INV-FLA-T) only covers W11/W12. Full oracle authority needs the remainder.
 - **Next:** After FAN-LAYER-1 increment ships + validates: plan review (Tier 2-DB), then RoomFanState conversion as its own cycle.
 - **Forensic keys (1):**
-  - `shipped_version`: v5.72.0
+  - `shipped_version`: v5.73.2
 
 ### `FAN-LAYER-1` - DOC-2 fan-actuation shared layer: REVIVED — FAN-MANUAL-1 fired 3 of its 4 park triggers
 thread: **hvac** - status: **shipped_organic** - approval: **explicit**

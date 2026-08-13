@@ -35,4 +35,11 @@ one-liner; wire-in drill: reverting to the dead getattr reds the post-eval test.
 
 ## Live Validation
 
-(prospective — replaced with Validated table post-restart)
+### Validated 2026-08-12 (v5.73.2 boot, 22:08 CT)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Loads, zero URA errors | **PASS** | error_log `universal_room` post-restart: boot-transient WARNINGs only |
+| L2 | HACS installed = v5.73.2 | **PASS** | HACS download confirmed v5.73.2; PR #504 diff verified to carry both fixes |
+| L3 | dp_eval rows carry real reason | **PASS (immediately)** | decision_log: 03:08:53Z row (first post-restart eval) = `l1_only`; last pre-deploy row (03:02Z) = None. Before/after pair in one table |
+| L4 | Fan-oracle sweep INFO at setup | **In-suite** | INFO level not retained in retrievable logs (journald ERROR/WARNING only); sweep behavior mutation-anchored in 6 tests; live orphan count expected 0 |
