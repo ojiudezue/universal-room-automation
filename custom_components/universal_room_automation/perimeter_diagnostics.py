@@ -32,6 +32,18 @@ _LOGGER = logging.getLogger(__name__)
 def _iter_person_tracks_for_diag(linker: Any) -> Iterable[Any]:
     """Yield every ExteriorTrack (open + recently-closed) with label='person'.
 
+    LOW-A1 CONTRACT — private-attribute access is deliberate.
+    We reach into `ExteriorTrackLinker._tracks` and `_closed_recent`
+    because the public `open_tracks_snapshot()` and `census_counts()`
+    surfaces are AGGREGATED (path strings, counts) and drop the
+    `ExteriorTrack` object needed here: this tripwire needs the raw
+    `alert_count`, `started_at`, and `label` fields plus `classify(t)`.
+    Adding a purpose-built public API here would create a second
+    surface with the same drift risk. Instead: any refactor of
+    `_tracks` / `_closed_recent` inside `exterior_track_linker.py`
+    MUST update this function (there is a companion note at
+    `ExteriorTrackLinker.__init__` pointing back to this consumer).
+
     Best-effort: linker internals are private; any AttributeError falls
     through as an empty iterator (fail-open — the diagnostic returns 0).
     """

@@ -4002,14 +4002,23 @@ class PerimeterCirclingZeroDispatch24hSensor(AggregationEntity, SensorEntity):
         self._count: int = 0
         self._offenders: list[dict] = []
         self._unsub_refresh = None
+        # Availability tracks whether the linker is wired (LOW-A2). Set
+        # to False by default; _refresh flips True when the linker key
+        # is present in hass.data.
+        self._attr_available = False
 
     async def _refresh(self) -> None:
         from .perimeter_diagnostics import count_circling_zero_dispatch  # noqa: PLC0415
         linker = self.hass.data.get(DOMAIN, {}).get("exterior_track_linker")
         if linker is None:
+            # Un-wired linker → sensor is unavailable, NOT "0 offenders".
+            # A silent 0 would be indistinguishable from a healthy quiet
+            # tripwire and hide a real wiring bug (LOW-A2).
+            self._attr_available = False
             self._count = 0
             self._offenders = []
             return
+        self._attr_available = True
         try:
             self._count, self._offenders = count_circling_zero_dispatch(linker)
         except Exception:  # noqa: BLE001
