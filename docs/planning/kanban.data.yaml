@@ -1042,6 +1042,28 @@ cards:
   next: 'Small triage: read the tripwire match list vs the 12 dormancy-receipt automations; if the counters are legacy-stack members, turn_off (Method 1, reversible) and confirm tripwire goes quiet; if benign, narrow the tripwire match. ~30min, Tier 1.'
   fixed_2026_08_12: 'FIXED live same day (operator batch approval): legacy pager silenced via its own gate booleans (zone1/zone3_monitoring_active OFF) + initial:true removed from packages/zone_monitoring.yaml (was re-arming every restart) + input_boolean reload verified. Tripwire per-day dedup was working (10 rows = 3 restarts x 4 counters). Tripwire silence now accrues the auto-close evidence for stripping the package notify legs entirely (its own docstring rule).'
 
+- id: ZONE-TIER-DIVERGE-1
+  title: Upstairs zone read occupied (2 rooms) while house-state attrs showed Upstairs mode=away w/ zero provenance — house went away THROUGH an occupied zone
+  thread: presence
+  status: inbox
+  approval: unreviewed
+  origin:
+    date: '2026-08-13'
+    gist: 'AWAY-BLOCK-1 other-fans sweep: zone_upstairs_rooms_occupied=2 + anyone=ON all afternoon, yet the 20:51Z away transition fired; Jaya Bedroom still URA-occupied past 21:31 (fan-latched, never released). Mechanism NOT asserted — needs source trace.'
+  why: 'Opposite failure to AWAY-BLOCK-1: instead of occupancy wrongly blocking away, away fired despite a zone reading occupied. Either a second veto path correctly discounted Upstairs (then WHY did Entertainment veto?) or a tier-divergence bug. Also flags why the away transition worked at all.'
+  next: 'Source trace of zone->house occupancy aggregation divergence (which snapshot the away path consumed); probe-first. May be the real story of the 20:51 transition.'
+
+- id: PATH-ALPHA-DENOM-1
+  title: Path-alpha away inference structurally dead when all trackers LOST/STALE — trusted denominator empties; NO existing card fixes it
+  thread: presence
+  status: inbox
+  approval: unreviewed
+  origin:
+    date: '2026-08-13'
+    gist: 'Carded-coverage grading: the LOST-denominator gap (all 4 trackers LOST -> all_tracked_persons_away false-by-vacuity for hours) is owned by no card; v5.16.0 fixed the veto denominator, not this.'
+  why: 'Path-alpha ignores zones entirely — with ACTIVE trackers it would have fired regardless of the fan latch. Fixing the vacuous-denominator case (all-LOST + all-entity-away => away-eligible) is an independent mitigation with its own balance questions (overlaps AUDIT_ble_house_level_weighing safe-shape).'
+  next: 'Fold into the same presence cycle as AWAY-BLOCK-1 rec 3 if that ever builds, or small standalone Tier 2; needs the ZONE-TIER-DIVERGE-1 trace first (same code region).'
+
 - id: AWAY-BLOCK-1
   title: House held home_day 2h with everyone away — fan->mmWave->occupancy->fan self-sustaining loop; both away paths structurally blocked
   thread: presence

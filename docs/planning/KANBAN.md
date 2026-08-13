@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-13T16:01:05-05:00_ - _Data commit: `03db3fcfb446`_ - _last_reconciled: 2026-08-13_
+_Generated: 2026-08-13T16:42:48-05:00_ - _Data commit: `740ea57a557d`_ - _last_reconciled: 2026-08-13_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,7 +11,7 @@ _Generated: 2026-08-13T16:01:05-05:00_ - _Data commit: `03db3fcfb446`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 1 |
+| 📥 Inbox | 3 |
 | 🧭 Pre-planning | 8 |
 | 📝 Planned | 2 |
 | 🔨 In progress | 1 |
@@ -23,7 +23,7 @@ _Generated: 2026-08-13T16:01:05-05:00_ - _Data commit: `03db3fcfb446`_ - _last_r
 | ✅ Done | 10 |
 | ❓ Other | 2 |
 
-## 📥 Inbox (1)
+## 📥 Inbox (3)
 _raw capture_
 
 ### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab
@@ -41,6 +41,18 @@ thread: **dashboarding** - status: **inbox** - approval: **explicit**
   - `design_notes`: Anti-word-vomit rules applied: (1) narrative first — pause_reason_human leads, and nothing on the dashboard consumed that attribute before; (2) CONDITIONAL rendering — must_start_by, force_charge_until, excess-solar and fill-target only ...
   - `followup_candidate`: retrofit conditional rendering to the Battery Strategy Detail card (same section group, same defect, ~30 min) — only if the operator endorses this card's style
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
+
+### `ZONE-TIER-DIVERGE-1` - Upstairs zone read occupied (2 rooms) while house-state attrs showed Upstairs mode=away w/ zero provenance — house went away THROUGH an occupied zone
+thread: **presence** - status: **inbox** - approval: **unreviewed**
+- **Origin:** 2026-08-13 - AWAY-BLOCK-1 other-fans sweep: zone_upstairs_rooms_occupied=2 + anyone=ON all afternoon, yet the 20:51Z away transition fired; Jaya Bedroom still URA-occupied past 21:31 (fan-latched, never released). Mechanism NOT asserted ...
+- **Why:** Opposite failure to AWAY-BLOCK-1: instead of occupancy wrongly blocking away, away fired despite a zone reading occupied. Either a second veto path correctly discounted Upstairs (then WHY did Entertainment veto?) or a tier-divergence bug...
+- **Next:** Source trace of zone->house occupancy aggregation divergence (which snapshot the away path consumed); probe-first. May be the real story of the 20:51 transition.
+
+### `PATH-ALPHA-DENOM-1` - Path-alpha away inference structurally dead when all trackers LOST/STALE — trusted denominator empties; NO existing card fixes it
+thread: **presence** - status: **inbox** - approval: **unreviewed**
+- **Origin:** 2026-08-13 - Carded-coverage grading: the LOST-denominator gap (all 4 trackers LOST -> all_tracked_persons_away false-by-vacuity for hours) is owned by no card; v5.16.0 fixed the veto denominator, not this.
+- **Why:** Path-alpha ignores zones entirely — with ACTIVE trackers it would have fired regardless of the fan latch. Fixing the vacuous-denominator case (all-LOST + all-entity-away => away-eligible) is an independent mitigation with its own balance...
+- **Next:** Fold into the same presence cycle as AWAY-BLOCK-1 rec 3 if that ever builds, or small standalone Tier 2; needs the ZONE-TIER-DIVERGE-1 trace first (same code region).
 
 ## 🧭 Pre-planning (8)
 _idea being decomposed_
