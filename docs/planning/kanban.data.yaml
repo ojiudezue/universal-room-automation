@@ -1049,7 +1049,8 @@ cards:
 - id: DP-REASON-NULL-1
   title: DP durable ledger logs reason:null on all 4,181 rows — carrier has no .reason field
   thread: energy
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.73.2
   approval: unreviewed
   origin:
     date: '2026-08-13'
@@ -1151,7 +1152,7 @@ cards:
   title: FanPolicyOracle completion — RoomFanState delegation + actuate-wrap remainder (W1-W3, W8-W10) + INV-FLA-T lock
   thread: fans
   status: shipped_organic
-  shipped_version: v5.72.0
+  shipped_version: v5.73.2
   approval: unreviewed
   origin:
     date: '2026-08-11'
