@@ -12,9 +12,9 @@ _Generated: 2026-08-12T22:05:47-05:00_ - _Data commit: `f225b8bef67e`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 2 |
-| 🧭 Pre-planning | 12 |
+| 🧭 Pre-planning | 9 |
 | 📝 Planned | 2 |
-| 🔨 In progress | 1 |
+| 🔨 In progress | 4 |
 | 🔍 Review | 0 |
 | 🚀 Shipped (organic open) | 25 |
 | ⏸️ Waiting on operator | 2 |
@@ -47,7 +47,7 @@ thread: **security** - status: **inbox** - approval: **unreviewed**
 - **Why:** The CONSOL-1 tripwire (in-code, NM alert if the legacy zone-monitoring stack fires) is doing its job — the legacy counter automations are still running and leaking. Either they should have been disabled with the legacy stack (leak = real...
 - **Next:** Small triage: read the tripwire match list vs the 12 dormancy-receipt automations; if the counters are legacy-stack members, turn_off (Method 1, reversible) and confirm tripwire goes quiet; if benign, narrow the tripwire match. ~30min, T...
 
-## 🧭 Pre-planning (12)
+## 🧭 Pre-planning (9)
 _idea being decomposed_
 
 ### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)
@@ -90,27 +90,6 @@ thread: **camera** - status: **pre_planning** - approval: **implied**
 - **Forensic keys (1):**
   - `fix`: re-run the sanity check from the READY handler AFTER the install attempt (and/or on a delayed post-boot check). Mutation drill: neuter the install -> the sanity WARNING must fire.
 
-### `OVERRIDE-NOTIFY-1` - Warn before the Temp Arrester Override expires
-thread: **hvac** - status: **pre_planning** - approval: **explicit**
-- **Origin:** 2026-08-07 - "The only real optimization is getting a text that says your override is about to expire 5 mins before a boundary"
-- **Why:** We built the release logic but never tell the operator it is coming — the override silently vanishes and the setpoint drifts back. A heads-up makes it usable: re-engage in one tap instead of noticing an hour later that the master went cold.
-- **Next:** confirm the 3-part shape with operator, then build with the SNAP-1 batch or standalone
-- **Tags:** numbers-get-knobs
-- **Parsimony:** [BUILD] override releases silently; operator discovers it by feeling cold
-- **Forensic keys (1):**
-  - `design_note`: 5-min-ahead warning is only possible for PREDICTABLE expiries. House-state transitions are NOT scheduled - we cannot know home_evening is coming. So: (a) pre-warn the 6h decay at T-5min; (b) on a grace DEFERRAL, warn immediately ('contex...
-
-### `TRANSIT-DIAG-1` - Expose checkpoint_cameras_by_area on a diagnostic sensor
-thread: **presence** - status: **pre_planning** - approval: **implied**
-- **Origin:** 2026-08-07 - operator: "Will you fix what the validation exposed?" - v5.60.0 live validation needed log-level surgery + a registry touch just to read the checkpoint inventory
-- **Why:** checkpoint_cameras_by_area is a Python attribute only and URA logs at WARNING, so the feature is unobservable without raising log level and forcing a rebuild. Validation should not require surgery.
-- **Next:** fold into the SECC-1 build batch
-- **Tags:** numbers-get-knobs
-- **Parsimony:** [BUILD] shipped feature is not observable live
-- **Refs:** docs/readmes/README_v5.60.0.md live-validation method note
-- **Forensic keys (1):**
-  - `fix`: additive diagnostic sensor (or attrs on an existing presence diagnostic) exposing checkpoint_cameras_by_area + protect_sourced count. Read-only.
-
 ### `TEST-1` - Boot-time shadow diff (legacy vs resolver leg set)
 thread: **resolver** - status: **pre_planning** - approval: **implied**
 - **Origin:** 2026-08-07 - we took hardened surface and gave it new methods; something is bound to fail
@@ -136,6 +115,7 @@ thread: **camera** - status: **pre_planning** - approval: **implied**
 - **Parsimony:** [BUILD] any camera on the 2nd Frigate host has never had a snapshot
 
 ### `KP-ESCALATE-1` - Known-person / face-alert path (no URA successor)
+> **⚡ OPERATOR: declined — pending apply** (at 2026-08-13T03:20:00.530Z)
 thread: **security** - status: **pre_planning** - approval: **blocked**
 - **Origin:** 2026-08-07 - discovered via purged Frigate_KnownPerson_* files + AUDIT rec 5
 - **Why:** face-recognition paging has no URA successor; lost when the doorbell automation retires unless built into perimeter NM
@@ -155,15 +135,6 @@ thread: **lifecycle** - status: **pre_planning** - approval: **explicit**
   - `diagnosis`: CONFIRMED (2026-08-07): _async_update_listener (__init__.py:5984) - for the INTEGRATION entry, if changed_keys NOT subset of OPTIONS_RELOAD_SUPPRESS_KEYS -> hass.config_entries.async_reload(entry.entry_id). Reloading the INTEGRATION (par...
   - `fix`: Add Camera Census keys to an INTEGRATION-entry suppress set (mirror the CM/ROOM reload-suppression). Persistence already done by async_update_entry.
 
-### `D3-AREA-INHERIT` - URA D3 fused sensor should inherit room area on creation
-thread: **camera** - status: **pre_planning** - approval: **implied**
-- **Origin:** 2026-08-07 - 5 rooms had roomless CameraPersonDetectedSensor - manual entity-area set was a band-aid
-- **Why:** CameraPersonDetectedSensor (D3) does not set area_id from its room on creation, so new rooms silently ship roomless -> breaks resolver/transit room mapping. Durable fix so we do not hand-patch each new room.
-- **Next:** set _attr area / registry area from room area on D3 sensor creation
-- **Tags:** numbers-get-knobs
-- **Parsimony:** [BUILD] per-room fused camera sensors ship with no area
-- **Refs:** binary_sensor.py CameraPersonDetectedSensor
-
 ## 📝 Planned (2)
 _has plan / acceptance_
 
@@ -175,7 +146,7 @@ thread: **presence** - status: **planned** - approval: **explicit**
 - **Tags:** tier-2db, no-fabrication-verify, context-wide-scoping
 - **Depends on:** SENSOR-CAPABILITY-1
 - **Parsimony:** [BUILD] a stuck sensor silently fabricates occupancy and drives fans/HVAC/lighting in empty rooms
-- **Forensic keys (15):**
+- **Forensic keys (16):**
   - `my_miss`: I READ these exact warnings hours earlier and dismissed them as 'routine, not a crash' — I was scanning for crashes, so a WARNING that was not a crash read as noise. The message named its own defect and I skimmed it. Rule: a warning that...
   - `gaps`: 1. NO CONSEQUENCE: stuck sensors are not excluded from the occupancy substrate.
   - `fix`: 1. Graduate D2 to exclusion behind the house-state gate the code always planned ('exclusion graduates in a later cycle behind a house-state gate'). The sleeping-person objection holds for bedrooms in sleep/home_night; it does NOT hold wh...
@@ -191,6 +162,7 @@ thread: **presence** - status: **planned** - approval: **explicit**
   - `D0_AUDIT_DONE`: 2026-08-09: docs/planning/AUDIT_mmwave_only_rooms_2026-07-31.md written (was owed since 07-31 as D0 of the mmwave Tier-3 cycle and never done; cycle shipped without it). Key results: 5 MMWAVE_ONLY rooms + Master Bedroom MMWAVE_NO_PIR = S...
   - `OPERATOR_DISPOSITIONS_2026_08_09`: ATHOM (Study A): CLOSED as a no-op. Operator: "Ignore athom now. It's a no op." URA already does not read it (options override every bucket); the ESPHome device entry stays. Do NOT re-raise, do NOT propose deleting the entry or cleaning ...
   - `rejected`: PROPAGATE STUCK STATE TO ZONE/HOUSE — I recommended this and then withdrew it under challenge ('is this flow upwards useful?'). If the room tier excludes correctly the corrected occupancy propagates naturally and upper tiers are right fo...
+  - `amendment_approved_2026_08_13`: Operator approved the criterion-4 amendment (offline replay harness + hand-built supplement; runtime tap DROPPED — recorded in PLANNING_signal_trust_ledger_abstraction.md). Unblock path ACTIVE: build/ledger-golden-replay harness in fligh...
 
 ### `GUEST-FP-RESIDUALS-1` - Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent)
 thread: **presence** - status: **planned** - approval: **unreviewed**
@@ -200,7 +172,7 @@ thread: **presence** - status: **planned** - approval: **unreviewed**
 - **Forensic keys (1):**
   - `operator_question`: 50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests or a daytime FP flavor? If the latter, escalate per audit §3.
 
-## 🔨 In progress (1)
+## 🔨 In progress (4)
 _being built_
 
 ### `FRIGATE-RETIRE-1` - Retire Frigate-1 — promote Frigate-2 (yolov9t/OpenVINO, zero night ghosts) to primary incl. snapshot engine
@@ -215,6 +187,37 @@ thread: **security** - status: **in_progress** - approval: **approved**
   - `operator_refinements_2026_08_12`: (1) FP-gate preference RULED: cross-corroboration (Protect agreement) preferred over duration/latency gates — "I don't like the latency idea. Much prefer x-corroboration." Applies if frigate-2 ghosts post-promotion. (2) Evidence chain: h...
   - `ura_ref_swap`: FOUND during window-open verify (audit's "zero URA changes" was wrong at the entity layer): 26 F1-owned entity refs across 4 URA config entries (main entry 14 perimeter cameras, Zone Manager 6 occupancy sensors, Garage Hallway 3, Garage ...
   - `entity_migration_2026_08_12`: DONE (operator approved). Mechanism pivot: ha CLI unauthorized for ssh user -> did 50 entity-registry renames via API instead of .storage surgery: every dead F1 entity -> *_f1retired (reversible), F2 twin -> the id URA references. Bonus:...
+
+### `OVERRIDE-NOTIFY-1` - Warn before the Temp Arrester Override expires
+thread: **hvac** - status: **in_progress** - approval: **explicit**
+- **Origin:** 2026-08-07 - "The only real optimization is getting a text that says your override is about to expire 5 mins before a boundary"
+- **Why:** We built the release logic but never tell the operator it is coming — the override silently vanishes and the setpoint drifts back. A heads-up makes it usable: re-engage in one tap instead of noticing an hour later that the master went cold.
+- **Next:** confirm the 3-part shape with operator, then build with the SNAP-1 batch or standalone
+- **Tags:** numbers-get-knobs
+- **Parsimony:** [BUILD] override releases silently; operator discovers it by feeling cold
+- **Forensic keys (2):**
+  - `shape_confirmed_2026_08_13`: Operator OK'd the 3-part shape (T-5min decay warn / immediate deferral notice / release notice) with the QoL trio approval.
+  - `design_note`: 5-min-ahead warning is only possible for PREDICTABLE expiries. House-state transitions are NOT scheduled - we cannot know home_evening is coming. So: (a) pre-warn the 6h decay at T-5min; (b) on a grace DEFERRAL, warn immediately ('contex...
+
+### `TRANSIT-DIAG-1` - Expose checkpoint_cameras_by_area on a diagnostic sensor
+thread: **presence** - status: **in_progress** - approval: **implied**
+- **Origin:** 2026-08-07 - operator: "Will you fix what the validation exposed?" - v5.60.0 live validation needed log-level surgery + a registry touch just to read the checkpoint inventory
+- **Why:** checkpoint_cameras_by_area is a Python attribute only and URA logs at WARNING, so the feature is unobservable without raising log level and forcing a rebuild. Validation should not require surgery.
+- **Next:** fold into the SECC-1 build batch
+- **Tags:** numbers-get-knobs
+- **Parsimony:** [BUILD] shipped feature is not observable live
+- **Refs:** docs/readmes/README_v5.60.0.md live-validation method note
+- **Forensic keys (1):**
+  - `fix`: additive diagnostic sensor (or attrs on an existing presence diagnostic) exposing checkpoint_cameras_by_area + protect_sourced count. Read-only.
+
+### `D3-AREA-INHERIT` - URA D3 fused sensor should inherit room area on creation
+thread: **camera** - status: **in_progress** - approval: **implied**
+- **Origin:** 2026-08-07 - 5 rooms had roomless CameraPersonDetectedSensor - manual entity-area set was a band-aid
+- **Why:** CameraPersonDetectedSensor (D3) does not set area_id from its room on creation, so new rooms silently ship roomless -> breaks resolver/transit room mapping. Durable fix so we do not hand-patch each new room.
+- **Next:** set _attr area / registry area from room area on D3 sensor creation
+- **Tags:** numbers-get-knobs
+- **Parsimony:** [BUILD] per-room fused camera sensors ship with no area
+- **Refs:** binary_sensor.py CameraPersonDetectedSensor
 
 ## 🔍 Review (0)
 _under review_

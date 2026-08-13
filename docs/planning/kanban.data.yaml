@@ -155,6 +155,8 @@ cards:
     naturally and upper tiers are right for free. Propagation adds a cross-tier concept, new state and
     new failure modes to fix something better fixed at source. Only justified as a FALLBACK where the
     room tier genuinely cannot discriminate and upper tiers should down-weight.
+  amendment_approved_2026_08_13: 'Operator approved the criterion-4 amendment (offline replay harness + hand-built supplement; runtime tap DROPPED — recorded in PLANNING_signal_trust_ledger_abstraction.md). Unblock path ACTIVE: build/ledger-golden-replay harness in flight -> then this cycle builds.'
+
 - id: SENSOR-CAPABILITY-1
   title: Separate sensor CAPABILITY (hardware kind) from analytic ROLE — kind is currently the config bucket
   thread: presence
@@ -1444,8 +1446,9 @@ cards:
 - id: OVERRIDE-NOTIFY-1
   title: Warn before the Temp Arrester Override expires
   thread: hvac
-  status: pre_planning
+  status: in_progress
   approval: explicit
+  shape_confirmed_2026_08_13: 'Operator OK''d the 3-part shape (T-5min decay warn / immediate deferral notice / release notice) with the QoL trio approval.'
   approved_by: operator
   approved_on: '2026-08-07'
   tags:
@@ -1574,7 +1577,7 @@ cards:
 - id: TRANSIT-DIAG-1
   title: Expose checkpoint_cameras_by_area on a diagnostic sensor
   thread: presence
-  status: pre_planning
+  status: in_progress
   approval: implied
   tags:
   - numbers-get-knobs
@@ -2186,7 +2189,7 @@ cards:
 - id: D3-AREA-INHERIT
   title: URA D3 fused sensor should inherit room area on creation
   thread: camera
-  status: pre_planning
+  status: in_progress
   approval: implied
   tags:
   - numbers-get-knobs
