@@ -1722,6 +1722,17 @@ EXTERIOR_ADJACENCY_GRAPH: Final[dict[str, tuple[str, ...]]] = {
 # vehicle} → car, {dog,cat,animal,bird,raccoon,deer} → animal.
 EXTERIOR_TRACK_LABELS: Final = ("person", "car", "animal")
 
+# ---------------------------------------------------------------------------
+# CIRCLING-SEVERITY-1 D3 diagnostic tripwire — INV-M enforcement.
+# Rung-1 module constants (Numbers Get Knobs). See
+# docs/planning/PLANNING_circling_severity.md §D3 for rationale (dispatch-
+# loss paths 5-7 are invisible to any other sensor; this counter is the
+# live tripwire, not a durable audit ledger — restart drops the state).
+# Poll interval matches the canonical sensor.py:4407-4428 cadence.
+# ---------------------------------------------------------------------------
+CIRCLING_DIAG_LOOKBACK_HOURS: Final = 24
+CIRCLING_DIAG_POLL_INTERVAL_MINUTES: Final = 5
+
 # Classification thresholds (space-time only — no re-identification).
 EXTERIOR_TRACK_CLASSIFY_APPROACH_CAMERAS: Final = 0  # 0 = disabled; primary approach signal is EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS
 EXTERIOR_TRACK_CLASSIFY_CIRCLING_CAMERAS: Final = 3
