@@ -440,7 +440,19 @@ class FanController:
                         continue
                     entry_to_room[f"entry:{entry.entry_id}"] = _room_key(name)
                 if entry_to_room:
-                    oracle_for_migration.migrate_legacy_entry_keys(entry_to_room)
+                    # B-LOW-1 (2026-08-12): pass the authoritative live-room
+                    # set so migrate_legacy_entry_keys ALSO sweeps orphan
+                    # room:* ledger rows whose room no longer exists (rename
+                    # /delete/recreate within a session). ``entry_to_room``
+                    # values ARE the live room-key set — every URA room is
+                    # backed by an ENTRY_TYPE_ROOM config entry, which we
+                    # just iterated. Neutering the ``current_room_keys=``
+                    # kwarg here (kwarg removed → default None → no sweep)
+                    # must red-line at least one test.
+                    oracle_for_migration.migrate_legacy_entry_keys(
+                        entry_to_room,
+                        current_room_keys=set(entry_to_room.values()),
+                    )
             except Exception:  # noqa: BLE001 — never break discover_fans
                 _LOGGER.debug(
                     "HVAC Fans: legacy-key migration wiring failed (non-fatal)",

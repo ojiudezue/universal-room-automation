@@ -343,7 +343,11 @@ class FanPolicyOracle:
                 exc_info=True,
             )
 
-    def migrate_legacy_entry_keys(self, entry_to_room_key: dict[str, str]) -> int:
+    def migrate_legacy_entry_keys(
+        self,
+        entry_to_room_key: dict[str, str],
+        current_room_keys: set[str] | None = None,
+    ) -> int:
         """Fold ``entry:<eid>`` legacy rows into their target ``room:<name>`` keys.
 
         FAN-LAYER-2 D2 fix-up B-HIGH-1 + A-MED-1 (2026-08-11): called
@@ -372,16 +376,19 @@ class FanPolicyOracle:
 
         Returns count of legacy rows folded (informational).
         """
-        # B-LOW-1 (2026-08-11) — DEFERRED (follow-up card): this helper
-        # folds legacy entry:<eid> rows into room:<NFC(name)> targets, but
-        # does NOT sweep ORPHANED room:<old-name> rows when the operator
-        # renames a room or deletes an entry. RAM-only ledger means a
-        # restart clears them; the operator-observable impact of an orphan
-        # row is a phantom hold on a now-nonexistent room name (does not
-        # affect any live decision path — no wrap consults a room the
-        # ledger knows about but the config doesn't). Tracked as a
-        # follow-up card; do NOT extend this method.
+        # B-LOW-1 (2026-08-12) — RESOLVED: orphan sweep is now opt-in via
+        # ``current_room_keys``. Callers that hold the authoritative full
+        # set of live room keys (e.g. ``hvac_fans.FanController.discover_fans``
+        # after iterating every ENTRY_TYPE_ROOM entry) pass it here; any
+        # ``room:*`` row NOT in that set AND any legacy ``entry:*`` row NOT
+        # in ``entry_to_room_key`` is dropped in the same pass. RAM-only
+        # ledger means these accumulate only within a session (rename /
+        # delete / recreate); the drop keeps the ledger keyed on live rooms
+        # only. Callers without an authoritative set (partial maps) leave
+        # ``current_room_keys=None`` and get the pre-existing preserve-in-place
+        # behavior for unmapped legacy rows.
         migrated = 0
+        orphans_dropped: list[str] = []
         try:
             legacy_keys = [
                 k for k in list(self._rooms.keys()) if k.startswith("entry:")
@@ -389,9 +396,15 @@ class FanPolicyOracle:
             for legacy_key in legacy_keys:
                 target = entry_to_room_key.get(legacy_key)
                 if target is None:
-                    # No mapping for this legacy row — LEAVE IT (do not
-                    # drop; a subsequent call with a richer map should
-                    # still be able to fold it).
+                    # No mapping for this legacy row. If the caller supplied
+                    # an authoritative ``current_room_keys`` set, this row
+                    # is provably orphan (no live entry maps to it) and gets
+                    # DROPPED. Otherwise preserve it — a subsequent call
+                    # with a richer map should still be able to fold it.
+                    if current_room_keys is not None:
+                        self._rooms.pop(legacy_key, None)
+                        self._room_locks.pop(legacy_key, None)
+                        orphans_dropped.append(legacy_key)
                     continue
                 legacy_rec = self._rooms.pop(legacy_key, None)
                 if legacy_rec is None:
@@ -441,10 +454,28 @@ class FanPolicyOracle:
                     existing.last_actuation_source = legacy_rec.last_actuation_source
                     existing.pause_context = legacy_rec.pause_context
                 migrated += 1
+            if current_room_keys is not None:
+                # Sweep orphan room:* rows whose target room no longer
+                # exists (rename/delete within a session — RAM-only, but
+                # dead weight and misleading in debug snapshots).
+                for room_key in list(self._rooms.keys()):
+                    if not room_key.startswith("room:"):
+                        continue
+                    if room_key in current_room_keys:
+                        continue
+                    self._rooms.pop(room_key, None)
+                    self._room_locks.pop(room_key, None)
+                    orphans_dropped.append(room_key)
             if migrated:
                 _LOGGER.info(
                     "FanPolicyOracle: migrated %d legacy entry:* rows to "
                     "room:* keys (field-wise MAX on collision)", migrated,
+                )
+            if orphans_dropped:
+                _LOGGER.info(
+                    "FanPolicyOracle: dropped %d orphan ledger rows "
+                    "(no live room): %s",
+                    len(orphans_dropped), orphans_dropped,
                 )
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
