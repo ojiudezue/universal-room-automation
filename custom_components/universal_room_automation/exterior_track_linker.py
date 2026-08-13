@@ -144,6 +144,11 @@ class ExteriorTrackLinker:
 
     def __init__(self, hass: HomeAssistant) -> None:
         self.hass = hass
+        # LOW-A1 diag-consumer note: `perimeter_diagnostics.
+        # _iter_person_tracks_for_diag` reads `self._tracks` and
+        # `self._closed_recent` directly (public snapshot APIs return
+        # aggregates only). Any refactor of these two attributes MUST
+        # update that consumer (CIRCLING-SEVERITY-1 D3 tripwire).
         self._tracks: dict[str, list[ExteriorTrack]] = {
             label: [] for label in EXTERIOR_TRACK_LABELS
         }

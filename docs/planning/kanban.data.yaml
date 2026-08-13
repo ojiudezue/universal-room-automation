@@ -155,6 +155,9 @@ cards:
     naturally and upper tiers are right for free. Propagation adds a cross-tier concept, new state and
     new failure modes to fix something better fixed at source. Only justified as a FALLBACK where the
     room tier genuinely cannot discriminate and upper tiers should down-weight.
+  amendment_approved_2026_08_13: 'Operator approved the criterion-4 amendment (offline replay harness + hand-built supplement; runtime tap DROPPED — recorded in PLANNING_signal_trust_ledger_abstraction.md). Unblock path ACTIVE: build/ledger-golden-replay harness in flight -> then this cycle builds.'
+  harness_landed_2026_08_13: 'Replay harness MERGED (fe9bfc845): P22 (13/5) + D2 (56/3, boot-settle unmodelled -> discount vs audit 13) FILLED from replay. Remaining criterion-4 work before this cycle builds: hand-built supplements for P24/P18/D1/CHATTER (operator sign-off required per amendment) + adjudicate D3 bucket (its frozen-tracker detector was DELETED 2026-08-10 — bucket likely obsolete, minimums need a plan edit) + P18 NM-ledger ingestion follow-up. Hand-building the supplements is orchestrator work, queued behind the circling/QoL wave.'
+
 - id: SENSOR-CAPABILITY-1
   title: Separate sensor CAPABILITY (hardware kind) from analytic ROLE — kind is currently the config bucket
   thread: presence
@@ -1034,6 +1037,18 @@ cards:
   why: 'The CONSOL-1 tripwire (in-code, NM alert if the legacy zone-monitoring stack fires) is doing its job — the legacy counter automations are still running and leaking. Either they should have been disabled with the legacy stack (leak = real) or the tripwire is over-broad (counters are benign telemetry, not pagers). MEDIUM severity -> digest noise + ledger pollution either way.'
   next: 'Small triage: read the tripwire match list vs the 12 dormancy-receipt automations; if the counters are legacy-stack members, turn_off (Method 1, reversible) and confirm tripwire goes quiet; if benign, narrow the tripwire match. ~30min, Tier 1.'
 
+- id: CIRCLING-LABEL-1
+  title: Circling loops page but are never LABELLED/escalated as circling (2-camera shape) — cooldown blocks the hop where classification forms
+  thread: perimeter
+  status: waiting_on_operator
+  approval: unreviewed
+  origin:
+    date: '2026-08-13'
+    gist: 'CIRCLING-SEVERITY-1 Review A MEDIUM-A1: founding shape pages at hops 1-2 as pass_by (LOW/MED); classification becomes circling at hop 3; per-camera 300s cooldown returns before severity re-resolves; continuation-coercion block is dead for this shape.'
+  why: 'INV-M holds (pages happen, tripwire honest) but the operator''s 08-08 complaint was about CIRCLING specifically. The dominant 2-camera alternating shape can never emit a HIGH circling-labelled page under current mechanics.'
+  operator_decision: '(A) surgical — allow ONE dispatch through the cooldown when a track''s classification TRANSITIONS (one extra HIGH page at the hop circling forms; ~persist last_dispatched_classification on ExteriorTrack). (B) tighten invariant + add circling-classified-but-no-HIGH counter to the D3 sensor. (C) accept as-is, update narrative. ORCHESTRATOR RECOMMENDS A (marginal-benefit: matches the founding ask, small; B is machinery without a consumer).'
+  next: 'Operator picks A/B/C. If A: own small Tier-2 cycle (new cooldown exemption on the perimeter dispatch path = regression-prone, plan review required).'
+
 - id: GUEST-FP-RESIDUALS-1
   title: Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent)
   thread: presence
@@ -1294,7 +1309,8 @@ cards:
 - id: CIRCLING-SEVERITY-1
   title: A "circling" exterior person produced alert_count=0
   thread: perimeter
-  status: pre_planning
+  status: shipped_organic
+  shipped_version: v5.74.0
   approval: unreviewed
   tags:
   - no-fabrication-verify
@@ -1444,8 +1460,9 @@ cards:
 - id: OVERRIDE-NOTIFY-1
   title: Warn before the Temp Arrester Override expires
   thread: hvac
-  status: pre_planning
+  status: done
   approval: explicit
+  shape_confirmed_2026_08_13: 'Operator OK''d the 3-part shape (T-5min decay warn / immediate deferral notice / release notice) with the QoL trio approval.'
   approved_by: operator
   approved_on: '2026-08-07'
   tags:
@@ -1470,6 +1487,9 @@ cards:
     verdict: BUILD
     note: small, additive, rides the existing NM note path added in v5.61.0
   next: confirm the 3-part shape with operator, then build with the SNAP-1 batch or standalone
+  stale_card_found_2026_08_13: 'Builder finding-vs-reality: ALREADY SHIPPED in v5.62.0 (verified in source + tests passing). Card status was stale since ship — fourth stale-status find of 2026-08-13 (with EV-DP and guest-FP memories). No work done.'
+
+
 - id: ARREST-SUNSET-1
   title: Temp Arrester Override does not sunset on away/vacation (only sleep)
   thread: hvac
@@ -1574,7 +1594,7 @@ cards:
 - id: TRANSIT-DIAG-1
   title: Expose checkpoint_cameras_by_area on a diagnostic sensor
   thread: presence
-  status: pre_planning
+  status: done
   approval: implied
   tags:
   - numbers-get-knobs
@@ -1593,6 +1613,9 @@ cards:
   next: fold into the SECC-1 build batch
   refs:
   - docs/readmes/README_v5.60.0.md live-validation method note
+  stale_card_found_2026_08_13: 'Builder finding-vs-reality: ALREADY SHIPPED in v5.60.0 (verified in source + tests passing). Card status was stale since ship — fourth stale-status find of 2026-08-13 (with EV-DP and guest-FP memories). No work done.'
+
+
 - id: CONSOL-1
   title: Perimeter consolidation cycle
   thread: perimeter
@@ -2186,7 +2209,8 @@ cards:
 - id: D3-AREA-INHERIT
   title: URA D3 fused sensor should inherit room area on creation
   thread: camera
-  status: pre_planning
+  status: shipped_organic
+  shipped_version: v5.74.0
   approval: implied
   tags:
   - numbers-get-knobs

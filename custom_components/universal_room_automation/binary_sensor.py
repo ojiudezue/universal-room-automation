@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.73.2
+# Universal Room Automation vv5.74.0
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -1153,6 +1153,15 @@ class CameraPersonDetectedSensor(UniversalRoomEntity, BinarySensorEntity):
     def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator, "camera_person_detected", "Camera Person Detected")
+        # D3-AREA-INHERIT (2026-08-12): area inheritance is done in the shared
+        # base class UniversalRoomEntity.async_added_to_hass via
+        # dr.async_update_device — see entity.py. This entity carries no
+        # local area logic. Do NOT reintroduce a D3-local stamp: the shared
+        # room device is created by the first registering platform
+        # (Platform.SENSOR precedes Platform.BINARY_SENSOR — see
+        # __init__.py:319-326), so a D3-local DeviceInfo.suggested_area
+        # would land on an already-created device (is_new=False) and be a
+        # runtime no-op.
         # Fix #7: fusion is now a LIST of RoomCameraFusion (one per physical camera).
         self._fusions: list | None = None
         self._source_entity_ids: list[str] = []

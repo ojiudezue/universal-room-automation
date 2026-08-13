@@ -1,0 +1,20 @@
+{
+  "format_version": "2.1",
+  "entry_id": "045",
+  "author": "ojiudezue",
+  "session_id": "claude_20260813_043155_ship_v5_74_0",
+  "timestamp": "2026-08-13T04:31:55Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.74.0 shipped: Circling-severity verification + zero-dispatch tripwire + room-device area inheritance",
+  "summary": "CIRCLING-SEVERITY-1 (Tier 2-DB, plan-reviewed + 3 framing-disjoint reviews + orchestrator re-drill): founding case verified fixed-by-CONSOL-1; 27 per-state severity pins; sensor.perimeter_circling_zero_dispatch_24h tripwire enforcing INV-M against the three residual dispatch-loss modes, all mutation-anchored. D3-AREA-INHERIT: new room devices inherit CONF_AREA_ID area via async_update_device (only-when-unset, survives HA 2026.9). Known 23 pre-existing suite failures unchanged.",
+  "refs": {
+    "cards": [
+      "CIRCLING-SEVERITY-1",
+      "D3-AREA-INHERIT"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.74.0.md"
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "PLACEHOLDER": true,
+  "bucket": "P24",
+  "entries": [],
+  "instructions": "This bucket cannot be filled by pure recorder replay. The operator or orchestrator MUST hand-build one row per the required_fields list, per the operator sign-off clause of amended Criterion 4 (PLANNING_signal_trust_ledger_abstraction.md, OPERATOR APPROVED 2026-08-13). Do NOT fabricate values \u2014 each row must correspond to a real, observed event or a synthetic trace the operator has reviewed and signed.",
+  "required_fields": [
+    "room_name",
+    "fired_ts",
+    "occupancy_source",
+    "became_occupied_time",
+    "last_motion_time",
+    "max_active_s"
+  ],
+  "shortfall_reason": "M2 max-active failsafe is closed-loop: firing mutates its own future inputs (_last_motion_time=None, STATE_OCCUPIED=False), so pure replay is not a fixture harness but a second implementation. See AUDIT \u00a7M2 row. Live NM ledger shows ~1 firing / 14 days \u2014 supplement with hand-built rows to reach minimum."
+}
