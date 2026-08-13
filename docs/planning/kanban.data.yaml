@@ -1087,13 +1087,15 @@ cards:
 - id: SUITE-HYGIENE-2
   title: Pollution-DEPENDENT tests — 5 files break under a clean sys.modules start
   thread: quality
-  status: pre_planning
+  status: done
   approval: unreviewed
   origin:
     date: '2026-08-11'
     gist: 'SUITE-HYGIENE-1 census: widening the restore to homeassistant.*/custom_components.* prefixes FIXED 7 stable failures but BROKE 7 tests that depend on stubs a sibling file installed (test_heatcool_enforcer, test_runtime_smoke, test_zone_migration_mint_guard, test_v570_fixup_wiring, test_prediction_sensor_kill_list).'
   why: 'These tests only pass because another file polluted sys.modules first — invisible coupling that blocks full-suite hermeticity and keeps 7 heal-able stable failures unfixed. Fix = give each dependent file its own complete stubs, then widen the restore prefix set.'
   next: 'Small cycle after FAN-LAYER-2 ships: per-file stub-completeness for the 5 dependents, widen prefixes, expect stable-failure count to DROP by ~7. Census + experiment logs in SUITE-HYGIENE-1 scratchpad + conftest docstring.'
+  done_2026_08_13: 'Merged 109ff9381 (test-only): test_heatcool_enforcer.py made self-sufficient (own hvac_setpoint stub; was 6-failed standalone, now 6-passed). Census re-audit: other 4 flagged files stale/misclassified against current tree (importorskip-gated, self-stubbed, sibling-importing, or real-HA-only) — documented in the branch commit. Full suite byte-identical failure list vs baseline. Restore-prefix WIDENING (the ~7-failure drop) intentionally NOT done — queue separately if wanted.'
+
 
 - id: SUITE-HYGIENE-1
   title: Kill the order-dependent flake families (sys.modules pollution) — every cycle pays a classification tax
