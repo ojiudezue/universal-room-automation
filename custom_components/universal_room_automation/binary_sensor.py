@@ -59,6 +59,7 @@ from .const import (
     DEFAULT_HUMIDITY_FAN_CONTROL_ENABLED,
     # v3.5.0 Camera Census
     CONF_CAMERA_PERSON_ENTITIES,
+    CONF_AREA_ID,
     CONF_ROOM_CAMERAS,
     CONF_DISABLE_CAMERA_PRESENCE,
     CONF_TRACKED_PERSONS,
@@ -1153,6 +1154,28 @@ class CameraPersonDetectedSensor(UniversalRoomEntity, BinarySensorEntity):
     def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator, "camera_person_detected", "Camera Person Detected")
+        # D3-AREA-INHERIT (2026-08-12): stamp the room's configured area on the
+        # DeviceInfo as ``suggested_area`` so a brand-new room device (first
+        # entity registration) is created with area_id set, and D3 inherits it.
+        # HA device_registry only honors ``suggested_area`` on NEW device
+        # creation (see device_registry.py async_get_or_create is_new branch,
+        # ~line 923-941); an existing device's area_id is preserved and the
+        # operator's manual entity-level area assignments in entity_registry
+        # continue to win (registry wins once set). Kill switch: leave
+        # CONF_AREA_ID unset (or empty) in room config and this is a no-op.
+        try:
+            _area_id = (
+                coordinator.entry.options.get(CONF_AREA_ID)
+                or coordinator.entry.data.get(CONF_AREA_ID)
+                or None
+            )
+        except Exception:  # noqa: BLE001 — never fail entity construction
+            _area_id = None
+        if _area_id and self._attr_device_info is not None:
+            try:
+                self._attr_device_info["suggested_area"] = _area_id
+            except Exception:  # noqa: BLE001
+                pass
         # Fix #7: fusion is now a LIST of RoomCameraFusion (one per physical camera).
         self._fusions: list | None = None
         self._source_entity_ids: list[str] = []
