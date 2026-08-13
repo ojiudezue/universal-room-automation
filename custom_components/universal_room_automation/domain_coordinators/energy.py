@@ -3996,10 +3996,23 @@ class EnergyCoordinator(BaseCoordinator):
             except Exception:  # noqa: BLE001
                 env = None
             reserve_verifiable = self.reserve_write_verifiable()
+            # DP-REASON-NULL-1: the DrainPrecedenceState carrier has no
+            # `reason` attribute — the true eval reason lives on the
+            # last_eval_snapshot["decision"]["reason"] blob written by
+            # _snapshot_eval in energy_drain_precedence.py. Pre-eval
+            # ticks (empty snapshot) still write safely as None.
+            _dp_reason = None
+            try:
+                _snap = getattr(self._dp_carrier, "last_eval_snapshot", None) or {}
+                _dec = _snap.get("decision") if isinstance(_snap, dict) else None
+                if isinstance(_dec, dict):
+                    _dp_reason = _dec.get("reason")
+            except Exception:  # noqa: BLE001
+                _dp_reason = None
             context = {
                 "state": str(getattr(self._dp_carrier, "state", None)),
                 "prior_state": str(prev_state),
-                "reason": getattr(self._dp_carrier, "reason", None),
+                "reason": _dp_reason,
                 "charger_rate_kw": float(getattr(inputs, "charger_rate_kw", 0.0) or 0.0),
                 "soc": getattr(inputs, "soc", None),
                 "is_blind_hold": bool(getattr(inputs, "is_blind_hold", False)),
