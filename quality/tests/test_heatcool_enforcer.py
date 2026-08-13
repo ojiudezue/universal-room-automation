@@ -163,6 +163,15 @@ def _load_hvac_module():
     _stub_module(
         "ura_hvac_pkg.domain_coordinators.hvac_zones", ZoneManager=object
     )
+    # hvac_setpoint: SUITE-HYGIENE-2 — hvac.py imports the setpoint chokepoint
+    # helpers. Standalone we must stub them; in-suite a sibling loader (e.g.
+    # test_freeze_floor) may install a real one, but our own stub is fine.
+    _stub_module(
+        "ura_hvac_pkg.domain_coordinators.hvac_setpoint",
+        apply_setpoint_guards=lambda *a, **kw: None,
+        emit_set_preset_mode=lambda *a, **kw: None,
+        emit_set_temperature=lambda *a, **kw: None,
+    )
 
     # signals: permissive — every SIGNAL_* import resolves to a sentinel str.
     signals = types.ModuleType("ura_hvac_pkg.domain_coordinators.signals")

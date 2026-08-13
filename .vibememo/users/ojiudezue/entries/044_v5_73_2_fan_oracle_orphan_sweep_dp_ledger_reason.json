@@ -1,0 +1,20 @@
+{
+  "format_version": "2.1",
+  "entry_id": "044",
+  "author": "ojiudezue",
+  "session_id": "claude_20260813_030547_ship_v5_73_2",
+  "timestamp": "2026-08-13T03:05:47Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.73.2 shipped: Fan-oracle orphan sweep + DP ledger reason fix (batch hotfix)",
+  "summary": "FAN-LAYER-2 B-LOW-1: opt-in orphan row sweep in migrate_legacy_entry_keys wired via discover_fans (live rows byte-identical, wire-in anchored, Tier-1 SHIP). DP-REASON-NULL-1: decision_log dp_eval rows now carry the real eval reason from last_eval_snapshot (all 4181 prior rows were null). Both mutation-drilled, zero new suite failures.",
+  "refs": {
+    "cards": [
+      "FAN-LAYER-2",
+      "DP-REASON-NULL-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.73.2.md"
+    ]
+  }
+}

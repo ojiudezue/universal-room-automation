@@ -1023,17 +1023,53 @@ cards:
   fix_directions_for_operator: '(a) Frigate-side: raise person threshold / min_score on the 4 IR-affected cameras (fixes at the source, benefits everything downstream); (b) URA-side sustained-on gate ~3-5s before dispatch (catches all observed FPs, adds 3-5s latency to real alerts, works for Frigate-only cameras); (c) URA-side Protect-corroboration demotion for dual-source views + duration gate for Frigate-only views (most precise, most machinery). Probe data supports (a)+(b) as the parsimonious pair. Also: llmvision enrichment (now shipped, default OFF) gives a free FP witness — "no person visible" descriptions become machine-readable FP evidence.'
   next: 'Operator picks direction(s); (a) is config-side on Frigate (homelab), (b)/(c) are URA cycles (measure-first done). Two NM-dedup''d edges (06:14, 07:11) flagged for follow-up in the audit.'
 
+- id: ZONE-MON-LEAK-1
+  title: zone_monitoring tripwire firing on legacy zone_N motion/person event counters — 10 MEDIUM ledger rows in 6h
+  thread: security
+  status: inbox
+  approval: unreviewed
+  origin:
+    date: '2026-08-12'
+    gist: 'Found during FRIGATE-RETIRE-1 gate check: hazard_type=zone_monitoring_leak rows against automation.zone_{1,3}_{motion,person}_event_counter every few minutes.'
+  why: 'The CONSOL-1 tripwire (in-code, NM alert if the legacy zone-monitoring stack fires) is doing its job — the legacy counter automations are still running and leaking. Either they should have been disabled with the legacy stack (leak = real) or the tripwire is over-broad (counters are benign telemetry, not pagers). MEDIUM severity -> digest noise + ledger pollution either way.'
+  next: 'Small triage: read the tripwire match list vs the 12 dormancy-receipt automations; if the counters are legacy-stack members, turn_off (Method 1, reversible) and confirm tripwire goes quiet; if benign, narrow the tripwire match. ~30min, Tier 1.'
+
+- id: GUEST-FP-RESIDUALS-1
+  title: Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent)
+  thread: presence
+  status: planned
+  approval: unreviewed
+  origin:
+    date: '2026-08-13'
+    gist: 'AUDIT_guest_fp_fixes_wiring.md: core fixes SHIPPED + Outside zone correctly flagged outdoor; two residuals worth small fixes.'
+  why: 'A1: path-alpha excluded_persons/tracked_persons_count_trusted still exclude LOST-away persons (diagnostic clarity only — guest gate does not read them). B1: camera-census has no room->outdoor filter; safe today (Patio has no camera person sensors) but latent if a camera person-detector is ever attached to an outdoor-zone room.'
+  operator_question: '50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests or a daytime FP flavor? If the latter, escalate per audit §3.'
+  next: 'Fold A1+B1 into the next presence hotfix batch; await operator answer on the 50-episode pattern.'
+
+- id: DP-REASON-NULL-1
+  title: DP durable ledger logs reason:null on all 4,181 rows — carrier has no .reason field
+  thread: energy
+  status: shipped_organic
+  shipped_version: v5.73.2
+  approval: unreviewed
+  origin:
+    date: '2026-08-13'
+    gist: 'Found by AUDIT_dp_live_behavior.md: _log_dp_eval_decision (energy.py:4002) reads getattr(carrier,"reason",None); field does not exist; real reasons live only in ~10-day recorder attrs.'
+  why: 'Durable decision ledger is the long-horizon audit trail; null reasons make future DP forensics depend on recorder retention.'
+  next: 'One-line fix (log the eval snapshot decision.reason) + anchor test; fold into next URA deploy batch (Tier 1).'
+
 - id: ARRESTER-BOOT-BLIND-1
   title: Arrester boot-window manual blindness — manual holds predating the listener are unclassifiable
   thread: hvac
-  status: pre_planning
+  status: parked
   approval: unreviewed
+  parked_2026_08_12: 'OPERATOR: "Park #2 until another incident." Revisit trigger: next boot-coincident manual hold the arrester misses (same signature: zone flips to manual during boot window, setpoint walks within-manual, arrester overrides_today stays flat). Probe-first + Tier 2-DB when reopened.'
   origin:
     date: '2026-08-11'
     gist: 'operator: "The battery is not 97%. The arrester should be seeing this as a bad action" — up-hallway manual 75->71 cool during a 26->11 SOC collapse, arrester idle w/ overrides_today=0.'
   why: 'LIVE INCIDENT ~22:36-23:10: zone_2 flipped sleep->manual at 22:36:06 during the post-HA-upgrade boot window BEFORE the arrester listener attached (22:37:53); subsequent setpoint walks (75->71 at 22:56) were within-manual = no classifiable transition. Battery collapsed 26->11 with the DEVICE honoring the WEDGED reserve=10 (not the commanded 26/27). Orchestrator manually reverted zone_2 to sleep 23:10 (what the arrester should have done). Envoy went unavailable 23:06:45 (power-cycle? verify with operator).'
   sharp_problem: 'Gaps: (1) boot reconciliation — on listener attach, classify any zone ALREADY in manual as inherited-manual and start standard arrest evaluation; (2) verify _handle_climate_change classifies within-manual setpoint deltas (manual->manual temp change) as fresh override events.'
-  related: 'Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire; PHYS Envoy power-cycle now materially urgent.'
+  related: 'Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire. RESOLVED 2026-08-12: operator power-cycled Enpower; all 3 reserve legs coherent at 10 (local number + envoy sensor + cloud HACS). Write-leg reconfirmation pending next write-verify cycle (URA commanding 99 peak-hold, backoff active).'
   next: 'Incident investigation: verify both gaps from source; probe-first (recorder: boot-coincident manual holds frequency); fix cycle Tier 2-DB.'
 
 - id: NM-BB-IMAGE-1
@@ -1052,13 +1088,15 @@ cards:
 - id: SUITE-HYGIENE-2
   title: Pollution-DEPENDENT tests — 5 files break under a clean sys.modules start
   thread: quality
-  status: pre_planning
+  status: done
   approval: unreviewed
   origin:
     date: '2026-08-11'
     gist: 'SUITE-HYGIENE-1 census: widening the restore to homeassistant.*/custom_components.* prefixes FIXED 7 stable failures but BROKE 7 tests that depend on stubs a sibling file installed (test_heatcool_enforcer, test_runtime_smoke, test_zone_migration_mint_guard, test_v570_fixup_wiring, test_prediction_sensor_kill_list).'
   why: 'These tests only pass because another file polluted sys.modules first — invisible coupling that blocks full-suite hermeticity and keeps 7 heal-able stable failures unfixed. Fix = give each dependent file its own complete stubs, then widen the restore prefix set.'
   next: 'Small cycle after FAN-LAYER-2 ships: per-file stub-completeness for the 5 dependents, widen prefixes, expect stable-failure count to DROP by ~7. Census + experiment logs in SUITE-HYGIENE-1 scratchpad + conftest docstring.'
+  done_2026_08_13: 'Merged 109ff9381 (test-only): test_heatcool_enforcer.py made self-sufficient (own hvac_setpoint stub; was 6-failed standalone, now 6-passed). Census re-audit: other 4 flagged files stale/misclassified against current tree (importorskip-gated, self-stubbed, sibling-importing, or real-HA-only) — documented in the branch commit. Full suite byte-identical failure list vs baseline. Restore-prefix WIDENING (the ~7-failure drop) intentionally NOT done — queue separately if wanted.'
+
 
 - id: SUITE-HYGIENE-1
   title: Kill the order-dependent flake families (sys.modules pollution) — every cycle pays a classification tax
@@ -1114,7 +1152,7 @@ cards:
   title: FanPolicyOracle completion — RoomFanState delegation + actuate-wrap remainder (W1-W3, W8-W10) + INV-FLA-T lock
   thread: fans
   status: shipped_organic
-  shipped_version: v5.72.0
+  shipped_version: v5.73.2
   approval: unreviewed
   origin:
     date: '2026-08-11'

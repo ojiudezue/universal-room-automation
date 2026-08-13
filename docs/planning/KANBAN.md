@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-12T08:58:29-05:00_ - _Data commit: `02a8adffa529`_ - _last_reconciled: 2026-08-12_
+_Generated: 2026-08-12T21:55:11-05:00_ - _Data commit: `cc6c5cc221fc`_ - _last_reconciled: 2026-08-12_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,18 +11,18 @@ _Generated: 2026-08-12T08:58:29-05:00_ - _Data commit: `02a8adffa529`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 1 |
-| 🧭 Pre-planning | 14 |
-| 📝 Planned | 2 |
+| 📥 Inbox | 2 |
+| 🧭 Pre-planning | 12 |
+| 📝 Planned | 3 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 0 |
-| 🚀 Shipped (organic open) | 23 |
+| 🚀 Shipped (organic open) | 24 |
 | ⏸️ Waiting on operator | 2 |
 | ⏳ Waiting on me (Claude) | 1 |
-| 🅿️ Parked | 0 |
-| ✅ Done | 6 |
+| 🅿️ Parked | 1 |
+| ✅ Done | 7 |
 
-## 📥 Inbox (1)
+## 📥 Inbox (2)
 _raw capture_
 
 ### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab
@@ -41,23 +41,14 @@ thread: **dashboarding** - status: **inbox** - approval: **explicit**
   - `followup_candidate`: retrofit conditional rendering to the Battery Strategy Detail card (same section group, same defect, ~30 min) — only if the operator endorses this card's style
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
 
-## 🧭 Pre-planning (14)
+### `ZONE-MON-LEAK-1` - zone_monitoring tripwire firing on legacy zone_N motion/person event counters — 10 MEDIUM ledger rows in 6h
+thread: **security** - status: **inbox** - approval: **unreviewed**
+- **Origin:** 2026-08-12 - Found during FRIGATE-RETIRE-1 gate check: hazard_type=zone_monitoring_leak rows against automation.zone_{1,3}_{motion,person}_event_counter every few minutes.
+- **Why:** The CONSOL-1 tripwire (in-code, NM alert if the legacy zone-monitoring stack fires) is doing its job — the legacy counter automations are still running and leaking. Either they should have been disabled with the legacy stack (leak = real...
+- **Next:** Small triage: read the tripwire match list vs the 12 dormancy-receipt automations; if the counters are legacy-stack members, turn_off (Method 1, reversible) and confirm tripwire goes quiet; if benign, narrow the tripwire match. ~30min, T...
+
+## 🧭 Pre-planning (12)
 _idea being decomposed_
-
-### `ARRESTER-BOOT-BLIND-1` - Arrester boot-window manual blindness — manual holds predating the listener are unclassifiable
-thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
-- **Origin:** 2026-08-11 - operator: "The battery is not 97%. The arrester should be seeing this as a bad action" — up-hallway manual 75->71 cool during a 26->11 SOC collapse, arrester idle w/ overrides_today=0.
-- **Why:** LIVE INCIDENT ~22:36-23:10: zone_2 flipped sleep->manual at 22:36:06 during the post-HA-upgrade boot window BEFORE the arrester listener attached (22:37:53); subsequent setpoint walks (75->71 at 22:56) were within-manual = no classifiabl...
-- **Next:** Incident investigation: verify both gaps from source; probe-first (recorder: boot-coincident manual holds frequency); fix cycle Tier 2-DB.
-- **Forensic keys (2):**
-  - `sharp_problem`: Gaps: (1) boot reconciliation — on listener attach, classify any zone ALREADY in manual as inherited-manual and start standard arrest evaluation; (2) verify _handle_climate_change classifies within-manual setpoint deltas (manual->manual ...
-  - `related`: Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire; PHYS Envoy power-cycle now materially urgent.
-
-### `SUITE-HYGIENE-2` - Pollution-DEPENDENT tests — 5 files break under a clean sys.modules start
-thread: **quality** - status: **pre_planning** - approval: **unreviewed**
-- **Origin:** 2026-08-11 - SUITE-HYGIENE-1 census: widening the restore to homeassistant.*/custom_components.* prefixes FIXED 7 stable failures but BROKE 7 tests that depend on stubs a sibling file installed (test_heatcool_enforcer, test_runtime_smoke...
-- **Why:** These tests only pass because another file polluted sys.modules first — invisible coupling that blocks full-suite hermeticity and keeps 7 heal-able stable failures unfixed. Fix = give each dependent file its own complete stubs, then wide...
-- **Next:** Small cycle after FAN-LAYER-2 ships: per-file stub-completeness for the 5 dependents, widen prefixes, expect stable-failure count to DROP by ~7. Census + experiment logs in SUITE-HYGIENE-1 scratchpad + conftest docstring.
 
 ### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)
 thread: **tablets** - status: **pre_planning** - approval: **unreviewed**
@@ -173,7 +164,7 @@ thread: **camera** - status: **pre_planning** - approval: **implied**
 - **Parsimony:** [BUILD] per-room fused camera sensors ship with no area
 - **Refs:** binary_sensor.py CameraPersonDetectedSensor
 
-## 📝 Planned (2)
+## 📝 Planned (3)
 _has plan / acceptance_
 
 ### `STUCK-SENSOR-1` - Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
@@ -201,13 +192,19 @@ thread: **presence** - status: **planned** - approval: **explicit**
   - `OPERATOR_DISPOSITIONS_2026_08_09`: ATHOM (Study A): CLOSED as a no-op. Operator: "Ignore athom now. It's a no op." URA already does not read it (options override every bucket); the ESPHome device entry stays. Do NOT re-raise, do NOT propose deleting the entry or cleaning ...
   - `rejected`: PROPAGATE STUCK STATE TO ZONE/HOUSE — I recommended this and then withdrew it under challenge ('is this flow upwards useful?'). If the room tier excludes correctly the corrected occupancy propagates naturally and upper tiers are right fo...
 
-### `NM-REPAGE-IMG-1` - Re-attach stored snapshot on CRITICAL re-pages — text-only repeats are a correctness bug, not a design choice
-thread: **notifications** - status: **planned** - approval: **approved**
-- **Origin:** 2026-08-12 - operator: "Dont forget the missing images in follow on detections as designed. Intermittency on correctness is a bug." — promotes the LOW folded into PERIM-FP-1.
-- **Why:** Unack-CRITICAL 5-min re-page loop resends text only; the original snapshot file persists at re-page time, so the omission is arbitrary. Operator ruling: if the alert deserves an image, every page of it does.
-- **Next:** Fold into next NM-touching build or ship as standalone Tier-1 hotfix.
+### `GUEST-FP-RESIDUALS-1` - Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent)
+thread: **presence** - status: **planned** - approval: **unreviewed**
+- **Origin:** 2026-08-13 - AUDIT_guest_fp_fixes_wiring.md: core fixes SHIPPED + Outside zone correctly flagged outdoor; two residuals worth small fixes.
+- **Why:** A1: path-alpha excluded_persons/tracked_persons_count_trusted still exclude LOST-away persons (diagnostic clarity only — guest gate does not read them). B1: camera-census has no room->outdoor filter; safe today (Patio has no camera perso...
+- **Next:** Fold A1+B1 into the next presence hotfix batch; await operator answer on the 50-episode pattern.
 - **Forensic keys (1):**
-  - `scope`: ~5 LoC in NM re-page path: reuse the stored snapshot path from the original dispatch (both WhatsApp + iMessage attachment keys, BB v0.6). Tier 1. Anchor: wire-in rule applies (call-site neuter must red a test).
+  - `operator_question`: 50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests or a daytime FP flavor? If the latter, escalate per audit §3.
+
+### `DP-REASON-NULL-1` - DP durable ledger logs reason:null on all 4,181 rows — carrier has no .reason field
+thread: **energy** - status: **planned** - approval: **unreviewed**
+- **Origin:** 2026-08-13 - Found by AUDIT_dp_live_behavior.md: _log_dp_eval_decision (energy.py:4002) reads getattr(carrier,"reason",None); field does not exist; real reasons live only in ~10-day recorder attrs.
+- **Why:** Durable decision ledger is the long-horizon audit trail; null reasons make future DP forensics depend on recorder retention.
+- **Next:** One-line fix (log the eval snapshot decision.reason) + anchor test; fold into next URA deploy batch (Tier 1).
 
 ## 🔨 In progress (1)
 _being built_
@@ -230,7 +227,7 @@ _under review_
 
 _(none)_
 
-## 🚀 Shipped (organic open) (23)
+## 🚀 Shipped (organic open) (24)
 _live, awaiting proof_
 
 ### `SENSOR-CAPABILITY-1` - Separate sensor CAPABILITY (hardware kind) from analytic ROLE — kind is currently the config bucket
@@ -392,6 +389,15 @@ thread: **tooling** - status: **shipped_organic** - approval: **approved**
 - **Next:** Build: webhost micro-API + board JS (buttons done/deferred/declined + column drag) + cron pull of disposition queue + pending-chip render + session-start apply protocol in ura-kanban skill.
 - **Forensic keys (1):**
   - `shipped_note`: Live 2026-08-11: buttons (done/deferred/declined) + column drag on urakanban LAN site; queue → pending jsonl → agent session-start apply (operator authority). Orchestrator-verified API round-trip. Organic proof: first real operator dispo...
+
+### `NM-REPAGE-IMG-1` - Re-attach stored snapshot on CRITICAL re-pages — text-only repeats are a correctness bug, not a design choice
+thread: **notifications** - status: **shipped_organic** - approval: **approved**
+- **Origin:** 2026-08-12 - operator: "Dont forget the missing images in follow on detections as designed. Intermittency on correctness is a bug." — promotes the LOW folded into PERIM-FP-1.
+- **Why:** Unack-CRITICAL 5-min re-page loop resends text only; the original snapshot file persists at re-page time, so the omission is arbitrary. Operator ruling: if the alert deserves an image, every page of it does.
+- **Next:** Fold into next NM-touching build or ship as standalone Tier-1 hotfix.
+- **Forensic keys (2):**
+  - `shipped_version`: v5.73.1
+  - `scope`: ~5 LoC in NM re-page path: reuse the stored snapshot path from the original dispatch (both WhatsApp + iMessage attachment keys, BB v0.6). Tier 1. Anchor: wire-in rule applies (call-site neuter must red a test).
 
 ### `NM-BB-IMAGE-1` - iMessage photo delivery unblocked — BlueBubbles v0.5/0.6 added attachment + media_url
 thread: **notifications** - status: **shipped_organic** - approval: **approved**
@@ -591,12 +597,20 @@ thread: **ops** - status: **waiting_me** - approval: **implied**
 - **Why:** reason-ledger first night, Frigate car/dog/cat first events, snapshot-fix organic proof, v5.57/58 organic criteria
 - **Next:** check + report each
 
-## 🅿️ Parked (0)
+## 🅿️ Parked (1)
 _revisit-trigger set_
 
-_(none)_
+### `ARRESTER-BOOT-BLIND-1` - Arrester boot-window manual blindness — manual holds predating the listener are unclassifiable
+thread: **hvac** - status: **parked** - approval: **unreviewed**
+- **Origin:** 2026-08-11 - operator: "The battery is not 97%. The arrester should be seeing this as a bad action" — up-hallway manual 75->71 cool during a 26->11 SOC collapse, arrester idle w/ overrides_today=0.
+- **Why:** LIVE INCIDENT ~22:36-23:10: zone_2 flipped sleep->manual at 22:36:06 during the post-HA-upgrade boot window BEFORE the arrester listener attached (22:37:53); subsequent setpoint walks (75->71 at 22:56) were within-manual = no classifiabl...
+- **Next:** Incident investigation: verify both gaps from source; probe-first (recorder: boot-coincident manual holds frequency); fix cycle Tier 2-DB.
+- **Forensic keys (3):**
+  - `parked_2026_08_12`: OPERATOR: "Park #2 until another incident." Revisit trigger: next boot-coincident manual hold the arrester misses (same signature: zone flips to manual during boot window, setpoint walks within-manual, arrester overrides_today stays flat...
+  - `sharp_problem`: Gaps: (1) boot reconciliation — on listener attach, classify any zone ALREADY in manual as inherited-manual and start standard arrest evaluation; (2) verify _handle_climate_change classifies within-manual setpoint deltas (manual->manual ...
+  - `related`: Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire. RESOLVED 2026-08-12: operator power-cycled Enpower; all 3 reserve legs coherent at 10 (local number + envoy sensor + ...
 
-## ✅ Done (6)
+## ✅ Done (7)
 _closed, evidence in refs_
 
 ### `COMFORT-TOGGLE-1` - Dedicated enable switch for comfort-delay grace (vs grace_minutes=0 kill)
@@ -616,6 +630,14 @@ thread: **security** - status: **done** - approval: **explicit**
   - `resolution`: OPERATOR PICKED (2026-08-12): retire Frigate-1 entirely (FRIGATE-RETIRE-1) instead of thresholds/gate code. Probe + screenshots are the evidence base; corroboration doctrine parked.
   - `screenshots_2026_08_12`: Operator screenshots confirm: originals deliver WITH photo at detection (v5.71.0 proven twice — pool 03:56, front_side 04:06); text-only repeats are the unack-CRITICAL 5-min RE-PAGE loop (same detection timestamp in body), by design. Bot...
   - `fix_directions_for_operator`: (a) Frigate-side: raise person threshold / min_score on the 4 IR-affected cameras (fixes at the source, benefits everything downstream); (b) URA-side sustained-on gate ~3-5s before dispatch (catches all observed FPs, adds 3-5s latency to...
+
+### `SUITE-HYGIENE-2` - Pollution-DEPENDENT tests — 5 files break under a clean sys.modules start
+thread: **quality** - status: **done** - approval: **unreviewed**
+- **Origin:** 2026-08-11 - SUITE-HYGIENE-1 census: widening the restore to homeassistant.*/custom_components.* prefixes FIXED 7 stable failures but BROKE 7 tests that depend on stubs a sibling file installed (test_heatcool_enforcer, test_runtime_smoke...
+- **Why:** These tests only pass because another file polluted sys.modules first — invisible coupling that blocks full-suite hermeticity and keeps 7 heal-able stable failures unfixed. Fix = give each dependent file its own complete stubs, then wide...
+- **Next:** Small cycle after FAN-LAYER-2 ships: per-file stub-completeness for the 5 dependents, widen prefixes, expect stable-failure count to DROP by ~7. Census + experiment logs in SUITE-HYGIENE-1 scratchpad + conftest docstring.
+- **Forensic keys (1):**
+  - `done_2026_08_13`: Merged 109ff9381 (test-only): test_heatcool_enforcer.py made self-sufficient (own hvac_setpoint stub; was 6-failed standalone, now 6-passed). Census re-audit: other 4 flagged files stale/misclassified against current tree (importorskip-g...
 
 ### `RESACC-1` - Resolver accuracy test suite
 thread: **resolver** - status: **done** - approval: **implied**
