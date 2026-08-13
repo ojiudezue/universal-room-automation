@@ -1037,6 +1037,18 @@ cards:
   why: 'The CONSOL-1 tripwire (in-code, NM alert if the legacy zone-monitoring stack fires) is doing its job — the legacy counter automations are still running and leaking. Either they should have been disabled with the legacy stack (leak = real) or the tripwire is over-broad (counters are benign telemetry, not pagers). MEDIUM severity -> digest noise + ledger pollution either way.'
   next: 'Small triage: read the tripwire match list vs the 12 dormancy-receipt automations; if the counters are legacy-stack members, turn_off (Method 1, reversible) and confirm tripwire goes quiet; if benign, narrow the tripwire match. ~30min, Tier 1.'
 
+- id: CIRCLING-LABEL-1
+  title: Circling loops page but are never LABELLED/escalated as circling (2-camera shape) — cooldown blocks the hop where classification forms
+  thread: perimeter
+  status: waiting_on_operator
+  approval: unreviewed
+  origin:
+    date: '2026-08-13'
+    gist: 'CIRCLING-SEVERITY-1 Review A MEDIUM-A1: founding shape pages at hops 1-2 as pass_by (LOW/MED); classification becomes circling at hop 3; per-camera 300s cooldown returns before severity re-resolves; continuation-coercion block is dead for this shape.'
+  why: 'INV-M holds (pages happen, tripwire honest) but the operator''s 08-08 complaint was about CIRCLING specifically. The dominant 2-camera alternating shape can never emit a HIGH circling-labelled page under current mechanics.'
+  operator_decision: '(A) surgical — allow ONE dispatch through the cooldown when a track''s classification TRANSITIONS (one extra HIGH page at the hop circling forms; ~persist last_dispatched_classification on ExteriorTrack). (B) tighten invariant + add circling-classified-but-no-HIGH counter to the D3 sensor. (C) accept as-is, update narrative. ORCHESTRATOR RECOMMENDS A (marginal-benefit: matches the founding ask, small; B is machinery without a consumer).'
+  next: 'Operator picks A/B/C. If A: own small Tier-2 cycle (new cooldown exemption on the perimeter dispatch path = regression-prone, plan review required).'
+
 - id: GUEST-FP-RESIDUALS-1
   title: Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent)
   thread: presence

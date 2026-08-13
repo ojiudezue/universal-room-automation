@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-12T22:38:31-05:00_ - _Data commit: `3080bd838b7b`_ - _last_reconciled: 2026-08-12_
+_Generated: 2026-08-12T22:41:18-05:00_ - _Data commit: `2179005a667d`_ - _last_reconciled: 2026-08-12_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -21,6 +21,7 @@ _Generated: 2026-08-12T22:38:31-05:00_ - _Data commit: `3080bd838b7b`_ - _last_r
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 1 |
 | ✅ Done | 9 |
+| ❓ Other | 1 |
 
 ## 📥 Inbox (2)
 _raw capture_
@@ -697,6 +698,17 @@ thread: **hvac** - status: **done** - approval: **explicit**
   - `MEASURED_2026_08_09`: DEBT DISCHARGED. First occupied evening with the data: operator arrived home ~16:45 after 24h+ away, 96F forecast high, upstairs sitting at 80F. hvac_zone_preset_zone_2 cycled home<->away NINE times in the two hours he was home: 16:59a 1...
   - `VERDICT`: REMOVING WRITER B DID NOT STOP THE PRESET FLAP. Writer B retirement is confirmed shipped (v5.56.0, 2026-08-06, commit d604716f7 "delete Writer B", Tier 2-DB + 3 reviews) and ZoneAnyoneBinarySensor no longer has a preset-write path — veri...
   - `spawned`: HVAC-PRESET-FLAP-1 (the flap persists; cause unknown; blocked on the reason ledger)
+
+## ❓ Other (1)
+_unknown status bucket_
+
+### `CIRCLING-LABEL-1` - Circling loops page but are never LABELLED/escalated as circling (2-camera shape) — cooldown blocks the hop where classification forms
+thread: **perimeter** - status: **waiting_on_operator** - approval: **unreviewed**
+- **Origin:** 2026-08-13 - CIRCLING-SEVERITY-1 Review A MEDIUM-A1: founding shape pages at hops 1-2 as pass_by (LOW/MED); classification becomes circling at hop 3; per-camera 300s cooldown returns before severity re-resolves; continuation-coercion blo...
+- **Why:** INV-M holds (pages happen, tripwire honest) but the operator's 08-08 complaint was about CIRCLING specifically. The dominant 2-camera alternating shape can never emit a HIGH circling-labelled page under current mechanics.
+- **Next:** Operator picks A/B/C. If A: own small Tier-2 cycle (new cooldown exemption on the perimeter dispatch path = regression-prone, plan review required).
+- **Forensic keys (1):**
+  - `operator_decision`: (A) surgical — allow ONE dispatch through the cooldown when a track's classification TRANSITIONS (one extra HIGH page at the hop circling forms; ~persist last_dispatched_classification on ExteriorTrack). (B) tighten invariant + add circl...
 
 ## 🅿️ Parked ideas (top-level list)
 
