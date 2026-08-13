@@ -1309,7 +1309,8 @@ cards:
 - id: CIRCLING-SEVERITY-1
   title: A "circling" exterior person produced alert_count=0
   thread: perimeter
-  status: pre_planning
+  status: shipped_organic
+  shipped_version: v5.74.0
   approval: unreviewed
   tags:
   - no-fabrication-verify
@@ -2208,7 +2209,8 @@ cards:
 - id: D3-AREA-INHERIT
   title: URA D3 fused sensor should inherit room area on creation
   thread: camera
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.74.0
   approval: implied
   tags:
   - numbers-get-knobs
