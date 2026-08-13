@@ -165,6 +165,8 @@ async def async_setup_entry(
             ExteriorAnimalTracksActiveSensor(hass, entry),
             ExteriorUnidentifiedPersonsSensor(hass, entry),
             ExteriorOpenTracksDiagnosticSensor(hass, entry),
+            # CIRCLING-SEVERITY-1 D3: INV-M enforcement tripwire.
+            PerimeterCirclingZeroDispatch24hSensor(hass, entry),
             # v3.6.0-c1: House state on integration device
             IntegrationHouseStateSensor(hass, entry),
             # v3.6.21: Music following health sensor
@@ -3965,6 +3967,106 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
             return attrs
         except Exception as exc:  # noqa: BLE001
             return {"status": "error", "error": str(exc)}
+
+
+class PerimeterCirclingZeroDispatch24hSensor(AggregationEntity, SensorEntity):
+    """CIRCLING-SEVERITY-1 D3 — INV-M enforcement tripwire.
+
+    Entity: sensor.perimeter_circling_zero_dispatch_24h
+    State: integer count of person tracks classified `circling` whose
+      `alert_count == 0` within the last CIRCLING_DIAG_LOOKBACK_HOURS.
+      Steady-state value should be 0. Any non-zero value implies at
+      least one of trace paths 5-7 (NM raise, teardown short-circuit,
+      cancelled delayed dispatch) fired without a corresponding NM
+      dispatch — INV-M was violated in production.
+
+    Live tripwire, NOT a durable audit ledger: the linker's in-memory
+    state does not survive HA restart, and this counter re-reads that
+    state each poll. Reset semantics are the rolling lookback + no
+    persisted counter — see PLANNING_circling_severity.md §D3.
+
+    Poll cadence: CIRCLING_DIAG_POLL_INTERVAL_MINUTES (canonical
+    prior art at sensor.py:4407-4428).
+    """
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:radar"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_perimeter_circling_zero_dispatch_24h"
+        self._attr_name = "Perimeter: Circling Zero-Dispatch (24h)"
+        self._attr_device_info = _security_device_info()
+        self._count: int = 0
+        self._offenders: list[dict] = []
+        self._unsub_refresh = None
+        # Availability tracks whether the linker is wired (LOW-A2). Set
+        # to False by default; _refresh flips True when the linker key
+        # is present in hass.data.
+        self._attr_available = False
+
+    async def _refresh(self) -> None:
+        from .perimeter_diagnostics import count_circling_zero_dispatch  # noqa: PLC0415
+        linker = self.hass.data.get(DOMAIN, {}).get("exterior_track_linker")
+        if linker is None:
+            # Un-wired linker → sensor is unavailable, NOT "0 offenders".
+            # A silent 0 would be indistinguishable from a healthy quiet
+            # tripwire and hide a real wiring bug (LOW-A2).
+            self._attr_available = False
+            self._count = 0
+            self._offenders = []
+            return
+        self._attr_available = True
+        try:
+            self._count, self._offenders = count_circling_zero_dispatch(linker)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "PerimeterCirclingZeroDispatch24hSensor: refresh failed",
+                exc_info=True,
+            )
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from datetime import timedelta as _timedelta  # noqa: PLC0415
+        from homeassistant.helpers.event import (  # noqa: PLC0415
+            async_track_time_interval,
+        )
+        from .const import CIRCLING_DIAG_POLL_INTERVAL_MINUTES  # noqa: PLC0415
+        await self._refresh()
+
+        async def _tick(_now):
+            await self._refresh()
+            self.async_write_ha_state()
+
+        self._unsub_refresh = async_track_time_interval(
+            self.hass, _tick,
+            _timedelta(minutes=CIRCLING_DIAG_POLL_INTERVAL_MINUTES),
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        unsub = getattr(self, "_unsub_refresh", None)
+        if unsub is not None:
+            unsub()
+        await super().async_will_remove_from_hass()
+
+    @property
+    def native_value(self) -> int:
+        return int(self._count)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        from .const import (  # noqa: PLC0415
+            CIRCLING_DIAG_LOOKBACK_HOURS,
+            CIRCLING_DIAG_POLL_INTERVAL_MINUTES,
+        )
+        return {
+            "track_ids": [o.get("track_id") for o in self._offenders],
+            "offenders": list(self._offenders),
+            "lookback_hours": CIRCLING_DIAG_LOOKBACK_HOURS,
+            "poll_interval_minutes": CIRCLING_DIAG_POLL_INTERVAL_MINUTES,
+        }
 
 
 # ============================================================================
