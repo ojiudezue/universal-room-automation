@@ -1057,12 +1057,17 @@ cards:
   title: Path-alpha away inference structurally dead when all trackers LOST/STALE — trusted denominator empties; NO existing card fixes it
   thread: presence
   status: inbox
-  approval: unreviewed
+  approval: approved_after_investigation
   origin:
     date: '2026-08-13'
     gist: 'Carded-coverage grading: the LOST-denominator gap (all 4 trackers LOST -> all_tracked_persons_away false-by-vacuity for hours) is owned by no card; v5.16.0 fixed the veto denominator, not this.'
   why: 'Path-alpha ignores zones entirely — with ACTIVE trackers it would have fired regardless of the fan latch. Fixing the vacuous-denominator case (all-LOST + all-entity-away => away-eligible) is an independent mitigation with its own balance questions (overlaps AUDIT_ble_house_level_weighing safe-shape).'
   next: 'Fold into the same presence cycle as AWAY-BLOCK-1 rec 3 if that ever builds, or small standalone Tier 2; needs the ZONE-TIER-DIVERGE-1 trace first (same code region).'
+  operator_direction_2026_08_13: 'Operator: "we should find a way to say AWAY not LOST. Do we need a lost state at all? That way we can actually use this signal the way it is supposed to be used. And not overload it." I.e. the fix may not be patching the denominator arithmetic but DECOMPOSING the overloaded tracking_status: LOST currently conflates (a) confidently-away-no-BLE-fix (should just be AWAY), (b) home-but-BLE-silent (phone on charger — genuinely ambiguous), (c) truly unknown. If LOST is dissolved into honest states, path-alpha''s denominator never empties for case (a) and the vacuity bug disappears structurally instead of being special-cased.'
+  alternate_paths: '(1) Dissolve LOST: away-with-no-fix => AWAY (trusted, counts in denominator); home-but-silent => new BLE_SILENT_HOME or stays ambiguous-excluded; keep LOST only for truly-unknown. Ripple: every consumer of tracking_status (H3 reliable-signal gating, excluded_persons, veto denominator v5.16.0, path-beta _tracking_active_or_lost_away — which becomes redundant/simplifiable). (2) Minimal: keep LOST, make path-alpha treat all-LOST+all-entity-away as away-eligible (the original card). (3) BLE-vacancy conjunct shape from AUDIT_ble_house_level_weighing.md. Operator leans (1) — un-overload the signal.'
+  next: 'GATED on ZONE-TIER-DIVERGE-1 trace completing (same code region). Then: consumer enumeration of tracking_status (greps, all tiers) -> plan for decomposition path (1) with (2) as fallback if ripple too wide; Tier 2-DB minimum (trust-hierarchy).'
+
+
 
 - id: AWAY-BLOCK-1
   title: House held home_day 2h with everyone away — fan->mmWave->occupancy->fan self-sustaining loop; both away paths structurally blocked
