@@ -18,20 +18,31 @@
     "P24": 5
   },
   "bucket_status": {
-    "CHATTER": "DEFERRED_UNTIL_SITE_SHIPS",
-    "D1": "DRAFT_PENDING_SIGNOFF (source-derived synthetic)",
+    "CHATTER": "DEFERRED_UNTIL_SITE_SHIPS (signed-off deferral)",
+    "D1": "SIGNED_OFF (source-derived synthetic)",
     "D2": "FILLED (replay)",
     "D3": "DROPPED_OBSOLETE (detector deleted 2026-08-10, const.py:3523-3526)",
-    "P18": "DRAFT_PENDING_SIGNOFF (real NM-ledger ingestion)",
+    "P18": "SIGNED_OFF (real NM-ledger ingestion)",
     "P22": "FILLED (replay)",
-    "P24": "DRAFT_PENDING_SIGNOFF (3 real + 2 source-derived)"
+    "P24": "SIGNED_OFF (3 real + 2 source-derived)"
+  },
+  "signoff_2026_08_13": {
+    "operator_quote": "Stuck sensor recommends accepted",
+    "date": "2026-08-13",
+    "accepted_items": [
+      "P24: 5 entries accepted — 3 REAL (incl. 2 with unrecoverable room_name) + 2 SOURCE-DERIVED synthetics",
+      "D1: 3 source-derived synthetics accepted; minimum unchanged (3)",
+      "CHATTER: deferred-until-site-ships accepted; criterion-4 gates the chatter MIGRATION, not initial GO",
+      "P18: emit-site diagnosability fix (title_override at hvac.py:1621) folded into the STUCK-SENSOR-1 build"
+    ],
+    "consequence": "Criterion 4 SATISFIED 2026-08-13 — P22/D2 replay-filled, P24/P18/D1 signed supplements, CHATTER deferred-by-signoff, D3 obsolete-adjudicated."
   },
   "supplement_note_2026_08_13": {
-    "authored_by": "STUCK-SENSOR-1 unblock, hand-built supplements per amended Criterion 4 (OPERATOR APPROVED 2026-08-13); each supplement file carries its own DRAFT-PENDING-SIGNOFF status and per-entry provenance (REAL vs SOURCE-DERIVED vs UNRECOVERABLE fields).",
+    "authored_by": "STUCK-SENSOR-1 unblock, hand-built supplements per amended Criterion 4 (OPERATOR APPROVED 2026-08-13); each supplement file carries its own SIGNED-OFF status and per-entry provenance (REAL vs SOURCE-DERIVED vs UNRECOVERABLE fields).",
     "d3_adjudication": "D3 removed from bucket_minimums (was 1). Frozen-tracker detector DELETED 2026-08-10 — const.py:3523-3526 (harness's earlier const.py:3512 citation is stale). Structurally unreachable while it existed (AUDIT §D3, zero firings ever). Reintroduction cycle re-adds the bucket against the NEW site.",
     "chatter_adjudication": "CHATTER minimum retained but DEFERRED: no production site exists (Principle 1, extraction-not-invention). Treat as a gate on the M5-chatter MIGRATION, not on the ledger cycle's initial GO. See CHATTER.json.",
     "p18_diagnosability_gap": "P18 NM audit rows persist message='[audit]' and no zone key — zone_name unrecoverable for all 7 real rows. Recommend extending the P24 title_override diagnosability fix to the hvac.py:1621 P18 emit site.",
-    "harness_regeneration_caveat": "ledger_golden_replay.py OVERWRITES P24/P18/D1/D3/CHATTER with skeletons on every run. Until the harness learns to merge/preserve signed supplements, regeneration must restore these supplement files from git (they are commit-pinned, not harness-generated)."
+    "harness_regeneration_caveat": "RESOLVED 2026-08-13: ledger_golden_replay.py now PRESERVES fixture files whose status is SIGNED-OFF / DEFERRED-UNTIL-SITE-SHIPS / OBSOLETE-BUCKET-DROPPED, only writing skeleton buckets when the file is absent or itself a skeleton/draft. See _should_preserve_fixture + test_ledger_golden_replay_preserve.py."
   },
   "generated_at": "2026-08-12",
   "harness_version": "1.0.0",

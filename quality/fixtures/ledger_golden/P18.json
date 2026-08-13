@@ -1,7 +1,8 @@
 {
   "bucket": "P18",
   "detector": "M3 zone stale-occupancy (HVAC D6)",
-  "status": "DRAFT-PENDING-SIGNOFF",
+  "status": "SIGNED-OFF",
+  "signoff": "operator, 2026-08-13, verbatim: \"Stuck sensor recommends accepted\" — real NM-ledger ingestion accepted; P18 emit-site diagnosability fix folded into the STUCK-SENSOR-1 build",
   "supplement_kind": "REAL-DATA ingestion from live NM ledger (2026-08-13) — per AUDIT §M3 recommendation, NOT replay, NOT invention",
   "prod_source": {
     "detector": "hvac.py:1567-1645 (D6 stale-occupancy: any_room_occupied AND house_state != sleep AND (now - continuous_occupied_since) > _max_occupancy_hours*3600; confidence check via presence.check_zone_occupancy_confidence; threshold = min(2, possible) if possible>0 else 1; confirmed < threshold -> stale -> effective_preset='away' + optional vacancy sweep)",

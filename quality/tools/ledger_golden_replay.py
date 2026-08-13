@@ -538,6 +538,37 @@ def replay_d2(
 # ---------------------------------------------------------------------------
 
 
+# Statuses that mark a fixture file as authoritative (operator-signed or
+# adjudicated). Files carrying one of these are NEVER overwritten by
+# regeneration — signed supplements are commit-pinned, not
+# harness-generated. Replay only writes a bucket whose fixture file is
+# ABSENT or is itself a skeleton (``PLACEHOLDER``) / draft
+# (DRAFT-PENDING-SIGNOFF). (MANIFEST harness_regeneration_caveat —
+# RESOLVED 2026-08-13.)
+PRESERVED_STATUSES: frozenset[str] = frozenset({
+    "SIGNED-OFF",
+    "DEFERRED-UNTIL-SITE-SHIPS",
+    "OBSOLETE-BUCKET-DROPPED",
+})
+
+
+def _load_fixture_json(path: Path) -> dict[str, Any] | None:
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def _should_preserve_fixture(path: Path) -> bool:
+    """True iff ``path`` exists and is a signed/adjudicated fixture."""
+    if not path.exists():
+        return False
+    data = _load_fixture_json(path)
+    if data is None:
+        return False
+    return data.get("status") in PRESERVED_STATUSES
+
+
 def skeleton_fixture(
     bucket: str, reason: str, required_fields: list[str],
 ) -> dict[str, Any]:
@@ -748,9 +779,21 @@ def build_fixtures(
     _write(out_dir / "P22.json", _sorted_json_dump(p22_fixture))
     _write(out_dir / "D2.json", _sorted_json_dump(d2_fixture))
 
+    preserved_files: list[str] = []
+    preserved_data: dict[str, dict[str, Any]] = {}
     for bucket, spec in SKELETON_SPECS.items():
+        path = out_dir / f"{bucket}.json"
+        if _should_preserve_fixture(path):
+            data = _load_fixture_json(path) or {}
+            preserved_files.append(path.name)
+            preserved_data[bucket] = data
+            _LOGGER.info(
+                "PRESERVED signed fixture %s (status=%s) — not overwritten",
+                path.name, data.get("status"),
+            )
+            continue
         _write(
-            out_dir / f"{bucket}.json",
+            path,
             _sorted_json_dump(skeleton_fixture(
                 bucket, spec["reason"], spec["fields"],
             )),
@@ -761,12 +804,19 @@ def build_fixtures(
         "D2": len(d2_all),
     }
     for bucket in SKELETON_SPECS:
-        counts[bucket] = 0
+        if bucket in preserved_data:
+            counts[bucket] = int(preserved_data[bucket].get("count") or 0)
+        else:
+            counts[bucket] = 0
 
     status = {}
     for bucket, minimum in BUCKET_MINIMUMS.items():
         got = counts.get(bucket, 0)
-        if bucket in SKELETON_SPECS:
+        if bucket in preserved_data:
+            status[bucket] = str(
+                preserved_data[bucket].get("status"),
+            )
+        elif bucket in SKELETON_SPECS:
             status[bucket] = "SKELETON_AWAITS_HANDBUILD"
         elif got >= minimum:
             status[bucket] = "FILLED"
@@ -795,7 +845,17 @@ def build_fixtures(
             "behavior changes. Regenerate + cite the invalidating cycle "
             "in the commit per §4a."
         ),
+        "preserved_files": sorted(preserved_files),
     }
+    # Merge-preserve hand-written manifest blocks (signoff_*, supplement
+    # notes, ...): any key present in the existing MANIFEST.json that the
+    # harness does not itself compute is carried over verbatim, so
+    # regeneration never deletes an operator sign-off record.
+    existing = _load_fixture_json(out_dir / "MANIFEST.json")
+    if existing:
+        for key, value in existing.items():
+            if key not in manifest:
+                manifest[key] = value
     _write(out_dir / "MANIFEST.json", _sorted_json_dump(manifest))
     return manifest
 
@@ -886,8 +946,19 @@ def main(argv: list[str] | None = None) -> int:
                 generation_date=gen_date,
                 repo_root=repo_root,
             )
+            preserved = set(manifest.get("preserved_files") or [])
             mismatches = []
             for f in sorted(out_dir.iterdir()):
+                if f.name in preserved:
+                    # Signed fixtures are not harness outputs — the
+                    # second run (into an empty dir) writes skeletons
+                    # for these buckets by design. Not a determinism
+                    # failure.
+                    continue
+                if f.name == "MANIFEST.json" and preserved:
+                    # Manifest embeds preserved counts/status + merged
+                    # sign-off blocks that an empty-dir run cannot see.
+                    continue
                 other = Path(td) / f.name
                 if not other.exists():
                     mismatches.append(f.name + " missing in second run")

@@ -1,6 +1,7 @@
 {
   "bucket": "CHATTER",
   "status": "DEFERRED-UNTIL-SITE-SHIPS",
+  "signoff": "operator, 2026-08-13, verbatim: \"Stuck sensor recommends accepted\" — deferral accepted; criterion-4 gates the chatter MIGRATION, not initial GO",
   "supplement_kind": "explicit deferral (2026-08-13) — NOT a placeholder awaiting hand-build",
   "rationale": [
     "Criterion 4b requires 3+ chatter/transition-rate classifications, but the chatter detector site does NOT exist in HEAD — the plan itself (Principle 1, 'Extraction, not invention') mandates that chatter ships concretely first (extending _detect_duty_cycle_stuck), lives long enough to produce an oracle, then migrates as an extension of M5.",

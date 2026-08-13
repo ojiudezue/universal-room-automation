@@ -1,7 +1,8 @@
 {
   "bucket": "P24",
   "detector": "M2 max-active failsafe (RESILIENCE-001)",
-  "status": "DRAFT-PENDING-SIGNOFF",
+  "status": "SIGNED-OFF",
+  "signoff": "operator, 2026-08-13, verbatim: \"Stuck sensor recommends accepted\" — 5 entries accepted incl. 2 synthetics + 2 unrecoverable-room real rows",
   "supplement_kind": "hand-built (2026-08-13) per amended Criterion 4 operator sign-off clause",
   "prod_source": {
     "gate_and_fire": "coordinator.py:3035-3162 ('=== P24 FAILSAFE ===' block; legs (i) has-PIR via _d2_motion_sensors_present, (ii) occupancy_source not in {camera,ble}, (iii) PIR stale: signal_age None or not (0 <= age < 2*occupancy_timeout))",
