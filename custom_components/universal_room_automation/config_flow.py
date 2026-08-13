@@ -6573,6 +6573,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             OPTIMIZER_DIMENSIONS_ALL,
             CONF_STUCK_SIGNAL_NM_ENABLED,
             DEFAULT_STUCK_SIGNAL_NM_ENABLED,
+            CONF_STUCK_SENSOR_EXCLUSION_ENABLED,
+            DEFAULT_STUCK_SENSOR_EXCLUSION_ENABLED,
         )
 
         # NM Cycle A-2 fix-up (A2, 2026-07-20): the humidity ladder must
@@ -6602,6 +6604,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 list(DEFAULT_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS),
             # Stuck-Signal Watchdog kill switch (v5.35.0).
             CONF_STUCK_SIGNAL_NM_ENABLED: DEFAULT_STUCK_SIGNAL_NM_ENABLED,
+            # STUCK-SENSOR-1 D1 kill switch — dutycycle sensor exclusion.
+            CONF_STUCK_SENSOR_EXCLUSION_ENABLED:
+                DEFAULT_STUCK_SENSOR_EXCLUSION_ENABLED,
         }
 
         def _equals_default(key, submitted):
@@ -6848,6 +6853,17 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_current(
                     CONF_STUCK_SIGNAL_NM_ENABLED,
                     DEFAULT_STUCK_SIGNAL_NM_ENABLED,
+                ),
+            ): selector.BooleanSelector(),
+            # STUCK-SENSOR-1 D1 kill switch — dutycycle sensor exclusion.
+            # Default ON. Flipping OFF reverts to pre-cycle notify-only
+            # universally, byte-identical to v5.74.0. Sibling of the NM
+            # kill switch above; consumed via nm_cycle_a_knob cache.
+            vol.Optional(
+                CONF_STUCK_SENSOR_EXCLUSION_ENABLED,
+                default=self._get_current(
+                    CONF_STUCK_SENSOR_EXCLUSION_ENABLED,
+                    DEFAULT_STUCK_SENSOR_EXCLUSION_ENABLED,
                 ),
             ): selector.BooleanSelector(),
         })

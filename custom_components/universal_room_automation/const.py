@@ -3533,7 +3533,30 @@ DEFAULT_STUCK_SENSOR_DUTYCYCLE_MIN_TICKS: Final = 20  # warm-up floor
 # STUCK_D2_FRESH_MOTION_SECONDS. Module constants (rung 1) — changing
 # these requires review.
 STUCK_D2_FRESH_MOTION_SECONDS: Final = 300  # 5 min
+# pairs-with: CORROBORATOR_DISAGREE_S (must exceed this shield) — see below.
 STUCK_D2_MIN_MOTION_TRANSITIONS: Final = 2
+
+# STUCK-SENSOR-1 (v5.75.x) — D1 corroboration-gated exclusion.
+# Rung 1 kill switch: setting False reverts to pre-cycle notify-only
+# behavior universally (byte-identical). Change requires code review.
+STUCK_EXCLUSION_ENABLED: Final = True
+
+# STUCK-SENSOR-1 (v5.75.x) — corroborator-disagreement window (seconds).
+# HIGH-1 derivation: MUST exceed STUCK_D2_FRESH_MOTION_SECONDS (=300);
+# the D2 detector's own shield blocks the duty flag from firing while
+# any corroborator transitioned in the last 300s, so ANY value ≤300 is
+# always-true whenever the flag exists and would wrongly exclude a
+# still TV-watcher in a corroborated home_day room whose PIR has been
+# quiet 300-899s. 3× the shield gives real additional evidence.
+# pairs-with: STUCK_D2_FRESH_MOTION_SECONDS — if that changes, re-derive.
+# Marginal-benefit-decomposed: simplest discriminating value; positive-
+# evidence variant PARKED per PLANNING_stuck_sensor_consequence.md D1.
+CORROBORATOR_DISAGREE_S: Final = 900.0  # 15 min = 3 × 300s shield
+
+# CONF_STUCK_SENSOR_EXCLUSION_ENABLED — Rung 2 (options-flow) mirror of
+# STUCK_EXCLUSION_ENABLED. Default True. Sibling of CONF_STUCK_SIGNAL_NM_ENABLED.
+CONF_STUCK_SENSOR_EXCLUSION_ENABLED: Final = "stuck_sensor_exclusion_enabled"
+DEFAULT_STUCK_SENSOR_EXCLUSION_ENABLED: Final = True
 
 # v5.36.1 FIX 2 (A-MED-1 sibling) — D1 "never-zero" rule. The unchanged-value
 # check resets on ANY value change; an oscillating phantom (e.g. Frigate

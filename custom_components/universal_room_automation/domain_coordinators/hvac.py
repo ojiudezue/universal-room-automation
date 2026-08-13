@@ -1638,6 +1638,15 @@ class HVACCoordinator(BaseCoordinator):
                                 "sensors; a stuck signal is the most likely "
                                 "cause"
                             ),
+                            # STUCK-SENSOR-1 D4 (P18 diagnosability): the
+                            # persisted `_emit_audit_row` message field is
+                            # the "[audit]" redaction sentinel, so a bare
+                            # `f"Stuck signal: {kind}"` title leaves the
+                            # row un-attributable to a zone. Mirror the
+                            # P24 title_override pattern.
+                            title_override=(
+                                f"HVAC zone {zone.zone_name} stuck"
+                            ),
                         ))
 
                 # D5: Duty cycle enforcement (skip during sleep — RH4)
