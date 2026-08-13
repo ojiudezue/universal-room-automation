@@ -1,0 +1,153 @@
+{
+  "bucket": "P22",
+  "detector": "M1 continuous-on",
+  "entries": [
+    {
+      "bucket": "P22",
+      "cleared_ts": 1786412122.3952017,
+      "entity_id": "binary_sensor.0xa4c1382e60e05225_presence",
+      "episode_hours": 4.239,
+      "fired_ts": 1786411262.1077583,
+      "kind": "continuous",
+      "on_hours_at_fire": 4.0,
+      "room_name": "Game Room",
+      "since_ts": 1786396862.1077583
+    },
+    {
+      "bucket": "P22",
+      "cleared_ts": 1785994297.1847374,
+      "entity_id": "binary_sensor.mmwave_zigbee_gameroom_presence",
+      "episode_hours": 4.347,
+      "fired_ts": 1785993048.8961577,
+      "kind": "continuous",
+      "on_hours_at_fire": 4.0,
+      "room_name": "Game Room",
+      "since_ts": 1785978648.8961577
+    },
+    {
+      "bucket": "P22",
+      "cleared_ts": 1786359730.6940958,
+      "entity_id": "binary_sensor.occupancy_lux_temp_humidity_hobeian_upguestroom_presence_2",
+      "episode_hours": 9.881,
+      "fired_ts": 1786338557.5388675,
+      "kind": "continuous",
+      "on_hours_at_fire": 4.0,
+      "room_name": "Guest Bedroom 2",
+      "since_ts": 1786324157.5388675
+    },
+    {
+      "bucket": "P22",
+      "cleared_ts": 1785953885.651937,
+      "entity_id": "binary_sensor.jaya_3_presence",
+      "episode_hours": 4.066,
+      "fired_ts": 1785953647.6769114,
+      "kind": "continuous",
+      "on_hours_at_fire": 4.0,
+      "room_name": "Jaya Bedroom",
+      "since_ts": 1785939247.6769114
+    },
+    {
+      "bucket": "P22",
+      "cleared_ts": 1785969203.8366184,
+      "entity_id": "binary_sensor.jaya_3_presence",
+      "episode_hours": 4.062,
+      "fired_ts": 1785968980.9377875,
+      "kind": "continuous",
+      "on_hours_at_fire": 4.0,
+      "room_name": "Jaya Bedroom",
+      "since_ts": 1785954580.9377875
+    },
+    {
+      "bucket": "P22",
+      "cleared_ts": 1785993534.0255363,
+      "entity_id": "binary_sensor.jaya_3_presence",
+      "episode_hours": 4.818,
+      "fired_ts": 1785990589.1966424,
+      "kind": "continuous",
+      "on_hours_at_fire": 4.0,
+      "room_name": "Jaya Bedroom",
+      "since_ts": 1785976189.1966424
+    },
+    {
+      "bucket": "P22",
+      "cleared_ts": 1786369095.9396114,
+      "entity_id": "binary_sensor.jaya_3_presence",
+      "episode_hours": 5.061,
+      "fired_ts": 1786365275.8598437,
+      "kind": "continuous",
+      "on_hours_at_fire": 4.0,
+      "room_name": "Jaya Bedroom",
+      "since_ts": 1786350875.8598437
+    },
+    {
+      "bucket": "P22",
+      "cleared_ts": 1786563903.9195147,
+      "entity_id": "binary_sensor.mmwave_lux_wifi_esphome_kitchen_presence",
+      "episode_hours": 5.913,
+      "fired_ts": 1786557017.6281052,
+      "kind": "continuous",
+      "on_hours_at_fire": 4.0,
+      "room_name": "Kitchen",
+      "since_ts": 1786542617.6281052
+    },
+    {
+      "bucket": "P22",
+      "cleared_ts": 1785944626.0571365,
+      "entity_id": "binary_sensor.screek_human_sensor_l13_2412s_presence",
+      "episode_hours": 4.091,
+      "fired_ts": 1785944297.926189,
+      "kind": "continuous",
+      "on_hours_at_fire": 4.0,
+      "room_name": "Living Room",
+      "since_ts": 1785929897.926189
+    },
+    {
+      "bucket": "P22",
+      "cleared_ts": 1786538828.2026381,
+      "entity_id": "binary_sensor.screek_human_sensor_l13_2412s_presence",
+      "episode_hours": 4.022,
+      "fired_ts": 1786538747.305343,
+      "kind": "continuous",
+      "on_hours_at_fire": 4.0,
+      "room_name": "Living Room",
+      "since_ts": 1786524347.305343
+    },
+    {
+      "bucket": "P22",
+      "cleared_ts": 1786218008.9302359,
+      "entity_id": "binary_sensor.occupancy_lux_temp_humidity_hobeian_patioright_presence",
+      "episode_hours": 4.664,
+      "fired_ts": 1786215620.2174764,
+      "kind": "continuous",
+      "on_hours_at_fire": 4.0,
+      "room_name": "Patio",
+      "since_ts": 1786201220.2174764
+    },
+    {
+      "bucket": "P22",
+      "cleared_ts": 1786348836.3826492,
+      "entity_id": "binary_sensor.mmwave_zigbee_ziribedroom_presence",
+      "episode_hours": 6.214,
+      "fired_ts": 1786340864.6546783,
+      "kind": "continuous",
+      "on_hours_at_fire": 4.0,
+      "room_name": "Ziri Bedroom (Bedroom 5)",
+      "since_ts": 1786326464.6546783
+    },
+    {
+      "bucket": "P22",
+      "cleared_ts": 1786523719.5774536,
+      "entity_id": "binary_sensor.mmwave_zigbee_ziribedroom_presence",
+      "episode_hours": 4.132,
+      "fired_ts": 1786523244.169497,
+      "kind": "continuous",
+      "on_hours_at_fire": 4.0,
+      "room_name": "Ziri Bedroom (Bedroom 5)",
+      "since_ts": 1786508844.169497
+    }
+  ],
+  "prod_source": "coordinator.py:2117-2131",
+  "restart_aware": true,
+  "restart_boundary_count": 53,
+  "threshold_hours": 4.0
+}

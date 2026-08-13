@@ -1,0 +1,14 @@
+{
+  "PLACEHOLDER": true,
+  "bucket": "D1",
+  "entries": [],
+  "instructions": "This bucket cannot be filled by pure recorder replay. The operator or orchestrator MUST hand-build one row per the required_fields list, per the operator sign-off clause of amended Criterion 4 (PLANNING_signal_trust_ledger_abstraction.md, OPERATOR APPROVED 2026-08-13). Do NOT fabricate values \u2014 each row must correspond to a real, observed event or a synthetic trace the operator has reviewed and signed.",
+  "required_fields": [
+    "camera_entity_id",
+    "fired_ts",
+    "person_count",
+    "hold_hours",
+    "corroboration_snapshot"
+  ],
+  "shortfall_reason": "M4 camera stuck-count did not fire in the 7.46-day audit window; interior max unchanged person_count>0 hold was 0.31h vs 3.0h threshold (~10x margin). Additionally, the discount decision reads URA-derived per-tick state (_ble_home_by_area, _room_tier_corroboration_by_area) that is not in the recorder. Supplement per AUDIT \u00a7D1."
+}

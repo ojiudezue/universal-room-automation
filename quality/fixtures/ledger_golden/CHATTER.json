@@ -1,0 +1,14 @@
+{
+  "PLACEHOLDER": true,
+  "bucket": "CHATTER",
+  "entries": [],
+  "instructions": "This bucket cannot be filled by pure recorder replay. The operator or orchestrator MUST hand-build one row per the required_fields list, per the operator sign-off clause of amended Criterion 4 (PLANNING_signal_trust_ledger_abstraction.md, OPERATOR APPROVED 2026-08-13). Do NOT fabricate values \u2014 each row must correspond to a real, observed event or a synthetic trace the operator has reviewed and signed.",
+  "required_fields": [
+    "room_name",
+    "entity_id",
+    "fired_ts",
+    "transitions_in_window",
+    "window_min"
+  ],
+  "shortfall_reason": "Criterion 4b (transition-rate / chatter) \u2014 the new verdict kind is not yet shipped in production. Fixture is a placeholder for the migration cycle that lands the chatter classification; do NOT populate until the site exists in HEAD."
+}
