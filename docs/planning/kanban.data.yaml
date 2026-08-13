@@ -1034,6 +1034,17 @@ cards:
   why: 'The CONSOL-1 tripwire (in-code, NM alert if the legacy zone-monitoring stack fires) is doing its job — the legacy counter automations are still running and leaking. Either they should have been disabled with the legacy stack (leak = real) or the tripwire is over-broad (counters are benign telemetry, not pagers). MEDIUM severity -> digest noise + ledger pollution either way.'
   next: 'Small triage: read the tripwire match list vs the 12 dormancy-receipt automations; if the counters are legacy-stack members, turn_off (Method 1, reversible) and confirm tripwire goes quiet; if benign, narrow the tripwire match. ~30min, Tier 1.'
 
+- id: DP-REASON-NULL-1
+  title: DP durable ledger logs reason:null on all 4,181 rows — carrier has no .reason field
+  thread: energy
+  status: planned
+  approval: unreviewed
+  origin:
+    date: '2026-08-13'
+    gist: 'Found by AUDIT_dp_live_behavior.md: _log_dp_eval_decision (energy.py:4002) reads getattr(carrier,"reason",None); field does not exist; real reasons live only in ~10-day recorder attrs.'
+  why: 'Durable decision ledger is the long-horizon audit trail; null reasons make future DP forensics depend on recorder retention.'
+  next: 'One-line fix (log the eval snapshot decision.reason) + anchor test; fold into next URA deploy batch (Tier 1).'
+
 - id: ARRESTER-BOOT-BLIND-1
   title: Arrester boot-window manual blindness — manual holds predating the listener are unclassifiable
   thread: hvac

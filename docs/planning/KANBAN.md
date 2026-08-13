@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-12T14:58:57-05:00_ - _Data commit: `b63d7c0fcfbc`_ - _last_reconciled: 2026-08-12_
+_Generated: 2026-08-12T17:46:06-05:00_ - _Data commit: `786f5e6f8c25`_ - _last_reconciled: 2026-08-12_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -13,7 +13,7 @@ _Generated: 2026-08-12T14:58:57-05:00_ - _Data commit: `b63d7c0fcfbc`_ - _last_r
 |---|---:|
 | 📥 Inbox | 2 |
 | 🧭 Pre-planning | 13 |
-| 📝 Planned | 1 |
+| 📝 Planned | 2 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 0 |
 | 🚀 Shipped (organic open) | 24 |
@@ -170,7 +170,7 @@ thread: **camera** - status: **pre_planning** - approval: **implied**
 - **Parsimony:** [BUILD] per-room fused camera sensors ship with no area
 - **Refs:** binary_sensor.py CameraPersonDetectedSensor
 
-## 📝 Planned (1)
+## 📝 Planned (2)
 _has plan / acceptance_
 
 ### `STUCK-SENSOR-1` - Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
@@ -197,6 +197,12 @@ thread: **presence** - status: **planned** - approval: **explicit**
   - `D0_AUDIT_DONE`: 2026-08-09: docs/planning/AUDIT_mmwave_only_rooms_2026-07-31.md written (was owed since 07-31 as D0 of the mmwave Tier-3 cycle and never done; cycle shipped without it). Key results: 5 MMWAVE_ONLY rooms + Master Bedroom MMWAVE_NO_PIR = S...
   - `OPERATOR_DISPOSITIONS_2026_08_09`: ATHOM (Study A): CLOSED as a no-op. Operator: "Ignore athom now. It's a no op." URA already does not read it (options override every bucket); the ESPHome device entry stays. Do NOT re-raise, do NOT propose deleting the entry or cleaning ...
   - `rejected`: PROPAGATE STUCK STATE TO ZONE/HOUSE — I recommended this and then withdrew it under challenge ('is this flow upwards useful?'). If the room tier excludes correctly the corrected occupancy propagates naturally and upper tiers are right fo...
+
+### `DP-REASON-NULL-1` - DP durable ledger logs reason:null on all 4,181 rows — carrier has no .reason field
+thread: **energy** - status: **planned** - approval: **unreviewed**
+- **Origin:** 2026-08-13 - Found by AUDIT_dp_live_behavior.md: _log_dp_eval_decision (energy.py:4002) reads getattr(carrier,"reason",None); field does not exist; real reasons live only in ~10-day recorder attrs.
+- **Why:** Durable decision ledger is the long-horizon audit trail; null reasons make future DP forensics depend on recorder retention.
+- **Next:** One-line fix (log the eval snapshot decision.reason) + anchor test; fold into next URA deploy batch (Tier 1).
 
 ## 🔨 In progress (1)
 _being built_
