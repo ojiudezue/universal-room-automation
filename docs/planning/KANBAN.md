@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-12T22:41:18-05:00_ - _Data commit: `2179005a667d`_ - _last_reconciled: 2026-08-12_
+_Generated: 2026-08-12T23:31:55-05:00_ - _Data commit: `1c7d5be17996`_ - _last_reconciled: 2026-08-12_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,11 +12,11 @@ _Generated: 2026-08-12T22:41:18-05:00_ - _Data commit: `2179005a667d`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 2 |
-| 🧭 Pre-planning | 9 |
+| 🧭 Pre-planning | 8 |
 | 📝 Planned | 2 |
-| 🔨 In progress | 2 |
+| 🔨 In progress | 1 |
 | 🔍 Review | 0 |
-| 🚀 Shipped (organic open) | 25 |
+| 🚀 Shipped (organic open) | 27 |
 | ⏸️ Waiting on operator | 2 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 1 |
@@ -48,7 +48,7 @@ thread: **security** - status: **inbox** - approval: **unreviewed**
 - **Why:** The CONSOL-1 tripwire (in-code, NM alert if the legacy zone-monitoring stack fires) is doing its job — the legacy counter automations are still running and leaking. Either they should have been disabled with the legacy stack (leak = real...
 - **Next:** Small triage: read the tripwire match list vs the 12 dormancy-receipt automations; if the counters are legacy-stack members, turn_off (Method 1, reversible) and confirm tripwire goes quiet; if benign, narrow the tripwire match. ~30min, T...
 
-## 🧭 Pre-planning (9)
+## 🧭 Pre-planning (8)
 _idea being decomposed_
 
 ### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)
@@ -60,15 +60,6 @@ thread: **tablets** - status: **pre_planning** - approval: **unreviewed**
   - `repo`: ~/Code/wall-tablet (HALedController, v1.3 versionCode 5, 2026-08-01)
   - `verified_capabilities`: Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status}; LWT availability; self-registers via MQTT Discovery (no YAML).
   - `orchestrator_assessment`: HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That likely beats the quick-action U...
-
-### `CIRCLING-SEVERITY-1` - A "circling" exterior person produced alert_count=0
-thread: **perimeter** - status: **pre_planning** - approval: **unreviewed**
-- **Origin:** 2026-08-08 - observed during v5.62.1 live validation
-- **Why:** Live track xt-000001-695c9e: back_yard -> front_side_ptz -> back_yard -> front_side_ptz -> back_yard, classification=circling, 133s, alert_count=0 at 09:22 CDT. Track linking worked correctly (one track, not five alerts). But CIRCLING is...
-- **Next:** trace why alert_count=0 for a circling classification; decide whether circling should escape pure clock-time gating
-- **Tags:** no-fabrication-verify
-- **Parsimony:** [BUILD] the most suspicious exterior behaviour may be silently unalerted outside night hours
-- **Refs:** exterior_track_linker.py classification; perimeter_alert.py alert-hours gating; CONSOL-1 contextual-severity ruling
 
 ### `DIMMER-REBOOT-1` - Master bedroom Shelly Dimmer 2 reboots 89x since Aug 1 and returns ON (NOT thermal)
 thread: **devices** - status: **pre_planning** - approval: **implied**
@@ -174,7 +165,7 @@ thread: **presence** - status: **planned** - approval: **unreviewed**
 - **Forensic keys (1):**
   - `operator_question`: 50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests or a daytime FP flavor? If the latter, escalate per audit §3.
 
-## 🔨 In progress (2)
+## 🔨 In progress (1)
 _being built_
 
 ### `FRIGATE-RETIRE-1` - Retire Frigate-1 — promote Frigate-2 (yolov9t/OpenVINO, zero night ghosts) to primary incl. snapshot engine
@@ -190,21 +181,12 @@ thread: **security** - status: **in_progress** - approval: **approved**
   - `ura_ref_swap`: FOUND during window-open verify (audit's "zero URA changes" was wrong at the entity layer): 26 F1-owned entity refs across 4 URA config entries (main entry 14 perimeter cameras, Zone Manager 6 occupancy sensors, Garage Hallway 3, Garage ...
   - `entity_migration_2026_08_12`: DONE (operator approved). Mechanism pivot: ha CLI unauthorized for ssh user -> did 50 entity-registry renames via API instead of .storage surgery: every dead F1 entity -> *_f1retired (reversible), F2 twin -> the id URA references. Bonus:...
 
-### `D3-AREA-INHERIT` - URA D3 fused sensor should inherit room area on creation
-thread: **camera** - status: **in_progress** - approval: **implied**
-- **Origin:** 2026-08-07 - 5 rooms had roomless CameraPersonDetectedSensor - manual entity-area set was a band-aid
-- **Why:** CameraPersonDetectedSensor (D3) does not set area_id from its room on creation, so new rooms silently ship roomless -> breaks resolver/transit room mapping. Durable fix so we do not hand-patch each new room.
-- **Next:** set _attr area / registry area from room area on D3 sensor creation
-- **Tags:** numbers-get-knobs
-- **Parsimony:** [BUILD] per-room fused camera sensors ship with no area
-- **Refs:** binary_sensor.py CameraPersonDetectedSensor
-
 ## 🔍 Review (0)
 _under review_
 
 _(none)_
 
-## 🚀 Shipped (organic open) (25)
+## 🚀 Shipped (organic open) (27)
 _live, awaiting proof_
 
 ### `SENSOR-CAPABILITY-1` - Separate sensor CAPABILITY (hardware kind) from analytic ROLE — kind is currently the config bucket
@@ -450,6 +432,17 @@ thread: **process** - status: **shipped_organic** - approval: **explicit**
 - **Forensic keys (1):**
   - `first_subjects`: FAN-LAYER-1 plan (Tier 3 -> 2 plan reviews) and ARREST-COMFORT-1 plan (likely Tier 3 -> 2) — both in flight as this lands; they get the treatment on delivery.
 
+### `CIRCLING-SEVERITY-1` - A "circling" exterior person produced alert_count=0
+thread: **perimeter** - status: **shipped_organic** - approval: **unreviewed**
+- **Origin:** 2026-08-08 - observed during v5.62.1 live validation
+- **Why:** Live track xt-000001-695c9e: back_yard -> front_side_ptz -> back_yard -> front_side_ptz -> back_yard, classification=circling, 133s, alert_count=0 at 09:22 CDT. Track linking worked correctly (one track, not five alerts). But CIRCLING is...
+- **Next:** trace why alert_count=0 for a circling classification; decide whether circling should escape pure clock-time gating
+- **Tags:** no-fabrication-verify
+- **Parsimony:** [BUILD] the most suspicious exterior behaviour may be silently unalerted outside night hours
+- **Refs:** exterior_track_linker.py classification; perimeter_alert.py alert-hours gating; CONSOL-1 contextual-severity ruling
+- **Forensic keys (1):**
+  - `shipped_version`: v5.74.0
+
 ### `XCORR-1` - Burst-demotion for isolated single-camera night alerts (was: cross-engine corroboration gate)
 thread: **perimeter** - status: **shipped_organic** - approval: **explicit**
 - **Origin:** 2026-08-08 - operator got 12 notifications 01:01-01:25 CDT from hot_tub; "this is what x-correlation looks like if we have multiple engines"
@@ -546,6 +539,17 @@ thread: **camera** - status: **shipped_organic** - approval: **explicit**
 - **Refs:** https://claude.ai/code/artifact/ef6dc227-8488-4b59-b745-f71e946da6a8
 - **Forensic keys (1):**
   - `resolved`: Madrone G6 Entry -> front_porch (operator: front porch/entry; sits with front_door_aerial door overhead). DONE.
+
+### `D3-AREA-INHERIT` - URA D3 fused sensor should inherit room area on creation
+thread: **camera** - status: **shipped_organic** - approval: **implied**
+- **Origin:** 2026-08-07 - 5 rooms had roomless CameraPersonDetectedSensor - manual entity-area set was a band-aid
+- **Why:** CameraPersonDetectedSensor (D3) does not set area_id from its room on creation, so new rooms silently ship roomless -> breaks resolver/transit room mapping. Durable fix so we do not hand-patch each new room.
+- **Next:** set _attr area / registry area from room area on D3 sensor creation
+- **Tags:** numbers-get-knobs
+- **Parsimony:** [BUILD] per-room fused camera sensors ship with no area
+- **Refs:** binary_sensor.py CameraPersonDetectedSensor
+- **Forensic keys (1):**
+  - `shipped_version`: v5.74.0
 
 ### `v5.59.0` - resolver-legs
 thread: **perimeter** - status: **shipped_organic**
