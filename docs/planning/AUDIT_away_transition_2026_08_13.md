@@ -138,3 +138,203 @@ trigger string `guest_room_occupancy` is only the inference-tick label.
    mitigation —
    but it is device/app work, not URA code, and recs 1-3 cover the house-side
    hole regardless.
+
+## Dig: why fan exclusion failed
+
+Operator question: *"We are filtering fan start impulse right? Why was fan
+exclusion failing?"* Answer, evidence-first (develop @ a7ff3574; live deploy
+verified **v5.74.0**, so every mechanism below was in the running code).
+
+### 1. The v5.46.0 fan-transition gate was ARMED and healthy — it was out of scope by design
+
+- **Knob live:** `FAN_TRANSITION_SUSPECT_WINDOW_S = 5.0` in the DEPLOYED
+  `/config/custom_components/universal_room_automation/const.py:729` (read
+  over SSH; kill switch NOT tripped).
+- **Mapping live:** the gate's fan→room mapping does NOT use the fan_veto
+  fused-sensor registry or the `_N`-suffix stem resolver — those are the
+  v5.46.0 **camera** fixes. The gate rides `CONF_FANS` from the room's config
+  entry: `presence.py::_discover_room_fans` builds
+  `_fan_entity_to_room` from each ROOM entry's `fans` list and subscribes
+  `_handle_fan_change` (presence.py:3296), which stamps
+  `_fan_last_transition[room]` on any state edge OR percentage change
+  (presence.py:3345-3378). Living Room config (live `core.config_entries`):
+  `fans: ['fan.towerfan_dreopilotmaxs_wifi_livingroom']`,
+  `presence_sensors: ['binary_sensor.screek_human_sensor_l13_2412s_presence']`.
+  So the tower fan IS registered and IS stamped — corroborated by the live
+  attrs during the incident (`fan_on_rooms=["Living Room"]`,
+  `fan_interference_rooms=["Living Room"]`, both derived from the same map).
+- **Why it didn't fire:** predicate (c) at `coordinator.py:2335`
+  (`not self._last_occupied_state`) — the gate suppresses **CREATION only**.
+  Recorder (UTC): `binary_sensor.living_room_occupied` went ON at
+  **18:40:10.95** and NEVER dropped through the entire window — the Screek's
+  brief OFFs at 18:41:25 and 18:44:35 were bridged by the occupancy timeout.
+  When the Screek re-latched at 18:45:08 the room was already occupied →
+  sustain, not creation → gate correctly stands down. Nothing to suppress
+  existed at the room tier.
+
+### 2. The 6s-vs-5s question — the sensor edge WAS a fresh creation-shaped edge, and it ALSO missed the window
+
+Recorder edges (exact):
+
+| UTC | Entity | Edge |
+|---|---|---|
+| 18:40:10.405 | Screek presence | OFF→ON (initial, fan then OFF-transitioning at 18:43:35 — pre-existing occupancy, plausibly real) |
+| 18:41:25.703 | Screek presence | ON→OFF |
+| 18:43:35.600 | tower fan | →`off` (fan had been ON before; this is itself a stamped transition) |
+| 18:44:02.178 | Screek presence | OFF→ON (Δ=26.6s after fan-off — outside window) |
+| 18:44:35.411 | Screek presence | ON→OFF |
+| 18:45:02.381 | tower fan | →`on` (attr update 18:45:02.424) |
+| 18:45:08.056 | Screek presence | **OFF→ON — Δt = 5.68 s** after fan-on |
+
+So "latched 18:45:08" was a **genuine OFF→ON sensor edge**, not a
+continuation — but (a) the ROOM was continuously occupied, so the gate's
+creation predicate could never see it, and (b) even ignoring (a), Δt=5.68s
+falls **0.68s outside** the 5.0s window. The window was calibrated on the
+separability probe's Δt ≤ 1-2s exact-second alignment; a WiFi/cloud fan
+(Dreo) can report its `on` edge with lag relative to the physical motor
+start, and the mmWave needs a few seconds to latch onto airflow — so for
+cloud-reported fans the effective creation window is tighter than the
+physical one. Secondary finding, not the cause here (the creation predicate
+was the binding constraint), but worth carrying to any window-retune card.
+
+### 3. D2 sustain demotion — WOULD have owned this shape, but is capability-disabled
+
+The sustain direction is exactly D2's charter. The live predicate
+(`coordinator.py:2770-2779`): `occupied AND MMWAVE_FAN_CORROBORATION_ENABLED
+AND mult>0 AND boot-settle AND debounce AND _d2_motion_sensors_present() AND
+_d2_house_state_allows() AND occupancy_source=="mmwave"`, then PIR staleness
+≥ MULT×occupancy_timeout, then BLE/camera truth checks. House `home_day`
+passes `_d2_house_state_allows` (coordinator.py:1816-1843 vetoes only
+SLEEP/WAKING/HOME_NIGHT); source was mmwave-sole; fan flagged. The single
+failing leg is `_d2_motion_sensors_present` (coordinator.py:1786-1815):
+`motion_sensors: []` after MMWAVE_NAME_PATTERN filtering → **fail-closed,
+demotion permanently off for this room**. Had the Living Room owned one real
+PIR, this exact shape (fan ON + mmwave-sole + PIR stale) demotes at
+MULT×timeout and the 2h01m hold collapses. Confirms audit rec 1.
+
+### 4. fan_veto — wrong axis entirely
+
+`fan_veto.py:1-27` (docstring): it is the **comfort-fan house-AWAY actuation
+veto** — suppresses fan `turn_on` at three actuation sites
+(automation.py temperature fan control, hvac_fans.py, actuator_reconciler.py)
+when `house_state ∈ {AWAY, VACATION}` and the room lacks non-mmWave trusted
+presence. It vetoes the FAN, not the mmWave; and the house was `home_day`
+the whole time (`_AWAY_STATES` check, fan_veto.py:54-56), so it was
+structurally inapplicable. It is not, and never was, a "fan noise filters
+occupancy" mechanism.
+
+### 5. Taxonomy verdict
+
+This incident is a **fan-latch (true RF motion, wrong attribution) in the
+SUSTAIN direction** — the fan captured and re-armed a pre-existing occupancy
+— NOT a stuck sensor (hardware released in 37s once the fan stopped) and NOT
+a creation-window miss in any actionable sense (the room was already
+occupied; the gate is scoped away from sustain on purpose).
+
+| Class | Owner today | This incident |
+|---|---|---|
+| Fan-coincident mmwave-sole **CREATION** | v5.46.0 gate (armed, window 5s) | out of scope — room already occupied |
+| Fan-driven mmwave-sole **SUSTAIN**, room HAS PIR | D2 demotion (v5.23.0+) | would have fired — but disabled |
+| Fan-driven mmwave-sole **SUSTAIN**, room has NO corroborator | **NO OWNER** (D2 fail-closed; duty-cycle rule notify-only; STUCK-SENSOR-1 blocked AND itself corroboration-gated) | **← this incident lives here** |
+| Fan **ACTUATION** while house away | fan_veto | inapplicable (home_day) |
+| Hardware stuck-ON | P22 continuous 4h rule | not this (released in 37s) |
+
+The precise unowned class: **mmwave-sole sustain in a corroborator-less room
+under a non-away house state, duration < 4h.** Six rooms sit in this class
+(`AUDIT_mmwave_only_rooms_2026-07-31.md`). The cheapest exit remains rec 1
+(give the room a corroborator — turns the already-shipped D2 on); the
+code-side exits are recs 2-3.
+
+## Follow-up: other fans + carded coverage
+
+Read-only follow-up (recorder mode=ro via `ssh ha`, scoped by `states_meta`;
+kanban.data.yaml read end-to-end). Window 16:00–21:00Z unless noted.
+
+### F1. Sweep of ALL fans ON in the window
+
+| Fan | Room | ON intervals (UTC) | Room mmWave | Latch? |
+|---|---|---|---|---|
+| `fan.towerfan_dreopilotmaxs_wifi_livingroom` | Living Room | 18:45:02–20:46:05 | Screek L13 2412S | **YES** (audited: latch +4 s, release +37 s) |
+| `fan.fan_switch_4` ("Fan Switch UpGuest") | Upstairs Guestroom | 16:40:03–18:36:59, 19:08:35–20:46:13 | `occupancy_lux_temp_humidity_hobeian_upguestroom_presence_2` | **YES, TWICE**: held 16:38:52→18:37:35 (release **36 s** after fan-off) and 19:07:59→**20:46:35** (release **22 s** after fan-off). Second episode: sensor was already flapping-on 36 s before fan-on — sustain capture, exactly the v5.46.0 creation-only gap. `upstairs_guest_bedroom_occupied` held 18:58:54→20:51:40 (cleared only by the away sweep). |
+| `fan.fanswitch_treat_wifi_jayabedroom` + `fan.fan_temp_wifi_jayabedroom` | Jaya Bedroom | treat: 20:15:03–20:46:16; fan_temp: 15:34:49–18:54:51, 18:55:06→**past 21:31 (never off)** | `jaya_3` Screek (+ meross, zigbee mmWaves) | **YES, UNRELEASED**: `jaya_3` latched ON from 19:00:16 with `fan_temp` running continuously; operator turned off only `fanswitch_treat` at 20:46:16, `fan_temp` stayed on, and `jaya_3` + `jaya_bedroom_bedroom_4_occupied` were **still ON past 21:31 — after the house had gone away**. Negative control that confirms the mechanism: the one latched room whose fan was NOT killed is the one room that never released. |
+| `fan.fanswitch_treat_wifi_ziribedroom` | Ziri Bedroom | 16:22:07–17:25:03 | `mmwave_zigbee_ziribedroom` | **NO** — sensor released 17:14:47 with the fan still running (10 min before fan-off). |
+| `fan.polyfan_dreo704s_wifi_studya` | Study A | 16:29–17:14, 19:05–19:15 | `mmwave_zigbee_studya` | **NO** — sensor off 17:00:22 and 19:01:05 mid-fan-run. |
+| `fan.air_circulator`, `fan.haf004s` | AV Closet | ON entire window | (AV Closet occupancy sensor) | **NO** — no occupancy activity recorded. |
+
+So the fan→mmWave latch hit **three rooms, not one** (Living Room, Upstairs
+Guestroom, Jaya Bedroom) — and did NOT hit two others with fans running
+(Ziri, Study A): the latch is fan-model/placement-specific, not universal.
+
+### F2. Were the other latched rooms also vetoing away? — No, but for a wrong reason
+
+**Entertainment was genuinely the sole veto at the house tier — by
+divergence, not because the other rooms were clean.** New unexplained
+discrepancy, verified from recorder:
+
+- `sensor.zone_upstairs_rooms_occupied` read **2** from 19:25:32 to 20:52:06
+  (Upstairs Guestroom + Jaya Bedroom), and `binary_sensor.zone_upstairs_anyone`
+  was **ON continuously from 04:34Z with no off through 22:00Z**.
+- Yet `sensor.ura_presence_coordinator_presence_house_state` attrs at 19:45Z
+  and 20:30Z show zone **Upstairs: mode='away'**, provenance all zeros,
+  `fan_interference_rooms: []`, `fan_on_rooms: []` — the house tier could not
+  see either latched Upstairs room (nor their running fans).
+- Consequence both ways: (a) had Upstairs been counted the way Entertainment
+  was, path β would have been blocked by THREE phantom-held zones, and killing
+  the Living Room fan alone would NOT have released the house; (b) the actual
+  `home_day → away` at 20:51:06 fired **while Jaya Bedroom was still
+  URA-occupied and zone_upstairs_anyone was still ON**. Mechanism for the
+  zone-tier vs house-tier divergence NOT established here (no source trace
+  done) — flagged as its own follow-up; do not build on either behavior until
+  it is explained.
+
+### F3. The operator's multi-fan off — correction + multi-release
+
+- The three fan-offs (`towerfan` 20:46:05, `fan_switch_4` 20:46:13,
+  `fanswitch_treat_wifi_jayabedroom` 20:46:16) all carry
+  `context_user_id=66bda3b7…` with no parent context — an HA-authenticated
+  user action (app/dashboard). **This corrects the timeline's
+  `context_user_id=None` / "vendor app / physical" note.**
+- It released **two of the three** latches: Screek 2412S +37 s, Hobeian
+  upguestroom +22 s. Jaya's did not release (second fan `fan_temp` untouched).
+- The loop was live to the last minute: the tower fan turned **ON at 20:45:02
+  with no user context** (URA re-assert) 63 s before the operator killed it.
+  The release stuck only because nothing re-asserted in the 37 s before the
+  Screek dropped — the v5.31.0 manual-OFF cooldown is the shipped mechanism
+  that made the operator's off durable.
+
+### F4. Carded-work coverage (kanban.data.yaml read end-to-end)
+
+| Card (spec as written) | Verdict | Reasoning from spec text |
+|---|---|---|
+| **AWAY-BLOCK-1** (waiting_on_operator) | — | This incident's own card; carries all five ranked recs. It is the coverage vehicle, not prior art. |
+| **STUCK-SENSOR-1** (planned, approved 08-13) | **NO-IMPACT alone / WOULD-HAVE-FIXED with rec 1** | Spec = corroboration-gated exclusion: exclude a duty-stuck sensor when NO independent corroborator supports occupancy. Its own CAVEAT: "rooms whose ONLY input is a single mmWave have no corroborator … notify-only remains correct." Living Room (`motion_sensors: []`) is exactly that room — as specced it stays notify-only there. The D2 duty flag DID fire (4 NM notes), so once a corroborator exists the exclusion keys off a signal that was live. Same caveat applies to Jaya (in the six no-PIR rooms). |
+| **SENSOR-CAPABILITY-1** (shipped v5.65.0, pre-incident) | **NO-IMPACT as shipped** | I1 guarantees byte-identical behavior until a capability is DECLARED; none is declared for these rooms. It is the enabler that lets a non-PIR corroborator (camera person, BLE, bed) be nameable — prerequisite for STUCK-SENSOR-1 to cover no-PIR rooms without new hardware, zero effect by itself. |
+| **GUEST-FP-RESIDUALS-1** (planned) | **NO-IMPACT** | A1 is explicitly "diagnostic clarity only — guest gate does not read them": it relabels path-α's `excluded_persons`, it does not restore the trusted denominator, so α stays dead. B1 (outdoor camera filter) untouched by this incident. **No card on the board fixes the α LOST-denominator gap itself** — the only α-side mitigation anywhere is AWAY-BLOCK-1 rec 5 (tracker liveness, device-side). |
+| **FAN-LAYER-1/2** (FanPolicyOracle, shipped v5.70.0/v5.73.2) | **NO-IMPACT as specced** | The oracle arbitrates WHO may actuate (12 writers, consult+note); its policy predicates contain no occupancy-provenance test. `fan_should_run` sustaining on mmwave-sole occupancy is policy-legal under INV-FLA. It is, however, the natural single chokepoint to host rec 2 (mmwave-sole sustain cap) — one predicate, all 12 writers covered. |
+| **FAN-MANUAL-1** (shipped v5.68.0) | **SHORTENED (already live)** | Not on the latch itself — on the release: the manual-OFF side (v5.31.0 cooldown + the v5.68.0 hold machinery) is why URA did not re-assert the tower fan in the 37 s between operator-off and Screek release (it had re-asserted at 20:45:02). Without it the operator's off could have lost the race. |
+| **WATCHDOG-INERT-1 / P24 failsafe fix** (shipped v5.67.0) | **NO-IMPACT by design** | The CRIT-A1 fix-up explicitly guards: "failsafe simply does not apply to no-PIR rooms" (deliberate sleeping-body protection, mirrors `_d2_motion_sensors_present`). Living Room and Jaya are no-PIR → excluded on purpose. |
+
+**Verdict: no genuinely NEW work is needed — but the incident is not covered
+by building the backlog in any order.** The binding constraint is the same
+fail-closed predicate in two shipped/approved mechanisms (D2 demotion,
+STUCK-SENSOR-1 exclusion, P24 failsafe all key off a corroborator the room
+doesn't have). The coverage path is:
+
+1. **AWAY-BLOCK-1 rec 1 (config-only corroborators for the no-PIR rooms)** —
+   the unlock for everything already built/approved. Now three-rooms-justified,
+   not one. Not carded as a build because it isn't one; it is the pending
+   operator decision on AWAY-BLOCK-1.
+2. **STUCK-SENSOR-1** as specced (already approved; blocked on criterion-4
+   supplements) — becomes effective in these rooms only after (1).
+3. **AWAY-BLOCK-1 rec 2** (mmwave-sole sustain cap) — small NEW policy, but
+   it has a shipped home now (FanPolicyOracle predicate) so it is an
+   increment on FAN-LAYER, not a new surface. Covers rooms where (1) is
+   impractical, and fixes fans-burning-in-empty-rooms independent of away.
+4. **AWAY-BLOCK-1 rec 3** (β discounts phantom-classed zones) — hold unless
+   evidence recurs after 1–3; note F2 weakens its payoff: the house tier
+   already couldn't see two of the three phantom zones.
+5. **NEW follow-up (small, uncarded until now): the F2 zone-tier vs
+   house-tier divergence** — Upstairs occupied at room+zone tier, 'away' with
+   zero provenance at house tier, and an away transition that fired through a
+   still-occupied room. That is not on any card and needs a source trace
+   before rec 3 could even be scoped safely.
