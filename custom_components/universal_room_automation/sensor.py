@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.74.0
+# Universal Room Automation vv5.75.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -2351,6 +2351,15 @@ class AutomationHealthSensor(UniversalRoomEntity, SensorEntity):
                 stuck.append({"entity_id": eid, "on_hours": round(on_hours, 1)})
         attrs["stuck_sensors"] = stuck
         attrs["stuck_sensor_count"] = len(stuck)
+
+        # STUCK-SENSOR-1 D2a — current-tick D1 exclusion set (dutycycle
+        # sensors promoted into the exclusion path). Empty list when
+        # no exclusion engaged. Shape: [(entity_id, kind, engaged_at_iso)].
+        _excluded_now = getattr(c, "_dutycycle_excluded_now", {}) or {}
+        attrs["excluded_sensors"] = [
+            (eid, "dutycycle", ts.isoformat() if ts else None)
+            for eid, ts in _excluded_now.items()
+        ]
 
         # --- Tier 1: Debounce ---
         if c._occupancy_first_detected is not None:

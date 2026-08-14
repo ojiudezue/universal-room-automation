@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-08-12'
+  last_reconciled: '2026-08-14'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -17,7 +17,8 @@ cards:
 - id: STUCK-SENSOR-1
   title: Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
   thread: presence
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.75.0
   approval: explicit
   approved_by: 'operator 2026-08-09 ("and what comes after it") — the chatter/reliability cycle that
     follows SENSOR-CAPABILITY-1, absorbing the mmwave-Tier3 D6 parked deliverable. NOTE: this approval
@@ -157,6 +158,8 @@ cards:
     room tier genuinely cannot discriminate and upper tiers should down-weight.
   amendment_approved_2026_08_13: 'Operator approved the criterion-4 amendment (offline replay harness + hand-built supplement; runtime tap DROPPED — recorded in PLANNING_signal_trust_ledger_abstraction.md). Unblock path ACTIVE: build/ledger-golden-replay harness in flight -> then this cycle builds.'
   harness_landed_2026_08_13: 'Replay harness MERGED (fe9bfc845): P22 (13/5) + D2 (56/3, boot-settle unmodelled -> discount vs audit 13) FILLED from replay. Remaining criterion-4 work before this cycle builds: hand-built supplements for P24/P18/D1/CHATTER (operator sign-off required per amendment) + adjudicate D3 bucket (its frozen-tracker detector was DELETED 2026-08-10 — bucket likely obsolete, minimums need a plan edit) + P18 NM-ledger ingestion follow-up. Hand-building the supplements is orchestrator work, queued behind the circling/QoL wave.'
+  approved_2026_08_13: 'OPERATOR APPROVED (during AWAY-BLOCK-1 incident review: "Stuck sensor is approved"). Spec confirmed to operator: it ACTUATES (corroboration-gated exclusion at room tier), not notify-only. Taxonomy caution from the incident: fan-latch is TRUE motion mis-attributed, not sensor pathology — verify during plan/build that the exclusion gate keys off the duty FLAG (which fired here) and composes with fan-aware demotion, or the build fixes stuck-class only. Remaining blocker: criterion-4 hand-built fixture supplements (orchestrator queued, pulled forward) + operator sign-off on supplements + D3-bucket obsolescence adjudication.'
+  build_dispatched_2026_08_13: 'Plan rev-2 (plan review: HIGH corroborator-window-subsumed -> 900s + still-person test; P22 restore-poisoning boot guard; fixture emit-only-when-True + replay pre-deploy gate; merged-accessor pin). Build in flight (worktree). Criterion-4 CLOSED same day (signed supplements merged).'
 
 - id: SENSOR-CAPABILITY-1
   title: Separate sensor CAPABILITY (hardware kind) from analytic ROLE — kind is currently the config bucket
@@ -715,17 +718,7 @@ cards:
     different flap (mmWave sensor stuck, not HVAC preset) — no merge. ARREST-SUNSET-1 shipped and is
     about override sunset, not oscillation. OVERRIDE-NOTIFY-1 is expiry warning. BACKLOG has no HVAC
     preset-flap item. NEW.'
-- id: COMFORT-TOGGLE-1
-  title: Dedicated enable switch for comfort-delay grace (vs grace_minutes=0 kill)
-  thread: hvac
-  status: done
-  approval: explicit
-  operator_disposition: 'DECLINED 2026-08-11 (chat): "Comfort toggle - no". grace_minutes=0 is the kill. Parked peak-TOU conjunct stays parked on live evidence.'
-  origin:
-    date: '2026-08-10'
-    gist: 'operator Q at v5.69.0 ship: "Can we gate this behind a toggle ie this more permissive bypass? What is the config surface?" — question, not command'
-  why: 'grace_minutes=0 already kills the feature but destroys the tuned duration on toggle; a switch preserves it + one-tap tile. Marginal: mild config-surface growth for convenience.'
-  next: 'Operator decides: build the switch (Tier-1, ~30 LoC mirroring existing URA switch persistence) or accept grace_minutes=0 as the toggle. Also parked: hard peak-TOU conjunct (one-line predicate) if live evidence shows SOC-80 floor insufficient during peak.'
+  toggle_retirement_2026_08_14: 'Operator renamed the kill-switch -> "Coast Preset Preservation" (rides v5.75.0) and adjudicated it TEMPORARY CONTAINMENT, not a policy knob (nobody legitimately prefers the lying preset; the 2F offset Number is the real knob). RETIRE the switch when L3 (occupied-coast founding case) AND L4 (arrester echo flat) organically validate: Tier-1 removal (single-user no-backcompat) or demote to rung-1 constant. This closes the card fully when it fires.'
 
 - id: ARREST-COMFORT-1
   title: Override arrester reverts occupant manual cooling requests with no comfort exemption
@@ -997,7 +990,10 @@ cards:
   operator_refinements_2026_08_12: '(1) FP-gate preference RULED: cross-corroboration (Protect agreement) preferred over duration/latency gates — "I don''t like the latency idea. Much prefer x-corroboration." Applies if frigate-2 ghosts post-promotion. (2) Evidence chain: hand-check audits are the referable record — AUDIT_perimeter_fp_correlation.md (ghost probe) + AUDIT_frigate1_retirement_inventory.md (parity/GO), both committed.'
   ura_ref_swap: 'FOUND during window-open verify (audit''s "zero URA changes" was wrong at the entity layer): 26 F1-owned entity refs across 4 URA config entries (main entry 14 perimeter cameras, Zone Manager 6 occupancy sensors, Garage Hallway 3, Garage B 3). All 26 have live F2 equivalents mapped BY REGISTRY OWNERSHIP not name (traps: staircase_motion_2 is F1 -> F2 twin is bare staircase_motion; garage_b_motion_2 -> garage_b_motion_3). Swap script ready (scratchpad swap_ura_frigate_refs.py, aborts unless exactly 26 hits, backs up first); mapping at f1_to_f2_map.json. BLOCKED on operator authorizing: ssh ha core stop -> edit .storage/core.config_entries -> core start. _2->base rename cleanup stays post-Gate-2.'
   entity_migration_2026_08_12: 'DONE (operator approved). Mechanism pivot: ha CLI unauthorized for ssh user -> did 50 entity-registry renames via API instead of .storage surgery: every dead F1 entity -> *_f1retired (reversible), F2 twin -> the id URA references. Bonus: automations.yaml staircase logic + ura_v8 dashboard now feed from F2 automatically; the audit''s post-parity _2->base rename step is ALREADY DONE for the 24 URA-referenced ids. Two special cases: garage_b_motion base is a Protect PIR (untouched; F2 _3 -> _2); staircase_motion base was consumed by 2 automations.yaml template refs -> edited refs to _2 + renamed F2 entity into _2 + automation reload (the .storage one-string edit got CLOBBERED by HA shutdown flush — known race, caught on verify). Post-restart: 25/25 URA-referenced ids F2-owned, zero URA errors, presence/census flowing. Watch-item: camera_census boot scan runs before Frigate 2 registers (pre-existing boot-order noise; device registry verified to carry full person-sensor suite).'
-  next: 'Gate-1: N=5 organic perimeter events clean by ledger (P1 bar = agreement-with-Protect; daytime parity counts) -> disable F1 integration/container (operator approval) -> Gate-2 N=5 -> operator may delete entry + physically decommission F1 box. Daily 9:23am recheck scheduled (session cron, 7-day). Watch: F2 recording tripwire silent; snapshot engine learn-on-success -> F2 on first event. NM-REPAGE-IMG-1 build in flight.'
+  gate1_recheck_2026_08_13: 'GATE-1 MET. Night window 08-12 23:00 -> 08-13 05:00 CT: ZERO person alerts (vs multiple F1 ghosts every prior night) — the ghost pattern died with F1. Only 2 legit-category vehicle deep-night alerts (rear_ptz, Protect-sourced). Clean count: 5 corroborated F2+Protect pairs (08-12 afternoon, 1-2s agreement) + decisive clean night = 5/5 + night criterion. Tripwire: 5 polls, all correctly failed_conditions (share 83.9%, rotating, usage growing 81.7->83.9 = writes flowing). AWAITING OPERATOR APPROVAL to advance: disable Frigate-1 integration + container -> Gate-2 N=5 begins.'
+  gate2_started_2026_08_13: 'OPERATOR APPROVED. F1 HA integration entry 01JV6G4E57HT3WH86WSQ4RJT11 DISABLED + unloaded (11:4x CT). Container stop handed to operator (host is password-SSH only): ssh okosisi@192.168.13.16 sudo docker stop frigate double-take. Gate-2 counting begins now: N=5 clean organic perimeter events with F1 dark -> operator may DELETE the HA entry and PHYSICALLY DECOMMISSION the box. Reversal until then: re-enable the entry + docker start.'
+  next: 'Gate-2: 0/5 clean organic events (F1 integration dark; container stop pending operator one-liner). Daily 9:23 recheck counts. On 5/5: tell operator "You can decommission the Frigate-1 box" + delete entry + entity cleanup of *_f1retired.'
+  reaudit_2026_08_13: 'Operator-requested post-disable re-audit: PASS — 443 URA entity refs, 0 F1-owned; snapshot engine self-heals to F2-only; MQTT dual-prefix clean; census/resolver skip disabled entities. Findings ALL FIXED live same hour: MED automation.g6_doorbell_analysis motion_entity _2->_3 (was dead F1); LOW ura-v8 armcrestash41b->_2 + ura-v6 garage_a->_2 dashboard cards. Latent LOW carded in audit: camera_census legacy _discover_full_scan lacks disabled_by filter (not live). FIRST-WITNESS audit: F2 prompt (median +1.3s vs Protect, 31% first); caveats: rear_ptz laggard (median +5.8s, 20 missed episodes — consider Protect as snapshot trigger there); pool_equipment near-invisible to F2 (2 fires/week, native Amcrest is sole witness — recall check needed); back_yard ~100 F2-only episodes/wk uncorroborated (FoV-vs-FP spot-check before counting solos clean); 08-11 house-wide F2 daytime outage (predates tripwire; tripwire now covers). Docs: AUDIT_f2_pointing_reaudit.md + AUDIT_f2_first_witness_daytime.md.'
 
 - id: NM-REPAGE-IMG-1
   title: Re-attach stored snapshot on CRITICAL re-pages — text-only repeats are a correctness bug, not a design choice
@@ -1012,30 +1008,70 @@ cards:
   scope: '~5 LoC in NM re-page path: reuse the stored snapshot path from the original dispatch (both WhatsApp + iMessage attachment keys, BB v0.6). Tier 1. Anchor: wire-in rule applies (call-site neuter must red a test).'
   next: 'Fold into next NM-touching build or ship as standalone Tier-1 hotfix.'
 
-- id: PERIM-FP-1
-  title: Frigate-1 nighttime IR ghost detections — 100% of night person alerts are single-witness sub-2s blips
-  thread: security
-  status: done
-  approval: explicit
-  resolution: 'OPERATOR PICKED (2026-08-12): retire Frigate-1 entirely (FRIGATE-RETIRE-1) instead of thresholds/gate code. Probe + screenshots are the evidence base; corroboration doctrine parked.'
-  screenshots_2026_08_12: 'Operator screenshots confirm: originals deliver WITH photo at detection (v5.71.0 proven twice — pool 03:56, front_side 04:06); text-only repeats are the unack-CRITICAL 5-min RE-PAGE loop (same detection timestamp in body), by design. Both photos show empty scenes = ghost confirmation. LOW folded in: re-attach stored snapshot on re-pages (~5 LoC, file persists at re-page time).'
-  origin:
-    date: '2026-08-12'
-    gist: 'operator: "Both pictures show no one... No corroboration from any other likely means false positive no?... hand check protect detection history and its correlation to frigate"'
-  why: 'PROBED (AUDIT_perimeter_fp_correlation.md): ghost source = Frigate instance 1 under nighttime IR on pool_equipment (94% single-witness), hot_tub (60%), front_side_ptz (51%), back_yard (49%). ALL 80 night-hour person edges across 7 nights were frigate-1 single-witness; zero Protect corroboration on the same views (healthy cameras agree 75-95%). Morphology: FP blips sub-2s; true detections median 20-47s. URA alerted per spec — inputs were ghosts.'
-  fix_directions_for_operator: '(a) Frigate-side: raise person threshold / min_score on the 4 IR-affected cameras (fixes at the source, benefits everything downstream); (b) URA-side sustained-on gate ~3-5s before dispatch (catches all observed FPs, adds 3-5s latency to real alerts, works for Frigate-only cameras); (c) URA-side Protect-corroboration demotion for dual-source views + duration gate for Frigate-only views (most precise, most machinery). Probe data supports (a)+(b) as the parsimonious pair. Also: llmvision enrichment (now shipped, default OFF) gives a free FP witness — "no person visible" descriptions become machine-readable FP evidence.'
-  next: 'Operator picks direction(s); (a) is config-side on Frigate (homelab), (b)/(c) are URA cycles (measure-first done). Two NM-dedup''d edges (06:14, 07:11) flagged for follow-up in the audit.'
-
-- id: ZONE-MON-LEAK-1
-  title: zone_monitoring tripwire firing on legacy zone_N motion/person event counters — 10 MEDIUM ledger rows in 6h
-  thread: security
-  status: inbox
+- id: ROOM-NAME-UNIQUE-1
+  title: Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket)
+  thread: presence
+  status: pre_planning
   approval: unreviewed
   origin:
-    date: '2026-08-12'
-    gist: 'Found during FRIGATE-RETIRE-1 gate check: hazard_type=zone_monitoring_leak rows against automation.zone_{1,3}_{motion,person}_event_counter every few minutes.'
-  why: 'The CONSOL-1 tripwire (in-code, NM alert if the legacy zone-monitoring stack fires) is doing its job — the legacy counter automations are still running and leaking. Either they should have been disabled with the legacy stack (leak = real) or the tripwire is over-broad (counters are benign telemetry, not pagers). MEDIUM severity -> digest noise + ledger pollution either way.'
-  next: 'Small triage: read the tripwire match list vs the 12 dormancy-receipt automations; if the counters are legacy-stack members, turn_off (Method 1, reversible) and confirm tripwire goes quiet; if benign, narrow the tripwire match. ~30min, Tier 1.'
+    date: '2026-08-14'
+    gist: 'ROOM-NAME-DESYNC-1 Review C adversarial find (D-MED-1): rename Room A to an existing Room B name — zero validation; _room_to_zone dict + ZonePresenceTracker.room_names + substrate bucket keys all name-keyed -> silent overwrite/merge. Latent + pre-existing; write-through makes it surface at save-time (was boot-time).'
+  why: 'Join-key uniqueness is an unenforced invariant every name-keyed tier map depends on.'
+  fix_sketch: '_check_room_name_unique in async_step_basic_setup -> async_show_form error on collision (~15 LoC, Tier 1-2). Live-validation D-block for the rename cycle includes a do-not-rename-to-existing sanity note meanwhile.'
+  next: 'Small cycle after v5.75.0; consider folding into the next config-flow-touching batch.'
+
+- id: SENSOR-FANINDEP-1
+  title: Role matrix needs a fan-independence axis — 10GHz motion-mmWave fleet is corroborator-grade for stuck but NOT for fan-demotion
+  thread: presence
+  status: pre_planning
+  approval: unreviewed
+  origin:
+    date: '2026-08-14'
+    gist: 'operator: the Hobeian "Millimeter wave motion detection" units (~20, transit areas) are 10GHz functional-PIRs (still-blind, long range). Registry confirms 3 Hobeian classes. But the Upstairs Guestroom unit of this EXACT model fan-latched twice 08-13 — doppler sees fans; the class is not fan-independent.'
+  why: 'STUCK-SENSOR-1 (v5.75.0) role layer accepts list-derived motion kind as corroborator — correct for non-fan stuck pathology, fails-agree (=status quo, no regression) under fan latch. The deferred D5 role-migration should add fan-independence to the role matrix: fan-demotion legs require fan-independent corroborators (PIR/camera/BLE/bed); stuck-exclusion accepts motion-class incl. 10GHz doppler. Vehicle: CONF_SENSOR_CAPABILITIES declarations for the 10GHz fleet + a new failure-mode-style axis.'
+  measurement_first: 'Passive recorder probe queued: does the NEW Living Room 10GHz unit latch the tower fan on its next run? (Placement/sensitivity may differ from Guestroom.) Result gates how urgent the axis is.'
+  next: 'Fold into the STUCK-D2-DEMOTION-ROLE-MIGRATE-1 follow-up (D5); probe result first.'
+
+- id: ROOM-NAME-DESYNC-1
+  title: Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped)
+  thread: presence
+  status: shipped_organic
+  shipped_version: v5.75.0
+  approval: unreviewed
+  origin:
+    date: '2026-08-13'
+    gist: 'ZONE-TIER-DIVERGE-1 thorough trace: presence house tier keys rooms by entry.data room_name (presence.py:2868); substrate dispatches under options-first merged name (occupancy_substrate.py:197-202). 3 rooms renamed via options only -> every substrate edge silently dropped at presence.py:3082-3090.'
+  why: 'BUG, live now (smoking gun: jaya_3_presence=on w/ substrate_kinds all-false). The 08-13 20:51 away transition fired THROUGH occupied Upstairs precisely because the house tier could not see the two renamed rooms. Blast radius: away/veto/census, WAKING gate, v5.46.0 fan gate + fan-interference + D2 legs (all dead for the 3 rooms), zone confidence.'
+  operator_decision: 'SEQUENCING TRADE: (a) config-mitigate NOW (re-align 3 entries names) = house tier regains sight, but away gets HARDER (3 more phantom-holdable mmWave zones until corroborators arrive — rec 1 hardware is operator-owned); (b) sequence the fix AFTER corroborators land. Then either way: Tier 2-DB cycle = options rename write-through to entry.data + one-shot sync migration + name-consistency invariant test.'
+  next: 'Operator picks (a) now vs (b) after-sensors; then Tier 2-DB cycle (plan review first).'
+  build_dispatched_2026_08_13: 'Plan rev-2 (plan review: 4 HIGH fixed incl. double-reload + setup-reload-watchdog ordering + 3rd write site + CONF_ZONE fold-in). Build in flight (worktree). Hand-sync mitigation VERIFIED live same evening (Upstairs zone occupied w/ real provenance).'
+
+- id: PATH-ALPHA-DENOM-1
+  title: Path-alpha away inference structurally dead when all trackers LOST/STALE — trusted denominator empties; NO existing card fixes it
+  thread: presence
+  status: inbox
+  approval: approved_after_investigation
+  origin:
+    date: '2026-08-13'
+    gist: 'Carded-coverage grading: the LOST-denominator gap (all 4 trackers LOST -> all_tracked_persons_away false-by-vacuity for hours) is owned by no card; v5.16.0 fixed the veto denominator, not this.'
+  why: 'Path-alpha ignores zones entirely — with ACTIVE trackers it would have fired regardless of the fan latch. Fixing the vacuous-denominator case (all-LOST + all-entity-away => away-eligible) is an independent mitigation with its own balance questions (overlaps AUDIT_ble_house_level_weighing safe-shape).'
+  next: 'Fold into the same presence cycle as AWAY-BLOCK-1 rec 3 if that ever builds, or small standalone Tier 2; needs the ZONE-TIER-DIVERGE-1 trace first (same code region).'
+  operator_direction_2026_08_13: 'Operator: "we should find a way to say AWAY not LOST. Do we need a lost state at all? That way we can actually use this signal the way it is supposed to be used. And not overload it." I.e. the fix may not be patching the denominator arithmetic but DECOMPOSING the overloaded tracking_status: LOST currently conflates (a) confidently-away-no-BLE-fix (should just be AWAY), (b) home-but-BLE-silent (phone on charger — genuinely ambiguous), (c) truly unknown. If LOST is dissolved into honest states, path-alpha''s denominator never empties for case (a) and the vacuity bug disappears structurally instead of being special-cased.'
+  alternate_paths: '(1) Dissolve LOST: away-with-no-fix => AWAY (trusted, counts in denominator); home-but-silent => new BLE_SILENT_HOME or stays ambiguous-excluded; keep LOST only for truly-unknown. Ripple: every consumer of tracking_status (H3 reliable-signal gating, excluded_persons, veto denominator v5.16.0, path-beta _tracking_active_or_lost_away — which becomes redundant/simplifiable). (2) Minimal: keep LOST, make path-alpha treat all-LOST+all-entity-away as away-eligible (the original card). (3) BLE-vacancy conjunct shape from AUDIT_ble_house_level_weighing.md. Operator leans (1) — un-overload the signal.'
+  next: 'GATED on ZONE-TIER-DIVERGE-1 trace completing (same code region). Then: consumer enumeration of tracking_status (greps, all tiers) -> plan for decomposition path (1) with (2) as fallback if ripple too wide; Tier 2-DB minimum (trust-hierarchy).'
+
+- id: AWAY-BLOCK-1
+  title: House held home_day 2h with everyone away — fan->mmWave->occupancy->fan self-sustaining loop; both away paths structurally blocked
+  thread: presence
+  status: in_progress
+  approval: unreviewed
+  origin:
+    date: '2026-08-13'
+    gist: 'operator: "why not trust that signal and send the house to away mode? What are we getting wrong about this inability to transition?"'
+  why: 'Traced (AUDIT_away_transition_2026_08_13.md): path-alpha dead (all 4 trackers LOST/STALE -> trusted denominator 0); path-beta vetoed by ONE zone occupied solely by the Living Room Screek mmWave, latched by the room''s own tower fan (fan ON 13:45 CT -> latch 6s later, held 2h01m; fan OFF -> release in 37s -> away 5min later). The fan was URA''s OWN comfort fan, turned on BECAUSE the room read occupied — self-justifying loop. Shipped D2 fan-demotion is fail-closed OFF for the 6 rooms with no PIR (motion_sensors: []); v5.46.0 gate is creation-only; 4h continuous-stuck never met (flapping resets); duty-stuck detector fired 4 NM notes but is NOTIFY-ONLY (STUCK-SENSOR-1 gap, live again).'
+  operator_decision: 'Ranked recs — pick any: (1) CONFIG-ONLY: add a PIR/corroborator to Living Room + the 5 other no-PIR rooms (re-enables shipped D2 demotion; highest marginal benefit, near-zero risk). (2) TIER-1: cap comfort-fan sustain on mmwave-sole provenance (break the loop from the fan side). (3) TIER 2-DB: path-beta discounts zones held only by fan-interference-flagged mmwave-sole signals. (4) STUCK-SENSOR-1 (complete fix, still gated; rec 1 is prerequisite for this room anyway). (5) phone tracker liveness (device-side).'
+  next: 'Operator picks; orchestrator recommends 1+2 together (config turn + small loop-breaker), 3 only if evidence recurs after 1+2.'
+  operator_dispositions_2026_08_13: 'Rec 1: OPERATOR-OWNED — the existing Zigbee sensor is hallway-placed; operator adds a physical sensor himself. DO NOT RAISE AGAIN (explicit instruction); when new sensors appear in room configs, silently verify D2 arms. Rec 2: PARKED (adversarial audit: sleep-kill blocker + carve-out inversion; revive trigger = fan-latch recurrence in a D2-armed room). Rec 3 + BLE conjunct: PARKED (revive = phantom-zone away-block recurrence post-corroborators). STUCK-SENSOR-1: approved twice, fixture-supplement drafting IN FLIGHT. ZONE-TIER-DIVERGE-1 thorough trace IN FLIGHT.'
 
 - id: CIRCLING-LABEL-1
   title: Circling loops page but are never LABELLED/escalated as circling (2-camera shape) — cooldown blocks the hop where classification forms
@@ -1099,19 +1135,6 @@ cards:
   why: 'Closes SNAP-1-followup-bluebubbles-attachment: NM _send_imessage passes speculative keys (attachment_path / attachment-as-URL) the old integration dropped; new integration reads attachment/media_url. ~10 LoC key rename + delete the one-shot WARN + tests. Security images then land on BOTH channels.'
   parked_alts: 'BB v0.5 also added INBOUND webhooks + phrase triggers (opt-in) — future: NM ack/silence via iMessage reply (safe-word flow). Not this cycle; if enabled, use sender allow-list + local-only.'
   next: 'Tier-1 build dispatched: rename keys, drop WARN, mutation-anchored tests; ride next deploy.'
-
-- id: SUITE-HYGIENE-2
-  title: Pollution-DEPENDENT tests — 5 files break under a clean sys.modules start
-  thread: quality
-  status: done
-  approval: unreviewed
-  origin:
-    date: '2026-08-11'
-    gist: 'SUITE-HYGIENE-1 census: widening the restore to homeassistant.*/custom_components.* prefixes FIXED 7 stable failures but BROKE 7 tests that depend on stubs a sibling file installed (test_heatcool_enforcer, test_runtime_smoke, test_zone_migration_mint_guard, test_v570_fixup_wiring, test_prediction_sensor_kill_list).'
-  why: 'These tests only pass because another file polluted sys.modules first — invisible coupling that blocks full-suite hermeticity and keeps 7 heal-able stable failures unfixed. Fix = give each dependent file its own complete stubs, then widen the restore prefix set.'
-  next: 'Small cycle after FAN-LAYER-2 ships: per-file stub-completeness for the 5 dependents, widen prefixes, expect stable-failure count to DROP by ~7. Census + experiment logs in SUITE-HYGIENE-1 scratchpad + conftest docstring.'
-  done_2026_08_13: 'Merged 109ff9381 (test-only): test_heatcool_enforcer.py made self-sufficient (own hvac_setpoint stub; was 6-failed standalone, now 6-passed). Census re-audit: other 4 flagged files stale/misclassified against current tree (importorskip-gated, self-stubbed, sibling-importing, or real-HA-only) — documented in the branch commit. Full suite byte-identical failure list vs baseline. Restore-prefix WIDENING (the ~7-failure drop) intentionally NOT done — queue separately if wanted.'
-
 
 - id: SUITE-HYGIENE-1
   title: Kill the order-dependent flake families (sys.modules pollution) — every cycle pays a classification tax
@@ -1457,38 +1480,6 @@ cards:
     note: small; but it is the detector for a house-wide-outage bug
   next: move the check into the READY handler; pin with a test that asserts the WARNING fires when install
     fails
-- id: OVERRIDE-NOTIFY-1
-  title: Warn before the Temp Arrester Override expires
-  thread: hvac
-  status: done
-  approval: explicit
-  shape_confirmed_2026_08_13: 'Operator OK''d the 3-part shape (T-5min decay warn / immediate deferral notice / release notice) with the QoL trio approval.'
-  approved_by: operator
-  approved_on: '2026-08-07'
-  tags:
-  - numbers-get-knobs
-  origin:
-    date: '2026-08-07'
-    gist: '"The only real optimization is getting a text that says your override is about to expire 5
-      mins before a boundary"'
-  why: 'We built the release logic but never tell the operator it is coming — the override silently vanishes
-    and the setpoint drifts back. A heads-up makes it usable: re-engage in one tap instead of noticing
-    an hour later that the master went cold.'
-  design_note: '5-min-ahead warning is only possible for PREDICTABLE expiries. House-state transitions
-    are NOT scheduled - we cannot know home_evening is coming. So: (a) pre-warn the 6h decay at T-5min;
-    (b) on a grace DEFERRAL, warn immediately (''context changed; override ends in ~14 min'') - better
-    than 5 min notice; (c) notify on actual release. Operator to confirm the three-part shape.'
-  knobs:
-  - name: ARRESTER_OVERRIDE_EXPIRY_WARN_S
-    rung: 1
-    why: 300 (5 min) lead time; 0 disables
-  parsimony:
-    problem: override releases silently; operator discovers it by feeling cold
-    verdict: BUILD
-    note: small, additive, rides the existing NM note path added in v5.61.0
-  next: confirm the 3-part shape with operator, then build with the SNAP-1 batch or standalone
-  stale_card_found_2026_08_13: 'Builder finding-vs-reality: ALREADY SHIPPED in v5.62.0 (verified in source + tests passing). Card status was stale since ship — fourth stale-status find of 2026-08-13 (with EV-DP and guest-FP memories). No work done.'
-
 
 - id: ARREST-SUNSET-1
   title: Temp Arrester Override does not sunset on away/vacation (only sleep)
@@ -1591,30 +1582,6 @@ cards:
     to persist or explicitly document + report
   organic_open: engage the override, then confirm it releases on the next real context change (or 6h decay)
     and the switch flips OFF to match
-- id: TRANSIT-DIAG-1
-  title: Expose checkpoint_cameras_by_area on a diagnostic sensor
-  thread: presence
-  status: done
-  approval: implied
-  tags:
-  - numbers-get-knobs
-  origin:
-    date: '2026-08-07'
-    gist: 'operator: "Will you fix what the validation exposed?" - v5.60.0 live validation needed log-level
-      surgery + a registry touch just to read the checkpoint inventory'
-  why: checkpoint_cameras_by_area is a Python attribute only and URA logs at WARNING, so the feature is
-    unobservable without raising log level and forcing a rebuild. Validation should not require surgery.
-  fix: additive diagnostic sensor (or attrs on an existing presence diagnostic) exposing checkpoint_cameras_by_area
-    + protect_sourced count. Read-only.
-  parsimony:
-    problem: shipped feature is not observable live
-    verdict: BUILD
-    note: small additive read-only sensor; validation already paid the cost of not having it
-  next: fold into the SECC-1 build batch
-  refs:
-  - docs/readmes/README_v5.60.0.md live-validation method note
-  stale_card_found_2026_08_13: 'Builder finding-vs-reality: ALREADY SHIPPED in v5.60.0 (verified in source + tests passing). Card status was stale since ship — fourth stale-status find of 2026-08-13 (with EV-DP and guest-FP memories). No work done.'
-
 
 - id: CONSOL-1
   title: Perimeter consolidation cycle
@@ -1745,95 +1712,7 @@ cards:
   - 'SNAP-1-followup-bluebubbles-attachment — GENUINE gap: needs BB integration attachment support or
     a direct BB server-API upload path'
   - SNAP-1-followup-sensor — formal capture sensor deferred; observability via structured log + _last_snapshot_capture
-- id: RESACC-1
-  title: Resolver accuracy test suite
-  thread: resolver
-  status: done
-  batch: resolver-correctness
-  seq: 1
-  approval: implied
-  tags:
-  - hand-build-fixture
-  - measure-before-build
-  - no-fabrication-verify
-  progress:
-  - '2026-08-07: hand-built ground-truth fixture from live registry (86 detection sensors, 20 multi-engine
-    cameras) -> AUDIT_resolver_ground_truth_manual.md'
-  - '2026-08-07: A-2 + A-3 FIXED AT SOURCE - applied 10 device area corrections to live registry (all
-    copy-from-sibling), FE review sheet https://claude.ai/code/artifact/ef6dc227-8488-4b59-b745-f71e946da6a8'
-  - '2026-08-07: INTERIOR (TRANSIT-1 prep) - interior physical cameras already correctly area''d; fixed
-    4 roomless URA per-room FUSED sensors (game_room/master_bedroom/receiving_room/ziri_bedroom) via entity
-    area.'
-  - '2026-08-07: CAMERAS DONE - 39 area corrections total (10 exterior devices + 4 interior fused + 3
-    Madrone->front_porch + 22 F2-host twins). F2 twins matched to primary so cameras survive F1-sunset.
-    Only 1 left roomless by design: armcrestash41b_person_occupancy_2 (Study-A, discounted, moves to F2).
-    FE: https://claude.ai/code/artifact/ef6dc227-8488-4b59-b745-f71e946da6a8'
-  - 'NOTE: armcrestash41b primary area=pool is WRONG (it''s the interior Study-A camera) - fix to study_a
-    when it moves to F2 (F1-SUNSET). Left per operator ''discount it now''.'
-  - 'GAP (operator-flagged): master_hallway, entry_way(foyer), upstairs_hallway, stairs have physical
-    cameras but NO URA D3 fused sensor -> the traversal checkpoints are unwired. TRANSIT-1 (resolver)
-    recovers them for free. living_room + garage_hallway already have D3.'
-  findings:
-  - 'A-1 (CORRECTED per operator): armcrest (pool overhead: F2 frigate + dahua) and armcrestash41b (interior
-    Study-A, F1) are DIFFERENT cameras. Precision hazard, NOT a recall gap - the accuracy test must assert
-    they do NOT fuse. armcrestash41b moves to F2 later; discount now.'
-  - 'A-2 (FIXED 2026-08-07): armcrest dahua area balcony->pool applied. Canonical=pool.'
-  - 'A-3 (FIXED AT SOURCE 2026-08-07): set 8 Frigate exterior/interior camera devices area None->sibling
-    value (outside_perimeter/garage_a/patio). Resolver now gets real area from Frigate legs. Code-robustness
-    (cross-leg area fallback) still worth adding in the perimeter cycle for future None cases, but the
-    live symptom is gone.'
-  origin:
-    date: 2026-08-07
-    gist: much more interested in accuracy of the task of the resolver; accuracy means alerting will be
-      better
-  why: the resolver feeds census + transit + perimeter; one accuracy suite validates all three
-  design:
-  - hand-built ground-truth table (camera -> {sensor x engine x family, room}); precision/recall per camera
-  - adversarial near-miss pairs (armcrest vs armcrestpooloverhead; back_yard vs _2) -> no bleed
-  - registry-perturbation replay; live self-audit surface
-  refinement:
-  - challenge: my tests were delivery-focused
-    sharpened: accuracy of the resolver's task, not alerting -> precision/recall vs ground truth
-  - challenge: scope
-    sharpened: same resolver feeds census+transit+perimeter -> one suite validates all three
-  - challenge: operator - F1 armcrest is the interior Study-A cam, not the pool overhead
-    sharpened: 'A-1 flipped: assert armcrest and armcrestash41b do NOT fuse (precision), not that they
-      collapse (recall)'
-  - challenge: operator - edit the area ids directly across all cam integrations
-    sharpened: fixed A-2/A-3 at the DATA source (10 device area corrections) rather than only a resolver
-      code workaround; sent an FE review sheet
-  parsimony:
-    problem: resolver mis-maps a camera silently -> wrong alerts/room across 3 consumers
-    verdict: BUILD
-    note: highest-leverage test - guards the shared primitive
-  next: 'DONE 2026-08-09 (commit 8f9a33026). Both stages complete. Residual work is NOT RESACC-1 — it is
-    the two bugs RESACC-1 MEASURED: A-3 and A-2, each pinned as strict xfail so a fix flips them green.'
-  result_2026_08_09:
-    cameras_checked: 20
-    recall: 39/39 legs, 0 misses
-    precision_violations: 0
-    room_attribution_protect: 17/17
-    near_miss: 'CLEAN — armcrest/armcrestash41b, stairs_top/staircase, back_yard/back_yard_grill do NOT
-      fuse. Resolver matches on exact object name, not stem prefix, so brand-prefix collisions cannot
-      merge cameras. This was the feared failure mode; measured and absent.'
-    mutation_drills: 'prefix-bleed into resolve_detection_legs -> 5 named tests red; neutered
-      _stem_to_device_ids bidirectional insert -> recall[armcrest] + recall[reolinkstudybporchptz] red.
-      Both restored, tree verified clean. FINDING: the cross-vendor native-AI bridge (dahua/reolink) and
-      the Protect/Frigate bridge are SEPARATE code paths — one global drill would have hidden that.'
-    suite: '45 passed / 2 xfailed in the new file; full suite 21 failed / 8480 passed, failing NAMES
-      byte-identical to baseline'
-    open_xfails: 'A-3 (7 exterior perimeter Frigate legs area=None — highest impact; any consumer using
-      enumerate_platform_cameras(frigate) gets roomless exterior cams); A-2 (armcrest dahua area=balcony
-      vs frigate pool — needs deterministic canonical-area selection across legs)'
-    doc_nit: 'audit camera-key `reolinkstudybporch` vs frigate slug `reolinkstudybporchptz` differ by a
-      ptz suffix; fixture keyed on the slug. Reconcile the audit doc on next touch.'
-  POST_REVERT_2026_08_09: 'A-2/A-3 fix REVERTED (0aaa61e16) by operator decision. RESACC-1''s value is
-    UNAFFECTED and independently re-verified after the revert: 20 cameras, 39/39 recall, 0 precision
-    violations, 17/17 Protect room matches, near-miss clean, 66 passed + 2 xfailed. The reverted work
-    only ever addressed the two xfailed cases, which are now correctly pinned as known-open rather than
-    fixed-then-regressed. Both xfails confirmed still strict=True.'
-  RECONCILED_2026_08_09: 'in_progress -> done the same day stage 2 landed, caught by the rung-4 session
-    check the currency ladder just codified (board had still said "build the diff")'
+
 - id: TEST-1
   title: Boot-time shadow diff (legacy vs resolver leg set)
   thread: resolver
@@ -2010,67 +1889,7 @@ cards:
     note: gates CONSOL-1's doorbell retirement - do not retire until this exists
   refs:
   - PLANNING_exterior_person_escalation.md
-- id: SECC-1
-  title: Interior cams in the exterior open-tracks diagnostic
-  thread: security
-  status: done
-  approval: explicit
-  tags:
-  - no-fabrication-verify
-  origin:
-    date: 2026-08-07
-    gist: Saw the outside open tracks diagnostic in SecC has interior cameras in it. Mistake? - dropped
-      for hours, recovered via the board
-  why: the exterior diagnostic should reflect perimeter/egress cams only; interior cams there = display
-    leak or observe-scope leak past the allowlist
-  parsimony:
-    problem: interior cameras surface in the exterior open-tracks diagnostic
-    verdict: BUILD
-    note: canonical capture-failure example
-  next: 'CLOSED — v5.62.1 READY-ordering fix verified live: allowlist_installed=true,
-    allowlist_camera_count=12, ignored_offlist_events enforcing. No further work.'
-  RECONCILED_2026_08_09: 'status shipped_organic -> done; organic proof obtained, chain closed'
-  refs:
-  - exterior_track_linker.py
-  - sensor.py
-  approved_by: operator
-  approved_on: '2026-08-07'
-  batch: exterior-stragglers
-  seq: 2
-  finding: 'CONFIRMED live 2026-08-07: exterior open-tracks diagnostic has OPEN TRACKS for interior cams
-    (armcrestash41b=Study-A, playroom=game room) + unlinked_events for master_hallway/upstairs_hall/playroom.
-    ignored_offlist_events EMPTY -> allowlist is ADMITTING interior cams = observe-scope leak, not display.
-    Phantom exterior tracks for interior movement.'
-  fix: restrict linker allowed_cameras (set_allowed_cameras) to perimeter/egress only; observe() must
-    drop off-list cams into ignored_offlist_events. Verify why interior cams are on the allowlist.
-  finding_ROOT_CAUSE_CORRECTED: 'VERIFIED 2026-08-07 (Review A CRIT-A1, orchestrator-confirmed): the allowlist
-    has NEVER been installed on any boot. set_allowed_cameras has exactly ONE caller (perimeter_alert.py:385)
-    inside PerimeterAlertManager.async_setup(), guarded by `hass.data[DOMAIN].get(''exterior_track_linker'')
-    is not None`. But __init__.py runs perimeter_alert.async_setup() at line 2414 and only registers the
-    linker in hass.data at line 2451 - 37 lines LATER. So _linker is always None and the install is silently
-    skipped. SIGNAL_EXTERIOR_LINKER_READY fires at 2450 but PerimeterAlertManager does NOT subscribe (only
-    switch.py:5705 does). => The real root cause of interior-camera leakage is a SETUP-ORDERING bug (dead
-    install), not the fail-open branch. My earlier diagnosis stopped one ''why'' short: I saw ignored_offlist_events
-    EMPTY + interior tracks and concluded ''the allowlist admits them'' instead of asking WHY the allowlist
-    was empty.'
-  fix_REVISED:
-  - 'MUST make the install actually happen: either subscribe PerimeterAlertManager to SIGNAL_EXTERIOR_LINKER_READY
-    and install there, or reorder __init__ (linker before perimeter_alert), or re-run the install after
-    linker registration.'
-  - Fail-closed is only SAFE once the install is guaranteed - shipping fail-closed with a dead install
-    would have turned 'admit everything' into 'REJECT EVERYTHING' = exterior tracking silently dead house-wide.
-  - 'Close the bootstrap window: allowlist must be set BEFORE the linker subscribes to frigate_events
-    (or linker defers observation until allowlist installed), else real perimeter events are dropped at
-    boot.'
-  - Add a test that drives the REAL setup ordering (not a fixture that injects the allowlist directly)
-    - the current tests pass because fixtures install it by hand.
-  bug_class: '#33 coordinator-setup ORDERING - hass.data sibling lookup inside async_setup with no READY-signal
-    fallback; the guard silently no-ops'
-  organic_open: 'CLOSED 2026-08-08 09:22 via v5.62.1: allowlist_installed=true, allowlist_camera_count=12
-    (matches the 12 staged+discarded cameras), and ignored_offlist_events={''garage_b'':2} proves the
-    gate is ENFORCING (was an empty dict for the entire life of the bug). Root cause was READY dispatched
-    one line before hass.data registration; took 4 cycles (v5.59-v5.62.1) because every failure mode was
-    SILENT.'
+
 - id: RELOAD-WATCHDOG-HAZARD
   title: URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
   thread: lifecycle
@@ -2241,48 +2060,7 @@ cards:
   next: operator go/no-go (reminder Aug 8)
   refs:
   - AUDIT_frigate1_sunset.md
-- id: PHYS
-  title: Physical operator actions
-  thread: ops
-  status: done
-  approval: explicit
-  operator_disposition: 'done via board button 2026-08-11T15:43Z — first live KHOST-2 disposition; applied per operator-authority rule'
-  why: hardware only the operator can touch
-  items:
-  - Envoy power-cycle (daily reserve wedge, self-heals but recurs)
-  - Ziri-3 sensor power-cycle (off-network since Aug 4)
-  - optional Protect sensitivity 50->60 on seam cams
-  - DB VACUUM button press (~900MB reclaim awaits)
-- id: P1P3
-  title: Preset verdict (flap re-measurement)
-  thread: hvac
-  status: done
-  approval: explicit
-  origin:
-    date: 2026-08-07
-    gist: Yes re evaluate and come back
-  why: I owe the post-Writer-B flap re-measurement across occupied evenings, then the re-eval
-  note: was mis-filed under the operator's lane - it is MY debt
-  MEASURED_2026_08_09: 'DEBT DISCHARGED. First occupied evening with the data: operator arrived home
-    ~16:45 after 24h+ away, 96F forecast high, upstairs sitting at 80F. hvac_zone_preset_zone_2 cycled
-    home<->away NINE times in the two hours he was home: 16:59a 17:09h 17:19a 17:24h 17:39a 17:44h
-    17:59a 18:09h 18:24a 18:29h 18:39a. Every cycle inside hvac_constraint=coast (normal->coast at
-    16:00, reason "peak TOU period"). Presence was CORRECT throughout — zone_2 showed occupied_rooms
-    [Upstairs Guestroom, Jaya Bedroom, Game Room] and zone_persons [ziri, jaya].'
-  VERDICT: 'REMOVING WRITER B DID NOT STOP THE PRESET FLAP. Writer B retirement is confirmed shipped
-    (v5.56.0, 2026-08-06, commit d604716f7 "delete Writer B", Tier 2-DB + 3 reviews) and
-    ZoneAnyoneBinarySensor no longer has a preset-write path — verified by grep, not memory. The flap
-    survives it. So Writer B was either not the cause, or not the only one. The P1/P3 re-eval this card
-    was gating cannot conclude on this data alone because the CAUSE is still unknown — see the successor
-    card. What IS settled and closes this card: the measurement is taken and the hypothesis
-    ("Writer B removal stops the flap") is FALSIFIED.'
-  spawned:
-  - HVAC-PRESET-FLAP-1 (the flap persists; cause unknown; blocked on the reason ledger)
-  - ARREST-COMFORT-1 (separate defect found during the same trace)
-  parsimony:
-    problem: did removing Writer-B actually stop the preset flap - and do P1/P3 now earn their keep
-    verdict: BUILD
-  next: pull flap numbers across occupied evenings, then re-eval P1/P3
+
 - id: SWEEP
   title: Morning sweep
   thread: ops

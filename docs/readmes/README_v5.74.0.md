@@ -57,4 +57,16 @@ platform); fix moved it to the base class.
 
 ## Live Validation
 
-(prospective — replaced with Validated table post-restart)
+### Validated 2026-08-12 (v5.74.0 boot 23:34:47 CT)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Loads, zero URA errors | **PASS** | error_log post-boot: boot-transient WARNINGs only; no URA platform-setup errors |
+| L2 | Tripwire sensor registered ≤60s of boot | **PASS** | Registered 23:34:59 (12s after boot marker). NOTE: actual entity_id is `sensor.ura_security_coordinator_perimeter_circling_zero_dispatch_24h` (HA device-name prefix) — the plan's bare `sensor.perimeter_circling_zero_dispatch_24h` was aspirational. Docstring corrected in follow-up |
+| L3 | Poll tick fires ≤6min of boot | **PASS** | `last_reported` 23:38:08 (~3.3min post-boot) — poll ran; value stayed 0 so `last_changed` correctly static |
+| L4 | Attribute pins | **PASS** | `poll_interval_minutes: 5`, `lookback_hours: 24`, `offenders: []`, state `0` (linker wired — would read `unavailable` otherwise) |
+| L5 | D3 area inherit | **ORGANIC (open)** | Next NEW room created must inherit its configured area; no existing device touched (verified only-when-unset guard in review) |
+| L6 | Circling episode pages | **ORGANIC (open)** | Next genuine circling in home_day/evening pages (as pass_by rows today; HIGH-as-circling pending CIRCLING-LABEL-1 operator pick) |
+
+Boot transients observed and dismissed: rooms holding occupancy 60s, energy sensors "not loaded
+yet", camera_census early-scan warnings — all standard boot ordering, all recovered.
