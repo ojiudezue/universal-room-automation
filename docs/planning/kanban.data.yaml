@@ -1012,6 +1012,17 @@ cards:
   scope: '~5 LoC in NM re-page path: reuse the stored snapshot path from the original dispatch (both WhatsApp + iMessage attachment keys, BB v0.6). Tier 1. Anchor: wire-in rule applies (call-site neuter must red a test).'
   next: 'Fold into next NM-touching build or ship as standalone Tier-1 hotfix.'
 
+- id: IMSG-IMAGE-FAIL-1
+  title: iMessage security images NOT arriving (organic FAIL of NM-BB-IMAGE-1 L5) + [audit] sentinel leaking into operator-visible message bodies
+  thread: notifications
+  status: inbox
+  approval: unreviewed
+  origin:
+    date: '2026-08-14'
+    gist: 'Operator screenshots: WhatsApp carries photos (incl. re-pages — v5.73.1 L3 CONFIRMED organically on WA); iMessage shows text-only bubbles reading "Perimeter Alert — Person Detected [audit]" — no image AND the [audit] ledger sentinel is visible in the sent body.'
+  why: 'Two distinct defects: (1) BB v0.6 attachment keys (v5.73.0 NM-BB-IMAGE-1) not delivering images — key contract vs BB server config vs is_allowed_path (probe BB server logs + a manual bluebubbles.send_message with attachment to isolate); (2) the [audit] marker was designed as a DB-reader filter tag, not user-visible text — its presence in the iMessage body suggests the audit-row variant is being DISPATCHED to the channel instead of (or in addition to) the clean-body original. Also explains double-bubbles (both sides of the chat = self-chat echo + audit twin?).'
+  next: 'Tier-1 investigation: trace _send_imessage payload for a security alert (body composition + attachment fields); one manual BB send with a known-good local path; check whether audit-tagged duplicates are entering the send path. Fix both in one pass.'
+
 - id: ROOM-NAME-UNIQUE-1
   title: Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket)
   thread: presence
