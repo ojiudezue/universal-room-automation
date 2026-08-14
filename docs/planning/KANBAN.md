@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-14T17:07:34-05:00_ - _Data commit: `35bca1d6e699`_ - _last_reconciled: 2026-08-14_
+_Generated: 2026-08-14T17:11:19-05:00_ - _Data commit: `85cf20a6884a`_ - _last_reconciled: 2026-08-14_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -19,7 +19,7 @@ _Generated: 2026-08-14T17:07:34-05:00_ - _Data commit: `35bca1d6e699`_ - _last_r
 | 🚀 Shipped (organic open) | 32 |
 | ⏸️ Waiting on operator | 2 |
 | ⏳ Waiting on me (Claude) | 1 |
-| 🅿️ Parked | 2 |
+| 🅿️ Parked | 3 |
 | ✅ Done | 1 |
 
 ## 📥 Inbox (4)
@@ -684,8 +684,18 @@ thread: **ops** - status: **waiting_me** - approval: **implied**
 - **Why:** reason-ledger first night, Frigate car/dog/cat first events, snapshot-fix organic proof, v5.57/58 organic criteria
 - **Next:** check + report each
 
-## 🅿️ Parked (2)
+## 🅿️ Parked (3)
 _revisit-trigger set_
+
+### `MEMORY-COMPACTOR-1` - Hierarchical memory — build the deferred daily compaction batch when memory_episodes has volume (trigger: any episode type >50 rows)
+thread: **memory** - status: **parked** - approval: **explicit**
+- **Origin:** 2026-08-02 - operator: "What if each room had memory?" Hierarchical Entity Memory MVP Stage 1 SHIPPED v5.47.0; the daily compactor was deferred until episode volume exists.
+- **Why:** Stage 1 facade + memory_episodes + memory_query service are LIVE (v5.47.0, Tier 2-DB). The distill/correct/redact compaction batch needs rows to compact; the architecture keeps it in full, the MVP deferred only its construction. Untracke...
+- **Next:** Read memory_episodes row counts (ssh ha, mode=ro); if any type >50 -> promote to build (ura-planner from ARCHITECTURE_hierarchical_memory.md compactor section). Else hold.
+- **Refs:** docs/planning/MVP_hierarchical_memory.md; docs/planning/ARCHITECTURE_hierarchical_memory.md; docs/reviews/code-review/memory_mvp_tier2db.md
+- **Forensic keys (2):**
+  - `revisit_trigger`: ANY memory_episodes episode_type exceeds 50 rows (per MVP_hierarchical_memory.md Stage 1 trim #1) OR facts() seeded set proves inadequate. Check episode row counts before dismissing.
+  - `organic_open`: Stage-1 acceptance still open: the next organic D2 demotion must retro-adjudicate its creation episode within one cycle (live DB check) — verify + write back to this card.
 
 ### `HOUSE-STATE-UTILIZATION-EPIC` - ROADMAP EPIC — give operational meaning to under-consumed house states (HOME_DAY dead, AWAY thin); rungs 2-4 unbuilt
 thread: **presence** - status: **parked** - approval: **explicit**

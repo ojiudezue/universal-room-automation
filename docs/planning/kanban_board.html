@@ -132,8 +132,8 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-08-14T17:07:34-05:00</b></span>
-<span>data <b>35bca1d6e699</b></span>
+<span>generated <b>2026-08-14T17:11:19-05:00</b></span>
+<span>data <b>85cf20a6884a</b></span>
 <span>reconciled <b>2026-08-14</b></span>
 <span><a href="https://urakanban.phalanxmadrone.com">urakanban.phalanxmadrone.com</a></span>
 <span><a href="https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149">artifact</a></span>
@@ -147,7 +147,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <span>Shipped (organic open) <b>32</b></span>
 <span>Waiting on operator <b>2</b></span>
 <span>Waiting on me (Claude) <b>1</b></span>
-<span>Parked <b>2</b></span>
+<span>Parked <b>3</b></span>
 <span>Done <b>1</b></span>
 </div>
 <main class="board">
@@ -244,8 +244,9 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 </section>
 <section class="lane" data-col="parked">
-<h2>Parked <span class="count">2</span><span class="hint">revisit-trigger set</span></h2>
+<h2>Parked <span class="count">3</span><span class="hint">revisit-trigger set</span></h2>
 <div class="cards">
+<details class="card ap-explicit" data-id="MEMORY-COMPACTOR-1" draggable="true"><summary><span class="id">MEMORY-COMPACTOR-1</span><span class="apl">explicit</span><span class="title">Hierarchical memory — build the deferred daily compaction batch when memory_episodes has volume (trigger: any episode type &gt;50 rows)</span><div class="tagline">memory</div></summary><div class="body"><dl class="kv"><dt>Origin</dt><dd>2026-08-02 - operator: &quot;What if each room had memory?&quot; Hierarchical Entity Memory MVP Stage 1 SHIPPED v5.47.0; the daily compactor was deferred until episode volume exists.</dd><dt>Why</dt><dd>Stage 1 facade + memory_episodes + memory_query service are LIVE (v5.47.0, Tier 2-DB). The distill/correct/redact compaction batch needs rows to compact; the architecture keeps it in full, the MVP deferred only its construction. Untracke...</dd><dt>Next</dt><dd>Read memory_episodes row counts (ssh ha, mode=ro); if any type &gt;50 -&gt; promote to build (ura-planner from ARCHITECTURE_hierarchical_memory.md compactor section). Else hold.</dd><dt>Refs</dt><dd>docs/planning/MVP_hierarchical_memory.md; docs/planning/ARCHITECTURE_hierarchical_memory.md; docs/reviews/code-review/memory_mvp_tier2db.md</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>revisit_trigger</code>: ANY memory_episodes episode_type exceeds 50 rows (per MVP_hierarchical_memory.md Stage 1 trim #1) OR facts() seeded set proves inadequate. Check episode row counts before dismissing.</li><li><code>organic_open</code>: Stage-1 acceptance still open: the next organic D2 demotion must retro-adjudicate its creation episode within one cycle (live DB check) — verify + write back to this card.</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 <details class="card ap-explicit" data-id="HOUSE-STATE-UTILIZATION-EPIC" draggable="true"><summary><span class="id">HOUSE-STATE-UTILIZATION-EPIC</span><span class="apl">explicit</span><span class="title">ROADMAP EPIC — give operational meaning to under-consumed house states (HOME_DAY dead, AWAY thin); rungs 2-4 unbuilt</span><div class="tagline">presence</div></summary><div class="body"><dl class="kv"><dt>Origin</dt><dd>2026-07-30 - Plan inventory audit 2026-08-14: PLANNING_house_state_utilization.md is an operator-ratified multi-cycle roadmap; rung 1 shipped in a parallel cycle, rungs 2-4 unbuilt.</dd><dt>Why</dt><dd>Roadmap marker, not one build — several house states carry little operational weight. Carded as an epic so the rungs are not lost; each rung becomes its own Tier-2 cycle when pulled.</dd><dt>Next</dt><dd>Operator picks a rung to activate; until then held as roadmap.</dd><dt>Refs</dt><dd>docs/planning/PLANNING_house_state_utilization.md</dd><dt>Forensic (1)</dt><dd><ul class="forensic"><li><code>revisit_trigger</code>: Pull a rung when a concrete house-state-driven behavior is wanted; decompose per-rung then.</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 <details class="card ap-unreviewed" data-id="ARRESTER-BOOT-BLIND-1" draggable="true"><summary><span class="id">ARRESTER-BOOT-BLIND-1</span><span class="apl">unreviewed</span><span class="title">Arrester boot-window manual blindness — manual holds predating the listener are unclassifiable</span><div class="tagline">hvac</div></summary><div class="body"><dl class="kv"><dt>Origin</dt><dd>2026-08-11 - operator: &quot;The battery is not 97%. The arrester should be seeing this as a bad action&quot; — up-hallway manual 75-&gt;71 cool during a 26-&gt;11 SOC collapse, arrester idle w/ overrides_today=0.</dd><dt>Why</dt><dd>LIVE INCIDENT ~22:36-23:10: zone_2 flipped sleep-&gt;manual at 22:36:06 during the post-HA-upgrade boot window BEFORE the arrester listener attached (22:37:53); subsequent setpoint walks (75-&gt;71 at 22:56) were within-manual = no classifiabl...</dd><dt>Next</dt><dd>Incident investigation: verify both gaps from source; probe-first (recorder: boot-coincident manual holds frequency); fix cycle Tier 2-DB.</dd><dt>Forensic (3)</dt><dd><ul class="forensic"><li><code>parked_2026_08_12</code>: OPERATOR: &quot;Park #2 until another incident.&quot; Revisit trigger: next boot-coincident manual hold the arrester misses (same signature: zone flips to manual during boot window, setpoint walks within-manual, arrester overrides_today stays flat...</li><li><code>sharp_problem</code>: Gaps: (1) boot reconciliation — on listener attach, classify any zone ALREADY in manual as inherited-manual and start standard arrest evaluation; (2) verify _handle_climate_change classifies within-manual setpoint deltas (manual-&gt;manual ...</li><li><code>related</code>: Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire. RESOLVED 2026-08-12: operator power-cycled Enpower; all 3 reserve legs coherent at 10 (local number + envoy sensor + ...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 </div>
@@ -275,7 +276,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>35bca1d6e699</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>85cf20a6884a</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {
