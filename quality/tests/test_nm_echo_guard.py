@@ -265,10 +265,14 @@ def test_knob_defaults_present():
     assert "NM_ECHO_GUARD_BUFFER_LEN = 100" in NM_SRC
     assert "NM_REPLY_MIN_INTERVAL_S = 30.0" in NM_SRC
     assert 'NM_REPLY_RATE_LIMITED_CHANNELS = ("imessage", "whatsapp")' in NM_SRC
-    assert (
-        'NM_REPLY_RATE_LIMIT_EXEMPT_COMMANDS = ("safe_word_unauthorized",)'
-        in NM_SRC
-    )
+    # SAFEWORD-WINDOW-1 fix-up C-LOW-3 (2026-08-14): the exempt tuple
+    # grew to include "safe_word_window_rejected" so the "duke > 3h"
+    # cap-reject reply cannot be rate-dropped on a fast retry. Assert
+    # both members are present (order-independent) rather than pinning
+    # the literal tuple string.
+    assert "NM_REPLY_RATE_LIMIT_EXEMPT_COMMANDS = (" in NM_SRC
+    assert '"safe_word_unauthorized"' in NM_SRC
+    assert '"safe_word_window_rejected"' in NM_SRC
 
 
 def test_echo_drop_counts_in_inbound_telemetry():
