@@ -1,0 +1,20 @@
+{
+  "format_version": "2.1",
+  "entry_id": "046",
+  "author": "ojiudezue",
+  "session_id": "claude_20260814_072804_ship_v5_75_0",
+  "timestamp": "2026-08-14T07:28:04Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.75.0 shipped: Stuck-sensor exclusion + room-rename write-through (presence integrity pair)",
+  "summary": "STUCK-SENSOR-1: duty-flagged sensors excluded from occupancy behind corroboration (900s disagree window) + sleep-defer + kill switches; boot-guarded persistence (dirty+delayed saves); NM engage/release notes; P18 zone diagnosability. ROOM-NAME-DESYNC-1: name/zone write-through at all 5 options-flow producer sites (single-fire combined writes, HA-source verified), idempotent boot migration, runtime desync tripwire \u2014 root fix for the 08-13 house-tier blindness. Plus Coast Preset Preservation switch relabel. Both cycles: plan-reviewed, 3 framing-disjoint reviews, consolidated fix-ups, orchestrator re-drills. 23 pre-existing suite failures unchanged.",
+  "refs": {
+    "cards": [
+      "STUCK-SENSOR-1",
+      "ROOM-NAME-DESYNC-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.75.0.md"
+    ]
+  }
+}

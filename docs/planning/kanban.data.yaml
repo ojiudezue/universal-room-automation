@@ -17,7 +17,8 @@ cards:
 - id: STUCK-SENSOR-1
   title: Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
   thread: presence
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.75.0
   approval: explicit
   approved_by: 'operator 2026-08-09 ("and what comes after it") — the chatter/reliability cycle that
     follows SENSOR-CAPABILITY-1, absorbing the mmwave-Tier3 D6 parked deliverable. NOTE: this approval
@@ -1034,7 +1035,8 @@ cards:
 - id: ROOM-NAME-DESYNC-1
   title: Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped)
   thread: presence
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.75.0
   approval: unreviewed
   origin:
     date: '2026-08-13'
