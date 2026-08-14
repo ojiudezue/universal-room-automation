@@ -1064,6 +1064,18 @@ cards:
   fix_sketch: '_check_room_name_unique in async_step_basic_setup -> async_show_form error on collision (~15 LoC, Tier 1-2). Live-validation D-block for the rename cycle includes a do-not-rename-to-existing sanity note meanwhile.'
   next: 'Small cycle after v5.75.0; consider folding into the next config-flow-touching batch.'
 
+- id: GARAGE-EGRESS-APPLY-1
+  title: 'APPLY the 2026-08-10 garage-camera ruling — garage_a/garage_b into CONF_EGRESS_CAMERAS at the NEXT deploy restart (operator said do not forget)' 
+  thread: security
+  status: planned
+  approval: approved
+  origin:
+    date: '2026-08-14'
+    gist: 'Operator re-raised; ruling of 08-10 (garages -> egress list, NOT interior — noise) was left "config apply pending" for 4 days. Operator: "update config in house device config. And any other place its needed. Batch with next deploy restart and dont forget."'
+  why: 'Egress list feeds perimeter_alert egress alerting; garages currently in NO camera list. Accepted consequence stands: D1 stuck-camera never covers garages.'
+  apply_procedure: 'At next deploy restart: flush-watcher pattern edit of the parent URA entry options.egress_cameras += [camera.garage_a, camera.garage_b] (F2-owned base ids, verified live), applied in the stop->boot gap; post-boot verify list + perimeter_alert egress staging log. Check "any other place": grep CONF_EGRESS_CAMERAS consumers pre-apply and confirm no sibling list needs the same ids.'
+  next: 'BLOCKS-CLOSE-OF next deploy — do not close the next deploy cycle without this applied + verified.'
+
 - id: SENSOR-FANINDEP-1
   title: Role matrix needs a fan-independence axis — 10GHz motion-mmWave fleet is corroborator-grade for stuck but NOT for fan-demotion
   thread: presence
@@ -1120,7 +1132,7 @@ cards:
 - id: CIRCLING-LABEL-1
   title: Circling loops page but are never LABELLED/escalated as circling (2-camera shape) — cooldown blocks the hop where classification forms
   thread: perimeter
-  status: waiting_on_operator
+  status: planned
   approval: unreviewed
   origin:
     date: '2026-08-13'
@@ -1128,6 +1140,9 @@ cards:
   why: 'INV-M holds (pages happen, tripwire honest) but the operator''s 08-08 complaint was about CIRCLING specifically. The dominant 2-camera alternating shape can never emit a HIGH circling-labelled page under current mechanics.'
   operator_decision: '(A) surgical — allow ONE dispatch through the cooldown when a track''s classification TRANSITIONS (one extra HIGH page at the hop circling forms; ~persist last_dispatched_classification on ExteriorTrack). (B) tighten invariant + add circling-classified-but-no-HIGH counter to the D3 sensor. (C) accept as-is, update narrative. ORCHESTRATOR RECOMMENDS A (marginal-benefit: matches the founding ask, small; B is machinery without a consumer).'
   next: 'Operator picks A/B/C. If A: own small Tier-2 cycle (new cooldown exemption on the perimeter dispatch path = regression-prone, plan review required).'
+  decision_2026_08_14: 'OPERATOR: Option A approved per recommendation — one dispatch allowed through the per-camera cooldown when a track''s classification TRANSITIONS (the hop circling forms => one HIGH circling-labelled page). Own Tier-2 cycle, plan review first (new cooldown exemption on the dispatch path).'
+  next: 'ura-planner -> plan review -> build.'
+
 
 - id: GUEST-FP-RESIDUALS-1
   title: Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent)
@@ -1933,6 +1948,8 @@ cards:
     note: gates CONSOL-1's doorbell retirement - do not retire until this exists
   refs:
   - PLANNING_exterior_person_escalation.md
+  direction_2026_08_14: 'Operator agreed: exterior alerts today have ZERO member recognition (verified — perimeter_alert consults no face data). v1 direction = ANNOTATE not suppress ("Person detected — likely Oji") — preserves alert, kills operator cost; per-person opt-in suppression is phase 2 after annotation proves accurate. Fold the face-alert successor (this card) + member-annotation into ONE known-person pipeline plan.'
+
 
 - id: RELOAD-WATCHDOG-HAZARD
   title: URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
