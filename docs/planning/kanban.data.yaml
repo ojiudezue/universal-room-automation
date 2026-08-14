@@ -1012,6 +1012,32 @@ cards:
   scope: '~5 LoC in NM re-page path: reuse the stored snapshot path from the original dispatch (both WhatsApp + iMessage attachment keys, BB v0.6). Tier 1. Anchor: wire-in rule applies (call-site neuter must red a test).'
   next: 'Fold into next NM-touching build or ship as standalone Tier-1 hotfix.'
 
+- id: NM-RECOVERY-AGEBOUND-1
+  title: Boot recovery resurrects unacked CRITICALs of ANY age — 326 historical twin-eaten rows are a resurrection minefield
+  thread: notifications
+  status: planned
+  approval: unreviewed
+  origin:
+    date: '2026-08-14'
+    gist: 'Found while closing IMSG-IMAGE-FAIL-1: get_active_critical has no freshness bound; the twin-eating ack bug left 326 unacked REAL criticals over months. Todays 4 sibling rows acked in-band via the (fixed) service; the rest are inert only until a restart walks backward through them.'
+  why: 'A re-page of a weeks-old alert is noise at best, alarm-fatigue at worst. The DB rows themselves should stay (analytics).'
+  fix_sketch: 'Age-bound in get_active_critical (or the recovery caller): ignore unacked CRITICALs older than NM_RECOVERY_MAX_AGE_H (rung 1, default ~24h, 0=unbounded). Tier 1 + one twin-scenario test. Makes bulk historical ack unnecessary.'
+  next: 'Fold into next NM-touching deploy.'
+
+- id: SAFEWORD-WINDOW-1
+  title: Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed)
+  thread: notifications
+  status: pre_planning
+  approval: operator_proposed
+  origin:
+    date: '2026-08-14'
+    gist: 'operator: "safe word covers all alerts within 1-3 hours so no need for safe words for a while no matter the notification? The underlying goal is still to tune the classification of events and make sure they are good."'
+  why: 'Operator ergonomics during the FP-tuning era: busy afternoons / alert clusters currently need per-alert acks.'
+  institutional_reuse: 'The silence primitive EXISTS: _silence_until (notification_manager.py:346, gate :1351-1352) — the reply-3 30-min silence. Proposal = parametrize duration + scope. NOT a new mechanism.'
+  marginal_shape: 'Simplest honest version: "duke" keeps acking the current alert; "duke 2h" (parsed duration, cap 3h) sets _silence_until for PERIMETER-CLASS hazards only. Life-safety (smoke/CO/water/intrusion-interior) NEVER blanketed — a real intruder alert must not die inside a pool-afternoon mute. NM note confirms window start/end; auto-expiry; window state surfaced as attr. Knob: SAFEWORD_SILENCE_MAX_H rung 1 (cap), duration operator-chosen per use.'
+  safety_note: 'Blanket-mute is a stopgap while classification precision improves (the operator-stated underlying goal); scope-limiting to perimeter class keeps the failure mode bounded.'
+  next: 'Operator confirms the scoped shape (perimeter-only, duke Nh syntax, 3h cap) -> Tier 2 (NM routing = regression-prone).'
+
 - id: IMSG-IMAGE-FAIL-1
   title: iMessage security images NOT arriving (organic FAIL of NM-BB-IMAGE-1 L5) + [audit] sentinel leaking into operator-visible message bodies
   thread: notifications
