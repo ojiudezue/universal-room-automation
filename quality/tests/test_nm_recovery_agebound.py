@@ -98,6 +98,25 @@ class TestRecoveryAgeBound:
             "kill switch (0) must restore unbounded recovery"
         )
 
+    def test_zombie_repeating_reset_to_idle_after_recovery_skip(self):
+        """MED-1 fix-up: pre-fix boot persisted alert_state=repeating,
+        this boot skipped the stale row -> _active_alert_data is None.
+        restore_persistence_state must reset REPEATING -> IDLE so
+        dashboards don't show a zombie repeating with empty alert.
+        """
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        # Step 1: recovery skips the stale row.
+        hass.data["universal_room_automation"] = {"database": _mock_db(_row(50.0))}
+        _run(nm._recover_state_from_db())
+        assert nm.alert_state == AlertState.IDLE
+        assert nm._active_alert_data is None
+        # Step 2: sensor restores the pre-fix persisted attrs (REPEATING).
+        nm.restore_persistence_state({"alert_state": "repeating"})
+        assert nm.alert_state == AlertState.IDLE, (
+            "zombie REPEATING must be reset to IDLE when no active alert data"
+        )
+
     def test_missing_timestamp_recovers_as_fresh(self):
         """Row without timestamp cannot be aged — recover (backward compat)."""
         hass = _make_hass()

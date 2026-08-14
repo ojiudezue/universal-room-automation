@@ -899,6 +899,22 @@ class NotificationManager:
                     self._alert_state = restored
             except ValueError:
                 pass
+        # NM-RECOVERY-AGEBOUND-1 fix-up (2026-08-14, MED-1): transitional
+        # case — a pre-fix boot resurrected a stale unacked CRITICAL and
+        # persisted `alert_state=repeating`. The current boot's recovery
+        # (freshness-bounded) skipped the row, so `_active_alert_data` is
+        # None. Without this reset the restored REPEATING is a zombie —
+        # dashboards would show REPEATING with an empty alert. Reset to
+        # IDLE. Fires at most once per (upgraded) install.
+        if (
+            self._alert_state == AlertState.REPEATING
+            and self._active_alert_data is None
+        ):
+            _LOGGER.debug(
+                "NM: zombie REPEATING on restore — no active alert data "
+                "(post recovery-agebound skip); resetting to IDLE"
+            )
+            self._alert_state = AlertState.IDLE
         if self._alert_state != AlertState.IDLE:
             # Only restore cooldown fields if we didn't reset to IDLE above
             self._cooldown_remaining = state.get("cooldown_remaining", 0)
