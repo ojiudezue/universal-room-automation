@@ -1932,7 +1932,7 @@ cards:
 - id: KP-ESCALATE-1
   title: Known-person / face-alert path (no URA successor)
   thread: security
-  status: pre_planning
+  status: declined
   approval: blocked
   tags:
   - institutional-context
@@ -1950,6 +1950,7 @@ cards:
   - PLANNING_exterior_person_escalation.md
   direction_2026_08_14: 'Operator agreed: exterior alerts today have ZERO member recognition (verified — perimeter_alert consults no face data). v1 direction = ANNOTATE not suppress ("Person detected — likely Oji") — preserves alert, kills operator cost; per-person opt-in suppression is phase 2 after annotation proves accurate. Fold the face-alert successor (this card) + member-annotation into ONE known-person pipeline plan.'
   operator_answers_2026_08_14: 'P1 privacy: LOCAL SOURCES ONLY (Frigate-2 + UniFi Protect face; llmvision EXCLUDED from identity — no household reference photos leave LAN). D3: FOLD IN NOW (stranger-alert / unknown-face leg builds in the same cycle as member-annotation — no coverage gap when doorbell automation retires). Timing: IN-FIRST-MESSAGE ONLY (annotate iff identity ready within budget; no follow-up-edit rare-fire path in v1). Still pending pre-D0: tracked_persons currency audit + message-format confirm (default: "Person detected — likely {names}." on its own line).'
+  disposition_applied_2026_08_14: 'OPERATOR DECLINED via board button 2026-08-13T03:20 (queue apply was MISSED for ~1 day — session-start disposition check skipped across overnight passes; corrected now). Reconciled NOT relitigated: declined AS A STANDALONE card; its scope (unknown-face/stranger alert successor to the retiring doorbell automation) was ABSORBED into PLANNING_known_person_annotation.md per the 08-14 fold-in-now decision. This card is closed; the work lives in the known-person cycle.'
 
 
 - id: RELOAD-WATCHDOG-HAZARD

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-14T12:44:30-05:00_ - _Data commit: `69a54a53bc56`_ - _last_reconciled: 2026-08-14_
+_Generated: 2026-08-14T16:38:57-05:00_ - _Data commit: `5006258676cd`_ - _last_reconciled: 2026-08-14_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,7 +12,7 @@ _Generated: 2026-08-14T12:44:30-05:00_ - _Data commit: `69a54a53bc56`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 2 |
-| 🧭 Pre-planning | 10 |
+| 🧭 Pre-planning | 9 |
 | 📝 Planned | 3 |
 | 🔨 In progress | 2 |
 | 🔍 Review | 0 |
@@ -21,6 +21,7 @@ _Generated: 2026-08-14T12:44:30-05:00_ - _Data commit: `69a54a53bc56`_ - _last_r
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 1 |
 | ✅ Done | 0 |
+| ❓ Other | 1 |
 
 ## 📥 Inbox (2)
 _raw capture_
@@ -50,7 +51,7 @@ thread: **presence** - status: **inbox** - approval: **approved_after_investigat
   - `operator_direction_2026_08_13`: Operator: "we should find a way to say AWAY not LOST. Do we need a lost state at all? That way we can actually use this signal the way it is supposed to be used. And not overload it." I.e. the fix may not be patching the denominator arit...
   - `alternate_paths`: (1) Dissolve LOST: away-with-no-fix => AWAY (trusted, counts in denominator); home-but-silent => new BLE_SILENT_HOME or stays ambiguous-excluded; keep LOST only for truly-unknown. Ripple: every consumer of tracking_status (H3 reliable-si...
 
-## 🧭 Pre-planning (10)
+## 🧭 Pre-planning (9)
 _idea being decomposed_
 
 ### `ROOM-NAME-UNIQUE-1` - Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket)
@@ -123,18 +124,6 @@ thread: **camera** - status: **pre_planning** - approval: **implied**
 - **Next:** fold into SNAP-1
 - **Tags:** no-fabrication-verify
 - **Parsimony:** [BUILD] any camera on the 2nd Frigate host has never had a snapshot
-
-### `KP-ESCALATE-1` - Known-person / face-alert path (no URA successor)
-> **⚡ OPERATOR: declined — pending apply** (at 2026-08-13T03:20:00.530Z)
-thread: **security** - status: **pre_planning** - approval: **blocked**
-- **Origin:** 2026-08-07 - discovered via purged Frigate_KnownPerson_* files + AUDIT rec 5
-- **Why:** face-recognition paging has no URA successor; lost when the doorbell automation retires unless built into perimeter NM
-- **Tags:** institutional-context, audit-first
-- **Parsimony:** [BUILD] retiring the doorbell automation silently drops face-alert paging
-- **Refs:** PLANNING_exterior_person_escalation.md
-- **Forensic keys (2):**
-  - `direction_2026_08_14`: Operator agreed: exterior alerts today have ZERO member recognition (verified — perimeter_alert consults no face data). v1 direction = ANNOTATE not suppress ("Person detected — likely Oji") — preserves alert, kills operator cost; per-per...
-  - `operator_answers_2026_08_14`: P1 privacy: LOCAL SOURCES ONLY (Frigate-2 + UniFi Protect face; llmvision EXCLUDED from identity — no household reference photos leave LAN). D3: FOLD IN NOW (stranger-alert / unknown-face leg builds in the same cycle as member-annotation...
 
 ### `RELOAD-WATCHDOG-HAZARD` - URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
 thread: **lifecycle** - status: **pre_planning** - approval: **explicit**
@@ -696,6 +685,21 @@ thread: **hvac** - status: **parked** - approval: **unreviewed**
 _closed, evidence in refs_
 
 _(none)_
+
+## ❓ Other (1)
+_unknown status bucket_
+
+### `KP-ESCALATE-1` - Known-person / face-alert path (no URA successor)
+thread: **security** - status: **declined** - approval: **blocked**
+- **Origin:** 2026-08-07 - discovered via purged Frigate_KnownPerson_* files + AUDIT rec 5
+- **Why:** face-recognition paging has no URA successor; lost when the doorbell automation retires unless built into perimeter NM
+- **Tags:** institutional-context, audit-first
+- **Parsimony:** [BUILD] retiring the doorbell automation silently drops face-alert paging
+- **Refs:** PLANNING_exterior_person_escalation.md
+- **Forensic keys (3):**
+  - `direction_2026_08_14`: Operator agreed: exterior alerts today have ZERO member recognition (verified — perimeter_alert consults no face data). v1 direction = ANNOTATE not suppress ("Person detected — likely Oji") — preserves alert, kills operator cost; per-per...
+  - `operator_answers_2026_08_14`: P1 privacy: LOCAL SOURCES ONLY (Frigate-2 + UniFi Protect face; llmvision EXCLUDED from identity — no household reference photos leave LAN). D3: FOLD IN NOW (stranger-alert / unknown-face leg builds in the same cycle as member-annotation...
+  - `disposition_applied_2026_08_14`: OPERATOR DECLINED via board button 2026-08-13T03:20 (queue apply was MISSED for ~1 day — session-start disposition check skipped across overnight passes; corrected now). Reconciled NOT relitigated: declined AS A STANDALONE card; its scop...
 
 ## 🅿️ Parked ideas (top-level list)
 
