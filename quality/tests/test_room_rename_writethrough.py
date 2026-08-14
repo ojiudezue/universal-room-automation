@@ -156,12 +156,31 @@ def _hass_with_mutating_update():
             entry.options = dict(options)
         if title is not None:
             entry.title = title
+        # Fire any registered update listeners exactly once per call
+        # (mirrors HA's ConfigEntries.async_update_entry semantics — the
+        # listener spy in TestD3ListenerSpy relies on this).
+        for cb in getattr(entry, "_update_listeners", []):
+            try:
+                cb(hass, entry)
+            except Exception:
+                pass
         return True
 
     hass.config_entries.async_update_entry = MagicMock(side_effect=_mutating_update)
     hass.config_entries.async_get_entry = MagicMock(return_value=None)
     hass._update_calls = update_calls
     return hass
+
+
+def _register_update_listener(entry, cb):
+    """Attach a fake update-listener list to a _FakeConfigEntry.
+
+    Mirrors `ConfigEntry.add_update_listener` — enough to drive the C1
+    single-listener-invocation spy in TestD3ListenerSpy.
+    """
+    if not hasattr(entry, "_update_listeners"):
+        entry._update_listeners = []
+    entry._update_listeners.append(cb)
 
 
 # ===========================================================================
@@ -513,4 +532,116 @@ class TestD3FalsifierDrill:
         assert (
             flow._config_entry.data[CONF_ROOM_NAME]
             == flow._config_entry.options[CONF_ROOM_NAME]
+        )
+
+
+# ===========================================================================
+# D3 — C1 single-listener-invocation spy (real listener callback attached)
+# ===========================================================================
+
+
+class TestD3ListenerSpy:
+    """C1 acceptance: EXACTLY ONE update-listener invocation per save.
+
+    The falsifier for THIS test is switching D1 site 1 back to
+    async_create_entry — HA's OptionsFlow implementation would then
+    internally issue a SECOND async_update_entry call, and our spy
+    would see the listener fire twice.
+    """
+
+    @pytest.mark.asyncio
+    async def test_room_rename_fires_update_listener_exactly_once(self):
+        hass = _hass_with_mutating_update()
+        flow = _make_options_flow(
+            data={CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM, CONF_ROOM_NAME: "OldRoom"},
+            options={CONF_ROOM_NAME: "OldRoom"},
+            hass=hass,
+        )
+        spy_calls = []
+
+        def _listener(_hass, _entry):
+            spy_calls.append(_entry.data.get(CONF_ROOM_NAME))
+
+        _register_update_listener(flow._config_entry, _listener)
+        await flow.async_step_basic_setup(
+            user_input={CONF_ROOM_NAME: "NewRoom"}
+        )
+        assert len(spy_calls) == 1, (
+            f"listener fired {len(spy_calls)} times; C1 invariant broken "
+            f"(async_create_entry regression would produce 2)"
+        )
+        # And the SINGLE listener invocation saw the coherent new name.
+        assert spy_calls[0] == "NewRoom"
+
+
+# ===========================================================================
+# D3a — Substrate/tracker read-side invariant
+# ===========================================================================
+
+
+class TestD3SubstrateReadInvariant:
+    """Invariant I1 (§1): after a rename, the presence-tracker read shape
+    (`entry.data.get(CONF_ROOM_NAME)` — presence.py:2864-2876) resolves
+    to the SAME string as the options-side and the aggregation.py:502
+    zone read (data-first + options-fallback). This is the read path
+    that starved pre-cycle and that the write-through un-starves.
+
+    Falsifier: reverting D1 site 1 makes this test red (data stays
+    "OldRoom" while options moves to "NewRoom").
+    """
+
+    @pytest.mark.asyncio
+    async def test_data_side_reader_sees_new_name_after_rename(self):
+        hass = _hass_with_mutating_update()
+        flow = _make_options_flow(
+            data={CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM, CONF_ROOM_NAME: "OldRoom"},
+            options={CONF_ROOM_NAME: "OldRoom"},
+            hass=hass,
+        )
+        await flow.async_step_basic_setup(
+            user_input={CONF_ROOM_NAME: "NewRoom"}
+        )
+        entry = flow._config_entry
+        # presence.py:2864-2876 shape — data-only read.
+        tracker_view = entry.data.get(CONF_ROOM_NAME)
+        # aggregation.py:502 shape — data-first + options-fallback read.
+        agg_view = entry.data.get(CONF_ROOM_NAME) or entry.options.get(
+            CONF_ROOM_NAME
+        )
+        # options-first + data-fallback shape (aggregation.py:964/1014/6060).
+        opt_first_view = entry.options.get(CONF_ROOM_NAME) or entry.data.get(
+            CONF_ROOM_NAME
+        )
+        assert tracker_view == "NewRoom"
+        assert agg_view == "NewRoom"
+        assert opt_first_view == "NewRoom"
+        # And all three converge — the I1 invariant proven on the three
+        # read conventions §4 enumerated.
+        assert tracker_view == agg_view == opt_first_view
+
+    @pytest.mark.asyncio
+    async def test_zone_reassign_data_first_reader_sees_new_zone(self):
+        """aggregation.py:502 bug-shape reader: data-first + options-fallback.
+
+        Pre-cycle, an options-only zone reassignment left `entry.data[CONF_ZONE]`
+        stale → this reader returned the OLD zone forever. Write-through fix.
+        """
+        hass = _hass_with_mutating_update()
+        flow = _make_options_flow(
+            data={
+                CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM,
+                CONF_ROOM_NAME: "Room1",
+                CONF_ZONE: "ZoneA",
+            },
+            options={CONF_ZONE: "ZoneA"},
+            hass=hass,
+        )
+        await flow.async_step_basic_setup(
+            user_input={CONF_ROOM_NAME: "Room1", CONF_ZONE: "ZoneB"}
+        )
+        entry = flow._config_entry
+        agg_502_view = entry.data.get(CONF_ZONE) or entry.options.get(CONF_ZONE)
+        assert agg_502_view == "ZoneB", (
+            "aggregation.py:502 data-first reader would still see ZoneA if "
+            "the D1 site-1 CONF_ZONE write-through were reverted"
         )
