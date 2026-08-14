@@ -1007,6 +1007,18 @@ cards:
   scope: '~5 LoC in NM re-page path: reuse the stored snapshot path from the original dispatch (both WhatsApp + iMessage attachment keys, BB v0.6). Tier 1. Anchor: wire-in rule applies (call-site neuter must red a test).'
   next: 'Fold into next NM-touching build or ship as standalone Tier-1 hotfix.'
 
+- id: ROOM-NAME-UNIQUE-1
+  title: Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket)
+  thread: presence
+  status: pre_planning
+  approval: unreviewed
+  origin:
+    date: '2026-08-14'
+    gist: 'ROOM-NAME-DESYNC-1 Review C adversarial find (D-MED-1): rename Room A to an existing Room B name — zero validation; _room_to_zone dict + ZonePresenceTracker.room_names + substrate bucket keys all name-keyed -> silent overwrite/merge. Latent + pre-existing; write-through makes it surface at save-time (was boot-time).'
+  why: 'Join-key uniqueness is an unenforced invariant every name-keyed tier map depends on.'
+  fix_sketch: '_check_room_name_unique in async_step_basic_setup -> async_show_form error on collision (~15 LoC, Tier 1-2). Live-validation D-block for the rename cycle includes a do-not-rename-to-existing sanity note meanwhile.'
+  next: 'Small cycle after v5.75.0; consider folding into the next config-flow-touching batch.'
+
 - id: SENSOR-FANINDEP-1
   title: Role matrix needs a fan-independence axis — 10GHz motion-mmWave fleet is corroborator-grade for stuck but NOT for fan-demotion
   thread: presence

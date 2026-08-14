@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-13T23:30:55-05:00_ - _Data commit: `59a09866000d`_ - _last_reconciled: 2026-08-14_
+_Generated: 2026-08-14T01:53:31-05:00_ - _Data commit: `78a52ba3b68d`_ - _last_reconciled: 2026-08-14_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,7 +12,7 @@ _Generated: 2026-08-13T23:30:55-05:00_ - _Data commit: `59a09866000d`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 2 |
-| 🧭 Pre-planning | 9 |
+| 🧭 Pre-planning | 10 |
 | 📝 Planned | 1 |
 | 🔨 In progress | 4 |
 | 🔍 Review | 0 |
@@ -51,8 +51,16 @@ thread: **presence** - status: **inbox** - approval: **approved_after_investigat
   - `operator_direction_2026_08_13`: Operator: "we should find a way to say AWAY not LOST. Do we need a lost state at all? That way we can actually use this signal the way it is supposed to be used. And not overload it." I.e. the fix may not be patching the denominator arit...
   - `alternate_paths`: (1) Dissolve LOST: away-with-no-fix => AWAY (trusted, counts in denominator); home-but-silent => new BLE_SILENT_HOME or stays ambiguous-excluded; keep LOST only for truly-unknown. Ripple: every consumer of tracking_status (H3 reliable-si...
 
-## 🧭 Pre-planning (9)
+## 🧭 Pre-planning (10)
 _idea being decomposed_
+
+### `ROOM-NAME-UNIQUE-1` - Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket)
+thread: **presence** - status: **pre_planning** - approval: **unreviewed**
+- **Origin:** 2026-08-14 - ROOM-NAME-DESYNC-1 Review C adversarial find (D-MED-1): rename Room A to an existing Room B name — zero validation; _room_to_zone dict + ZonePresenceTracker.room_names + substrate bucket keys all name-keyed -> silent overwri...
+- **Why:** Join-key uniqueness is an unenforced invariant every name-keyed tier map depends on.
+- **Next:** Small cycle after v5.75.0; consider folding into the next config-flow-touching batch.
+- **Forensic keys (1):**
+  - `fix_sketch`: _check_room_name_unique in async_step_basic_setup -> async_show_form error on collision (~15 LoC, Tier 1-2). Live-validation D-block for the rename cycle includes a do-not-rename-to-existing sanity note meanwhile.
 
 ### `SENSOR-FANINDEP-1` - Role matrix needs a fan-independence axis — 10GHz motion-mmWave fleet is corroborator-grade for stuck but NOT for fan-demotion
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**
