@@ -1015,7 +1015,8 @@ cards:
 - id: NM-RECOVERY-AGEBOUND-1
   title: Boot recovery resurrects unacked CRITICALs of ANY age — 326 historical twin-eaten rows are a resurrection minefield
   thread: notifications
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.75.2
   approval: unreviewed
   origin:
     date: '2026-08-14'
@@ -1027,7 +1028,8 @@ cards:
 - id: SAFEWORD-WINDOW-1
   title: Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed)
   thread: notifications
-  status: pre_planning
+  status: shipped_organic
+  shipped_version: v5.75.2
   approval: operator_proposed
   origin:
     date: '2026-08-14'

@@ -1,0 +1,20 @@
+{
+  "format_version": "2.1",
+  "entry_id": "048",
+  "author": "ojiudezue",
+  "session_id": "claude_20260814_155815_ship_v5_75_2",
+  "timestamp": "2026-08-14T15:58:15Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.75.2 shipped: NM hardening: recovery age-bound + duke-Nh perimeter silence window",
+  "summary": "NM-RECOVERY-AGEBOUND-1: boot recovery ignores unacked CRITICALs older than 24h (326 historical twin-eaten rows now inert) + zombie-REPEATING restore guard. SAFEWORD-WINDOW-1: 'duke Nh' acks current + opens perimeter-only silence window (3h cap, auth-gated same as acks, life-safety always bypasses incl. promotions, suppression ring-buffer preserves the classification-tuning signal, RAM-only, kill switch). Plan-reviewed + 3 framing-disjoint reviews + consolidated fix-up (auth gap HIGH, untested-suppression CRIT both caught pre-ship) + orchestrator re-drills. 24 pre-existing suite failures unchanged.",
+  "refs": {
+    "cards": [
+      "NM-RECOVERY-AGEBOUND-1",
+      "SAFEWORD-WINDOW-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.75.2.md"
+    ]
+  }
+}
