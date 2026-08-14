@@ -246,6 +246,66 @@ class TestActiveCooldownSkipsAuditTwin:
         )
 
 
+class TestAcknowledgeNotificationSkipsAuditTwin:
+    """HIGH-1 (2026-08-14 fix-up): acknowledge_notification's inner
+    SELECT must exclude message='[audit]', or the operator's ack lands
+    on the audit twin (written ~4ms after the real row by the
+    matrix-outcome audit which does NOT pre-ack) and the REAL row
+    stays acked=0 (resurrects at next restart under its real title)."""
+
+    def test_real_ack_flips_real_row_not_audit_twin(self, tmp_path):
+        db = _make_db(str(tmp_path))
+
+        async def _do():
+            await db.initialize()
+            await db.start_write_worker()
+            real_id = await db.log_notification(
+                coordinator_id="perimeter",
+                severity="CRITICAL",
+                title="Intruder",
+                message="person at side gate",
+                delivered=1,
+            )
+            # Matrix-outcome audit twin written ~4ms after the real row,
+            # acknowledged=0 (matches notification_manager.py:1787).
+            await asyncio.sleep(0.004)
+            audit_id = await db.log_notification(
+                coordinator_id="perimeter",
+                severity="CRITICAL",
+                title="Intruder",
+                message="[audit]",
+                delivered=1,
+            )
+            # Operator ack (the real one — no filters at the caller).
+            await db.acknowledge_notification()
+            # Drain the write queue AND read via the DAO so we're on
+            # the same code path production uses.
+            active_after = await db.get_active_critical()
+            await _drain(db)
+            # Now read both rows to verify which acked=1.
+            import sqlite3
+            conn = sqlite3.connect(db.db_file)
+            conn.row_factory = sqlite3.Row
+            rows = {
+                r["id"]: dict(r) for r in conn.execute(
+                    "SELECT id, message, acknowledged FROM notification_log"
+                )
+            }
+            conn.close()
+            return real_id, audit_id, rows, active_after
+
+        real_id, audit_id, rows, active_after = _run(_do())
+        assert rows[real_id]["acknowledged"] == 1, (
+            "acknowledge_notification must flip the REAL row acked=1"
+        )
+        assert rows[audit_id]["acknowledged"] == 0, (
+            "the audit twin must be left alone (acked=0)"
+        )
+        # After ack, get_active_critical must return None (belt: the
+        # audit twin is filtered by the sentinel reader too).
+        assert active_after is None
+
+
 class TestAckAuditRowPreAcknowledged:
     """BELT: the [ACK] audit row that notification_manager emits after a
     real ack must produce a DB row that get_active_critical CANNOT

@@ -3955,7 +3955,17 @@ class UniversalRoomDatabase:
             _LOGGER.error("Error marking digest delivered: %s", e)
 
     async def acknowledge_notification(self) -> None:
-        """Acknowledge the most recent unacknowledged CRITICAL notification."""
+        """Acknowledge the most recent unacknowledged CRITICAL notification.
+
+        IMSG-IMAGE-FAIL-1 fix-up HIGH-1 (2026-08-14): excludes the
+        ``message='[audit]'`` sentinel from the inner SELECT — same
+        idiom as the four sibling readers. Without this filter, the
+        operator's ack lands on the audit twin written ~4ms after the
+        real row (by the matrix-outcome audit at
+        notification_manager.py:1787, which does NOT pass acknowledged=1);
+        the REAL row stays acknowledged=0 and quietly resurrects at
+        the next restart under its real title.
+        """
         try:
             async with self._db() as db:
                 await db.execute("""
@@ -3964,6 +3974,7 @@ class UniversalRoomDatabase:
                     WHERE id = (
                         SELECT id FROM notification_log
                         WHERE acknowledged = 0 AND severity = 'CRITICAL'
+                          AND message != '[audit]'
                         ORDER BY timestamp DESC LIMIT 1
                     )
                 """, (dt_util.utcnow().isoformat(),))
