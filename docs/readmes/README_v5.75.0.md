@@ -57,4 +57,15 @@ reviews → consolidated fix-up → orchestrator re-drills.
 
 ## Live Validation
 
-(prospective — replaced with Validated table post-restart)
+### Validated 2026-08-14 (v5.75.0 boot 02:31 CT)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Loads, zero URA errors | **PASS** | error_log post-boot: boot-transient WARNINGs only (rooms holding 60s, census early-scan, circuit entities not-yet-loaded) — all standard ordering, all recovered |
+| L2 | Write-through invariant: data==options for room_name/zone_name/zone on EVERY URA entry | **PASS** | Direct .storage sweep post-boot: zero desyncs across all entries (incl. the 3 previously hand-synced rooms — migration no-op as designed) |
+| L3 | No desync NM at boot | **PASS** | error_log search room_name_desync: empty |
+| L4 | Coast Preset Preservation relabel | **PASS** | switch.ura_hvac_coordinator_duty_off_phase_honesty friendly_name = "URA: HVAC Coordinator Coast Preset Preservation", state on, entity_id unchanged |
+| L5 | Stuck-exclusion knobs no-reload | **In-suite** | Both keys pinned in _NM_A2_KEYS by test_cm_reload_suppression (EXPECTED_SUPPRESS_KEYS 89); live toggle deferred to first organic need |
+| L6 | First duty-flag + corroborator-disagree exclusion | **ORGANIC (open)** | excluded_sensors attr + NM engage note on the first real episode (Living Room now corroborated via the operator's 10GHz Hobeian for non-fan pathologies) |
+| L7 | Rename runtime chain | **ORGANIC (open, honesty note)** | Substrate read-shapes simulated in-suite (plan-authorized); the next real operator rename/zone-reassign proves the dispatch chain live — spot-check data+options twins after it |
+

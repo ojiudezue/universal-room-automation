@@ -994,6 +994,10 @@ cards:
   gate2_started_2026_08_13: 'OPERATOR APPROVED. F1 HA integration entry 01JV6G4E57HT3WH86WSQ4RJT11 DISABLED + unloaded (11:4x CT). Container stop handed to operator (host is password-SSH only): ssh okosisi@192.168.13.16 sudo docker stop frigate double-take. Gate-2 counting begins now: N=5 clean organic perimeter events with F1 dark -> operator may DELETE the HA entry and PHYSICALLY DECOMMISSION the box. Reversal until then: re-enable the entry + docker start.'
   next: 'Gate-2: 0/5 clean organic events (F1 integration dark; container stop pending operator one-liner). Daily 9:23 recheck counts. On 5/5: tell operator "You can decommission the Frigate-1 box" + delete entry + entity cleanup of *_f1retired.'
   reaudit_2026_08_13: 'Operator-requested post-disable re-audit: PASS — 443 URA entity refs, 0 F1-owned; snapshot engine self-heals to F2-only; MQTT dual-prefix clean; census/resolver skip disabled entities. Findings ALL FIXED live same hour: MED automation.g6_doorbell_analysis motion_entity _2->_3 (was dead F1); LOW ura-v8 armcrestash41b->_2 + ura-v6 garage_a->_2 dashboard cards. Latent LOW carded in audit: camera_census legacy _discover_full_scan lacks disabled_by filter (not live). FIRST-WITNESS audit: F2 prompt (median +1.3s vs Protect, 31% first); caveats: rear_ptz laggard (median +5.8s, 20 missed episodes — consider Protect as snapshot trigger there); pool_equipment near-invisible to F2 (2 fires/week, native Amcrest is sole witness — recall check needed); back_yard ~100 F2-only episodes/wk uncorroborated (FoV-vs-FP spot-check before counting solos clean); 08-11 house-wide F2 daytime outage (predates tripwire; tripwire now covers). Docs: AUDIT_f2_pointing_reaudit.md + AUDIT_f2_first_witness_daytime.md.'
+  gate2_met_2026_08_14: 'GATE-2 MET + BOX PHYSICALLY POWERED OFF (operator, ahead of formal completion — with all software layers already dark, physical-off IS the authentic Gate-2 test and it passed). Since F1 disable: 10 dispatches, all healthy — incl. a SAME-SECOND F2+Protect corroborated pair (23:54Z), evening cluster, two clean daytime events today. Night window 2: ZERO F2 ghosts; sole night event was Protect-sourced rear_ptz 23:17 CT (not the retired failure class — neutral). Tripwire: silent through both nights, share still rotating. HA logged ZERO errors about the dead host (disabled entry = HA does not notice). Remaining FINAL steps (operator word required, irreversible): (1) DELETE the F1 HA config entry; (2) sweep the *_f1retired renamed entities + F1s 965 registry entities; (3) unrack/repurpose the box. Container-stop one-liner now moot.'
+  next: 'Operator word on final deletion (entry + registry sweep) -> then card closes. Recording tripwire stays permanently (F2 is sole recorder).'
+
+
 
 - id: NM-REPAGE-IMG-1
   title: Re-attach stored snapshot on CRITICAL re-pages — text-only repeats are a correctness bug, not a design choice
@@ -1007,6 +1011,18 @@ cards:
   why: 'Unack-CRITICAL 5-min re-page loop resends text only; the original snapshot file persists at re-page time, so the omission is arbitrary. Operator ruling: if the alert deserves an image, every page of it does.'
   scope: '~5 LoC in NM re-page path: reuse the stored snapshot path from the original dispatch (both WhatsApp + iMessage attachment keys, BB v0.6). Tier 1. Anchor: wire-in rule applies (call-site neuter must red a test).'
   next: 'Fold into next NM-touching build or ship as standalone Tier-1 hotfix.'
+
+- id: IMSG-IMAGE-FAIL-1
+  title: iMessage security images NOT arriving (organic FAIL of NM-BB-IMAGE-1 L5) + [audit] sentinel leaking into operator-visible message bodies
+  thread: notifications
+  status: shipped_organic
+  shipped_version: v5.75.1
+  approval: unreviewed
+  origin:
+    date: '2026-08-14'
+    gist: 'Operator screenshots: WhatsApp carries photos (incl. re-pages — v5.73.1 L3 CONFIRMED organically on WA); iMessage shows text-only bubbles reading "Perimeter Alert — Person Detected [audit]" — no image AND the [audit] ledger sentinel is visible in the sent body.'
+  why: 'Two distinct defects: (1) BB v0.6 attachment keys (v5.73.0 NM-BB-IMAGE-1) not delivering images — key contract vs BB server config vs is_allowed_path (probe BB server logs + a manual bluebubbles.send_message with attachment to isolate); (2) the [audit] marker was designed as a DB-reader filter tag, not user-visible text — its presence in the iMessage body suggests the audit-row variant is being DISPATCHED to the channel instead of (or in addition to) the clean-body original. Also explains double-bubbles (both sides of the chat = self-chat echo + audit twin?).'
+  next: 'Tier-1 investigation: trace _send_imessage payload for a security alert (body composition + attachment fields); one manual BB send with a known-good local path; check whether audit-tagged duplicates are entering the send path. Fix both in one pass.'
 
 - id: ROOM-NAME-UNIQUE-1
   title: Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket)
