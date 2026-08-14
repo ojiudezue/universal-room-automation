@@ -7877,27 +7877,44 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     errors={"base": "zone_name_contains_plus"},
                 )
 
-            # Update each selected room's zone assignment
+            # Update each selected room's zone assignment.
+            # ROOM-NAME-DESYNC-1 B-HIGH-1 (fix-up): write CONF_ZONE through
+            # to BOTH data AND options in a single async_update_entry call
+            # so the data-first reader at aggregation.py:502 stops returning
+            # a stale value forever. Prior-art shape: zone-delete flow at
+            # :9003-9026 (fix-up R3 / A-HIGH-1 / Bug Class #14).
             for room_entry_id in selected_rooms:
                 room_entry = self.hass.config_entries.async_get_entry(room_entry_id)
                 if room_entry and room_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ROOM:
+                    new_data = dict(room_entry.data)
                     new_options = dict(room_entry.options)
+                    new_data[CONF_ZONE] = zone_name
                     new_options[CONF_ZONE] = zone_name
                     self.hass.config_entries.async_update_entry(
-                        room_entry, options=new_options
+                        room_entry,
+                        data=new_data,
+                        options=new_options,
                     )
 
-            # Clear zone from rooms that were removed
+            # Clear zone from rooms that were removed.
+            # ROOM-NAME-DESYNC-1 B-HIGH-1 (fix-up): same twin-write recipe
+            # on removal — otherwise data.CONF_ZONE keeps the old zone
+            # forever while options.CONF_ZONE is cleared, and the data-
+            # first reader still sees the old assignment.
             removed_rooms = set(current_zone_rooms) - set(selected_rooms)
             for room_entry_id in removed_rooms:
                 room_entry = self.hass.config_entries.async_get_entry(room_entry_id)
                 if room_entry and room_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ROOM:
                     room_zone = room_entry.options.get(CONF_ZONE) or room_entry.data.get(CONF_ZONE)
                     if room_zone == old_zone_name:
+                        new_data = dict(room_entry.data)
                         new_options = dict(room_entry.options)
+                        new_data[CONF_ZONE] = ""
                         new_options[CONF_ZONE] = ""
                         self.hass.config_entries.async_update_entry(
-                            room_entry, options=new_options
+                            room_entry,
+                            data=new_data,
+                            options=new_options,
                         )
 
             # Remove old zone device on rename
@@ -7941,6 +7958,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 self._selected_zone_name = zone_name
                 return await self.async_step_zone_config_menu()
             elif self._selected_zone_entry_id:
+                # ROOM-NAME-DESYNC-1 D1 site 2: legacy zone rename must
+                # write CONF_ZONE_NAME through to entry.data + title so
+                # zone-name readers converge. See planning §D1 site 2.
                 new_zone_options = {
                     **zone_entry.options,
                     CONF_ZONE_NAME: zone_name,
@@ -7951,24 +7971,69 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         CONF_ZONE_IS_OUTDOOR, current_zone_is_outdoor
                     )),
                 }
+                new_zone_data = {
+                    **zone_entry.data,
+                    CONF_ZONE_NAME: zone_name,
+                }
                 self.hass.config_entries.async_update_entry(
-                    zone_entry, options=new_zone_options
+                    zone_entry,
+                    data=new_zone_data,
+                    options=new_zone_options,
+                    title=zone_name,
+                )
+                _LOGGER.info(
+                    "Zone options saved (rename write-through): "
+                    "entry_id=%s title=%s",
+                    zone_entry.entry_id, zone_name,
                 )
                 return await self.async_step_zone_config_menu()
             else:
-                return self.async_create_entry(
-                    title="",
-                    data={
-                        **zone_entry.options,
-                        CONF_ZONE_NAME: zone_name,
-                        CONF_ZONE_DESCRIPTION: user_input.get(CONF_ZONE_DESCRIPTION, ""),
-                        CONF_ZONE_ROOMS: selected_rooms,
-                        # v5.7.0 WS-A4.
-                        CONF_ZONE_IS_OUTDOOR: bool(user_input.get(
-                            CONF_ZONE_IS_OUTDOOR, current_zone_is_outdoor
-                        )),
-                    },
+                # ROOM-NAME-DESYNC-1 D1 site 3 (plan rev-2 C3): the
+                # zone-flow else-branch. Reachable when zm_result AND
+                # `_selected_zone_entry_id` are both falsy. Rather than
+                # prove unreachable, apply the standard combined write-
+                # through recipe against `zone_entry` (the ONLY entry we
+                # have in hand here — `_get_zone_entry()` returned it at
+                # the top of the step) and abort. Fixes the same drift
+                # class site 2 fixes; three lines beats a proof.
+                #
+                # B-MED-1 (fix-up): `zone_entry = None if zm_result else
+                # self._get_zone_entry()` at :7803 CAN return None here
+                # (zm_result falsy + _selected_zone_entry_id falsy +
+                # _get_zone_entry() returns None — the initial-create path
+                # before any zone entry exists). Guard rather than NPE.
+                if zone_entry is None:
+                    _LOGGER.warning(
+                        "Zone save (create-branch): no zone_entry in hand "
+                        "(zone_name=%r); aborting without write-through.",
+                        zone_name,
+                    )
+                    return self.async_abort(reason="no_zone_entry")
+                new_zone_options = {
+                    **zone_entry.options,
+                    CONF_ZONE_NAME: zone_name,
+                    CONF_ZONE_DESCRIPTION: user_input.get(CONF_ZONE_DESCRIPTION, ""),
+                    CONF_ZONE_ROOMS: selected_rooms,
+                    CONF_ZONE_IS_OUTDOOR: bool(user_input.get(
+                        CONF_ZONE_IS_OUTDOOR, current_zone_is_outdoor
+                    )),
+                }
+                new_zone_data = {
+                    **zone_entry.data,
+                    CONF_ZONE_NAME: zone_name,
+                }
+                self.hass.config_entries.async_update_entry(
+                    zone_entry,
+                    data=new_zone_data,
+                    options=new_zone_options,
+                    title=zone_name,
                 )
+                _LOGGER.info(
+                    "Zone options saved (rename write-through, "
+                    "create-branch): entry_id=%s title=%s",
+                    zone_entry.entry_id, zone_name,
+                )
+                return self.async_abort(reason="reconfigure_successful")
 
         # Get room entries for selection
         room_entries = self._get_all_room_entries()
@@ -9128,20 +9193,59 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
     async def async_step_basic_setup(self, user_input=None):
         """Reconfigure basic setup."""
         if user_input is not None:
-            # FIX v3.2.3.1: Pass merged options directly to async_create_entry
+            # ROOM-NAME-DESYNC-1 D1 site 1: rename must write through to
+            # entry.data (not just entry.options) so every downstream
+            # reader — presence tracker (presence.py:2864-2876,
+            # data-only), aggregation zone lookup (aggregation.py:502,
+            # data-first + options-fallback), substrate buckets,
+            # `_ROOM_SUPPRESS_KEYS` CONF_ZONE suppression branch — converges
+            # on ONE string in ONE reload cycle. See
+            # docs/planning/PLANNING_room_rename_writethrough.md §D1.
+            #
+            # Recipe (plan rev-2 C1+M1): SINGLE combined
+            # `async_update_entry(data=, options=, title=)` call, then
+            # `async_abort` — never `async_create_entry` (that would
+            # issue a second entry write via HA's OptionsFlow contract
+            # and fire the update-listener twice).
             try:
-                merged = {**self._config_entry.options, **user_input}
+                merged_options = {**self._config_entry.options, **user_input}
+                merged_data = dict(self._config_entry.data)
+                # Write through the join-key fields §4.3 confirms have
+                # live cross-coordinator readers.
+                if CONF_ROOM_NAME in user_input:
+                    merged_data[CONF_ROOM_NAME] = user_input[CONF_ROOM_NAME]
+                if CONF_ZONE in user_input:
+                    merged_data[CONF_ZONE] = user_input[CONF_ZONE]
+                new_title = user_input.get(
+                    CONF_ROOM_NAME,
+                    self._config_entry.data.get(
+                        CONF_ROOM_NAME, self._config_entry.title
+                    ),
+                )
                 _LOGGER.debug(
-                    "basic_setup save: entry_id=%s, options_keys=%d, input_keys=%d, merged_keys=%d",
+                    "basic_setup save: entry_id=%s, options_keys=%d, "
+                    "input_keys=%d, merged_options=%d, writethrough=%s",
                     self._config_entry.entry_id,
                     len(self._config_entry.options),
                     len(user_input),
-                    len(merged),
+                    len(merged_options),
+                    sorted(
+                        k for k in (CONF_ROOM_NAME, CONF_ZONE)
+                        if k in user_input
+                    ),
                 )
-                return self.async_create_entry(
-                    title="",
-                    data=merged,
+                self.hass.config_entries.async_update_entry(
+                    self._config_entry,
+                    data=merged_data,
+                    options=merged_options,
+                    title=new_title,
                 )
+                _LOGGER.info(
+                    "Room options saved (rename write-through): "
+                    "entry_id=%s title=%s",
+                    self._config_entry.entry_id, new_title,
+                )
+                return self.async_abort(reason="reconfigure_successful")
             except Exception:
                 _LOGGER.exception("basic_setup save FAILED")
                 raise
