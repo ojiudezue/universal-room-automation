@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-13T18:34:23-05:00_ - _Data commit: `781276e2b45d`_ - _last_reconciled: 2026-08-13_
+_Generated: 2026-08-13T23:15:25-05:00_ - _Data commit: `071a1af16adb`_ - _last_reconciled: 2026-08-13_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -19,7 +19,7 @@ _Generated: 2026-08-13T18:34:23-05:00_ - _Data commit: `781276e2b45d`_ - _last_r
 | 🚀 Shipped (organic open) | 27 |
 | ⏸️ Waiting on operator | 2 |
 | ⏳ Waiting on me (Claude) | 1 |
-| 🅿️ Parked | 1 |
+| 🅿️ Parked | 2 |
 | ✅ Done | 11 |
 | ❓ Other | 1 |
 
@@ -620,8 +620,16 @@ thread: **ops** - status: **waiting_me** - approval: **implied**
 - **Why:** reason-ledger first night, Frigate car/dog/cat first events, snapshot-fix organic proof, v5.57/58 organic criteria
 - **Next:** check + report each
 
-## 🅿️ Parked (1)
+## 🅿️ Parked (2)
 _revisit-trigger set_
+
+### `COAST-TOGGLE-RETIRE-1` - Retire the Coast Preset Preservation kill-switch once PRESET-FLAP-1 validates organically
+thread: **hvac** - status: **parked** - approval: **approved**
+- **Origin:** 2026-08-14 - operator renamed the switch (Coast Preset Preservation) and questioned its existence; adjudicated: it is containment for a not-yet-organically-proven behavior, not a policy knob — nobody legitimately prefers the lying preset.
+- **Why:** Parsimonious Room Config: the offset Number (2F) is the real knob; the Switch is temporary containment. Rung-3 test fails (no observation-driven tuning story for OFF).
+- **Next:** Wait for L3/L4 organic; then Tier-1 removal.
+- **Forensic keys (1):**
+  - `revisit_trigger`: PRESET-FLAP-1 L3 (occupied-coast founding case: preset stays home, ceiling home+2, one ledger row) AND L4 (arrester overrides_today flat through an off-phase) both organically VALIDATED in the v5.73.0 README table -> then delete the swit...
 
 ### `ARRESTER-BOOT-BLIND-1` - Arrester boot-window manual blindness — manual holds predating the listener are unclassifiable
 thread: **hvac** - status: **parked** - approval: **unreviewed**

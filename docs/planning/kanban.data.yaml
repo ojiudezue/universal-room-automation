@@ -1044,6 +1044,18 @@ cards:
   next: 'Small triage: read the tripwire match list vs the 12 dormancy-receipt automations; if the counters are legacy-stack members, turn_off (Method 1, reversible) and confirm tripwire goes quiet; if benign, narrow the tripwire match. ~30min, Tier 1.'
   fixed_2026_08_12: 'FIXED live same day (operator batch approval): legacy pager silenced via its own gate booleans (zone1/zone3_monitoring_active OFF) + initial:true removed from packages/zone_monitoring.yaml (was re-arming every restart) + input_boolean reload verified. Tripwire per-day dedup was working (10 rows = 3 restarts x 4 counters). Tripwire silence now accrues the auto-close evidence for stripping the package notify legs entirely (its own docstring rule).'
 
+- id: COAST-TOGGLE-RETIRE-1
+  title: Retire the Coast Preset Preservation kill-switch once PRESET-FLAP-1 validates organically
+  thread: hvac
+  status: parked
+  approval: approved
+  origin:
+    date: '2026-08-14'
+    gist: 'operator renamed the switch (Coast Preset Preservation) and questioned its existence; adjudicated: it is containment for a not-yet-organically-proven behavior, not a policy knob — nobody legitimately prefers the lying preset.'
+  why: 'Parsimonious Room Config: the offset Number (2F) is the real knob; the Switch is temporary containment. Rung-3 test fails (no observation-driven tuning story for OFF).'
+  revisit_trigger: 'PRESET-FLAP-1 L3 (occupied-coast founding case: preset stays home, ceiling home+2, one ledger row) AND L4 (arrester overrides_today flat through an off-phase) both organically VALIDATED in the v5.73.0 README table -> then delete the switch (single-user no-backcompat) or demote to rung-1 constant.'
+  next: 'Wait for L3/L4 organic; then Tier-1 removal.'
+
 - id: SENSOR-FANINDEP-1
   title: Role matrix needs a fan-independence axis — 10GHz motion-mmWave fleet is corroborator-grade for stuck but NOT for fan-demotion
   thread: presence
