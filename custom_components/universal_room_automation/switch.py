@@ -5815,7 +5815,10 @@ class HvacOffphaseHonestyEnabledSwitch(SwitchEntity, RestoreEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_hvac_coordinator_offphase_honesty_enabled"
-        self._attr_name = "Duty Off-Phase Honesty"
+        # Operator-renamed 2026-08-14 ("Coast Preset Preservation") — the
+        # old label described the design debate, not the behavior. unique_id
+        # unchanged (entity_id stable); friendly name only.
+        self._attr_name = "Coast Preset Preservation"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",
