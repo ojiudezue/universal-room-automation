@@ -48,6 +48,7 @@ from .const import (
     CONF_NOTIFY_TARGET,
     CONF_NOTIFY_LEVEL,
     CONF_TRACKED_PERSONS,  # v3.2.0: Person tracking
+    CONF_ROOM_NAME,  # ROOM-NAME-DESYNC-1: D2 boot migration write-through
     CONF_ZONE_NAME,  # v3.3.2: For zone entry logging
     CONF_ZONE,  # v3.3.5.4: For zone migration
     CONF_ZONE_ROOMS,  # v3.3.5.4: For zone migration
@@ -1374,8 +1375,144 @@ async def _migrate_solar_banking_to_energy_precool(
         return False
 
 
+# =========================================================================
+# ROOM-NAME-DESYNC-1 D2 — one-shot boot migration for options→data desyncs
+# =========================================================================
+#
+# The options-flow rename handlers (config_flow.py D1 sites 1/2/3) now
+# write the name/zone join-key fields through to `entry.data` in the same
+# combined `async_update_entry` call. Pre-cycle entries whose last rename
+# only wrote to `entry.options` are still desynced on-disk; this pass
+# reconciles them at setup time.
+#
+# Ordering (plan §D2 checklist): this helper MUST run BEFORE
+# `entry.add_update_listener(_async_update_listener)` at each of the four
+# setup branches (init.py:3655, 3805, 4055, 4168). The listener is
+# registered only after this returns, so the migration's
+# `async_update_entry` cannot fire the listener → cannot cascade a reload
+# during setup → cannot trip `feedback_parent_entry_reload_watchdog_hazard`.
+#
+# No VERSION bump (plan §7, Reviewer-A direction): the write-through does
+# not change entry-shape; it makes two existing keys agree.
+#
+# String constants (NOT const-imported symbols) to keep the section
+# extractor-friendly for test_v5_7_1_energy_precool.py::TestD5Migration —
+# that test slices __init__.py source between two `async def` lines and
+# execs the slice in an isolated namespace; any `CONF_*` reference in
+# between would fail with NameError. See v5.x plan §Institutional context.
+_ROOM_NAME_WRITETHROUGH_KEYS: tuple[str, ...] = (
+    "room_name",   # == CONF_ROOM_NAME
+    "zone_name",   # == CONF_ZONE_NAME
+    "zone",        # == CONF_ZONE
+)
+
+
+def _migrate_room_zone_name_writethrough(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> int:
+    """Sync desynced ROOM/ZONE name+zone keys from options → data.
+
+    Idempotent: entries already in agreement are a full no-op (zero
+    async_update_entry calls, zero log lines).
+
+    Returns the number of keys reconciled on this entry.
+    """
+    try:
+        entry_type = entry.data.get(CONF_ENTRY_TYPE)
+        if entry_type not in (ENTRY_TYPE_ROOM, ENTRY_TYPE_ZONE):
+            return 0
+        options = entry.options or {}
+        data = entry.data or {}
+        pending: dict[str, object] = {}
+        for key in _ROOM_NAME_WRITETHROUGH_KEYS:
+            if key not in options:
+                continue
+            if options.get(key) == data.get(key):
+                continue
+            pending[key] = options[key]
+        if not pending:
+            return 0
+        new_data = {**data, **pending}
+        hass.config_entries.async_update_entry(entry, data=new_data)
+        for key, new_val in pending.items():
+            _LOGGER.info(
+                "ROOM-NAME-DESYNC-1 D2 migration: reconciled entry_id=%s "
+                "key=%s data=%r → options=%r",
+                entry.entry_id, key, data.get(key), new_val,
+            )
+        return len(pending)
+    except Exception:  # noqa: BLE001 — never break setup
+        _LOGGER.exception(
+            "ROOM-NAME-DESYNC-1 D2 migration failed (non-fatal) for "
+            "entry_id=%s",
+            entry.entry_id,
+        )
+        return 0
+
+
+async def _check_and_notify_room_name_desync(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> None:
+    """D3b runtime diagnostic — fire NM if any name key still desynced.
+
+    Called AFTER D2 migration. If any of the three write-through keys
+    still show `options[key] != data[key]`, someone edited `.storage`
+    manually or a future write path escaped D1. Per-day-dedup via
+    `_stuck_signal_nm.fire_stuck_signal` (kind=`room_name_desync`).
+    """
+    try:
+        entry_type = entry.data.get(CONF_ENTRY_TYPE)
+        if entry_type not in (ENTRY_TYPE_ROOM, ENTRY_TYPE_ZONE):
+            return
+        options = entry.options or {}
+        data = entry.data or {}
+        for key in _ROOM_NAME_WRITETHROUGH_KEYS:
+            if key not in options:
+                continue
+            if options.get(key) == data.get(key):
+                continue
+            try:
+                from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
+                    fire_stuck_signal,
+                )
+                await fire_stuck_signal(
+                    hass,
+                    kind="room_name_desync",
+                    key=(entry.entry_id, key),
+                    diagnosis=(
+                        f"Config entry {entry.entry_id} ({entry.title}) "
+                        f"has desynced {key}: data={data.get(key)!r} "
+                        f"options={options.get(key)!r}"
+                    ),
+                    remedy=(
+                        "Re-open the room/zone options flow and save to "
+                        "trigger the write-through, or restart HA to run "
+                        "the boot migration."
+                    ),
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "room_name_desync NM emit failed (swallowed) "
+                    "entry_id=%s key=%s",
+                    entry.entry_id, key, exc_info=True,
+                )
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug(
+            "room_name_desync diagnostic failed (swallowed) entry_id=%s",
+            entry.entry_id, exc_info=True,
+        )
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Universal Room Automation from a config entry."""
+    # ROOM-NAME-DESYNC-1 D2 — reconcile pre-cycle options/data desync on
+    # ROOM and legacy-ZONE entries. Runs BEFORE any of the four
+    # `add_update_listener` sites (planning §D2 checklist). Idempotent
+    # + swallow-except; safe on all entry types (early-returns on non-
+    # ROOM/ZONE). Then D3b diagnostic surfaces any residual desync via
+    # NM (per-day-dedup) — catches future manual `.storage` edits.
+    _migrate_room_zone_name_writethrough(hass, entry)
+    await _check_and_notify_room_name_desync(hass, entry)
 
     # Initialize hass.data[DOMAIN] if needed
     if DOMAIN not in hass.data:
