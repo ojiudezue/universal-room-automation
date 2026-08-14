@@ -254,6 +254,17 @@ NM_REPLY_RATE_LIMITED_CHANNELS = ("imessage", "whatsapp")
 # success. Echo-safety holds: the deny text is rail-1 dropped on return.
 NM_REPLY_RATE_LIMIT_EXEMPT_COMMANDS = ("safe_word_unauthorized",)
 
+# NM-RECOVERY-AGEBOUND-1 (2026-08-14). Rung-1 module constant: boot
+# recovery in `_recover_state_from_db` walks `get_active_critical`
+# newest-first with no freshness bound, which resurrected a 326-row
+# historical backlog of unacked CRITICALs after the twin-eaten incident.
+# `get_active_critical` is also called by ack/cooldown/inbound paths that
+# legitimately want the current row regardless of age — so the bound
+# lives at the recovery caller, NOT in the DAO. Kill switch: set to 0
+# for unbounded (restores pre-fix behavior — recovery will resurrect any
+# unacked CRITICAL row). Requires review to change (safety-adjacent).
+NM_RECOVERY_MAX_AGE_H = 24.0
+
 
 class NotificationManager:
     """Centralized notification delivery for all domain coordinators.
@@ -888,6 +899,22 @@ class NotificationManager:
                     self._alert_state = restored
             except ValueError:
                 pass
+        # NM-RECOVERY-AGEBOUND-1 fix-up (2026-08-14, MED-1): transitional
+        # case — a pre-fix boot resurrected a stale unacked CRITICAL and
+        # persisted `alert_state=repeating`. The current boot's recovery
+        # (freshness-bounded) skipped the row, so `_active_alert_data` is
+        # None. Without this reset the restored REPEATING is a zombie —
+        # dashboards would show REPEATING with an empty alert. Reset to
+        # IDLE. Fires at most once per (upgraded) install.
+        if (
+            self._alert_state == AlertState.REPEATING
+            and self._active_alert_data is None
+        ):
+            _LOGGER.debug(
+                "NM: zombie REPEATING on restore — no active alert data "
+                "(post recovery-agebound skip); resetting to IDLE"
+            )
+            self._alert_state = AlertState.IDLE
         if self._alert_state != AlertState.IDLE:
             # Only restore cooldown fields if we didn't reset to IDLE above
             self._cooldown_remaining = state.get("cooldown_remaining", 0)
@@ -4513,6 +4540,45 @@ class NotificationManager:
 
         # Check for unacked CRITICAL — resume repeating
         active = await database.get_active_critical()
+        if active:
+            # NM-RECOVERY-AGEBOUND-1 (2026-08-14): freshness bound.
+            # `get_active_critical` returns newest-first regardless of
+            # age — after the twin-eaten incident 326 historical unacked
+            # CRITICALs sat in the log. Recovery must not resurrect a
+            # stale row. NM_RECOVERY_MAX_AGE_H = 0 disables (kill
+            # switch; see constant doc). Unparseable / missing timestamp
+            # falls through as fresh — we don't age-bound what we can't
+            # age (preserves existing recovery for pre-timestamp rows).
+            if NM_RECOVERY_MAX_AGE_H > 0:
+                ts_str = active.get("timestamp") or ""
+                if ts_str:
+                    try:
+                        ts = datetime.fromisoformat(ts_str)
+                        now = dt_util.utcnow()
+                        # Normalize both to the same awareness so the
+                        # subtraction never raises (real HA utcnow is
+                        # aware; test stubs may be naive).
+                        if ts.tzinfo is None and now.tzinfo is not None:
+                            ts = ts.replace(tzinfo=now.tzinfo)
+                        elif ts.tzinfo is not None and now.tzinfo is None:
+                            ts = ts.replace(tzinfo=None)
+                        age_h = (now - ts).total_seconds() / 3600.0
+                        if age_h > NM_RECOVERY_MAX_AGE_H:
+                            _LOGGER.info(
+                                "NM recovery: skipping stale unacked CRITICAL "
+                                "(age=%.1fh > NM_RECOVERY_MAX_AGE_H=%.1fh) "
+                                "coord=%s hazard=%s location=%s",
+                                age_h, NM_RECOVERY_MAX_AGE_H,
+                                active.get("coordinator_id", ""),
+                                active.get("hazard_type"),
+                                active.get("location"),
+                            )
+                            active = None
+                    except (ValueError, TypeError) as e:
+                        _LOGGER.debug(
+                            "NM recovery: could not parse timestamp %r (%s); "
+                            "treating as fresh", ts_str, e,
+                        )
         if active:
             # NM Cycle B fix-up (2026-07-20, B-B2): the ack-registry skip
             # that used to live here is DEAD at this point — recovery
