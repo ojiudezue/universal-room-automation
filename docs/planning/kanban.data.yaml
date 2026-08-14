@@ -1044,6 +1044,18 @@ cards:
   next: 'Small triage: read the tripwire match list vs the 12 dormancy-receipt automations; if the counters are legacy-stack members, turn_off (Method 1, reversible) and confirm tripwire goes quiet; if benign, narrow the tripwire match. ~30min, Tier 1.'
   fixed_2026_08_12: 'FIXED live same day (operator batch approval): legacy pager silenced via its own gate booleans (zone1/zone3_monitoring_active OFF) + initial:true removed from packages/zone_monitoring.yaml (was re-arming every restart) + input_boolean reload verified. Tripwire per-day dedup was working (10 rows = 3 restarts x 4 counters). Tripwire silence now accrues the auto-close evidence for stripping the package notify legs entirely (its own docstring rule).'
 
+- id: SENSOR-FANINDEP-1
+  title: Role matrix needs a fan-independence axis — 10GHz motion-mmWave fleet is corroborator-grade for stuck but NOT for fan-demotion
+  thread: presence
+  status: pre_planning
+  approval: unreviewed
+  origin:
+    date: '2026-08-14'
+    gist: 'operator: the Hobeian "Millimeter wave motion detection" units (~20, transit areas) are 10GHz functional-PIRs (still-blind, long range). Registry confirms 3 Hobeian classes. But the Upstairs Guestroom unit of this EXACT model fan-latched twice 08-13 — doppler sees fans; the class is not fan-independent.'
+  why: 'STUCK-SENSOR-1 (v5.75.0) role layer accepts list-derived motion kind as corroborator — correct for non-fan stuck pathology, fails-agree (=status quo, no regression) under fan latch. The deferred D5 role-migration should add fan-independence to the role matrix: fan-demotion legs require fan-independent corroborators (PIR/camera/BLE/bed); stuck-exclusion accepts motion-class incl. 10GHz doppler. Vehicle: CONF_SENSOR_CAPABILITIES declarations for the 10GHz fleet + a new failure-mode-style axis.'
+  measurement_first: 'Passive recorder probe queued: does the NEW Living Room 10GHz unit latch the tower fan on its next run? (Placement/sensitivity may differ from Guestroom.) Result gates how urgent the axis is.'
+  next: 'Fold into the STUCK-D2-DEMOTION-ROLE-MIGRATE-1 follow-up (D5); probe result first.'
+
 - id: ROOM-NAME-DESYNC-1
   title: Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped)
   thread: presence
