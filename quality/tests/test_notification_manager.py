@@ -1702,7 +1702,11 @@ class TestSNAP1ChannelBuilders:
         assert "media_url" not in payload
 
     @pytest.mark.asyncio
-    async def test_imessage_passes_attachment_path_and_warns_once(self):
+    async def test_imessage_passes_attachment_for_local_path(self):
+        """IMSG-IMAGE-FAIL-1 (2026-08-14): installed BlueBubbles
+        integration accepts local HA paths via ``attachment`` (verified
+        end-to-end by the diagnostic send). The prior SNAP-1 claim that
+        BB lacks attachment support was FALSE."""
         hass = self._hass_capturing()
         nm = NotificationManager(hass, _make_config())
         await nm._send_imessage(
@@ -1710,12 +1714,15 @@ class TestSNAP1ChannelBuilders:
             snapshot_path="/media/ura/snapshots/cam_2.jpg",
         )
         payload = hass.services.async_call.await_args.args[2]
-        assert payload.get("attachment_path") == "/media/ura/snapshots/cam_2.jpg"
-        assert "attachment" not in payload
-        assert getattr(nm, "_snap1_bb_attach_warned", False) is True
+        assert payload["attachment"] == "/media/ura/snapshots/cam_2.jpg"
+        assert "attachment_path" not in payload
+        assert "media_url" not in payload
 
     @pytest.mark.asyncio
-    async def test_imessage_kill_switch_bytewise_legacy_url(self):
+    async def test_imessage_url_uses_media_url_key(self):
+        """IMSG-IMAGE-FAIL-1: URL-only path uses ``media_url``, never
+        smuggled into the ``attachment`` key (which is now reserved for
+        local HA paths, matching the WhatsApp leg's discipline)."""
         hass = self._hass_capturing()
         nm = NotificationManager(hass, _make_config())
         await nm._send_imessage(
@@ -1725,5 +1732,5 @@ class TestSNAP1ChannelBuilders:
         assert payload == {
             "addresses": "user@icloud",
             "message": "T\nM",
-            "attachment": "http://x/y.jpg",
+            "media_url": "http://x/y.jpg",
         }

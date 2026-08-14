@@ -3781,6 +3781,7 @@ class UniversalRoomDatabase:
         dnd_bypass_applied: int | None = None,
         bucket_outcome: str | None = None,
         matrix_branch: str | None = None,
+        acknowledged: int = 0,
     ) -> int | None:
         """Log a notification to the database. Returns the row ID.
 
@@ -3792,6 +3793,11 @@ class UniversalRoomDatabase:
         that pass only the pre-C kwargs still INSERT successfully (all
         additive columns are nullable). Audit-populating callers pass
         the extended kwargs explicitly.
+
+        IMSG-IMAGE-FAIL-1 (2026-08-14): ``acknowledged`` may be set to
+        1 by write-time audit callers whose row must never be resurrected
+        by ``get_active_critical``/``get_active_cooldown``. Default 0
+        preserves prior behavior for all real-send callers.
         """
         try:
             async with self._db() as db:
@@ -3800,14 +3806,14 @@ class UniversalRoomDatabase:
                     (timestamp, coordinator_id, severity, title, message,
                      hazard_type, location, person_id, channel, delivered, dry_run,
                      recipient_id, route_reason, dnd_bypass_applied,
-                     bucket_outcome, matrix_branch)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     bucket_outcome, matrix_branch, acknowledged)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     dt_util.utcnow().isoformat(),
                     coordinator_id, severity, title, message,
                     hazard_type, location, person_id, channel, delivered, dry_run,
                     recipient_id, route_reason, dnd_bypass_applied,
-                    bucket_outcome, matrix_branch,
+                    bucket_outcome, matrix_branch, int(acknowledged),
                 ))
                 await db.commit()
                 return cursor.lastrowid
@@ -3966,13 +3972,22 @@ class UniversalRoomDatabase:
             _LOGGER.error("Error acknowledging notification: %s", e)
 
     async def get_active_critical(self) -> dict | None:
-        """Get the most recent unacknowledged CRITICAL notification."""
+        """Get the most recent unacknowledged CRITICAL notification.
+
+        IMSG-IMAGE-FAIL-1 (2026-08-14): excludes the ``message='[audit]'``
+        sentinel — same idiom as ``get_notifications_today`` (:3862),
+        ``get_last_notification`` (:3886), and ``get_pending_digest``
+        (:3913). Without this filter an unacknowledged audit row (e.g.
+        the pre-ack ``[ACK]`` audit or a legacy ``dnd_suppressed``
+        audit) can be resurrected as the "active" alert.
+        """
         try:
             async with self._db_read() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT * FROM notification_log
                     WHERE severity = 'CRITICAL' AND acknowledged = 0
+                      AND message != '[audit]'
                     ORDER BY timestamp DESC LIMIT 1
                 """)
                 row = await cursor.fetchone()
@@ -3982,7 +3997,13 @@ class UniversalRoomDatabase:
             return None
 
     async def get_active_cooldown(self) -> dict | None:
-        """Get the active cooldown notification (acked but cooldown not expired)."""
+        """Get the active cooldown notification (acked but cooldown not expired).
+
+        IMSG-IMAGE-FAIL-1 (2026-08-14): excludes the ``message='[audit]'``
+        sentinel — same idiom as the three sibling readers. An audit row
+        marked acknowledged=1 (see ``log_notification(acknowledged=...)``)
+        must never surface as an active cooldown.
+        """
         try:
             now = dt_util.utcnow().isoformat()
             async with self._db_read() as db:
@@ -3991,6 +4012,7 @@ class UniversalRoomDatabase:
                     SELECT * FROM notification_log
                     WHERE severity = 'CRITICAL' AND acknowledged = 1
                       AND cooldown_expires IS NOT NULL AND cooldown_expires > ?
+                      AND message != '[audit]'
                     ORDER BY timestamp DESC LIMIT 1
                 """, (now,))
                 row = await cursor.fetchone()
