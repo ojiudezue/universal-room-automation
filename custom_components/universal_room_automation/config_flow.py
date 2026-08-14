@@ -7861,27 +7861,44 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     errors={"base": "zone_name_contains_plus"},
                 )
 
-            # Update each selected room's zone assignment
+            # Update each selected room's zone assignment.
+            # ROOM-NAME-DESYNC-1 B-HIGH-1 (fix-up): write CONF_ZONE through
+            # to BOTH data AND options in a single async_update_entry call
+            # so the data-first reader at aggregation.py:502 stops returning
+            # a stale value forever. Prior-art shape: zone-delete flow at
+            # :9003-9026 (fix-up R3 / A-HIGH-1 / Bug Class #14).
             for room_entry_id in selected_rooms:
                 room_entry = self.hass.config_entries.async_get_entry(room_entry_id)
                 if room_entry and room_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ROOM:
+                    new_data = dict(room_entry.data)
                     new_options = dict(room_entry.options)
+                    new_data[CONF_ZONE] = zone_name
                     new_options[CONF_ZONE] = zone_name
                     self.hass.config_entries.async_update_entry(
-                        room_entry, options=new_options
+                        room_entry,
+                        data=new_data,
+                        options=new_options,
                     )
 
-            # Clear zone from rooms that were removed
+            # Clear zone from rooms that were removed.
+            # ROOM-NAME-DESYNC-1 B-HIGH-1 (fix-up): same twin-write recipe
+            # on removal — otherwise data.CONF_ZONE keeps the old zone
+            # forever while options.CONF_ZONE is cleared, and the data-
+            # first reader still sees the old assignment.
             removed_rooms = set(current_zone_rooms) - set(selected_rooms)
             for room_entry_id in removed_rooms:
                 room_entry = self.hass.config_entries.async_get_entry(room_entry_id)
                 if room_entry and room_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ROOM:
                     room_zone = room_entry.options.get(CONF_ZONE) or room_entry.data.get(CONF_ZONE)
                     if room_zone == old_zone_name:
+                        new_data = dict(room_entry.data)
                         new_options = dict(room_entry.options)
+                        new_data[CONF_ZONE] = ""
                         new_options[CONF_ZONE] = ""
                         self.hass.config_entries.async_update_entry(
-                            room_entry, options=new_options
+                            room_entry,
+                            data=new_data,
+                            options=new_options,
                         )
 
             # Remove old zone device on rename
@@ -7963,6 +7980,19 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 # have in hand here — `_get_zone_entry()` returned it at
                 # the top of the step) and abort. Fixes the same drift
                 # class site 2 fixes; three lines beats a proof.
+                #
+                # B-MED-1 (fix-up): `zone_entry = None if zm_result else
+                # self._get_zone_entry()` at :7803 CAN return None here
+                # (zm_result falsy + _selected_zone_entry_id falsy +
+                # _get_zone_entry() returns None — the initial-create path
+                # before any zone entry exists). Guard rather than NPE.
+                if zone_entry is None:
+                    _LOGGER.warning(
+                        "Zone save (create-branch): no zone_entry in hand "
+                        "(zone_name=%r); aborting without write-through.",
+                        zone_name,
+                    )
+                    return self.async_abort(reason="no_zone_entry")
                 new_zone_options = {
                     **zone_entry.options,
                     CONF_ZONE_NAME: zone_name,

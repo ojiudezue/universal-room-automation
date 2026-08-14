@@ -48,7 +48,6 @@ from .const import (
     CONF_NOTIFY_TARGET,
     CONF_NOTIFY_LEVEL,
     CONF_TRACKED_PERSONS,  # v3.2.0: Person tracking
-    CONF_ROOM_NAME,  # ROOM-NAME-DESYNC-1: D2 boot migration write-through
     CONF_ZONE_NAME,  # v3.3.2: For zone entry logging
     CONF_ZONE,  # v3.3.5.4: For zone migration
     CONF_ZONE_ROOMS,  # v3.3.5.4: For zone migration
@@ -1459,6 +1458,12 @@ async def _check_and_notify_room_name_desync(
     still show `options[key] != data[key]`, someone edited `.storage`
     manually or a future write path escaped D1. Per-day-dedup via
     `_stuck_signal_nm.fire_stuck_signal` (kind=`room_name_desync`).
+
+    B-MED-2 (fix-up): NM machinery may not be up yet when a room/zone
+    entry sets up (entry order is nondeterministic). We schedule the
+    notify as a background task + ONE deferred retry via
+    `async_call_later(~60s)` if the first attempt raises. Both attempts
+    ultimately swallow — the diagnostic must never break setup.
     """
     try:
         entry_type = entry.data.get(CONF_ENTRY_TYPE)
@@ -1466,36 +1471,91 @@ async def _check_and_notify_room_name_desync(
             return
         options = entry.options or {}
         data = entry.data or {}
+        # Hoisted per A-L3 — one import per call, not per iteration.
+        try:
+            from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
+                fire_stuck_signal,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "room_name_desync: stuck-signal NM module unavailable "
+                "(swallowed)", exc_info=True,
+            )
+            return
+        from homeassistant.helpers.event import async_call_later  # noqa: PLC0415
+
+        pending: list[tuple[str, object, object]] = []
         for key in _ROOM_NAME_WRITETHROUGH_KEYS:
             if key not in options:
                 continue
             if options.get(key) == data.get(key):
                 continue
+            pending.append((key, data.get(key), options.get(key)))
+        if not pending:
+            return
+
+        async def _emit(_now=None) -> bool:
+            """Try to fire NM for every pending desync. Return True if all OK."""
+            all_ok = True
+            for key, data_val, opt_val in pending:
+                try:
+                    await fire_stuck_signal(
+                        hass,
+                        kind="room_name_desync",
+                        key=(entry.entry_id, key),
+                        diagnosis=(
+                            f"Config entry {entry.entry_id} ({entry.title}) "
+                            f"has desynced {key}: data={data_val!r} "
+                            f"options={opt_val!r}"
+                        ),
+                        remedy=(
+                            "Re-open the room/zone options flow and save "
+                            "to trigger the write-through, or restart HA "
+                            "to run the boot migration."
+                        ),
+                    )
+                except Exception:  # noqa: BLE001
+                    all_ok = False
+                    _LOGGER.debug(
+                        "room_name_desync NM emit attempt failed "
+                        "entry_id=%s key=%s", entry.entry_id, key,
+                        exc_info=True,
+                    )
+            return all_ok
+
+        async def _emit_with_retry() -> None:
+            ok = await _emit()
+            if ok:
+                return
+            # First attempt failed — NM machinery likely not up yet.
+            # Schedule ONE deferred retry ~60s later, then swallow.
+            async def _retry(_now):
+                try:
+                    await _emit()
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "room_name_desync deferred retry failed (swallowed) "
+                        "entry_id=%s", entry.entry_id, exc_info=True,
+                    )
+
             try:
-                from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
-                    fire_stuck_signal,
-                )
-                await fire_stuck_signal(
-                    hass,
-                    kind="room_name_desync",
-                    key=(entry.entry_id, key),
-                    diagnosis=(
-                        f"Config entry {entry.entry_id} ({entry.title}) "
-                        f"has desynced {key}: data={data.get(key)!r} "
-                        f"options={options.get(key)!r}"
-                    ),
-                    remedy=(
-                        "Re-open the room/zone options flow and save to "
-                        "trigger the write-through, or restart HA to run "
-                        "the boot migration."
-                    ),
-                )
+                async_call_later(hass, 60, _retry)
             except Exception:  # noqa: BLE001
                 _LOGGER.debug(
-                    "room_name_desync NM emit failed (swallowed) "
-                    "entry_id=%s key=%s",
-                    entry.entry_id, key, exc_info=True,
+                    "room_name_desync retry schedule failed (swallowed) "
+                    "entry_id=%s", entry.entry_id, exc_info=True,
                 )
+
+        # Fire-and-forget — don't block setup on the diagnostic. Tracked
+        # via `entry.async_create_background_task` per the
+        # setup/unload-symmetry invariant (test_setup_unload_symmetry.py::
+        # TestNoUntrackedAsyncCreateTaskInScope). Task is bound to the
+        # entry so it's cancelled on unload.
+        entry.async_create_background_task(
+            hass,
+            _emit_with_retry(),
+            name=f"room_name_desync_nm[{entry.entry_id}]",
+        )
     except Exception:  # noqa: BLE001
         _LOGGER.debug(
             "room_name_desync diagnostic failed (swallowed) entry_id=%s",

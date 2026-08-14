@@ -346,6 +346,115 @@ class TestD1ZoneRenameWriteThrough:
 
 
 # ===========================================================================
+# D1 zone-rooms loops (B-HIGH-1 fix-up) — CONF_ZONE twin-write on room
+# assignment (:7864-7883) and room removal (:7877-7897).
+# ===========================================================================
+
+
+class TestD1ZoneRoomsLoopWriteThrough:
+    """B-HIGH-1 fix-up: the two zone-rooms loops must write CONF_ZONE
+    through to BOTH data AND options for every room assignment change,
+    matching the zone-delete flow's prior-art shape at :9003-9026.
+
+    Falsifier drills: revert the `data=new_data,` write on either loop
+    and the matching test below MUST turn red.
+    """
+
+    def _zone_flow_with_rooms(self, hass, zone_entry, room_entries_by_id):
+        _ensure_device_registry_shim()
+        flow = UniversalRoomAutomationOptionsFlow.__new__(
+            UniversalRoomAutomationOptionsFlow
+        )
+        flow._config_entry = zone_entry
+        flow._selected_zone_entry_id = zone_entry.entry_id
+        flow._pending_delete_rule_id = None
+        flow.hass = hass
+        flow._get_zm_zone_data = MagicMock(return_value=None)
+        flow._get_zone_entry = MagicMock(return_value=zone_entry)
+
+        async def _menu():
+            return {"type": "menu", "step_id": "zone_config_menu"}
+        flow.async_step_zone_config_menu = _menu
+
+        def _get_entry(entry_id):
+            return room_entries_by_id.get(entry_id)
+        hass.config_entries.async_get_entry = MagicMock(side_effect=_get_entry)
+        _attach_flow_stubs(flow)
+        return flow
+
+    @pytest.mark.asyncio
+    async def test_zone_rooms_room_assignment_writes_through_data(self):
+        """Site :7864 loop — assigning a room to a zone twin-writes CONF_ZONE."""
+        hass = _hass_with_mutating_update()
+        zone_entry = _FakeConfigEntry(
+            data={CONF_ENTRY_TYPE: ENTRY_TYPE_ZONE, CONF_ZONE_NAME: "MyZone"},
+            options={
+                CONF_ZONE_NAME: "MyZone",
+                CONF_ZONE_ROOMS: [],  # no rooms currently assigned
+            },
+            entry_id="zone_A",
+        )
+        room_entry = _FakeConfigEntry(
+            data={CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM, CONF_ROOM_NAME: "Room1"},
+            options={CONF_ROOM_NAME: "Room1"},  # NO CONF_ZONE yet
+            entry_id="room_1",
+        )
+        flow = self._zone_flow_with_rooms(
+            hass, zone_entry, {"room_1": room_entry}
+        )
+        await flow.async_step_zone_rooms(
+            user_input={
+                CONF_ZONE_NAME: "MyZone",
+                CONF_ZONE_DESCRIPTION: "",
+                CONF_ZONE_ROOMS: ["room_1"],
+            }
+        )
+        # Twin-write invariant on the assignment loop.
+        assert room_entry.data.get(CONF_ZONE) == "MyZone", (
+            "assignment loop must write CONF_ZONE through to entry.data"
+        )
+        assert room_entry.options.get(CONF_ZONE) == "MyZone"
+
+    @pytest.mark.asyncio
+    async def test_zone_rooms_room_removal_clears_data(self):
+        """Site :7877 loop — removing a room from a zone twin-clears CONF_ZONE."""
+        hass = _hass_with_mutating_update()
+        zone_entry = _FakeConfigEntry(
+            data={CONF_ENTRY_TYPE: ENTRY_TYPE_ZONE, CONF_ZONE_NAME: "MyZone"},
+            options={
+                CONF_ZONE_NAME: "MyZone",
+                CONF_ZONE_ROOMS: ["room_1"],  # room_1 currently in zone
+            },
+            entry_id="zone_A",
+        )
+        # Room currently assigned to MyZone in BOTH data and options.
+        room_entry = _FakeConfigEntry(
+            data={
+                CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM,
+                CONF_ROOM_NAME: "Room1",
+                CONF_ZONE: "MyZone",
+            },
+            options={CONF_ROOM_NAME: "Room1", CONF_ZONE: "MyZone"},
+            entry_id="room_1",
+        )
+        flow = self._zone_flow_with_rooms(
+            hass, zone_entry, {"room_1": room_entry}
+        )
+        await flow.async_step_zone_rooms(
+            user_input={
+                CONF_ZONE_NAME: "MyZone",
+                CONF_ZONE_DESCRIPTION: "",
+                CONF_ZONE_ROOMS: [],  # removed room_1
+            }
+        )
+        # Twin-clear invariant on the removal loop.
+        assert room_entry.data.get(CONF_ZONE) == "", (
+            "removal loop must clear CONF_ZONE in entry.data (not options-only)"
+        )
+        assert room_entry.options.get(CONF_ZONE) == ""
+
+
+# ===========================================================================
 # D2 — Boot migration
 # ===========================================================================
 
