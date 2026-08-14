@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-14T16:38:57-05:00_ - _Data commit: `5006258676cd`_ - _last_reconciled: 2026-08-14_
+_Generated: 2026-08-14T17:07:34-05:00_ - _Data commit: `35bca1d6e699`_ - _last_reconciled: 2026-08-14_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,7 +11,7 @@ _Generated: 2026-08-14T16:38:57-05:00_ - _Data commit: `5006258676cd`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 2 |
+| 📥 Inbox | 4 |
 | 🧭 Pre-planning | 9 |
 | 📝 Planned | 3 |
 | 🔨 In progress | 2 |
@@ -19,11 +19,10 @@ _Generated: 2026-08-14T16:38:57-05:00_ - _Data commit: `5006258676cd`_ - _last_r
 | 🚀 Shipped (organic open) | 32 |
 | ⏸️ Waiting on operator | 2 |
 | ⏳ Waiting on me (Claude) | 1 |
-| 🅿️ Parked | 1 |
-| ✅ Done | 0 |
-| ❓ Other | 1 |
+| 🅿️ Parked | 2 |
+| ✅ Done | 1 |
 
-## 📥 Inbox (2)
+## 📥 Inbox (4)
 _raw capture_
 
 ### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab
@@ -41,6 +40,23 @@ thread: **dashboarding** - status: **inbox** - approval: **explicit**
   - `design_notes`: Anti-word-vomit rules applied: (1) narrative first — pause_reason_human leads, and nothing on the dashboard consumed that attribute before; (2) CONDITIONAL rendering — must_start_by, force_charge_until, excess-solar and fill-target only ...
   - `followup_candidate`: retrofit conditional rendering to the Battery Strategy Detail card (same section group, same defect, ~30 min) — only if the operator endorses this card's style
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
+
+### `PWA-CONTROL-LIST-1` - Per-room controllable-entities attr so the PWA stops slugify-guessing actuators (AV-Closet-Shelly problem)
+thread: **dashboarding** - status: **inbox** - approval: **unreviewed**
+- **Origin:** 2026-07-13 - Plan inventory audit 2026-08-14 found PLANNING_g1_room_control_list_attrs.md unbuilt + uncarded — PWA M2 gap G1.
+- **Why:** PWA guesses a room's actuators by slugifying the room name; wrong for rooms whose real device is a differently-named Shelly relay (AV Closet). A per-room control_list attribute (additive, no behavior change, no new entities) gives the PW...
+- **Next:** ura-planner scope (small); Tier 1 additive attr on room sensors.
+- **Tags:** audit-first
+- **Parsimony:** [BUILD] PWA cannot reliably map a room to its controllable entities
+- **Refs:** docs/planning/PLANNING_g1_room_control_list_attrs.md
+
+### `ZONE-CAM-PERSON-GUARD-1` - Durable device_class guard so a Frigate MOTION sensor cannot be trusted as camera person-confirmation in zone occupancy-confidence
+thread: **presence** - status: **inbox** - approval: **unreviewed**
+- **Origin:** 2026-07-13 - Plan inventory audit 2026-08-14: PLANNING_zone_camera_person_only_guard.md unbuilt + uncarded; the 2026-06-08 live finding was only fixed by config removal, not code.
+- **Why:** CONF_ZONE_CAMERAS entries are trusted as person-confirmation by the presence Source-3 occupancy-confidence scorer (-> hvac.py stale-sensor guard). A motion-only Frigate sensor mis-filed there is trusted as a person confirm. No device_cla...
+- **Next:** ura-planner; Tier 2 (touches occupancy-confidence scorer).
+- **Parsimony:** [BUILD] a non-person camera sensor in CONF_ZONE_CAMERAS is trusted as person-confirmation
+- **Refs:** docs/planning/PLANNING_zone_camera_person_only_guard.md
 
 ### `PATH-ALPHA-DENOM-1` - Path-alpha away inference structurally dead when all trackers LOST/STALE — trusted denominator empties; NO existing card fixes it
 thread: **presence** - status: **inbox** - approval: **approved_after_investigation**
@@ -668,8 +684,17 @@ thread: **ops** - status: **waiting_me** - approval: **implied**
 - **Why:** reason-ledger first night, Frigate car/dog/cat first events, snapshot-fix organic proof, v5.57/58 organic criteria
 - **Next:** check + report each
 
-## 🅿️ Parked (1)
+## 🅿️ Parked (2)
 _revisit-trigger set_
+
+### `HOUSE-STATE-UTILIZATION-EPIC` - ROADMAP EPIC — give operational meaning to under-consumed house states (HOME_DAY dead, AWAY thin); rungs 2-4 unbuilt
+thread: **presence** - status: **parked** - approval: **explicit**
+- **Origin:** 2026-07-30 - Plan inventory audit 2026-08-14: PLANNING_house_state_utilization.md is an operator-ratified multi-cycle roadmap; rung 1 shipped in a parallel cycle, rungs 2-4 unbuilt.
+- **Why:** Roadmap marker, not one build — several house states carry little operational weight. Carded as an epic so the rungs are not lost; each rung becomes its own Tier-2 cycle when pulled.
+- **Next:** Operator picks a rung to activate; until then held as roadmap.
+- **Refs:** docs/planning/PLANNING_house_state_utilization.md
+- **Forensic keys (1):**
+  - `revisit_trigger`: Pull a rung when a concrete house-state-driven behavior is wanted; decompose per-rung then.
 
 ### `ARRESTER-BOOT-BLIND-1` - Arrester boot-window manual blindness — manual holds predating the listener are unclassifiable
 thread: **hvac** - status: **parked** - approval: **unreviewed**
@@ -681,16 +706,11 @@ thread: **hvac** - status: **parked** - approval: **unreviewed**
   - `sharp_problem`: Gaps: (1) boot reconciliation — on listener attach, classify any zone ALREADY in manual as inherited-manual and start standard arrest evaluation; (2) verify _handle_climate_change classifies within-manual setpoint deltas (manual->manual ...
   - `related`: Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire. RESOLVED 2026-08-12: operator power-cycled Enpower; all 3 reserve legs coherent at 10 (local number + envoy sensor + ...
 
-## ✅ Done (0)
+## ✅ Done (1)
 _closed, evidence in refs_
 
-_(none)_
-
-## ❓ Other (1)
-_unknown status bucket_
-
 ### `KP-ESCALATE-1` - Known-person / face-alert path (no URA successor)
-thread: **security** - status: **declined** - approval: **blocked**
+thread: **security** - status: **done** - approval: **blocked**
 - **Origin:** 2026-08-07 - discovered via purged Frigate_KnownPerson_* files + AUDIT rec 5
 - **Why:** face-recognition paging has no URA successor; lost when the doorbell automation retires unless built into perimeter NM
 - **Tags:** institutional-context, audit-first

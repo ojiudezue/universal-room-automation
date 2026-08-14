@@ -1064,6 +1064,47 @@ cards:
   fix_sketch: '_check_room_name_unique in async_step_basic_setup -> async_show_form error on collision (~15 LoC, Tier 1-2). Live-validation D-block for the rename cycle includes a do-not-rename-to-existing sanity note meanwhile.'
   next: 'Small cycle after v5.75.0; consider folding into the next config-flow-touching batch.'
 
+- id: PWA-CONTROL-LIST-1
+  title: Per-room controllable-entities attr so the PWA stops slugify-guessing actuators (AV-Closet-Shelly problem)
+  thread: dashboarding
+  status: inbox
+  approval: unreviewed
+  tags: [audit-first]
+  origin:
+    date: '2026-07-13'
+    gist: 'Plan inventory audit 2026-08-14 found PLANNING_g1_room_control_list_attrs.md unbuilt + uncarded — PWA M2 gap G1.'
+  why: 'PWA guesses a room''s actuators by slugifying the room name; wrong for rooms whose real device is a differently-named Shelly relay (AV Closet). A per-room control_list attribute (additive, no behavior change, no new entities) gives the PWA ground truth. grep confirms zero control_list/controllable attrs exist today.'
+  parsimony: {problem: 'PWA cannot reliably map a room to its controllable entities', verdict: BUILD}
+  next: 'ura-planner scope (small); Tier 1 additive attr on room sensors.'
+  refs: [docs/planning/PLANNING_g1_room_control_list_attrs.md]
+
+- id: ZONE-CAM-PERSON-GUARD-1
+  title: Durable device_class guard so a Frigate MOTION sensor cannot be trusted as camera person-confirmation in zone occupancy-confidence
+  thread: presence
+  status: inbox
+  approval: unreviewed
+  origin:
+    date: '2026-07-13'
+    gist: 'Plan inventory audit 2026-08-14: PLANNING_zone_camera_person_only_guard.md unbuilt + uncarded; the 2026-06-08 live finding was only fixed by config removal, not code.'
+  why: 'CONF_ZONE_CAMERAS entries are trusted as person-confirmation by the presence Source-3 occupancy-confidence scorer (-> hvac.py stale-sensor guard). A motion-only Frigate sensor mis-filed there is trusted as a person confirm. No device_class filter exists near Source 3. Presence<->HVAC ripple.'
+  parsimony: {problem: 'a non-person camera sensor in CONF_ZONE_CAMERAS is trusted as person-confirmation', verdict: BUILD}
+  next: 'ura-planner; Tier 2 (touches occupancy-confidence scorer).'
+  refs: [docs/planning/PLANNING_zone_camera_person_only_guard.md]
+
+- id: HOUSE-STATE-UTILIZATION-EPIC
+  title: 'ROADMAP EPIC — give operational meaning to under-consumed house states (HOME_DAY dead, AWAY thin); rungs 2-4 unbuilt'
+  thread: presence
+  status: parked
+  approval: explicit
+  approved_by: 'operator (per plan header) — "I like the recommendations even rung 4"'
+  origin:
+    date: '2026-07-30'
+    gist: 'Plan inventory audit 2026-08-14: PLANNING_house_state_utilization.md is an operator-ratified multi-cycle roadmap; rung 1 shipped in a parallel cycle, rungs 2-4 unbuilt.'
+  why: 'Roadmap marker, not one build — several house states carry little operational weight. Carded as an epic so the rungs are not lost; each rung becomes its own Tier-2 cycle when pulled.'
+  revisit_trigger: 'Pull a rung when a concrete house-state-driven behavior is wanted; decompose per-rung then.'
+  next: 'Operator picks a rung to activate; until then held as roadmap.'
+  refs: [docs/planning/PLANNING_house_state_utilization.md]
+
 - id: GARAGE-EGRESS-APPLY-1
   title: 'APPLY the 2026-08-10 garage-camera ruling — garage_a/garage_b into CONF_EGRESS_CAMERAS at the NEXT deploy restart (operator said do not forget)' 
   thread: security
@@ -1932,7 +1973,7 @@ cards:
 - id: KP-ESCALATE-1
   title: Known-person / face-alert path (no URA successor)
   thread: security
-  status: declined
+  status: done
   approval: blocked
   tags:
   - institutional-context
