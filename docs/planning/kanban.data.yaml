@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-08-13'
+  last_reconciled: '2026-08-14'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
