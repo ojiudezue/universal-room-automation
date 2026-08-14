@@ -5337,6 +5337,11 @@ from .const import (
     CONF_TVOC_SUSTAINED_S as _CONF_TVOC_SUSTAINED_S,
     CONF_SAFETY_DISCOVERY_BLOCKLIST as _CONF_SAFETY_DISCOVERY_BLOCKLIST,
     CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS as _CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS,
+    # STUCK-SENSOR-1 B-MED-2 fix-up (2026-08-13): both stuck-signal knobs
+    # are consumed via `nm_cycle_a_knob` (cache flushed by CM options-
+    # update listener) — no live-attr push, no CM reload needed.
+    CONF_STUCK_SIGNAL_NM_ENABLED as _CONF_STUCK_SIGNAL_NM_ENABLED,
+    CONF_STUCK_SENSOR_EXCLUSION_ENABLED as _CONF_STUCK_SENSOR_EXCLUSION_ENABLED,
     # NM Cycle B fix-up (2026-07-20, B-B1): dry-run + token-bucket
     # entity-owned CM options keys must reload-suppress + no-live-attr
     # (Number/Switch entities call setters directly; NM re-reads options
@@ -5386,6 +5391,9 @@ _NM_A2_KEYS: frozenset[str] = frozenset({
     _CONF_TVOC_SUSTAINED_S,
     _CONF_SAFETY_DISCOVERY_BLOCKLIST,
     _CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS,
+    # STUCK-SENSOR-1 B-MED-2 fix-up (2026-08-13): stuck-signal knobs.
+    _CONF_STUCK_SIGNAL_NM_ENABLED,
+    _CONF_STUCK_SENSOR_EXCLUSION_ENABLED,
 })
 
 # The 14 HVAC tunable factory CONFs share an identical dispatch pattern:

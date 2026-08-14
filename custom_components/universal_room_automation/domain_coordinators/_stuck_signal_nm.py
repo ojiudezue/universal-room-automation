@@ -121,6 +121,7 @@ async def _write_stuck_anomaly(
     kind: str,
     key: Tuple[Any, ...],
     diagnosis: str,
+    exclusion_engaged: bool = False,
 ) -> None:
     """Persist a POINT_IN_TIME anomaly row for a stuck-signal emit.
 
@@ -141,10 +142,15 @@ async def _write_stuck_anomaly(
     database = hass.data.get(_DOMAIN, {}).get("database")
     if database is None:
         return
-    payload = build_context_json(
-        source_signal="stuck_signal",
-        extra={"kind": kind, "key": list(key), "diagnosis": diagnosis},
-    )
+    # STUCK-SENSOR-1 MED-2: `exclusion_engaged` present in the extra
+    # dict ONLY when True. Pre-cycle rows omit the field entirely so
+    # ledger_golden fixtures replay byte-identical.
+    extra: dict[str, Any] = {
+        "kind": kind, "key": list(key), "diagnosis": diagnosis,
+    }
+    if exclusion_engaged:
+        extra["exclusion_engaged"] = True
+    payload = build_context_json(source_signal="stuck_signal", extra=extra)
     event = AnomalyEvent(
         coordinator="stuck_signal",
         type=str(kind),
@@ -164,6 +170,7 @@ async def fire_stuck_signal(
     remedy: str = "",
     now: datetime | None = None,
     title_override: str | None = None,
+    exclusion_engaged: bool = False,
 ) -> bool:
     """Fire a stuck_signal NM once per (kind, key) per calendar day.
 
@@ -203,8 +210,13 @@ async def fire_stuck_signal(
         # attributable to a room.
         title = title_override or f"Stuck signal: {kind}"
         message = diagnosis
+        # STUCK-SENSOR-1 D2b (MED-2): append the exclusion_engaged marker
+        # to the message body ONLY when True; absent otherwise so
+        # existing per-kind diagnosis strings remain byte-identical.
+        if exclusion_engaged:
+            message = f"{message}\n[exclusion_engaged: true]"
         if remedy:
-            message = f"{diagnosis}\n\nSuggested remedy: {remedy}"
+            message = f"{message}\n\nSuggested remedy: {remedy}"
         await nm.async_notify(
             coordinator_id=STUCK_SIGNAL_NM_COORDINATOR_ID,
             severity=Severity.MEDIUM,
@@ -230,7 +242,10 @@ async def fire_stuck_signal(
         # (kind,key) per day; no write-flood risk). Wrapped: a DB failure
         # must NEVER block the NM emit path above.
         try:
-            await _write_stuck_anomaly(hass, kind, key, diagnosis)
+            await _write_stuck_anomaly(
+                hass, kind, key, diagnosis,
+                exclusion_engaged=exclusion_engaged,
+            )
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
                 "stuck_signal anomaly write failed (swallowed): kind=%s key=%s",

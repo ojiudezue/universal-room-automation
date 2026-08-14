@@ -178,6 +178,10 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     "hvac_arrester_immune_persons",
     # Temp Arrester Override marker (B-M2): switch write-through key.
     "hvac_temp_arrester_override_was_active",
+    # STUCK-SENSOR-1 B-MED-2 fix-up (2026-08-13): both stuck-signal knobs
+    # added to _NM_A2_KEYS which is splatted into OPTIONS_RELOAD_SUPPRESS_KEYS.
+    "stuck_signal_nm_enabled",
+    "stuck_sensor_exclusion_enabled",
 }
 
 
@@ -225,6 +229,9 @@ def _verify_hand_typed_conf_literals() -> None:
         "nm_a5_safety_discovery_blocklist": "CONF_SAFETY_DISCOVERY_BLOCKLIST",
         "nm_a2_optimizer_high_allowlist_dimensions":
             "CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS",
+        # STUCK-SENSOR-1 B-MED-2 fix-up (2026-08-13).
+        "stuck_signal_nm_enabled": "CONF_STUCK_SIGNAL_NM_ENABLED",
+        "stuck_sensor_exclusion_enabled": "CONF_STUCK_SENSOR_EXCLUSION_ENABLED",
     }
     mismatches: list[str] = []
     for hand_value, conf_name in hand_typed_values.items():
@@ -302,7 +309,9 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     # +1 hvac_temp_arrester_override_was_active (fix-up 2026-08-06:
     #    marker option so an unrelated reload doesn't silently drop the
     #    operator's engagement without a signal) -> 87
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 87
+    # +2 STUCK-SENSOR-1 B-MED-2 fix-up (2026-08-13): stuck_signal_nm_enabled
+    #    + stuck_sensor_exclusion_enabled added to _NM_A2_KEYS -> 89
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 89
 
 
 # ---------------------------------------------------------------------------
@@ -471,6 +480,10 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_NM_MUTE_DEFAULT_DURATION_MINUTES":      "nm_mute_default_duration_minutes",
         # NM Cycle C-2 (2026-07-22, D2) — additive-only life-safety extras.
         "_CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS":          "nm_extra_life_safety_hazards",
+        # STUCK-SENSOR-1 B-MED-2 fix-up (2026-08-13) — both stuck-signal
+        # knobs added to `_NM_A2_KEYS`.
+        "_CONF_STUCK_SIGNAL_NM_ENABLED":               "stuck_signal_nm_enabled",
+        "_CONF_STUCK_SENSOR_EXCLUSION_ENABLED":        "stuck_sensor_exclusion_enabled",
     }
     mod = ast.Module(body=body, type_ignores=[])
     code = compile(mod, str(PKG / "__init__.py"), "exec")

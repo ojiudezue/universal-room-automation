@@ -2352,6 +2352,15 @@ class AutomationHealthSensor(UniversalRoomEntity, SensorEntity):
         attrs["stuck_sensors"] = stuck
         attrs["stuck_sensor_count"] = len(stuck)
 
+        # STUCK-SENSOR-1 D2a — current-tick D1 exclusion set (dutycycle
+        # sensors promoted into the exclusion path). Empty list when
+        # no exclusion engaged. Shape: [(entity_id, kind, engaged_at_iso)].
+        _excluded_now = getattr(c, "_dutycycle_excluded_now", {}) or {}
+        attrs["excluded_sensors"] = [
+            (eid, "dutycycle", ts.isoformat() if ts else None)
+            for eid, ts in _excluded_now.items()
+        ]
+
         # --- Tier 1: Debounce ---
         if c._occupancy_first_detected is not None:
             elapsed = (now - c._occupancy_first_detected).total_seconds()

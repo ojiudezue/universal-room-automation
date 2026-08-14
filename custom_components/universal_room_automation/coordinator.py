@@ -39,6 +39,10 @@ from .const import (
     DEFAULT_STUCK_SENSOR_DUTYCYCLE_WINDOW_MIN,
     STUCK_D2_FRESH_MOTION_SECONDS,
     STUCK_D2_MIN_MOTION_TRANSITIONS,
+    STUCK_EXCLUSION_ENABLED,
+    CORROBORATOR_DISAGREE_S,
+    CONF_STUCK_SENSOR_EXCLUSION_ENABLED,
+    DEFAULT_STUCK_SENSOR_EXCLUSION_ENABLED,
     DOMAIN,
     SCAN_INTERVAL_OCCUPANCY,
     CONF_MOTION_SENSORS,
@@ -173,11 +177,17 @@ def _read_house_state_str(hass) -> str | None:
 async def _fire_stuck_sensor_nm(
     hass: HomeAssistant, room_name: str, entity_id: str, kind: str,
     hours: float | None = None,
+    exclusion_engaged: bool = False,
 ) -> None:
     """Stuck-Signal D4-P22 (+D2 duty-cycle) NM emit via shared helper.
 
     A-LOW-2 fix-up 2026-07-28: `hours` is optional and only meaningful for
     kind='continuous'. Callers for dutycycle pass None (was: fake 0.0).
+
+    STUCK-SENSOR-1 D2b (MED-2): `exclusion_engaged` propagates through
+    to `fire_stuck_signal` — the diagnosis body carries the marker ONLY
+    when True. Pre-cycle rows omit the field entirely (byte-identity
+    guarantee INV-STUCK-3).
     """
     from .domain_coordinators._stuck_signal_nm import fire_stuck_signal  # noqa: PLC0415
     if kind == "continuous":
@@ -196,6 +206,7 @@ async def _fire_stuck_sensor_nm(
         key=(room_name, entity_id),
         diagnosis=diag,
         remedy="power-cycle the sensor; if recurrent, replace / relocate",
+        exclusion_engaged=exclusion_engaged,
     )
 
 
@@ -310,6 +321,53 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # spamming asyncio task creation between per-day boundaries.
         # Recovered by _stuck_sensor_fired.discard when the sensor clears.
         self._stuck_sensor_fired: set[tuple[str, str, str]] = set()
+
+        # STUCK-SENSOR-1 D1 — per-entity last transition timestamp for
+        # corroborator-disagreement window. Populated inside
+        # `_detect_duty_cycle_stuck` on any observed edge. Missing key
+        # means "never observed a transition since init" — treat init
+        # time as the last-fire so a genuinely-quiet corroborator does
+        # not spuriously block the promotion once boot-settle elapses.
+        self._last_corroborator_fire: dict[str, datetime] = {}
+        # STUCK-SENSOR-1 D3 (MED-1 restore-poisoning guard) — set of
+        # sensor entity_ids observed live-ON at least once post-restart.
+        # A restored `_sensor_on_since` timestamp gains NO exclusion
+        # consequence until BOTH the sensor is in this set AND
+        # `_d2_boot_settle_done()` is True.
+        self._post_restart_seen_on: set[str] = set()
+        # STUCK-SENSOR-1 D1 — RELEASE-edge tracking. Sensors excluded on
+        # the previous tick, so we can fire a paired recovered NM when
+        # the corroborator returns / house enters sleep / kill switch flips.
+        self._dutycycle_excluded_last_tick: set[str] = set()
+        # STUCK-SENSOR-1 D2a — surface the current tick's exclusion set
+        # on RoomInsightSensor.
+        self._dutycycle_excluded_now: dict[str, datetime] = {}
+        # STUCK-SENSOR-1 D3 persistence — dedup date stamp so a restart
+        # within the same calendar day does not re-fire NM latches.
+        self._stuck_sensor_fired_date: str | None = None
+        # HIGH-A1 fix-up (2026-08-13): dirty flag for D3 persistence. Only
+        # snapshots of `_sensor_on_since` + `_stuck_sensor_fired` are
+        # persisted, and only when they actually changed since the last
+        # save. Prevents per-tick write-flood (2026-06-09 memory).
+        self._stuck_state_last_saved_snapshot: tuple = ()
+        # MED-A1 fix-up (2026-08-13): SEPARATE per-day dedup latch for
+        # the D1 engage/release notes so a re-engage after release does
+        # NOT re-fire the underlying STUCK NM (the pre-cycle contract:
+        # 1 stuck NM per (room, sensor) per day). Keyed by
+        # ("dutycycle_excluded", room, entity_id). Distinct from
+        # `_stuck_sensor_fired` which owns the STUCK NM latch.
+        self._stuck_excluded_fired: set[tuple[str, str, str]] = set()
+        # B-MED-1 fix-up (2026-08-13): tick-scoped "detector completed
+        # without exception" flag. Set True at the end of the D2 try
+        # block; the release-edge scan runs ONLY when True so a mid-
+        # detector exception cannot mass-release the exclusion set (which
+        # was reset to {} before the try) and unlatch every engagement.
+        self._d2_completed_cleanly: bool = False
+        # STUCK-SENSOR-1 D1 — last-tick effective corroborator set
+        # published by `_detect_duty_cycle_stuck` for the promotion
+        # helper. Empty list = no corroborator wired → predicate (3)
+        # fails → INV-STUCK-2 (notify-only stays).
+        self._effective_corroborators_last_tick: list[str] = []
 
         # Energy accumulator timing
         self._last_energy_calc_time: datetime | None = None
@@ -1130,6 +1188,20 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             self._trailing_refresh_unsub()
             self._trailing_refresh_unsub = None
 
+        # STUCK-SENSOR-1 D3: restore per-room stuck-state tally across
+        # HA restarts BEFORE the first_refresh tick. Uses HA Store (no
+        # net-new SQLite writer per 2026-06-09 write-flood memory).
+        # MED-1 guard (in the P22 stuck-set builder above) prevents a
+        # restored 3h59m `_sensor_on_since` from firing an instant
+        # exclusion — restore is safe by construction.
+        try:
+            await self._async_load_stuck_state()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "async_load_stuck_state raised (swallowed) for room %s",
+                room_name, exc_info=True,
+            )
+
         # Call parent first_refresh to fetch initial data
         await super().async_config_entry_first_refresh()
         
@@ -1646,7 +1718,27 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             prev = self._sensor_last_motion_state.get(msensor)
             if prev is not None and prev != on_now:
                 motion_deque.append(mono)
+                # STUCK-SENSOR-1 D1: per-entity wallclock stamp on any
+                # observed edge. Defensive getattr so a test-stub coord
+                # (`_StubCoord` in test_sensor_capability_and_role.py)
+                # without the field does not raise.
+                _lcf = getattr(self, "_last_corroborator_fire", None)
+                if _lcf is not None:
+                    _lcf[msensor] = now
+            elif prev is None:
+                # First observation this session — seed the baseline
+                # so a corroborator quiet forever after boot still has
+                # a starting stamp.
+                _lcf = getattr(self, "_last_corroborator_fire", None)
+                if _lcf is not None:
+                    _lcf.setdefault(msensor, now)
             self._sensor_last_motion_state[msensor] = on_now
+        # STUCK-SENSOR-1 D1 — publish the effective-corroborator set for
+        # the promotion helper (avoids re-computing per-tick outside).
+        try:
+            self._effective_corroborators_last_tick = list(effective_corroborators)
+        except AttributeError:
+            pass
         # FIX 4 (A-HIGH-1) 2026-07-28: corroboration shield tightened.
         # A single stale PIR blip inside the 60-min window used to disable
         # detection permanently. Now: corroborated iff ≥2 transitions in
@@ -1840,6 +1932,259 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             )
         except Exception:  # noqa: BLE001 — fail-open (rare edge)
             return True
+
+    def _release_edge_scan_should_run(self) -> bool:
+        """STUCK-SENSOR-1 B-MED-1 fix-up (2026-08-13) — bindable guard.
+
+        Extracted from the release-edge scan predicate so mutation
+        drills can neuter this single site and immediately red
+        `test_d2_exception_preserves_exclusion_no_recovery_storm`.
+        Returns True only if the D2 detector completed cleanly this
+        tick; a mid-detector exception leaves the flag False (its
+        default at tick start), suppressing the release scan so no
+        spurious recovery-NM storm fires and no engagement is unlatched.
+        """
+        return bool(self._d2_completed_cleanly)
+
+    def _p22_stuck_sensor_set(self, now: datetime) -> set[str]:
+        """STUCK-SENSOR-1 D3 MED-1 — P22 stuck-set builder with
+        restore-poisoning boot guard.
+
+        Extracted from the update-tick body for testability (bind onto
+        a stub coord with `_sensor_on_since` + `_post_restart_seen_on`
+        + `_d2_boot_settle_done` + `_stuck_sensor_hours` populated).
+
+        Returns the set of sensor entity_ids whose continuous-on
+        timestamp has exceeded `_stuck_sensor_hours` AND for which
+        BOTH MED-1 guards are satisfied:
+          (i) `_d2_boot_settle_done()` is True, AND
+          (ii) the sensor has been observed live-ON at least once
+               post-restart (in `_post_restart_seen_on`).
+
+        A restored `_sensor_on_since` timestamp gains NO exclusion
+        consequence on the first post-restart tick because the sensor
+        will not yet be in `_post_restart_seen_on`.
+        """
+        _boot_settled = self._d2_boot_settle_done()
+        return {
+            s for s, since in self._sensor_on_since.items()
+            if (now - since).total_seconds() / 3600 >= self._stuck_sensor_hours
+            and _boot_settled
+            and s in self._post_restart_seen_on
+        }
+
+    def _stuck_store_key(self) -> str:
+        """STUCK-SENSOR-1 D3 — per-room HA Store key."""
+        return f"stuck_state_{self.entry.entry_id}"
+
+    async def _async_load_stuck_state(self) -> None:
+        """STUCK-SENSOR-1 D3 — restore `_sensor_on_since` +
+        `_stuck_sensor_fired` from HA Store on boot.
+
+        MED-1 guard ensures restored `_sensor_on_since` cannot trigger
+        an instant P22 exclusion — the sensor must be observed live-ON
+        AND boot-settle must be done. Same-calendar-day dedup survives
+        so a restart within a day does not re-fire NM latches.
+        """
+        try:
+            from homeassistant.helpers.storage import Store  # noqa: PLC0415
+            store: Store = Store(
+                self.hass, version=1, key=self._stuck_store_key(),
+            )
+            self._stuck_store = store
+            data = await store.async_load()
+            if not data or not isinstance(data, dict):
+                return
+            since_map = data.get("sensor_on_since", {}) or {}
+            for eid, iso_ts in since_map.items():
+                try:
+                    self._sensor_on_since[eid] = dt_util.parse_datetime(iso_ts)
+                except Exception:  # noqa: BLE001
+                    continue
+            fired = data.get("stuck_sensor_fired", []) or []
+            excluded_fired = data.get("stuck_excluded_fired", []) or []
+            fired_date = data.get("fired_date")
+            today = dt_util.now().date().isoformat()
+            if fired_date == today:
+                for entry in fired:
+                    if isinstance(entry, (list, tuple)) and len(entry) == 3:
+                        self._stuck_sensor_fired.add(tuple(entry))
+                for entry in excluded_fired:
+                    if isinstance(entry, (list, tuple)) and len(entry) == 3:
+                        self._stuck_excluded_fired.add(tuple(entry))
+                self._stuck_sensor_fired_date = fired_date
+            _LOGGER.info(
+                "Restored stuck-state for room %s: %d sensor_on_since "
+                "entries, %d fired-latches (date=%s)",
+                self.entry.data.get("room_name", "unknown"),
+                len(since_map), len(self._stuck_sensor_fired), fired_date,
+            )
+        except Exception:  # noqa: BLE001 — fail-open
+            _LOGGER.debug(
+                "load_stuck_state failed (swallowed)", exc_info=True,
+            )
+
+    def _stuck_state_snapshot(self) -> tuple:
+        """HIGH-A1 fix-up (2026-08-13) — hashable snapshot of the two
+        persistable fields, used to decide whether a save is needed.
+
+        Uses a sorted-tuple shape so equal states hash equal regardless
+        of dict/set iteration order.
+        """
+        today = dt_util.now().date().isoformat()
+        return (
+            tuple(sorted(
+                (eid, ts.isoformat())
+                for eid, ts in self._sensor_on_since.items()
+                if ts is not None
+            )),
+            tuple(sorted(tuple(k) for k in self._stuck_sensor_fired)),
+            tuple(sorted(tuple(k) for k in self._stuck_excluded_fired)),
+            today,
+        )
+
+    def _schedule_stuck_state_save(self) -> None:
+        """HIGH-A1 fix-up (2026-08-13) — dirty-gated + delayed persist.
+
+        Only schedules a Store write when the (sensor_on_since,
+        stuck_sensor_fired, today) snapshot has actually changed since
+        the last save. Routes through `Store.async_delay_save` with a
+        60s coalescing window so a burst of ticks that flip the same
+        state collapses to one write. Contrast with the initial-build
+        code path which called `store.async_save` unconditionally per
+        tick — that path caused write-flood risk (2026-06-09 memory).
+
+        Note: `Store.async_save` does NOT internally debounce; only
+        `async_delay_save` does. The prior comment claiming otherwise
+        was FALSE and has been deleted.
+        """
+        try:
+            snapshot = self._stuck_state_snapshot()
+            if snapshot == self._stuck_state_last_saved_snapshot:
+                return
+            self._stuck_state_last_saved_snapshot = snapshot
+            store = getattr(self, "_stuck_store", None)
+            if store is None:
+                from homeassistant.helpers.storage import (  # noqa: PLC0415
+                    Store,
+                )
+                store = Store(
+                    self.hass, version=1, key=self._stuck_store_key(),
+                )
+                self._stuck_store = store
+            today = snapshot[3]
+            # Cross-midnight rollover: drop stale fired-set BEFORE
+            # snapshotting for save so the persisted payload matches
+            # what a fresh boot would compute.
+            if self._stuck_sensor_fired_date not in (None, today):
+                self._stuck_sensor_fired.clear()
+                self._stuck_excluded_fired.clear()
+            self._stuck_sensor_fired_date = today
+            payload_provider = self._stuck_state_payload_provider
+            store.async_delay_save(payload_provider, 60.0)
+        except Exception:  # noqa: BLE001 — fail-open
+            _LOGGER.debug(
+                "schedule_stuck_state_save failed (swallowed)",
+                exc_info=True,
+            )
+
+    def _stuck_state_payload_provider(self) -> dict[str, Any]:
+        """HIGH-A1 fix-up (2026-08-13) — payload callable passed to
+        `Store.async_delay_save`; called by HA at flush time so the
+        persisted snapshot reflects the freshest state at that moment
+        (not the state at schedule time)."""
+        today = dt_util.now().date().isoformat()
+        return {
+            "sensor_on_since": {
+                eid: ts.isoformat()
+                for eid, ts in self._sensor_on_since.items()
+                if ts is not None
+            },
+            "stuck_sensor_fired": [
+                list(k) for k in self._stuck_sensor_fired
+            ],
+            "stuck_excluded_fired": [
+                list(k) for k in self._stuck_excluded_fired
+            ],
+            "fired_date": today,
+        }
+
+    async def _async_save_stuck_state(self) -> None:
+        """STUCK-SENSOR-1 D3 — DEPRECATED direct-save path.
+
+        Retained only as a wrapper around `_schedule_stuck_state_save`
+        so any external caller / test that still awaits it does not
+        break; the actual write goes through the delayed-save path.
+        """
+        self._schedule_stuck_state_save()
+
+    def _stuck_exclusion_enabled(self) -> bool:
+        """STUCK-SENSOR-1 D1 predicate (1): AND-composed kill switches.
+
+        Rung 1 module const AND rung 2 options-flow toggle. Either False
+        disables the promotion; behaviour reverts to pre-cycle notify-only.
+        """
+        if not STUCK_EXCLUSION_ENABLED:
+            return False
+        try:
+            from .domain_coordinators._nm_cycle_a import (  # noqa: PLC0415
+                nm_cycle_a_knob,
+            )
+            return bool(nm_cycle_a_knob(
+                self.hass,
+                CONF_STUCK_SENSOR_EXCLUSION_ENABLED,
+                DEFAULT_STUCK_SENSOR_EXCLUSION_ENABLED,
+            ))
+        except Exception:  # noqa: BLE001 — fail-safe (default enabled)
+            return DEFAULT_STUCK_SENSOR_EXCLUSION_ENABLED
+
+    def _promote_dutycycle_to_exclusion(
+        self, sensor: str, now: datetime,
+    ) -> bool:
+        """STUCK-SENSOR-1 D1 — the four AND-composed promotion predicates.
+
+        Returns True iff a duty-flagged sensor should be added to the
+        room's `stuck_sensors` exclusion set THIS TICK. See
+        docs/planning/PLANNING_stuck_sensor_consequence.md §D1 for the
+        derivation of each predicate.
+
+        Predicates (all must hold):
+          (1) STUCK_EXCLUSION_ENABLED (const) AND
+              CONF_STUCK_SENSOR_EXCLUSION_ENABLED (options) both True.
+          (2) `_d2_house_state_allows()` True (i.e., house NOT in
+              SLEEP / WAKING / HOME_NIGHT). INV-STUCK-2 comfort guard.
+          (3) ≥1 entity in `_effective_corroborators_last_tick`. Empty
+              set = notify-only stays (INV-STUCK-2; matches the
+              AUDIT_away_transition no-corroborator class).
+          (4) Every effective corroborator reads OFF AND has been OFF
+              for ≥ CORROBORATOR_DISAGREE_S seconds (per-entity
+              wallclock timestamp maintained by `_detect_duty_cycle_stuck`).
+        """
+        # (1) kill switches.
+        if not self._stuck_exclusion_enabled():
+            return False
+        # (2) sleep-doctrine defer.
+        if not self._d2_house_state_allows():
+            return False
+        # (3) at least one wired corroborator.
+        corroborators = self._effective_corroborators_last_tick or []
+        if not corroborators:
+            return False
+        # (4) every corroborator OFF AND OFF for ≥ CORROBORATOR_DISAGREE_S.
+        for c in corroborators:
+            try:
+                if self._is_sensor_on(c):
+                    return False
+                last_fire = self._last_corroborator_fire.get(c)
+                if last_fire is None:
+                    # No baseline observed yet — treat as still-in-window
+                    # (fail-safe: refuse to exclude on cold state).
+                    return False
+                if (now - last_fire).total_seconds() < CORROBORATOR_DISAGREE_S:
+                    return False
+            except Exception:  # noqa: BLE001 — fail-safe
+                return False
+        return True
 
     def _evaluate_mmwave_demoted_latch(
         self, room_name: str, motion_detected: bool,
@@ -2122,13 +2467,35 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 if self._is_sensor_on(sensor):
                     if sensor not in self._sensor_on_since:
                         self._sensor_on_since[sensor] = now
+                    # STUCK-SENSOR-1 D3 MED-1: record first post-restart
+                    # live-ON observation. Restored `_sensor_on_since`
+                    # gains no exclusion consequence until BOTH this
+                    # set contains the sensor AND boot-settle is done.
+                    self._post_restart_seen_on.add(sensor)
                 else:
                     self._sensor_on_since.pop(sensor, None)
 
-        stuck_sensors = {
-            s for s, since in self._sensor_on_since.items()
-            if (now - since).total_seconds() / 3600 >= self._stuck_sensor_hours
-        }
+        # STUCK-SENSOR-1 D3 — persist (dirty-gated + 60s delayed-save).
+        # HIGH-A1 fix-up (2026-08-13): the scheduler no-ops when the
+        # (sensor_on_since, stuck_sensor_fired, today) snapshot is
+        # unchanged, and routes through `Store.async_delay_save` so a
+        # burst of state-changing ticks collapses to one write. Prior
+        # per-tick `store.async_save` scheduling was a write-flood risk.
+        # B-LOW-1: silent-re-engage-after-restart is intentional here —
+        # engaged-set is not persisted (kill-switch flip / house-state
+        # transitions re-derive it), only the underlying `_sensor_on_since`
+        # + fired latches restore; a still-flapping mmwave will re-engage
+        # exclusion on the next tick after restart without a "recovered"
+        # NM for the pre-restart episode.
+        self._schedule_stuck_state_save()
+
+        # STUCK-SENSOR-1 D3 MED-1 restore-poisoning guard: filter the
+        # P22 exclusion set to only sensors we have observed live-ON
+        # post-restart AND after boot-settle has elapsed. A restored
+        # 3h59m timestamp cannot instant-exclude at first post-restart
+        # tick. On first live-ON observation, the sensor enters
+        # `_post_restart_seen_on` and normal semantics resume.
+        stuck_sensors = self._p22_stuck_sensor_set(now)
         # Reset the per-sensor kind labels each tick — a sensor no longer
         # stuck this tick must drop from the diagnostic surface.
         self._stuck_sensor_kinds = {}
@@ -2151,6 +2518,20 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     # Fire-and-forget NM emit — per-day dedup latched
                     # inside `_stuck_signal_nm.fire_stuck_signal`; no
                     # awaitable state consumed by the coordinator.
+
+        # STUCK-SENSOR-1 D1: reset per-tick exclusion set BEFORE the D2
+        # loop populates it. `_dutycycle_excluded_last_tick` snapshots
+        # the previous tick so we can fire paired recovered NMs below.
+        # B-MED-1 fix-up (2026-08-13): reset the tick-scoped
+        # "detector-ran-cleanly" flag to False. The release-edge scan
+        # will run ONLY when the flag is True at the end of the try
+        # block. Without this guard, a mid-detector exception would
+        # leave `_dutycycle_excluded_now={}` and mass-release every
+        # previously-engaged sensor (an empty engaged-set - prev-excluded
+        # = every prev-excluded → recovery-NM storm + latch unlatch).
+        self._d2_completed_cleanly = False
+        _prev_excluded = set(self._dutycycle_excluded_last_tick)
+        self._dutycycle_excluded_now = {}
 
         # === Stuck-Signal D2 (v5.35.0): Fix #9 duty-cycle variant ===
         # Continuous-on evades a flapping mmWave (Master Bedroom empty-
@@ -2179,27 +2560,151 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 # Exclusion graduates in a later cycle behind a house-state
                 # gate once the detector earns trust (stage-1 doctrine).
                 self._stuck_sensor_kinds[s] = "dutycycle"
-                _LOGGER.warning(
-                    "Room %s: Sensor %s duty-cycle stuck (on-ratio "
-                    "exceeded over rolling window) — NOTIFY-ONLY, "
-                    "not excluded from occupancy",
-                    room_name, s,
-                )
+                # STUCK-SENSOR-1 D1: promote to exclusion iff all four
+                # AND-composed predicates hold. Fail-safe: predicate
+                # helper returns False on any exception — behaviour
+                # reverts to pre-cycle notify-only for this sensor.
+                _exclusion_engaged = self._promote_dutycycle_to_exclusion(s, now)
+                if _exclusion_engaged:
+                    stuck_sensors.add(s)
+                    self._dutycycle_excluded_now[s] = now
+                    _LOGGER.info(
+                        "Room %s: Sensor %s duty-cycle stuck AND corroborator "
+                        "disagreement (≥%ds) — EXCLUDED from occupancy "
+                        "(D1 promotion)",
+                        room_name, s, int(CORROBORATOR_DISAGREE_S),
+                    )
+                else:
+                    _LOGGER.warning(
+                        "Room %s: Sensor %s duty-cycle stuck (on-ratio "
+                        "exceeded over rolling window) — NOTIFY-ONLY, "
+                        "not excluded from occupancy",
+                        room_name, s,
+                    )
                 # M-3 fix-up: caller-side latch pre-check to avoid per-tick
                 # task spam. `_stuck_signal_nm` still per-day-dedups the
                 # NM itself; this just prevents scheduling redundant tasks.
-                _fired_key = ("dutycycle", room_name, s)
-                if _fired_key not in self._stuck_sensor_fired:
-                    self._stuck_sensor_fired.add(_fired_key)
+                #
+                # MED-A1 fix-up (2026-08-13): two DIFFERENT per-day latches
+                # apply here to preserve the pre-cycle contract "1 dutycycle
+                # STUCK NM per (room, sensor) per day" while ALSO carrying
+                # the paired engage/release ("exclusion note") transitions:
+                #   * `_stuck_sensor_fired` keyed ("dutycycle", ...) —
+                #     the STUCK NM latch. Set on the FIRST detection of
+                #     the day; NEVER discarded by a release edge (an
+                #     engage → release → re-engage flap must NOT re-fire
+                #     the underlying STUCK NM row).
+                #   * `_stuck_excluded_fired` keyed ("dutycycle_excluded",
+                #     ...) — the exclusion-engage note latch. Discarded
+                #     by the release scan below so a subsequent engage
+                #     re-emits the note (engage/release notes are per
+                #     transition, not per day).
+                _stuck_key = ("dutycycle", room_name, s)
+                _fired_this_day = _stuck_key in self._stuck_sensor_fired
+                _excl_key = ("dutycycle_excluded", room_name, s)
+                _excl_note_pending = (
+                    _exclusion_engaged
+                    and _excl_key not in self._stuck_excluded_fired
+                )
+                if not _fired_this_day:
+                    # First STUCK NM of the day for this (room, sensor).
+                    self._stuck_sensor_fired.add(_stuck_key)
+                    if _exclusion_engaged:
+                        self._stuck_excluded_fired.add(_excl_key)
                     self.hass.async_create_task(_fire_stuck_sensor_nm(  # noqa: untracked-ok
                         self.hass, room_name, s, "dutycycle", None,
+                        exclusion_engaged=_exclusion_engaged,
                     ))
-                    # Fire-and-forget NM emit; per-day latched.
+                    # MED-2: exclusion_engaged flag propagates ONLY when
+                    # True — pre-cycle fixture rows omit it entirely
+                    # (byte-identity preserved).
+                elif _excl_note_pending:
+                    # STUCK NM already fired today (no re-emit — pre-cycle
+                    # contract preserved); but this is a NEW engage-after-
+                    # release edge in the same day, so fire an engagement
+                    # note on the separate latch. Uses the recovered NM
+                    # helper's shape at a fresh key so the notification
+                    # channel receives an operator-visible engage message.
+                    self._stuck_excluded_fired.add(_excl_key)
+                    from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
+                        fire_stuck_signal,
+                    )
+                    self.hass.async_create_task(fire_stuck_signal(  # noqa: untracked-ok
+                        self.hass,
+                        kind="dutycycle_excluded",
+                        key=(room_name, s),
+                        diagnosis=(
+                            f"room {room_name}: sensor {s} exclusion "
+                            f"re-engaged (corroborator quiet again)"
+                        ),
+                        exclusion_engaged=True,
+                    ))
+            # B-MED-1: reached only if the try body did NOT raise. Every
+            # `_dutycycle_excluded_now` write above is now trustworthy,
+            # so the release-edge scan is safe to run.
+            self._d2_completed_cleanly = True
         except Exception:  # noqa: BLE001 — fail-open (Fix #9 unchanged)
             _LOGGER.debug(
                 "Room %s: duty-cycle stuck detection raised (swallowed)",
                 room_name, exc_info=True,
             )
+
+        # STUCK-SENSOR-1 D2b: paired recovered NM on the RELEASE edge —
+        # a sensor excluded on the previous tick that is no longer
+        # excluded this tick (corroborator returned, house entered
+        # sleep, or kill switch flipped).
+        #
+        # B-MED-1 fix-up (2026-08-13): ONLY runs when the D2 detector
+        # completed cleanly this tick. A mid-detector exception would
+        # otherwise leave `_dutycycle_excluded_now={}` (reset above,
+        # before the try) and mass-release the entire previous engaged
+        # set — spurious recovery-NM storm + latch unlatch.
+        #
+        # MED-A1 fix-up (2026-08-13): the release edge discards the
+        # SEPARATE exclusion-note latch key
+        # ("dutycycle_excluded", room, sensor), NOT the STUCK NM latch
+        # ("dutycycle", room, sensor). The pre-cycle contract "1 stuck
+        # NM per (room, sensor) per day" is preserved across flaps.
+        if self._release_edge_scan_should_run():
+            for _released in _prev_excluded - set(self._dutycycle_excluded_now):
+                try:
+                    from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
+                        fire_stuck_signal_recovered,
+                    )
+                    self.hass.async_create_task(fire_stuck_signal_recovered(  # noqa: untracked-ok
+                        self.hass,
+                        kind="dutycycle_excluded",
+                        key=(room_name, _released),
+                        message=(
+                            f"room {room_name}: sensor {_released} "
+                            "exclusion released (corroborator returned "
+                            "or sleep engaged)"
+                        ),
+                    ))
+                    # Allow re-engage NOTE (not re-emit of the stuck NM)
+                    # in same day: drop only the exclusion-note key.
+                    self._stuck_excluded_fired.discard(
+                        ("dutycycle_excluded", room_name, _released),
+                    )
+                except Exception:  # noqa: BLE001 — fail-open
+                    _LOGGER.debug(
+                        "Room %s: release-edge NM raise swallowed for %s",
+                        room_name, _released, exc_info=True,
+                    )
+            self._dutycycle_excluded_last_tick = set(self._dutycycle_excluded_now)
+        else:
+            # B-MED-1: preserve last-tick engaged set so a transient
+            # detector exception does not silently release exclusions.
+            _LOGGER.debug(
+                "Room %s: D2 detector did not complete cleanly this "
+                "tick — preserving engaged exclusion set (%d sensors); "
+                "no release NMs emitted.",
+                room_name, len(_prev_excluded),
+            )
+            self._dutycycle_excluded_last_tick = _prev_excluded
+            self._dutycycle_excluded_now = {
+                s: now for s in _prev_excluded
+            }
 
         # Check motion (excluding stuck sensors)
         motion_detected = any(

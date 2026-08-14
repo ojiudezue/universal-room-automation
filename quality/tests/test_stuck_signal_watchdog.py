@@ -228,14 +228,33 @@ def _install_fake_severity():
 
 
 def _force_kill_switch(value: bool):
-    """Neutralize the NM Cycle A knob cache side-channel for hermetic tests.
+    """DEPRECATED — retained only for source compatibility.
 
-    Other suites in this test tree spec-load the real NotificationManager +
-    seed the process-wide knob cache with various values; the safest fix
-    is to override the kill-switch reader directly rather than fight the
-    cache. See _nm_cycle_a.py for the cache design.
+    C-CRIT-1 fix-up (2026-08-13): this module-level monkeypatch was the
+    root of two permanent cross-file pollution flakes. New callers should
+    use the auto-restoring monkeypatch fixture below. The remaining
+    call-sites in this file continue to use this shim; the autouse
+    `_reset_stuck_nm_state` fixture below brackets each test so the
+    override no longer leaks into neighbouring test files.
     """
     _stuck_signal_nm._kill_switch_on = lambda _hass: value  # type: ignore[attr-defined]
+
+
+@pytest.fixture(autouse=True)
+def _reset_stuck_nm_state():
+    """C-CRIT-1 mirror (2026-08-13): bracket every test in this file
+    with reset_latches_for_tests + invalidate_knob_cache + restore the
+    real `_kill_switch_on`. Eliminates the latent same-class flake
+    (test_watchdog_sensor_counts_and_attrs) that the STUCK-SENSOR-1
+    build's baseline diff surfaced.
+    """
+    _stuck_signal_nm.reset_latches_for_tests()
+    _nm_cycle_a.invalidate_knob_cache()
+    _orig_kill_switch = _stuck_signal_nm._kill_switch_on
+    yield
+    _stuck_signal_nm.reset_latches_for_tests()
+    _nm_cycle_a.invalidate_knob_cache()
+    _stuck_signal_nm._kill_switch_on = _orig_kill_switch
 
 
 def test_stuck_signal_fires_once_per_day():
