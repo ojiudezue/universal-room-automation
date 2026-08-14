@@ -1915,6 +1915,33 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         except Exception:  # noqa: BLE001 — fail-open (rare edge)
             return True
 
+    def _p22_stuck_sensor_set(self, now: datetime) -> set[str]:
+        """STUCK-SENSOR-1 D3 MED-1 — P22 stuck-set builder with
+        restore-poisoning boot guard.
+
+        Extracted from the update-tick body for testability (bind onto
+        a stub coord with `_sensor_on_since` + `_post_restart_seen_on`
+        + `_d2_boot_settle_done` + `_stuck_sensor_hours` populated).
+
+        Returns the set of sensor entity_ids whose continuous-on
+        timestamp has exceeded `_stuck_sensor_hours` AND for which
+        BOTH MED-1 guards are satisfied:
+          (i) `_d2_boot_settle_done()` is True, AND
+          (ii) the sensor has been observed live-ON at least once
+               post-restart (in `_post_restart_seen_on`).
+
+        A restored `_sensor_on_since` timestamp gains NO exclusion
+        consequence on the first post-restart tick because the sensor
+        will not yet be in `_post_restart_seen_on`.
+        """
+        _boot_settled = self._d2_boot_settle_done()
+        return {
+            s for s, since in self._sensor_on_since.items()
+            if (now - since).total_seconds() / 3600 >= self._stuck_sensor_hours
+            and _boot_settled
+            and s in self._post_restart_seen_on
+        }
+
     def _stuck_store_key(self) -> str:
         """STUCK-SENSOR-1 D3 — per-room HA Store key."""
         return f"stuck_state_{self.entry.entry_id}"
@@ -2371,13 +2398,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # 3h59m timestamp cannot instant-exclude at first post-restart
         # tick. On first live-ON observation, the sensor enters
         # `_post_restart_seen_on` and normal semantics resume.
-        _boot_settled = self._d2_boot_settle_done()
-        stuck_sensors = {
-            s for s, since in self._sensor_on_since.items()
-            if (now - since).total_seconds() / 3600 >= self._stuck_sensor_hours
-            and _boot_settled
-            and s in self._post_restart_seen_on
-        }
+        stuck_sensors = self._p22_stuck_sensor_set(now)
         # Reset the per-sensor kind labels each tick — a sensor no longer
         # stuck this tick must drop from the diagnostic surface.
         self._stuck_sensor_kinds = {}
