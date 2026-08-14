@@ -1015,7 +1015,8 @@ cards:
 - id: IMSG-IMAGE-FAIL-1
   title: iMessage security images NOT arriving (organic FAIL of NM-BB-IMAGE-1 L5) + [audit] sentinel leaking into operator-visible message bodies
   thread: notifications
-  status: inbox
+  status: shipped_organic
+  shipped_version: v5.75.1
   approval: unreviewed
   origin:
     date: '2026-08-14'

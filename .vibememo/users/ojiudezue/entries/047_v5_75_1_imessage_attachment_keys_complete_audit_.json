@@ -1,0 +1,19 @@
+{
+  "format_version": "2.1",
+  "entry_id": "047",
+  "author": "ojiudezue",
+  "session_id": "claude_20260814_142933_ship_v5_75_1",
+  "timestamp": "2026-08-14T14:29:33Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.75.1 shipped: iMessage attachment keys + complete [audit] sentinel filtering (resurrection loop fix)",
+  "summary": "Fix A: _send_imessage uses the installed BlueBubbles schema (attachment=HA-local path, media_url fallback) \u2014 images deliver, proven by live diagnostic send. Fix B: [audit] filter completed across ALL active-path readers incl. acknowledge_notification (review found the third missed sibling \u2014 operator acks were landing on audit twins), [ACK] rows born acknowledged=1. Kills the 4AM-1PM [audit] re-page loop. 9 mutation-anchored tests; Tier-1 review SHIP; zero new suite failures.",
+  "refs": {
+    "cards": [
+      "IMSG-IMAGE-FAIL-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.75.1.md"
+    ]
+  }
+}
