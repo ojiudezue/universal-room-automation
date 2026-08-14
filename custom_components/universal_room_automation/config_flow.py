@@ -6856,18 +6856,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 ),
             ): selector.BooleanSelector(),
             # STUCK-SENSOR-1 D1 kill switch — dutycycle sensor exclusion.
-            # Default ON. Flipping OFF reverts to pre-cycle notify-only
-            # universally, byte-identical to v5.74.0. Sibling of the NM
-            # kill switch above; consumed via nm_cycle_a_knob cache.
-            # NOTE (build fix-up 2026-08-13, plan-vs-reality item #3):
-            # Neither CONF_STUCK_SIGNAL_NM_ENABLED nor this new key is
-            # registered in __init__.py's _NM_A2_KEYS / _NO_LIVE_ATTR_KEYS /
-            # OPTIONS_RELOAD_SUPPRESS_KEYS. That means flipping either
-            # will trigger a CM reload (the NM-Cycle-A cache invalidation
-            # is a separate no-reload path). The sibling's absence is
-            # pre-existing; this new key mirrors it. Reviewer B: please
-            # adjudicate whether both should be added to the NM-A frozensets
-            # (making them no-reload-invalidate-only) or kept reload-inducing.
+            # Both stuck-signal knobs registered in _NM_A2_KEYS
+            # (__init__.py) → no CM reload, no live-attr push;
+            # cache-invalidate + nm_cycle_a_knob re-read (B-MED-2 fix-up).
             vol.Optional(
                 CONF_STUCK_SENSOR_EXCLUSION_ENABLED,
                 default=self._get_current(

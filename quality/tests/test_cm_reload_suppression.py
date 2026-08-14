@@ -295,6 +295,10 @@ def _load_init_listener_helpers():
         "_CONF_NM_MUTE_DEFAULT_DURATION_MINUTES":      "nm_mute_default_duration_minutes",
         # NM Cycle C-2 (2026-07-22, D2) — additive-only life-safety extras.
         "_CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS":          "nm_extra_life_safety_hazards",
+        # STUCK-SENSOR-1 B-MED-2 fix-up (2026-08-13) — both stuck-signal
+        # knobs added to `_NM_A2_KEYS`.
+        "_CONF_STUCK_SIGNAL_NM_ENABLED":               "stuck_signal_nm_enabled",
+        "_CONF_STUCK_SENSOR_EXCLUSION_ENABLED":        "stuck_sensor_exclusion_enabled",
         # Typing — frozenset[str] subscript requires Python 3.9+; ok.
     }
     # C-MED-2 fix-up (2026-07-20): self-check every hand-typed _CONF_* alias

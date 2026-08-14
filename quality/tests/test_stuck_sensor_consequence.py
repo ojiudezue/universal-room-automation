@@ -52,6 +52,11 @@ for _n, _attrs in (
     ("homeassistant.helpers.event", {
         "async_track_state_change_event": lambda *a, **k: MagicMock(),
         "async_call_later": lambda *a, **k: MagicMock(),
+        # notification_manager.py imports `async_track_time_change` at
+        # module top; without it, a full-suite ordering where a prior
+        # file forces a real re-import of notification_manager blows
+        # up before our fake Severity can shortcut the lookup.
+        "async_track_time_change": lambda *a, **k: MagicMock(),
     }),
     ("homeassistant.helpers.dispatcher", {
         "async_dispatcher_send": lambda *a, **k: None,
@@ -115,15 +120,36 @@ _fake_nm_name = (
     "custom_components.universal_room_automation.domain_coordinators."
     "notification_manager"
 )
-if _fake_nm_name not in sys.modules:
-    class _Sev:
-        LOW = "low"
-        MEDIUM = "medium"
-        HIGH = "high"
-        CRITICAL = "critical"
-    _fake_nm_mod = types.ModuleType(_fake_nm_name)
-    _fake_nm_mod.Severity = _Sev
-    sys.modules[_fake_nm_name] = _fake_nm_mod
+class _Sev:
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+def _install_fake_severity():
+    """C-CRIT-1 fix-up (2026-08-13): unconditionally ensure our fake
+    notification_manager exposes Severity.
+
+    Some other test files in this tree spec-load or import-flush the
+    real ``notification_manager`` module under the same sys.modules key,
+    which drags in ``homeassistant.helpers.event.async_track_time_change``
+    — an attribute that may be absent from an earlier sibling's mock.
+    We augment (never replace, never remove) the existing entry so
+    ``from .notification_manager import Severity`` inside production
+    code short-circuits to our stub without triggering a real import.
+    """
+    mod = sys.modules.get(_fake_nm_name)
+    if mod is None:
+        mod = types.ModuleType(_fake_nm_name)
+        sys.modules[_fake_nm_name] = mod
+    if not hasattr(mod, "Severity"):
+        mod.Severity = _Sev
+
+
+_install_fake_severity()
+# Backwards-compat alias for any inline references below.
+_fake_nm_mod = sys.modules[_fake_nm_name]
 # anomaly_event dependency for _stuck_signal_nm._write_stuck_anomaly.
 _ae_name = (
     "custom_components.universal_room_automation.domain_coordinators."
@@ -153,6 +179,54 @@ _stuck_signal_nm = _spec_load(
 
 
 DOMAIN = "universal_room_automation"
+
+
+# ---------------------------------------------------------------------------
+# C-CRIT-1 fix-up (2026-08-13) — autouse fixture that BRACKETS every test
+# with reset_latches_for_tests() + invalidate_knob_cache() (before AND
+# after). This eliminates the two permanent cross-file pollution flakes:
+# other suites in the tree spec-load `_stuck_signal_nm` + prime the
+# NM-Cycle-A knob cache, and without the after-reset our tests
+# leaked state into their neighbours (and vice-versa).
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _reset_stuck_nm_state():
+    # C-CRIT-1 fix-up (2026-08-13): also snapshot + restore the module-
+    # level `_kill_switch_on` attribute in case a prior test (in another
+    # file) permanently rebound it without cleanup (the legacy
+    # test_stuck_signal_watchdog.py `_force_kill_switch` shim). Also
+    # re-augment the sys.modules mocks that other test files may have
+    # overwritten with partial fakes missing our needed attributes
+    # (Severity on notification_manager; async_track_time_change on
+    # homeassistant.helpers.event).
+    _install_fake_severity()
+    _ev = sys.modules.get("homeassistant.helpers.event")
+    if _ev is not None and not hasattr(_ev, "async_track_time_change"):
+        _ev.async_track_time_change = lambda *a, **k: MagicMock()
+    _stuck_signal_nm.reset_latches_for_tests()
+    _nm_cycle_a.invalidate_knob_cache()
+    _orig_kill_switch = _stuck_signal_nm._kill_switch_on
+    yield
+    _stuck_signal_nm.reset_latches_for_tests()
+    _nm_cycle_a.invalidate_knob_cache()
+    _stuck_signal_nm._kill_switch_on = _orig_kill_switch
+
+
+@pytest.fixture
+def force_kill_switch(monkeypatch):
+    """C-CRIT-1 replacement for the module-level monkeypatch helper.
+
+    Uses pytest's monkeypatch fixture so the override is auto-restored
+    at test teardown even on failure. Callers do
+    ``force_kill_switch(True)`` inside the test body.
+    """
+    def _set(value: bool):
+        monkeypatch.setattr(
+            _stuck_signal_nm, "_kill_switch_on", lambda _hass: value,
+        )
+    return _set
 
 
 # ---------------------------------------------------------------------------
@@ -277,10 +351,16 @@ def test_still_person_corroborated_room_not_excluded_before_disagree_window():
 
 
 def test_p22_defers_exclusion_until_post_boot_observation():
-    """Restored 3h59m `_sensor_on_since` MUST NOT exclude on first tick.
+    """NON-ANCHOR shim smoke check for the MED-1 P22 boot guard.
 
-    Mutation drill: delete either the `_boot_settled` half OR the
-    `_post_restart_seen_on` half of the guard → this test MUST red.
+    C-MED-1 fix-up (2026-08-13): this test exercises
+    ``RoomShim.p22_stuck_set``, a HAND-MIRROR of the production
+    ``_p22_stuck_sensor_set`` builder — it is a truth-table smoke
+    check, NOT a mutation-drill anchor. The load-bearing anchor is
+    ``test_p22_defers_exclusion_until_post_boot_observation_PROD`` in
+    ``test_stuck_sensor_consequence_prod.py``, which binds the real
+    production method onto a stub coord and reddens on source-side
+    guard deletion. Do NOT treat green-here as a production-guard proof.
     """
     now = datetime(2026, 8, 13, 12, 0, 0)
     room = RoomShim(corroborators=["binary_sensor.pir"])
@@ -338,10 +418,6 @@ def test_stuck_exclusion_uses_merged_options_room_name():
 # ---------------------------------------------------------------------------
 
 
-def _force_kill_switch(value: bool):
-    _stuck_signal_nm._kill_switch_on = lambda _hass: value  # type: ignore[attr-defined]
-
-
 class _StubEntry:
     def __init__(self, data=None, options=None):
         self.data = data or {}
@@ -378,16 +454,14 @@ def _run(coro):
         loop.close()
 
 
-def test_dutycycle_nm_omits_exclusion_engaged_when_false():
+def test_dutycycle_nm_omits_exclusion_engaged_when_false(force_kill_switch):
     """MED-2: `exclusion_engaged` marker ABSENT (not =False) on non-engaged emit.
 
     The fixture-byte-identity invariant (INV-STUCK-3) requires the field
     to be OMITTED entirely from pre-cycle-shape rows. Setting it to False
     would change the shape and break ledger_golden replay.
     """
-    _stuck_signal_nm.reset_latches_for_tests()
-    _nm_cycle_a.invalidate_knob_cache()
-    _force_kill_switch(True)
+    force_kill_switch(True)
     hass = _mk_hass_with_nm()
 
     # engaged=False (default) → marker absent from message body.
@@ -400,7 +474,8 @@ def test_dutycycle_nm_omits_exclusion_engaged_when_false():
     msg = call.kwargs.get("message", "")
     assert "exclusion_engaged" not in msg
 
-    # engaged=True → marker present.
+    # engaged=True → marker present. Reset only the fired-latch state;
+    # the kill-switch monkeypatch persists via the fixture.
     _stuck_signal_nm.reset_latches_for_tests()
     hass2 = _mk_hass_with_nm()
     ok2 = _run(_stuck_signal_nm.fire_stuck_signal(
@@ -454,12 +529,15 @@ def test_stuck_dutycycle_exclusion_gates_truth_table():
 # ---------------------------------------------------------------------------
 
 
-def test_founding_case_replay_2026_08_09():
-    """Replay the 2026-08-09 founding case shape.
+def test_founding_case_replay_2026_08_09_shim_smoke():
+    """NON-ANCHOR shim smoke check for the founding-case shape.
 
-    Living Room = corroborator-less (empty motion_sensors) → notify-only
-    stays; Master Bedroom empty-suite = has PIR corroborator wired →
-    exclusion engages after CORROBORATOR_DISAGREE_S of PIR quiet.
+    C-MED-3 fix-up (2026-08-13): the load-bearing production anchor
+    for the founding case lives in
+    ``test_stuck_sensor_consequence_prod.py::test_founding_case_replay_2026_08_09_PROD``
+    which drives the REAL ``_promote_dutycycle_to_exclusion`` via
+    ``_make_stub_coord``. This shim variant is retained as a truth-
+    table smoke check only.
     """
     now = datetime(2026, 8, 9, 13, 54, 0)
 
@@ -513,13 +591,11 @@ def test_room_insight_excluded_sensors_attr_shape():
 # ---------------------------------------------------------------------------
 
 
-def test_p18_emit_carries_zone_title_override():
+def test_p18_emit_carries_zone_title_override(force_kill_switch):
     """P18 (hvac.py:1621) MUST pass `title_override=f"HVAC zone {name} stuck"`
     so the persisted audit row title carries the zone name (not just
     `Stuck signal: zone_stale_occupancy`)."""
-    _stuck_signal_nm.reset_latches_for_tests()
-    _nm_cycle_a.invalidate_knob_cache()
-    _force_kill_switch(True)
+    force_kill_switch(True)
     hass = _mk_hass_with_nm()
 
     ok = _run(_stuck_signal_nm.fire_stuck_signal(

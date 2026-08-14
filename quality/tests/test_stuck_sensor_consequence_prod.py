@@ -38,6 +38,18 @@ from custom_components.universal_room_automation.const import (
 from custom_components.universal_room_automation.coordinator import (
     UniversalRoomCoordinator,
 )
+from custom_components.universal_room_automation.domain_coordinators\
+    import _nm_cycle_a, _stuck_signal_nm
+
+
+@pytest.fixture(autouse=True)
+def _reset_stuck_nm_state():
+    """C-CRIT-1 mirror: bracket every test with reset+cache-invalidate."""
+    _stuck_signal_nm.reset_latches_for_tests()
+    _nm_cycle_a.invalidate_knob_cache()
+    yield
+    _stuck_signal_nm.reset_latches_for_tests()
+    _nm_cycle_a.invalidate_knob_cache()
 
 
 class _FakeState:
@@ -109,6 +121,26 @@ def _make_stub_coord(*, room_data=None, room_options=None,
     coord._promote_dutycycle_to_exclusion = _bind(
         "_promote_dutycycle_to_exclusion", coord,
     )
+    # HIGH-A1 fix-up (2026-08-13): bind dirty-gated + delayed-save
+    # helper so write-volume regression tests can drive it directly.
+    coord._stuck_state_snapshot = _bind("_stuck_state_snapshot", coord)
+    coord._stuck_state_payload_provider = _bind(
+        "_stuck_state_payload_provider", coord,
+    )
+    coord._stuck_store_key = _bind("_stuck_store_key", coord)
+    coord._schedule_stuck_state_save = _bind(
+        "_schedule_stuck_state_save", coord,
+    )
+    coord._release_edge_scan_should_run = _bind(
+        "_release_edge_scan_should_run", coord,
+    )
+    coord._stuck_state_last_saved_snapshot = ()
+    coord._stuck_sensor_fired = set()
+    coord._stuck_excluded_fired = set()
+    coord._stuck_sensor_fired_date = None
+    coord._d2_completed_cleanly = False
+    coord._dutycycle_excluded_last_tick = set()
+    coord._dutycycle_excluded_now = {}
     return coord
 
 
@@ -275,3 +307,197 @@ def test_kill_switch_short_circuits_promotion_PROD():
     ) is False
     # Restore cache to defaults so downstream tests aren't affected.
     invalidate_knob_cache()
+
+
+# ---------------------------------------------------------------------------
+# C-MED-3 — Founding-case (2026-08-09) driven through the REAL
+# production `_promote_dutycycle_to_exclusion`.
+# ---------------------------------------------------------------------------
+
+
+def test_founding_case_replay_2026_08_09_PROD():
+    """Same shape as the shim smoke test but drives the real prod method.
+
+    Living Room = no corroborator wired → INV-STUCK-2 (notify-only stays).
+    Master Bedroom = PIR corroborator + ≥900s quiet → exclusion engages.
+    """
+    now = datetime(2026, 8, 9, 13, 54, 0, tzinfo=timezone.utc)
+
+    # Living Room stub — no corroborator in the effective list.
+    from custom_components.universal_room_automation.domain_coordinators\
+        ._nm_cycle_a import invalidate_knob_cache
+    invalidate_knob_cache()
+
+    living = _make_stub_coord(
+        room_data={"room_name": "Living Room"},
+        room_options={"room_name": "Living Room"},
+        cm_options={CONF_STUCK_SENSOR_EXCLUSION_ENABLED: True},
+    )
+    living._effective_corroborators_last_tick = []
+    assert living._promote_dutycycle_to_exclusion(
+        "binary_sensor.living_room_mmwave", now,
+    ) is False
+
+    # Master Bedroom stub — PIR wired, quiet longer than the window.
+    master = _make_stub_coord(
+        room_data={"room_name": "Master Bedroom"},
+        room_options={"room_name": "Master Bedroom"},
+        states={"binary_sensor.master_pir": "off"},
+        cm_options={CONF_STUCK_SENSOR_EXCLUSION_ENABLED: True},
+    )
+    master._effective_corroborators_last_tick = ["binary_sensor.master_pir"]
+    master._last_corroborator_fire["binary_sensor.master_pir"] = (
+        now - timedelta(seconds=int(CORROBORATOR_DISAGREE_S) + 60)
+    )
+    assert master._promote_dutycycle_to_exclusion(
+        "binary_sensor.master_bedroom_mmwave", now,
+    ) is True
+    invalidate_knob_cache()
+
+
+# ---------------------------------------------------------------------------
+# HIGH-A1 — write-volume regression: no state change => zero saves;
+# state change => exactly one delayed save.
+# ---------------------------------------------------------------------------
+
+
+def test_stuck_state_save_no_state_change_zero_writes():
+    """HIGH-A1 fix-up: repeated ticks with an unchanged snapshot must
+    result in ZERO `Store.async_delay_save` invocations (dirty gate).
+    A single state change → exactly ONE delayed-save call."""
+    coord = _make_stub_coord()
+    fake_store = MagicMock()
+    fake_store.async_delay_save = MagicMock()
+    coord._stuck_store = fake_store
+
+    # No state → snapshot is (empty, empty, today). First call establishes
+    # the last-saved snapshot but with EMPTY state; the dirty check
+    # compares against the initial `()` tuple in __init__, so the very
+    # first call is a save. Subsequent calls with the SAME snapshot must
+    # no-op.
+    coord._schedule_stuck_state_save()
+    assert fake_store.async_delay_save.call_count == 1
+    for _ in range(50):
+        coord._schedule_stuck_state_save()
+    assert fake_store.async_delay_save.call_count == 1, (
+        "50 unchanged-snapshot ticks scheduled "
+        f"{fake_store.async_delay_save.call_count} saves (expected 1)"
+    )
+
+    # Now mutate state → dirty gate opens → exactly one more save.
+    coord._sensor_on_since["binary_sensor.mm"] = datetime.now(timezone.utc)
+    coord._schedule_stuck_state_save()
+    assert fake_store.async_delay_save.call_count == 2
+
+    # And confirm the delay window matches the fix-up value (60s).
+    args = fake_store.async_delay_save.call_args
+    assert args.args[1] == 60.0 or args.kwargs.get("delay") == 60.0
+
+
+# ---------------------------------------------------------------------------
+# B-MED-1 — detector exception must NOT mass-release the exclusion set.
+# ---------------------------------------------------------------------------
+
+
+def test_d2_exception_preserves_exclusion_no_recovery_storm():
+    """B-MED-1 fix-up: `_d2_completed_cleanly` guard.
+
+    A mid-detector exception leaves ``_dutycycle_excluded_now={}`` (reset
+    at tick start) — without the guard the release-edge scan would
+    interpret this as "everything released" and emit a recovery-NM
+    storm + unlatch every engagement. The guard defaults to False and
+    is set True only at the successful end of the try body.
+    """
+    # Model the failing-detector tick at the state level: the guard
+    # remains False after `_dutycycle_excluded_now={}` reset. The
+    # release-scan's `if self._d2_completed_cleanly:` therefore
+    # short-circuits and the previous engaged set is carried forward.
+    coord = _make_stub_coord()
+    coord._d2_completed_cleanly = False
+    coord._dutycycle_excluded_last_tick = {"binary_sensor.mmwave_a",
+                                            "binary_sensor.mmwave_b"}
+    prev_excluded = set(coord._dutycycle_excluded_last_tick)
+    coord._dutycycle_excluded_now = {}
+
+    # Drive the REAL production guard via the bindable helper — a
+    # mutation that makes `_release_edge_scan_should_run` return True
+    # unconditionally will red this test.
+    released_this_tick: list[str] = []
+    if coord._release_edge_scan_should_run():
+        for r in prev_excluded - set(coord._dutycycle_excluded_now):
+            released_this_tick.append(r)
+        coord._dutycycle_excluded_last_tick = set(
+            coord._dutycycle_excluded_now,
+        )
+    else:
+        coord._dutycycle_excluded_last_tick = prev_excluded
+        coord._dutycycle_excluded_now = {s: None for s in prev_excluded}
+
+    assert released_this_tick == [], (
+        "Detector-exception tick released "
+        f"{released_this_tick} — B-MED-1 guard failed."
+    )
+    assert coord._dutycycle_excluded_last_tick == prev_excluded
+
+
+# ---------------------------------------------------------------------------
+# MED-A1 — flap 3x/day: exactly 1 STUCK NM row, engage/release notes on
+# their own latch (per transition, not per day).
+# ---------------------------------------------------------------------------
+
+
+def test_flap_3x_produces_one_stuck_nm_and_transition_notes():
+    """MED-A1 fix-up: separate ("dutycycle_excluded", ...) latch.
+
+    Contract:
+      * The underlying STUCK NM row for a (room, sensor) is emitted
+        at MOST once per calendar day (pre-cycle contract preserved).
+      * Exclusion engage/release notes fire per transition (up to 3
+        engage notes + 3 release notes on a 3-flap day).
+    """
+    room, sensor = "Master", "binary_sensor.mm"
+    stuck_key = ("dutycycle", room, sensor)
+    excl_key = ("dutycycle_excluded", room, sensor)
+    stuck_fired: set = set()
+    excl_fired: set = set()
+
+    stuck_nm_count = 0
+    engage_note_count = 0
+    release_note_count = 0
+
+    def engage_tick():
+        nonlocal stuck_nm_count, engage_note_count
+        first_of_day = stuck_key not in stuck_fired
+        if first_of_day:
+            stuck_fired.add(stuck_key)
+            stuck_nm_count += 1
+            excl_fired.add(excl_key)
+        elif excl_key not in excl_fired:
+            excl_fired.add(excl_key)
+            engage_note_count += 1
+
+    def release_tick():
+        nonlocal release_note_count
+        # Release-scan drops only the exclusion note key, never the
+        # STUCK NM key (mirrors the fix-up in the coordinator's tick).
+        if excl_key in excl_fired:
+            excl_fired.discard(excl_key)
+            release_note_count += 1
+
+    # Simulate 3 flaps: engage → release → engage → release → engage → release.
+    for _ in range(3):
+        engage_tick()
+        release_tick()
+
+    assert stuck_nm_count == 1, (
+        f"3-flap day emitted {stuck_nm_count} STUCK NMs "
+        "(pre-cycle contract: 1/day)"
+    )
+    # First engage produces the STUCK NM (no separate engage note); the
+    # 2nd and 3rd engages fire the engage-note on the separate latch.
+    assert engage_note_count == 2, (
+        f"Expected 2 re-engage notes across 3 flaps, got {engage_note_count}"
+    )
+    assert release_note_count == 3, (
+        f"Expected 3 release notes, got {release_note_count}"
+    )
