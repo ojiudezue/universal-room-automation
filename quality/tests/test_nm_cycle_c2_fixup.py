@@ -357,14 +357,19 @@ def test_helper_call_count_at_all_eight_sites():
     ``_repeat_phase()`` diagnostics helper — it CORRECTLY consumes the
     union helper (does not bypass) to select the "life_safety" phase
     label, which is the invariant this test defends.
+
+    SAFEWORD-WINDOW-1 (2026-08-14): bumped 9→10 for the new perimeter-
+    scoped silence gate in ``async_notify``. The new site CORRECTLY
+    consumes the union helper as an EXCLUSION (life-safety hazards
+    always pass), which is what the I-C2-LS invariant defends.
     """
     import pathlib
     src = (pathlib.Path(__file__).resolve().parents[2]
            / "custom_components/universal_room_automation/domain_coordinators"
            / "notification_manager.py").read_text()
     calls = src.count("is_life_safety_hazard(self.hass,")
-    assert calls == 9, (
-        f"Expected 9 helper call sites, found {calls}. A grep-evading "
+    assert calls == 10, (
+        f"Expected 10 helper call sites, found {calls}. A grep-evading "
         "inline-literal bypass has likely been introduced at one of the "
         "sites (I-C2-LS invariant regression)."
     )
