@@ -2120,17 +2120,15 @@ class NotificationManager:
     ) -> None:
         """Send notification via BlueBubbles (iMessage).
 
-        SNAP-1 verification gap: the installed BlueBubbles integration
-        (/config/custom_components/bluebubbles/__init__.py:49-90) exposes
-        ONLY {addresses, message, method} and POSTs to
-        `/api/v1/chat/new` — it does NOT read `attachment`,
-        `attachment_path`, or any local-file key. Any attachment field
-        we set is silently DROPPED by the integration today. We still
-        pass `attachment_path` (local file) / `attachment` (URL) as
-        best-effort forward-compat keys AND log a one-shot WARN so the
-        operator sees that iMessage photo delivery requires a
-        BlueBubbles-side upload mechanism this integration doesn't
-        wrap. Tracked as follow-up: SNAP-1-followup-bluebubbles-attachment.
+        IMSG-IMAGE-FAIL-1 (2026-08-14): mirror the working WhatsApp leg's
+        key usage. The installed BlueBubbles integration accepts a local
+        HA path via ``attachment`` and a URL via ``media_url`` — verified
+        live via the diagnostic send end-to-end delivery with exactly
+        this payload shape. Snapshots at ``/media/ura/snapshots/`` are
+        inside HA's auto-allowed media directory. The prior SNAP-1
+        docstring/warn claim that BlueBubbles lacks attachment support
+        is FALSE for the installed version and has been removed
+        (No-Fabrication hygiene).
         """
         if self._dry_run_active:
             await self._log_dry_run(channel="imessage", target=handle, title=title)
@@ -2142,21 +2140,9 @@ class NotificationManager:
                 "message": outbound_text,
             }
             if snapshot_path:
-                payload["attachment_path"] = snapshot_path
-                if not getattr(self, "_snap1_bb_attach_warned", False):
-                    _LOGGER.warning(
-                        "NM iMessage: BlueBubbles HA integration does not "
-                        "expose an attachment field (verified against "
-                        "/config/custom_components/bluebubbles/__init__.py). "
-                        "Passing attachment_path=%s best-effort — the photo "
-                        "will not be delivered until BB integration adds "
-                        "attachment support "
-                        "(SNAP-1-followup-bluebubbles-attachment).",
-                        snapshot_path,
-                    )
-                    self._snap1_bb_attach_warned = True
+                payload["attachment"] = snapshot_path
             elif snapshot_url:
-                payload["attachment"] = snapshot_url
+                payload["media_url"] = snapshot_url
             await self.hass.services.async_call(
                 "bluebubbles", "send_message",
                 payload,
@@ -2793,6 +2779,13 @@ class NotificationManager:
                     matrix_branch="ack",
                     delivered=1,
                     dry_run=0,
+                    # IMSG-IMAGE-FAIL-1 BELT: the [ACK] audit row is
+                    # written pre-acknowledged so get_active_critical
+                    # (acknowledged=0 filter) can never resurrect it,
+                    # even if a future change removed the sentinel
+                    # exclusion. Ledger analytics shape unchanged —
+                    # severity stays CRITICAL, message stays '[audit]'.
+                    acknowledged=1,
                 )
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("ack audit row emit failed (swallowed)", exc_info=True)
@@ -4126,6 +4119,7 @@ class NotificationManager:
         matrix_branch: str,
         delivered: int,
         dry_run: int,
+        acknowledged: int = 0,
     ) -> None:
         """C2: write a single audit row via the extended `log_notification`.
 
@@ -4178,6 +4172,7 @@ class NotificationManager:
                 dnd_bypass_applied=1 if dnd_bypass_applied else 0,
                 bucket_outcome=bucket_outcome,
                 matrix_branch=matrix_branch,
+                acknowledged=int(acknowledged),
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("NM audit row write failed (swallowed)", exc_info=True)
