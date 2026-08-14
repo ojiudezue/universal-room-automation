@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-14T10:58:15-05:00_ - _Data commit: `9c74daf33eef`_ - _last_reconciled: 2026-08-14_
+_Generated: 2026-08-14T12:44:30-05:00_ - _Data commit: `69a54a53bc56`_ - _last_reconciled: 2026-08-14_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -132,8 +132,9 @@ thread: **security** - status: **pre_planning** - approval: **blocked**
 - **Tags:** institutional-context, audit-first
 - **Parsimony:** [BUILD] retiring the doorbell automation silently drops face-alert paging
 - **Refs:** PLANNING_exterior_person_escalation.md
-- **Forensic keys (1):**
+- **Forensic keys (2):**
   - `direction_2026_08_14`: Operator agreed: exterior alerts today have ZERO member recognition (verified — perimeter_alert consults no face data). v1 direction = ANNOTATE not suppress ("Person detected — likely Oji") — preserves alert, kills operator cost; per-per...
+  - `operator_answers_2026_08_14`: P1 privacy: LOCAL SOURCES ONLY (Frigate-2 + UniFi Protect face; llmvision EXCLUDED from identity — no household reference photos leave LAN). D3: FOLD IN NOW (stranger-alert / unknown-face leg builds in the same cycle as member-annotation...
 
 ### `RELOAD-WATCHDOG-HAZARD` - URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
 thread: **lifecycle** - status: **pre_planning** - approval: **explicit**
