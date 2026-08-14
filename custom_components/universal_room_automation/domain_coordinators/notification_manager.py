@@ -113,6 +113,7 @@ from ..const import (
     NM_REPEAT_DAILY_AFTER_S,
     NM_SECURITY_ACK_HAZARDS,
     # NM-IMAGE-1 (2026-08-11): security-image force-immediate.
+    NM_HAZARD_EXTERIOR_PERSON,
     NM_SECURITY_HAZARDS,
     NM_ROUTE_REASON_FORCE_IMMEDIATE_SECURITY_IMAGE,
     NM_ROUTE_REASON_DND_SUPPRESSED_SECURITY_IMAGE,
@@ -253,7 +254,13 @@ NM_REPLY_RATE_LIMITED_CHANNELS = ("imessage", "whatsapp")
 # Review A H-2: reply kinds never swallowed by rail 2 — a security deny
 # must always be answered or a repeat unauthorized attempt reads as
 # success. Echo-safety holds: the deny text is rail-1 dropped on return.
-NM_REPLY_RATE_LIMIT_EXEMPT_COMMANDS = ("safe_word_unauthorized",)
+NM_REPLY_RATE_LIMIT_EXEMPT_COMMANDS = (
+    "safe_word_unauthorized",
+    # SAFEWORD-WINDOW-1 fix-up C-LOW-3: cap-reject feedback must never be
+    # rate-dropped — otherwise an operator retrying "duke 5h" quickly
+    # would get silent no-op and think the feature broke.
+    "safe_word_window_rejected",
+)
 
 # SAFEWORD-WINDOW-1: "duke Nh" / "duke Nm" pre-parse (see
 # docs/planning/PLANNING_safeword_window.md). Rung-1 module constants —
@@ -368,6 +375,11 @@ class NotificationManager:
         # not persisted in get_persistence_state, cleared on restart.
         self._perimeter_silence_until: datetime | None = None
         self._perimeter_silence_suppressions: int = 0
+        # SAFEWORD-WINDOW-1 fix-up B-LOW-1: bounded ring of last 10
+        # suppressed events, mirroring the nm_routing_audit_recent
+        # pattern. Powers the operator's tuning-goal ("did the window
+        # actually suppress anything worth knowing about?").
+        self._perimeter_silence_recent: deque = deque(maxlen=10)
         # Tracks the window we last emitted a "resumed" NM note for, so the
         # first async_notify call after expiry emits exactly once (I5).
         self._perimeter_silence_last_notified_expiry: datetime | None = None
@@ -804,6 +816,11 @@ class NotificationManager:
             ),
             "perimeter_silence_suppressions_today": (
                 self._perimeter_silence_suppressions
+            ),
+            # B-LOW-1 fix-up: newest-first-visible via deque insertion
+            # order (append adds to right; caller sees oldest→newest).
+            "perimeter_silence_recent_suppressions": list(
+                self._perimeter_silence_recent
             ),
         }
 
@@ -1435,6 +1452,12 @@ class NotificationManager:
                 title,
             )
             self._perimeter_silence_suppressions += 1
+            self._perimeter_silence_recent.append({
+                "ts": dt_util.utcnow().isoformat(),
+                "hazard": hazard_type,
+                "title": title,
+                "location": location,
+            })
             return
 
         # Dedup check
@@ -3240,16 +3263,30 @@ class NotificationManager:
                         # as an exact safeword hit. Preserve the source.
                         text = _pw
                         _window_minutes = _minutes
+        # A4 (fix-up): apply the same authority gate as A1 to the cap-
+        # reject path. Unauthorized senders who type "duke 5h" get silent
+        # fall-through (no side-channel confirming the cap or the word);
+        # authorized senders get the "capped at 3h" hint. Companion
+        # channel is auto-authorized to match existing convention.
         if _window_over_cap:
-            response = (
-                f"Window capped at {NM_SAFEWORD_WINDOW_MAX_MIN // 60}h — "
-                f"try 'duke {NM_SAFEWORD_WINDOW_MAX_MIN // 60}h' or less."
+            _cap_allowed, _ = self._is_authorized_to_ack(
+                person_id, NM_HAZARD_EXTERIOR_PERSON,
             )
-            await self._log_and_reply(
-                database, person_id, channel, raw_text,
-                "safe_word_window_rejected", response, success=False,
-            )
-            return response
+            if channel == "companion":
+                _cap_allowed = True
+            if not _cap_allowed:
+                # Silent fall-through: do not confirm the cap or the word.
+                _window_over_cap = False
+            else:
+                response = (
+                    f"Window capped at {NM_SAFEWORD_WINDOW_MAX_MIN // 60}h — "
+                    f"try 'duke {NM_SAFEWORD_WINDOW_MAX_MIN // 60}h' or less."
+                )
+                await self._log_and_reply(
+                    database, person_id, channel, raw_text,
+                    "safe_word_window_rejected", response, success=False,
+                )
+                return response
         is_safe_word, _sw_source = self._match_safe_word(text, person_id)
 
         # Check if currently silenced
@@ -3276,6 +3313,12 @@ class NotificationManager:
         # Safe word match
         if is_safe_word:
             self._inbound_by_command["safe_word"] += 1
+            # A2 (fix-up): defensive init to close the latent
+            # UnboundLocalError booby-trap in the elif-has_active_alert
+            # branch (auth_reason was previously defined only inside the
+            # is_critical branch).
+            allowed = True
+            auth_reason: str | None = None
             if is_critical:
                 person_name = self._get_person_name(person_id)
                 hazard_type = self._active_alert_data.get("hazard_type", "")
@@ -3345,6 +3388,28 @@ class NotificationManager:
             # or immediately when there is no active alert. Authority-
             # denied branches returned early above, so reaching this line
             # implies the ack was not denied.
+            # A1 (fix-up): authorize BEFORE opening the window. In the
+            # is_critical branch we've already denied+returned above on
+            # unauthorized. In the elif/else branches (has_active_alert
+            # non-CRITICAL, or no active alert) the ack path had no auth
+            # check — but opening a 3h perimeter blackout must. Reuse the
+            # existing security-ack allowlist with EXTERIOR_PERSON as the
+            # authority key (matches the class the window governs).
+            # Companion channel auto-authorized (existing convention).
+            if _window_minutes is not None:
+                _win_allowed, _ = self._is_authorized_to_ack(
+                    person_id, NM_HAZARD_EXTERIOR_PERSON,
+                )
+                if channel == "companion":
+                    _win_allowed = True
+                if not _win_allowed:
+                    _LOGGER.warning(
+                        "NM safeword window DENIED (unauthorized): "
+                        "person=%s channel=%s requested_min=%d",
+                        person_id, channel, _window_minutes,
+                    )
+                    _window_minutes = None
+                    response = f"{response} (window not opened — not authorized.)"
             if _window_minutes is not None:
                 _expiry = dt_util.utcnow() + timedelta(minutes=_window_minutes)
                 self._perimeter_silence_until = _expiry
@@ -3502,7 +3567,14 @@ class NotificationManager:
         window_minutes: int,
         expiry: datetime,
     ) -> None:
-        """SAFEWORD-WINDOW-1 D3: emit NM note when a window opens."""
+        """SAFEWORD-WINDOW-1 D3: emit NM note when a window opens.
+
+        Fix-up B-LOW-2: this LOW-severity note IS DND-suppressed at
+        night by design (quiet-hours gate in async_notify). That is
+        intentional — the SMS reply to the operator's "duke Nh" is the
+        guaranteed real-time feedback; the note is an operator-log
+        breadcrumb that need not wake the household.
+        """
         try:
             person = self._get_person_name(person_id) if person_id else "operator"
             await self.async_notify(
@@ -3522,7 +3594,13 @@ class NotificationManager:
         self,
         expired_at: datetime,
     ) -> None:
-        """SAFEWORD-WINDOW-1 D3: emit NM note when a window expires."""
+        """SAFEWORD-WINDOW-1 D3: emit NM note when a window expires.
+
+        Fix-up B-LOW-2: LOW-severity → DND-suppressed at night by
+        design. The next perimeter alert AFTER expiry is what actually
+        matters and it flows through unmuted; this note is a log-only
+        breadcrumb.
+        """
         try:
             await self.async_notify(
                 coordinator_id="notification_manager",

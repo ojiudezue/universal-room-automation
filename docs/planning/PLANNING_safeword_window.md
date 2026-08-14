@@ -248,7 +248,16 @@ reviewer's per-site mutation drill can pick it up.
   clock, first post-expiry perimeter dispatch fires normally AND emits
   the "Perimeter alerts resumed" NM note.
 - `test_kill_switch` — set `NM_SAFEWORD_WINDOW_ENABLED = False`, "duke
-  2h" → bare "duke" behaviour (ack; no window; token echo drops).
+  2h" → pre-parse skipped; raw text ("dukeword 2h") fails
+  `_match_safe_word` (exact equality with the trailing " 2h"), so
+  behaviour is: NO ack, NO window, NO reply beyond the ordinary
+  no-context/unknown path. To keep "bare duke" acking normally when
+  the kill switch is off, send it WITHOUT the duration suffix — that
+  path is entirely unaffected by NM_SAFEWORD_WINDOW_ENABLED.
+  (Fix-up A3 2026-08-14: prior wording implied "duke 2h" would ack
+  without the window when disabled; that is not what happens and not
+  what should happen — the kill switch must not silently rewrite
+  operator intent.)
 - `test_restart_clears_window` — set window, run
   `get_persistence_state` → assert key absent; restore into a fresh
   instance → assert `_perimeter_silence_until is None`.
