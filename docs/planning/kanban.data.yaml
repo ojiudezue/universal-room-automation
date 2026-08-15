@@ -1287,6 +1287,7 @@ cards:
   next: 'ura-planner -> plan review -> build.'
   plan_review_2026_08_14: 'FIX-PLAN-FIRST (0d30ee8bc): HIGH — plan''s XCORR-1 mechanism was WRONG; single-camera nighttime circling would demote the exemption dispatch to LOW (founding ask unmet in a reachable shape). Reviewer adjudicated fix: exemption_active early-return in _evaluate_burst_demotion + D5b single-camera-night test. +3 MED (missing is_life_safety_hazard import in perimeter_alert, NM dedup HIGH-HIGH collision unverified, I1 set-vs-bool underpin). Rev-2 in flight.'
   build_2026_08_15: 'feature/circling-label (6 commits, worktree): 21 new tests, 8/8 drills red-restored, 0 HEAD-only suite failures (9026 pass). Notable builder find: plan''s I4 anchor was masked by I2 — added unique-anchor test. 2 framing-disjoint reviews dispatched (A correctness+invariants, B lifecycle+races+S1-S8).'
+  reviews_2026_08_15: 'A SHIP (3f102e803) + B SHIP (ce9913b38), zero overlapping findings. Fix-up 4c1667f93 (3 LOWs incl. B-LOW-1 cross-camera double-grant race -> optimistic seed + 4-path rollback, +3 load-bearing tests). Orchestrator re-drill: XCORR-1 short-circuit neuter -> 3 named red incl. D5b anchor; restored 64/64. Base verified docs-only-ahead. MERGED to develop; awaiting deploy.'
 
 
 - id: GUEST-FP-RESIDUALS-1

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-14T20:47:18-05:00_ - _Data commit: `fb6c1a28b6ff`_ - _last_reconciled: 2026-08-14_
+_Generated: 2026-08-14T21:03:20-05:00_ - _Data commit: `11b47cd04fab`_ - _last_reconciled: 2026-08-14_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -251,11 +251,12 @@ thread: **perimeter** - status: **review** - approval: **unreviewed**
 - **Origin:** 2026-08-13 - CIRCLING-SEVERITY-1 Review A MEDIUM-A1: founding shape pages at hops 1-2 as pass_by (LOW/MED); classification becomes circling at hop 3; per-camera 300s cooldown returns before severity re-resolves; continuation-coercion blo...
 - **Why:** INV-M holds (pages happen, tripwire honest) but the operator's 08-08 complaint was about CIRCLING specifically. The dominant 2-camera alternating shape can never emit a HIGH circling-labelled page under current mechanics.
 - **Next:** ura-planner -> plan review -> build.
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `operator_decision`: (A) surgical — allow ONE dispatch through the cooldown when a track's classification TRANSITIONS (one extra HIGH page at the hop circling forms; ~persist last_dispatched_classification on ExteriorTrack). (B) tighten invariant + add circl...
   - `decision_2026_08_14`: OPERATOR: Option A approved per recommendation — one dispatch allowed through the per-camera cooldown when a track's classification TRANSITIONS (the hop circling forms => one HIGH circling-labelled page). Own Tier-2 cycle, plan review fi...
   - `plan_review_2026_08_14`: FIX-PLAN-FIRST (0d30ee8bc): HIGH — plan's XCORR-1 mechanism was WRONG; single-camera nighttime circling would demote the exemption dispatch to LOW (founding ask unmet in a reachable shape). Reviewer adjudicated fix: exemption_active earl...
   - `build_2026_08_15`: feature/circling-label (6 commits, worktree): 21 new tests, 8/8 drills red-restored, 0 HEAD-only suite failures (9026 pass). Notable builder find: plan's I4 anchor was masked by I2 — added unique-anchor test. 2 framing-disjoint reviews d...
+  - `reviews_2026_08_15`: A SHIP (3f102e803) + B SHIP (ce9913b38), zero overlapping findings. Fix-up 4c1667f93 (3 LOWs incl. B-LOW-1 cross-camera double-grant race -> optimistic seed + 4-path rollback, +3 load-bearing tests). Orchestrator re-drill: XCORR-1 short-...
 
 ## 🚀 Shipped (organic open) (32)
 _live, awaiting proof_
