@@ -1144,6 +1144,23 @@ cards:
   next: 'Tier 1 hotfix; batch with next deploy.'
   refs: [custom_components/universal_room_automation/domain_coordinators/optimization_llm.py]
 
+- id: CENSUS-GUEST-FLOOR-1
+  title: 'Census blind to guests (read 4 with 10 in house) — re-admit the WiFi guest-VLAN count as a bounded FLOOR, gated to contain the FP problem that unplugged it'
+  thread: presence
+  status: pre_planning
+  approval: unreviewed
+  origin:
+    date: '2026-08-15'
+    gist: 'operator: "census says 4 but there are 4 of us and 6 guests — how is it missing this many people"'
+  why: 'Census total = identified(BLE+face, structurally household-only) + camera_unrecognized(3-min hold). Guests only count while standing in view of transit-tier census cameras; the guest phones on the Revel VLAN ARE counted by _get_wifi_guest_count (camera_census.py:2779 — family-exclusion + MAC xref + recency) but a v2 decision EXCLUDED it from the formula (IoT false positives); diagnostics-only since. Tonight the one leg that knew ~6 guests was unplugged.'
+  parsimony: {problem: 'the census cannot count unidentified people outside census-camera view even when their devices announce them', verdict: SIMPLIFY}
+  parked_alts:
+  - 'Add social-room interior cameras (living/dining) — operator hardware+privacy decision, not a cycle'
+  - 'Naive re-add of wifi count as additive term — rejected, recreates the v2 FP problem'
+  proposed_shape: 'total = max(total, identified + wifi_guest_floor), the floor admitted ONLY under guards: guest-mode active OR count stable >N min; existing family-exclusion layers retained; kill switch = existing exclusion default. Numbers get knobs.'
+  next: 'ura-planner scope after current deploy queue clears; Tier 2 (presence/census shared primitive -> possibly 2-DB per standing policy).'
+  refs: [custom_components/universal_room_automation/camera_census.py]
+
 - id: MEMORY-PROGRAM-EPIC
   title: 'EPIC — Hierarchical Entity Memory: every node (room/zone/house/coordinator) owns consultable, compressed history behind one queryable interface'
   thread: memory
