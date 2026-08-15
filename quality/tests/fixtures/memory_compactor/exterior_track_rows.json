@@ -1,0 +1,4880 @@
+{
+  "rear_ptz|car": [
+    {
+      "id": 510,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-07T22:54:24.483248-05:00",
+      "ended_at": "2026-08-07T22:54:52.332118-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000028-de74c4",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "rear_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-07T22:54:24.483248-05:00",
+            "t_last": "2026-08-07T22:54:52.332118-05:00",
+            "best_score": 0.77,
+            "best_event_id": "1786161265.807651-baha0a"
+          }
+        ],
+        "duration_s": 27.8,
+        "camera_count": 1,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "rear_ptz \u00b7 just now \u00b7 car"
+      }
+    },
+    {
+      "id": 535,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T05:21:12.017746-05:00",
+      "ended_at": "2026-08-08T05:23:03.013963-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000053-44697d",
+        "label": "car",
+        "sub_label": null,
+        "classification": "circling",
+        "path": [
+          "rear_ptz",
+          "front_side_ptz",
+          "rear_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T05:21:12.017746-05:00",
+            "t_last": "2026-08-08T05:21:12.017746-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T05:21:18.175145-05:00",
+            "t_last": "2026-08-08T05:21:18.175145-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T05:23:03.013963-05:00",
+            "t_last": "2026-08-08T05:23:03.013963-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          }
+        ],
+        "duration_s": 111.0,
+        "camera_count": 2,
+        "revisit_count": 1,
+        "identified": false,
+        "path_string": "rear_ptz \u2192 front_side_ptz \u2192 rear_ptz \u00b7 1 min \u00b7 car"
+      }
+    },
+    {
+      "id": 541,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T06:24:18.810501-05:00",
+      "ended_at": "2026-08-08T06:24:55.576260-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000058-b0a9b1",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "rear_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T06:24:18.810501-05:00",
+            "t_last": "2026-08-08T06:24:55.576260-05:00",
+            "best_score": 0.727,
+            "best_event_id": "1786188223.145402-241m06"
+          }
+        ],
+        "duration_s": 36.8,
+        "camera_count": 1,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "rear_ptz \u00b7 just now \u00b7 car"
+      }
+    },
+    {
+      "id": 543,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T07:03:18.920328-05:00",
+      "ended_at": "2026-08-08T07:05:31.670762-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000060-8ffec2",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "rear_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T07:03:18.920328-05:00",
+            "t_last": "2026-08-08T07:05:31.670762-05:00",
+            "best_score": 0.914,
+            "best_event_id": "1786190720.651557-k7ebxw"
+          }
+        ],
+        "duration_s": 132.8,
+        "camera_count": 1,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "rear_ptz \u00b7 2 min \u00b7 car"
+      }
+    },
+    {
+      "id": 546,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T07:47:46.846201-05:00",
+      "ended_at": "2026-08-08T07:48:18.225686-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000063-eca2c4",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "rear_ptz",
+          "front_side_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T07:47:46.846201-05:00",
+            "t_last": "2026-08-08T07:47:46.846201-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T07:47:54.937866-05:00",
+            "t_last": "2026-08-08T07:48:18.225686-05:00",
+            "best_score": 0.807,
+            "best_event_id": "1786193274.382599-nx8k6i"
+          }
+        ],
+        "duration_s": 31.4,
+        "camera_count": 2,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "rear_ptz \u2192 front_side_ptz \u00b7 just now \u00b7 car"
+      }
+    },
+    {
+      "id": 549,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T08:08:16.771816-05:00",
+      "ended_at": "2026-08-08T08:10:33.124701-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000067-ccd8da",
+        "label": "car",
+        "sub_label": null,
+        "classification": "circling",
+        "path": [
+          "rear_ptz",
+          "front_side_ptz",
+          "rear_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T08:08:16.771816-05:00",
+            "t_last": "2026-08-08T08:08:37.259028-05:00",
+            "best_score": 0.86,
+            "best_event_id": "1786194498.435912-ijixgn"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T08:09:10.019999-05:00",
+            "t_last": "2026-08-08T08:09:17.012003-05:00",
+            "best_score": 0.803,
+            "best_event_id": "1786194552.537131-aczequ"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T08:09:19.970276-05:00",
+            "t_last": "2026-08-08T08:10:33.124701-05:00",
+            "best_score": 0.872,
+            "best_event_id": "1786194625.014302-sw7558"
+          }
+        ],
+        "duration_s": 136.4,
+        "camera_count": 2,
+        "revisit_count": 1,
+        "identified": false,
+        "path_string": "rear_ptz \u2192 front_side_ptz \u2192 rear_ptz \u00b7 2 min \u00b7 car"
+      }
+    },
+    {
+      "id": 550,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T08:20:39.877014-05:00",
+      "ended_at": "2026-08-08T08:20:39.877014-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000002-2fb4db",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "rear_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T08:20:39.877014-05:00",
+            "t_last": "2026-08-08T08:20:39.877014-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          }
+        ],
+        "duration_s": 0.0,
+        "camera_count": 1,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "rear_ptz \u00b7 just now \u00b7 car"
+      }
+    },
+    {
+      "id": 563,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T10:42:16.699121-05:00",
+      "ended_at": "2026-08-08T10:50:56.451470-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000005-01b502",
+        "label": "car",
+        "sub_label": null,
+        "classification": "circling",
+        "path": [
+          "rear_ptz",
+          "front_side_ptz",
+          "utilities_ptz",
+          "front_side_ptz",
+          "rear_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T10:42:16.699121-05:00",
+            "t_last": "2026-08-08T10:42:24.790942-05:00",
+            "best_score": 0.88,
+            "best_event_id": "1786203737.817184-6jrswq"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T10:42:26.849696-05:00",
+            "t_last": "2026-08-08T10:42:26.849696-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-08T10:42:37.678234-05:00",
+            "t_last": "2026-08-08T10:43:21.494123-05:00",
+            "best_score": 0.757,
+            "best_event_id": "1786203797.953109-oxsd8y"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T10:43:22.339222-05:00",
+            "t_last": "2026-08-08T10:45:54.653640-05:00",
+            "best_score": 0.879,
+            "best_event_id": "1786203949.452485-86rou6"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T10:45:58.887559-05:00",
+            "t_last": "2026-08-08T10:50:56.451470-05:00",
+            "best_score": 0.908,
+            "best_event_id": "1786203987.643068-bw2ooz"
+          }
+        ],
+        "duration_s": 519.8,
+        "camera_count": 3,
+        "revisit_count": 2,
+        "identified": false,
+        "path_string": "rear_ptz \u2192 front_side_ptz \u2192 utilities_ptz \u2192 front_side_ptz \u2192 rear_ptz \u00b7 8 min \u00b7 car"
+      }
+    },
+    {
+      "id": 566,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T10:58:46.417350-05:00",
+      "ended_at": "2026-08-08T10:59:02.924720-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000008-77b855",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "rear_ptz",
+          "front_side_ptz",
+          "utilities_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T10:58:46.417350-05:00",
+            "t_last": "2026-08-08T10:58:51.741496-05:00",
+            "best_score": 0.911,
+            "best_event_id": "1786204726.727764-tqeu4f"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T10:58:52.211002-05:00",
+            "t_last": "2026-08-08T10:59:00.072352-05:00",
+            "best_score": 0.825,
+            "best_event_id": "1786204732.639687-27av5z"
+          },
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-08T10:59:00.503934-05:00",
+            "t_last": "2026-08-08T10:59:02.924720-05:00",
+            "best_score": 0.837,
+            "best_event_id": "1786204740.319276-foptrw"
+          }
+        ],
+        "duration_s": 16.5,
+        "camera_count": 3,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "rear_ptz \u2192 front_side_ptz \u2192 utilities_ptz \u00b7 just now \u00b7 car"
+      }
+    },
+    {
+      "id": 569,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T11:01:08.924721-05:00",
+      "ended_at": "2026-08-08T11:02:17.462113-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000010-5d2d83",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "rear_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T11:01:08.924721-05:00",
+            "t_last": "2026-08-08T11:02:17.462113-05:00",
+            "best_score": 0.882,
+            "best_event_id": "1786204888.221418-yfv31b"
+          }
+        ],
+        "duration_s": 68.5,
+        "camera_count": 1,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "rear_ptz \u00b7 1 min \u00b7 car"
+      }
+    },
+    {
+      "id": 584,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T11:35:06.260531-05:00",
+      "ended_at": "2026-08-08T11:37:19.204847-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000016-31f6e5",
+        "label": "car",
+        "sub_label": null,
+        "classification": "circling",
+        "path": [
+          "rear_ptz",
+          "front_side_ptz",
+          "utilities_ptz",
+          "front_side_ptz",
+          "utilities_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T11:35:06.260531-05:00",
+            "t_last": "2026-08-08T11:36:57.575457-05:00",
+            "best_score": 0.914,
+            "best_event_id": "1786207009.567925-yxp5m9"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T11:37:00.088420-05:00",
+            "t_last": "2026-08-08T11:37:10.321600-05:00",
+            "best_score": 0.77,
+            "best_event_id": "1786207020.697324-dvuqts"
+          },
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-08T11:37:10.525071-05:00",
+            "t_last": "2026-08-08T11:37:10.525071-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T11:37:11.599738-05:00",
+            "t_last": "2026-08-08T11:37:12.685116-05:00",
+            "best_score": 0.734,
+            "best_event_id": "1786207020.697324-dvuqts"
+          },
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-08T11:37:13.114402-05:00",
+            "t_last": "2026-08-08T11:37:19.204847-05:00",
+            "best_score": 0.893,
+            "best_event_id": "1786207031.354579-0klzff"
+          }
+        ],
+        "duration_s": 132.9,
+        "camera_count": 3,
+        "revisit_count": 2,
+        "identified": false,
+        "path_string": "rear_ptz \u2192 front_side_ptz \u2192 utilities_ptz \u2192 front_side_ptz \u2192 utilities_ptz \u00b7 2 min \u00b7 car"
+      }
+    },
+    {
+      "id": 586,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T11:51:37.206021-05:00",
+      "ended_at": "2026-08-08T11:53:23.816468-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000017-e4dcb9",
+        "label": "car",
+        "sub_label": null,
+        "classification": "circling",
+        "path": [
+          "rear_ptz",
+          "front_side_ptz",
+          "rear_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T11:51:37.206021-05:00",
+            "t_last": "2026-08-08T11:52:00.333052-05:00",
+            "best_score": 0.874,
+            "best_event_id": "1786207910.911221-4qhu4f"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T11:53:06.323638-05:00",
+            "t_last": "2026-08-08T11:53:14.525769-05:00",
+            "best_score": 0.786,
+            "best_event_id": "1786207991.921052-9t7jby"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T11:53:19.959055-05:00",
+            "t_last": "2026-08-08T11:53:23.816468-05:00",
+            "best_score": 0.825,
+            "best_event_id": "1786207997.914904-b75ejc"
+          }
+        ],
+        "duration_s": 106.6,
+        "camera_count": 2,
+        "revisit_count": 1,
+        "identified": false,
+        "path_string": "rear_ptz \u2192 front_side_ptz \u2192 rear_ptz \u00b7 1 min \u00b7 car"
+      }
+    },
+    {
+      "id": 608,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T13:45:50.524475-05:00",
+      "ended_at": "2026-08-08T13:50:33.781432-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000029-31edbf",
+        "label": "car",
+        "sub_label": null,
+        "classification": "circling",
+        "path": [
+          "rear_ptz",
+          "g5_bullet",
+          "rear_ptz",
+          "g5_bullet",
+          "rear_ptz",
+          "g5_bullet",
+          "rear_ptz",
+          "front_side_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T13:45:50.524475-05:00",
+            "t_last": "2026-08-08T13:48:29.095214-05:00",
+            "best_score": 0.77,
+            "best_event_id": "1786214749.675088-ugaken"
+          },
+          {
+            "camera": "g5_bullet",
+            "t_first": "2026-08-08T13:48:32.901973-05:00",
+            "t_last": "2026-08-08T13:48:43.686536-05:00",
+            "best_score": 0.834,
+            "best_event_id": "1786214906.337588-kh8efj"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T13:48:44.321613-05:00",
+            "t_last": "2026-08-08T13:48:46.378607-05:00",
+            "best_score": 0.707,
+            "best_event_id": "1786214749.675088-ugaken"
+          },
+          {
+            "camera": "g5_bullet",
+            "t_first": "2026-08-08T13:48:55.919697-05:00",
+            "t_last": "2026-08-08T13:48:55.919697-05:00",
+            "best_score": 0.593,
+            "best_event_id": "1786214906.337588-kh8efj"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T13:49:04.429748-05:00",
+            "t_last": "2026-08-08T13:49:32.476674-05:00",
+            "best_score": 0.846,
+            "best_event_id": "1786214906.398292-diy6f8"
+          },
+          {
+            "camera": "g5_bullet",
+            "t_first": "2026-08-08T13:49:53.725201-05:00",
+            "t_last": "2026-08-08T13:49:58.885476-05:00",
+            "best_score": 0.797,
+            "best_event_id": "1786214980.745911-lez8su"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T13:50:09.257764-05:00",
+            "t_last": "2026-08-08T13:50:31.610560-05:00",
+            "best_score": 0.754,
+            "best_event_id": "1786214907.36928-3yq3vf"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T13:50:33.781432-05:00",
+            "t_last": "2026-08-08T13:50:33.781432-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          }
+        ],
+        "duration_s": 283.3,
+        "camera_count": 3,
+        "revisit_count": 2,
+        "identified": false,
+        "path_string": "rear_ptz \u2192 g5_bullet \u2192 rear_ptz \u2192 g5_bullet \u2192 rear_ptz \u2192 g5_bullet \u2192 rear_ptz \u2192 front_side_ptz \u00b7 4 min \u00b7 car"
+      }
+    },
+    {
+      "id": 612,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T14:00:34.788539-05:00",
+      "ended_at": "2026-08-08T14:20:44.767760-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000031-725845",
+        "label": "car",
+        "sub_label": null,
+        "classification": "circling",
+        "path": [
+          "rear_ptz",
+          "front_side_ptz",
+          "rear_ptz",
+          "front_side_ptz",
+          "rear_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T14:00:34.788539-05:00",
+            "t_last": "2026-08-08T14:01:07.174214-05:00",
+            "best_score": 0.867,
+            "best_event_id": "1786215635.072823-qsrwff"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T14:01:09.968888-05:00",
+            "t_last": "2026-08-08T14:01:09.968888-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T14:01:27.967256-05:00",
+            "t_last": "2026-08-08T14:13:50.618911-05:00",
+            "best_score": 0.822,
+            "best_event_id": "1786216427.570155-v3lyep"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T14:13:53.507103-05:00",
+            "t_last": "2026-08-08T14:13:53.507103-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T14:15:26.806488-05:00",
+            "t_last": "2026-08-08T14:20:44.767760-05:00",
+            "best_score": 0.715,
+            "best_event_id": "1786216527.884889-y9h53v"
+          }
+        ],
+        "duration_s": 1210.0,
+        "camera_count": 2,
+        "revisit_count": 2,
+        "identified": false,
+        "path_string": "rear_ptz \u2192 front_side_ptz \u2192 rear_ptz \u2192 front_side_ptz \u2192 rear_ptz \u00b7 20 min \u00b7 car"
+      }
+    },
+    {
+      "id": 614,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T15:13:35.972744-05:00",
+      "ended_at": "2026-08-08T15:16:24.275767-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000003-7b9243",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "rear_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T15:13:35.972744-05:00",
+            "t_last": "2026-08-08T15:16:24.275767-05:00",
+            "best_score": 0.731,
+            "best_event_id": "1786220038.027914-m2zgdc"
+          }
+        ],
+        "duration_s": 168.3,
+        "camera_count": 1,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "rear_ptz \u00b7 2 min \u00b7 car"
+      }
+    },
+    {
+      "id": 621,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T15:58:09.813724-05:00",
+      "ended_at": "2026-08-08T15:58:19.475514-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000010-b78e87",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "rear_ptz",
+          "front_side_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T15:58:09.813724-05:00",
+            "t_last": "2026-08-08T15:58:11.857380-05:00",
+            "best_score": 0.89,
+            "best_event_id": "1786222689.980044-0aznlv"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T15:58:16.302124-05:00",
+            "t_last": "2026-08-08T15:58:19.475514-05:00",
+            "best_score": 0.757,
+            "best_event_id": "1786222694.87775-2w66lj"
+          }
+        ],
+        "duration_s": 9.7,
+        "camera_count": 2,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "rear_ptz \u2192 front_side_ptz \u00b7 just now \u00b7 car"
+      }
+    },
+    {
+      "id": 625,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T16:12:02.355287-05:00",
+      "ended_at": "2026-08-08T16:28:11.367863-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000015-3b6d08",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "rear_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T16:12:02.355287-05:00",
+            "t_last": "2026-08-08T16:28:11.367863-05:00",
+            "best_score": 0.727,
+            "best_event_id": "1786223389.621755-vhpgue"
+          }
+        ],
+        "duration_s": 969.0,
+        "camera_count": 1,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "rear_ptz \u00b7 16 min \u00b7 car"
+      }
+    },
+    {
+      "id": 626,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T16:37:08.766382-05:00",
+      "ended_at": "2026-08-08T16:37:18.306236-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000018-a210a2",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "rear_ptz",
+          "front_side_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T16:37:08.766382-05:00",
+            "t_last": "2026-08-08T16:37:14.961477-05:00",
+            "best_score": 0.89,
+            "best_event_id": "1786225029.962878-dae0ln"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T16:37:15.207652-05:00",
+            "t_last": "2026-08-08T16:37:18.306236-05:00",
+            "best_score": 0.834,
+            "best_event_id": "1786225035.256858-a5oah7"
+          }
+        ],
+        "duration_s": 9.5,
+        "camera_count": 2,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "rear_ptz \u2192 front_side_ptz \u00b7 just now \u00b7 car"
+      }
+    },
+    {
+      "id": 634,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T18:06:01.387362-05:00",
+      "ended_at": "2026-08-08T18:08:12.314777-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000001-960547",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "rear_ptz",
+          "front_side_ptz",
+          "utilities_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T18:06:01.387362-05:00",
+            "t_last": "2026-08-08T18:06:01.387362-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T18:06:14.716753-05:00",
+            "t_last": "2026-08-08T18:08:08.056223-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-08T18:08:12.314777-05:00",
+            "t_last": "2026-08-08T18:08:12.314777-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          }
+        ],
+        "duration_s": 130.9,
+        "camera_count": 3,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "rear_ptz \u2192 front_side_ptz \u2192 utilities_ptz \u00b7 2 min \u00b7 car"
+      }
+    },
+    {
+      "id": 642,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T18:12:52.070338-05:00",
+      "ended_at": "2026-08-08T18:49:29.803402-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000004-9e74d5",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "rear_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T18:12:52.070338-05:00",
+            "t_last": "2026-08-08T18:49:29.803402-05:00",
+            "best_score": 0.707,
+            "best_event_id": "1786231140.614273-dceygy"
+          }
+        ],
+        "duration_s": 2197.7,
+        "camera_count": 1,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "rear_ptz \u00b7 36 min \u00b7 car"
+      }
+    }
+  ],
+  "front_side_ptz|person": [
+    {
+      "id": 580,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T10:59:33.123226-05:00",
+      "ended_at": "2026-08-08T11:21:15.717787-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000009-12b2b7",
+        "label": "person",
+        "sub_label": null,
+        "classification": "circling",
+        "path": [
+          "front_side_ptz",
+          "back_yard",
+          "rear_ptz",
+          "back_yard",
+          "rear_ptz",
+          "back_yard",
+          "rear_ptz",
+          "back_yard",
+          "rear_ptz",
+          "back_yard",
+          "rear_ptz",
+          "back_yard",
+          "rear_ptz",
+          "back_yard",
+          "g5_bullet",
+          "rear_ptz",
+          "g5_bullet",
+          "rear_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "g5_bullet",
+          "doorbell_lite",
+          "rear_ptz",
+          "g5_bullet",
+          "rear_ptz",
+          "g5_bullet",
+          "doorbell_lite",
+          "g5_bullet"
+        ],
+        "hops": [
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T10:59:33.123226-05:00",
+            "t_last": "2026-08-08T10:59:33.560692-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786204771.674223-1qx69h"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T11:00:27.893368-05:00",
+            "t_last": "2026-08-08T11:00:54.196850-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786204783.74868-msa5uw"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T11:00:56.767215-05:00",
+            "t_last": "2026-08-08T11:00:56.767215-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T11:00:59.363788-05:00",
+            "t_last": "2026-08-08T11:00:59.363788-05:00",
+            "best_score": 0.523,
+            "best_event_id": "1786204783.74868-msa5uw"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T11:01:02.499881-05:00",
+            "t_last": "2026-08-08T11:01:02.924478-05:00",
+            "best_score": 0.734,
+            "best_event_id": "1786204853.730437-7k3h5r"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T11:01:04.619798-05:00",
+            "t_last": "2026-08-08T11:01:04.619798-05:00",
+            "best_score": 0.559,
+            "best_event_id": "1786204783.74868-msa5uw"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T11:01:07.613179-05:00",
+            "t_last": "2026-08-08T11:01:07.833891-05:00",
+            "best_score": 0.721,
+            "best_event_id": "1786204861.60583-q1lufk"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T11:01:10.268563-05:00",
+            "t_last": "2026-08-08T11:01:10.268563-05:00",
+            "best_score": 0.574,
+            "best_event_id": "1786204783.74868-msa5uw"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T11:01:11.170734-05:00",
+            "t_last": "2026-08-08T11:01:12.829841-05:00",
+            "best_score": 0.652,
+            "best_event_id": "1786204853.730437-7k3h5r"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T11:01:15.508556-05:00",
+            "t_last": "2026-08-08T11:01:15.508556-05:00",
+            "best_score": 0.523,
+            "best_event_id": "1786204783.74868-msa5uw"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T11:01:16.790973-05:00",
+            "t_last": "2026-08-08T11:01:16.790973-05:00",
+            "best_score": 0.547,
+            "best_event_id": "1786204853.730437-7k3h5r"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T11:01:22.063046-05:00",
+            "t_last": "2026-08-08T11:01:27.716619-05:00",
+            "best_score": 0.559,
+            "best_event_id": "1786204783.74868-msa5uw"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T11:01:32.206526-05:00",
+            "t_last": "2026-08-08T11:01:32.206526-05:00",
+            "best_score": 0.762,
+            "best_event_id": "1786204886.736052-8rdx90"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T11:01:33.613768-05:00",
+            "t_last": "2026-08-08T11:01:39.909193-05:00",
+            "best_score": 0.512,
+            "best_event_id": "1786204783.74868-msa5uw"
+          },
+          {
+            "camera": "g5_bullet",
+            "t_first": "2026-08-08T11:01:45.652560-05:00",
+            "t_last": "2026-08-08T11:01:45.652560-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T11:01:46.687747-05:00",
+            "t_last": "2026-08-08T11:01:46.687747-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "g5_bullet",
+            "t_first": "2026-08-08T11:01:51.099345-05:00",
+            "t_last": "2026-08-08T11:01:51.822508-05:00",
+            "best_score": 0.754,
+            "best_event_id": "1786204908.383744-x0bh3r"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T11:01:55.912827-05:00",
+            "t_last": "2026-08-08T11:02:02.295226-05:00",
+            "best_score": 0.883,
+            "best_event_id": "1786204898.426662-04pk3z"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T11:02:30.793502-05:00",
+            "t_last": "2026-08-08T11:02:57.057098-05:00",
+            "best_score": 0.629,
+            "best_event_id": "1786204914.040115-188xkr"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T11:03:03.400443-05:00",
+            "t_last": "2026-08-08T11:03:16.570241-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786204975.584666-1ps0y3"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T11:04:32.095641-05:00",
+            "t_last": "2026-08-08T11:08:03.449422-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786205155.865622-rwhfsb"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T11:09:18.266281-05:00",
+            "t_last": "2026-08-08T11:09:23.440597-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786205357.470527-ujq9w2"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T11:09:25.064565-05:00",
+            "t_last": "2026-08-08T11:10:43.077498-05:00",
+            "best_score": 0.617,
+            "best_event_id": "1786205364.324967-siv3fq"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T11:10:48.331653-05:00",
+            "t_last": "2026-08-08T11:10:48.859851-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786205445.789732-va47fa"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T11:10:49.026324-05:00",
+            "t_last": "2026-08-08T11:20:20.329944-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786205364.324967-siv3fq"
+          },
+          {
+            "camera": "g5_bullet",
+            "t_first": "2026-08-08T11:20:23.457087-05:00",
+            "t_last": "2026-08-08T11:20:23.692792-05:00",
+            "best_score": 0.844,
+            "best_event_id": "1786206022.704215-odnqgj"
+          },
+          {
+            "camera": "doorbell_lite",
+            "t_first": "2026-08-08T11:20:40.594792-05:00",
+            "t_last": "2026-08-08T11:20:40.594792-05:00",
+            "best_score": 0.676,
+            "best_event_id": "1786205859.8369-69n9yt"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T11:21:02.733223-05:00",
+            "t_last": "2026-08-08T11:21:02.950174-05:00",
+            "best_score": 0.848,
+            "best_event_id": "1786206062.194216-bzfdgf"
+          },
+          {
+            "camera": "g5_bullet",
+            "t_first": "2026-08-08T11:21:04.549024-05:00",
+            "t_last": "2026-08-08T11:21:04.549024-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T11:21:09.276774-05:00",
+            "t_last": "2026-08-08T11:21:09.410076-05:00",
+            "best_score": 0.828,
+            "best_event_id": "1786206062.194216-bzfdgf"
+          },
+          {
+            "camera": "g5_bullet",
+            "t_first": "2026-08-08T11:21:09.657628-05:00",
+            "t_last": "2026-08-08T11:21:11.344071-05:00",
+            "best_score": 0.891,
+            "best_event_id": "1786206062.020056-4pt5lw"
+          },
+          {
+            "camera": "doorbell_lite",
+            "t_first": "2026-08-08T11:21:11.502470-05:00",
+            "t_last": "2026-08-08T11:21:11.695686-05:00",
+            "best_score": 0.818,
+            "best_event_id": "1786206068.242279-k16vy7"
+          },
+          {
+            "camera": "g5_bullet",
+            "t_first": "2026-08-08T11:21:12.249103-05:00",
+            "t_last": "2026-08-08T11:21:15.717787-05:00",
+            "best_score": 0.909,
+            "best_event_id": "1786206062.020056-4pt5lw"
+          }
+        ],
+        "duration_s": 1302.6,
+        "camera_count": 5,
+        "revisit_count": 5,
+        "identified": false,
+        "path_string": "front_side_ptz \u2192 back_yard \u2192 rear_ptz \u2192 back_yard \u2192 rear_ptz \u2192 back_yard \u2192 rear_ptz \u2192 back_yard \u2192 rear_ptz \u2192 back_yard \u2192 rear_ptz \u2192 back_yard \u2192 rear_ptz \u2192 back_yard \u2192 g5_bullet \u2192 rear_ptz \u2192 g5_bullet \u2192 rear_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 g5_bullet \u2192 doorbell_lite \u2192 rear_ptz \u2192 g5_bullet \u2192 rear_ptz \u2192 g5_bullet \u2192 doorbell_lite \u2192 g5_bullet \u00b7 21 min \u00b7 person"
+      }
+    },
+    {
+      "id": 606,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T13:06:42.101606-05:00",
+      "ended_at": "2026-08-08T13:28:57.534897-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000023-ee1d90",
+        "label": "person",
+        "sub_label": null,
+        "classification": "circling",
+        "path": [
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T13:06:42.101606-05:00",
+            "t_last": "2026-08-08T13:06:42.101606-05:00",
+            "best_score": 0.559,
+            "best_event_id": "1786211910.857518-il9q0s"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T13:06:43.465638-05:00",
+            "t_last": "2026-08-08T13:06:45.388522-05:00",
+            "best_score": 0.559,
+            "best_event_id": "1786211906.089197-93emiv"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T13:07:20.492620-05:00",
+            "t_last": "2026-08-08T13:07:25.945572-05:00",
+            "best_score": 0.684,
+            "best_event_id": "1786211910.857518-il9q0s"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T13:07:43.090376-05:00",
+            "t_last": "2026-08-08T13:07:43.090376-05:00",
+            "best_score": 0.617,
+            "best_event_id": "1786211906.089197-93emiv"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T13:07:48.218352-05:00",
+            "t_last": "2026-08-08T13:08:39.703479-05:00",
+            "best_score": 0.664,
+            "best_event_id": "1786211910.857518-il9q0s"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T13:08:43.452837-05:00",
+            "t_last": "2026-08-08T13:08:43.452837-05:00",
+            "best_score": 0.547,
+            "best_event_id": "1786211906.089197-93emiv"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T13:08:44.551571-05:00",
+            "t_last": "2026-08-08T13:09:22.563639-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786212524.333053-eb1mwx"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T13:09:43.575001-05:00",
+            "t_last": "2026-08-08T13:09:43.575001-05:00",
+            "best_score": 0.535,
+            "best_event_id": "1786211906.089197-93emiv"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T13:09:58.181268-05:00",
+            "t_last": "2026-08-08T13:10:28.662380-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786212610.632292-72wbfk"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T13:10:45.168306-05:00",
+            "t_last": "2026-08-08T13:10:45.168306-05:00",
+            "best_score": 0.512,
+            "best_event_id": "1786211906.089197-93emiv"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T13:10:51.276377-05:00",
+            "t_last": "2026-08-08T13:11:29.005643-05:00",
+            "best_score": 0.676,
+            "best_event_id": "1786212632.946952-tvwtx5"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T13:11:45.722327-05:00",
+            "t_last": "2026-08-08T13:12:01.650611-05:00",
+            "best_score": 0.664,
+            "best_event_id": "1786211906.089197-93emiv"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T13:12:15.910166-05:00",
+            "t_last": "2026-08-08T13:12:43.000028-05:00",
+            "best_score": 0.676,
+            "best_event_id": "1786212737.84849-40roah"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T13:13:01.700966-05:00",
+            "t_last": "2026-08-08T13:13:01.700966-05:00",
+            "best_score": 0.559,
+            "best_event_id": "1786211906.089197-93emiv"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T13:13:44.068720-05:00",
+            "t_last": "2026-08-08T13:13:44.068720-05:00",
+            "best_score": 0.598,
+            "best_event_id": "1786212737.84849-40roah"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T13:14:01.693837-05:00",
+            "t_last": "2026-08-08T13:14:01.693837-05:00",
+            "best_score": 0.598,
+            "best_event_id": "1786211906.089197-93emiv"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T13:14:43.898462-05:00",
+            "t_last": "2026-08-08T13:14:59.273509-05:00",
+            "best_score": 0.617,
+            "best_event_id": "1786212898.635008-7o1y8m"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T13:15:01.461672-05:00",
+            "t_last": "2026-08-08T13:15:01.461672-05:00",
+            "best_score": 0.547,
+            "best_event_id": "1786211906.089197-93emiv"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T13:15:20.911051-05:00",
+            "t_last": "2026-08-08T13:15:56.726610-05:00",
+            "best_score": 0.629,
+            "best_event_id": "1786212956.034288-9dj59a"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T13:16:01.720749-05:00",
+            "t_last": "2026-08-08T13:16:01.720749-05:00",
+            "best_score": 0.523,
+            "best_event_id": "1786211906.089197-93emiv"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T13:16:12.324280-05:00",
+            "t_last": "2026-08-08T13:16:32.944161-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786212737.84849-40roah"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T13:17:08.857458-05:00",
+            "t_last": "2026-08-08T13:17:08.857458-05:00",
+            "best_score": 0.586,
+            "best_event_id": "1786211906.089197-93emiv"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T13:17:24.810507-05:00",
+            "t_last": "2026-08-08T13:17:51.580414-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786212737.84849-40roah"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T13:18:06.933974-05:00",
+            "t_last": "2026-08-08T13:18:06.933974-05:00",
+            "best_score": 0.574,
+            "best_event_id": "1786211906.089197-93emiv"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T13:18:07.699438-05:00",
+            "t_last": "2026-08-08T13:18:46.041089-05:00",
+            "best_score": 0.629,
+            "best_event_id": "1786213106.231219-jwsykh"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T13:19:09.404253-05:00",
+            "t_last": "2026-08-08T13:19:09.404253-05:00",
+            "best_score": 0.586,
+            "best_event_id": "1786211906.089197-93emiv"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T13:19:38.210985-05:00",
+            "t_last": "2026-08-08T13:19:51.720073-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786213174.797649-vb7n4o"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T13:20:08.024745-05:00",
+            "t_last": "2026-08-08T13:20:08.024745-05:00",
+            "best_score": 0.547,
+            "best_event_id": "1786211906.089197-93emiv"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T13:20:23.677941-05:00",
+            "t_last": "2026-08-08T13:21:01.668226-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786213222.211453-he83ct"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T13:21:13.403398-05:00",
+            "t_last": "2026-08-08T13:25:33.068550-05:00",
+            "best_score": 0.652,
+            "best_event_id": "1786211906.089197-93emiv"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T13:28:02.500165-05:00",
+            "t_last": "2026-08-08T13:28:57.534897-05:00",
+            "best_score": 0.629,
+            "best_event_id": "1786213680.650043-dbwz5y"
+          }
+        ],
+        "duration_s": 1335.4,
+        "camera_count": 2,
+        "revisit_count": 2,
+        "identified": false,
+        "path_string": "front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u00b7 22 min \u00b7 person"
+      }
+    },
+    {
+      "id": 610,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T13:31:57.865744-05:00",
+      "ended_at": "2026-08-08T13:58:49.124929-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000028-d0b36b",
+        "label": "person",
+        "sub_label": null,
+        "classification": "circling",
+        "path": [
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "rear_ptz",
+          "back_yard",
+          "rear_ptz",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T13:31:57.865744-05:00",
+            "t_last": "2026-08-08T13:34:43.530234-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786213792.416224-weo0vd"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T13:35:56.727956-05:00",
+            "t_last": "2026-08-08T13:36:02.407000-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786213828.364453-k2deob"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T13:36:12.334254-05:00",
+            "t_last": "2026-08-08T13:36:14.417482-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786214171.544149-hwn509"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T13:36:19.073248-05:00",
+            "t_last": "2026-08-08T13:36:19.073248-05:00",
+            "best_score": 0.523,
+            "best_event_id": "1786213828.364453-k2deob"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T13:36:21.589975-05:00",
+            "t_last": "2026-08-08T13:36:21.589975-05:00",
+            "best_score": 0.598,
+            "best_event_id": "1786214171.544149-hwn509"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T13:36:24.469327-05:00",
+            "t_last": "2026-08-08T13:36:24.469327-05:00",
+            "best_score": 0.586,
+            "best_event_id": "1786213828.364453-k2deob"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T13:36:25.495085-05:00",
+            "t_last": "2026-08-08T13:37:20.347466-05:00",
+            "best_score": 0.652,
+            "best_event_id": "1786214171.544149-hwn509"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T13:37:24.722345-05:00",
+            "t_last": "2026-08-08T13:37:24.722345-05:00",
+            "best_score": 0.574,
+            "best_event_id": "1786213828.364453-k2deob"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T13:38:23.109467-05:00",
+            "t_last": "2026-08-08T13:41:07.348840-05:00",
+            "best_score": 0.676,
+            "best_event_id": "1786214402.249598-5b44mr"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T13:41:41.430207-05:00",
+            "t_last": "2026-08-08T13:48:22.177824-05:00",
+            "best_score": 0.617,
+            "best_event_id": "1786214825.439269-ldwfpv"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T13:48:57.120091-05:00",
+            "t_last": "2026-08-08T13:49:22.656787-05:00",
+            "best_score": 0.787,
+            "best_event_id": "1786214940.013795-wovxuj"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T13:49:34.166357-05:00",
+            "t_last": "2026-08-08T13:49:34.166357-05:00",
+            "best_score": 0.535,
+            "best_event_id": "1786214825.439269-ldwfpv"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T13:50:04.499889-05:00",
+            "t_last": "2026-08-08T13:50:12.263236-05:00",
+            "best_score": 0.765,
+            "best_event_id": "1786215003.388226-czw5eq"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T13:52:31.693571-05:00",
+            "t_last": "2026-08-08T13:53:03.512387-05:00",
+            "best_score": 0.617,
+            "best_event_id": "1786215151.209474-zmwyqy"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T13:53:35.413687-05:00",
+            "t_last": "2026-08-08T13:56:17.359790-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786215168.14282-ra0h5r"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T13:57:40.417741-05:00",
+            "t_last": "2026-08-08T13:58:49.124929-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786215459.814498-qozi8i"
+          }
+        ],
+        "duration_s": 1611.3,
+        "camera_count": 3,
+        "revisit_count": 3,
+        "identified": false,
+        "path_string": "front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 rear_ptz \u2192 back_yard \u2192 rear_ptz \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u00b7 26 min \u00b7 person"
+      }
+    },
+    {
+      "id": 617,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T14:44:35.604291-05:00",
+      "ended_at": "2026-08-08T15:29:04.863831-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000001-98522d",
+        "label": "person",
+        "sub_label": null,
+        "classification": "circling",
+        "path": [
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "rear_ptz",
+          "back_yard",
+          "rear_ptz",
+          "back_yard",
+          "rear_ptz",
+          "g5_bullet",
+          "rear_ptz",
+          "g5_bullet",
+          "rear_ptz",
+          "g5_bullet",
+          "rear_ptz",
+          "back_yard",
+          "g5_bullet",
+          "rear_ptz",
+          "back_yard"
+        ],
+        "hops": [
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T14:44:35.604291-05:00",
+            "t_last": "2026-08-08T14:44:35.604291-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T14:44:49.330426-05:00",
+            "t_last": "2026-08-08T14:44:49.330426-05:00",
+            "best_score": 0.574,
+            "best_event_id": "1786217721.778729-3xzguk"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T14:44:55.151742-05:00",
+            "t_last": "2026-08-08T14:44:55.151742-05:00",
+            "best_score": 0.598,
+            "best_event_id": "1786218270.131787-dcb1i5"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T14:45:00.420701-05:00",
+            "t_last": "2026-08-08T14:47:00.293557-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786217721.778729-3xzguk"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T14:47:26.299948-05:00",
+            "t_last": "2026-08-08T14:47:47.226974-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786218444.237882-8h436y"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T14:48:01.019755-05:00",
+            "t_last": "2026-08-08T14:48:31.971108-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786217721.778729-3xzguk"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T14:48:46.868130-05:00",
+            "t_last": "2026-08-08T14:48:47.059882-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786218525.866517-sjjxbj"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T14:49:33.127719-05:00",
+            "t_last": "2026-08-08T14:49:33.127719-05:00",
+            "best_score": 0.629,
+            "best_event_id": "1786217721.778729-3xzguk"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T14:49:49.738120-05:00",
+            "t_last": "2026-08-08T14:50:00.419465-05:00",
+            "best_score": 0.586,
+            "best_event_id": "1786218589.304405-eggbp0"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T14:50:01.110082-05:00",
+            "t_last": "2026-08-08T14:50:01.110082-05:00",
+            "best_score": 0.676,
+            "best_event_id": "1786217721.778729-3xzguk"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T14:50:05.705064-05:00",
+            "t_last": "2026-08-08T14:50:05.705064-05:00",
+            "best_score": 0.629,
+            "best_event_id": "1786218589.304405-eggbp0"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T14:50:16.169290-05:00",
+            "t_last": "2026-08-08T14:50:16.169290-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786217721.778729-3xzguk"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T14:50:20.658967-05:00",
+            "t_last": "2026-08-08T14:50:20.787081-05:00",
+            "best_score": 0.629,
+            "best_event_id": "1786218619.802588-dgemgv"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T14:51:18.007806-05:00",
+            "t_last": "2026-08-08T15:04:44.602120-05:00",
+            "best_score": 0.652,
+            "best_event_id": "1786217721.778729-3xzguk"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T15:05:01.544880-05:00",
+            "t_last": "2026-08-08T15:05:02.455527-05:00",
+            "best_score": 0.617,
+            "best_event_id": "1786219497.128795-datvv4"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T15:05:49.655030-05:00",
+            "t_last": "2026-08-08T15:05:49.655030-05:00",
+            "best_score": 0.559,
+            "best_event_id": "1786217721.778729-3xzguk"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T15:08:36.800671-05:00",
+            "t_last": "2026-08-08T15:08:37.837701-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786219713.275057-ebg07d"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T15:09:17.229342-05:00",
+            "t_last": "2026-08-08T15:11:16.874263-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786219574.900942-2f9pb1"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T15:11:30.908968-05:00",
+            "t_last": "2026-08-08T15:12:00.803320-05:00",
+            "best_score": 0.617,
+            "best_event_id": "1786219881.310535-plchai"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T15:12:33.320911-05:00",
+            "t_last": "2026-08-08T15:12:33.320911-05:00",
+            "best_score": 0.523,
+            "best_event_id": "1786219574.900942-2f9pb1"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T15:13:18.369279-05:00",
+            "t_last": "2026-08-08T15:13:18.369279-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T15:13:32.034001-05:00",
+            "t_last": "2026-08-08T15:13:32.034001-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786219574.900942-2f9pb1"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T15:13:39.590613-05:00",
+            "t_last": "2026-08-08T15:14:30.167728-05:00",
+            "best_score": 0.847,
+            "best_event_id": "1786220037.603823-i3tpcq"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T15:14:30.237100-05:00",
+            "t_last": "2026-08-08T15:14:30.237100-05:00",
+            "best_score": 0.547,
+            "best_event_id": "1786219574.900942-2f9pb1"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T15:14:31.710945-05:00",
+            "t_last": "2026-08-08T15:15:13.370206-05:00",
+            "best_score": 0.785,
+            "best_event_id": "1786220069.202676-3dvd9z"
+          },
+          {
+            "camera": "g5_bullet",
+            "t_first": "2026-08-08T15:15:13.978221-05:00",
+            "t_last": "2026-08-08T15:15:15.625610-05:00",
+            "best_score": 0.707,
+            "best_event_id": "1786220108.261803-gewnou"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T15:15:18.391499-05:00",
+            "t_last": "2026-08-08T15:15:20.127460-05:00",
+            "best_score": 0.725,
+            "best_event_id": "1786220110.44188-j5fh4r"
+          },
+          {
+            "camera": "g5_bullet",
+            "t_first": "2026-08-08T15:15:20.247735-05:00",
+            "t_last": "2026-08-08T15:15:20.823821-05:00",
+            "best_score": 0.598,
+            "best_event_id": "1786220108.261803-gewnou"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T15:15:21.022880-05:00",
+            "t_last": "2026-08-08T15:15:22.229583-05:00",
+            "best_score": 0.799,
+            "best_event_id": "1786220110.44188-j5fh4r"
+          },
+          {
+            "camera": "g5_bullet",
+            "t_first": "2026-08-08T15:15:22.786751-05:00",
+            "t_last": "2026-08-08T15:15:22.786751-05:00",
+            "best_score": 0.783,
+            "best_event_id": "1786220113.138688-mlvhk7"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T15:15:26.812693-05:00",
+            "t_last": "2026-08-08T15:15:29.608369-05:00",
+            "best_score": 0.754,
+            "best_event_id": "1786220113.622677-wu9kyr"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T15:15:29.797500-05:00",
+            "t_last": "2026-08-08T15:15:29.797500-05:00",
+            "best_score": 0.629,
+            "best_event_id": "1786219574.900942-2f9pb1"
+          },
+          {
+            "camera": "g5_bullet",
+            "t_first": "2026-08-08T15:15:31.795586-05:00",
+            "t_last": "2026-08-08T15:15:31.795586-05:00",
+            "best_score": 0.522,
+            "best_event_id": "1786220113.138688-mlvhk7"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T15:15:35.382375-05:00",
+            "t_last": "2026-08-08T15:16:14.223303-05:00",
+            "best_score": 0.871,
+            "best_event_id": "1786220142.797623-t3r69e"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T15:16:28.946047-05:00",
+            "t_last": "2026-08-08T15:29:04.863831-05:00",
+            "best_score": 0.664,
+            "best_event_id": "1786220612.240056-xbg1nn"
+          }
+        ],
+        "duration_s": 2669.3,
+        "camera_count": 4,
+        "revisit_count": 4,
+        "identified": false,
+        "path_string": "front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 rear_ptz \u2192 back_yard \u2192 rear_ptz \u2192 back_yard \u2192 rear_ptz \u2192 g5_bullet \u2192 rear_ptz \u2192 g5_bullet \u2192 rear_ptz \u2192 g5_bullet \u2192 rear_ptz \u2192 back_yard \u2192 g5_bullet \u2192 rear_ptz \u2192 back_yard \u00b7 44 min \u00b7 person"
+      }
+    },
+    {
+      "id": 627,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T16:34:51.449846-05:00",
+      "ended_at": "2026-08-08T16:39:00.267046-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000017-827783",
+        "label": "person",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "front_side_ptz",
+          "back_yard"
+        ],
+        "hops": [
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T16:34:51.449846-05:00",
+            "t_last": "2026-08-08T16:34:51.670157-05:00",
+            "best_score": 0.617,
+            "best_event_id": "1786224890.237586-pol62i"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T16:35:39.529751-05:00",
+            "t_last": "2026-08-08T16:39:00.267046-05:00",
+            "best_score": 0.617,
+            "best_event_id": "1786224743.898272-02eisw"
+          }
+        ],
+        "duration_s": 248.8,
+        "camera_count": 2,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "front_side_ptz \u2192 back_yard \u00b7 4 min \u00b7 person"
+      }
+    },
+    {
+      "id": 629,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T16:44:21.369492-05:00",
+      "ended_at": "2026-08-08T16:44:21.891523-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000021-b81cc0",
+        "label": "person",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "front_side_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T16:44:21.369492-05:00",
+            "t_last": "2026-08-08T16:44:21.891523-05:00",
+            "best_score": 0.629,
+            "best_event_id": "1786225460.529044-h0d4d6"
+          }
+        ],
+        "duration_s": 0.5,
+        "camera_count": 1,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "front_side_ptz \u00b7 just now \u00b7 person"
+      }
+    },
+    {
+      "id": 633,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T18:06:43.591270-05:00",
+      "ended_at": "2026-08-08T18:06:54.472204-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000002-a8afe2",
+        "label": "person",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "front_side_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T18:06:43.591270-05:00",
+            "t_last": "2026-08-08T18:06:54.472204-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          }
+        ],
+        "duration_s": 10.9,
+        "camera_count": 1,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "front_side_ptz \u00b7 just now \u00b7 person"
+      }
+    },
+    {
+      "id": 637,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T18:10:42.601060-05:00",
+      "ended_at": "2026-08-08T18:14:12.914656-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000003-dce6f9",
+        "label": "person",
+        "sub_label": null,
+        "classification": "circling",
+        "path": [
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard"
+        ],
+        "hops": [
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T18:10:42.601060-05:00",
+            "t_last": "2026-08-08T18:10:42.601060-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T18:11:45.344756-05:00",
+            "t_last": "2026-08-08T18:11:45.344756-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T18:12:01.827156-05:00",
+            "t_last": "2026-08-08T18:12:02.162435-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786230701.551643-v5pynu"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T18:12:05.139149-05:00",
+            "t_last": "2026-08-08T18:12:05.139149-05:00",
+            "best_score": 0.598,
+            "best_event_id": "1786230682.629892-use58d"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T18:12:07.500944-05:00",
+            "t_last": "2026-08-08T18:12:07.500944-05:00",
+            "best_score": 0.535,
+            "best_event_id": "1786230701.551643-v5pynu"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T18:12:17.495531-05:00",
+            "t_last": "2026-08-08T18:13:12.802751-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786230682.629892-use58d"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T18:13:38.350883-05:00",
+            "t_last": "2026-08-08T18:13:43.729130-05:00",
+            "best_score": 0.676,
+            "best_event_id": "1786230817.940705-a2xvef"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T18:14:12.914656-05:00",
+            "t_last": "2026-08-08T18:14:12.914656-05:00",
+            "best_score": 0.559,
+            "best_event_id": "1786230682.629892-use58d"
+          }
+        ],
+        "duration_s": 210.3,
+        "camera_count": 2,
+        "revisit_count": 2,
+        "identified": false,
+        "path_string": "front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u00b7 3 min \u00b7 person"
+      }
+    },
+    {
+      "id": 640,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T18:32:12.548487-05:00",
+      "ended_at": "2026-08-08T18:33:25.047283-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000007-a1715d",
+        "label": "person",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "front_side_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T18:32:12.548487-05:00",
+            "t_last": "2026-08-08T18:33:25.047283-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786232004.366058-19xqhj"
+          }
+        ],
+        "duration_s": 72.5,
+        "camera_count": 1,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "front_side_ptz \u00b7 1 min \u00b7 person"
+      }
+    },
+    {
+      "id": 644,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T18:54:37.158135-05:00",
+      "ended_at": "2026-08-08T18:54:37.290299-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000013-7b8520",
+        "label": "person",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "front_side_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T18:54:37.158135-05:00",
+            "t_last": "2026-08-08T18:54:37.290299-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786233276.563617-y7gs7q"
+          }
+        ],
+        "duration_s": 0.1,
+        "camera_count": 1,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "front_side_ptz \u00b7 just now \u00b7 person"
+      }
+    },
+    {
+      "id": 645,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T18:58:24.818510-05:00",
+      "ended_at": "2026-08-08T19:04:27.636478-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000014-45bc2c",
+        "label": "person",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "front_side_ptz",
+          "back_yard"
+        ],
+        "hops": [
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T18:58:24.818510-05:00",
+            "t_last": "2026-08-08T18:58:25.080976-05:00",
+            "best_score": 0.617,
+            "best_event_id": "1786233503.497368-b7t84j"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-08T18:59:20.575211-05:00",
+            "t_last": "2026-08-08T19:04:27.636478-05:00",
+            "best_score": 0.617,
+            "best_event_id": "1786233554.142318-pzkf5y"
+          }
+        ],
+        "duration_s": 362.8,
+        "camera_count": 2,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "front_side_ptz \u2192 back_yard \u00b7 6 min \u00b7 person"
+      }
+    },
+    {
+      "id": 658,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T20:52:18.227884-05:00",
+      "ended_at": "2026-08-08T20:54:31.072921-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000025-a3cf81",
+        "label": "person",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "front_side_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T20:52:18.227884-05:00",
+            "t_last": "2026-08-08T20:54:31.072921-05:00",
+            "best_score": 0.676,
+            "best_event_id": "1786240450.364907-f5sfum"
+          }
+        ],
+        "duration_s": 132.8,
+        "camera_count": 1,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "front_side_ptz \u00b7 2 min \u00b7 person"
+      }
+    },
+    {
+      "id": 659,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T20:57:45.556609-05:00",
+      "ended_at": "2026-08-08T21:06:11.807965-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000026-0cce05",
+        "label": "person",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "front_side_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T20:57:45.556609-05:00",
+            "t_last": "2026-08-08T21:06:11.807965-05:00",
+            "best_score": 0.664,
+            "best_event_id": "1786240897.7918-dispv6"
+          }
+        ],
+        "duration_s": 506.3,
+        "camera_count": 1,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "front_side_ptz \u00b7 8 min \u00b7 person"
+      }
+    },
+    {
+      "id": 661,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T21:09:33.101720-05:00",
+      "ended_at": "2026-08-08T21:12:57.572886-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000027-92b1c2",
+        "label": "person",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "front_side_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T21:09:33.101720-05:00",
+            "t_last": "2026-08-08T21:12:57.572886-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786241481.412108-y2ydnt"
+          }
+        ],
+        "duration_s": 204.5,
+        "camera_count": 1,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "front_side_ptz \u00b7 3 min \u00b7 person"
+      }
+    },
+    {
+      "id": 706,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-09T15:03:42.781919-05:00",
+      "ended_at": "2026-08-09T15:19:15.165188-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000079-e3c9b6",
+        "label": "person",
+        "sub_label": null,
+        "classification": "circling",
+        "path": [
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:03:42.781919-05:00",
+            "t_last": "2026-08-09T15:06:52.063114-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786305821.012572-3kqz4w"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:08:21.733824-05:00",
+            "t_last": "2026-08-09T15:08:21.787626-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786305627.496133-ev1tc9"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:08:58.672735-05:00",
+            "t_last": "2026-08-09T15:09:04.093704-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786306030.376671-4uhng6"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:09:22.356482-05:00",
+            "t_last": "2026-08-09T15:09:22.356482-05:00",
+            "best_score": 0.574,
+            "best_event_id": "1786305627.496133-ev1tc9"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:09:29.324113-05:00",
+            "t_last": "2026-08-09T15:09:34.659141-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786306030.376671-4uhng6"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:10:23.381963-05:00",
+            "t_last": "2026-08-09T15:10:23.381963-05:00",
+            "best_score": 0.547,
+            "best_event_id": "1786305627.496133-ev1tc9"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:10:37.882648-05:00",
+            "t_last": "2026-08-09T15:10:37.882648-05:00",
+            "best_score": 0.512,
+            "best_event_id": "1786306030.376671-4uhng6"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:10:47.052502-05:00",
+            "t_last": "2026-08-09T15:11:22.027554-05:00",
+            "best_score": 0.676,
+            "best_event_id": "1786305627.496133-ev1tc9"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:11:36.422190-05:00",
+            "t_last": "2026-08-09T15:11:42.424414-05:00",
+            "best_score": 0.586,
+            "best_event_id": "1786306030.376671-4uhng6"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:12:23.116204-05:00",
+            "t_last": "2026-08-09T15:12:23.116204-05:00",
+            "best_score": 0.574,
+            "best_event_id": "1786306255.927163-z4yfzl"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:12:24.230731-05:00",
+            "t_last": "2026-08-09T15:12:24.230731-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786306030.376671-4uhng6"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:12:44.721522-05:00",
+            "t_last": "2026-08-09T15:13:49.921698-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786306255.927163-z4yfzl"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:14:17.028167-05:00",
+            "t_last": "2026-08-09T15:14:28.430421-05:00",
+            "best_score": 0.629,
+            "best_event_id": "1786306415.220681-ifmuta"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:14:52.701784-05:00",
+            "t_last": "2026-08-09T15:14:52.701784-05:00",
+            "best_score": 0.535,
+            "best_event_id": "1786306255.927163-z4yfzl"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:15:37.155680-05:00",
+            "t_last": "2026-08-09T15:16:37.728684-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786306415.220681-ifmuta"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:16:48.103443-05:00",
+            "t_last": "2026-08-09T15:16:53.571247-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786306598.349477-4uqy9b"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:17:08.591693-05:00",
+            "t_last": "2026-08-09T15:17:08.591693-05:00",
+            "best_score": 0.695,
+            "best_event_id": "1786306415.220681-ifmuta"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:17:10.430275-05:00",
+            "t_last": "2026-08-09T15:17:10.430275-05:00",
+            "best_score": 0.559,
+            "best_event_id": "1786306598.349477-4uqy9b"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:17:14.629306-05:00",
+            "t_last": "2026-08-09T15:17:14.629306-05:00",
+            "best_score": 0.574,
+            "best_event_id": "1786306415.220681-ifmuta"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:18:12.641935-05:00",
+            "t_last": "2026-08-09T15:18:12.641935-05:00",
+            "best_score": 0.559,
+            "best_event_id": "1786306598.349477-4uqy9b"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:18:13.996910-05:00",
+            "t_last": "2026-08-09T15:18:13.996910-05:00",
+            "best_score": 0.523,
+            "best_event_id": "1786306415.220681-ifmuta"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:19:11.133695-05:00",
+            "t_last": "2026-08-09T15:19:11.133695-05:00",
+            "best_score": 0.512,
+            "best_event_id": "1786306598.349477-4uqy9b"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:19:15.165188-05:00",
+            "t_last": "2026-08-09T15:19:15.165188-05:00",
+            "best_score": 0.574,
+            "best_event_id": "1786306415.220681-ifmuta"
+          }
+        ],
+        "duration_s": 932.4,
+        "camera_count": 2,
+        "revisit_count": 2,
+        "identified": false,
+        "path_string": "front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u00b7 15 min \u00b7 person"
+      }
+    },
+    {
+      "id": 733,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-09T15:22:19.910940-05:00",
+      "ended_at": "2026-08-09T18:39:25.281040-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000080-51256f",
+        "label": "person",
+        "sub_label": null,
+        "classification": "circling",
+        "path": [
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "rear_ptz",
+          "front_side_ptz",
+          "rear_ptz",
+          "back_yard",
+          "rear_ptz",
+          "front_side_ptz",
+          "back_yard",
+          "rear_ptz",
+          "front_side_ptz",
+          "rear_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "rear_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard"
+        ],
+        "hops": [
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:22:19.910940-05:00",
+            "t_last": "2026-08-09T15:22:55.916734-05:00",
+            "best_score": 0.617,
+            "best_event_id": "1786306918.417822-v7ztjz"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:23:01.003029-05:00",
+            "t_last": "2026-08-09T15:23:01.113417-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786306935.071342-n0eldp"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:23:31.537053-05:00",
+            "t_last": "2026-08-09T15:23:52.464786-05:00",
+            "best_score": 0.629,
+            "best_event_id": "1786306918.417822-v7ztjz"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:24:00.996666-05:00",
+            "t_last": "2026-08-09T15:24:00.996666-05:00",
+            "best_score": 0.535,
+            "best_event_id": "1786306935.071342-n0eldp"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:24:18.163323-05:00",
+            "t_last": "2026-08-09T15:27:28.344670-05:00",
+            "best_score": 0.664,
+            "best_event_id": "1786306918.417822-v7ztjz"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:27:52.029578-05:00",
+            "t_last": "2026-08-09T15:28:24.811913-05:00",
+            "best_score": 0.629,
+            "best_event_id": "1786307075.698662-egh5jv"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:28:27.675115-05:00",
+            "t_last": "2026-08-09T15:33:33.729559-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786307305.775525-rkotzk"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:34:16.858019-05:00",
+            "t_last": "2026-08-09T15:34:22.186570-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786307586.673454-zb3jhw"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:34:35.033379-05:00",
+            "t_last": "2026-08-09T15:34:35.033379-05:00",
+            "best_score": 0.598,
+            "best_event_id": "1786306918.417822-v7ztjz"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:35:24.040474-05:00",
+            "t_last": "2026-08-09T15:35:24.040474-05:00",
+            "best_score": 0.512,
+            "best_event_id": "1786307586.673454-zb3jhw"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:35:35.441224-05:00",
+            "t_last": "2026-08-09T15:35:35.441224-05:00",
+            "best_score": 0.617,
+            "best_event_id": "1786306918.417822-v7ztjz"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:36:00.531738-05:00",
+            "t_last": "2026-08-09T15:36:31.381662-05:00",
+            "best_score": 0.586,
+            "best_event_id": "1786307586.673454-zb3jhw"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:36:36.213453-05:00",
+            "t_last": "2026-08-09T15:36:36.213453-05:00",
+            "best_score": 0.629,
+            "best_event_id": "1786306918.417822-v7ztjz"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:37:31.438535-05:00",
+            "t_last": "2026-08-09T15:37:31.438535-05:00",
+            "best_score": 0.535,
+            "best_event_id": "1786307586.673454-zb3jhw"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:37:37.336787-05:00",
+            "t_last": "2026-08-09T15:37:37.336787-05:00",
+            "best_score": 0.586,
+            "best_event_id": "1786306918.417822-v7ztjz"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:38:32.581128-05:00",
+            "t_last": "2026-08-09T15:38:32.581128-05:00",
+            "best_score": 0.535,
+            "best_event_id": "1786307586.673454-zb3jhw"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:38:36.879218-05:00",
+            "t_last": "2026-08-09T15:38:36.879218-05:00",
+            "best_score": 0.629,
+            "best_event_id": "1786306918.417822-v7ztjz"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:38:58.009314-05:00",
+            "t_last": "2026-08-09T15:39:20.622522-05:00",
+            "best_score": 0.629,
+            "best_event_id": "1786307586.673454-zb3jhw"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:39:42.951308-05:00",
+            "t_last": "2026-08-09T15:39:42.951308-05:00",
+            "best_score": 0.598,
+            "best_event_id": "1786306918.417822-v7ztjz"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:40:28.656026-05:00",
+            "t_last": "2026-08-09T15:40:28.656026-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786307586.673454-zb3jhw"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:40:44.878672-05:00",
+            "t_last": "2026-08-09T15:40:44.878672-05:00",
+            "best_score": 0.535,
+            "best_event_id": "1786306918.417822-v7ztjz"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:41:34.550181-05:00",
+            "t_last": "2026-08-09T15:41:34.550181-05:00",
+            "best_score": 0.559,
+            "best_event_id": "1786307586.673454-zb3jhw"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:41:45.996323-05:00",
+            "t_last": "2026-08-09T15:41:45.996323-05:00",
+            "best_score": 0.547,
+            "best_event_id": "1786306918.417822-v7ztjz"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:42:28.195606-05:00",
+            "t_last": "2026-08-09T15:42:28.195606-05:00",
+            "best_score": 0.617,
+            "best_event_id": "1786307586.673454-zb3jhw"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:42:43.280687-05:00",
+            "t_last": "2026-08-09T15:42:43.280687-05:00",
+            "best_score": 0.535,
+            "best_event_id": "1786306918.417822-v7ztjz"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:43:30.373281-05:00",
+            "t_last": "2026-08-09T15:43:30.373281-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786307586.673454-zb3jhw"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:43:43.707175-05:00",
+            "t_last": "2026-08-09T15:43:43.707175-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786306918.417822-v7ztjz"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:44:29.791944-05:00",
+            "t_last": "2026-08-09T15:44:29.791944-05:00",
+            "best_score": 0.574,
+            "best_event_id": "1786307586.673454-zb3jhw"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:44:30.742025-05:00",
+            "t_last": "2026-08-09T15:45:31.307748-05:00",
+            "best_score": 0.734,
+            "best_event_id": "1786306918.417822-v7ztjz"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:45:42.512456-05:00",
+            "t_last": "2026-08-09T15:45:42.512456-05:00",
+            "best_score": 0.535,
+            "best_event_id": "1786307586.673454-zb3jhw"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:46:27.350348-05:00",
+            "t_last": "2026-08-09T15:46:41.110491-05:00",
+            "best_score": 0.676,
+            "best_event_id": "1786308294.157274-03ro9w"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:46:41.282529-05:00",
+            "t_last": "2026-08-09T15:46:41.282529-05:00",
+            "best_score": 0.598,
+            "best_event_id": "1786307586.673454-zb3jhw"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:46:47.951848-05:00",
+            "t_last": "2026-08-09T15:46:47.951848-05:00",
+            "best_score": 0.617,
+            "best_event_id": "1786308294.157274-03ro9w"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:47:53.375062-05:00",
+            "t_last": "2026-08-09T15:47:53.375062-05:00",
+            "best_score": 0.559,
+            "best_event_id": "1786307586.673454-zb3jhw"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:47:56.142106-05:00",
+            "t_last": "2026-08-09T15:47:56.142106-05:00",
+            "best_score": 0.586,
+            "best_event_id": "1786308294.157274-03ro9w"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:48:44.834834-05:00",
+            "t_last": "2026-08-09T15:48:44.834834-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786307586.673454-zb3jhw"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:48:55.824012-05:00",
+            "t_last": "2026-08-09T15:48:55.824012-05:00",
+            "best_score": 0.617,
+            "best_event_id": "1786308294.157274-03ro9w"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:49:43.297410-05:00",
+            "t_last": "2026-08-09T15:49:43.297410-05:00",
+            "best_score": 0.574,
+            "best_event_id": "1786307586.673454-zb3jhw"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:49:53.424397-05:00",
+            "t_last": "2026-08-09T15:50:21.561934-05:00",
+            "best_score": 0.695,
+            "best_event_id": "1786308294.157274-03ro9w"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:50:44.564003-05:00",
+            "t_last": "2026-08-09T15:50:44.564003-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786307586.673454-zb3jhw"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:51:28.535249-05:00",
+            "t_last": "2026-08-09T15:51:28.535249-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786308294.157274-03ro9w"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:51:57.129133-05:00",
+            "t_last": "2026-08-09T15:51:57.129133-05:00",
+            "best_score": 0.598,
+            "best_event_id": "1786307586.673454-zb3jhw"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-09T15:52:18.847416-05:00",
+            "t_last": "2026-08-09T15:52:18.847416-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:52:31.889713-05:00",
+            "t_last": "2026-08-09T15:52:31.889713-05:00",
+            "best_score": 0.559,
+            "best_event_id": "1786308294.157274-03ro9w"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-09T15:52:54.509722-05:00",
+            "t_last": "2026-08-09T15:52:54.509722-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:52:57.021391-05:00",
+            "t_last": "2026-08-09T15:52:57.021391-05:00",
+            "best_score": 0.512,
+            "best_event_id": "1786307586.673454-zb3jhw"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-09T15:53:19.382214-05:00",
+            "t_last": "2026-08-09T15:53:20.702686-05:00",
+            "best_score": 0.727,
+            "best_event_id": "1786308793.064688-t688kp"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:53:32.868301-05:00",
+            "t_last": "2026-08-09T15:53:32.868301-05:00",
+            "best_score": 0.512,
+            "best_event_id": "1786308294.157274-03ro9w"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:53:57.822644-05:00",
+            "t_last": "2026-08-09T15:53:57.822644-05:00",
+            "best_score": 0.559,
+            "best_event_id": "1786307586.673454-zb3jhw"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-09T15:54:25.296660-05:00",
+            "t_last": "2026-08-09T15:54:32.355618-05:00",
+            "best_score": 0.77,
+            "best_event_id": "1786308793.064688-t688kp"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:54:38.227713-05:00",
+            "t_last": "2026-08-09T15:54:38.227713-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786308294.157274-03ro9w"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-09T15:54:41.675113-05:00",
+            "t_last": "2026-08-09T15:54:41.675113-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:54:58.492734-05:00",
+            "t_last": "2026-08-09T15:54:58.492734-05:00",
+            "best_score": 0.586,
+            "best_event_id": "1786307586.673454-zb3jhw"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:55:38.532769-05:00",
+            "t_last": "2026-08-09T15:55:38.532769-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786308294.157274-03ro9w"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:55:59.714477-05:00",
+            "t_last": "2026-08-09T15:55:59.714477-05:00",
+            "best_score": 0.523,
+            "best_event_id": "1786307586.673454-zb3jhw"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:56:38.619067-05:00",
+            "t_last": "2026-08-09T15:56:38.619067-05:00",
+            "best_score": 0.586,
+            "best_event_id": "1786308294.157274-03ro9w"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:57:01.456481-05:00",
+            "t_last": "2026-08-09T15:57:01.456481-05:00",
+            "best_score": 0.535,
+            "best_event_id": "1786307586.673454-zb3jhw"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:57:41.338155-05:00",
+            "t_last": "2026-08-09T15:57:41.338155-05:00",
+            "best_score": 0.574,
+            "best_event_id": "1786308294.157274-03ro9w"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T15:58:03.472957-05:00",
+            "t_last": "2026-08-09T15:58:03.472957-05:00",
+            "best_score": 0.535,
+            "best_event_id": "1786307586.673454-zb3jhw"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T15:58:42.550664-05:00",
+            "t_last": "2026-08-09T16:00:48.079223-05:00",
+            "best_score": 0.586,
+            "best_event_id": "1786308294.157274-03ro9w"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T16:03:09.249771-05:00",
+            "t_last": "2026-08-09T16:03:09.523360-05:00",
+            "best_score": 0.652,
+            "best_event_id": "1786309354.676648-y3mzo4"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T16:03:50.068962-05:00",
+            "t_last": "2026-08-09T16:04:05.690337-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786309428.811417-i2dg5l"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T16:04:10.086582-05:00",
+            "t_last": "2026-08-09T16:04:10.086582-05:00",
+            "best_score": 0.523,
+            "best_event_id": "1786309354.676648-y3mzo4"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T16:04:11.871945-05:00",
+            "t_last": "2026-08-09T16:05:12.664100-05:00",
+            "best_score": 0.586,
+            "best_event_id": "1786309428.811417-i2dg5l"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T16:05:20.291791-05:00",
+            "t_last": "2026-08-09T16:05:20.291791-05:00",
+            "best_score": 0.512,
+            "best_event_id": "1786309354.676648-y3mzo4"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T16:06:11.851491-05:00",
+            "t_last": "2026-08-09T16:06:11.851491-05:00",
+            "best_score": 0.547,
+            "best_event_id": "1786309428.811417-i2dg5l"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T16:06:19.158492-05:00",
+            "t_last": "2026-08-09T16:06:19.158492-05:00",
+            "best_score": 0.523,
+            "best_event_id": "1786309354.676648-y3mzo4"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T16:07:12.925268-05:00",
+            "t_last": "2026-08-09T16:07:12.925268-05:00",
+            "best_score": 0.512,
+            "best_event_id": "1786309428.811417-i2dg5l"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T16:07:20.459940-05:00",
+            "t_last": "2026-08-09T16:07:20.459940-05:00",
+            "best_score": 0.512,
+            "best_event_id": "1786309354.676648-y3mzo4"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T16:08:12.438166-05:00",
+            "t_last": "2026-08-09T16:08:18.645701-05:00",
+            "best_score": 0.574,
+            "best_event_id": "1786309428.811417-i2dg5l"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T16:08:21.488579-05:00",
+            "t_last": "2026-08-09T16:08:21.488579-05:00",
+            "best_score": 0.535,
+            "best_event_id": "1786309354.676648-y3mzo4"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T16:08:22.897491-05:00",
+            "t_last": "2026-08-09T16:08:28.118073-05:00",
+            "best_score": 0.617,
+            "best_event_id": "1786309428.811417-i2dg5l"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T16:09:29.266855-05:00",
+            "t_last": "2026-08-09T16:09:29.266855-05:00",
+            "best_score": 0.512,
+            "best_event_id": "1786309354.676648-y3mzo4"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T16:09:36.809089-05:00",
+            "t_last": "2026-08-09T16:10:16.359844-05:00",
+            "best_score": 0.586,
+            "best_event_id": "1786309428.811417-i2dg5l"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T16:10:39.378160-05:00",
+            "t_last": "2026-08-09T16:10:39.378160-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786309354.676648-y3mzo4"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T16:11:05.569720-05:00",
+            "t_last": "2026-08-09T16:11:05.569720-05:00",
+            "best_score": 0.574,
+            "best_event_id": "1786309428.811417-i2dg5l"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T16:11:40.889963-05:00",
+            "t_last": "2026-08-09T16:11:40.889963-05:00",
+            "best_score": 0.535,
+            "best_event_id": "1786309354.676648-y3mzo4"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T16:11:44.367253-05:00",
+            "t_last": "2026-08-09T16:12:13.673729-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786309428.811417-i2dg5l"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T16:12:39.862795-05:00",
+            "t_last": "2026-08-09T16:12:39.862795-05:00",
+            "best_score": 0.574,
+            "best_event_id": "1786309354.676648-y3mzo4"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T16:12:45.732781-05:00",
+            "t_last": "2026-08-09T16:13:00.328831-05:00",
+            "best_score": 0.676,
+            "best_event_id": "1786309428.811417-i2dg5l"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T16:13:39.099550-05:00",
+            "t_last": "2026-08-09T16:13:39.099550-05:00",
+            "best_score": 0.586,
+            "best_event_id": "1786309354.676648-y3mzo4"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T16:14:03.604150-05:00",
+            "t_last": "2026-08-09T16:15:13.608742-05:00",
+            "best_score": 0.629,
+            "best_event_id": "1786310079.799342-r2l40e"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T16:16:08.511096-05:00",
+            "t_last": "2026-08-09T16:16:08.773175-05:00",
+            "best_score": 0.629,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T16:16:14.994433-05:00",
+            "t_last": "2026-08-09T16:16:14.994433-05:00",
+            "best_score": 0.547,
+            "best_event_id": "1786309428.811417-i2dg5l"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T16:16:37.246165-05:00",
+            "t_last": "2026-08-09T16:16:37.246165-05:00",
+            "best_score": 0.535,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T16:18:56.802038-05:00",
+            "t_last": "2026-08-09T16:19:37.166505-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786310323.115028-odw2gl"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T16:19:42.358881-05:00",
+            "t_last": "2026-08-09T16:19:48.995400-05:00",
+            "best_score": 0.547,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T16:20:38.841875-05:00",
+            "t_last": "2026-08-09T16:20:38.841875-05:00",
+            "best_score": 0.547,
+            "best_event_id": "1786310323.115028-odw2gl"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T16:20:51.044171-05:00",
+            "t_last": "2026-08-09T16:21:12.398191-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T16:21:49.321023-05:00",
+            "t_last": "2026-08-09T16:21:56.027206-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786310323.115028-odw2gl"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T16:22:05.932897-05:00",
+            "t_last": "2026-08-09T16:22:31.897146-05:00",
+            "best_score": 0.695,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T16:22:57.492309-05:00",
+            "t_last": "2026-08-09T16:22:57.492309-05:00",
+            "best_score": 0.598,
+            "best_event_id": "1786310323.115028-odw2gl"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T16:23:05.333897-05:00",
+            "t_last": "2026-08-09T16:23:05.333897-05:00",
+            "best_score": 0.617,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T16:23:56.022846-05:00",
+            "t_last": "2026-08-09T16:23:56.022846-05:00",
+            "best_score": 0.629,
+            "best_event_id": "1786310323.115028-odw2gl"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T16:24:01.938381-05:00",
+            "t_last": "2026-08-09T16:24:36.389389-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T16:24:37.636781-05:00",
+            "t_last": "2026-08-09T16:25:27.619169-05:00",
+            "best_score": 0.664,
+            "best_event_id": "1786310323.115028-odw2gl"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T16:25:37.769656-05:00",
+            "t_last": "2026-08-09T16:25:37.769656-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T16:25:59.797766-05:00",
+            "t_last": "2026-08-09T16:26:00.542297-05:00",
+            "best_score": 0.574,
+            "best_event_id": "1786310758.703841-fj9f3w"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T16:26:51.406616-05:00",
+            "t_last": "2026-08-09T16:26:51.406616-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T16:27:05.647937-05:00",
+            "t_last": "2026-08-09T16:27:14.765839-05:00",
+            "best_score": 0.547,
+            "best_event_id": "1786310819.336009-mkawgq"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T16:27:50.187128-05:00",
+            "t_last": "2026-08-09T17:34:39.526000-05:00",
+            "best_score": 0.707,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-09T17:34:47.607538-05:00",
+            "t_last": "2026-08-09T17:34:54.883976-05:00",
+            "best_score": 0.715,
+            "best_event_id": "1786314888.573667-jrybns"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T17:35:41.387479-05:00",
+            "t_last": "2026-08-09T17:44:44.695601-05:00",
+            "best_score": 0.617,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T17:44:57.469703-05:00",
+            "t_last": "2026-08-09T17:44:57.819107-05:00",
+            "best_score": 0.586,
+            "best_event_id": "1786315495.207451-otpwou"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T17:45:46.157134-05:00",
+            "t_last": "2026-08-09T17:46:58.018627-05:00",
+            "best_score": 0.684,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T17:47:42.703213-05:00",
+            "t_last": "2026-08-09T17:47:43.469868-05:00",
+            "best_score": 0.629,
+            "best_event_id": "1786315661.628475-c0469y"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T17:47:49.742034-05:00",
+            "t_last": "2026-08-09T17:54:39.615048-05:00",
+            "best_score": 0.707,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T17:54:51.641888-05:00",
+            "t_last": "2026-08-09T17:54:58.290764-05:00",
+            "best_score": 0.574,
+            "best_event_id": "1786316090.499721-yj0zyo"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T17:55:39.125769-05:00",
+            "t_last": "2026-08-09T18:08:48.180931-05:00",
+            "best_score": 0.676,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T18:09:18.259295-05:00",
+            "t_last": "2026-08-09T18:09:45.699856-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786316771.340774-qh3v2h"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T18:09:49.102997-05:00",
+            "t_last": "2026-08-09T18:09:49.102997-05:00",
+            "best_score": 0.559,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T18:09:51.147922-05:00",
+            "t_last": "2026-08-09T18:10:48.825945-05:00",
+            "best_score": 0.676,
+            "best_event_id": "1786316771.340774-qh3v2h"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T18:10:49.201149-05:00",
+            "t_last": "2026-08-09T18:10:49.201149-05:00",
+            "best_score": 0.598,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T18:10:52.304973-05:00",
+            "t_last": "2026-08-09T18:11:49.042483-05:00",
+            "best_score": 0.676,
+            "best_event_id": "1786316771.340774-qh3v2h"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T18:11:51.115771-05:00",
+            "t_last": "2026-08-09T18:11:51.115771-05:00",
+            "best_score": 0.574,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T18:11:53.792456-05:00",
+            "t_last": "2026-08-09T18:12:52.856326-05:00",
+            "best_score": 0.664,
+            "best_event_id": "1786316771.340774-qh3v2h"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T18:12:53.038889-05:00",
+            "t_last": "2026-08-09T18:12:53.038889-05:00",
+            "best_score": 0.547,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T18:12:56.672761-05:00",
+            "t_last": "2026-08-09T18:13:48.028962-05:00",
+            "best_score": 0.676,
+            "best_event_id": "1786316771.340774-qh3v2h"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T18:13:52.398405-05:00",
+            "t_last": "2026-08-09T18:13:52.398405-05:00",
+            "best_score": 0.559,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T18:13:58.772514-05:00",
+            "t_last": "2026-08-09T18:13:58.772514-05:00",
+            "best_score": 0.523,
+            "best_event_id": "1786316771.340774-qh3v2h"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T18:14:01.500485-05:00",
+            "t_last": "2026-08-09T18:14:01.500485-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T18:14:02.903947-05:00",
+            "t_last": "2026-08-09T18:14:19.752861-05:00",
+            "best_score": 0.586,
+            "best_event_id": "1786316771.340774-qh3v2h"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T18:14:22.845591-05:00",
+            "t_last": "2026-08-09T18:14:22.845591-05:00",
+            "best_score": 0.535,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T18:14:24.001888-05:00",
+            "t_last": "2026-08-09T18:14:24.001888-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786316771.340774-qh3v2h"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T18:14:28.519138-05:00",
+            "t_last": "2026-08-09T18:14:28.519138-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T18:15:23.368231-05:00",
+            "t_last": "2026-08-09T18:15:23.368231-05:00",
+            "best_score": 0.617,
+            "best_event_id": "1786316771.340774-qh3v2h"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T18:15:29.003893-05:00",
+            "t_last": "2026-08-09T18:15:29.003893-05:00",
+            "best_score": 0.547,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T18:16:25.273210-05:00",
+            "t_last": "2026-08-09T18:16:25.273210-05:00",
+            "best_score": 0.586,
+            "best_event_id": "1786316771.340774-qh3v2h"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T18:16:31.144549-05:00",
+            "t_last": "2026-08-09T18:16:31.144549-05:00",
+            "best_score": 0.523,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T18:17:01.934693-05:00",
+            "t_last": "2026-08-09T18:17:12.211851-05:00",
+            "best_score": 0.629,
+            "best_event_id": "1786316771.340774-qh3v2h"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T18:17:30.400512-05:00",
+            "t_last": "2026-08-09T18:19:31.427063-05:00",
+            "best_score": 0.586,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T18:20:15.865214-05:00",
+            "t_last": "2026-08-09T18:20:31.259939-05:00",
+            "best_score": 0.629,
+            "best_event_id": "1786317612.998463-dj2ilt"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T18:20:31.872495-05:00",
+            "t_last": "2026-08-09T18:20:31.872495-05:00",
+            "best_score": 0.535,
+            "best_event_id": "1786310117.019413-2mclte"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T18:20:37.117477-05:00",
+            "t_last": "2026-08-09T18:21:16.338899-05:00",
+            "best_score": 0.598,
+            "best_event_id": "1786317612.998463-dj2ilt"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T18:21:32.782559-05:00",
+            "t_last": "2026-08-09T18:39:25.281040-05:00",
+            "best_score": 0.695,
+            "best_event_id": "1786310117.019413-2mclte"
+          }
+        ],
+        "duration_s": 11825.4,
+        "camera_count": 3,
+        "revisit_count": 3,
+        "identified": false,
+        "path_string": "front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 rear_ptz \u2192 front_side_ptz \u2192 rear_ptz \u2192 back_yard \u2192 rear_ptz \u2192 front_side_ptz \u2192 back_yard \u2192 rear_ptz \u2192 front_side_ptz \u2192 rear_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 rear_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u00b7 197 min \u00b7 person"
+      }
+    },
+    {
+      "id": 747,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-09T19:46:50.565409-05:00",
+      "ended_at": "2026-08-09T19:54:54.195046-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000102-0c04c8",
+        "label": "person",
+        "sub_label": null,
+        "classification": "circling",
+        "path": [
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "utilities_ptz",
+          "madrone_g6_entry",
+          "front_door_aerial",
+          "madrone_g6_entry",
+          "front_door_aerial",
+          "madrone_g6_entry",
+          "front_side_ptz",
+          "madrone_g6_entry",
+          "utilities_ptz",
+          "front_side_ptz",
+          "utilities_ptz",
+          "front_side_ptz",
+          "utilities_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T19:46:50.565409-05:00",
+            "t_last": "2026-08-09T19:46:50.758189-05:00",
+            "best_score": 0.598,
+            "best_event_id": "1786322808.933354-9btuah"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T19:47:07.258834-05:00",
+            "t_last": "2026-08-09T19:47:12.160449-05:00",
+            "best_score": 0.617,
+            "best_event_id": "1786322824.883388-cym44j"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T19:48:51.386325-05:00",
+            "t_last": "2026-08-09T19:48:51.793557-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786322928.232108-h47bgu"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T19:49:16.209658-05:00",
+            "t_last": "2026-08-09T19:50:21.773051-05:00",
+            "best_score": 0.664,
+            "best_event_id": "1786322953.971549-eftrdt"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T19:51:53.655327-05:00",
+            "t_last": "2026-08-09T19:51:53.672802-05:00",
+            "best_score": 0.617,
+            "best_event_id": "1786323090.778626-f1d80y"
+          },
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-09T19:52:42.543397-05:00",
+            "t_last": "2026-08-09T19:52:54.484353-05:00",
+            "best_score": 0.715,
+            "best_event_id": "1786323093.049267-bbs93o"
+          },
+          {
+            "camera": "madrone_g6_entry",
+            "t_first": "2026-08-09T19:54:21.382974-05:00",
+            "t_last": "2026-08-09T19:54:24.600709-05:00",
+            "best_score": 0.93,
+            "best_event_id": "1786323260.730351-l3sr4m"
+          },
+          {
+            "camera": "front_door_aerial",
+            "t_first": "2026-08-09T19:54:25.394927-05:00",
+            "t_last": "2026-08-09T19:54:26.715835-05:00",
+            "best_score": 0.892,
+            "best_event_id": "1786323264.929753-m1jo1x"
+          },
+          {
+            "camera": "madrone_g6_entry",
+            "t_first": "2026-08-09T19:54:26.817549-05:00",
+            "t_last": "2026-08-09T19:54:29.210794-05:00",
+            "best_score": 0.909,
+            "best_event_id": "1786323260.730351-l3sr4m"
+          },
+          {
+            "camera": "front_door_aerial",
+            "t_first": "2026-08-09T19:54:30.646929-05:00",
+            "t_last": "2026-08-09T19:54:34.018804-05:00",
+            "best_score": 0.77,
+            "best_event_id": "1786323257.175595-edfsoq"
+          },
+          {
+            "camera": "madrone_g6_entry",
+            "t_first": "2026-08-09T19:54:34.432169-05:00",
+            "t_last": "2026-08-09T19:54:34.432169-05:00",
+            "best_score": 0.794,
+            "best_event_id": "1786323260.730351-l3sr4m"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T19:54:37.537975-05:00",
+            "t_last": "2026-08-09T19:54:37.537975-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "madrone_g6_entry",
+            "t_first": "2026-08-09T19:54:40.391134-05:00",
+            "t_last": "2026-08-09T19:54:40.391134-05:00",
+            "best_score": 0.559,
+            "best_event_id": "1786323260.681-unrmha"
+          },
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-09T19:54:41.058506-05:00",
+            "t_last": "2026-08-09T19:54:43.194686-05:00",
+            "best_score": 0.754,
+            "best_event_id": "1786323281.693622-eb8evl"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T19:54:43.795635-05:00",
+            "t_last": "2026-08-09T19:54:43.796858-05:00",
+            "best_score": 0.844,
+            "best_event_id": "1786323279.433953-7vhvhy"
+          },
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-09T19:54:44.637337-05:00",
+            "t_last": "2026-08-09T19:54:44.782015-05:00",
+            "best_score": 0.644,
+            "best_event_id": "1786323282.742683-l4gnxg"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T19:54:46.743546-05:00",
+            "t_last": "2026-08-09T19:54:49.857628-05:00",
+            "best_score": 0.715,
+            "best_event_id": "1786323285.596697-hsry1b"
+          },
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-09T19:54:54.195046-05:00",
+            "t_last": "2026-08-09T19:54:54.195046-05:00",
+            "best_score": 0.62,
+            "best_event_id": "1786323282.742683-l4gnxg"
+          }
+        ],
+        "duration_s": 483.6,
+        "camera_count": 5,
+        "revisit_count": 5,
+        "identified": false,
+        "path_string": "front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 utilities_ptz \u2192 madrone_g6_entry \u2192 front_door_aerial \u2192 madrone_g6_entry \u2192 front_door_aerial \u2192 madrone_g6_entry \u2192 front_side_ptz \u2192 madrone_g6_entry \u2192 utilities_ptz \u2192 front_side_ptz \u2192 utilities_ptz \u2192 front_side_ptz \u2192 utilities_ptz \u00b7 8 min \u00b7 person"
+      }
+    },
+    {
+      "id": 754,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-09T20:34:38.947527-05:00",
+      "ended_at": "2026-08-09T20:35:28.495746-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000110-75e1b8",
+        "label": "person",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "front_side_ptz",
+          "back_yard"
+        ],
+        "hops": [
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T20:34:38.947527-05:00",
+            "t_last": "2026-08-09T20:35:11.768064-05:00",
+            "best_score": 0.715,
+            "best_event_id": "1786325710.812926-vdxex1"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T20:35:23.373135-05:00",
+            "t_last": "2026-08-09T20:35:28.495746-05:00",
+            "best_score": 0.629,
+            "best_event_id": "1786325720.052452-r2zhys"
+          }
+        ],
+        "duration_s": 49.5,
+        "camera_count": 2,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "front_side_ptz \u2192 back_yard \u00b7 just now \u00b7 person"
+      }
+    },
+    {
+      "id": 762,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-09T20:49:26.619496-05:00",
+      "ended_at": "2026-08-09T20:54:56.358737-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000114-5e833b",
+        "label": "person",
+        "sub_label": null,
+        "classification": "circling",
+        "path": [
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz",
+          "back_yard",
+          "front_side_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T20:49:26.619496-05:00",
+            "t_last": "2026-08-09T20:51:24.080872-05:00",
+            "best_score": 0.677,
+            "best_event_id": "1786326669.950167-5nz1sm"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T20:52:07.214377-05:00",
+            "t_last": "2026-08-09T20:52:12.875832-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786326653.470061-1nhinl"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T20:52:17.428652-05:00",
+            "t_last": "2026-08-09T20:52:17.428652-05:00",
+            "best_score": 0.535,
+            "best_event_id": "1786326670.092381-7x9z7o"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T20:52:17.920571-05:00",
+            "t_last": "2026-08-09T20:52:36.520920-05:00",
+            "best_score": 0.598,
+            "best_event_id": "1786326653.470061-1nhinl"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T20:52:37.837234-05:00",
+            "t_last": "2026-08-09T20:52:39.562278-05:00",
+            "best_score": 0.586,
+            "best_event_id": "1786326670.092381-7x9z7o"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T20:52:46.441426-05:00",
+            "t_last": "2026-08-09T20:53:26.277910-05:00",
+            "best_score": 0.664,
+            "best_event_id": "1786326653.470061-1nhinl"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T20:53:40.869537-05:00",
+            "t_last": "2026-08-09T20:53:52.340585-05:00",
+            "best_score": 0.652,
+            "best_event_id": "1786326670.092381-7x9z7o"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T20:53:55.299297-05:00",
+            "t_last": "2026-08-09T20:53:55.299297-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786326653.470061-1nhinl"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T20:53:58.844860-05:00",
+            "t_last": "2026-08-09T20:54:25.015876-05:00",
+            "best_score": 0.629,
+            "best_event_id": "1786326670.092381-7x9z7o"
+          },
+          {
+            "camera": "back_yard",
+            "t_first": "2026-08-09T20:54:25.443497-05:00",
+            "t_last": "2026-08-09T20:54:25.443497-05:00",
+            "best_score": 0.512,
+            "best_event_id": "1786326653.470061-1nhinl"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T20:54:29.191222-05:00",
+            "t_last": "2026-08-09T20:54:56.358737-05:00",
+            "best_score": 0.641,
+            "best_event_id": "1786326670.092381-7x9z7o"
+          }
+        ],
+        "duration_s": 329.7,
+        "camera_count": 2,
+        "revisit_count": 2,
+        "identified": false,
+        "path_string": "front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u2192 back_yard \u2192 front_side_ptz \u00b7 5 min \u00b7 person"
+      }
+    },
+    {
+      "id": 764,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-09T21:06:16.227851-05:00",
+      "ended_at": "2026-08-09T21:06:16.452422-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000116-8dd385",
+        "label": "person",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "front_side_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T21:06:16.227851-05:00",
+            "t_last": "2026-08-09T21:06:16.452422-05:00",
+            "best_score": 0.609,
+            "best_event_id": "1786327575.477782-jvevus"
+          }
+        ],
+        "duration_s": 0.2,
+        "camera_count": 1,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "front_side_ptz \u00b7 just now \u00b7 person"
+      }
+    }
+  ],
+  "utilities_ptz|car": [
+    {
+      "id": 570,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T11:04:55.654082-05:00",
+      "ended_at": "2026-08-08T11:05:03.681399-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000011-add344",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "utilities_ptz",
+          "front_side_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-08T11:04:55.654082-05:00",
+            "t_last": "2026-08-08T11:05:00.501784-05:00",
+            "best_score": 0.864,
+            "best_event_id": "1786205097.199883-kttdjb"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T11:05:03.681399-05:00",
+            "t_last": "2026-08-08T11:05:03.681399-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          }
+        ],
+        "duration_s": 8.0,
+        "camera_count": 2,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "utilities_ptz \u2192 front_side_ptz \u00b7 just now \u00b7 car"
+      }
+    },
+    {
+      "id": 597,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T12:32:49.324883-05:00",
+      "ended_at": "2026-08-08T12:33:16.922868-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000021-91a455",
+        "label": "car",
+        "sub_label": null,
+        "classification": "circling",
+        "path": [
+          "utilities_ptz",
+          "front_side_ptz",
+          "utilities_ptz",
+          "front_side_ptz",
+          "rear_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-08T12:32:49.324883-05:00",
+            "t_last": "2026-08-08T12:32:49.324883-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T12:32:56.492578-05:00",
+            "t_last": "2026-08-08T12:32:56.492578-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-08T12:32:56.616550-05:00",
+            "t_last": "2026-08-08T12:32:56.846888-05:00",
+            "best_score": 0.768,
+            "best_event_id": "1786210371.971964-pm3mju"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T12:33:07.915433-05:00",
+            "t_last": "2026-08-08T12:33:08.535800-05:00",
+            "best_score": 0.854,
+            "best_event_id": "1786210381.92873-law977"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T12:33:11.909576-05:00",
+            "t_last": "2026-08-08T12:33:16.922868-05:00",
+            "best_score": 0.847,
+            "best_event_id": "1786210391.579749-tepn12"
+          }
+        ],
+        "duration_s": 27.6,
+        "camera_count": 3,
+        "revisit_count": 2,
+        "identified": false,
+        "path_string": "utilities_ptz \u2192 front_side_ptz \u2192 utilities_ptz \u2192 front_side_ptz \u2192 rear_ptz \u00b7 just now \u00b7 car"
+      }
+    },
+    {
+      "id": 615,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T15:17:07.318393-05:00",
+      "ended_at": "2026-08-08T15:17:13.182696-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000004-16cbbb",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "utilities_ptz",
+          "front_side_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-08T15:17:07.318393-05:00",
+            "t_last": "2026-08-08T15:17:12.268719-05:00",
+            "best_score": 0.815,
+            "best_event_id": "1786220229.623813-op8ru9"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T15:17:13.182696-05:00",
+            "t_last": "2026-08-08T15:17:13.182696-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          }
+        ],
+        "duration_s": 5.9,
+        "camera_count": 2,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "utilities_ptz \u2192 front_side_ptz \u00b7 just now \u00b7 car"
+      }
+    },
+    {
+      "id": 631,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-08T17:25:10.152306-05:00",
+      "ended_at": "2026-08-08T17:26:47.275196-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000025-118122",
+        "label": "car",
+        "sub_label": null,
+        "classification": "circling",
+        "path": [
+          "utilities_ptz",
+          "front_side_ptz",
+          "rear_ptz",
+          "front_side_ptz",
+          "rear_ptz",
+          "g5_bullet"
+        ],
+        "hops": [
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-08T17:25:10.152306-05:00",
+            "t_last": "2026-08-08T17:25:13.943811-05:00",
+            "best_score": 0.795,
+            "best_event_id": "1786227911.731568-496nyl"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T17:25:15.234642-05:00",
+            "t_last": "2026-08-08T17:25:20.453024-05:00",
+            "best_score": 0.78,
+            "best_event_id": "1786227914.316063-28oe2p"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T17:25:50.799933-05:00",
+            "t_last": "2026-08-08T17:25:50.799933-05:00",
+            "best_score": 0.535,
+            "best_event_id": "1786226413.920313-o1r7g7"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-08T17:26:33.138637-05:00",
+            "t_last": "2026-08-08T17:26:40.387141-05:00",
+            "best_score": 0.863,
+            "best_event_id": "1786227996.180248-qaq5j2"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-08T17:26:43.740072-05:00",
+            "t_last": "2026-08-08T17:26:47.271189-05:00",
+            "best_score": 0.792,
+            "best_event_id": "1786228004.088982-6s7t90"
+          },
+          {
+            "camera": "g5_bullet",
+            "t_first": "2026-08-08T17:26:47.275196-05:00",
+            "t_last": "2026-08-08T17:26:47.275196-05:00",
+            "best_score": 0.835,
+            "best_event_id": "1786228004.936251-943qes"
+          }
+        ],
+        "duration_s": 97.1,
+        "camera_count": 4,
+        "revisit_count": 2,
+        "identified": false,
+        "path_string": "utilities_ptz \u2192 front_side_ptz \u2192 rear_ptz \u2192 front_side_ptz \u2192 rear_ptz \u2192 g5_bullet \u00b7 1 min \u00b7 car"
+      }
+    },
+    {
+      "id": 678,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-09T07:19:18.448506-05:00",
+      "ended_at": "2026-08-09T07:19:39.011251-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000046-24bc68",
+        "label": "car",
+        "sub_label": null,
+        "classification": "circling",
+        "path": [
+          "utilities_ptz",
+          "front_side_ptz",
+          "utilities_ptz",
+          "front_side_ptz",
+          "rear_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-09T07:19:18.448506-05:00",
+            "t_last": "2026-08-09T07:19:25.352548-05:00",
+            "best_score": 0.748,
+            "best_event_id": "1786277961.378206-5p9sr4"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T07:19:25.540472-05:00",
+            "t_last": "2026-08-09T07:19:25.540472-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-09T07:19:26.641119-05:00",
+            "t_last": "2026-08-09T07:19:26.641119-05:00",
+            "best_score": 0.574,
+            "best_event_id": "1786277958.757977-dh5jw5"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T07:19:33.486883-05:00",
+            "t_last": "2026-08-09T07:19:33.726236-05:00",
+            "best_score": 0.502,
+            "best_event_id": "1786277970.856811-vsw5wb"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-09T07:19:36.414827-05:00",
+            "t_last": "2026-08-09T07:19:39.011251-05:00",
+            "best_score": 0.77,
+            "best_event_id": "1786277975.749543-n384tz"
+          }
+        ],
+        "duration_s": 20.6,
+        "camera_count": 3,
+        "revisit_count": 2,
+        "identified": false,
+        "path_string": "utilities_ptz \u2192 front_side_ptz \u2192 utilities_ptz \u2192 front_side_ptz \u2192 rear_ptz \u00b7 just now \u00b7 car"
+      }
+    },
+    {
+      "id": 686,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-09T09:01:29.291916-05:00",
+      "ended_at": "2026-08-09T09:01:57.278397-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000055-415f61",
+        "label": "car",
+        "sub_label": null,
+        "classification": "circling",
+        "path": [
+          "utilities_ptz",
+          "front_side_ptz",
+          "rear_ptz",
+          "g5_bullet",
+          "rear_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-09T09:01:29.291916-05:00",
+            "t_last": "2026-08-09T09:01:33.074508-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T09:01:34.458041-05:00",
+            "t_last": "2026-08-09T09:01:42.359173-05:00",
+            "best_score": 0.91,
+            "best_event_id": "1786284094.665456-9b38fo"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-09T09:01:45.995815-05:00",
+            "t_last": "2026-08-09T09:01:50.844026-05:00",
+            "best_score": 0.88,
+            "best_event_id": "1786284105.701518-9vp638"
+          },
+          {
+            "camera": "g5_bullet",
+            "t_first": "2026-08-09T09:01:51.463659-05:00",
+            "t_last": "2026-08-09T09:01:51.489665-05:00",
+            "best_score": 0.871,
+            "best_event_id": "1786284107.544023-upb7om"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-09T09:01:57.278397-05:00",
+            "t_last": "2026-08-09T09:01:57.278397-05:00",
+            "best_score": 0.543,
+            "best_event_id": "1786284105.701518-9vp638"
+          }
+        ],
+        "duration_s": 28.0,
+        "camera_count": 4,
+        "revisit_count": 1,
+        "identified": false,
+        "path_string": "utilities_ptz \u2192 front_side_ptz \u2192 rear_ptz \u2192 g5_bullet \u2192 rear_ptz \u00b7 just now \u00b7 car"
+      }
+    },
+    {
+      "id": 687,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-09T09:48:44.131783-05:00",
+      "ended_at": "2026-08-09T09:49:07.375833-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000056-2b7c21",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "utilities_ptz",
+          "front_side_ptz",
+          "rear_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-09T09:48:44.131783-05:00",
+            "t_last": "2026-08-09T09:48:49.714374-05:00",
+            "best_score": 0.71,
+            "best_event_id": "1786286926.450139-n6yv5v"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T09:48:49.741701-05:00",
+            "t_last": "2026-08-09T09:48:58.102165-05:00",
+            "best_score": 0.898,
+            "best_event_id": "1786286930.073844-wmmhjy"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-09T09:49:01.359679-05:00",
+            "t_last": "2026-08-09T09:49:07.375833-05:00",
+            "best_score": 0.912,
+            "best_event_id": "1786286941.512415-zm9kc1"
+          }
+        ],
+        "duration_s": 23.2,
+        "camera_count": 3,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "utilities_ptz \u2192 front_side_ptz \u2192 rear_ptz \u00b7 just now \u00b7 car"
+      }
+    },
+    {
+      "id": 690,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-09T11:01:35.811932-05:00",
+      "ended_at": "2026-08-09T11:01:53.399752-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000059-ab45fb",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "utilities_ptz",
+          "front_side_ptz",
+          "rear_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-09T11:01:35.811932-05:00",
+            "t_last": "2026-08-09T11:01:40.867521-05:00",
+            "best_score": 0.756,
+            "best_event_id": "1786291296.895726-xhfkzz"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T11:01:41.217578-05:00",
+            "t_last": "2026-08-09T11:01:48.107932-05:00",
+            "best_score": 0.9,
+            "best_event_id": "1786291304.460455-89dt96"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-09T11:01:50.610868-05:00",
+            "t_last": "2026-08-09T11:01:53.399752-05:00",
+            "best_score": 0.914,
+            "best_event_id": "1786291310.963908-fzba5y"
+          }
+        ],
+        "duration_s": 17.6,
+        "camera_count": 3,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "utilities_ptz \u2192 front_side_ptz \u2192 rear_ptz \u00b7 just now \u00b7 car"
+      }
+    },
+    {
+      "id": 694,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-09T11:19:19.139265-05:00",
+      "ended_at": "2026-08-09T11:19:19.139265-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000063-5f3d6f",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "utilities_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-09T11:19:19.139265-05:00",
+            "t_last": "2026-08-09T11:19:19.139265-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          }
+        ],
+        "duration_s": 0.0,
+        "camera_count": 1,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "utilities_ptz \u00b7 just now \u00b7 car"
+      }
+    },
+    {
+      "id": 712,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-09T16:48:46.562772-05:00",
+      "ended_at": "2026-08-09T16:49:48.065753-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000085-85fe0f",
+        "label": "car",
+        "sub_label": null,
+        "classification": "circling",
+        "path": [
+          "utilities_ptz",
+          "front_side_ptz",
+          "rear_ptz",
+          "g5_bullet",
+          "rear_ptz",
+          "g5_bullet",
+          "rear_ptz",
+          "g5_bullet",
+          "rear_ptz",
+          "g5_bullet",
+          "doorbell_lite",
+          "g5_bullet",
+          "doorbell_lite",
+          "g5_bullet",
+          "doorbell_lite",
+          "g5_bullet"
+        ],
+        "hops": [
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-09T16:48:46.562772-05:00",
+            "t_last": "2026-08-09T16:48:49.141050-05:00",
+            "best_score": 0.827,
+            "best_event_id": "1786312127.634837-egdrvz"
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T16:48:49.742929-05:00",
+            "t_last": "2026-08-09T16:49:10.981621-05:00",
+            "best_score": 0.853,
+            "best_event_id": "1786312130.016847-y73hen"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-09T16:49:15.319426-05:00",
+            "t_last": "2026-08-09T16:49:23.262803-05:00",
+            "best_score": 0.938,
+            "best_event_id": "1786312155.761346-ck4e7s"
+          },
+          {
+            "camera": "g5_bullet",
+            "t_first": "2026-08-09T16:49:23.352554-05:00",
+            "t_last": "2026-08-09T16:49:23.551424-05:00",
+            "best_score": 0.841,
+            "best_event_id": "1786312159.718097-7o4b5r"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-09T16:49:27.178697-05:00",
+            "t_last": "2026-08-09T16:49:30.293042-05:00",
+            "best_score": 0.948,
+            "best_event_id": "1786312155.761346-ck4e7s"
+          },
+          {
+            "camera": "g5_bullet",
+            "t_first": "2026-08-09T16:49:30.647880-05:00",
+            "t_last": "2026-08-09T16:49:32.343053-05:00",
+            "best_score": 0.84,
+            "best_event_id": "1786312159.718097-7o4b5r"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-09T16:49:32.998026-05:00",
+            "t_last": "2026-08-09T16:49:32.998026-05:00",
+            "best_score": 0.929,
+            "best_event_id": "1786312155.761346-ck4e7s"
+          },
+          {
+            "camera": "g5_bullet",
+            "t_first": "2026-08-09T16:49:33.751509-05:00",
+            "t_last": "2026-08-09T16:49:35.503706-05:00",
+            "best_score": 0.937,
+            "best_event_id": "1786312159.718097-7o4b5r"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-09T16:49:35.594683-05:00",
+            "t_last": "2026-08-09T16:49:35.594683-05:00",
+            "best_score": 0.844,
+            "best_event_id": "1786312158.252157-t3gjkv"
+          },
+          {
+            "camera": "g5_bullet",
+            "t_first": "2026-08-09T16:49:36.290461-05:00",
+            "t_last": "2026-08-09T16:49:37.369237-05:00",
+            "best_score": 0.853,
+            "best_event_id": "1786312159.718097-7o4b5r"
+          },
+          {
+            "camera": "doorbell_lite",
+            "t_first": "2026-08-09T16:49:37.496886-05:00",
+            "t_last": "2026-08-09T16:49:37.568102-05:00",
+            "best_score": 0.796,
+            "best_event_id": "1786312174.977691-l4izrb"
+          },
+          {
+            "camera": "g5_bullet",
+            "t_first": "2026-08-09T16:49:38.934827-05:00",
+            "t_last": "2026-08-09T16:49:39.746853-05:00",
+            "best_score": 0.735,
+            "best_event_id": "1786312159.718097-7o4b5r"
+          },
+          {
+            "camera": "doorbell_lite",
+            "t_first": "2026-08-09T16:49:40.051073-05:00",
+            "t_last": "2026-08-09T16:49:40.051073-05:00",
+            "best_score": 0.857,
+            "best_event_id": "1786312174.977691-l4izrb"
+          },
+          {
+            "camera": "g5_bullet",
+            "t_first": "2026-08-09T16:49:43.321235-05:00",
+            "t_last": "2026-08-09T16:49:45.194919-05:00",
+            "best_score": 0.844,
+            "best_event_id": "1786312160.720314-dzumvw"
+          },
+          {
+            "camera": "doorbell_lite",
+            "t_first": "2026-08-09T16:49:45.678802-05:00",
+            "t_last": "2026-08-09T16:49:45.678802-05:00",
+            "best_score": 0.504,
+            "best_event_id": "1786312174.977691-l4izrb"
+          },
+          {
+            "camera": "g5_bullet",
+            "t_first": "2026-08-09T16:49:46.443754-05:00",
+            "t_last": "2026-08-09T16:49:48.065753-05:00",
+            "best_score": 0.684,
+            "best_event_id": "1786312160.720314-dzumvw"
+          }
+        ],
+        "duration_s": 61.5,
+        "camera_count": 5,
+        "revisit_count": 3,
+        "identified": false,
+        "path_string": "utilities_ptz \u2192 front_side_ptz \u2192 rear_ptz \u2192 g5_bullet \u2192 rear_ptz \u2192 g5_bullet \u2192 rear_ptz \u2192 g5_bullet \u2192 rear_ptz \u2192 g5_bullet \u2192 doorbell_lite \u2192 g5_bullet \u2192 doorbell_lite \u2192 g5_bullet \u2192 doorbell_lite \u2192 g5_bullet \u00b7 1 min \u00b7 car"
+      }
+    },
+    {
+      "id": 734,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-09T18:43:51.275492-05:00",
+      "ended_at": "2026-08-09T18:43:52.346870-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000093-2e730d",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "utilities_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-09T18:43:51.275492-05:00",
+            "t_last": "2026-08-09T18:43:52.346870-05:00",
+            "best_score": 0.695,
+            "best_event_id": "1786319026.40461-0tl84k"
+          }
+        ],
+        "duration_s": 1.1,
+        "camera_count": 1,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "utilities_ptz \u00b7 just now \u00b7 car"
+      }
+    },
+    {
+      "id": 743,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-09T19:09:17.251328-05:00",
+      "ended_at": "2026-08-09T19:11:58.762254-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000098-07a5fc",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "utilities_ptz",
+          "front_side_ptz",
+          "rear_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-09T19:09:17.251328-05:00",
+            "t_last": "2026-08-09T19:09:17.251328-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-09T19:09:28.424226-05:00",
+            "t_last": "2026-08-09T19:11:51.983418-05:00",
+            "best_score": 0.72,
+            "best_event_id": "1786320709.951212-hvozlk"
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-09T19:11:54.456206-05:00",
+            "t_last": "2026-08-09T19:11:58.762254-05:00",
+            "best_score": 0.715,
+            "best_event_id": "1786320715.101045-pvkot3"
+          }
+        ],
+        "duration_s": 161.5,
+        "camera_count": 3,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "utilities_ptz \u2192 front_side_ptz \u2192 rear_ptz \u00b7 2 min \u00b7 car"
+      }
+    },
+    {
+      "id": 866,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-10T08:38:11.801982-05:00",
+      "ended_at": "2026-08-10T08:48:01.442735-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000182-5846bb",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "utilities_ptz",
+          "front_side_ptz",
+          "rear_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-10T08:38:11.801982-05:00",
+            "t_last": "2026-08-10T08:42:19.545100-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-10T08:43:57.749710-05:00",
+            "t_last": "2026-08-10T08:45:56.310081-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-10T08:47:05.629156-05:00",
+            "t_last": "2026-08-10T08:48:01.442735-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          }
+        ],
+        "duration_s": 589.6,
+        "camera_count": 3,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "utilities_ptz \u2192 front_side_ptz \u2192 rear_ptz \u00b7 9 min \u00b7 car"
+      }
+    },
+    {
+      "id": 882,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-10T09:34:51.499683-05:00",
+      "ended_at": "2026-08-10T09:34:51.499683-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000002-e55035",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "utilities_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-10T09:34:51.499683-05:00",
+            "t_last": "2026-08-10T09:34:51.499683-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          }
+        ],
+        "duration_s": 0.0,
+        "camera_count": 1,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "utilities_ptz \u00b7 just now \u00b7 car"
+      }
+    },
+    {
+      "id": 890,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-10T10:20:09.994859-05:00",
+      "ended_at": "2026-08-10T10:23:04.162543-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000003-770194",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "utilities_ptz",
+          "front_side_ptz",
+          "rear_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-10T10:20:09.994859-05:00",
+            "t_last": "2026-08-10T10:20:14.821156-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-10T10:20:15.264373-05:00",
+            "t_last": "2026-08-10T10:22:46.255400-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "rear_ptz",
+            "t_first": "2026-08-10T10:23:00.109051-05:00",
+            "t_last": "2026-08-10T10:23:04.162543-05:00",
+            "best_score": 0.706,
+            "best_event_id": "1786375380.484215-erq2if"
+          }
+        ],
+        "duration_s": 174.2,
+        "camera_count": 3,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "utilities_ptz \u2192 front_side_ptz \u2192 rear_ptz \u00b7 2 min \u00b7 car"
+      }
+    },
+    {
+      "id": 914,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-10T11:57:45.045092-05:00",
+      "ended_at": "2026-08-10T11:57:51.023277-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000025-cee519",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "utilities_ptz",
+          "front_side_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-10T11:57:45.045092-05:00",
+            "t_last": "2026-08-10T11:57:45.045092-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-10T11:57:46.995418-05:00",
+            "t_last": "2026-08-10T11:57:51.023277-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          }
+        ],
+        "duration_s": 6.0,
+        "camera_count": 2,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "utilities_ptz \u2192 front_side_ptz \u00b7 just now \u00b7 car"
+      }
+    },
+    {
+      "id": 965,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-10T14:56:37.171627-05:00",
+      "ended_at": "2026-08-10T14:56:47.809900-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000053-1f934c",
+        "label": "car",
+        "sub_label": null,
+        "classification": "circling",
+        "path": [
+          "utilities_ptz",
+          "front_side_ptz",
+          "utilities_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-10T14:56:37.171627-05:00",
+            "t_last": "2026-08-10T14:56:37.171627-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-10T14:56:44.550369-05:00",
+            "t_last": "2026-08-10T14:56:44.550369-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-10T14:56:46.325015-05:00",
+            "t_last": "2026-08-10T14:56:47.809900-05:00",
+            "best_score": 0.727,
+            "best_event_id": "1786391799.797095-2trwsd"
+          }
+        ],
+        "duration_s": 10.6,
+        "camera_count": 2,
+        "revisit_count": 1,
+        "identified": false,
+        "path_string": "utilities_ptz \u2192 front_side_ptz \u2192 utilities_ptz \u00b7 just now \u00b7 car"
+      }
+    },
+    {
+      "id": 971,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-10T15:36:32.988789-05:00",
+      "ended_at": "2026-08-10T15:36:45.466862-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000059-0b226f",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "utilities_ptz",
+          "front_side_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-10T15:36:32.988789-05:00",
+            "t_last": "2026-08-10T15:36:32.988789-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          },
+          {
+            "camera": "front_side_ptz",
+            "t_first": "2026-08-10T15:36:45.466862-05:00",
+            "t_last": "2026-08-10T15:36:45.466862-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          }
+        ],
+        "duration_s": 12.5,
+        "camera_count": 2,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "utilities_ptz \u2192 front_side_ptz \u00b7 just now \u00b7 car"
+      }
+    },
+    {
+      "id": 973,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-10T15:44:56.230391-05:00",
+      "ended_at": "2026-08-10T15:45:01.448664-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000063-17930a",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "utilities_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-10T15:44:56.230391-05:00",
+            "t_last": "2026-08-10T15:45:01.448664-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          }
+        ],
+        "duration_s": 5.2,
+        "camera_count": 1,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "utilities_ptz \u00b7 just now \u00b7 car"
+      }
+    },
+    {
+      "id": 990,
+      "node_id": "exterior:perimeter",
+      "started_at": "2026-08-10T16:59:15.789850-05:00",
+      "ended_at": "2026-08-10T16:59:15.789850-05:00",
+      "adjudication": "observed",
+      "attrs": {
+        "track_id": "xt-000012-cf961f",
+        "label": "car",
+        "sub_label": null,
+        "classification": "approach",
+        "path": [
+          "utilities_ptz"
+        ],
+        "hops": [
+          {
+            "camera": "utilities_ptz",
+            "t_first": "2026-08-10T16:59:15.789850-05:00",
+            "t_last": "2026-08-10T16:59:15.789850-05:00",
+            "best_score": 0.0,
+            "best_event_id": null
+          }
+        ],
+        "duration_s": 0.0,
+        "camera_count": 1,
+        "revisit_count": 0,
+        "identified": false,
+        "path_string": "utilities_ptz \u00b7 just now \u00b7 car"
+      }
+    }
+  ]
+}

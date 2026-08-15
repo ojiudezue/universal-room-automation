@@ -1,0 +1,44 @@
+[
+  {
+    "node_id": "exterior:perimeter",
+    "topic": "exterior_track_baseline",
+    "statement": "exterior_track baseline camera=rear_ptz label=car count=20 first=2026-08-07T22:54:24.483248-05:00 last=2026-08-08T18:12:52.070338-05:00 typical_span_s=121.0",
+    "attrs": {
+      "camera": "rear_ptz",
+      "label": "car",
+      "count": 20,
+      "first_ts": "2026-08-07T22:54:24.483248-05:00",
+      "last_ts": "2026-08-08T18:12:52.070338-05:00",
+      "typical_span_s": 121.0
+    },
+    "derived_from": "510,535,541,543,546,549,550,563,566,569,584,586,608,612,614,621,625,626,634,642"
+  },
+  {
+    "node_id": "exterior:perimeter",
+    "topic": "exterior_track_baseline",
+    "statement": "exterior_track baseline camera=front_side_ptz label=person count=20 first=2026-08-08T10:59:33.123226-05:00 last=2026-08-09T21:06:16.227851-05:00 typical_span_s=289.3",
+    "attrs": {
+      "camera": "front_side_ptz",
+      "label": "person",
+      "count": 20,
+      "first_ts": "2026-08-08T10:59:33.123226-05:00",
+      "last_ts": "2026-08-09T21:06:16.227851-05:00",
+      "typical_span_s": 289.3
+    },
+    "derived_from": "580,606,610,617,627,629,633,637,640,644,645,658,659,661,706,733,747,754,762,764"
+  },
+  {
+    "node_id": "exterior:perimeter",
+    "topic": "exterior_track_baseline",
+    "statement": "exterior_track baseline camera=utilities_ptz label=car count=20 first=2026-08-08T11:04:55.654082-05:00 last=2026-08-10T16:59:15.789850-05:00 typical_span_s=15.0",
+    "attrs": {
+      "camera": "utilities_ptz",
+      "label": "car",
+      "count": 20,
+      "first_ts": "2026-08-08T11:04:55.654082-05:00",
+      "last_ts": "2026-08-10T16:59:15.789850-05:00",
+      "typical_span_s": 15.0
+    },
+    "derived_from": "570,597,615,631,678,686,687,690,694,712,734,743,866,882,890,914,965,971,973,990"
+  }
+]
