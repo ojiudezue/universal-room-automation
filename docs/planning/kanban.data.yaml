@@ -1144,10 +1144,24 @@ cards:
   next: 'Tier 1 hotfix; batch with next deploy.'
   refs: [custom_components/universal_room_automation/domain_coordinators/optimization_llm.py]
 
+- id: CENSUS-SUFFIX-FIX-1
+  title: 'Census regression ROOT-CAUSED: strict-suffix matchers miss all _2 F2 sensors since F1 death (08-13) -> count sensors unmapped -> census pinned at identified count. Fix: disambiguation-tolerant matching.'
+  thread: presence
+  status: in_progress
+  approval: implied
+  origin:
+    date: '2026-08-15'
+    gist: 'operator: "census used to be more or less accurate — what changed?" Recorder: daily max 6-7 through 08-12, 4 from 08-13 (F1 entity death). AUDIT_census_accuracy_regression.md (a54379830), H1 confirmed, H2/H3/H4 refuted.'
+  why: 'All F2 count sensors are _2-suffixed; _PERSON_COUNT_SUFFIX endswith matching (camera_resolver.py:272/1288 + camera_census.py:400/793) matches none -> binary fallback max-1-per-camera -> unrecognized=max(0,~4-4)=0 -> total=identified forever. 17 cameras with _2-only person binaries contribute NOTHING. Live proof: playroom=4/master_hallway=4/staircase=3 simultaneous last night, census high-water exactly 4.'
+  parked_alts:
+  - 'Audit''s rename-38-entities-to-canonical option REJECTED as primary: every rename breaks every reference (URA config rows, staged riders, dashboards); code tolerance = one reviewed change, zero reference breakage'
+  next: 'Builder in flight (strip-before-match at all strict sites + ambiguity guard + drills); 2 reviews; batches into the pending reload/opt-meta deploy. Post-deploy Live: census exceeds 4 during next multi-person traversal.'
+  refs: [docs/planning/AUDIT_census_accuracy_regression.md]
+
 - id: CENSUS-GUEST-FLOOR-1
   title: 'Census blind to guests (read 4 with 10 in house) — re-admit the WiFi guest-VLAN count as a bounded FLOOR, gated to contain the FP problem that unplugged it'
   thread: presence
-  status: pre_planning
+  status: parked
   approval: unreviewed
   origin:
     date: '2026-08-15'
@@ -1160,6 +1174,8 @@ cards:
   proposed_shape: 'total = max(total, identified + wifi_guest_floor), the floor admitted ONLY under guards: guest-mode active OR count stable >N min; existing family-exclusion layers retained; kill switch = existing exclusion default. Numbers get knobs.'
   next: 'ura-planner scope after current deploy queue clears; Tier 2 (presence/census shared primitive -> possibly 2-DB per standing policy).'
   refs: [custom_components/universal_room_automation/camera_census.py]
+  parked_2026_08_15: 'SHRUNK by the regression root-cause (CENSUS-SUFFIX-FIX-1): the census was count-accurate until 08-13; the suffix fix restores that. Revisit trigger: AFTER the fix ships + one real gathering, if guest counts still under-read materially, revive the wifi-guest-floor leg.'
+
 
 - id: MEMORY-PROGRAM-EPIC
   title: 'EPIC — Hierarchical Entity Memory: every node (room/zone/house/coordinator) owns consultable, compressed history behind one queryable interface'
