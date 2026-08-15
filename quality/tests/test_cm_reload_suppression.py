@@ -177,6 +177,20 @@ def _load_init_listener_helpers():
         # allowlisted key so the sliced module compiles.
         "ENTRY_TYPE_INTEGRATION": "integration",
         "CONF_CAMERA_PERSON_ENTITIES": "camera_person_entities",
+        # RELOAD-WATCHDOG-HAZARD fix-up (2026-08-15, Review C M-1): the
+        # AST-slice guard now walks all Name loads (including annotations
+        # and the never-taken integration branch), so any symbol
+        # referenced in the sliced source must be stubbed. These sit in
+        # this test's dead branches (CM tests never touch the integration
+        # path); they only need to exist in the namespace.
+        "ConfigEntry": type("ConfigEntry", (), {}),
+        "HomeAssistant": type("HomeAssistant", (), {}),
+        "INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS": frozenset(
+            {"camera_person_entities"}
+        ),
+        "INTEGRATION_RELOAD_SUPPRESS_ENABLED": True,
+        "_dispatch_integration_key_signals": lambda *a, **kw: None,
+        "SIGNAL_URA_TRANSIT_CONFIG_CHANGED": "ura_transit_config_changed",
         "_CONF_HVAC_VACANCY_GRACE_MINUTES": "hvac_vacancy_grace_minutes",
         "_CONF_HVAC_VACANCY_GRACE_CONSTRAINED": "hvac_vacancy_grace_constrained",
         "_CONF_HVAC_MAX_OCCUPANCY_HOURS": "hvac_max_occupancy_hours",
@@ -316,6 +330,11 @@ def _load_init_listener_helpers():
     # Wrap kept nodes in a Module and compile.
     mod = ast.Module(body=body, type_ignores=[])
     code = compile(mod, str(PKG / "__init__.py"), "exec")
+    # Review-C M-1 fix-up (RELOAD-WATCHDOG-HAZARD, 2026-08-15): post-
+    # compile AST guard. Converts the silent stub-miss (the class the
+    # D2 build tripped on) into a hard test failure at load time.
+    from _ast_slice_guard import assert_ast_slice_names_covered  # noqa: PLC0415
+    assert_ast_slice_names_covered(mod, ns)
     exec(code, ns)
     return ns
 

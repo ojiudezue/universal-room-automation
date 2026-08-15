@@ -367,6 +367,16 @@ def _load_init_dispatch_namespace() -> dict:
         # allowlisted key so the sliced module compiles.
         "ENTRY_TYPE_INTEGRATION": "integration",
         "CONF_CAMERA_PERSON_ENTITIES": "camera_person_entities",
+        # RELOAD-WATCHDOG-HAZARD fix-up (2026-08-15, Review C M-1):
+        # AST-slice guard requires every referenced Name to be present.
+        "ConfigEntry": type("ConfigEntry", (), {}),
+        "HomeAssistant": type("HomeAssistant", (), {}),
+        "INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS": frozenset(
+            {"camera_person_entities"}
+        ),
+        "INTEGRATION_RELOAD_SUPPRESS_ENABLED": True,
+        "_dispatch_integration_key_signals": lambda *a, **kw: None,
+        "SIGNAL_URA_TRANSIT_CONFIG_CHANGED": "ura_transit_config_changed",
         # CONF aliases resolved to their string values (matches production).
         "_CONF_HVAC_VACANCY_GRACE_MINUTES": "hvac_vacancy_grace_minutes",
         "_CONF_HVAC_VACANCY_GRACE_CONSTRAINED": "hvac_vacancy_grace_constrained",
@@ -492,6 +502,10 @@ def _load_init_dispatch_namespace() -> dict:
     }
     mod = ast.Module(body=body, type_ignores=[])
     code = compile(mod, str(PKG / "__init__.py"), "exec")
+    # Review-C M-1 fix-up (RELOAD-WATCHDOG-HAZARD, 2026-08-15): post-
+    # compile AST guard. See _ast_slice_guard for rationale.
+    from _ast_slice_guard import assert_ast_slice_names_covered  # noqa: PLC0415
+    assert_ast_slice_names_covered(mod, ns)
     exec(code, ns)
     return ns
 

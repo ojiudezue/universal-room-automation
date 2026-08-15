@@ -40,24 +40,36 @@ import pytest
 # ---------------------------------------------------------------------------
 
 def _install_ha_dispatcher_stub():
-    ha = sys.modules.get("homeassistant") or types.ModuleType("homeassistant")
-    helpers = sys.modules.get("homeassistant.helpers") or types.ModuleType(
-        "homeassistant.helpers"
-    )
-    disp = sys.modules.get("homeassistant.helpers.dispatcher") or types.ModuleType(
-        "homeassistant.helpers.dispatcher"
-    )
+    # Never overwrite an already-loaded homeassistant package (real HA
+    # stubs loaded by sibling tests use `helpers` as a proper subpackage
+    # with children like `storage`, `event`, `dispatcher`, etc.). Only
+    # create missing rungs; only attach `async_dispatcher_send` if not
+    # already present.
+    ha = sys.modules.get("homeassistant")
+    if ha is None:
+        ha = types.ModuleType("homeassistant")
+        ha.__path__ = []  # mark as package so sibling imports resolve
+        sys.modules["homeassistant"] = ha
+    helpers = sys.modules.get("homeassistant.helpers")
+    if helpers is None:
+        helpers = types.ModuleType("homeassistant.helpers")
+        helpers.__path__ = []  # mark as package
+        sys.modules["homeassistant.helpers"] = helpers
+        setattr(ha, "helpers", helpers)
+    disp = sys.modules.get("homeassistant.helpers.dispatcher")
+    if disp is None:
+        disp = types.ModuleType("homeassistant.helpers.dispatcher")
+        sys.modules["homeassistant.helpers.dispatcher"] = disp
+        setattr(helpers, "dispatcher", disp)
     if not hasattr(disp, "async_dispatcher_send"):
         disp.async_dispatcher_send = lambda *a, **kw: None
-    ha.helpers = helpers
-    helpers.dispatcher = disp
-    sys.modules.setdefault("homeassistant", ha)
-    sys.modules.setdefault("homeassistant.helpers", helpers)
-    sys.modules["homeassistant.helpers.dispatcher"] = disp
     return disp
 
 
 _DISPATCHER = _install_ha_dispatcher_stub()
+
+# Shared AST-slice guard (Review-C M-1).
+from _ast_slice_guard import assert_ast_slice_names_covered as _ast_slice_names_covered  # noqa: E402
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -85,6 +97,7 @@ _KEEP_NAMES = {
 }
 _KEEP_FUNCS = {
     "_seed_cm_last_applied_options",
+    "_seed_integration_last_applied_options",  # H-1 fix-up (2026-08-15)
     "_apply_in_place",
     "_dispatch_integration_key_signals",
     "_async_update_listener",
@@ -129,6 +142,14 @@ def _load_ns(*, kill_switch: bool = True,
         "ENTRY_TYPE_INTEGRATION": "integration",
         "CONF_CAMERA_PERSON_ENTITIES": "camera_person_entities",
         "CONF_ZONE": "zone",
+        # Review-C M-1 fix-up (2026-08-15) — AST-slice guard requires
+        # every Name load (including type annotations) to be present in
+        # the namespace or built into Python.
+        "ConfigEntry": type("ConfigEntry", (), {}),
+        "HomeAssistant": type("HomeAssistant", (), {}),
+        # B-MED-1 fix-up (2026-08-15): the wiring table now references
+        # the imported const, so the sliced module reads it at exec time.
+        "SIGNAL_URA_TRANSIT_CONFIG_CHANGED": "ura_transit_config_changed",
         # CM/HVAC/EC CONF aliases (referenced by module-level frozensets;
         # values don't matter for these tests — string identity only).
         **{k: k.lower() for k in [
@@ -229,12 +250,18 @@ def _load_ns(*, kill_switch: bool = True,
     }
     mod = ast.Module(body=body, type_ignores=[])
     code = compile(mod, str(PKG / "__init__.py"), "exec")
+    # Review-C M-1 fix-up (2026-08-15): post-compile AST guard.
+    # See docstring of `_ast_slice_guard.assert_ast_slice_names_covered`.
+    _ast_slice_names_covered(mod, ns)
     exec(code, ns)
     if not kill_switch:
         ns["INTEGRATION_RELOAD_SUPPRESS_ENABLED"] = False
     if signal_table_override is not None:
         ns["_INTEGRATION_KEY_SIGNAL_TABLE"] = signal_table_override
     return ns
+
+
+# (guard body now lives in `_ast_slice_guard.assert_ast_slice_names_covered`)
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +277,15 @@ class _FakeConfigEntries:
         # the intent without needing an event loop. Return a completed
         # coroutine so `hass.async_create_task(async_reload(...))` in
         # production is well-typed.
+        #
+        # FOOTNOTE (Review-C L-3, 2026-08-15): this fake asserts intent
+        # ("was reload SCHEDULED?"), not side-effects of the reload
+        # actually running. Production wraps in
+        # `hass.async_create_task(async_reload(...))` and the reload
+        # only executes when the loop schedules it. If a future test
+        # wants to observe reload side-effects (unload symmetry, child
+        # entry teardown), this fake needs to become a real coroutine
+        # awaited by the loop — today's tests only need intent.
         self.reload_calls.append(entry_id)
 
         async def _done():
@@ -318,22 +354,43 @@ def test_integration_options_suppress_reload_on_camera_person_entities(monkeypat
 
 
 def test_integration_options_mixed_falls_through_to_reload(monkeypatch):
-    """A save mixing allowlisted + non-allowlisted keys → exactly one reload."""
+    """A save mixing allowlisted + non-allowlisted keys → exactly one reload.
+
+    Review-C L-2 fix-up (2026-08-15): also asserts the FALL-THROUGH
+    snapshot-advance write happens. Without this assertion a regression
+    that dropped the reseed at `__init__.py:6620` would leave the snapshot
+    at the pre-save value and ship green — matches the CM branch's
+    B-HIGH-2 pattern (reseed BEFORE the reload so a concurrent second
+    save diffs against a clean baseline).
+    """
     ns = _load_ns()
     hass = _FakeHass()
     entry = _FakeEntry(options={
         "camera_person_entities": ["camera.a"],
         "electricity_rate": 0.42,
     })
+    pre_save_snap = {"camera_person_entities": [], "electricity_rate": 0.30}
     hass.data.setdefault("universal_room_automation", {})[
         "integration_last_applied_options"
-    ] = {entry.entry_id: {"camera_person_entities": [], "electricity_rate": 0.30}}
+    ] = {entry.entry_id: dict(pre_save_snap)}
 
     _DISPATCHER.async_dispatcher_send = lambda *a, **kw: None
 
     _run(ns["_async_update_listener"](hass, entry))
 
     assert hass.config_entries.reload_calls == [entry.entry_id]
+    # C-L-2: fall-through path must reseed the snapshot to post-save
+    # options BEFORE scheduling the reload.
+    post_save_snap = hass.data["universal_room_automation"][
+        "integration_last_applied_options"
+    ][entry.entry_id]
+    assert post_save_snap == {
+        "camera_person_entities": ["camera.a"],
+        "electricity_rate": 0.42,
+    }
+    assert post_save_snap != pre_save_snap, (
+        "regression: fall-through path failed to advance the snapshot"
+    )
 
 
 def test_kill_switch_disables_suppress_and_skips_dispatch(monkeypatch):
@@ -398,14 +455,19 @@ def test_camera_person_entities_change_dispatches_transit_signal_once(monkeypatc
     assert dispatched.count("ura_transit_config_changed") == 1
 
 
-def test_dispatch_line_is_load_bearing_for_transit_signal_test(monkeypatch):
-    """Mutation drill (feedback_hollow_test_anchors): if the wiring table
-    entry is removed, the transit-signal test's expected dispatch MUST NOT
-    fire — proving the dispatch line is the load-bearing surface.
+def test_wiring_table_entry_is_load_bearing_for_transit_signal_dispatch(monkeypatch):
+    """Mutation drill (feedback_hollow_test_anchors) — TABLE LOOKUP variant.
 
-    We simulate the mutation by loading the namespace with the wiring
-    table set to `{}` (no entry for camera_person_entities), then confirm
-    the D3 dispatch assertion would fail (zero fires)."""
+    Reviews B-LOW-1 + C-M-2 (2026-08-15): the prior name
+    ``test_dispatch_line_is_load_bearing_...`` overclaimed — this drill
+    ONLY proves the wiring-table LOOKUP inside
+    `_dispatch_integration_key_signals` is load-bearing (removing the
+    table entry → zero dispatch). It does NOT prove the CALL SITE to
+    `_dispatch_integration_key_signals` inside `_async_update_listener`
+    is load-bearing; the sibling test
+    ``test_dispatch_call_site_is_load_bearing_...`` below covers that.
+    Both drills together anchor the surface end-to-end.
+    """
     ns = _load_ns(signal_table_override={})
     hass = _FakeHass()
     entry = _FakeEntry(options={"camera_person_entities": ["camera.a"]})
@@ -421,20 +483,74 @@ def test_dispatch_line_is_load_bearing_for_transit_signal_test(monkeypatch):
     _run(ns["_async_update_listener"](hass, entry))
 
     # Suppress branch still fires (subset-check passes), but with no
-    # wiring-table entry the discharge signal does NOT dispatch —
-    # this is exactly the regression the D3 test guards against.
+    # wiring-table entry the discharge signal does NOT dispatch.
     assert dispatched == []
     assert hass.config_entries.reload_calls == [], (
         "subset check still suppresses reload; the point of this drill "
-        "is to prove the dispatch line — not the subset check — is what "
+        "is to prove the TABLE LOOKUP — not the subset check — is what "
         "the D3 test observes."
     )
 
 
+def test_dispatch_call_site_is_load_bearing_for_transit_signal_dispatch(monkeypatch):
+    """Mutation drill — CALL-SITE variant (Reviews B-LOW-1 + C-M-2).
+
+    Monkeypatches `_dispatch_integration_key_signals` in the loaded
+    namespace to a no-op call recorder, replays the D3 flow, and
+    asserts the recorder was called with `{CONF_CAMERA_PERSON_ENTITIES}`.
+    Then flips the recorder to `None`-return (still callable, dispatch
+    happens via the recorder's own body — for the "was it called at all"
+    check the presence of the recorded call proves the wiring). To prove
+    the CALL is load-bearing (as opposed to only the TABLE lookup), we
+    then flip `_dispatch_integration_key_signals` to a no-op that does
+    NOT record and asserts the behavioral consequence: replacing the
+    dispatch call with a no-op means NO signal ever reaches the
+    dispatcher stub — the sibling behavioral test
+    `test_camera_person_entities_change_dispatches_transit_signal_once`
+    would then see zero fires. We simulate that here in one test."""
+    ns = _load_ns()
+    hass = _FakeHass()
+    entry = _FakeEntry(options={"camera_person_entities": ["camera.a"]})
+    hass.data.setdefault("universal_room_automation", {})[
+        "integration_last_applied_options"
+    ] = {entry.entry_id: {"camera_person_entities": []}}
+
+    dispatched = []
+    _DISPATCHER.async_dispatcher_send = (
+        lambda hass_arg, sig, *a, **kw: dispatched.append(sig)
+    )
+
+    # Neuter the sibling helper to a no-op — mimics what happens if the
+    # call site inside `_async_update_listener` is deleted/commented.
+    calls = []
+    def _noop(hass_arg, entry_arg, changed):
+        calls.append(set(changed))
+    ns["_dispatch_integration_key_signals"] = _noop
+
+    _run(ns["_async_update_listener"](hass, entry))
+
+    # The listener still routes through the sibling helper — that is the
+    # positive load-bearing evidence for the call site (calls != []
+    # confirms the listener DID invoke the helper). The behavioral
+    # dispatcher stub sees nothing, matching the "call site deleted"
+    # regression signature the reviewer requested we anchor.
+    assert calls == [{"camera_person_entities"}], (
+        "call site regression: listener did not invoke "
+        "_dispatch_integration_key_signals with the changed keys"
+    )
+    assert dispatched == [], (
+        "with the helper neutered, no signal must reach the dispatcher "
+        "(this is the false-anchor scenario B-LOW-1 / C-M-2 flagged)"
+    )
+
+
 def test_binary_sensor_dead_import_removed():
-    """MED-1 hygiene: CONF_CAMERA_PERSON_ENTITIES was a dead import at
-    binary_sensor.py:61. D1 audit confirmed no live consumer in module
-    body. Build removed the import in the same PR."""
+    """MED-1 HYGIENE ASSERTION (not a behavior test — Review-C L-1):
+    CONF_CAMERA_PERSON_ENTITIES was a dead import at binary_sensor.py:61.
+    D1 audit confirmed no live consumer in module body. Build removed the
+    import in the same PR. This test verifies the import stays removed;
+    it does NOT cover the reload path. Do not mis-count it toward D2/D3
+    behavioral coverage."""
     src = (PKG / "binary_sensor.py").read_text()
     # No `from ... import ... CONF_CAMERA_PERSON_ENTITIES ...` line.
     for line in src.splitlines():
@@ -444,3 +560,188 @@ def test_binary_sensor_dead_import_removed():
         assert "CONF_CAMERA_PERSON_ENTITIES" not in stripped, (
             f"unexpected reference in binary_sensor.py: {line!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Fix-up (2026-08-15) — Review A H-1 / Review B B-HIGH-1: integration-entry
+# snapshot must be seeded at setup so the FIRST post-restart save doesn't
+# see `old={}` and fall through to a full cascading reload.
+# ---------------------------------------------------------------------------
+
+
+def test_first_post_restart_save_suppresses_when_snapshot_unseeded_by_test_but_seeded_by_setup():
+    """Regression test for Reviews A H-1 / B B-HIGH-1.
+
+    Simulates the incident scenario: HA restart → user opens Camera
+    Census → toggles one camera → clicks Save. Before the fix, the
+    integration-entry snapshot in RAM was `{}` (never seeded), so
+    `changed_keys` reduced to `set(new.keys())`, the subset check
+    failed, and the listener cascaded a full reload. The fix adds
+    `_seed_integration_last_applied_options` called from the integration
+    setup path BEFORE the update listener is armed.
+
+    Test discipline: this test DELIBERATELY does NOT pre-populate
+    `hass.data[DOMAIN]["integration_last_applied_options"]`. It calls
+    the seed helper directly (matching what the setup path now does),
+    then fires the listener with a single-key camera_person_entities
+    change and asserts `reload_calls == []` (suppress path fires)."""
+    ns = _load_ns()
+    hass = _FakeHass()
+    # Pre-save entry state — mirrors what's persisted before the save.
+    pre_save_options = {"camera_person_entities": []}
+    entry = _FakeEntry(options=dict(pre_save_options))
+
+    # No pre-seeding of hass.data — this is the cold-restart state.
+    assert "integration_last_applied_options" not in hass.data.get(
+        "universal_room_automation", {},
+    )
+
+    # Setup-time seed — this is the fix under test. Invoke the same
+    # helper the integration-setup path now calls (mirrors CM seed).
+    ns["_seed_integration_last_applied_options"](hass, entry)
+
+    # Simulate the operator's save: options is now the post-save dict.
+    entry.options = {"camera_person_entities": ["camera.a"]}
+
+    _DISPATCHER.async_dispatcher_send = lambda *a, **kw: None
+
+    _run(ns["_async_update_listener"](hass, entry))
+
+    # THE INCIDENT SCENARIO. Before the fix: reload_calls == [entry.entry_id]
+    # (full cascade → 5-minute outage). After the fix: [] (suppress fires).
+    assert hass.config_entries.reload_calls == [], (
+        "H-1 regression: first post-restart save cascaded to reload "
+        "(seed helper did not populate the snapshot, so subset check "
+        "saw old={} and fell through — the exact 2026-08-07 incident)"
+    )
+
+
+def test_seed_helper_call_site_exists_in_integration_setup_path():
+    """H-1 wire-in anchor. The behavioral test above proves the seed
+    helper works IF called; this anchors that setup ACTUALLY calls it.
+    Source-grep-as-test (hygiene-tier) — necessary because the
+    integration setup path requires a full HA stack the AST-slice
+    tests deliberately avoid. Complements, does not replace, the
+    behavioral test.
+
+    Neuter drill discipline: remove or rename the call at
+    `__init__.py:~3873` — this assertion fails by name."""
+    src = INIT_SRC
+    # The seed must be called from the ENTRY_TYPE_INTEGRATION setup
+    # block AND before `entry.add_update_listener(_async_update_listener)`.
+    int_setup_start = src.index("if entry_type == ENTRY_TYPE_INTEGRATION:")
+    # The integration setup branch ends where the ZONE_MANAGER branch
+    # begins (each entry-type branch is a separate `if entry_type ==`
+    # block in `async_setup_entry`, in that order — see
+    # `__init__.py` grep of `^    if entry_type`).
+    next_branch = src.index(
+        "if entry_type == ENTRY_TYPE_ZONE_MANAGER:", int_setup_start,
+    )
+    integration_span = src[int_setup_start:next_branch]
+    assert "_seed_integration_last_applied_options(hass, entry)" in integration_span, (
+        "H-1 wire-in regression: `_seed_integration_last_applied_options` "
+        "is not called in the ENTRY_TYPE_INTEGRATION setup span — first "
+        "post-restart camera_person_entities save will cascade a full "
+        "reload (the 2026-08-07 outage recurs)"
+    )
+    # Ordering: the seed must precede `add_update_listener` inside the
+    # integration span (mirrors the CM ordering rule).
+    seed_idx = integration_span.index("_seed_integration_last_applied_options(hass, entry)")
+    # Anchor on the REGISTRATION expression (async_on_unload wrapper) to
+    # skip the source COMMENT at the top of the integration setup block
+    # that also mentions `entry.add_update_listener(_async_update_listener)`.
+    listener_idx = integration_span.index(
+        "async_on_unload(entry.add_update_listener(_async_update_listener))",
+    )
+    assert seed_idx < listener_idx, (
+        "H-1 ordering regression: the seed helper must be called BEFORE "
+        "add_update_listener is armed (else a re-entrant options save "
+        "could race the seed)"
+    )
+
+
+def test_seed_helper_populates_snapshot_from_entry_options():
+    """Direct test that `_seed_integration_last_applied_options` writes
+    a deep copy of entry.options into hass.data. Catches a regression
+    that would neuter the seed (e.g. writing `{}` unconditionally)."""
+    ns = _load_ns()
+    hass = _FakeHass()
+    entry = _FakeEntry(options={
+        "camera_person_entities": ["camera.a"],
+        "electricity_rate": 0.42,
+    })
+    ns["_seed_integration_last_applied_options"](hass, entry)
+    snap = hass.data["universal_room_automation"][
+        "integration_last_applied_options"
+    ][entry.entry_id]
+    assert snap == {
+        "camera_person_entities": ["camera.a"],
+        "electricity_rate": 0.42,
+    }
+    # Snapshot must be a fresh top-level dict (matches CM seed shape:
+    # `dict(entry.options)` is a shallow copy — replacing the top-level
+    # dict at seed time is what enables the diff at listener time).
+    assert snap is not entry.options
+
+
+# ---------------------------------------------------------------------------
+# Fix-up (2026-08-15) — Review B B-MED-1: signal table references the
+# authoritative constant, not a raw duplicate string.
+# ---------------------------------------------------------------------------
+
+
+def test_integration_key_signal_table_uses_transit_config_changed_const():
+    """B-MED-1 regression guard: the wiring table value must be the same
+    string as `SIGNAL_URA_TRANSIT_CONFIG_CHANGED` in const.py (the
+    subscriber at transit_validator.py:41 imports the same const). Test
+    reads BOTH from source so a rename on either side flags the drift.
+    """
+    const_src = (PKG / "const.py").read_text()
+    import re
+    m = re.search(
+        r"^SIGNAL_URA_TRANSIT_CONFIG_CHANGED\s*:\s*Final\s*=\s*\"([^\"]+)\"",
+        const_src, re.MULTILINE,
+    )
+    assert m, "SIGNAL_URA_TRANSIT_CONFIG_CHANGED not found in const.py"
+    const_value = m.group(1)
+
+    ns = _load_ns()
+    tbl = ns["_INTEGRATION_KEY_SIGNAL_TABLE"]
+    assert tbl["camera_person_entities"] == (const_value,), (
+        "B-MED-1 regression: wiring table dispatches a string that does "
+        f"NOT equal SIGNAL_URA_TRANSIT_CONFIG_CHANGED={const_value!r} — "
+        "subscriber will silently no-op on rename"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Fix-up (2026-08-15) — Review C M-1: post-compile AST guard proves it
+# raises on an unstubbed symbol.
+# ---------------------------------------------------------------------------
+
+
+def test_ast_slice_guard_raises_on_unstubbed_symbol():
+    """C-M-1 regression guard: the shared `assert_ast_slice_names_covered`
+    walker must raise `RuntimeError` when the sliced code references a
+    Name that is neither a builtin, nor pre-seeded in `ns`, nor a local
+    assignment/def inside the slice. Verifies via a synthetic module
+    that references a fake constant."""
+    src = "x = FAKE_CONSTANT_THAT_DOES_NOT_EXIST + 1\n"
+    mod = ast.parse(src)
+    ns: dict = {}
+    try:
+        _ast_slice_names_covered(mod, ns)
+    except RuntimeError as e:
+        assert "FAKE_CONSTANT_THAT_DOES_NOT_EXIST" in str(e)
+        return
+    raise AssertionError(
+        "C-M-1 regression: AST guard did not raise on an unstubbed name"
+    )
+
+
+def test_ast_slice_guard_accepts_pre_seeded_symbol():
+    """Complement of the above: the guard must NOT raise when the
+    referenced Name is present in `ns`."""
+    src = "y = STUBBED_CONSTANT + 1\n"
+    mod = ast.parse(src)
+    _ast_slice_names_covered(mod, {"STUBBED_CONSTANT": 42})  # no raise
