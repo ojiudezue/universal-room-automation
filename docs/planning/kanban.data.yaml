@@ -1135,7 +1135,8 @@ cards:
   parent: MEMORY-PROGRAM-EPIC
   title: 'Hierarchical memory — build the deferred daily compaction batch when memory_episodes has volume (trigger: any episode type >50 rows)'
   thread: memory
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.76.0
   approval: explicit
   approved_by: 'operator 2026-08-02 (concept + MVP build approval); compactor deferred BY the MVP as a sequencing decision, not dropped'
   origin:
@@ -1210,7 +1211,8 @@ cards:
 - id: GARAGE-EGRESS-APPLY-1
   title: 'APPLY the 2026-08-10 garage-camera ruling — garage_a/garage_b into CONF_EGRESS_CAMERAS at the NEXT deploy restart (operator said do not forget)' 
   thread: security
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.76.0
   approval: approved
   origin:
     date: '2026-08-14'
@@ -1275,7 +1277,8 @@ cards:
 - id: CIRCLING-LABEL-1
   title: Circling loops page but are never LABELLED/escalated as circling (2-camera shape) — cooldown blocks the hop where classification forms
   thread: perimeter
-  status: review
+  status: shipped_organic
+  shipped_version: v5.76.0
   approval: unreviewed
   origin:
     date: '2026-08-13'

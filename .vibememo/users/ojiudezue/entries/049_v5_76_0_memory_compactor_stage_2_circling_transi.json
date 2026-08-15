@@ -1,0 +1,21 @@
+{
+  "format_version": "2.1",
+  "entry_id": "049",
+  "author": "ojiudezue",
+  "session_id": "claude_20260815_040050_ship_v5_76_0",
+  "timestamp": "2026-08-15T04:00:50Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.76.0 shipped: Memory compactor (Stage 2) + circling transition exemption",
+  "summary": "Hierarchical-memory distill/correct engine: atomic combined DAO, data-driven node discovery, nightly+deferred wiring, supervised compact-now button, coverage-stamped phantom facts. Circling: classification-transition exemption (escalating track -> one HIGH page), XCORR-1 short-circuit, cross-camera race closed. Config rider at restart: garage cameras -> egress list.",
+  "refs": {
+    "cards": [
+      "MEMORY-COMPACTOR-1",
+      "CIRCLING-LABEL-1",
+      "GARAGE-EGRESS-APPLY-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.76.0.md"
+    ]
+  }
+}
