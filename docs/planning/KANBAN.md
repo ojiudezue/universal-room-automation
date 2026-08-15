@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-14T23:00:50-05:00_ - _Data commit: `10e27c959441`_ - _last_reconciled: 2026-08-14_
+_Generated: 2026-08-14T23:09:55-05:00_ - _Data commit: `a40991bc3245`_ - _last_reconciled: 2026-08-14_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,7 +11,7 @@ _Generated: 2026-08-14T23:00:50-05:00_ - _Data commit: `10e27c959441`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 4 |
+| 📥 Inbox | 5 |
 | 🧭 Pre-planning | 10 |
 | 📝 Planned | 1 |
 | 🔨 In progress | 4 |
@@ -22,7 +22,7 @@ _Generated: 2026-08-14T23:00:50-05:00_ - _Data commit: `10e27c959441`_ - _last_r
 | 🅿️ Parked | 3 |
 | ✅ Done | 3 |
 
-## 📥 Inbox (4)
+## 📥 Inbox (5)
 _raw capture_
 
 ### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab
@@ -57,6 +57,15 @@ thread: **presence** - status: **inbox** - approval: **unreviewed**
 - **Next:** ura-planner; Tier 2 (touches occupancy-confidence scorer).
 - **Parsimony:** [BUILD] a non-person camera sensor in CONF_ZONE_CAMERAS is trusted as person-confirmation
 - **Refs:** docs/planning/PLANNING_zone_camera_person_only_guard.md
+
+### `OPT-META-BOOT-TRANSIENT-1` - Optimizer meta-monitor false "cannot see problems" alert — findings_recent reads RAM cache emptied by restart while open-count reads durable state
+thread: **optimizer** - status: **inbox** - approval: **unreviewed**
+- **Origin:** 2026-08-15 - Operator forwarded the meta alert 20min after the v5.76.0 restart; diagnosis: boot transient, not real blindness (3,725 findings/24h in DB, newest minutes old).
+- **Why:** optimization_llm.py:666 builds findings_recent from coordinator._last_findings (in-memory, cleared at restart); the meta pass compares it against the durable open-findings count and the LLM narrates the mismatch as system blindness -> fa...
+- **Next:** Tier 1 hotfix; batch with next deploy.
+- **Refs:** custom_components/universal_room_automation/domain_coordinators/optimization_llm.py
+- **Forensic keys (1):**
+  - `fix_options`: Either (a) corpus falls back to get_recent_optimization_findings DB read when the RAM cache is empty, or (b) meta emission suppressed inside a post-boot grace window (suppression-needs-discharge: re-fires next cycle after grace). Prefer ...
 
 ### `PATH-ALPHA-DENOM-1` - Path-alpha away inference structurally dead when all trackers LOST/STALE — trusted denominator empties; NO existing card fixes it
 thread: **presence** - status: **inbox** - approval: **approved_after_investigation**

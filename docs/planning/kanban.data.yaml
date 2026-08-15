@@ -1111,6 +1111,19 @@ cards:
   revival_preconditions: 'OPERATOR/HOMELAB actions, then RE-RUN the probe: (1) fix Frigate-2 face pipeline on the 6 dead cameras; (2) enroll Ziri + verify Oji enrollment (1 sighting as first-name token); (3) expose a Frigate confidence score OR drop the floor design; (4) add doorbell(s) to perimeter_cameras config. Plan is review-hardened and ready the moment the probe passes.'
 
 
+- id: OPT-META-BOOT-TRANSIENT-1
+  title: 'Optimizer meta-monitor false "cannot see problems" alert — findings_recent reads RAM cache emptied by restart while open-count reads durable state'
+  thread: optimizer
+  status: inbox
+  approval: unreviewed
+  origin:
+    date: '2026-08-15'
+    gist: 'Operator forwarded the meta alert 20min after the v5.76.0 restart; diagnosis: boot transient, not real blindness (3,725 findings/24h in DB, newest minutes old).'
+  why: 'optimization_llm.py:666 builds findings_recent from coordinator._last_findings (in-memory, cleared at restart); the meta pass compares it against the durable open-findings count and the LLM narrates the mismatch as system blindness -> false HIGH meta finding every restart that coincides with open findings.'
+  fix_options: 'Either (a) corpus falls back to get_recent_optimization_findings DB read when the RAM cache is empty, or (b) meta emission suppressed inside a post-boot grace window (suppression-needs-discharge: re-fires next cycle after grace). Prefer (a) — honest data beats suppression.'
+  next: 'Tier 1 hotfix; batch with next deploy.'
+  refs: [custom_components/universal_room_automation/domain_coordinators/optimization_llm.py]
+
 - id: MEMORY-PROGRAM-EPIC
   title: 'EPIC — Hierarchical Entity Memory: every node (room/zone/house/coordinator) owns consultable, compressed history behind one queryable interface'
   thread: memory
