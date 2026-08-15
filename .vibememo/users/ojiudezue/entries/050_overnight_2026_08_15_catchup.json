@@ -1,0 +1,12 @@
+{
+  "ts": "2026-08-15T06:55:00Z",
+  "author": "ojiudezue",
+  "title": "Post-v5.76.0 evening: dimmer rediagnosis, KP probe-park, meta-monitor boot transient",
+  "why": [
+    "DIMMER-REBOOT-1 rediagnosed: the 'comes on overnight' mechanism is NOT reboot-restore (device uptime 6.6d) but PHANTOM WALL-SWITCH EDGES (btn_type=edge, 80ms debounce; uncommanded off->on 3s apart, no HA context). Falsify-first win: the uptime reading killed the standing theory before another fix landed on the wrong mechanism. Operator applied a fix ('sorted'); readback shows only debounce 80->150, so organic proof = 2 ghost-free nights, escalation ladder queued on the card.",
+    "KP-ANNOTATION-1 parked BY ITS OWN D0 GATES: 0/1532 identity-at-dispatch, 6/9 dead face pipelines, no confidence attr anywhere, doorbells not in perimeter config. Measure-before-build converted a Tier-2DB build into a 4-item infra punch list. The plan is review-hardened and revives on a passing probe re-run.",
+    "OPT-META-BOOT-TRANSIENT-1: the optimizer's 'cannot see problems' HIGH is its own corpus bug - findings_recent reads the RAM cache (emptied at restart) while open-count reads durable state; LLM narrates the mismatch as blindness. Fix adjudicated: DB fallback, not suppression - honest data beats grace windows.",
+    "Ziri 3 reversal: operator says device is physically present -> unconfigure rider deleted; history shows 8+ days fully dark + no network resolution = off-WiFi ESP needing a physical power-cycle. Lesson: 'dead' from HA's view has two very different physical states."
+  ],
+  "refs": ["docs/readmes/README_v5.76.0.md", "DIMMER-REBOOT-1", "KP-ANNOTATION-1", "OPT-META-BOOT-TRANSIENT-1", "ZIRI3-UNCONFIG-1"]
+}

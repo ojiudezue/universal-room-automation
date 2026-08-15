@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.76.0
+# Universal Room Automation vv5.77.0
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -58,7 +58,9 @@ from .const import (
     CONF_HUMIDITY_FAN_CONTROL_ENABLED,
     DEFAULT_HUMIDITY_FAN_CONTROL_ENABLED,
     # v3.5.0 Camera Census
-    CONF_CAMERA_PERSON_ENTITIES,
+    # NOTE: `CONF_CAMERA_PERSON_ENTITIES` import removed 2026-08-15
+    # (RELOAD-WATCHDOG-HAZARD D1 audit: dead import; the entity-key
+    # literal "camera_person_detected" at :~1155 is a distinct symbol).
     CONF_ROOM_CAMERAS,
     CONF_DISABLE_CAMERA_PRESENCE,
     CONF_TRACKED_PERSONS,

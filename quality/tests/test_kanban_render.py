@@ -160,7 +160,8 @@ def test_exit_code_stale_when_backdated(tmp_path, monkeypatch, capsys):
     data["meta"]["last_reconciled"] = "1970-01-01"
     p = tmp_path / "d.yaml"
     p.write_text(yaml.safe_dump(data), encoding="utf-8")
-    code = kr.main(["--data", str(p), "--check"])
+    code = kr.main(["--data", str(p), "--check",
+                    "--pending", str(tmp_path / "no_pending.jsonl")])
     assert code == 2
 
 
@@ -170,5 +171,21 @@ def test_exit_code_fresh(tmp_path):
     data["meta"]["last_reconciled"] = "2099-12-31"
     p = tmp_path / "d.yaml"
     p.write_text(yaml.safe_dump(data), encoding="utf-8")
-    code = kr.main(["--data", str(p), "--check"])
+    code = kr.main(["--data", str(p), "--check",
+                    "--pending", str(tmp_path / "no_pending.jsonl")])
     assert code == 0
+
+
+def test_exit_code_unapplied_dispositions(tmp_path):
+    """Forcing function (2026-08-15): --check exits 3 while dispositions
+    sit unapplied, regardless of freshness."""
+    with open(DATA_FILE, "r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh)
+    data["meta"]["last_reconciled"] = "2099-12-31"
+    p = tmp_path / "d.yaml"
+    p.write_text(yaml.safe_dump(data), encoding="utf-8")
+    pend = tmp_path / "pending.jsonl"
+    pend.write_text('{"card_id": "X-1", "action": "approve", "at": "2026-08-15T00:00:00Z"}\n',
+                    encoding="utf-8")
+    code = kr.main(["--data", str(p), "--check", "--pending", str(pend)])
+    assert code == 3

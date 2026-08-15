@@ -542,6 +542,33 @@ class OptimizationCoordinator(BaseCoordinator):
 
         # Most recent house-level summary for sensor consumption.
         self._last_findings: list[OptimizationFinding] = []
+        # OPT-META-BOOT-TRANSIENT-1 (2026-08-15): post-boot fallback for the
+        # LLM meta-pass corpus assembly. `_last_findings` is RAM-only and
+        # empty after restart, but the meta pass compares against the
+        # durable `_open_findings_count` — the mismatch produced a false
+        # HIGH "LLM cannot see problems" on every restart.
+        # `_boot_findings_seed` is a list of dict rows read from the DB
+        # during async_setup (piggybacks on the rate-cap seed read at
+        # H2 below — one DB round-trip does double duty). The LLM tier's
+        # SYNC corpus assembly (optimization_llm.py _assemble_corpus)
+        # falls back to this seed when `_last_findings` is empty, without
+        # changing corpus assembly's sync contract (card adjudication:
+        # "pick the shape that does NOT change corpus assembly's sync
+        # contract").
+        #
+        # Review-A M-1 fix-up (2026-08-15): EXPLICITLY cleared at the end
+        # of the FIRST completed cycle (see `run_cycle` sentinel
+        # `_boot_findings_seed_cleared` below). Prior comment claimed
+        # "cleared implicitly once the first post-boot cycle populates
+        # `_last_findings`" — this was FALSE: `_last_findings` is
+        # unconditionally reassigned every cycle (line ~1029), and a
+        # healthy cycle produces `[]`, so `if ram_cache:` in
+        # `_assemble_corpus` would keep falling back to a permanently-
+        # cached snapshot of pre-restart findings — many of which are
+        # resolved. Clearing after the first cycle bounds staleness to
+        # ~one cycle regardless of whether the cycle produced findings.
+        self._boot_findings_seed: list[dict] = []
+        self._boot_findings_seed_cleared: bool = False
         self._last_evaluation_iso: str | None = None
         self._house_score: float = 100.0
         self._room_scores: dict[str, float] = {}
@@ -658,6 +685,47 @@ class OptimizationCoordinator(BaseCoordinator):
             db = self.hass.data.get(DOMAIN, {}).get("database")
             if db is not None and hasattr(db, "get_recent_optimization_findings"):
                 rows = await db.get_recent_optimization_findings(limit=200)
+                # OPT-META-BOOT-TRANSIENT-1 (2026-08-15): cache the raw
+                # rows for the LLM meta-pass corpus fallback. Same DB
+                # read; no extra round-trip. Discarded implicitly once
+                # the first post-boot cycle populates `_last_findings`
+                # (assembly prefers RAM cache).
+                try:
+                    self._boot_findings_seed = [
+                        r for r in (rows or []) if isinstance(r, dict)
+                    ]
+                    if self._boot_findings_seed:
+                        _LOGGER.info(
+                            "Optimizer: seeded LLM-meta boot cache with "
+                            "%d rows from optimization_findings",
+                            len(self._boot_findings_seed),
+                        )
+                    else:
+                        # Review-B B-MED-2 fix-up (2026-08-15): distinct
+                        # WARNING for the meta-corpus seed path so an
+                        # operator triaging a post-restart false HIGH
+                        # from the meta pass has a discoverable signal.
+                        # The rate-cap seed WARNs on its own exception
+                        # branch below; this one covers the empty-return
+                        # case (fresh DB, DB unavailable at boot, or DB
+                        # returned no rows) which is silent to the
+                        # rate-cap path.
+                        _LOGGER.warning(
+                            "Optimizer: LLM meta-pass boot seed empty "
+                            "(no rows from get_recent_optimization_findings) "
+                            "— first meta pass may false-flag "
+                            "'cannot see problems' until the first "
+                            "post-boot cycle populates the RAM cache",
+                        )
+                except Exception:  # noqa: BLE001 — best-effort seed
+                    self._boot_findings_seed = []
+                    _LOGGER.warning(
+                        "Optimizer: LLM meta-pass boot seed failed "
+                        "(exception during row projection); first meta "
+                        "pass may false-flag until the RAM cache is "
+                        "populated",
+                        exc_info=True,
+                    )
                 cutoff = dt_util.utcnow() - timedelta(hours=1)
                 seeded = 0
                 for r in rows or []:
@@ -993,6 +1061,17 @@ class OptimizationCoordinator(BaseCoordinator):
         # single global bound on ``_last_findings``.
         all_findings = self._cap_findings(list(findings) + list(llm_findings))
         self._last_findings = all_findings
+        # OPT-META-BOOT-TRANSIENT-1 Review-A M-1 fix-up (2026-08-15):
+        # drop the boot-seed snapshot as soon as the first real cycle
+        # has completed — regardless of whether it produced findings.
+        # `_last_findings` is (re)assigned unconditionally above, so a
+        # healthy zero-finding cycle would otherwise let a fresh RAM
+        # cache of `[]` fall through to the (now stale) seed in
+        # `_assemble_corpus`. One-shot clear bounds staleness to at
+        # most the pre-first-cycle window.
+        if not self._boot_findings_seed_cleared:
+            self._boot_findings_seed = []
+            self._boot_findings_seed_cleared = True
         # v5.11.0 D1 — decrement notify-dedup TTLs ONCE per cycle.
         # Previously (v4.7.36 A2) the decrement ran INSIDE
         # ``_notify_if_severe`` — per-finding — which collapsed the

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-14T21:03:20-05:00_ - _Data commit: `11b47cd04fab`_ - _last_reconciled: 2026-08-14_
+_Generated: 2026-08-15T15:54:28-05:00_ - _Data commit: `c63e70b4d0af`_ - _last_reconciled: 2026-08-14_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,15 +12,15 @@ _Generated: 2026-08-14T21:03:20-05:00_ - _Data commit: `11b47cd04fab`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 4 |
-| 🧭 Pre-planning | 10 |
+| 🧭 Pre-planning | 8 |
 | 📝 Planned | 2 |
-| 🔨 In progress | 5 |
-| 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 32 |
-| ⏸️ Waiting on operator | 2 |
+| 🔨 In progress | 4 |
+| 🔍 Review | 0 |
+| 🚀 Shipped (organic open) | 35 |
+| ⏸️ Waiting on operator | 3 |
 | ⏳ Waiting on me (Claude) | 1 |
-| 🅿️ Parked | 3 |
-| ✅ Done | 2 |
+| 🅿️ Parked | 4 |
+| ✅ Done | 5 |
 
 ## 📥 Inbox (4)
 _raw capture_
@@ -50,13 +50,14 @@ thread: **dashboarding** - status: **inbox** - approval: **unreviewed**
 - **Parsimony:** [BUILD] PWA cannot reliably map a room to its controllable entities
 - **Refs:** docs/planning/PLANNING_g1_room_control_list_attrs.md
 
-### `ZONE-CAM-PERSON-GUARD-1` - Durable device_class guard so a Frigate MOTION sensor cannot be trusted as camera person-confirmation in zone occupancy-confidence
-thread: **presence** - status: **inbox** - approval: **unreviewed**
-- **Origin:** 2026-07-13 - Plan inventory audit 2026-08-14: PLANNING_zone_camera_person_only_guard.md unbuilt + uncarded; the 2026-06-08 live finding was only fixed by config removal, not code.
-- **Why:** CONF_ZONE_CAMERAS entries are trusted as person-confirmation by the presence Source-3 occupancy-confidence scorer (-> hvac.py stale-sensor guard). A motion-only Frigate sensor mis-filed there is trusted as a person confirm. No device_cla...
-- **Next:** ura-planner; Tier 2 (touches occupancy-confidence scorer).
-- **Parsimony:** [BUILD] a non-person camera sensor in CONF_ZONE_CAMERAS is trusted as person-confirmation
-- **Refs:** docs/planning/PLANNING_zone_camera_person_only_guard.md
+### `OPT-META-BOOT-TRANSIENT-1` - Optimizer meta-monitor false "cannot see problems" alert — findings_recent reads RAM cache emptied by restart while open-count reads durable state
+thread: **optimizer** - status: **inbox** - approval: **unreviewed**
+- **Origin:** 2026-08-15 - Operator forwarded the meta alert 20min after the v5.76.0 restart; diagnosis: boot transient, not real blindness (3,725 findings/24h in DB, newest minutes old).
+- **Why:** optimization_llm.py:666 builds findings_recent from coordinator._last_findings (in-memory, cleared at restart); the meta pass compares it against the durable open-findings count and the LLM narrates the mismatch as system blindness -> fa...
+- **Next:** Tier 1 hotfix; batch with next deploy.
+- **Refs:** custom_components/universal_room_automation/domain_coordinators/optimization_llm.py
+- **Forensic keys (1):**
+  - `fix_options`: Either (a) corpus falls back to get_recent_optimization_findings DB read when the RAM cache is empty, or (b) meta emission suppressed inside a post-boot grace window (suppression-needs-discharge: re-fires next cycle after grace). Prefer ...
 
 ### `PATH-ALPHA-DENOM-1` - Path-alpha away inference structurally dead when all trackers LOST/STALE — trusted denominator empties; NO existing card fixes it
 thread: **presence** - status: **inbox** - approval: **approved_after_investigation**
@@ -67,7 +68,7 @@ thread: **presence** - status: **inbox** - approval: **approved_after_investigat
   - `operator_direction_2026_08_13`: Operator: "we should find a way to say AWAY not LOST. Do we need a lost state at all? That way we can actually use this signal the way it is supposed to be used. And not overload it." I.e. the fix may not be patching the denominator arit...
   - `alternate_paths`: (1) Dissolve LOST: away-with-no-fix => AWAY (trusted, counts in denominator); home-but-silent => new BLE_SILENT_HOME or stays ambiguous-excluded; keep LOST only for truly-unknown. Ripple: every consumer of tracking_status (H3 reliable-si...
 
-## 🧭 Pre-planning (10)
+## 🧭 Pre-planning (8)
 _idea being decomposed_
 
 ### `ROOM-NAME-UNIQUE-1` - Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket)
@@ -106,17 +107,6 @@ thread: **tablets** - status: **pre_planning** - approval: **unreviewed**
   - `verified_capabilities`: Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status}; LWT availability; self-registers via MQTT Discovery (no YAML).
   - `orchestrator_assessment`: HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That likely beats the quick-action U...
 
-### `DIMMER-REBOOT-1` - Master bedroom Shelly Dimmer 2 reboots 89x since Aug 1 and returns ON (NOT thermal)
-thread: **devices** - status: **pre_planning** - approval: **implied**
-- **Origin:** 2026-08-08 - operator: why is the master bedroom dimmer coming on in the morning?
-- **Why:** light.shellydimmer2_24d7ebe93470 (area master_bedroom) reboots repeatedly: 89 `unavailable` events since Aug 1, accelerating 6/day -> 23/day, each ~33s (consistent = full device reboot, not a variable WiFi blip). 32 of those reboots came...
-- **Next:** set power-on-default OFF; then chase the reboot cause
-- **Tags:** no-fabrication-verify
-- **Forensic keys (3):**
-  - `likely_causes`: Shelly power-on-default set to ON (or restore-last with stale value) -> every reboot turns the light on
-  - `CORRECTION`: 2026-08-08: I FIRST REPORTED THIS AS A 117-130C FIRE RISK. THAT WAS WRONG — the sensor's unit_of_measurement is degF, not degC. 116.7F = 47C; peak 129.6F = 54C. That is NORMAL for a wall dimmer and inside the Shelly Dimmer 2 range. NO fi...
-  - `fix`: PRIMARY: set the Shelly power-on default to OFF so a reboot cannot turn the light on (device setting, operator or API)
-
 ### `BOOTSANITY-1` - Boot-sanity allowlist guard cannot fire on a cold boot
 thread: **camera** - status: **pre_planning** - approval: **implied**
 - **Origin:** 2026-08-07 - found during v5.61.0 live validation — I nearly read its silence as proof of success
@@ -151,28 +141,8 @@ thread: **camera** - status: **pre_planning** - approval: **implied**
 - **Tags:** no-fabrication-verify
 - **Parsimony:** [BUILD] any camera on the 2nd Frigate host has never had a snapshot
 
-### `RELOAD-WATCHDOG-HAZARD` - URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
-thread: **lifecycle** - status: **pre_planning** - approval: **explicit**
-- **Origin:** 2026-08-07 - options-flow submit (camera_person_entities) reloaded the URA parent entry and blipped HA -> diagnose and fix this autonomously tonight
-- **Why:** routine options saves (Camera Census etc.) reload the integration/parent entry, which cascades to all ~40 room + coordinator entries synchronously, stalling the event loop until the supervisor watchdog restarts core (~5min outage). A con...
-- **Next:** (tonight) build - INTEGRATION suppress set + SIGNAL_CAMERA_LIST_CHANGED re-subscribe path; Tier 2-DB (lifecycle + presence)
-- **Tags:** tier-2db, no-fabrication-verify
-- **Parsimony:** [BUILD] a routine config save causes a ~5min house outage
-- **Refs:** __init__.py:5984 _async_update_listener; OPTIONS_RELOAD_SUPPRESS_KEYS; transit_validator.py async_init; feedback_parent_entry_reload_watchdog_hazard memory
-- **Forensic keys (2):**
-  - `diagnosis`: CONFIRMED (2026-08-07): _async_update_listener (__init__.py:5984) - for the INTEGRATION entry, if changed_keys NOT subset of OPTIONS_RELOAD_SUPPRESS_KEYS -> hass.config_entries.async_reload(entry.entry_id). Reloading the INTEGRATION (par...
-  - `fix`: Add Camera Census keys to an INTEGRATION-entry suppress set (mirror the CM/ROOM reload-suppression). Persistence already done by async_update_entry.
-
 ## 📝 Planned (2)
 _has plan / acceptance_
-
-### `GARAGE-EGRESS-APPLY-1` - APPLY the 2026-08-10 garage-camera ruling — garage_a/garage_b into CONF_EGRESS_CAMERAS at the NEXT deploy restart (operator said do not forget)
-thread: **security** - status: **planned** - approval: **approved**
-- **Origin:** 2026-08-14 - Operator re-raised; ruling of 08-10 (garages -> egress list, NOT interior — noise) was left "config apply pending" for 4 days. Operator: "update config in house device config. And any other place its needed. Batch with next ...
-- **Why:** Egress list feeds perimeter_alert egress alerting; garages currently in NO camera list. Accepted consequence stands: D1 stuck-camera never covers garages.
-- **Next:** BLOCKS-CLOSE-OF next deploy — do not close the next deploy cycle without this applied + verified.
-- **Forensic keys (1):**
-  - `apply_procedure`: At next deploy restart: flush-watcher pattern edit of the parent URA entry options.egress_cameras += [camera.garage_a, camera.garage_b] (F2-owned base ids, verified live), applied in the stop->boot gap; post-boot verify list + perimeter_...
 
 ### `GUEST-FP-RESIDUALS-1` - Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent)
 thread: **presence** - status: **planned** - approval: **unreviewed**
@@ -182,25 +152,30 @@ thread: **presence** - status: **planned** - approval: **unreviewed**
 - **Forensic keys (1):**
   - `operator_question`: 50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests or a daytime FP flavor? If the latter, escalate per audit §3.
 
-## 🔨 In progress (5)
+### `RELOAD-WATCHDOG-HAZARD` - URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
+thread: **lifecycle** - status: **planned** - approval: **explicit**
+- **Origin:** 2026-08-07 - options-flow submit (camera_person_entities) reloaded the URA parent entry and blipped HA -> diagnose and fix this autonomously tonight
+- **Why:** routine options saves (Camera Census etc.) reload the integration/parent entry, which cascades to all ~40 room + coordinator entries synchronously, stalling the event loop until the supervisor watchdog restarts core (~5min outage). A con...
+- **Next:** (tonight) build - INTEGRATION suppress set + SIGNAL_CAMERA_LIST_CHANGED re-subscribe path; Tier 2-DB (lifecycle + presence)
+- **Tags:** tier-2db, no-fabrication-verify
+- **Parsimony:** [BUILD] a routine config save causes a ~5min house outage
+- **Refs:** __init__.py:5984 _async_update_listener; OPTIONS_RELOAD_SUPPRESS_KEYS; transit_validator.py async_init; feedback_parent_entry_reload_watchdog_hazard memory
+- **Forensic keys (3):**
+  - `diagnosis`: CONFIRMED (2026-08-07): _async_update_listener (__init__.py:5984) - for the INTEGRATION entry, if changed_keys NOT subset of OPTIONS_RELOAD_SUPPRESS_KEYS -> hass.config_entries.async_reload(entry.entry_id). Reloading the INTEGRATION (par...
+  - `fix`: Add Camera Census keys to an INTEGRATION-entry suppress set (mirror the CM/ROOM reload-suppression). Persistence already done by async_update_entry.
+  - `planned_2026_08_15`: Overnight pass: PLANNING_reload_watchdog_hazard.md written+committed. Central finding: v4.7.26 suppress branch is gated entry_type==COORDINATOR_MANAGER (__init__.py:6431); camera keys migrated to the INTEGRATION entry in v3.4.5 have NO b...
+
+## 🔨 In progress (4)
 _being built_
 
-### `FRIGATE-RETIRE-1` - Retire Frigate-1 — promote Frigate-2 (yolov9t/OpenVINO, zero night ghosts) to primary incl. snapshot engine
-thread: **security** - status: **in_progress** - approval: **approved**
-- **Origin:** 2026-08-12 - operator: "We should just retire frigate 1 instead of writing more code" + "Frigate 2 is our identical backup. We should move snapshots to it" + "Go".
-- **Why:** Probe: 100% of night person alerts = frigate-1 single-witness sub-2s IR ghosts; frigate-1 thresholds already raised once (07-30 snapshot) and ghosting persists. Frigate-2 runs a DIFFERENT detector (custom yolov9t.onnx OpenVINO) with ZERO...
-- **Next:** Operator word on final deletion (entry + registry sweep) -> then card closes. Recording tripwire stays permanently (F2 is sole recorder).
-- **Forensic keys (10):**
-  - `procedure`: CONSOL-1 §7 retirement doctrine: (1) capability inventory audit; (2) parity swap — URA perimeter sensors + snapshot instance -> frigate-2 with BOTH running; (3) Gate-1 N=5 organic events clean by ledger -> disable frigate-1; (4) Gate-2 N...
-  - `audit_2026_08_12`: GO. 24/24 cameras identical both hosts (sole gap: ArmCrestASH41B enabled F1/disabled F2 — deliberate one-NVR-at-a-time; flip at window open). URA needs ZERO code changes (fused legs subscribe both instances; snapshot discovery automatic,...
-  - `window_open_2026_08_12`: EXECUTED (operator "Go"): (1) F2 recording tripwire automation live (automation.frigate2_recording_tripwire_frigate_retire_1 — 30min-poll frozen-share check >6h + unavailable-30min leg -> WhatsApp; template-trigger pitfall caught: a froz...
-  - `operator_refinements_2026_08_12`: (1) FP-gate preference RULED: cross-corroboration (Protect agreement) preferred over duration/latency gates — "I don't like the latency idea. Much prefer x-corroboration." Applies if frigate-2 ghosts post-promotion. (2) Evidence chain: h...
-  - `ura_ref_swap`: FOUND during window-open verify (audit's "zero URA changes" was wrong at the entity layer): 26 F1-owned entity refs across 4 URA config entries (main entry 14 perimeter cameras, Zone Manager 6 occupancy sensors, Garage Hallway 3, Garage ...
-  - `entity_migration_2026_08_12`: DONE (operator approved). Mechanism pivot: ha CLI unauthorized for ssh user -> did 50 entity-registry renames via API instead of .storage surgery: every dead F1 entity -> *_f1retired (reversible), F2 twin -> the id URA references. Bonus:...
-  - `gate1_recheck_2026_08_13`: GATE-1 MET. Night window 08-12 23:00 -> 08-13 05:00 CT: ZERO person alerts (vs multiple F1 ghosts every prior night) — the ghost pattern died with F1. Only 2 legit-category vehicle deep-night alerts (rear_ptz, Protect-sourced). Clean cou...
-  - `gate2_started_2026_08_13`: OPERATOR APPROVED. F1 HA integration entry 01JV6G4E57HT3WH86WSQ4RJT11 DISABLED + unloaded (11:4x CT). Container stop handed to operator (host is password-SSH only): ssh okosisi@192.168.13.16 sudo docker stop frigate double-take. Gate-2 c...
-  - `reaudit_2026_08_13`: Operator-requested post-disable re-audit: PASS — 443 URA entity refs, 0 F1-owned; snapshot engine self-heals to F2-only; MQTT dual-prefix clean; census/resolver skip disabled entities. Findings ALL FIXED live same hour: MED automation.g6...
-  - `gate2_met_2026_08_14`: GATE-2 MET + BOX PHYSICALLY POWERED OFF (operator, ahead of formal completion — with all software layers already dark, physical-off IS the authentic Gate-2 test and it passed). Since F1 disable: 10 dispatches, all healthy — incl. a SAME-...
+### `CENSUS-SUFFIX-FIX-1` - Census regression ROOT-CAUSED: strict-suffix matchers miss all _2 F2 sensors since F1 death (08-13) -> count sensors unmapped -> census pinned at identified count. Fix: disambiguation-tolerant matching.
+thread: **presence** - status: **in_progress** - approval: **implied**
+- **Origin:** 2026-08-15 - operator: "census used to be more or less accurate — what changed?" Recorder: daily max 6-7 through 08-12, 4 from 08-13 (F1 entity death). AUDIT_census_accuracy_regression.md (a54379830), H1 confirmed, H2/H3/H4 refuted.
+- **Why:** All F2 count sensors are _2-suffixed; _PERSON_COUNT_SUFFIX endswith matching (camera_resolver.py:272/1288 + camera_census.py:400/793) matches none -> binary fallback max-1-per-camera -> unrecognized=max(0,~4-4)=0 -> total=identified fore...
+- **Next:** Builder in flight (strip-before-match at all strict sites + ambiguity guard + drills); 2 reviews; batches into the pending reload/opt-meta deploy. Post-deploy Live: census exceeds 4 during next multi-person traversal.
+- **Refs:** docs/planning/AUDIT_census_accuracy_regression.md
+- **Forensic keys (1):**
+  - `operator_ruling_ash41b_2026_08_15`: ASH41B (Study A): stays OUT of camera_person_entities (census) by operator ruling — camera is physically blocked by a screen unless operator is away, so zero-detection history is EXPECTED (not a Frigate pipeline fault; struck from the F2...
 
 ### `MEMORY-PROGRAM-EPIC` - EPIC — Hierarchical Entity Memory: every node (room/zone/house/coordinator) owns consultable, compressed history behind one queryable interface
 thread: **memory** - status: **in_progress** - approval: **explicit**
@@ -210,20 +185,6 @@ thread: **memory** - status: **in_progress** - approval: **explicit**
 - **Refs:** docs/planning/VISION_hierarchical_memory.md; docs/planning/ARCHITECTURE_hierarchical_memory.md; docs/planning/MVP_hierarchical_memory.md; docs/planning/AUDIT_memory_handbuild_study_a.md; docs/reviews/code-review/memory_mvp_tier2db.md; docs/planning/AUDIT_memory_retro_value.md
 - **Forensic keys (1):**
   - `stages`: Stage 0 hand-build: DONE 2026-08-02 — AUDIT_memory_handbuild_study_a.md (Study A hand-ledger; kill gate PASSED, operator: "every")
-
-### `MEMORY-COMPACTOR-1` - Hierarchical memory — build the deferred daily compaction batch when memory_episodes has volume (trigger: any episode type >50 rows)
-thread: **memory** - status: **in_progress** - approval: **explicit**
-- **Origin:** 2026-08-02 - operator: "What if each room had memory?" Hierarchical Entity Memory MVP Stage 1 SHIPPED v5.47.0; the daily compactor was deferred until episode volume exists.
-- **Why:** Stage 1 facade + memory_episodes + memory_query service are LIVE (v5.47.0, Tier 2-DB). The distill/correct/redact compaction batch needs rows to compact; the architecture keeps it in full, the MVP deferred only its construction. Untracke...
-- **Next:** Read memory_episodes row counts (ssh ha, mode=ro); if any type >50 -> promote to build (ura-planner from ARCHITECTURE_hierarchical_memory.md compactor section). Else hold.
-- **Refs:** docs/planning/MVP_hierarchical_memory.md; docs/planning/ARCHITECTURE_hierarchical_memory.md; docs/reviews/code-review/memory_mvp_tier2db.md
-- **Forensic keys (6):**
-  - `parent`: MEMORY-PROGRAM-EPIC
-  - `revisit_trigger`: ANY memory_episodes episode_type exceeds 50 rows (per MVP_hierarchical_memory.md Stage 1 trim #1) OR facts() seeded set proves inadequate. Check episode row counts before dismissing.
-  - `organic_open`: Stage-1 acceptance still open: the next organic D2 demotion must retro-adjudicate its creation episode within one cycle (live DB check) — verify + write back to this card.
-  - `trigger_FIRED_2026_08_14`: Live memory_episodes count (mode=ro): 1799 rows; exterior_track=1044, actuation_conflict=639, occupancy_phantom=56 ALL exceed the 50-row build trigger (fan_transition_suppressed=41, comfort_fan_vetoed=19 below). READY, not parked — the d...
-  - `go_2026_08_14`: operator: "Do the compaction... Review that plan and see how quickly we can get started on the rest and finish. Do hand checked proofs if need be." -> plan (ura-planner from ARCHITECTURE compactor section) -> Tier 2-DB plan review -> bui...
-  - `plan_review_2026_08_14`: Plan review FIX-PLAN-FIRST (2 CRIT: same-transaction invariant unimplementable on per-acquisition write queue -> combined distill_memory_fact DAO; topic vocab gate bypass -> D0 MEMORY_FACT_TOPICS registration + boot assert. 2 HIGH: retro...
 
 ### `MEMORY-FIRST-DIAGNOSTICS-1` - Memory-first diagnostics doctrine — memory_query is the FIRST surface checked in any investigation/trace, encoded in memory + skills
 thread: **memory** - status: **in_progress** - approval: **explicit**
@@ -243,22 +204,12 @@ thread: **presence** - status: **in_progress** - approval: **unreviewed**
   - `operator_decision`: Ranked recs — pick any: (1) CONFIG-ONLY: add a PIR/corroborator to Living Room + the 5 other no-PIR rooms (re-enables shipped D2 demotion; highest marginal benefit, near-zero risk). (2) TIER-1: cap comfort-fan sustain on mmwave-sole prov...
   - `operator_dispositions_2026_08_13`: Rec 1: OPERATOR-OWNED — the existing Zigbee sensor is hallway-placed; operator adds a physical sensor himself. DO NOT RAISE AGAIN (explicit instruction); when new sensors appear in room configs, silently verify D2 arms. Rec 2: PARKED (ad...
 
-## 🔍 Review (1)
+## 🔍 Review (0)
 _under review_
 
-### `CIRCLING-LABEL-1` - Circling loops page but are never LABELLED/escalated as circling (2-camera shape) — cooldown blocks the hop where classification forms
-thread: **perimeter** - status: **review** - approval: **unreviewed**
-- **Origin:** 2026-08-13 - CIRCLING-SEVERITY-1 Review A MEDIUM-A1: founding shape pages at hops 1-2 as pass_by (LOW/MED); classification becomes circling at hop 3; per-camera 300s cooldown returns before severity re-resolves; continuation-coercion blo...
-- **Why:** INV-M holds (pages happen, tripwire honest) but the operator's 08-08 complaint was about CIRCLING specifically. The dominant 2-camera alternating shape can never emit a HIGH circling-labelled page under current mechanics.
-- **Next:** ura-planner -> plan review -> build.
-- **Forensic keys (5):**
-  - `operator_decision`: (A) surgical — allow ONE dispatch through the cooldown when a track's classification TRANSITIONS (one extra HIGH page at the hop circling forms; ~persist last_dispatched_classification on ExteriorTrack). (B) tighten invariant + add circl...
-  - `decision_2026_08_14`: OPERATOR: Option A approved per recommendation — one dispatch allowed through the per-camera cooldown when a track's classification TRANSITIONS (the hop circling forms => one HIGH circling-labelled page). Own Tier-2 cycle, plan review fi...
-  - `plan_review_2026_08_14`: FIX-PLAN-FIRST (0d30ee8bc): HIGH — plan's XCORR-1 mechanism was WRONG; single-camera nighttime circling would demote the exemption dispatch to LOW (founding ask unmet in a reachable shape). Reviewer adjudicated fix: exemption_active earl...
-  - `build_2026_08_15`: feature/circling-label (6 commits, worktree): 21 new tests, 8/8 drills red-restored, 0 HEAD-only suite failures (9026 pass). Notable builder find: plan's I4 anchor was masked by I2 — added unique-anchor test. 2 framing-disjoint reviews d...
-  - `reviews_2026_08_15`: A SHIP (3f102e803) + B SHIP (ce9913b38), zero overlapping findings. Fix-up 4c1667f93 (3 LOWs incl. B-LOW-1 cross-camera double-grant race -> optimistic seed + 4-path rollback, +3 load-bearing tests). Orchestrator re-drill: XCORR-1 short-...
+_(none)_
 
-## 🚀 Shipped (organic open) (32)
+## 🚀 Shipped (organic open) (35)
 _live, awaiting proof_
 
 ### `STUCK-SENSOR-1` - Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
@@ -489,6 +440,22 @@ thread: **notifications** - status: **shipped_organic** - approval: **unreviewed
 - **Forensic keys (1):**
   - `shipped_version`: v5.75.1
 
+### `MEMORY-COMPACTOR-1` - Hierarchical memory — build the deferred daily compaction batch when memory_episodes has volume (trigger: any episode type >50 rows)
+thread: **memory** - status: **shipped_organic** - approval: **explicit**
+- **Origin:** 2026-08-02 - operator: "What if each room had memory?" Hierarchical Entity Memory MVP Stage 1 SHIPPED v5.47.0; the daily compactor was deferred until episode volume exists.
+- **Why:** Stage 1 facade + memory_episodes + memory_query service are LIVE (v5.47.0, Tier 2-DB). The distill/correct/redact compaction batch needs rows to compact; the architecture keeps it in full, the MVP deferred only its construction. Untracke...
+- **Next:** Read memory_episodes row counts (ssh ha, mode=ro); if any type >50 -> promote to build (ura-planner from ARCHITECTURE_hierarchical_memory.md compactor section). Else hold.
+- **Refs:** docs/planning/MVP_hierarchical_memory.md; docs/planning/ARCHITECTURE_hierarchical_memory.md; docs/reviews/code-review/memory_mvp_tier2db.md
+- **Forensic keys (8):**
+  - `parent`: MEMORY-PROGRAM-EPIC
+  - `shipped_version`: v5.76.0
+  - `revisit_trigger`: ANY memory_episodes episode_type exceeds 50 rows (per MVP_hierarchical_memory.md Stage 1 trim #1) OR facts() seeded set proves inadequate. Check episode row counts before dismissing.
+  - `organic_open`: Stage-1 acceptance still open: the next organic D2 demotion must retro-adjudicate its creation episode within one cycle (live DB check) — verify + write back to this card.
+  - `trigger_FIRED_2026_08_14`: Live memory_episodes count (mode=ro): 1799 rows; exterior_track=1044, actuation_conflict=639, occupancy_phantom=56 ALL exceed the 50-row build trigger (fan_transition_suppressed=41, comfort_fan_vetoed=19 below). READY, not parked — the d...
+  - `go_2026_08_14`: operator: "Do the compaction... Review that plan and see how quickly we can get started on the rest and finish. Do hand checked proofs if need be." -> plan (ura-planner from ARCHITECTURE compactor section) -> Tier 2-DB plan review -> bui...
+  - `plan_review_2026_08_14`: Plan review FIX-PLAN-FIRST (2 CRIT: same-transaction invariant unimplementable on per-acquisition write queue -> combined distill_memory_fact DAO; topic vocab gate bypass -> D0 MEMORY_FACT_TOPICS registration + boot assert. 2 HIGH: retro...
+  - `live_validation_2026_08_14`: L1/L2/L3/L5 PASS at boot (20 facts, 3 topics, coverage stamp verified, episodes preserved). Organic open: L4 first nightly 02:30 tick. Entity-id correction: device-prefixed ura_coordinator_manager_*.
+
 ### `ROOM-NAME-DESYNC-1` - Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped)
 thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
 - **Origin:** 2026-08-13 - ZONE-TIER-DIVERGE-1 thorough trace: presence house tier keys rooms by entry.data room_name (presence.py:2868); substrate dispatches under options-first merged name (occupancy_substrate.py:197-202). 3 rooms renamed via option...
@@ -498,6 +465,20 @@ thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
   - `shipped_version`: v5.75.0
   - `operator_decision`: SEQUENCING TRADE: (a) config-mitigate NOW (re-align 3 entries names) = house tier regains sight, but away gets HARDER (3 more phantom-holdable mmWave zones until corroborators arrive — rec 1 hardware is operator-owned); (b) sequence the ...
   - `build_dispatched_2026_08_13`: Plan rev-2 (plan review: 4 HIGH fixed incl. double-reload + setup-reload-watchdog ordering + 3rd write site + CONF_ZONE fold-in). Build in flight (worktree). Hand-sync mitigation VERIFIED live same evening (Upstairs zone occupied w/ real...
+
+### `CIRCLING-LABEL-1` - Circling loops page but are never LABELLED/escalated as circling (2-camera shape) — cooldown blocks the hop where classification forms
+thread: **perimeter** - status: **shipped_organic** - approval: **unreviewed**
+- **Origin:** 2026-08-13 - CIRCLING-SEVERITY-1 Review A MEDIUM-A1: founding shape pages at hops 1-2 as pass_by (LOW/MED); classification becomes circling at hop 3; per-camera 300s cooldown returns before severity re-resolves; continuation-coercion blo...
+- **Why:** INV-M holds (pages happen, tripwire honest) but the operator's 08-08 complaint was about CIRCLING specifically. The dominant 2-camera alternating shape can never emit a HIGH circling-labelled page under current mechanics.
+- **Next:** ura-planner -> plan review -> build.
+- **Forensic keys (7):**
+  - `shipped_version`: v5.76.0
+  - `operator_decision`: (A) surgical — allow ONE dispatch through the cooldown when a track's classification TRANSITIONS (one extra HIGH page at the hop circling forms; ~persist last_dispatched_classification on ExteriorTrack). (B) tighten invariant + add circl...
+  - `decision_2026_08_14`: OPERATOR: Option A approved per recommendation — one dispatch allowed through the per-camera cooldown when a track's classification TRANSITIONS (the hop circling forms => one HIGH circling-labelled page). Own Tier-2 cycle, plan review fi...
+  - `plan_review_2026_08_14`: FIX-PLAN-FIRST (0d30ee8bc): HIGH — plan's XCORR-1 mechanism was WRONG; single-camera nighttime circling would demote the exemption dispatch to LOW (founding ask unmet in a reachable shape). Reviewer adjudicated fix: exemption_active earl...
+  - `build_2026_08_15`: feature/circling-label (6 commits, worktree): 21 new tests, 8/8 drills red-restored, 0 HEAD-only suite failures (9026 pass). Notable builder find: plan's I4 anchor was masked by I2 — added unique-anchor test. 2 framing-disjoint reviews d...
+  - `reviews_2026_08_15`: A SHIP (3f102e803) + B SHIP (ce9913b38), zero overlapping findings. Fix-up 4c1667f93 (3 LOWs incl. B-LOW-1 cross-camera double-grant race -> optimistic seed + 4-path rollback, +3 load-bearing tests). Orchestrator re-drill: XCORR-1 short-...
+  - `live_validation_2026_08_14`: Shipped v5.76.0. Organic open: L6 next real escalating track -> one HIGH page at transition.
 
 ### `DP-REASON-NULL-1` - DP durable ledger logs reason:null on all 4,181 rows — carrier has no .reason field
 thread: **energy** - status: **shipped_organic** - approval: **unreviewed**
@@ -597,6 +578,19 @@ thread: **perimeter** - status: **shipped_organic** - approval: **explicit**
   - `design_TRAP`: DO NOT gate on corroboration generally - that would SUPPRESS REAL INTRUSIONS on single-engine cameras (many cameras have only ONE engine; and a real prowler may only be seen by one). The gate must be NARROW: only for cameras that HAVE >=...
   - `design`: REVISED: first alert ALWAYS fires at full severity (preserves intrusion guarantee).
   - `probe_result`: PROBE RUN 2026-08-08 (8d, 30s window) -> AUDIT_xcorr_engine_corroboration_probe.md. The naive corroboration gate is REJECTED: solo firing is the NORM on the exterior cameras that drive alerts (front_side_ptz 92% solo, back_yard 91%, pool...
+
+### `DIMMER-REBOOT-1` - Master bedroom Shelly Dimmer 2 reboots 89x since Aug 1 and returns ON (NOT thermal)
+thread: **devices** - status: **shipped_organic** - approval: **implied**
+- **Origin:** 2026-08-08 - operator: why is the master bedroom dimmer coming on in the morning?
+- **Why:** light.shellydimmer2_24d7ebe93470 (area master_bedroom) reboots repeatedly: 89 `unavailable` events since Aug 1, accelerating 6/day -> 23/day, each ~33s (consistent = full device reboot, not a variable WiFi blip). 32 of those reboots came...
+- **Next:** set power-on-default OFF; then chase the reboot cause
+- **Tags:** no-fabrication-verify
+- **Forensic keys (5):**
+  - `likely_causes`: Shelly power-on-default set to ON (or restore-last with stale value) -> every reboot turns the light on
+  - `CORRECTION`: 2026-08-08: I FIRST REPORTED THIS AS A 117-130C FIRE RISK. THAT WAS WRONG — the sensor's unit_of_measurement is degF, not degC. 116.7F = 47C; peak 129.6F = 54C. That is NORMAL for a wall dimmer and inside the Shelly Dimmer 2 range. NO fi...
+  - `fix`: PRIMARY: set the Shelly power-on default to OFF so a reboot cannot turn the light on (device setting, operator or API)
+  - `rediagnosis_2026_08_15`: REBOOT THEORY OVERTURNED for recent nights: device uptime 6.66 days (no reboot since ~Aug 8) yet uncommanded off->on 3s apart tonight 23:07 CDT (no HA context either row). Mechanism = PHANTOM WALL-SWITCH EDGES: btn_type=edge + 80ms debou...
+  - `operator_fix_2026_08_15`: Operator: "Dimmer sorted." Device readback: btn_debounce 80->150ms; default_state STILL last, btn_type STILL edge — so the fix was partial via settings OR done elsewhere (app/physical). ORGANIC PROOF: two consecutive ghost-free nights (p...
 
 ### `ARREST-SUNSET-1` - Temp Arrester Override does not sunset on away/vacation (only sleep)
 thread: **hvac** - status: **shipped_organic** - approval: **implied**
@@ -700,8 +694,17 @@ thread: **perimeter** - status: **shipped_organic**
   - `note`: live PASS (zero multi-key WARN / _2 storm / URA ERROR; telemetry attr present)
   - `organic_open`: CLOSED 2026-08-07: leg_firing_by_camera POPULATED from real events (rear_ptz shows frigate+frigate2+protect on one camera; back_yard frigate+frigate2); today's exterior person-detects each = one alert per track, pass_by tracks alert_coun...
 
-## ⏸️ Waiting on operator (2)
+## ⏸️ Waiting on operator (3)
 _needs a human call_
+
+### `ZIRI3-UNCONFIG-1` - RECOVER (not unconfigure) Ziri 3 device from Ziri Bedroom entry (presence + moving_target + VEML7700 lux) — rides next deploy restart
+thread: **presence** - status: **waiting_operator** - approval: **explicit**
+- **Origin:** 2026-08-15 - ziri_3_presence stuck-unavailable finding in optimizer score-55 round; device physically dead (established 2026-08-05).
+- **Why:** Dead device dings sensor_health every cycle. Room keeps mmwave_zigbee_ziribedroom_presence for presence. Three refs removed: presence_sensors[ziri_3_presence], motion_sensors[ziri_3_moving_target], illuminance_sensor=ziri_3_veml7700 (set...
+- **Next:** OPERATOR: power-cycle the Ziri 3 node (unplug/replug). Then I verify: entities leave unavailable, presence/lux flow, optimizer sensor_health finding clears next cycle.
+- **Refs:** scratchpad ziri3_unconfig_after_flush.py
+- **Forensic keys (1):**
+  - `reversal_2026_08_15`: Operator: device is still physically in the room — DO NOT unconfigure. Staged flush-watcher rider DELETED. History: zero real readings in entire recorder retention (8+ days); node does not resolve on network (ESP fully off-WiFi, not flap...
 
 ### `EV-GARAGE-A-NOCHARGE-1` - BMW on Garage A refuses charge overnight — vehicle-side or pilot fault; URA exonerated
 thread: **energy** - status: **waiting_operator** - approval: **unreviewed**
@@ -727,7 +730,7 @@ thread: **ops** - status: **waiting_me** - approval: **implied**
 - **Why:** reason-ledger first night, Frigate car/dog/cat first events, snapshot-fix organic proof, v5.57/58 organic criteria
 - **Next:** check + report each
 
-## 🅿️ Parked (3)
+## 🅿️ Parked (4)
 _revisit-trigger set_
 
 ### `KP-ANNOTATION-1` - Known-person annotation + stranger-alert leg — exterior alerts annotate identity ("likely Oji"), unknown-face escalates (doorbell-automation successor)
@@ -736,9 +739,23 @@ thread: **perimeter** - status: **parked** - approval: **explicit**
 - **Why:** Exterior alerts have zero member recognition; annotation kills operator triage cost without suppressing; stranger leg replaces the retiring doorbell automation. INV-KP: identity never delays/blocks/mutates the base alert; absent identity...
 - **Next:** Tier 2-DB. Plan rev-3 committed (a28e4568f) — reviewed twice (4e468d37f). Next: D0 read-only probe (identity producers per camera, latency histogram, confidence distribution, enrollment coverage, doorbell cadence) -> gates build.
 - **Refs:** docs/planning/PLANNING_known_person_annotation.md; docs/reviews/code-review/known_person_annotation_plan_review.md
-- **Forensic keys (2):**
+- **Forensic keys (5):**
   - `d0_verdict_2026_08_15`: PARK v1 ENTIRELY (probe 2bcffbe0a, AUDIT_kp_annotation_d0_probe.md) — producer coverage insufficient, plan's own park branch. 0.0% of 1,532 perimeter person events had identity at t=0 (ship gate >=50%); 6 of 9 camera face pipelines emit ...
   - `revival_preconditions`: OPERATOR/HOMELAB actions, then RE-RUN the probe: (1) fix Frigate-2 face pipeline on the 6 dead cameras; (2) enroll Ziri + verify Oji enrollment (1 sighting as first-name token); (3) expose a Frigate confidence score OR drop the floor des...
+  - `crosscheck_2026_08_15`: Operator tagged faces in BOTH engines this morning. Protect registry (via Protect API/MCP — HA exposes NO identity attrs on this install, so URA consumption = Protect API, plan note): Oji 21 dets avg-conf 82, Ziri 46 dets (Frigate's blin...
+  - `webhook_probe_2026_08_15`: Operator approved the probe. HA listener LIVE: automation.ura_kp_face_webhook_probe (webhook id ura_kp_face_probe, local-only, payload -> event ura_kp_face_probe_received + system_log). Protect-side rule could NOT be created via API (v2 ...
+  - `probe_result_2026_08_15`: PROBE FIRED (operator created "Madrone Face Alarm": Face ID known+unknown, Family Room + G6 Entry — the ONLY two Face-ID-capable Protect cams, fisheye silence explained definitively). Test payload captured: trigger key (face_known/face_u...
+
+### `CENSUS-GUEST-FLOOR-1` - Census blind to guests (read 4 with 10 in house) — re-admit the WiFi guest-VLAN count as a bounded FLOOR, gated to contain the FP problem that unplugged it
+thread: **presence** - status: **parked** - approval: **unreviewed**
+- **Origin:** 2026-08-15 - operator: "census says 4 but there are 4 of us and 6 guests — how is it missing this many people"
+- **Why:** Census total = identified(BLE+face, structurally household-only) + camera_unrecognized(3-min hold). Guests only count while standing in view of transit-tier census cameras; the guest phones on the Revel VLAN ARE counted by _get_wifi_gues...
+- **Next:** ura-planner scope after current deploy queue clears; Tier 2 (presence/census shared primitive -> possibly 2-DB per standing policy).
+- **Parsimony:** [SIMPLIFY] the census cannot count unidentified people outside census-camera view even when their devices announce them
+- **Refs:** custom_components/universal_room_automation/camera_census.py
+- **Forensic keys (2):**
+  - `proposed_shape`: total = max(total, identified + wifi_guest_floor), the floor admitted ONLY under guards: guest-mode active OR count stable >N min; existing family-exclusion layers retained; kill switch = existing exclusion default. Numbers get knobs.
+  - `parked_2026_08_15`: SHRUNK by the regression root-cause (CENSUS-SUFFIX-FIX-1): the census was count-accurate until 08-13; the suffix fix restores that. Revisit trigger: AFTER the fix ships + one real gathering, if guest counts still under-read materially, r...
 
 ### `HOUSE-STATE-UTILIZATION-EPIC` - ROADMAP EPIC — give operational meaning to under-consumed house states (HOME_DAY dead, AWAY thin); rungs 2-4 unbuilt
 thread: **presence** - status: **parked** - approval: **explicit**
@@ -759,8 +776,36 @@ thread: **hvac** - status: **parked** - approval: **unreviewed**
   - `sharp_problem`: Gaps: (1) boot reconciliation — on listener attach, classify any zone ALREADY in manual as inherited-manual and start standard arrest evaluation; (2) verify _handle_climate_change classifies within-manual setpoint deltas (manual->manual ...
   - `related`: Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire. RESOLVED 2026-08-12: operator power-cycled Enpower; all 3 reserve legs coherent at 10 (local number + envoy sensor + ...
 
-## ✅ Done (2)
+## ✅ Done (5)
 _closed, evidence in refs_
+
+### `FRIGATE-RETIRE-1` - Retire Frigate-1 — promote Frigate-2 (yolov9t/OpenVINO, zero night ghosts) to primary incl. snapshot engine
+thread: **security** - status: **done** - approval: **approved**
+- **Origin:** 2026-08-12 - operator: "We should just retire frigate 1 instead of writing more code" + "Frigate 2 is our identical backup. We should move snapshots to it" + "Go".
+- **Why:** Probe: 100% of night person alerts = frigate-1 single-witness sub-2s IR ghosts; frigate-1 thresholds already raised once (07-30 snapshot) and ghosting persists. Frigate-2 runs a DIFFERENT detector (custom yolov9t.onnx OpenVINO) with ZERO...
+- **Next:** Operator word on final deletion (entry + registry sweep) -> then card closes. Recording tripwire stays permanently (F2 is sole recorder).
+- **Forensic keys (11):**
+  - `procedure`: CONSOL-1 §7 retirement doctrine: (1) capability inventory audit; (2) parity swap — URA perimeter sensors + snapshot instance -> frigate-2 with BOTH running; (3) Gate-1 N=5 organic events clean by ledger -> disable frigate-1; (4) Gate-2 N...
+  - `audit_2026_08_12`: GO. 24/24 cameras identical both hosts (sole gap: ArmCrestASH41B enabled F1/disabled F2 — deliberate one-NVR-at-a-time; flip at window open). URA needs ZERO code changes (fused legs subscribe both instances; snapshot discovery automatic,...
+  - `window_open_2026_08_12`: EXECUTED (operator "Go"): (1) F2 recording tripwire automation live (automation.frigate2_recording_tripwire_frigate_retire_1 — 30min-poll frozen-share check >6h + unavailable-30min leg -> WhatsApp; template-trigger pitfall caught: a froz...
+  - `operator_refinements_2026_08_12`: (1) FP-gate preference RULED: cross-corroboration (Protect agreement) preferred over duration/latency gates — "I don't like the latency idea. Much prefer x-corroboration." Applies if frigate-2 ghosts post-promotion. (2) Evidence chain: h...
+  - `ura_ref_swap`: FOUND during window-open verify (audit's "zero URA changes" was wrong at the entity layer): 26 F1-owned entity refs across 4 URA config entries (main entry 14 perimeter cameras, Zone Manager 6 occupancy sensors, Garage Hallway 3, Garage ...
+  - `entity_migration_2026_08_12`: DONE (operator approved). Mechanism pivot: ha CLI unauthorized for ssh user -> did 50 entity-registry renames via API instead of .storage surgery: every dead F1 entity -> *_f1retired (reversible), F2 twin -> the id URA references. Bonus:...
+  - `gate1_recheck_2026_08_13`: GATE-1 MET. Night window 08-12 23:00 -> 08-13 05:00 CT: ZERO person alerts (vs multiple F1 ghosts every prior night) — the ghost pattern died with F1. Only 2 legit-category vehicle deep-night alerts (rear_ptz, Protect-sourced). Clean cou...
+  - `gate2_started_2026_08_13`: OPERATOR APPROVED. F1 HA integration entry 01JV6G4E57HT3WH86WSQ4RJT11 DISABLED + unloaded (11:4x CT). Container stop handed to operator (host is password-SSH only): ssh okosisi@192.168.13.16 sudo docker stop frigate double-take. Gate-2 c...
+  - `reaudit_2026_08_13`: Operator-requested post-disable re-audit: PASS — 443 URA entity refs, 0 F1-owned; snapshot engine self-heals to F2-only; MQTT dual-prefix clean; census/resolver skip disabled entities. Findings ALL FIXED live same hour: MED automation.g6...
+  - `gate2_met_2026_08_14`: GATE-2 MET + BOX PHYSICALLY POWERED OFF (operator, ahead of formal completion — with all software layers already dark, physical-off IS the authentic Gate-2 test and it passed). Since F1 disable: 10 dispatches, all healthy — incl. a SAME-...
+  - `decommissioned_2026_08_15`: Operator go ("Frigate 1 hardware full decomm"; homelab agent repurposing the box). URA side EXECUTED: config entry 01JV6G4E57HT3WH86WSQ4RJT11 deleted in-band (ha_remove_helpers_integrations) — all 965 F1 entities + 25 *_f1retired renames...
+
+### `ZONE-CAM-PERSON-GUARD-1` - Durable device_class guard so a Frigate MOTION sensor cannot be trusted as camera person-confirmation in zone occupancy-confidence
+thread: **presence** - status: **done** - approval: **unreviewed**
+- **Origin:** 2026-07-13 - Plan inventory audit 2026-08-14: PLANNING_zone_camera_person_only_guard.md unbuilt + uncarded; the 2026-06-08 live finding was only fixed by config removal, not code.
+- **Why:** CONF_ZONE_CAMERAS entries are trusted as person-confirmation by the presence Source-3 occupancy-confidence scorer (-> hvac.py stale-sensor guard). A motion-only Frigate sensor mis-filed there is trusted as a person confirm. No device_cla...
+- **Next:** ura-planner; Tier 2 (touches occupancy-confidence scorer).
+- **Parsimony:** [BUILD] a non-person camera sensor in CONF_ZONE_CAMERAS is trusted as person-confirmation
+- **Refs:** docs/planning/PLANNING_zone_camera_person_only_guard.md
+- **Forensic keys (1):**
+  - `closed_2026_08_15`: CARD DEAD AS WRITTEN per context-wide audit (AUDIT_zone_cam_guard_necessity.md, 1e8b27e96). Operator was right: the person-only suffix guard EXISTS (camera_census.py:362-386 + camera_resolver.py:215-236) and covers room override + zone t...
 
 ### `MEMORY-RETRO-VALUE-1` - Retro-check — which answers in the last few investigations were already derivable from memory_episodes?
 thread: **memory** - status: **done** - approval: **explicit**
@@ -770,6 +815,16 @@ thread: **memory** - status: **done** - approval: **explicit**
 - **Refs:** docs/planning/AUDIT_away_transition_2026_08_13.md
 - **Forensic keys (1):**
   - `result_2026_08_14`: AUDIT_memory_retro_value.md (commit 6a99575fa). Verdicts: AWAY-BLOCK-1 PARTIAL (all 56 occupancy_phantom rows share mmwave_sole_fan_on_no_corroboration -> profile()/unusual() primes the fan-sustain hypothesis in minutes vs 4h recorder tr...
+
+### `GARAGE-EGRESS-APPLY-1` - APPLY the 2026-08-10 garage-camera ruling — garage_a/garage_b into CONF_EGRESS_CAMERAS at the NEXT deploy restart (operator said do not forget)
+thread: **security** - status: **done** - approval: **approved**
+- **Origin:** 2026-08-14 - Operator re-raised; ruling of 08-10 (garages -> egress list, NOT interior — noise) was left "config apply pending" for 4 days. Operator: "update config in house device config. And any other place its needed. Batch with next ...
+- **Why:** Egress list feeds perimeter_alert egress alerting; garages currently in NO camera list. Accepted consequence stands: D1 stuck-camera never covers garages.
+- **Next:** BLOCKS-CLOSE-OF next deploy — do not close the next deploy cycle without this applied + verified.
+- **Forensic keys (3):**
+  - `shipped_version`: v5.76.0
+  - `apply_procedure`: At next deploy restart: flush-watcher pattern edit of the parent URA entry options.egress_cameras += [camera.garage_a, camera.garage_b] (F2-owned base ids, verified live), applied in the stop->boot gap; post-boot verify list + perimeter_...
+  - `closed_2026_08_14`: Applied at v5.76.0 restart via flush-watcher (stop->boot gap); post-boot verified: egress_cameras contains garage_a+garage_b (README v5.76.0 L5 PASS).
 
 ### `KP-ESCALATE-1` - Known-person / face-alert path (no URA successor)
 thread: **security** - status: **done** - approval: **blocked**

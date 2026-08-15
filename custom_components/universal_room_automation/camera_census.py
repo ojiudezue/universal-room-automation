@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation vv5.76.0
+# Universal Room Automation vv5.77.0
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -23,6 +23,8 @@ from typing import Any
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
+
+from .camera_resolver import _strip_disambiguation_suffix
 
 from .const import (
     DOMAIN,
@@ -361,11 +363,15 @@ class CameraIntegrationManager:
             # --- Person detection entity matching ---
             # Each platform requires BOTH platform match AND person-specific suffix/name
             # to avoid including motion, sound, and other non-person binary sensors.
-            if bs_id.endswith("_person_occupancy"):
+            # CENSUS-SUFFIX-FIX: strip HA's `_N` disambiguation suffix
+            # before suffix matching so `_2`-suffixed post-F1-retirement
+            # entities are recognized. Real entity_id is stored below.
+            bs_name_stripped = _strip_disambiguation_suffix(bs_id.split(".", 1)[1] if "." in bs_id else bs_id)
+            if bs_name_stripped.endswith("_person_occupancy"):
                 # Frigate person occupancy (definitive suffix match)
                 detected_platform = CAMERA_PLATFORM_FRIGATE
 
-            elif bs_id.endswith("_person_detected"):
+            elif bs_name_stripped.endswith("_person_detected"):
                 # UniFi Protect / generic person detected (definitive suffix match)
                 if platform == CAMERA_PLATFORM_UNIFI:
                     detected_platform = CAMERA_PLATFORM_UNIFI
@@ -396,17 +402,32 @@ class CameraIntegrationManager:
 
             # For Frigate: also look for matching sensor.*_person_count on this device
             if detected_platform == CAMERA_PLATFORM_FRIGATE:
-                # Try name-based match first
-                base_name = bs_id[len("binary_sensor."):-len("_person_occupancy")]
-                count_sensor_id = f"sensor.{base_name}_person_count"
-                if ent_reg.async_get(count_sensor_id):
-                    camera_info.person_count_sensor = count_sensor_id
-                else:
-                    # Fallback: search device sensors for *_person_count suffix
-                    for s_entity in device_sensors:
-                        if s_entity.entity_id.endswith("_person_count"):
-                            camera_info.person_count_sensor = s_entity.entity_id
-                            break
+                # CENSUS-SUFFIX-FIX: strip HA `_N` from the binary's name
+                # so the derived base is disambiguation-tolerant. Look for
+                # canonical count first, then any `_N` variant. Store the
+                # REAL entity_id.
+                base_name = bs_name_stripped[:-len("_person_occupancy")]
+                canonical_id = f"sensor.{base_name}_person_count"
+                canonical = ent_reg.async_get(canonical_id)
+                # Search device sensors for any *_person_count[_N] variant.
+                fallback_id: str | None = None
+                for s_entity in device_sensors:
+                    s_name = s_entity.entity_id.split(".", 1)[1]
+                    if _strip_disambiguation_suffix(s_name).endswith("_person_count"):
+                        if s_entity.entity_id == canonical_id:
+                            continue  # handled above
+                        if fallback_id is None:
+                            fallback_id = s_entity.entity_id
+                if canonical is not None:
+                    camera_info.person_count_sensor = canonical_id
+                    if fallback_id is not None:
+                        _LOGGER.warning(
+                            "camera_census: both canonical (%s) and disambiguated (%s) person_count "
+                            "sensors present on device %s; preferring canonical",
+                            canonical_id, fallback_id, device_id,
+                        )
+                elif fallback_id is not None:
+                    camera_info.person_count_sensor = fallback_id
 
             results.append(camera_info)
 
@@ -791,23 +812,38 @@ class CameraIntegrationManager:
             entity_id = entity.entity_id
             platform = entity.platform or ""
 
+            # CENSUS-SUFFIX-FIX: strip HA `_N` before suffix matching.
+            eid_name_stripped = _strip_disambiguation_suffix(entity_id.split(".", 1)[1] if "." in entity_id else entity_id)
             # Frigate: platform == "frigate" OR binary_sensor.*_person_occupancy
-            if platform == CAMERA_PLATFORM_FRIGATE or entity_id.endswith("_person_occupancy"):
+            if platform == CAMERA_PLATFORM_FRIGATE or eid_name_stripped.endswith("_person_occupancy"):
                 camera_info = CameraInfo(
                     entity_id=entity_id,
                     platform=CAMERA_PLATFORM_FRIGATE,
                     area_id=entity.area_id,
                     person_binary_sensor=entity_id,
                 )
-                # Try to find matching sensor.*_person_count
-                base_name = entity_id[len("binary_sensor."):-len("_person_occupancy")]
-                count_sensor_id = f"sensor.{base_name}_person_count"
-                if ent_reg.async_get(count_sensor_id):
-                    camera_info.person_count_sensor = count_sensor_id
+                # Try to find matching sensor.*_person_count (canonical first,
+                # then any `_N` variant on the same base).
+                base_name = eid_name_stripped[:-len("_person_occupancy")]
+                canonical_id = f"sensor.{base_name}_person_count"
+                if ent_reg.async_get(canonical_id):
+                    camera_info.person_count_sensor = canonical_id
+                else:
+                    # Scan for `sensor.<base>_person_count_<N>` variants.
+                    for cand in ent_reg.entities.values():
+                        if cand.domain != "sensor":
+                            continue
+                        cand_name = cand.entity_id.split(".", 1)[1]
+                        if not _strip_disambiguation_suffix(cand_name).endswith("_person_count"):
+                            continue
+                        stripped_base = _strip_disambiguation_suffix(cand_name)[:-len("_person_count")]
+                        if stripped_base == base_name:
+                            camera_info.person_count_sensor = cand.entity_id
+                            break
                 frigate_sensors.append(camera_info)
 
             # UniFi Protect: platform == "unifiprotect" OR binary_sensor.*_person_detected
-            elif platform == CAMERA_PLATFORM_UNIFI or entity_id.endswith("_person_detected"):
+            elif platform == CAMERA_PLATFORM_UNIFI or eid_name_stripped.endswith("_person_detected"):
                 camera_info = CameraInfo(
                     entity_id=entity_id,
                     platform=CAMERA_PLATFORM_UNIFI,

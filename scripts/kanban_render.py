@@ -487,6 +487,8 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 .pending-chip.op-done     { background:transparent; color:var(--ok); border-color:var(--ok); }
 .pending-chip.op-declined { background:transparent; color:var(--bad); border-color:var(--bad); }
 .pending-chip.op-move     { background:transparent; color:var(--info); border-color:var(--info); }
+.pending-chip.op-approve  { background:transparent; color:var(--ok); border-color:var(--ok); }
+.pending-chip.op-investigate { background:transparent; color:var(--info); border-color:var(--info); }
 .card[draggable="true"] { cursor:grab; }
 .card.dragging { opacity:0.5; }
 .lane.drop-ok { outline:2px dashed var(--accent); outline-offset:4px; }
@@ -782,10 +784,18 @@ def _render_card_html(c: dict, pending: dict[str, list[dict]] | None = None) -> 
         out.append('</ul></dd>')
 
     out.append('</dl>')
+    # Inbox + pre-planning cards get two extra out-of-band buttons:
+    # approve (operator grants explicit approval without a chat turn)
+    # and investigate (flags the card for the bounded lull sweep).
+    extra = ''
+    if str(c.get("status", "")) in ("inbox", "pre_planning"):
+        extra = ('<button type="button" data-action="approve">▶ approve</button>'
+                 '<button type="button" data-action="investigate">🔍 investigate</button>')
     out.append('<div class="actions">'
                '<button type="button" data-action="done">✓ done</button>'
                '<button type="button" data-action="deferred">⏸ deferred</button>'
                '<button type="button" data-action="declined">✕ declined</button>'
+               + extra +
                '</div>')
     out.append('</div></details>')
     return "".join(out)
