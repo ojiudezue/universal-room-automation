@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-14T19:49:40-05:00_ - _Data commit: `4e82a3341cfd`_ - _last_reconciled: 2026-08-14_
+_Generated: 2026-08-14T19:53:30-05:00_ - _Data commit: `2ab9d45748dd`_ - _last_reconciled: 2026-08-14_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -215,11 +215,12 @@ thread: **memory** - status: **in_progress** - approval: **explicit**
 - **Why:** Stage 1 facade + memory_episodes + memory_query service are LIVE (v5.47.0, Tier 2-DB). The distill/correct/redact compaction batch needs rows to compact; the architecture keeps it in full, the MVP deferred only its construction. Untracke...
 - **Next:** Read memory_episodes row counts (ssh ha, mode=ro); if any type >50 -> promote to build (ura-planner from ARCHITECTURE_hierarchical_memory.md compactor section). Else hold.
 - **Refs:** docs/planning/MVP_hierarchical_memory.md; docs/planning/ARCHITECTURE_hierarchical_memory.md; docs/reviews/code-review/memory_mvp_tier2db.md
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `revisit_trigger`: ANY memory_episodes episode_type exceeds 50 rows (per MVP_hierarchical_memory.md Stage 1 trim #1) OR facts() seeded set proves inadequate. Check episode row counts before dismissing.
   - `organic_open`: Stage-1 acceptance still open: the next organic D2 demotion must retro-adjudicate its creation episode within one cycle (live DB check) — verify + write back to this card.
   - `trigger_FIRED_2026_08_14`: Live memory_episodes count (mode=ro): 1799 rows; exterior_track=1044, actuation_conflict=639, occupancy_phantom=56 ALL exceed the 50-row build trigger (fan_transition_suppressed=41, comfort_fan_vetoed=19 below). READY, not parked — the d...
   - `go_2026_08_14`: operator: "Do the compaction... Review that plan and see how quickly we can get started on the rest and finish. Do hand checked proofs if need be." -> plan (ura-planner from ARCHITECTURE compactor section) -> Tier 2-DB plan review -> bui...
+  - `plan_review_2026_08_14`: Plan review FIX-PLAN-FIRST (2 CRIT: same-transaction invariant unimplementable on per-acquisition write queue -> combined distill_memory_fact DAO; topic vocab gate bypass -> D0 MEMORY_FACT_TOPICS registration + boot assert. 2 HIGH: retro...
 
 ### `MEMORY-FIRST-DIAGNOSTICS-1` - Memory-first diagnostics doctrine — memory_query is the FIRST surface checked in any investigation/trace, encoded in memory + skills
 thread: **memory** - status: **in_progress** - approval: **explicit**
