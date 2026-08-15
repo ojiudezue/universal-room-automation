@@ -978,7 +978,7 @@ cards:
 - id: FRIGATE-RETIRE-1
   title: Retire Frigate-1 — promote Frigate-2 (yolov9t/OpenVINO, zero night ghosts) to primary incl. snapshot engine
   thread: security
-  status: in_progress
+  status: done
   approval: approved
   origin:
     date: '2026-08-12'
@@ -996,7 +996,7 @@ cards:
   reaudit_2026_08_13: 'Operator-requested post-disable re-audit: PASS — 443 URA entity refs, 0 F1-owned; snapshot engine self-heals to F2-only; MQTT dual-prefix clean; census/resolver skip disabled entities. Findings ALL FIXED live same hour: MED automation.g6_doorbell_analysis motion_entity _2->_3 (was dead F1); LOW ura-v8 armcrestash41b->_2 + ura-v6 garage_a->_2 dashboard cards. Latent LOW carded in audit: camera_census legacy _discover_full_scan lacks disabled_by filter (not live). FIRST-WITNESS audit: F2 prompt (median +1.3s vs Protect, 31% first); caveats: rear_ptz laggard (median +5.8s, 20 missed episodes — consider Protect as snapshot trigger there); pool_equipment near-invisible to F2 (2 fires/week, native Amcrest is sole witness — recall check needed); back_yard ~100 F2-only episodes/wk uncorroborated (FoV-vs-FP spot-check before counting solos clean); 08-11 house-wide F2 daytime outage (predates tripwire; tripwire now covers). Docs: AUDIT_f2_pointing_reaudit.md + AUDIT_f2_first_witness_daytime.md.'
   gate2_met_2026_08_14: 'GATE-2 MET + BOX PHYSICALLY POWERED OFF (operator, ahead of formal completion — with all software layers already dark, physical-off IS the authentic Gate-2 test and it passed). Since F1 disable: 10 dispatches, all healthy — incl. a SAME-SECOND F2+Protect corroborated pair (23:54Z), evening cluster, two clean daytime events today. Night window 2: ZERO F2 ghosts; sole night event was Protect-sourced rear_ptz 23:17 CT (not the retired failure class — neutral). Tripwire: silent through both nights, share still rotating. HA logged ZERO errors about the dead host (disabled entry = HA does not notice). Remaining FINAL steps (operator word required, irreversible): (1) DELETE the F1 HA config entry; (2) sweep the *_f1retired renamed entities + F1s 965 registry entities; (3) unrack/repurpose the box. Container-stop one-liner now moot.'
   next: 'Operator word on final deletion (entry + registry sweep) -> then card closes. Recording tripwire stays permanently (F2 is sole recorder).'
-
+  decommissioned_2026_08_15: 'Operator go ("Frigate 1 hardware full decomm"; homelab agent repurposing the box). URA side EXECUTED: config entry 01JV6G4E57HT3WH86WSQ4RJT11 deleted in-band (ha_remove_helpers_integrations) — all 965 F1 entities + 25 *_f1retired renames removed with the entry (live-verified: sample entity 404s; on-disk registry file lagged, in-memory authoritative). Frigate 2 sole NVR, 964 entities untouched. No restart needed. RETIREMENT COMPLETE end-to-end: software swap -> zero-ghost soak -> integration disable -> physical off -> hardware decomm, with zero detection-threshold code written.'
 
 
 - id: NM-REPAGE-IMG-1
