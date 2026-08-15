@@ -1,3 +1,18 @@
+> **SUPERSEDED IN PART — APPLIED 2026-08-15 by the homelab agent (see homelab-automation vibememo 057/058).**
+> Actual applied configuration (from the applying agent's record, not this audit's stale sources):
+> **13 cameras moved Low→Medium detect legs** (+3 exterior perimeter cameras in a second batch per the
+> operator's exterior-recognition ruling; doorbell_lite channel fix — it was fetching 8MP and discarding
+> 7MP), **recognition_threshold → 0.8**. Empirically confirmed URA-side within 3h: face recognitions
+> firing on 4 cameras incl. the exterior front-door aerial (Jaya recognized repeatedly);
+> family_room person_count hit 6 (all-time prior max was 2).
+> **Stale points in this audit, corrected:** (1) the "live F2 has an OpenVINO iGPU → model_size: large
+> is affordable" claim was over-strong — QSV/VAAPI hardware-decode testing was REVERTED; Medium-leg
+> decode is CPU-heavy (~10 of 12 cores at 24fps, ~2 cores headroom), so rec B's model_size bump should
+> NOT be applied without measuring headroom first. (2) The config-of-record file this audit read was
+> stale; the builder-drift warning (rec E) stands but the authoritative config now lives with the
+> homelab agent. (3) A global-config edit hazard was discovered during apply (duplicate
+> ffmpeg.hwaccel_args key → ruamel.yaml crash-loop) — noted for future Frigate config automation.
+
 # AUDIT — Frigate-2 face-recognition vs official docs
 
 **Date:** 2026-08-15
