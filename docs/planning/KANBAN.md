@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-15T11:45:52-05:00_ - _Data commit: `95b7fedd6478`_ - _last_reconciled: 2026-08-14_
+_Generated: 2026-08-15T13:31:05-05:00_ - _Data commit: `77aba9365070`_ - _last_reconciled: 2026-08-14_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,14 +12,14 @@ _Generated: 2026-08-15T11:45:52-05:00_ - _Data commit: `95b7fedd6478`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 4 |
-| 🧭 Pre-planning | 9 |
+| 🧭 Pre-planning | 8 |
 | 📝 Planned | 2 |
-| 🔨 In progress | 3 |
+| 🔨 In progress | 4 |
 | 🔍 Review | 0 |
 | 🚀 Shipped (organic open) | 35 |
 | ⏸️ Waiting on operator | 3 |
 | ⏳ Waiting on me (Claude) | 1 |
-| 🅿️ Parked | 3 |
+| 🅿️ Parked | 4 |
 | ✅ Done | 5 |
 
 ## 📥 Inbox (4)
@@ -68,7 +68,7 @@ thread: **presence** - status: **inbox** - approval: **approved_after_investigat
   - `operator_direction_2026_08_13`: Operator: "we should find a way to say AWAY not LOST. Do we need a lost state at all? That way we can actually use this signal the way it is supposed to be used. And not overload it." I.e. the fix may not be patching the denominator arit...
   - `alternate_paths`: (1) Dissolve LOST: away-with-no-fix => AWAY (trusted, counts in denominator); home-but-silent => new BLE_SILENT_HOME or stays ambiguous-excluded; keep LOST only for truly-unknown. Ripple: every consumer of tracking_status (H3 reliable-si...
 
-## 🧭 Pre-planning (9)
+## 🧭 Pre-planning (8)
 _idea being decomposed_
 
 ### `ROOM-NAME-UNIQUE-1` - Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket)
@@ -78,16 +78,6 @@ thread: **presence** - status: **pre_planning** - approval: **unreviewed**
 - **Next:** Small cycle after v5.75.0; consider folding into the next config-flow-touching batch.
 - **Forensic keys (1):**
   - `fix_sketch`: _check_room_name_unique in async_step_basic_setup -> async_show_form error on collision (~15 LoC, Tier 1-2). Live-validation D-block for the rename cycle includes a do-not-rename-to-existing sanity note meanwhile.
-
-### `CENSUS-GUEST-FLOOR-1` - Census blind to guests (read 4 with 10 in house) — re-admit the WiFi guest-VLAN count as a bounded FLOOR, gated to contain the FP problem that unplugged it
-thread: **presence** - status: **pre_planning** - approval: **unreviewed**
-- **Origin:** 2026-08-15 - operator: "census says 4 but there are 4 of us and 6 guests — how is it missing this many people"
-- **Why:** Census total = identified(BLE+face, structurally household-only) + camera_unrecognized(3-min hold). Guests only count while standing in view of transit-tier census cameras; the guest phones on the Revel VLAN ARE counted by _get_wifi_gues...
-- **Next:** ura-planner scope after current deploy queue clears; Tier 2 (presence/census shared primitive -> possibly 2-DB per standing policy).
-- **Parsimony:** [SIMPLIFY] the census cannot count unidentified people outside census-camera view even when their devices announce them
-- **Refs:** custom_components/universal_room_automation/camera_census.py
-- **Forensic keys (1):**
-  - `proposed_shape`: total = max(total, identified + wifi_guest_floor), the floor admitted ONLY under guards: guest-mode active OR count stable >N min; existing family-exclusion layers retained; kill switch = existing exclusion default. Numbers get knobs.
 
 ### `MEMORY-WRITERS-1` - Memory episode-writer coverage gaps — writers ride the detectors, so memory is blind where detectors fail (retro: 0 FULL / 2 PARTIAL / 2 NONE)
 thread: **memory** - status: **pre_planning** - approval: **unreviewed**
@@ -175,8 +165,15 @@ thread: **lifecycle** - status: **planned** - approval: **explicit**
   - `fix`: Add Camera Census keys to an INTEGRATION-entry suppress set (mirror the CM/ROOM reload-suppression). Persistence already done by async_update_entry.
   - `planned_2026_08_15`: Overnight pass: PLANNING_reload_watchdog_hazard.md written+committed. Central finding: v4.7.26 suppress branch is gated entry_type==COORDINATOR_MANAGER (__init__.py:6431); camera keys migrated to the INTEGRATION entry in v3.4.5 have NO b...
 
-## 🔨 In progress (3)
+## 🔨 In progress (4)
 _being built_
+
+### `CENSUS-SUFFIX-FIX-1` - Census regression ROOT-CAUSED: strict-suffix matchers miss all _2 F2 sensors since F1 death (08-13) -> count sensors unmapped -> census pinned at identified count. Fix: disambiguation-tolerant matching.
+thread: **presence** - status: **in_progress** - approval: **implied**
+- **Origin:** 2026-08-15 - operator: "census used to be more or less accurate — what changed?" Recorder: daily max 6-7 through 08-12, 4 from 08-13 (F1 entity death). AUDIT_census_accuracy_regression.md (a54379830), H1 confirmed, H2/H3/H4 refuted.
+- **Why:** All F2 count sensors are _2-suffixed; _PERSON_COUNT_SUFFIX endswith matching (camera_resolver.py:272/1288 + camera_census.py:400/793) matches none -> binary fallback max-1-per-camera -> unrecognized=max(0,~4-4)=0 -> total=identified fore...
+- **Next:** Builder in flight (strip-before-match at all strict sites + ambiguity guard + drills); 2 reviews; batches into the pending reload/opt-meta deploy. Post-deploy Live: census exceeds 4 during next multi-person traversal.
+- **Refs:** docs/planning/AUDIT_census_accuracy_regression.md
 
 ### `MEMORY-PROGRAM-EPIC` - EPIC — Hierarchical Entity Memory: every node (room/zone/house/coordinator) owns consultable, compressed history behind one queryable interface
 thread: **memory** - status: **in_progress** - approval: **explicit**
@@ -731,7 +728,7 @@ thread: **ops** - status: **waiting_me** - approval: **implied**
 - **Why:** reason-ledger first night, Frigate car/dog/cat first events, snapshot-fix organic proof, v5.57/58 organic criteria
 - **Next:** check + report each
 
-## 🅿️ Parked (3)
+## 🅿️ Parked (4)
 _revisit-trigger set_
 
 ### `KP-ANNOTATION-1` - Known-person annotation + stranger-alert leg — exterior alerts annotate identity ("likely Oji"), unknown-face escalates (doorbell-automation successor)
@@ -740,9 +737,21 @@ thread: **perimeter** - status: **parked** - approval: **explicit**
 - **Why:** Exterior alerts have zero member recognition; annotation kills operator triage cost without suppressing; stranger leg replaces the retiring doorbell automation. INV-KP: identity never delays/blocks/mutates the base alert; absent identity...
 - **Next:** Tier 2-DB. Plan rev-3 committed (a28e4568f) — reviewed twice (4e468d37f). Next: D0 read-only probe (identity producers per camera, latency histogram, confidence distribution, enrollment coverage, doorbell cadence) -> gates build.
 - **Refs:** docs/planning/PLANNING_known_person_annotation.md; docs/reviews/code-review/known_person_annotation_plan_review.md
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `d0_verdict_2026_08_15`: PARK v1 ENTIRELY (probe 2bcffbe0a, AUDIT_kp_annotation_d0_probe.md) — producer coverage insufficient, plan's own park branch. 0.0% of 1,532 perimeter person events had identity at t=0 (ship gate >=50%); 6 of 9 camera face pipelines emit ...
   - `revival_preconditions`: OPERATOR/HOMELAB actions, then RE-RUN the probe: (1) fix Frigate-2 face pipeline on the 6 dead cameras; (2) enroll Ziri + verify Oji enrollment (1 sighting as first-name token); (3) expose a Frigate confidence score OR drop the floor des...
+  - `crosscheck_2026_08_15`: Operator tagged faces in BOTH engines this morning. Protect registry (via Protect API/MCP — HA exposes NO identity attrs on this install, so URA consumption = Protect API, plan note): Oji 21 dets avg-conf 82, Ziri 46 dets (Frigate's blin...
+
+### `CENSUS-GUEST-FLOOR-1` - Census blind to guests (read 4 with 10 in house) — re-admit the WiFi guest-VLAN count as a bounded FLOOR, gated to contain the FP problem that unplugged it
+thread: **presence** - status: **parked** - approval: **unreviewed**
+- **Origin:** 2026-08-15 - operator: "census says 4 but there are 4 of us and 6 guests — how is it missing this many people"
+- **Why:** Census total = identified(BLE+face, structurally household-only) + camera_unrecognized(3-min hold). Guests only count while standing in view of transit-tier census cameras; the guest phones on the Revel VLAN ARE counted by _get_wifi_gues...
+- **Next:** ura-planner scope after current deploy queue clears; Tier 2 (presence/census shared primitive -> possibly 2-DB per standing policy).
+- **Parsimony:** [SIMPLIFY] the census cannot count unidentified people outside census-camera view even when their devices announce them
+- **Refs:** custom_components/universal_room_automation/camera_census.py
+- **Forensic keys (2):**
+  - `proposed_shape`: total = max(total, identified + wifi_guest_floor), the floor admitted ONLY under guards: guest-mode active OR count stable >N min; existing family-exclusion layers retained; kill switch = existing exclusion default. Numbers get knobs.
+  - `parked_2026_08_15`: SHRUNK by the regression root-cause (CENSUS-SUFFIX-FIX-1): the census was count-accurate until 08-13; the suffix fix restores that. Revisit trigger: AFTER the fix ships + one real gathering, if guest counts still under-read materially, r...
 
 ### `HOUSE-STATE-UTILIZATION-EPIC` - ROADMAP EPIC — give operational meaning to under-consumed house states (HOME_DAY dead, AWAY thin); rungs 2-4 unbuilt
 thread: **presence** - status: **parked** - approval: **explicit**
