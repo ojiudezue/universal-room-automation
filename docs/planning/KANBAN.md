@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-15T15:54:28-05:00_ - _Data commit: `c63e70b4d0af`_ - _last_reconciled: 2026-08-14_
+_Generated: 2026-08-15T16:24:54-05:00_ - _Data commit: `af9410297b62`_ - _last_reconciled: 2026-08-15_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,18 +11,18 @@ _Generated: 2026-08-15T15:54:28-05:00_ - _Data commit: `c63e70b4d0af`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 4 |
+| 📥 Inbox | 3 |
 | 🧭 Pre-planning | 8 |
-| 📝 Planned | 2 |
-| 🔨 In progress | 4 |
+| 📝 Planned | 1 |
+| 🔨 In progress | 3 |
 | 🔍 Review | 0 |
-| 🚀 Shipped (organic open) | 35 |
+| 🚀 Shipped (organic open) | 38 |
 | ⏸️ Waiting on operator | 3 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 4 |
 | ✅ Done | 5 |
 
-## 📥 Inbox (4)
+## 📥 Inbox (3)
 _raw capture_
 
 ### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab
@@ -49,15 +49,6 @@ thread: **dashboarding** - status: **inbox** - approval: **unreviewed**
 - **Tags:** audit-first
 - **Parsimony:** [BUILD] PWA cannot reliably map a room to its controllable entities
 - **Refs:** docs/planning/PLANNING_g1_room_control_list_attrs.md
-
-### `OPT-META-BOOT-TRANSIENT-1` - Optimizer meta-monitor false "cannot see problems" alert — findings_recent reads RAM cache emptied by restart while open-count reads durable state
-thread: **optimizer** - status: **inbox** - approval: **unreviewed**
-- **Origin:** 2026-08-15 - Operator forwarded the meta alert 20min after the v5.76.0 restart; diagnosis: boot transient, not real blindness (3,725 findings/24h in DB, newest minutes old).
-- **Why:** optimization_llm.py:666 builds findings_recent from coordinator._last_findings (in-memory, cleared at restart); the meta pass compares it against the durable open-findings count and the LLM narrates the mismatch as system blindness -> fa...
-- **Next:** Tier 1 hotfix; batch with next deploy.
-- **Refs:** custom_components/universal_room_automation/domain_coordinators/optimization_llm.py
-- **Forensic keys (1):**
-  - `fix_options`: Either (a) corpus falls back to get_recent_optimization_findings DB read when the RAM cache is empty, or (b) meta emission suppressed inside a post-boot grace window (suppression-needs-discharge: re-fires next cycle after grace). Prefer ...
 
 ### `PATH-ALPHA-DENOM-1` - Path-alpha away inference structurally dead when all trackers LOST/STALE — trusted denominator empties; NO existing card fixes it
 thread: **presence** - status: **inbox** - approval: **approved_after_investigation**
@@ -141,7 +132,7 @@ thread: **camera** - status: **pre_planning** - approval: **implied**
 - **Tags:** no-fabrication-verify
 - **Parsimony:** [BUILD] any camera on the 2nd Frigate host has never had a snapshot
 
-## 📝 Planned (2)
+## 📝 Planned (1)
 _has plan / acceptance_
 
 ### `GUEST-FP-RESIDUALS-1` - Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent)
@@ -152,30 +143,8 @@ thread: **presence** - status: **planned** - approval: **unreviewed**
 - **Forensic keys (1):**
   - `operator_question`: 50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests or a daytime FP flavor? If the latter, escalate per audit §3.
 
-### `RELOAD-WATCHDOG-HAZARD` - URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
-thread: **lifecycle** - status: **planned** - approval: **explicit**
-- **Origin:** 2026-08-07 - options-flow submit (camera_person_entities) reloaded the URA parent entry and blipped HA -> diagnose and fix this autonomously tonight
-- **Why:** routine options saves (Camera Census etc.) reload the integration/parent entry, which cascades to all ~40 room + coordinator entries synchronously, stalling the event loop until the supervisor watchdog restarts core (~5min outage). A con...
-- **Next:** (tonight) build - INTEGRATION suppress set + SIGNAL_CAMERA_LIST_CHANGED re-subscribe path; Tier 2-DB (lifecycle + presence)
-- **Tags:** tier-2db, no-fabrication-verify
-- **Parsimony:** [BUILD] a routine config save causes a ~5min house outage
-- **Refs:** __init__.py:5984 _async_update_listener; OPTIONS_RELOAD_SUPPRESS_KEYS; transit_validator.py async_init; feedback_parent_entry_reload_watchdog_hazard memory
-- **Forensic keys (3):**
-  - `diagnosis`: CONFIRMED (2026-08-07): _async_update_listener (__init__.py:5984) - for the INTEGRATION entry, if changed_keys NOT subset of OPTIONS_RELOAD_SUPPRESS_KEYS -> hass.config_entries.async_reload(entry.entry_id). Reloading the INTEGRATION (par...
-  - `fix`: Add Camera Census keys to an INTEGRATION-entry suppress set (mirror the CM/ROOM reload-suppression). Persistence already done by async_update_entry.
-  - `planned_2026_08_15`: Overnight pass: PLANNING_reload_watchdog_hazard.md written+committed. Central finding: v4.7.26 suppress branch is gated entry_type==COORDINATOR_MANAGER (__init__.py:6431); camera keys migrated to the INTEGRATION entry in v3.4.5 have NO b...
-
-## 🔨 In progress (4)
+## 🔨 In progress (3)
 _being built_
-
-### `CENSUS-SUFFIX-FIX-1` - Census regression ROOT-CAUSED: strict-suffix matchers miss all _2 F2 sensors since F1 death (08-13) -> count sensors unmapped -> census pinned at identified count. Fix: disambiguation-tolerant matching.
-thread: **presence** - status: **in_progress** - approval: **implied**
-- **Origin:** 2026-08-15 - operator: "census used to be more or less accurate — what changed?" Recorder: daily max 6-7 through 08-12, 4 from 08-13 (F1 entity death). AUDIT_census_accuracy_regression.md (a54379830), H1 confirmed, H2/H3/H4 refuted.
-- **Why:** All F2 count sensors are _2-suffixed; _PERSON_COUNT_SUFFIX endswith matching (camera_resolver.py:272/1288 + camera_census.py:400/793) matches none -> binary fallback max-1-per-camera -> unrecognized=max(0,~4-4)=0 -> total=identified fore...
-- **Next:** Builder in flight (strip-before-match at all strict sites + ambiguity guard + drills); 2 reviews; batches into the pending reload/opt-meta deploy. Post-deploy Live: census exceeds 4 during next multi-person traversal.
-- **Refs:** docs/planning/AUDIT_census_accuracy_regression.md
-- **Forensic keys (1):**
-  - `operator_ruling_ash41b_2026_08_15`: ASH41B (Study A): stays OUT of camera_person_entities (census) by operator ruling — camera is physically blocked by a screen unless operator is away, so zero-detection history is EXPECTED (not a Frigate pipeline fault; struck from the F2...
 
 ### `MEMORY-PROGRAM-EPIC` - EPIC — Hierarchical Entity Memory: every node (room/zone/house/coordinator) owns consultable, compressed history behind one queryable interface
 thread: **memory** - status: **in_progress** - approval: **explicit**
@@ -209,7 +178,7 @@ _under review_
 
 _(none)_
 
-## 🚀 Shipped (organic open) (35)
+## 🚀 Shipped (organic open) (38)
 _live, awaiting proof_
 
 ### `STUCK-SENSOR-1` - Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
@@ -440,6 +409,28 @@ thread: **notifications** - status: **shipped_organic** - approval: **unreviewed
 - **Forensic keys (1):**
   - `shipped_version`: v5.75.1
 
+### `OPT-META-BOOT-TRANSIENT-1` - Optimizer meta-monitor false "cannot see problems" alert — findings_recent reads RAM cache emptied by restart while open-count reads durable state
+thread: **optimizer** - status: **shipped_organic** - approval: **unreviewed**
+- **Origin:** 2026-08-15 - Operator forwarded the meta alert 20min after the v5.76.0 restart; diagnosis: boot transient, not real blindness (3,725 findings/24h in DB, newest minutes old).
+- **Why:** optimization_llm.py:666 builds findings_recent from coordinator._last_findings (in-memory, cleared at restart); the meta pass compares it against the durable open-findings count and the LLM narrates the mismatch as system blindness -> fa...
+- **Next:** Tier 1 hotfix; batch with next deploy.
+- **Refs:** custom_components/universal_room_automation/domain_coordinators/optimization_llm.py
+- **Forensic keys (3):**
+  - `shipped_version`: v5.77.0
+  - `fix_options`: Either (a) corpus falls back to get_recent_optimization_findings DB read when the RAM cache is empty, or (b) meta emission suppressed inside a post-boot grace window (suppression-needs-discharge: re-fires next cycle after grace). Prefer ...
+  - `live_validation_2026_08_15`: v5.77.0 LIVE: L3 PASS — first post-boot meta cycle = cycle_ok only; false-blindness HIGH structurally closed. Card can move to done on one more clean restart.
+
+### `CENSUS-SUFFIX-FIX-1` - Census regression ROOT-CAUSED: strict-suffix matchers miss all _2 F2 sensors since F1 death (08-13) -> count sensors unmapped -> census pinned at identified count. Fix: disambiguation-tolerant matching.
+thread: **presence** - status: **shipped_organic** - approval: **implied**
+- **Origin:** 2026-08-15 - operator: "census used to be more or less accurate — what changed?" Recorder: daily max 6-7 through 08-12, 4 from 08-13 (F1 entity death). AUDIT_census_accuracy_regression.md (a54379830), H1 confirmed, H2/H3/H4 refuted.
+- **Why:** All F2 count sensors are _2-suffixed; _PERSON_COUNT_SUFFIX endswith matching (camera_resolver.py:272/1288 + camera_census.py:400/793) matches none -> binary fallback max-1-per-camera -> unrecognized=max(0,~4-4)=0 -> total=identified fore...
+- **Next:** Builder in flight (strip-before-match at all strict sites + ambiguity guard + drills); 2 reviews; batches into the pending reload/opt-meta deploy. Post-deploy Live: census exceeds 4 during next multi-person traversal.
+- **Refs:** docs/planning/AUDIT_census_accuracy_regression.md
+- **Forensic keys (3):**
+  - `shipped_version`: v5.77.0
+  - `operator_ruling_ash41b_2026_08_15`: ASH41B (Study A): stays OUT of camera_person_entities (census) by operator ruling — camera is physically blocked by a screen unless operator is away, so zero-detection history is EXPECTED (not a Frigate pipeline fault; struck from the F2...
+  - `live_validation_2026_08_15`: v5.77.0 LIVE: L1 PASS; L2 organic — census at 4 post-boot pending first camera traversal; PASS = first recorder reading >4 (guests in house tonight = likely within hours).
+
 ### `MEMORY-COMPACTOR-1` - Hierarchical memory — build the deferred daily compaction batch when memory_episodes has volume (trigger: any episode type >50 rows)
 thread: **memory** - status: **shipped_organic** - approval: **explicit**
 - **Origin:** 2026-08-02 - operator: "What if each room had memory?" Hierarchical Entity Memory MVP Stage 1 SHIPPED v5.47.0; the daily compactor was deferred until episode volume exists.
@@ -654,6 +645,21 @@ thread: **presence** - status: **shipped_organic** - approval: **explicit**
   - `organic_open`: one logical sighting per real crossing (F2 dedup, despite Protect+Frigate legs) + no path_validated inflation vs prior day
   - `followups`: expose checkpoint_cameras_by_area on a diagnostic sensor (validation needed log-level surgery - build scoped it out)
 
+### `RELOAD-WATCHDOG-HAZARD` - URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
+thread: **lifecycle** - status: **shipped_organic** - approval: **explicit**
+- **Origin:** 2026-08-07 - options-flow submit (camera_person_entities) reloaded the URA parent entry and blipped HA -> diagnose and fix this autonomously tonight
+- **Why:** routine options saves (Camera Census etc.) reload the integration/parent entry, which cascades to all ~40 room + coordinator entries synchronously, stalling the event loop until the supervisor watchdog restarts core (~5min outage). A con...
+- **Next:** (tonight) build - INTEGRATION suppress set + SIGNAL_CAMERA_LIST_CHANGED re-subscribe path; Tier 2-DB (lifecycle + presence)
+- **Tags:** tier-2db, no-fabrication-verify
+- **Parsimony:** [BUILD] a routine config save causes a ~5min house outage
+- **Refs:** __init__.py:5984 _async_update_listener; OPTIONS_RELOAD_SUPPRESS_KEYS; transit_validator.py async_init; feedback_parent_entry_reload_watchdog_hazard memory
+- **Forensic keys (5):**
+  - `shipped_version`: v5.77.0
+  - `diagnosis`: CONFIRMED (2026-08-07): _async_update_listener (__init__.py:5984) - for the INTEGRATION entry, if changed_keys NOT subset of OPTIONS_RELOAD_SUPPRESS_KEYS -> hass.config_entries.async_reload(entry.entry_id). Reloading the INTEGRATION (par...
+  - `fix`: Add Camera Census keys to an INTEGRATION-entry suppress set (mirror the CM/ROOM reload-suppression). Persistence already done by async_update_entry.
+  - `planned_2026_08_15`: Overnight pass: PLANNING_reload_watchdog_hazard.md written+committed. Central finding: v4.7.26 suppress branch is gated entry_type==COORDINATOR_MANAGER (__init__.py:6431); camera keys migrated to the INTEGRATION entry in v3.4.5 have NO b...
+  - `live_validation_2026_08_15`: v5.77.0 LIVE: L1 PASS; L4 organic (next integration-entry save proves zero-reload + dispatch).
+
 ### `KHOST-1` - Homelab-hosted board, generated from data
 thread: **dashboarding** - status: **shipped_organic** - approval: **explicit**
 - **Origin:** 2026-08-07 - make url live on webhost (homelab)... design it better... give yourself eyes like playwright... build it tonight while I'm sleeping
@@ -804,8 +810,9 @@ thread: **presence** - status: **done** - approval: **unreviewed**
 - **Next:** ura-planner; Tier 2 (touches occupancy-confidence scorer).
 - **Parsimony:** [BUILD] a non-person camera sensor in CONF_ZONE_CAMERAS is trusted as person-confirmation
 - **Refs:** docs/planning/PLANNING_zone_camera_person_only_guard.md
-- **Forensic keys (1):**
+- **Forensic keys (2):**
   - `closed_2026_08_15`: CARD DEAD AS WRITTEN per context-wide audit (AUDIT_zone_cam_guard_necessity.md, 1e8b27e96). Operator was right: the person-only suffix guard EXISTS (camera_census.py:362-386 + camera_resolver.py:215-236) and covers room override + zone t...
+  - `rider_update_2026_08_15`: Rider FAILED at v5.77.0 restart (script flat-scan hit nested zones dicts). Rewritten with recursive walk, dry-run verified (exactly the 2 zone edits), re-staged for NEXT restart. Rider bug class noted: .storage editors must handle nested...
 
 ### `MEMORY-RETRO-VALUE-1` - Retro-check — which answers in the last few investigations were already derivable from memory_episodes?
 thread: **memory** - status: **done** - approval: **explicit**

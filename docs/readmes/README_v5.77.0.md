@@ -48,4 +48,14 @@ polluting zone camera-confirmation; device_class identical so only label scope d
 - **Live L5 (rider):** zone entries show person-only sensors post-boot.
 
 ## Live Validation
-(to be written back post-restart)
+
+### Validated 2026-08-15 (v5.77.0 boot, ~16:28 CDT)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Boot clean, zero URA errors | **PASS** | system_log ERROR x universal_room: 0 entries post-boot |
+| L2 | Census exceeds 4 with gathering present | **ORGANIC (open)** | Post-boot readings: 0 (boot transient) -> 4; no census-camera traversal yet since restart. Counting path proven: detectors read 6 (family room) this afternoon pre-deploy; suffix mapping drill-anchored in-suite. PASS = first recorder reading >4. |
+| L3 | No false optimizer meta-alert on first post-boot cycle | **PASS** | First meta finding post-boot (21:33Z) = `cycle_ok` LOW only — the restart scenario that previously emitted the false "cannot see problems" HIGH is clean |
+| L4 | Camera-census save -> zero reloads + transit dispatch | **ORGANIC (open)** | Next options save on the integration entry (organic or operator-triggered) |
+| L5 | Zone-camera person-only swap | **FAILED THIS BOOT — rider bug, fixed + re-staged** | Swap script crashed on nested zones dicts (flat scan; `unhashable type`); config unchanged. Script rewritten (recursive walk), DRY-RUN VERIFIED against live file (exactly 2 zone edits found), re-staged for next restart. No regression — prior config simply persists one more interval. |
+
