@@ -2017,6 +2017,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             # auto_vacuum. Bounded (<=2000 pages, ~8 MB) so it
                             # completes far under the 5-min budget + 120s guard.
                             ("incremental_vacuum", "incremental_vacuum", {}),
+                            # MEMORY-COMPACTOR-1 D4 (LOW-1 fix): append
+                            # AFTER incremental_vacuum so the compactor
+                            # rides free at the end of the rotation. The
+                            # adapter is cadence-guarded and no-ops when
+                            # MEMORY_COMPACTOR_ENABLED is False.
+                            ("memory_compactor", "run_memory_compactor", {}),
                         ]
 
                         async def _nightly_db_maintenance(_now):
