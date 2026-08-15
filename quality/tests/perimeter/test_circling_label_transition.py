@@ -132,6 +132,32 @@ def test_no_exemption_when_target_class_already_dispatched():
     assert nm.async_notify.await_count == 2
 
 
+def test_i4_blocks_when_i2_would_permit():
+    """I4 (per-target-class bound) mutation-anchor. Construct a state
+    where I2 (strict-escalation) alone would PERMIT: last='pass_by'
+    (rank 0), current='circling' (rank 2) — escalation holds. But
+    'circling' is already in the ledger set from a prior dispatch. I4
+    MUST block; without I4 the helper returns True. This is the drill
+    that uniquely proves I4 is load-bearing (the founding I2/I4 co-
+    fire scenarios both keep `last` at the higher class, so I2 alone
+    covers them — I4 only surfaces when a subsequent lower-class
+    dispatch resets `last`)."""
+    hass, nm, linker, mgr = _fresh_mgr()
+    now = datetime.now(timezone.utc)
+    _observe(linker, "back_yard", now)
+    tr = linker._tracks["person"][0]
+    # Pre-seed: circling was dispatched (in set), then a later baseline
+    # dispatch on some other camera reset `last` to pass_by.
+    tr._dispatched_classifications = {"pass_by", "circling"}
+    tr.last_dispatched_classification = "pass_by"
+    linker.classify = lambda _t: "circling"
+    assert mgr._classification_transition_exemption_permitted(
+        cooldown_key="back_yard",
+        entity_id=SENSORS["back_yard"],
+        now=now,
+    ) is False
+
+
 def test_gate_returns_false_when_linker_absent():
     hass, nm, linker, mgr = _fresh_mgr()
     hass.data[_const.DOMAIN].pop("exterior_track_linker", None)
