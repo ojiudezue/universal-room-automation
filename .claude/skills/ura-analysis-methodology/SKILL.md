@@ -5,6 +5,27 @@ description: The URA discipline for turning a hunch into an accepted result — 
 
 # URA Analysis Methodology
 
+## Memory first — MANDATORY entry point (operator-coined 2026-08-14)
+
+Before mining the recorder, HA logs, or raw URA DB tables for ANY investigation or
+trace: **query the hierarchical memory facade first.** The house has been journaling
+adjudicated episodes since v5.47.0 (`memory_episodes`: exterior_track,
+actuation_conflict, occupancy_phantom, fan_transition_suppressed, comfort_fan_vetoed
+— 1,799 rows as of 2026-08-14) and the `universal_room_automation.memory_query`
+service exposes `episodes` / `narrative` / `unusual` / `profile` / `facts` verbs per
+node (room / zone / house / coordinator).
+
+- Start: `memory_query` `narrative` for the affected node + window, then `episodes`
+  filtered by type, then `unusual` for z-scored oddities.
+- Raw recorder/DB mining is the **verify** step, not the entry point — memory
+  narrows the window and names the mechanism candidates first.
+- If memory has NO coverage for the question, say so explicitly in the
+  investigation doc — each gap is a candidate episode-type writer (card it).
+
+Why: investigations (e.g. AWAY-BLOCK-1 2026-08-13) hand-mined 4-hour recorder
+traces while adjudicated episodes covering the same mechanisms sat unconsulted.
+
+
 The discipline that turns a hunch into an accepted result in URA.
 This skill is authoritative for **how you know** what you claim.
 Change-control policy (tiers, review counts, deploy gates) lives in

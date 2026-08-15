@@ -5,6 +5,27 @@ description: Measure-don't-eyeball runbook for URA — live entity reads via hom
 
 # ura-diagnostics-and-tooling
 
+## Memory first — MANDATORY entry point (operator-coined 2026-08-14)
+
+Before mining the recorder, HA logs, or raw URA DB tables for ANY investigation or
+trace: **query the hierarchical memory facade first.** The house has been journaling
+adjudicated episodes since v5.47.0 (`memory_episodes`: exterior_track,
+actuation_conflict, occupancy_phantom, fan_transition_suppressed, comfort_fan_vetoed
+— 1,799 rows as of 2026-08-14) and the `universal_room_automation.memory_query`
+service exposes `episodes` / `narrative` / `unusual` / `profile` / `facts` verbs per
+node (room / zone / house / coordinator).
+
+- Start: `memory_query` `narrative` for the affected node + window, then `episodes`
+  filtered by type, then `unusual` for z-scored oddities.
+- Raw recorder/DB mining is the **verify** step, not the entry point — memory
+  narrows the window and names the mechanism candidates first.
+- If memory has NO coverage for the question, say so explicitly in the
+  investigation doc — each gap is a candidate episode-type writer (card it).
+
+Why: investigations (e.g. AWAY-BLOCK-1 2026-08-13) hand-mined 4-hour recorder
+traces while adjudicated episodes covering the same mechanisms sat unconsulted.
+
+
 Written 2026-07-02 against URA v5.7.2 for a lone Sonnet-class session or
 mid-level engineer with **no subagent fleet**. Copy-paste commands
 directly; every path and constant here was verified this session
