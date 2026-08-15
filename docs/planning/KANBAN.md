@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-14T23:09:55-05:00_ - _Data commit: `a40991bc3245`_ - _last_reconciled: 2026-08-14_
+_Generated: 2026-08-14T23:29:30-05:00_ - _Data commit: `8ef0f0449737`_ - _last_reconciled: 2026-08-14_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -18,7 +18,7 @@ _Generated: 2026-08-14T23:09:55-05:00_ - _Data commit: `a40991bc3245`_ - _last_r
 | 🔍 Review | 0 |
 | 🚀 Shipped (organic open) | 34 |
 | ⏸️ Waiting on operator | 2 |
-| ⏳ Waiting on me (Claude) | 1 |
+| ⏳ Waiting on me (Claude) | 2 |
 | 🅿️ Parked | 3 |
 | ✅ Done | 3 |
 
@@ -726,8 +726,15 @@ thread: **camera** - status: **waiting_operator** - approval: **blocked**
 - **Tags:** audit-first
 - **Refs:** AUDIT_frigate1_sunset.md
 
-## ⏳ Waiting on me (Claude) (1)
+## ⏳ Waiting on me (Claude) (2)
 _I owe something_
+
+### `ZIRI3-UNCONFIG-1` - Unconfigure dead Ziri 3 device from Ziri Bedroom entry (presence + moving_target + VEML7700 lux) — rides next deploy restart
+thread: **presence** - status: **waiting_me** - approval: **explicit**
+- **Origin:** 2026-08-15 - ziri_3_presence stuck-unavailable finding in optimizer score-55 round; device physically dead (established 2026-08-05).
+- **Why:** Dead device dings sensor_health every cycle. Room keeps mmwave_zigbee_ziribedroom_presence for presence. Three refs removed: presence_sensors[ziri_3_presence], motion_sensors[ziri_3_moving_target], illuminance_sensor=ziri_3_veml7700 (set...
+- **Next:** At next deploy restart: run scratchpad/ziri3_unconfig_after_flush.py alongside any other staged riders; post-boot verify refs gone + room presence still tracks via Zigbee mmWave.
+- **Refs:** scratchpad ziri3_unconfig_after_flush.py
 
 ### `SWEEP` - Morning sweep
 thread: **ops** - status: **waiting_me** - approval: **implied**

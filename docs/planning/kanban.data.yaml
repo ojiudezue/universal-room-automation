@@ -1111,6 +1111,20 @@ cards:
   revival_preconditions: 'OPERATOR/HOMELAB actions, then RE-RUN the probe: (1) fix Frigate-2 face pipeline on the 6 dead cameras; (2) enroll Ziri + verify Oji enrollment (1 sighting as first-name token); (3) expose a Frigate confidence score OR drop the floor design; (4) add doorbell(s) to perimeter_cameras config. Plan is review-hardened and ready the moment the probe passes.'
 
 
+- id: ZIRI3-UNCONFIG-1
+  title: 'Unconfigure dead Ziri 3 device from Ziri Bedroom entry (presence + moving_target + VEML7700 lux) — rides next deploy restart'
+  thread: presence
+  status: waiting_me
+  approval: explicit
+  approved_by: 'operator 2026-08-15 ("Check if in config and if not unconfigure it")'
+  origin:
+    date: '2026-08-15'
+    gist: 'ziri_3_presence stuck-unavailable finding in optimizer score-55 round; device physically dead (established 2026-08-05).'
+  why: 'Dead device dings sensor_health every cycle. Room keeps mmwave_zigbee_ziribedroom_presence for presence. Three refs removed: presence_sensors[ziri_3_presence], motion_sensors[ziri_3_moving_target], illuminance_sensor=ziri_3_veml7700 (set None — room loses lux until a replacement is configured; operator-visible).'
+  constraints: ['flush-watcher pattern (stop->boot gap), NOT a live .storage edit', 'BLOCKS-CLOSE-OF next deploy — same batch discipline as garage-egress']
+  next: 'At next deploy restart: run scratchpad/ziri3_unconfig_after_flush.py alongside any other staged riders; post-boot verify refs gone + room presence still tracks via Zigbee mmWave.'
+  refs: [scratchpad ziri3_unconfig_after_flush.py]
+
 - id: OPT-META-BOOT-TRANSIENT-1
   title: 'Optimizer meta-monitor false "cannot see problems" alert — findings_recent reads RAM cache emptied by restart while open-count reads durable state'
   thread: optimizer
