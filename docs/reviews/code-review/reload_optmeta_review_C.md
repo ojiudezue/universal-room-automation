@@ -269,8 +269,6 @@ against the next reload/signal-table touch. LOWs may be batched into
 the same follow-up.
 
 — Reviewer C, 2026-08-15
-<<<<<<< HEAD
-=======
 
 
 ---
@@ -349,4 +347,3 @@ on the cycle's blocker fix.
   scope.
 
 — Addendum, 2026-08-15
->>>>>>> feature/reload-optmeta
