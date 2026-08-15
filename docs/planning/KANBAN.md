@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-14T18:13:25-05:00_ - _Data commit: `371404c44382`_ - _last_reconciled: 2026-08-14_
+_Generated: 2026-08-14T18:13:45-05:00_ - _Data commit: `de9833dc0e8f`_ - _last_reconciled: 2026-08-14_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -13,8 +13,8 @@ _Generated: 2026-08-14T18:13:25-05:00_ - _Data commit: `371404c44382`_ - _last_r
 |---|---:|
 | 📥 Inbox | 4 |
 | 🧭 Pre-planning | 9 |
-| 📝 Planned | 4 |
-| 🔨 In progress | 2 |
+| 📝 Planned | 3 |
+| 🔨 In progress | 5 |
 | 🔍 Review | 0 |
 | 🚀 Shipped (organic open) | 32 |
 | ⏸️ Waiting on operator | 2 |
@@ -153,19 +153,8 @@ thread: **lifecycle** - status: **pre_planning** - approval: **explicit**
   - `diagnosis`: CONFIRMED (2026-08-07): _async_update_listener (__init__.py:5984) - for the INTEGRATION entry, if changed_keys NOT subset of OPTIONS_RELOAD_SUPPRESS_KEYS -> hass.config_entries.async_reload(entry.entry_id). Reloading the INTEGRATION (par...
   - `fix`: Add Camera Census keys to an INTEGRATION-entry suppress set (mirror the CM/ROOM reload-suppression). Persistence already done by async_update_entry.
 
-## 📝 Planned (4)
+## 📝 Planned (3)
 _has plan / acceptance_
-
-### `MEMORY-COMPACTOR-1` - Hierarchical memory — build the deferred daily compaction batch when memory_episodes has volume (trigger: any episode type >50 rows)
-thread: **memory** - status: **planned** - approval: **explicit**
-- **Origin:** 2026-08-02 - operator: "What if each room had memory?" Hierarchical Entity Memory MVP Stage 1 SHIPPED v5.47.0; the daily compactor was deferred until episode volume exists.
-- **Why:** Stage 1 facade + memory_episodes + memory_query service are LIVE (v5.47.0, Tier 2-DB). The distill/correct/redact compaction batch needs rows to compact; the architecture keeps it in full, the MVP deferred only its construction. Untracke...
-- **Next:** Read memory_episodes row counts (ssh ha, mode=ro); if any type >50 -> promote to build (ura-planner from ARCHITECTURE_hierarchical_memory.md compactor section). Else hold.
-- **Refs:** docs/planning/MVP_hierarchical_memory.md; docs/planning/ARCHITECTURE_hierarchical_memory.md; docs/reviews/code-review/memory_mvp_tier2db.md
-- **Forensic keys (3):**
-  - `revisit_trigger`: ANY memory_episodes episode_type exceeds 50 rows (per MVP_hierarchical_memory.md Stage 1 trim #1) OR facts() seeded set proves inadequate. Check episode row counts before dismissing.
-  - `organic_open`: Stage-1 acceptance still open: the next organic D2 demotion must retro-adjudicate its creation episode within one cycle (live DB check) — verify + write back to this card.
-  - `trigger_FIRED_2026_08_14`: Live memory_episodes count (mode=ro): 1799 rows; exterior_track=1044, actuation_conflict=639, occupancy_phantom=56 ALL exceed the 50-row build trigger (fan_transition_suppressed=41, comfort_fan_vetoed=19 below). READY, not parked — the d...
 
 ### `GARAGE-EGRESS-APPLY-1` - APPLY the 2026-08-10 garage-camera ruling — garage_a/garage_b into CONF_EGRESS_CAMERAS at the NEXT deploy restart (operator said do not forget)
 thread: **security** - status: **planned** - approval: **approved**
@@ -192,7 +181,7 @@ thread: **presence** - status: **planned** - approval: **unreviewed**
 - **Forensic keys (1):**
   - `operator_question`: 50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests or a daytime FP flavor? If the latter, escalate per audit §3.
 
-## 🔨 In progress (2)
+## 🔨 In progress (5)
 _being built_
 
 ### `FRIGATE-RETIRE-1` - Retire Frigate-1 — promote Frigate-2 (yolov9t/OpenVINO, zero night ghosts) to primary incl. snapshot engine
@@ -211,6 +200,32 @@ thread: **security** - status: **in_progress** - approval: **approved**
   - `gate2_started_2026_08_13`: OPERATOR APPROVED. F1 HA integration entry 01JV6G4E57HT3WH86WSQ4RJT11 DISABLED + unloaded (11:4x CT). Container stop handed to operator (host is password-SSH only): ssh okosisi@192.168.13.16 sudo docker stop frigate double-take. Gate-2 c...
   - `reaudit_2026_08_13`: Operator-requested post-disable re-audit: PASS — 443 URA entity refs, 0 F1-owned; snapshot engine self-heals to F2-only; MQTT dual-prefix clean; census/resolver skip disabled entities. Findings ALL FIXED live same hour: MED automation.g6...
   - `gate2_met_2026_08_14`: GATE-2 MET + BOX PHYSICALLY POWERED OFF (operator, ahead of formal completion — with all software layers already dark, physical-off IS the authentic Gate-2 test and it passed). Since F1 disable: 10 dispatches, all healthy — incl. a SAME-...
+
+### `MEMORY-COMPACTOR-1` - Hierarchical memory — build the deferred daily compaction batch when memory_episodes has volume (trigger: any episode type >50 rows)
+thread: **memory** - status: **in_progress** - approval: **explicit**
+- **Origin:** 2026-08-02 - operator: "What if each room had memory?" Hierarchical Entity Memory MVP Stage 1 SHIPPED v5.47.0; the daily compactor was deferred until episode volume exists.
+- **Why:** Stage 1 facade + memory_episodes + memory_query service are LIVE (v5.47.0, Tier 2-DB). The distill/correct/redact compaction batch needs rows to compact; the architecture keeps it in full, the MVP deferred only its construction. Untracke...
+- **Next:** Read memory_episodes row counts (ssh ha, mode=ro); if any type >50 -> promote to build (ura-planner from ARCHITECTURE_hierarchical_memory.md compactor section). Else hold.
+- **Refs:** docs/planning/MVP_hierarchical_memory.md; docs/planning/ARCHITECTURE_hierarchical_memory.md; docs/reviews/code-review/memory_mvp_tier2db.md
+- **Forensic keys (4):**
+  - `revisit_trigger`: ANY memory_episodes episode_type exceeds 50 rows (per MVP_hierarchical_memory.md Stage 1 trim #1) OR facts() seeded set proves inadequate. Check episode row counts before dismissing.
+  - `organic_open`: Stage-1 acceptance still open: the next organic D2 demotion must retro-adjudicate its creation episode within one cycle (live DB check) — verify + write back to this card.
+  - `trigger_FIRED_2026_08_14`: Live memory_episodes count (mode=ro): 1799 rows; exterior_track=1044, actuation_conflict=639, occupancy_phantom=56 ALL exceed the 50-row build trigger (fan_transition_suppressed=41, comfort_fan_vetoed=19 below). READY, not parked — the d...
+  - `go_2026_08_14`: operator: "Do the compaction... Review that plan and see how quickly we can get started on the rest and finish. Do hand checked proofs if need be." -> plan (ura-planner from ARCHITECTURE compactor section) -> Tier 2-DB plan review -> bui...
+
+### `MEMORY-FIRST-DIAGNOSTICS-1` - Memory-first diagnostics doctrine — memory_query is the FIRST surface checked in any investigation/trace, encoded in memory + skills
+thread: **memory** - status: **in_progress** - approval: **explicit**
+- **Origin:** 2026-08-14 - Compactor go turn: operator noticed investigations (AWAY-BLOCK-1 etc.) hand-mined recorder/DB while 1799 adjudicated memory_episodes sat unconsulted.
+- **Why:** The facade exists precisely to answer "what happened in this room/zone/house" — but no diagnostic workflow invokes it. Doctrine: episodes/narrative/unusual via memory_query BEFORE raw recorder mining; raw mining remains the verify step, ...
+- **Next:** Amend memory (feedback file) + CLAUDE-adjacent investigation surfaces; retro-analysis quantifies the win.
+- **Refs:** custom_components/universal_room_automation/memory_facade.py
+
+### `MEMORY-RETRO-VALUE-1` - Retro-check — which answers in the last few investigations were already derivable from memory_episodes?
+thread: **memory** - status: **in_progress** - approval: **explicit**
+- **Origin:** 2026-08-14 - Same push as compactor go.
+- **Why:** Evidence for the memory-first doctrine + input to the compactor plan (which episode types earn distillation priority).
+- **Next:** Agent replays AWAY-BLOCK-1, guest-FP, Frigate-ghost, fan-latch questions against live memory_episodes; report what memory would have answered vs what we hand-mined.
+- **Refs:** docs/planning/AUDIT_away_transition_2026_08_13.md
 
 ### `AWAY-BLOCK-1` - House held home_day 2h with everyone away — fan->mmWave->occupancy->fan self-sustaining loop; both away paths structurally blocked
 thread: **presence** - status: **in_progress** - approval: **unreviewed**
