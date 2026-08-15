@@ -140,7 +140,21 @@ from .const import (
     EXTERIOR_ANIMAL_SENSOR_SUFFIXES,
 )
 from .domain_coordinators.base import Severity
+from .domain_coordinators._nm_cycle_a import is_life_safety_hazard  # CIRCLING-LABEL-1: I3 gate uses this
 from .perimeter_enrichment import enrich_dispatched_alert
+
+
+# CIRCLING-LABEL-1: strict escalation ordering for the
+# classification-transition exemption. Unknown / None classes map to -1
+# so the I2 predicate (`current_rank <= last_rank -> blocked`) treats an
+# unknown-vs-None comparison as blocked (safe). If the classification
+# vocabulary ever grows beyond {pass_by, approach, circling}, adding an
+# entry here suffices; I2's strict-<= boundary is unchanged.
+_CLASSIFICATION_RANK: dict[str, int] = {
+    "pass_by": 0,
+    "approach": 1,
+    "circling": 2,
+}
 
 
 def migrate_consol1_perimeter_keys(
@@ -1052,17 +1066,36 @@ class PerimeterAlertManager:
         # sibling still consumes ONE cooldown slot -> ONE alert.
         cooldown_key = self._camera_key_for_sensor(entity_id) or entity_id
         last_alert = self._last_alert.get(cooldown_key)
+        # CIRCLING-LABEL-1: two-step gate. Cooldown check first; if it
+        # would block, offer the classification-transition exemption
+        # exactly once per (track × target-class) — see helper docstring
+        # for invariants I1-I4. `exemption_active` is threaded into
+        # XCORR-1 (D5b) so the exemption's transition dispatch cannot be
+        # burst-demoted away.
+        exemption_active = False
         if last_alert is not None:
             seconds_since_alert = (now - last_alert).total_seconds()
             if seconds_since_alert < PERIMETER_ALERT_COOLDOWN_SECONDS:
-                _LOGGER.debug(
-                    "PerimeterAlertManager: alert suppressed for %s — cooldown "
-                    "(%.0fs of %ds elapsed)",
-                    entity_id,
-                    seconds_since_alert,
-                    PERIMETER_ALERT_COOLDOWN_SECONDS,
+                exemption_active = self._classification_transition_exemption_permitted(
+                    cooldown_key=cooldown_key,
+                    entity_id=entity_id,
+                    now=now,
                 )
-                return
+                if not exemption_active:
+                    _LOGGER.debug(
+                        "PerimeterAlertManager: alert suppressed for %s — "
+                        "cooldown (%.0fs of %ds elapsed, no "
+                        "classification-transition exemption)",
+                        entity_id,
+                        seconds_since_alert,
+                        PERIMETER_ALERT_COOLDOWN_SECONDS,
+                    )
+                    return
+                _LOGGER.info(
+                    "PerimeterAlertManager: cooldown bypassed for %s by "
+                    "classification-transition exemption",
+                    entity_id,
+                )
 
         # A-M1 / C-mut-a: in-flight guard. Second trigger while a dispatch
         # is in flight (possibly awaiting delayed snapshot) is suppressed
@@ -1213,6 +1246,7 @@ class PerimeterAlertManager:
         try:
             should_demote, burst_decision = self._evaluate_burst_demotion(
                 cooldown_key, entity_id, now,
+                exemption_active=exemption_active,
             )
             burst_decision["severity_before"] = severity.name
             if should_demote:
@@ -1426,6 +1460,28 @@ class PerimeterAlertManager:
                             _LOGGER.debug(
                                 "PerimeterAlertManager: linker "
                                 "note_alert_dispatched failed",
+                                exc_info=True,
+                            )
+                        # CIRCLING-LABEL-1: transition-exemption ledger
+                        # update. Runs on EVERY successful dispatch (not
+                        # only exemption ones) so baseline dispatches
+                        # also seed `last_dispatched_classification` and
+                        # the exemption gate has an accurate "last" to
+                        # compare against on subsequent hops. Wire-in
+                        # anchor: neutering this block collapses D3's
+                        # "hop 4/5 do not re-fire" assertion (drill #4).
+                        try:
+                            _track = _linker.find_owning_track(
+                                _cam_key, "person", now,
+                            )
+                            if _track is not None:
+                                _cls = _linker.classify(_track)
+                                _track.last_dispatched_classification = _cls
+                                _track._dispatched_classifications.add(_cls)
+                        except Exception:  # noqa: BLE001
+                            _LOGGER.debug(
+                                "PerimeterAlertManager: transition ledger "
+                                "update failed",
                                 exc_info=True,
                             )
             finally:
@@ -1819,8 +1875,99 @@ class PerimeterAlertManager:
     # ------------------------------------------------------------------
     # XCORR-1: burst-demotion for isolated single-camera alerts.
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # CIRCLING-LABEL-1: classification-transition exemption gate.
+    # ------------------------------------------------------------------
+    def _classification_transition_exemption_permitted(
+        self, *, cooldown_key: str, entity_id: str, now: datetime,
+    ) -> bool:
+        """Return True iff the classification-transition exemption should
+        permit ONE dispatch past the per-camera cooldown for this event.
+
+        Semantics (see docs/planning/PLANNING_circling_label_transition_
+        dispatch.md §Falsifiable invariants I1-I4):
+          - I3: safeword window outranks. Return False if NM's perimeter
+            silence window is active AND the hazard is not a life-safety
+            hazard (matches NM's own suppress predicate at
+            notification_manager.py:1468-1488).
+          - I4: one exemption per (track, target_class). Return False if
+            the current class is already in the track's
+            `_dispatched_classifications` set.
+          - I2: escalation only. Predicate is STRICT:
+            `current_rank <= last_rank -> blocked` (strict `<=`, NOT `<`;
+            a `<` boundary would erroneously permit re-dispatch when
+            `current == last`). Unknown classes map to rank -1 so an
+            unknown-vs-None comparison yields `-1 <= -1 -> blocked`
+            (safe fail-closed).
+
+        Any exception is caught by the outer try in the gate call site
+        (fail-closed to False). NameError on `is_life_safety_hazard` is
+        prevented by the module-level import — see Reviewer A drill #5.
+        """
+        # I3: safeword window outranks. Reach directly into NM's
+        # RAM-only field (matches the documented private-attribute reach
+        # pattern used by perimeter_diagnostics; a contract comment on
+        # NM._perimeter_silence_until pins this consumer).
+        try:
+            nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+            if nm is not None:
+                silence_until = getattr(nm, "_perimeter_silence_until", None)
+                if (
+                    silence_until is not None
+                    and dt_util.utcnow() < silence_until
+                    and not is_life_safety_hazard(
+                        self.hass, NM_HAZARD_EXTERIOR_PERSON,
+                    )
+                ):
+                    return False
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "PerimeterAlertManager: transition-exemption safeword "
+                "probe raised — fail-closed",
+                exc_info=True,
+            )
+            return False
+
+        # Locate the owning track. Absent linker / disabled tracking /
+        # kill-switch (TRACK_LINK_WINDOW_S == 0) → no exemption.
+        try:
+            linker = self.hass.data.get(DOMAIN, {}).get(
+                "exterior_track_linker"
+            )
+            if linker is None or TRACK_LINK_WINDOW_S <= 0:
+                return False
+            if not getattr(linker, "tracking_enabled", True):
+                return False
+            track = linker.find_owning_track(cooldown_key, "person", now)
+            if track is None:
+                return False
+            current = linker.classify(track)
+            last = track.last_dispatched_classification
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "PerimeterAlertManager: transition-exemption linker "
+                "probe raised — fail-closed",
+                exc_info=True,
+            )
+            return False
+
+        # I4: one exemption per (track, target_classification) pair.
+        if current in track._dispatched_classifications:
+            return False
+
+        # I2: STRICT escalation. `<= -> blocked` — do NOT weaken to `<`.
+        current_rank = _CLASSIFICATION_RANK.get(current, -1)
+        last_rank = (
+            _CLASSIFICATION_RANK.get(last, -1) if last is not None else -1
+        )
+        if current_rank <= last_rank:
+            return False
+
+        return True
+
     def _evaluate_burst_demotion(
         self, cam_key: str, entity_id: str, now: datetime,
+        *, exemption_active: bool = False,
     ) -> tuple[bool, dict[str, Any]]:
         """Return (should_demote, decision_dict).
 
@@ -1856,6 +2003,31 @@ class PerimeterAlertManager:
         if not PERIMETER_BURST_DEMOTE_ENABLED:
             decision["reason"] = "disabled"
             return False, decision
+
+        # CIRCLING-LABEL-1 D5b (HIGH-1 pin): when this dispatch was
+        # permitted through the classification-transition exemption AND
+        # it carries an approach/circling label, DO NOT burst-demote.
+        # The exemption's whole point is that ONE dispatch labels the
+        # escalating transition; demoting it defeats the founding ask
+        # (a HIGH/CRITICAL circling page at the hop circling forms) on
+        # every house_state × camera-shape combination — including the
+        # single-camera-night shape that guards 2/3/4 all pass and
+        # guard 5 (adjacent_activity) cannot block.
+        if exemption_active:
+            try:
+                _linker = self.hass.data.get(DOMAIN, {}).get(
+                    "exterior_track_linker"
+                )
+                _t = (
+                    _linker.find_owning_track(cam_key, "person", now)
+                    if _linker is not None else None
+                )
+                _cls = _linker.classify(_t) if _t is not None else None
+            except Exception:  # noqa: BLE001
+                _cls = None
+            if _cls in ("approach", "circling"):
+                decision["reason"] = "classification_transition_exemption"
+                return False, decision
 
         # CONSOL-1 fix-up A4: burst-demote night_only scope uses its OWN
         # module constant (PERIMETER_BURST_NIGHT_WINDOW) — NOT any vehicle
