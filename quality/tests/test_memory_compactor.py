@@ -500,11 +500,20 @@ async def test_manual_bypasses_cadence(tmp_path):
 
 @pytest.mark.asyncio
 async def test_disabled_returns_none(tmp_path, monkeypatch):
-    """MEMORY_COMPACTOR_ENABLED=False -> nightly and manual both no-op."""
+    """MEMORY_COMPACTOR_ENABLED=False -> nightly and manual both no-op.
+
+    run_memory_compactor imports the const via ``from .const import
+    MEMORY_COMPACTOR_ENABLED`` at call time; patch BOTH the const
+    module attribute AND the sys.modules identity to defend against
+    dual-module aliasing under full-suite import order.
+    """
+    import sys as _sys
     db, _ = await _make_db(tmp_path)
-    from custom_components.universal_room_automation import database as _dbmod
-    # Patch the const referenced inside run_memory_compactor's local import.
-    monkeypatch.setattr(_c, "MEMORY_COMPACTOR_ENABLED", False)
+    # Resolve the exact module reference that run_memory_compactor sees.
+    _cm = _sys.modules[
+        "custom_components.universal_room_automation.const"
+    ]
+    monkeypatch.setattr(_cm, "MEMORY_COMPACTOR_ENABLED", False)
     s1 = await db.run_memory_compactor(triggered_by="nightly")
     s2 = await db.run_memory_compactor(triggered_by="manual")
     assert s1 is None and s2 is None
