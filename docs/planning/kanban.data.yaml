@@ -1697,6 +1697,9 @@ cards:
   - 'THEN: investigate the reboot cause (WiFi signal at that box, firmware version, power quality)'
   - 'optional: NM alert if reboot count per day exceeds a threshold — a device rebooting 23x/day is a
     real signal we currently only see by asking'
+  rediagnosis_2026_08_15: 'REBOOT THEORY OVERTURNED for recent nights: device uptime 6.66 days (no reboot since ~Aug 8) yet uncommanded off->on 3s apart tonight 23:07 CDT (no HA context either row). Mechanism = PHANTOM WALL-SWITCH EDGES: btn_type=edge + 80ms debounce; electrical noise on the switch leg toggles the load. Aug 1-8 was real reboots (89x, default_state=last restored ON); that storm stopped. Daily unavailable blips (5-15/day) = connectivity drops, RSSI -56 healthy. default_state STILL =last (unfixed; write blocked by classifier — operator to run). Recommended order: (1) default_state=off, (2) raise btn_debounce 80->2000ms, (3) escalate to detached if ghosts persist.'
+
+
 - id: BOOTSANITY-1
   title: Boot-sanity allowlist guard cannot fire on a cold boot
   thread: camera

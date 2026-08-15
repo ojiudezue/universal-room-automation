@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-14T23:29:30-05:00_ - _Data commit: `8ef0f0449737`_ - _last_reconciled: 2026-08-14_
+_Generated: 2026-08-14T23:36:28-05:00_ - _Data commit: `a204235a144b`_ - _last_reconciled: 2026-08-14_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -121,10 +121,11 @@ thread: **devices** - status: **pre_planning** - approval: **implied**
 - **Why:** light.shellydimmer2_24d7ebe93470 (area master_bedroom) reboots repeatedly: 89 `unavailable` events since Aug 1, accelerating 6/day -> 23/day, each ~33s (consistent = full device reboot, not a variable WiFi blip). 32 of those reboots came...
 - **Next:** set power-on-default OFF; then chase the reboot cause
 - **Tags:** no-fabrication-verify
-- **Forensic keys (3):**
+- **Forensic keys (4):**
   - `likely_causes`: Shelly power-on-default set to ON (or restore-last with stale value) -> every reboot turns the light on
   - `CORRECTION`: 2026-08-08: I FIRST REPORTED THIS AS A 117-130C FIRE RISK. THAT WAS WRONG — the sensor's unit_of_measurement is degF, not degC. 116.7F = 47C; peak 129.6F = 54C. That is NORMAL for a wall dimmer and inside the Shelly Dimmer 2 range. NO fi...
   - `fix`: PRIMARY: set the Shelly power-on default to OFF so a reboot cannot turn the light on (device setting, operator or API)
+  - `rediagnosis_2026_08_15`: REBOOT THEORY OVERTURNED for recent nights: device uptime 6.66 days (no reboot since ~Aug 8) yet uncommanded off->on 3s apart tonight 23:07 CDT (no HA context either row). Mechanism = PHANTOM WALL-SWITCH EDGES: btn_type=edge + 80ms debou...
 
 ### `BOOTSANITY-1` - Boot-sanity allowlist guard cannot fire on a cold boot
 thread: **camera** - status: **pre_planning** - approval: **implied**
