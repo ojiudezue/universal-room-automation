@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-15T14:07:30-05:00_ - _Data commit: `4671059b83a0`_ - _last_reconciled: 2026-08-14_
+_Generated: 2026-08-15T15:48:10-05:00_ - _Data commit: `4276223f0adf`_ - _last_reconciled: 2026-08-14_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -739,10 +739,11 @@ thread: **perimeter** - status: **parked** - approval: **explicit**
 - **Why:** Exterior alerts have zero member recognition; annotation kills operator triage cost without suppressing; stranger leg replaces the retiring doorbell automation. INV-KP: identity never delays/blocks/mutates the base alert; absent identity...
 - **Next:** Tier 2-DB. Plan rev-3 committed (a28e4568f) — reviewed twice (4e468d37f). Next: D0 read-only probe (identity producers per camera, latency histogram, confidence distribution, enrollment coverage, doorbell cadence) -> gates build.
 - **Refs:** docs/planning/PLANNING_known_person_annotation.md; docs/reviews/code-review/known_person_annotation_plan_review.md
-- **Forensic keys (3):**
+- **Forensic keys (4):**
   - `d0_verdict_2026_08_15`: PARK v1 ENTIRELY (probe 2bcffbe0a, AUDIT_kp_annotation_d0_probe.md) — producer coverage insufficient, plan's own park branch. 0.0% of 1,532 perimeter person events had identity at t=0 (ship gate >=50%); 6 of 9 camera face pipelines emit ...
   - `revival_preconditions`: OPERATOR/HOMELAB actions, then RE-RUN the probe: (1) fix Frigate-2 face pipeline on the 6 dead cameras; (2) enroll Ziri + verify Oji enrollment (1 sighting as first-name token); (3) expose a Frigate confidence score OR drop the floor des...
   - `crosscheck_2026_08_15`: Operator tagged faces in BOTH engines this morning. Protect registry (via Protect API/MCP — HA exposes NO identity attrs on this install, so URA consumption = Protect API, plan note): Oji 21 dets avg-conf 82, Ziri 46 dets (Frigate's blin...
+  - `webhook_probe_2026_08_15`: Operator approved the probe. HA listener LIVE: automation.ura_kp_face_webhook_probe (webhook id ura_kp_face_probe, local-only, payload -> event ura_kp_face_probe_received + system_log). Protect-side rule could NOT be created via API (v2 ...
 
 ### `CENSUS-GUEST-FLOOR-1` - Census blind to guests (read 4 with 10 in house) — re-admit the WiFi guest-VLAN count as a bounded FLOOR, gated to contain the FP problem that unplugged it
 thread: **presence** - status: **parked** - approval: **unreviewed**
