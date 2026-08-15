@@ -155,7 +155,7 @@ def test_i4_blocks_when_i2_would_permit():
         cooldown_key="back_yard",
         entity_id=SENSORS["back_yard"],
         now=now,
-    ) is False
+    ) is None
 
 
 def test_gate_returns_false_when_linker_absent():
@@ -165,7 +165,7 @@ def test_gate_returns_false_when_linker_absent():
         cooldown_key="back_yard",
         entity_id=SENSORS["back_yard"],
         now=datetime.now(timezone.utc),
-    ) is False
+    ) is None
 
 
 def test_gate_returns_false_when_tracking_disabled():
@@ -178,7 +178,7 @@ def test_gate_returns_false_when_tracking_disabled():
         cooldown_key="back_yard",
         entity_id=SENSORS["back_yard"],
         now=datetime.now(timezone.utc),
-    ) is False
+    ) is None
 
 
 def test_predicate_boundary_is_strict_le():
@@ -196,7 +196,7 @@ def test_predicate_boundary_is_strict_le():
         cooldown_key="back_yard",
         entity_id=SENSORS["back_yard"],
         now=now,
-    ) is False
+    ) is None
 
 
 def test_import_missing_fails_loud():
@@ -362,4 +362,126 @@ def test_exemption_hop_not_deduplicated_against_baseline_hop():
         f"got hop1={hop1_sev}, hop3={hop3_sev}. If this test ever fails, "
         f"extend NM._is_deduplicated key to include classification (one-line "
         f"change per plan D7)."
+    )
+
+
+# --- B-LOW-1 (2026-08-14 fix-up): optimistic seed + rollback ----------------
+
+
+def test_cross_camera_same_track_double_grant_prevented():
+    """Reviewer B B-LOW-1: two concurrent flows on DIFFERENT cameras of
+    the SAME track, both escalating to the same target class. The
+    optimistic seed inside the gate means the second flow's I4 check
+    sees the seeded class and blocks — exactly ONE exemption is
+    granted per (track × target-class), even without dispatch-
+    completion serialisation between the two flows.
+
+    Reproduction: call the gate helper directly for camera A, THEN for
+    camera B (both cooldown-blocked, both would independently escalate
+    to circling on the same owning track). Second call must return
+    None."""
+    hass, nm, linker, mgr = _fresh_mgr()
+    now = datetime.now(timezone.utc)
+    # One track owning both cameras. Observe cam A first — track's last
+    # hop is back_yard. Flow A's gate looks up the owning track on
+    # back_yard and grants + seeds circling.
+    _observe(linker, "back_yard", now)
+    tr = linker._tracks["person"][0]
+    tr.last_dispatched_classification = "pass_by"
+    tr._dispatched_classifications = {"pass_by"}
+    linker.classify = lambda _t: "circling"
+    mgr._last_alert["back_yard"] = now
+    mgr._last_alert["front_side_ptz"] = now
+
+    grant_a = mgr._classification_transition_exemption_permitted(
+        cooldown_key="back_yard",
+        entity_id=SENSORS["back_yard"],
+        now=now + timedelta(seconds=10),
+    )
+    # Simulate the race: BEFORE flow A completes dispatch (and before
+    # the `dispatched_ok` ledger update commits `last=circling`), the
+    # track's last hop advances to front_side_ptz — flow B fires on the
+    # sibling camera of the SAME track. Its gate looks up the owning
+    # track (now via front_side_ptz), sees `circling` already in the
+    # ledger set thanks to the optimistic seed from flow A, and I4-
+    # blocks. Without the seed, flow B would also grant.
+    _observe(linker, "front_side_ptz", now + timedelta(seconds=15))
+    grant_b = mgr._classification_transition_exemption_permitted(
+        cooldown_key="front_side_ptz",
+        entity_id=SENSORS["front_side_ptz"],
+        now=now + timedelta(seconds=20),
+    )
+    assert grant_a == "circling", (
+        f"first flow must be granted the exemption; got {grant_a!r}"
+    )
+    assert grant_b is None, (
+        f"second flow on the SAME track must be I4-blocked by the "
+        f"optimistic seed from flow A; got {grant_b!r} "
+        f"(set={tr._dispatched_classifications})"
+    )
+    # And the ledger reflects a single seed for circling.
+    assert "circling" in tr._dispatched_classifications
+
+
+def test_dispatch_failure_rolls_back_optimistic_seed():
+    """Reviewer B B-LOW-1: when NM.async_notify raises inside
+    _do_dispatch, `dispatched_ok` stays False. The finally block MUST
+    call _rollback_transition_exemption, which discards the seeded
+    class so a future legitimate escalating hop can re-earn the
+    exemption. Without rollback, one flaky NM call permanently
+    consumes the ledger slot."""
+    hass, nm, linker, mgr = _fresh_mgr()
+    # Configure NM to raise on the third dispatch (the exemption hop).
+    call_count = {"n": 0}
+    real_notify = nm.async_notify  # AsyncMock
+
+    async def _flaky_notify(**kwargs):
+        call_count["n"] += 1
+        if call_count["n"] >= 3:
+            raise RuntimeError("simulated NM failure on exemption hop")
+        return await real_notify(**kwargs)
+
+    nm.async_notify = _flaky_notify
+    t0 = datetime.now(timezone.utc)
+    seq = [
+        ("back_yard",      t0),
+        ("front_side_ptz", t0 + timedelta(seconds=25)),
+        ("back_yard",      t0 + timedelta(seconds=60)),  # exemption hop, fails
+    ]
+    for cam_key, ts in seq:
+        _observe(linker, cam_key, ts)
+        _run(mgr._async_handle_perimeter_trigger(SENSORS[cam_key]))
+
+    tr = linker._tracks["person"][0]
+    # The exemption seeded "circling" into the ledger; because NM raised,
+    # rollback must have discarded it — ledger set should NOT contain
+    # circling. Baseline hops 1 & 2 succeeded, so pass_by/approach remain.
+    assert "circling" not in tr._dispatched_classifications, (
+        f"exemption seed must be rolled back on dispatch failure; "
+        f"set={tr._dispatched_classifications}"
+    )
+    # And last_dispatched_classification must NOT be circling (was never
+    # committed).
+    assert tr.last_dispatched_classification != "circling"
+
+
+def test_s4_in_flight_suppression_rolls_back_optimistic_seed():
+    """B-LOW-1 sibling: the S4 in-flight guard suppresses same-camera
+    concurrent dispatches BEFORE _do_dispatch reaches the ledger-update
+    block. The suppressed flow must roll back its optimistic seed so
+    the slot stays available."""
+    hass, nm, linker, mgr = _fresh_mgr()
+    now = datetime.now(timezone.utc)
+    _observe(linker, "back_yard", now)
+    tr = linker._tracks["person"][0]
+    tr.last_dispatched_classification = "pass_by"
+    tr._dispatched_classifications = {"pass_by"}
+    linker.classify = lambda _t: "circling"
+    mgr._last_alert["back_yard"] = now
+    # Simulate a same-camera dispatch already in flight.
+    mgr._dispatch_in_flight.add("back_yard")
+    _run(mgr._async_handle_perimeter_trigger(SENSORS["back_yard"]))
+    assert "circling" not in tr._dispatched_classifications, (
+        f"S4-suppressed exemption seed must be rolled back; "
+        f"set={tr._dispatched_classifications}"
     )

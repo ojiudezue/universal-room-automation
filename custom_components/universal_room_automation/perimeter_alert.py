@@ -1072,16 +1072,19 @@ class PerimeterAlertManager:
         # for invariants I1-I4. `exemption_active` is threaded into
         # XCORR-1 (D5b) so the exemption's transition dispatch cannot be
         # burst-demoted away.
-        exemption_active = False
+        # B-LOW-1: `exempted_class` is the seeded target class when the
+        # exemption fires. Rollback discards it if this flow does NOT
+        # reach a successful NM dispatch.
+        exempted_class: str | None = None
         if last_alert is not None:
             seconds_since_alert = (now - last_alert).total_seconds()
             if seconds_since_alert < PERIMETER_ALERT_COOLDOWN_SECONDS:
-                exemption_active = self._classification_transition_exemption_permitted(
+                exempted_class = self._classification_transition_exemption_permitted(
                     cooldown_key=cooldown_key,
                     entity_id=entity_id,
                     now=now,
                 )
-                if not exemption_active:
+                if exempted_class is None:
                     _LOGGER.debug(
                         "PerimeterAlertManager: alert suppressed for %s — "
                         "cooldown (%.0fs of %ds elapsed, no "
@@ -1096,6 +1099,7 @@ class PerimeterAlertManager:
                     "classification-transition exemption",
                     entity_id,
                 )
+        exemption_active = exempted_class is not None
 
         # A-M1 / C-mut-a: in-flight guard. Second trigger while a dispatch
         # is in flight (possibly awaiting delayed snapshot) is suppressed
@@ -1108,6 +1112,12 @@ class PerimeterAlertManager:
                 "PerimeterAlertManager: %s trigger suppressed — dispatch "
                 "already in flight for camera %s",
                 entity_id, cooldown_key,
+            )
+            # B-LOW-1: S4 suppressed us BEFORE dispatch — undo the
+            # optimistic exemption seed so the ledger slot is available
+            # for a future legitimate escalating hop.
+            self._rollback_transition_exemption(
+                cooldown_key=cooldown_key, cls=exempted_class, now=now,
             )
             return
 
@@ -1348,6 +1358,10 @@ class PerimeterAlertManager:
                 "not configured — skipping.",
                 entity_id,
             )
+            # B-LOW-1: no dispatch will happen — release the seeded slot.
+            self._rollback_transition_exemption(
+                cooldown_key=cooldown_key, cls=exempted_class, now=now,
+            )
             return
 
         # --- 6b. CONSOL-1 §D3: universal llmvision enrichment.
@@ -1401,6 +1415,10 @@ class PerimeterAlertManager:
             # A-M3: don't run after teardown / during HA shutdown
             if not self._active or getattr(self.hass, "is_stopping", False):
                 self._dispatch_in_flight.discard(cooldown_key)
+                # B-LOW-1: teardown short-circuit — release the seed.
+                self._rollback_transition_exemption(
+                    cooldown_key=cooldown_key, cls=exempted_class, now=now,
+                )
                 return
             dispatched_ok = False
             try:
@@ -1452,7 +1470,16 @@ class PerimeterAlertManager:
                     _linker = self.hass.data.get(DOMAIN, {}).get(
                         "exterior_track_linker"
                     )
-                    _cam_key = self._camera_key_for_sensor(entity_id)
+                    # A-LOW-2 (2026-08-14 fix-up): mirror the cooldown-key
+                    # fallback (`or entity_id`) used by the exemption gate
+                    # at :1067. Without symmetry, an entity_id whose
+                    # slug-strip returns None would pass the gate (via the
+                    # fallback) but skip both the note_alert_dispatched
+                    # AND ledger-update calls here — leaving
+                    # `last_dispatched_classification` stale and letting
+                    # subsequent hops re-fire the exemption unboundedly
+                    # on that narrow path.
+                    _cam_key = self._camera_key_for_sensor(entity_id) or entity_id
                     if _linker is not None and _cam_key:
                         try:
                             _linker.note_alert_dispatched(_cam_key, "person", now)
@@ -1486,6 +1513,19 @@ class PerimeterAlertManager:
                             )
             finally:
                 self._dispatch_in_flight.discard(cooldown_key)
+                # B-LOW-1: dispatch failed (or NM was absent inside the
+                # closure) — release the optimistic exemption seed so
+                # the ledger slot is available for a future legitimate
+                # escalating hop. Successful dispatch already committed
+                # via the ledger-update block above (idempotent add +
+                # `last_dispatched_classification` set); rollback's
+                # `last == cls` guard prevents double-undo.
+                if not dispatched_ok:
+                    self._rollback_transition_exemption(
+                        cooldown_key=cooldown_key,
+                        cls=exempted_class,
+                        now=now,
+                    )
 
         if delay_s > 0:
             @callback
@@ -1880,9 +1920,20 @@ class PerimeterAlertManager:
     # ------------------------------------------------------------------
     def _classification_transition_exemption_permitted(
         self, *, cooldown_key: str, entity_id: str, now: datetime,
-    ) -> bool:
-        """Return True iff the classification-transition exemption should
-        permit ONE dispatch past the per-camera cooldown for this event.
+    ) -> str | None:
+        """Return the SEEDED target-class string when the exemption is
+        permitted, or ``None`` otherwise.
+
+        B-LOW-1 mitigation (2026-08-14 fix-up): the target class is
+        added to ``track._dispatched_classifications`` BEFORE returning,
+        closing a cross-camera same-track race where two concurrent
+        flows on different cameras of the same track both see an empty
+        set for the target class and both grant an exemption. Callers
+        MUST call ``_rollback_transition_exemption(cooldown_key,
+        seeded_class, now)`` on any path that ends WITHOUT a successful
+        NM dispatch (S4-suppressed, NM absent, dispatch failure, handler
+        exception) so a failed grant does not permanently consume the
+        ledger slot for the target class.
 
         Semantics (see docs/planning/PLANNING_circling_label_transition_
         dispatch.md §Falsifiable invariants I1-I4):
@@ -1919,14 +1970,19 @@ class PerimeterAlertManager:
                         self.hass, NM_HAZARD_EXTERIOR_PERSON,
                     )
                 ):
-                    return False
+                    return None
         except Exception:  # noqa: BLE001
-            _LOGGER.debug(
+            # A-LOW-1 (2026-08-14 fix-up): promoted DEBUG -> WARNING.
+            # An outer-catch hit here means the exemption stops firing
+            # install-wide silently; the D3 tripwire is the only other
+            # observable and it lags by ≥24h. WARNING raises ambient
+            # visibility in the log without gating dispatch.
+            _LOGGER.warning(
                 "PerimeterAlertManager: transition-exemption safeword "
                 "probe raised — fail-closed",
                 exc_info=True,
             )
-            return False
+            return None
 
         # Locate the owning track. Absent linker / disabled tracking /
         # kill-switch (TRACK_LINK_WINDOW_S == 0) → no exemption.
@@ -1935,25 +1991,27 @@ class PerimeterAlertManager:
                 "exterior_track_linker"
             )
             if linker is None or TRACK_LINK_WINDOW_S <= 0:
-                return False
+                return None
             if not getattr(linker, "tracking_enabled", True):
-                return False
+                return None
             track = linker.find_owning_track(cooldown_key, "person", now)
             if track is None:
-                return False
+                return None
             current = linker.classify(track)
             last = track.last_dispatched_classification
         except Exception:  # noqa: BLE001
-            _LOGGER.debug(
+            # A-LOW-1 (2026-08-14 fix-up): promoted DEBUG -> WARNING
+            # for the same reason as the safeword-probe catch above.
+            _LOGGER.warning(
                 "PerimeterAlertManager: transition-exemption linker "
                 "probe raised — fail-closed",
                 exc_info=True,
             )
-            return False
+            return None
 
         # I4: one exemption per (track, target_classification) pair.
         if current in track._dispatched_classifications:
-            return False
+            return None
 
         # I2: STRICT escalation. `<= -> blocked` — do NOT weaken to `<`.
         current_rank = _CLASSIFICATION_RANK.get(current, -1)
@@ -1961,9 +2019,57 @@ class PerimeterAlertManager:
             _CLASSIFICATION_RANK.get(last, -1) if last is not None else -1
         )
         if current_rank <= last_rank:
-            return False
+            return None
 
-        return True
+        # B-LOW-1 (2026-08-14 fix-up): OPTIMISTIC SEED. Add the target
+        # class to the ledger BEFORE returning. This closes the cross-
+        # camera same-track race where two concurrent flows on
+        # different cameras would both see an empty set for the target
+        # class and both grant. Rollback lives in
+        # `_rollback_transition_exemption`, invoked from every path
+        # that ends without a successful dispatch (S4, NM-absent,
+        # dispatched_ok=False).
+        track._dispatched_classifications.add(current)
+        return current
+
+    def _rollback_transition_exemption(
+        self, *, cooldown_key: str, cls: str | None, now: datetime,
+    ) -> None:
+        """Discard an optimistically-seeded exemption class.
+
+        B-LOW-1 (2026-08-14 fix-up). Called from every path in
+        ``_async_handle_perimeter_trigger`` / ``_do_dispatch`` that
+        aborts BEFORE a successful NM dispatch commits the ledger via
+        the ``dispatched_ok`` update block. Idempotent + fail-quiet.
+
+        Safety guard: if ``track.last_dispatched_classification == cls``
+        the ledger was already committed by a successful dispatch on
+        this exact class — do NOT discard (would corrupt a successful
+        grant retroactively). This can only happen if the caller
+        invokes rollback in error after a successful dispatch, but
+        defence-in-depth against that footgun is cheap.
+        """
+        if cls is None:
+            return
+        try:
+            linker = self.hass.data.get(DOMAIN, {}).get(
+                "exterior_track_linker"
+            )
+            if linker is None:
+                return
+            track = linker.find_owning_track(cooldown_key, "person", now)
+            if track is None:
+                return
+            if track.last_dispatched_classification == cls:
+                # Already committed by dispatched_ok — do not undo.
+                return
+            track._dispatched_classifications.discard(cls)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "PerimeterAlertManager: transition-exemption rollback "
+                "raised (harmless — ledger stays as-is)",
+                exc_info=True,
+            )
 
     def _evaluate_burst_demotion(
         self, cam_key: str, entity_id: str, now: datetime,
