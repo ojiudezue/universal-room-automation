@@ -1107,6 +1107,7 @@ cards:
   why: 'Exterior alerts have zero member recognition; annotation kills operator triage cost without suppressing; stranger leg replaces the retiring doorbell automation. INV-KP: identity never delays/blocks/mutates the base alert; absent identity = byte-identical.'
   constraints: ['no household reference photos leave LAN', 'stranger hazard respects duke-window (security-tier, NOT life-safety bypass) — operator-visible', 'fail-CLOSED false-stranger guard']
   refinement:
+  - 'audit rec "disable face on outdoor/PTZ" -> operator: NO, exterior recognition IS the goal -> rec C revised: exterior people-cams get the detect-stream upgrade first-class; disable only hopeless overhead/utility geometries'
   - 'plan review CRIT-1: stranger hazard type would have LEAKED through an open safeword window -> registered in NM_SECURITY_HAZARDS + memory-ineligible + explicit severity map'
   - 'plan review HIGH-1: after-enqueue ordering was only probabilistic -> structural after-await + own in-flight guard (hanging identity probe can never suppress next-camera dispatch)'
   next: 'Tier 2-DB. Plan rev-3 committed (a28e4568f) — reviewed twice (4e468d37f). Next: D0 read-only probe (identity producers per camera, latency histogram, confidence distribution, enrollment coverage, doorbell cadence) -> gates build.'
