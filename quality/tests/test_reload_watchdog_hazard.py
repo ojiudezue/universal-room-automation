@@ -569,22 +569,24 @@ def test_binary_sensor_dead_import_removed():
 # ---------------------------------------------------------------------------
 
 
-def test_first_post_restart_save_suppresses_when_snapshot_unseeded_by_test_but_seeded_by_setup():
-    """Regression test for Reviews A H-1 / B B-HIGH-1.
+def test_seed_helper_when_invoked_makes_first_save_suppress_reload():
+    """Regression test for Reviews A H-1 / B B-HIGH-1 — HELPER-SCOPE.
 
-    Simulates the incident scenario: HA restart → user opens Camera
-    Census → toggles one camera → clicks Save. Before the fix, the
-    integration-entry snapshot in RAM was `{}` (never seeded), so
-    `changed_keys` reduced to `set(new.keys())`, the subset check
-    failed, and the listener cascaded a full reload. The fix adds
-    `_seed_integration_last_applied_options` called from the integration
-    setup path BEFORE the update listener is armed.
+    Orchestrator re-drill note (2026-08-15): the prior name
+    `test_first_post_restart_save_suppresses_when_snapshot_unseeded_by_test_but_seeded_by_setup`
+    overclaimed. This test proves the helper WORKS: if invoked at boot
+    with an integration entry, the resulting snapshot is such that a
+    subsequent single-key camera_person_entities save falls through the
+    suppress path (no reload). It does NOT prove production's
+    async_setup_entry actually calls the helper — that assurance lives
+    in `test_seed_helper_call_node_exists_in_integration_setup_ast`
+    (AST anchor, comment-invisible).
 
-    Test discipline: this test DELIBERATELY does NOT pre-populate
+    Test discipline: DELIBERATELY does NOT pre-populate
     `hass.data[DOMAIN]["integration_last_applied_options"]`. It calls
-    the seed helper directly (matching what the setup path now does),
-    then fires the listener with a single-key camera_person_entities
-    change and asserts `reload_calls == []` (suppress path fires)."""
+    the seed helper directly (matching what the setup path does), then
+    fires the listener with a single-key camera_person_entities change
+    and asserts `reload_calls == []` (suppress path fires)."""
     ns = _load_ns()
     hass = _FakeHass()
     # Pre-save entry state — mirrors what's persisted before the save.
@@ -616,47 +618,118 @@ def test_first_post_restart_save_suppresses_when_snapshot_unseeded_by_test_but_s
     )
 
 
-def test_seed_helper_call_site_exists_in_integration_setup_path():
-    """H-1 wire-in anchor. The behavioral test above proves the seed
-    helper works IF called; this anchors that setup ACTUALLY calls it.
-    Source-grep-as-test (hygiene-tier) — necessary because the
-    integration setup path requires a full HA stack the AST-slice
-    tests deliberately avoid. Complements, does not replace, the
-    behavioral test.
+def _find_integration_setup_if_body(tree: ast.Module) -> list:
+    """Locate the `if entry_type == ENTRY_TYPE_INTEGRATION:` body inside
+    the top-level `async def async_setup_entry(...)` — returns the list
+    of AST statement nodes that form that branch's body.
 
-    Neuter drill discipline: remove or rename the call at
-    `__init__.py:~3873` — this assertion fails by name."""
-    src = INIT_SRC
-    # The seed must be called from the ENTRY_TYPE_INTEGRATION setup
-    # block AND before `entry.add_update_listener(_async_update_listener)`.
-    int_setup_start = src.index("if entry_type == ENTRY_TYPE_INTEGRATION:")
-    # The integration setup branch ends where the ZONE_MANAGER branch
-    # begins (each entry-type branch is a separate `if entry_type ==`
-    # block in `async_setup_entry`, in that order — see
-    # `__init__.py` grep of `^    if entry_type`).
-    next_branch = src.index(
-        "if entry_type == ENTRY_TYPE_ZONE_MANAGER:", int_setup_start,
+    Fix-up 3/3 (2026-08-15, orchestrator re-drill): the previous
+    string-grep anchor could not distinguish a live Call from a
+    commented-out or pass-neutered line (grep sees the substring inside
+    the block comment at the top of the integration setup, and a
+    pass-replacement still leaves the substring in the file). AST walk
+    is comment-invisible and requires a real Call node to pass.
+    """
+    for node in tree.body:
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "async_setup_entry":
+            for sub in node.body:
+                # Match `if entry_type == ENTRY_TYPE_INTEGRATION:` exactly.
+                if isinstance(sub, ast.If) and isinstance(sub.test, ast.Compare):
+                    left = sub.test.left
+                    comps = sub.test.comparators
+                    if (
+                        isinstance(left, ast.Name)
+                        and left.id == "entry_type"
+                        and len(sub.test.ops) == 1
+                        and isinstance(sub.test.ops[0], ast.Eq)
+                        and len(comps) == 1
+                        and isinstance(comps[0], ast.Name)
+                        and comps[0].id == "ENTRY_TYPE_INTEGRATION"
+                    ):
+                        return sub.body
+    raise AssertionError(
+        "async_setup_entry ENTRY_TYPE_INTEGRATION branch not found "
+        "in __init__.py — structural refactor detected"
     )
-    integration_span = src[int_setup_start:next_branch]
-    assert "_seed_integration_last_applied_options(hass, entry)" in integration_span, (
-        "H-1 wire-in regression: `_seed_integration_last_applied_options` "
-        "is not called in the ENTRY_TYPE_INTEGRATION setup span — first "
-        "post-restart camera_person_entities save will cascade a full "
-        "reload (the 2026-08-07 outage recurs)"
+
+
+def _iter_calls_by_name(nodes) -> list:
+    """Yield `(lineno, ast.Call)` for every Call whose callee is a Name
+    matching the seed helper. Walks the entire subtree of `nodes`
+    (which is expected to be an iterable of statement nodes)."""
+    out = []
+    for n in nodes:
+        for sub in ast.walk(n):
+            if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Name):
+                out.append((sub.lineno, sub))
+    return out
+
+
+def test_seed_helper_call_node_exists_in_integration_setup_ast():
+    """H-1 wire-in anchor (AST variant — orchestrator re-drill fix).
+
+    The prior grep-based anchor was defeated by a `pass`-replacement
+    (grep still matched the substring inside the block comment at
+    `__init__.py:1601-1605` explaining Bug Class #46) AND by a comment-
+    out (grep matches text inside comments). AST parse ignores both:
+    only a live `Call` node with `func.id == '_seed_integration_last_applied_options'`
+    passes.
+
+    Drill discipline (both variants MUST fail this test):
+      1. `sed -i 's/^        _seed_integration_last_applied_options.*$/        pass  # neutered/'`
+         → live Call node deleted → red.
+      2. `sed -i 's/^        _seed_integration_last_applied_options/        # _seed_integration/'`
+         → live Call node becomes a comment → red.
+    """
+    tree = ast.parse(INIT_SRC)
+    int_body = _find_integration_setup_if_body(tree)
+
+    # Look for a live Call to the seed helper anywhere inside the
+    # integration setup branch (AST walk is comment-invisible).
+    seed_calls = [
+        (lineno, call)
+        for lineno, call in _iter_calls_by_name(int_body)
+        if isinstance(call.func, ast.Name)
+        and call.func.id == "_seed_integration_last_applied_options"
+    ]
+    assert seed_calls, (
+        "H-1 wire-in regression: no live Call to "
+        "`_seed_integration_last_applied_options` in the "
+        "ENTRY_TYPE_INTEGRATION setup branch of async_setup_entry. "
+        "Comments and `pass` lines don't count — the AST needs a real "
+        "Call node. Consequence: first post-restart camera_person_entities "
+        "save will cascade a full reload (2026-08-07 outage recurs)."
     )
-    # Ordering: the seed must precede `add_update_listener` inside the
-    # integration span (mirrors the CM ordering rule).
-    seed_idx = integration_span.index("_seed_integration_last_applied_options(hass, entry)")
-    # Anchor on the REGISTRATION expression (async_on_unload wrapper) to
-    # skip the source COMMENT at the top of the integration setup block
-    # that also mentions `entry.add_update_listener(_async_update_listener)`.
-    listener_idx = integration_span.index(
-        "async_on_unload(entry.add_update_listener(_async_update_listener))",
+
+    # Ordering: the seed call must appear BEFORE the
+    # `entry.add_update_listener(_async_update_listener)` registration
+    # (mirrors CM ordering rule). Anchor on the registration Call whose
+    # callee is `entry.add_update_listener` and single arg is the
+    # `_async_update_listener` name.
+    listener_registrations = []
+    for n in int_body:
+        for sub in ast.walk(n):
+            if (
+                isinstance(sub, ast.Call)
+                and isinstance(sub.func, ast.Attribute)
+                and sub.func.attr == "add_update_listener"
+                and len(sub.args) == 1
+                and isinstance(sub.args[0], ast.Name)
+                and sub.args[0].id == "_async_update_listener"
+            ):
+                listener_registrations.append(sub.lineno)
+    assert listener_registrations, (
+        "H-1 sanity: could not locate the `entry.add_update_listener("
+        "_async_update_listener)` call in the integration setup branch"
     )
-    assert seed_idx < listener_idx, (
+
+    first_seed_line = min(ln for ln, _ in seed_calls)
+    first_listener_line = min(listener_registrations)
+    assert first_seed_line < first_listener_line, (
         "H-1 ordering regression: the seed helper must be called BEFORE "
         "add_update_listener is armed (else a re-entrant options save "
-        "could race the seed)"
+        f"could race the seed). seed@{first_seed_line}, "
+        f"listener@{first_listener_line}"
     )
 
 
