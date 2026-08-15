@@ -210,22 +210,41 @@ async def test_stage0_fixture_diff(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_idempotent_rerun(tmp_path):
+async def test_idempotent_rerun(tmp_path, caplog):
     """Drill #1: re-running the engine on the same DB writes zero new
-    facts (INSERT OR IGNORE). Detaching that clause -> UNIQUE violation.
+    facts AND logs ZERO warnings (INSERT OR IGNORE turns the second
+    write into a clean UNIQUE-index no-op). Detaching INSERT OR IGNORE
+    -> the second run raises IntegrityError inside the DAO, which the
+    DAO's broad-except swallows and logs as "distill_memory_fact failed"
+    — that log line is what fails this test.
     """
+    import logging as _lg
     db, _ = await _make_db(tmp_path)
     await _seed_exterior_track_from_fixture(db)
     from custom_components.universal_room_automation.memory_compactor import (
         MemoryCompactor,
     )
     s1 = await MemoryCompactor(db).run(triggered_by="t1", now=datetime(2026,8,12,12,tzinfo=timezone.utc))
+    caplog.clear()
+    caplog.set_level(_lg.WARNING,
+                     logger="custom_components.universal_room_automation.database")
     s2 = await MemoryCompactor(db).run(triggered_by="t2", now=datetime(2026,8,12,12,tzinfo=timezone.utc))
     assert s1["facts_created"] == 3
     # Second run: identical attrs, identity match -> no supersede,
     # INSERT OR IGNORE hits UNIQUE -> zero created.
     assert s2["facts_created"] == 0
     assert s2["facts_superseded"] == 0
+    # Drill anchor: no exception log from the DAO. Without
+    # INSERT OR IGNORE the second run's INSERT would raise
+    # IntegrityError which the DAO swallows and logs as WARNING.
+    dao_warnings = [
+        r for r in caplog.records
+        if "distill_memory_fact failed" in r.getMessage()
+    ]
+    assert not dao_warnings, (
+        "Expected zero DAO warnings on idempotent re-run — got: "
+        f"{[r.getMessage() for r in dao_warnings]}"
+    )
 
 
 @pytest.mark.asyncio
