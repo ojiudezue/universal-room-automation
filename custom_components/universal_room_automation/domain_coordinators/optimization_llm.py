@@ -654,32 +654,56 @@ class OptimizationLLMTier:
         corpus.rooms = rooms
 
         # Recent findings — last 24h, capped at _MAX_RECENT_FINDINGS.
+        # OPT-META-BOOT-TRANSIENT-1 (2026-08-15): if the RAM cache
+        # `_last_findings` is empty (post-restart transient — the
+        # coordinator hasn't run its first cycle yet), fall back to the
+        # boot-seed cache populated in `OptimizationCoordinator.async_setup`
+        # from `db.get_recent_optimization_findings`. Without this the
+        # meta pass sees `findings_recent=[]` alongside a nonzero
+        # `_open_findings_count` (durable) and produces a false HIGH
+        # "LLM cannot see problems" every restart.
+        #
+        # Card adjudication: do NOT make corpus assembly async — the DB
+        # read is pre-fetched into the coordinator; consumer reads
+        # remain sync.
         recent: list[dict] = []
         try:
-            db = self.hass.data.get(DOMAIN, {}).get("database")
-            if db is not None and hasattr(db, "get_recent_optimization_findings"):
-                # `get_recent_optimization_findings` is an AsyncMock in
-                # tests; the coordinator already awaits it during setup.
-                # Here we ONLY use what's already cached on the
-                # coordinator via `_last_findings` to keep corpus
-                # assembly synchronous and side-effect free.
-                pass
-            for f in (getattr(self.coordinator, "_last_findings", []) or [])[
-                -_MAX_RECENT_FINDINGS:
-            ]:
-                try:
-                    recent.append({
-                        "timestamp": getattr(f, "timestamp", None),
-                        "level": getattr(f, "level", None),
-                        "target_id": getattr(f, "target_id", None),
-                        "dimension": str(getattr(f, "dimension", "")),
-                        "severity": getattr(f, "severity", None),
-                        "confidence": getattr(f, "confidence", None),
-                        "description": getattr(f, "description", None),
-                        "created_by": getattr(f, "created_by", None),
-                    })
-                except Exception:  # noqa: BLE001
-                    continue
+            ram_cache = getattr(self.coordinator, "_last_findings", []) or []
+            if ram_cache:
+                source_iter = ram_cache[-_MAX_RECENT_FINDINGS:]
+                for f in source_iter:
+                    try:
+                        recent.append({
+                            "timestamp": getattr(f, "timestamp", None),
+                            "level": getattr(f, "level", None),
+                            "target_id": getattr(f, "target_id", None),
+                            "dimension": str(getattr(f, "dimension", "")),
+                            "severity": getattr(f, "severity", None),
+                            "confidence": getattr(f, "confidence", None),
+                            "description": getattr(f, "description", None),
+                            "created_by": getattr(f, "created_by", None),
+                        })
+                    except Exception:  # noqa: BLE001
+                        continue
+            else:
+                # Boot-transient fallback: read the pre-fetched DB rows.
+                boot_seed = getattr(
+                    self.coordinator, "_boot_findings_seed", []
+                ) or []
+                for row in boot_seed[-_MAX_RECENT_FINDINGS:]:
+                    try:
+                        recent.append({
+                            "timestamp": row.get("timestamp"),
+                            "level": row.get("level"),
+                            "target_id": row.get("target_id"),
+                            "dimension": str(row.get("dimension") or ""),
+                            "severity": row.get("severity"),
+                            "confidence": row.get("confidence"),
+                            "description": row.get("description"),
+                            "created_by": row.get("created_by"),
+                        })
+                    except Exception:  # noqa: BLE001
+                        continue
         except Exception:  # noqa: BLE001
             pass
         # Include the current tier-1 finding set as well so the LLM sees

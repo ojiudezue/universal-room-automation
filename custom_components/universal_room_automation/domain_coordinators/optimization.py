@@ -542,6 +542,21 @@ class OptimizationCoordinator(BaseCoordinator):
 
         # Most recent house-level summary for sensor consumption.
         self._last_findings: list[OptimizationFinding] = []
+        # OPT-META-BOOT-TRANSIENT-1 (2026-08-15): post-boot fallback for the
+        # LLM meta-pass corpus assembly. `_last_findings` is RAM-only and
+        # empty after restart, but the meta pass compares against the
+        # durable `_open_findings_count` — the mismatch produced a false
+        # HIGH "LLM cannot see problems" on every restart.
+        # `_boot_findings_seed` is a list of dict rows read from the DB
+        # during async_setup (piggybacks on the rate-cap seed read at
+        # H2 below — one DB round-trip does double duty). The LLM tier's
+        # SYNC corpus assembly (optimization_llm.py _assemble_corpus)
+        # falls back to this seed when `_last_findings` is empty, without
+        # changing corpus assembly's sync contract (card adjudication:
+        # "pick the shape that does NOT change corpus assembly's sync
+        # contract"). Cleared implicitly once the first post-boot cycle
+        # populates `_last_findings` (assembly prefers RAM cache).
+        self._boot_findings_seed: list[dict] = []
         self._last_evaluation_iso: str | None = None
         self._house_score: float = 100.0
         self._room_scores: dict[str, float] = {}
@@ -658,6 +673,23 @@ class OptimizationCoordinator(BaseCoordinator):
             db = self.hass.data.get(DOMAIN, {}).get("database")
             if db is not None and hasattr(db, "get_recent_optimization_findings"):
                 rows = await db.get_recent_optimization_findings(limit=200)
+                # OPT-META-BOOT-TRANSIENT-1 (2026-08-15): cache the raw
+                # rows for the LLM meta-pass corpus fallback. Same DB
+                # read; no extra round-trip. Discarded implicitly once
+                # the first post-boot cycle populates `_last_findings`
+                # (assembly prefers RAM cache).
+                try:
+                    self._boot_findings_seed = [
+                        r for r in (rows or []) if isinstance(r, dict)
+                    ]
+                    if self._boot_findings_seed:
+                        _LOGGER.info(
+                            "Optimizer: seeded LLM-meta boot cache with "
+                            "%d rows from optimization_findings",
+                            len(self._boot_findings_seed),
+                        )
+                except Exception:  # noqa: BLE001 — best-effort seed
+                    self._boot_findings_seed = []
                 cutoff = dt_util.utcnow() - timedelta(hours=1)
                 seeded = 0
                 for r in rows or []:
