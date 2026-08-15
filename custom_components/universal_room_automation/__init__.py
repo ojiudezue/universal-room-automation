@@ -62,6 +62,12 @@ from .const import (
     CONF_ENHANCED_CENSUS,  # v3.10.1: Enhanced census toggle
     CENSUS_EVENT_DEBOUNCE_SECONDS,  # v3.10.1: Event debounce
     STATE_OCCUPIED,  # v4.0.0-B2: Used in accuracy eval
+    # RELOAD-WATCHDOG-HAZARD fix-up (2026-08-15, B-MED-1):
+    # imported so `_INTEGRATION_KEY_SIGNAL_TABLE` references the
+    # authoritative constant instead of a raw duplicate string
+    # (stringly-typed cross-module coupling — subscriber at
+    # `transit_validator.py:41` imports the same const).
+    SIGNAL_URA_TRANSIT_CONFIG_CHANGED,
 )
 from .const import VERSION
 from .coordinator import UniversalRoomCoordinator
@@ -3862,9 +3868,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # These will be registered via the platform files
         await hass.config_entries.async_forward_entry_setups(entry, INTEGRATION_PLATFORMS)
         
+        # RELOAD-WATCHDOG-HAZARD fix-up (2026-08-15, H-1 / B-HIGH-1):
+        # Seed the integration-entry snapshot BEFORE the update listener
+        # is armed so the first post-restart options save has a real
+        # baseline to diff against (else `old={}` → `changed_keys` =
+        # `set(new.keys())` → subset-check false → cascade). Mirrors the
+        # CM seed at :4265; same ordering rule as CM (seed then arm).
+        _seed_integration_last_applied_options(hass, entry)
+
         # v3.2.5: Add update listener to reload entry when options change
         entry.async_on_unload(entry.add_update_listener(_async_update_listener))
-        
+
         # v3.9.4: Register URA Dashboard panel (panel_custom with auth passthrough)
         import os
         frontend_path = os.path.join(os.path.dirname(__file__), "frontend")
@@ -5931,7 +5945,7 @@ INTEGRATION_RELOAD_SUPPRESS_ENABLED: bool = True
 # `fan_veto.py:353` is fresh-read via caller `_config()`
 # (`actuator_reconciler.py:212-214` — `{**data, **options}` per call).
 _INTEGRATION_KEY_SIGNAL_TABLE: dict[str, tuple[str, ...]] = {
-    CONF_CAMERA_PERSON_ENTITIES: ("ura_transit_config_changed",),
+    CONF_CAMERA_PERSON_ENTITIES: (SIGNAL_URA_TRANSIT_CONFIG_CHANGED,),
 }
 
 
@@ -5972,6 +5986,29 @@ def _seed_cm_last_applied_options(hass: HomeAssistant, entry: ConfigEntry) -> No
     """
     snapshots = hass.data.setdefault(DOMAIN, {}).setdefault(
         "cm_last_applied_options", {},
+    )
+    snapshots[entry.entry_id] = dict(entry.options)
+
+
+def _seed_integration_last_applied_options(
+    hass: HomeAssistant, entry: ConfigEntry,
+) -> None:
+    """Seed the per-INTEGRATION-entry last-applied-options snapshot.
+
+    RELOAD-WATCHDOG-HAZARD fix-up (2026-08-15, Review A H-1 / Review B B-HIGH-1):
+    the integration-entry suppress branch in ``_async_update_listener``
+    diffs `entry.options` against this dict. Without a boot-time seed the
+    FIRST post-restart options save saw `old={}`, so `changed_keys`
+    reduced to `set(new.keys())` — a superset of the single-key allowlist —
+    and the subset check FAILED, cascading a full reload (i.e. the very
+    2026-08-07 outage this cycle exists to prevent). Sibling helper to
+    ``_seed_cm_last_applied_options``, deliberately NOT an extension of it
+    (Bug Class #27 — primary/deferred mirror drift). Call once from the
+    integration setup path BEFORE `entry.add_update_listener(...)` is
+    registered.
+    """
+    snapshots = hass.data.setdefault(DOMAIN, {}).setdefault(
+        "integration_last_applied_options", {},
     )
     snapshots[entry.entry_id] = dict(entry.options)
 
