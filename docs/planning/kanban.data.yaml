@@ -1112,9 +1112,9 @@ cards:
 
 
 - id: ZIRI3-UNCONFIG-1
-  title: 'Unconfigure dead Ziri 3 device from Ziri Bedroom entry (presence + moving_target + VEML7700 lux) — rides next deploy restart'
+  title: 'RECOVER (not unconfigure) Ziri 3 device from Ziri Bedroom entry (presence + moving_target + VEML7700 lux) — rides next deploy restart'
   thread: presence
-  status: waiting_me
+  status: waiting_operator
   approval: explicit
   approved_by: 'operator 2026-08-15 ("Check if in config and if not unconfigure it")'
   origin:
@@ -1122,8 +1122,10 @@ cards:
     gist: 'ziri_3_presence stuck-unavailable finding in optimizer score-55 round; device physically dead (established 2026-08-05).'
   why: 'Dead device dings sensor_health every cycle. Room keeps mmwave_zigbee_ziribedroom_presence for presence. Three refs removed: presence_sensors[ziri_3_presence], motion_sensors[ziri_3_moving_target], illuminance_sensor=ziri_3_veml7700 (set None — room loses lux until a replacement is configured; operator-visible).'
   constraints: ['flush-watcher pattern (stop->boot gap), NOT a live .storage edit', 'BLOCKS-CLOSE-OF next deploy — same batch discipline as garage-egress']
-  next: 'At next deploy restart: run scratchpad/ziri3_unconfig_after_flush.py alongside any other staged riders; post-boot verify refs gone + room presence still tracks via Zigbee mmWave.'
   refs: [scratchpad ziri3_unconfig_after_flush.py]
+  reversal_2026_08_15: 'Operator: device is still physically in the room — DO NOT unconfigure. Staged flush-watcher rider DELETED. History: zero real readings in entire recorder retention (8+ days); node does not resolve on network (ESP fully off-WiFi, not flapping). Config refs stay.'
+  next: 'OPERATOR: power-cycle the Ziri 3 node (unplug/replug). Then I verify: entities leave unavailable, presence/lux flow, optimizer sensor_health finding clears next cycle.'
+
 
 - id: OPT-META-BOOT-TRANSIENT-1
   title: 'Optimizer meta-monitor false "cannot see problems" alert — findings_recent reads RAM cache emptied by restart while open-count reads durable state'

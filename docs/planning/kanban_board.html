@@ -132,8 +132,8 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-08-14T23:36:28-05:00</b></span>
-<span>data <b>a204235a144b</b></span>
+<span>generated <b>2026-08-14T23:43:39-05:00</b></span>
+<span>data <b>02fef4a498e4</b></span>
 <span>reconciled <b>2026-08-14</b></span>
 <span><a href="https://urakanban.phalanxmadrone.com">urakanban.phalanxmadrone.com</a></span>
 <span><a href="https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149">artifact</a></span>
@@ -145,8 +145,8 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <span>In progress <b>4</b></span>
 <span>Review <b>0</b></span>
 <span>Shipped (organic open) <b>34</b></span>
-<span>Waiting on operator <b>2</b></span>
-<span>Waiting on me (Claude) <b>2</b></span>
+<span>Waiting on operator <b>3</b></span>
+<span>Waiting on me (Claude) <b>1</b></span>
 <span>Parked <b>3</b></span>
 <span>Done <b>3</b></span>
 </div>
@@ -235,16 +235,16 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 </section>
 <section class="lane" data-col="waiting_operator">
-<h2>Waiting on operator <span class="count">2</span><span class="hint">needs a human call</span></h2>
+<h2>Waiting on operator <span class="count">3</span><span class="hint">needs a human call</span></h2>
 <div class="cards">
+<details class="card ap-explicit" data-id="ZIRI3-UNCONFIG-1" draggable="true"><summary><span class="id">ZIRI3-UNCONFIG-1</span><span class="apl">explicit</span><span class="title">RECOVER (not unconfigure) Ziri 3 device from Ziri Bedroom entry (presence + moving_target + VEML7700 lux) — rides next deploy restart</span><div class="tagline">presence</div></summary><div class="body"><dl class="kv"><dt>Origin</dt><dd>2026-08-15 - ziri_3_presence stuck-unavailable finding in optimizer score-55 round; device physically dead (established 2026-08-05).</dd><dt>Why</dt><dd>Dead device dings sensor_health every cycle. Room keeps mmwave_zigbee_ziribedroom_presence for presence. Three refs removed: presence_sensors[ziri_3_presence], motion_sensors[ziri_3_moving_target], illuminance_sensor=ziri_3_veml7700 (set...</dd><dt>Next</dt><dd>OPERATOR: power-cycle the Ziri 3 node (unplug/replug). Then I verify: entities leave unavailable, presence/lux flow, optimizer sensor_health finding clears next cycle.</dd><dt>Refs</dt><dd>scratchpad ziri3_unconfig_after_flush.py</dd><dt>Forensic (1)</dt><dd><ul class="forensic"><li><code>reversal_2026_08_15</code>: Operator: device is still physically in the room — DO NOT unconfigure. Staged flush-watcher rider DELETED. History: zero real readings in entire recorder retention (8+ days); node does not resolve on network (ESP fully off-WiFi, not flap...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 <details class="card ap-unreviewed" data-id="EV-GARAGE-A-NOCHARGE-1" draggable="true"><summary><span class="id">EV-GARAGE-A-NOCHARGE-1</span><span class="apl">unreviewed</span><span class="title">BMW on Garage A refuses charge overnight — vehicle-side or pilot fault; URA exonerated</span><div class="tagline">energy</div></summary><div class="body"><dl class="kv"><dt>Origin</dt><dd>2026-08-11 - operator: &quot;BMW on Garage A has not charged overnight.&quot; Investigated; initial DP-stall framing CORRECTED.</dd><dt>Why</dt><dd>Recorder: URA lifted TOU pause at 21:00 off_peak, switch.garage_a ON 23:53-06:09, 41A limit — EVSE Connected all night, NEVER Charging, 0 kWh. L1 sockets charged fine 01:30-07:04. DP hold_only = resting state (paused_by_battery_drain emp...</dd><dt>Next</dt><dd>OPERATOR: check BMW app (schedule/target/errors) + reseat cable. URA-side follow-ups split out: DP observability (stale last_eval snapshot presented as current, expired must_start_by shown) + garage-A network fix (homelab).</dd><dt>Forensic (1)</dt><dd><ul class="forensic"><li><code>sharp_problem</code>: Suspects: (1) BMW in-car charge schedule/target-SOC met; (2) pilot/cable fault — six 10s Connected-&gt;Disconnected blips overnight; (3) Garage A network degradation (Emporia unavailable-flap every 2-5min + Shelly overhead + Zigbee door als...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 <details class="card ap-blocked" data-id="F1-SUNSET" draggable="true"><summary><span class="id">F1-SUNSET</span><span class="apl">blocked</span><span class="title">Frigate-1 go/no-go</span><div class="tagline">camera<span class="sep">·</span>audit-first</div></summary><div class="body"><dl class="kv"><dt>Origin</dt><dd>2026-08-07 - Remind me when we can go on f1 sunset tmr</dd><dt>Why</dt><dd>steps 1-6 remote (mine), step 7 = operator unplugs NUC; readiness = organic one-alert-per-multi-engine-traversal</dd><dt>Next</dt><dd>operator go/no-go (reminder Aug 8)</dd><dt>Refs</dt><dd>AUDIT_frigate1_sunset.md</dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 </div>
 </section>
 <section class="lane" data-col="waiting_me">
-<h2>Waiting on me (Claude) <span class="count">2</span><span class="hint">I owe something</span></h2>
+<h2>Waiting on me (Claude) <span class="count">1</span><span class="hint">I owe something</span></h2>
 <div class="cards">
-<details class="card ap-explicit" data-id="ZIRI3-UNCONFIG-1" draggable="true"><summary><span class="id">ZIRI3-UNCONFIG-1</span><span class="apl">explicit</span><span class="title">Unconfigure dead Ziri 3 device from Ziri Bedroom entry (presence + moving_target + VEML7700 lux) — rides next deploy restart</span><div class="tagline">presence</div></summary><div class="body"><dl class="kv"><dt>Origin</dt><dd>2026-08-15 - ziri_3_presence stuck-unavailable finding in optimizer score-55 round; device physically dead (established 2026-08-05).</dd><dt>Why</dt><dd>Dead device dings sensor_health every cycle. Room keeps mmwave_zigbee_ziribedroom_presence for presence. Three refs removed: presence_sensors[ziri_3_presence], motion_sensors[ziri_3_moving_target], illuminance_sensor=ziri_3_veml7700 (set...</dd><dt>Next</dt><dd>At next deploy restart: run scratchpad/ziri3_unconfig_after_flush.py alongside any other staged riders; post-boot verify refs gone + room presence still tracks via Zigbee mmWave.</dd><dt>Refs</dt><dd>scratchpad ziri3_unconfig_after_flush.py</dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 <details class="card ap-implied" data-id="SWEEP" draggable="true"><summary><span class="id">SWEEP</span><span class="title">Morning sweep</span><div class="tagline">ops</div></summary><div class="body"><dl class="kv"><dt>Why</dt><dd>reason-ledger first night, Frigate car/dog/cat first events, snapshot-fix organic proof, v5.57/58 organic criteria</dd><dt>Next</dt><dd>check + report each</dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 </div>
 </section>
@@ -283,7 +283,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>a204235a144b</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>02fef4a498e4</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {
