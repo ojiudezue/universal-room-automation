@@ -5888,6 +5888,81 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
 })
 
 
+# =====================================================================
+# RELOAD-WATCHDOG-HAZARD (2026-08-15) — integration-entry reload suppress
+# =====================================================================
+# Mirrors the CM `OPTIONS_RELOAD_SUPPRESS_KEYS` pattern, scoped to the
+# INTEGRATION (parent) entry. The observed 2026-08-07 outage came from a
+# Camera Census save on the integration entry cascading a synchronous
+# reload to ~40 child entries (~5-minute event-loop stall → supervisor
+# watchdog restart). This branch short-circuits that reload when the
+# changed key-set is a subset of `INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS`
+# and every allowlisted key either is fresh-read on every tick or has a
+# discharge signal wired in `_INTEGRATION_KEY_SIGNAL_TABLE`.
+#
+# v1 seed per D1 audit (docs/planning/AUDIT_integration_options_reload_classification.md):
+#   {CONF_CAMERA_PERSON_ENTITIES} only.
+# CONF_EGRESS_CAMERAS / CONF_PERIMETER_CAMERAS are DELIBERATELY NOT in
+# the allowlist — PerimeterAlertManager caches them at setup with no
+# refresh signal today (parked follow-up #1). They stay on the legacy
+# reload path (unchanged behavior; zero regression).
+#
+# NON-GOAL (plan MED-2): `_apply_in_place` is byte-identical after this
+# cycle. The integration branch uses the sibling helper
+# `_dispatch_integration_key_signals` — NOT an `entry_type` branch inside
+# `_apply_in_place`. Bug Class #27 (primary/deferred mirror drift): the
+# CM helper and the integration helper stay independent.
+INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
+    CONF_CAMERA_PERSON_ENTITIES,
+})
+
+# Rung-1 kill switch (numbers-get-knobs). Flipping to False re-enables
+# the pre-cycle reload behavior AND skips the discharge dispatch (see
+# plan LOW-1) — the reload rebuilds subscriptions naturally, and a
+# parallel dispatch on the fall-through path doubles work + confuses
+# logs. This is a fire-axe; adding/removing it requires review.
+INTEGRATION_RELOAD_SUPPRESS_ENABLED: bool = True
+
+# Rung-1 wiring table (per-key discharge signals). v1: the transit
+# validator's cached subscription set is the only cached consumer of
+# CONF_CAMERA_PERSON_ENTITIES; SIGNAL_URA_TRANSIT_CONFIG_CHANGED is
+# subscribed at transit_validator.py:328 and rebuilds subs on receipt.
+# Camera Census itself is fresh-read (`camera_census.py:1803-1821`);
+# `fan_veto.py:353` is fresh-read via caller `_config()`
+# (`actuator_reconciler.py:212-214` — `{**data, **options}` per call).
+_INTEGRATION_KEY_SIGNAL_TABLE: dict[str, tuple[str, ...]] = {
+    CONF_CAMERA_PERSON_ENTITIES: ("ura_transit_config_changed",),
+}
+
+
+def _dispatch_integration_key_signals(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    changed_keys: set[str],
+) -> None:
+    """Fire discharge signals for each allowlisted integration-entry key.
+
+    Sibling helper to `_apply_in_place` (NOT an extension of it — plan
+    MED-2, Bug Class #27). Per-signal try/except mirrors the CM branch's
+    defensive posture: persistence has already happened via
+    `async_update_entry`, so a dispatch failure logs WARNING and does NOT
+    re-raise — converting a persisted write into an outage-inducing
+    reload is worse than a silent-until-next-tick cached-consumer stale.
+    """
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+    for key in changed_keys:
+        signals = _INTEGRATION_KEY_SIGNAL_TABLE.get(key, ())
+        for sig in signals:
+            try:
+                async_dispatcher_send(hass, sig, entry.entry_id, key)
+            except Exception:  # noqa: BLE001 — never re-raise; see docstring
+                _LOGGER.warning(
+                    "INTEGRATION options: dispatch of signal=%s for "
+                    "key=%s failed (non-fatal)",
+                    sig, key, exc_info=True,
+                )
+
+
 def _seed_cm_last_applied_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Seed/refresh the per-CM-entry last-applied-options snapshot.
 
@@ -6497,6 +6572,55 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
         # cleared between the suppress-branch entry and here.
         hass.data.setdefault(DOMAIN, {}).setdefault(
             "cm_last_applied_options", {},
+        )[entry.entry_id] = dict(entry.options)
+
+    # RELOAD-WATCHDOG-HAZARD (2026-08-15): mirror the CM suppress pattern
+    # on the INTEGRATION (parent) entry. Root cause of the 2026-08-07
+    # ~5-minute outage: a Camera Census save on this entry cascaded a
+    # synchronous reload to ~40 child entries.
+    #
+    # NOTE on snapshot cleanup (plan LOW-4): `integration_last_applied_options`
+    # is intentionally NOT cleaned on entry unload — the leak is one
+    # dict per integration entry (there is exactly one), cleared at
+    # integration teardown when `hass.data[DOMAIN]` is torn down. This
+    # matches the CM branch's convention (`cm_last_applied_options`
+    # write-only, see :6447 above). If a future cycle changes CM
+    # cleanup, mirror it here.
+    if entry_type == ENTRY_TYPE_INTEGRATION:
+        snapshots = hass.data.setdefault(DOMAIN, {}).setdefault(
+            "integration_last_applied_options", {},
+        )
+        old = snapshots.get(entry.entry_id, {})
+        new = dict(entry.options)
+        changed_keys = {
+            k for k in (old.keys() | new.keys())
+            if old.get(k) != new.get(k)
+        }
+        if not changed_keys:
+            # Defensive no-op (matches CM branch shape).
+            return
+        # Kill-switch gate (plan LOW-1): skips BOTH suppress AND dispatch.
+        # The fall-through reload rebuilds subscriptions naturally; a
+        # parallel dispatch would double the work and confuse logs.
+        if (INTEGRATION_RELOAD_SUPPRESS_ENABLED
+                and changed_keys.issubset(INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS)):
+            _LOGGER.info(
+                "INTEGRATION options changed for '%s' (%s) — in-place "
+                "apply, suppressing reload (changed_keys=%s)",
+                entry.title, entry.entry_id, sorted(changed_keys),
+            )
+            _dispatch_integration_key_signals(hass, entry, changed_keys)
+            # Snapshot advance: for v1 the apply-set equals the changed
+            # set (dispatch-only, no live-attr push). Keep the CM-branch
+            # shape for future cached-consumer additions.
+            snapshots[entry.entry_id] = dict(new)
+            return
+        # Mixed or non-allowlisted change → reseed snapshot to the
+        # post-write options BEFORE falling through to reload so a
+        # second in-flight write during the reload diffs against a
+        # clean baseline (mirrors CM branch B-HIGH-2 pattern).
+        hass.data.setdefault(DOMAIN, {}).setdefault(
+            "integration_last_applied_options", {},
         )[entry.entry_id] = dict(entry.options)
 
     _LOGGER.info("Options changed for '%s' (%s), scheduling reload", entry.title, entry.entry_id)
