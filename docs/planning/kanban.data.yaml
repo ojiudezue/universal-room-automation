@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-08-14'
+  last_reconciled: '2026-08-15'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -1138,7 +1138,8 @@ cards:
 - id: OPT-META-BOOT-TRANSIENT-1
   title: 'Optimizer meta-monitor false "cannot see problems" alert — findings_recent reads RAM cache emptied by restart while open-count reads durable state'
   thread: optimizer
-  status: inbox
+  status: shipped_organic
+  shipped_version: v5.77.0
   approval: unreviewed
   origin:
     date: '2026-08-15'
@@ -1151,7 +1152,8 @@ cards:
 - id: CENSUS-SUFFIX-FIX-1
   title: 'Census regression ROOT-CAUSED: strict-suffix matchers miss all _2 F2 sensors since F1 death (08-13) -> count sensors unmapped -> census pinned at identified count. Fix: disambiguation-tolerant matching.'
   thread: presence
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.77.0
   approval: implied
   origin:
     date: '2026-08-15'
@@ -2185,7 +2187,8 @@ cards:
 - id: RELOAD-WATCHDOG-HAZARD
   title: URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
   thread: lifecycle
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.77.0
   approval: explicit
   approved_by: operator
   approved_on: 2026-08-07

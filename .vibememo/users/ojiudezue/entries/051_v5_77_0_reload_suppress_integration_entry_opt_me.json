@@ -1,0 +1,21 @@
+{
+  "format_version": "2.1",
+  "entry_id": "051",
+  "author": "ojiudezue",
+  "session_id": "claude_20260815_212454_ship_v5_77_0",
+  "timestamp": "2026-08-15T21:24:54Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.77.0 shipped: Reload-suppress (integration entry) + opt-meta boot fix + census count restore",
+  "summary": "Camera-census options saves no longer cascade-reload 40 entries (setup-seeded suppress branch, single-key allowlist, transit signal dispatch). Optimizer false boot meta-alert closed (DB boot seed + one-shot clear). Census counting restored post-F1: suffix-tolerant matching remaps _2 count sensors (daily max had collapsed 6-7 to 4). Rider at restart: zone-camera person-only swap.",
+  "refs": {
+    "cards": [
+      "RELOAD-WATCHDOG-HAZARD",
+      "OPT-META-BOOT-TRANSIENT-1",
+      "CENSUS-SUFFIX-FIX-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.77.0.md"
+    ]
+  }
+}
