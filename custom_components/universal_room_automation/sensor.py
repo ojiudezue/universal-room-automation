@@ -4578,6 +4578,8 @@ class URAMemoryStatusSensor(AggregationEntity, SensorEntity):
                 "compactor_facts_created_last_run": None,
                 "compactor_facts_superseded_last_run": None,
                 "compactor_writes_last_run": None,
+                "compactor_distill_calls_last_run": None,
+                "compactor_skipped_missing_identity_last_run": None,
                 "compactor_aborted_reason": None,
                 "compactor_triggered_by": None,
             }
@@ -4586,6 +4588,13 @@ class URAMemoryStatusSensor(AggregationEntity, SensorEntity):
             "compactor_facts_created_last_run": stats.get("facts_created"),
             "compactor_facts_superseded_last_run": stats.get("facts_superseded"),
             "compactor_writes_last_run": stats.get("writes_total"),
+            # Fix-up B-LOW-2 + MED-A2: observability deltas so cap
+            # starvation and upstream-shape drift are visible without
+            # tail-logs.
+            "compactor_distill_calls_last_run": stats.get("distill_calls"),
+            "compactor_skipped_missing_identity_last_run": stats.get(
+                "skipped_missing_identity",
+            ),
             "compactor_aborted_reason": stats.get("aborted_reason"),
             "compactor_triggered_by": stats.get("triggered_by"),
         }

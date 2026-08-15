@@ -16,10 +16,15 @@ Design invariants (plan §1):
   ``superseded_by`` on the old.
 
 Read discipline (HIGH-2, CRIT-blocking on review): the engine has
-EXACTLY two read callsites — ``db.read_memory_episodes`` and
-``db.read_memory_facts``. A raw ``aiosqlite.connect`` anywhere in this
-module is a CRIT review finding (enforced by
-``test_no_raw_aiosqlite_in_compactor``).
+EXACTLY three read callsites — ``db.read_memory_episodes``,
+``db.read_memory_facts``, and ``db.read_distinct_nodes_for_episodes``
+(added 2026-08-14 as the fix for HIGH-A1). All three go through
+``_db_read()``. Any raw ``aiosqlite`` reference (import, attribute, or
+string constant) anywhere in this module is a CRIT review finding —
+the AST scan in ``test_no_raw_aiosqlite_in_compactor`` catches direct
+imports, ``aiosqlite.connect`` attribute access, AND string-constant
+evasions (``importlib.import_module("aiosqlite")`` etc.). Each read
+DAO has its own named mutation drill.
 """
 
 from __future__ import annotations
@@ -129,13 +134,21 @@ def _statement_phantom_recurrence(
     return statement, attrs
 
 
-def _statement_actuation_conflict_daily(
+def _statement_actuation_conflict_summary(
     rows: list[dict], node_id: str, topic: str,
 ) -> tuple[str, dict]:
-    """Per-(room, action, trigger, house_state) daily counts.
+    """Per-(room, action, trigger, house_state) rolling-window summary.
 
     Groups pre-partitioned by identity_keys = (action, trigger,
     house_state); this fn sees one such group at a time.
+
+    Rev-2 rename (MED-A3, orchestrator fix-up 2026-08-14): topic
+    renamed from ``actuation_conflict_daily`` ->
+    ``actuation_conflict_summary`` and statement text now explicitly
+    labels the aggregate as a ``window`` sum with the observed span
+    in seconds — the fact is a rolling 7-day count, NOT a per-day
+    bucket. Day-bucketing was explicitly ruled OUT of this cycle by
+    the orchestrator.
     """
     a0 = rows[0].get("attrs") or {}
     action = a0.get("action") or "unknown"
@@ -144,15 +157,24 @@ def _statement_actuation_conflict_daily(
     n = len(rows)
     first_ts = min(r["started_at"] for r in rows)
     last_ts = max(r["started_at"] for r in rows)
+    # Observed span (seconds) between first and last row in this window.
+    try:
+        window_span_s = int(
+            (datetime.fromisoformat(last_ts)
+             - datetime.fromisoformat(first_ts)).total_seconds()
+        )
+    except Exception:  # noqa: BLE001
+        window_span_s = 0
     attrs = {
         "room": node_id, "action": action, "trigger": trigger,
         "house_state": house_state, "count": n,
         "first_ts": first_ts, "last_ts": last_ts,
+        "window_span_s": window_span_s,
     }
     statement = (
-        f"actuation_conflict room={node_id} action={action} "
+        f"actuation_conflict summary room={node_id} action={action} "
         f"trigger={trigger} house_state={house_state} count={n} "
-        f"first={first_ts} last={last_ts}"
+        f"window_span_s={window_span_s} first={first_ts} last={last_ts}"
     )
     return statement, attrs
 
@@ -160,7 +182,7 @@ def _statement_actuation_conflict_daily(
 _STATEMENT_FNS: dict[str, Callable[[list[dict], str, str], tuple[str, dict]]] = {
     "exterior_track_baseline": _statement_exterior_track_baseline,
     "phantom_recurrence": _statement_phantom_recurrence,
-    "actuation_conflict_daily": _statement_actuation_conflict_daily,
+    "actuation_conflict_summary": _statement_actuation_conflict_summary,
 }
 
 
@@ -182,7 +204,7 @@ def _key_from_attrs(identity_keys: tuple) -> Callable[[dict], tuple]:
 
 _KEY_FNS: dict[str, Callable[[dict], tuple]] = {
     "exterior_track_baseline": _key_exterior_track,
-    # actuation_conflict_daily + phantom_recurrence use default extractor
+    # actuation_conflict_summary + phantom_recurrence use default extractor
     # (identity_keys map to top-level attrs).
 }
 
@@ -239,7 +261,15 @@ class MemoryCompactor:
             "facts_created": 0,
             "facts_superseded": 0,
             "episodes_redacted": 0,
+            # Effective writes only (fix-up B-LOW-2). See _run_rule.
             "writes_total": 0,
+            # Raw distill_memory_fact call count — observability delta
+            # vs writes_total so cap starvation surfaces if it happens.
+            "distill_calls": 0,
+            # Rows skipped because identity_keys attrs missing on the
+            # upstream episode (fix-up MED-A2). Surfaces upstream-
+            # writer shape drift.
+            "skipped_missing_identity": 0,
             "aborted_reason": None,
             "triggered_by": triggered_by,
             "started_at": started_at.isoformat(),
@@ -288,6 +318,8 @@ class MemoryCompactor:
         stmt_fn = _STATEMENT_FNS[fn_name]
 
         since_iso = (now_utc - timedelta(days=window_days)).isoformat()
+        # Snapshot for MED-A2 per-rule WARN.
+        _skipped_before = int(stats.get("skipped_missing_identity", 0))
 
         node_ids = await self._distinct_nodes_for_type(ep_type, since_iso)
         for node_id in node_ids:
@@ -316,8 +348,14 @@ class MemoryCompactor:
                 key = key_fn(a)
                 # Skip rows with missing identity-key values when the
                 # rule needs them — defensive against upstream shape
-                # surprises.
+                # surprises. Fix-up MED-A2 (2026-08-14): count the
+                # drops in run stats + WARN once per rule per run so
+                # upstream-writer shape drift can't silently under-
+                # distill.
                 if identity_keys and any(v is None for v in key):
+                    stats["skipped_missing_identity"] = int(
+                        stats.get("skipped_missing_identity", 0),
+                    ) + 1
                     continue
                 groups.setdefault(key, []).append(r)
 
@@ -358,7 +396,23 @@ class MemoryCompactor:
                     derived_from=derived_from,
                     supersede_old_id=supersede_old_id,
                 )
-                stats["writes_total"] += 1
+                # Fix-up B-LOW-2 (2026-08-14): count only EFFECTIVE
+                # writes toward the cap. INSERT-OR-IGNORE no-ops (same
+                # (node,topic,statement) already present) don't consume
+                # a real write slot; re-runs must be able to iterate
+                # every group cheaply after a prior cap-abort or the
+                # rules starve each other across nights. `distill_calls`
+                # tracks the raw DAO call count for observability.
+                stats["distill_calls"] = int(
+                    stats.get("distill_calls", 0),
+                ) + 1
+                effective = (
+                    res.get("inserted_id") is not None
+                    or res.get("superseded")
+                    or res.get("redacted")
+                )
+                if effective:
+                    stats["writes_total"] += 1
                 if res.get("inserted_id") is not None:
                     stats["facts_created"] += 1
                 if res.get("superseded"):
@@ -366,61 +420,45 @@ class MemoryCompactor:
                 if res.get("redacted"):
                     stats["episodes_redacted"] += 1
 
+        # Fix-up MED-A2: WARN once per rule if any rows were dropped
+        # for missing identity-key attrs (upstream shape drift signal).
+        _skipped_after = int(stats.get("skipped_missing_identity", 0))
+        _delta = _skipped_after - _skipped_before
+        if _delta > 0:
+            _LOGGER.warning(
+                "memory_compactor rule=%s dropped %d row(s) for missing "
+                "identity_keys=%s — check upstream writer shape drift",
+                ep_type, _delta, list(identity_keys),
+            )
+
     # ---------- helpers ----------
 
     async def _distinct_nodes_for_type(
         self, ep_type: str, since_iso: str,
     ) -> list[str]:
-        """Discover node_ids that have episodes of the given type.
+        """Data-driven node discovery via the sanctioned third read DAO.
 
-        Uses ``get_memory_status_counts``-style aggregation via the
-        sanctioned status accessor to avoid a third read DAO. We fall
-        back to a single-node discovery when the status accessor does
-        not surface per-node lists — for rev-2 the compactor iterates a
-        small, known set of nodes derived from the episode-type rule
-        catalog. To stay strictly within the two-DAO cap, we ask the DB
-        for facts + episodes only; distinct-node discovery here reads
-        the status accessor (which itself uses ``_db_read`` — see
-        database.get_memory_status_counts) purely for the by-type
-        totals used as a *presence* signal.
-
-        NOTE: `get_memory_status_counts` returns totals but not node
-        lists. To honor HIGH-2 without adding a third read DAO, we
-        instead scan the shipped rule set: for each ep_type we know the
-        canonical node namespace (``room:*`` for room-scoped types,
-        ``exterior:perimeter`` for exterior_track). This is a design
-        constraint of rev-2 and is documented in the plan (§9 deferrals
-        for anything that outgrows this scheme).
+        Fix-up HIGH-A1 + MED-A1 (2026-08-14): the prior rev shipped a
+        hardcoded ``SCOPES`` table that (i) required a separate boot-
+        assert to catch new-rule drift and (ii) looked up
+        ``hass.data[DOMAIN]["rooms"]`` — a key that never exists (rooms
+        live under ``hass.data[DOMAIN][entry.entry_id]``), so both
+        room-scoped rules silently distilled nothing. Replaced with
+        ``db.read_distinct_nodes_for_episodes(ep_type, since_iso)``
+        which reads exactly the nodes that *actually have* episodes in
+        the window. HIGH-2 (Stage-1) compliance: the new read DAO is
+        on ``_db_read()`` and covered by mutation drill #5.
         """
-        # Rev-2 mapping of episode types to their canonical node
-        # discovery. Values are either:
-        #   * a single literal node_id (str), or
-        #   * the sentinel "rooms:*" meaning "iterate configured rooms".
-        # For "rooms:*" we lean on hass.data if reachable through the
-        # DB; otherwise return an empty list (compactor no-ops for that
-        # rule for that run — safe, next run picks up when the room
-        # roster is available).
-        SCOPES = {
-            "exterior_track": ("literal", "exterior:perimeter"),
-            "occupancy_phantom": ("rooms", None),
-            "actuation_conflict": ("rooms", None),
-        }
-        kind, val = SCOPES.get(ep_type, ("rooms", None))
-        if kind == "literal":
-            return [val]
-        # kind == "rooms" — enumerate configured room node_ids from
-        # hass.data if reachable via the DB handle.
-        hass = getattr(self._db, "hass", None)
-        if hass is None:
-            return []
         try:
-            data = hass.data.get("universal_room_automation", {}) or {}
-            room_ids = list(
-                (data.get("rooms") or data.get("room_coordinators") or {}).keys()
+            return await self._db.read_distinct_nodes_for_episodes(
+                ep_type, since_iso,
             )
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning(
+                "_distinct_nodes_for_type(%s): DAO read failed: %s",
+                ep_type, e,
+            )
             return []
-        return [f"room:{rid}" for rid in room_ids]
 
     @staticmethod
     def _match_supersede(

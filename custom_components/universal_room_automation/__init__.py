@@ -2151,6 +2151,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # bounded incremental_vacuum. Without this, the deferred branch
                 # never reclaims freed pages. Runs LAST, identical semantics.
                 ("incremental_vacuum", "incremental_vacuum", {}),
+                # MEMORY-COMPACTOR-1 fix-up C1 / B-HIGH-1 (Bug Class #27):
+                # mirror the primary path so a deferred-startup boot ALSO
+                # runs the nightly compactor. Without this, on any boot that
+                # loses the DB-init race, `_last_compactor_run_ts` stays None
+                # forever and no room-scoped facts are ever distilled by the
+                # nightly path (button still works). Same short-circuit / cadence
+                # guard semantics as primary.
+                ("memory_compactor", "run_memory_compactor", {}),
             ]
 
             async def _nightly_maintenance_deferred(_now):

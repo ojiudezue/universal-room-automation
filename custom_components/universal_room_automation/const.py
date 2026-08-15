@@ -3669,7 +3669,7 @@ MEMORY_FACT_TOPICS: Final = frozenset({
     # Symmetric boot-time assert lives in memory_compactor.py module load.
     "exterior_track_baseline",
     "phantom_recurrence",
-    "actuation_conflict_daily",
+    "actuation_conflict_summary",
 })
 
 # --- MEMORY-COMPACTOR-1 knobs (all rung 1 module constants, per
@@ -3706,12 +3706,12 @@ MEMORY_COMPACTION_RULES: Final = {
         "priority": 1,
     },
     "actuation_conflict": {
-        "topic": "actuation_conflict_daily",
+        "topic": "actuation_conflict_summary",
         "min_count": 20,
         "window_days": 7,
         "require_adjudicated": False,
         "identity_keys": ("action", "trigger", "house_state"),
-        "statement_fn": "actuation_conflict_daily",
+        "statement_fn": "actuation_conflict_summary",
         "priority": 2,
     },
     "exterior_track": {

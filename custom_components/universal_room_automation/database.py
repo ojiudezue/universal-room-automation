@@ -8688,6 +8688,37 @@ class UniversalRoomDatabase:
             self._mem_dao_warn("read_memory_facts", e)
             return []
 
+    async def read_distinct_nodes_for_episodes(
+        self, episode_type: str, since_iso: str,
+    ) -> list[str]:
+        """Distinct node_ids that have episodes of ``episode_type`` at
+        or after ``since_iso``.
+
+        MEMORY-COMPACTOR-1 fix-up HIGH-A1 (2026-08-14): the compactor
+        engine's node discovery is data-driven — this DAO returns
+        exactly the nodes that actually have episodes in the window,
+        not a hardcoded / hass.data-derived candidate set (which
+        misspelled a slot key and silently distilled nothing for
+        every room-scoped rule).
+
+        HIGH-2 (Stage-1) compliance: read via ``_db_read()`` — never
+        touches the write queue. Covered by mutation drill #5 in
+        ``quality/tests/test_memory_compactor.py``.
+        """
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    "SELECT DISTINCT node_id FROM memory_episodes "
+                    "WHERE episode_type = ? AND started_at >= ? "
+                    "ORDER BY node_id ASC",
+                    (episode_type, since_iso),
+                )
+                rows = await cursor.fetchall()
+                return [str(r[0]) for r in rows if r[0] is not None]
+        except Exception as e:  # noqa: BLE001
+            self._mem_dao_warn("read_distinct_nodes_for_episodes", e)
+            return []
+
     async def get_memory_status_counts(self) -> dict:
         """Public read-only accessor for URAMemoryStatusSensor (LOW B9).
 
@@ -8803,6 +8834,12 @@ class UniversalRoomDatabase:
                         float(confidence), derived_from, now_iso,
                     ),
                 )
+                # SQLite semantics: sqlite3_last_insert_rowid is NOT
+                # reset on INSERT OR IGNORE when the row is IGNOREd, so
+                # cursor.lastrowid alone would echo a prior INSERT's id.
+                # The `cur.rowcount` guard (0 on IGNORE, 1 on success)
+                # is load-bearing — do not drop it in a future refactor
+                # (Review A LOW-A1).
                 inserted_rowid = int(cur.lastrowid) if cur.rowcount else 0
                 inserted = inserted_rowid > 0
 
