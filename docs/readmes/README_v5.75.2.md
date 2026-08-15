@@ -44,4 +44,12 @@ window (h/m units, hard cap 3h with reject-with-reply, minimum bound):
 
 ## Live Validation
 
-(prospective — replaced with Validated table post-restart)
+### Validated 2026-08-14 (v5.75.2 boot, evening)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Loads, zero URA errors | **PASS** | log grep post-boot: 0 URA ERROR lines |
+| L2 | No resurrection at boot (age-bound over 326 historical unacked rows) | **PASS** | ledger: zero CRITICAL dispatches post-boot — the exact failure mode that paged 4AM-1PM yesterday is structurally closed |
+| L3 | Window attrs surfaced | **In-suite + attr shape verified pre-deploy** | perimeter_silence_* keys on diagnostics_summary (null when closed) |
+| L4 | First "duke Nh" end-to-end | **ORGANIC (open)** | Reply confirms; window opens; suppressed events land in the ring; resumed note at expiry; unauthorized member politely refused |
+

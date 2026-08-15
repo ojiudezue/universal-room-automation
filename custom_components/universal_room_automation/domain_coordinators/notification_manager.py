@@ -384,6 +384,16 @@ class NotificationManager:
         # SAFEWORD-WINDOW-1 D2: perimeter-scoped silence window opened by
         # "duke Nh" safeword variant. RAM-only (non-invariant in plan) —
         # not persisted in get_persistence_state, cleared on restart.
+        #
+        # CIRCLING-LABEL-1 refactor tripwire: this field is READ directly
+        # by
+        # ``perimeter_alert.PerimeterAlertManager.
+        # _classification_transition_exemption_permitted`` via
+        # ``getattr(nm, "_perimeter_silence_until", None)``. Any rename
+        # or migration to a different persistence surface MUST update
+        # that consumer (I3 of the transition-exemption invariants —
+        # otherwise a safeword window silently stops blocking the
+        # exemption path).
         self._perimeter_silence_until: datetime | None = None
         self._perimeter_silence_suppressions: int = 0
         # SAFEWORD-WINDOW-1 fix-up B-LOW-1: bounded ring of last 10

@@ -1,6 +1,6 @@
 """Button platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.75.2
+# Universal Room Automation vv5.76.0
 # Build: 2026-01-04
 # File: button.py
 #
@@ -57,6 +57,9 @@ async def async_setup_entry(
             # v4.6.3 D13: anomaly subsystem diagnostic dump button
             AnomalyDiagnosticDumpButton(hass, entry),
             VacuumDatabaseButton(hass, entry),  # supervised one-time DB VACUUM (manual only)
+            # MEMORY-COMPACTOR-1 D4: manual compactor override (bypasses
+            # the cadence guard; nightly cadence still fires at 02:30).
+            MemoryCompactNowButton(hass, entry),
             # v4.7.x D3: admin force-charge override for EVSE TOU pause
             EVSEForceChargeButton(hass, entry),
             # Reset Presence Timers — single options-save → single reload.
@@ -1608,6 +1611,84 @@ class VacuumDatabaseButton(ButtonEntity):
             _LOGGER.warning(
                 "Vacuum Database button: notification failed: %s", err
             )
+
+
+# ============================================================================
+# MEMORY-COMPACTOR-1 D4: manual compactor override button
+# ============================================================================
+
+
+class MemoryCompactNowButton(ButtonEntity):
+    """Supervised manual override for the nightly memory compactor.
+
+    Mirrors the ``VacuumDatabaseButton`` precedent: presses BYPASS the
+    cadence guard on ``URADatabase.run_memory_compactor`` and tag the
+    resulting stats with ``triggered_by='manual'``. Re-entrant presses
+    are ignored while a run is in flight.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:database-refresh"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+
+        self.hass = hass
+        self._entry = entry
+        self._running = False
+        self._attr_unique_id = f"{DOMAIN}_memory_compact_now"
+        self._attr_name = "Compact Memory Now"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+
+    async def async_added_to_hass(self) -> None:
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_DATABASE_READY
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_DATABASE_READY, self._handle_ready
+            )
+        )
+
+    @callback
+    def _handle_ready(self) -> None:
+        self.async_schedule_update_ha_state()
+
+    @property
+    def available(self) -> bool:
+        return self.hass.data.get(DOMAIN, {}).get("database") is not None
+
+    async def async_press(self) -> None:
+        if self._running:
+            _LOGGER.warning(
+                "Compact Memory Now: run already in progress — ignoring "
+                "re-entrant press"
+            )
+            return
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is None:
+            _LOGGER.warning("Compact Memory Now: database not available")
+            return
+        self._running = True
+        _LOGGER.info(
+            "Compact Memory Now pressed — running compactor (manual "
+            "override; cadence guard bypassed)"
+        )
+        try:
+            stats = await database.run_memory_compactor(triggered_by="manual")
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.error("Compact Memory Now: compactor raised %s", err)
+            stats = {"error": str(err)}
+        finally:
+            self._running = False
+        _LOGGER.info("Compact Memory Now: result = %s", stats)
 
 
 # ============================================================================

@@ -847,6 +847,29 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[kanban_render] wrote {args.md_out} ({len(md)} bytes) "
               f"and {args.html_out} ({len(ht)} bytes)", file=sys.stderr)
 
+    # Forcing function (2026-08-14): under --check, unapplied operator
+    # dispositions FAIL with a distinct exit code (3), so the session-start
+    # `--check` cannot pass while a board-button disposition sits unapplied.
+    # A chip in the rendered view is a banner, not a mechanism — the operator
+    # ruled banners insufficient; the non-zero exit is the mechanism. Scoped
+    # to --check ONLY: a plain render (the homelab site deploy) still writes
+    # the views (with pending chips) and does not break on the queue — so the
+    # operator's live board keeps showing the pending state while MY
+    # session-start gate hard-fails. Takes precedence over staleness so the
+    # actionable item (apply the queue) is surfaced first.
+    if args.check:
+        pending = load_pending_dispositions(args.pending)
+        if pending:
+            n = sum(len(v) for v in pending.values())
+            print(f"[kanban_render] UNAPPLIED OPERATOR DISPOSITIONS ({n}) — apply "
+                  f"the queue per ura-kanban Cadence step 1, then delete "
+                  f"{args.pending.name}:", file=sys.stderr)
+            for cid, disps in pending.items():
+                for d in disps:
+                    print(f"  - {cid}: {d.get('action')} (at {d.get('at')})",
+                          file=sys.stderr)
+            return 3
+
     if stale:
         print("[kanban_render] STALE:", file=sys.stderr)
         for r in reasons:

@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.75.2
+# Universal Room Automation vv5.76.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -4562,6 +4562,41 @@ class URAMemoryStatusSensor(AggregationEntity, SensorEntity):
                 MEMORY_BASELINE_WRITER_ENABLED,
             ),
             "baseline_allowlist": list(MEMORY_BASELINE_ALLOWLIST),
+            # MEMORY-COMPACTOR-1 D5 (LOW-2): observation-only compactor
+            # attributes; NOT knobs, in-process only, cleared on
+            # restart. Missing (before first run) renders as None.
+            **self._compactor_attrs(),
+        }
+
+    def _compactor_attrs(self) -> dict:
+        """Observation-only stats from the last compactor run."""
+        db = self.hass.data.get(DOMAIN, {}).get("database")
+        stats = getattr(db, "_last_compactor_stats", None) if db else None
+        if not stats:
+            return {
+                "compactor_last_run": None,
+                "compactor_facts_created_last_run": None,
+                "compactor_facts_superseded_last_run": None,
+                "compactor_writes_last_run": None,
+                "compactor_distill_calls_last_run": None,
+                "compactor_skipped_missing_identity_last_run": None,
+                "compactor_aborted_reason": None,
+                "compactor_triggered_by": None,
+            }
+        return {
+            "compactor_last_run": stats.get("finished_at"),
+            "compactor_facts_created_last_run": stats.get("facts_created"),
+            "compactor_facts_superseded_last_run": stats.get("facts_superseded"),
+            "compactor_writes_last_run": stats.get("writes_total"),
+            # Fix-up B-LOW-2 + MED-A2: observability deltas so cap
+            # starvation and upstream-shape drift are visible without
+            # tail-logs.
+            "compactor_distill_calls_last_run": stats.get("distill_calls"),
+            "compactor_skipped_missing_identity_last_run": stats.get(
+                "skipped_missing_identity",
+            ),
+            "compactor_aborted_reason": stats.get("aborted_reason"),
+            "compactor_triggered_by": stats.get("triggered_by"),
         }
 
 

@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.75.2
+# Universal Room Automation vv5.76.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.75.2"
+VERSION: Final = "v5.76.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -3663,7 +3663,67 @@ MEMORY_FACT_TOPICS: Final = frozenset({
     "occupancy_baseline",
     "notification_hygiene",
     "adjacency_graph",
+    # MEMORY-COMPACTOR-1 D0 (CRIT-2 fix): rev-2 shipping compactor
+    # rule registry emits these three topics. Additive; no reader today
+    # switches on topic values (facade `facts()` filters by string).
+    # Symmetric boot-time assert lives in memory_compactor.py module load.
+    "exterior_track_baseline",
+    "phantom_recurrence",
+    "actuation_conflict_summary",
 })
+
+# --- MEMORY-COMPACTOR-1 knobs (all rung 1 module constants, per
+#     "Numbers Get Knobs" — these gate a nightly write path; changing
+#     any of them should require code review). ---
+# Master enable. False -> nightly + button both no-op with zero writes.
+MEMORY_COMPACTOR_ENABLED: Final = True
+# Cadence (hours) between nightly compactor runs. Also serves as a
+# same-night restart guard (cf. §4). Zero disables (redundant kill).
+MEMORY_COMPACTOR_CADENCE_HOURS: Final = 24
+# Per-run write budget. Well below the v5.2.1 write-flood shape (which
+# was bursty per state-change); nightly 500 spread across ~86400s is
+# ~0.006 writes/s. Cap-biting surfaces via
+# sensor.ura_memory_status:compactor_writes_last_run (MED-2).
+MEMORY_COMPACTOR_MAX_WRITES_PER_RUN: Final = 500
+# Redaction horizon (days). None disables the redaction stub path
+# entirely (rev-2 ships disabled — see plan §5 revisit trigger).
+MEMORY_REDACTION_HORIZON_DAYS: Final = None
+
+# Compactor rule registry (see PLANNING_memory_compactor.md §D2 seeded
+# table). Priority ints: lower runs earlier. `identity_keys` lists the
+# `attrs` keys that determine which existing fact under the same
+# (node_id, topic) is a candidate for supersession — empty tuple means
+# one fact per (node_id, topic). `statement_fn` is the pure function
+# name (looked up in memory_compactor._STATEMENT_FNS at load time).
+MEMORY_COMPACTION_RULES: Final = {
+    "occupancy_phantom": {
+        "topic": "phantom_recurrence",
+        "min_count": 3,
+        "window_days": 30,
+        "require_adjudicated": True,
+        "identity_keys": (),
+        "statement_fn": "phantom_recurrence",
+        "priority": 1,
+    },
+    "actuation_conflict": {
+        "topic": "actuation_conflict_summary",
+        "min_count": 20,
+        "window_days": 7,
+        "require_adjudicated": False,
+        "identity_keys": ("action", "trigger", "house_state"),
+        "statement_fn": "actuation_conflict_summary",
+        "priority": 2,
+    },
+    "exterior_track": {
+        "topic": "exterior_track_baseline",
+        "min_count": 20,
+        "window_days": 7,
+        "require_adjudicated": False,
+        "identity_keys": ("camera", "label"),
+        "statement_fn": "exterior_track_baseline",
+        "priority": 3,
+    },
+}
 
 # Memory-ineligible decision classes (arch §8 — enforced by review + the
 # fact that memory access all goes through the facade). Consumers whose
