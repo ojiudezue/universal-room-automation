@@ -8734,6 +8734,187 @@ class UniversalRoomDatabase:
                 "baseline_row_count": 0,
             }
 
+    # ------------------------------------------------------------------
+    # MEMORY-COMPACTOR-1 D3: combined-atomic distill DAO.
+    # ------------------------------------------------------------------
+    # CRIT-1 fix (plan review): _db() cannot be nested and each
+    # acquisition = one queue submission = one commit. To honor
+    # invariant §1(a) (fact INSERT + supersede UPDATE must be atomic
+    # per logical fact), the compactor engine calls ONE combined DAO
+    # that opens ONE _db() context and issues INSERT OR IGNORE +
+    # optional supersede UPDATE + optional redaction UPDATE + one
+    # commit(). The engine NEVER opens _db() itself.
+    # ------------------------------------------------------------------
+
+    async def distill_memory_fact(
+        self,
+        *,
+        node_id: str,
+        topic: str,
+        statement: str,
+        attrs: dict,
+        confidence: float,
+        derived_from: str,
+        supersede_old_id: int | None = None,
+        redact_episode_id: int | None = None,
+    ) -> dict:
+        """Atomic compactor write for one logical fact.
+
+        INSERT OR IGNORE the fact; if `supersede_old_id` is set AND a
+        new row was inserted, UPDATE the old row's `superseded_by` to
+        point at the new row (WHERE-guarded so re-runs are no-ops).
+        If `redact_episode_id` is set, transform that episode's
+        `attrs_json` to a rollup shape (framework-only path; asserted
+        off unless `MEMORY_REDACTION_HORIZON_DAYS` is set).
+
+        All operations execute inside ONE `_db()` acquisition -> ONE
+        `commit()` (invariant §1(a) atomicity). See
+        docs/planning/PLANNING_memory_compactor.md §D3.
+
+        Returns::
+
+            {"inserted_id": int | None,
+             "superseded":  bool,
+             "redacted":    bool}
+        """
+        import json as _json  # noqa: PLC0415
+        # Guard the redaction path from accidental use before the
+        # horizon knob is set (rev-2 ships redaction disabled).
+        if redact_episode_id is not None:
+            from .const import MEMORY_REDACTION_HORIZON_DAYS  # noqa: PLC0415
+            assert MEMORY_REDACTION_HORIZON_DAYS is not None, (
+                "distill_memory_fact: redact_episode_id passed while "
+                "MEMORY_REDACTION_HORIZON_DAYS is None (framework-only "
+                "path is inert until the horizon knob is set)."
+            )
+        now_iso = datetime.now(timezone.utc).isoformat()
+        try:
+            async with self._db() as db:
+                # (1) INSERT OR IGNORE the fact row.
+                cur = await db.execute(
+                    """INSERT OR IGNORE INTO memory_facts (
+                        node_id, topic, statement, attrs_json,
+                        confidence, derived_from, created_at,
+                        superseded_by
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)""",
+                    (
+                        node_id, topic, statement,
+                        _json.dumps(attrs or {}, default=str),
+                        float(confidence), derived_from, now_iso,
+                    ),
+                )
+                inserted_rowid = int(cur.lastrowid) if cur.rowcount else 0
+                inserted = inserted_rowid > 0
+
+                # (2) Supersede prior fact IFF new row was inserted.
+                #     WHERE-guarded so a double-supersede is a no-op.
+                superseded = False
+                if inserted and supersede_old_id is not None:
+                    upd = await db.execute(
+                        """UPDATE memory_facts
+                           SET superseded_by = ?
+                           WHERE id = ? AND superseded_by IS NULL""",
+                        (inserted_rowid, int(supersede_old_id)),
+                    )
+                    superseded = bool(upd.rowcount)
+
+                # (3) Redaction stub — framework only.
+                redacted = False
+                if inserted and redact_episode_id is not None:
+                    rollup = _json.dumps(
+                        {"_redacted": True,
+                         "topic": topic,
+                         "fact_id": inserted_rowid},
+                        default=str,
+                    )
+                    upd = await db.execute(
+                        """UPDATE memory_episodes
+                           SET attrs_json = ?
+                           WHERE id = ?""",
+                        (rollup, int(redact_episode_id)),
+                    )
+                    redacted = bool(upd.rowcount)
+
+                # ONE commit for the whole logical fact (invariant §1(a)).
+                await db.commit()
+
+                return {
+                    "inserted_id": inserted_rowid if inserted else None,
+                    "superseded": superseded,
+                    "redacted": redacted,
+                }
+        except AssertionError:
+            # Do NOT swallow guard assertions (framework-only path).
+            raise
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning("distill_memory_fact failed: %s", e)
+            return {
+                "inserted_id": None,
+                "superseded": False,
+                "redacted": False,
+            }
+
+    # ------------------------------------------------------------------
+    # D4 cadence guard state (set by memory_compactor after each run).
+    # Instance-scoped; resets on process restart. Used by
+    # run_memory_compactor() to skip a repeat run within cadence.
+    # ------------------------------------------------------------------
+    _last_compactor_stats: dict | None = None
+    _last_compactor_run_ts: float | None = None
+
+    def _compactor_within_cadence(self) -> bool:
+        """True if the last compactor run was less than
+        MEMORY_COMPACTOR_CADENCE_HOURS ago.
+        """
+        from .const import MEMORY_COMPACTOR_CADENCE_HOURS  # noqa: PLC0415
+        if self._last_compactor_run_ts is None:
+            return False
+        if MEMORY_COMPACTOR_CADENCE_HOURS <= 0:
+            return False
+        now = datetime.now(timezone.utc).timestamp()
+        return (now - self._last_compactor_run_ts) < (
+            float(MEMORY_COMPACTOR_CADENCE_HOURS) * 3600.0
+        )
+
+    async def run_memory_compactor(
+        self, *, triggered_by: str = "nightly",
+    ) -> dict | None:
+        """Thin adapter: nightly maintenance calls this.
+
+        Cadence-guarded for nightly runs; the manual button passes
+        `triggered_by='manual'` which BYPASSES the cadence guard
+        (supervised override). Persists last-run stats on the DAO so
+        `sensor.ura_memory_status` can surface them.
+        """
+        from .const import (  # noqa: PLC0415
+            MEMORY_COMPACTOR_ENABLED,
+            MEMORY_COMPACTOR_CADENCE_HOURS,
+        )
+        if not MEMORY_COMPACTOR_ENABLED or MEMORY_COMPACTOR_CADENCE_HOURS == 0:
+            return None
+        if triggered_by == "nightly" and self._compactor_within_cadence():
+            _LOGGER.debug(
+                "run_memory_compactor: skipped — within cadence "
+                "(%.1fh)", float(MEMORY_COMPACTOR_CADENCE_HOURS),
+            )
+            return None
+        # Local import — module-load asserts run here (episode-type ⊂
+        # MEMORY_EPISODE_TYPES; topics ⊂ MEMORY_FACT_TOPICS).
+        from .memory_compactor import MemoryCompactor  # noqa: PLC0415
+        stats = await MemoryCompactor(self).run(triggered_by=triggered_by)
+        self._last_compactor_stats = stats
+        self._last_compactor_run_ts = datetime.now(timezone.utc).timestamp()
+        _LOGGER.info(
+            "memory_compactor run: created=%d superseded=%d writes=%d "
+            "aborted=%s triggered_by=%s",
+            stats.get("facts_created", 0),
+            stats.get("facts_superseded", 0),
+            stats.get("writes_total", 0),
+            stats.get("aborted_reason"),
+            triggered_by,
+        )
+        return stats
+
     async def read_decision_log_since(
         self, since_iso: str, limit: int = 500,
     ) -> list[dict]:
