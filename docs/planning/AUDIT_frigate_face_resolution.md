@@ -120,17 +120,12 @@ face_recognition:
   detection_threshold: 0.7     # keep default
 ```
 
-**C. Scope face to cameras that can actually see faces** (cut churn). Disable face on outdoor/overhead/PTZ (`back_yard`, `pool_equipment`, `hot_tub`, `*_ptz`, `front_door_aerial`, `armcrestpooloverhead_*`, `garage_*`, `utilities_ptz`) via per-camera:
-```yaml
-<camera>:
-  face_recognition:
-    enabled: false
-```
+**C. (REVISED per operator ruling 2026-08-15: "No — we're looking at recognizing known persons in the exterior.")** Exterior recognition is the PRODUCT (the known-person annotation cycle targets perimeter/egress alerts), so face stays ENABLED on exterior people-cameras — the fix for them is the SAME as A: repoint their `detect` to the highest leg the hardware affords (medium/high sub-stream), because exterior approach shots at entry distance are exactly where "likely Oji" pays. Rec A's stream-repoint therefore applies to perimeter/egress cameras FIRST-CLASS, not just indoor. Disable face ONLY on structurally-hopeless geometries where no available stream can yield a recognizable face at any plausible subject distance — overhead/roofline views (`front_door_aerial`, `armcrestpooloverhead_*`) and non-people utility views (`pool_equipment`, `utilities_ptz`). Keep enabled: `back_yard`, `hot_tub`, `garage_*`, entry PTZs (parked positions frame approaches). Churn on a viable camera is acceptable cost; a disabled viable camera is a lost recognition.
 
 **D. After A/B/C, tune `min_area` / `recognition_threshold` empirically** from the F2 UI's face "train/attempts" view — raise `min_area` only if you see false small-face matches; lower `recognition_threshold` further toward ~0.75 if genuine faces still miss. Do this last, once crops are large.
 
 **E. Reconcile the builder (§6):** either point `sensor.frigate_config_builder` at the live F2 (`192.168.13.18:8971`) and set the detector to `openvino` to match live, or stop using "Push to Frigate" so it can't clobber the live GPU/large-model config with the stale Coral/small one.
 
-**Expected effect:** A alone should revive family-room and the hallway/stair cameras (bigger crops clear detection + recognition). A+B+C together should move recognition from "Oji once, Ziri never" to routine per-pass matches on the indoor cameras, and eliminate the boot-churn-only noise on cameras that never had a face chance.
+**Expected effect:** A alone should revive family-room and the hallway/stair cameras (bigger crops clear detection + recognition). A+B together (applied to interior AND exterior people-cameras) should move recognition from "Oji once, Ziri never" to routine per-pass matches indoors and at exterior approach distance; C (revised) trims only the structurally-hopeless overhead/utility views.
 
 **Verification after apply:** watch the F2 face events / `sensor.frigate_<person>_last_camera_2` entities populate on indoor passes; confirm `sensor.frigate_detection_fps_2` stays healthy (didn't collapse under higher detect res). Re-fetch `/api/config` once credentials are available to confirm live matches intent.
