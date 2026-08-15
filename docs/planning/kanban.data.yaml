@@ -2142,7 +2142,7 @@ cards:
 - id: RELOAD-WATCHDOG-HAZARD
   title: URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
   thread: lifecycle
-  status: pre_planning
+  status: planned
   approval: explicit
   approved_by: operator
   approved_on: 2026-08-07
@@ -2186,6 +2186,9 @@ cards:
   - OPTIONS_RELOAD_SUPPRESS_KEYS
   - transit_validator.py async_init
   - feedback_parent_entry_reload_watchdog_hazard memory
+  planned_2026_08_15: 'Overnight pass: PLANNING_reload_watchdog_hazard.md written+committed. Central finding: v4.7.26 suppress branch is gated entry_type==COORDINATOR_MANAGER (__init__.py:6431); camera keys migrated to the INTEGRATION entry in v3.4.5 have NO branch -> fall through to full reload (:6502) cascading to ~40 children. Fix = mirror the shipped pattern to ENTRY_TYPE_INTEGRATION + wire the inert SIGNAL_URA_TRANSIT_CONFIG_CHANGED. Tier 2-DB. Next: adversarial plan review, then daytime build (custom_components off-limits overnight).'
+
+
 - id: KHOST-1
   title: Homelab-hosted board, generated from data
   thread: dashboarding

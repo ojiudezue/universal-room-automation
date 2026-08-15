@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-14T23:46:00-05:00_ - _Data commit: `e8f2700c2164`_ - _last_reconciled: 2026-08-14_
+_Generated: 2026-08-15T00:12:46-05:00_ - _Data commit: `253762297bc0`_ - _last_reconciled: 2026-08-14_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,8 +12,8 @@ _Generated: 2026-08-14T23:46:00-05:00_ - _Data commit: `e8f2700c2164`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 5 |
-| 🧭 Pre-planning | 9 |
-| 📝 Planned | 1 |
+| 🧭 Pre-planning | 8 |
+| 📝 Planned | 2 |
 | 🔨 In progress | 4 |
 | 🔍 Review | 0 |
 | 🚀 Shipped (organic open) | 35 |
@@ -76,7 +76,7 @@ thread: **presence** - status: **inbox** - approval: **approved_after_investigat
   - `operator_direction_2026_08_13`: Operator: "we should find a way to say AWAY not LOST. Do we need a lost state at all? That way we can actually use this signal the way it is supposed to be used. And not overload it." I.e. the fix may not be patching the denominator arit...
   - `alternate_paths`: (1) Dissolve LOST: away-with-no-fix => AWAY (trusted, counts in denominator); home-but-silent => new BLE_SILENT_HOME or stays ambiguous-excluded; keep LOST only for truly-unknown. Ripple: every consumer of tracking_status (H3 reliable-si...
 
-## 🧭 Pre-planning (9)
+## 🧭 Pre-planning (8)
 _idea being decomposed_
 
 ### `ROOM-NAME-UNIQUE-1` - Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket)
@@ -149,19 +149,7 @@ thread: **camera** - status: **pre_planning** - approval: **implied**
 - **Tags:** no-fabrication-verify
 - **Parsimony:** [BUILD] any camera on the 2nd Frigate host has never had a snapshot
 
-### `RELOAD-WATCHDOG-HAZARD` - URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
-thread: **lifecycle** - status: **pre_planning** - approval: **explicit**
-- **Origin:** 2026-08-07 - options-flow submit (camera_person_entities) reloaded the URA parent entry and blipped HA -> diagnose and fix this autonomously tonight
-- **Why:** routine options saves (Camera Census etc.) reload the integration/parent entry, which cascades to all ~40 room + coordinator entries synchronously, stalling the event loop until the supervisor watchdog restarts core (~5min outage). A con...
-- **Next:** (tonight) build - INTEGRATION suppress set + SIGNAL_CAMERA_LIST_CHANGED re-subscribe path; Tier 2-DB (lifecycle + presence)
-- **Tags:** tier-2db, no-fabrication-verify
-- **Parsimony:** [BUILD] a routine config save causes a ~5min house outage
-- **Refs:** __init__.py:5984 _async_update_listener; OPTIONS_RELOAD_SUPPRESS_KEYS; transit_validator.py async_init; feedback_parent_entry_reload_watchdog_hazard memory
-- **Forensic keys (2):**
-  - `diagnosis`: CONFIRMED (2026-08-07): _async_update_listener (__init__.py:5984) - for the INTEGRATION entry, if changed_keys NOT subset of OPTIONS_RELOAD_SUPPRESS_KEYS -> hass.config_entries.async_reload(entry.entry_id). Reloading the INTEGRATION (par...
-  - `fix`: Add Camera Census keys to an INTEGRATION-entry suppress set (mirror the CM/ROOM reload-suppression). Persistence already done by async_update_entry.
-
-## 📝 Planned (1)
+## 📝 Planned (2)
 _has plan / acceptance_
 
 ### `GUEST-FP-RESIDUALS-1` - Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent)
@@ -171,6 +159,19 @@ thread: **presence** - status: **planned** - approval: **unreviewed**
 - **Next:** Fold A1+B1 into the next presence hotfix batch; await operator answer on the 50-episode pattern.
 - **Forensic keys (1):**
   - `operator_question`: 50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests or a daytime FP flavor? If the latter, escalate per audit §3.
+
+### `RELOAD-WATCHDOG-HAZARD` - URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
+thread: **lifecycle** - status: **planned** - approval: **explicit**
+- **Origin:** 2026-08-07 - options-flow submit (camera_person_entities) reloaded the URA parent entry and blipped HA -> diagnose and fix this autonomously tonight
+- **Why:** routine options saves (Camera Census etc.) reload the integration/parent entry, which cascades to all ~40 room + coordinator entries synchronously, stalling the event loop until the supervisor watchdog restarts core (~5min outage). A con...
+- **Next:** (tonight) build - INTEGRATION suppress set + SIGNAL_CAMERA_LIST_CHANGED re-subscribe path; Tier 2-DB (lifecycle + presence)
+- **Tags:** tier-2db, no-fabrication-verify
+- **Parsimony:** [BUILD] a routine config save causes a ~5min house outage
+- **Refs:** __init__.py:5984 _async_update_listener; OPTIONS_RELOAD_SUPPRESS_KEYS; transit_validator.py async_init; feedback_parent_entry_reload_watchdog_hazard memory
+- **Forensic keys (3):**
+  - `diagnosis`: CONFIRMED (2026-08-07): _async_update_listener (__init__.py:5984) - for the INTEGRATION entry, if changed_keys NOT subset of OPTIONS_RELOAD_SUPPRESS_KEYS -> hass.config_entries.async_reload(entry.entry_id). Reloading the INTEGRATION (par...
+  - `fix`: Add Camera Census keys to an INTEGRATION-entry suppress set (mirror the CM/ROOM reload-suppression). Persistence already done by async_update_entry.
+  - `planned_2026_08_15`: Overnight pass: PLANNING_reload_watchdog_hazard.md written+committed. Central finding: v4.7.26 suppress branch is gated entry_type==COORDINATOR_MANAGER (__init__.py:6431); camera keys migrated to the INTEGRATION entry in v3.4.5 have NO b...
 
 ## 🔨 In progress (4)
 _being built_
