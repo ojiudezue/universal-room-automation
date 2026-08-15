@@ -314,6 +314,54 @@ def _has_any_suffix(entity_id: str, suffixes: Iterable[str]) -> bool:
     return any(name.endswith(s) for s in suffixes)
 
 
+def _has_any_suffix_stripped(entity_id: str, suffixes: Iterable[str]) -> bool:
+    """Suffix match that ignores HA's ``_N`` disambiguation suffix.
+
+    CENSUS-SUFFIX-FIX (2026-08-15): after the F1 Frigate host was retired,
+    every surviving Frigate person entity carries the ``_2`` suffix
+    (e.g. ``sensor.<cam>_person_count_2``). The strict ``endswith`` checks
+    silently dropped these, pinning census at the identified count. This
+    helper is the disambiguation-tolerant variant used at every strict
+    suffix site enumerated in AUDIT_census_accuracy_regression.md."""
+    name = _strip_disambiguation_suffix(_entity_name(entity_id))
+    return any(name.endswith(s) for s in suffixes)
+
+
+def _is_disambiguated(entity_id: str) -> bool:
+    name = _entity_name(entity_id)
+    return name != _strip_disambiguation_suffix(name)
+
+
+def _prefer_canonical(
+    current: str | None,
+    candidate: str,
+    *,
+    slot: str,
+    device_id: str,
+) -> str | None:
+    """Ambiguity guard: when both a canonical and a ``_N`` candidate match
+    the same slot on the same device, prefer the canonical one and log a
+    WARNING (never silently double-map). First-wins for like-vs-like to
+    preserve existing scan-order semantics."""
+    if current is None:
+        return candidate
+    cur_d = _is_disambiguated(current)
+    cand_d = _is_disambiguated(candidate)
+    if cur_d and not cand_d:
+        _LOGGER.warning(
+            "camera_resolver: both canonical (%s) and disambiguated (%s) match %s on device %s; preferring canonical",
+            candidate, current, slot, device_id,
+        )
+        return candidate
+    if not cur_d and cand_d:
+        _LOGGER.warning(
+            "camera_resolver: both canonical (%s) and disambiguated (%s) match %s on device %s; preferring canonical",
+            current, candidate, slot, device_id,
+        )
+        return current
+    return current
+
+
 def resolve_area_id_for_entity(entity_registry: Any, device_registry: Any, entity_id: str) -> str | None:
     """B-MED-1: resolve an entity's area_id with legacy semantics.
 
@@ -1345,9 +1393,10 @@ class CameraResolver:
                 continue
 
             if domain == "binary_sensor":
-                if _has_any_suffix(eid, _PERSON_SUFFIXES) and disabled_by is None:
-                    if person_bs is None:
-                        person_bs = eid
+                if _has_any_suffix_stripped(eid, _PERSON_SUFFIXES) and disabled_by is None:
+                    person_bs = _prefer_canonical(
+                        person_bs, eid, slot="person_binary_sensor", device_id=device_id
+                    )
                 elif _has_any_suffix(eid, _FACE_SUFFIXES):
                     if face_bs is None:
                         face_bs = eid
@@ -1359,9 +1408,10 @@ class CameraResolver:
                     elif face_cap == FACE_ABSENT:
                         face_cap = FACE_AMBIGUOUS
             elif domain == "sensor":
-                if _entity_name(eid).endswith(_PERSON_COUNT_SUFFIX) and disabled_by is None:
-                    if count_s is None:
-                        count_s = eid
+                if _strip_disambiguation_suffix(_entity_name(eid)).endswith(_PERSON_COUNT_SUFFIX) and disabled_by is None:
+                    count_s = _prefer_canonical(
+                        count_s, eid, slot="person_count_sensor", device_id=device_id
+                    )
                 elif _has_any_suffix(eid, _FACE_SUFFIXES):
                     # sensor.<stem>_last_recognized_face — presence indicates face capability.
                     # A-M4: sticky USABLE.
