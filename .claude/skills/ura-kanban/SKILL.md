@@ -243,6 +243,12 @@ failure — the board is where "is it actually done?" gets answered.
    - `deferred` → status `parked`, with a revisit note on the card
    - `declined` → status `done` (closed) + a `parked_alts`-style note recording the decline
    - `move:<status>` → set status to `<status>` verbatim
+   - `approve` (inbox + pre-planning button, added 2026-08-15) → `approval: explicit` +
+     `approved_by: 'operator <date> (board button)'`; inbox cards also move → pre_planning.
+     Out-of-band approval carries the SAME authority as a chat "go" — do not re-ask.
+   - `investigate` (inbox + pre-planning button, added 2026-08-15) → set `needs_investigation: true`
+     on the card; it becomes priority intake for the next lull-investigation sweep (see
+     "Inbox hygiene" below).
    Then DELETE the pending file, re-run `python3 scripts/kanban_render.py`, and commit.
    **Dispositions are OPERATOR AUTHORITY — apply, don't relitigate.** Ask only if a
    disposition is ambiguous against the card's state (e.g. `done` on a card that never
@@ -257,6 +263,32 @@ failure — the board is where "is it actually done?" gets answered.
    the Artifact if anything material changed.
 5. **Reconciliation discipline:** when marking Waiting-on-operator or Shipped, verify against
    live state (config entry / sensor / DB) — do not carry a stale TODO forward.
+
+## Inbox hygiene — bounded lull investigation (operator-coined 2026-08-15)
+
+**An uninvestigated inbox card is phantom load**: it sits on the backlog looking like work
+while nobody knows if it's a duplicate, already-shipped, config-only, or real. The
+ZONE-CAM-PERSON-GUARD-1 case is canonical — a context-wide audit killed the card as written
+and reduced it to a 3-entity config swap; without the audit it would have consumed a
+planning + build cycle against the wrong discriminator.
+
+**The rule:** during lulls (no operator turn pending, no build to verify) and on every
+overnight pass, sweep inbox AND pre-planning cards through a **context-wide investigation** — rooms + zones +
+house + cross-cutting, per the context-wide-scoping rule — before they age. Cards flagged
+`needs_investigation: true` (the 🔍 board button) jump the queue.
+
+**Token bound (hard):** ONE general-purpose/Explore-grade agent per card, single dispatch,
+no fan-out — target ≤100k subagent tokens per card, and at most TWO card investigations per
+lull window. If a card can't resolve inside that budget, that fact IS the finding: record
+"needs a real planning cycle" on the card and stop digging. Never spawn a review chain or
+multi-agent workflow for inbox triage.
+
+**Verdict vocabulary (recorded on the card, same turn):** `DUPLICATE/ADJACENT` (merge per
+the adjacency sweep) · `ALREADY-SHIPPED` (close with evidence) · `CONFIG-ONLY` (stage the
+config fix, close the card) · `DEAD` (threat model gone; close with the evidence chain) ·
+`REAL` (promote to pre_planning with the investigation as its context) · `UNRESOLVED-IN-BUDGET`
+(needs a planning cycle; say what the agent couldn't determine). An investigated card never
+returns to plain inbox — it moves or it closes.
 
 ## Update hygiene — anti-drift (why vibememo lags, and how this must not)
 
