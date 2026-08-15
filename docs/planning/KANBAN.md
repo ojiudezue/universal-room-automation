@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-14T23:43:39-05:00_ - _Data commit: `02fef4a498e4`_ - _last_reconciled: 2026-08-14_
+_Generated: 2026-08-14T23:46:00-05:00_ - _Data commit: `e8f2700c2164`_ - _last_reconciled: 2026-08-14_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,11 +12,11 @@ _Generated: 2026-08-14T23:43:39-05:00_ - _Data commit: `02fef4a498e4`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 5 |
-| 🧭 Pre-planning | 10 |
+| 🧭 Pre-planning | 9 |
 | 📝 Planned | 1 |
 | 🔨 In progress | 4 |
 | 🔍 Review | 0 |
-| 🚀 Shipped (organic open) | 34 |
+| 🚀 Shipped (organic open) | 35 |
 | ⏸️ Waiting on operator | 3 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 3 |
@@ -76,7 +76,7 @@ thread: **presence** - status: **inbox** - approval: **approved_after_investigat
   - `operator_direction_2026_08_13`: Operator: "we should find a way to say AWAY not LOST. Do we need a lost state at all? That way we can actually use this signal the way it is supposed to be used. And not overload it." I.e. the fix may not be patching the denominator arit...
   - `alternate_paths`: (1) Dissolve LOST: away-with-no-fix => AWAY (trusted, counts in denominator); home-but-silent => new BLE_SILENT_HOME or stays ambiguous-excluded; keep LOST only for truly-unknown. Ripple: every consumer of tracking_status (H3 reliable-si...
 
-## 🧭 Pre-planning (10)
+## 🧭 Pre-planning (9)
 _idea being decomposed_
 
 ### `ROOM-NAME-UNIQUE-1` - Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket)
@@ -114,18 +114,6 @@ thread: **tablets** - status: **pre_planning** - approval: **unreviewed**
   - `repo`: ~/Code/wall-tablet (HALedController, v1.3 versionCode 5, 2026-08-01)
   - `verified_capabilities`: Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status}; LWT availability; self-registers via MQTT Discovery (no YAML).
   - `orchestrator_assessment`: HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That likely beats the quick-action U...
-
-### `DIMMER-REBOOT-1` - Master bedroom Shelly Dimmer 2 reboots 89x since Aug 1 and returns ON (NOT thermal)
-thread: **devices** - status: **pre_planning** - approval: **implied**
-- **Origin:** 2026-08-08 - operator: why is the master bedroom dimmer coming on in the morning?
-- **Why:** light.shellydimmer2_24d7ebe93470 (area master_bedroom) reboots repeatedly: 89 `unavailable` events since Aug 1, accelerating 6/day -> 23/day, each ~33s (consistent = full device reboot, not a variable WiFi blip). 32 of those reboots came...
-- **Next:** set power-on-default OFF; then chase the reboot cause
-- **Tags:** no-fabrication-verify
-- **Forensic keys (4):**
-  - `likely_causes`: Shelly power-on-default set to ON (or restore-last with stale value) -> every reboot turns the light on
-  - `CORRECTION`: 2026-08-08: I FIRST REPORTED THIS AS A 117-130C FIRE RISK. THAT WAS WRONG — the sensor's unit_of_measurement is degF, not degC. 116.7F = 47C; peak 129.6F = 54C. That is NORMAL for a wall dimmer and inside the Shelly Dimmer 2 range. NO fi...
-  - `fix`: PRIMARY: set the Shelly power-on default to OFF so a reboot cannot turn the light on (device setting, operator or API)
-  - `rediagnosis_2026_08_15`: REBOOT THEORY OVERTURNED for recent nights: device uptime 6.66 days (no reboot since ~Aug 8) yet uncommanded off->on 3s apart tonight 23:07 CDT (no HA context either row). Mechanism = PHANTOM WALL-SWITCH EDGES: btn_type=edge + 80ms debou...
 
 ### `BOOTSANITY-1` - Boot-sanity allowlist guard cannot fire on a cold boot
 thread: **camera** - status: **pre_planning** - approval: **implied**
@@ -236,7 +224,7 @@ _under review_
 
 _(none)_
 
-## 🚀 Shipped (organic open) (34)
+## 🚀 Shipped (organic open) (35)
 _live, awaiting proof_
 
 ### `STUCK-SENSOR-1` - Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
@@ -605,6 +593,19 @@ thread: **perimeter** - status: **shipped_organic** - approval: **explicit**
   - `design_TRAP`: DO NOT gate on corroboration generally - that would SUPPRESS REAL INTRUSIONS on single-engine cameras (many cameras have only ONE engine; and a real prowler may only be seen by one). The gate must be NARROW: only for cameras that HAVE >=...
   - `design`: REVISED: first alert ALWAYS fires at full severity (preserves intrusion guarantee).
   - `probe_result`: PROBE RUN 2026-08-08 (8d, 30s window) -> AUDIT_xcorr_engine_corroboration_probe.md. The naive corroboration gate is REJECTED: solo firing is the NORM on the exterior cameras that drive alerts (front_side_ptz 92% solo, back_yard 91%, pool...
+
+### `DIMMER-REBOOT-1` - Master bedroom Shelly Dimmer 2 reboots 89x since Aug 1 and returns ON (NOT thermal)
+thread: **devices** - status: **shipped_organic** - approval: **implied**
+- **Origin:** 2026-08-08 - operator: why is the master bedroom dimmer coming on in the morning?
+- **Why:** light.shellydimmer2_24d7ebe93470 (area master_bedroom) reboots repeatedly: 89 `unavailable` events since Aug 1, accelerating 6/day -> 23/day, each ~33s (consistent = full device reboot, not a variable WiFi blip). 32 of those reboots came...
+- **Next:** set power-on-default OFF; then chase the reboot cause
+- **Tags:** no-fabrication-verify
+- **Forensic keys (5):**
+  - `likely_causes`: Shelly power-on-default set to ON (or restore-last with stale value) -> every reboot turns the light on
+  - `CORRECTION`: 2026-08-08: I FIRST REPORTED THIS AS A 117-130C FIRE RISK. THAT WAS WRONG — the sensor's unit_of_measurement is degF, not degC. 116.7F = 47C; peak 129.6F = 54C. That is NORMAL for a wall dimmer and inside the Shelly Dimmer 2 range. NO fi...
+  - `fix`: PRIMARY: set the Shelly power-on default to OFF so a reboot cannot turn the light on (device setting, operator or API)
+  - `rediagnosis_2026_08_15`: REBOOT THEORY OVERTURNED for recent nights: device uptime 6.66 days (no reboot since ~Aug 8) yet uncommanded off->on 3s apart tonight 23:07 CDT (no HA context either row). Mechanism = PHANTOM WALL-SWITCH EDGES: btn_type=edge + 80ms debou...
+  - `operator_fix_2026_08_15`: Operator: "Dimmer sorted." Device readback: btn_debounce 80->150ms; default_state STILL last, btn_type STILL edge — so the fix was partial via settings OR done elsewhere (app/physical). ORGANIC PROOF: two consecutive ghost-free nights (p...
 
 ### `ARREST-SUNSET-1` - Temp Arrester Override does not sunset on away/vacation (only sleep)
 thread: **hvac** - status: **shipped_organic** - approval: **implied**
