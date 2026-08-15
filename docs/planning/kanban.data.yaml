@@ -1265,7 +1265,7 @@ cards:
   next: 'Operator picks A/B/C. If A: own small Tier-2 cycle (new cooldown exemption on the perimeter dispatch path = regression-prone, plan review required).'
   decision_2026_08_14: 'OPERATOR: Option A approved per recommendation — one dispatch allowed through the per-camera cooldown when a track''s classification TRANSITIONS (the hop circling forms => one HIGH circling-labelled page). Own Tier-2 cycle, plan review first (new cooldown exemption on the dispatch path).'
   next: 'ura-planner -> plan review -> build.'
-
+  plan_review_2026_08_14: 'FIX-PLAN-FIRST (0d30ee8bc): HIGH — plan''s XCORR-1 mechanism was WRONG; single-camera nighttime circling would demote the exemption dispatch to LOW (founding ask unmet in a reachable shape). Reviewer adjudicated fix: exemption_active early-return in _evaluate_burst_demotion + D5b single-camera-night test. +3 MED (missing is_life_safety_hazard import in perimeter_alert, NM dedup HIGH-HIGH collision unverified, I1 set-vs-bool underpin). Rev-2 in flight.'
 
 - id: GUEST-FP-RESIDUALS-1
   title: Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent)
