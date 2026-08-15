@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-15T16:37:36-05:00_ - _Data commit: `2e8a859cee93`_ - _last_reconciled: 2026-08-15_
+_Generated: 2026-08-15T17:06:22-05:00_ - _Data commit: `dfc830e52e40`_ - _last_reconciled: 2026-08-15_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -811,9 +811,10 @@ thread: **presence** - status: **done** - approval: **unreviewed**
 - **Next:** ura-planner; Tier 2 (touches occupancy-confidence scorer).
 - **Parsimony:** [BUILD] a non-person camera sensor in CONF_ZONE_CAMERAS is trusted as person-confirmation
 - **Refs:** docs/planning/PLANNING_zone_camera_person_only_guard.md
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `closed_2026_08_15`: CARD DEAD AS WRITTEN per context-wide audit (AUDIT_zone_cam_guard_necessity.md, 1e8b27e96). Operator was right: the person-only suffix guard EXISTS (camera_census.py:362-386 + camera_resolver.py:215-236) and covers room override + zone t...
   - `rider_update_2026_08_15`: Rider FAILED at v5.77.0 restart (script flat-scan hit nested zones dicts). Rewritten with recursive walk, dry-run verified (exactly the 2 zone edits), re-staged for NEXT restart. Rider bug class noted: .storage editors must handle nested...
+  - `rider_applied_2026_08_15`: APPLIED + VERIFIED at operator-requested restart (~17:25 CDT): flush caught, both zone edits landed (Back Hallway + Upstairs -> person-only sensors), post-boot residue 0, swaps present TRUE. Card fully closed — nothing outstanding.
 
 ### `MEMORY-RETRO-VALUE-1` - Retro-check — which answers in the last few investigations were already derivable from memory_episodes?
 thread: **memory** - status: **done** - approval: **explicit**
