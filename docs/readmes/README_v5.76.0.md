@@ -62,4 +62,13 @@ flush-watcher pattern (edit applied in the stop→boot gap after the shutdown fl
 
 ## Live Validation
 
-(to be written back post-restart)
+### Validated 2026-08-14 (v5.76.0 boot, ~23:05 CDT)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Boot clean, zero URA errors | **PASS** | system_log ERROR × universal_room: 0 entries (via ha_get_logs source=system; note: /config/home-assistant.log does not exist on HAOS — first scan was hollow, redone via the correct source) |
+| L2 | Manual compact run distills | **PASS** | `button.ura_coordinator_manager_compact_memory_now` pressed → `sensor.ura_coordinator_manager_memory_status` attrs: `facts_created=20`, `writes_last_run=20` (≪ cap 500), `triggered_by=manual`, `aborted_reason=null`, `skipped_missing_identity=0`. DB: `phantom_recurrence` 3 rows / `actuation_conflict_summary` 8 / `exterior_track_baseline` 9. Phantom facts carry `coverage: d2_gated` (verified on row). **README correction:** entity_ids are device-prefixed (`ura_coordinator_manager_*`) — the plan's bare `button.ura_memory_compact_now` does not exist; first press dispatched into a void and surfaced as a false "success (timeout)". |
+| L3 | Preservation invariant | **PASS** | `count(memory_episodes)` 1849 pre = 1849 post; 0 superseded rows (no corrections yet, none expected on first run); no in-place edits possible by construction (drill-anchored) |
+| L4 | Nightly `triggered_by=nightly` | **ORGANIC (open)** | First 02:30 tick |
+| L5 | Garage → egress survived boot | **PASS** | Flush-watcher log: flush detected, applied in gap; post-boot parent entry `egress_cameras` = [madrone_g6_entry, doorbell_lite, front_door_aerial, **garage_a, garage_b**] |
+| L6 | Circling exemption end-to-end | **ORGANIC (open)** | Next real escalating track: one HIGH page at the transition, no double-page per (track, class) |
