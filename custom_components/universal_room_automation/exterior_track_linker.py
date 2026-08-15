@@ -103,6 +103,25 @@ class ExteriorTrack:
     alert_count: int = 0
     first_alert_at: datetime | None = None
     started_at: datetime = field(default_factory=dt_util.now)
+    # CIRCLING-LABEL-1: transition-exemption ledger. RAM-only, dies with
+    # the track (matches predecessor D3 semantics — a mid-track restart
+    # loses the ledger; the new track re-earns exemptions from scratch).
+    #
+    # ``_dispatched_classifications`` is a SET (not a bool). A per-class
+    # set is load-bearing for I1: the multi-escalation shape
+    # pass_by → approach → circling produces TWO exemption dispatches
+    # (one per escalating transition). A bool implementation would
+    # collapse the second dispatch and provably fails D3b
+    # (test_multi_escalation_pass_by_approach_circling_gets_two_exemptions).
+    #
+    # Operator-visible restart re-arm behavior: any HA restart clears
+    # this ledger for all in-flight tracks. The next escalating hop
+    # after restart on each newly-observed track will fire one
+    # additional exemption dispatch per target-class it escalates into.
+    # Bound: <= 2 additional pages per track per restart (approach +
+    # circling). Intentional per the founding ask.
+    last_dispatched_classification: str | None = None
+    _dispatched_classifications: set[str] = field(default_factory=set)
 
     @property
     def last_hop(self) -> TrackHop:

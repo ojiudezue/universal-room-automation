@@ -1091,7 +1091,48 @@ cards:
   next: 'ura-planner; Tier 2 (touches occupancy-confidence scorer).'
   refs: [docs/planning/PLANNING_zone_camera_person_only_guard.md]
 
+- id: KP-ANNOTATION-1
+  title: 'Known-person annotation + stranger-alert leg — exterior alerts annotate identity ("likely Oji"), unknown-face escalates (doorbell-automation successor)'
+  thread: perimeter
+  status: parked
+  approval: explicit
+  approved_by: 'operator 2026-08-14: three bindings (LOCAL-ONLY identity — Frigate-2 + Protect face, llmvision excluded; D3 stranger leg FOLD IN NOW; in-first-message only) + "Agree on exterior member recognition conclusion"'
+  origin:
+    date: '2026-08-14'
+    gist: 'Successor card for the work absorbed from declined KP-ESCALATE-1 + the annotate-not-suppress direction. This card was MISSING for a day (capture miss, created 2026-08-15).'
+  why: 'Exterior alerts have zero member recognition; annotation kills operator triage cost without suppressing; stranger leg replaces the retiring doorbell automation. INV-KP: identity never delays/blocks/mutates the base alert; absent identity = byte-identical.'
+  constraints: ['no household reference photos leave LAN', 'stranger hazard respects duke-window (security-tier, NOT life-safety bypass) — operator-visible', 'fail-CLOSED false-stranger guard']
+  refinement:
+  - 'plan review CRIT-1: stranger hazard type would have LEAKED through an open safeword window -> registered in NM_SECURITY_HAZARDS + memory-ineligible + explicit severity map'
+  - 'plan review HIGH-1: after-enqueue ordering was only probabilistic -> structural after-await + own in-flight guard (hanging identity probe can never suppress next-camera dispatch)'
+  next: 'Tier 2-DB. Plan rev-3 committed (a28e4568f) — reviewed twice (4e468d37f). Next: D0 read-only probe (identity producers per camera, latency histogram, confidence distribution, enrollment coverage, doorbell cadence) -> gates build.'
+  refs: [docs/planning/PLANNING_known_person_annotation.md, docs/reviews/code-review/known_person_annotation_plan_review.md]
+  d0_verdict_2026_08_15: 'PARK v1 ENTIRELY (probe 2bcffbe0a, AUDIT_kp_annotation_d0_probe.md) — producer coverage insufficient, plan''s own park branch. 0.0% of 1,532 perimeter person events had identity at t=0 (ship gate >=50%); 6 of 9 camera face pipelines emit only boot churn; NO confidence attribute exists anywhere (floor underivable, guard inert); enrollment 75% (Ziri 0, Oji 1); NEITHER doorbell is in perimeter_cameras (stranger leg has no trigger). Only working producers: hot_tub, pool_equipment, g5_bullet, madrone_g6_entry.'
+  revival_preconditions: 'OPERATOR/HOMELAB actions, then RE-RUN the probe: (1) fix Frigate-2 face pipeline on the 6 dead cameras; (2) enroll Ziri + verify Oji enrollment (1 sighting as first-name token); (3) expose a Frigate confidence score OR drop the floor design; (4) add doorbell(s) to perimeter_cameras config. Plan is review-hardened and ready the moment the probe passes.'
+
+
+- id: MEMORY-PROGRAM-EPIC
+  title: 'EPIC — Hierarchical Entity Memory: every node (room/zone/house/coordinator) owns consultable, compressed history behind one queryable interface'
+  thread: memory
+  status: in_progress
+  approval: explicit
+  approved_by: 'operator 2026-08-02 (founding concept: "What if each room had memory? ... zones ... house ... coordinators ... shared, with a standard interface queryable by any node at any level"); Stage-2 go 2026-08-14 ("Do the compaction... finish")'
+  origin:
+    date: '2026-08-02'
+    gist: 'Operator concept -> VISION + ARCHITECTURE + MVP doc set (all finalized 2026-08-02, self-critiqued DRAFT v2).'
+  why: 'Program-level card so the memory work has a home; children carry the stages. URA composition (devices->rooms->zones->house) applied to TIME.'
+  stages:
+  - 'Stage 0 hand-build: DONE 2026-08-02 — AUDIT_memory_handbuild_study_a.md (Study A hand-ledger; kill gate PASSED, operator: "every")'
+  - 'Stage 1 facade: SHIPPED v5.47.0 (Tier 2-DB, memory_mvp_tier2db.md; 5 HIGH fixed pre-ship). memory_facade.py + memory_episodes + memory_query (episodes/narrative/unusual/profile/facts) + diagnostics sensor + NM switch. Polish v5.47.2/v5.51.0/v5.53.0. 1,799 episodes accrued by 2026-08-14. Organic still open: next organic D2 demotion retro-adjudicates its creation episode.'
+  - 'Stage 2 compactor: IN FLIGHT -> MEMORY-COMPACTOR-1 (plan-reviewed rev-2, builder running 2026-08-14)'
+  - 'Stage 3 writer coverage: QUEUED -> MEMORY-WRITERS-1 (retro found writers-ride-detectors ceiling; 0 FULL/2 PARTIAL/2 NONE)'
+  - 'Doctrine: memory-first diagnostics -> MEMORY-FIRST-DIAGNOSTICS-1 (skills amended 2026-08-14)'
+  - 'Future (architecture, unscheduled): batch adjacency-graph refresh; redaction enable (20k-row trigger); NM consumer deepening'
+  next: 'Land Stage 2 (compactor build -> 2 reviews -> deploy); then adjudicate MEMORY-WRITERS-1 top-2 writers.'
+  refs: [docs/planning/VISION_hierarchical_memory.md, docs/planning/ARCHITECTURE_hierarchical_memory.md, docs/planning/MVP_hierarchical_memory.md, docs/planning/AUDIT_memory_handbuild_study_a.md, docs/reviews/code-review/memory_mvp_tier2db.md, docs/planning/AUDIT_memory_retro_value.md]
+
 - id: MEMORY-COMPACTOR-1
+  parent: MEMORY-PROGRAM-EPIC
   title: 'Hierarchical memory — build the deferred daily compaction batch when memory_episodes has volume (trigger: any episode type >50 rows)'
   thread: memory
   status: in_progress
@@ -1111,6 +1152,7 @@ cards:
 
 
 - id: MEMORY-FIRST-DIAGNOSTICS-1
+  parent: MEMORY-PROGRAM-EPIC
   title: 'Memory-first diagnostics doctrine — memory_query is the FIRST surface checked in any investigation/trace, encoded in memory + skills'
   thread: memory
   status: in_progress
@@ -1136,6 +1178,7 @@ cards:
   result_2026_08_14: 'AUDIT_memory_retro_value.md (commit 6a99575fa). Verdicts: AWAY-BLOCK-1 PARTIAL (all 56 occupancy_phantom rows share mmwave_sole_fan_on_no_corroboration -> profile()/unusual() primes the fan-sustain hypothesis in minutes vs 4h recorder trace; but ZERO episodes for the 3 actually-latched rooms), guest-FP NONE (no house-state/census episode type), Frigate-ghost PARTIAL (1050 exterior_track hops answer attribution; Frigate-only witnesses so F2-Protect delta unanswerable), fan-latch NONE (Guestroom has zero rows ever; sustain captures out of writer scope). STRUCTURAL CEILING: writers ride the detectors (occupancy_phantom writer inside D2 demotion, coordinator.py:3455-3490) -> memory blind exactly in corroborator-less rooms where incidents live. Distillation priority for compactor: occupancy_phantom > comfort_fan_vetoed > exterior_track (baseline+outliers) > actuation_conflict (639 rows mostly 5-min-tick repeats, aggressive compaction).'
 
 - id: MEMORY-WRITERS-1
+  parent: MEMORY-PROGRAM-EPIC
   title: 'Memory episode-writer coverage gaps — writers ride the detectors, so memory is blind where detectors fail (retro: 0 FULL / 2 PARTIAL / 2 NONE)'
   thread: memory
   status: pre_planning
@@ -1232,7 +1275,7 @@ cards:
 - id: CIRCLING-LABEL-1
   title: Circling loops page but are never LABELLED/escalated as circling (2-camera shape) — cooldown blocks the hop where classification forms
   thread: perimeter
-  status: planned
+  status: review
   approval: unreviewed
   origin:
     date: '2026-08-13'
@@ -1242,6 +1285,9 @@ cards:
   next: 'Operator picks A/B/C. If A: own small Tier-2 cycle (new cooldown exemption on the perimeter dispatch path = regression-prone, plan review required).'
   decision_2026_08_14: 'OPERATOR: Option A approved per recommendation — one dispatch allowed through the per-camera cooldown when a track''s classification TRANSITIONS (the hop circling forms => one HIGH circling-labelled page). Own Tier-2 cycle, plan review first (new cooldown exemption on the dispatch path).'
   next: 'ura-planner -> plan review -> build.'
+  plan_review_2026_08_14: 'FIX-PLAN-FIRST (0d30ee8bc): HIGH — plan''s XCORR-1 mechanism was WRONG; single-camera nighttime circling would demote the exemption dispatch to LOW (founding ask unmet in a reachable shape). Reviewer adjudicated fix: exemption_active early-return in _evaluate_burst_demotion + D5b single-camera-night test. +3 MED (missing is_life_safety_hazard import in perimeter_alert, NM dedup HIGH-HIGH collision unverified, I1 set-vs-bool underpin). Rev-2 in flight.'
+  build_2026_08_15: 'feature/circling-label (6 commits, worktree): 21 new tests, 8/8 drills red-restored, 0 HEAD-only suite failures (9026 pass). Notable builder find: plan''s I4 anchor was masked by I2 — added unique-anchor test. 2 framing-disjoint reviews dispatched (A correctness+invariants, B lifecycle+races+S1-S8).'
+  reviews_2026_08_15: 'A SHIP (3f102e803) + B SHIP (ce9913b38), zero overlapping findings. Fix-up 4c1667f93 (3 LOWs incl. B-LOW-1 cross-camera double-grant race -> optimistic seed + 4-path rollback, +3 load-bearing tests). Orchestrator re-drill: XCORR-1 short-circuit neuter -> 3 named red incl. D5b anchor; restored 64/64. Base verified docs-only-ahead. MERGED to develop; awaiting deploy.'
 
 
 - id: GUEST-FP-RESIDUALS-1
