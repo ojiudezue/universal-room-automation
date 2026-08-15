@@ -95,23 +95,36 @@ def _statement_exterior_track_baseline(
 def _statement_phantom_recurrence(
     rows: list[dict], node_id: str, topic: str,
 ) -> tuple[str, dict]:
-    """Per-room phantom recurrence rate + typical fan-on span.
+    """Per-room D2-DETECTED phantom-recurrence rate + typical fan-on span.
 
     Groups are (node_id,) — one fact per room.
+
+    IMPORTANT (per AUDIT_memory_retro_value.md + Vision §6 confident-
+    garbage warning + orchestrator amendment 2026-08-14): this rule
+    measures phantoms the D2 detector actually caught. A room with zero
+    phantom episodes may be sensor-blind, not healthy — the fact carries
+    ``coverage="d2_gated"`` in attrs and the statement text says
+    ``d2-detected`` so downstream readers cannot invert the reading
+    (Ziri 39 vs Guestroom 0 misread class).
     """
     n = len(rows)
     typical_span_s = _median_span_seconds(rows)
     first_ts = min(r["started_at"] for r in rows)
     last_ts = max(r["started_at"] for r in rows)
     attrs = {
-        "room": node_id, "phantom_count": n,
-        "first_ts": first_ts, "last_ts": last_ts,
+        "room": node_id,
+        "phantom_count": n,
+        "first_ts": first_ts,
+        "last_ts": last_ts,
         "typical_fan_on_s": typical_span_s,
+        # Coverage-provenance marker — DO NOT drop. Absence would invite
+        # the confident-garbage misread. See docstring.
+        "coverage": "d2_gated",
     }
     statement = (
-        f"phantom_recurrence room={node_id} phantom_count={n} "
-        f"first={first_ts} last={last_ts} "
-        f"typical_fan_on_s={typical_span_s}"
+        f"phantom_recurrence (d2-detected) room={node_id} "
+        f"phantom_count={n} first={first_ts} last={last_ts} "
+        f"typical_fan_on_s={typical_span_s} coverage=d2_gated"
     )
     return statement, attrs
 
@@ -151,6 +164,29 @@ _STATEMENT_FNS: dict[str, Callable[[list[dict], str, str], tuple[str, dict]]] = 
 }
 
 
+# Per-rule attrs -> identity-key extractor. exterior_track's "camera" is
+# nested under attrs.path[0], not a top-level attr. Keeping this table
+# alongside _STATEMENT_FNS keeps rule-specific quirks in one place. The
+# extractor returns a tuple aligned with the rule's ``identity_keys``.
+def _key_exterior_track(attrs: dict) -> tuple:
+    path = attrs.get("path") or []
+    return (path[0] if path else None, attrs.get("label"))
+
+
+def _key_from_attrs(identity_keys: tuple) -> Callable[[dict], tuple]:
+    """Default extractor: read each identity_key as a top-level attr."""
+    def _extract(attrs: dict) -> tuple:
+        return tuple(attrs.get(k) for k in identity_keys)
+    return _extract
+
+
+_KEY_FNS: dict[str, Callable[[dict], tuple]] = {
+    "exterior_track_baseline": _key_exterior_track,
+    # actuation_conflict_daily + phantom_recurrence use default extractor
+    # (identity_keys map to top-level attrs).
+}
+
+
 # --- Boot-time asserts (CRIT-2 fix). Import-time failure surfaces
 #     before any write. Symmetric with the episode-type constraint.
 _rule_types = set(MEMORY_COMPACTION_RULES.keys())
@@ -181,14 +217,24 @@ class MemoryCompactor:
         # `db` is a URADatabase; typed Any to avoid circular import.
         self._db = db
 
-    async def run(self, *, triggered_by: str = "nightly") -> dict:
+    async def run(
+        self,
+        *,
+        triggered_by: str = "nightly",
+        now: datetime | None = None,
+    ) -> dict:
         """One compactor pass.
+
+        `now` is an optional injection point so tests can pin the
+        rolling-window anchor deterministically against frozen fixture
+        data. Production callers pass None; the engine anchors on
+        ``datetime.now(timezone.utc)``.
 
         Returns ``{facts_created, facts_superseded, episodes_redacted,
         writes_total, aborted_reason, triggered_by, started_at,
         finished_at}``.
         """
-        started_at = datetime.now(timezone.utc)
+        started_at = now or datetime.now(timezone.utc)
         stats = {
             "facts_created": 0,
             "facts_superseded": 0,
@@ -259,11 +305,15 @@ class MemoryCompactor:
                 ]
             if not rows:
                 continue
-            # Partition by identity keys.
+            # Partition by identity keys. Rule-specific extractor when
+            # the identity key is nested (e.g. exterior_track's
+            # "camera" = attrs.path[0]); default extractor reads
+            # each identity_key as a top-level attr.
+            key_fn = _KEY_FNS.get(fn_name) or _key_from_attrs(identity_keys)
             groups: dict[tuple, list[dict]] = {}
             for r in rows:
                 a = r.get("attrs") or {}
-                key = tuple(a.get(k) for k in identity_keys)
+                key = key_fn(a)
                 # Skip rows with missing identity-key values when the
                 # rule needs them — defensive against upstream shape
                 # surprises.
