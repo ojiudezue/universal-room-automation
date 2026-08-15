@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-15T01:59:22-05:00_ - _Data commit: `763cf6ada209`_ - _last_reconciled: 2026-08-14_
+_Generated: 2026-08-15T11:41:45-05:00_ - _Data commit: `e8abb706c35f`_ - _last_reconciled: 2026-08-14_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,7 +11,7 @@ _Generated: 2026-08-15T01:59:22-05:00_ - _Data commit: `763cf6ada209`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 5 |
+| 📥 Inbox | 4 |
 | 🧭 Pre-planning | 8 |
 | 📝 Planned | 2 |
 | 🔨 In progress | 3 |
@@ -20,9 +20,9 @@ _Generated: 2026-08-15T01:59:22-05:00_ - _Data commit: `763cf6ada209`_ - _last_r
 | ⏸️ Waiting on operator | 3 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 3 |
-| ✅ Done | 4 |
+| ✅ Done | 5 |
 
-## 📥 Inbox (5)
+## 📥 Inbox (4)
 _raw capture_
 
 ### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab
@@ -49,14 +49,6 @@ thread: **dashboarding** - status: **inbox** - approval: **unreviewed**
 - **Tags:** audit-first
 - **Parsimony:** [BUILD] PWA cannot reliably map a room to its controllable entities
 - **Refs:** docs/planning/PLANNING_g1_room_control_list_attrs.md
-
-### `ZONE-CAM-PERSON-GUARD-1` - Durable device_class guard so a Frigate MOTION sensor cannot be trusted as camera person-confirmation in zone occupancy-confidence
-thread: **presence** - status: **inbox** - approval: **unreviewed**
-- **Origin:** 2026-07-13 - Plan inventory audit 2026-08-14: PLANNING_zone_camera_person_only_guard.md unbuilt + uncarded; the 2026-06-08 live finding was only fixed by config removal, not code.
-- **Why:** CONF_ZONE_CAMERAS entries are trusted as person-confirmation by the presence Source-3 occupancy-confidence scorer (-> hvac.py stale-sensor guard). A motion-only Frigate sensor mis-filed there is trusted as a person confirm. No device_cla...
-- **Next:** ura-planner; Tier 2 (touches occupancy-confidence scorer).
-- **Parsimony:** [BUILD] a non-person camera sensor in CONF_ZONE_CAMERAS is trusted as person-confirmation
-- **Refs:** docs/planning/PLANNING_zone_camera_person_only_guard.md
 
 ### `OPT-META-BOOT-TRANSIENT-1` - Optimizer meta-monitor false "cannot see problems" alert — findings_recent reads RAM cache emptied by restart while open-count reads durable state
 thread: **optimizer** - status: **inbox** - approval: **unreviewed**
@@ -761,7 +753,7 @@ thread: **hvac** - status: **parked** - approval: **unreviewed**
   - `sharp_problem`: Gaps: (1) boot reconciliation — on listener attach, classify any zone ALREADY in manual as inherited-manual and start standard arrest evaluation; (2) verify _handle_climate_change classifies within-manual setpoint deltas (manual->manual ...
   - `related`: Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire. RESOLVED 2026-08-12: operator power-cycled Enpower; all 3 reserve legs coherent at 10 (local number + envoy sensor + ...
 
-## ✅ Done (4)
+## ✅ Done (5)
 _closed, evidence in refs_
 
 ### `FRIGATE-RETIRE-1` - Retire Frigate-1 — promote Frigate-2 (yolov9t/OpenVINO, zero night ghosts) to primary incl. snapshot engine
@@ -781,6 +773,16 @@ thread: **security** - status: **done** - approval: **approved**
   - `reaudit_2026_08_13`: Operator-requested post-disable re-audit: PASS — 443 URA entity refs, 0 F1-owned; snapshot engine self-heals to F2-only; MQTT dual-prefix clean; census/resolver skip disabled entities. Findings ALL FIXED live same hour: MED automation.g6...
   - `gate2_met_2026_08_14`: GATE-2 MET + BOX PHYSICALLY POWERED OFF (operator, ahead of formal completion — with all software layers already dark, physical-off IS the authentic Gate-2 test and it passed). Since F1 disable: 10 dispatches, all healthy — incl. a SAME-...
   - `decommissioned_2026_08_15`: Operator go ("Frigate 1 hardware full decomm"; homelab agent repurposing the box). URA side EXECUTED: config entry 01JV6G4E57HT3WH86WSQ4RJT11 deleted in-band (ha_remove_helpers_integrations) — all 965 F1 entities + 25 *_f1retired renames...
+
+### `ZONE-CAM-PERSON-GUARD-1` - Durable device_class guard so a Frigate MOTION sensor cannot be trusted as camera person-confirmation in zone occupancy-confidence
+thread: **presence** - status: **done** - approval: **unreviewed**
+- **Origin:** 2026-07-13 - Plan inventory audit 2026-08-14: PLANNING_zone_camera_person_only_guard.md unbuilt + uncarded; the 2026-06-08 live finding was only fixed by config removal, not code.
+- **Why:** CONF_ZONE_CAMERAS entries are trusted as person-confirmation by the presence Source-3 occupancy-confidence scorer (-> hvac.py stale-sensor guard). A motion-only Frigate sensor mis-filed there is trusted as a person confirm. No device_cla...
+- **Next:** ura-planner; Tier 2 (touches occupancy-confidence scorer).
+- **Parsimony:** [BUILD] a non-person camera sensor in CONF_ZONE_CAMERAS is trusted as person-confirmation
+- **Refs:** docs/planning/PLANNING_zone_camera_person_only_guard.md
+- **Forensic keys (1):**
+  - `closed_2026_08_15`: CARD DEAD AS WRITTEN per context-wide audit (AUDIT_zone_cam_guard_necessity.md, 1e8b27e96). Operator was right: the person-only suffix guard EXISTS (camera_census.py:362-386 + camera_resolver.py:215-236) and covers room override + zone t...
 
 ### `MEMORY-RETRO-VALUE-1` - Retro-check — which answers in the last few investigations were already derivable from memory_episodes?
 thread: **memory** - status: **done** - approval: **explicit**
