@@ -1094,7 +1094,7 @@ cards:
 - id: KP-ANNOTATION-1
   title: 'Known-person annotation + stranger-alert leg — exterior alerts annotate identity ("likely Oji"), unknown-face escalates (doorbell-automation successor)'
   thread: perimeter
-  status: planned
+  status: parked
   approval: explicit
   approved_by: 'operator 2026-08-14: three bindings (LOCAL-ONLY identity — Frigate-2 + Protect face, llmvision excluded; D3 stranger leg FOLD IN NOW; in-first-message only) + "Agree on exterior member recognition conclusion"'
   origin:
@@ -1107,6 +1107,9 @@ cards:
   - 'plan review HIGH-1: after-enqueue ordering was only probabilistic -> structural after-await + own in-flight guard (hanging identity probe can never suppress next-camera dispatch)'
   next: 'Tier 2-DB. Plan rev-3 committed (a28e4568f) — reviewed twice (4e468d37f). Next: D0 read-only probe (identity producers per camera, latency histogram, confidence distribution, enrollment coverage, doorbell cadence) -> gates build.'
   refs: [docs/planning/PLANNING_known_person_annotation.md, docs/reviews/code-review/known_person_annotation_plan_review.md]
+  d0_verdict_2026_08_15: 'PARK v1 ENTIRELY (probe 2bcffbe0a, AUDIT_kp_annotation_d0_probe.md) — producer coverage insufficient, plan''s own park branch. 0.0% of 1,532 perimeter person events had identity at t=0 (ship gate >=50%); 6 of 9 camera face pipelines emit only boot churn; NO confidence attribute exists anywhere (floor underivable, guard inert); enrollment 75% (Ziri 0, Oji 1); NEITHER doorbell is in perimeter_cameras (stranger leg has no trigger). Only working producers: hot_tub, pool_equipment, g5_bullet, madrone_g6_entry.'
+  revival_preconditions: 'OPERATOR/HOMELAB actions, then RE-RUN the probe: (1) fix Frigate-2 face pipeline on the 6 dead cameras; (2) enroll Ziri + verify Oji enrollment (1 sighting as first-name token); (3) expose a Frigate confidence score OR drop the floor design; (4) add doorbell(s) to perimeter_cameras config. Plan is review-hardened and ready the moment the probe passes.'
+
 
 - id: MEMORY-PROGRAM-EPIC
   title: 'EPIC — Hierarchical Entity Memory: every node (room/zone/house/coordinator) owns consultable, compressed history behind one queryable interface'
