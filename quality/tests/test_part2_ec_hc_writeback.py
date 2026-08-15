@@ -362,6 +362,11 @@ def _load_init_dispatch_namespace() -> dict:
         "DOMAIN": "universal_room_automation",
         "CONF_ENTRY_TYPE": "entry_type",
         "ENTRY_TYPE_COORDINATOR_MANAGER": "coordinator_manager",
+        # RELOAD-WATCHDOG-HAZARD (2026-08-15): listener now has an
+        # ENTRY_TYPE_INTEGRATION branch — inject the sentinel + the v1
+        # allowlisted key so the sliced module compiles.
+        "ENTRY_TYPE_INTEGRATION": "integration",
+        "CONF_CAMERA_PERSON_ENTITIES": "camera_person_entities",
         # CONF aliases resolved to their string values (matches production).
         "_CONF_HVAC_VACANCY_GRACE_MINUTES": "hvac_vacancy_grace_minutes",
         "_CONF_HVAC_VACANCY_GRACE_CONSTRAINED": "hvac_vacancy_grace_constrained",
