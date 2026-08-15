@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-15T13:31:05-05:00_ - _Data commit: `77aba9365070`_ - _last_reconciled: 2026-08-14_
+_Generated: 2026-08-15T14:07:30-05:00_ - _Data commit: `4671059b83a0`_ - _last_reconciled: 2026-08-14_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -174,6 +174,8 @@ thread: **presence** - status: **in_progress** - approval: **implied**
 - **Why:** All F2 count sensors are _2-suffixed; _PERSON_COUNT_SUFFIX endswith matching (camera_resolver.py:272/1288 + camera_census.py:400/793) matches none -> binary fallback max-1-per-camera -> unrecognized=max(0,~4-4)=0 -> total=identified fore...
 - **Next:** Builder in flight (strip-before-match at all strict sites + ambiguity guard + drills); 2 reviews; batches into the pending reload/opt-meta deploy. Post-deploy Live: census exceeds 4 during next multi-person traversal.
 - **Refs:** docs/planning/AUDIT_census_accuracy_regression.md
+- **Forensic keys (1):**
+  - `operator_ruling_ash41b_2026_08_15`: ASH41B (Study A): stays OUT of camera_person_entities (census) by operator ruling — camera is physically blocked by a screen unless operator is away, so zero-detection history is EXPECTED (not a Frigate pipeline fault; struck from the F2...
 
 ### `MEMORY-PROGRAM-EPIC` - EPIC — Hierarchical Entity Memory: every node (room/zone/house/coordinator) owns consultable, compressed history behind one queryable interface
 thread: **memory** - status: **in_progress** - approval: **explicit**

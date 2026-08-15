@@ -1159,6 +1159,8 @@ cards:
   - 'Audit''s rename-38-entities-to-canonical option REJECTED as primary: every rename breaks every reference (URA config rows, staged riders, dashboards); code tolerance = one reviewed change, zero reference breakage'
   next: 'Builder in flight (strip-before-match at all strict sites + ambiguity guard + drills); 2 reviews; batches into the pending reload/opt-meta deploy. Post-deploy Live: census exceeds 4 during next multi-person traversal.'
   refs: [docs/planning/AUDIT_census_accuracy_regression.md]
+  operator_ruling_ash41b_2026_08_15: 'ASH41B (Study A): stays OUT of camera_person_entities (census) by operator ruling — camera is physically blocked by a screen unless operator is away, so zero-detection history is EXPECTED (not a Frigate pipeline fault; struck from the F2 punch list). Stays configured at room tier (Study A room_cameras, verified enabled). Do not re-raise.'
+
 
 - id: CENSUS-GUEST-FLOOR-1
   title: 'Census blind to guests (read 4 with 10 in house) — re-admit the WiFi guest-VLAN count as a bounded FLOOR, gated to contain the FP problem that unplugged it'
