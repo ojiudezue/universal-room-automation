@@ -58,7 +58,9 @@ from .const import (
     CONF_HUMIDITY_FAN_CONTROL_ENABLED,
     DEFAULT_HUMIDITY_FAN_CONTROL_ENABLED,
     # v3.5.0 Camera Census
-    CONF_CAMERA_PERSON_ENTITIES,
+    # NOTE: `CONF_CAMERA_PERSON_ENTITIES` import removed 2026-08-15
+    # (RELOAD-WATCHDOG-HAZARD D1 audit: dead import; the entity-key
+    # literal "camera_person_detected" at :~1155 is a distinct symbol).
     CONF_ROOM_CAMERAS,
     CONF_DISABLE_CAMERA_PRESENCE,
     CONF_TRACKED_PERSONS,

@@ -269,3 +269,84 @@ against the next reload/signal-table touch. LOWs may be batched into
 the same follow-up.
 
 — Reviewer C, 2026-08-15
+<<<<<<< HEAD
+=======
+
+
+---
+
+## Addendum — 2026-08-15 (post fix-up 3/3)
+
+Orchestrator re-drill of the H-1 wire-in anchor after fix-up commits
+`57239c799` + `0a661fa13` exposed a **drill methodology defect** in the
+builder's original anchor + drill process. Recording it here so future
+cycles inherit the correction.
+
+### What happened
+
+Builder shipped `test_seed_helper_call_site_exists_in_integration_setup_path`
+as a substring-match (`in integration_span`) source-grep anchor for the
+H-1 seed-call site at `__init__.py:~3877`. Builder's own drill neutered
+the call via `pass`-replacement (`_seed_integration_last_applied_options(hass, entry)`
+→ `pass  # NEUTERED`) — the grep test caught it because the substring
+was gone. Builder reported the anchor as load-bearing.
+
+Orchestrator re-drill applied a different neuter: **comment-out**
+(`# _seed_integration_last_applied_options(hass, entry)  # …`). The
+substring survived inside the comment, so the grep-based anchor stayed
+green with the production call dead. Orchestrator then applied a
+**hard-delete** (line removed entirely) — the grep test finally failed,
+but the sibling behavioral test
+`test_first_post_restart_save_suppresses_when_snapshot_unseeded_by_test_but_seeded_by_setup`
+ALSO stayed green because it invokes the seed helper itself via
+`ns["_seed_integration_last_applied_options"](hass, entry)` rather than
+driving the setup path. Hollow-anchor variant #5 (simulate-not-drive)
+on the cycle's blocker fix.
+
+### Fix (fix-up commit 3/3)
+
+- Replaced `test_seed_helper_call_site_exists_in_integration_setup_path`
+  with `test_seed_helper_call_node_exists_in_integration_setup_ast`,
+  which parses `__init__.py` with `ast.parse`, walks
+  `async_setup_entry` for the `if entry_type == ENTRY_TYPE_INTEGRATION:`
+  branch, and asserts a live `ast.Call` node whose callee is
+  `_seed_integration_last_applied_options` exists inside that branch.
+  AST is comment-invisible; `pass`-replacements delete the Call. All
+  three drill variants (comment-out / hard-delete / pass-replacement)
+  now fail the anchor by name.
+- Ordering check reuses the same AST walk (locates the
+  `entry.add_update_listener(_async_update_listener)` Call and compares
+  line numbers).
+- Renamed the sibling behavioral test to
+  `test_seed_helper_when_invoked_makes_first_save_suppress_reload` and
+  documented its scope explicitly: HELPER behavior, NOT setup-path
+  driver. The AST anchor is what guarantees the setup path calls it.
+
+### Drill re-run (2026-08-15, post fix-up 3/3)
+
+| Variant | Neuter | Prior grep anchor | AST anchor (this fix-up) |
+|---|---|---|---|
+| Pass-replacement | `_seed_integration...(hass, entry)` → `pass  # …` | ✅ caught (substring gone) | ✅ caught (Call node gone) |
+| Comment-out | `_seed_integration...(hass, entry)` → `# _seed_integration...` | ❌ MISSED (substring in comment) | ✅ caught (comment ignored by AST) |
+| Hard-delete | line removed | ✅ caught (substring gone) | ✅ caught (Call node gone) |
+
+### Methodology note (durable, add to `feedback_hollow_test_anchors`)
+
+- **Source-grep-as-test anchors have TWO blind spots relative to AST**:
+  (1) block comments containing the anchored substring (see the
+  Bug-Class-#46 note comment at `__init__.py:1601-1605` that mentions
+  `entry.add_update_listener(_async_update_listener)` textually);
+  (2) commented-out call sites (`# helper(...)`) that leave the
+  substring intact but the Call dead.
+- **Builder-run drills MUST use ≥2 neuter styles per site** —
+  `pass`-replacement AND comment-out AND hard-delete. A single neuter
+  style is not enough to detect substring-anchor blind spots. The
+  operator's meta-rule: if the anchor is a `str.__contains__` call,
+  the drill MUST include comment-out.
+- **Behavioral tests that invoke the fixed helper directly ≠ tests of
+  the wire-in.** The two must be distinct; the wire-in anchor must
+  parse production source and assert a live Call node in the expected
+  scope.
+
+— Addendum, 2026-08-15
+>>>>>>> feature/reload-optmeta
