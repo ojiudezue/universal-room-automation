@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-14T18:13:45-05:00_ - _Data commit: `de9833dc0e8f`_ - _last_reconciled: 2026-08-14_
+_Generated: 2026-08-14T19:49:40-05:00_ - _Data commit: `4e82a3341cfd`_ - _last_reconciled: 2026-08-14_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,15 +12,15 @@ _Generated: 2026-08-14T18:13:45-05:00_ - _Data commit: `de9833dc0e8f`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 4 |
-| 🧭 Pre-planning | 9 |
+| 🧭 Pre-planning | 10 |
 | 📝 Planned | 3 |
-| 🔨 In progress | 5 |
+| 🔨 In progress | 4 |
 | 🔍 Review | 0 |
 | 🚀 Shipped (organic open) | 32 |
 | ⏸️ Waiting on operator | 2 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 2 |
-| ✅ Done | 1 |
+| ✅ Done | 2 |
 
 ## 📥 Inbox (4)
 _raw capture_
@@ -67,7 +67,7 @@ thread: **presence** - status: **inbox** - approval: **approved_after_investigat
   - `operator_direction_2026_08_13`: Operator: "we should find a way to say AWAY not LOST. Do we need a lost state at all? That way we can actually use this signal the way it is supposed to be used. And not overload it." I.e. the fix may not be patching the denominator arit...
   - `alternate_paths`: (1) Dissolve LOST: away-with-no-fix => AWAY (trusted, counts in denominator); home-but-silent => new BLE_SILENT_HOME or stays ambiguous-excluded; keep LOST only for truly-unknown. Ripple: every consumer of tracking_status (H3 reliable-si...
 
-## 🧭 Pre-planning (9)
+## 🧭 Pre-planning (10)
 _idea being decomposed_
 
 ### `ROOM-NAME-UNIQUE-1` - Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket)
@@ -77,6 +77,14 @@ thread: **presence** - status: **pre_planning** - approval: **unreviewed**
 - **Next:** Small cycle after v5.75.0; consider folding into the next config-flow-touching batch.
 - **Forensic keys (1):**
   - `fix_sketch`: _check_room_name_unique in async_step_basic_setup -> async_show_form error on collision (~15 LoC, Tier 1-2). Live-validation D-block for the rename cycle includes a do-not-rename-to-existing sanity note meanwhile.
+
+### `MEMORY-WRITERS-1` - Memory episode-writer coverage gaps — writers ride the detectors, so memory is blind where detectors fail (retro: 0 FULL / 2 PARTIAL / 2 NONE)
+thread: **memory** - status: **pre_planning** - approval: **unreviewed**
+- **Origin:** 2026-08-14 - MEMORY-RETRO-VALUE-1 finding: occupancy_phantom writer inherits D2 fail-closed no-PIR gate; both recent incidents lived in rooms memory never heard about.
+- **Why:** Memory-first diagnostics only pays if memory covers the question. Candidate writers from the retro (ranked by incident coverage): (1) D2-independent retro phantom writer keyed on fan-release correlation — would have captured ALL FIVE lat...
+- **Next:** After compactor ships: pick top 1-2 writers (fan-release retro-phantom + away_transition_blocked) for one small Tier-2 cycle; rest parked on the card.
+- **Parsimony:** [SIMPLIFY] memory cannot answer diagnostic questions about the rooms/mechanisms where incidents actually occur
+- **Refs:** docs/planning/AUDIT_memory_retro_value.md
 
 ### `SENSOR-FANINDEP-1` - Role matrix needs a fan-independence axis — 10GHz motion-mmWave fleet is corroborator-grade for stuck but NOT for fan-demotion
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**
@@ -181,7 +189,7 @@ thread: **presence** - status: **planned** - approval: **unreviewed**
 - **Forensic keys (1):**
   - `operator_question`: 50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests or a daytime FP flavor? If the latter, escalate per audit §3.
 
-## 🔨 In progress (5)
+## 🔨 In progress (4)
 _being built_
 
 ### `FRIGATE-RETIRE-1` - Retire Frigate-1 — promote Frigate-2 (yolov9t/OpenVINO, zero night ghosts) to primary incl. snapshot engine
@@ -219,13 +227,6 @@ thread: **memory** - status: **in_progress** - approval: **explicit**
 - **Why:** The facade exists precisely to answer "what happened in this room/zone/house" — but no diagnostic workflow invokes it. Doctrine: episodes/narrative/unusual via memory_query BEFORE raw recorder mining; raw mining remains the verify step, ...
 - **Next:** Amend memory (feedback file) + CLAUDE-adjacent investigation surfaces; retro-analysis quantifies the win.
 - **Refs:** custom_components/universal_room_automation/memory_facade.py
-
-### `MEMORY-RETRO-VALUE-1` - Retro-check — which answers in the last few investigations were already derivable from memory_episodes?
-thread: **memory** - status: **in_progress** - approval: **explicit**
-- **Origin:** 2026-08-14 - Same push as compactor go.
-- **Why:** Evidence for the memory-first doctrine + input to the compactor plan (which episode types earn distillation priority).
-- **Next:** Agent replays AWAY-BLOCK-1, guest-FP, Frigate-ghost, fan-latch questions against live memory_episodes; report what memory would have answered vs what we hand-mined.
-- **Refs:** docs/planning/AUDIT_away_transition_2026_08_13.md
 
 ### `AWAY-BLOCK-1` - House held home_day 2h with everyone away — fan->mmWave->occupancy->fan self-sustaining loop; both away paths structurally blocked
 thread: **presence** - status: **in_progress** - approval: **unreviewed**
@@ -732,8 +733,17 @@ thread: **hvac** - status: **parked** - approval: **unreviewed**
   - `sharp_problem`: Gaps: (1) boot reconciliation — on listener attach, classify any zone ALREADY in manual as inherited-manual and start standard arrest evaluation; (2) verify _handle_climate_change classifies within-manual setpoint deltas (manual->manual ...
   - `related`: Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire. RESOLVED 2026-08-12: operator power-cycled Enpower; all 3 reserve legs coherent at 10 (local number + envoy sensor + ...
 
-## ✅ Done (1)
+## ✅ Done (2)
 _closed, evidence in refs_
+
+### `MEMORY-RETRO-VALUE-1` - Retro-check — which answers in the last few investigations were already derivable from memory_episodes?
+thread: **memory** - status: **done** - approval: **explicit**
+- **Origin:** 2026-08-14 - Same push as compactor go.
+- **Why:** Evidence for the memory-first doctrine + input to the compactor plan (which episode types earn distillation priority).
+- **Next:** Agent replays AWAY-BLOCK-1, guest-FP, Frigate-ghost, fan-latch questions against live memory_episodes; report what memory would have answered vs what we hand-mined.
+- **Refs:** docs/planning/AUDIT_away_transition_2026_08_13.md
+- **Forensic keys (1):**
+  - `result_2026_08_14`: AUDIT_memory_retro_value.md (commit 6a99575fa). Verdicts: AWAY-BLOCK-1 PARTIAL (all 56 occupancy_phantom rows share mmwave_sole_fan_on_no_corroboration -> profile()/unusual() primes the fan-sustain hypothesis in minutes vs 4h recorder tr...
 
 ### `KP-ESCALATE-1` - Known-person / face-alert path (no URA successor)
 thread: **security** - status: **done** - approval: **blocked**

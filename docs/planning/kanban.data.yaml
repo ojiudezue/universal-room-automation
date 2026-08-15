@@ -1124,13 +1124,28 @@ cards:
 - id: MEMORY-RETRO-VALUE-1
   title: 'Retro-check — which answers in the last few investigations were already derivable from memory_episodes?'
   thread: memory
-  status: in_progress
+  status: done
   approval: explicit
   approved_by: 'operator 2026-08-14 ("Check to see what answers we could have derived from it in the last few investigations")'
   origin: {date: '2026-08-14', gist: 'Same push as compactor go.'}
   why: 'Evidence for the memory-first doctrine + input to the compactor plan (which episode types earn distillation priority).'
   next: 'Agent replays AWAY-BLOCK-1, guest-FP, Frigate-ghost, fan-latch questions against live memory_episodes; report what memory would have answered vs what we hand-mined.'
   refs: [docs/planning/AUDIT_away_transition_2026_08_13.md]
+  result_2026_08_14: 'AUDIT_memory_retro_value.md (commit 6a99575fa). Verdicts: AWAY-BLOCK-1 PARTIAL (all 56 occupancy_phantom rows share mmwave_sole_fan_on_no_corroboration -> profile()/unusual() primes the fan-sustain hypothesis in minutes vs 4h recorder trace; but ZERO episodes for the 3 actually-latched rooms), guest-FP NONE (no house-state/census episode type), Frigate-ghost PARTIAL (1050 exterior_track hops answer attribution; Frigate-only witnesses so F2-Protect delta unanswerable), fan-latch NONE (Guestroom has zero rows ever; sustain captures out of writer scope). STRUCTURAL CEILING: writers ride the detectors (occupancy_phantom writer inside D2 demotion, coordinator.py:3455-3490) -> memory blind exactly in corroborator-less rooms where incidents live. Distillation priority for compactor: occupancy_phantom > comfort_fan_vetoed > exterior_track (baseline+outliers) > actuation_conflict (639 rows mostly 5-min-tick repeats, aggressive compaction).'
+
+- id: MEMORY-WRITERS-1
+  title: 'Memory episode-writer coverage gaps — writers ride the detectors, so memory is blind where detectors fail (retro: 0 FULL / 2 PARTIAL / 2 NONE)'
+  thread: memory
+  status: pre_planning
+  approval: unreviewed
+  origin:
+    date: '2026-08-14'
+    gist: 'MEMORY-RETRO-VALUE-1 finding: occupancy_phantom writer inherits D2 fail-closed no-PIR gate; both recent incidents lived in rooms memory never heard about.'
+  why: 'Memory-first diagnostics only pays if memory covers the question. Candidate writers from the retro (ranked by incident coverage): (1) D2-independent retro phantom writer keyed on fan-release correlation — would have captured ALL FIVE latches across both incidents; (2) away_transition_blocked; (3) tracker_trust_excluded; (4) house_state_transition with gate-input snapshot; (5) zone-tier divergence; (6) multi-source witnesses in exterior_track hops (unlocks F2-vs-Protect first-witness questions).'
+  parsimony: {problem: 'memory cannot answer diagnostic questions about the rooms/mechanisms where incidents actually occur', verdict: SIMPLIFY}
+  constraints: ['each writer is a NEW producer on the write queue — batch discipline (write-flood ghost)', 'writers must not couple to detector gates the way occupancy_phantom did']
+  next: 'After compactor ships: pick top 1-2 writers (fan-release retro-phantom + away_transition_blocked) for one small Tier-2 cycle; rest parked on the card.'
+  refs: [docs/planning/AUDIT_memory_retro_value.md]
 
 
 - id: HOUSE-STATE-UTILIZATION-EPIC
