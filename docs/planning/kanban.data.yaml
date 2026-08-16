@@ -584,7 +584,12 @@ cards:
     eval snapshot internals, arbitrage/grid-cap lists when empty. Applied views[2].sections[8],
     write_committed + post_write_verified, template eval-verified live. No vehicle-side integration
     exists (BMW/Tesla sweep empty) — vehicle SOC/target impossible until one is added.
-    AWAITING OPERATOR RE-REVIEW.'
+    AWAITING OPERATOR RE-REVIEW. FIX 2026-08-16: operator flagged the constant Outlets 2.9 kW — it
+    is a BY-DESIGN estimate (energy_pool emits L1_ESTIMATED_POWER_W=1440 per on-socket with
+    power_source "switch_status"; audit AUDIT_ev_sensor_surface.md verdict 3), not a measurement.
+    Card now renders any power_source=="switch_status" value as an estimate ("~2.9 est" row,
+    header "2.9 kW (~est)") so estimated never masquerades as measured; real per-plug power arrives
+    when the Emporia integration recovers + per-plug wiring ships. Re-applied + render-verified.'
   applied_render_2026_08_09: '## ⏸ Paused / TOU peak/mid-peak pause / [Garage A yes|Paused|0.0 kW]
     [Garage B —|Off|0.0 kW] [Outlets (2) —|TOU peak/mid-peak pause|—] / **Plan:** Hold Only · held 53h
     — 7 lines, zero None/unavailable/unknown, all four conditional lines correctly absent.'
