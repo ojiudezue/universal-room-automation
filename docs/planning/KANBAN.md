@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-16T01:50:49-05:00_ - _Data commit: `07b57cd800de`_ - _last_reconciled: 2026-08-15_
+_Generated: 2026-08-16T01:54:51-05:00_ - _Data commit: `0331bb5a7f70`_ - _last_reconciled: 2026-08-15_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -13,14 +13,14 @@ _Generated: 2026-08-16T01:50:49-05:00_ - _Data commit: `07b57cd800de`_ - _last_r
 |---|---:|
 | 📥 Inbox | 1 |
 | 🧭 Pre-planning | 8 |
-| 📝 Planned | 2 |
+| 📝 Planned | 1 |
 | 🔨 In progress | 3 |
 | 🔍 Review | 0 |
 | 🚀 Shipped (organic open) | 38 |
 | ⏸️ Waiting on operator | 4 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 4 |
-| ✅ Done | 6 |
+| ✅ Done | 7 |
 
 ## 📥 Inbox (1)
 _raw capture_
@@ -107,19 +107,8 @@ thread: **camera** - status: **pre_planning** - approval: **implied**
 - **Tags:** no-fabrication-verify
 - **Parsimony:** [BUILD] any camera on the 2nd Frigate host has never had a snapshot
 
-## 📝 Planned (2)
+## 📝 Planned (1)
 _has plan / acceptance_
-
-### `PWA-CONTROL-LIST-1` - Per-room controllable-entities attr so the PWA stops slugify-guessing actuators (AV-Closet-Shelly problem)
-thread: **dashboarding** - status: **planned** - approval: **unreviewed**
-- **Origin:** 2026-07-13 - Plan inventory audit 2026-08-14 found PLANNING_g1_room_control_list_attrs.md unbuilt + uncarded — PWA M2 gap G1.
-- **Why:** PWA guesses a room's actuators by slugifying the room name; wrong for rooms whose real device is a differently-named Shelly relay (AV Closet). A per-room control_list attribute (additive, no behavior change, no new entities) gives the PW...
-- **Next:** ura-planner scope (small); Tier 1 additive attr on room sensors.
-- **Tags:** audit-first
-- **Parsimony:** [BUILD] PWA cannot reliably map a room to its controllable entities
-- **Refs:** docs/planning/PLANNING_g1_room_control_list_attrs.md
-- **Forensic keys (1):**
-  - `duplicate_verdict_2026_08_16`: Operator: "we have a device list sensor — does that duplicate?" -> YES, substantially. Per-room DevicesSensor (sensor.<room>_devices, sensor.py:2035) already exposes categorized attrs: lights, fans, humidity_fans, covers, auto/manual dev...
 
 ### `GUEST-FP-RESIDUALS-1` - Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent)
 thread: **presence** - status: **planned** - approval: **unreviewed**
@@ -786,7 +775,7 @@ thread: **hvac** - status: **parked** - approval: **unreviewed**
   - `sharp_problem`: Gaps: (1) boot reconciliation — on listener attach, classify any zone ALREADY in manual as inherited-manual and start standard arrest evaluation; (2) verify _handle_climate_change classifies within-manual setpoint deltas (manual->manual ...
   - `related`: Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire. RESOLVED 2026-08-12: operator power-cycled Enpower; all 3 reserve legs coherent at 10 (local number + envoy sensor + ...
 
-## ✅ Done (6)
+## ✅ Done (7)
 _closed, evidence in refs_
 
 ### `FRIGATE-RETIRE-1` - Retire Frigate-1 — promote Frigate-2 (yolov9t/OpenVINO, zero night ghosts) to primary incl. snapshot engine
@@ -806,6 +795,18 @@ thread: **security** - status: **done** - approval: **approved**
   - `reaudit_2026_08_13`: Operator-requested post-disable re-audit: PASS — 443 URA entity refs, 0 F1-owned; snapshot engine self-heals to F2-only; MQTT dual-prefix clean; census/resolver skip disabled entities. Findings ALL FIXED live same hour: MED automation.g6...
   - `gate2_met_2026_08_14`: GATE-2 MET + BOX PHYSICALLY POWERED OFF (operator, ahead of formal completion — with all software layers already dark, physical-off IS the authentic Gate-2 test and it passed). Since F1 disable: 10 dispatches, all healthy — incl. a SAME-...
   - `decommissioned_2026_08_15`: Operator go ("Frigate 1 hardware full decomm"; homelab agent repurposing the box). URA side EXECUTED: config entry 01JV6G4E57HT3WH86WSQ4RJT11 deleted in-band (ha_remove_helpers_integrations) — all 965 F1 entities + 25 *_f1retired renames...
+
+### `PWA-CONTROL-LIST-1` - Per-room controllable-entities attr so the PWA stops slugify-guessing actuators (AV-Closet-Shelly problem)
+thread: **dashboarding** - status: **done** - approval: **operator-approved**
+- **Origin:** 2026-07-13 - Plan inventory audit 2026-08-14 found PLANNING_g1_room_control_list_attrs.md unbuilt + uncarded — PWA M2 gap G1.
+- **Why:** PWA guesses a room's actuators by slugifying the room name; wrong for rooms whose real device is a differently-named Shelly relay (AV Closet). A per-room control_list attribute (additive, no behavior change, no new entities) gives the PW...
+- **Next:** Operator: deploy the PWA branch when ready (npm run deploy after merge).
+- **Tags:** audit-first
+- **Parsimony:** [BUILD] PWA cannot reliably map a room to its controllable entities
+- **Refs:** docs/planning/PLANNING_g1_room_control_list_attrs.md
+- **Forensic keys (2):**
+  - `note`: Re-scoped + BUILT 2026-08-16 PWA-side (no URA changes needed): useRoomDevices(slug) in ura-dashboard-pwa prefers sensor.<slug>_devices attrs (real configured entity_ids) with observable console.debug fallback to the existing G1 control_*...
+  - `duplicate_verdict_2026_08_16`: Operator: "we have a device list sensor — does that duplicate?" -> YES, substantially. Per-room DevicesSensor (sensor.<room>_devices, sensor.py:2035) already exposes categorized attrs: lights, fans, humidity_fans, covers, auto/manual dev...
 
 ### `ZONE-CAM-PERSON-GUARD-1` - Durable device_class guard so a Frigate MOTION sensor cannot be trusted as camera person-confirmation in zone occupancy-confidence
 thread: **presence** - status: **done** - approval: **unreviewed**
