@@ -1,0 +1,13 @@
+{
+  "ts": "2026-08-16T06:30:00Z",
+  "author": "ojiudezue",
+  "title": "Post-v5.77.0: census restored, hollow-anchor #7, mDNS/amcrest, EV-card verdict, duplicate-sensor catch",
+  "why": [
+    "Census regression root-caused to strict-suffix matchers orphaned by F1 entity death (daily max 6-7 -> 4, dated to 08-13 in recorder) — the operator's 'it used to work' reframed a design proposal into a restore-fix a tenth the size. v5.77.0 shipped suffix-tolerant matching; F2-side tuning (13+3 cams Low->Medium) already shows 2.5x recognition rate, 8x for Oji.",
+    "Hollow-anchor variant #7 coined: comment-out evades grep anchors (string matches inside comments); different neuter shapes evade different anchors; the blocker fix's 'behavioral' test drove the helper, not the setup path. AST live-Call-node anchors are the fix. Caught by orchestrator re-drill using a different mutation style than the builder.",
+    "Amcrest 'mDNS error' was three layers deep: not the IP (never changed), not the host field (custom component IGNORES it when an mdns block exists — live-resolves at every setup), fix = recreate entry in URL mode. Lesson: read a custom component's async_setup_entry before assuming standard semantics. Pool-overhead is watched by 4 integrations (operator: artifact, not architecture — recorded, do-not-relitigate).",
+    "EVCARD-1 operator verdict 'poor — as if you did not review the main sensors': design without sensor discovery is decoration. Redesign dispatched with discovery as step 1.",
+    "PWA-CONTROL-LIST duplicate catch: operator's 'we have a device list sensor' was right — DevicesSensor already exposes the full controllable-entities ground truth; card re-scoped to zero URA code (13 registry enables + PWA-side consumption)."
+  ],
+  "refs": ["README_v5.77.0.md", "AUDIT_census_accuracy_regression.md", "feedback_hollow_test_anchors.md", "reference_pooloverhead_four_integrations.md", "EVCARD-1", "PWA-CONTROL-LIST-1"]
+}

@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.77.0
+# Universal Room Automation vv5.78.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -312,8 +312,11 @@ async def async_setup_entry(
             # v3.7.7: Consumption + EV monitoring sensors
             EnergyTotalConsumptionSensor(hass, entry),
             EnergyNetConsumptionSensor(hass, entry),
-            EnergyEVChargeRateASensor(hass, entry),
-            EnergyEVChargeRateBSensor(hass, entry),
+            # EV-SENSOR-CLEANUP-1 (2026-08-16): EnergyEVChargeRate{A,B}Sensor
+            # removed per AUDIT_ev_sensor_surface.md §Q1 — functional dupes of
+            # ev_charging_status.<plug>.power attrs (same upstream Emporia
+            # entity, no fallback, zero consumers). Two registry orphans
+            # remain until operator removes them via HA UI.
             # v3.8.0-H1: HVAC Coordinator sensors
             HVACModeSensor(hass, entry),
             HVACAnomalySensor(hass, entry),
@@ -3039,8 +3042,13 @@ class PersonTrackingStatusSensor(UniversalRoomEntity, SensorEntity):
                         "status": person_info.get("tracking_status", "lost"),
                         "confidence": person_info.get("confidence", 0),
                         "method": person_info.get("method", "none"),
+                        # PATH-ALPHA D2c (2026-08-16): matrix-cell
+                        # provenance passthrough — see AUDIT §4.3.
+                        "tracking_reason": person_info.get(
+                            "tracking_reason", "no_signal"
+                        ),
                     })
-            
+
             if not persons_in_room:
                 return "No persons in room"
             
@@ -3089,6 +3097,11 @@ class PersonTrackingStatusSensor(UniversalRoomEntity, SensorEntity):
                         "confidence": round(person_info.get("confidence", 0), 2),
                         "method": person_info.get("method", "none"),
                         "bermuda_area": person_info.get("bermuda_area", "N/A"),
+                        # PATH-ALPHA D2c (2026-08-16): matrix-cell
+                        # provenance passthrough — see AUDIT §4.3.
+                        "tracking_reason": person_info.get(
+                            "tracking_reason", "no_signal"
+                        ),
                     })
             
             return {
@@ -4932,6 +4945,20 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
         if presence is not None:
             attrs["confidence"] = round(presence.confidence, 2)
             attrs["census_count"] = presence.census_count
+            # PATH-ALPHA D2c (2026-08-16): expose face_recognized_count
+            # alongside census_count. Post-GAP-A D8, path α now gates on
+            # face_recognized_count (camera-provable identity only) — NOT
+            # census_count (which includes BLE-inflated counts). Publishing
+            # BOTH lets an operator debugging "why didn't the veto fire?"
+            # see the gate value directly. Fail-safe default 0 mirrors the
+            # infer() kwarg default (see presence.py path-α predicate).
+            attrs["face_recognized_count"] = int(
+                getattr(presence, "_face_recognized_count", 0) or 0
+            )
+            # Explanatory: path α gate = face_recognized_count == 0;
+            # census_count remains published for legacy dashboards and
+            # for debugging the BLE-inflation gap D8 closed.
+            attrs["path_alpha_gate_source"] = "face_recognized_count"
             # v4.7.14: Person-tracker veto diagnostics. tracked_persons_count
             # is the RAW number of configured person.* trackers seen by
             # person_coordinator (pre-v4.7.14.1 semantic preserved per
@@ -4962,19 +4989,19 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
             #       "none" / "active" / "lost_admitted". Lets operators tell
             #       at a glance whether path α (v4.7.14) or path β (v5.7.0)
             #       drove the last AWAY transition (or none).
-            #   lost_away_persons: the subset of the path-β denominator
-            #       admitted via the LOST/STALE+away relaxation. Empty
-            #       under v4.7.14 baseline.
             #   lost_away_grace_remaining_s: seconds remaining on the
-            #       oldest LOST-since stamp before path β may fire. None
-            #       when no LOST persons are present.
+            #       oldest LOST-since stamp before path β may fire. Post
+            #       PATH-ALPHA D2b (2026-08-16) always None — no LOST-
+            #       admitted subset exists after the matrix classifier
+            #       stamps case-(a) confidently-away trackers as ACTIVE.
             #   outdoor_zones: zone_names flagged CONF_ZONE_IS_OUTDOOR;
             #       excluded from the WS-A4 indoor-occupancy aggregation
             #       that gates path β.
+            # PATH-ALPHA D2b (2026-08-16): the `lost_away_persons` attr
+            # has been retired (was always empty post-D2a). Dashboards
+            # that read it should switch to `excluded_persons` for the
+            # per-person exclusion-reason map.
             attrs["veto_path"] = str(getattr(presence, "_veto_path", "none"))
-            attrs["lost_away_persons"] = list(
-                getattr(presence, "_lost_away_persons", []) or []
-            )
             _grace_rem = getattr(presence, "_lost_away_grace_remaining_s", None)
             attrs["lost_away_grace_remaining_s"] = (
                 int(_grace_rem) if _grace_rem is not None else None
@@ -10936,66 +10963,10 @@ class EnergyNetConsumptionSensor(AggregationEntity, SensorEntity):
         return net_w / 1000.0 if net_w is not None else None
 
 
-class EnergyEVChargeRateASensor(AggregationEntity, SensorEntity):
-    """EVSE Garage A charge rate in watts.
-
-    Entity: sensor.ura_energy_ev_charge_rate_garage_a
-    Device: URA: Energy Coordinator
-    """
-
-    _attr_has_entity_name = True
-    _attr_icon = "mdi:ev-station"
-    _attr_device_class = SensorDeviceClass.POWER
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = "W"
-    _attr_suggested_display_precision = 0
-
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
-        super().__init__(hass, entry)
-        self._attr_unique_id = f"{DOMAIN}_energy_ev_charge_rate_garage_a"
-        self._attr_name = "EV Charge Rate Garage A"
-        self._attr_device_info = _energy_device_info()
-
-    @property
-    def native_value(self) -> float | None:
-        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
-        if manager is None:
-            return None
-        energy = manager.coordinators.get("energy")
-        if energy is None:
-            return None
-        return energy.evse_garage_a_power
-
-
-class EnergyEVChargeRateBSensor(AggregationEntity, SensorEntity):
-    """EVSE Garage B charge rate in watts.
-
-    Entity: sensor.ura_energy_ev_charge_rate_garage_b
-    Device: URA: Energy Coordinator
-    """
-
-    _attr_has_entity_name = True
-    _attr_icon = "mdi:ev-station"
-    _attr_device_class = SensorDeviceClass.POWER
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = "W"
-    _attr_suggested_display_precision = 0
-
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
-        super().__init__(hass, entry)
-        self._attr_unique_id = f"{DOMAIN}_energy_ev_charge_rate_garage_b"
-        self._attr_name = "EV Charge Rate Garage B"
-        self._attr_device_info = _energy_device_info()
-
-    @property
-    def native_value(self) -> float | None:
-        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
-        if manager is None:
-            return None
-        energy = manager.coordinators.get("energy")
-        if energy is None:
-            return None
-        return energy.evse_garage_b_power
+# EV-SENSOR-CLEANUP-1 (2026-08-16): EnergyEVChargeRate{A,B}Sensor removed
+# per AUDIT_ev_sensor_surface.md §Q1. Same upstream (Emporia
+# sensor.garage_{a,b}_power_minute_average) as ev_charging_status attrs,
+# no fallback, zero consumers. Registry orphans cleared by operator via UI.
 
 
 # ============================================================================

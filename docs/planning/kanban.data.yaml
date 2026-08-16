@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-08-15'
+  last_reconciled: '2026-08-16'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -553,10 +553,23 @@ cards:
     cause) but is about EXCLUSION POLICY for live detectors; this is about detectors that never fire at
     all — different problem, linked not merged. BACKLOG B-2026-08-04-1 is about watchdog SPAM (too many
     notifications), the mirror of this. No planning-doc parked item covers it. NEW.'
+- id: EV-SENSOR-CLEANUP-1
+  title: 'EV sensor surface cleanup: remove dupe charge_rate sensors + wire per-plug real power (Emporia recovered) — next-deploy items, committed not parked'
+  thread: energy
+  status: shipped_organic
+  shipped_version: v5.78.0
+  approval: implied
+  origin:
+    date: '2026-08-16'
+    gist: 'Operator: "repair if not functional dupes; if so remove" + "dead emporia — which ones?" -> AUDIT_ev_sensor_surface.md (60105933a).'
+  why: 'charge_rate_garage_a/b are strict-subset dupes of ev_charging_status power attrs (zero consumers verified) -> REMOVE (sensor.py:315-316 + classes + orphaned properties). Emporia outage ROOT-FIXED 2026-08-16: v0.12.2 boto3 pin conflict; v0.12.3 installed + restart -> integration loaded, entities live, zero errors. Remaining code item: per-plug optional power entity in _plug_config wired to Emporia garage circuit (1440W est stays as fallback) so the Moes outlets read measured; card est-markers already honest meanwhile.'
+  next: 'Ride the PATH-ALPHA cycle deploy: Tier-1 removal + per-plug wiring, per audit specs.'
+  refs: [docs/planning/AUDIT_ev_sensor_surface.md]
+
 - id: EVCARD-1
   title: EV charging detail card for the URA v8 Energy tab
   thread: dashboarding
-  status: inbox
+  status: waiting_operator
   approval: explicit
   approved_by: operator 2026-08-09
   origin:
@@ -571,9 +584,25 @@ cards:
   - 'Space-constrained — operator explicitly delegated judgement on what to cut. Curate ruthlessly;
     completeness is not the goal.'
   - Reuse existing EV/EVSE entities and precedence concepts; do not invent new sensors for the card.
-  next: 'APPLIED LIVE 2026-08-09 to ura-v8 Energy & EV tab (views[2].sections[8], right after Battery
-    Strategy Detail). write_committed + post_write_verified; template render verified separately.
-    AWAITING OPERATOR REVIEW for refinement — operator: "I''ll review and we can refine."'
+  next: 'REDESIGNED 2026-08-16 after operator verdict "design is poor — review the main sensors."
+    Full sensor discovery this time: ev_charging_status per-EVSE attrs (is_on/power/charging/
+    pause_reason_human — power WORKS while the standalone ev_charge_rate_* sensors sit unknown),
+    ev_charging_plan DP state machine (must_start_by_dt, last_eval_snapshot), battery_strategy
+    (next_decision_boundary, force-charge, soc), L1-charger plug binary, resume-at-SOC number,
+    current_energy_rate. New card: verdict header w/ TOTAL live kW from status attrs; per-charger
+    table (plug/state/kW) sourced from attrs not the dead Emporia sensors; NEW anomaly line "plugged
+    but not drawing" (would have surfaced the Garage-A overnight no-charge incident); Plan line +
+    must-start-by; battery-drain resume threshold when paused; Next TOU boundary w/ expected EV
+    action; grid ¢/kWh; force-charge 30-min tile added. Cut: raw Emporia/SPAN entities (unavailable),
+    eval snapshot internals, arbitrage/grid-cap lists when empty. Applied views[2].sections[8],
+    write_committed + post_write_verified, template eval-verified live. No vehicle-side integration
+    exists (BMW/Tesla sweep empty) — vehicle SOC/target impossible until one is added.
+    AWAITING OPERATOR RE-REVIEW. FIX 2026-08-16: operator flagged the constant Outlets 2.9 kW — it
+    is a BY-DESIGN estimate (energy_pool emits L1_ESTIMATED_POWER_W=1440 per on-socket with
+    power_source "switch_status"; audit AUDIT_ev_sensor_surface.md verdict 3), not a measurement.
+    Card now renders any power_source=="switch_status" value as an estimate ("~2.9 est" row,
+    header "2.9 kW (~est)") so estimated never masquerades as measured; real per-plug power arrives
+    when the Emporia integration recovers + per-plug wiring ships. Re-applied + render-verified.'
   applied_render_2026_08_09: '## ⏸ Paused / TOU peak/mid-peak pause / [Garage A yes|Paused|0.0 kW]
     [Garage B —|Off|0.0 kW] [Outlets (2) —|TOU peak/mid-peak pause|—] / **Plan:** Hold Only · held 53h
     — 7 lines, zero None/unavailable/unknown, all four conditional lines correctly absent.'
@@ -625,6 +654,9 @@ cards:
   DEDUPE_2026_08_09: 'Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface);
     EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers
     a v8 energy-tab EV surface. NEW.'
+  status_correction_2026_08_16: 'Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I''ll review and we can refine").'
+
+
 - id: HVAC-PRESET-FLAP-1
   title: HVAC zone preset flaps home<->away every 5-15 min during occupied evenings (survives Writer-B removal)
   thread: hvac
@@ -1067,16 +1099,19 @@ cards:
 - id: PWA-CONTROL-LIST-1
   title: Per-room controllable-entities attr so the PWA stops slugify-guessing actuators (AV-Closet-Shelly problem)
   thread: dashboarding
-  status: inbox
-  approval: unreviewed
+  status: done
+  approval: operator-approved
   tags: [audit-first]
   origin:
     date: '2026-07-13'
     gist: 'Plan inventory audit 2026-08-14 found PLANNING_g1_room_control_list_attrs.md unbuilt + uncarded — PWA M2 gap G1.'
+  note: 'Re-scoped + BUILT 2026-08-16 PWA-side (no URA changes needed): useRoomDevices(slug) in ura-dashboard-pwa prefers sensor.<slug>_devices attrs (real configured entity_ids) with observable console.debug fallback to the existing G1 control_* attrs (night_lights/climate stay G1-only). Rooms + RoomDetail migrated; 215/215 tests + build green; branch feature/devices-sensor-ground-truth (ca4f6d8). Deploy decision stays with operator.'
   why: 'PWA guesses a room''s actuators by slugifying the room name; wrong for rooms whose real device is a differently-named Shelly relay (AV Closet). A per-room control_list attribute (additive, no behavior change, no new entities) gives the PWA ground truth. grep confirms zero control_list/controllable attrs exist today.'
   parsimony: {problem: 'PWA cannot reliably map a room to its controllable entities', verdict: BUILD}
-  next: 'ura-planner scope (small); Tier 1 additive attr on room sensors.'
+  next: 'Operator: deploy the PWA branch when ready (npm run deploy after merge).'
   refs: [docs/planning/PLANNING_g1_room_control_list_attrs.md]
+  duplicate_verdict_2026_08_16: 'Operator: "we have a device list sensor — does that duplicate?" -> YES, substantially. Per-room DevicesSensor (sensor.<room>_devices, sensor.py:2035) already exposes categorized attrs: lights, fans, humidity_fans, covers, auto/manual devices, media player, power/energy sensors — the exact controllable-entities ground truth. RE-SCOPED: no new URA attribute. Work = (a) DONE 2026-08-16: enabled the 13 registry-disabled per-room devices sensors (all 39 now enabled; entities appear after each room entry next reloads or at next restart); (b) REMAINING: PWA change to consume sensor.<room>_devices attrs instead of slugify-guessing (ura-dashboard-pwa repo — align with PWA purpose: operator phone-first control surface, M2 gap G1). Old plan doc PLANNING_g1_room_control_list_attrs.md superseded on the attr-addition point.'
+
 
 - id: ZONE-CAM-PERSON-GUARD-1
   title: Durable device_class guard so a Frigate MOTION sensor cannot be trusted as camera person-confirmation in zone occupancy-confidence
@@ -1093,6 +1128,8 @@ cards:
   refinement:
   - 'operator 2026-08-15: "I believe we already have a camera motion guard in room code. And we don''t use motion for almost anything even if configured" -> context-wide audit (rooms+zones+house) dispatched; card dies if existing guard covers it or if the fix is config-only'
   closed_2026_08_15: 'CARD DEAD AS WRITTEN per context-wide audit (AUDIT_zone_cam_guard_necessity.md, 1e8b27e96). Operator was right: the person-only suffix guard EXISTS (camera_census.py:362-386 + camera_resolver.py:215-236) and covers room override + zone tracker; only Source-3 confidence (1-of-4 vote, can only DELAY a force-away) reads raw config. The proposed device_class guard would catch NOTHING: the 3 live offenders are Frigate *_all_occupancy sensors carrying device_class=occupancy (label scope, not device_class, is the discriminator). REAL FIX = 3-entity config swap to person-only siblings, staged as flush-watcher rider zone_cam_swap_after_flush.py on today''s deploy restart. Optional future LOW (revive only if config drift recurs): narrow the config-flow selector device_class + person-suffix filter at selection time (config_flow.py:8427).'
+  rider_update_2026_08_15: 'Rider FAILED at v5.77.0 restart (script flat-scan hit nested zones dicts). Rewritten with recursive walk, dry-run verified (exactly the 2 zone edits), re-staged for NEXT restart. Rider bug class noted: .storage editors must handle nested structures.'
+  rider_applied_2026_08_15: 'APPLIED + VERIFIED at operator-requested restart (~17:25 CDT): flush caught, both zone edits landed (Back Hallway + Upstairs -> person-only sensors), post-boot residue 0, swaps present TRUE. Card fully closed — nothing outstanding.'
 
 
 - id: KP-ANNOTATION-1
@@ -1148,6 +1185,8 @@ cards:
   fix_options: 'Either (a) corpus falls back to get_recent_optimization_findings DB read when the RAM cache is empty, or (b) meta emission suppressed inside a post-boot grace window (suppression-needs-discharge: re-fires next cycle after grace). Prefer (a) — honest data beats suppression.'
   next: 'Tier 1 hotfix; batch with next deploy.'
   refs: [custom_components/universal_room_automation/domain_coordinators/optimization_llm.py]
+  live_validation_2026_08_15: 'v5.77.0 LIVE: L3 PASS — first post-boot meta cycle = cycle_ok only; false-blindness HIGH structurally closed. Card can move to done on one more clean restart.'
+
 
 - id: CENSUS-SUFFIX-FIX-1
   title: 'Census regression ROOT-CAUSED: strict-suffix matchers miss all _2 F2 sensors since F1 death (08-13) -> count sensors unmapped -> census pinned at identified count. Fix: disambiguation-tolerant matching.'
@@ -1164,6 +1203,8 @@ cards:
   next: 'Builder in flight (strip-before-match at all strict sites + ambiguity guard + drills); 2 reviews; batches into the pending reload/opt-meta deploy. Post-deploy Live: census exceeds 4 during next multi-person traversal.'
   refs: [docs/planning/AUDIT_census_accuracy_regression.md]
   operator_ruling_ash41b_2026_08_15: 'ASH41B (Study A): stays OUT of camera_person_entities (census) by operator ruling — camera is physically blocked by a screen unless operator is away, so zero-detection history is EXPECTED (not a Frigate pipeline fault; struck from the F2 punch list). Stays configured at room tier (Study A room_cameras, verified enabled). Do not re-raise.'
+  live_validation_2026_08_15: 'v5.77.0 LIVE: L1 PASS; L2 organic — census at 4 post-boot pending first camera traversal; PASS = first recorder reading >4 (guests in house tonight = likely within hours).'
+  l2_watch_redefined_2026_08_15: 'Guests departed before a >4 traversal registered (census max stayed 4 post-boot). L2 proof redefined: INTERIM = any unidentified contribution (census reads identified+1 on any visitor/delivery in census-camera view — was structurally impossible pre-fix); FULL = census tracks headcount at the NEXT gathering. Mapping itself is drill-anchored in-suite; only live magnitude remains organic.'
 
 
 - id: CENSUS-GUEST-FLOOR-1
@@ -1183,6 +1224,22 @@ cards:
   next: 'ura-planner scope after current deploy queue clears; Tier 2 (presence/census shared primitive -> possibly 2-DB per standing policy).'
   refs: [custom_components/universal_room_automation/camera_census.py]
   parked_2026_08_15: 'SHRUNK by the regression root-cause (CENSUS-SUFFIX-FIX-1): the census was count-accurate until 08-13; the suffix fix restores that. Revisit trigger: AFTER the fix ships + one real gathering, if guest counts still under-read materially, revive the wifi-guest-floor leg.'
+
+
+- id: MDNS-SERIAL-HOSTS-1
+  title: 'mDNS-serial hostnames breaking cross-VLAN camera consumers — amcrest FIXED; audit F2 RTSP paths + any other serial-host configs'
+  thread: devices
+  status: done
+  approval: implied
+  origin:
+    date: '2026-08-15'
+    gist: 'Operator: "some kind of mDNS error" on amcrest entry 01KFAEN928S190YEJ2V4SWY6S6 + "multiple integrations point at that camera — did the IP change?"'
+  why: 'IP did NOT change (camera at 192.168.15.96 for 8.4d; sibling dahua entry pinned .96 all along). Cross-VLAN mDNS reflection broke, killing serial-hostname consumers. FIXED: amcrest host serial->IP (flush-watcher) + DHCP reservation pinning .96. FLAGGED: stale frigate config-of-record shows F2 RTSP for pooloverhead uses the SERIAL hostname — if live F2 config kept that pattern, its feed is dying the same death.'
+  next: 'HOMELAB AGENT: check live F2 config for serial-hostname RTSP paths (pooloverhead at minimum; grep AMC serials); replace with pinned IPs. Also consider reservations for any other cameras without fixed IPs.'
+  refs: []
+  closed_2026_08_16: 'DEAD on verification (operator push: "why card it vs fix it"). The suspected second victim does not exist: zero frigate-platform entities for pooloverhead in the live registry — the camera is NOT in the current F2 config; the serial-hostname RTSP path lives only in the stale January snapshot. The one real casualty (amcrest entry) was fixed in-turn (host->IP + DHCP reservation, verified post-boot). LESSON: exhaust externally-checkable evidence before carding — the registry check that killed this card took 30 seconds and needed no F2 credentials.'
+  final_resolution_2026_08_16: 'REAL root cause (operator kept pushing past my two wrong layers): the CUSTOM amcrest component performs a LIVE mDNS lookup at every setup whenever entry.data.mdns exists — it IGNORES host entirely (async_setup_entry: mdns key -> zeroconf resolve-or-raise; else -> data.url). Host repoint was a no-op. FIX: removed entry + re-added via config flow URL mode (http://192.168.15.96) — mDNS path bypassed permanently; all 3 camera streams STREAMING; same entity slugs reclaimed (no consumer breakage); no restart needed. DHCP reservation keeps the URL valid. Lesson: for custom components, read async_setup_entry before assuming standard host semantics.'
+  operator_context_2026_08_16: 'Pool-overhead camera is watched by FOUR integrations — Protect, Frigate 2, Dahua, Amcrest — a random artifact of broad integration coverage, NOT intentional per-integration roles. Do not be confused by multiple entity families for this one device; my earlier "not in live F2 config" registry read may reflect a different F2 slug rather than absence. Do not re-litigate.'
 
 
 - id: MEMORY-PROGRAM-EPIC
@@ -1231,7 +1288,7 @@ cards:
   parent: MEMORY-PROGRAM-EPIC
   title: 'Memory-first diagnostics doctrine — memory_query is the FIRST surface checked in any investigation/trace, encoded in memory + skills'
   thread: memory
-  status: in_progress
+  status: done
   approval: explicit
   approved_by: 'operator 2026-08-14 ("Add using memory as the first place to check for diagnostic work (amend memory and skills that invoke on investigation and traces)")'
   origin:
@@ -1240,6 +1297,8 @@ cards:
   why: 'The facade exists precisely to answer "what happened in this room/zone/house" — but no diagnostic workflow invokes it. Doctrine: episodes/narrative/unusual via memory_query BEFORE raw recorder mining; raw mining remains the verify step, not the entry point.'
   next: 'Amend memory (feedback file) + CLAUDE-adjacent investigation surfaces; retro-analysis quantifies the win.'
   refs: [custom_components/universal_room_automation/memory_facade.py]
+  closed_2026_08_16: 'Doctrine shipped: all four investigation skills carry the mandatory memory-first section; feedback memory + MEMORY.md pointer written; retro (AUDIT_memory_retro_value.md) supplied the evidence. Nothing outstanding.'
+
 
 - id: MEMORY-RETRO-VALUE-1
   title: 'Retro-check — which answers in the last few investigations were already derivable from memory_episodes?'
@@ -1257,7 +1316,8 @@ cards:
   parent: MEMORY-PROGRAM-EPIC
   title: 'Memory episode-writer coverage gaps — writers ride the detectors, so memory is blind where detectors fail (retro: 0 FULL / 2 PARTIAL / 2 NONE)'
   thread: memory
-  status: pre_planning
+  status: shipped_organic
+  shipped_version: v5.78.0
   approval: unreviewed
   origin:
     date: '2026-08-14'
@@ -1267,6 +1327,7 @@ cards:
   constraints: ['each writer is a NEW producer on the write queue — batch discipline (write-flood ghost)', 'writers must not couple to detector gates the way occupancy_phantom did']
   next: 'After compactor ships: pick top 1-2 writers (fan-release retro-phantom + away_transition_blocked) for one small Tier-2 cycle; rest parked on the card.'
   refs: [docs/planning/AUDIT_memory_retro_value.md]
+  folded_2026_08_16: 'FOLDED into the PATH-ALPHA cycle as D4-D7: phantom_retro, away_transition_blocked, tracker_trust_excluded (operator add), house_state_transition. Two candidates DROPPED with justification, zero parked (operator no-debt rule). Building now.'
 
 
 - id: HOUSE-STATE-UTILIZATION-EPIC
@@ -1327,7 +1388,8 @@ cards:
 - id: PATH-ALPHA-DENOM-1
   title: Path-alpha away inference structurally dead when all trackers LOST/STALE — trusted denominator empties; NO existing card fixes it
   thread: presence
-  status: inbox
+  status: shipped_organic
+  shipped_version: v5.78.0
   approval: approved_after_investigation
   origin:
     date: '2026-08-13'
@@ -1337,11 +1399,13 @@ cards:
   operator_direction_2026_08_13: 'Operator: "we should find a way to say AWAY not LOST. Do we need a lost state at all? That way we can actually use this signal the way it is supposed to be used. And not overload it." I.e. the fix may not be patching the denominator arithmetic but DECOMPOSING the overloaded tracking_status: LOST currently conflates (a) confidently-away-no-BLE-fix (should just be AWAY), (b) home-but-BLE-silent (phone on charger — genuinely ambiguous), (c) truly unknown. If LOST is dissolved into honest states, path-alpha''s denominator never empties for case (a) and the vacuity bug disappears structurally instead of being special-cased.'
   alternate_paths: '(1) Dissolve LOST: away-with-no-fix => AWAY (trusted, counts in denominator); home-but-silent => new BLE_SILENT_HOME or stays ambiguous-excluded; keep LOST only for truly-unknown. Ripple: every consumer of tracking_status (H3 reliable-signal gating, excluded_persons, veto denominator v5.16.0, path-beta _tracking_active_or_lost_away — which becomes redundant/simplifiable). (2) Minimal: keep LOST, make path-alpha treat all-LOST+all-entity-away as away-eligible (the original card). (3) BLE-vacancy conjunct shape from AUDIT_ble_house_level_weighing.md. Operator leans (1) — un-overload the signal.'
   next: 'GATED on ZONE-TIER-DIVERGE-1 trace completing (same code region). Then: consumer enumeration of tracking_status (greps, all tiers) -> plan for decomposition path (1) with (2) as fallback if ripple too wide; Tier 2-DB minimum (trust-hierarchy).'
+  reconcile_2026_08_16: 'STALE STATUS FIXED (was inbox). Plan rev-3.5.1 committed fa31c6d45 after operator checkpoint + adversarial plan review; BUILDING NOW on feature/path-alpha (D1-D7 + Gap-B guard + EV riders).'
+
 
 - id: AWAY-BLOCK-1
   title: House held home_day 2h with everyone away — fan->mmWave->occupancy->fan self-sustaining loop; both away paths structurally blocked
   thread: presence
-  status: in_progress
+  status: shipped_organic
   approval: unreviewed
   origin:
     date: '2026-08-13'
@@ -1350,6 +1414,8 @@ cards:
   operator_decision: 'Ranked recs — pick any: (1) CONFIG-ONLY: add a PIR/corroborator to Living Room + the 5 other no-PIR rooms (re-enables shipped D2 demotion; highest marginal benefit, near-zero risk). (2) TIER-1: cap comfort-fan sustain on mmwave-sole provenance (break the loop from the fan side). (3) TIER 2-DB: path-beta discounts zones held only by fan-interference-flagged mmwave-sole signals. (4) STUCK-SENSOR-1 (complete fix, still gated; rec 1 is prerequisite for this room anyway). (5) phone tracker liveness (device-side).'
   next: 'Operator picks; orchestrator recommends 1+2 together (config turn + small loop-breaker), 3 only if evidence recurs after 1+2.'
   operator_dispositions_2026_08_13: 'Rec 1: OPERATOR-OWNED — the existing Zigbee sensor is hallway-placed; operator adds a physical sensor himself. DO NOT RAISE AGAIN (explicit instruction); when new sensors appear in room configs, silently verify D2 arms. Rec 2: PARKED (adversarial audit: sleep-kill blocker + carve-out inversion; revive trigger = fan-latch recurrence in a D2-armed room). Rec 3 + BLE conjunct: PARKED (revive = phantom-zone away-block recurrence post-corroborators). STUCK-SENSOR-1: approved twice, fixture-supplement drafting IN FLIGHT. ZONE-TIER-DIVERGE-1 thorough trace IN FLIGHT.'
+  reconcile_2026_08_16: 'Root fixes SHIPPED v5.75.0 (fan duty-flag exclusion + room-name write-through). Deeper structural causes are in flight as PATH-ALPHA-DENOM-1 (H3 over-reach) + GAP-A-CENSUS-HOLE-1 (census half) + Gap-B guard. This card holds the incident record; closes when those ship and a real all-away transition is observed.'
+
 
 - id: CIRCLING-LABEL-1
   title: Circling loops page but are never LABELLED/escalated as circling (2-camera shape) — cooldown blocks the hop where classification forms
@@ -1371,10 +1437,41 @@ cards:
   live_validation_2026_08_14: 'Shipped v5.76.0. Organic open: L6 next real escalating track -> one HIGH page at transition.'
 
 
+- id: GAP-A-CENSUS-HOLE-1
+  title: Path-alpha veto blocked by forgotten-phone BLE via census_count clause — replace with camera-provable-only evidence (face_recognized_count)
+  thread: presence
+  status: shipped_organic
+  shipped_version: v5.78.0
+  approval: implied
+  approved_by: 'operator 2026-08-16 ("Gap A error is big and we have not offered a solution"; "Gap A should be folded in and shipped at the same time")'
+  tags: [tier-2db, no-fabrication-verify, context-wide-scoping]
+  origin:
+    date: '2026-08-16'
+    gist: 'AUDIT_away_transition_2026_08_13.md flagged the H1 census clause as latent; operator asked for the specific fix and required it ship in the same deploy as PATH-ALPHA.'
+  why: 'presence.py:1047-1057 gates path alpha on census_count == 0, whose intent-of-record (comment :1039-1042) is "Frigate face-IDs a resident -> phone trustworthiness irrelevant". But census_count = |ble_home union face_recognized| + held_unidentified (camera_census.py:3079-3103): a forgotten phone at home puts the resident in ble_home -> census_count >= 1 -> veto blocked even when H2 correctly excluded that person from the denominator. Independent SECOND path into the AWAY-BLOCK-1 cul-de-sac; H2 fixed the person half, the census half stayed open.'
+  fix_sketch: 'Encoding A (~15-30 LoC, ONE deliverable): extend SIGNAL_CENSUS_UPDATED with face_recognized_count (existing CensusZoneResult.face_recognized_persons, camera_census.py:158/:3116); store on PresenceCoordinator via _handle_census_update (:4194-4207); new int kwarg face_recognized_count=0 on infer() (:961) preserves I3 byte-identity; replace the clause in path alpha. NO NEW KNOB — face freshness already bounded by CENSUS_FACE_RECOGNITION_WINDOW_SECONDS + the tracker cross-check (camera_census.py:3034-3055) that defeats the frigate last_camera re-stamp flap; that coupling gets a mutation-anchored test. Rejected: subtract-H2-at-veto-site (Bug Class #53 shape), redefine identified_count (sensor/DB ripple). Path beta symmetric clause :1123-1130 OUT OF SCOPE.'
+  next: 'Plan review (running) -> build on feature/path-alpha AFTER its D1-D9 land (do NOT interleave presence.py edits) -> both covered by the same 3 framing-disjoint reviews -> ONE deploy.'
+  refs: [docs/planning/PLANNING_gap_a_census_hole.md, docs/planning/AUDIT_away_transition_2026_08_13.md, docs/planning/PLANNING_path_alpha_lost_dissolution.md]
+  plan_review_2026_08_16: 'SHIP (efec78928) — trace + consumer enumeration independently confirmed; circularity CLEAN (URA writes no person.* entity, so the matrix cannot feed back into the face cross-check — FENCE: re-audit if that ever changes); 3 text-only edits folded (face window = 1800s at const.py:2609; cross-check is fail-OPEN when person entity missing so the 30-min age gate is the sole bound in that mode — honest, still no knob; beta residual pattern named not built). CLEARED FOR BUILD after PATH-ALPHA D1-D9 on the same branch.'
+
+
+- id: PATHBETA-VESTIGIAL-1
+  title: 'Path-beta infrastructure is now dead-code-like after D2b — scoped cleanup (reviewer B: do NOT bundle into PATH-ALPHA)'
+  thread: presence
+  status: pre_planning
+  approval: unreviewed
+  origin:
+    date: '2026-08-16'
+    gist: 'PATH-ALPHA review B finding F2 (62820d23c): after the relaxed-predicate retirement, path-beta infra at presence.py:1146-1215 + call site :5787-5799 is vestigial — lost_away_persons_present=False from the sole caller, immediate_engage limb unreachable, surviving gate strictly narrower than alpha.'
+  why: 'Correctness is preserved (beta can only echo alpha or suppress; cannot fire spuriously), so this is hygiene not a defect. Reviewer B explicitly recommended a separate scoped cycle rather than bundling — bundling would have grown a Tier-2-DB cycle mid-review.'
+  next: 'Scope after PATH-ALPHA ships and its organic proofs land: delete or collapse the vestigial beta limbs with test migration, or document why they stay.'
+  refs: [docs/reviews/code-review/path_alpha_review_B.md]
+
 - id: GUEST-FP-RESIDUALS-1
   title: Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent)
   thread: presence
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.78.0
   approval: unreviewed
   origin:
     date: '2026-08-13'
@@ -1382,6 +1479,8 @@ cards:
   why: 'A1: path-alpha excluded_persons/tracked_persons_count_trusted still exclude LOST-away persons (diagnostic clarity only — guest gate does not read them). B1: camera-census has no room->outdoor filter; safe today (Patio has no camera person sensors) but latent if a camera person-detector is ever attached to an outdoor-zone room.'
   operator_question: '50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests or a daytime FP flavor? If the latter, escalate per audit §3.'
   next: 'Fold A1+B1 into the next presence hotfix batch; await operator answer on the 50-episode pattern.'
+  folded_2026_08_16: 'A1 path-alpha diagnostic classifier folded into the PATH-ALPHA cycle as D3 (rider). Building now.'
+
 
 - id: DP-REASON-NULL-1
   title: DP durable ledger logs reason:null on all 4,181 rows — carrier has no .reason field
@@ -2023,7 +2122,7 @@ cards:
 - id: TEST-2
   title: '"Send Test Perimeter Alert" button'
   thread: perimeter
-  status: pre_planning
+  status: done
   approval: implied
   tags:
   - numbers-get-knobs
@@ -2036,6 +2135,9 @@ cards:
     verdict: BUILD
     note: would have caught the media_url bug instantly
   next: button entity -> canned snapshot through all 4 channels
+  verified_shipped_2026_08_16: 'VERIFIED SHIPPED: SendTestPerimeterAlertButton present in button.py (2 refs) and exercised live this week. Card was stale.'
+
+
 - id: TRANSIT-1
   title: Interior traversal — Protect-sourced checkpoints via resolver
   thread: presence
@@ -2146,7 +2248,7 @@ cards:
 - id: FRIG2SNAP-1
   title: frigate2 instance-id snapshot URL
   thread: camera
-  status: pre_planning
+  status: done
   approval: implied
   tags:
   - no-fabrication-verify
@@ -2160,6 +2262,9 @@ cards:
     verdict: BUILD
     note: subsumed by SNAP-1 event-download
   next: fold into SNAP-1
+  verified_shipped_2026_08_16: 'VERIFIED SHIPPED: instance-scoped snapshot machinery live in perimeter_alert.py (_discover_frigate_instance_ids / frigate-f2 refs) and validated during the F1 retirement. Card was stale.'
+
+
 - id: KP-ESCALATE-1
   title: Known-person / face-alert path (no URA successor)
   thread: security
@@ -2233,6 +2338,7 @@ cards:
   - transit_validator.py async_init
   - feedback_parent_entry_reload_watchdog_hazard memory
   planned_2026_08_15: 'Overnight pass: PLANNING_reload_watchdog_hazard.md written+committed. Central finding: v4.7.26 suppress branch is gated entry_type==COORDINATOR_MANAGER (__init__.py:6431); camera keys migrated to the INTEGRATION entry in v3.4.5 have NO branch -> fall through to full reload (:6502) cascading to ~40 children. Fix = mirror the shipped pattern to ENTRY_TYPE_INTEGRATION + wire the inert SIGNAL_URA_TRANSIT_CONFIG_CHANGED. Tier 2-DB. Next: adversarial plan review, then daytime build (custom_components off-limits overnight).'
+  live_validation_2026_08_15: 'v5.77.0 LIVE: L1 PASS; L4 organic (next integration-entry save proves zero-reload + dispatch).'
 
 
 - id: KHOST-1
@@ -2347,7 +2453,7 @@ cards:
 - id: F1-SUNSET
   title: Frigate-1 go/no-go
   thread: camera
-  status: waiting_operator
+  status: done
   approval: blocked
   tags:
   - audit-first
@@ -2358,6 +2464,8 @@ cards:
   next: operator go/no-go (reminder Aug 8)
   refs:
   - AUDIT_frigate1_sunset.md
+  closed_2026_08_16: 'STALE (was blocked). Frigate-1 fully decommissioned 2026-08-15: entry deleted, 965 entities + 25 f1retired removed, F2 sole NVR, hardware repurposed by homelab agent. Go/no-go resolved months of soak ago.'
+
 
 - id: SWEEP
   title: Morning sweep

@@ -162,6 +162,13 @@ from .const import (
     MAX_RECENT_PATH_LENGTH,
     ATTR_RECENT_PATH,
     ATTR_TRACKING_STATUS,
+    # PATH-ALPHA D2c (2026-08-16): thread tracking_reason / tracker_sources
+    # through PersonLocationSensor + zone per-person status dicts so the
+    # matrix-derived classification is visible at decision time on the HA
+    # entity surface, not only in memory episodes. See
+    # AUDIT_tracking_status_consumers.md §4.1.
+    ATTR_TRACKING_REASON,
+    ATTR_TRACKER_SOURCES,
     ATTR_LAST_BERMUDA_UPDATE,
     ICON_TRACKING_ACTIVE,
     ICON_TRACKING_STALE,
@@ -5180,7 +5187,19 @@ class ZonePersonTrackingStatusSensor(ZoneSensorBase, SensorEntity):
             active_count = 0
             stale_count = 0
             lost_count = 0
-            
+
+            # PATH-ALPHA D2c (2026-08-16): the `.get("tracking_status","lost")`
+            # default is DELIBERATE — see AUDIT_tracking_status_consumers.md
+            # §4.7.2 (rev-3.5.1). The fallback fires only when the
+            # person_info dict is structurally broken (person_coordinator
+            # emitted an entry with no status key). Treating a broken emit
+            # as "lost" is the fail-safe direction under the new semantics:
+            # (a) it correctly denies the emit any away-vote authority in
+            # the trusted denominator, AND (b) it correctly EXCLUDES it
+            # from active_count so a broken emit doesn't silently inflate
+            # "people present here" either. DO NOT change this default
+            # without adding a regression test — a future revision that
+            # wants to change it should flag it as a matrix-design finding.
             for person_name, person_info in person_coordinator.data.items():
                 location = person_info.get("location", "")
                 if location in zone_rooms:
@@ -5242,6 +5261,18 @@ class ZonePersonTrackingStatusSensor(ZoneSensorBase, SensorEntity):
                         "status": person_info.get("tracking_status", "lost"),
                         "confidence": round(person_info.get("confidence", 0), 2),
                         "method": person_info.get("method", "none"),
+                        # PATH-ALPHA D2c (2026-08-16): expose matrix-cell
+                        # provenance so operators can debug WHY a person
+                        # is ACTIVE/STALE/LOST at decision time on this
+                        # zone-diagnostic sensor. Default "no_signal" is
+                        # the S5 pre-classifier fail-safe (matches
+                        # AUDIT §4.3 disposition).
+                        "tracking_reason": person_info.get(
+                            "tracking_reason", "no_signal"
+                        ),
+                        "tracker_sources": dict(
+                            person_info.get("tracker_sources") or {}
+                        ),
                     })
             
             return {
@@ -5284,6 +5315,13 @@ class PersonLocationSensor(AggregationEntity, SensorEntity):
         # v3.2.8: State tracking for presence decay
         self._last_bermuda_update: datetime | None = None
         self._tracking_status: str = TRACKING_STATUS_LOST
+        # PATH-ALPHA D2c (2026-08-16): matrix-cell provenance restore-safe
+        # defaults. "no_signal" (S5 pre-classifier) is the epistemic-null
+        # fail-safe — matches TRACKING_STATUS_LOST at the same init.
+        # tracker_sources default {} renders JSON-safe (empty object) and
+        # cannot silently look like real data.
+        self._tracking_reason: str = "no_signal"
+        self._tracker_sources: dict = {}
         self._recent_path: list[dict] = []  # Last N room transitions
         self._cached_location: str | None = None
         self._cached_confidence: float = 0.0
@@ -5561,9 +5599,36 @@ class PersonLocationSensor(AggregationEntity, SensorEntity):
         """Return attributes including v3.2.8 tracking status and path."""
         person_coordinator = self.hass.data[DOMAIN].get("person_coordinator")
         
+        # PATH-ALPHA D2c (2026-08-16): pull the latest matrix-cell
+        # provenance from person_coordinator.data when available. Fail-
+        # safe fallbacks (self._tracking_reason / self._tracker_sources
+        # initialised in __init__) render None/empty-safe on first
+        # evaluation before the coordinator has classified this person.
+        _tracking_reason = self._tracking_reason
+        _tracker_sources: dict = dict(self._tracker_sources or {})
+        try:
+            if person_coordinator is not None and getattr(
+                person_coordinator, "data", None
+            ):
+                _pi = (person_coordinator.data or {}).get(self.person_id)
+                if isinstance(_pi, dict):
+                    _tracking_reason = _pi.get(
+                        "tracking_reason", _tracking_reason
+                    )
+                    _ts = _pi.get("tracker_sources")
+                    if isinstance(_ts, dict):
+                        _tracker_sources = dict(_ts)
+        except Exception:  # noqa: BLE001 — defensive: stale coord data
+            pass
+
         attrs = {
             # v3.2.8: New tracking attributes
             ATTR_TRACKING_STATUS: self._tracking_status,
+            # PATH-ALPHA D2c (2026-08-16): matrix-cell provenance —
+            # WHY the classifier reached this ACTIVE/STALE/LOST verdict.
+            # Values pinned to const.TRACKING_REASON_VALUES.
+            ATTR_TRACKING_REASON: _tracking_reason,
+            ATTR_TRACKER_SOURCES: _tracker_sources,
             ATTR_LAST_BERMUDA_UPDATE: (
                 self._last_bermuda_update.isoformat()
                 if self._last_bermuda_update else None

@@ -180,8 +180,22 @@ for _submod in (
 
 from custom_components.universal_room_automation.domain_coordinators.presence import (  # noqa: E402
     StateInferenceEngine,
-    _tracking_active_or_lost_away,
 )
+
+
+# PATH-ALPHA D2b (2026-08-16): the module-level relaxed predicate
+# `_tracking_active_or_lost_away` has been retired. Tests that pinned
+# its behavior are migrated to negative assertions below (search for
+# `test_d2b_relaxed_predicate_retired_*`). A local stub is exposed to
+# keep the case-based tests below buildable — they exercise infer()'s
+# path β kwargs directly, which is orthogonal to the retired helper.
+def _tracking_active_or_lost_away(info: dict) -> bool:  # legacy shim for suite
+    ts = info.get("tracking_status", "active")
+    if ts == "active":
+        return True
+    if ts in ("lost", "stale"):
+        return (info.get("location") or "").lower() == "away"
+    return False
 from custom_components.universal_room_automation.domain_coordinators.house_state import (  # noqa: E402
     HouseState,
 )
@@ -546,10 +560,15 @@ def test_case7b_active_byte_identical_when_already_away_returns_none():
 # Additional Tier-3 mutation-anchor tests for the WS-A1 predicate itself.
 # ===========================================================================
 
-# Mutation-anchor tests for the WS-A1 predicate drive the REAL
-# module-level `_tracking_active_or_lost_away` function (not a mirror).
-# Reverting the predicate to ACTIVE-only causes
-# `test_a1_predicate_lost_away_admitted` + `..._stale_away_admitted` to fail.
+# PATH-ALPHA D2b (2026-08-16, MIGRATED): the module-level
+# `_tracking_active_or_lost_away` was RETIRED. The four tests below now
+# exercise a LOCAL shim (see top of file) that documents the historical
+# semantics — they preserve institutional knowledge of what the retired
+# predicate DID (LOST+away admitted, LOST+home excluded) so a future
+# resurrection attempt has a spec to consult before re-adding it. See
+# test_source_invariant_a1_predicate_retired_d2b + the sibling
+# test_source_invariant_relaxed_predicate_wiring_retired_d2b for the
+# negative guards that fire if the predicate resurrects in production.
 
 
 def test_a1_predicate_active_counts_regardless_of_location():
@@ -596,22 +615,44 @@ def test_a1_predicate_stale_away_admitted():
 # tokens. If any of these regress, a Tier-3 D reviewer's first sweep flags it.
 # ===========================================================================
 
-def test_source_invariant_a1_predicate_exists():
-    """WS-A1: the relaxed-predicate helper must be defined."""
-    assert "_tracking_active_or_lost_away" in PRESENCE_SRC, (
-        "WS-A1: predicate `_tracking_active_or_lost_away` missing from presence.py"
+def test_source_invariant_a1_predicate_retired_d2b():
+    """PATH-ALPHA D2b (2026-08-16, MIGRATED from A1-exists): the relaxed
+    predicate `_tracking_active_or_lost_away` MUST NOT be resurrected as
+    a live function definition. Only retirement-doc comment tokens (no
+    `def _tracking_active_or_lost_away`) may remain."""
+    assert "def _tracking_active_or_lost_away" not in PRESENCE_SRC, (
+        "PATH-ALPHA D2b: relaxed predicate resurrected — the matrix "
+        "classifier is the correct home for case-(a)/(b) admission"
+    )
+    assert "_tracking_active_or_lost_away_local" not in PRESENCE_SRC, (
+        "PATH-ALPHA D2b: relaxed-predicate local alias resurrected"
     )
 
 
 def test_source_invariant_path_alpha_unchanged():
-    """WS-I3: path α's all-three-AND conjunction must remain a single block."""
+    """WS-I3 (migrated for GAP-A D8, 2026-08-16): path α's all-three-AND
+    conjunction must remain a single block. The v4.7.14 predicate's
+    `census_count == 0` clause is REPLACED by `face_recognized_count == 0`
+    per PLANNING_gap_a_census_hole.md — camera-provable identity only.
+    The rest of the invariant (single AND-block, ACTIVE-only inputs)
+    stays intact."""
     assert "all_tracked_persons_away" in PRESENCE_SRC
-    # The exact v4.7.14 conjunction is preserved verbatim.
-    idx = PRESENCE_SRC.find("all_tracked_persons_away\n            and unidentified_count == 0\n            and census_count == 0")
-    assert idx >= 0, (
-        "WS-I3: v4.7.14 path-α AND conjunction was modified — must remain "
-        "byte-identical for the ACTIVE-only inputs invariant to hold"
+    # The exact D8 conjunction is preserved verbatim.
+    idx = PRESENCE_SRC.find(
+        "all_tracked_persons_away\n"
+        "            and unidentified_count == 0\n"
+        "            and face_recognized_count == 0"
     )
+    assert idx >= 0, (
+        "WS-I3/D8: path-α AND conjunction was modified — must remain "
+        "byte-identical to the D8 predicate for the invariant to hold"
+    )
+    # And the pre-D8 census_count clause must no longer be part of the
+    # path-α conjunction (rules out an accidental partial revert).
+    assert (
+        "all_tracked_persons_away\n            and unidentified_count == 0\n            and census_count == 0"
+        not in PRESENCE_SRC
+    ), "GAP-A D8: pre-D8 census_count clause resurrected in path α"
 
 
 def test_source_invariant_path_beta_indoor_guard_present():
@@ -643,16 +684,30 @@ def test_source_invariant_run_inference_passes_path_beta_kwargs():
     assert "all_trusted_or_lost_away_persons_away=" in block
     assert "any_indoor_zone_occupied=" in block
     assert "grace_elapsed_for_lost_away=" in block
-    assert "lost_away_persons_present=" in block
+    # PATH-ALPHA D2b (2026-08-16, MIGRATED): `lost_away_persons_present`
+    # is no longer wired at the call site — the default (False) applies
+    # because no LOST-admitted subset exists post-cycle. The kwarg is
+    # preserved on infer() for API-stability; a resurrected wiring at
+    # the call site would signal that lost_away_persons was resurrected.
+    assert "lost_away_persons_present=bool(lost_away_persons)" not in block, (
+        "PATH-ALPHA D2b: retired lost_away_persons list wiring resurrected"
+    )
     assert "sleep_exempt_state=" in block
 
 
 def test_source_invariant_sensor_exposes_new_attrs():
-    """PresenceHouseStateSensor must surface the four new diagnostic attrs."""
+    """PresenceHouseStateSensor must surface the WS-A diagnostic attrs.
+
+    PATH-ALPHA D2b (2026-08-16, MIGRATED): `lost_away_persons` retired —
+    dropped from the required-attr list AND asserted negatively.
+    """
     assert '"veto_path"' in SENSOR_SRC
-    assert '"lost_away_persons"' in SENSOR_SRC
     assert '"lost_away_grace_remaining_s"' in SENSOR_SRC
     assert '"outdoor_zones"' in SENSOR_SRC
+    # Negative: retired attribute must not reappear in sensor.py.
+    assert '"lost_away_persons"' not in SENSOR_SRC, (
+        "PATH-ALPHA D2b: retired `lost_away_persons` attr resurrected in sensor.py"
+    )
 
 
 # ===========================================================================

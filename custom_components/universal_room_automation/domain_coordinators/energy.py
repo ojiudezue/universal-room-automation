@@ -9746,17 +9746,12 @@ class EnergyCoordinator(BaseCoordinator):
         """
         return self._battery.net_power
 
-    @property
-    def evse_garage_a_power(self) -> float | None:
-        """EVSE Garage A power draw in watts."""
-        from .energy_const import DEFAULT_EVSE_GARAGE_A_POWER_ENTITY
-        return self._get_state_float(DEFAULT_EVSE_GARAGE_A_POWER_ENTITY)
-
-    @property
-    def evse_garage_b_power(self) -> float | None:
-        """EVSE Garage B power draw in watts."""
-        from .energy_const import DEFAULT_EVSE_GARAGE_B_POWER_ENTITY
-        return self._get_state_float(DEFAULT_EVSE_GARAGE_B_POWER_ENTITY)
+    # EV-SENSOR-CLEANUP-1 (2026-08-16): evse_garage_{a,b}_power properties
+    # removed — sole callers were EnergyEVChargeRate{A,B}Sensor (deleted
+    # per AUDIT_ev_sensor_surface.md §Q1). ev_charging_status per-plug
+    # power attrs read the same upstream entity via energy_pool
+    # _get_evse_state with a v4.2.19 switch-status fallback (strict
+    # superset behavior).
 
     @property
     def l1_charger_active(self) -> bool:

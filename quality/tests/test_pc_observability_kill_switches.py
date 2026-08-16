@@ -327,18 +327,28 @@ def test_arriving_rearm_kill_switch_gates_suppression_block():
 
 def test_away_veto_kill_switch_coerces_infer_kwargs_when_off():
     src = _src(PC_PY)
-    # Rebinding-in-place preserves the kwarg literal at the infer() call
-    # (anchored by test_v4714 + test_v570). The kill-switch guard MUST
-    # coerce BOTH the path-α and path-β locals to False when OFF.
-    # B-M1 fix-up: gated on the tick-local snapshot `_ks_away_veto_enabled`.
+    # PATH-ALPHA D2b (2026-08-16, MIGRATED): the relaxed-denominator
+    # local `all_trusted_or_lost_away_persons_away` was retired. Path β
+    # now shares path α's `all_tracked_persons_away` denominator, so
+    # a SINGLE kill-switch coercion suffices for BOTH paths. The infer()
+    # call site passes `all_trusted_or_lost_away_persons_away=
+    # all_tracked_persons_away` — coercing the α-source cascades to β.
     m = re.search(
-        r"if not _ks_away_veto_enabled:\s*\n\s*all_tracked_persons_away = False\s*\n\s*all_trusted_or_lost_away_persons_away = False",
+        r"if not _ks_away_veto_enabled:\s*\n\s*all_tracked_persons_away = False",
         src,
     )
     assert m, (
-        "Away-veto kill switch must rebind BOTH denominators to False "
-        "when OFF (path α + path β). MUTATION removes either assignment "
-        "→ re-opens the veto."
+        "Away-veto kill switch must rebind all_tracked_persons_away to "
+        "False when OFF. Post-D2b this single rebind covers BOTH path α "
+        "AND path β (β shares α's denominator). MUTATION removes it → "
+        "re-opens the veto."
+    )
+    # Negative: the retired path-β local must not resurrect in the guard.
+    assert (
+        "all_trusted_or_lost_away_persons_away = False" not in src
+    ), (
+        "PATH-ALPHA D2b: retired relaxed-denominator local resurrected in "
+        "kill-switch guard"
     )
     # A-HIGH-1 (orchestrator-added anchor): the guard block must ALSO
     # coerce the INSTANCE attribute — sensor.py surfaces

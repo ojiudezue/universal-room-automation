@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation vv5.77.0
+# Universal Room Automation vv5.78.0
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -1163,6 +1163,17 @@ class PersonCensus:
         # Without this, _census_count stays 0 and house state is always "away".
         from homeassistant.helpers.dispatcher import async_dispatcher_send
         from .domain_coordinators.signals import SIGNAL_CENSUS_UPDATED
+        # GAP-A D8 (PATH-ALPHA, 2026-08-16): add face_recognized_count so
+        # path α can gate on camera-provable identity evidence instead of
+        # BLE-inflated census_count. See PLANNING_gap_a_census_hole.md +
+        # AUDIT_tracking_status_consumers.md §D8. Source: face_recognized
+        # is the camera-only identity set (list[str]) derived from Frigate
+        # face-recognition sensors, subject to the person-tracker cross-
+        # check at camera_census.py:3034-3055 (drops faces whose person.<slug>
+        # says not_home; fail-OPEN if the person entity is missing —
+        # documented upper bound, not addressed here). Freshness window
+        # is CENSUS_FACE_RECOGNITION_WINDOW_SECONDS = 1800s (const.py:2609).
+        _face_recognized = getattr(house_result, "face_recognized_persons", []) or []
         async_dispatcher_send(
             self.hass,
             SIGNAL_CENSUS_UPDATED,
@@ -1175,6 +1186,8 @@ class PersonCensus:
                 # v4.6.2.2: Census confidence fields for guest-mode hardening gate
                 "confidence": house_result.confidence,
                 "source_agreement": house_result.source_agreement,
+                # GAP-A D8: camera-only identity count for path-α veto.
+                "face_recognized_count": len(_face_recognized),
             },
         )
 

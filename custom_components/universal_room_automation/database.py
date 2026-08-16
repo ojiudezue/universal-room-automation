@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.77.0
+# Universal Room Automation vv5.78.0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -8453,6 +8453,90 @@ class UniversalRoomDatabase:
         except Exception as e:  # noqa: BLE001
             _LOGGER.warning("log_memory_episode failed: %s", e)
             return None
+
+    async def close_memory_episode(
+        self,
+        row_id: int,
+        ended_at: str,
+        close_attrs: dict | None = None,
+    ) -> bool:
+        """Force-close an open memory_episodes row (PATH-ALPHA D5).
+
+        Sets ``ended_at`` on the row and merges ``close_attrs`` into
+        ``attrs_json`` (the writer records close metadata like
+        ``closed_by`` + ``duration_s``). Never raises — closing is
+        observational.
+        """
+        import json as _json  # noqa: PLC0415
+        try:
+            async with self._db() as db:
+                if close_attrs:
+                    cursor = await db.execute(
+                        "SELECT attrs_json FROM memory_episodes "
+                        "WHERE id = ? LIMIT 1",
+                        (int(row_id),),
+                    )
+                    row = await cursor.fetchone()
+                    merged: dict = {}
+                    if row is not None and row[0]:
+                        try:
+                            merged = _json.loads(row[0]) or {}
+                        except Exception:  # noqa: BLE001
+                            merged = {}
+                    merged.update(close_attrs)
+                    await db.execute(
+                        "UPDATE memory_episodes SET ended_at = ?, "
+                        "attrs_json = ? WHERE id = ?",
+                        (
+                            ended_at,
+                            _json.dumps(merged, default=str),
+                            int(row_id),
+                        ),
+                    )
+                else:
+                    await db.execute(
+                        "UPDATE memory_episodes SET ended_at = ? "
+                        "WHERE id = ?",
+                        (ended_at, int(row_id)),
+                    )
+                await db.commit()
+                return True
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning("close_memory_episode failed: %s", e)
+            return False
+
+    async def fetch_open_memory_episodes_of_type(
+        self, episode_type: str,
+    ) -> list[dict]:
+        """Return open (ended_at IS NULL) episodes of a given type.
+
+        Used at boot by ``memory_writers.reconcile_open_away_block_on_boot``
+        to discharge any OPEN episode left over across a restart.
+        """
+        try:
+            async with self._db() as db:
+                cursor = await db.execute(
+                    "SELECT id, node_id, started_at, source_ref "
+                    "FROM memory_episodes WHERE episode_type = ? "
+                    "AND ended_at IS NULL",
+                    (episode_type,),
+                )
+                rows = await cursor.fetchall()
+                return [
+                    {
+                        "id": int(r[0]),
+                        "node_id": r[1],
+                        "started_at": r[2],
+                        "source_ref": r[3],
+                    }
+                    for r in rows
+                ]
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning(
+                "fetch_open_memory_episodes_of_type(%s) failed: %s",
+                episode_type, e,
+            )
+            return []
 
     async def upsert_memory_baseline(
         self,
