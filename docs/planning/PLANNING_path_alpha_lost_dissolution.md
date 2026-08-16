@@ -221,7 +221,7 @@ Filed as `docs/planning/AUDIT_tracking_status_consumers.md`. Includes:
 
 **D2a — `person_coordinator.py` unified-matrix classifier.** Pre-matrix guards → `_classify_matrix_row(source_snapshot) -> MatrixRow` → returns S1-S6 + `tracking_reason` per rev-3.5.1 vocabulary. Case-(b) rows 2/3/5/10 emit `home_ble_silent` uniformly. Dynamic-inventory contract preserved. Row 14 confidence from `BLE_SILENT_ONLY_AWAY_CONFIDENCE`.
 
-**D2b — presence.py path-β wholesale delete**: unchanged.
+**D2b — presence.py path-β relaxed-predicate + LOST-admission-list retirement**: (A-L2 fix, 2026-08-16 — corrected from prior "wholesale delete" wording). The commit narrowed to retiring the `_tracking_active_or_lost_away` relaxed predicate and its associated LOST-admission list; the path-β *branch* itself is preserved and now shares path-α's denominator (`all_trusted_or_lost_away_persons_away = all_tracked_persons_away`). Path β remains as a strict-subset gate of path α post-cycle (see Review B §2 F2 for follow-up on the now-vestigial machinery — carded separately, NOT bundled here).
 **D2c — aggregation.py `tracking_reason` + `tracker_sources` passthrough**: unchanged.
 **D2d — const.py `TRACKING_REASON_VALUES` frozenset (rev-3.5.1 vocabulary) + `BLE_SILENT_ONLY_AWAY_CONFIDENCE` knob + comment updates**: as documented above.
 

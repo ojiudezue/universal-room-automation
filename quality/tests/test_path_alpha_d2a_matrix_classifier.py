@@ -460,6 +460,68 @@ def test_person_was_away_preserved_in_case_a():
     )
 
 
+def test_ble_fleet_live_empty_data_returns_false_on_boot():
+    """A-M1 pin (Review A, 2026-08-16): `_ble_fleet_live` MUST return
+    False when `self.data` is empty (boot / first tick).
+
+    Prior behavior returned True (fail-open), admitting a spurious
+    `away_ble_silent_only` reason attribution during the first-tick
+    window. I-α was NOT violated (the outer wrapper's `_ps_state`
+    coercion neutralized the vote-shape risk) but the diagnostic
+    surface lied about the reason. Fix returns False so BLE=silent
+    degrades to indeterminate → row 16 (`no_signal`) rather than
+    row 14 (`away_ble_silent_only`).
+
+    I-α invariant (no away vote from zero evidence) UNCHANGED and
+    verified inline below: with empty data + BLE=silent, the
+    classifier stamps `no_signal` (row 16), NOT any away reason.
+    """
+    coord, _ = _make_coord()
+    assert coord.data == {}
+    # Empty data → fleet not proven live.
+    assert coord._ble_fleet_live(datetime(2026, 8, 16, 14, 0, 0)) is False
+    # A person with a recent update → fleet live.
+    coord.data = {
+        "oji": {
+            "last_bermuda_update": datetime(2026, 8, 16, 14, 0, 0),
+        },
+    }
+    assert coord._ble_fleet_live(
+        datetime(2026, 8, 16, 14, 0, 30),
+    ) is True
+    # A person with a stale update outside the window → fleet not live.
+    coord.data = {
+        "oji": {
+            "last_bermuda_update": datetime(2026, 8, 16, 12, 0, 0),
+        },
+    }
+    assert coord._ble_fleet_live(
+        datetime(2026, 8, 16, 14, 0, 0),
+    ) is False
+
+    # I-α check: with empty data + NO person-state signal + BLE=silent
+    # + no GPS/WiFi, the classifier stamps row 16 (`no_signal`) instead
+    # of row 14 (`away_ble_silent_only`). Prior behavior would have
+    # stamped row 14 because `_ble_fleet_live({}) == True`. Now it
+    # returns False → BLE degrades to indeterminate → falls to row 16.
+    #
+    # Note: if we had a person-state signal like `"not_home"`, that IS
+    # affirmative evidence (HA aggregation) and legitimately votes away
+    # via the state_str fallback with reason `away_wifi_only` — that
+    # is NOT an I-α violation because a signal exists. The A-M1 fix
+    # only changes reason attribution, not vote-shape, for that case.
+    coord.data = {}
+    row = coord._classify_matrix_row(
+        "", {"gps": "MISSING", "wifi": "MISSING"}, "silent",
+        coord._ble_fleet_live(datetime(2026, 8, 16, 14, 0, 0)),
+    )
+    assert row[const_mod.ATTR_TRACKING_REASON] == "no_signal", (
+        f"I-α regression: empty-data BLE-silent + no-state produced "
+        f"{row[const_mod.ATTR_TRACKING_REASON]!r}, expected `no_signal`"
+    )
+    assert row["tracking_status"] == const_mod.TRACKING_STATUS_LOST
+
+
 def test_tracking_reason_vocabulary_pin():
     """rev-3.5.1: retired values must NOT be in TRACKING_REASON_VALUES."""
     assert "bermuda_degraded" not in const_mod.TRACKING_REASON_VALUES

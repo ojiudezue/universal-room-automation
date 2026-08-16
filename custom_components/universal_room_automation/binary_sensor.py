@@ -1744,7 +1744,13 @@ class PersonPhoneLeftBehindSensor(BinarySensorEntity):
             from .const import PHONE_LEFT_BEHIND_ROOM_CORROBORATION_ENABLED
             if (
                 PHONE_LEFT_BEHIND_ROOM_CORROBORATION_ENABLED
-                and ble_location not in ("home",)  # need a specific room name
+                # A-L3 (2026-08-16): align guard with
+                # extra_state_attributes below (same set). At this
+                # point step 2 has already early-returned for
+                # {unknown, away}, so the tighter set is behaviorally
+                # equivalent — this alignment is purely for
+                # readability + code-review truthfulness.
+                and ble_location not in ("home", "unknown", "away")
                 and hasattr(person_coordinator, "_is_room_occupied")
             ):
                 if person_coordinator._is_room_occupied(ble_location):

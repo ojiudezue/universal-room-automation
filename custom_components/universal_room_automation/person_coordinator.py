@@ -250,15 +250,31 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         stamp is admissible as row 14 (away_ble_silent_only). Otherwise
         BLE=silent degrades to indeterminate and the person falls to
         row 16 (no_signal) rather than casting a spurious away vote.
-        Fail-open on empty data — no evidence of scanner death, don't
-        pretend BLE is dead either.
+
+        A-M1 fix (2026-08-16): empty `self.data` is the FIRST-TICK
+        boot state — there is no evidence YET that the fleet is live.
+        Prior behavior returned True (fail-open) which admitted
+        `away_ble_silent_only` stamps during the boot-window with
+        conf 0.82; the outer wrapper's `_ps_state=="not_home"`
+        coercion neutralized the vote-shape risk (I-α still held), but
+        `tracking_reason` was mis-attributed to BLE-only-away instead
+        of the true `away_wifi_only` shape. Now returns False on
+        empty data: no boot-tick BLE-only admission until at least
+        one Bermuda update proves the fleet responsive. I-α is
+        UNCHANGED (still no away vote from zero evidence — the row-16
+        fallback still fires; the wrapper still coerces
+        `_ps_state=="not_home"` to away via `away_wifi_only`). See
+        Review A M1.
+
+        Fail-open on `.data` access exception preserved (attribute
+        error path); the fix targets the deterministic empty case.
         """
         try:
             data = self.data or {}
         except Exception:  # noqa: BLE001
-            return True
+            return True  # exception path: fail-open (unchanged)
         if not data:
-            return True
+            return False  # A-M1: first-tick / boot — fleet not proven live
         window = timedelta(seconds=BLE_FLEET_LIVENESS_WINDOW_S)
         for _pname, pinfo in data.items():
             last = pinfo.get("last_bermuda_update") if isinstance(pinfo, dict) else None
@@ -670,8 +686,18 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                             _stamp_row["tracking_status"] = TRACKING_STATUS_ACTIVE
                             _stamp_row["location"] = "home"
                             if _stamp_row.get(ATTR_TRACKING_REASON) not in (
-                                "home_ble_silent", "anomalous_wifi_gone_local_home",
-                                "anomalous_gps_lag_arrival", "anomalous_gps_stale_local_gone",
+                                # C-HIGH-2 (2026-08-16): removed the
+                                # `anomalous_wifi_gone_local_home` entry
+                                # from this whitelist — the value was
+                                # dead vocabulary (no emission site) and
+                                # is retired from TRACKING_REASON_VALUES.
+                                # Row 5 is intercepted by the Bermuda-
+                                # authoritative branch upstream and
+                                # never reaches this code with that
+                                # reason.
+                                "home_ble_silent",
+                                "anomalous_gps_lag_arrival",
+                                "anomalous_gps_stale_local_gone",
                             ):
                                 _stamp_row[ATTR_TRACKING_REASON] = "home_ble_silent"
                             if _stamp_row.get("confidence", 0.0) < 0.3:
@@ -755,8 +781,13 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                         _stamp_row["tracking_status"] = TRACKING_STATUS_ACTIVE
                         _stamp_row["location"] = "home"
                         if _stamp_row.get(ATTR_TRACKING_REASON) not in (
-                            "home_ble_silent", "anomalous_wifi_gone_local_home",
-                            "anomalous_gps_lag_arrival", "anomalous_gps_stale_local_gone",
+                            # C-HIGH-2 (2026-08-16): retired
+                            # `anomalous_wifi_gone_local_home` — dead
+                            # vocab, folded into Bermuda-authoritative
+                            # interception upstream.
+                            "home_ble_silent",
+                            "anomalous_gps_lag_arrival",
+                            "anomalous_gps_stale_local_gone",
                         ):
                             _stamp_row[ATTR_TRACKING_REASON] = "home_ble_silent"
                         if _stamp_row.get("confidence", 0.0) < 0.3:

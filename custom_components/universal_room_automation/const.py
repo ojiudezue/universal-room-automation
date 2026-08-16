@@ -205,7 +205,16 @@ TRACKING_REASON_VALUES: Final = frozenset({
     "away_ble_silent_only",             # S3 row 14 (BLE-only away; conf 0.82)
     "anomalous_gps_stale_local_gone",   # S4 row 4
     "anomalous_gps_lag_arrival",        # S4 row 8
-    "anomalous_wifi_gone_local_home",   # S4 row 5 variant
+    # Row 5 collapse (C-HIGH-2, 2026-08-16): the row-5 tuple
+    # `GPS=home, WiFi=not_home, BLE=visible@home_room` is intercepted
+    # UPSTREAM by the Bermuda-authoritative branch at
+    # person_coordinator.py:506-525, which stamps
+    # `tracking_reason="bermuda"` + ACTIVE + <room location> —
+    # producing the same outcome row 5 specified (blocks away,
+    # home-affirmed). The `anomalous_wifi_gone_local_home` value was
+    # therefore dead vocabulary with no emission site. Removed from
+    # the frozenset to prevent future authors writing dead code.
+    # See test_row5_collapses_into_bermuda_authoritative.
     "phone_left_behind_confirmed",      # S3+O1 row 7
     "phone_left_behind_suspected",      # S3+O1 row 12
     "no_signal",                        # S5 row 16 (epistemic null fail-safe)

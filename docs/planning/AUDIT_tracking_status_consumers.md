@@ -310,10 +310,27 @@ by `person_info.get("tracking_status", "lost")` into
 
 ---
 
-## §5 — Phone-left-behind — FIVE consumer sites (plan §"Phone-left-behind — five consumers")
+## §5 — Phone-left-behind — 3 consumers + 1 producer + 1 detector-side site (B-F1 correction, 2026-08-16)
 
 Per-site table with drill acceptance. **Every drill must use ≥2 neuter shapes**
 (hollow-anchor variant 7); each site's drill must red a distinctly-named test.
+
+**B-F1 correction (2026-08-16, Review B §1 F1).** The earlier "FIVE
+consumer sites" heading collapsed distinct roles: the actual
+mechanism-truthful count is **3 distinct consumers** (sites 2 + 4 + 5,
+all reachable via `_phone_trustworthy` closures against the SAME
+`f"{DOMAIN}_person_{slug}_phone_left_behind"` unique_id lookup) plus
+**1 producer** (site 1, the `PersonPhoneLeftBehindSensor.is_on`
+detector) plus **1 detector-side D9 suppression path** (added this
+cycle: room-corroboration inside the detector at
+`binary_sensor.py:1683-1727`). Site 3 in the prior enumeration
+("Forgotten-phone FP veto") resolves to the same `_phone_trustworthy`
+closure as site 4 applied inside a sibling helper — same mechanism,
+counted once. Case-(a) exclusion coverage is complete either way; the
+count only affected the plan's site-labelling truthfulness. The table
+below preserves the historical numbering (1–5) so drill test names
+do not have to rename; treat sites 3 and 4 as two application sites
+of the same mechanism.
 
 | # | Site | File:Line | Role | Drill acceptance (2 shapes) |
 |---|---|---|---|---|

@@ -606,8 +606,27 @@ def _coordinator_py_path() -> Path:
     )
 
 
+def _prune_unreachable_branches(tree: ast.AST) -> ast.AST:
+    """C-MED-1 anchor strengthening (2026-08-16). Walk the AST and
+    prune bodies that are provably unreachable via a compile-time
+    constant `If` test:
+      * `if False: <body>`  → clear `body` (branch unreachable)
+      * `if True: <body> else: <orelse>` → clear `orelse`
+    An `if False:` wrapper is a real-world debugging edit pattern that
+    would leave a call visible to a naive `ast.walk` — Framing-C
+    hollow-anchor variant. Prune first, walk after.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, ast.If) and isinstance(node.test, ast.Constant):
+            if node.test.value is False:
+                node.body = []
+            elif node.test.value is True:
+                node.orelse = []
+    return tree
+
+
 def _count_call_names_in_source(src: str, target_names: set[str]) -> int:
-    tree = ast.parse(src)
+    tree = _prune_unreachable_branches(ast.parse(src))
     n = 0
     for sub in ast.walk(tree):
         if isinstance(sub, ast.Call):
@@ -639,7 +658,7 @@ def test_wire_in_d6_tracker_trust_writer_called_from_presence():
     """AST wire-in anchor for D6. presence.py must call
     TrackerTrustExcludedWriter.observe(...) inside _run_inference."""
     src = _presence_py_path().read_text(encoding="utf-8")
-    tree = ast.parse(src)
+    tree = _prune_unreachable_branches(ast.parse(src))
     run_infer_fn = None
     for node in ast.walk(tree):
         if (
@@ -697,7 +716,7 @@ def test_wire_in_d5_note_tick_called_from_presence():
     call AwayBlockEpisodeTracker.note_tick(...) inside
     _run_inference."""
     src = _presence_py_path().read_text(encoding="utf-8")
-    tree = ast.parse(src)
+    tree = _prune_unreachable_branches(ast.parse(src))
     run_infer_fn = None
     for node in ast.walk(tree):
         if (
@@ -716,7 +735,8 @@ def test_wire_in_d5_note_tick_called_from_presence():
                 n += 1
     assert n >= 1, (
         "WIRE-IN ANCHOR FAILURE (D5-tick): no `_away_block_tracker."
-        "note_tick(...)` call in _run_inference."
+        "note_tick(...)` call in _run_inference (after unreachable-"
+        "branch pruning)."
     )
 
 
@@ -742,7 +762,7 @@ def test_wire_in_reconcile_open_away_block_called_from_async_setup():
     test reddens with a distinct assertion message.
     """
     src = _presence_py_path().read_text(encoding="utf-8")
-    tree = ast.parse(src)
+    tree = _prune_unreachable_branches(ast.parse(src))
 
     # Find PresenceCoordinator.async_setup.
     async_setup_fn: ast.AsyncFunctionDef | None = None
@@ -762,35 +782,70 @@ def test_wire_in_reconcile_open_away_block_called_from_async_setup():
         "(wire-in anchor cannot verify the call site)"
     )
 
-    found_reconcile_call = False
-    found_gate_assign = False
+    def _is_gate_assign_true(node: ast.AST) -> bool:
+        if not isinstance(node, ast.Assign):
+            return False
+        for tgt in node.targets:
+            if (
+                isinstance(tgt, ast.Attribute)
+                and tgt.attr == "_away_block_reconcile_done"
+                and isinstance(tgt.value, ast.Name)
+                and tgt.value.id == "self"
+                and isinstance(node.value, ast.Constant)
+                and node.value.value is True
+            ):
+                return True
+        return False
+
+    def _walk_awaits_of(name: str, root: ast.AST) -> int:
+        n = 0
+        for sub in ast.walk(root):
+            if isinstance(sub, ast.Await) and isinstance(sub.value, ast.Call):
+                fn = sub.value.func
+                fn_name = (
+                    fn.attr if isinstance(fn, ast.Attribute)
+                    else fn.id if isinstance(fn, ast.Name) else None
+                )
+                if fn_name == name:
+                    n += 1
+        return n
+
+    # C-MED-1 scope-tightening: the gate assignment MUST live inside a
+    # `try` block's `body` (the happy path), not exclusively in the
+    # `except` handlers. Otherwise a delete of the try-branch assign
+    # leaves the gate opening only on reconciler failure, which
+    # permanently suppresses the tick-loop guard on the happy path
+    # (Bug Class #53). Also require the reconciler call itself to
+    # live inside the same `try.body`.
+    found_reconcile_call_in_try = False
+    found_gate_assign_in_try = False
     for sub in ast.walk(async_setup_fn):
-        # Await reconcile_open_away_block_on_boot(...) — either as
-        # attribute (_mw.reconcile_open_away_block_on_boot(...)) or
-        # bare name (from module import).
-        if isinstance(sub, ast.Await) and isinstance(sub.value, ast.Call):
-            fn = sub.value.func
-            fn_name = None
-            if isinstance(fn, ast.Attribute):
-                fn_name = fn.attr
-            elif isinstance(fn, ast.Name):
-                fn_name = fn.id
-            if fn_name == "reconcile_open_away_block_on_boot":
-                found_reconcile_call = True
-        # self._away_block_reconcile_done = True
-        if isinstance(sub, ast.Assign):
-            for tgt in sub.targets:
-                if (
-                    isinstance(tgt, ast.Attribute)
-                    and tgt.attr == "_away_block_reconcile_done"
-                    and isinstance(tgt.value, ast.Name)
-                    and tgt.value.id == "self"
-                ):
-                    if (
-                        isinstance(sub.value, ast.Constant)
-                        and sub.value.value is True
-                    ):
-                        found_gate_assign = True
+        if isinstance(sub, ast.Try):
+            if _walk_awaits_of(
+                "reconcile_open_away_block_on_boot", ast.Module(
+                    body=list(sub.body), type_ignores=[],
+                ),
+            ) >= 1:
+                found_reconcile_call_in_try = True
+            for stmt in ast.walk(ast.Module(
+                body=list(sub.body), type_ignores=[],
+            )):
+                if _is_gate_assign_true(stmt):
+                    found_gate_assign_in_try = True
+                    break
+
+    # Fallback for the reconcile call: some future refactor may lift
+    # it above the try. Accept the call anywhere in async_setup so
+    # long as the try-branch gate assign is present (the assign is
+    # the load-bearing half — the call without gate leaks; the gate
+    # without call fails first boot then heals).
+    found_reconcile_call = (
+        found_reconcile_call_in_try
+        or _walk_awaits_of(
+            "reconcile_open_away_block_on_boot", async_setup_fn,
+        ) >= 1
+    )
+    found_gate_assign = found_gate_assign_in_try
 
     assert found_reconcile_call, (
         "WIRE-IN ANCHOR FAILURE: no `await ...reconcile_open_away_"
@@ -800,10 +855,13 @@ def test_wire_in_reconcile_open_away_block_called_from_async_setup():
         "away_transition_blocked row would leak across every restart."
     )
     assert found_gate_assign, (
-        "WIRE-IN ANCHOR FAILURE: `self._away_block_reconcile_done = "
-        "True` not found inside PresenceCoordinator.async_setup. "
-        "Without this gate, the D5 tick either fires before the "
-        "reconciler (leaking pre-restart rows) or never fires."
+        "WIRE-IN ANCHOR FAILURE (C-MED-1 tightened): "
+        "`self._away_block_reconcile_done = True` not found in the "
+        "TRY-BODY of PresenceCoordinator.async_setup. Presence in "
+        "except-only satisfies the shipped-code invariant but the "
+        "anchor now requires the happy-path assignment too — deleting "
+        "the try-body assign would leave the tick-loop guard "
+        "permanently suppressed on the success path (Bug Class #53)."
     )
 
 
