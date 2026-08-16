@@ -3730,6 +3730,49 @@ MEMORY_NM_CONDITIONING_SD_WINDOW: Final = 1.5
 # dropped (Stage 1: drop; no UPDATE-count machinery). In-memory only.
 MEMORY_EPISODE_DEDUP_WINDOW_S: Final = 60
 
+# --- PATH-ALPHA Scope B knobs (D4-D7 memory writers) — all rung 1 module
+#     constants per "Numbers Get Knobs". Each carries kill-switch
+#     semantics so a single flip disables the writer without a code
+#     scavenger hunt. Rung 1 (not entity) because these govern
+#     correlation-window / debounce / hold discipline; operator-tuning
+#     without review would silently drift the write rate and poison
+#     compactor facts.
+
+# D4 phantom_retro: mmWave-off within this many seconds after a fan-off
+# transition is a candidate retro-phantom. Default 60s (audit retro:
+# Screek 37s, Hobeian 22s + 36s — all ≤ 60s). Kill switch: 0 disables
+# (no window ever satisfied → writer never emits).
+PHANTOM_RETRO_RELEASE_WINDOW_S: Final = 60
+# D4: minimum fan-on → fan-off hold to be considered a phantom-driving
+# hold. Below this, treat as a brief fan-tap / speed-step blip; not
+# worth a retro-phantom row. Default 300s (5min).
+PHANTOM_RETRO_MIN_HOLD_S: Final = 300
+# D4 master kill switch — False makes the writer a no-op.
+PHANTOM_RETRO_ENABLED: Final = True
+
+# D5 away_transition_blocked: a single-tick block is not notable; only
+# blocks HELD ≥ this many seconds open an episode. Default 300s.
+AWAY_BLOCK_EPISODE_MIN_HOLD_S: Final = 300
+# D5: force-close (and re-open next tick if still blocked) beyond this
+# to bound row growth if a real block ever runs unbounded. Default 6h.
+AWAY_BLOCK_EPISODE_MAX_OPEN_S: Final = 6 * 60 * 60
+# D5 master kill switch — False makes the writer a no-op.
+AWAY_BLOCK_EPISODE_ENABLED: Final = True
+
+# D6 tracker_trust_excluded: a person must HOLD its exclusion-state
+# (excluded vs not) for this many seconds before an episode is emitted.
+# Rate-bounds BLE/trust flap. Default 60s. Kill switch: a very large
+# value effectively disables the writer (nothing ever holds long
+# enough), but the explicit master toggle is preferred.
+TRACKER_TRUST_MIN_HOLD_S: Final = 60
+# D6 master kill switch — False makes the writer a no-op.
+TRACKER_TRUST_WRITER_ENABLED: Final = True
+
+# D7 house_state_transition master kill switch — False makes the
+# writer a no-op. Edge-only, no other knobs: bounded by the
+# transition frequency itself (a handful per day in steady state).
+HOUSE_STATE_TRANSITION_WRITER_ENABLED: Final = True
+
 # --- Registered vocabularies (arch §4 + audit §1). Adding a type is a
 #     reviewed change — this is the write-quality gate. ---
 MEMORY_EPISODE_TYPES: Final = frozenset({
@@ -3748,6 +3791,20 @@ MEMORY_EPISODE_TYPES: Final = frozenset({
     # build/exterior-track: exterior person/car/animal track linker
     # (space-time only, no re-identification). One episode per closed track.
     "exterior_track",
+    # PATH-ALPHA Scope B (D4-D7): the four memory-episode writers added
+    # in this cycle. All observational, ZERO consumers on any actuation
+    # path (memory-ineligible boundary — arch §8). Rate-bounded BY
+    # CONSTRUCTION via the module constants below (see PHANTOM_RETRO_*,
+    # AWAY_BLOCK_EPISODE_*, TRACKER_TRUST_MIN_HOLD_S,
+    # HOUSE_STATE_TRANSITION_WRITER_ENABLED). Vocabulary gate covers
+    # them the same way it covers every other episode type — an
+    # unregistered writer is rejected by `log_memory_episode` at write
+    # time. See AUDIT_memory_retro_value.md §"Missing episode types"
+    # + PLANNING_path_alpha_lost_dissolution.md §"Scope B".
+    "phantom_retro",
+    "away_transition_blocked",
+    "tracker_trust_excluded",
+    "house_state_transition",
 })
 
 MEMORY_FACT_TOPICS: Final = frozenset({
@@ -3763,6 +3820,11 @@ MEMORY_FACT_TOPICS: Final = frozenset({
     "exterior_track_baseline",
     "phantom_recurrence",
     "actuation_conflict_summary",
+    # PATH-ALPHA Scope B: reserved for the D5 compactor rule that will
+    # distill `away_transition_blocked` episodes into a per-house
+    # "blocks-on-<zone> N/30d" fact. Additive; no reader today switches
+    # on this topic value (facade `facts()` filters by string).
+    "away_transition_blocked",
 })
 
 # --- MEMORY-COMPACTOR-1 knobs (all rung 1 module constants, per

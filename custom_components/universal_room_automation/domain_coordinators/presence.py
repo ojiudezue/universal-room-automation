@@ -552,6 +552,15 @@ class ZonePresenceTracker:
         # fan-off (last transition is not cleared on off; the off edge
         # is itself a transition and stamps the field).
         self._fan_last_transition: Dict[str, "datetime"] = {}
+        # PATH-ALPHA D4 (phantom_retro): per-room UTC timestamp of the
+        # most recent CLEAN fan-off transition (all configured fans in
+        # the room off), paired with the fan_on_since datetime that
+        # preceded it. Used by the room coordinator's mmwave-off edge
+        # detector to emit a retro-phantom memory episode when
+        # release-window + hold predicates hold. Never consumed on any
+        # actuation path (memory-ineligible boundary, arch §8).
+        # Shape: {room_name: (fan_off_ts, fan_on_since_ts)}.
+        self._fan_off_at: Dict[str, tuple["datetime", "datetime"]] = {}
         self._camera_occupied: Dict[str, bool] = {}  # entity_id -> detection active
         self._camera_last_seen: Dict[str, datetime] = {}  # entity_id -> last detection time
         # Fan-noise mitigation D1 (Layer-1 silent gate): per-room hold
@@ -3448,6 +3457,17 @@ class PresenceCoordinator(BaseCoordinator):
                 except Exception:  # noqa: BLE001 — defensive
                     any_other_on = False
                 if not any_other_on:
+                    # PATH-ALPHA D4: capture the fan_on_since paired
+                    # with the fan_off_ts BEFORE popping — the retro-
+                    # phantom writer needs both to compute hold_s.
+                    _prev_on_since = tracker._fan_on_since.get(room_name)
+                    if (
+                        _prev_on_since is not None
+                        and transition_now is not None
+                    ):
+                        tracker._fan_off_at[room_name] = (
+                            transition_now, _prev_on_since,
+                        )
                     tracker._fan_on_rooms.discard(room_name)
                     tracker._fan_on_since.pop(room_name, None)
             _LOGGER.debug(

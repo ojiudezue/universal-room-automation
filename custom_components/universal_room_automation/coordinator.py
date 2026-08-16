@@ -2771,6 +2771,61 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         self._evaluate_mmwave_demoted_latch(
             room_name, motion_detected, presence_detected,
         )
+
+        # PATH-ALPHA D4 (phantom_retro): detector-INDEPENDENT retro-
+        # phantom writer. Fires on a mmwave on→off edge when the
+        # room's tracker has a recent CLEAN fan-off transition within
+        # PHANTOM_RETRO_RELEASE_WINDOW_S AND the preceding fan-on
+        # hold was ≥ PHANTOM_RETRO_MIN_HOLD_S. Observational only —
+        # never touched by any actuation path (memory-ineligible
+        # boundary, arch §8). Rate-bounded BY CONSTRUCTION via the
+        # two module-constant windows above.
+        try:
+            _prev_presence = bool(
+                (self.data or {}).get(STATE_PRESENCE_DETECTED, False)
+            )
+            if _prev_presence and not presence_detected:
+                _mgr = self.hass.data.get(DOMAIN, {}).get(
+                    "coordinator_manager",
+                )
+                _pres = (
+                    getattr(_mgr, "coordinators", {}).get("presence")
+                    if _mgr is not None else None
+                )
+                _tracker = (
+                    _pres.tracker_for_room(room_name)
+                    if _pres is not None
+                    and hasattr(_pres, "tracker_for_room")
+                    else None
+                )
+                _fan_off_map = getattr(_tracker, "_fan_off_at", None) or {}
+                _entry = _fan_off_map.get(room_name)
+                if _entry is not None:
+                    _fan_off_ts, _fan_on_since = _entry
+                    from .memory_writers import (  # noqa: PLC0415
+                        write_phantom_retro,
+                    )
+                    _caps = {
+                        "has_pir": bool(motion_sensors),
+                        "has_ble": False,
+                        "has_camera": False,
+                    }
+                    write_phantom_retro(
+                        self.hass,
+                        room_name=room_name,
+                        fan_off_ts=_fan_off_ts,
+                        mmwave_off_ts=now,
+                        fan_on_since=_fan_on_since,
+                        room_capabilities=_caps,
+                    )
+                    # Consume the entry so a subsequent mmwave flicker
+                    # cannot double-write against the same fan-off.
+                    _fan_off_map.pop(room_name, None)
+        except Exception:  # noqa: BLE001 — defensive, observational only
+            _LOGGER.debug(
+                "D4 phantom_retro edge-check failed (non-fatal)",
+                exc_info=True,
+            )
         if getattr(self, "_mmwave_demoted_latch", False):
             mmwave_sole_here = (
                 presence_detected
