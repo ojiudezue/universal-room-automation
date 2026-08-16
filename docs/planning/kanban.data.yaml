@@ -1191,6 +1191,18 @@ cards:
   parked_2026_08_15: 'SHRUNK by the regression root-cause (CENSUS-SUFFIX-FIX-1): the census was count-accurate until 08-13; the suffix fix restores that. Revisit trigger: AFTER the fix ships + one real gathering, if guest counts still under-read materially, revive the wifi-guest-floor leg.'
 
 
+- id: MDNS-SERIAL-HOSTS-1
+  title: 'mDNS-serial hostnames breaking cross-VLAN camera consumers — amcrest FIXED; audit F2 RTSP paths + any other serial-host configs'
+  thread: devices
+  status: waiting_operator
+  approval: implied
+  origin:
+    date: '2026-08-15'
+    gist: 'Operator: "some kind of mDNS error" on amcrest entry 01KFAEN928S190YEJ2V4SWY6S6 + "multiple integrations point at that camera — did the IP change?"'
+  why: 'IP did NOT change (camera at 192.168.15.96 for 8.4d; sibling dahua entry pinned .96 all along). Cross-VLAN mDNS reflection broke, killing serial-hostname consumers. FIXED: amcrest host serial->IP (flush-watcher) + DHCP reservation pinning .96. FLAGGED: stale frigate config-of-record shows F2 RTSP for pooloverhead uses the SERIAL hostname — if live F2 config kept that pattern, its feed is dying the same death.'
+  next: 'HOMELAB AGENT: check live F2 config for serial-hostname RTSP paths (pooloverhead at minimum; grep AMC serials); replace with pinned IPs. Also consider reservations for any other cameras without fixed IPs.'
+  refs: []
+
 - id: MEMORY-PROGRAM-EPIC
   title: 'EPIC — Hierarchical Entity Memory: every node (room/zone/house/coordinator) owns consultable, compressed history behind one queryable interface'
   thread: memory
