@@ -199,6 +199,117 @@ note). No code change needed; catalog for reviewer completeness.
 
 ---
 
+## §4.7 — ROOM TIER + ZONE TIER consumers (added 2026-08-16, operator-raised gap)
+
+The room and zone tiers both consume person data and were under-specified in
+the initial §4 write-up. Both must be reviewed against the unified matrix.
+
+### §4.7.1 — ROOM TIER (coupled to CONFIDENCE, NOT tracking_status)
+
+`coordinator.py:3106-3121` calls `person_coordinator.get_persons_in_room()`
+→ `get_room_occupants()` at `person_coordinator.py:1164-1200`. The filter
+predicate is:
+
+- `person_data["location"]` must be a room (not `"unknown"`, `"away"`,
+  `"home"`, or `None`), AND
+- `person_data["confidence"] >= 0.3` (the v3.2.6 threshold).
+
+**`tracking_status` is NOT READ here.** The room tier is insulated from
+the enum semantics, but is directly coupled to the per-cell **confidence
+values** the matrix classifier assigns.
+
+**INVARIANT I-α-room (added rev-3.5.1):** every matrix cell that can
+produce a ROOM-level `location` must carry `confidence >= 0.3`. A cell
+that pairs a room location with `confidence < 0.3` silently vanishes
+the person from room-occupancy consumers (lights, comfort, fan_veto by
+proxy) — a regression class that would look like "the room stopped
+seeing me even though person tracking is ACTIVE."
+
+**Matrix-cell audit against I-α-room (rev-3.5.1 matrix as of this doc):**
+
+| Row | Location produced | Confidence | I-α-room verdict |
+|---|---|---|---|
+| 1 | room (BLE visible@home_room) | 0.90 | PASS |
+| 2 | `home` (zone-level, not room) | 0.85 | N/A — no room location |
+| 3 | `home` (zone-level, not room) | 0.80 | N/A |
+| 4 | `home` (GPS wins, no room resolve) | 0.5 | N/A |
+| 5 | room (BLE visible@home_room via row-1-like resolve) | 0.85 | PASS |
+| 6 | `away` | 0.99 | N/A |
+| 7 | room (`visible@home_room` — phone-left-behind) | 0.95 | PASS (O1 O-overlay excludes for I-α, but room occupancy still fires — this is CORRECT: the phone is physically in that room) |
+| 8 | room (BLE `visible@home_room`) | 0.85 | PASS |
+| 9 | `away` | 0.92 | N/A |
+| 10 | `home` (zone-level) | 0.75 | N/A |
+| 11 | `away` | 0.95 | N/A |
+| 12 | room (visible@home_room — phone-left-behind suspected) | 0.75 | PASS |
+| 13 | `away` | 0.90 | N/A |
+| 14 | `away` | 0.82 | N/A |
+| 16 | `unknown` | 0.0 | N/A |
+
+**Verdict:** NO cell pairs a room-level `location` with `confidence < 0.3`.
+Row-1/5/7/8/12 are the room-producing cells and all carry ≥ 0.75. The
+invariant holds by construction under rev-3.5.1.
+
+**REQUIRED TEST (new — assigned to D-tests deliverable):**
+`test_matrix_room_locations_clear_room_occupancy_threshold` — parametrize
+over every matrix row that can produce a room-level location; assert
+`confidence >= 0.3`. Any future cell rescaling that drops a room-producing
+cell below 0.3 reddens this test before shipping.
+
+**Stop-rule:** if any future revision would place a room-producing cell
+below 0.3, DO NOT silently rescale — surface it as a matrix-design
+question because it changes who lights/comfort see.
+
+### §4.7.2 — ZONE TIER (consumes `tracking_status` directly)
+
+`aggregation.py:5180-5195` (`ZonePersonPresenceSensor._compute_zone_counts`
+or equivalent per current line numbers — verify at build) buckets persons
+by `person_info.get("tracking_status", "lost")` into
+`active_count` / `stale_count` / `lost_count`, filtered to
+`person_info.get("location") in zone_rooms`.
+
+**Post-cycle behavioral shifts (README write-back required):**
+
+- (a) **Bucket rebalancing — INTENDED.** Case-(a) confidently-away persons
+  currently stamped LOST become ACTIVE post-cycle → the zone
+  `active_count` metric grows and `lost_count` shrinks, without any
+  physical change in who is where. This IS the point of the cycle
+  (dissolving LOST) — it must be called out in the README so operators
+  reading zone-count history don't chase a phantom regression. Case-(b)
+  BLE-silent-at-home persons currently under LOST also become ACTIVE
+  (state S2, `tracking_reason=home_ble_silent`).
+- (b) **Default value `"lost"` — REVIEWED AND KEPT (rev-3.5.1).** The
+  `.get(..., "lost")` fallback fires when `tracking_status` is missing
+  from the person_info dict entirely (a structural fault: person_coordinator
+  emitted an entry with no status). Post-cycle "no signal" is the
+  fail-safe direction — treating a structurally-broken emit as `lost`
+  correctly denies it any away-vote authority AND correctly excludes it
+  from `active_count` (so a broken emit doesn't silently inflate
+  "people present here" either). BEHAVIOR PRESERVED; comment updated
+  at the call site explaining the choice. If a future cycle proposes
+  changing the default, it needs its own regression test — flag as
+  finding rather than silently update.
+
+**REQUIRED CHECKS (assigned to D2c + D-tests):**
+
+- D2c: at `aggregation.py:5180-5195`, add an explicit comment documenting
+  the default choice and its fail-safe rationale (rev-3.5.1).
+- D-tests: `test_zone_bucket_default_is_lost` — a `person_info` dict
+  with no `tracking_status` key must count into `lost_count` (not
+  `active_count`, not `stale_count`, not be excluded).
+- README write-back item: "zone `active_count` metric will step up on
+  first tick post-restart as confidently-away persons migrate from
+  LOST→ACTIVE per matrix rows 6/9/11/13/14; not a regression."
+
+### §4.7.3 — Cross-tier summary
+
+| Tier | Reads | Coupled to matrix via | Post-cycle behavior change | Required checks |
+|---|---|---|---|---|
+| Room | `location` + `confidence >= 0.3` | Per-cell confidence values | None if all room-producing cells stay ≥ 0.3 (they do under rev-3.5.1) | `test_matrix_room_locations_clear_room_occupancy_threshold` |
+| Zone | `tracking_status` bucket | Enum stamp value directly | `active_count` grows, `lost_count` shrinks (INTENDED) | `test_zone_bucket_default_is_lost`; README write-back note |
+| Path-α | `tracking_status == ACTIVE` predicate | Enum stamp value | ACTIVE now includes person_state-derived (matrix rows 2-14); denominator widens | §4.2 disposition + §7 test migration |
+
+---
+
 ## §5 — Phone-left-behind — FIVE consumer sites (plan §"Phone-left-behind — five consumers")
 
 Per-site table with drill acceptance. **Every drill must use ≥2 neuter shapes**
