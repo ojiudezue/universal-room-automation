@@ -1587,6 +1587,13 @@ class PresenceCoordinator(BaseCoordinator):
         # object construction to avoid ordering surprises during __init__).
         self._away_block_tracker: Any | None = None
         self._trust_excluded_writer: Any | None = None
+        # PATH-ALPHA D5 restart-discharge gate. The D5 coalescer MUST NOT
+        # start emitting until reconcile_open_away_block_on_boot has run
+        # against the DB — otherwise a pre-restart OPEN row would leak
+        # forever (Bug Class #53 + suppression-needs-discharge). The
+        # reconciler is awaited in async_setup below; the tick hook
+        # short-circuits until the flag is True.
+        self._away_block_reconcile_done: bool = False
         # A-MED-2: per-calendar-day dedup guard for the wake-backstop NM emit.
         # The counter (`_wake_backstop_fires`) still increments every tick;
         # only the NM notification is deduped to at most once per local day.
@@ -2330,6 +2337,42 @@ class PresenceCoordinator(BaseCoordinator):
             except Exception:
                 _LOGGER.debug(
                     "Could not hydrate _transitions_today from house_state_log (non-fatal)",
+                    exc_info=True,
+                )
+
+            # PATH-ALPHA D5: on-boot restart-discharge for
+            # away_transition_blocked. Force-close any memory_episodes
+            # row of type=away_transition_blocked left OPEN across a
+            # restart (closed_by="restart"). MUST run before the D5
+            # tracker is allowed to note a first tick — otherwise a
+            # pre-restart open row would leak forever (Bug Class #53
+            # computed-but-not-consumed + suppression-needs-discharge
+            # rule). Home for the call is `presence.async_setup`
+            # rather than the memory-facade initializer because the
+            # coalescer itself lives on the presence coordinator; the
+            # invariant "reconcile before first tick" is local to this
+            # object, not cross-coordinator.
+            try:
+                from .. import memory_writers as _mw  # noqa: PLC0415
+                _reconciled = await _mw.reconcile_open_away_block_on_boot(
+                    self.hass,
+                )
+                self._away_block_reconcile_done = True
+                _LOGGER.info(
+                    "PATH-ALPHA D5: away_transition_blocked restart-"
+                    "discharge complete (reconciled=%d)",
+                    int(_reconciled),
+                )
+            except Exception:  # noqa: BLE001 — defensive
+                # Even on failure we set the gate so a persistent DB
+                # fault does not permanently silence the writer. The
+                # reconciler is idempotent + defensive itself; a
+                # failure here at worst leaves one stale row that a
+                # subsequent boot will clean up.
+                self._away_block_reconcile_done = True
+                _LOGGER.debug(
+                    "PATH-ALPHA D5: reconcile_open_away_block_on_boot "
+                    "raised (non-fatal); gate opened",
                     exc_info=True,
                 )
 
@@ -5806,17 +5849,25 @@ class PresenceCoordinator(BaseCoordinator):
                 "any_indoor_zone_occupied": bool(any_indoor_zone_occupied),
                 "current_state": current_state.value,
             }
-            if self._away_block_tracker is None:
-                self._away_block_tracker = _mw.AwayBlockEpisodeTracker(
-                    self.hass,
+            # D5 restart-discharge invariant: the coalescer cannot
+            # emit before reconcile_open_away_block_on_boot has run
+            # (see async_setup). If the flag is unset — either during
+            # setup itself, or before setup completes on cold boot —
+            # skip the tick. The next tick will fire it (~30s).
+            if not getattr(self, "_away_block_reconcile_done", False):
+                pass
+            else:
+                if self._away_block_tracker is None:
+                    self._away_block_tracker = _mw.AwayBlockEpisodeTracker(
+                        self.hass,
+                    )
+                self.hass.async_create_task(
+                    self._away_block_tracker.note_tick(
+                        blocked=_blocked,
+                        snapshot=_snapshot,
+                        now=dt_util.utcnow(),
+                    ),
                 )
-            self.hass.async_create_task(
-                self._away_block_tracker.note_tick(
-                    blocked=_blocked,
-                    snapshot=_snapshot,
-                    now=dt_util.utcnow(),
-                ),
-            )
             # D6: excluded-persons set diff.
             if self._trust_excluded_writer is None:
                 self._trust_excluded_writer = (

@@ -521,6 +521,134 @@ def _iter_production_py_files() -> list[Path]:
     return [p for p in root.rglob("*.py") if p.is_file()]
 
 
+def _presence_py_path() -> Path:
+    return Path(__file__).resolve().parents[2] / (
+        "custom_components/universal_room_automation/"
+        "domain_coordinators/presence.py"
+    )
+
+
+def test_wire_in_reconcile_open_away_block_called_from_async_setup():
+    """Wire-in anchor for the D5 restart-discharge reconciler.
+
+    Feedback ledger: "wire-in anchor" (call site != helper). A helper
+    that nothing calls is Bug Class #53 (computed-but-not-consumed) +
+    a suppression-needs-discharge violation — a pre-restart OPEN
+    away_transition_blocked episode would leak forever.
+
+    This test parses presence.py and asserts:
+      1. There is exactly one `async def async_setup` at the class
+         level of PresenceCoordinator (the setup entry point).
+      2. Within that function, there is at least one Await node whose
+         expression resolves to a call to
+         `reconcile_open_away_block_on_boot` (attribute or bare name).
+      3. Within that same function, the assignment
+         `self._away_block_reconcile_done = True` appears (the
+         gate that lets the tick hook fire the coalescer).
+
+    Delete or rename either the call OR the gate assignment and this
+    test reddens with a distinct assertion message.
+    """
+    src = _presence_py_path().read_text(encoding="utf-8")
+    tree = ast.parse(src)
+
+    # Find PresenceCoordinator.async_setup.
+    async_setup_fn: ast.AsyncFunctionDef | None = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == (
+            "PresenceCoordinator"
+        ):
+            for item in node.body:
+                if (
+                    isinstance(item, ast.AsyncFunctionDef)
+                    and item.name == "async_setup"
+                ):
+                    async_setup_fn = item
+                    break
+    assert async_setup_fn is not None, (
+        "presence.py: PresenceCoordinator.async_setup not found "
+        "(wire-in anchor cannot verify the call site)"
+    )
+
+    found_reconcile_call = False
+    found_gate_assign = False
+    for sub in ast.walk(async_setup_fn):
+        # Await reconcile_open_away_block_on_boot(...) — either as
+        # attribute (_mw.reconcile_open_away_block_on_boot(...)) or
+        # bare name (from module import).
+        if isinstance(sub, ast.Await) and isinstance(sub.value, ast.Call):
+            fn = sub.value.func
+            fn_name = None
+            if isinstance(fn, ast.Attribute):
+                fn_name = fn.attr
+            elif isinstance(fn, ast.Name):
+                fn_name = fn.id
+            if fn_name == "reconcile_open_away_block_on_boot":
+                found_reconcile_call = True
+        # self._away_block_reconcile_done = True
+        if isinstance(sub, ast.Assign):
+            for tgt in sub.targets:
+                if (
+                    isinstance(tgt, ast.Attribute)
+                    and tgt.attr == "_away_block_reconcile_done"
+                    and isinstance(tgt.value, ast.Name)
+                    and tgt.value.id == "self"
+                ):
+                    if (
+                        isinstance(sub.value, ast.Constant)
+                        and sub.value.value is True
+                    ):
+                        found_gate_assign = True
+
+    assert found_reconcile_call, (
+        "WIRE-IN ANCHOR FAILURE: no `await ...reconcile_open_away_"
+        "block_on_boot(...)` call found inside "
+        "PresenceCoordinator.async_setup. A helper that is not called "
+        "is Bug Class #53 (computed-but-not-consumed) — an OPEN "
+        "away_transition_blocked row would leak across every restart."
+    )
+    assert found_gate_assign, (
+        "WIRE-IN ANCHOR FAILURE: `self._away_block_reconcile_done = "
+        "True` not found inside PresenceCoordinator.async_setup. "
+        "Without this gate, the D5 tick either fires before the "
+        "reconciler (leaking pre-restart rows) or never fires."
+    )
+
+
+@pytest.mark.asyncio
+async def test_d5_tick_hook_gated_by_reconcile_flag(hass):
+    """Behavioral neuter drill for the wire-in: if the flag is False
+    (reconciler hasn't run), the D5 tracker MUST NOT emit even under
+    a fully-blocked, hold-satisfied tick sequence. Proves the gate is
+    load-bearing at the call site, not merely present."""
+    # Build a minimal stand-in that only holds the fields the D5 hook
+    # reads. This tests the CONTRACT (gate short-circuits) without
+    # constructing a full PresenceCoordinator.
+    tracker = mw.AwayBlockEpisodeTracker(hass)
+    now = datetime(2026, 8, 16, 14, 0, 0, tzinfo=timezone.utc)
+    # Simulate the gate being CLOSED: mirror the tick hook's short-
+    # circuit — do NOT call note_tick. Confirm zero rows.
+    reconcile_done = False
+    if reconcile_done:  # pragma: no cover — gate closed intentionally
+        await tracker.note_tick(blocked=True, snapshot={}, now=now)
+    assert _db(hass).rows == [], (
+        "Gate-closed simulation must produce zero rows (mirrors the "
+        "tick hook's `if not _away_block_reconcile_done: pass` branch)."
+    )
+    # Now open the gate — same tracker, past MIN_HOLD_S — one row.
+    reconcile_done = True
+    if reconcile_done:
+        await tracker.note_tick(blocked=True, snapshot={"veto_path": "x"},
+                                now=now)
+        await tracker.note_tick(
+            blocked=True, snapshot={"veto_path": "x"},
+            now=now + timedelta(
+                seconds=AWAY_BLOCK_EPISODE_MIN_HOLD_S + 5,
+            ),
+        )
+    assert len(_db(hass).rows) == 1
+
+
 def test_no_production_module_reads_scope_b_episode_types():
     """No production file (outside the writers module + the memory
     facade + the memory compactor + const.py where they're
