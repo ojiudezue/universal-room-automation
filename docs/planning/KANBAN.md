@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-16T03:02:54-05:00_ - _Data commit: `85d6df879a96`_ - _last_reconciled: 2026-08-15_
+_Generated: 2026-08-16T03:06:28-05:00_ - _Data commit: `807b9a2f6969`_ - _last_reconciled: 2026-08-15_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -13,7 +13,7 @@ _Generated: 2026-08-16T03:02:54-05:00_ - _Data commit: `85d6df879a96`_ - _last_r
 |---|---:|
 | 📥 Inbox | 1 |
 | 🧭 Pre-planning | 8 |
-| 📝 Planned | 2 |
+| 📝 Planned | 3 |
 | 🔨 In progress | 3 |
 | 🔍 Review | 0 |
 | 🚀 Shipped (organic open) | 38 |
@@ -107,7 +107,7 @@ thread: **camera** - status: **pre_planning** - approval: **implied**
 - **Tags:** no-fabrication-verify
 - **Parsimony:** [BUILD] any camera on the 2nd Frigate host has never had a snapshot
 
-## 📝 Planned (2)
+## 📝 Planned (3)
 _has plan / acceptance_
 
 ### `EV-SENSOR-CLEANUP-1` - EV sensor surface cleanup: remove dupe charge_rate sensors + wire per-plug real power (Emporia recovered) — next-deploy items, committed not parked
@@ -116,6 +116,16 @@ thread: **energy** - status: **planned** - approval: **implied**
 - **Why:** charge_rate_garage_a/b are strict-subset dupes of ev_charging_status power attrs (zero consumers verified) -> REMOVE (sensor.py:315-316 + classes + orphaned properties). Emporia outage ROOT-FIXED 2026-08-16: v0.12.2 boto3 pin conflict; v...
 - **Next:** Ride the PATH-ALPHA cycle deploy: Tier-1 removal + per-plug wiring, per audit specs.
 - **Refs:** docs/planning/AUDIT_ev_sensor_surface.md
+
+### `GAP-A-CENSUS-HOLE-1` - Path-alpha veto blocked by forgotten-phone BLE via census_count clause — replace with camera-provable-only evidence (face_recognized_count)
+thread: **presence** - status: **planned** - approval: **implied**
+- **Origin:** 2026-08-16 - AUDIT_away_transition_2026_08_13.md flagged the H1 census clause as latent; operator asked for the specific fix and required it ship in the same deploy as PATH-ALPHA.
+- **Why:** presence.py:1047-1057 gates path alpha on census_count == 0, whose intent-of-record (comment :1039-1042) is "Frigate face-IDs a resident -> phone trustworthiness irrelevant". But census_count = |ble_home union face_recognized| + held_uni...
+- **Next:** Plan review (running) -> build on feature/path-alpha AFTER its D1-D9 land (do NOT interleave presence.py edits) -> both covered by the same 3 framing-disjoint reviews -> ONE deploy.
+- **Tags:** tier-2db, no-fabrication-verify, context-wide-scoping
+- **Refs:** docs/planning/PLANNING_gap_a_census_hole.md; docs/planning/AUDIT_away_transition_2026_08_13.md; docs/planning/PLANNING_path_alpha_lost_dissolution.md
+- **Forensic keys (1):**
+  - `fix_sketch`: Encoding A (~15-30 LoC, ONE deliverable): extend SIGNAL_CENSUS_UPDATED with face_recognized_count (existing CensusZoneResult.face_recognized_persons, camera_census.py:158/:3116); store on PresenceCoordinator via _handle_census_update (:4...
 
 ### `GUEST-FP-RESIDUALS-1` - Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent)
 thread: **presence** - status: **planned** - approval: **unreviewed**

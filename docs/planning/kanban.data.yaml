@@ -1427,6 +1427,21 @@ cards:
   live_validation_2026_08_14: 'Shipped v5.76.0. Organic open: L6 next real escalating track -> one HIGH page at transition.'
 
 
+- id: GAP-A-CENSUS-HOLE-1
+  title: Path-alpha veto blocked by forgotten-phone BLE via census_count clause — replace with camera-provable-only evidence (face_recognized_count)
+  thread: presence
+  status: planned
+  approval: implied
+  approved_by: 'operator 2026-08-16 ("Gap A error is big and we have not offered a solution"; "Gap A should be folded in and shipped at the same time")'
+  tags: [tier-2db, no-fabrication-verify, context-wide-scoping]
+  origin:
+    date: '2026-08-16'
+    gist: 'AUDIT_away_transition_2026_08_13.md flagged the H1 census clause as latent; operator asked for the specific fix and required it ship in the same deploy as PATH-ALPHA.'
+  why: 'presence.py:1047-1057 gates path alpha on census_count == 0, whose intent-of-record (comment :1039-1042) is "Frigate face-IDs a resident -> phone trustworthiness irrelevant". But census_count = |ble_home union face_recognized| + held_unidentified (camera_census.py:3079-3103): a forgotten phone at home puts the resident in ble_home -> census_count >= 1 -> veto blocked even when H2 correctly excluded that person from the denominator. Independent SECOND path into the AWAY-BLOCK-1 cul-de-sac; H2 fixed the person half, the census half stayed open.'
+  fix_sketch: 'Encoding A (~15-30 LoC, ONE deliverable): extend SIGNAL_CENSUS_UPDATED with face_recognized_count (existing CensusZoneResult.face_recognized_persons, camera_census.py:158/:3116); store on PresenceCoordinator via _handle_census_update (:4194-4207); new int kwarg face_recognized_count=0 on infer() (:961) preserves I3 byte-identity; replace the clause in path alpha. NO NEW KNOB — face freshness already bounded by CENSUS_FACE_RECOGNITION_WINDOW_SECONDS + the tracker cross-check (camera_census.py:3034-3055) that defeats the frigate last_camera re-stamp flap; that coupling gets a mutation-anchored test. Rejected: subtract-H2-at-veto-site (Bug Class #53 shape), redefine identified_count (sensor/DB ripple). Path beta symmetric clause :1123-1130 OUT OF SCOPE.'
+  next: 'Plan review (running) -> build on feature/path-alpha AFTER its D1-D9 land (do NOT interleave presence.py edits) -> both covered by the same 3 framing-disjoint reviews -> ONE deploy.'
+  refs: [docs/planning/PLANNING_gap_a_census_hole.md, docs/planning/AUDIT_away_transition_2026_08_13.md, docs/planning/PLANNING_path_alpha_lost_dissolution.md]
+
 - id: GUEST-FP-RESIDUALS-1
   title: Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent)
   thread: presence

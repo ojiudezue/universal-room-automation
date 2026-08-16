@@ -134,8 +134,8 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-08-16T03:02:54-05:00</b></span>
-<span>data <b>85d6df879a96</b></span>
+<span>generated <b>2026-08-16T03:06:28-05:00</b></span>
+<span>data <b>807b9a2f6969</b></span>
 <span>reconciled <b>2026-08-15</b></span>
 <span><a href="https://urakanban.phalanxmadrone.com">urakanban.phalanxmadrone.com</a></span>
 <span><a href="https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149">artifact</a></span>
@@ -143,7 +143,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <div class="summary">
 <span>Inbox <b>1</b></span>
 <span>Pre-planning <b>8</b></span>
-<span>Planned <b>2</b></span>
+<span>Planned <b>3</b></span>
 <span>In progress <b>3</b></span>
 <span>Review <b>0</b></span>
 <span>Shipped (organic open) <b>38</b></span>
@@ -173,9 +173,10 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 </section>
 <section class="lane" data-col="planned">
-<h2>Planned <span class="count">2</span><span class="hint">has plan / acceptance</span></h2>
+<h2>Planned <span class="count">3</span><span class="hint">has plan / acceptance</span></h2>
 <div class="cards">
 <details class="card ap-implied" data-id="EV-SENSOR-CLEANUP-1" draggable="true"><summary><span class="id">EV-SENSOR-CLEANUP-1</span><span class="title">EV sensor surface cleanup: remove dupe charge_rate sensors + wire per-plug real power (Emporia recovered) — next-deploy items, committed not parked</span><div class="tagline">energy</div></summary><div class="body"><dl class="kv"><dt>Origin</dt><dd>2026-08-16 - Operator: &quot;repair if not functional dupes; if so remove&quot; + &quot;dead emporia — which ones?&quot; -&gt; AUDIT_ev_sensor_surface.md (60105933a).</dd><dt>Why</dt><dd>charge_rate_garage_a/b are strict-subset dupes of ev_charging_status power attrs (zero consumers verified) -&gt; REMOVE (sensor.py:315-316 + classes + orphaned properties). Emporia outage ROOT-FIXED 2026-08-16: v0.12.2 boto3 pin conflict; v...</dd><dt>Next</dt><dd>Ride the PATH-ALPHA cycle deploy: Tier-1 removal + per-plug wiring, per audit specs.</dd><dt>Refs</dt><dd>docs/planning/AUDIT_ev_sensor_surface.md</dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
+<details class="card ap-implied" data-id="GAP-A-CENSUS-HOLE-1" draggable="true"><summary><span class="id">GAP-A-CENSUS-HOLE-1</span><span class="title">Path-alpha veto blocked by forgotten-phone BLE via census_count clause — replace with camera-provable-only evidence (face_recognized_count)</span><div class="tagline">presence<span class="sep">·</span>tier-2db<span class="sep">·</span>no-fabrication-verify<span class="sep">·</span>context-wide-scoping</div></summary><div class="body"><dl class="kv"><dt>Origin</dt><dd>2026-08-16 - AUDIT_away_transition_2026_08_13.md flagged the H1 census clause as latent; operator asked for the specific fix and required it ship in the same deploy as PATH-ALPHA.</dd><dt>Why</dt><dd>presence.py:1047-1057 gates path alpha on census_count == 0, whose intent-of-record (comment :1039-1042) is &quot;Frigate face-IDs a resident -&gt; phone trustworthiness irrelevant&quot;. But census_count = |ble_home union face_recognized| + held_uni...</dd><dt>Next</dt><dd>Plan review (running) -&gt; build on feature/path-alpha AFTER its D1-D9 land (do NOT interleave presence.py edits) -&gt; both covered by the same 3 framing-disjoint reviews -&gt; ONE deploy.</dd><dt>Refs</dt><dd>docs/planning/PLANNING_gap_a_census_hole.md; docs/planning/AUDIT_away_transition_2026_08_13.md; docs/planning/PLANNING_path_alpha_lost_dissolution.md</dd><dt>Forensic (1)</dt><dd><ul class="forensic"><li><code>fix_sketch</code>: Encoding A (~15-30 LoC, ONE deliverable): extend SIGNAL_CENSUS_UPDATED with face_recognized_count (existing CensusZoneResult.face_recognized_persons, camera_census.py:158/:3116); store on PresenceCoordinator via _handle_census_update (:4...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 <details class="card ap-unreviewed" data-id="GUEST-FP-RESIDUALS-1" draggable="true"><summary><span class="id">GUEST-FP-RESIDUALS-1</span><span class="apl">unreviewed</span><span class="title">Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent)</span><div class="tagline">presence</div></summary><div class="body"><dl class="kv"><dt>Origin</dt><dd>2026-08-13 - AUDIT_guest_fp_fixes_wiring.md: core fixes SHIPPED + Outside zone correctly flagged outdoor; two residuals worth small fixes.</dd><dt>Why</dt><dd>A1: path-alpha excluded_persons/tracked_persons_count_trusted still exclude LOST-away persons (diagnostic clarity only — guest gate does not read them). B1: camera-census has no room-&gt;outdoor filter; safe today (Patio has no camera perso...</dd><dt>Next</dt><dd>Fold A1+B1 into the next presence hotfix batch; await operator answer on the 50-episode pattern.</dd><dt>Forensic (1)</dt><dd><ul class="forensic"><li><code>operator_question</code>: 50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests or a daytime FP flavor? If the latter, escalate per audit §3.</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 </div>
 </section>
@@ -289,7 +290,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>85d6df879a96</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>807b9a2f6969</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {
