@@ -1210,6 +1210,21 @@ cards:
   l2_INTERIM_PASS_2026_08_16: 'ORGANIC PROOF (operator home, ~evening): census reads 6 = identified 4 + unidentified 2, camera_unrecognized 2, source_agreement close, confidence medium, wifi_guest_floor 6 (independent corroboration). Pre-fix this was STRUCTURALLY IMPOSSIBLE — census was pinned at identified count (max 4) because the _2 count sensors matched nothing. Interim criterion (any unidentified contribution) PASSED. Full criterion (headcount tracking at a gathering) still open but the mechanism is proven live.'
 
 
+- id: CENSUS-GHOST-DEDUP-1
+  title: 'Census double-counts residents as unidentified (4 known + 2 ghost bodies = 6) — BLE-cancel exists, is enabled, cancels nothing'
+  thread: presence
+  status: pre_planning
+  approval: implied
+  origin:
+    date: '2026-08-16'
+    gist: 'Operator home with family of 4; census read 6 (identified 4 + unidentified 2). Operator: "only 4 of us — 2 are ghosts or unrecognized versions of us and should decay right?"'
+  why: 'Cameras detect person-bodies but recognize NO faces (face_recognized_persons: [] with 4 known people home), so residents own bodies land in the unidentified bucket alongside their own BLE-identified selves = systematic double-count, and the house flips to GUEST state on its own occupants. The machinery built for exactly this — census_ble_cancel (per-area min(camera_raw_max, ble_here) subtraction, camera_census.py ~:2770-2822, kill switch ON in live config) — reported ble_cancelled_count 0 and area_contributions {} while camera_unrecognized was 2.'
+  investigation_state_2026_08_16: 'RULED OUT: missing areas on the counting sensors (16 of 17 Frigate person-count/occupancy _2 sensors have effective areas; only the screened ASH41B lacks one, and it never detects). NOT YET EXPLAINED: why area_contributions is empty and cancelled_total 0 while unrecognized is 2 — suggests the contributions arrived via the unassigned_raw (null-area) path, which invariant I3 makes uncancellable BY DESIGN, or the enhanced-census path is not the one producing this count. No BLE-cancel INFO log lines observed at all.'
+  next: 'Investigate (read-only first): instrument or trace which entities produce the unrecognized contributions and what area each resolves to at runtime; confirm whether the enhanced path runs. Then decide: fix area resolution, relax I3 for known-resident areas, or make face recognition carry the identity (KP chain). Do NOT guess-fix.'
+  parked_alts:
+  - 'Wait for face recognition to solve it (Frigate/Protect enrollment) — real but slower; the dedup should not DEPEND on faces working'
+  refs: [docs/planning/PLANNING_census_overcount_dedup_decay.md]
+
 - id: CENSUS-GUEST-FLOOR-1
   title: 'Census blind to guests (read 4 with 10 in house) — re-admit the WiFi guest-VLAN count as a bounded FLOOR, gated to contain the FP problem that unplugged it'
   thread: presence
