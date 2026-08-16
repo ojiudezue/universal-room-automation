@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-16T04:24:35-05:00_ - _Data commit: `cf384e03a4ad`_ - _last_reconciled: 2026-08-15_
+_Generated: 2026-08-16T04:26:36-05:00_ - _Data commit: `3ac0c956b8f7`_ - _last_reconciled: 2026-08-15_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,7 +12,7 @@ _Generated: 2026-08-16T04:24:35-05:00_ - _Data commit: `cf384e03a4ad`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🧭 Pre-planning | 5 |
+| 🧭 Pre-planning | 6 |
 | 📝 Planned | 2 |
 | 🔨 In progress | 4 |
 | 🔍 Review | 0 |
@@ -27,7 +27,7 @@ _raw capture_
 
 _(none)_
 
-## 🧭 Pre-planning (5)
+## 🧭 Pre-planning (6)
 _idea being decomposed_
 
 ### `ROOM-NAME-UNIQUE-1` - Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket)
@@ -45,6 +45,13 @@ thread: **presence** - status: **pre_planning** - approval: **unreviewed**
 - **Next:** Fold into the STUCK-D2-DEMOTION-ROLE-MIGRATE-1 follow-up (D5); probe result first.
 - **Forensic keys (1):**
   - `measurement_first`: Passive recorder probe queued: does the NEW Living Room 10GHz unit latch the tower fan on its next run? (Placement/sensitivity may differ from Guestroom.) Result gates how urgent the axis is.
+
+### `PATHBETA-VESTIGIAL-1` - Path-beta infrastructure is now dead-code-like after D2b — scoped cleanup (reviewer B: do NOT bundle into PATH-ALPHA)
+thread: **presence** - status: **pre_planning** - approval: **unreviewed**
+- **Origin:** 2026-08-16 - PATH-ALPHA review B finding F2 (62820d23c): after the relaxed-predicate retirement, path-beta infra at presence.py:1146-1215 + call site :5787-5799 is vestigial — lost_away_persons_present=False from the sole caller, immedia...
+- **Why:** Correctness is preserved (beta can only echo alpha or suppress; cannot fire spuriously), so this is hygiene not a defect. Reviewer B explicitly recommended a separate scoped cycle rather than bundling — bundling would have grown a Tier-2...
+- **Next:** Scope after PATH-ALPHA ships and its organic proofs land: delete or collapse the vestigial beta limbs with test migration, or document why they stay.
+- **Refs:** docs/reviews/code-review/path_alpha_review_B.md
 
 ### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)
 thread: **tablets** - status: **pre_planning** - approval: **unreviewed**

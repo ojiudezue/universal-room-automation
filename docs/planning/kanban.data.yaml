@@ -1451,6 +1451,18 @@ cards:
   plan_review_2026_08_16: 'SHIP (efec78928) — trace + consumer enumeration independently confirmed; circularity CLEAN (URA writes no person.* entity, so the matrix cannot feed back into the face cross-check — FENCE: re-audit if that ever changes); 3 text-only edits folded (face window = 1800s at const.py:2609; cross-check is fail-OPEN when person entity missing so the 30-min age gate is the sole bound in that mode — honest, still no knob; beta residual pattern named not built). CLEARED FOR BUILD after PATH-ALPHA D1-D9 on the same branch.'
 
 
+- id: PATHBETA-VESTIGIAL-1
+  title: 'Path-beta infrastructure is now dead-code-like after D2b — scoped cleanup (reviewer B: do NOT bundle into PATH-ALPHA)'
+  thread: presence
+  status: pre_planning
+  approval: unreviewed
+  origin:
+    date: '2026-08-16'
+    gist: 'PATH-ALPHA review B finding F2 (62820d23c): after the relaxed-predicate retirement, path-beta infra at presence.py:1146-1215 + call site :5787-5799 is vestigial — lost_away_persons_present=False from the sole caller, immediate_engage limb unreachable, surviving gate strictly narrower than alpha.'
+  why: 'Correctness is preserved (beta can only echo alpha or suppress; cannot fire spuriously), so this is hygiene not a defect. Reviewer B explicitly recommended a separate scoped cycle rather than bundling — bundling would have grown a Tier-2-DB cycle mid-review.'
+  next: 'Scope after PATH-ALPHA ships and its organic proofs land: delete or collapse the vestigial beta limbs with test migration, or document why they stay.'
+  refs: [docs/reviews/code-review/path_alpha_review_B.md]
+
 - id: GUEST-FP-RESIDUALS-1
   title: Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent)
   thread: presence
