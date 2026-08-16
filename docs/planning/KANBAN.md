@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-16T04:26:36-05:00_ - _Data commit: `3ac0c956b8f7`_ - _last_reconciled: 2026-08-15_
+_Generated: 2026-08-16T11:13:16-05:00_ - _Data commit: `4ad342f78dd6`_ - _last_reconciled: 2026-08-16_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -13,10 +13,10 @@ _Generated: 2026-08-16T04:26:36-05:00_ - _Data commit: `3ac0c956b8f7`_ - _last_r
 |---|---:|
 | 📥 Inbox | 0 |
 | 🧭 Pre-planning | 6 |
-| 📝 Planned | 2 |
-| 🔨 In progress | 4 |
+| 📝 Planned | 0 |
+| 🔨 In progress | 1 |
 | 🔍 Review | 0 |
-| 🚀 Shipped (organic open) | 39 |
+| 🚀 Shipped (organic open) | 44 |
 | ⏸️ Waiting on operator | 3 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 4 |
@@ -81,28 +81,12 @@ thread: **resolver** - status: **pre_planning** - approval: **implied**
 - **Tags:** mutation-drill
 - **Parsimony:** [BUILD] a camera's leg set silently shrank vs the retired helpers
 
-## 📝 Planned (2)
+## 📝 Planned (0)
 _has plan / acceptance_
 
-### `EV-SENSOR-CLEANUP-1` - EV sensor surface cleanup: remove dupe charge_rate sensors + wire per-plug real power (Emporia recovered) — next-deploy items, committed not parked
-thread: **energy** - status: **planned** - approval: **implied**
-- **Origin:** 2026-08-16 - Operator: "repair if not functional dupes; if so remove" + "dead emporia — which ones?" -> AUDIT_ev_sensor_surface.md (60105933a).
-- **Why:** charge_rate_garage_a/b are strict-subset dupes of ev_charging_status power attrs (zero consumers verified) -> REMOVE (sensor.py:315-316 + classes + orphaned properties). Emporia outage ROOT-FIXED 2026-08-16: v0.12.2 boto3 pin conflict; v...
-- **Next:** Ride the PATH-ALPHA cycle deploy: Tier-1 removal + per-plug wiring, per audit specs.
-- **Refs:** docs/planning/AUDIT_ev_sensor_surface.md
+_(none)_
 
-### `GAP-A-CENSUS-HOLE-1` - Path-alpha veto blocked by forgotten-phone BLE via census_count clause — replace with camera-provable-only evidence (face_recognized_count)
-thread: **presence** - status: **planned** - approval: **implied**
-- **Origin:** 2026-08-16 - AUDIT_away_transition_2026_08_13.md flagged the H1 census clause as latent; operator asked for the specific fix and required it ship in the same deploy as PATH-ALPHA.
-- **Why:** presence.py:1047-1057 gates path alpha on census_count == 0, whose intent-of-record (comment :1039-1042) is "Frigate face-IDs a resident -> phone trustworthiness irrelevant". But census_count = |ble_home union face_recognized| + held_uni...
-- **Next:** Plan review (running) -> build on feature/path-alpha AFTER its D1-D9 land (do NOT interleave presence.py edits) -> both covered by the same 3 framing-disjoint reviews -> ONE deploy.
-- **Tags:** tier-2db, no-fabrication-verify, context-wide-scoping
-- **Refs:** docs/planning/PLANNING_gap_a_census_hole.md; docs/planning/AUDIT_away_transition_2026_08_13.md; docs/planning/PLANNING_path_alpha_lost_dissolution.md
-- **Forensic keys (2):**
-  - `fix_sketch`: Encoding A (~15-30 LoC, ONE deliverable): extend SIGNAL_CENSUS_UPDATED with face_recognized_count (existing CensusZoneResult.face_recognized_persons, camera_census.py:158/:3116); store on PresenceCoordinator via _handle_census_update (:4...
-  - `plan_review_2026_08_16`: SHIP (efec78928) — trace + consumer enumeration independently confirmed; circularity CLEAN (URA writes no person.* entity, so the matrix cannot feed back into the face cross-check — FENCE: re-audit if that ever changes); 3 text-only edit...
-
-## 🔨 In progress (4)
+## 🔨 In progress (1)
 _being built_
 
 ### `MEMORY-PROGRAM-EPIC` - EPIC — Hierarchical Entity Memory: every node (room/zone/house/coordinator) owns consultable, compressed history behind one queryable interface
@@ -114,42 +98,12 @@ thread: **memory** - status: **in_progress** - approval: **explicit**
 - **Forensic keys (1):**
   - `stages`: Stage 0 hand-build: DONE 2026-08-02 — AUDIT_memory_handbuild_study_a.md (Study A hand-ledger; kill gate PASSED, operator: "every")
 
-### `MEMORY-WRITERS-1` - Memory episode-writer coverage gaps — writers ride the detectors, so memory is blind where detectors fail (retro: 0 FULL / 2 PARTIAL / 2 NONE)
-thread: **memory** - status: **in_progress** - approval: **unreviewed**
-- **Origin:** 2026-08-14 - MEMORY-RETRO-VALUE-1 finding: occupancy_phantom writer inherits D2 fail-closed no-PIR gate; both recent incidents lived in rooms memory never heard about.
-- **Why:** Memory-first diagnostics only pays if memory covers the question. Candidate writers from the retro (ranked by incident coverage): (1) D2-independent retro phantom writer keyed on fan-release correlation — would have captured ALL FIVE lat...
-- **Next:** After compactor ships: pick top 1-2 writers (fan-release retro-phantom + away_transition_blocked) for one small Tier-2 cycle; rest parked on the card.
-- **Parsimony:** [SIMPLIFY] memory cannot answer diagnostic questions about the rooms/mechanisms where incidents actually occur
-- **Refs:** docs/planning/AUDIT_memory_retro_value.md
-- **Forensic keys (2):**
-  - `parent`: MEMORY-PROGRAM-EPIC
-  - `folded_2026_08_16`: FOLDED into the PATH-ALPHA cycle as D4-D7: phantom_retro, away_transition_blocked, tracker_trust_excluded (operator add), house_state_transition. Two candidates DROPPED with justification, zero parked (operator no-debt rule). Building now.
-
-### `PATH-ALPHA-DENOM-1` - Path-alpha away inference structurally dead when all trackers LOST/STALE — trusted denominator empties; NO existing card fixes it
-thread: **presence** - status: **in_progress** - approval: **approved_after_investigation**
-- **Origin:** 2026-08-13 - Carded-coverage grading: the LOST-denominator gap (all 4 trackers LOST -> all_tracked_persons_away false-by-vacuity for hours) is owned by no card; v5.16.0 fixed the veto denominator, not this.
-- **Why:** Path-alpha ignores zones entirely — with ACTIVE trackers it would have fired regardless of the fan latch. Fixing the vacuous-denominator case (all-LOST + all-entity-away => away-eligible) is an independent mitigation with its own balance...
-- **Next:** GATED on ZONE-TIER-DIVERGE-1 trace completing (same code region). Then: consumer enumeration of tracking_status (greps, all tiers) -> plan for decomposition path (1) with (2) as fallback if ripple too wide; Tier 2-DB minimum (trust-hiera...
-- **Forensic keys (3):**
-  - `operator_direction_2026_08_13`: Operator: "we should find a way to say AWAY not LOST. Do we need a lost state at all? That way we can actually use this signal the way it is supposed to be used. And not overload it." I.e. the fix may not be patching the denominator arit...
-  - `alternate_paths`: (1) Dissolve LOST: away-with-no-fix => AWAY (trusted, counts in denominator); home-but-silent => new BLE_SILENT_HOME or stays ambiguous-excluded; keep LOST only for truly-unknown. Ripple: every consumer of tracking_status (H3 reliable-si...
-  - `reconcile_2026_08_16`: STALE STATUS FIXED (was inbox). Plan rev-3.5.1 committed fa31c6d45 after operator checkpoint + adversarial plan review; BUILDING NOW on feature/path-alpha (D1-D7 + Gap-B guard + EV riders).
-
-### `GUEST-FP-RESIDUALS-1` - Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent)
-thread: **presence** - status: **in_progress** - approval: **unreviewed**
-- **Origin:** 2026-08-13 - AUDIT_guest_fp_fixes_wiring.md: core fixes SHIPPED + Outside zone correctly flagged outdoor; two residuals worth small fixes.
-- **Why:** A1: path-alpha excluded_persons/tracked_persons_count_trusted still exclude LOST-away persons (diagnostic clarity only — guest gate does not read them). B1: camera-census has no room->outdoor filter; safe today (Patio has no camera perso...
-- **Next:** Fold A1+B1 into the next presence hotfix batch; await operator answer on the 50-episode pattern.
-- **Forensic keys (2):**
-  - `operator_question`: 50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests or a daytime FP flavor? If the latter, escalate per audit §3.
-  - `folded_2026_08_16`: A1 path-alpha diagnostic classifier folded into the PATH-ALPHA cycle as D3 (rider). Building now.
-
 ## 🔍 Review (0)
 _under review_
 
 _(none)_
 
-## 🚀 Shipped (organic open) (39)
+## 🚀 Shipped (organic open) (44)
 _live, awaiting proof_
 
 ### `STUCK-SENSOR-1` - Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
@@ -256,6 +210,16 @@ thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
   - `SEQUENCING_NOTE`: P24-fix and D3-kill both touch coordinator.py / person_coordinator.py. The SENSOR-CAPABILITY-1 fix-up is concurrently editing coordinator.py on sensor-cap-rebase. Queue these two BEHIND that merge rather than running them in parallel — w...
   - `operator_decision_2026_08_09`: DROP from migration. Rarity is not itself a defect — a detector guarding a condition that genuinely does not occur is working. This does NOT close the question of whether the thresholds are right; it only removes them from the ledger cyc...
   - `DEDUPE_2026_08_09`: Four-surface sweep: STUCK-SENSOR-1 is adjacent (shares the no-persistence root cause) but is about EXCLUSION POLICY for live detectors; this is about detectors that never fire at all — different problem, linked not merged. BACKLOG B-2026...
+
+### `EV-SENSOR-CLEANUP-1` - EV sensor surface cleanup: remove dupe charge_rate sensors + wire per-plug real power (Emporia recovered) — next-deploy items, committed not parked
+thread: **energy** - status: **shipped_organic** - approval: **implied**
+- **Origin:** 2026-08-16 - Operator: "repair if not functional dupes; if so remove" + "dead emporia — which ones?" -> AUDIT_ev_sensor_surface.md (60105933a).
+- **Why:** charge_rate_garage_a/b are strict-subset dupes of ev_charging_status power attrs (zero consumers verified) -> REMOVE (sensor.py:315-316 + classes + orphaned properties). Emporia outage ROOT-FIXED 2026-08-16: v0.12.2 boto3 pin conflict; v...
+- **Next:** Ride the PATH-ALPHA cycle deploy: Tier-1 removal + per-plug wiring, per audit specs.
+- **Refs:** docs/planning/AUDIT_ev_sensor_surface.md
+- **Forensic keys (2):**
+  - `shipped_version`: v5.78.0
+  - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
 
 ### `HVAC-PRESET-FLAP-1` - HVAC zone preset flaps home<->away every 5-15 min during occupied evenings (survives Writer-B removal)
 thread: **hvac** - status: **shipped_organic** - approval: **unreviewed**
@@ -419,6 +383,19 @@ thread: **memory** - status: **shipped_organic** - approval: **explicit**
   - `plan_review_2026_08_14`: Plan review FIX-PLAN-FIRST (2 CRIT: same-transaction invariant unimplementable on per-acquisition write queue -> combined distill_memory_fact DAO; topic vocab gate bypass -> D0 MEMORY_FACT_TOPICS registration + boot assert. 2 HIGH: retro...
   - `live_validation_2026_08_14`: L1/L2/L3/L5 PASS at boot (20 facts, 3 topics, coverage stamp verified, episodes preserved). Organic open: L4 first nightly 02:30 tick. Entity-id correction: device-prefixed ura_coordinator_manager_*.
 
+### `MEMORY-WRITERS-1` - Memory episode-writer coverage gaps — writers ride the detectors, so memory is blind where detectors fail (retro: 0 FULL / 2 PARTIAL / 2 NONE)
+thread: **memory** - status: **shipped_organic** - approval: **unreviewed**
+- **Origin:** 2026-08-14 - MEMORY-RETRO-VALUE-1 finding: occupancy_phantom writer inherits D2 fail-closed no-PIR gate; both recent incidents lived in rooms memory never heard about.
+- **Why:** Memory-first diagnostics only pays if memory covers the question. Candidate writers from the retro (ranked by incident coverage): (1) D2-independent retro phantom writer keyed on fan-release correlation — would have captured ALL FIVE lat...
+- **Next:** After compactor ships: pick top 1-2 writers (fan-release retro-phantom + away_transition_blocked) for one small Tier-2 cycle; rest parked on the card.
+- **Parsimony:** [SIMPLIFY] memory cannot answer diagnostic questions about the rooms/mechanisms where incidents actually occur
+- **Refs:** docs/planning/AUDIT_memory_retro_value.md
+- **Forensic keys (4):**
+  - `parent`: MEMORY-PROGRAM-EPIC
+  - `shipped_version`: v5.78.0
+  - `folded_2026_08_16`: FOLDED into the PATH-ALPHA cycle as D4-D7: phantom_retro, away_transition_blocked, tracker_trust_excluded (operator add), house_state_transition. Two candidates DROPPED with justification, zero parked (operator no-debt rule). Building now.
+  - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
+
 ### `ROOM-NAME-DESYNC-1` - Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped)
 thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
 - **Origin:** 2026-08-13 - ZONE-TIER-DIVERGE-1 thorough trace: presence house tier keys rooms by entry.data room_name (presence.py:2868); substrate dispatches under options-first merged name (occupancy_substrate.py:197-202). 3 rooms renamed via option...
@@ -428,6 +405,18 @@ thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
   - `shipped_version`: v5.75.0
   - `operator_decision`: SEQUENCING TRADE: (a) config-mitigate NOW (re-align 3 entries names) = house tier regains sight, but away gets HARDER (3 more phantom-holdable mmWave zones until corroborators arrive — rec 1 hardware is operator-owned); (b) sequence the ...
   - `build_dispatched_2026_08_13`: Plan rev-2 (plan review: 4 HIGH fixed incl. double-reload + setup-reload-watchdog ordering + 3rd write site + CONF_ZONE fold-in). Build in flight (worktree). Hand-sync mitigation VERIFIED live same evening (Upstairs zone occupied w/ real...
+
+### `PATH-ALPHA-DENOM-1` - Path-alpha away inference structurally dead when all trackers LOST/STALE — trusted denominator empties; NO existing card fixes it
+thread: **presence** - status: **shipped_organic** - approval: **approved_after_investigation**
+- **Origin:** 2026-08-13 - Carded-coverage grading: the LOST-denominator gap (all 4 trackers LOST -> all_tracked_persons_away false-by-vacuity for hours) is owned by no card; v5.16.0 fixed the veto denominator, not this.
+- **Why:** Path-alpha ignores zones entirely — with ACTIVE trackers it would have fired regardless of the fan latch. Fixing the vacuous-denominator case (all-LOST + all-entity-away => away-eligible) is an independent mitigation with its own balance...
+- **Next:** GATED on ZONE-TIER-DIVERGE-1 trace completing (same code region). Then: consumer enumeration of tracking_status (greps, all tiers) -> plan for decomposition path (1) with (2) as fallback if ripple too wide; Tier 2-DB minimum (trust-hiera...
+- **Forensic keys (5):**
+  - `shipped_version`: v5.78.0
+  - `operator_direction_2026_08_13`: Operator: "we should find a way to say AWAY not LOST. Do we need a lost state at all? That way we can actually use this signal the way it is supposed to be used. And not overload it." I.e. the fix may not be patching the denominator arit...
+  - `alternate_paths`: (1) Dissolve LOST: away-with-no-fix => AWAY (trusted, counts in denominator); home-but-silent => new BLE_SILENT_HOME or stays ambiguous-excluded; keep LOST only for truly-unknown. Ripple: every consumer of tracking_status (H3 reliable-si...
+  - `reconcile_2026_08_16`: STALE STATUS FIXED (was inbox). Plan rev-3.5.1 committed fa31c6d45 after operator checkpoint + adversarial plan review; BUILDING NOW on feature/path-alpha (D1-D7 + Gap-B guard + EV riders).
+  - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
 
 ### `AWAY-BLOCK-1` - House held home_day 2h with everyone away — fan->mmWave->occupancy->fan self-sustaining loop; both away paths structurally blocked
 thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
@@ -452,6 +441,30 @@ thread: **perimeter** - status: **shipped_organic** - approval: **unreviewed**
   - `build_2026_08_15`: feature/circling-label (6 commits, worktree): 21 new tests, 8/8 drills red-restored, 0 HEAD-only suite failures (9026 pass). Notable builder find: plan's I4 anchor was masked by I2 — added unique-anchor test. 2 framing-disjoint reviews d...
   - `reviews_2026_08_15`: A SHIP (3f102e803) + B SHIP (ce9913b38), zero overlapping findings. Fix-up 4c1667f93 (3 LOWs incl. B-LOW-1 cross-camera double-grant race -> optimistic seed + 4-path rollback, +3 load-bearing tests). Orchestrator re-drill: XCORR-1 short-...
   - `live_validation_2026_08_14`: Shipped v5.76.0. Organic open: L6 next real escalating track -> one HIGH page at transition.
+
+### `GAP-A-CENSUS-HOLE-1` - Path-alpha veto blocked by forgotten-phone BLE via census_count clause — replace with camera-provable-only evidence (face_recognized_count)
+thread: **presence** - status: **shipped_organic** - approval: **implied**
+- **Origin:** 2026-08-16 - AUDIT_away_transition_2026_08_13.md flagged the H1 census clause as latent; operator asked for the specific fix and required it ship in the same deploy as PATH-ALPHA.
+- **Why:** presence.py:1047-1057 gates path alpha on census_count == 0, whose intent-of-record (comment :1039-1042) is "Frigate face-IDs a resident -> phone trustworthiness irrelevant". But census_count = |ble_home union face_recognized| + held_uni...
+- **Next:** Plan review (running) -> build on feature/path-alpha AFTER its D1-D9 land (do NOT interleave presence.py edits) -> both covered by the same 3 framing-disjoint reviews -> ONE deploy.
+- **Tags:** tier-2db, no-fabrication-verify, context-wide-scoping
+- **Refs:** docs/planning/PLANNING_gap_a_census_hole.md; docs/planning/AUDIT_away_transition_2026_08_13.md; docs/planning/PLANNING_path_alpha_lost_dissolution.md
+- **Forensic keys (4):**
+  - `shipped_version`: v5.78.0
+  - `fix_sketch`: Encoding A (~15-30 LoC, ONE deliverable): extend SIGNAL_CENSUS_UPDATED with face_recognized_count (existing CensusZoneResult.face_recognized_persons, camera_census.py:158/:3116); store on PresenceCoordinator via _handle_census_update (:4...
+  - `plan_review_2026_08_16`: SHIP (efec78928) — trace + consumer enumeration independently confirmed; circularity CLEAN (URA writes no person.* entity, so the matrix cannot feed back into the face cross-check — FENCE: re-audit if that ever changes); 3 text-only edit...
+  - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
+
+### `GUEST-FP-RESIDUALS-1` - Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent)
+thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
+- **Origin:** 2026-08-13 - AUDIT_guest_fp_fixes_wiring.md: core fixes SHIPPED + Outside zone correctly flagged outdoor; two residuals worth small fixes.
+- **Why:** A1: path-alpha excluded_persons/tracked_persons_count_trusted still exclude LOST-away persons (diagnostic clarity only — guest gate does not read them). B1: camera-census has no room->outdoor filter; safe today (Patio has no camera perso...
+- **Next:** Fold A1+B1 into the next presence hotfix batch; await operator answer on the 50-episode pattern.
+- **Forensic keys (4):**
+  - `shipped_version`: v5.78.0
+  - `operator_question`: 50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests or a daytime FP flavor? If the latter, escalate per audit §3.
+  - `folded_2026_08_16`: A1 path-alpha diagnostic classifier folded into the PATH-ALPHA cycle as D3 (rider). Building now.
+  - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
 
 ### `DP-REASON-NULL-1` - DP durable ledger logs reason:null on all 4,181 rows — carrier has no .reason field
 thread: **energy** - status: **shipped_organic** - approval: **unreviewed**
