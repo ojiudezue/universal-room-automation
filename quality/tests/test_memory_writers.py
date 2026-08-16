@@ -782,6 +782,32 @@ def test_wire_in_reconcile_open_away_block_called_from_async_setup():
         "(wire-in anchor cannot verify the call site)"
     )
 
+    def _iter_happy_path(root: ast.AST):
+        """Yield every AST node reachable through 'happy path' control
+        flow ONLY: full child iteration for every node EXCEPT that
+        `Try.handlers` (the except-arms) are pruned. This is the
+        discipline the D5 reconcile anchor needs: a gate-open in an
+        except handler proves the failure path opens the gate, not
+        the success path — the shipped-code invariant is that BOTH
+        paths open it, but the scope-tightened anchor requires an
+        explicit try-body (happy path) presence so a delete-only-the-
+        try-body-assign mutation reddens.
+        """
+        stack: list[ast.AST] = [root]
+        while stack:
+            n = stack.pop()
+            yield n
+            if isinstance(n, ast.Try):
+                # Descend into body / orelse / finalbody only — SKIP
+                # the except handlers.
+                for name in ("body", "orelse", "finalbody"):
+                    stack.extend(getattr(n, name, []) or [])
+            else:
+                # Full iter_child_nodes for every other node so we
+                # visit Await inside Expr statements, Call inside
+                # Await, Assign.value etc.
+                stack.extend(list(ast.iter_child_nodes(n)))
+
     def _is_gate_assign_true(node: ast.AST) -> bool:
         if not isinstance(node, ast.Assign):
             return False
@@ -797,9 +823,8 @@ def test_wire_in_reconcile_open_away_block_called_from_async_setup():
                 return True
         return False
 
-    def _walk_awaits_of(name: str, root: ast.AST) -> int:
-        n = 0
-        for sub in ast.walk(root):
+    def _happy_path_has_await(name: str, root: ast.AST) -> bool:
+        for sub in _iter_happy_path(root):
             if isinstance(sub, ast.Await) and isinstance(sub.value, ast.Call):
                 fn = sub.value.func
                 fn_name = (
@@ -807,45 +832,52 @@ def test_wire_in_reconcile_open_away_block_called_from_async_setup():
                     else fn.id if isinstance(fn, ast.Name) else None
                 )
                 if fn_name == name:
-                    n += 1
-        return n
+                    return True
+        return False
 
-    # C-MED-1 scope-tightening: the gate assignment MUST live inside a
-    # `try` block's `body` (the happy path), not exclusively in the
-    # `except` handlers. Otherwise a delete of the try-branch assign
-    # leaves the gate opening only on reconciler failure, which
-    # permanently suppresses the tick-loop guard on the happy path
-    # (Bug Class #53). Also require the reconciler call itself to
-    # live inside the same `try.body`.
-    found_reconcile_call_in_try = False
-    found_gate_assign_in_try = False
+    def _happy_path_has_gate_assign(root: ast.AST) -> bool:
+        for sub in _iter_happy_path(root):
+            if _is_gate_assign_true(sub):
+                return True
+        return False
+
+    # C-MED-1 scope-tightening (2026-08-16 shape-D fix): find the
+    # SPECIFIC try block whose HAPPY PATH (body / orelse / finalbody,
+    # excluding except-handlers) contains the reconciler await. That
+    # same happy path MUST contain the gate assign — the load-bearing
+    # invariant is "the reconciler ran AND the gate opened on the
+    # success side". Prior anchor walked descendants without excluding
+    # except handlers, so a delete of the try-body assign was masked
+    # by the surviving except-branch assign discovered through nested
+    # walk. Excluding handlers closes shape D.
+    found_reconcile_call = False
+    found_gate_assign = False
     for sub in ast.walk(async_setup_fn):
-        if isinstance(sub, ast.Try):
-            if _walk_awaits_of(
-                "reconcile_open_away_block_on_boot", ast.Module(
-                    body=list(sub.body), type_ignores=[],
-                ),
-            ) >= 1:
-                found_reconcile_call_in_try = True
-            for stmt in ast.walk(ast.Module(
-                body=list(sub.body), type_ignores=[],
-            )):
-                if _is_gate_assign_true(stmt):
-                    found_gate_assign_in_try = True
-                    break
+        if not isinstance(sub, ast.Try):
+            continue
+        if not _happy_path_has_await(
+            "reconcile_open_away_block_on_boot", sub,
+        ):
+            continue
+        # This is the reconciler try. Require the gate assign in its
+        # happy path (NOT its except handlers).
+        found_reconcile_call = True
+        if _happy_path_has_gate_assign(sub):
+            found_gate_assign = True
+            break
 
     # Fallback for the reconcile call: some future refactor may lift
-    # it above the try. Accept the call anywhere in async_setup so
-    # long as the try-branch gate assign is present (the assign is
-    # the load-bearing half — the call without gate leaks; the gate
-    # without call fails first boot then heals).
-    found_reconcile_call = (
-        found_reconcile_call_in_try
-        or _walk_awaits_of(
+    # the await above the enclosing try. Accept the call anywhere in
+    # async_setup so long as the gate assign is present in its try's
+    # happy path (or, if there is no enclosing try, at function scope).
+    if not found_reconcile_call:
+        found_reconcile_call = _happy_path_has_await(
             "reconcile_open_away_block_on_boot", async_setup_fn,
-        ) >= 1
-    )
-    found_gate_assign = found_gate_assign_in_try
+        )
+        # Also require the gate assign at happy-path scope if there's
+        # no enclosing try to pin it to.
+        if not found_gate_assign:
+            found_gate_assign = _happy_path_has_gate_assign(async_setup_fn)
 
     assert found_reconcile_call, (
         "WIRE-IN ANCHOR FAILURE: no `await ...reconcile_open_away_"
