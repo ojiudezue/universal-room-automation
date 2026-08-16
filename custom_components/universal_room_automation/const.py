@@ -1972,6 +1972,28 @@ TRANSIT_CHECKPOINT_WINDOW_SECONDS: Final = 120
 TRANSIT_PHONE_LEFT_BEHIND_HOURS: Final = 4.0
 
 # ---------------------------------------------------------------------------
+# PATH-ALPHA D9 (GAP-B, 2026-08-16): PersonPhoneLeftBehindSensor room-occupancy
+# corroboration knob. See docs/planning/AUDIT_tracking_status_consumers.md.
+#
+# Rung 1 (module constant) — kill-switch semantics: set to False to disable
+# the corroboration path entirely (returns pre-D9 behavior for the sensor).
+# Governs a false-positive guard for camera-less rooms: when BLE places a
+# person in a room whose room coordinator reports STATE_OCCUPIED, the sensor
+# refuses to fire (person is corroborated present by room-level occupancy
+# evidence — mmWave/PIR/etc — even without a camera face sighting).
+#
+# Conservative direction: this path can ONLY make phone-left-behind fire
+# LESS. It never fires it more. Fail-OPEN when the room coordinator is
+# unreachable (return pre-D9 answer). Accused-witness note: this uses the
+# room coordinator's own STATE_OCCUPIED, which may include mmWave sensors
+# that are themselves suspect for a given room (fan-latch cross-talk).
+# Reusing the existing suspect/duty-flag machinery is a follow-on if room
+# coordinators expose it directly; today D9 accepts the current
+# STATE_OCCUPIED as authoritative — the corroboration window is inherited
+# from the room coordinator's own occupancy timeout (typically 1–5 min).
+PHONE_LEFT_BEHIND_ROOM_CORROBORATION_ENABLED: Final = True
+
+# ---------------------------------------------------------------------------
 # TRANSIT-1 (2026-08-07): Protect-sourced checkpoint inventory.
 #
 # `CONF_TRANSIT_CHECKPOINT_AREAS` — the set of HA area_id strings that qualify

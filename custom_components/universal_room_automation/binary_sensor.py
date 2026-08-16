@@ -1733,6 +1733,31 @@ class PersonPhoneLeftBehindSensor(BinarySensorEntity):
         if not ble_location or ble_location in ("unknown", "away"):
             return False
 
+        # 2b. PATH-ALPHA D9 (Gap B, 2026-08-16): camera-less room
+        # corroboration. When BLE places the person in a specific room AND
+        # that room's coordinator reports STATE_OCCUPIED, treat the person
+        # as corroborated present (mmWave/PIR/etc reports someone home in
+        # that room even without a camera face sighting) and refuse to
+        # fire. Fail-OPEN: any missing surface reverts to pre-D9 behavior
+        # so this path can only ever make the sensor fire LESS.
+        try:
+            from .const import PHONE_LEFT_BEHIND_ROOM_CORROBORATION_ENABLED
+            if (
+                PHONE_LEFT_BEHIND_ROOM_CORROBORATION_ENABLED
+                and ble_location not in ("home",)  # need a specific room name
+                and hasattr(person_coordinator, "_is_room_occupied")
+            ):
+                if person_coordinator._is_room_occupied(ble_location):
+                    _LOGGER.debug(
+                        "phone_left_behind[%s]: D9 room-occupancy "
+                        "corroboration — %s reports occupied, suppressing",
+                        self._person_id,
+                        ble_location,
+                    )
+                    return False
+        except Exception:  # noqa: BLE001 — defensive, fail-OPEN
+            pass
+
         # 3. If camera census currently sees people, suppress —
         #    the phone holder is likely present (census is evidence of presence)
         census = self.hass.data.get(DOMAIN, {}).get("census")
