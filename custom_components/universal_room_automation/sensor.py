@@ -312,8 +312,11 @@ async def async_setup_entry(
             # v3.7.7: Consumption + EV monitoring sensors
             EnergyTotalConsumptionSensor(hass, entry),
             EnergyNetConsumptionSensor(hass, entry),
-            EnergyEVChargeRateASensor(hass, entry),
-            EnergyEVChargeRateBSensor(hass, entry),
+            # EV-SENSOR-CLEANUP-1 (2026-08-16): EnergyEVChargeRate{A,B}Sensor
+            # removed per AUDIT_ev_sensor_surface.md §Q1 — functional dupes of
+            # ev_charging_status.<plug>.power attrs (same upstream Emporia
+            # entity, no fallback, zero consumers). Two registry orphans
+            # remain until operator removes them via HA UI.
             # v3.8.0-H1: HVAC Coordinator sensors
             HVACModeSensor(hass, entry),
             HVACAnomalySensor(hass, entry),
@@ -10936,66 +10939,10 @@ class EnergyNetConsumptionSensor(AggregationEntity, SensorEntity):
         return net_w / 1000.0 if net_w is not None else None
 
 
-class EnergyEVChargeRateASensor(AggregationEntity, SensorEntity):
-    """EVSE Garage A charge rate in watts.
-
-    Entity: sensor.ura_energy_ev_charge_rate_garage_a
-    Device: URA: Energy Coordinator
-    """
-
-    _attr_has_entity_name = True
-    _attr_icon = "mdi:ev-station"
-    _attr_device_class = SensorDeviceClass.POWER
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = "W"
-    _attr_suggested_display_precision = 0
-
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
-        super().__init__(hass, entry)
-        self._attr_unique_id = f"{DOMAIN}_energy_ev_charge_rate_garage_a"
-        self._attr_name = "EV Charge Rate Garage A"
-        self._attr_device_info = _energy_device_info()
-
-    @property
-    def native_value(self) -> float | None:
-        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
-        if manager is None:
-            return None
-        energy = manager.coordinators.get("energy")
-        if energy is None:
-            return None
-        return energy.evse_garage_a_power
-
-
-class EnergyEVChargeRateBSensor(AggregationEntity, SensorEntity):
-    """EVSE Garage B charge rate in watts.
-
-    Entity: sensor.ura_energy_ev_charge_rate_garage_b
-    Device: URA: Energy Coordinator
-    """
-
-    _attr_has_entity_name = True
-    _attr_icon = "mdi:ev-station"
-    _attr_device_class = SensorDeviceClass.POWER
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = "W"
-    _attr_suggested_display_precision = 0
-
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
-        super().__init__(hass, entry)
-        self._attr_unique_id = f"{DOMAIN}_energy_ev_charge_rate_garage_b"
-        self._attr_name = "EV Charge Rate Garage B"
-        self._attr_device_info = _energy_device_info()
-
-    @property
-    def native_value(self) -> float | None:
-        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
-        if manager is None:
-            return None
-        energy = manager.coordinators.get("energy")
-        if energy is None:
-            return None
-        return energy.evse_garage_b_power
+# EV-SENSOR-CLEANUP-1 (2026-08-16): EnergyEVChargeRate{A,B}Sensor removed
+# per AUDIT_ev_sensor_surface.md §Q1. Same upstream (Emporia
+# sensor.garage_{a,b}_power_minute_average) as ev_charging_status attrs,
+# no fallback, zero consumers. Registry orphans cleared by operator via UI.
 
 
 # ============================================================================
