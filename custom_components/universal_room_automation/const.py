@@ -164,9 +164,68 @@ CONF_PERSON_DECAY_TIMEOUT: Final = "person_decay_timeout"
 DEFAULT_PERSON_DECAY_TIMEOUT: Final = 300  # 5 minutes - time before person location becomes "stale"
 
 # v3.2.8: Tracking status states
-TRACKING_STATUS_ACTIVE: Final = "active"    # Recently updated by Bermuda
-TRACKING_STATUS_STALE: Final = "stale"      # Not updated within decay timeout
-TRACKING_STATUS_LOST: Final = "lost"        # No recent Bermuda data, cleared location
+# PATH-ALPHA rev-3.5.1 comment-lattice update (D2d):
+#   ACTIVE — set by matrix rows 1-14 (S1/S2/S3/S4) via person_coordinator. Was
+#     "Bermuda-only"; now ALSO includes case-(a) confidently-away (rows 6/9/11/
+#     13/14) and case-(b) BLE-silent-at-home (rows 2/3/5/10) per the unified
+#     matrix classifier. See docs/planning/AUDIT_tracking_status_consumers.md
+#     §1 six-state summary.
+#   STALE  — O2 decay overlay on top of a prior ACTIVE stamp. Last-known
+#     location preserved; last-known "away" counts as case-(a) affirmative per
+#     I-α source 3.
+#   LOST   — S5 (`no_signal`, matrix row 16) OR S6 (`entity_missing`, pre-matrix
+#     guard). REFUSES to vote either way; residual all-LOST across trusted
+#     persons is the intentional vacuity fail-safe. Instrumented by the D5
+#     `away_transition_blocked` writer. Historical lineage: v4.7.14.1 H3
+#     origin — MUST NOT be widened back to include case-(a) or case-(b), or
+#     the AWAY-BLOCK-1 defect returns. See AUDIT §historical lineage.
+TRACKING_STATUS_ACTIVE: Final = "active"
+TRACKING_STATUS_STALE: Final = "stale"
+TRACKING_STATUS_LOST: Final = "lost"
+
+# PATH-ALPHA rev-3.5.1 (D2d): canonical `tracking_reason` vocabulary — the
+# fine-grained "why" attribute stamped alongside `tracking_status` by the
+# unified-matrix classifier. WARN-gated: any emit of a value NOT in this
+# frozenset raises at test time (and logs WARN at runtime) so vocabulary
+# drift is caught early. Retired values: `bermuda_degraded` and
+# `home_gps_only` — both folded into `home_ble_silent` per rev-3.5.1 semantic
+# unification (rows 2/3/10 all represent the same operator-legible state:
+# "affirmative non-BLE home evidence, BLE not contributing positive
+# presence"). See docs/planning/PLANNING_path_alpha_lost_dissolution.md
+# §THE UNIFIED MATRIX and AUDIT_tracking_status_consumers.md §1.
+TRACKING_REASON_VALUES: Final = frozenset({
+    "bermuda",                          # S1 (row 1)
+    "home_ble_silent",                  # S2 — canonical case-(b) name; covers
+                                        #      rows 2, 3, 5, 10 (formerly
+                                        #      bermuda_degraded, home_gps_only)
+    "away_all_agree",                   # S3 row 6
+    "away_wifi_silent_local",           # S3 row 11
+    "away_wifi_only",                   # S3 row 13
+    "away_gps_only",                    # S3 row 9
+    "away_ble_silent_only",             # S3 row 14 (BLE-only away; conf 0.82)
+    "anomalous_gps_stale_local_gone",   # S4 row 4
+    "anomalous_gps_lag_arrival",        # S4 row 8
+    "anomalous_wifi_gone_local_home",   # S4 row 5 variant
+    "phone_left_behind_confirmed",      # S3+O1 row 7
+    "phone_left_behind_suspected",      # S3+O1 row 12
+    "no_signal",                        # S5 row 16 (epistemic null fail-safe)
+    "no_trackers_configured",           # S5 sub-case (0 configured trackers)
+    "entity_missing",                   # S6 pre-matrix guard
+})
+
+# PATH-ALPHA rev-3.5.1 (D2d): calibration knob for matrix row 14
+# (`away_ble_silent_only`) — the ONE cell where a single BLE-only person
+# (typically Ziri) contributes an away-vote. Default 0.82 is intentionally
+# < path-α threshold (0.9) so a solo BLE-only person CANNOT flip the house
+# to away without corroboration. If path-α threshold is lowered, this value
+# MUST be re-adjudicated. Historical lineage: this knob replaces the
+# v4.7.14.1 H3 blanket LOST-exclusion which erroneously suppressed ALL
+# BLE-only away evidence. Rung 1 (module constant) per "Numbers Get Knobs":
+# governs a protocol-level fail-safe; any change requires code review.
+# Kill-switch: set to 0.0 to prevent any solo BLE-only away vote from ever
+# clearing the path-α threshold (row 14 becomes effectively vetoing).
+# See docs/planning/AUDIT_tracking_status_consumers.md §6.
+BLE_SILENT_ONLY_AWAY_CONFIDENCE: Final = 0.82
 
 # v3.2.8: Stale threshold (shorter than decay timeout)
 STALE_THRESHOLD_SECONDS: Final = 60  # 1 minute - time before "stale" status
@@ -1178,6 +1237,18 @@ ATTR_UNIT: Final = "unit"
 # v3.2.8: Path tracking attribute
 ATTR_RECENT_PATH: Final = "recent_path"
 ATTR_TRACKING_STATUS: Final = "tracking_status"
+# PATH-ALPHA rev-3.5.1 (D2d): fine-grained "why" attribute stamped alongside
+# `tracking_status` by the unified-matrix classifier. Values are constrained
+# to `TRACKING_REASON_VALUES` (see above). Consumed by:
+#   - aggregation.py (person-info passthrough + zone-level display attribute)
+#   - sensor.py (per-person status sensor attribute)
+#   - presence.py :5136 (guest-FP D3 exact-match classifier — rev-3.5.1)
+ATTR_TRACKING_REASON: Final = "tracking_reason"
+# PATH-ALPHA rev-3.4/3.5.1 (D2d): dynamic-inventory diagnostic — the set of
+# tracker sources actually consulted for this person on THIS tick (never
+# cached). Values drawn from {"gps", "wifi", "ble"}. Enables per-person
+# matrix-cell observation in Review-D and dashboards.
+ATTR_TRACKER_SOURCES: Final = "tracker_sources"
 ATTR_LAST_BERMUDA_UPDATE: Final = "last_bermuda_update"
 ATTR_PREVIOUS_LOCATION_TIME: Final = "previous_location_time"
 
