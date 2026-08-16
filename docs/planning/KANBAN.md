@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-16T00:06:28-05:00_ - _Data commit: `2e36cea21a51`_ - _last_reconciled: 2026-08-15_
+_Generated: 2026-08-16T00:10:13-05:00_ - _Data commit: `3adb0b3f242c`_ - _last_reconciled: 2026-08-15_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,35 +11,19 @@ _Generated: 2026-08-16T00:06:28-05:00_ - _Data commit: `2e36cea21a51`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 3 |
+| 📥 Inbox | 2 |
 | 🧭 Pre-planning | 8 |
 | 📝 Planned | 1 |
 | 🔨 In progress | 3 |
 | 🔍 Review | 0 |
 | 🚀 Shipped (organic open) | 38 |
-| ⏸️ Waiting on operator | 3 |
+| ⏸️ Waiting on operator | 4 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 4 |
 | ✅ Done | 6 |
 
-## 📥 Inbox (3)
+## 📥 Inbox (2)
 _raw capture_
-
-### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab
-thread: **dashboarding** - status: **inbox** - approval: **explicit**
-- **Origin:** 2026-08-09 - "add an EV charging detail card to the Ura v8 energy tab. Style well. Detail cards are a bit sensor words vomit. Best judgement because of space though."
-- **Why:** EV charging is a first-class energy behaviour (drain precedence, must-start-by, TOU exposure) with no dedicated surface on the v8 energy tab.
-- **Next:** APPLIED LIVE 2026-08-09 to ura-v8 Energy & EV tab (views[2].sections[8], right after Battery Strategy Detail). write_committed + post_write_verified; template render verified separately. AWAITING OPERATOR REVIEW for refinement — operator...
-- **Forensic keys (9):**
-  - `applied_render_2026_08_09`: ## ⏸ Paused / TOU peak/mid-peak pause / [Garage A yes|Paused|0.0 kW] [Garage B —|Off|0.0 kW] [Outlets (2) —|TOU peak/mid-peak pause|—] / **Plan:** Hold Only · held 53h — 7 lines, zero None/unavailable/unknown, all four conditional lines ...
-  - `fix_2026_08_09_held_label`: Operator: "What does held 53h mean?" — it was WRONG. Verified in source: since is stamped on every DP state transition (energy_drain_precedence.py:265) and HOLD_ONLY CLEARS hold_started_at as a "clean reversion" (:269-274); DPState docst...
-  - `ARRESTER_TILE_2026_08_10`: Operator aside: temp override arrester onto the ura-v8 HVAC (Climate) tab for quick access. DONE — new section at climate view position 1 (right under the hero, above the thermostats): heading w/ live state badge + full-width toggle tile...
-  - `MULT_SPLIT_APPROVED_2026_08_10`: Operator: "Clean break. Timing is fine." — BLE_CHAIN_HOLD_ENABLED (bool kill switch) + separately named D2 staleness multiplier; NO deprecated alias (single-user no-backcompat). Rides the P24/D3/dropdown batch.
-  - `refinement_candidates`: REDUNDANCY: the headline reason and the Outlets row currently show the same string twice ("TOU peak/mid-peak pause") because the outlets are the only endpoints holding a reason. Options: drop the reason from the endpoint row, or drop it ...
-  - `bug_caught_pre_ship`: The markdown card auto-detects entities from LITERAL entity IDs in the template. This template reaches them through Jinja VARIABLES (states(s)), so auto-detection would have missed them and the card would never re-render on state change ...
-  - `design_notes`: Anti-word-vomit rules applied: (1) narrative first — pause_reason_human leads, and nothing on the dashboard consumed that attribute before; (2) CONDITIONAL rendering — must_start_by, force_charge_until, excess-solar and fill-target only ...
-  - `followup_candidate`: retrofit conditional rendering to the Battery Strategy Detail card (same section group, same defect, ~30 min) — only if the operator endorses this card's style
-  - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
 
 ### `PWA-CONTROL-LIST-1` - Per-room controllable-entities attr so the PWA stops slugify-guessing actuators (AV-Closet-Shelly problem)
 thread: **dashboarding** - status: **inbox** - approval: **unreviewed**
@@ -701,8 +685,25 @@ thread: **perimeter** - status: **shipped_organic**
   - `note`: live PASS (zero multi-key WARN / _2 storm / URA ERROR; telemetry attr present)
   - `organic_open`: CLOSED 2026-08-07: leg_firing_by_camera POPULATED from real events (rear_ptz shows frigate+frigate2+protect on one camera; back_yard frigate+frigate2); today's exterior person-detects each = one alert per track, pass_by tracks alert_coun...
 
-## ⏸️ Waiting on operator (3)
+## ⏸️ Waiting on operator (4)
 _needs a human call_
+
+### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab
+thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
+- **Origin:** 2026-08-09 - "add an EV charging detail card to the Ura v8 energy tab. Style well. Detail cards are a bit sensor words vomit. Best judgement because of space though."
+- **Why:** EV charging is a first-class energy behaviour (drain precedence, must-start-by, TOU exposure) with no dedicated surface on the v8 energy tab.
+- **Next:** APPLIED LIVE 2026-08-09 to ura-v8 Energy & EV tab (views[2].sections[8], right after Battery Strategy Detail). write_committed + post_write_verified; template render verified separately. AWAITING OPERATOR REVIEW for refinement — operator...
+- **Forensic keys (10):**
+  - `applied_render_2026_08_09`: ## ⏸ Paused / TOU peak/mid-peak pause / [Garage A yes|Paused|0.0 kW] [Garage B —|Off|0.0 kW] [Outlets (2) —|TOU peak/mid-peak pause|—] / **Plan:** Hold Only · held 53h — 7 lines, zero None/unavailable/unknown, all four conditional lines ...
+  - `fix_2026_08_09_held_label`: Operator: "What does held 53h mean?" — it was WRONG. Verified in source: since is stamped on every DP state transition (energy_drain_precedence.py:265) and HOLD_ONLY CLEARS hold_started_at as a "clean reversion" (:269-274); DPState docst...
+  - `ARRESTER_TILE_2026_08_10`: Operator aside: temp override arrester onto the ura-v8 HVAC (Climate) tab for quick access. DONE — new section at climate view position 1 (right under the hero, above the thermostats): heading w/ live state badge + full-width toggle tile...
+  - `MULT_SPLIT_APPROVED_2026_08_10`: Operator: "Clean break. Timing is fine." — BLE_CHAIN_HOLD_ENABLED (bool kill switch) + separately named D2 staleness multiplier; NO deprecated alias (single-user no-backcompat). Rides the P24/D3/dropdown batch.
+  - `refinement_candidates`: REDUNDANCY: the headline reason and the Outlets row currently show the same string twice ("TOU peak/mid-peak pause") because the outlets are the only endpoints holding a reason. Options: drop the reason from the endpoint row, or drop it ...
+  - `bug_caught_pre_ship`: The markdown card auto-detects entities from LITERAL entity IDs in the template. This template reaches them through Jinja VARIABLES (states(s)), so auto-detection would have missed them and the card would never re-render on state change ...
+  - `design_notes`: Anti-word-vomit rules applied: (1) narrative first — pause_reason_human leads, and nothing on the dashboard consumed that attribute before; (2) CONDITIONAL rendering — must_start_by, force_charge_until, excess-solar and fill-target only ...
+  - `followup_candidate`: retrofit conditional rendering to the Battery Strategy Detail card (same section group, same defect, ~30 min) — only if the operator endorses this card's style
+  - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
+  - `status_correction_2026_08_16`: Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I'll review and we can refine").
 
 ### `ZIRI3-UNCONFIG-1` - RECOVER (not unconfigure) Ziri 3 device from Ziri Bedroom entry (presence + moving_target + VEML7700 lux) — rides next deploy restart
 thread: **presence** - status: **waiting_operator** - approval: **explicit**
