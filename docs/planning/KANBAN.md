@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-16T01:36:32-05:00_ - _Data commit: `bd8befeb5965`_ - _last_reconciled: 2026-08-15_
+_Generated: 2026-08-16T01:50:49-05:00_ - _Data commit: `07b57cd800de`_ - _last_reconciled: 2026-08-15_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -694,7 +694,7 @@ _needs a human call_
 thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
 - **Origin:** 2026-08-09 - "add an EV charging detail card to the Ura v8 energy tab. Style well. Detail cards are a bit sensor words vomit. Best judgement because of space though."
 - **Why:** EV charging is a first-class energy behaviour (drain precedence, must-start-by, TOU exposure) with no dedicated surface on the v8 energy tab.
-- **Next:** APPLIED LIVE 2026-08-09 to ura-v8 Energy & EV tab (views[2].sections[8], right after Battery Strategy Detail). write_committed + post_write_verified; template render verified separately. AWAITING OPERATOR REVIEW for refinement — operator...
+- **Next:** REDESIGNED 2026-08-16 after operator verdict "design is poor — review the main sensors." Full sensor discovery this time: ev_charging_status per-EVSE attrs (is_on/power/charging/ pause_reason_human — power WORKS while the standalone ev_c...
 - **Forensic keys (10):**
   - `applied_render_2026_08_09`: ## ⏸ Paused / TOU peak/mid-peak pause / [Garage A yes|Paused|0.0 kW] [Garage B —|Off|0.0 kW] [Outlets (2) —|TOU peak/mid-peak pause|—] / **Plan:** Hold Only · held 53h — 7 lines, zero None/unavailable/unknown, all four conditional lines ...
   - `fix_2026_08_09_held_label`: Operator: "What does held 53h mean?" — it was WRONG. Verified in source: since is stamped on every DP state transition (energy_drain_precedence.py:265) and HOLD_ONLY CLEARS hold_started_at as a "clean reversion" (:269-274); DPState docst...

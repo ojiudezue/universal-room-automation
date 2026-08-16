@@ -571,9 +571,20 @@ cards:
   - 'Space-constrained — operator explicitly delegated judgement on what to cut. Curate ruthlessly;
     completeness is not the goal.'
   - Reuse existing EV/EVSE entities and precedence concepts; do not invent new sensors for the card.
-  next: 'APPLIED LIVE 2026-08-09 to ura-v8 Energy & EV tab (views[2].sections[8], right after Battery
-    Strategy Detail). write_committed + post_write_verified; template render verified separately.
-    AWAITING OPERATOR REVIEW for refinement — operator: "I''ll review and we can refine."'
+  next: 'REDESIGNED 2026-08-16 after operator verdict "design is poor — review the main sensors."
+    Full sensor discovery this time: ev_charging_status per-EVSE attrs (is_on/power/charging/
+    pause_reason_human — power WORKS while the standalone ev_charge_rate_* sensors sit unknown),
+    ev_charging_plan DP state machine (must_start_by_dt, last_eval_snapshot), battery_strategy
+    (next_decision_boundary, force-charge, soc), L1-charger plug binary, resume-at-SOC number,
+    current_energy_rate. New card: verdict header w/ TOTAL live kW from status attrs; per-charger
+    table (plug/state/kW) sourced from attrs not the dead Emporia sensors; NEW anomaly line "plugged
+    but not drawing" (would have surfaced the Garage-A overnight no-charge incident); Plan line +
+    must-start-by; battery-drain resume threshold when paused; Next TOU boundary w/ expected EV
+    action; grid ¢/kWh; force-charge 30-min tile added. Cut: raw Emporia/SPAN entities (unavailable),
+    eval snapshot internals, arbitrage/grid-cap lists when empty. Applied views[2].sections[8],
+    write_committed + post_write_verified, template eval-verified live. No vehicle-side integration
+    exists (BMW/Tesla sweep empty) — vehicle SOC/target impossible until one is added.
+    AWAITING OPERATOR RE-REVIEW.'
   applied_render_2026_08_09: '## ⏸ Paused / TOU peak/mid-peak pause / [Garage A yes|Paused|0.0 kW]
     [Garage B —|Off|0.0 kW] [Outlets (2) —|TOU peak/mid-peak pause|—] / **Plan:** Hold Only · held 53h
     — 7 lines, zero None/unavailable/unknown, all four conditional lines correctly absent.'
