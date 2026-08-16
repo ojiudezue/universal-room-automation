@@ -35,9 +35,58 @@ from custom_components.universal_room_automation.const import (  # noqa: E402
     PHANTOM_RETRO_RELEASE_WINDOW_S,
     TRACKER_TRUST_MIN_HOLD_S,
 )
-from custom_components.universal_room_automation import (  # noqa: E402
-    memory_writers as mw,
+# Import memory_writers directly by file path so a prior test that has
+# stubbed `custom_components.universal_room_automation` in sys.modules
+# with a MagicMock (see test_v4715_universalize_veto.py) cannot prevent
+# this submodule from resolving. The writers module has no runtime
+# dependency on the parent package initializer.
+import importlib.util as _import_util  # noqa: E402
+import sys as _sys  # noqa: E402
+import types as _types  # noqa: E402
+from pathlib import Path as _Path  # noqa: E402
+from unittest.mock import MagicMock as _MagicMock  # noqa: E402
+
+_URA_DIR = _Path(__file__).resolve().parents[2] / (
+    "custom_components/universal_room_automation"
 )
+
+
+def _load_by_path(fq_name: str, path: _Path):
+    spec = _import_util.spec_from_file_location(fq_name, str(path))
+    mod = _import_util.module_from_spec(spec)
+    _sys.modules[fq_name] = mod
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod
+
+
+# If a prior test stubbed the parent package with a MagicMock, evict
+# the mocks for our package tree so we can install real modules under
+# the same names. The evicted mocks are process-local and downstream
+# tests will re-install their own stubs on demand.
+for _k in list(_sys.modules.keys()):
+    if (
+        _k == "custom_components.universal_room_automation"
+        or _k.startswith("custom_components.universal_room_automation.")
+    ):
+        if isinstance(_sys.modules[_k], _MagicMock):
+            del _sys.modules[_k]
+
+# Install a minimal namespace-package shell for the parent so
+# `from .const import ...` inside memory_writers.py resolves without
+# executing the real __init__.py (which needs the full HA runtime).
+_pkg_name = "custom_components.universal_room_automation"
+if _pkg_name not in _sys.modules:
+    _pkg = _types.ModuleType(_pkg_name)
+    _pkg.__path__ = [str(_URA_DIR)]  # marks as package
+    _sys.modules[_pkg_name] = _pkg
+if "custom_components" not in _sys.modules:
+    _cc = _types.ModuleType("custom_components")
+    _cc.__path__ = [str(_URA_DIR.parent)]
+    _sys.modules["custom_components"] = _cc
+
+# Load const.py (pure stdlib deps) then memory_writers.py.
+_load_by_path(f"{_pkg_name}.const", _URA_DIR / "const.py")
+mw = _load_by_path(f"{_pkg_name}.memory_writers", _URA_DIR / "memory_writers.py")
 
 
 # ---------------------------------------------------------------------------

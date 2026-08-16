@@ -916,7 +916,7 @@ class TestD2ZoneAggregatorLayer3:
 # _run_inference. Honest re-baseline; the hard upper bound
 # (test_run_inference_only_defined_once) re-derives body length
 # via AST so this constant must stay ≥ body_lines*60.
-_RUN_INFERENCE_WINDOW = 96000  # B-2026-08-03-2: widened from 90000 — arriving re-arm cooldown gate + arm block added ~60 lines
+_RUN_INFERENCE_WINDOW = 108000  # PATH-ALPHA D5+D6+D7: widened from 96000 — D5 away-block coalescer tick + D6 tracker-trust observe + D7 house-state-transition writer added ~130 lines
 
 
 class TestD3WakingSustainedSignal:
