@@ -53,11 +53,8 @@ def sensor_class(monkeypatch):
             setattr(mod, k, v)
         return mod
 
-    class _BinarySensorDeviceClass:
-        PROBLEM = "problem"
-
-    class _EntityCategory:
-        DIAGNOSTIC = "diagnostic"
+    _BinarySensorDeviceClass = MagicMock()
+    _EntityCategory = MagicMock()
 
     class _DeviceInfo(dict):
         def __init__(self, **kw):
