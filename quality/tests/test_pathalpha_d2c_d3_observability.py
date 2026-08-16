@@ -24,9 +24,69 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+# COLLECTION HAZARD (2026-08-16): the sibling
+# `test_v570_guest_detection_trust` installs the real
+# `custom_components.universal_room_automation.domain_coordinators.*`
+# modules into sys.modules using file-path spec loaders, but it guards
+# each install with `if <name> not in sys.modules: _load_module(...)`.
+# A SEPARATE sibling — `test_path_alpha_d2a_matrix_classifier.py` at
+# lines 160-166 — installs a MINIMAL STUB `signals` module (only
+# `SIGNAL_PERSON_ARRIVING`) via `types.ModuleType`. When collection
+# order runs d2a before d2c, the sibling's guard skips loading the
+# REAL signals module, and later `from .signals import SIGNAL_CENSUS_UPDATED`
+# inside presence.py raises `ImportError: ... (unknown location)` —
+# taking the ENTIRE d2c file (19 tests) out of the run silently.
+#
+# Symptom to detect: a `signals` module in sys.modules lacking
+# `SIGNAL_CENSUS_UPDATED` (and, defensively, lacking `__file__`) is a
+# stub. Purge the whole domain_coordinators subtree + `const` + the
+# stubbed `signals` so the sibling loader re-installs the real ones.
+# This is a LOUD fix — if the real modules cannot be loaded, the
+# ImportError still surfaces at collection with an actionable trace
+# (never silently skipped). Do NOT weaken this to `try/except: skip`
+# — a skip would recreate the silent-coverage-loss defect.
+import sys as _sys  # noqa: E402
+_pkg = "custom_components.universal_room_automation"
+_dc = f"{_pkg}.domain_coordinators"
+_sig_key = f"{_dc}.signals"
+_sig_mod = _sys.modules.get(_sig_key)
+if _sig_mod is not None and not hasattr(_sig_mod, "SIGNAL_CENSUS_UPDATED"):
+    # SURGICAL purge (2026-08-16): only evict the STUB signals entry
+    # (and any presence/aggregation/sensor entries that were loaded
+    # AGAINST the stub — they hold a reference to the stub's globals
+    # by way of `from .signals import ...` bindings). Do NOT purge
+    # `const` or unrelated siblings — a broader purge caused 5
+    # order-dependent regressions in test_arrester_comfort_delay,
+    # test_energy_behavioral_write_verify, and test_nm_cycle_c2_*
+    # which rely on the previously-installed const module identity.
+    del _sys.modules[_sig_key]
+    for _dependent in (
+        f"{_dc}.presence",
+        f"{_dc}.house_state",
+        f"{_dc}.base",
+        f"{_dc}.coordinator_diagnostics",
+    ):
+        if _dependent in _sys.modules:
+            del _sys.modules[_dependent]
+
 # Import the sibling HA-module mock installer so aggregation / presence /
 # sensor / binary_sensor imports succeed under pytest.
 import quality.tests.test_v570_guest_detection_trust  # noqa: F401
+
+# Post-install verification: fail LOUDLY at collection with a
+# distinct, actionable message if the sibling still failed to
+# install the real signals module. This turns any future recurrence
+# of the collection-order hazard into a single-line, correctly-
+# labelled failure instead of an obscure `unknown location` trace.
+from custom_components.universal_room_automation.domain_coordinators import (  # noqa: E402
+    signals as _signals_mod,
+)
+assert hasattr(_signals_mod, "SIGNAL_CENSUS_UPDATED"), (
+    "test_pathalpha_d2c_d3_observability: real "
+    "`domain_coordinators.signals` module was not loaded (missing "
+    "`SIGNAL_CENSUS_UPDATED`). A sibling test has installed a stub. "
+    "See the COLLECTION HAZARD comment at the top of this file."
+)
 
 
 PKG = Path(__file__).resolve().parents[2] / "custom_components" / "universal_room_automation"
