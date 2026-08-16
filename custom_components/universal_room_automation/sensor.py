@@ -3042,8 +3042,13 @@ class PersonTrackingStatusSensor(UniversalRoomEntity, SensorEntity):
                         "status": person_info.get("tracking_status", "lost"),
                         "confidence": person_info.get("confidence", 0),
                         "method": person_info.get("method", "none"),
+                        # PATH-ALPHA D2c (2026-08-16): matrix-cell
+                        # provenance passthrough — see AUDIT §4.3.
+                        "tracking_reason": person_info.get(
+                            "tracking_reason", "no_signal"
+                        ),
                     })
-            
+
             if not persons_in_room:
                 return "No persons in room"
             
@@ -3092,6 +3097,11 @@ class PersonTrackingStatusSensor(UniversalRoomEntity, SensorEntity):
                         "confidence": round(person_info.get("confidence", 0), 2),
                         "method": person_info.get("method", "none"),
                         "bermuda_area": person_info.get("bermuda_area", "N/A"),
+                        # PATH-ALPHA D2c (2026-08-16): matrix-cell
+                        # provenance passthrough — see AUDIT §4.3.
+                        "tracking_reason": person_info.get(
+                            "tracking_reason", "no_signal"
+                        ),
                     })
             
             return {
@@ -4935,6 +4945,20 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
         if presence is not None:
             attrs["confidence"] = round(presence.confidence, 2)
             attrs["census_count"] = presence.census_count
+            # PATH-ALPHA D2c (2026-08-16): expose face_recognized_count
+            # alongside census_count. Post-GAP-A D8, path α now gates on
+            # face_recognized_count (camera-provable identity only) — NOT
+            # census_count (which includes BLE-inflated counts). Publishing
+            # BOTH lets an operator debugging "why didn't the veto fire?"
+            # see the gate value directly. Fail-safe default 0 mirrors the
+            # infer() kwarg default (see presence.py path-α predicate).
+            attrs["face_recognized_count"] = int(
+                getattr(presence, "_face_recognized_count", 0) or 0
+            )
+            # Explanatory: path α gate = face_recognized_count == 0;
+            # census_count remains published for legacy dashboards and
+            # for debugging the BLE-inflation gap D8 closed.
+            attrs["path_alpha_gate_source"] = "face_recognized_count"
             # v4.7.14: Person-tracker veto diagnostics. tracked_persons_count
             # is the RAW number of configured person.* trackers seen by
             # person_coordinator (pre-v4.7.14.1 semantic preserved per

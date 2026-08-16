@@ -166,6 +166,31 @@ _LENGTH_MISMATCH_WARNED = False
 ARRIVING_REARM_COOLDOWN_S = 900
 
 
+# PATH-ALPHA D3 (2026-08-16): exact-match extractor for structured reason
+# strings produced by `_run_inference` at the excluded_persons builder.
+# Reason strings have the shape "key1=value1,key2=value2" (e.g.
+# "tracking_status=lost,tracking_reason=away_ble_silent_only"). This
+# helper returns the value for `field_name` via EXACT split on `,` and
+# `=` — no substring / `startswith` / `in` semantics. A reason value that
+# only CONTAINS another value (e.g. `away_all_agree` vs `away_ble_silent`)
+# MUST NOT false-match. Used by any diagnostic classifier that keys on
+# `tracking_reason` (path-α guest-FP diagnostic path). Falsifiable
+# invariant: for any composite reason `"a=X,b=Y"`,
+# `_extract_reason_field(s, "b")` returns exactly `"Y"` and NEVER any
+# prefix/suffix of `"Y"` from another field.
+def _extract_reason_field(reason: str, field_name: str) -> str | None:
+    if not reason or not field_name:
+        return None
+    for token in reason.split(","):
+        token = token.strip()
+        if not token or "=" not in token:
+            continue
+        key, _, value = token.partition("=")
+        if key.strip() == field_name:
+            return value.strip()
+    return None
+
+
 # PATH-ALPHA D2b (2026-08-16): the v5.7.0 WS-A1 relaxed predicate
 # `_tracking_active_or_lost_away` has been RETIRED. The unified-matrix
 # classifier in person_coordinator (D2a) now stamps case-(a) confidently-
@@ -5150,10 +5175,20 @@ class PresenceCoordinator(BaseCoordinator):
                     # when both fire (it's the more specific user-actionable
                     # signal — "your phone is home but you aren't").
                     if not phone_ok:
-                        excluded_persons[name] = "phone_left_behind=on"
+                        # PATH-ALPHA D3 (2026-08-16): include
+                        # tracking_reason as a parseable `key=value` token
+                        # so downstream diagnostic classifiers can EXACT-
+                        # MATCH the reason (never substring-match against
+                        # the composite string). See AUDIT §4.2 / D3 spec
+                        # and `_extract_reason_field` helper below.
+                        excluded_persons[name] = (
+                            "phone_left_behind=on"
+                            f",tracking_reason={info.get('tracking_reason', 'no_signal')}"
+                        )
                     else:
                         excluded_persons[name] = (
                             f"tracking_status={info.get('tracking_status', 'unknown')}"
+                            f",tracking_reason={info.get('tracking_reason', 'no_signal')}"
                         )
                 tracked_count = len(trustworthy_persons)
                 if tracked_count > 0:
