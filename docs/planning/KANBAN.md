@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-16T00:10:13-05:00_ - _Data commit: `3adb0b3f242c`_ - _last_reconciled: 2026-08-15_
+_Generated: 2026-08-16T01:36:32-05:00_ - _Data commit: `bd8befeb5965`_ - _last_reconciled: 2026-08-15_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,9 +11,9 @@ _Generated: 2026-08-16T00:10:13-05:00_ - _Data commit: `3adb0b3f242c`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 2 |
+| 📥 Inbox | 1 |
 | 🧭 Pre-planning | 8 |
-| 📝 Planned | 1 |
+| 📝 Planned | 2 |
 | 🔨 In progress | 3 |
 | 🔍 Review | 0 |
 | 🚀 Shipped (organic open) | 38 |
@@ -22,17 +22,8 @@ _Generated: 2026-08-16T00:10:13-05:00_ - _Data commit: `3adb0b3f242c`_ - _last_r
 | 🅿️ Parked | 4 |
 | ✅ Done | 6 |
 
-## 📥 Inbox (2)
+## 📥 Inbox (1)
 _raw capture_
-
-### `PWA-CONTROL-LIST-1` - Per-room controllable-entities attr so the PWA stops slugify-guessing actuators (AV-Closet-Shelly problem)
-thread: **dashboarding** - status: **inbox** - approval: **unreviewed**
-- **Origin:** 2026-07-13 - Plan inventory audit 2026-08-14 found PLANNING_g1_room_control_list_attrs.md unbuilt + uncarded — PWA M2 gap G1.
-- **Why:** PWA guesses a room's actuators by slugifying the room name; wrong for rooms whose real device is a differently-named Shelly relay (AV Closet). A per-room control_list attribute (additive, no behavior change, no new entities) gives the PW...
-- **Next:** ura-planner scope (small); Tier 1 additive attr on room sensors.
-- **Tags:** audit-first
-- **Parsimony:** [BUILD] PWA cannot reliably map a room to its controllable entities
-- **Refs:** docs/planning/PLANNING_g1_room_control_list_attrs.md
 
 ### `PATH-ALPHA-DENOM-1` - Path-alpha away inference structurally dead when all trackers LOST/STALE — trusted denominator empties; NO existing card fixes it
 thread: **presence** - status: **inbox** - approval: **approved_after_investigation**
@@ -116,8 +107,19 @@ thread: **camera** - status: **pre_planning** - approval: **implied**
 - **Tags:** no-fabrication-verify
 - **Parsimony:** [BUILD] any camera on the 2nd Frigate host has never had a snapshot
 
-## 📝 Planned (1)
+## 📝 Planned (2)
 _has plan / acceptance_
+
+### `PWA-CONTROL-LIST-1` - Per-room controllable-entities attr so the PWA stops slugify-guessing actuators (AV-Closet-Shelly problem)
+thread: **dashboarding** - status: **planned** - approval: **unreviewed**
+- **Origin:** 2026-07-13 - Plan inventory audit 2026-08-14 found PLANNING_g1_room_control_list_attrs.md unbuilt + uncarded — PWA M2 gap G1.
+- **Why:** PWA guesses a room's actuators by slugifying the room name; wrong for rooms whose real device is a differently-named Shelly relay (AV Closet). A per-room control_list attribute (additive, no behavior change, no new entities) gives the PW...
+- **Next:** ura-planner scope (small); Tier 1 additive attr on room sensors.
+- **Tags:** audit-first
+- **Parsimony:** [BUILD] PWA cannot reliably map a room to its controllable entities
+- **Refs:** docs/planning/PLANNING_g1_room_control_list_attrs.md
+- **Forensic keys (1):**
+  - `duplicate_verdict_2026_08_16`: Operator: "we have a device list sensor — does that duplicate?" -> YES, substantially. Per-room DevicesSensor (sensor.<room>_devices, sensor.py:2035) already exposes categorized attrs: lights, fans, humidity_fans, covers, auto/manual dev...
 
 ### `GUEST-FP-RESIDUALS-1` - Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent)
 thread: **presence** - status: **planned** - approval: **unreviewed**

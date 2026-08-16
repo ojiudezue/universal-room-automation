@@ -134,16 +134,16 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-08-16T00:10:13-05:00</b></span>
-<span>data <b>3adb0b3f242c</b></span>
+<span>generated <b>2026-08-16T01:36:32-05:00</b></span>
+<span>data <b>bd8befeb5965</b></span>
 <span>reconciled <b>2026-08-15</b></span>
 <span><a href="https://urakanban.phalanxmadrone.com">urakanban.phalanxmadrone.com</a></span>
 <span><a href="https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149">artifact</a></span>
 </div></header>
 <div class="summary">
-<span>Inbox <b>2</b></span>
+<span>Inbox <b>1</b></span>
 <span>Pre-planning <b>8</b></span>
-<span>Planned <b>1</b></span>
+<span>Planned <b>2</b></span>
 <span>In progress <b>3</b></span>
 <span>Review <b>0</b></span>
 <span>Shipped (organic open) <b>38</b></span>
@@ -154,9 +154,8 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 <main class="board">
 <section class="lane" data-col="inbox">
-<h2>Inbox <span class="count">2</span><span class="hint">raw capture</span></h2>
+<h2>Inbox <span class="count">1</span><span class="hint">raw capture</span></h2>
 <div class="cards">
-<details class="card ap-unreviewed" data-id="PWA-CONTROL-LIST-1" draggable="true"><summary><span class="id">PWA-CONTROL-LIST-1</span><span class="apl">unreviewed</span><span class="title">Per-room controllable-entities attr so the PWA stops slugify-guessing actuators (AV-Closet-Shelly problem)</span><div class="tagline">dashboarding<span class="sep">·</span>audit-first</div></summary><div class="body"><dl class="kv"><dt>Origin</dt><dd>2026-07-13 - Plan inventory audit 2026-08-14 found PLANNING_g1_room_control_list_attrs.md unbuilt + uncarded — PWA M2 gap G1.</dd><dt>Why</dt><dd>PWA guesses a room&#x27;s actuators by slugifying the room name; wrong for rooms whose real device is a differently-named Shelly relay (AV Closet). A per-room control_list attribute (additive, no behavior change, no new entities) gives the PW...</dd><dt>Next</dt><dd>ura-planner scope (small); Tier 1 additive attr on room sensors.</dd><dt>Parsimony</dt><dd>[BUILD] PWA cannot reliably map a room to its controllable entities</dd><dt>Refs</dt><dd>docs/planning/PLANNING_g1_room_control_list_attrs.md</dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div></div></details>
 <details class="card" data-id="PATH-ALPHA-DENOM-1" draggable="true"><summary><span class="id">PATH-ALPHA-DENOM-1</span><span class="apl">approved_after_investigation</span><span class="title">Path-alpha away inference structurally dead when all trackers LOST/STALE — trusted denominator empties; NO existing card fixes it</span><div class="tagline">presence</div></summary><div class="body"><dl class="kv"><dt>Origin</dt><dd>2026-08-13 - Carded-coverage grading: the LOST-denominator gap (all 4 trackers LOST -&gt; all_tracked_persons_away false-by-vacuity for hours) is owned by no card; v5.16.0 fixed the veto denominator, not this.</dd><dt>Why</dt><dd>Path-alpha ignores zones entirely — with ACTIVE trackers it would have fired regardless of the fan latch. Fixing the vacuous-denominator case (all-LOST + all-entity-away =&gt; away-eligible) is an independent mitigation with its own balance...</dd><dt>Next</dt><dd>GATED on ZONE-TIER-DIVERGE-1 trace completing (same code region). Then: consumer enumeration of tracking_status (greps, all tiers) -&gt; plan for decomposition path (1) with (2) as fallback if ripple too wide; Tier 2-DB minimum (trust-hiera...</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>operator_direction_2026_08_13</code>: Operator: &quot;we should find a way to say AWAY not LOST. Do we need a lost state at all? That way we can actually use this signal the way it is supposed to be used. And not overload it.&quot; I.e. the fix may not be patching the denominator arit...</li><li><code>alternate_paths</code>: (1) Dissolve LOST: away-with-no-fix =&gt; AWAY (trusted, counts in denominator); home-but-silent =&gt; new BLE_SILENT_HOME or stays ambiguous-excluded; keep LOST only for truly-unknown. Ripple: every consumer of tracking_status (H3 reliable-si...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div></div></details>
 </div>
 </section>
@@ -174,8 +173,9 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 </section>
 <section class="lane" data-col="planned">
-<h2>Planned <span class="count">1</span><span class="hint">has plan / acceptance</span></h2>
+<h2>Planned <span class="count">2</span><span class="hint">has plan / acceptance</span></h2>
 <div class="cards">
+<details class="card ap-unreviewed" data-id="PWA-CONTROL-LIST-1" draggable="true"><summary><span class="id">PWA-CONTROL-LIST-1</span><span class="apl">unreviewed</span><span class="title">Per-room controllable-entities attr so the PWA stops slugify-guessing actuators (AV-Closet-Shelly problem)</span><div class="tagline">dashboarding<span class="sep">·</span>audit-first</div></summary><div class="body"><dl class="kv"><dt>Origin</dt><dd>2026-07-13 - Plan inventory audit 2026-08-14 found PLANNING_g1_room_control_list_attrs.md unbuilt + uncarded — PWA M2 gap G1.</dd><dt>Why</dt><dd>PWA guesses a room&#x27;s actuators by slugifying the room name; wrong for rooms whose real device is a differently-named Shelly relay (AV Closet). A per-room control_list attribute (additive, no behavior change, no new entities) gives the PW...</dd><dt>Next</dt><dd>ura-planner scope (small); Tier 1 additive attr on room sensors.</dd><dt>Parsimony</dt><dd>[BUILD] PWA cannot reliably map a room to its controllable entities</dd><dt>Refs</dt><dd>docs/planning/PLANNING_g1_room_control_list_attrs.md</dd><dt>Forensic (1)</dt><dd><ul class="forensic"><li><code>duplicate_verdict_2026_08_16</code>: Operator: &quot;we have a device list sensor — does that duplicate?&quot; -&gt; YES, substantially. Per-room DevicesSensor (sensor.&lt;room&gt;_devices, sensor.py:2035) already exposes categorized attrs: lights, fans, humidity_fans, covers, auto/manual dev...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 <details class="card ap-unreviewed" data-id="GUEST-FP-RESIDUALS-1" draggable="true"><summary><span class="id">GUEST-FP-RESIDUALS-1</span><span class="apl">unreviewed</span><span class="title">Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent)</span><div class="tagline">presence</div></summary><div class="body"><dl class="kv"><dt>Origin</dt><dd>2026-08-13 - AUDIT_guest_fp_fixes_wiring.md: core fixes SHIPPED + Outside zone correctly flagged outdoor; two residuals worth small fixes.</dd><dt>Why</dt><dd>A1: path-alpha excluded_persons/tracked_persons_count_trusted still exclude LOST-away persons (diagnostic clarity only — guest gate does not read them). B1: camera-census has no room-&gt;outdoor filter; safe today (Patio has no camera perso...</dd><dt>Next</dt><dd>Fold A1+B1 into the next presence hotfix batch; await operator answer on the 50-episode pattern.</dd><dt>Forensic (1)</dt><dd><ul class="forensic"><li><code>operator_question</code>: 50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests or a daytime FP flavor? If the latter, escalate per audit §3.</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 </div>
 </section>
@@ -288,7 +288,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>3adb0b3f242c</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>bd8befeb5965</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {

@@ -1070,7 +1070,7 @@ cards:
 - id: PWA-CONTROL-LIST-1
   title: Per-room controllable-entities attr so the PWA stops slugify-guessing actuators (AV-Closet-Shelly problem)
   thread: dashboarding
-  status: inbox
+  status: planned
   approval: unreviewed
   tags: [audit-first]
   origin:
@@ -1080,6 +1080,8 @@ cards:
   parsimony: {problem: 'PWA cannot reliably map a room to its controllable entities', verdict: BUILD}
   next: 'ura-planner scope (small); Tier 1 additive attr on room sensors.'
   refs: [docs/planning/PLANNING_g1_room_control_list_attrs.md]
+  duplicate_verdict_2026_08_16: 'Operator: "we have a device list sensor — does that duplicate?" -> YES, substantially. Per-room DevicesSensor (sensor.<room>_devices, sensor.py:2035) already exposes categorized attrs: lights, fans, humidity_fans, covers, auto/manual devices, media player, power/energy sensors — the exact controllable-entities ground truth. RE-SCOPED: no new URA attribute. Work = (a) DONE 2026-08-16: enabled the 13 registry-disabled per-room devices sensors (all 39 now enabled; entities appear after each room entry next reloads or at next restart); (b) REMAINING: PWA change to consume sensor.<room>_devices attrs instead of slugify-guessing (ura-dashboard-pwa repo — align with PWA purpose: operator phone-first control surface, M2 gap G1). Old plan doc PLANNING_g1_room_control_list_attrs.md superseded on the attr-addition point.'
+
 
 - id: ZONE-CAM-PERSON-GUARD-1
   title: Durable device_class guard so a Frigate MOTION sensor cannot be trusted as camera person-confirmation in zone occupancy-confidence
