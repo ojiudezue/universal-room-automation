@@ -141,3 +141,21 @@ Textual overlap is bounded to the same function (`StateInferenceEngine.infer`) a
 **Live D:** validator confirms AWAY transition under contrived forgotten-phone scenario; README write-back per policy.
 
 **Plan review (one, pre-build, per Tier-2 protocol):** adversarial re-grep of `census_count` readers; sanity-check the freshness-no-knob decision; confirm the merge-order recommendation still holds against the current `feature/path-alpha` HEAD.
+
+### Freshness — corrections from plan review (efec78928)
+
+- **Window value (LOW-1, was undetermined at authoring):** `CENSUS_FACE_RECOGNITION_WINDOW_SECONDS = 1800` (30 min) at `const.py:2609`.
+- **Honest bound (MED-1):** the two gates are NOT equally strong. The person-tracker
+  cross-check (`camera_census.py:3034-3055`) is documented **fail-OPEN** when
+  `person.<slug>` is missing / `unknown` / `unavailable` (`:3039-3041`). In that mode the
+  ONLY bound on a stale face blocking the veto is the 30-minute age gate. That is a
+  defensible upper bound (a face recognized ≥30 min ago cannot block), and it is the
+  reason no new knob is added — but the plan does not claim belt-and-braces where only
+  one belt holds. Build must not "fix" the fail-open behavior in this cycle (out of scope).
+- **Circularity (plan-review Q3): CLEAN.** The cross-check reads `person.<slug>.state`, an
+  HA-native entity fed by device_trackers upstream of URA; **URA writes no `person.*`
+  entity**, so the PATH-ALPHA matrix cannot feed back into face evidence. **Fence:** if any
+  future cycle ever makes URA write `person.*`, this composition must be re-audited.
+- **β follow-up (LOW-2) — residual pattern named, NOT built here:** forgotten-phone +
+  ≥1 genuinely-LOST person + camera empty (α fails on the denominator, β blocked on its
+  own census clause at `:1123-1130`). Revisit only if that pattern is observed post-ship.

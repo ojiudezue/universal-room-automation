@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-16T04:23:10-05:00_ - _Data commit: `48ba488247c2`_ - _last_reconciled: 2026-08-15_
+_Generated: 2026-08-16T04:24:35-05:00_ - _Data commit: `cf384e03a4ad`_ - _last_reconciled: 2026-08-15_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -91,8 +91,9 @@ thread: **presence** - status: **planned** - approval: **implied**
 - **Next:** Plan review (running) -> build on feature/path-alpha AFTER its D1-D9 land (do NOT interleave presence.py edits) -> both covered by the same 3 framing-disjoint reviews -> ONE deploy.
 - **Tags:** tier-2db, no-fabrication-verify, context-wide-scoping
 - **Refs:** docs/planning/PLANNING_gap_a_census_hole.md; docs/planning/AUDIT_away_transition_2026_08_13.md; docs/planning/PLANNING_path_alpha_lost_dissolution.md
-- **Forensic keys (1):**
+- **Forensic keys (2):**
   - `fix_sketch`: Encoding A (~15-30 LoC, ONE deliverable): extend SIGNAL_CENSUS_UPDATED with face_recognized_count (existing CensusZoneResult.face_recognized_persons, camera_census.py:158/:3116); store on PresenceCoordinator via _handle_census_update (:4...
+  - `plan_review_2026_08_16`: SHIP (efec78928) — trace + consumer enumeration independently confirmed; circularity CLEAN (URA writes no person.* entity, so the matrix cannot feed back into the face cross-check — FENCE: re-audit if that ever changes); 3 text-only edit...
 
 ## 🔨 In progress (4)
 _being built_
