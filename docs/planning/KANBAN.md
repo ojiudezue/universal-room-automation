@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-15T17:09:23-05:00_ - _Data commit: `fc2300713d27`_ - _last_reconciled: 2026-08-15_
+_Generated: 2026-08-15T23:56:24-05:00_ - _Data commit: `22e13a9fa89b`_ - _last_reconciled: 2026-08-15_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -17,10 +17,10 @@ _Generated: 2026-08-15T17:09:23-05:00_ - _Data commit: `fc2300713d27`_ - _last_r
 | 🔨 In progress | 3 |
 | 🔍 Review | 0 |
 | 🚀 Shipped (organic open) | 38 |
-| ⏸️ Waiting on operator | 4 |
+| ⏸️ Waiting on operator | 3 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 4 |
-| ✅ Done | 5 |
+| ✅ Done | 6 |
 
 ## 📥 Inbox (3)
 _raw capture_
@@ -701,7 +701,7 @@ thread: **perimeter** - status: **shipped_organic**
   - `note`: live PASS (zero multi-key WARN / _2 storm / URA ERROR; telemetry attr present)
   - `organic_open`: CLOSED 2026-08-07: leg_firing_by_camera POPULATED from real events (rear_ptz shows frigate+frigate2+protect on one camera; back_yard frigate+frigate2); today's exterior person-detects each = one alert per track, pass_by tracks alert_coun...
 
-## ⏸️ Waiting on operator (4)
+## ⏸️ Waiting on operator (3)
 _needs a human call_
 
 ### `ZIRI3-UNCONFIG-1` - RECOVER (not unconfigure) Ziri 3 device from Ziri Bedroom entry (presence + moving_target + VEML7700 lux) — rides next deploy restart
@@ -712,12 +712,6 @@ thread: **presence** - status: **waiting_operator** - approval: **explicit**
 - **Refs:** scratchpad ziri3_unconfig_after_flush.py
 - **Forensic keys (1):**
   - `reversal_2026_08_15`: Operator: device is still physically in the room — DO NOT unconfigure. Staged flush-watcher rider DELETED. History: zero real readings in entire recorder retention (8+ days); node does not resolve on network (ESP fully off-WiFi, not flap...
-
-### `MDNS-SERIAL-HOSTS-1` - mDNS-serial hostnames breaking cross-VLAN camera consumers — amcrest FIXED; audit F2 RTSP paths + any other serial-host configs
-thread: **devices** - status: **waiting_operator** - approval: **implied**
-- **Origin:** 2026-08-15 - Operator: "some kind of mDNS error" on amcrest entry 01KFAEN928S190YEJ2V4SWY6S6 + "multiple integrations point at that camera — did the IP change?"
-- **Why:** IP did NOT change (camera at 192.168.15.96 for 8.4d; sibling dahua entry pinned .96 all along). Cross-VLAN mDNS reflection broke, killing serial-hostname consumers. FIXED: amcrest host serial->IP (flush-watcher) + DHCP reservation pinnin...
-- **Next:** HOMELAB AGENT: check live F2 config for serial-hostname RTSP paths (pooloverhead at minimum; grep AMC serials); replace with pinned IPs. Also consider reservations for any other cameras without fixed IPs.
 
 ### `EV-GARAGE-A-NOCHARGE-1` - BMW on Garage A refuses charge overnight — vehicle-side or pilot fault; URA exonerated
 thread: **energy** - status: **waiting_operator** - approval: **unreviewed**
@@ -789,7 +783,7 @@ thread: **hvac** - status: **parked** - approval: **unreviewed**
   - `sharp_problem`: Gaps: (1) boot reconciliation — on listener attach, classify any zone ALREADY in manual as inherited-manual and start standard arrest evaluation; (2) verify _handle_climate_change classifies within-manual setpoint deltas (manual->manual ...
   - `related`: Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire. RESOLVED 2026-08-12: operator power-cycled Enpower; all 3 reserve legs coherent at 10 (local number + envoy sensor + ...
 
-## ✅ Done (5)
+## ✅ Done (6)
 _closed, evidence in refs_
 
 ### `FRIGATE-RETIRE-1` - Retire Frigate-1 — promote Frigate-2 (yolov9t/OpenVINO, zero night ghosts) to primary incl. snapshot engine
@@ -821,6 +815,14 @@ thread: **presence** - status: **done** - approval: **unreviewed**
   - `closed_2026_08_15`: CARD DEAD AS WRITTEN per context-wide audit (AUDIT_zone_cam_guard_necessity.md, 1e8b27e96). Operator was right: the person-only suffix guard EXISTS (camera_census.py:362-386 + camera_resolver.py:215-236) and covers room override + zone t...
   - `rider_update_2026_08_15`: Rider FAILED at v5.77.0 restart (script flat-scan hit nested zones dicts). Rewritten with recursive walk, dry-run verified (exactly the 2 zone edits), re-staged for NEXT restart. Rider bug class noted: .storage editors must handle nested...
   - `rider_applied_2026_08_15`: APPLIED + VERIFIED at operator-requested restart (~17:25 CDT): flush caught, both zone edits landed (Back Hallway + Upstairs -> person-only sensors), post-boot residue 0, swaps present TRUE. Card fully closed — nothing outstanding.
+
+### `MDNS-SERIAL-HOSTS-1` - mDNS-serial hostnames breaking cross-VLAN camera consumers — amcrest FIXED; audit F2 RTSP paths + any other serial-host configs
+thread: **devices** - status: **done** - approval: **implied**
+- **Origin:** 2026-08-15 - Operator: "some kind of mDNS error" on amcrest entry 01KFAEN928S190YEJ2V4SWY6S6 + "multiple integrations point at that camera — did the IP change?"
+- **Why:** IP did NOT change (camera at 192.168.15.96 for 8.4d; sibling dahua entry pinned .96 all along). Cross-VLAN mDNS reflection broke, killing serial-hostname consumers. FIXED: amcrest host serial->IP (flush-watcher) + DHCP reservation pinnin...
+- **Next:** HOMELAB AGENT: check live F2 config for serial-hostname RTSP paths (pooloverhead at minimum; grep AMC serials); replace with pinned IPs. Also consider reservations for any other cameras without fixed IPs.
+- **Forensic keys (1):**
+  - `closed_2026_08_16`: DEAD on verification (operator push: "why card it vs fix it"). The suspected second victim does not exist: zero frigate-platform entities for pooloverhead in the live registry — the camera is NOT in the current F2 config; the serial-host...
 
 ### `MEMORY-RETRO-VALUE-1` - Retro-check — which answers in the last few investigations were already derivable from memory_episodes?
 thread: **memory** - status: **done** - approval: **explicit**

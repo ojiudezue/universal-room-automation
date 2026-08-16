@@ -1194,7 +1194,7 @@ cards:
 - id: MDNS-SERIAL-HOSTS-1
   title: 'mDNS-serial hostnames breaking cross-VLAN camera consumers — amcrest FIXED; audit F2 RTSP paths + any other serial-host configs'
   thread: devices
-  status: waiting_operator
+  status: done
   approval: implied
   origin:
     date: '2026-08-15'
@@ -1202,6 +1202,8 @@ cards:
   why: 'IP did NOT change (camera at 192.168.15.96 for 8.4d; sibling dahua entry pinned .96 all along). Cross-VLAN mDNS reflection broke, killing serial-hostname consumers. FIXED: amcrest host serial->IP (flush-watcher) + DHCP reservation pinning .96. FLAGGED: stale frigate config-of-record shows F2 RTSP for pooloverhead uses the SERIAL hostname — if live F2 config kept that pattern, its feed is dying the same death.'
   next: 'HOMELAB AGENT: check live F2 config for serial-hostname RTSP paths (pooloverhead at minimum; grep AMC serials); replace with pinned IPs. Also consider reservations for any other cameras without fixed IPs.'
   refs: []
+  closed_2026_08_16: 'DEAD on verification (operator push: "why card it vs fix it"). The suspected second victim does not exist: zero frigate-platform entities for pooloverhead in the live registry — the camera is NOT in the current F2 config; the serial-hostname RTSP path lives only in the stale January snapshot. The one real casualty (amcrest entry) was fixed in-turn (host->IP + DHCP reservation, verified post-boot). LESSON: exhaust externally-checkable evidence before carding — the registry check that killed this card took 30 seconds and needed no F2 credentials.'
+
 
 - id: MEMORY-PROGRAM-EPIC
   title: 'EPIC — Hierarchical Entity Memory: every node (room/zone/house/coordinator) owns consultable, compressed history behind one queryable interface'
