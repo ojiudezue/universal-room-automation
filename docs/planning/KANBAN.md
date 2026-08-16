@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-16T15:51:19-05:00_ - _Data commit: `dbe3a542bd8c`_ - _last_reconciled: 2026-08-16_
+_Generated: 2026-08-16T15:54:59-05:00_ - _Data commit: `77c39ceea2c7`_ - _last_reconciled: 2026-08-16_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,8 +12,8 @@ _Generated: 2026-08-16T15:51:19-05:00_ - _Data commit: `dbe3a542bd8c`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🧭 Pre-planning | 7 |
-| 📝 Planned | 0 |
+| 🧭 Pre-planning | 6 |
+| 📝 Planned | 1 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 0 |
 | 🚀 Shipped (organic open) | 43 |
@@ -27,7 +27,7 @@ _raw capture_
 
 _(none)_
 
-## 🧭 Pre-planning (7)
+## 🧭 Pre-planning (6)
 _idea being decomposed_
 
 ### `ROOM-NAME-UNIQUE-1` - Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket)
@@ -37,15 +37,6 @@ thread: **presence** - status: **pre_planning** - approval: **unreviewed**
 - **Next:** Small cycle after v5.75.0; consider folding into the next config-flow-touching batch.
 - **Forensic keys (1):**
   - `fix_sketch`: _check_room_name_unique in async_step_basic_setup -> async_show_form error on collision (~15 LoC, Tier 1-2). Live-validation D-block for the rename cycle includes a do-not-rename-to-existing sanity note meanwhile.
-
-### `CENSUS-GHOST-DEDUP-1` - Census double-counts residents as unidentified (4 known + 2 ghost bodies = 6) — BLE-cancel exists, is enabled, cancels nothing
-thread: **presence** - status: **pre_planning** - approval: **implied**
-- **Origin:** 2026-08-16 - Operator home with family of 4; census read 6 (identified 4 + unidentified 2). Operator: "only 4 of us — 2 are ghosts or unrecognized versions of us and should decay right?"
-- **Why:** Cameras detect person-bodies but recognize NO faces (face_recognized_persons: [] with 4 known people home), so residents own bodies land in the unidentified bucket alongside their own BLE-identified selves = systematic double-count, and ...
-- **Next:** Investigate (read-only first): instrument or trace which entities produce the unrecognized contributions and what area each resolves to at runtime; confirm whether the enhanced path runs. Then decide: fix area resolution, relax I3 for kn...
-- **Refs:** docs/planning/PLANNING_census_overcount_dedup_decay.md
-- **Forensic keys (1):**
-  - `investigation_state_2026_08_16`: RULED OUT: missing areas on the counting sensors (16 of 17 Frigate person-count/occupancy _2 sensors have effective areas; only the screened ASH41B lacks one, and it never detects). NOT YET EXPLAINED: why area_contributions is empty and ...
 
 ### `SENSOR-FANINDEP-1` - Role matrix needs a fan-independence axis — 10GHz motion-mmWave fleet is corroborator-grade for stuck but NOT for fan-demotion
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**
@@ -90,10 +81,19 @@ thread: **resolver** - status: **pre_planning** - approval: **implied**
 - **Tags:** mutation-drill
 - **Parsimony:** [BUILD] a camera's leg set silently shrank vs the retired helpers
 
-## 📝 Planned (0)
+## 📝 Planned (1)
 _has plan / acceptance_
 
-_(none)_
+### `CENSUS-GHOST-DEDUP-1` - Census double-counts residents as unidentified (4 known + 2 ghost bodies = 6) — BLE-cancel exists, is enabled, cancels nothing
+thread: **presence** - status: **planned** - approval: **implied**
+- **Origin:** 2026-08-16 - Operator home with family of 4; census read 6 (identified 4 + unidentified 2). Operator: "only 4 of us — 2 are ghosts or unrecognized versions of us and should decay right?"
+- **Why:** Cameras detect person-bodies but recognize NO faces (face_recognized_persons: [] with 4 known people home), so residents own bodies land in the unidentified bucket alongside their own BLE-identified selves = systematic double-count, and ...
+- **Next:** Plan G1+G4 as one small cycle (Tier 2 / 2-DB per standing policy — census is a shared primitive). Acceptance MUST be discriminating: compare census against known ground-truth headcount, never against identified_count (the criterion that ...
+- **Refs:** docs/planning/PLANNING_census_overcount_dedup_decay.md
+- **Forensic keys (3):**
+  - `investigation_state_2026_08_16`: RULED OUT: missing areas on the counting sensors (16 of 17 Frigate person-count/occupancy _2 sensors have effective areas; only the screened ASH41B lacks one, and it never detects). NOT YET EXPLAINED: why area_contributions is empty and ...
+  - `research_2026_08_16`: RESEARCH_guest_actuation_and_census.md (8f55b243d) — root cause found: the ENHANCED census path (default ON) is ADDITIVE (total = identified + camera_unrecognized) and OVERWRITES the RAW subtractive path (total = max(camera, identified))...
+  - `minimal_set_2026_08_16`: OPERATOR-SCOPED MINIMAL SET = G1 + G4 only. G1 subtractive clamp (~10 LoC, no knob) because the count feeds away-inference/sleep-wake/NM/dashboards, not just guest. G4 invert composition so GUEST ROOMS LEAD and census corroborates (~5 Lo...
 
 ## 🔨 In progress (1)
 _being built_

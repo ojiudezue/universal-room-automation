@@ -1213,7 +1213,7 @@ cards:
 - id: CENSUS-GHOST-DEDUP-1
   title: 'Census double-counts residents as unidentified (4 known + 2 ghost bodies = 6) — BLE-cancel exists, is enabled, cancels nothing'
   thread: presence
-  status: pre_planning
+  status: planned
   approval: implied
   origin:
     date: '2026-08-16'
@@ -1224,6 +1224,10 @@ cards:
   parked_alts:
   - 'Wait for face recognition to solve it (Frigate/Protect enrollment) — real but slower; the dedup should not DEPEND on faces working'
   refs: [docs/planning/PLANNING_census_overcount_dedup_decay.md]
+  research_2026_08_16: 'RESEARCH_guest_actuation_and_census.md (8f55b243d) — root cause found: the ENHANCED census path (default ON) is ADDITIVE (total = identified + camera_unrecognized) and OVERWRITES the RAW subtractive path (total = max(camera, identified)). With face recognition at ~0, both dedup defenses return zero (fresh-face -1 AND per-area BLE-cancel), so residents are counted twice. Live: 10 = 4 + 6 for ~5 real people; camera_unrecognized == frigate_count exactly. Guest composition is a plain OR whose asymmetries are backwards (confidence gates the census path only; inside GUEST the OR degenerates to the ungated guest-room path).'
+  minimal_set_2026_08_16: 'OPERATOR-SCOPED MINIMAL SET = G1 + G4 only. G1 subtractive clamp (~10 LoC, no knob) because the count feeds away-inference/sleep-wake/NM/dashboards, not just guest. G4 invert composition so GUEST ROOMS LEAD and census corroborates (~5 LoC precedence, both operands already computed) because it survives the NEXT count regression — census has regressed twice in four days. G6 (persistence on raw not held) DEFERRED with trigger: build it only if a phantom or transient sustains guest mode after G1+G4 ship. G2 observability rides G1 as its acceptance instrument. G7 confidence->high REJECTED as useless: confidence already reads high (it measures platform agreement, not correctness).'
+  next: 'Plan G1+G4 as one small cycle (Tier 2 / 2-DB per standing policy — census is a shared primitive). Acceptance MUST be discriminating: compare census against known ground-truth headcount, never against identified_count (the criterion that hid this bug).'
+
 
 - id: CENSUS-GUEST-FLOOR-1
   title: 'Census blind to guests (read 4 with 10 in house) — re-admit the WiFi guest-VLAN count as a bounded FLOOR, gated to contain the FP problem that unplugged it'
