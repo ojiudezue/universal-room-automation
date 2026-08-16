@@ -965,6 +965,17 @@ class StateInferenceEngine:
         unidentified_count: int = 0,
         guest_gate_armed: bool = False,
         all_tracked_persons_away: bool = False,
+        # GAP-A D8 (2026-08-16): camera-only identity count. Path α gates
+        # on this in place of census_count to close the forgotten-phone
+        # inflation (BLE-home stale fix used to keep census_count >= 1 and
+        # block the away transition). Default 0 preserves byte-identity
+        # for every existing caller/test (invariant I3): omitting the kwarg
+        # means face_recognized_count == 0, which mirrors the pre-D8
+        # census_count == 0 branch in the common "no cameras seeing anyone"
+        # case. Freshness window CENSUS_FACE_RECOGNITION_WINDOW_SECONDS =
+        # 1800s (const.py:2609). Cross-check at camera_census.py:3034-3055
+        # is fail-OPEN when person entity missing — documented upper bound.
+        face_recognized_count: int = 0,
         # v5.7.0 WS-A path-β kwargs. All default to safe values so callers
         # that omit them get v4.7.14 behavior byte-identical (invariant I3).
         all_trusted_or_lost_away_persons_away: bool = False,
@@ -1044,10 +1055,21 @@ class StateInferenceEngine:
         # v5.7.0 invariant I3: this branch is byte-identical to v4.7.14 when
         # the WS-A kwargs are at their defaults (no LOST admitted, no indoor
         # guard, no grace). DO NOT modify path α — extend with path β below.
+        #
+        # GAP-A D8 (2026-08-16): gate on face_recognized_count instead of
+        # census_count. census_count = max(camera_total, len(face_ids ∪ ble_ids))
+        # so a forgotten-phone person's stale BLE fix used to keep it >= 1,
+        # blocking the veto. face_recognized_count is the camera-only
+        # identity set (subject to the tracker-not_home cross-check at
+        # camera_census.py:3034-3055 which is fail-OPEN for missing person
+        # entities — CENSUS_FACE_RECOGNITION_WINDOW_SECONDS = 1800s). The
+        # unidentified_count == 0 clause remains — an unidentified camera
+        # body legitimately means SOMEONE is here. Path β below deliberately
+        # unchanged (asymmetric — see plan review efec78928).
         if (
             all_tracked_persons_away
             and unidentified_count == 0
-            and census_count == 0
+            and face_recognized_count == 0
         ):
             if current_state == HouseState.AWAY:
                 self._veto_path = "active"
@@ -1308,6 +1330,11 @@ class PresenceCoordinator(BaseCoordinator):
         self._zone_trackers: Dict[str, ZonePresenceTracker] = {}
         self._census_count: int = 0
         self._unidentified_count: int = 0
+        # GAP-A D8 (2026-08-16): camera-provable identity count separated
+        # from census_count (which unions BLE + face IDs). Path α gates on
+        # this instead of census_count to close the forgotten-phone
+        # inflation. Signal payload: face_recognized_count.
+        self._face_recognized_count: int = 0
         # v4.7.14: Person-tracker veto diagnostics (populated by _run_inference).
         # v4.7.14.1 fix-up A-M2: `_tracked_persons_count` preserves the
         # pre-v4.7.14.1 semantic (raw configured-person count from
@@ -4212,6 +4239,15 @@ class PresenceCoordinator(BaseCoordinator):
         except (ValueError, TypeError):
             self._unidentified_count = 0
 
+        # GAP-A D8: read camera-only identity count. Default 0 preserves
+        # byte-identity for legacy signal payloads (invariant I3).
+        try:
+            self._face_recognized_count = int(
+                census_data.get("face_recognized_count", 0)
+            )
+        except (ValueError, TypeError):
+            self._face_recognized_count = 0
+
         # v4.6.2.2: Read confidence fields for guest gate — default to "none"
         # if not present (backward compat with any caller not yet sending them).
         try:
@@ -5722,6 +5758,9 @@ class PresenceCoordinator(BaseCoordinator):
             unidentified_count=self._unidentified_count,
             guest_gate_armed=guest_armed,
             all_tracked_persons_away=all_tracked_persons_away,
+            # GAP-A D8: camera-only identity count. Threaded so path α
+            # gates on camera-provable evidence, not BLE-inflated census.
+            face_recognized_count=self._face_recognized_count,
             # v5.7.0 WS-A path-β kwargs.
             all_trusted_or_lost_away_persons_away=all_trusted_or_lost_away_persons_away,
             any_indoor_zone_occupied=any_indoor_zone_occupied,
