@@ -380,6 +380,78 @@ async def test_away_transition_blocked_coalesce_and_restart_discharge(hass):
 
 
 @pytest.mark.asyncio
+async def test_tracker_trust_excluded_hold_gate_arithmetic(hass):
+    """Targeted probe of the hold-gate `_now - since >= MIN_HOLD_S`
+    arithmetic. The 60-flip test proves debounce holds BY CONSTRUCTION
+    via the pending-overwrite path (pending target changes every tick →
+    the hold-gate is never reached). This test drives the OTHER path:
+    the same-target case where pending is NOT overwritten, so the
+    hold-gate arithmetic is the sole gate that decides whether the
+    row emits.
+
+    Sequence:
+      * observe excluded at t=0 -> commit baseline trusted (no row).
+      * observe excluded=True at t=0 -> establish pending flip.
+      * observe excluded=True at t=MIN_HOLD_S-5 -> gate not yet met,
+        MUST NOT emit.
+      * observe excluded=True at t=MIN_HOLD_S+5 -> gate met, EXACTLY
+        ONE row emitted.
+
+    A mutation that neuters the gate (`if True` or inverted `<`)
+    reddens the "not yet met -> 0 rows" assertion because rows would
+    appear on the second observe.
+    """
+    w = mw.TrackerTrustExcludedWriter(hass)
+    t0 = datetime(2026, 8, 16, 15, 0, 0, tzinfo=timezone.utc)
+
+    # Prime baseline: person present + trusted.
+    await w.observe(
+        excluded_persons={},
+        known_persons=["oji"],
+        now=t0,
+    )
+    assert _db(hass).rows == []
+
+    # Establish pending flip (target=excluded, since=t0).
+    await w.observe(
+        excluded_persons={
+            "oji": "tracking_status=lost,tracking_reason=no_signal",
+        },
+        known_persons=["oji"],
+        now=t0,
+    )
+    assert _db(hass).rows == []
+
+    # Same target, ~5s before hold met: gate MUST reject.
+    await w.observe(
+        excluded_persons={
+            "oji": "tracking_status=lost,tracking_reason=no_signal",
+        },
+        known_persons=["oji"],
+        now=t0 + timedelta(seconds=TRACKER_TRUST_MIN_HOLD_S - 5),
+    )
+    await asyncio.sleep(0)
+    assert _db(hass).rows == [], (
+        "hold-gate arithmetic broken: emitted BEFORE "
+        f"{TRACKER_TRUST_MIN_HOLD_S}s hold was met"
+    )
+
+    # Same target, past MIN_HOLD_S: gate must fire, exactly one row.
+    await w.observe(
+        excluded_persons={
+            "oji": "tracking_status=lost,tracking_reason=no_signal",
+        },
+        known_persons=["oji"],
+        now=t0 + timedelta(seconds=TRACKER_TRUST_MIN_HOLD_S + 5),
+    )
+    await asyncio.sleep(0)
+    rows = _db(hass).rows
+    assert len(rows) == 1
+    assert rows[0]["episode_type"] == "tracker_trust_excluded"
+    assert rows[0]["attrs"]["entered_exclusion"] is True
+
+
+@pytest.mark.asyncio
 async def test_tracker_trust_excluded_60_flip_debounce(hass):
     """A person flipping every second for 60 seconds produces ZERO
     rows: no target state ever HOLDS for TRACKER_TRUST_MIN_HOLD_S
