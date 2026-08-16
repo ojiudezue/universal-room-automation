@@ -164,9 +164,77 @@ CONF_PERSON_DECAY_TIMEOUT: Final = "person_decay_timeout"
 DEFAULT_PERSON_DECAY_TIMEOUT: Final = 300  # 5 minutes - time before person location becomes "stale"
 
 # v3.2.8: Tracking status states
-TRACKING_STATUS_ACTIVE: Final = "active"    # Recently updated by Bermuda
-TRACKING_STATUS_STALE: Final = "stale"      # Not updated within decay timeout
-TRACKING_STATUS_LOST: Final = "lost"        # No recent Bermuda data, cleared location
+# PATH-ALPHA rev-3.5.1 comment-lattice update (D2d):
+#   ACTIVE — set by matrix rows 1-14 (S1/S2/S3/S4) via person_coordinator. Was
+#     "Bermuda-only"; now ALSO includes case-(a) confidently-away (rows 6/9/11/
+#     13/14) and case-(b) BLE-silent-at-home (rows 2/3/5/10) per the unified
+#     matrix classifier. See docs/planning/AUDIT_tracking_status_consumers.md
+#     §1 six-state summary.
+#   STALE  — O2 decay overlay on top of a prior ACTIVE stamp. Last-known
+#     location preserved; last-known "away" counts as case-(a) affirmative per
+#     I-α source 3.
+#   LOST   — S5 (`no_signal`, matrix row 16) OR S6 (`entity_missing`, pre-matrix
+#     guard). REFUSES to vote either way; residual all-LOST across trusted
+#     persons is the intentional vacuity fail-safe. Instrumented by the D5
+#     `away_transition_blocked` writer. Historical lineage: v4.7.14.1 H3
+#     origin — MUST NOT be widened back to include case-(a) or case-(b), or
+#     the AWAY-BLOCK-1 defect returns. See AUDIT §historical lineage.
+TRACKING_STATUS_ACTIVE: Final = "active"
+TRACKING_STATUS_STALE: Final = "stale"
+TRACKING_STATUS_LOST: Final = "lost"
+
+# PATH-ALPHA rev-3.5.1 (D2d): canonical `tracking_reason` vocabulary — the
+# fine-grained "why" attribute stamped alongside `tracking_status` by the
+# unified-matrix classifier. WARN-gated: any emit of a value NOT in this
+# frozenset raises at test time (and logs WARN at runtime) so vocabulary
+# drift is caught early. Retired values: `bermuda_degraded` and
+# `home_gps_only` — both folded into `home_ble_silent` per rev-3.5.1 semantic
+# unification (rows 2/3/10 all represent the same operator-legible state:
+# "affirmative non-BLE home evidence, BLE not contributing positive
+# presence"). See docs/planning/PLANNING_path_alpha_lost_dissolution.md
+# §THE UNIFIED MATRIX and AUDIT_tracking_status_consumers.md §1.
+TRACKING_REASON_VALUES: Final = frozenset({
+    "bermuda",                          # S1 (row 1)
+    "home_ble_silent",                  # S2 — canonical case-(b) name; covers
+                                        #      rows 2, 3, 5, 10 (formerly
+                                        #      bermuda_degraded, home_gps_only)
+    "away_all_agree",                   # S3 row 6
+    "away_wifi_silent_local",           # S3 row 11
+    "away_wifi_only",                   # S3 row 13
+    "away_gps_only",                    # S3 row 9
+    "away_ble_silent_only",             # S3 row 14 (BLE-only away; conf 0.82)
+    "anomalous_gps_stale_local_gone",   # S4 row 4
+    "anomalous_gps_lag_arrival",        # S4 row 8
+    # Row 5 collapse (C-HIGH-2, 2026-08-16): the row-5 tuple
+    # `GPS=home, WiFi=not_home, BLE=visible@home_room` is intercepted
+    # UPSTREAM by the Bermuda-authoritative branch at
+    # person_coordinator.py:506-525, which stamps
+    # `tracking_reason="bermuda"` + ACTIVE + <room location> —
+    # producing the same outcome row 5 specified (blocks away,
+    # home-affirmed). The `anomalous_wifi_gone_local_home` value was
+    # therefore dead vocabulary with no emission site. Removed from
+    # the frozenset to prevent future authors writing dead code.
+    # See test_row5_collapses_into_bermuda_authoritative.
+    "phone_left_behind_confirmed",      # S3+O1 row 7
+    "phone_left_behind_suspected",      # S3+O1 row 12
+    "no_signal",                        # S5 row 16 (epistemic null fail-safe)
+    "no_trackers_configured",           # S5 sub-case (0 configured trackers)
+    "entity_missing",                   # S6 pre-matrix guard
+})
+
+# PATH-ALPHA rev-3.5.1 (D2d): calibration knob for matrix row 14
+# (`away_ble_silent_only`) — the ONE cell where a single BLE-only person
+# (typically Ziri) contributes an away-vote. Default 0.82 is intentionally
+# < path-α threshold (0.9) so a solo BLE-only person CANNOT flip the house
+# to away without corroboration. If path-α threshold is lowered, this value
+# MUST be re-adjudicated. Historical lineage: this knob replaces the
+# v4.7.14.1 H3 blanket LOST-exclusion which erroneously suppressed ALL
+# BLE-only away evidence. Rung 1 (module constant) per "Numbers Get Knobs":
+# governs a protocol-level fail-safe; any change requires code review.
+# Kill-switch: set to 0.0 to prevent any solo BLE-only away vote from ever
+# clearing the path-α threshold (row 14 becomes effectively vetoing).
+# See docs/planning/AUDIT_tracking_status_consumers.md §6.
+BLE_SILENT_ONLY_AWAY_CONFIDENCE: Final = 0.82
 
 # v3.2.8: Stale threshold (shorter than decay timeout)
 STALE_THRESHOLD_SECONDS: Final = 60  # 1 minute - time before "stale" status
@@ -1178,6 +1246,18 @@ ATTR_UNIT: Final = "unit"
 # v3.2.8: Path tracking attribute
 ATTR_RECENT_PATH: Final = "recent_path"
 ATTR_TRACKING_STATUS: Final = "tracking_status"
+# PATH-ALPHA rev-3.5.1 (D2d): fine-grained "why" attribute stamped alongside
+# `tracking_status` by the unified-matrix classifier. Values are constrained
+# to `TRACKING_REASON_VALUES` (see above). Consumed by:
+#   - aggregation.py (person-info passthrough + zone-level display attribute)
+#   - sensor.py (per-person status sensor attribute)
+#   - presence.py :5136 (guest-FP D3 exact-match classifier — rev-3.5.1)
+ATTR_TRACKING_REASON: Final = "tracking_reason"
+# PATH-ALPHA rev-3.4/3.5.1 (D2d): dynamic-inventory diagnostic — the set of
+# tracker sources actually consulted for this person on THIS tick (never
+# cached). Values drawn from {"gps", "wifi", "ble"}. Enables per-person
+# matrix-cell observation in Review-D and dashboards.
+ATTR_TRACKER_SOURCES: Final = "tracker_sources"
 ATTR_LAST_BERMUDA_UPDATE: Final = "last_bermuda_update"
 ATTR_PREVIOUS_LOCATION_TIME: Final = "previous_location_time"
 
@@ -1970,6 +2050,28 @@ SENSOR_ZONE_GUEST_COUNT: Final = "zone_guest_count"
 TRANSIT_CHECKPOINT_STALE_SECONDS: Final = 90
 TRANSIT_CHECKPOINT_WINDOW_SECONDS: Final = 120
 TRANSIT_PHONE_LEFT_BEHIND_HOURS: Final = 4.0
+
+# ---------------------------------------------------------------------------
+# PATH-ALPHA D9 (GAP-B, 2026-08-16): PersonPhoneLeftBehindSensor room-occupancy
+# corroboration knob. See docs/planning/AUDIT_tracking_status_consumers.md.
+#
+# Rung 1 (module constant) — kill-switch semantics: set to False to disable
+# the corroboration path entirely (returns pre-D9 behavior for the sensor).
+# Governs a false-positive guard for camera-less rooms: when BLE places a
+# person in a room whose room coordinator reports STATE_OCCUPIED, the sensor
+# refuses to fire (person is corroborated present by room-level occupancy
+# evidence — mmWave/PIR/etc — even without a camera face sighting).
+#
+# Conservative direction: this path can ONLY make phone-left-behind fire
+# LESS. It never fires it more. Fail-OPEN when the room coordinator is
+# unreachable (return pre-D9 answer). Accused-witness note: this uses the
+# room coordinator's own STATE_OCCUPIED, which may include mmWave sensors
+# that are themselves suspect for a given room (fan-latch cross-talk).
+# Reusing the existing suspect/duty-flag machinery is a follow-on if room
+# coordinators expose it directly; today D9 accepts the current
+# STATE_OCCUPIED as authoritative — the corroboration window is inherited
+# from the room coordinator's own occupancy timeout (typically 1–5 min).
+PHONE_LEFT_BEHIND_ROOM_CORROBORATION_ENABLED: Final = True
 
 # ---------------------------------------------------------------------------
 # TRANSIT-1 (2026-08-07): Protect-sourced checkpoint inventory.
@@ -3637,6 +3739,49 @@ MEMORY_NM_CONDITIONING_SD_WINDOW: Final = 1.5
 # dropped (Stage 1: drop; no UPDATE-count machinery). In-memory only.
 MEMORY_EPISODE_DEDUP_WINDOW_S: Final = 60
 
+# --- PATH-ALPHA Scope B knobs (D4-D7 memory writers) — all rung 1 module
+#     constants per "Numbers Get Knobs". Each carries kill-switch
+#     semantics so a single flip disables the writer without a code
+#     scavenger hunt. Rung 1 (not entity) because these govern
+#     correlation-window / debounce / hold discipline; operator-tuning
+#     without review would silently drift the write rate and poison
+#     compactor facts.
+
+# D4 phantom_retro: mmWave-off within this many seconds after a fan-off
+# transition is a candidate retro-phantom. Default 60s (audit retro:
+# Screek 37s, Hobeian 22s + 36s — all ≤ 60s). Kill switch: 0 disables
+# (no window ever satisfied → writer never emits).
+PHANTOM_RETRO_RELEASE_WINDOW_S: Final = 60
+# D4: minimum fan-on → fan-off hold to be considered a phantom-driving
+# hold. Below this, treat as a brief fan-tap / speed-step blip; not
+# worth a retro-phantom row. Default 300s (5min).
+PHANTOM_RETRO_MIN_HOLD_S: Final = 300
+# D4 master kill switch — False makes the writer a no-op.
+PHANTOM_RETRO_ENABLED: Final = True
+
+# D5 away_transition_blocked: a single-tick block is not notable; only
+# blocks HELD ≥ this many seconds open an episode. Default 300s.
+AWAY_BLOCK_EPISODE_MIN_HOLD_S: Final = 300
+# D5: force-close (and re-open next tick if still blocked) beyond this
+# to bound row growth if a real block ever runs unbounded. Default 6h.
+AWAY_BLOCK_EPISODE_MAX_OPEN_S: Final = 6 * 60 * 60
+# D5 master kill switch — False makes the writer a no-op.
+AWAY_BLOCK_EPISODE_ENABLED: Final = True
+
+# D6 tracker_trust_excluded: a person must HOLD its exclusion-state
+# (excluded vs not) for this many seconds before an episode is emitted.
+# Rate-bounds BLE/trust flap. Default 60s. Kill switch: a very large
+# value effectively disables the writer (nothing ever holds long
+# enough), but the explicit master toggle is preferred.
+TRACKER_TRUST_MIN_HOLD_S: Final = 60
+# D6 master kill switch — False makes the writer a no-op.
+TRACKER_TRUST_WRITER_ENABLED: Final = True
+
+# D7 house_state_transition master kill switch — False makes the
+# writer a no-op. Edge-only, no other knobs: bounded by the
+# transition frequency itself (a handful per day in steady state).
+HOUSE_STATE_TRANSITION_WRITER_ENABLED: Final = True
+
 # --- Registered vocabularies (arch §4 + audit §1). Adding a type is a
 #     reviewed change — this is the write-quality gate. ---
 MEMORY_EPISODE_TYPES: Final = frozenset({
@@ -3655,6 +3800,20 @@ MEMORY_EPISODE_TYPES: Final = frozenset({
     # build/exterior-track: exterior person/car/animal track linker
     # (space-time only, no re-identification). One episode per closed track.
     "exterior_track",
+    # PATH-ALPHA Scope B (D4-D7): the four memory-episode writers added
+    # in this cycle. All observational, ZERO consumers on any actuation
+    # path (memory-ineligible boundary — arch §8). Rate-bounded BY
+    # CONSTRUCTION via the module constants below (see PHANTOM_RETRO_*,
+    # AWAY_BLOCK_EPISODE_*, TRACKER_TRUST_MIN_HOLD_S,
+    # HOUSE_STATE_TRANSITION_WRITER_ENABLED). Vocabulary gate covers
+    # them the same way it covers every other episode type — an
+    # unregistered writer is rejected by `log_memory_episode` at write
+    # time. See AUDIT_memory_retro_value.md §"Missing episode types"
+    # + PLANNING_path_alpha_lost_dissolution.md §"Scope B".
+    "phantom_retro",
+    "away_transition_blocked",
+    "tracker_trust_excluded",
+    "house_state_transition",
 })
 
 MEMORY_FACT_TOPICS: Final = frozenset({
@@ -3670,6 +3829,11 @@ MEMORY_FACT_TOPICS: Final = frozenset({
     "exterior_track_baseline",
     "phantom_recurrence",
     "actuation_conflict_summary",
+    # PATH-ALPHA Scope B: reserved for the D5 compactor rule that will
+    # distill `away_transition_blocked` episodes into a per-house
+    # "blocks-on-<zone> N/30d" fact. Additive; no reader today switches
+    # on this topic value (facade `facts()` filters by string).
+    "away_transition_blocked",
 })
 
 # --- MEMORY-COMPACTOR-1 knobs (all rung 1 module constants, per

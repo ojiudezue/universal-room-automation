@@ -1733,6 +1733,37 @@ class PersonPhoneLeftBehindSensor(BinarySensorEntity):
         if not ble_location or ble_location in ("unknown", "away"):
             return False
 
+        # 2b. PATH-ALPHA D9 (Gap B, 2026-08-16): camera-less room
+        # corroboration. When BLE places the person in a specific room AND
+        # that room's coordinator reports STATE_OCCUPIED, treat the person
+        # as corroborated present (mmWave/PIR/etc reports someone home in
+        # that room even without a camera face sighting) and refuse to
+        # fire. Fail-OPEN: any missing surface reverts to pre-D9 behavior
+        # so this path can only ever make the sensor fire LESS.
+        try:
+            from .const import PHONE_LEFT_BEHIND_ROOM_CORROBORATION_ENABLED
+            if (
+                PHONE_LEFT_BEHIND_ROOM_CORROBORATION_ENABLED
+                # A-L3 (2026-08-16): align guard with
+                # extra_state_attributes below (same set). At this
+                # point step 2 has already early-returned for
+                # {unknown, away}, so the tighter set is behaviorally
+                # equivalent — this alignment is purely for
+                # readability + code-review truthfulness.
+                and ble_location not in ("home", "unknown", "away")
+                and hasattr(person_coordinator, "_is_room_occupied")
+            ):
+                if person_coordinator._is_room_occupied(ble_location):
+                    _LOGGER.debug(
+                        "phone_left_behind[%s]: D9 room-occupancy "
+                        "corroboration — %s reports occupied, suppressing",
+                        self._person_id,
+                        ble_location,
+                    )
+                    return False
+        except Exception:  # noqa: BLE001 — defensive, fail-OPEN
+            pass
+
         # 3. If camera census currently sees people, suppress —
         #    the phone holder is likely present (census is evidence of presence)
         census = self.hass.data.get(DOMAIN, {}).get("census")
@@ -1783,12 +1814,46 @@ class PersonPhoneLeftBehindSensor(BinarySensorEntity):
         if census and census.last_result:
             census_persons = census.last_result.house.total_persons
 
+        # PATH-ALPHA D2c (2026-08-16): D9 room-corroboration outcome.
+        # Recompute the same fail-OPEN check `is_on` uses so the attr
+        # surface reflects this evaluation's suppression decision +
+        # source. All three fields are None-safe on the first evaluation
+        # (before person_coordinator classifies) and on any missing
+        # surface (kill-switch off / non-room ble_location / coordinator
+        # helper absent) — mirrors `is_on`'s fail-OPEN semantics.
+        room_corroboration_suppressed: bool | None = None
+        room_corroboration_source: str | None = None
+        room_corroboration_evidence: str | None = None
+        try:
+            from .const import PHONE_LEFT_BEHIND_ROOM_CORROBORATION_ENABLED
+            if (
+                PHONE_LEFT_BEHIND_ROOM_CORROBORATION_ENABLED
+                and person_coordinator is not None
+                and ble_location
+                and ble_location not in ("home", "unknown", "away")
+                and hasattr(person_coordinator, "_is_room_occupied")
+            ):
+                if person_coordinator._is_room_occupied(ble_location):
+                    room_corroboration_suppressed = True
+                    room_corroboration_source = ble_location
+                    room_corroboration_evidence = "room_occupied"
+                else:
+                    room_corroboration_suppressed = False
+                    room_corroboration_source = ble_location
+                    room_corroboration_evidence = "room_not_occupied"
+        except Exception:  # noqa: BLE001 — defensive, fail-OPEN mirrors is_on
+            pass
+
         return {
             "person_id": self._person_id,
             "ble_location": ble_location,
             "hours_since_camera_sighting": hours_since_sighting,
             "phone_left_behind_hours": self.PHONE_LEFT_BEHIND_HOURS,
             "census_persons_in_house": census_persons,
+            # PATH-ALPHA D2c/D9 (2026-08-16): room-corroboration surface.
+            "room_corroboration_suppressed": room_corroboration_suppressed,
+            "room_corroboration_source": room_corroboration_source,
+            "room_corroboration_evidence": room_corroboration_evidence,
         }
 
 

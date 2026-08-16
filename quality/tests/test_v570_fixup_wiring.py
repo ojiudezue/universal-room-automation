@@ -47,8 +47,11 @@ import quality.tests.test_v570_guest_detection_trust  # noqa: F401,E402
 
 from custom_components.universal_room_automation.domain_coordinators.presence import (  # noqa: E402
     StateInferenceEngine,
-    _tracking_active_or_lost_away,
 )
+# PATH-ALPHA D2b (2026-08-16): pull the migration shim from the sibling
+# test module. The real helper was retired; migrated negative-test
+# assertions live in test_pathalpha_d2b_retired_predicate.py.
+from quality.tests.test_v570_guest_detection_trust import _tracking_active_or_lost_away  # noqa: E402
 from custom_components.universal_room_automation.domain_coordinators.house_state import (  # noqa: E402
     HouseState,
 )
@@ -204,6 +207,30 @@ def test_fix2b_zero_threshold_is_immediate():
 # FIX-5 (MED-B1) — separate stamp dict
 # =============================================================================
 
+def test_source_invariant_relaxed_predicate_wiring_retired_d2b():
+    """PATH-ALPHA D2b (2026-08-16, MIGRATED from C-HIGH-1/A1 wiring): the
+    relaxed-predicate alias inside `_run_inference` MUST NOT be
+    resurrected. Replacement of test_c_high_1_a1_predicate_call_present_
+    in_run_inference — the alias is retired, so its ABSENCE is now the
+    invariant.
+    """
+    assert "_tracking_active_or_lost_away_local = _tracking_active_or_lost_away" not in PRESENCE_SRC, (
+        "PATH-ALPHA D2b: relaxed-predicate alias resurrected in _run_inference"
+    )
+    assert "_tracking_active_or_lost_away_local(info)" not in PRESENCE_SRC, (
+        "PATH-ALPHA D2b: retired relaxed-predicate call resurrected"
+    )
+    # Also assert the retired list literal wiring is gone from the infer() call.
+    assert "lost_away_persons_present=bool(lost_away_persons)" not in PRESENCE_SRC, (
+        "PATH-ALPHA D2b: retired lost_away_persons wiring resurrected at "
+        "infer() call site"
+    )
+    # And the sensor-attribute exposure of the retired list is gone.
+    assert "self._lost_away_persons = list(lost_away_persons)" not in PRESENCE_SRC, (
+        "PATH-ALPHA D2b: retired `_lost_away_persons` attribute-set resurrected"
+    )
+
+
 def test_source_invariant_separate_lost_away_stamp_dict():
     """FIX-5: person_coordinator must define `_lost_away_since` separately.
 
@@ -260,18 +287,13 @@ def test_source_invariant_lost_away_stamp_mirrors_lost_since_sites():
 # Source-anchored mutation tests: each test below fails if the named
 # production wiring is removed.
 
-def test_c_high_1_a1_predicate_call_present_in_run_inference():
-    """A1: `_run_inference` must call `_tracking_active_or_lost_away` to build
-    the path-β denominator. Removing the call breaks this test AND the
-    sibling test_v570 test_a1_predicate_lost_away_admitted.
-    """
-    # The call site is a local alias `_tracking_active_or_lost_away_local`.
-    assert "_tracking_active_or_lost_away_local = _tracking_active_or_lost_away" in PRESENCE_SRC, (
-        "C-HIGH-1 / A1: relaxed predicate not bound inside _run_inference"
-    )
-    # And the alias must be USED inside the per-person loop.
-    assert "_tracking_active_or_lost_away_local(info)" in PRESENCE_SRC, (
-        "C-HIGH-1 / A1: relaxed predicate computed but not consumed in loop"
+def test_c_high_1_a1_predicate_call_retired_d2b():
+    """PATH-ALPHA D2b (2026-08-16, MIGRATED from A1-alias-present):
+    the relaxed-predicate wiring inside `_run_inference` is RETIRED.
+    Negative-only guard — see test_source_invariant_relaxed_predicate_
+    wiring_retired_d2b above for the full-surface assertion."""
+    assert "_tracking_active_or_lost_away_local" not in PRESENCE_SRC, (
+        "PATH-ALPHA D2b: relaxed predicate alias resurrected"
     )
 
 
@@ -305,17 +327,23 @@ def test_c_high_1_path_beta_kwargs_wired_to_infer():
     assert idx >= 0
     block = PRESENCE_SRC[idx: idx + 1500]
     for expected in (
-        "all_trusted_or_lost_away_persons_away=all_trusted_or_lost_away_persons_away",
+        # PATH-ALPHA D2b (2026-08-16, MIGRATED): path β denominator now
+        # equals path α's `all_tracked_persons_away` — the relaxed local
+        # `all_trusted_or_lost_away_persons_away` was retired.
+        "all_trusted_or_lost_away_persons_away=all_tracked_persons_away",
         "any_indoor_zone_occupied=any_indoor_zone_occupied",
         # FIX-2b: grace becomes the DEBOUNCED variant; this string is the
         # mutation-anchor for FIX-2b's "fold debounce into grace" wiring.
         "grace_elapsed_for_lost_away=_grace_elapsed_with_debounce",
-        "lost_away_persons_present=bool(lost_away_persons)",
         "sleep_exempt_state=_sleep_exempt_state",
     ):
         assert expected in block, (
             f"C-HIGH-1: missing path-β kwarg wiring in infer() call: {expected}"
         )
+    # PATH-ALPHA D2b negative: the retired list-wiring must not resurrect.
+    assert "lost_away_persons_present=bool(lost_away_persons)" not in block, (
+        "PATH-ALPHA D2b: retired lost_away_persons wiring resurrected"
+    )
 
 
 # =============================================================================
@@ -323,15 +351,19 @@ def test_c_high_1_path_beta_kwargs_wired_to_infer():
 # =============================================================================
 
 def test_source_invariant_grace_gated_on_youngest_stamp():
-    """FIX-2a: grace computation must scan for the YOUNGEST stamp (max), not oldest.
-
-    Mutation: reverting `dt > _youngest_dt` to `dt < _oldest_dt` would
-    break the behavioral check below (mixed-age cohort: one fresh
-    LOST stamp + one stale stamp → grace must NOT yet be elapsed
-    because the YOUNGEST stamp is fresh).
-    """
-    assert "_youngest_dt" in PRESENCE_SRC, "FIX-2a: youngest-stamp scan missing"
-    assert "_youngest_lost_age_s" in PRESENCE_SRC
+    """PATH-ALPHA D2b (2026-08-16, MIGRATED from FIX-2a): the per-lost-
+    person grace loop was retired along with the `lost_away_persons`
+    list (no LOST-admitted subset exists post-D2a). The historical
+    algorithm is preserved in the sibling test_fix2a_* pure-simulation
+    tests below (still valid — they compute the algorithm locally).
+    Negative-only guard here: the retired loop's per-tick youngest scan
+    must not resurrect in production."""
+    # Retired: the source no longer runs a per-lost-person youngest scan.
+    # If a future LOST-admission mechanism is added, restore this test to
+    # assert the RE-INTRODUCED youngest-stamp policy at the new site.
+    assert "for name in lost_away_persons:" not in PRESENCE_SRC, (
+        "PATH-ALPHA D2b: retired lost_away_persons loop resurrected"
+    )
 
 
 def test_fix2a_mixed_cohort_youngest_governs_grace():
@@ -412,15 +444,14 @@ def test_source_invariant_conf_reads_guarded():
 # FIX-6 (B4 / A-LOW-2) — diagnostic attribute behavior
 # =============================================================================
 
-def test_source_invariant_lost_away_persons_attr_populated_unconditionally():
-    """B4: `_lost_away_persons` must be set regardless of β fire — so it's
-    debuggable even when β was suppressed by sleep-exempt / indoor-blocked.
-
-    The production block sets it just before the infer() call from a list
-    computed at the top of _run_inference — the comment FIX-6 (B4)
-    anchors this.
-    """
-    assert "self._lost_away_persons = list(lost_away_persons)" in PRESENCE_SRC
+def test_source_invariant_lost_away_persons_attr_retired_d2b():
+    """PATH-ALPHA D2b (2026-08-16, MIGRATED from FIX-6 B4): the
+    `_lost_away_persons` attribute is RETIRED — the retired list was
+    always empty post-D2a because the matrix classifier stamps case-(a)
+    confidently-away persons as ACTIVE. Negative-only guard."""
+    assert "self._lost_away_persons = list(lost_away_persons)" not in PRESENCE_SRC, (
+        "PATH-ALPHA D2b: retired _lost_away_persons attribute-set resurrected"
+    )
 
 
 def test_source_invariant_grace_remaining_suppressed_on_sleep_exempt():
@@ -599,13 +630,19 @@ async def test_c_high_1_a1_behavioral_lost_away_admitted_resolves_to_away():
 
         await coord._run_inference("test_a1_behavioral")
 
-        assert sm.state == _HS.AWAY, (
-            f"A1 wiring: LOST+away residents must resolve to AWAY via "
-            f"path β; got sm.state={sm.state!r}"
+        # PATH-ALPHA D2b (2026-08-16, MIGRATED): LOST-admission RETIRED.
+        # Post-cycle, LOST+away residents are excluded from the trusted
+        # denominator (H3 ACTIVE-only) so `all_tracked_persons_away` is
+        # False → neither path α nor path β fires → state stays
+        # HOME_DAY. This is the negative replacement for the prior
+        # positive assertion (LOST-admitted → AWAY).
+        assert sm.state == _HS.HOME_DAY, (
+            f"PATH-ALPHA D2b: LOST+away residents must NOT force AWAY "
+            f"(admission retired); got sm.state={sm.state!r}"
         )
-        assert coord._veto_path == "lost_admitted", (
-            f"A1 wiring: expected veto_path='lost_admitted', got "
-            f"{coord._veto_path!r}"
+        assert coord._veto_path != "lost_admitted", (
+            f"PATH-ALPHA D2b: veto_path must not be 'lost_admitted' "
+            f"(admission retired); got {coord._veto_path!r}"
         )
 
 
@@ -672,16 +709,19 @@ async def test_c_high_1_a4_behavioral_outdoor_zone_does_not_block_path_beta():
 
         await coord._run_inference("test_a4_behavioral")
 
-        assert sm.state == _HS.AWAY, (
-            f"A4 wiring: occupied OUTDOOR zone must be excluded from the "
-            f"indoor aggregation so path β can fire; got sm.state="
-            f"{sm.state!r}. If this fails with HOME_DAY, the wiring at "
-            f"presence.py:~4436 has regressed (outdoor zone is being "
-            f"counted as indoor)."
+        # PATH-ALPHA D2b (2026-08-16, MIGRATED): LOST admission retired.
+        # The outdoor-zone-excluded wiring is still valid (proven by
+        # `test_case6_outdoor_zone_occupied_does_not_block_path_beta` in
+        # the sibling module, which exercises infer() directly with
+        # ACTIVE denominators) but this behavioral test drove β via
+        # LOST admission, which no longer opens a path to AWAY.
+        assert sm.state == _HS.HOME_DAY, (
+            f"PATH-ALPHA D2b: LOST+away residents no longer force AWAY; "
+            f"got sm.state={sm.state!r}"
         )
-        assert coord._veto_path == "lost_admitted", (
-            f"A4 wiring: expected veto_path='lost_admitted', got "
-            f"{coord._veto_path!r}"
+        assert coord._veto_path != "lost_admitted", (
+            f"PATH-ALPHA D2b: veto_path must not be 'lost_admitted' "
+            f"post-cycle; got {coord._veto_path!r}"
         )
 
 

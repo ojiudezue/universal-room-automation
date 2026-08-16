@@ -166,29 +166,42 @@ _LENGTH_MISMATCH_WARNED = False
 ARRIVING_REARM_COOLDOWN_S = 900
 
 
-def _tracking_active_or_lost_away(info: dict) -> bool:
-    """v5.7.0 WS-A1: relaxed sibling of the H3 ACTIVE-only filter.
+# PATH-ALPHA D3 (2026-08-16): exact-match extractor for structured reason
+# strings produced by `_run_inference` at the excluded_persons builder.
+# Reason strings have the shape "key1=value1,key2=value2" (e.g.
+# "tracking_status=lost,tracking_reason=away_ble_silent_only"). This
+# helper returns the value for `field_name` via EXACT split on `,` and
+# `=` — no substring / `startswith` / `in` semantics. A reason value that
+# only CONTAINS another value (e.g. `away_all_agree` vs `away_ble_silent`)
+# MUST NOT false-match. Used by any diagnostic classifier that keys on
+# `tracking_reason` (path-α guest-FP diagnostic path). Falsifiable
+# invariant: for any composite reason `"a=X,b=Y"`,
+# `_extract_reason_field(s, "b")` returns exactly `"Y"` and NEVER any
+# prefix/suffix of `"Y"` from another field.
+def _extract_reason_field(reason: str, field_name: str) -> str | None:
+    if not reason or not field_name:
+        return None
+    for token in reason.split(","):
+        token = token.strip()
+        if not token or "=" not in token:
+            continue
+        key, _, value = token.partition("=")
+        if key.strip() == field_name:
+            return value.strip()
+    return None
 
-    True iff ``tracking_status == ACTIVE``, OR
-    ``(tracking_status in {LOST, STALE} AND location == "away")``.
 
-    Used ONLY by the path-β denominator computation in
-    ``PresenceCoordinator._run_inference``. The H2 phone_left_behind
-    filter is still applied separately — a left-behind phone must NOT
-    count as away regardless of tracking_status. The LOST/STALE-home
-    case stays UNTRUSTED (a dead phone sitting at home tells us nothing
-    about whether the person is here).
-
-    Defined at module level (not as a closure inside `_run_inference`)
-    so the Tier-3 review C mutation-anchor tests can import and exercise
-    the REAL load-bearing site.
-    """
-    ts = info.get("tracking_status", TRACKING_STATUS_ACTIVE)
-    if ts == TRACKING_STATUS_ACTIVE:
-        return True
-    if ts in (TRACKING_STATUS_LOST, TRACKING_STATUS_STALE):
-        return (info.get("location") or "").lower() == "away"
-    return False
+# PATH-ALPHA D2b (2026-08-16): the v5.7.0 WS-A1 relaxed predicate
+# `_tracking_active_or_lost_away` has been RETIRED. The unified-matrix
+# classifier in person_coordinator (D2a) now stamps case-(a) confidently-
+# away trackers as ACTIVE at the source, so the relaxed OR-clause is
+# behavior-equivalent to `tracking_status == ACTIVE`. Path β now leans on
+# plain `_tracking_active` (H3 predicate) with the same denominator as
+# path α. See docs/planning/AUDIT_tracking_status_consumers.md §4.2
+# (Review-A C3 option a). This is DELIBERATE NARROWING — not byte-identical
+# with v5.7.0. DO NOT re-add the relaxed predicate; if a future incident
+# argues for its resurrection, the matrix classifier is the wrong place
+# to solve it — surface as a matrix-row cell-confidence question instead.
 
 
 @dataclass(frozen=True)
@@ -539,6 +552,15 @@ class ZonePresenceTracker:
         # fan-off (last transition is not cleared on off; the off edge
         # is itself a transition and stamps the field).
         self._fan_last_transition: Dict[str, "datetime"] = {}
+        # PATH-ALPHA D4 (phantom_retro): per-room UTC timestamp of the
+        # most recent CLEAN fan-off transition (all configured fans in
+        # the room off), paired with the fan_on_since datetime that
+        # preceded it. Used by the room coordinator's mmwave-off edge
+        # detector to emit a retro-phantom memory episode when
+        # release-window + hold predicates hold. Never consumed on any
+        # actuation path (memory-ineligible boundary, arch §8).
+        # Shape: {room_name: (fan_off_ts, fan_on_since_ts)}.
+        self._fan_off_at: Dict[str, tuple["datetime", "datetime"]] = {}
         self._camera_occupied: Dict[str, bool] = {}  # entity_id -> detection active
         self._camera_last_seen: Dict[str, datetime] = {}  # entity_id -> last detection time
         # Fan-noise mitigation D1 (Layer-1 silent gate): per-room hold
@@ -965,6 +987,17 @@ class StateInferenceEngine:
         unidentified_count: int = 0,
         guest_gate_armed: bool = False,
         all_tracked_persons_away: bool = False,
+        # GAP-A D8 (2026-08-16): camera-only identity count. Path α gates
+        # on this in place of census_count to close the forgotten-phone
+        # inflation (BLE-home stale fix used to keep census_count >= 1 and
+        # block the away transition). Default 0 preserves byte-identity
+        # for every existing caller/test (invariant I3): omitting the kwarg
+        # means face_recognized_count == 0, which mirrors the pre-D8
+        # census_count == 0 branch in the common "no cameras seeing anyone"
+        # case. Freshness window CENSUS_FACE_RECOGNITION_WINDOW_SECONDS =
+        # 1800s (const.py:2609). Cross-check at camera_census.py:3034-3055
+        # is fail-OPEN when person entity missing — documented upper bound.
+        face_recognized_count: int = 0,
         # v5.7.0 WS-A path-β kwargs. All default to safe values so callers
         # that omit them get v4.7.14 behavior byte-identical (invariant I3).
         all_trusted_or_lost_away_persons_away: bool = False,
@@ -1044,10 +1077,21 @@ class StateInferenceEngine:
         # v5.7.0 invariant I3: this branch is byte-identical to v4.7.14 when
         # the WS-A kwargs are at their defaults (no LOST admitted, no indoor
         # guard, no grace). DO NOT modify path α — extend with path β below.
+        #
+        # GAP-A D8 (2026-08-16): gate on face_recognized_count instead of
+        # census_count. census_count = max(camera_total, len(face_ids ∪ ble_ids))
+        # so a forgotten-phone person's stale BLE fix used to keep it >= 1,
+        # blocking the veto. face_recognized_count is the camera-only
+        # identity set (subject to the tracker-not_home cross-check at
+        # camera_census.py:3034-3055 which is fail-OPEN for missing person
+        # entities — CENSUS_FACE_RECOGNITION_WINDOW_SECONDS = 1800s). The
+        # unidentified_count == 0 clause remains — an unidentified camera
+        # body legitimately means SOMEONE is here. Path β below deliberately
+        # unchanged (asymmetric — see plan review efec78928).
         if (
             all_tracked_persons_away
             and unidentified_count == 0
-            and census_count == 0
+            and face_recognized_count == 0
         ):
             if current_state == HouseState.AWAY:
                 self._veto_path = "active"
@@ -1308,6 +1352,11 @@ class PresenceCoordinator(BaseCoordinator):
         self._zone_trackers: Dict[str, ZonePresenceTracker] = {}
         self._census_count: int = 0
         self._unidentified_count: int = 0
+        # GAP-A D8 (2026-08-16): camera-provable identity count separated
+        # from census_count (which unions BLE + face IDs). Path α gates on
+        # this instead of census_count to close the forgotten-phone
+        # inflation. Signal payload: face_recognized_count.
+        self._face_recognized_count: int = 0
         # v4.7.14: Person-tracker veto diagnostics (populated by _run_inference).
         # v4.7.14.1 fix-up A-M2: `_tracked_persons_count` preserves the
         # pre-v4.7.14.1 semantic (raw configured-person count from
@@ -1532,6 +1581,19 @@ class PresenceCoordinator(BaseCoordinator):
         self._guest_detection_suppressed_since: str | None = None
         self._arriving_rearm_suppressed_since: str | None = None
         self._away_veto_suppressed_since: str | None = None
+        # PATH-ALPHA D5 (away_transition_blocked) + D6 (tracker_trust_excluded):
+        # instantiated lazily on first _run_inference tick (needs `hass` in
+        # scope; `self.hass` is set by the coordinator base but we defer
+        # object construction to avoid ordering surprises during __init__).
+        self._away_block_tracker: Any | None = None
+        self._trust_excluded_writer: Any | None = None
+        # PATH-ALPHA D5 restart-discharge gate. The D5 coalescer MUST NOT
+        # start emitting until reconcile_open_away_block_on_boot has run
+        # against the DB — otherwise a pre-restart OPEN row would leak
+        # forever (Bug Class #53 + suppression-needs-discharge). The
+        # reconciler is awaited in async_setup below; the tick hook
+        # short-circuits until the flag is True.
+        self._away_block_reconcile_done: bool = False
         # A-MED-2: per-calendar-day dedup guard for the wake-backstop NM emit.
         # The counter (`_wake_backstop_fires`) still increments every tick;
         # only the NM notification is deduped to at most once per local day.
@@ -2275,6 +2337,42 @@ class PresenceCoordinator(BaseCoordinator):
             except Exception:
                 _LOGGER.debug(
                     "Could not hydrate _transitions_today from house_state_log (non-fatal)",
+                    exc_info=True,
+                )
+
+            # PATH-ALPHA D5: on-boot restart-discharge for
+            # away_transition_blocked. Force-close any memory_episodes
+            # row of type=away_transition_blocked left OPEN across a
+            # restart (closed_by="restart"). MUST run before the D5
+            # tracker is allowed to note a first tick — otherwise a
+            # pre-restart open row would leak forever (Bug Class #53
+            # computed-but-not-consumed + suppression-needs-discharge
+            # rule). Home for the call is `presence.async_setup`
+            # rather than the memory-facade initializer because the
+            # coalescer itself lives on the presence coordinator; the
+            # invariant "reconcile before first tick" is local to this
+            # object, not cross-coordinator.
+            try:
+                from .. import memory_writers as _mw  # noqa: PLC0415
+                _reconciled = await _mw.reconcile_open_away_block_on_boot(
+                    self.hass,
+                )
+                self._away_block_reconcile_done = True
+                _LOGGER.info(
+                    "PATH-ALPHA D5: away_transition_blocked restart-"
+                    "discharge complete (reconciled=%d)",
+                    int(_reconciled),
+                )
+            except Exception:  # noqa: BLE001 — defensive
+                # Even on failure we set the gate so a persistent DB
+                # fault does not permanently silence the writer. The
+                # reconciler is idempotent + defensive itself; a
+                # failure here at worst leaves one stale row that a
+                # subsequent boot will clean up.
+                self._away_block_reconcile_done = True
+                _LOGGER.debug(
+                    "PATH-ALPHA D5: reconcile_open_away_block_on_boot "
+                    "raised (non-fatal); gate opened",
                     exc_info=True,
                 )
 
@@ -3408,6 +3506,17 @@ class PresenceCoordinator(BaseCoordinator):
                 except Exception:  # noqa: BLE001 — defensive
                     any_other_on = False
                 if not any_other_on:
+                    # PATH-ALPHA D4: capture the fan_on_since paired
+                    # with the fan_off_ts BEFORE popping — the retro-
+                    # phantom writer needs both to compute hold_s.
+                    _prev_on_since = tracker._fan_on_since.get(room_name)
+                    if (
+                        _prev_on_since is not None
+                        and transition_now is not None
+                    ):
+                        tracker._fan_off_at[room_name] = (
+                            transition_now, _prev_on_since,
+                        )
                     tracker._fan_on_rooms.discard(room_name)
                     tracker._fan_on_since.pop(room_name, None)
             _LOGGER.debug(
@@ -4211,6 +4320,15 @@ class PresenceCoordinator(BaseCoordinator):
             self._unidentified_count = int(census_data.get("unidentified_count", 0))
         except (ValueError, TypeError):
             self._unidentified_count = 0
+
+        # GAP-A D8: read camera-only identity count. Default 0 preserves
+        # byte-identity for legacy signal payloads (invariant I3).
+        try:
+            self._face_recognized_count = int(
+                census_data.get("face_recognized_count", 0)
+            )
+        except (ValueError, TypeError):
+            self._face_recognized_count = 0
 
         # v4.6.2.2: Read confidence fields for guest gate — default to "none"
         # if not present (backward compat with any caller not yet sending them).
@@ -5078,21 +5196,17 @@ class PresenceCoordinator(BaseCoordinator):
             """
             return info.get("tracking_status", TRACKING_STATUS_ACTIVE) == TRACKING_STATUS_ACTIVE
 
-        # v5.7.0 WS-A1: module-level `_tracking_active_or_lost_away` is the
-        # load-bearing predicate; bind a local alias for readability inside
-        # the per-person loop below. Defined at module scope (above) so the
-        # Tier-3 mutation-anchor tests can drive the REAL site.
-        _tracking_active_or_lost_away_local = _tracking_active_or_lost_away
+        # PATH-ALPHA D2b (2026-08-16): the relaxed predicate + relaxed
+        # denominator have been retired. Path β now shares path α's
+        # `all_tracked_persons_away` denominator (the matrix classifier
+        # already stamps case-(a) confidently-away trackers as ACTIVE, so
+        # the relaxed OR-clause was behavior-equivalent). See §4.2 in
+        # AUDIT_tracking_status_consumers.md.
 
         # v4.7.14.1 fix-up A-M1/A-M3: track WHO was filtered out and WHY so the
         # veto-fired INFO log can enumerate excluded persons + reason. Without
         # this, operators debugging "why didn't X block the veto?" must grep
         # the source to understand the post-filter shape.
-        # v5.7.0 WS-A path-β state. Mirror of the path-α denominator built
-        # with the relaxed `_tracking_active_or_lost_away` predicate. Empty
-        # / False unless the relaxed-denominator block below populates them.
-        all_trusted_or_lost_away_persons_away: bool = False
-        lost_away_persons: list[str] = []
         # excluded_persons is the path-α exclusion-reason map (preserved verbatim).
         excluded_persons: dict[str, str] = {}
         # v4.7.14.1 fix-up A-M2: separately track the RAW configured-person
@@ -5130,10 +5244,20 @@ class PresenceCoordinator(BaseCoordinator):
                     # when both fire (it's the more specific user-actionable
                     # signal — "your phone is home but you aren't").
                     if not phone_ok:
-                        excluded_persons[name] = "phone_left_behind=on"
+                        # PATH-ALPHA D3 (2026-08-16): include
+                        # tracking_reason as a parseable `key=value` token
+                        # so downstream diagnostic classifiers can EXACT-
+                        # MATCH the reason (never substring-match against
+                        # the composite string). See AUDIT §4.2 / D3 spec
+                        # and `_extract_reason_field` helper below.
+                        excluded_persons[name] = (
+                            "phone_left_behind=on"
+                            f",tracking_reason={info.get('tracking_reason', 'no_signal')}"
+                        )
                     else:
                         excluded_persons[name] = (
                             f"tracking_status={info.get('tracking_status', 'unknown')}"
+                            f",tracking_reason={info.get('tracking_reason', 'no_signal')}"
                         )
                 tracked_count = len(trustworthy_persons)
                 if tracked_count > 0:
@@ -5144,42 +5268,12 @@ class PresenceCoordinator(BaseCoordinator):
                     if all_tracked_persons_away:
                         away_person_ids = sorted(trustworthy_persons.keys())
 
-                # v5.7.0 WS-A1: build the relaxed-denominator denominator for
-                # path β. Same H2 phone-left-behind filter (preserved
-                # verbatim) but using the H3-relaxed predicate
-                # _tracking_active_or_lost_away. Persons whose phone is
-                # phone_left_behind=on are STILL excluded (left-behind phone
-                # is the canonical not-trustworthy signal). LOST+home
-                # entries are NOT counted as away (the LOST-relaxed
-                # predicate returns False for them). Final all-away check
-                # uses ("away", "") tuple identical to path α — "unknown"
-                # is conservatively excluded.
-                relaxed_persons: dict[str, dict] = {}
-                for name in sorted(person_data.keys()):
-                    info = person_data[name]
-                    if not _phone_trustworthy(name):
-                        continue  # H2 preserved
-                    if not _tracking_active_or_lost_away_local(info):
-                        continue  # neither ACTIVE nor LOST/STALE+away
-                    relaxed_persons[name] = info
-                if len(relaxed_persons) > 0:
-                    all_trusted_or_lost_away_persons_away = all(
-                        (info.get("location") or "") in ("away", "")
-                        for info in relaxed_persons.values()
-                    )
-                    if all_trusted_or_lost_away_persons_away:
-                        # lost_away_persons enumerates the subset that are
-                        # in path β but NOT in path α — i.e. the LOST/STALE
-                        # entries that are now admitted. Used for the
-                        # `lost_away_persons` sensor attribute (per plan
-                        # WS-A1 acceptance criteria).
-                        for name, info in relaxed_persons.items():
-                            ts = info.get(
-                                "tracking_status", TRACKING_STATUS_ACTIVE
-                            )
-                            if ts != TRACKING_STATUS_ACTIVE:
-                                lost_away_persons.append(name)
-                        lost_away_persons.sort()
+                # PATH-ALPHA D2b (2026-08-16): the relaxed-denominator
+                # construction has been retired. Path β now consumes the
+                # same `all_tracked_persons_away` value path α consumes;
+                # the previous `_tracking_active_or_lost_away` OR-clause
+                # is subsumed by the matrix classifier stamping case-(a)
+                # confidently-away trackers as ACTIVE at the source.
         except Exception as exc:  # noqa: BLE001 — defensive: stale coord data
             _LOGGER.debug(
                 "v4.7.14: failed to compute all_tracked_persons_away: %s", exc
@@ -5191,10 +5285,6 @@ class PresenceCoordinator(BaseCoordinator):
             excluded_persons = {}
             person_phone_trust_signals = []
             person_tracking_active_signals = []
-            # v5.7.0 WS-A: also reset path-β locals on failure (fail-safe:
-            # path β cannot fire when denominator computation raised).
-            all_trusted_or_lost_away_persons_away = False
-            lost_away_persons = []
         # Expose for diagnostics (PresenceHouseStateSensor attributes).
         # v4.7.14.1 fix-up A-M2: `_tracked_persons_count` preserves pre-v4.7.14.1
         # semantic (raw configured count); `_tracked_persons_count_trusted` is
@@ -5564,45 +5654,16 @@ class PresenceCoordinator(BaseCoordinator):
         _grace_remaining_s: Optional[int] = None
         _grace_elapsed = True
         _youngest_lost_age_s: int = 0
-        if lost_away_persons:
-            # v5.7.0 fix-up FIX-2a (D-MED-1/D-MED-2/A-LOW-1): gate grace on
-            # the YOUNGEST (most-recently-lost) stamp, not the oldest. The
-            # most-recently-lost person is the one most likely to still be
-            # home with a dead phone; `grace_elapsed` must remain False
-            # until even that newest stamp exceeds the window. Also fixes
-            # A-LOW-1: a person without a stamp keeps grace_elapsed=False
-            # (we never break out preserving an artificial elapsed=True).
-            _youngest_dt = None
-            _any_stampless = False
-            for name in lost_away_persons:
-                dt = _lost_since_map.get(name)
-                if dt is None:
-                    # No stamp => treat as "just went LOST now" => the
-                    # youngest LOST-age is 0 and grace cannot have elapsed.
-                    _any_stampless = True
-                    _youngest_dt = _now_local
-                    continue
-                if _youngest_dt is None or dt > _youngest_dt:
-                    _youngest_dt = dt
-            if _any_stampless:
-                _grace_elapsed = False
-                _grace_remaining_s = max(0, _grace_min * 60)
-                _youngest_lost_age_s = 0
-            elif _youngest_dt is not None:
-                try:
-                    _youngest_lost_age_s = int(
-                        (_now_local - _youngest_dt).total_seconds()
-                    )
-                except Exception:  # noqa: BLE001 — tz mismatch
-                    _youngest_lost_age_s = 0
-                _grace_seconds = _grace_min * 60
-                if _youngest_lost_age_s < _grace_seconds:
-                    _grace_elapsed = False
-                    _grace_remaining_s = max(
-                        0, _grace_seconds - _youngest_lost_age_s
-                    )
-                else:
-                    _grace_remaining_s = 0
+        # PATH-ALPHA D2b (2026-08-16): the previous per-lost-person grace
+        # computation walked the retired `lost_away_persons` list. Post-cycle
+        # no person is LOST-admitted (matrix classifier stamps case-(a)
+        # confidently-away persons as ACTIVE), so grace defaults to
+        # ELAPSED=True (no LOST persons → nothing to wait on). Path β still
+        # respects the indoor-clear debounce below via
+        # `_grace_elapsed_with_debounce`. If a future revision restores a
+        # LOST-admission mechanism, restore the per-person grace loop here
+        # keyed on the new admission set — do NOT resurrect
+        # `lost_away_persons`.
 
         # v5.7.0 fix-up FIX-2b (D-HIGH-2): indoor-clear consecutive-tick
         # debounce. `any_indoor_zone_occupied` is already computed earlier
@@ -5675,12 +5736,10 @@ class PresenceCoordinator(BaseCoordinator):
             )
         )
 
-        # v5.7.0 fix-up FIX-6 (B4): populate the diagnostic enumeration of
-        # LOST-away persons even when a resident is HOME so the sensor
-        # attribute is debuggable on the no-β-fire path. Grace remaining
-        # is suppressed (set to None) when β is sleep-exempt so the surface
-        # does not surface a misleading `grace_remaining_s = 0` (A-LOW-2).
-        self._lost_away_persons = list(lost_away_persons)
+        # PATH-ALPHA D2b (2026-08-16): `self._lost_away_persons` retired
+        # (list was always empty post-D2a). Grace-remaining surface is
+        # kept for backwards compatibility with dashboards; it now
+        # always reports None (no LOST admission → no grace to elapse).
         if _sleep_exempt_state:
             self._lost_away_grace_remaining_s = None
         else:
@@ -5707,7 +5766,9 @@ class PresenceCoordinator(BaseCoordinator):
         # Load-bearing mutation: removing either assignment re-opens the veto.
         if not _ks_away_veto_enabled:
             all_tracked_persons_away = False
-            all_trusted_or_lost_away_persons_away = False
+            # PATH-ALPHA D2b: relaxed-denominator local retired; path β now
+            # uses `all_tracked_persons_away` directly (coerced above), so
+            # a single kill-switch coercion suffices for both α and β.
             # A-HIGH-1: also coerce the INSTANCE attribute — sensor.py
             # surfaces `self._all_tracked_persons_away` on the house-state
             # sensor and left un-coerced it would surface a lie ("veto
@@ -5722,11 +5783,19 @@ class PresenceCoordinator(BaseCoordinator):
             unidentified_count=self._unidentified_count,
             guest_gate_armed=guest_armed,
             all_tracked_persons_away=all_tracked_persons_away,
+            # GAP-A D8: camera-only identity count. Threaded so path α
+            # gates on camera-provable evidence, not BLE-inflated census.
+            face_recognized_count=self._face_recognized_count,
             # v5.7.0 WS-A path-β kwargs.
-            all_trusted_or_lost_away_persons_away=all_trusted_or_lost_away_persons_away,
+            # PATH-ALPHA D2b (2026-08-16): denominator now = path α's
+            # `all_tracked_persons_away`; `lost_away_persons_present`
+            # falls back to the safe default False (no LOST-admitted
+            # subset exists post-cycle). Path β still gates on indoor
+            # debounce + sleep exemption, so a still-home resident with
+            # a dead phone remains protected.
+            all_trusted_or_lost_away_persons_away=all_tracked_persons_away,
             any_indoor_zone_occupied=any_indoor_zone_occupied,
             grace_elapsed_for_lost_away=_grace_elapsed_with_debounce,
-            lost_away_persons_present=bool(lost_away_persons),
             sleep_exempt_state=_sleep_exempt_state,
             # Presence batch fix-up: independent multi-tick signal for
             # the D2 immediate-engage limb. See infer() kwarg docstring.
@@ -5734,6 +5803,95 @@ class PresenceCoordinator(BaseCoordinator):
         )
         # Mirror engine's most-recent veto-path verdict for sensor surface.
         self._veto_path = getattr(self._inference_engine, "_veto_path", "none")
+
+        # PATH-ALPHA D5 (away_transition_blocked) + D6
+        # (tracker_trust_excluded): observational writers. Fire-and-
+        # forget; failures never bubble. NO consumer reads either
+        # episode type on an actuation path (memory-ineligible
+        # boundary, arch §8).
+        try:
+            from .. import memory_writers as _mw  # noqa: PLC0415
+
+            _home_like = (
+                HouseState.HOME_DAY,
+                HouseState.HOME_EVENING,
+                HouseState.HOME_NIGHT,
+            )
+            # D5: "blocked" = we are in a home-like state, an indoor
+            # zone is occupied (path β vetoed), and either the trusted
+            # denominator is empty (α starved) or not all trusted
+            # persons are away (α denies). new_state stayed non-AWAY.
+            _alpha_starved = tracked_count == 0
+            _alpha_denies = (
+                tracked_count > 0 and not all_tracked_persons_away
+            )
+            _beta_vetoed = bool(any_indoor_zone_occupied)
+            _blocked = bool(
+                current_state in _home_like
+                and new_state != HouseState.AWAY
+                and _beta_vetoed
+                and (_alpha_starved or _alpha_denies)
+            )
+            _veto_path_str = (
+                "alpha_starved" if _alpha_starved and _beta_vetoed
+                else "alpha_denies" if _alpha_denies and _beta_vetoed
+                else "beta_only" if _beta_vetoed
+                else "none"
+            )
+            _snapshot = {
+                "tracked_persons_count_trusted": int(tracked_count),
+                "tracked_persons_count_raw": int(tracked_count_raw),
+                "all_tracked_persons_away": bool(all_tracked_persons_away),
+                "excluded_persons": dict(self._excluded_persons),
+                "census_count": int(self._census_count),
+                "unidentified_count": int(self._unidentified_count),
+                "veto_path": _veto_path_str,
+                "any_indoor_zone_occupied": bool(any_indoor_zone_occupied),
+                "current_state": current_state.value,
+            }
+            # D5 restart-discharge invariant: the coalescer cannot
+            # emit before reconcile_open_away_block_on_boot has run
+            # (see async_setup). If the flag is unset — either during
+            # setup itself, or before setup completes on cold boot —
+            # skip the tick. The next tick will fire it (~30s).
+            if not getattr(self, "_away_block_reconcile_done", False):
+                pass
+            else:
+                if self._away_block_tracker is None:
+                    self._away_block_tracker = _mw.AwayBlockEpisodeTracker(
+                        self.hass,
+                    )
+                self.hass.async_create_task(
+                    self._away_block_tracker.note_tick(
+                        blocked=_blocked,
+                        snapshot=_snapshot,
+                        now=dt_util.utcnow(),
+                    ),
+                )
+            # D6: excluded-persons set diff.
+            if self._trust_excluded_writer is None:
+                self._trust_excluded_writer = (
+                    _mw.TrackerTrustExcludedWriter(self.hass)
+                )
+            _known = None
+            try:
+                pc = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+                if pc is not None and getattr(pc, "data", None):
+                    _known = list((pc.data or {}).keys())
+            except Exception:  # noqa: BLE001 — defensive
+                _known = None
+            self.hass.async_create_task(
+                self._trust_excluded_writer.observe(
+                    excluded_persons=self._excluded_persons,
+                    known_persons=_known,
+                    now=dt_util.utcnow(),
+                ),
+            )
+        except Exception:  # noqa: BLE001 — defensive
+            _LOGGER.debug(
+                "D5/D6 memory writers tick failed (non-fatal)",
+                exc_info=True,
+            )
 
         # v4.7.14: log when the person-tracker veto fires to a non-AWAY state.
         # v4.7.14.1 fix-up A-M1: tighten gate to mirror the v4.7.14.1 H1
@@ -6159,6 +6317,49 @@ class PresenceCoordinator(BaseCoordinator):
                             trigger=trigger,
                             previous_state=current_state.value,
                         )
+                    )
+
+                # PATH-ALPHA D7: house_state_transition memory-episode
+                # mirror with a richer gate-input snapshot. First-tick-
+                # post-boot triggers ("boot", "restore", "initial",
+                # "startup", "restored") are SUPPRESSED by the writer
+                # (see memory_writers.write_house_state_transition
+                # docstring + test_house_state_transition_boot_
+                # suppression). Observational only.
+                try:
+                    from .. import memory_writers as _mw  # noqa: PLC0415
+                    _snapshot = {
+                        "tracked_persons_count_trusted": int(
+                            getattr(self, "_tracked_persons_count_trusted", 0)
+                        ),
+                        "all_tracked_persons_away": bool(
+                            getattr(self, "_all_tracked_persons_away", False)
+                        ),
+                        "census_count": int(
+                            getattr(self, "_census_count", 0)
+                        ),
+                        "unidentified_count": int(
+                            getattr(self, "_unidentified_count", 0)
+                        ),
+                        "excluded_persons": dict(
+                            getattr(self, "_excluded_persons", {}) or {}
+                        ),
+                        "veto_path": str(
+                            getattr(self, "_veto_path", "none")
+                        ),
+                    }
+                    _mw.write_house_state_transition(
+                        self.hass,
+                        old_state=current_state.value,
+                        new_state=new_state.value,
+                        trigger=trigger,
+                        confidence=self._inference_engine.confidence,
+                        snapshot=_snapshot,
+                    )
+                except Exception:  # noqa: BLE001 — defensive
+                    _LOGGER.debug(
+                        "D7 house_state_transition writer failed "
+                        "(non-fatal)", exc_info=True,
                     )
 
                 # Publish signal (async_dispatcher_send imported at module top —

@@ -3562,8 +3562,34 @@ class SmartPlugController:
         for entity_id in self._plugs:
             state = self.hass.states.get(entity_id)
             is_on = state is not None and state.state == "on"
-            # Per D6.3: power falls back to L1_ESTIMATED_POWER_W
-            estimated_power = L1_ESTIMATED_POWER_W if is_on else 0
+            # EV-SENSOR-CLEANUP-1 (2026-08-16, AUDIT_ev_sensor_surface.md
+            # §Q3): per-plug optional `power_entity` in plug_config. When
+            # configured (e.g. Emporia garage-circuit sensor for the Moes
+            # L1 plug, which has no native power sensing), read live
+            # measured power and mark power_source="sensor". Falls back
+            # to L1_ESTIMATED_POWER_W switch-status estimate when the
+            # entity is missing, unavailable, or non-numeric — preserves
+            # v4.7.6 D6.3 behavior when unconfigured.
+            _plug_cfg_early = self._plug_config.get(entity_id, {})
+            _configured_power_entity = _plug_cfg_early.get("power_entity")
+            _measured_power: float | None = None
+            _power_source = "switch_status"
+            if _configured_power_entity:
+                try:
+                    _p_state = self.hass.states.get(_configured_power_entity)
+                    if (
+                        _p_state is not None
+                        and _p_state.state not in ("unknown", "unavailable", "", None)
+                    ):
+                        _measured_power = float(_p_state.state)
+                        _power_source = "sensor"
+                except (TypeError, ValueError, AttributeError):
+                    _measured_power = None
+            if _measured_power is not None:
+                estimated_power = _measured_power if is_on else 0
+            else:
+                # Per D6.3: power falls back to L1_ESTIMATED_POWER_W
+                estimated_power = L1_ESTIMATED_POWER_W if is_on else 0
             paused = (
                 entity_id in self._paused_by_battery_drain
                 or entity_id in self._paused_by_fill_priority
@@ -3616,7 +3642,7 @@ class SmartPlugController:
                 "power": estimated_power,
                 "status": "on" if is_on else "off",
                 "charging": bool(charging),
-                "power_source": "switch_status",
+                "power_source": _power_source,
                 "energy_status": energy_status,
             }
             explicit = "self_modulates" in self._plug_config.get(entity_id, {})

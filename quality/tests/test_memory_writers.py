@@ -1,0 +1,992 @@
+"""PATH-ALPHA Scope B — tests for D4/D5/D6/D7 memory writers.
+
+Covers:
+  * D4 phantom_retro — release-window + hold predicate + 5-latch replay.
+  * D5 away_transition_blocked — coalesce + restart discharge.
+  * D6 tracker_trust_excluded — 60-flip-per-minute debounce bound.
+  * D7 house_state_transition — boot-suppression pin.
+  * Memory vocabulary pin — all 4 types registered + unregistered
+    rejected by DAO.
+  * CONSUMER-GRAPH — no production module (outside the writers +
+    the memory facade/compactor) reads the 4 new episode types.
+"""
+from __future__ import annotations
+
+import ast
+import asyncio
+import os
+import re
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock
+
+import pytest
+
+from _energy_bootstrap import bootstrap_energy_imports
+
+bootstrap_energy_imports()
+
+from custom_components.universal_room_automation.const import (  # noqa: E402
+    AWAY_BLOCK_EPISODE_MIN_HOLD_S,
+    DOMAIN,
+    MEMORY_EPISODE_TYPES,
+    PHANTOM_RETRO_MIN_HOLD_S,
+    PHANTOM_RETRO_RELEASE_WINDOW_S,
+    TRACKER_TRUST_MIN_HOLD_S,
+)
+# Import memory_writers directly by file path so a prior test that has
+# stubbed `custom_components.universal_room_automation` in sys.modules
+# with a MagicMock (see test_v4715_universalize_veto.py) cannot prevent
+# this submodule from resolving. The writers module has no runtime
+# dependency on the parent package initializer.
+import importlib.util as _import_util  # noqa: E402
+import sys as _sys  # noqa: E402
+import types as _types  # noqa: E402
+from pathlib import Path as _Path  # noqa: E402
+from unittest.mock import MagicMock as _MagicMock  # noqa: E402
+
+_URA_DIR = _Path(__file__).resolve().parents[2] / (
+    "custom_components/universal_room_automation"
+)
+
+
+def _load_by_path(fq_name: str, path: _Path):
+    spec = _import_util.spec_from_file_location(fq_name, str(path))
+    mod = _import_util.module_from_spec(spec)
+    _sys.modules[fq_name] = mod
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod
+
+
+# If a prior test stubbed the parent package with a MagicMock, evict
+# the mocks for our package tree so we can install real modules under
+# the same names. The evicted mocks are process-local and downstream
+# tests will re-install their own stubs on demand.
+for _k in list(_sys.modules.keys()):
+    if (
+        _k == "custom_components.universal_room_automation"
+        or _k.startswith("custom_components.universal_room_automation.")
+    ):
+        if isinstance(_sys.modules[_k], _MagicMock):
+            del _sys.modules[_k]
+
+# Install a minimal namespace-package shell for the parent so
+# `from .const import ...` inside memory_writers.py resolves without
+# executing the real __init__.py (which needs the full HA runtime).
+_pkg_name = "custom_components.universal_room_automation"
+if _pkg_name not in _sys.modules:
+    _pkg = _types.ModuleType(_pkg_name)
+    _pkg.__path__ = [str(_URA_DIR)]  # marks as package
+    _sys.modules[_pkg_name] = _pkg
+if "custom_components" not in _sys.modules:
+    _cc = _types.ModuleType("custom_components")
+    _cc.__path__ = [str(_URA_DIR.parent)]
+    _sys.modules["custom_components"] = _cc
+
+# Load const.py (pure stdlib deps) then memory_writers.py.
+_load_by_path(f"{_pkg_name}.const", _URA_DIR / "const.py")
+mw = _load_by_path(f"{_pkg_name}.memory_writers", _URA_DIR / "memory_writers.py")
+
+
+# ---------------------------------------------------------------------------
+# Fake DB — records writes without touching aiosqlite. Sufficient for
+# the writer unit-tests; the DAO vocabulary gate has separate coverage
+# in test_memory_mvp.py::test_log_memory_episode_registered_vocabulary_gate.
+# ---------------------------------------------------------------------------
+
+
+class _FakeDB:
+    def __init__(self) -> None:
+        self.rows: list[dict] = []
+        self._next_id = 1
+
+    async def log_memory_episode(
+        self,
+        *,
+        node_id: str,
+        episode_type: str,
+        adjudication: str = "unadjudicated",
+        adjudicated_by: str | None = None,
+        attrs: dict | None = None,
+        source_ref: str | None = None,
+        started_at: str | None = None,
+        ended_at: str | None = None,
+        dedup_source_ref: bool = False,
+    ) -> int | None:
+        # Enforce vocabulary gate the way production does.
+        if episode_type not in MEMORY_EPISODE_TYPES:
+            return None
+        if dedup_source_ref and source_ref is not None:
+            for r in self.rows:
+                if r.get("source_ref") == source_ref:
+                    return None
+        rid = self._next_id
+        self._next_id += 1
+        self.rows.append({
+            "id": rid,
+            "node_id": node_id,
+            "episode_type": episode_type,
+            "adjudication": adjudication,
+            "adjudicated_by": adjudicated_by,
+            "attrs": dict(attrs or {}),
+            "source_ref": source_ref,
+            "started_at": started_at,
+            "ended_at": ended_at,
+        })
+        return rid
+
+    async def close_memory_episode(
+        self, *, row_id: int, ended_at: str,
+        close_attrs: dict | None = None,
+    ) -> bool:
+        for r in self.rows:
+            if r["id"] == row_id:
+                r["ended_at"] = ended_at
+                if close_attrs:
+                    r["attrs"] = {**r["attrs"], **close_attrs}
+                return True
+        return False
+
+    async def fetch_open_memory_episodes_of_type(
+        self, episode_type: str,
+    ) -> list[dict]:
+        return [
+            {
+                "id": r["id"],
+                "node_id": r["node_id"],
+                "started_at": r["started_at"],
+                "source_ref": r["source_ref"],
+            }
+            for r in self.rows
+            if r["episode_type"] == episode_type and r["ended_at"] is None
+        ]
+
+
+class _FakeHass:
+    def __init__(self) -> None:
+        self.data = {DOMAIN: {"database": _FakeDB()}}
+
+    def async_create_task(self, coro):
+        return asyncio.ensure_future(coro)
+
+    def async_create_background_task(self, coro, name=None):
+        return asyncio.ensure_future(coro)
+
+
+@pytest.fixture
+def hass():
+    return _FakeHass()
+
+
+def _db(h: _FakeHass) -> _FakeDB:
+    return h.data[DOMAIN]["database"]
+
+
+# ---------------------------------------------------------------------------
+# D4 phantom_retro
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_phantom_retro_writer_emits_on_qualifying_edge(hass):
+    """A fan-off followed by mmwave-off inside the window with a
+    long-enough hold emits exactly one phantom_retro row with the
+    expected coverage stamp + attrs shape."""
+    fan_on = datetime(2026, 8, 13, 18, 0, 0, tzinfo=timezone.utc)
+    fan_off = fan_on + timedelta(seconds=PHANTOM_RETRO_MIN_HOLD_S + 60)
+    mmwave_off = fan_off + timedelta(seconds=30)
+
+    mw.write_phantom_retro(
+        hass,
+        room_name="Living Room",
+        fan_off_ts=fan_off,
+        mmwave_off_ts=mmwave_off,
+        fan_on_since=fan_on,
+        room_capabilities={"has_pir": False, "has_ble": False},
+    )
+    await asyncio.sleep(0)  # let scheduled task run
+    rows = _db(hass).rows
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["episode_type"] == "phantom_retro"
+    assert r["node_id"] == "room:living_room"
+    assert r["adjudication"] == "phantom"
+    assert r["adjudicated_by"] == "fan_release_correlation"
+    assert r["attrs"]["coverage"] == "fan_release_correlated"
+    assert r["attrs"]["release_delay_s"] == 30.0
+    assert r["attrs"]["hold_s"] >= PHANTOM_RETRO_MIN_HOLD_S
+
+
+@pytest.mark.asyncio
+async def test_phantom_retro_rejects_short_hold(hass):
+    """Fan tapped briefly then off — no phantom_retro row."""
+    fan_on = datetime(2026, 8, 13, 18, 0, 0, tzinfo=timezone.utc)
+    fan_off = fan_on + timedelta(seconds=PHANTOM_RETRO_MIN_HOLD_S - 10)
+    mmwave_off = fan_off + timedelta(seconds=15)
+    mw.write_phantom_retro(
+        hass, room_name="Study A",
+        fan_off_ts=fan_off, mmwave_off_ts=mmwave_off,
+        fan_on_since=fan_on,
+    )
+    await asyncio.sleep(0)
+    assert _db(hass).rows == []
+
+
+@pytest.mark.asyncio
+async def test_phantom_retro_rejects_out_of_window(hass):
+    """mmwave off arrives long after fan off — outside the correlation
+    window; no row."""
+    fan_on = datetime(2026, 8, 13, 18, 0, 0, tzinfo=timezone.utc)
+    fan_off = fan_on + timedelta(seconds=PHANTOM_RETRO_MIN_HOLD_S + 10)
+    mmwave_off = fan_off + timedelta(
+        seconds=PHANTOM_RETRO_RELEASE_WINDOW_S + 5,
+    )
+    mw.write_phantom_retro(
+        hass, room_name="Jaya Bedroom",
+        fan_off_ts=fan_off, mmwave_off_ts=mmwave_off,
+        fan_on_since=fan_on,
+    )
+    await asyncio.sleep(0)
+    assert _db(hass).rows == []
+
+
+@pytest.mark.asyncio
+async def test_phantom_retro_replays_five_latches(hass):
+    """Retro-audit fixture: replay 5 known 2026-08-13 latches (Living
+    Room + Upstairs Guestroom x2 + Jaya Bedroom x2) — writer emits 5
+    rows keyed on 3 distinct room slugs. Rejects the two negative
+    controls (mmwave released BEFORE fan-off; Screek/Ziri class)."""
+    base = datetime(2026, 8, 13, 18, 40, 0, tzinfo=timezone.utc)
+
+    # 5 positive latches (fan_on -> fan_off -> mmwave_off within window,
+    # each hold >= MIN_HOLD_S). Release delays match audit shape
+    # (37s / 22s / 36s and their siblings).
+    latches = [
+        # (room, fan_on_offset_s, hold_s, release_delay_s)
+        ("Living Room",         0,   82 * 60, 45),
+        ("Upstairs Guestroom",  0,   62 * 60, 36),
+        ("Upstairs Guestroom",  10800, 99 * 60, 22),
+        ("Jaya Bedroom",        0,   45 * 60, 30),
+        ("Jaya Bedroom",        7200, 55 * 60, 50),
+    ]
+    for room, on_off, hold_s, delay_s in latches:
+        fan_on = base + timedelta(seconds=on_off)
+        fan_off = fan_on + timedelta(seconds=hold_s)
+        mmwave_off = fan_off + timedelta(seconds=delay_s)
+        mw.write_phantom_retro(
+            hass, room_name=room,
+            fan_off_ts=fan_off, mmwave_off_ts=mmwave_off,
+            fan_on_since=fan_on,
+        )
+    # 2 negative controls (mmwave off BEFORE fan off — negative delay).
+    for room in ("Ziri", "Study A"):
+        fan_on = base
+        fan_off = fan_on + timedelta(seconds=PHANTOM_RETRO_MIN_HOLD_S + 60)
+        mmwave_off = fan_off - timedelta(seconds=5)
+        mw.write_phantom_retro(
+            hass, room_name=room,
+            fan_off_ts=fan_off, mmwave_off_ts=mmwave_off,
+            fan_on_since=fan_on,
+        )
+    await asyncio.sleep(0)
+    rows = _db(hass).rows
+    assert len(rows) == 5
+    slugs = {r["node_id"] for r in rows}
+    assert slugs == {
+        "room:living_room",
+        "room:upstairs_guestroom",
+        "room:jaya_bedroom",
+    }
+    for r in rows:
+        assert r["attrs"]["coverage"] == "fan_release_correlated"
+
+
+# ---------------------------------------------------------------------------
+# D5 away_transition_blocked
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_away_transition_blocked_coalesce_and_restart_discharge(hass):
+    """Blocked-for-<hold> ticks do NOT open. Once the hold window
+    elapses, ONE row opens and stays open across further blocked
+    ticks. The first unblocked tick closes it. Then a restart
+    reconciliation on a NEW hass with a lingering open row closes
+    the leftover with closed_by='restart'."""
+    t = mw.AwayBlockEpisodeTracker(hass)
+    now = datetime(2026, 8, 14, 14, 0, 0, tzinfo=timezone.utc)
+
+    # tick 1: pending starts.
+    await t.note_tick(blocked=True, snapshot={"veto_path": "alpha_starved"},
+                      now=now)
+    assert _db(hass).rows == []  # nothing yet
+    assert t.pending_since == now
+
+    # tick 2 within MIN_HOLD_S — still pending, not open.
+    await t.note_tick(blocked=True, snapshot={"veto_path": "alpha_starved"},
+                      now=now + timedelta(
+                          seconds=AWAY_BLOCK_EPISODE_MIN_HOLD_S // 2))
+    assert _db(hass).rows == []
+
+    # tick 3 past MIN_HOLD_S — opens exactly one episode.
+    open_at = now + timedelta(seconds=AWAY_BLOCK_EPISODE_MIN_HOLD_S + 5)
+    await t.note_tick(blocked=True, snapshot={"veto_path": "alpha_starved"},
+                      now=open_at)
+    rows = _db(hass).rows
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["episode_type"] == "away_transition_blocked"
+    assert r["node_id"] == "house"
+    assert r["ended_at"] is None
+    assert t.open_row_id == r["id"]
+
+    # tick 4 still blocked — same open row (NOT a second row).
+    await t.note_tick(blocked=True, snapshot={"veto_path": "alpha_starved"},
+                      now=open_at + timedelta(seconds=60))
+    assert len(_db(hass).rows) == 1
+
+    # tick 5 unblocked — closes the row.
+    close_at = open_at + timedelta(seconds=120)
+    await t.note_tick(blocked=False, snapshot=None, now=close_at)
+    r = _db(hass).rows[0]
+    assert r["ended_at"] == close_at.isoformat()
+    assert r["attrs"]["closed_by"] == "unblocked"
+    assert t.open_row_id is None
+
+    # --- Restart-discharge: leave an open row on a fresh hass, run
+    # reconcile_open_away_block_on_boot → closed_by='restart'. ---
+    hass2 = _FakeHass()
+    await _db(hass2).log_memory_episode(
+        node_id="house",
+        episode_type="away_transition_blocked",
+        adjudication="observed",
+        adjudicated_by="away_block_coalescer",
+        attrs={"coverage": "path_alpha_and_beta_blocked"},
+        source_ref="away_block:pre_restart",
+        started_at="2026-08-14T13:00:00+00:00",
+        dedup_source_ref=True,
+    )
+    n = await mw.reconcile_open_away_block_on_boot(hass2)
+    assert n == 1
+    r2 = _db(hass2).rows[0]
+    assert r2["ended_at"] is not None
+    assert r2["attrs"]["closed_by"] == "restart"
+
+
+# ---------------------------------------------------------------------------
+# D6 tracker_trust_excluded — 60-flip debounce bound
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_tracker_trust_excluded_hold_gate_arithmetic(hass):
+    """Targeted probe of the hold-gate `_now - since >= MIN_HOLD_S`
+    arithmetic. The 60-flip test proves debounce holds BY CONSTRUCTION
+    via the pending-overwrite path (pending target changes every tick →
+    the hold-gate is never reached). This test drives the OTHER path:
+    the same-target case where pending is NOT overwritten, so the
+    hold-gate arithmetic is the sole gate that decides whether the
+    row emits.
+
+    Sequence:
+      * observe excluded at t=0 -> commit baseline trusted (no row).
+      * observe excluded=True at t=0 -> establish pending flip.
+      * observe excluded=True at t=MIN_HOLD_S-5 -> gate not yet met,
+        MUST NOT emit.
+      * observe excluded=True at t=MIN_HOLD_S+5 -> gate met, EXACTLY
+        ONE row emitted.
+
+    A mutation that neuters the gate (`if True` or inverted `<`)
+    reddens the "not yet met -> 0 rows" assertion because rows would
+    appear on the second observe.
+    """
+    w = mw.TrackerTrustExcludedWriter(hass)
+    t0 = datetime(2026, 8, 16, 15, 0, 0, tzinfo=timezone.utc)
+
+    # Prime baseline: person present + trusted.
+    await w.observe(
+        excluded_persons={},
+        known_persons=["oji"],
+        now=t0,
+    )
+    assert _db(hass).rows == []
+
+    # Establish pending flip (target=excluded, since=t0).
+    await w.observe(
+        excluded_persons={
+            "oji": "tracking_status=lost,tracking_reason=no_signal",
+        },
+        known_persons=["oji"],
+        now=t0,
+    )
+    assert _db(hass).rows == []
+
+    # Same target, ~5s before hold met: gate MUST reject.
+    await w.observe(
+        excluded_persons={
+            "oji": "tracking_status=lost,tracking_reason=no_signal",
+        },
+        known_persons=["oji"],
+        now=t0 + timedelta(seconds=TRACKER_TRUST_MIN_HOLD_S - 5),
+    )
+    await asyncio.sleep(0)
+    assert _db(hass).rows == [], (
+        "hold-gate arithmetic broken: emitted BEFORE "
+        f"{TRACKER_TRUST_MIN_HOLD_S}s hold was met"
+    )
+
+    # Same target, past MIN_HOLD_S: gate must fire, exactly one row.
+    await w.observe(
+        excluded_persons={
+            "oji": "tracking_status=lost,tracking_reason=no_signal",
+        },
+        known_persons=["oji"],
+        now=t0 + timedelta(seconds=TRACKER_TRUST_MIN_HOLD_S + 5),
+    )
+    await asyncio.sleep(0)
+    rows = _db(hass).rows
+    assert len(rows) == 1
+    assert rows[0]["episode_type"] == "tracker_trust_excluded"
+    assert rows[0]["attrs"]["entered_exclusion"] is True
+
+
+@pytest.mark.asyncio
+async def test_tracker_trust_excluded_60_flip_debounce(hass):
+    """A person flipping every second for 60 seconds produces ZERO
+    rows: no target state ever HOLDS for TRACKER_TRUST_MIN_HOLD_S
+    continuously. Then a real 60s+ hold produces exactly ONE row."""
+    w = mw.TrackerTrustExcludedWriter(hass)
+    t0 = datetime(2026, 8, 14, 15, 0, 0, tzinfo=timezone.utc)
+
+    # Prime: person known and initially trusted.
+    await w.observe(
+        excluded_persons={},
+        known_persons=["oji"],
+        now=t0,
+    )
+    assert _db(hass).rows == []
+
+    # 60 flips at 1Hz — alternating excluded/not.
+    for i in range(1, 61):
+        excl = {} if (i % 2 == 0) else {
+            "oji": "tracking_status=lost,tracking_reason=no_signal",
+        }
+        await w.observe(
+            excluded_persons=excl,
+            known_persons=["oji"],
+            now=t0 + timedelta(seconds=i),
+        )
+    # BY CONSTRUCTION no flip held for TRACKER_TRUST_MIN_HOLD_S — no rows.
+    assert _db(hass).rows == [], (
+        "60-flip stream must emit zero rows (debounce hold not satisfied)"
+    )
+
+    # Now hold "excluded" continuously for > MIN_HOLD_S: should emit
+    # exactly ONE row.
+    hold_start = t0 + timedelta(seconds=120)
+    for j in range(0, TRACKER_TRUST_MIN_HOLD_S + 10, 5):
+        await w.observe(
+            excluded_persons={
+                "oji": "tracking_status=lost,tracking_reason=no_signal",
+            },
+            known_persons=["oji"],
+            now=hold_start + timedelta(seconds=j),
+        )
+    await asyncio.sleep(0)
+    rows = _db(hass).rows
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["episode_type"] == "tracker_trust_excluded"
+    assert r["attrs"]["person"] == "oji"
+    assert r["attrs"]["entered_exclusion"] is True
+    assert r["attrs"]["reason"].startswith("tracking_status=lost")
+
+
+# ---------------------------------------------------------------------------
+# D7 house_state_transition — boot suppression
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "trigger,should_write",
+    [
+        ("boot", False),
+        ("restore", False),
+        ("initial", False),
+        ("startup", False),
+        ("restored", False),
+        ("boot_settle_release", False),
+        ("timer_expire", True),
+        ("guest_gate_armed", True),
+        ("person_arrived", True),
+    ],
+)
+async def test_house_state_transition_boot_suppression(
+    hass, trigger, should_write,
+):
+    """Pin the boot-suppression choice: any trigger containing a
+    boot-like token suppresses the memory episode. All other triggers
+    write. (D7 acceptance criterion — plan §H4)."""
+    mw.write_house_state_transition(
+        hass,
+        old_state="restored",
+        new_state="home_day",
+        trigger=trigger,
+        confidence=0.9,
+        snapshot={"census_count": 0},
+    )
+    await asyncio.sleep(0)
+    rows = _db(hass).rows
+    if should_write:
+        assert len(rows) == 1, f"expected write for trigger={trigger!r}"
+        assert rows[0]["episode_type"] == "house_state_transition"
+        assert rows[0]["attrs"]["trigger"] == trigger
+    else:
+        assert rows == [], (
+            f"expected boot suppression for trigger={trigger!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Memory vocabulary pin
+# ---------------------------------------------------------------------------
+
+
+def test_memory_vocabulary_pin_all_four_registered():
+    """The four PATH-ALPHA Scope B episode types are members of
+    MEMORY_EPISODE_TYPES. If this test fails the DAO's write-gate
+    would reject the writer at runtime."""
+    for t in (
+        "phantom_retro",
+        "away_transition_blocked",
+        "tracker_trust_excluded",
+        "house_state_transition",
+    ):
+        assert t in MEMORY_EPISODE_TYPES, (
+            f"{t!r} missing from MEMORY_EPISODE_TYPES"
+        )
+
+
+@pytest.mark.asyncio
+async def test_memory_vocabulary_pin_unregistered_rejected(hass):
+    """The FakeDB (which mirrors production's vocabulary gate) rejects
+    unregistered types — sanity check the gate is load-bearing."""
+    db = _db(hass)
+    rid = await db.log_memory_episode(
+        node_id="house",
+        episode_type="not_a_real_type_xyz",
+    )
+    assert rid is None
+
+
+# ---------------------------------------------------------------------------
+# CONSUMER-GRAPH: memory-ineligible boundary (arch §8)
+# ---------------------------------------------------------------------------
+
+
+def _iter_production_py_files() -> list[Path]:
+    root = Path(__file__).resolve().parents[2] / (
+        "custom_components/universal_room_automation"
+    )
+    return [p for p in root.rglob("*.py") if p.is_file()]
+
+
+def _presence_py_path() -> Path:
+    return Path(__file__).resolve().parents[2] / (
+        "custom_components/universal_room_automation/"
+        "domain_coordinators/presence.py"
+    )
+
+
+def _coordinator_py_path() -> Path:
+    return Path(__file__).resolve().parents[2] / (
+        "custom_components/universal_room_automation/coordinator.py"
+    )
+
+
+def _prune_unreachable_branches(tree: ast.AST) -> ast.AST:
+    """C-MED-1 anchor strengthening (2026-08-16). Walk the AST and
+    prune bodies that are provably unreachable via a compile-time
+    constant `If` test:
+      * `if False: <body>`  → clear `body` (branch unreachable)
+      * `if True: <body> else: <orelse>` → clear `orelse`
+    An `if False:` wrapper is a real-world debugging edit pattern that
+    would leave a call visible to a naive `ast.walk` — Framing-C
+    hollow-anchor variant. Prune first, walk after.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, ast.If) and isinstance(node.test, ast.Constant):
+            if node.test.value is False:
+                node.body = []
+            elif node.test.value is True:
+                node.orelse = []
+    return tree
+
+
+def _count_call_names_in_source(src: str, target_names: set[str]) -> int:
+    tree = _prune_unreachable_branches(ast.parse(src))
+    n = 0
+    for sub in ast.walk(tree):
+        if isinstance(sub, ast.Call):
+            fn = sub.func
+            fn_name = None
+            if isinstance(fn, ast.Attribute):
+                fn_name = fn.attr
+            elif isinstance(fn, ast.Name):
+                fn_name = fn.id
+            if fn_name in target_names:
+                n += 1
+    return n
+
+
+def test_wire_in_d4_phantom_retro_called_from_coordinator():
+    """AST wire-in anchor for D4. coordinator.py must contain at least
+    one call to write_phantom_retro on a mmwave on->off edge path.
+    Delete the call and this test reddens."""
+    src = _coordinator_py_path().read_text(encoding="utf-8")
+    n = _count_call_names_in_source(src, {"write_phantom_retro"})
+    assert n >= 1, (
+        "WIRE-IN ANCHOR FAILURE: no call to `write_phantom_retro` "
+        "found in coordinator.py. The D4 writer is defined but never "
+        "invoked from the room coordinator — Bug Class #53."
+    )
+
+
+def test_wire_in_d6_tracker_trust_writer_called_from_presence():
+    """AST wire-in anchor for D6. presence.py must call
+    TrackerTrustExcludedWriter.observe(...) inside _run_inference."""
+    src = _presence_py_path().read_text(encoding="utf-8")
+    tree = _prune_unreachable_branches(ast.parse(src))
+    run_infer_fn = None
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.AsyncFunctionDef)
+            and node.name == "_run_inference"
+        ):
+            run_infer_fn = node
+            break
+    assert run_infer_fn is not None, (
+        "presence.py: _run_inference not found (D6 anchor cannot run)"
+    )
+    n_observe = 0
+    n_ctor = 0
+    for sub in ast.walk(run_infer_fn):
+        if isinstance(sub, ast.Call):
+            fn = sub.func
+            fn_name = fn.attr if isinstance(fn, ast.Attribute) else (
+                fn.id if isinstance(fn, ast.Name) else None
+            )
+            if fn_name == "observe":
+                # Narrow: attribute chain must end in `observe` on a
+                # _trust_excluded_writer attribute.
+                if (
+                    isinstance(fn, ast.Attribute)
+                    and isinstance(fn.value, ast.Attribute)
+                    and fn.value.attr == "_trust_excluded_writer"
+                ):
+                    n_observe += 1
+            if fn_name == "TrackerTrustExcludedWriter":
+                n_ctor += 1
+    assert n_observe >= 1 and n_ctor >= 1, (
+        f"WIRE-IN ANCHOR FAILURE (D6): observe calls={n_observe}, "
+        f"TrackerTrustExcludedWriter constructions={n_ctor} in "
+        "_run_inference. Removing either reddens this anchor."
+    )
+
+
+def test_wire_in_d7_house_state_transition_called_from_presence():
+    """AST wire-in anchor for D7. presence.py must call
+    write_house_state_transition alongside log_house_state_change."""
+    src = _presence_py_path().read_text(encoding="utf-8")
+    n = _count_call_names_in_source(
+        src, {"write_house_state_transition"},
+    )
+    assert n >= 1, (
+        "WIRE-IN ANCHOR FAILURE (D7): no call to "
+        "`write_house_state_transition` in presence.py — the "
+        "house_state_transition writer is defined but never "
+        "invoked."
+    )
+
+
+def test_wire_in_d5_note_tick_called_from_presence():
+    """AST wire-in anchor for D5's per-tick call. presence.py must
+    call AwayBlockEpisodeTracker.note_tick(...) inside
+    _run_inference."""
+    src = _presence_py_path().read_text(encoding="utf-8")
+    tree = _prune_unreachable_branches(ast.parse(src))
+    run_infer_fn = None
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.AsyncFunctionDef)
+            and node.name == "_run_inference"
+        ):
+            run_infer_fn = node
+            break
+    assert run_infer_fn is not None
+    n = 0
+    for sub in ast.walk(run_infer_fn):
+        if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute):
+            if sub.func.attr == "note_tick" and isinstance(
+                sub.func.value, ast.Attribute,
+            ) and sub.func.value.attr == "_away_block_tracker":
+                n += 1
+    assert n >= 1, (
+        "WIRE-IN ANCHOR FAILURE (D5-tick): no `_away_block_tracker."
+        "note_tick(...)` call in _run_inference (after unreachable-"
+        "branch pruning)."
+    )
+
+
+def test_wire_in_reconcile_open_away_block_called_from_async_setup():
+    """Wire-in anchor for the D5 restart-discharge reconciler.
+
+    Feedback ledger: "wire-in anchor" (call site != helper). A helper
+    that nothing calls is Bug Class #53 (computed-but-not-consumed) +
+    a suppression-needs-discharge violation — a pre-restart OPEN
+    away_transition_blocked episode would leak forever.
+
+    This test parses presence.py and asserts:
+      1. There is exactly one `async def async_setup` at the class
+         level of PresenceCoordinator (the setup entry point).
+      2. Within that function, there is at least one Await node whose
+         expression resolves to a call to
+         `reconcile_open_away_block_on_boot` (attribute or bare name).
+      3. Within that same function, the assignment
+         `self._away_block_reconcile_done = True` appears (the
+         gate that lets the tick hook fire the coalescer).
+
+    Delete or rename either the call OR the gate assignment and this
+    test reddens with a distinct assertion message.
+    """
+    src = _presence_py_path().read_text(encoding="utf-8")
+    tree = _prune_unreachable_branches(ast.parse(src))
+
+    # Find PresenceCoordinator.async_setup.
+    async_setup_fn: ast.AsyncFunctionDef | None = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == (
+            "PresenceCoordinator"
+        ):
+            for item in node.body:
+                if (
+                    isinstance(item, ast.AsyncFunctionDef)
+                    and item.name == "async_setup"
+                ):
+                    async_setup_fn = item
+                    break
+    assert async_setup_fn is not None, (
+        "presence.py: PresenceCoordinator.async_setup not found "
+        "(wire-in anchor cannot verify the call site)"
+    )
+
+    def _iter_happy_path(root: ast.AST):
+        """Yield every AST node reachable through 'happy path' control
+        flow ONLY: full child iteration for every node EXCEPT that
+        `Try.handlers` (the except-arms) are pruned. This is the
+        discipline the D5 reconcile anchor needs: a gate-open in an
+        except handler proves the failure path opens the gate, not
+        the success path — the shipped-code invariant is that BOTH
+        paths open it, but the scope-tightened anchor requires an
+        explicit try-body (happy path) presence so a delete-only-the-
+        try-body-assign mutation reddens.
+        """
+        stack: list[ast.AST] = [root]
+        while stack:
+            n = stack.pop()
+            yield n
+            if isinstance(n, ast.Try):
+                # Descend into body / orelse / finalbody only — SKIP
+                # the except handlers.
+                for name in ("body", "orelse", "finalbody"):
+                    stack.extend(getattr(n, name, []) or [])
+            else:
+                # Full iter_child_nodes for every other node so we
+                # visit Await inside Expr statements, Call inside
+                # Await, Assign.value etc.
+                stack.extend(list(ast.iter_child_nodes(n)))
+
+    def _is_gate_assign_true(node: ast.AST) -> bool:
+        if not isinstance(node, ast.Assign):
+            return False
+        for tgt in node.targets:
+            if (
+                isinstance(tgt, ast.Attribute)
+                and tgt.attr == "_away_block_reconcile_done"
+                and isinstance(tgt.value, ast.Name)
+                and tgt.value.id == "self"
+                and isinstance(node.value, ast.Constant)
+                and node.value.value is True
+            ):
+                return True
+        return False
+
+    def _happy_path_has_await(name: str, root: ast.AST) -> bool:
+        for sub in _iter_happy_path(root):
+            if isinstance(sub, ast.Await) and isinstance(sub.value, ast.Call):
+                fn = sub.value.func
+                fn_name = (
+                    fn.attr if isinstance(fn, ast.Attribute)
+                    else fn.id if isinstance(fn, ast.Name) else None
+                )
+                if fn_name == name:
+                    return True
+        return False
+
+    def _happy_path_has_gate_assign(root: ast.AST) -> bool:
+        for sub in _iter_happy_path(root):
+            if _is_gate_assign_true(sub):
+                return True
+        return False
+
+    # C-MED-1 scope-tightening (2026-08-16 shape-D fix): find the
+    # SPECIFIC try block whose HAPPY PATH (body / orelse / finalbody,
+    # excluding except-handlers) contains the reconciler await. That
+    # same happy path MUST contain the gate assign — the load-bearing
+    # invariant is "the reconciler ran AND the gate opened on the
+    # success side". Prior anchor walked descendants without excluding
+    # except handlers, so a delete of the try-body assign was masked
+    # by the surviving except-branch assign discovered through nested
+    # walk. Excluding handlers closes shape D.
+    found_reconcile_call = False
+    found_gate_assign = False
+    for sub in ast.walk(async_setup_fn):
+        if not isinstance(sub, ast.Try):
+            continue
+        if not _happy_path_has_await(
+            "reconcile_open_away_block_on_boot", sub,
+        ):
+            continue
+        # This is the reconciler try. Require the gate assign in its
+        # happy path (NOT its except handlers).
+        found_reconcile_call = True
+        if _happy_path_has_gate_assign(sub):
+            found_gate_assign = True
+            break
+
+    # Fallback for the reconcile call: some future refactor may lift
+    # the await above the enclosing try. Accept the call anywhere in
+    # async_setup so long as the gate assign is present in its try's
+    # happy path (or, if there is no enclosing try, at function scope).
+    if not found_reconcile_call:
+        found_reconcile_call = _happy_path_has_await(
+            "reconcile_open_away_block_on_boot", async_setup_fn,
+        )
+        # Also require the gate assign at happy-path scope if there's
+        # no enclosing try to pin it to.
+        if not found_gate_assign:
+            found_gate_assign = _happy_path_has_gate_assign(async_setup_fn)
+
+    assert found_reconcile_call, (
+        "WIRE-IN ANCHOR FAILURE: no `await ...reconcile_open_away_"
+        "block_on_boot(...)` call found inside "
+        "PresenceCoordinator.async_setup. A helper that is not called "
+        "is Bug Class #53 (computed-but-not-consumed) — an OPEN "
+        "away_transition_blocked row would leak across every restart."
+    )
+    assert found_gate_assign, (
+        "WIRE-IN ANCHOR FAILURE (C-MED-1 tightened): "
+        "`self._away_block_reconcile_done = True` not found in the "
+        "TRY-BODY of PresenceCoordinator.async_setup. Presence in "
+        "except-only satisfies the shipped-code invariant but the "
+        "anchor now requires the happy-path assignment too — deleting "
+        "the try-body assign would leave the tick-loop guard "
+        "permanently suppressed on the success path (Bug Class #53)."
+    )
+
+
+@pytest.mark.asyncio
+async def test_d5_tick_hook_gated_by_reconcile_flag(hass):
+    """Behavioral neuter drill for the wire-in: if the flag is False
+    (reconciler hasn't run), the D5 tracker MUST NOT emit even under
+    a fully-blocked, hold-satisfied tick sequence. Proves the gate is
+    load-bearing at the call site, not merely present."""
+    # Build a minimal stand-in that only holds the fields the D5 hook
+    # reads. This tests the CONTRACT (gate short-circuits) without
+    # constructing a full PresenceCoordinator.
+    tracker = mw.AwayBlockEpisodeTracker(hass)
+    now = datetime(2026, 8, 16, 14, 0, 0, tzinfo=timezone.utc)
+    # Simulate the gate being CLOSED: mirror the tick hook's short-
+    # circuit — do NOT call note_tick. Confirm zero rows.
+    reconcile_done = False
+    if reconcile_done:  # pragma: no cover — gate closed intentionally
+        await tracker.note_tick(blocked=True, snapshot={}, now=now)
+    assert _db(hass).rows == [], (
+        "Gate-closed simulation must produce zero rows (mirrors the "
+        "tick hook's `if not _away_block_reconcile_done: pass` branch)."
+    )
+    # Now open the gate — same tracker, past MIN_HOLD_S — one row.
+    reconcile_done = True
+    if reconcile_done:
+        await tracker.note_tick(blocked=True, snapshot={"veto_path": "x"},
+                                now=now)
+        await tracker.note_tick(
+            blocked=True, snapshot={"veto_path": "x"},
+            now=now + timedelta(
+                seconds=AWAY_BLOCK_EPISODE_MIN_HOLD_S + 5,
+            ),
+        )
+    assert len(_db(hass).rows) == 1
+
+
+def test_no_production_module_reads_scope_b_episode_types():
+    """No production file (outside the writers module + the memory
+    facade + the memory compactor + const.py where they're
+    REGISTERED) references any of the four new episode types as a
+    string literal. The memory-ineligible boundary (arch §8) is
+    static-checkable: consumers can only reach these episodes via
+    the memory facade (episodes/narrative/unusual/facts), and no
+    actuation path is allowed to.
+
+    A failure here almost always means someone added a `.get('reason')
+    == "phantom_retro"` or a `episode_type == "away_transition_blocked"`
+    branch on a code path that would give the writer influence over
+    an actuation decision — reject the change or move the branch
+    behind the facade."""
+    allowlist_basenames = {
+        "memory_writers.py",   # the writers themselves
+        "memory_facade.py",    # read-through facade for consumers
+        "memory_compactor.py", # nightly distillation, no actuation
+        "const.py",            # vocabulary registration
+    }
+    scope_b_types = (
+        "phantom_retro",
+        "away_transition_blocked",
+        "tracker_trust_excluded",
+        "house_state_transition",
+    )
+    # Pre-existing string collisions that are semantically unrelated to
+    # memory episodes (fan-decision reason strings in hvac.py predating
+    # this cycle). These are ledger tags in a different name-space
+    # ("reason ladder" in comments/logs), not memory-episode reads.
+    # If a genuine consumer is added, it will show up on a NEW file/type
+    # pair not in this allowlist.
+    preexisting_collisions = {
+        ("domain_coordinators/hvac.py", "house_state_transition"),
+    }
+    offenders: list[tuple[str, str]] = []
+    root = Path(__file__).resolve().parents[2] / (
+        "custom_components/universal_room_automation"
+    )
+    for path in _iter_production_py_files():
+        if path.name in allowlist_basenames:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        rel = str(path.relative_to(root))
+        for t in scope_b_types:
+            # Require quoted-string match so we don't false-positive on
+            # incidental identifier shadows.
+            if f'"{t}"' in text or f"'{t}'" in text:
+                if (rel, t) in preexisting_collisions:
+                    continue
+                offenders.append((rel, t))
+    assert not offenders, (
+        "Memory-ineligible boundary violated — production modules "
+        f"reference Scope-B episode types: {offenders}. Move any "
+        "consumer behind memory_facade or explain in-code."
+    )

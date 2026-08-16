@@ -50,9 +50,43 @@ from .const import (
     TRACKING_STATUS_LOST,
     STALE_THRESHOLD_SECONDS,
     MAX_RECENT_PATH_LENGTH,
+    # PATH-ALPHA D2a (rev-3.5.1): unified matrix classifier vocabulary + knob.
+    TRACKING_REASON_VALUES,
+    BLE_SILENT_ONLY_AWAY_CONFIDENCE,
+    ATTR_TRACKING_REASON,
+    ATTR_TRACKER_SOURCES,
 )
 
+# PATH-ALPHA D2a: BLE fleet liveness window (seconds). If any tracked
+# person had a Bermuda area update within this window, the scanner fleet
+# is considered "provably live" and a per-person BLE=silent stamp is
+# admissible as row 14 (away_ble_silent_only). Otherwise BLE=silent
+# degrades to BLE=indeterminate and the person falls to row 16 (no_signal)
+# rather than casting a spurious away vote. Rung 1 (module constant) —
+# protocol-level fail-safe; any change requires code review.
+BLE_FLEET_LIVENESS_WINDOW_S = 90
+
 _LOGGER = logging.getLogger(__name__)
+
+
+# PATH-ALPHA D2a: matrix-row stamp builder. Enforces WARN-gated vocabulary
+# — any tracking_reason not in TRACKING_REASON_VALUES logs a WARN and is
+# preserved as-is (fail-open so a typo doesn't silently disappear a
+# person; tests assert the frozenset invariant separately).
+def _stamp(status: str, location: str, confidence: float,
+           tracking_reason: str, tracker_sources: dict[str, str]) -> dict[str, Any]:
+    if tracking_reason not in TRACKING_REASON_VALUES:
+        _LOGGER.warning(
+            "PATH-ALPHA classifier: tracking_reason=%r not in TRACKING_REASON_VALUES "
+            "(vocabulary drift — fix classifier or const.py)", tracking_reason,
+        )
+    return {
+        "tracking_status": status,
+        "location": location,
+        "confidence": confidence,
+        ATTR_TRACKING_REASON: tracking_reason,
+        ATTR_TRACKER_SOURCES: dict(tracker_sources),
+    }
 
 
 class PersonTrackingCoordinator(DataUpdateCoordinator):
@@ -120,6 +154,249 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             self.decay_timeout
         )
 
+        # PATH-ALPHA D2a: one-time-per-boot NM note guard for missing person
+        # entities (S6 pre-matrix guard). A persistent config error must not
+        # spam NM every tick; the set is cleared only on process restart.
+        self._entity_missing_noted: set[str] = set()
+
+    # =========================================================================
+    # PATH-ALPHA D2a (rev-3.5.1) — UNIFIED MATRIX CLASSIFIER
+    # =========================================================================
+    # HISTORICAL LINEAGE: this classifier corrects v4.7.14.1 H3 / Gap C's
+    # over-reach — that hotfix rightly distrusted stale-fallback locations
+    # but lumped confidently-away trackers in with genuinely-unknown ones
+    # under a single LOST label, silently emptying the trusted denominator
+    # in AWAY-BLOCK-1 three months later. The rev-3.5.1 unified matrix
+    # PRESERVES H3's correct half (row 16 no_signal fail-safe + the
+    # `tracked_count > 0` guard consumed at presence.py) while decomposing
+    # the over-reach: positive-away-evidence tuples now stamp ACTIVE+away
+    # via `tracking_reason` (rows 6/9/11/13/14), and BLE-silent-at-home
+    # with a non-BLE home affirmation stamps ACTIVE+home+`home_ble_silent`
+    # (rows 2/3/5/10) instead of vanishing into LOST. TRUE LOST is
+    # reserved for S5 (`no_signal`, row 16) and S6 (`entity_missing`,
+    # pre-matrix guard). MUST NOT be widened back — see
+    # docs/planning/AUDIT_tracking_status_consumers.md §historical lineage.
+    #
+    # INVARIANT I-α (falsifiable): no-signal MUST NEVER produce an away
+    # vote. Any classifier output whose (state, location) pair implies a
+    # trusted-away contribution and whose tracking_reason is `no_signal`
+    # violates the invariant.
+    # =========================================================================
+
+    def _read_source_inventory(self, person_state) -> dict[str, str]:
+        """Live per-tick source-axis inventory for one person.
+
+        Returns a dict keyed by axis ('gps', 'wifi', 'ble') with vocabulary
+        values drawn from rev-3.5.1: GPS ∈ {home, away, unknown, MISSING};
+        WiFi ∈ {home, not_home, unavailable, MISSING}; BLE ∈ {visible,
+        silent, indeterminate, MISSING}. Never cached — this is called on
+        every classifier invocation so a person that gains or loses a
+        tracker mid-day is reflected immediately (operator: "GPS presence
+        is mutable for now").
+
+        BLE axis is intentionally left at MISSING here; the caller layers
+        Bermuda-area-sensor evidence + fleet-liveness on top.
+        """
+        sources: dict[str, str] = {"gps": "MISSING", "wifi": "MISSING", "ble": "MISSING"}
+        try:
+            attrs = getattr(person_state, "attributes", {}) or {}
+            device_trackers = attrs.get("device_trackers") or []
+        except Exception:  # noqa: BLE001 - defensive
+            return sources
+
+        for tracker_id in device_trackers:
+            try:
+                ts = self.hass.states.get(tracker_id)
+            except Exception:  # noqa: BLE001
+                continue
+            if ts is None:
+                continue
+            try:
+                t_attrs = getattr(ts, "attributes", {}) or {}
+                src_type = str(t_attrs.get("source_type", "")).lower()
+                state = str(getattr(ts, "state", "") or "")
+            except Exception:  # noqa: BLE001
+                continue
+
+            if src_type == "gps":
+                # HA companion GPS: state in {"home","not_home","<zone>","unknown","unavailable"}.
+                if state == "home":
+                    sources["gps"] = "home"
+                elif state in ("unknown", "unavailable", "", "None"):
+                    sources["gps"] = "unknown"
+                else:
+                    # not_home OR any named zone → treat as away signal.
+                    sources["gps"] = "away"
+            elif src_type == "router":
+                if state == "home":
+                    sources["wifi"] = "home"
+                elif state in ("unavailable",):
+                    sources["wifi"] = "unavailable"
+                elif state in ("unknown", "", "None"):
+                    sources["wifi"] = "unavailable"
+                else:
+                    sources["wifi"] = "not_home"
+            # BLE trackers show up as source_type=bluetooth_le / private_ble;
+            # handled via the Bermuda area sensor path (higher-fidelity than
+            # the raw device_tracker.state).
+        return sources
+
+    def _ble_fleet_live(self, now: datetime) -> bool:
+        """True if the BLE scanner fleet is provably live in the last window.
+
+        Uses the PREVIOUS-tick `self.data` snapshot: if any tracked person
+        has a `last_bermuda_update` within BLE_FLEET_LIVENESS_WINDOW_S, the
+        fleet is currently detecting *someone*, so a per-person BLE=silent
+        stamp is admissible as row 14 (away_ble_silent_only). Otherwise
+        BLE=silent degrades to indeterminate and the person falls to
+        row 16 (no_signal) rather than casting a spurious away vote.
+
+        A-M1 fix (2026-08-16): empty `self.data` is the FIRST-TICK
+        boot state — there is no evidence YET that the fleet is live.
+        Prior behavior returned True (fail-open) which admitted
+        `away_ble_silent_only` stamps during the boot-window with
+        conf 0.82; the outer wrapper's `_ps_state=="not_home"`
+        coercion neutralized the vote-shape risk (I-α still held), but
+        `tracking_reason` was mis-attributed to BLE-only-away instead
+        of the true `away_wifi_only` shape. Now returns False on
+        empty data: no boot-tick BLE-only admission until at least
+        one Bermuda update proves the fleet responsive. I-α is
+        UNCHANGED (still no away vote from zero evidence — the row-16
+        fallback still fires; the wrapper still coerces
+        `_ps_state=="not_home"` to away via `away_wifi_only`). See
+        Review A M1.
+
+        Fail-open on `.data` access exception preserved (attribute
+        error path); the fix targets the deterministic empty case.
+        """
+        try:
+            data = self.data or {}
+        except Exception:  # noqa: BLE001
+            return True  # exception path: fail-open (unchanged)
+        if not data:
+            return False  # A-M1: first-tick / boot — fleet not proven live
+        window = timedelta(seconds=BLE_FLEET_LIVENESS_WINDOW_S)
+        for _pname, pinfo in data.items():
+            last = pinfo.get("last_bermuda_update") if isinstance(pinfo, dict) else None
+            if last is None:
+                continue
+            try:
+                if (now - last) <= window:
+                    return True
+            except Exception:  # noqa: BLE001 - tz-aware vs naive
+                continue
+        return False
+
+    def _classify_matrix_row(
+        self,
+        person_hass_state: str,
+        sources: dict[str, str],
+        ble_axis: str,
+        ble_liveness_provable: bool,
+    ) -> dict[str, Any]:
+        """Map (person_state, GPS, WiFi, BLE) tuple → matrix row stamp.
+
+        Returns a dict with keys: tracking_status, location, confidence,
+        tracking_reason, tracker_sources. Called from the two "Bermuda
+        exists but no room" and "no Bermuda sensor" branches; row 1
+        (BLE-visible@home_room) is handled inline at the room-resolved
+        branch since it already has the room name in hand.
+
+        INVARIANT I-α enforced here: `no_signal` NEVER pairs with an
+        away location. Rows 4/8 (S4 anomalous) are still stamped ACTIVE
+        per rev-3.5.1 with a distinct `tracking_reason` — H3's away-block
+        pathology came from *silent* LOST-inclusion, not from labeled
+        deferral.
+        """
+        gps = sources.get("gps", "MISSING")
+        wifi = sources.get("wifi", "MISSING")
+        ble = ble_axis if ble_axis in ("visible", "silent", "indeterminate", "MISSING") else "MISSING"
+        # Liveness gate: BLE=silent requires provable fleet liveness. Else
+        # degrade to indeterminate (contributes no positive evidence).
+        if ble == "silent" and not ble_liveness_provable:
+            ble = "indeterminate"
+
+        state_str = (person_hass_state or "").lower()
+        sources_out = {"gps": gps, "wifi": wifi, "ble": ble}
+
+        gps_home = gps == "home"
+        gps_away = gps == "away"
+        wifi_home = wifi == "home"
+        wifi_not_home = wifi == "not_home"
+
+        # ---- S2 case-(b): affirmative non-BLE home evidence. Rows 2/3/10 ----
+        if gps_home and wifi_home:
+            conf = 0.85 if ble == "silent" else 0.80  # row 2 vs row 3
+            return _stamp(TRACKING_STATUS_ACTIVE, "home", conf, "home_ble_silent", sources_out)
+        if gps_home and wifi == "not_home":
+            # Row 4 anomaly (GPS home + WiFi off): still ACTIVE-home, low
+            # conf; instrumentation via `anomalous_gps_stale_local_gone`.
+            return _stamp(TRACKING_STATUS_ACTIVE, "home", 0.5,
+                          "anomalous_gps_stale_local_gone", sources_out)
+        if gps_home and wifi in ("unavailable", "MISSING"):
+            # Row 10 case-(b) GPS-only home.
+            return _stamp(TRACKING_STATUS_ACTIVE, "home", 0.75,
+                          "home_ble_silent", sources_out)
+
+        # ---- S4 anomaly: GPS-lag arrival (row 8) ----
+        if gps_away and wifi_home:
+            return _stamp(TRACKING_STATUS_ACTIVE, "home", 0.85,
+                          "anomalous_gps_lag_arrival", sources_out)
+
+        # ---- S3 away rows ----
+        if gps_away and wifi_not_home:
+            return _stamp(TRACKING_STATUS_ACTIVE, "away", 0.99,
+                          "away_all_agree", sources_out)
+        if gps_away and wifi in ("unavailable", "MISSING"):
+            return _stamp(TRACKING_STATUS_ACTIVE, "away", 0.92,
+                          "away_gps_only", sources_out)
+
+        # GPS unknown/MISSING from here.
+        # Case-(b) via WiFi-only home (operator forest-check: WiFi=home
+        # alone is affirmative → S2). Row 3-equivalent when BLE cold; row
+        # 2-equivalent when BLE silent w/ liveness proof.
+        if wifi_home:
+            conf = 0.85 if ble == "silent" else 0.75
+            return _stamp(TRACKING_STATUS_ACTIVE, "home", conf,
+                          "home_ble_silent", sources_out)
+
+        if wifi_not_home and ble == "silent":
+            return _stamp(TRACKING_STATUS_ACTIVE, "away", 0.95,
+                          "away_wifi_silent_local", sources_out)
+        if wifi_not_home:
+            return _stamp(TRACKING_STATUS_ACTIVE, "away", 0.90,
+                          "away_wifi_only", sources_out)
+
+        # Row 14 — BLE-only away (Ziri canonical path). Knob-controlled;
+        # default 0.82 < path-α threshold 0.9 so solo BLE-only cannot flip
+        # house alone. See const.py BLE_SILENT_ONLY_AWAY_CONFIDENCE.
+        if ble == "silent":
+            return _stamp(TRACKING_STATUS_ACTIVE, "away",
+                          BLE_SILENT_ONLY_AWAY_CONFIDENCE,
+                          "away_ble_silent_only", sources_out)
+
+        # ---- Fallback on HA person aggregation when sources are all silent ----
+        # This preserves case-(b) for a person whose device_trackers list
+        # is empty but HA's own aggregation reports "home" (e.g. via
+        # zone-based person entity fed by a source we didn't classify).
+        if state_str == "home":
+            return _stamp(TRACKING_STATUS_ACTIVE, "home", 0.75,
+                          "home_ble_silent", sources_out)
+        # Named zone / not_home via HA aggregation → treat as WiFi-only away
+        # equivalent (rev-3.5.1 §3 :385 disposition).
+        if state_str and state_str not in ("unknown", "unavailable", "none"):
+            if state_str == "not_home":
+                return _stamp(TRACKING_STATUS_ACTIVE, "away", 0.90,
+                              "away_wifi_only", sources_out)
+            # Named zone → still an away-affirmative HA state.
+            return _stamp(TRACKING_STATUS_ACTIVE, "away", 0.90,
+                          "away_wifi_only", sources_out)
+
+        # ---- S5 row 16 — NO_SIGNAL / epistemic null. INVARIANT I-α: no
+        #      away vote from this cell. Refuses to vote. Fail-safe. ----
+        return _stamp(TRACKING_STATUS_LOST, "unknown", 0.0,
+                      "no_signal", sources_out)
+
     async def _async_update_data(self) -> dict[str, Any]:
         """
         Fetch person location data with staleness decay tracking.
@@ -150,7 +427,19 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                 person_state = self.hass.states.get(person_entity_id)
                 
                 if not person_state:
-                    _LOGGER.warning("Person entity not found: %s", person_entity_id)
+                    # PATH-ALPHA D2a rev-3.5.1 PRE-MATRIX GUARD (S6):
+                    # `person.<name>` entity does not exist — a persistent
+                    # config error, structurally distinct from S5 no_signal
+                    # (which is transient). One-time WARN per boot to avoid
+                    # NM spam; NM wiring is a separate deliverable.
+                    if person_name not in self._entity_missing_noted:
+                        _LOGGER.warning(
+                            "Person entity not found: %s (S6 entity_missing "
+                            "pre-matrix guard — persistent config error; "
+                            "person will be excluded from I-α denominator)",
+                            person_entity_id,
+                        )
+                        self._entity_missing_noted.add(person_name)
                     # v5.7.0 WS-A3: stamp LOST-since for grace timing.
                     if person_name not in self._person_lost_since:
                         self._person_lost_since[person_name] = now
@@ -169,6 +458,9 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                         "confidence": 0.0,
                         "method": "none",
                         "recent_path": old_path,
+                        # PATH-ALPHA D2a: S6 attributes.
+                        ATTR_TRACKING_REASON: "entity_missing",
+                        ATTR_TRACKER_SOURCES: {"gps": "MISSING", "wifi": "MISSING", "ble": "MISSING"},
                     }
                     continue
                 
@@ -227,6 +519,11 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                         last_bermuda_update = now
                         tracking_status = TRACKING_STATUS_ACTIVE
                         
+                        # PATH-ALPHA D2a rev-3.5.1: S1 row 1 — BLE visible at
+                        # a home room (Bermuda-authoritative). Attach live
+                        # source inventory (BLE axis = visible@<home_room>).
+                        _s1_sources = self._read_source_inventory(person_state)
+                        _s1_sources["ble"] = "visible"
                         person_data[person_name] = {
                             "location": resolved_room,
                             "bermuda_area": bermuda_area,  # Original Bermuda area for debugging
@@ -238,6 +535,9 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                             "confidence": confidence,
                             "method": "bermuda",
                             "recent_path": recent_path,
+                            # PATH-ALPHA D2a: S1 attributes (row 1).
+                            ATTR_TRACKING_REASON: "bermuda",
+                            ATTR_TRACKER_SOURCES: _s1_sources,
                         }
                         
                         _LOGGER.debug(
@@ -316,6 +616,9 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                                 last_bermuda_update = old_last_bermuda_update
                                 confidence = max(0.1, old_data.get("confidence", 0.3) * 0.5)  # Decay confidence
                                 
+                                # PATH-ALPHA D2a: O2 STALE overlay — inherit
+                                # tracking_reason from the last active stamp
+                                # (rev-3.5.1 §3 :314 disposition).
                                 person_data[person_name] = {
                                     "location": location,
                                     "previous_location": old_data.get("previous_location", "unknown"),
@@ -326,6 +629,11 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                                     "confidence": confidence,
                                     "method": "bermuda_decay",
                                     "recent_path": old_path,
+                                    ATTR_TRACKING_REASON: old_data.get(ATTR_TRACKING_REASON, "bermuda"),
+                                    ATTR_TRACKER_SOURCES: old_data.get(
+                                        ATTR_TRACKER_SOURCES,
+                                        {"gps": "MISSING", "wifi": "MISSING", "ble": "indeterminate"},
+                                    ),
                                 }
                                 _LOGGER.debug(
                                     "Person %s: Bermuda stale (%.0fs since update), keeping location '%s' with status '%s'",
@@ -349,54 +657,114 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                             new_previous_location = old_previous_location
                             new_previous_location_time = old_previous_location_time
 
-                        if person_state.state == "home":
+                        # PATH-ALPHA D2a rev-3.5.1: Bermuda sensor exists but
+                        # NO room resolved. Three-way positive-evidence split
+                        # replacing the prior two-way (home vs else) branch
+                        # that stamped LOST for BOTH ACTIVE-home (case-b) AND
+                        # ACTIVE-away — the v4.7.14.1 H3 over-reach that
+                        # emptied the trusted denominator (AWAY-BLOCK-1).
+                        #
+                        # Precedence: `home` → S2 (ACTIVE-home, home_ble_silent
+                        # or matrix-derived); `not_home`/named-zone → S3 (ACTIVE
+                        # -away with per-source reason); `unknown`/`unavailable`
+                        # /None → S5 LOST + `no_signal`, EXCLUDED from I-α.
+                        # NO-SIGNAL MUST NEVER PRODUCE AN AWAY VOTE (I-α).
+                        _ps_state = (person_state.state or "").lower()
+                        _sources = self._read_source_inventory(person_state)
+                        _ble_live = self._ble_fleet_live(now)
+                        # BLE axis = silent (bermuda area sensor is unresolved
+                        # this tick, so we've *tried* to see BLE and got
+                        # nothing) — liveness gate decides silent vs indeterminate.
+                        _stamp_row = self._classify_matrix_row(
+                            _ps_state, _sources, "silent", _ble_live,
+                        )
+                        if _ps_state == "home":
+                            # S2 case-(b): NEVER LOST. Force location=home even
+                            # if source-derivation was inconclusive (HA person
+                            # aggregation is our authority for "home"). Case-(b)
+                            # never-collapses-to-LOST pin (rev-3.5.1).
+                            _stamp_row["tracking_status"] = TRACKING_STATUS_ACTIVE
+                            _stamp_row["location"] = "home"
+                            if _stamp_row.get(ATTR_TRACKING_REASON) not in (
+                                # C-HIGH-2 (2026-08-16): removed the
+                                # `anomalous_wifi_gone_local_home` entry
+                                # from this whitelist — the value was
+                                # dead vocabulary (no emission site) and
+                                # is retired from TRACKING_REASON_VALUES.
+                                # Row 5 is intercepted by the Bermuda-
+                                # authoritative branch upstream and
+                                # never reaches this code with that
+                                # reason.
+                                "home_ble_silent",
+                                "anomalous_gps_lag_arrival",
+                                "anomalous_gps_stale_local_gone",
+                            ):
+                                _stamp_row[ATTR_TRACKING_REASON] = "home_ble_silent"
+                            if _stamp_row.get("confidence", 0.0) < 0.3:
+                                _stamp_row["confidence"] = 0.75
                             # v5.7.0 WS-A3: LOST-home is NOT path-β eligible —
-                            # clear any stale LOST-since stamp so the next
-                            # away transition starts a fresh grace window.
+                            # case-(b) is ACTIVE-home; clear grace stamps.
                             self._person_lost_since.pop(person_name, None)
-                            # v5.7.0 fix-up FIX-5: parallel clear.
                             self._lost_away_since.pop(person_name, None)
-                            person_data[person_name] = {
-                                "location": "home",
-                                "previous_location": new_previous_location,
-                                "previous_location_time": new_previous_location_time,
-                                "last_changed": person_state.last_changed,
-                                "last_bermuda_update": None,
-                                "tracking_status": TRACKING_STATUS_LOST,
-                                "confidence": 0.3,
-                                "method": "person_state",
-                                "recent_path": [],  # Clear path when tracking is lost
-                            }
-                        else:
-                            # v5.7.0 WS-A3: stamp LOST-since on first observed
-                            # away tick; preserve across subsequent ticks so
-                            # the WS-A3 grace timer measures real elapsed.
+                        elif _ps_state in ("unknown", "unavailable", "", "none"):
+                            # S5 row 16 — NO_SIGNAL fail-safe. LOST + no vote.
+                            # Preserves H3's correct half (no away vote from
+                            # zero evidence). MUST NOT be widened to include
+                            # confidently-away — that was the H3 over-reach.
+                            _stamp_row["tracking_status"] = TRACKING_STATUS_LOST
+                            _stamp_row["location"] = "unknown"
+                            _stamp_row[ATTR_TRACKING_REASON] = "no_signal"
+                            _stamp_row["confidence"] = 0.0
                             if person_name not in self._person_lost_since:
                                 self._person_lost_since[person_name] = now
-                            # v5.7.0 fix-up FIX-5: parallel stamp on WS-A map.
                             if person_name not in self._lost_away_since:
                                 self._lost_away_since[person_name] = now
-                            person_data[person_name] = {
-                                "location": "away",
-                                "previous_location": new_previous_location,
-                                "previous_location_time": new_previous_location_time,
-                                "last_changed": person_state.last_changed,
-                                "last_bermuda_update": None,
-                                "tracking_status": TRACKING_STATUS_LOST,
-                                "confidence": 0.9,
-                                "method": "person_state",
-                                "recent_path": [],  # Clear path when away
-                            }
-                            # v3.18.6: Mark person as away for BLE pre-arrival detection
+                            # DO NOT set _person_was_away — no away evidence.
+                        else:
+                            # S3 case-(a): ACTIVE + away with matrix-derived
+                            # tracking_reason. Formerly stamped LOST → AWAY-
+                            # BLOCK-1 root cause. Preserve `_person_was_away`.
+                            _stamp_row["tracking_status"] = TRACKING_STATUS_ACTIVE
+                            _stamp_row["location"] = "away"
+                            if _stamp_row.get(ATTR_TRACKING_REASON) == "no_signal":
+                                _stamp_row[ATTR_TRACKING_REASON] = "away_wifi_only"
+                                _stamp_row["confidence"] = 0.9
+                            if person_name not in self._person_lost_since:
+                                self._person_lost_since[person_name] = now
+                            if person_name not in self._lost_away_since:
+                                self._lost_away_since[person_name] = now
+                            # PRESERVE (Review M3, AUDIT §3 :385/:428): case-(a)
+                            # away must set _person_was_away so BLE pre-arrival
+                            # fires on the next home-visible tick.
                             self._person_was_away[person_name] = True
+
+                        person_data[person_name] = {
+                            "location": _stamp_row["location"],
+                            "previous_location": new_previous_location,
+                            "previous_location_time": new_previous_location_time,
+                            "last_changed": person_state.last_changed,
+                            "last_bermuda_update": None,
+                            "tracking_status": _stamp_row["tracking_status"],
+                            "confidence": _stamp_row["confidence"],
+                            "method": "person_state",
+                            "recent_path": [],
+                            ATTR_TRACKING_REASON: _stamp_row[ATTR_TRACKING_REASON],
+                            ATTR_TRACKER_SOURCES: _stamp_row[ATTR_TRACKER_SOURCES],
+                        }
                 else:
-                    # No Bermuda sensor - fall back to person entity state
-                    if person_state.state == "home":
-                        location = "home"
-                        confidence = 0.3  # Low confidence - no room-level tracking
-                    else:
-                        location = "away"
-                        confidence = 0.9  # High confidence for away state
+                    # PATH-ALPHA D2a rev-3.5.1: NO Bermuda sensor at all.
+                    # Same three-way split as the "Bermuda-but-no-room" branch
+                    # (rev-3.5.1 §3 :428 disposition). Prior code stamped LOST
+                    # for both home and away → identical H3 over-reach root
+                    # cause. Now: home→S2 row 10 (home_ble_silent), not_home/
+                    # named→S3 (per-source reason), unknown→S5 no_signal.
+                    _ps_state = (person_state.state or "").lower()
+                    _sources = self._read_source_inventory(person_state)
+                    _ble_live = self._ble_fleet_live(now)
+                    # BLE axis = MISSING (no Bermuda sensor configured at all).
+                    _stamp_row = self._classify_matrix_row(
+                        _ps_state, _sources, "MISSING", _ble_live,
+                    )
 
                     # v4.2.27: same preservation logic as the no-Bermuda-area branch above
                     old_previous_location = old_data.get("previous_location", "unknown")
@@ -408,31 +776,62 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                         new_previous_location = old_previous_location
                         new_previous_location_time = old_previous_location_time
 
-                    # v5.7.0 WS-A3: stamp LOST-since on away, clear on home.
-                    if location == "away":
+                    if _ps_state == "home":
+                        # S2 case-(b) row 10 — NEVER LOST (rev-3.5.1 pin).
+                        _stamp_row["tracking_status"] = TRACKING_STATUS_ACTIVE
+                        _stamp_row["location"] = "home"
+                        if _stamp_row.get(ATTR_TRACKING_REASON) not in (
+                            # C-HIGH-2 (2026-08-16): retired
+                            # `anomalous_wifi_gone_local_home` — dead
+                            # vocab, folded into Bermuda-authoritative
+                            # interception upstream.
+                            "home_ble_silent",
+                            "anomalous_gps_lag_arrival",
+                            "anomalous_gps_stale_local_gone",
+                        ):
+                            _stamp_row[ATTR_TRACKING_REASON] = "home_ble_silent"
+                        if _stamp_row.get("confidence", 0.0) < 0.3:
+                            _stamp_row["confidence"] = 0.75
+                        self._person_lost_since.pop(person_name, None)
+                        self._lost_away_since.pop(person_name, None)
+                    elif _ps_state in ("unknown", "unavailable", "", "none"):
+                        # S5 row 16 no_signal — no away vote (INVARIANT I-α).
+                        _stamp_row["tracking_status"] = TRACKING_STATUS_LOST
+                        _stamp_row["location"] = "unknown"
+                        _stamp_row[ATTR_TRACKING_REASON] = "no_signal"
+                        _stamp_row["confidence"] = 0.0
                         if person_name not in self._person_lost_since:
                             self._person_lost_since[person_name] = now
-                        # v5.7.0 fix-up FIX-5: parallel WS-A stamp.
                         if person_name not in self._lost_away_since:
                             self._lost_away_since[person_name] = now
+                        # DO NOT set _person_was_away.
                     else:
-                        self._person_lost_since.pop(person_name, None)
-                        # v5.7.0 fix-up FIX-5: parallel WS-A clear.
-                        self._lost_away_since.pop(person_name, None)
+                        # S3 case-(a) — ACTIVE-away with per-source reason.
+                        _stamp_row["tracking_status"] = TRACKING_STATUS_ACTIVE
+                        _stamp_row["location"] = "away"
+                        if _stamp_row.get(ATTR_TRACKING_REASON) == "no_signal":
+                            _stamp_row[ATTR_TRACKING_REASON] = "away_wifi_only"
+                            _stamp_row["confidence"] = 0.9
+                        if person_name not in self._person_lost_since:
+                            self._person_lost_since[person_name] = now
+                        if person_name not in self._lost_away_since:
+                            self._lost_away_since[person_name] = now
+                        # PRESERVE (Review M3): case-(a) away sets was_away.
+                        self._person_was_away[person_name] = True
+
                     person_data[person_name] = {
-                        "location": location,
+                        "location": _stamp_row["location"],
                         "previous_location": new_previous_location,
                         "previous_location_time": new_previous_location_time,
                         "last_changed": person_state.last_changed,
                         "last_bermuda_update": None,
-                        "tracking_status": TRACKING_STATUS_LOST,
-                        "confidence": confidence,
+                        "tracking_status": _stamp_row["tracking_status"],
+                        "confidence": _stamp_row["confidence"],
                         "method": "person_state",
                         "recent_path": [],
+                        ATTR_TRACKING_REASON: _stamp_row[ATTR_TRACKING_REASON],
+                        ATTR_TRACKER_SOURCES: _stamp_row[ATTR_TRACKER_SOURCES],
                     }
-                    # v3.18.6: Track away state for BLE pre-arrival detection
-                    if location == "away":
-                        self._person_was_away[person_name] = True
 
             # D7: Periodic person snapshot logging (~every 15 minutes)
             db = self.hass.data.get(DOMAIN, {}).get("database")
